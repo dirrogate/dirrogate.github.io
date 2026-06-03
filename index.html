@@ -3,158 +3,188 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Strudel Voice + Manual Hybrid Terminal</title>
-    <script src="https://unpkg.com/@strudel/web@1.0.3"></script>
+    <title>Strudel Spatial-Voice Live Engine</title>
+    <script src="https://cdn.jsdelivr.net/npm/@strudel/web@1.3.0/dist/index.min.js"></script>
     <style>
-        body { background-color: #0c0c12; color: #00ffcc; font-family: 'Courier New', monospace; padding: 20px; }
-        .container { max-width: 950px; margin: 0 auto; }
-        h1 { text-shadow: 0 0 10px #00ffcc; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
-        .grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
-        .panel { background: #13131f; border: 1px solid #2a2a40; border-radius: 6px; padding: 20px; }
-        button { background: #00ffcc; color: #0c0c12; border: none; padding: 12px 20px; font-weight: bold; cursor: pointer; border-radius: 4px; font-size: 14px; }
-        button:hover { background: #fff; box-shadow: 0 0 10px #fff; }
-        .btn-run { background: #ff007f; color: white; margin-top: 10px; width: 100%; font-size: 16px; }
-        .status { font-weight: bold; color: #ff3366; }
-        .listening { color: #00ff66; text-shadow: 0 0 5px #00ff66; }
+        body { background-color: #08080c; color: #00ffcc; font-family: 'Courier New', monospace; padding: 20px; margin: 0; }
+        .wrapper { max-width: 900px; margin: 0 auto; }
+        h1 { text-shadow: 0 0 8px #00ffcc; border-bottom: 2px solid #222; padding-bottom: 10px; }
+        .panel { background: #11111a; border: 1px solid #222; border-radius: 8px; padding: 20px; margin-bottom: 15px; }
+        button { background: #00ffcc; color: #08080c; border: none; padding: 14px 28px; font-weight: bold; cursor: pointer; border-radius: 4px; font-size: 15px; }
+        button:hover { background: #fff; box-shadow: 0 0 12px #fff; }
+        .btn-eval { background: #ff007f; color: #fff; width: 100%; margin-top: 10px; font-size: 16px; }
+        .status-pill { font-weight: bold; padding: 4px 8px; border-radius: 4px; background: #222; }
+        .active { color: #00ff66; text-shadow: 0 0 5px #00ff66; }
         textarea { 
-            width: 100%; height: 250px; background: #07070a; color: #fff; 
+            width: 100%; height: 220px; background: #040406; color: #fff; 
             border: 1px solid #ff007f; border-radius: 4px; padding: 15px; 
-            font-family: 'Courier New', monospace; font-size: 16px; box-sizing: border-box; resize: vertical;
+            font-family: 'Courier New', monospace; font-size: 16px; box-sizing: border-box;
         }
-        .log { color: #888; font-style: italic; margin-top: 5px; }
+        .error-log { background: #2a0813; color: #ff3366; border-left: 4px solid #ff3366; padding: 10px; font-size: 14px; margin-top: 10px; display: none; }
+        .console-msg { color: #888; font-style: italic; margin-top: 5px; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h1>Strudel Voice + Manual Hybrid Terminal</h1>
+<div class="wrapper">
+    <h1>Strudel Spatial-Voice Console</h1>
     
-    <div class="grid">
-        <!-- System Control Panel -->
-        <div class="panel">
-            <button id="startBtn">⚡ START VOICE ENGINE</button>
-            <p>System State: <span id="micStatus" class="status">OFFLINE</span></p>
-            <p id="transcript" class="log">Heard: Waiting for audio initialization...</p>
-        </div>
+    <div class="panel">
+        <button id="bootEngineBtn">⚡ BOOT AUDIO & VOICE ENGINE</button>
+        <p style="margin-top: 15px;">
+            Audio Status: <span id="audioStatus" class="status-pill">OFFLINE</span> | 
+            Mic Status: <span id="micStatus" class="status-pill">STANDBY</span>
+        </p>
+        <p id="voiceTranscript" class="console-msg">Voice Listening Stream: Waiting for engine boot...</p>
+    </div>
 
-        <!-- Live Code REPL Field -->
-        <div class="panel">
-            <h3>Interactive Live-Code Stream</h3>
-            <p class="log">// Edit manually with VR keyboard or use voice commands to auto-generate:</p>
-            <textarea id="codeConsole">hush()</textarea>
-            <button id="runManualBtn" class="btn-run">▶ EVALUATE / UPDATE AUDIO (Ctrl+Enter)</button>
-        </div>
+    <div class="panel">
+        <h3>Live Script Editor</h3>
+        <textarea id="codeEditor">s("bd sd").play()</textarea>
+        <button id="executeBtn" class="btn-eval">▶ RUN CODE (Ctrl + Enter)</button>
+        
+        <div id="errorConsole" class="error-log"></div>
     </div>
 </div>
 
 <script>
-    let state = { bpm: 125, drums: '', bass: '' };
-    let isEngineActive = false;
-    let recognition;
+    let isEngineRunning = false;
+    let speechEngine;
+    const errorConsole = document.getElementById('errorConsole');
 
-    // Load sample assets
-    initStrudel({ prebake: () => samples('github:tidalcycles/dirt-samples') });
-
-    // Handle Manual Runtime Evaluation
-    const codeConsole = document.getElementById('codeConsole');
-    const runManualBtn = document.getElementById('runManualBtn');
-
-    function executeCurrentConsoleCode() {
-        const structuralCode = codeConsole.value;
-        evaluate(structuralCode);
+    // Visual Logger to trap hidden background execution errors
+    function logError(msg) {
+        if (msg) {
+            errorConsole.innerText = `Runtime Error: ${msg}`;
+            errorConsole.style.display = 'block';
+        } else {
+            errorConsole.style.display = 'none';
+        }
     }
 
-    runManualBtn.addEventListener('click', executeCurrentConsoleCode);
-    
-    // Support keyboard shortcut (Ctrl + Enter) inside virtual keyboard environments
-    codeConsole.addEventListener('keydown', (e) => {
-        if (e.ctrlKey && e.key === 'Enter') {
-            e.preventDefault();
-            executeCurrentConsoleCode();
+    // Intercept unhandled global scripts breaks
+    window.onerror = function(message) {
+        logError(message);
+        return false;
+    };
+
+    // Main Engine Ignition Handler
+    document.getElementById('bootEngineBtn').addEventListener('click', async () => {
+        if (isEngineRunning) return;
+        
+        try {
+            logError(null); // Reset layout error logs
+            
+            // Core Initialization triggered explicitly inside user gesture context
+            initStrudel();
+            
+            // Run a quick silent reset to unlock the Web Audio API context completely
+            hush(); 
+            
+            document.getElementById('audioStatus').innerText = "ONLINE";
+            document.getElementById('audioStatus').classList.add('active');
+            
+            bootVoiceRecognition();
+            isEngineRunning = true;
+            
+            // Evaluate current placeholder to confirm immediate playback functionality
+            runActiveCode();
+        } catch (err) {
+            logError(`Initialization Blocked: ${err.message}`);
         }
     });
 
-    // Handle Voice Engine Initialization
-    document.getElementById('startBtn').addEventListener('click', () => {
-        if (isEngineActive) return;
-        hush();
-        isEngineActive = true;
-        document.getElementById('micStatus').innerText = "LISTENING (ACTIVE)";
-        document.getElementById('micStatus').className = "status listening";
-        initVoiceRecognition();
+    // Code Compiler Execution Routine
+    function runActiveCode() {
+        try {
+            logError(null);
+            const rawInputCode = document.getElementById('codeEditor').value;
+            
+            // Send text data straight into the Strudel core interpreter
+            evaluate(rawInputCode);
+        } catch (err) {
+            logError(err.message);
+        }
+    }
+
+    document.getElementById('executeBtn').addEventListener('click', runActiveCode);
+
+    // Bind system keyboard evaluate combination commands
+    document.getElementById('codeEditor').addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 'Enter') {
+            e.preventDefault();
+            runActiveCode();
+        }
     });
 
-    function initVoiceRecognition() {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            alert("Web Speech API not supported by this browser interface.");
+    // Voice Processing Infrastructure Setup
+    function bootVoiceRecognition() {
+        const SpeechLibrary = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechLibrary) {
+            logError("Web Speech Interface is missing/disabled on this browser platform.");
             return;
         }
 
-        recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = false;
-        recognition.lang = 'en-US';
+        speechEngine = new SpeechLibrary();
+        speechEngine.continuous = true;
+        speechEngine.interimResults = false;
+        speechEngine.lang = 'en-US';
 
-        recognition.onresult = (event) => {
-            const speechResult = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
-            document.getElementById('transcript').innerText = `Heard: "${speechResult}"`;
-            processCommand(speechResult);
+        speechEngine.onstart = () => {
+            document.getElementById('micStatus').innerText = "LISTENING";
+            document.getElementById('micStatus').classList.add('active');
+            document.getElementById('voiceTranscript').innerText = "Voice Listening Stream: Active. Speak a performance command...";
         };
 
-        recognition.onend = () => { if (isEngineActive) recognition.start(); };
-        recognition.start();
+        speechEngine.onerror = (event) => {
+            logError(`Microphone Exception Event: ${event.error}`);
+        };
+
+        speechEngine.onend = () => {
+            // Keep listening engine persistent if headset drops priority layer briefly
+            if (isEngineRunning) speechEngine.start();
+        };
+
+        speechEngine.onresult = (event) => {
+            const speechString = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
+            document.getElementById('voiceTranscript').innerText = `Voice Listening Stream: Heard "${speechString}"`;
+            interpretVoiceMacros(speechString);
+        };
+
+        speechEngine.start();
     }
 
-    // Command Processor
-    function processCommand(text) {
-        let stateChanged = false;
+    // High Level NLP Parser Matrix
+    function interpretVoiceMacros(phrase) {
+        const editor = document.getElementById('codeEditor');
+        let processed = false;
 
-        if (text.includes('techno beat') || text.includes('floor') || text.includes('beat')) {
-            let bpmMatch = text.match(/(\d+)\s*bpm/);
-            if (bpmMatch) { state.bpm = parseInt(bpmMatch[1]); }
-            state.drums = `s("bd*4, [~ oh]*4")`;
-            stateChanged = true;
+        // Command Case 1: 125 bpm 4 to the floor techno beat
+        if (phrase.includes('techno beat') || phrase.includes('floor') || phrase.includes('beat')) {
+            let tempo = 125;
+            let grabBpm = phrase.match(/(\d+)\s*bpm/);
+            if (grabBpm) { tempo = parseInt(grabBpm[1]); }
+            
+            editor.value = `setcps(${tempo}/60/4);\n\nstack(\n  s("bd*4, [~ oh]*4")\n).play()`;
+            processed = true;
         }
 
-        if (text.includes('run an acid') || text.includes('add acid') || text.includes('acid bassline')) {
-            state.bass = `note("<c2 c3 eb2 bb2>*2").s("sawtooth").lpf(900).lpq(5)`;
-            stateChanged = true;
+        // Command Case 2: Run an acid bassline
+        if (phrase.includes('run an acid') || phrase.includes('add acid') || phrase.includes('acid bassline')) {
+            editor.value = `setcps(125/60/4);\n\nstack(\n  s("bd*4, [~ oh]*4"),\n  note("<c2 c3 eb2 bb2>*2").s("sawtooth").lpf(900).lpq(5)\n).play()`;
+            processed = true;
         }
 
-        if (text.includes('remove') && text.includes('acid')) {
-            state.bass = '';
-            stateChanged = true;
+        // Command Case 3: Clear/Hush
+        if (phrase.includes('remove') || phrase.includes('stop') || phrase.includes('hush') || phrase.includes('clear')) {
+            editor.value = `hush()`;
+            processed = true;
         }
 
-        if (text.includes('stop') || text.includes('hush') || text.includes('clear everything')) {
-            state.drums = '';
-            state.bass = '';
-            stateChanged = true;
+        // Programmatically tap compilation handler if voice updated text criteria
+        if (processed) {
+            runActiveCode();
         }
-
-        if (stateChanged) {
-            compileToConsole();
-        }
-    }
-
-    // Merges structural blocks back into the text panel and triggers compiler
-    function compileToConsole() {
-        let code = `setcps(${state.bpm}/60/4);\n\n`;
-        let layers = [];
-
-        if (state.drums) layers.push(`  ${state.drums}`);
-        if (state.bass) layers.push(`  ${state.bass}`);
-
-        if (layers.length > 0) {
-            code += `stack(\n${layers.join(',\n')}\n).gain(0.8);`;
-        } else {
-            code = `hush();`;
-        }
-
-        // Push code string directly into the text element so user can see/edit it
-        codeConsole.value = code;
-        evaluate(code);
     }
 </script>
 
