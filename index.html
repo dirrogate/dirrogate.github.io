@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Strudel Spatial Additive Console (Fixed Focus)</title>
+    <title>Strudel Spatial Core (Fixed Appending)</title>
     <script src="https://unpkg.com/@strudel/web"></script>
     <style>
         body { background-color: #08080c; color: #00ffcc; font-family: 'Courier New', monospace; padding: 20px; margin: 0; }
@@ -30,8 +30,6 @@
         .btn-eval { background: #ff007f; color: #fff; border: none; padding: 16px 28px; font-weight: bold; cursor: pointer; border-radius: 4px; width: 100%; font-size: 16px; text-shadow: 0 0 5px #fff; }
         .btn-eval:hover { background: #fff; color: #000; }
         
-        .status-pill { font-weight: bold; padding: 4px 8px; border-radius: 4px; background: #222; color: #aaa; }
-        .active { color: #00ff66; text-shadow: 0 0 5px #00ff66; background: #0b2b14; }
         .error-log { background: #2a0813; color: #ff3366; border-left: 4px solid #ff3366; padding: 12px; font-size: 14px; font-weight: bold; }
         
         .fader-section-title { color: #ff007f; border-bottom: 1px solid #222; padding-bottom: 8px; margin-top: 0; font-size: 18px; text-shadow: 0 0 5px #ff007f; }
@@ -58,8 +56,8 @@
     <div class="editor-side">
         <h1>Strudel Spatial Core Matrix</h1>
         
-        <input type="text" id="vrVoiceInput" class="vr-voice-bar" placeholder="🎙️ Tap here -> Use Quest Keyboard Mic to speak macros...">
-        <p class="hint-text">Commands: "techno beat", "add acid", "add slider here", "add pianoroll here", "change bpm to 140", "stop"</p>
+        <input type="text" id="vrVoiceInput" class="vr-voice-bar" placeholder="🎙️ Speak macros here...">
+        <p class="hint-text">Try: "techno beat", "add acid", "add slider here", "change bpm to 135", "stop"</p>
         
         <textarea id="codeEditor">setcps(125/60/4);
 
@@ -93,14 +91,18 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
     let isAudioUnlocked = false;
     let sliderCount = 0;
     let lastProcessedText = "";
+    let hasTriggeredThisSession = false; // Prevents streaming voice input from multi-firing
 
-    // Track cursor location actively without loss of contextual state
+    // Cursor Memory Allocation
     let cachedCursorStart = editor.value.length;
     let cachedCursorEnd = editor.value.length;
 
     function saveCursorPosition() {
-        cachedCursorStart = editor.selectionStart;
-        cachedCursorEnd = editor.selectionEnd;
+        // Only cache if the user has selected a valid specific spot or region
+        if (editor.selectionStart !== 0 || editor.selectionEnd !== editor.value.length) {
+            cachedCursorStart = editor.selectionStart;
+            cachedCursorEnd = editor.selectionEnd;
+        }
     }
 
     editor.addEventListener('click', saveCursorPosition);
@@ -153,21 +155,27 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
         updateBPMInText(targetBpm, true); 
     });
 
-    // FIXED: Focus theft completely extracted
-    function injectSnippet(snippet) {
-        const startPos = cachedCursorStart;
-        const endPos = cachedCursorEnd;
+    // SOLIDIFIED INJECTION ROUTINE
+    function injectSnippet(snippet, forceAppend = false) {
         const originalContent = editor.value;
 
-        if (startPos === undefined || startPos === null || originalContent === "") {
-            editor.value = originalContent + "\n\n" + snippet;
+        // Route Global Layers straight to a forced append operation to prevent overwrites
+        if (forceAppend || cachedCursorStart === undefined || cachedCursorStart === null) {
+            editor.value = originalContent.trimEnd() + "\n" + snippet;
             cachedCursorStart = cachedCursorEnd = editor.value.length;
-        } else {
-            editor.value = originalContent.substring(0, startPos) + snippet + originalContent.substring(endPos);
-            // Move our internal cached markers forward past the modification
-            cachedCursorStart = cachedCursorEnd = startPos + snippet.length;
+            return;
         }
-        // DO NOT call editor.focus() here anymore. Leave attention on the VR Input Bar.
+
+        // Contextual Guard: Prevents accidental overwrites if field focus highlighted all text
+        if (cachedCursorStart === 0 && cachedCursorEnd === originalContent.length) {
+            editor.value = originalContent.trimEnd() + "\n" + snippet;
+            cachedCursorStart = cachedCursorEnd = editor.value.length;
+            return;
+        }
+
+        // Localized Insertion
+        editor.value = originalContent.substring(0, cachedCursorStart) + snippet + originalContent.substring(cachedCursorEnd);
+        cachedCursorStart = cachedCursorEnd = cachedCursorStart + snippet.length;
     }
 
     function removePianoRollNearCursor() {
@@ -217,11 +225,17 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
         });
     }
 
-    // OS DICTATION PARSER HOOK
+    // VOICE INTERCEPT DECK
     vrVoiceInput.addEventListener('input', (event) => {
         unlockAudioEngine();
         const rawText = event.target.value.trim();
-        if (rawText === lastProcessedText || rawText.length < 3) return;
+        
+        if (rawText.length < 3) {
+            hasTriggeredThisSession = false; 
+            return;
+        }
+        
+        if (hasTriggeredThisSession) return; // Drop stream spam processing
 
         let containsValidAction = false;
         const sentences = rawText.toLowerCase().split(/[.,]+/);
@@ -230,22 +244,22 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
             let tr = phrase.trim();
             if (!tr) return;
 
-            if (tr.includes('techno beat') || tr.includes('beat')) {
-                injectSnippet(`\ns("bd*4, [~ oh]*4").gain(0.8).play();\n`);
+            if (tr.includes('techno') || tr.includes('beat')) {
+                injectSnippet(`s("bd*4, [~ oh]*4").gain(0.8).play();`, true); // Strict Append Mode
                 containsValidAction = true;
             }
             else if (tr.includes('acid')) {
-                injectSnippet(`\nnote("<c2 c3 eb2 bb2>*2").s("sawtooth").lpf(900).lpq(5).play();\n`);
+                injectSnippet(`note("<c2 c3 eb2 bb2>*2").s("sawtooth").lpf(900).lpq(5).play();`, true); // Strict Append Mode
                 containsValidAction = true;
             }
             else if (tr.includes('add slider') || tr.includes('insert slider')) {
                 sliderCount++;
-                injectSnippet(`window.fader_${sliderCount}`);
+                injectSnippet(`window.fader_${sliderCount}`, false); // Contextual Mode
                 generateDynamicVRSlider(sliderCount);
                 containsValidAction = true;
             }
             else if (tr.includes('add pianoroll') || tr.includes('add piano roll')) {
-                injectSnippet(`.pianoroll()`);
+                injectSnippet(`.pianoroll()`, false); // Contextual Mode
                 containsValidAction = true;
             }
             else if (tr.includes('remove pianoroll') || tr.includes('remove piano roll')) {
@@ -260,20 +274,19 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
                 }
             }
             else if (tr.includes('stop') || tr.includes('hush') || tr.includes('clear')) {
-                injectSnippet(`\nhush();\n`);
+                injectSnippet(`hush();`, true); // Strict Append Mode
                 containsValidAction = true;
             }
         });
 
         if (containsValidAction) {
-            lastProcessedText = rawText;
+            hasTriggeredThisSession = true; 
             runActiveCode();
             
-            // Clear out input gate text after a short confirmation pause
             setTimeout(() => {
                 vrVoiceInput.value = "";
-                lastProcessedText = "";
-            }, 1000);
+                hasTriggeredThisSession = false; 
+            }, 1100);
         }
     });
 </script>
