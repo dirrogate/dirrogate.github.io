@@ -3,26 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Strudel Spatial-Voice Live Engine</title>
+    <title>Strudel Spatial-Voice Console (Push-to-Talk)</title>
     <script src="https://unpkg.com/@strudel/web"></script>
     <style>
         body { background-color: #08080c; color: #00ffcc; font-family: 'Courier New', monospace; padding: 20px; margin: 0; }
         .wrapper { max-width: 900px; margin: 0 auto; }
         h1 { text-shadow: 0 0 8px #00ffcc; border-bottom: 2px solid #222; padding-bottom: 10px; }
         .panel { background: #11111a; border: 1px solid #222; border-radius: 8px; padding: 20px; margin-bottom: 15px; }
-        button { background: #00ffcc; color: #08080c; border: none; padding: 14px 28px; font-weight: bold; cursor: pointer; border-radius: 4px; font-size: 15px; }
-        button:hover { background: #fff; box-shadow: 0 0 12px #fff; }
-        .btn-eval { background: #ff007f; color: #fff; width: 100%; margin-top: 10px; font-size: 16px; }
+        
+        /* Dynamic Button States */
+        .ptt-btn { 
+            background: #222; color: #00ffcc; border: 2px solid #00ffcc; 
+            padding: 16px 32px; font-weight: bold; cursor: pointer; border-radius: 6px; 
+            font-size: 16px; transition: all 0.2s ease; width: 100%; display: block;
+        }
+        .ptt-btn:hover { background: #1a3a33; box-shadow: 0 0 10px #00ffcc; }
+        .ptt-btn.recording { 
+            background: #ff0055 !important; color: #fff !important; border-color: #ff0055 !important;
+            animation: pulse 1.5s infinite; box-shadow: 0 0 15px #ff0055;
+        }
+        
+        .btn-eval { background: #ff007f; color: #fff; border: none; padding: 14px 28px; font-weight: bold; cursor: pointer; border-radius: 4px; width: 100%; margin-top: 10px; font-size: 16px; }
         .status-pill { font-weight: bold; padding: 4px 8px; border-radius: 4px; background: #222; color: #aaa; }
         .active { color: #00ff66; text-shadow: 0 0 5px #00ff66; background: #0b2b14; }
-        .alert { color: #ff3366; text-shadow: 0 0 5px #ff3366; background: #3a0813; }
+        
         textarea { 
             width: 100%; height: 220px; background: #040406; color: #fff; 
             border: 1px solid #ff007f; border-radius: 4px; padding: 15px; 
             font-family: 'Courier New', monospace; font-size: 16px; box-sizing: border-box;
         }
         .error-log { background: #2a0813; color: #ff3366; border-left: 4px solid #ff3366; padding: 10px; font-size: 14px; margin-top: 10px; }
-        .console-msg { color: #aaa; font-style: italic; margin-top: 5px; }
+        .console-msg { color: #aaa; font-style: italic; margin-top: 10px; font-size: 14px; }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.8; }
+            100% { opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -31,12 +48,11 @@
     <h1>Strudel Spatial-Voice Console</h1>
     
     <div class="panel">
-        <button id="bootEngineBtn">⚡ BOOT AUDIO & VOICE ENGINE</button>
-        <p style="margin-top: 15px;">
-            Audio Status: <span id="audioStatus" class="status-pill">OFFLINE</span> | 
-            Mic Status: <span id="micStatus" class="status-pill">STANDBY</span>
+        <button id="talkBtn" class="ptt-btn">🎙️ TAP TO TALK</button>
+        <p style="margin-top: 15px; font-size: 13px;">
+            Audio Context: <span id="audioStatus" class="status-pill">OFFLINE</span>
         </p>
-        <p id="voiceTranscript" class="console-msg">System Log: Waiting for user activation...</p>
+        <p id="voiceTranscript" class="console-msg">System Log: Tap button above, grant mic access, then speak.</p>
     </div>
 
     <div class="panel">
@@ -49,16 +65,18 @@
 </div>
 
 <script>
-    // Initialize Strudel immediately on page load
+    // Build compiler lexicon strings onto global window layout instantly
     try {
         initStrudel({ prebake: () => samples('github:tidalcycles/dirt-samples') });
     } catch (e) {
         showError("Pre-boot warning: " + e.message);
     }
 
-    let isEngineRunning = false;
+    let isListening = false;
+    let isAudioContextUnlocked = false;
     let speechEngine;
     const errorConsole = document.getElementById('errorConsole');
+    const talkBtn = document.getElementById('talkBtn');
 
     function showError(msg) {
         if (msg) {
@@ -69,36 +87,80 @@
         }
     }
 
-    // Main Ignition Trigger
-    document.getElementById('bootEngineBtn').addEventListener('click', () => {
-        if (isEngineRunning) return;
+    // Toggle Voice Recognition Layer
+    talkBtn.addEventListener('click', () => {
         showError(null);
-        
-        try {
-            // Force Audio Status to active immediately
+
+        // One-time unlock for Strudel audio pipeline on first user interaction
+        if (!isAudioContextUnlocked) {
             const audioPill = document.getElementById('audioStatus');
             audioPill.innerText = "ONLINE";
             audioPill.className = "status-pill active";
-            
-            // Instantly notify user to look for browser mic permission prompt
-            const micPill = document.getElementById('micStatus');
-            micPill.innerText = "🔴 check browser permission popup";
-            micPill.className = "status-pill alert";
-            
-            document.getElementById('voiceTranscript').innerText = "System Log: Requesting microphone hardware link...";
-            
-            // Boot the speech recognition loop
-            bootVoiceRecognition();
-            isEngineRunning = true;
-            
-            // Fire current text code block to unlock the audio stream
-            runActiveCode();
-        } catch (err) {
-            showError(`Ignition failed: ${err.message}`);
+            isAudioContextUnlocked = true;
+            runActiveCode(); 
+        }
+
+        if (!isListening) {
+            startVoiceEngine();
+        } else {
+            stopVoiceEngine();
         }
     });
 
-    // Pure Manual Evaluation Routine
+    function startVoiceEngine() {
+        const SpeechLibrary = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechLibrary) {
+            showError("Web Speech API is unsupported on this browser profile.");
+            return;
+        }
+
+        speechEngine = new SpeechLibrary();
+        speechEngine.continuous = false; // Automatically shut down as soon as speaker finishes phrase
+        speechEngine.interimResults = false;
+        speechEngine.lang = 'en-US';
+
+        speechEngine.onstart = () => {
+            isListening = true;
+            talkBtn.innerText = "🛑 LISTENING... (SPEAK NOW)";
+            talkBtn.classList.add('recording');
+            document.getElementById('voiceTranscript').innerText = "System Log: Mic capture active. Speak phrase now...";
+        };
+
+        speechEngine.onerror = (event) => {
+            if (event.error !== 'no-speech') {
+                showError(`Microphone Error: ${event.error}`);
+            }
+            stopVoiceEngine();
+        };
+
+        speechEngine.onend = () => {
+            stopVoiceEngine();
+        };
+
+        speechEngine.onresult = (event) => {
+            const speechString = event.results[0][0].transcript.toLowerCase().trim();
+            document.getElementById('voiceTranscript').innerText = `Heard phrase: "${speechString}"`;
+            interpretVoiceMacros(speechString);
+        };
+
+        try {
+            speechEngine.start();
+        } catch (e) {
+            console.error(e);
+            stopVoiceEngine();
+        }
+    }
+
+    function stopVoiceEngine() {
+        isListening = false;
+        talkBtn.innerText = "🎙️ TAP TO TALK";
+        talkBtn.classList.remove('recording');
+        if (speechEngine) {
+            try { speechEngine.stop(); } catch(e) {}
+        }
+    }
+
+    // Pure Code Evaluation Routine
     function runActiveCode() {
         showError(null);
         const rawInputCode = document.getElementById('codeEditor').value;
@@ -107,8 +169,6 @@
                 evaluate(rawInputCode);
             } else if (typeof window.evaluate === 'function') {
                 window.evaluate(rawInputCode);
-            } else {
-                showError("Strudel engine is still registering syntax variables. Wait 2 seconds and try again.");
             }
         } catch (err) {
             showError(`Execution Error: ${err.message}`);
@@ -124,51 +184,7 @@
         }
     });
 
-    // Voice Processing Core
-    function bootVoiceRecognition() {
-        const SpeechLibrary = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechLibrary) {
-            showError("Web Speech API is completely disabled or unsupported on this specific browser version.");
-            return;
-        }
-
-        speechEngine = new SpeechLibrary();
-        speechEngine.continuous = true;
-        speechEngine.interimResults = false;
-        speechEngine.lang = 'en-US';
-
-        speechEngine.onstart = () => {
-            const micPill = document.getElementById('micStatus');
-            micPill.innerText = "LISTENING (MIC ACTIVE)";
-            micPill.className = "status-pill active";
-            document.getElementById('voiceTranscript').innerText = "System Log: Mic connected. Ready for commands ('techno beat', 'add acid', 'stop').";
-        };
-
-        speechEngine.onerror = (event) => {
-            showError(`Microphone Error Code: ${event.error}`);
-            if (event.error === 'not-allowed') {
-                document.getElementById('micStatus').innerText = "BLOCKED BY BROWSER";
-                document.getElementById('micStatus').className = "status-pill alert";
-            }
-        };
-
-        speechEngine.onend = () => {
-            // Restart system if browser attempts a sleep cycle drop
-            if (isEngineRunning) {
-                try { speechEngine.start(); } catch(e) {}
-            }
-        };
-
-        speechEngine.onresult = (event) => {
-            const speechString = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
-            document.getElementById('voiceTranscript').innerText = `Heard phrase: "${speechString}"`;
-            interpretVoiceMacros(speechString);
-        };
-
-        speechEngine.start();
-    }
-
-    // Macro Parser Matcher
+    // Macro Parser Translation
     function interpretVoiceMacros(phrase) {
         const editor = document.getElementById('codeEditor');
         let processed = false;
