@@ -3,213 +3,176 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Strudel Spatial-Voice Console (Push-to-Talk)</title>
+    <title>Strudel VR Spatial-Voice Console</title>
     <script src="https://unpkg.com/@strudel/web"></script>
     <style>
         body { background-color: #08080c; color: #00ffcc; font-family: 'Courier New', monospace; padding: 20px; margin: 0; }
         .wrapper { max-width: 900px; margin: 0 auto; }
-        h1 { text-shadow: 0 0 8px #00ffcc; border-bottom: 2px solid #222; padding-bottom: 10px; }
+        h1 { text-shadow: 0 0 8px #00ffcc; border-bottom: 2px solid #222; padding-bottom: 10px; font-size: 22px; }
         .panel { background: #11111a; border: 1px solid #222; border-radius: 8px; padding: 20px; margin-bottom: 15px; }
         
-        /* Dynamic Button States */
-        .ptt-btn { 
-            background: #222; color: #00ffcc; border: 2px solid #00ffcc; 
-            padding: 16px 32px; font-weight: bold; cursor: pointer; border-radius: 6px; 
-            font-size: 16px; transition: all 0.2s ease; width: 100%; display: block;
+        /* VR Target Input Bar */
+        .vr-voice-bar {
+            width: 100%; padding: 16px; background: #1a1a26; color: #fff;
+            border: 2px solid #00ffcc; border-radius: 6px; font-size: 16px;
+            font-family: 'Courier New', monospace; box-sizing: border-box;
+            margin-bottom: 10px; text-shadow: 0 0 5px #fff;
         }
-        .ptt-btn:hover { background: #1a3a33; box-shadow: 0 0 10px #00ffcc; }
-        .ptt-btn.recording { 
-            background: #ff0055 !important; color: #fff !important; border-color: #ff0055 !important;
-            animation: pulse 1.5s infinite; box-shadow: 0 0 15px #ff0055;
-        }
+        .vr-voice-bar:focus { border-color: #ff007f; outline: none; box-shadow: 0 0 10px #ff007f; }
         
         .btn-eval { background: #ff007f; color: #fff; border: none; padding: 14px 28px; font-weight: bold; cursor: pointer; border-radius: 4px; width: 100%; margin-top: 10px; font-size: 16px; }
         .status-pill { font-weight: bold; padding: 4px 8px; border-radius: 4px; background: #222; color: #aaa; }
         .active { color: #00ff66; text-shadow: 0 0 5px #00ff66; background: #0b2b14; }
         
         textarea { 
-            width: 100%; height: 220px; background: #040406; color: #fff; 
-            border: 1px solid #ff007f; border-radius: 4px; padding: 15px; 
-            font-family: 'Courier New', monospace; font-size: 16px; box-sizing: border-box;
+            width: 100%; height: 240px; background: #040406; color: #fff; 
+            border: 1px solid #222; border-radius: 4px; padding: 15px; 
+            font-family: 'Courier New', monospace; font-size: 16px; box-sizing: border-box; line-height: 1.5;
         }
-        .error-log { background: #2a0813; color: #ff3366; border-left: 4px solid #ff3366; padding: 10px; font-size: 14px; margin-top: 10px; }
-        .console-msg { color: #aaa; font-style: italic; margin-top: 10px; font-size: 14px; }
-        
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.8; }
-            100% { opacity: 1; }
-        }
+        .error-log { background: #2a0813; color: #ff3366; border-left: 4px solid #ff3366; padding: 12px; font-size: 14px; margin-top: 10px; }
+        .hint-text { color: #888; font-size: 13px; margin: 5px 0 0 0; font-style: italic; }
     </style>
 </head>
 <body>
 
 <div class="wrapper">
-    <h1>Strudel Spatial-Voice Console</h1>
+    <h1>Strudel VR Spatial Console</h1>
     
     <div class="panel">
-        <button id="talkBtn" class="ptt-btn">🎙️ TAP TO TALK</button>
-        <p style="margin-top: 15px; font-size: 13px;">
-            Audio Context: <span id="audioStatus" class="status-pill">OFFLINE</span>
+        <h3>🎙️ OS Voice Input Channel</h3>
+        <input type="text" id="vrVoiceInput" class="vr-voice-bar" placeholder="Tap here -> trigger Quest Keyboard Mic -> Speak...">
+        <p class="hint-text">Try speaking multiple commands: "Techno beat. Add acid. Stop."</p>
+        <p style="margin-top: 15px; font-size: 13px; margin-bottom: 0;">
+            Audio Engine: <span id="audioStatus" class="status-pill">OFFLINE (TAP TO ACTIVATE)</span>
         </p>
-        <p id="voiceTranscript" class="console-msg">System Log: Tap button above, grant mic access, then speak.</p>
     </div>
 
     <div class="panel">
-        <h3>Live Script Editor</h3>
+        <h3>Live Workspace Matrix</h3>
         <textarea id="codeEditor">s("bd sd").play()</textarea>
-        <button id="executeBtn" class="btn-eval">▶ RUN CODE (Ctrl + Enter)</button>
+        <button id="executeBtn" class="btn-eval">▶ RUN WORKSPACE CODE</button>
         
         <div id="errorConsole" class="error-log" style="display: none;"></div>
     </div>
 </div>
 
 <script>
-    // Build compiler lexicon strings onto global window layout instantly
-    try {
-        initStrudel({ prebake: () => samples('github:tidalcycles/dirt-samples') });
-    } catch (e) {
-        showError("Pre-boot warning: " + e.message);
-    }
-
-    let isListening = false;
-    let isAudioContextUnlocked = false;
-    let speechEngine;
     const errorConsole = document.getElementById('errorConsole');
-    const talkBtn = document.getElementById('talkBtn');
+    const vrVoiceInput = document.getElementById('vrVoiceInput');
+    const editor = document.getElementById('codeEditor');
 
     function showError(msg) {
         if (msg) {
-            errorConsole.innerText = `System Notification: ${msg}`;
+            errorConsole.innerText = `[System Alert] ${msg}`;
             errorConsole.style.display = 'block';
         } else {
             errorConsole.style.display = 'none';
         }
     }
 
-    // Toggle Voice Recognition Layer
-    talkBtn.addEventListener('click', () => {
-        showError(null);
+    // Initialize Strudel Lexicon Context
+    try {
+        initStrudel({ prebake: () => samples('github:tidalcycles/dirt-samples') });
+    } catch (e) {
+        showError("Initialization Warning: " + e.message);
+    }
 
-        // One-time unlock for Strudel audio pipeline on first user interaction
-        if (!isAudioContextUnlocked) {
+    let isAudioUnlocked = false;
+
+    // Wake engine up on first manual interaction
+    function unlockAudioEngine() {
+        if (!isAudioUnlocked) {
             const audioPill = document.getElementById('audioStatus');
             audioPill.innerText = "ONLINE";
             audioPill.className = "status-pill active";
-            isAudioContextUnlocked = true;
-            runActiveCode(); 
+            isAudioUnlocked = true;
+            runActiveCode();
         }
+    }
 
-        if (!isListening) {
-            startVoiceEngine();
-        } else {
-            stopVoiceEngine();
+    document.getElementById('executeBtn').addEventListener('click', () => {
+        unlockAudioEngine();
+        runActiveCode();
+    });
+
+    // INTERCEPT QUEST KEYBOARD DICTATION STREAM
+    vrVoiceInput.addEventListener('input', (event) => {
+        unlockAudioEngine();
+        const rawText = event.target.value;
+        
+        // Process strings if a sentence structure or complete phrase is detected
+        if (rawText.trim().length > 2) {
+            parseAndLineBreak(rawText);
         }
     });
 
-    function startVoiceEngine() {
-        const SpeechLibrary = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechLibrary) {
-            showError("Web Speech API is unsupported on this browser profile.");
-            return;
-        }
+    // Clear input bar when user selects it to make room for a clean command run
+    vrVoiceInput.addEventListener('focus', () => {
+        vrVoiceInput.value = "";
+    });
 
-        speechEngine = new SpeechLibrary();
-        speechEngine.continuous = false; // Automatically shut down as soon as speaker finishes phrase
-        speechEngine.interimResults = false;
-        speechEngine.lang = 'en-US';
+    function parseAndLineBreak(text) {
+        // Normalize text to lowercase and split by standard punctuation pauses (. , ? !)
+        const spokenPhrases = text.toLowerCase().split(/[.,?!]+/);
+        let dynamicCodeLines = [];
+        let executedMacro = false;
 
-        speechEngine.onstart = () => {
-            isListening = true;
-            talkBtn.innerText = "🛑 LISTENING... (SPEAK NOW)";
-            talkBtn.classList.add('recording');
-            document.getElementById('voiceTranscript').innerText = "System Log: Mic capture active. Speak phrase now...";
-        };
+        spokenPhrases.forEach(phrase => {
+            let cleanedPhrase = phrase.trim();
+            if (!cleanedPhrase) return;
 
-        speechEngine.onerror = (event) => {
-            if (event.error !== 'no-speech') {
-                showError(`Microphone Error: ${event.error}`);
+            // Macro Mapping to Strudel Syntactical Blocks
+            if (cleanedPhrase.includes('techno beat') || cleanedPhrase.includes('floor') || cleanedPhrase.includes('beat')) {
+                dynamicCodeLines.push('setcps(125/60/4);');
+                dynamicCodeLines.push('stack(\n  s("bd*4, [~ oh]*4")\n).play();');
+                executedMacro = true;
             }
-            stopVoiceEngine();
-        };
+            else if (cleanedPhrase.includes('acid')) {
+                // If a beat hasn't been established yet, append it cleanly
+                if (dynamicCodeLines.length === 0) {
+                    dynamicCodeLines.push('setcps(125/60/4);');
+                    dynamicCodeLines.push('stack(\n  s("bd*4, [~ oh]*4"),');
+                } else {
+                    // Strip down prior closures if chaining sequences together live
+                    let lastIdx = dynamicCodeLines.length - 1;
+                    if (dynamicCodeLines[lastIdx].includes('.play();')) {
+                        dynamicCodeLines[lastIdx] = dynamicCodeLines[lastIdx].replace(').play();', ',');
+                    }
+                }
+                dynamicCodeLines.push('  note("<c2 c3 eb2 bb2>*2").s("sawtooth").lpf(900).lpq(5)\n).play();');
+                executedMacro = true;
+            }
+            else if (cleanedPhrase.includes('stop') || cleanedPhrase.includes('hush') || cleanedPhrase.includes('clear')) {
+                dynamicCodeLines.push('hush();');
+                executedMacro = true;
+            }
+            else {
+                // FALLBACK: If you dictate normal phrases, split them line by line inside comments
+                dynamicCodeLines.push(`// Spoken Command: ${cleanedPhrase}`);
+            }
+        });
 
-        speechEngine.onend = () => {
-            stopVoiceEngine();
-        };
-
-        speechEngine.onresult = (event) => {
-            const speechString = event.results[0][0].transcript.toLowerCase().trim();
-            document.getElementById('voiceTranscript').innerText = `Heard phrase: "${speechString}"`;
-            interpretVoiceMacros(speechString);
-        };
-
-        try {
-            speechEngine.start();
-        } catch (e) {
-            console.error(e);
-            stopVoiceEngine();
+        if (dynamicCodeLines.length > 0) {
+            // Join parsed expressions using explicit clean carriage returns
+            editor.value = dynamicCodeLines.join('\n\n');
+            
+            // Instantly execute the fresh layout if an active macro command was invoked
+            if (executedMacro) {
+                runActiveCode();
+            }
         }
     }
 
-    function stopVoiceEngine() {
-        isListening = false;
-        talkBtn.innerText = "🎙️ TAP TO TALK";
-        talkBtn.classList.remove('recording');
-        if (speechEngine) {
-            try { speechEngine.stop(); } catch(e) {}
-        }
-    }
-
-    // Pure Code Evaluation Routine
     function runActiveCode() {
         showError(null);
-        const rawInputCode = document.getElementById('codeEditor').value;
         try {
             if (typeof evaluate === 'function') {
-                evaluate(rawInputCode);
+                evaluate(editor.value);
             } else if (typeof window.evaluate === 'function') {
-                window.evaluate(rawInputCode);
+                window.evaluate(editor.value);
             }
         } catch (err) {
-            showError(`Execution Error: ${err.message}`);
-        }
-    }
-
-    document.getElementById('executeBtn').addEventListener('click', runActiveCode);
-
-    document.getElementById('codeEditor').addEventListener('keydown', (e) => {
-        if (e.ctrlKey && e.key === 'Enter') {
-            e.preventDefault();
-            runActiveCode();
-        }
-    });
-
-    // Macro Parser Translation
-    function interpretVoiceMacros(phrase) {
-        const editor = document.getElementById('codeEditor');
-        let processed = false;
-
-        if (phrase.includes('techno beat') || phrase.includes('floor') || phrase.includes('beat')) {
-            let tempo = 125;
-            let grabBpm = phrase.match(/(\d+)\s*bpm/);
-            if (grabBpm) { tempo = parseInt(grabBpm[1]); }
-            
-            editor.value = `setcps(${tempo}/60/4);\n\nstack(\n  s("bd*4, [~ oh]*4")\n).play()`;
-            processed = true;
-        }
-
-        if (phrase.includes('run an acid') || phrase.includes('add acid') || phrase.includes('acid bassline')) {
-            editor.value = `setcps(125/60/4);\n\nstack(\n  s("bd*4, [~ oh]*4"),\n  note("<c2 c3 eb2 bb2>*2").s("sawtooth").lpf(900).lpq(5)\n).play()`;
-            processed = true;
-        }
-
-        if (phrase.includes('remove') || phrase.includes('stop') || phrase.includes('hush') || phrase.includes('clear')) {
-            editor.value = `hush()`;
-            processed = true;
-        }
-
-        if (processed) {
-            runActiveCode();
+            showError(`Execution Runtime Error: ${err.message}`);
         }
     }
 </script>
