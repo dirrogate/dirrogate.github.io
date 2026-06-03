@@ -3,13 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Strudel Spatial Additive Console</title>
+    <title>Strudel Spatial Additive Console (Fixed Focus)</title>
     <script src="https://unpkg.com/@strudel/web"></script>
     <style>
         body { background-color: #08080c; color: #00ffcc; font-family: 'Courier New', monospace; padding: 20px; margin: 0; }
         h1 { text-shadow: 0 0 8px #00ffcc; border-bottom: 2px solid #222; padding-bottom: 10px; font-size: 22px; margin-top: 0; }
         
-        /* Dual Column Layout for VR Space Optimization */
         .main-layout { display: flex; gap: 20px; max-width: 1300px; margin: 0 auto; align-items: flex-start; }
         .editor-side { flex: 7; display: flex; flex-direction: column; gap: 15px; }
         .fader-side { flex: 5; background: #11111a; border: 1px solid #222; border-radius: 8px; padding: 20px; box-sizing: border-box; }
@@ -35,7 +34,6 @@
         .active { color: #00ff66; text-shadow: 0 0 5px #00ff66; background: #0b2b14; }
         .error-log { background: #2a0813; color: #ff3366; border-left: 4px solid #ff3366; padding: 12px; font-size: 14px; font-weight: bold; }
         
-        /* High-Hitbox VR Sliders */
         .fader-section-title { color: #ff007f; border-bottom: 1px solid #222; padding-bottom: 8px; margin-top: 0; font-size: 18px; text-shadow: 0 0 5px #ff007f; }
         .fader-wrap { background: #0a0a0f; border: 1px solid #333; padding: 15px; border-radius: 6px; margin-bottom: 15px; }
         .fader-wrap label { display: block; font-size: 12px; color: #aaa; margin-bottom: 8px; font-weight: bold; }
@@ -61,7 +59,7 @@
         <h1>Strudel Spatial Core Matrix</h1>
         
         <input type="text" id="vrVoiceInput" class="vr-voice-bar" placeholder="🎙️ Tap here -> Use Quest Keyboard Mic to speak macros...">
-        <p class="hint-text">Commands: "techno beat", "add acid", "add slider here", "add pianoroll here", "change bpm to 130"</p>
+        <p class="hint-text">Commands: "techno beat", "add acid", "add slider here", "add pianoroll here", "change bpm to 140", "stop"</p>
         
         <textarea id="codeEditor">setcps(125/60/4);
 
@@ -96,6 +94,19 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
     let sliderCount = 0;
     let lastProcessedText = "";
 
+    // Track cursor location actively without loss of contextual state
+    let cachedCursorStart = editor.value.length;
+    let cachedCursorEnd = editor.value.length;
+
+    function saveCursorPosition() {
+        cachedCursorStart = editor.selectionStart;
+        cachedCursorEnd = editor.selectionEnd;
+    }
+
+    editor.addEventListener('click', saveCursorPosition);
+    editor.addEventListener('keyup', saveCursorPosition);
+    editor.addEventListener('blur', saveCursorPosition);
+
     function showError(msg) {
         if (msg) {
             errorConsole.innerText = `[System Alert] ${msg}`;
@@ -105,7 +116,6 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
         }
     }
 
-    // Strudel Initialization Block
     try {
         initStrudel({ prebake: () => samples('github:tidalcycles/dirt-samples') });
     } catch (e) {
@@ -119,7 +129,6 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
         }
     }
 
-    // Live Execution Sequence
     function runActiveCode() {
         showError(null);
         try {
@@ -138,29 +147,29 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
         runActiveCode();
     });
 
-    // Master Mechanical Slider Handling (FIXED: Now forces instant compilation)
     masterBpmSlider.addEventListener('input', (e) => {
         const targetBpm = parseInt(e.target.value);
         bpmDisplay.innerText = `${targetBpm} BPM`;
-        updateBPMInText(targetBpm, true); // Changed from false to true to activate real-time audio scaling
+        updateBPMInText(targetBpm, true); 
     });
 
-    // CURSOR POSITION TEXT INJECTION PIPELINE
+    // FIXED: Focus theft completely extracted
     function injectSnippet(snippet) {
-        const startPos = editor.selectionStart;
-        const endPos = editor.selectionEnd;
+        const startPos = cachedCursorStart;
+        const endPos = cachedCursorEnd;
         const originalContent = editor.value;
 
         if (startPos === undefined || startPos === null || originalContent === "") {
             editor.value = originalContent + "\n\n" + snippet;
+            cachedCursorStart = cachedCursorEnd = editor.value.length;
         } else {
             editor.value = originalContent.substring(0, startPos) + snippet + originalContent.substring(endPos);
-            editor.selectionStart = editor.selectionEnd = startPos + snippet.length;
+            // Move our internal cached markers forward past the modification
+            cachedCursorStart = cachedCursorEnd = startPos + snippet.length;
         }
-        editor.focus();
+        // DO NOT call editor.focus() here anymore. Leave attention on the VR Input Bar.
     }
 
-    // REMOVE PIANO ROLL STRIPPER ROUTINE
     function removePianoRollNearCursor() {
         const text = editor.value;
         if (text.includes('.pianoroll()')) {
@@ -169,7 +178,6 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
         }
     }
 
-    // BPM EXPRESSION STRING PARSER
     function updateBPMInText(bpmValue, triggerRebuild = true) {
         let text = editor.value;
         const bpmRegex = /setcps\([\d.]+\/60\/4\);/;
@@ -188,7 +196,6 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
         }
     }
 
-    // DYNAMIC VR CONTROL GENERATION DECK
     function generateDynamicVRSlider(id) {
         window[`fader_${id}`] = 0.5; 
 
@@ -210,7 +217,7 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
         });
     }
 
-    // OS DICTATION HOOKS INTERCEPT ENGINE
+    // OS DICTATION PARSER HOOK
     vrVoiceInput.addEventListener('input', (event) => {
         unlockAudioEngine();
         const rawText = event.target.value.trim();
@@ -224,11 +231,11 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
             if (!tr) return;
 
             if (tr.includes('techno beat') || tr.includes('beat')) {
-                injectSnippet(`s("bd*4, [~ oh]*4").gain(0.8).play();`);
+                injectSnippet(`\ns("bd*4, [~ oh]*4").gain(0.8).play();\n`);
                 containsValidAction = true;
             }
             else if (tr.includes('acid')) {
-                injectSnippet(`note("<c2 c3 eb2 bb2>*2").s("sawtooth").lpf(900).lpq(5).play();`);
+                injectSnippet(`\nnote("<c2 c3 eb2 bb2>*2").s("sawtooth").lpf(900).lpq(5).play();\n`);
                 containsValidAction = true;
             }
             else if (tr.includes('add slider') || tr.includes('insert slider')) {
@@ -253,7 +260,7 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
                 }
             }
             else if (tr.includes('stop') || tr.includes('hush') || tr.includes('clear')) {
-                injectSnippet(`hush();`);
+                injectSnippet(`\nhush();\n`);
                 containsValidAction = true;
             }
         });
@@ -261,10 +268,12 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
         if (containsValidAction) {
             lastProcessedText = rawText;
             runActiveCode();
+            
+            // Clear out input gate text after a short confirmation pause
             setTimeout(() => {
                 vrVoiceInput.value = "";
                 lastProcessedText = "";
-            }, 1200);
+            }, 1000);
         }
     });
 </script>
