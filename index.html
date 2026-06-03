@@ -3,63 +3,98 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Strudel VR Spatial-Voice Console</title>
+    <title>Strudel Spatial Additive Console</title>
     <script src="https://unpkg.com/@strudel/web"></script>
     <style>
         body { background-color: #08080c; color: #00ffcc; font-family: 'Courier New', monospace; padding: 20px; margin: 0; }
-        .wrapper { max-width: 900px; margin: 0 auto; }
-        h1 { text-shadow: 0 0 8px #00ffcc; border-bottom: 2px solid #222; padding-bottom: 10px; font-size: 22px; }
-        .panel { background: #11111a; border: 1px solid #222; border-radius: 8px; padding: 20px; margin-bottom: 15px; }
+        h1 { text-shadow: 0 0 8px #00ffcc; border-bottom: 2px solid #222; padding-bottom: 10px; font-size: 22px; margin-top: 0; }
         
-        /* VR Target Input Bar */
+        /* Dual Column Layout for VR Space Optimization */
+        .main-layout { display: flex; gap: 20px; max-width: 1300px; margin: 0 auto; align-items: flex-start; }
+        .editor-side { flex: 7; display: flex; flex-direction: column; gap: 15px; }
+        .fader-side { flex: 5; background: #11111a; border: 1px solid #222; border-radius: 8px; padding: 20px; box-sizing: border-box; }
+        
         .vr-voice-bar {
             width: 100%; padding: 16px; background: #1a1a26; color: #fff;
             border: 2px solid #00ffcc; border-radius: 6px; font-size: 16px;
             font-family: 'Courier New', monospace; box-sizing: border-box;
-            margin-bottom: 10px; text-shadow: 0 0 5px #fff;
+            text-shadow: 0 0 5px #fff;
         }
         .vr-voice-bar:focus { border-color: #ff007f; outline: none; box-shadow: 0 0 10px #ff007f; }
         
-        .btn-eval { background: #ff007f; color: #fff; border: none; padding: 14px 28px; font-weight: bold; cursor: pointer; border-radius: 4px; width: 100%; margin-top: 10px; font-size: 16px; }
-        .status-pill { font-weight: bold; padding: 4px 8px; border-radius: 4px; background: #222; color: #aaa; }
-        .active { color: #00ff66; text-shadow: 0 0 5px #00ff66; background: #0b2b14; }
-        
         textarea { 
-            width: 100%; height: 240px; background: #040406; color: #fff; 
-            border: 1px solid #222; border-radius: 4px; padding: 15px; 
+            width: 100%; height: 340px; background: #040406; color: #fff; 
+            border: 1px solid #ff007f; border-radius: 4px; padding: 15px; 
             font-family: 'Courier New', monospace; font-size: 16px; box-sizing: border-box; line-height: 1.5;
         }
-        .error-log { background: #2a0813; color: #ff3366; border-left: 4px solid #ff3366; padding: 12px; font-size: 14px; margin-top: 10px; }
-        .hint-text { color: #888; font-size: 13px; margin: 5px 0 0 0; font-style: italic; }
+        
+        .btn-eval { background: #ff007f; color: #fff; border: none; padding: 16px 28px; font-weight: bold; cursor: pointer; border-radius: 4px; width: 100%; font-size: 16px; text-shadow: 0 0 5px #fff; }
+        .btn-eval:hover { background: #fff; color: #000; }
+        
+        .status-pill { font-weight: bold; padding: 4px 8px; border-radius: 4px; background: #222; color: #aaa; }
+        .active { color: #00ff66; text-shadow: 0 0 5px #00ff66; background: #0b2b14; }
+        .error-log { background: #2a0813; color: #ff3366; border-left: 4px solid #ff3366; padding: 12px; font-size: 14px; font-weight: bold; }
+        
+        /* High-Hitbox VR Sliders */
+        .fader-section-title { color: #ff007f; border-bottom: 1px solid #222; padding-bottom: 8px; margin-top: 0; font-size: 18px; text-shadow: 0 0 5px #ff007f; }
+        .fader-wrap { background: #0a0a0f; border: 1px solid #333; padding: 15px; border-radius: 6px; margin-bottom: 15px; }
+        .fader-wrap label { display: block; font-size: 12px; color: #aaa; margin-bottom: 8px; font-weight: bold; }
+        
+        .vr-slider {
+            -webkit-appearance: none; width: 100%; height: 24px; background: #222; 
+            border-radius: 12px; outline: none; margin: 10px 0; border: 1px solid #444;
+        }
+        .vr-slider::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none; width: 38px; height: 38px; 
+            border-radius: 50%; background: #00ffcc; cursor: pointer; box-shadow: 0 0 10px #00ffcc;
+        }
+        .vr-slider::-webkit-slider-thumb:active { background: #ff007f; box-shadow: 0 0 15px #ff007f; }
+        .fader-val { float: right; color: #00ffcc; font-weight: bold; font-size: 14px; text-shadow: 0 0 4px #00ffcc; }
+        .hint-text { color: #666; font-size: 12px; font-style: italic; margin: 2px 0; }
     </style>
 </head>
 <body>
 
-<div class="wrapper">
-    <h1>Strudel VR Spatial Console</h1>
+<div class="main-layout">
     
-    <div class="panel">
-        <h3>🎙️ OS Voice Input Channel</h3>
-        <input type="text" id="vrVoiceInput" class="vr-voice-bar" placeholder="Tap here -> trigger Quest Keyboard Mic -> Speak...">
-        <p class="hint-text">Try speaking multiple commands: "Techno beat. Add acid. Stop."</p>
-        <p style="margin-top: 15px; font-size: 13px; margin-bottom: 0;">
-            Audio Engine: <span id="audioStatus" class="status-pill">OFFLINE (TAP TO ACTIVATE)</span>
-        </p>
-    </div>
-
-    <div class="panel">
-        <h3>Live Workspace Matrix</h3>
-        <textarea id="codeEditor">s("bd sd").play()</textarea>
-        <button id="executeBtn" class="btn-eval">▶ RUN WORKSPACE CODE</button>
+    <div class="editor-side">
+        <h1>Strudel Spatial Core Matrix</h1>
         
+        <input type="text" id="vrVoiceInput" class="vr-voice-bar" placeholder="🎙️ Tap here -> Use Quest Keyboard Mic to speak macros...">
+        <p class="hint-text">Commands: "techno beat", "add acid", "add slider here", "add pianoroll here", "change bpm to 130"</p>
+        
+        <textarea id="codeEditor">setcps(125/60/4);
+
+s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
+        
+        <button id="executeBtn" class="btn-eval">▶ COMPILE & RUN REPL WORKSPACE</button>
         <div id="errorConsole" class="error-log" style="display: none;"></div>
     </div>
+
+    <div class="fader-side">
+        <h3 class="fader-section-title">🎛️ SPATIAL CONTROL SURFACE</h3>
+        
+        <div class="fader-wrap">
+            <label>⏱️ MASTER METRONOME SPEED <span id="bpmDisplay" class="fader-val">125 BPM</span></label>
+            <input type="range" id="masterBpmSlider" min="60" max="220" step="1" value="125" class="vr-slider">
+        </div>
+        
+        <div id="dynamicFaders"></div>
+    </div>
+
 </div>
 
 <script>
     const errorConsole = document.getElementById('errorConsole');
     const vrVoiceInput = document.getElementById('vrVoiceInput');
     const editor = document.getElementById('codeEditor');
+    const masterBpmSlider = document.getElementById('masterBpmSlider');
+    const bpmDisplay = document.getElementById('bpmDisplay');
+    const dynamicFaders = document.getElementById('dynamicFaders');
+
+    let isAudioUnlocked = false;
+    let sliderCount = 0;
+    let lastProcessedText = "";
 
     function showError(msg) {
         if (msg) {
@@ -70,99 +105,21 @@
         }
     }
 
-    // Initialize Strudel Lexicon Context
+    // Strudel Initialization Block
     try {
         initStrudel({ prebake: () => samples('github:tidalcycles/dirt-samples') });
     } catch (e) {
         showError("Initialization Warning: " + e.message);
     }
 
-    let isAudioUnlocked = false;
-
-    // Wake engine up on first manual interaction
     function unlockAudioEngine() {
         if (!isAudioUnlocked) {
-            const audioPill = document.getElementById('audioStatus');
-            audioPill.innerText = "ONLINE";
-            audioPill.className = "status-pill active";
             isAudioUnlocked = true;
             runActiveCode();
         }
     }
 
-    document.getElementById('executeBtn').addEventListener('click', () => {
-        unlockAudioEngine();
-        runActiveCode();
-    });
-
-    // INTERCEPT QUEST KEYBOARD DICTATION STREAM
-    vrVoiceInput.addEventListener('input', (event) => {
-        unlockAudioEngine();
-        const rawText = event.target.value;
-        
-        // Process strings if a sentence structure or complete phrase is detected
-        if (rawText.trim().length > 2) {
-            parseAndLineBreak(rawText);
-        }
-    });
-
-    // Clear input bar when user selects it to make room for a clean command run
-    vrVoiceInput.addEventListener('focus', () => {
-        vrVoiceInput.value = "";
-    });
-
-    function parseAndLineBreak(text) {
-        // Normalize text to lowercase and split by standard punctuation pauses (. , ? !)
-        const spokenPhrases = text.toLowerCase().split(/[.,?!]+/);
-        let dynamicCodeLines = [];
-        let executedMacro = false;
-
-        spokenPhrases.forEach(phrase => {
-            let cleanedPhrase = phrase.trim();
-            if (!cleanedPhrase) return;
-
-            // Macro Mapping to Strudel Syntactical Blocks
-            if (cleanedPhrase.includes('techno beat') || cleanedPhrase.includes('floor') || cleanedPhrase.includes('beat')) {
-                dynamicCodeLines.push('setcps(125/60/4);');
-                dynamicCodeLines.push('stack(\n  s("bd*4, [~ oh]*4")\n).play();');
-                executedMacro = true;
-            }
-            else if (cleanedPhrase.includes('acid')) {
-                // If a beat hasn't been established yet, append it cleanly
-                if (dynamicCodeLines.length === 0) {
-                    dynamicCodeLines.push('setcps(125/60/4);');
-                    dynamicCodeLines.push('stack(\n  s("bd*4, [~ oh]*4"),');
-                } else {
-                    // Strip down prior closures if chaining sequences together live
-                    let lastIdx = dynamicCodeLines.length - 1;
-                    if (dynamicCodeLines[lastIdx].includes('.play();')) {
-                        dynamicCodeLines[lastIdx] = dynamicCodeLines[lastIdx].replace(').play();', ',');
-                    }
-                }
-                dynamicCodeLines.push('  note("<c2 c3 eb2 bb2>*2").s("sawtooth").lpf(900).lpq(5)\n).play();');
-                executedMacro = true;
-            }
-            else if (cleanedPhrase.includes('stop') || cleanedPhrase.includes('hush') || cleanedPhrase.includes('clear')) {
-                dynamicCodeLines.push('hush();');
-                executedMacro = true;
-            }
-            else {
-                // FALLBACK: If you dictate normal phrases, split them line by line inside comments
-                dynamicCodeLines.push(`// Spoken Command: ${cleanedPhrase}`);
-            }
-        });
-
-        if (dynamicCodeLines.length > 0) {
-            // Join parsed expressions using explicit clean carriage returns
-            editor.value = dynamicCodeLines.join('\n\n');
-            
-            // Instantly execute the fresh layout if an active macro command was invoked
-            if (executedMacro) {
-                runActiveCode();
-            }
-        }
-    }
-
+    // Live Execution Sequence
     function runActiveCode() {
         showError(null);
         try {
@@ -172,9 +129,148 @@
                 window.evaluate(editor.value);
             }
         } catch (err) {
-            showError(`Execution Runtime Error: ${err.message}`);
+            showError(`Runtime Exception: ${err.message}`);
         }
     }
+
+    document.getElementById('executeBtn').addEventListener('click', () => {
+        unlockAudioEngine();
+        runActiveCode();
+    });
+
+    // Master Mechanical Slider Handling
+    masterBpmSlider.addEventListener('input', (e) => {
+        const targetBpm = parseInt(e.target.value);
+        bpmDisplay.innerText = `${targetBpm} BPM`;
+        updateBPMInText(targetBpm, false); 
+    });
+
+    // CURSOR POSITION TEXT INJECTION PIPELINE
+    function injectSnippet(snippet) {
+        const startPos = editor.selectionStart;
+        const endPos = editor.selectionEnd;
+        const originalContent = editor.value;
+
+        // If no explicit cursor mapping, append directly as a fresh line at the base
+        if (startPos === undefined || startPos === null || originalContent === "") {
+            editor.value = originalContent + "\n\n" + snippet;
+        } else {
+            editor.value = originalContent.substring(0, startPos) + snippet + originalContent.substring(endPos);
+            // Re-anchor the cursor clean right behind the trailing edge of our injection
+            editor.selectionStart = editor.selectionEnd = startPos + snippet.length;
+        }
+        editor.focus();
+    }
+
+    // REMOVE PIANO ROLL STRIPPER ROUTINE
+    function removePianoRollNearCursor() {
+        const text = editor.value;
+        if (text.includes('.pianoroll()')) {
+            editor.value = text.replace('.pianoroll()', '');
+            runActiveCode();
+        }
+    }
+
+    // BPM EXPRESSION STRING PARSER
+    function updateBPMInText(bpmValue, triggerRebuild = true) {
+        let text = editor.value;
+        const bpmRegex = /setcps\([\d.]+\/60\/4\);/;
+        const newStatement = `setcps(${bpmValue}/60/4);`;
+
+        if (bpmRegex.test(text)) {
+            editor.value = text.replace(bpmRegex, newStatement);
+        } else {
+            editor.value = newStatement + "\n\n" + text;
+        }
+
+        if (triggerRebuild) {
+            masterBpmSlider.value = bpmValue;
+            bpmDisplay.innerText = `${bpmValue} BPM`;
+            runActiveCode();
+        }
+    }
+
+    // DYNAMIC VR CONTROL GENERATION DECK
+    function generateDynamicVRSlider(id) {
+        window[`fader_${id}`] = 0.5; // Initialize index on the main context engine
+
+        const wrap = document.createElement('div');
+        wrap.className = 'fader-wrap';
+        wrap.id = `faderContainer_${id}`;
+        wrap.innerHTML = `
+            <label>🎚️ HARDWARE ASSIGNABLE FADER #${id} <span id="faderValDisplay_${id}" class="fader-val">0.50</span></label>
+            <input type="range" min="0" max="1" step="0.01" value="0.5" class="vr-slider" id="faderElement_${id}">
+        `;
+        dynamicFaders.appendChild(wrap);
+
+        // Bind interactive thread listeners
+        const sliderInput = document.getElementById(`faderElement_${id}`);
+        sliderInput.addEventListener('input', (e) => {
+            const currentVal = parseFloat(e.target.value);
+            window[`fader_${id}`] = currentVal;
+            document.getElementById(`faderValDisplay_${id}`).innerText = currentVal.toFixed(2);
+            runActiveCode(); // Hot reloading compilation on drag loops
+        });
+    }
+
+    // OS DICTATION HOOKS INTERCEPT ENGINE
+    vrVoiceInput.addEventListener('input', (event) => {
+        unlockAudioEngine();
+        const rawText = event.target.value.trim();
+        if (rawText === lastProcessedText || rawText.length < 3) return;
+
+        let containsValidAction = false;
+        const sentences = rawText.toLowerCase().split(/[.,]+/);
+
+        sentences.forEach(phrase => {
+            let tr = phrase.trim();
+            if (!tr) return;
+
+            if (tr.includes('techno beat') || tr.includes('beat')) {
+                injectSnippet(`s("bd*4, [~ oh]*4").gain(0.8).play();`);
+                containsValidAction = true;
+            }
+            else if (tr.includes('acid')) {
+                injectSnippet(`note("<c2 c3 eb2 bb2>*2").s("sawtooth").lpf(900).lpq(5).play();`);
+                containsValidAction = true;
+            }
+            else if (tr.includes('add slider') || tr.includes('insert slider')) {
+                sliderCount++;
+                injectSnippet(`window.fader_${sliderCount}`);
+                generateDynamicVRSlider(sliderCount);
+                containsValidAction = true;
+            }
+            else if (tr.includes('add pianoroll') || tr.includes('add piano roll')) {
+                injectSnippet(`.pianoroll()`);
+                containsValidAction = true;
+            }
+            else if (tr.includes('remove pianoroll') || tr.includes('remove piano roll')) {
+                removePianoRollNearCursor();
+                containsValidAction = true;
+            }
+            else if (tr.includes('change bpm to') || tr.includes('bpm')) {
+                const extractNum = tr.match(/\d+/);
+                if (extractNum) {
+                    updateBPMInText(parseInt(extractNum[0]), true);
+                    containsValidAction = true;
+                }
+            }
+            else if (tr.includes('stop') || tr.includes('hush') || tr.includes('clear')) {
+                injectSnippet(`hush();`);
+                containsValidAction = true;
+            }
+        });
+
+        if (containsValidAction) {
+            lastProcessedText = rawText;
+            runActiveCode();
+            // Leave the text visible briefly so you can see confirmation before auto-clearing the pipeline bar
+            setTimeout(() => {
+                vrVoiceInput.value = "";
+                lastProcessedText = "";
+            }, 1200);
+        }
+    });
 </script>
 
 </body>
