@@ -13,15 +13,16 @@
         button { background: #00ffcc; color: #08080c; border: none; padding: 14px 28px; font-weight: bold; cursor: pointer; border-radius: 4px; font-size: 15px; }
         button:hover { background: #fff; box-shadow: 0 0 12px #fff; }
         .btn-eval { background: #ff007f; color: #fff; width: 100%; margin-top: 10px; font-size: 16px; }
-        .status-pill { font-weight: bold; padding: 4px 8px; border-radius: 4px; background: #222; }
-        .active { color: #00ff66; text-shadow: 0 0 5px #00ff66; }
+        .status-pill { font-weight: bold; padding: 4px 8px; border-radius: 4px; background: #222; color: #aaa; }
+        .active { color: #00ff66; text-shadow: 0 0 5px #00ff66; background: #0b2b14; }
+        .alert { color: #ff3366; text-shadow: 0 0 5px #ff3366; background: #3a0813; }
         textarea { 
             width: 100%; height: 220px; background: #040406; color: #fff; 
             border: 1px solid #ff007f; border-radius: 4px; padding: 15px; 
             font-family: 'Courier New', monospace; font-size: 16px; box-sizing: border-box;
         }
-        .error-log { background: #2a0813; color: #ff3366; border-left: 4px solid #ff3366; padding: 10px; font-size: 14px; margin-top: 10px; display: none; }
-        .console-msg { color: #888; font-style: italic; margin-top: 5px; }
+        .error-log { background: #2a0813; color: #ff3366; border-left: 4px solid #ff3366; padding: 10px; font-size: 14px; margin-top: 10px; }
+        .console-msg { color: #aaa; font-style: italic; margin-top: 5px; }
     </style>
 </head>
 <body>
@@ -35,7 +36,7 @@
             Audio Status: <span id="audioStatus" class="status-pill">OFFLINE</span> | 
             Mic Status: <span id="micStatus" class="status-pill">STANDBY</span>
         </p>
-        <p id="voiceTranscript" class="console-msg">Voice Listening Stream: Waiting for engine boot...</p>
+        <p id="voiceTranscript" class="console-msg">System Log: Waiting for user activation...</p>
     </div>
 
     <div class="panel">
@@ -43,89 +44,79 @@
         <textarea id="codeEditor">s("bd sd").play()</textarea>
         <button id="executeBtn" class="btn-eval">▶ RUN CODE (Ctrl + Enter)</button>
         
-        <div id="errorConsole" class="error-log"></div>
+        <div id="errorConsole" class="error-log" style="display: none;"></div>
     </div>
 </div>
 
 <script>
-    // CRITICAL FIX: Run initialization immediately at the root script layer.
-    // This gives Strudel time to cleanly hook functions to the global 'window' scope
-    // well before any button interactions occur.
+    // Initialize Strudel immediately on page load
     try {
-        initStrudel({ 
-            prebake: () => samples('github:tidalcycles/dirt-samples') 
-        });
+        initStrudel({ prebake: () => samples('github:tidalcycles/dirt-samples') });
     } catch (e) {
-        console.error("Early initialization catch:", e);
+        showError("Pre-boot warning: " + e.message);
     }
 
     let isEngineRunning = false;
     let speechEngine;
     const errorConsole = document.getElementById('errorConsole');
 
-    // Visual Logger to trap hidden execution exceptions
-    function logError(msg) {
+    function showError(msg) {
         if (msg) {
-            errorConsole.innerText = `Runtime Error: ${msg}`;
+            errorConsole.innerText = `System Notification: ${msg}`;
             errorConsole.style.display = 'block';
         } else {
             errorConsole.style.display = 'none';
         }
     }
 
-    // Intercept global script breaks
-    window.onerror = function(message) {
-        logError(message);
-        return false;
-    };
-
-    // Main Engine Ignition Handler
-    document.getElementById('bootEngineBtn').addEventListener('click', async () => {
+    // Main Ignition Trigger
+    document.getElementById('bootEngineBtn').addEventListener('click', () => {
         if (isEngineRunning) return;
+        showError(null);
         
         try {
-            logError(null); // Reset layout error logs
+            // Force Audio Status to active immediately
+            const audioPill = document.getElementById('audioStatus');
+            audioPill.innerText = "ONLINE";
+            audioPill.className = "status-pill active";
             
-            // Explicitly assert that scope properties exist
-            if (typeof window.hush !== 'function' || typeof window.evaluate !== 'function') {
-                throw new Error("Strudel compiler functions (hush/evaluate) are missing from global window context.");
-            }
+            // Instantly notify user to look for browser mic permission prompt
+            const micPill = document.getElementById('micStatus');
+            micPill.innerText = "🔴 check browser permission popup";
+            micPill.className = "status-pill alert";
             
-            // Clear out the runtime state cleanly using defensive window scoping
-            window.hush(); 
+            document.getElementById('voiceTranscript').innerText = "System Log: Requesting microphone hardware link...";
             
-            document.getElementById('audioStatus').innerText = "ONLINE";
-            document.getElementById('audioStatus').classList.add('active');
-            
+            // Boot the speech recognition loop
             bootVoiceRecognition();
             isEngineRunning = true;
             
-            // Fire current workspace pattern to confirm immediate playback functionality
+            // Fire current text code block to unlock the audio stream
             runActiveCode();
         } catch (err) {
-            logError(`Initialization Blocked: ${err.message}`);
+            showError(`Ignition failed: ${err.message}`);
         }
     });
 
-    // Code Compiler Execution Routine
+    // Pure Manual Evaluation Routine
     function runActiveCode() {
+        showError(null);
+        const rawInputCode = document.getElementById('codeEditor').value;
         try {
-            logError(null);
-            const rawInputCode = document.getElementById('codeEditor').value;
-            
-            if (typeof window.evaluate === 'function') {
+            if (typeof evaluate === 'function') {
+                evaluate(rawInputCode);
+            } else if (typeof window.evaluate === 'function') {
                 window.evaluate(rawInputCode);
             } else {
-                throw new Error("Compiler entrypoint 'evaluate' is unavailable.");
+                showError("Strudel engine is still registering syntax variables. Wait 2 seconds and try again.");
             }
         } catch (err) {
-            logError(err.message);
+            showError(`Execution Error: ${err.message}`);
         }
     }
 
     document.getElementById('executeBtn').addEventListener('click', runActiveCode);
 
-    // Bind physical/virtual keyboard evaluate combinations
     document.getElementById('codeEditor').addEventListener('keydown', (e) => {
         if (e.ctrlKey && e.key === 'Enter') {
             e.preventDefault();
@@ -133,11 +124,11 @@
         }
     });
 
-    // Voice Processing Infrastructure Setup
+    // Voice Processing Core
     function bootVoiceRecognition() {
         const SpeechLibrary = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechLibrary) {
-            logError("Web Speech Interface is missing/disabled on this browser platform.");
+            showError("Web Speech API is completely disabled or unsupported on this specific browser version.");
             return;
         }
 
@@ -147,34 +138,41 @@
         speechEngine.lang = 'en-US';
 
         speechEngine.onstart = () => {
-            document.getElementById('micStatus').innerText = "LISTENING";
-            document.getElementById('micStatus').classList.add('active');
-            document.getElementById('voiceTranscript').innerText = "Voice Listening Stream: Active. Speak a performance command...";
+            const micPill = document.getElementById('micStatus');
+            micPill.innerText = "LISTENING (MIC ACTIVE)";
+            micPill.className = "status-pill active";
+            document.getElementById('voiceTranscript').innerText = "System Log: Mic connected. Ready for commands ('techno beat', 'add acid', 'stop').";
         };
 
         speechEngine.onerror = (event) => {
-            logError(`Microphone Exception Event: ${event.error}`);
+            showError(`Microphone Error Code: ${event.error}`);
+            if (event.error === 'not-allowed') {
+                document.getElementById('micStatus').innerText = "BLOCKED BY BROWSER";
+                document.getElementById('micStatus').className = "status-pill alert";
+            }
         };
 
         speechEngine.onend = () => {
-            if (isEngineRunning) speechEngine.start();
+            // Restart system if browser attempts a sleep cycle drop
+            if (isEngineRunning) {
+                try { speechEngine.start(); } catch(e) {}
+            }
         };
 
         speechEngine.onresult = (event) => {
             const speechString = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
-            document.getElementById('voiceTranscript').innerText = `Voice Listening Stream: Heard "${speechString}"`;
+            document.getElementById('voiceTranscript').innerText = `Heard phrase: "${speechString}"`;
             interpretVoiceMacros(speechString);
         };
 
         speechEngine.start();
     }
 
-    // Performance Macro Translation Engine
+    // Macro Parser Matcher
     function interpretVoiceMacros(phrase) {
         const editor = document.getElementById('codeEditor');
         let processed = false;
 
-        // Command Case 1: Drum Pattern Loop
         if (phrase.includes('techno beat') || phrase.includes('floor') || phrase.includes('beat')) {
             let tempo = 125;
             let grabBpm = phrase.match(/(\d+)\s*bpm/);
@@ -184,13 +182,11 @@
             processed = true;
         }
 
-        // Command Case 2: Acid Injection Layer
         if (phrase.includes('run an acid') || phrase.includes('add acid') || phrase.includes('acid bassline')) {
             editor.value = `setcps(125/60/4);\n\nstack(\n  s("bd*4, [~ oh]*4"),\n  note("<c2 c3 eb2 bb2>*2").s("sawtooth").lpf(900).lpq(5)\n).play()`;
             processed = true;
         }
 
-        // Command Case 3: Kill Audio Stream
         if (phrase.includes('remove') || phrase.includes('stop') || phrase.includes('hush') || phrase.includes('clear')) {
             editor.value = `hush()`;
             processed = true;
