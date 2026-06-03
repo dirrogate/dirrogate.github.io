@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Strudel Spatial-Voice Live Engine</title>
-    <script src="https://cdn.jsdelivr.net/npm/@strudel/web@1.3.0/dist/index.min.js"></script>
+    <script src="https://unpkg.com/@strudel/web"></script>
     <style>
         body { background-color: #08080c; color: #00ffcc; font-family: 'Courier New', monospace; padding: 20px; margin: 0; }
         .wrapper { max-width: 900px; margin: 0 auto; }
@@ -48,11 +48,22 @@
 </div>
 
 <script>
+    // CRITICAL FIX: Run initialization immediately at the root script layer.
+    // This gives Strudel time to cleanly hook functions to the global 'window' scope
+    // well before any button interactions occur.
+    try {
+        initStrudel({ 
+            prebake: () => samples('github:tidalcycles/dirt-samples') 
+        });
+    } catch (e) {
+        console.error("Early initialization catch:", e);
+    }
+
     let isEngineRunning = false;
     let speechEngine;
     const errorConsole = document.getElementById('errorConsole');
 
-    // Visual Logger to trap hidden background execution errors
+    // Visual Logger to trap hidden execution exceptions
     function logError(msg) {
         if (msg) {
             errorConsole.innerText = `Runtime Error: ${msg}`;
@@ -62,7 +73,7 @@
         }
     }
 
-    // Intercept unhandled global scripts breaks
+    // Intercept global script breaks
     window.onerror = function(message) {
         logError(message);
         return false;
@@ -75,11 +86,13 @@
         try {
             logError(null); // Reset layout error logs
             
-            // Core Initialization triggered explicitly inside user gesture context
-            initStrudel();
+            // Explicitly assert that scope properties exist
+            if (typeof window.hush !== 'function' || typeof window.evaluate !== 'function') {
+                throw new Error("Strudel compiler functions (hush/evaluate) are missing from global window context.");
+            }
             
-            // Run a quick silent reset to unlock the Web Audio API context completely
-            hush(); 
+            // Clear out the runtime state cleanly using defensive window scoping
+            window.hush(); 
             
             document.getElementById('audioStatus').innerText = "ONLINE";
             document.getElementById('audioStatus').classList.add('active');
@@ -87,7 +100,7 @@
             bootVoiceRecognition();
             isEngineRunning = true;
             
-            // Evaluate current placeholder to confirm immediate playback functionality
+            // Fire current workspace pattern to confirm immediate playback functionality
             runActiveCode();
         } catch (err) {
             logError(`Initialization Blocked: ${err.message}`);
@@ -100,8 +113,11 @@
             logError(null);
             const rawInputCode = document.getElementById('codeEditor').value;
             
-            // Send text data straight into the Strudel core interpreter
-            evaluate(rawInputCode);
+            if (typeof window.evaluate === 'function') {
+                window.evaluate(rawInputCode);
+            } else {
+                throw new Error("Compiler entrypoint 'evaluate' is unavailable.");
+            }
         } catch (err) {
             logError(err.message);
         }
@@ -109,7 +125,7 @@
 
     document.getElementById('executeBtn').addEventListener('click', runActiveCode);
 
-    // Bind system keyboard evaluate combination commands
+    // Bind physical/virtual keyboard evaluate combinations
     document.getElementById('codeEditor').addEventListener('keydown', (e) => {
         if (e.ctrlKey && e.key === 'Enter') {
             e.preventDefault();
@@ -141,7 +157,6 @@
         };
 
         speechEngine.onend = () => {
-            // Keep listening engine persistent if headset drops priority layer briefly
             if (isEngineRunning) speechEngine.start();
         };
 
@@ -154,12 +169,12 @@
         speechEngine.start();
     }
 
-    // High Level NLP Parser Matrix
+    // Performance Macro Translation Engine
     function interpretVoiceMacros(phrase) {
         const editor = document.getElementById('codeEditor');
         let processed = false;
 
-        // Command Case 1: 125 bpm 4 to the floor techno beat
+        // Command Case 1: Drum Pattern Loop
         if (phrase.includes('techno beat') || phrase.includes('floor') || phrase.includes('beat')) {
             let tempo = 125;
             let grabBpm = phrase.match(/(\d+)\s*bpm/);
@@ -169,19 +184,18 @@
             processed = true;
         }
 
-        // Command Case 2: Run an acid bassline
+        // Command Case 2: Acid Injection Layer
         if (phrase.includes('run an acid') || phrase.includes('add acid') || phrase.includes('acid bassline')) {
             editor.value = `setcps(125/60/4);\n\nstack(\n  s("bd*4, [~ oh]*4"),\n  note("<c2 c3 eb2 bb2>*2").s("sawtooth").lpf(900).lpq(5)\n).play()`;
             processed = true;
         }
 
-        // Command Case 3: Clear/Hush
+        // Command Case 3: Kill Audio Stream
         if (phrase.includes('remove') || phrase.includes('stop') || phrase.includes('hush') || phrase.includes('clear')) {
             editor.value = `hush()`;
             processed = true;
         }
 
-        // Programmatically tap compilation handler if voice updated text criteria
         if (processed) {
             runActiveCode();
         }
