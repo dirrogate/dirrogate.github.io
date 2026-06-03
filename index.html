@@ -138,11 +138,11 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
         runActiveCode();
     });
 
-    // Master Mechanical Slider Handling
+    // Master Mechanical Slider Handling (FIXED: Now forces instant compilation)
     masterBpmSlider.addEventListener('input', (e) => {
         const targetBpm = parseInt(e.target.value);
         bpmDisplay.innerText = `${targetBpm} BPM`;
-        updateBPMInText(targetBpm, false); 
+        updateBPMInText(targetBpm, true); // Changed from false to true to activate real-time audio scaling
     });
 
     // CURSOR POSITION TEXT INJECTION PIPELINE
@@ -151,12 +151,10 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
         const endPos = editor.selectionEnd;
         const originalContent = editor.value;
 
-        // If no explicit cursor mapping, append directly as a fresh line at the base
         if (startPos === undefined || startPos === null || originalContent === "") {
             editor.value = originalContent + "\n\n" + snippet;
         } else {
             editor.value = originalContent.substring(0, startPos) + snippet + originalContent.substring(endPos);
-            // Re-anchor the cursor clean right behind the trailing edge of our injection
             editor.selectionStart = editor.selectionEnd = startPos + snippet.length;
         }
         editor.focus();
@@ -192,7 +190,7 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
 
     // DYNAMIC VR CONTROL GENERATION DECK
     function generateDynamicVRSlider(id) {
-        window[`fader_${id}`] = 0.5; // Initialize index on the main context engine
+        window[`fader_${id}`] = 0.5; 
 
         const wrap = document.createElement('div');
         wrap.className = 'fader-wrap';
@@ -203,13 +201,12 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
         `;
         dynamicFaders.appendChild(wrap);
 
-        // Bind interactive thread listeners
         const sliderInput = document.getElementById(`faderElement_${id}`);
         sliderInput.addEventListener('input', (e) => {
             const currentVal = parseFloat(e.target.value);
             window[`fader_${id}`] = currentVal;
             document.getElementById(`faderValDisplay_${id}`).innerText = currentVal.toFixed(2);
-            runActiveCode(); // Hot reloading compilation on drag loops
+            runActiveCode(); 
         });
     }
 
@@ -264,7 +261,6 @@ s("bd*4, [~ oh]*4").gain(0.8).play();</textarea>
         if (containsValidAction) {
             lastProcessedText = rawText;
             runActiveCode();
-            // Leave the text visible briefly so you can see confirmation before auto-clearing the pipeline bar
             setTimeout(() => {
                 vrVoiceInput.value = "";
                 lastProcessedText = "";
