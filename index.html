@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strudel Performance Voice Dashboard</title>
+    <!-- Load Strudel Engine via CDN -->
+    <script src="https://unpkg.com/@strudel/web@1.0.3"></script>
+    <style>
+        body {
+            background-color: #0b0b0f;
+            color: #00ffcc;
+            font-family: 'Courier New', Courier, monospace;
+            padding: 30px;
+            margin: 0;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 { text-shadow: 0 0 10px #00ffcc; border-bottom: 2px solid #00ffcc; padding-bottom: 10px; }
+        .panel {
+            background: #12121a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        button {
+            background: #00ffcc;
+            color: #0b0b0f;
+            border: none;
+            padding: 12px 24px;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        button:hover { background: #fff; box-shadow: 0 0 15px #fff; }
+        .status-on { color: #00ff66; font-weight: bold; }
+        .status-off { color: #ff3366; font-weight: bold; }
+        pre {
+            background: #050508;
+            color: #ff007f;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            border-left: 4px solid #ff007f;
+            font-size: 16px;
+        }
+        .log-box { color: #aaa; font-style: italic; }
+        .slider-ctrl {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-top: 15px;
+        }
+        input[type=range] {
+            flex-grow: 1;
+            accent-color: #00ffcc;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Strudel Spatial-Voice REPL</h1>
+    
+    <div class="panel">
+        <button id="startBtn">⚡ START VOICE ENGINE</button>
+        <p>Mic Status: <span id="micStatus" class="status-off">INACTIVE</span></p>
+    </div>
+
+    <div class="panel">
+        <h3>Live Transcript</h3>
+        <p id="transcript" class="log-box">Waiting for voice command...</p>
+    </div>
+
+    <div class="panel">
+        <h3>Dynamic Performance Controls</h3>
+        <div class="slider-ctrl">
+            <label>Acid Pitch Transpose:</label>
+            <input type="range" id="pitchSlider" min="-12" max="12" value="0">
+            <span id="sliderVal">0 semitones</span>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>Active Strudel Code Stack</h3>
+        <pre id="codeDisplay">hush()</pre>
+    </div>
+</div>
+
+<script>
+    // System Arrangement State
+    let state = {
+        bpm: 125,
+        drums: '',
+        bass: ''
+    };
+    
+    let isEngineActive = false;
+    let recognition;
+
+    // Initialize Strudel and automatically fetch standard sample library
+    initStrudel({
+        prebake: () => samples('github:tidalcycles/dirt-samples'),
+    });
+
+    document.getElementById('startBtn').addEventListener('click', () => {
+        if (isEngineActive) return;
+        
+        // Unmute Web Audio context
+        hush(); 
+        isEngineActive = true;
+        document.getElementById('micStatus').innerText = "LISTENING";
+        document.getElementById('micStatus').className = "status-on";
+        
+        initVoiceRecognition();
+    });
+
+    // Handle physical slider interface manipulation
+    const pitchSlider = document.getElementById('pitchSlider');
+    pitchSlider.addEventListener('input', (e) => {
+        document.getElementById('sliderVal').innerText = `${e.target.value} semitones`;
+        compileAndRun();
+    });
+
+    function initVoiceRecognition() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("Speech recognition not supported in this browser context.");
+            return;
+        }
+
+        recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+
+        recognition.onresult = (event) => {
+            const speechResult = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
+            document.getElementById('transcript').innerText = `Heard: "${speechResult}"`;
+            processCommand(speechResult);
+        };
+
+        recognition.onerror = (err) => {
+            console.error("Speech Error:", err);
+        };
+
+        // Ensure background engine stays alive if headset momentary drops focus
+        recognition.onend = () => {
+            if (isEngineActive) recognition.start();
+        };
+
+        recognition.start();
+    }
+
+    // Natural Language Macro Parser
+    function processCommand(text) {
+        // Macro 1: 125 bpm 4 to the floor techno beat
+        if (text.includes('techno beat') || text.includes('floor') || text.includes('beat')) {
+            // RegEx check to pull arbitrary spoken BPM numbers out of the string
+            let bpmMatch = text.match(/(\d+)\s*bpm/);
+            if (bpmMatch) {
+                state.bpm = parseInt(bpmMatch[1]);
+            }
+            state.drums = `s("bd*4, [~ oh]*4")`;
+            compileAndRun();
+        }
+
+        // Macro 2: Run an acid bassline
+        if (text.includes('run an acid') || text.includes('add acid') || text.includes('acid bassline')) {
+            state.bass = `note("<c2 c3 eb2 bb2>*2").s("sawtooth").lpf(900).lpq(5)`;
+            compileAndRun();
+        }
+
+        // Macro 3: Remove the acid bassline
+        if (text.includes('remove') && text.includes('acid')) {
+            state.bass = '';
+            compileAndRun();
+        }
+        
+        // Macro 4: Dynamic vocal parameter adjustments
+        if (text.includes('pitch up')) {
+            pitchSlider.value = parseInt(pitchSlider.value) + 4;
+            pitchSlider.dispatchEvent(new Event('input'));
+        }
+        if (text.includes('pitch down') || text.includes('reset pitch')) {
+            pitchSlider.value = text.includes('reset') ? 0 : parseInt(pitchSlider.value) - 4;
+            pitchSlider.dispatchEvent(new Event('input'));
+        }
+    }
+
+    // Compiles active arrangement chunks into clean algorithmic code string
+    function compileAndRun() {
+        // Strudel uses cycles per second. Calculation sets absolute BPM target
+        let code = `setcps(${state.bpm}/60/4);\n\n`;
+        let layerStack = [];
+
+        if (state.drums) {
+            layerStack.push(state.drums);
+        }
+
+        if (state.bass) {
+            // Inject slider value directly into runtime string parsing
+            let offset = pitchSlider.value;
+            let modifiedBass = `note("<c2 c3 eb2 bb2>*2").add(note(${offset})).s("sawtooth").lpf(1100).lpq(6)`;
+            layerStack.push(modifiedBass);
+        }
+
+        if (layerStack.length > 0) {
+            code += `stack(\n  ${layerStack.join(',\n  ')}\n).gain(0.8);`;
+        } else {
+            code = `hush();`;
+        }
+
+        // Update view overlay text and pipe straight to the evaluator interpreter
+        document.getElementById('codeDisplay').innerText = code;
+        evaluate(code);
+    }
+</script>
+
+</body>
+</html>
