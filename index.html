@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Strudel Offline Master Studio</title>
+    <title>Strudel Standalone Studio Workspace</title>
+    
     <script src="strudel-repl.js"></script>
 
     <style>
@@ -12,28 +13,36 @@
             background: #0b0b0e; color: #fff; font-family: monospace;
             display: flex; flex-direction: column; overflow: hidden;
         }
-        #repl-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-        strudel-repl { width: 100%; height: 100%; }
 
-        /* MULTI-FUNCTIONAL CONTROL HUD */
+        /* TOP PANE: Full REPL with built-in visualization canvas */
+        #repl-container {
+            flex: 1; display: flex; flex-direction: column;
+            border-bottom: 3px solid #252530; overflow: hidden;
+        }
+        
+        /* Targets the full REPL wrapper */
+        strudel-repl {
+            width: 100%; height: 100%;
+        }
+
+        /* BOTTOM PANE: Macro Controller HUD */
         #hud-overlay {
-            height: auto; min-height: 80px; padding: 15px; background: #141419;
-            display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px;
-            box-sizing: border-box; border-top: 3px solid #252530; z-index: 10;
+            height: 80px; padding: 15px; background: #141419;
+            display: flex; align-items: center; justify-content: center; gap: 15px;
+            box-sizing: border-box; z-index: 10;
         }
         button {
-            background: #ff0055; border: none; color: white; padding: 10px 18px;
-            font-size: 13px; font-weight: bold; cursor: pointer; border-radius: 4px;
-            font-family: inherit; transition: background 0.1s;
+            background: #ff0055; border: none; color: white; padding: 12px 24px;
+            font-size: 14px; font-weight: bold; cursor: pointer; border-radius: 4px;
+            font-family: inherit; transition: background 0.2s;
         }
         button:hover { background: #ff2b70; }
+        button:active { background: #cc0044; }
         
-        /* Menu Action Theme Colors */
-        .utility-btn { background: #3a3a4a; color: #fff; }
-        .utility-btn:hover { background: #4a4a5a; }
-        .save-btn { background: #00ffcc; color: #000; }
-        .save-btn:hover { background: #33ffdd; }
-        .stop-btn { background: #ff3333; }
+        .synth-btn { background: #00ffcc; color: #000; }
+        .synth-btn:hover { background: #33ffdd; }
+        .stop-btn { background: #333344; }
+        .stop-btn:hover { background: #444455; }
     </style>
 </head>
 <body>
@@ -44,79 +53,45 @@
     </div>
 
     <div id="hud-overlay">
-        <button id="macro-1" class="utility-btn">CYtrance Base</button>
-        
-        <button id="btn-save" class="save-btn">💾 Save Session (Local)</button>
-        <button id="btn-load" class="utility-btn">📂 Load Last Save</button>
-        <button id="btn-export" class="utility-btn">📥 Export .JS File</button>
-        
-        <button id="btn-help" class="utility-btn">❓ Syntax Cheat-Sheet</button>
+        <button id="macro-1">Macro: Local Drums</button>
+        <button id="macro-2" class="synth-btn">Macro: Acid Bassline (+ Pianoroll)</button>
         <button id="macro-hush" class="stop-btn">Hush (Stop)</button>
     </div>
 
     <script>
         const replElement = document.getElementById('main-repl');
 
-        function getEditorCode() {
-            if (replElement.editor && typeof replElement.editor.getCode === 'function') {
-                return replElement.editor.getCode();
-            }
-            return "";
-        }
-
-        function setEditorCode(code) {
-            if (replElement.editor && typeof replElement.editor.setCode === 'function') {
-                replElement.editor.setCode(code);
-                replElement.editor.evaluate();
-            }
-        }
-
-        // 1. SAVE WORKSPACE TO BROWSER STORAGE
-        document.getElementById('btn-save').addEventListener('click', () => {
-            const currentCode = getEditorCode();
-            if (currentCode) {
-                localStorage.setItem('strudel_offline_save', currentCode);
-                alert('Session saved safely to browser memory.');
-            }
-        });
-
-        // 2. LOAD WORKSPACE FROM BROWSER STORAGE
-        document.getElementById('btn-load').addEventListener('click', () => {
-            const savedCode = localStorage.getItem('strudel_offline_save');
-            if (savedCode) {
-                setEditorCode(savedCode);
+        // Safely targets the internal editor instance within the upgraded strudel-repl component
+        function injectMacroCode(patternCode) {
+            if (replElement.editor) {
+                if (typeof replElement.editor.setCode === 'function') {
+                    replElement.editor.setCode(patternCode);
+                }
+                if (typeof replElement.editor.evaluate === 'function') {
+                    replElement.editor.evaluate();
+                }
             } else {
-                alert('No saved sequence found.');
+                replElement.setAttribute('code', patternCode);
             }
-        });
+        }
 
-        // 3. EXPORT SOURCE AS HARD FILE FOR HEADSET/GITHUB IMPORTING
-        document.getElementById('btn-export').addEventListener('click', () => {
-            const currentCode = getEditorCode();
-            const blob = new Blob([currentCode], { type: 'text/javascript' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = 'cyberhouse-pattern.js';
-            a.click();
-        });
+        // --- HUD MACRO ACTIONS ---
 
-        // 4. QUICK HELP SYNTAX HOOK
-        document.getElementById('btn-help').addEventListener('click', () => {
-            alert(`Strudel Live Coding Cheat-Sheet:\n\n` +
-                  `• Synthesizers: .s("sawtooth") | .s("triangle") | .s("square")\n` +
-                  `• Timing Modifiers: .fast(2) | .slow(2) | .striate(4)\n` +
-                  `• Filters & FX: .lpf(1200) | .hpfl(400) | .room(0.4) | .delay(0.5)\n` +
-                  `• Layouts: .pianoroll() | .grid()`);
-        });
-
-        // Core Functions
         document.getElementById('macro-1').addEventListener('click', () => {
-            setEditorCode(`note("e2 g2 b2 d3").s("sawtooth").lpf(1200).fast(2).pianoroll()`);
+            const drumPattern = `// Maps local files safely\nsamples({\n  bd: ["bd/909.wav"],\n  cp: ["cp/clap.wav"]\n}, "http://localhost:8000/sounds/");\n\ns("bd cp bd cp").slow(2).room(0.2).grid()`;
+            injectMacroCode(drumPattern);
+        });
+
+        document.getElementById('macro-2').addEventListener('click', () => {
+            const synthPattern = `// Running pure browser oscillators with piano roll rendering\nnote("e2 g2 b2 d3").s("sawtooth").lpf(1200).fast(2).pianoroll()`;
+            injectMacroCode(synthPattern);
         });
 
         document.getElementById('macro-hush').addEventListener('click', () => {
             if (replElement.editor && typeof replElement.editor.stop === 'function') {
                 replElement.editor.stop();
+            } else {
+                injectMacroCode(`// Hushed\nhush()`);
             }
         });
     </script>
