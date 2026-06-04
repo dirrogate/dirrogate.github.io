@@ -1,28 +1,148 @@
 <!DOCTYPE html>
 <html>
-<body style="margin:0">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Strudel HUD</title>
+
+<style>
+html,body{
+    margin:0;
+    width:100%;
+    height:100%;
+    overflow:hidden;
+    background:#000;
+    font-family:Arial, sans-serif;
+}
+
+#strudel{
+    position:absolute;
+    left:0;
+    top:0;
+    width:100%;
+    height:100%;
+    border:none;
+}
+
+#hud{
+    position:fixed;
+    left:50%;
+    bottom:20px;
+    transform:translateX(-50%);
+    z-index:999999;
+
+    background:rgba(0,0,0,0.75);
+    backdrop-filter:blur(10px);
+
+    border:2px solid #00ffff;
+    border-radius:16px;
+
+    padding:12px;
+
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+
+    max-width:90%;
+}
+
+button{
+    background:#111;
+    color:#00ffff;
+
+    border:1px solid #00ffff;
+    border-radius:10px;
+
+    padding:12px 16px;
+
+    font-size:18px;
+    cursor:pointer;
+}
+
+button:hover{
+    background:#003333;
+}
+
+#status{
+    color:white;
+    min-width:180px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0 10px;
+}
+</style>
+</head>
+
+<body>
 
 <iframe
- src="https://strudel.cc"
- style="
- position:absolute;
- left:0;
- top:0;
- width:100%;
- height:100%;
- border:none;">
+    id="strudel"
+    src="https://strudel.cc">
 </iframe>
 
-<div style="
- position:fixed;
- bottom:20px;
- left:20px;
- z-index:999999;
- background:black;
- color:white;
- padding:10px;">
-STRUDEL HUD
+<div id="hud">
+
+<button onclick="afro()">AFRO</button>
+<button onclick="house()">HOUSE</button>
+<button onclick="melodic()">MELODIC</button>
+
+<button onclick="acidOn()">ACID ON</button>
+<button onclick="acidOff()">ACID OFF</button>
+
+<button onclick="bpmDown()">BPM -</button>
+<div id="status">BPM 125</div>
+<button onclick="bpmUp()">BPM +</button>
+
 </div>
+
+<script>
+
+let bpm = 125;
+
+function setStatus(txt){
+    document.getElementById("status").innerText = txt;
+}
+
+function bpmUp(){
+    bpm++;
+    setStatus("BPM " + bpm);
+    console.log("BPM UP", bpm);
+}
+
+function bpmDown(){
+    bpm--;
+    setStatus("BPM " + bpm);
+    console.log("BPM DOWN", bpm);
+}
+
+function afro(){
+    console.log("AFRO HOUSE");
+    setStatus("AFRO HOUSE");
+}
+
+function house(){
+    console.log("HOUSE");
+    setStatus("HOUSE");
+}
+
+function melodic(){
+    console.log("MELODIC TECHNO");
+    setStatus("MELODIC TECHNO");
+}
+
+function acidOn(){
+    console.log("ACID ON");
+    setStatus("ACID ON");
+}
+
+function acidOff(){
+    console.log("ACID OFF");
+    setStatus("ACID OFF");
+}
+
+</script>
 
 </body>
 </html>
