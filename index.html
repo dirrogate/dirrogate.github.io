@@ -128,6 +128,21 @@
 
     <script>
         const replComponent = document.getElementById('main-repl');
+        let globalSampleMap = null; // Holds the JSON manifest once fetched
+
+        // --- ASYNC JSON LOADER ---
+        async function loadSampleManifest() {
+            try {
+                const response = await fetch('./sounds/samples.json');
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                globalSampleMap = await response.json();
+                console.log("Sample map successfully loaded:", globalSampleMap);
+            } catch (e) {
+                console.error("Could not load samples.json map. Falling back to empty object.", e);
+                globalSampleMap = {};
+            }
+        }
+        loadSampleManifest();
 
         // Central processing pipeline to pass data maps straight to CodeMirror structures
         function injectMacroCode(patternCode) {
@@ -141,10 +156,17 @@
 
         // --- PERFORMANCE ROUTING HOOKS ---
 
-// Macro 1: Techno Beat Setup (Using your actual repository filenames)
-document.getElementById('macro-techno').addEventListener('click', () => {
-    injectMacroCode(`// Dynamically routes to your actual GitHub or local files\nsamples({\n  bd: ["bd/11_bd_mot4i.wav"],\n  cp: ["cp/your_actual_clap_filename.wav"]\n}, "./sounds/");\n\ns("bd cp bd cp").slow(2).room(0.2).grid()`);
-});
+        // Macro 1: Techno Beat Setup (Now fully dynamic via JSON)
+        document.getElementById('macro-techno').addEventListener('click', () => {
+            if (!globalSampleMap) {
+                alert("Manifest map is still loading from disk...");
+                return;
+            }
+            // Convert live JSON map into a string payload Strudel can execute
+            const serializedMap = JSON.stringify(globalSampleMap, null, 2);
+            
+            injectMacroCode(`// Map injected dynamically from samples.json\nsamples(${serializedMap}, "./sounds/");\n\n// Use indices safely now!\ns("bd:0 cp:0 bd:1 bd:2").slow(2).room(0.2).grid()`);
+        });
 
         // Macro 2: Acid Line Setup (Internal Synth Routing + Interactive Piano Roll)
         document.getElementById('macro-acid').addEventListener('click', () => {
