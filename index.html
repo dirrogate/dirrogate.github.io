@@ -115,8 +115,7 @@
 <body>
 
     <div id="repl-container">
-        <strudel-editor id="main-repl">
-</strudel-editor>
+        <strudel-editor id="main-repl"></strudel-editor>
     </div>
 
     <div id="hud-overlay">
@@ -133,16 +132,46 @@
         // --- ASYNC JSON LOADER ---
         async function loadSampleManifest() {
             try {
+                // Fetching manifest map from inside the sounds directory
                 const response = await fetch('./sounds/samples.json');
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 globalSampleMap = await response.json();
                 console.log("Sample map successfully loaded:", globalSampleMap);
+                
+                // Kick off automatic compiler initialization to handle direct typing
+                primeEngineWithSamples();
             } catch (e) {
                 console.error("Could not load samples.json map. Falling back to empty object.", e);
                 globalSampleMap = {};
             }
         }
         loadSampleManifest();
+
+        // --- AUTOMATIC BACKGROUND INITIALIZATION ---
+        // This tracks the web component lifecycles, sets up absolute asset URLs, and caches everything
+        function primeEngineWithSamples() {
+            const checkEditorReady = setInterval(() => {
+                if (replComponent && replComponent.editor) {
+                    clearInterval(checkEditorReady);
+                    try {
+                        // Dynamically resolve relative directories to absolute URLs to survive sandbox execution contexts
+                        const absoluteBase = new URL('sounds/', window.location.href).href;
+                        
+                        // Strip internal configuration keys to avoid runtime engine parsing errors
+                        const cleanMap = { ...globalSampleMap };
+                        delete cleanMap._base;
+                        const serializedMap = JSON.stringify(cleanMap);
+                        
+                        // Seed the editor with the dynamic mapping layout and an initial sequencing pattern
+                        replComponent.editor.setCode(`// 🎛️ Local Studio Samples Cached & Primed\nsamples(${serializedMap}, "${absoluteBase}");\n\n// Write your live loops directly below!\ns("bd:0 cp:0 bd:1 hh:2").slow(2).grid()`);
+                        replComponent.editor.evaluate();
+                        console.log("Strudel workspace initialized with your local drum collections.");
+                    } catch (err) {
+                        console.error("Failed to inject initialization mapping script:", err);
+                    }
+                }
+            }, 100); // Check engine mounting status every 100ms
+        }
 
         // Central processing pipeline to pass data maps straight to CodeMirror structures
         function injectMacroCode(patternCode) {
@@ -156,25 +185,18 @@
 
         // --- PERFORMANCE ROUTING HOOKS ---
 
-       // Macro 1: Techno Beat Setup (Now fully dynamic via JSON)
+        // Macro 1: Techno Beat Setup (Synchronized with absolute asset tracking)
         document.getElementById('macro-techno').addEventListener('click', () => {
-            if (!globalSampleMap) {
+            if (!globalSampleMap || Object.keys(globalSampleMap).length === 0) {
                 alert("Manifest map is still loading from disk...");
                 return;
             }
-            
-            // 1. Create a clean copy and strip out metadata keys like '_base' to avoid audio engine loading errors
+            const absoluteBase = new URL('sounds/', window.location.href).href;
             const cleanMap = { ...globalSampleMap };
             delete cleanMap._base;
-            
-            // 2. DYNAMIC FIX: Turn the relative directory into an absolute URL base.
-            // This forces the sandboxed Strudel engine to route directly back to your domain assets.
-            const absoluteBase = new URL('sounds/', window.location.href).href;
-            
-            // 3. Convert clean JSON map into a string payload Strudel can execute
             const serializedMap = JSON.stringify(cleanMap, null, 2);
             
-            injectMacroCode(`// Map injected dynamically from samples.json\nsamples(${serializedMap}, "${absoluteBase}");\n\n// Use indices safely now!\ns("bd:0 cp:0 bd:1 bd:2").slow(2).room(0.2).grid()`);
+            injectMacroCode(`// Map injected dynamically from samples.json\nsamples(${serializedMap}, "${absoluteBase}");\n\n// Live pattern block\ns("bd:0 cp:0 bd:1 bd:2").slow(2).room(0.2).grid()`);
         });
 
         // Macro 2: Acid Line Setup (Internal Synth Routing + Interactive Piano Roll)
