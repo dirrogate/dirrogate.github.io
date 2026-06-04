@@ -3,72 +3,134 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quest 3 Strudel HUD</title>
+    <title>Quest 3 Strudel HUD & Editor</title>
     
+    <!-- Loads the Strudel engine context -->
     <script src="index.min.js"></script>
 
     <style>
         body {
-            margin: 0; background: #0b0b0e; color: #fff; font-family: monospace;
-            display: flex; flex-direction: column; height: 100vh;
+            margin: 0; background: #0b0b0e; color: #fff; font-family: 'Courier New', monospace;
+            display: flex; flex-direction: column; height: 100vh; overflow: hidden;
         }
+        /* HUD Top Bar */
         #hud-overlay {
-            padding: 20px; background: rgba(20, 20, 25, 0.9);
-            border-bottom: 2px solid #333; display: flex; gap: 15px;
+            padding: 15px; background: #141419;
+            border-bottom: 2px solid #252530; display: flex; gap: 12px; flex-wrap: wrap;
         }
         button {
-            background: #ff0055; border: none; color: white; padding: 12px 24px;
-            font-size: 16px; font-weight: bold; cursor: pointer; border-radius: 4px;
+            background: #ff0055; border: none; color: white; padding: 10px 20px;
+            font-size: 14px; font-weight: bold; cursor: pointer; border-radius: 4px;
+            transition: background 0.2s;
         }
+        button:hover { background: #ff2b70; }
         button:active { background: #cc0044; }
-        #stop-btn { background: #333; }
-        #console-log {
-            flex: 1; padding: 20px; overflow-y: auto; color: #00ffcc; background: #000;
+        #stop-btn { background: #333344; }
+        #stop-btn:hover { background: #444455; }
+        #run-btn { background: #00ffcc; color: #000; }
+        #run-btn:hover { background: #33ffdd; }
+
+        /* Main Live-Coding Workspace */
+        #workspace {
+            flex: 1; display: flex; flex-direction: column; padding: 15px; gap: 10px;
         }
+        label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+        
+        /* The Interactive Code Box */
+        #code-editor {
+            flex: 2; width: 100%; background: #000; color: #fff; border: 1px solid #252530;
+            border-radius: 6px; padding: 15px; font-family: inherit; font-size: 16px;
+            line-height: 1.5; resize: none; outline: none; box-sizing: border-box;
+        }
+        #code-editor:focus { border-color: #00ffcc; }
+
+        /* Console Output Logger */
+        #console-log {
+            flex: 1; background: #050508; border: 1px solid #1a1a24; border-radius: 6px;
+            padding: 12px; overflow-y: auto; font-size: 13px; color: #aaa; box-sizing: border-box;
+        }
+        .status-msg { color: #00ffcc; }
+        .error-msg { color: #ff3366; }
     </style>
 </head>
 <body>
 
+    <!-- QUEST VR HUD BUTTON LAYER -->
     <div id="hud-overlay">
-        <button id="macro-1-btn">Macro: CYtrance Beat</button>
+        <button id="macro-1-btn">Macro: Drum Loop</button>
         <button id="macro-2-btn">Macro: Acid Bassline</button>
+        <button id="run-btn">Run Code (Ctrl+Enter)</button>
         <button id="stop-btn">Hush (Stop)</button>
     </div>
 
-    <div id="console-log">
-        <h3>System Ready. Engine loaded directly from pre-compiled source.</h3>
-        <pre id="current-code">// No code running</pre>
+    <!-- REPL WORKSPACE AND INTERACTIVE INPUTS -->
+    <div id="workspace">
+        <label for="code-editor">Live Coding Editor (Type anything here):</label>
+        <textarea id="code-editor" spellcheck="false">// Click a macro button above or type your own code patterns here
+s("bd cp bd cp").slow(2).room(0.2)</textarea>
+        
+        <label>System Output & Sample Logs:</label>
+        <div id="console-log">Initializing Strudel runtime engine...</div>
     </div>
 
     <script>
-        // 2. INITIALIZE THE GLOBAL STRUDEL CONTEXT
-        // Loading the script tag above exposes 'initStrudel', 'evaluate', and 'hush' globally.
-        initStrudel();
+        const editor = document.getElementById('code-editor');
+        const consoleLog = document.getElementById('console-log');
 
-        const codeDisplay = document.getElementById('current-code');
+        function log(message, isError = false) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logClass = isError ? 'error-msg' : 'status-msg';
+            consoleLog.innerHTML += `\n[${timestamp}] <span class="${logClass}">${message}</span>`;
+            consoleLog.scrollTop = consoleLog.scrollHeight;
+        }
 
-        // Macro Executer
-        function executeStrudelMacro(codeString) {
+        // 1. INITIALIZE ENGINE + AUTO-LOAD AUDIO SAMPLES
+        // This configures Strudel to pull open-source core sample assets from github automatically
+        initStrudel({
+            prebake: () => samples('github:tidalcycles/dirt-samples')
+        });
+        log("Strudel initialized successfully. Connected to open-source audio soundbanks.");
+
+        // Central Execution Engine
+        function executeCurrentCode(codeString) {
             try {
                 evaluate(codeString);
-                codeDisplay.textContent = codeString;
+                log(`Executing: ${codeString.substring(0, 45)}${codeString.length > 45 ? '...' : ''}`);
             } catch (err) {
-                codeDisplay.textContent = `Error: ${err.message}`;
+                log(`Compilation Error: ${err.message}`, true);
             }
         }
 
-        // Wire up HUD Buttons directly to the engine
+        // 2. HUD MACRO BUTTON MAPPINGS
         document.getElementById('macro-1-btn').addEventListener('click', () => {
-            executeStrudelMacro(`s("bd cp bd cp").slow(2)`);
+            const loopCode = `s("bd cp bd cp").slow(2).room(0.2)`;
+            editor.value = loopCode; // update workspace visual text
+            executeCurrentCode(loopCode);
         });
 
         document.getElementById('macro-2-btn').addEventListener('click', () => {
-            executeStrudelMacro(`note("e2 g2 b2 d3").s("sawtooth").lpf(1200).fast(2)`);
+            const bassCode = `note("e2 g2 b2 d3").s("sawtooth").lpf(1200).fast(2)`;
+            editor.value = bassCode; 
+            executeCurrentCode(bassCode);
+        });
+
+        // 3. CODE EDITOR CONTROLS (Run / Stop)
+        document.getElementById('run-btn').addEventListener('click', () => {
+            executeCurrentCode(editor.value);
         });
 
         document.getElementById('stop-btn').addEventListener('click', () => {
             hush();
-            codeDisplay.textContent = "// Hushed";
+            log("Engine reset. Audio hushed.");
+        });
+
+        // 4. KEYBOARD SHORTCUTS FOR QUEST KEYBOARD/PC TESTING
+        editor.addEventListener('keydown', (e) => {
+            // Check for Ctrl+Enter or Shift+Enter execution combinations
+            if ((e.ctrlKey || e.shiftKey) && e.key === 'Enter') {
+                e.preventDefault();
+                executeCurrentCode(editor.value);
+            }
         });
     </script>
 </body>
