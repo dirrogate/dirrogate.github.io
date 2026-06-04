@@ -3,8 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Strudel Standalone Studio Workspace</title>
+    <title>Strudel Master Studio Workspace</title>
     
+    <script>
+        // --- 1. LOSSLESS STUDIO WAV CAPTURE INTERCEPTOR ---
+        // Monkeypatches AudioContext before the engine builds its pipeline
+        let audioContextInstance = null;
+        let recorderNode = null;
+        let isRecording = false;
+        let leftChannel = [];
+        let rightChannel = [];
+        let recordingLength = 0;
+        let sampleRate = 44100;
+
+        const OldAudioContext = window.AudioContext || window.webkitAudioContext;
+        window.AudioContext = window.webkitAudioContext = function(...args) {
+            const ctx = new OldAudioContext(...args);
+            audioContextInstance = ctx;
+            sampleRate = ctx.sampleRate;
+
+            // Raw processing node to capture exact PCM audio data stream
+            recorderNode = ctx.createScriptProcessor(4096, 2, 2);
+            recorderNode.onaudioprocess = function(e) {
+                if (!isRecording) return;
+                const left = e.inputBuffer.getChannelData(0);
+                const right = e.inputBuffer.getChannelData(1);
+                leftChannel.push(new Float32Array(left));
+                rightChannel.push(new Float32Array(right));
+                recordingLength += left.length;
+            };
+            recorderNode.connect(ctx.destination);
+            return ctx;
+        };
+
+        // Mirror active master outputs straight into the script pipeline
+        const oldConnect = AudioNode.prototype.connect;
+        AudioNode.prototype.connect = function(destination, ...args) {
+            if (audioContextInstance && destination === audioContextInstance.destination) {
+                if (recorderNode && this !== recorderNode) {
+                    oldConnect.call(this, recorderNode, 0, 0);
+                }
+            }
+            return oldConnect.call(this, destination, ...args);
+        };
+    </script>
+
     <script src="strudel-repl.js"></script>
 
     <style>
@@ -14,35 +57,43 @@
             display: flex; flex-direction: column; overflow: hidden;
         }
 
-        /* TOP PANE: Full REPL with built-in visualization canvas */
+        /* TOP SECTION: Complete working workspace with visualization grid */
         #repl-container {
             flex: 1; display: flex; flex-direction: column;
             border-bottom: 3px solid #252530; overflow: hidden;
         }
-        
-        /* Targets the full REPL wrapper */
         strudel-repl {
             width: 100%; height: 100%;
         }
 
-        /* BOTTOM PANE: Macro Controller HUD */
+        /* BOTTOM SECTION: Custom Studio Macro HUD Bar */
         #hud-overlay {
-            height: 80px; padding: 15px; background: #141419;
+            height: 85px; padding: 15px; background: #141419;
             display: flex; align-items: center; justify-content: center; gap: 15px;
             box-sizing: border-box; z-index: 10;
         }
         button {
             background: #ff0055; border: none; color: white; padding: 12px 24px;
             font-size: 14px; font-weight: bold; cursor: pointer; border-radius: 4px;
-            font-family: inherit; transition: background 0.2s;
+            font-family: inherit; transition: background 0.1s, transform 0.05s;
         }
         button:hover { background: #ff2b70; }
-        button:active { background: #cc0044; }
+        button:active { transform: scale(0.98); }
         
+        /* State & FX Colors */
         .synth-btn { background: #00ffcc; color: #000; }
         .synth-btn:hover { background: #33ffdd; }
+        .record-btn { background: #ffaa00; color: #000; }
+        .record-btn:hover { background: #ffbb33; }
+        .recording-active { background: #ff3333 !important; color: #fff; animation: pulse 1.5s infinite; }
         .stop-btn { background: #333344; }
         .stop-btn:hover { background: #444455; }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.6; }
+            100% { opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -53,47 +104,156 @@
     </div>
 
     <div id="hud-overlay">
-        <button id="macro-1">Macro: Local Drums</button>
-        <button id="macro-2" class="synth-btn">Macro: Acid Bassline (+ Pianoroll)</button>
+        <button id="macro-1">Macro: Techno Beat</button>
+        <button id="macro-2" class="synth-btn">Macro: Acid Line</button>
+        <button id="btn-record" class="record-btn">🔴 Record WAV</button>
         <button id="macro-hush" class="stop-btn">Hush (Stop)</button>
     </div>
 
     <script>
-        const replElement = document.getElementById('main-repl');
+        const replContainer = document.getElementById('main-repl');
 
-        // Safely targets the internal editor instance within the upgraded strudel-repl component
+        // Robust cross-layer targeting function to fix input communications
         function injectMacroCode(patternCode) {
-            if (replElement.editor) {
-                if (typeof replElement.editor.setCode === 'function') {
-                    replElement.editor.setCode(patternCode);
+            // Searches light DOM and internal component declarations for the workspace handle
+            const actualEditor = document.querySelector('strudel-editor') || replContainer;
+            
+            if (actualEditor && actualEditor.editor) {
+                if (typeof actualEditor.editor.setCode === 'function') {
+                    actualEditor.editor.setCode(patternCode);
                 }
-                if (typeof replElement.editor.evaluate === 'function') {
-                    replElement.editor.evaluate();
+                if (typeof actualEditor.editor.evaluate === 'function') {
+                    actualEditor.editor.evaluate();
                 }
             } else {
-                replElement.setAttribute('code', patternCode);
+                // Hard attribute fallback mechanism
+                replContainer.setAttribute('code', patternCode);
+                const internalLeaf = replContainer.querySelector && replContainer.querySelector('strudel-editor');
+                if (internalLeaf) internalLeaf.setAttribute('code', patternCode);
             }
         }
 
-        // --- HUD MACRO ACTIONS ---
+        // --- HUD ROUTING MAPS ---
 
+        // Macro 1: Techno Beat (Relative Local Storage Routing)
         document.getElementById('macro-1').addEventListener('click', () => {
-            const drumPattern = `// Maps local files safely\nsamples({\n  bd: ["bd/909.wav"],\n  cp: ["cp/clap.wav"]\n}, "http://localhost:8000/sounds/");\n\ns("bd cp bd cp").slow(2).room(0.2).grid()`;
-            injectMacroCode(drumPattern);
+            injectMacroCode(`// Local samples track mapping\nsamples({\n  bd: ["bd/909.wav"],\n  cp: ["cp/clap.wav"]\n}, "http://localhost:8000/sounds/");\n\ns("bd cp bd cp").slow(2).room(0.2).grid()`);
         });
 
+        // Macro 2: Acid Line (Internal Synth + Real-time Piano Roll Tracking)
         document.getElementById('macro-2').addEventListener('click', () => {
-            const synthPattern = `// Running pure browser oscillators with piano roll rendering\nnote("e2 g2 b2 d3").s("sawtooth").lpf(1200).fast(2).pianoroll()`;
-            injectMacroCode(synthPattern);
+            injectMacroCode(`// Pure internal synth routing\nnote("e2 g2 b2 d3").s("sawtooth").lpf(1200).fast(2).pianoroll()`);
         });
 
+        // Hush Engine Action
         document.getElementById('macro-hush').addEventListener('click', () => {
-            if (replElement.editor && typeof replElement.editor.stop === 'function') {
-                replElement.editor.stop();
+            const actualEditor = document.querySelector('strudel-editor') || replContainer;
+            if (actualEditor && actualEditor.editor && typeof actualEditor.editor.stop === 'function') {
+                actualEditor.editor.stop();
             } else {
                 injectMacroCode(`// Hushed\nhush()`);
             }
         });
+
+        // --- 2. RAW PCM TO WAV ENCODER PIPELINE ---
+        const recButton = document.getElementById('btn-record');
+        
+        recButton.addEventListener('click', () => {
+            if (!audioContextInstance) {
+                alert("Start audio performance output first to initialize context mapping.");
+                return;
+            }
+            
+            if (!isRecording) {
+                // Initialize clean data buckets and trigger capture
+                leftChannel = [];
+                rightChannel = [];
+                recordingLength = 0;
+                isRecording = true;
+                recButton.textContent = "⏹️ Stop & Save WAV";
+                recButton.classList.add('recording-active');
+            } else {
+                isRecording = false;
+                recButton.textContent = "🔴 Record WAV";
+                recButton.classList.remove('recording-active');
+                
+                // Process compiled arrays into studio-ready file format
+                const leftBuffer = flattenArray(leftChannel, recordingLength);
+                const rightBuffer = flattenArray(rightChannel, recordingLength);
+                
+                const audioBuffer = audioContextInstance.createBuffer(2, recordingLength, sampleRate);
+                audioBuffer.getChannelData(0).set(leftBuffer);
+                audioBuffer.getChannelData(1).set(rightBuffer);
+                
+                const wavBlob = encodeWAV(audioBuffer);
+                const downloadUrl = URL.createObjectURL(wavBlob);
+                
+                const anchor = document.createElement('a');
+                anchor.href = downloadUrl;
+                anchor.download = `strudel_session_${Date.now()}.wav`;
+                anchor.click();
+            }
+        });
+
+        function flattenArray(channelBuffer, totalLength) {
+            let result = new Float32Array(totalLength);
+            let offset = 0;
+            for (let i = 0; i < channelBuffer.length; i++) {
+                result.set(channelBuffer[i], offset);
+                offset += channelBuffer[i].length;
+            }
+            return result;
+        }
+
+        function encodeWAV(audioBuffer) {
+            const numOfChan = audioBuffer.numberOfChannels;
+            const sampleRate = audioBuffer.sampleRate;
+            const format = 1; // Uncompressed PCM
+            const bitDepth = 16;
+            
+            let resultLength = audioBuffer.length * numOfChan * (bitDepth / 8) + 44;
+            let arrayBuffer = new ArrayBuffer(resultLength);
+            let view = new DataView(arrayBuffer);
+            
+            function writeString(offset, string) {
+                for (let i = 0; i < string.length; i++) {
+                    view.setUint8(offset + i, string.charCodeAt(i));
+                }
+            }
+
+            // Write canonical RIFF WAV raw headers
+            writeString(0, 'RIFF');
+            view.setUint32(4, resultLength - 8, true);
+            writeString(8, 'WAVE');
+            writeString(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, format, true);
+            view.setUint16(22, numOfChan, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * numOfChan * (bitDepth / 8), true);
+            view.setUint16(32, numOfChan * (bitDepth / 8), true);
+            view.setUint16(34, bitDepth, true);
+            writeString(36, 'data');
+            view.setUint32(40, resultLength - 44, true);
+
+            // Interleave sample channels out to 16-bit integer values
+            let offset = 44;
+            const channels = [];
+            for (let i = 0; i < numOfChan; i++) {
+                channels.push(audioBuffer.getChannelData(i));
+            }
+            
+            for (let i = 0; i < audioBuffer.length; i++) {
+                for (let channel = 0; channel < numOfChan; channel++) {
+                    let sample = channels[channel][i];
+                    sample = Math.max(-1, Math.min(1, sample)); // Safeguard clipping
+                    sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+                    view.setInt16(offset, sample, true);
+                    offset += 2;
+                }
+            }
+            return new Blob([arrayBuffer], { type: 'audio/wav' });
+        }
     </script>
 </body>
 </html>
