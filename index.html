@@ -1,6 +1,136 @@
-let globalSampleMap = null; // Holds the JSON manifest once fetched
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strudel Master Studio Workspace</title>
+    
+    <script>
+        // --- 1. REAL-TIME LOSSLESS WAV INTERCEPTOR ---
+        // This block traps and clones raw PCM buffers directly from the master audio timeline
+        let audioContextInstance = null;
+        let recorderNode = null;
+        let isRecording = false;
+        let leftChannel = [];
+        let rightChannel = [];
+        let recordingLength = 0;
+        let sampleRate = 44100;
 
-        // 1. ASYNC JSON LOADER (Fires on page load)
+        const OldAudioContext = window.AudioContext || window.webkitAudioContext;
+        window.AudioContext = window.webkitAudioContext = function(...args) {
+            const ctx = new OldAudioContext(...args);
+            audioContextInstance = ctx;
+            sampleRate = ctx.sampleRate;
+
+            // Capture raw processing stream splits
+            recorderNode = ctx.createScriptProcessor(4096, 2, 2);
+            recorderNode.onaudioprocess = function(e) {
+                if (!isRecording) return;
+                const left = e.inputBuffer.getChannelData(0);
+                const right = e.inputBuffer.getChannelData(1);
+                
+                // Deep clone allocation ensures browser reuse loops don't wipe memory
+                leftChannel.push(new Float32Array(left));
+                rightChannel.push(new Float32Array(right));
+                recordingLength += left.length;
+            };
+            
+            recorderNode.connect(ctx.destination);
+            return ctx;
+        };
+
+        // Intercept final destination node connections to pipe output straight to the encoder
+        const oldConnect = AudioNode.prototype.connect;
+        AudioNode.prototype.connect = function(destination, output, input) {
+            if (audioContextInstance && destination === audioContextInstance.destination) {
+                if (recorderNode && this !== recorderNode) {
+                    try {
+                        oldConnect.call(this, recorderNode, output, 0);
+                    } catch (e) {
+                        console.error("Audio recording routing bypass error:", e);
+                    }
+                }
+            }
+            return oldConnect.call(this, destination, output, input);
+        };
+    </script>
+
+    <script src="strudel-repl.js"></script>
+
+    <style>
+        html, body {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background: #0b0b0e; color: #fff; font-family: monospace;
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+
+        /* FLEXIBLE ENGINE VIEWPORT CONTAINER */
+        #repl-container {
+            flex: 1; 
+            display: flex; 
+            flex-direction: column;
+            overflow-y: auto; /* Allows page scrolling to view inline canvases like piano rolls */
+            border-bottom: 3px solid #252530;
+            background: #0b0b0e;
+        }
+
+        /* Correct custom web component element formatting */
+        strudel-editor {
+            display: block;
+            width: 100%;
+            min-height: 450px;
+            box-sizing: border-box;
+        }
+
+        /* CORE PERFORMANCE HUD INTERFACE */
+        #hud-overlay {
+            height: 85px; padding: 15px; background: #141419;
+            display: flex; align-items: center; justify-content: center; gap: 15px;
+            box-sizing: border-box; z-index: 100;
+        }
+        button {
+            background: #ff0055; border: none; color: white; padding: 12px 24px;
+            font-size: 14px; font-weight: bold; cursor: pointer; border-radius: 4px;
+            font-family: inherit; transition: background 0.1s, transform 0.05s;
+        }
+        button:hover { background: #ff2b70; }
+        button:active { transform: scale(0.98); }
+        
+        /* Functional Module Palette Mapping */
+        .acid-btn { background: #00ffcc; color: #000; }
+        .acid-btn:hover { background: #33ffdd; }
+        .record-btn { background: #ffaa00; color: #000; }
+        .record-btn:hover { background: #ffbb33; }
+        .recording-active { background: #ff3333 !important; color: #fff; animation: pulse 1.5s infinite; }
+        .stop-btn { background: #333344; }
+        .stop-btn:hover { background: #444455; }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.6; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="repl-container">
+        <strudel-editor id="main-repl">
+</strudel-editor>
+    </div>
+
+    <div id="hud-overlay">
+        <button id="macro-techno">Macro: Techno Beat</button>
+        <button id="macro-acid" class="acid-btn">Macro: Acid Line</button>
+        <button id="btn-record" class="record-btn">🔴 Record WAV</button>
+        <button id="macro-hush" class="stop-btn">Hush (Stop)</button>
+    </div>
+
+    <script>
+        const replComponent = document.getElementById('main-repl');
+        let globalSampleMap = null; // Holds the JSON manifest once fetched
+
+        // --- ASYNC JSON LOADER ---
         async function loadSampleManifest() {
             try {
                 const response = await fetch('./sounds/samples.json');
@@ -14,7 +144,7 @@ let globalSampleMap = null; // Holds the JSON manifest once fetched
         }
         loadSampleManifest();
 
-        // 2. CENTRAL INJECTION PIPELINE
+        // Central processing pipeline to pass data maps straight to CodeMirror structures
         function injectMacroCode(patternCode) {
             if (replComponent && replComponent.editor) {
                 replComponent.editor.setCode(patternCode);
@@ -24,21 +154,26 @@ let globalSampleMap = null; // Holds the JSON manifest once fetched
             }
         }
 
-        // 3. PERFORMANCE MACRO ROUTING HOOKS
+        // --- PERFORMANCE ROUTING HOOKS ---
 
-        // Macro 1: Techno Beat (Now fully dynamic via JSON)
+        // Macro 1: Techno Beat Setup (Now fully dynamic via JSON)
         document.getElementById('macro-techno').addEventListener('click', () => {
             if (!globalSampleMap) {
                 alert("Manifest map is still loading from disk...");
                 return;
             }
-            // Convert live JSON map into a string payload Strudel can execute
-            const serializedMap = JSON.stringify(globalSampleMap, null, 2);
+            
+            // Create a clean copy and strip out metadata keys like '_base' to avoid audio engine loading errors
+            const cleanMap = { ...globalSampleMap };
+            delete cleanMap._base;
+            
+            // Convert clean JSON map into a string payload Strudel can execute
+            const serializedMap = JSON.stringify(cleanMap, null, 2);
             
             injectMacroCode(`// Map injected dynamically from samples.json\nsamples(${serializedMap}, "./sounds/");\n\n// Use indices safely now!\ns("bd:0 cp:0 bd:1 bd:2").slow(2).room(0.2).grid()`);
         });
 
-        // Macro 2: Acid Line Setup
+        // Macro 2: Acid Line Setup (Internal Synth Routing + Interactive Piano Roll)
         document.getElementById('macro-acid').addEventListener('click', () => {
             injectMacroCode(`// Internal hardware oscillator pipeline\nnote("e2 g2 b2 d3").s("sawtooth").lpf(1200).fast(2).pianoroll()`);
         });
@@ -52,5 +187,105 @@ let globalSampleMap = null; // Holds the JSON manifest once fetched
             }
         });
 
-        // --- 4. STUDIO GRADE WAV RE-COMPILER ---
-        // (Your existing 'const recButton = ...' code continues immediately below here)
+        // --- 2. STUDIO GRADE MONOPHONIC/STEREO WAV RE-COMPILER ---
+        const recButton = document.getElementById('btn-record');
+        
+        recButton.addEventListener('click', () => {
+            if (!audioContextInstance) {
+                alert("Please fire up an audio macro profile first to establish system canvas connections.");
+                return;
+            }
+            
+            if (!isRecording) {
+                // Initialize clean data arrays and engage audio collection threads
+                leftChannel = [];
+                rightChannel = [];
+                recordingLength = 0;
+                isRecording = true;
+                recButton.textContent = "⏹️ Stop & Save WAV";
+                recButton.classList.add('recording-active');
+            } else {
+                isRecording = false;
+                recButton.textContent = "🔴 Record WAV";
+                recButton.classList.remove('recording-active');
+                
+                // Transform internal float queues out to canonical disk structures
+                const leftBuffer = flattenArray(leftChannel, recordingLength);
+                const rightBuffer = flattenArray(rightChannel, recordingLength);
+                
+                const audioBuffer = audioContextInstance.createBuffer(2, recordingLength, sampleRate);
+                audioBuffer.getChannelData(0).set(leftBuffer);
+                audioBuffer.getChannelData(1).set(rightBuffer);
+                
+                const wavBlob = encodeWAV(audioBuffer);
+                const downloadUrl = URL.createObjectURL(wavBlob);
+                
+                const anchor = document.createElement('a');
+                anchor.href = downloadUrl;
+                anchor.download = `strudel_studio_bounce_${Date.now()}.wav`;
+                anchor.click();
+            }
+        });
+
+        function flattenArray(channelBuffer, totalLength) {
+            let result = new Float32Array(totalLength);
+            let offset = 0;
+            for (let i = 0; i < channelBuffer.length; i++) {
+                result.set(channelBuffer[i], offset);
+                offset += channelBuffer[i].length;
+            }
+            return result;
+        }
+
+        function encodeWAV(audioBuffer) {
+            const numOfChan = audioBuffer.numberOfChannels;
+            const sampleRate = audioBuffer.sampleRate;
+            const format = 1; // Uncompressed Linear LPCM Encoding Block
+            const bitDepth = 16;
+            
+            let resultLength = audioBuffer.length * numOfChan * (bitDepth / 8) + 44;
+            let arrayBuffer = new ArrayBuffer(resultLength);
+            let view = new DataView(arrayBuffer);
+            
+            function writeString(offset, string) {
+                for (let i = 0; i < string.length; i++) {
+                    view.setUint8(offset + i, string.charCodeAt(i));
+                }
+            }
+
+            // Assemble Standard RIFF Wave File Header Chunks
+            writeString(0, 'RIFF');
+            view.setUint32(4, resultLength - 8, true);
+            writeString(8, 'WAVE');
+            writeString(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, format, true);
+            view.setUint16(22, numOfChan, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * numOfChan * (bitDepth / 8), true);
+            view.setUint16(32, numOfChan * (bitDepth / 8), true);
+            view.setUint16(34, bitDepth, true);
+            writeString(36, 'data');
+            view.setUint32(40, resultLength - 44, true);
+
+            // Interleave floating points downward into studio-aligned 16-bit integers
+            let offset = 44;
+            const channels = [];
+            for (let i = 0; i < numOfChan; i++) {
+                channels.push(audioBuffer.getChannelData(i));
+            }
+            
+            for (let i = 0; i < audioBuffer.length; i++) {
+                for (let channel = 0; channel < numOfChan; channel++) {
+                    let sample = channels[channel][i];
+                    sample = Math.max(-1, Math.min(1, sample)); // Hard ceiling safety clip
+                    sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+                    view.setInt16(offset, sample, true);
+                    offset += 2;
+                }
+            }
+            return new Blob([arrayBuffer], { type: 'audio/wav' });
+        }
+    </script>
+</body>
+</html>
