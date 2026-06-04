@@ -132,14 +132,16 @@
         // --- ASYNC JSON LOADER ---
         async function loadSampleManifest() {
             try {
-                // Fetching manifest map from inside the sounds directory
+                // Fetch mapping asset data directly from inside the local sounds directory
                 const response = await fetch('./sounds/samples.json');
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 globalSampleMap = await response.json();
                 console.log("Sample map successfully loaded:", globalSampleMap);
                 
-                // Kick off automatic compiler initialization to handle direct typing
-                primeEngineWithSamples();
+                // If web component editor mounted before network request finished, populate immediately
+                if (replComponent && replComponent.editor) {
+                    setupDefaultWorkspace();
+                }
             } catch (e) {
                 console.error("Could not load samples.json map. Falling back to empty object.", e);
                 globalSampleMap = {};
@@ -147,31 +149,32 @@
         }
         loadSampleManifest();
 
-        // --- AUTOMATIC BACKGROUND INITIALIZATION ---
-        // This tracks the web component lifecycles, sets up absolute asset URLs, and caches everything
-        function primeEngineWithSamples() {
-            const checkEditorReady = setInterval(() => {
-                if (replComponent && replComponent.editor) {
-                    clearInterval(checkEditorReady);
-                    try {
-                        // Dynamically resolve relative directories to absolute URLs to survive sandbox execution contexts
-                        const absoluteBase = new URL('sounds/', window.location.href).href;
-                        
-                        // Strip internal configuration keys to avoid runtime engine parsing errors
-                        const cleanMap = { ...globalSampleMap };
-                        delete cleanMap._base;
-                        const serializedMap = JSON.stringify(cleanMap);
-                        
-                        // Seed the editor with the dynamic mapping layout and an initial sequencing pattern
-                        replComponent.editor.setCode(`// 🎛️ Local Studio Samples Cached & Primed\nsamples(${serializedMap}, "${absoluteBase}");\n\n// Write your live loops directly below!\ns("bd:0 cp:0 bd:1 hh:2").slow(2).grid()`);
-                        replComponent.editor.evaluate();
-                        console.log("Strudel workspace initialized with your local drum collections.");
-                    } catch (err) {
-                        console.error("Failed to inject initialization mapping script:", err);
-                    }
-                }
-            }, 100); // Check engine mounting status every 100ms
+        // --- WORKSPACE INITIALIZER TEMPLATE ---
+        // Dynamically seeds the engine on startup with full, absolute URL routing mappings
+        function setupDefaultWorkspace() {
+            if (replComponent && replComponent.editor && globalSampleMap) {
+                const cleanMap = { ...globalSampleMap };
+                delete cleanMap._base; // Strip internal fallback configurations
+                
+                // CRITICAL FIX: Convert relative path context to absolute domain routing strings
+                const absoluteBase = new URL('sounds/', window.location.href).href;
+                const serializedMap = JSON.stringify(cleanMap, null, 2);
+
+                const defaultCode = `// 🎛️ Your Local Studio Drums are mapped and ready!\nsamples(${serializedMap}, "${absoluteBase}");\n\n// Run this code block once (Ctrl+Enter or Play) to load assets into session memory.\n// Once initialized, you can wipe everything or type drum elements dynamically on the fly!\ns("bd:0 cp:0 bd:1 hh:2").slow(2).grid()`;
+                
+                replComponent.editor.setCode(defaultCode);
+            }
         }
+
+        // Monitoring thread to latch onto CodeMirror / Strudel context elements at boot
+        const checkEditorReady = setInterval(() => {
+            if (replComponent && replComponent.editor) {
+                clearInterval(checkEditorReady);
+                if (globalSampleMap) {
+                    setupDefaultWorkspace();
+                }
+            }
+        }, 100);
 
         // Central processing pipeline to pass data maps straight to CodeMirror structures
         function injectMacroCode(patternCode) {
@@ -185,18 +188,20 @@
 
         // --- PERFORMANCE ROUTING HOOKS ---
 
-        // Macro 1: Techno Beat Setup (Synchronized with absolute asset tracking)
+        // Macro 1: Techno Beat Setup (Synchronized via dynamic absolute asset resolution maps)
         document.getElementById('macro-techno').addEventListener('click', () => {
             if (!globalSampleMap || Object.keys(globalSampleMap).length === 0) {
                 alert("Manifest map is still loading from disk...");
                 return;
             }
-            const absoluteBase = new URL('sounds/', window.location.href).href;
+            
             const cleanMap = { ...globalSampleMap };
             delete cleanMap._base;
+            
+            const absoluteBase = new URL('sounds/', window.location.href).href;
             const serializedMap = JSON.stringify(cleanMap, null, 2);
             
-            injectMacroCode(`// Map injected dynamically from samples.json\nsamples(${serializedMap}, "${absoluteBase}");\n\n// Live pattern block\ns("bd:0 cp:0 bd:1 bd:2").slow(2).room(0.2).grid()`);
+            injectMacroCode(`// Map injected dynamically from samples.json\nsamples(${serializedMap}, "${absoluteBase}");\n\n// Use indices safely now!\ns("bd:0 cp:0 bd:1 bd:2").slow(2).room(0.2).grid()`);
         });
 
         // Macro 2: Acid Line Setup (Internal Synth Routing + Interactive Piano Roll)
