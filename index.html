@@ -156,21 +156,25 @@
 
         // --- PERFORMANCE ROUTING HOOKS ---
 
-        // Macro 1: Techno Beat Setup (Now fully dynamic via JSON)
+       // Macro 1: Techno Beat Setup (Now fully dynamic via JSON)
         document.getElementById('macro-techno').addEventListener('click', () => {
             if (!globalSampleMap) {
                 alert("Manifest map is still loading from disk...");
                 return;
             }
             
-            // Create a clean copy and strip out metadata keys like '_base' to avoid audio engine loading errors
+            // 1. Create a clean copy and strip out metadata keys like '_base' to avoid audio engine loading errors
             const cleanMap = { ...globalSampleMap };
             delete cleanMap._base;
             
-            // Convert clean JSON map into a string payload Strudel can execute
+            // 2. DYNAMIC FIX: Turn the relative directory into an absolute URL base.
+            // This forces the sandboxed Strudel engine to route directly back to your domain assets.
+            const absoluteBase = new URL('sounds/', window.location.href).href;
+            
+            // 3. Convert clean JSON map into a string payload Strudel can execute
             const serializedMap = JSON.stringify(cleanMap, null, 2);
             
-            injectMacroCode(`// Map injected dynamically from samples.json\nsamples(${serializedMap}, "./sounds/");\n\n// Use indices safely now!\ns("bd:0 cp:0 bd:1 bd:2").slow(2).room(0.2).grid()`);
+            injectMacroCode(`// Map injected dynamically from samples.json\nsamples(${serializedMap}, "${absoluteBase}");\n\n// Use indices safely now!\ns("bd:0 cp:0 bd:1 bd:2").slow(2).room(0.2).grid()`);
         });
 
         // Macro 2: Acid Line Setup (Internal Synth Routing + Interactive Piano Roll)
