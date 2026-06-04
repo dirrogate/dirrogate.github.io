@@ -141,10 +141,10 @@
 
         // --- PERFORMANCE ROUTING HOOKS ---
 
-        // Macro 1: Techno Beat Setup (Relative Path Asset Delivery Mapping)
-        document.getElementById('macro-techno').addEventListener('click', () => {
-            injectMacroCode(`// Local infrastructure audio array map\nsamples({\n  bd: ["bd/909.wav"],\n  cp: ["cp/clap.wav"]\n}, "http://localhost:8000/sounds/");\n\ns("bd cp bd cp").slow(2).room(0.2).grid()`);
-        });
+// Macro 1: Techno Beat Setup (Using your actual repository filenames)
+document.getElementById('macro-techno').addEventListener('click', () => {
+    injectMacroCode(`// Dynamically routes to your actual GitHub or local files\nsamples({\n  bd: ["bd/11_bd_mot4i.wav"],\n  cp: ["cp/your_actual_clap_filename.wav"]\n}, "./sounds/");\n\ns("bd cp bd cp").slow(2).room(0.2).grid()`);
+});
 
         // Macro 2: Acid Line Setup (Internal Synth Routing + Interactive Piano Roll)
         document.getElementById('macro-acid').addEventListener('click', () => {
