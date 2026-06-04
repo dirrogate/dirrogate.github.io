@@ -1,5 +1,5 @@
 {
-  "_base": "sounds/",
+ "_base": "https://raw.githubusercontent.com/tidalcycles/uzu-drumkit/main/",
   "bd": [
     "bd/10_bd_switchangel.wav",
     "bd/11_bd_mot4i.wav",
