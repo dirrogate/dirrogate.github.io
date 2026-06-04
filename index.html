@@ -14,7 +14,7 @@
             display: flex; flex-direction: column; overflow: hidden;
         }
 
-        /* TOP PANE: Official Strudel Working REPL Workspace */
+        /* TOP PANE: Main working REPL workspace */
         #repl-container {
             flex: 1; display: flex; flex-direction: column;
             border-bottom: 3px solid #252530; overflow: hidden;
@@ -23,7 +23,7 @@
             width: 100%; height: 100%;
         }
 
-        /* BOTTOM PANE: Custom VR Macro HUD Buttons */
+        /* BOTTOM PANE: Macro Controller HUD */
         #hud-overlay {
             height: 80px; padding: 15px; background: #141419;
             display: flex; align-items: center; justify-content: center; gap: 15px;
@@ -36,6 +36,10 @@
         }
         button:hover { background: #ff2b70; }
         button:active { background: #cc0044; }
+        
+        /* Context Specific UI Stylings */
+        .synth-btn { background: #00ffcc; color: #000; }
+        .synth-btn:hover { background: #33ffdd; }
         .stop-btn { background: #333344; }
         .stop-btn:hover { background: #444455; }
     </style>
@@ -48,47 +52,49 @@
     </div>
 
     <div id="hud-overlay">
-        <button id="macro-1">Macro: CYtrance Beat</button>
-        <button id="macro-2">Macro: Acid Bassline</button>
+        <button id="macro-1">Macro: Local Drums</button>
+        <button id="macro-2" class="synth-btn">Macro: Acid Bassline (Internal Synth)</button>
         <button id="macro-hush" class="stop-btn">Hush (Stop)</button>
     </div>
 
     <script>
         const replElement = document.getElementById('main-repl');
 
-        // Cleanly injects new macro patterns into the interactive editor frame
+        // Cleanly injects code directly into the editor interface
         function injectMacroCode(patternCode) {
-            const baseConfig = `// --- LOCAL SOUNDBANK CONFIGURATION ---\nsamples({\n  bd: ["bd/909.wav"],\n  cp: ["cp/clap.wav"]\n}, "http://localhost:8000/sounds/");\n\n// --- ACTIVE PERFORMANCE MACRO ---\n`;
-            const fullCode = baseConfig + patternCode;
-            
             if (replElement.editor) {
-                // If the web component has initialized, use its native API to set and evaluate code
                 if (typeof replElement.editor.setCode === 'function') {
-                    replElement.editor.setCode(fullCode);
+                    replElement.editor.setCode(patternCode);
                 }
                 if (typeof replElement.editor.evaluate === 'function') {
                     replElement.editor.evaluate();
                 }
             } else {
-                // Fallback fallback if user clicks a button before DOM components upgrade completely
-                replElement.setAttribute('code', fullCode);
+                // Initial load fallback layer
+                replElement.setAttribute('code', patternCode);
             }
         }
 
-        // WIRE UP HUD MACRO ACTIONS
+        // --- WIRE UP HUD MACRO ACTIONS ---
+
+        // Macro 1: Drums (Will remain silent on GitHub Pages until hosted locally on port 8000)
         document.getElementById('macro-1').addEventListener('click', () => {
-            injectMacroCode(`s("bd cp bd cp").slow(2).room(0.3)`);
+            const drumPattern = `// Maps local files safely without crashing the internal synth paths\nsamples({\n  bd: ["bd/909.wav"],\n  cp: ["cp/clap.wav"]\n}, "http://localhost:8000/sounds/");\n\ns("bd cp bd cp").slow(2).room(0.2)`;
+            injectMacroCode(drumPattern);
         });
 
+        // Macro 2: Pure Internal Synth Waveforms (Works immediately anywhere, zero network footprint)
         document.getElementById('macro-2').addEventListener('click', () => {
-            injectMacroCode(`note("e2 g2 b2 d3").s("sawtooth").lpf(1200).fast(2)`);
+            const synthPattern = `// Running pure browser oscillators\nnote("e2 g2 b2 d3").s("sawtooth").lpf(1200).fast(2)`;
+            injectMacroCode(synthPattern);
         });
 
+        // Global Stop Control
         document.getElementById('macro-hush').addEventListener('click', () => {
             if (replElement.editor && typeof replElement.editor.stop === 'function') {
                 replElement.editor.stop();
             } else {
-                replElement.setAttribute('code', `// Hushed\nhush()`);
+                injectMacroCode(`// Hushed\nhush()`);
             }
         });
     </script>
