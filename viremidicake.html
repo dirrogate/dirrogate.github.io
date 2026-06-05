@@ -2,124 +2,303 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>WebXR to BLE MIDI Bridge</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebXR to WebMIDI Controller Bridge</title>
     <style>
-        body { font-family: sans-serif; background: #121212; color: #e0e0e0; text-align: center; padding: 2rem; }
-        button { background: #304ffe; color: white; border: none; padding: 1rem 2rem; font-size: 1.2rem; border-radius: 4px; cursor: pointer; margin: 1rem; }
-        button:disabled { background: #424242; color: #757575; cursor: not-allowed; }
-        #log { margin-top: 2rem; padding: 1rem; background: #1e1e1e; border-radius: 4px; text-align: left; max-height: 250px; overflow-y: auto; font-family: monospace; white-space: pre-wrap; }
+        :root {
+            --bg-color: #0d0e15;
+            --panel-bg: #161923;
+            --accent-blue: #2979ff;
+            --accent-green: #00e676;
+            --text-main: #f0f2f5;
+            --text-muted: #788296;
+            --border-color: #232838;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 650px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            margin-top: 0;
+            margin-bottom: 0.5rem;
+            color: #fff;
+            text-align: center;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            text-align: center;
+            font-size: 0.95rem;
+            margin-bottom: 2rem;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        button {
+            background-color: var(--accent-blue);
+            color: white;
+            border: none;
+            padding: 1rem 1.5rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        button:hover:not(:disabled) {
+            filter: brightness(1.1);
+            transform: translateY(-1px);
+        }
+
+        button:active:not(:disabled) {
+            transform: translateY(1px);
+        }
+
+        button:disabled {
+            background-color: #2c3040;
+            color: var(--text-muted);
+            cursor: not-allowed;
+            border: 1px solid var(--border-color);
+        }
+
+        #btn-xr {
+            background-color: #7c4dff;
+        }
+
+        .status-badge {
+            background: #1f2330;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-val {
+            font-weight: bold;
+            color: #ff5252;
+        }
+
+        .status-val.connected {
+            color: var(--accent-green);
+        }
+
+        #log {
+            background-color: #090a0f;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 0.85rem;
+            color: #00e676;
+            height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            text-align: left;
+        }
+
+        .config-preview {
+            background: #1a1d29;
+            border-left: 4px solid var(--accent-blue);
+            padding: 0.75rem 1rem;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            border-radius: 0 6px 6px 0;
+            margin-bottom: 1.5rem;
+        }
     </style>
 </head>
 <body>
-    <h1>WebXR ➔ BLE MIDI Bridge</h1>
-    <p>Bypasses Horizon OS completely by tracking Touch controllers directly within a browser VR layer.</p>
-    
-    <button id="btn-ble" onclick="connectMIDI()">1. Connect Pocketmaster BLE</button>
-    <button id="btn-xr" onclick="enterXR()" disabled>2. Enter Immersive VR</button>
-    
-    <div id="log">System Status: Idle. Awaiting hardware pairing...</div>
+
+    <div class="container">
+        <h1>Oculus Touch ➔ Pocketmaster Bridge</h1>
+        <div class="subtitle">WebMIDI Alternative for Native Horizon OS Browser Implementation</div>
+
+        <div class="config-preview">
+            <strong>Active Profile Rules:</strong><br>
+            • Left Controller 'X' Button ➔ CC 60 (Val 127) [Start/Cycle]<br>
+            • Left Controller 'Y' Button ➔ CC 62 (Val 0) [Stop]<br>
+            • Left Thumbstick Y-Axis ➔ CC 66 (Continuous 0-127 Variable Volume Rate Scaling)
+        </div>
+
+        <div class="control-group">
+            <button id="btn-midi" onclick="initMidiSubsystem()">1. Initialize WebMIDI Layer</button>
+            <div class="status-badge">
+                <span>MIDI Pipeline Status:</span>
+                <span id="midi-status" class="status-val">Disconnected</span>
+            </div>
+            
+            <button id="btn-xr" onclick="enterXR()" disabled>2. Enter Immersive VR Mode</button>
+        </div>
+
+        <div id="log">System Engine Idle. Awaiting WebMIDI Initialization...</div>
+    </div>
 
     <script>
-        let midiCharacteristic = null;
+        let midiOutput = null;
         let xrSession = null;
+        
+        // Edge-trigger execution states
         let prevXPressed = false;
         let prevYPressed = false;
-        let looperVolume = 64; 
+        
+        // Continuous rate scaling variables matching python configuration profiles
+        let looperVolume = 64.0; 
         let lastSentVolume = -1;
         let lastJoystickTime = 0;
+        const JOYSTICK_THROTTLE = 40; // Polling speed limit window in milliseconds
+        const VOLUME_RATE_SCALE = 2.0; // Increment volume velocity speed steps
 
-        function log(msg) {
-            const l = document.getElementById('log');
-            l.innerText += `\n[${new Date().toLocaleTimeString()}] ${msg}`;
-            l.scrollTop = l.scrollHeight;
+        function log(message) {
+            const logBox = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logBox.innerText += `\n[${timestamp}] ${message}`;
+            logBox.scrollTop = logBox.scrollHeight;
         }
 
-        // 1. Establish the Web Bluetooth MIDI connection while on the flat 2D page
-        async function connectMIDI() {
-            try {
-                log("Opening native Bluetooth device picker...");
-                // Standard Global Bluetooth MIDI Service UUID
-                const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ services: ['03b80e5a-ede8-4b33-a751-6ce34ec4c700'] }]
-                });
-                
-                log(`Connecting to GATT Server on: ${device.name}...`);
-                const server = await device.gatt.connect();
-                const service = await server.getPrimaryService('03b80e5a-ede8-4b33-a751-6ce34ec4c700');
-                const characteristics = await service.getCharacteristics();
-                
-                midiCharacteristic = characteristics.find(c => c.properties.write || c.properties.writeWithoutResponse);
-                
-                if (midiCharacteristic) {
-                    log("SUCCESS: Pocketmaster coupled over BLE!");
-                    document.getElementById('btn-xr').disabled = false;
-                    document.getElementById('btn-ble').style.background = "#00c853";
-                } else {
-                    log("ERROR: Device connected, but no writable MIDI pipelines were exposed.");
-                }
-            } catch (err) {
-                log("BLE Setup Error: " + err.message);
-            }
-        }
-
-        // 2. Fire standard 5-byte BLE-MIDI wrapped packets
-        function sendMidiCC(cc, value) {
-            if (!midiCharacteristic) return;
-            // Structure: [BLE Header, BLE Timestamp, MIDI Status (Ch1 CC), CC ID, Value]
-            const packet = new Uint8Array([0x80, 0x80, 0xB0, cc, value]);
-            midiCharacteristic.writeValueWithoutResponse(packet)
-                .catch(e => console.error("BLE Write Failure:", e));
-        }
-
-        // 3. Request a standard immersive-vr window session
-        async function enterXR() {
-            if (!navigator.xr) {
-                log("Critical Failure: Browser does not support WebXR framework hooks.");
+        // Phase 1: Initialize WebMIDI Engine
+        async function initMidiSubsystem() {
+            if (!navigator.requestMIDIAccess) {
+                log("CRITICAL: WebMIDI interface layer missing in this browser binary.");
                 return;
             }
+
             try {
+                log("Requesting background OS-level MIDI routing permissions...");
+                const midiAccess = await navigator.requestMIDIAccess();
+                log("WebMIDI subsystem access successfully approved.");
+
+                const outputs = midiAccess.outputs.values();
+                for (let output of outputs) {
+                    const name = output.name || "";
+                    if (name.toLowerCase().includes("pocket") || name.toLowerCase().includes("master")) {
+                        midiOutput = output;
+                        break;
+                    }
+                }
+
+                // Global system fallback configuration block
+                if (!midiOutput && midiAccess.outputs.size > 0) {
+                    midiOutput = midiAccess.outputs.values().next().value;
+                    log(`Warning: Specific Pocketmaster string mismatch. Falling back to port: ${midiOutput.name}`);
+                }
+
+                if (midiOutput) {
+                    document.getElementById('midi-status').innerText = `Connected (${midiOutput.name})`;
+                    document.getElementById('midi-status').classList.add('connected');
+                    document.getElementById('btn-midi').disabled = true;
+                    document.getElementById('btn-midi').style.backgroundColor = 'var(--accent-green)';
+                    document.getElementById('btn-xr').disabled = false;
+                    log(`SUCCESS: Linked output stream to hardware pipeline port: ${midiOutput.name}`);
+                } else {
+                    log("Awaiting hardware pairing. Connect Pocketmaster over system settings/app utility first.");
+                }
+
+            } catch (err) {
+                log(`MIDI Initialization Error failure: ${err.message}`);
+            }
+        }
+
+        // Helper framework script to inject short raw MIDI messages over physical interface ports
+        function sendMidiCC(ccNumber, value) {
+            if (!midiOutput) return;
+            // 0xB0 matches Control Change status profile constraints over channel 1
+            const statusByte = 0xB0; 
+            midiOutput.send([statusByte, ccNumber, value]);
+        }
+
+        // Phase 2: Open immersive system session compositor loop safely
+        async function enterXR() {
+            if (!navigator.xr) {
+                log("CRITICAL: WebXR Device framework layer is unavailable.");
+                return;
+            }
+
+            try {
+                log("Requesting native runtime immersive-vr runtime frame space...");
                 xrSession = await navigator.xr.requestSession('immersive-vr', {
                     requiredFeatures: ['local-floor']
                 });
-                log("WebXR Immersive Session spawned successfully.");
-                
-                // WebXR demands an active WebGL layer context to step inside the headset
+                log("WebXR Session initialized. Binding graphics context pipeline steps...");
+
+                // Build background WebGL device surface pipeline context to pass check profiles inside Horizon OS
                 const canvas = document.createElement('canvas');
                 const gl = canvas.getContext('webgl', { xrCompatible: true });
-                xrSession.updateRenderState({ baseLayer: new XRWebGLLayer(xrSession, gl) });
+                await gl.makeXRCompatible();
                 
+                xrSession.updateRenderState({ 
+                    baseLayer: new XRWebGLLayer(xrSession, gl) 
+                });
+
                 xrSession.addEventListener('end', () => {
-                    log("Immersive layer collapsed. Session terminated.");
+                    log("Immersive view interface collapsed. Returning to desktop mode framework.");
                     xrSession = null;
                 });
-                
+
+                // Fire immediate execution execution thread loop
                 xrSession.requestAnimationFrame(onXRFrame);
+                log("Tracking Loop active inside headset rendering frame spaces.");
+
             } catch (err) {
-                log("Failed to spin up WebXR: " + err.message);
+                log(`WebXR Spawn Runtime Failure: ${err.message}`);
             }
         }
 
-        // 4. The High-Speed Execution Frame Loop
+        // High frequency animation cycle thread
         function onXRFrame(time, frame) {
             if (!xrSession) return;
             xrSession.requestAnimationFrame(onXRFrame);
-            
+
             const inputSources = frame.session.inputSources;
-            for (const input of inputSources) {
-                // Focus strictly on your Left Quest Touch controller
+            for (let input of inputSources) {
+                // Pinpoint Left Touch execution controllers safely
                 if (input.handedness === 'left' && input.gamepad) {
                     const gamepad = input.gamepad;
-                    
-                    // WebXR Standard Gamepad Mapping profiles for Left Touch:
+
+                    // WebXR Standard Gamepad Mapping profiles for Left Touch Controllers:
                     // buttons[4] = Button X
                     // buttons[5] = Button Y
-                    // axes[3]    = Thumbstick Y-Axis (UP is negative, DOWN is positive)
+                    // axes[3]    = Thumbstick Y-Axis (Standard layout: UP = Negative, DOWN = Positive)
                     
                     const xButton = gamepad.buttons[4];
                     const yButton = gamepad.buttons[5];
                     const joyY = gamepad.axes[3];
-                    
-                    // --- Button X: Cycle Looper State (CC 60, Value 127) ---
+
+                    // --- Left Touch 'X' Button Processing Loop ---
                     if (xButton && xButton.pressed) {
                         if (!prevXPressed) {
                             sendMidiCC(60, 127);
@@ -129,8 +308,8 @@
                     } else {
                         prevXPressed = false;
                     }
-                    
-                    // --- Button Y: Stop Looper State (CC 62, Value 0) ---
+
+                    // --- Left Touch 'Y' Button Processing Loop ---
                     if (yButton && yButton.pressed) {
                         if (!prevYPressed) {
                             sendMidiCC(62, 0);
@@ -140,32 +319,33 @@
                     } else {
                         prevYPressed = false;
                     }
-                    
-                    // --- Thumbstick Y: Continuous Volume Engine (CC 66) ---
+
+                    // --- Left Thumbstick Y Volume Logic Engine ---
                     if (joyY !== undefined) {
-                        const now = performance.now();
-                        if (now - lastJoystickTime >= 40) { // 40ms polling throttle
+                        const currentTime = performance.now();
+                        if (currentTime - lastJoystickTime >= JOYSTICK_THROTTLE) {
                             
-                            // Pushing UP yields a negative value -> Increase loop volume
+                            // WebXR layout translation: pushing UP creates a negative vector value
                             if (joyY < -0.3) {
-                                looperVolume += 2;
+                                looperVolume += VOLUME_RATE_SCALE;
                             } 
-                            // Pushing DOWN yields a positive value -> Decrease loop volume
+                            // Pushing DOWN creates a positive vector value
                             else if (joyY > 0.3) {
-                                looperVolume -= 2;
+                                looperVolume -= VOLUME_RATE_SCALE;
                             }
-                            
-                            // Clamp values to valid MIDI parameters
-                            if (looperVolume > 127) looperVolume = 127;
-                            if (looperVolume < 0) looperVolume = 0;
-                            
+
+                            // Dynamic hardware ceiling and flooring data clamps
+                            if (looperVolume > 127.0) looperVolume = 127.0;
+                            if (looperVolume < 0.0) looperVolume = 0.0;
+
                             const intVol = Math.floor(looperVolume);
+                            // Avoid spamming identical calculations across active intervals
                             if (intVol !== lastSentVolume && Math.abs(joyY) > 0.3) {
                                 sendMidiCC(66, intVol);
                                 lastSentVolume = intVol;
-                                log(`Volume Stick ➔ MIDI CC 66 [${intVol}]`);
+                                log(`Volume Stick Y ➔ MIDI CC 66 [${intVol}]`);
                             }
-                            lastJoystickTime = now;
+                            lastJoystickTime = currentTime;
                         }
                     }
                 }
