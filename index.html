@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPT fix VR MIDI Dashboard</title>
+    <title>Gpt ver2 VR MIDI Dashboard</title>
     <style>
         :root {
             --bg: #0a0a0f;
@@ -177,6 +177,8 @@
         <div class="pad-container">
             <button id="pad-play" class="drum-pad" onclick="cycleDub()">CYCLE / DUB</button>
             <button id="pad-stop" class="drum-pad" onclick="stopLoop()">STOP</button>
+            <button id="pad-playback" class="drum-pad" onclick="playLoop()">PLAY</button>
+            <button id="pad-panic" class="drum-pad" onclick="midiPanic()">MIDI PANIC</button>
         </div>
 
         <div class="fader-container">
@@ -222,14 +224,43 @@
             }
         }
 
+        let looperState = "EMPTY";
+
         function cycleDub() {
             fireCC(59, 127);
-            setTimeout(() => fireCC(60, 127), 20);
+
+            if (looperState === "EMPTY" || looperState === "STOPPED") {
+                setTimeout(() => fireCC(60, 127), 20);
+                looperState = "RECORDING";
+            } else if (looperState === "RECORDING") {
+                setTimeout(() => fireCC(62, 127), 20);
+                looperState = "PLAYING";
+            } else if (looperState === "PLAYING") {
+                setTimeout(() => fireCC(60, 127), 20);
+            }
+        }
+
+        function playLoop() {
+            fireCC(59, 127);
+            setTimeout(() => fireCC(62, 127), 20);
+            looperState = "PLAYING";
         }
 
         function stopLoop() {
             fireCC(59, 127);
             setTimeout(() => fireCC(62, 0), 20);
+            looperState = "STOPPED";
+        }
+
+        async function midiPanic() {
+            fireCC(59, 0);
+            await new Promise(r => setTimeout(r, 120));
+            fireCC(59, 127);
+            await new Promise(r => setTimeout(r, 50));
+            fireCC(62, 0);
+            await new Promise(r => setTimeout(r, 20));
+            fireCC(64, 127);
+            looperState = "EMPTY";
         }
 
 
