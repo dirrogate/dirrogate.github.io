@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VR MIDI LOOPER Dashboard</title>
+    <title>VR MIDI Dashboard v2.0</title>
     <style>
         :root {
             --bg: #0a0a0f;
@@ -15,238 +15,140 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: sans-serif;
             background-color: var(--bg);
             color: var(--text);
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            height: 100vh;
-            box-sizing: border-box;
-            user-select: none; /* Prevents text highlighting when laser-clicking */
+            margin: 0; padding: 20px;
+            display: flex; flex-direction: column; align-items: center;
+            height: 100vh; box-sizing: border-box; user-select: none;
         }
 
         .header {
-            width: 100%;
-            max-width: 800px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            padding: 15px;
-            background: var(--panel);
-            border-radius: 12px;
-            border: 1px solid #2a2d3a;
+            width: 100%; max-width: 800px; display: flex; justify-content: space-between;
+            margin-bottom: 20px; padding: 15px; background: var(--panel);
+            border-radius: 12px; border: 1px solid #2a2d3a;
         }
 
         #btn-connect {
-            background: var(--accent-blue);
-            color: #000;
-            border: none;
-            padding: 15px 30px;
-            font-size: 1.2rem;
-            font-weight: 900;
-            border-radius: 8px;
-            cursor: pointer;
-            text-transform: uppercase;
+            background: var(--accent-blue); color: #000; border: none;
+            padding: 15px 30px; font-size: 1.2rem; font-weight: 900;
+            border-radius: 8px; cursor: pointer;
         }
 
-        #btn-connect:disabled {
-            background: #2a2d3a;
-            color: #666;
-            cursor: not-allowed;
-        }
-
-        .status {
-            font-size: 1.2rem;
-            font-weight: bold;
-            color: #ff3366;
-        }
-
-        .status.active {
-            color: var(--accent-green);
-        }
-
-        /* MASSIVE VR-FRIENDLY CONTROLS */
-        .dashboard {
-            display: flex;
-            gap: 20px;
-            width: 100%;
-            max-width: 800px;
-            flex: 1;
-        }
-
-        .pad-container {
-            flex: 2;
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-
+        .dashboard { display: flex; gap: 20px; width: 100%; max-width: 800px; flex: 1; }
+        .pad-container { flex: 2; display: flex; flex-direction: column; gap: 20px; }
+        
         .drum-pad {
-            flex: 1;
-            border: none;
-            border-radius: 16px;
-            font-size: 3rem;
-            font-weight: 900;
-            color: #000;
-            cursor: pointer;
-            text-transform: uppercase;
+            flex: 1; border: none; border-radius: 16px; font-size: 2.5rem;
+            font-weight: 900; color: #000; cursor: pointer;
             transition: transform 0.05s ease, filter 0.1s ease;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
         }
 
-        .drum-pad:active {
-            transform: scale(0.95);
-            filter: brightness(1.3);
-        }
+        .drum-pad:active { transform: scale(0.95); filter: brightness(1.3); }
 
-        #pad-play {
-            background: linear-gradient(135deg, #00ff88, #00b35f);
-        }
-
-        #pad-stop {
-            background: linear-gradient(135deg, #ff3366, #cc0033);
-        }
+        #pad-play { background: linear-gradient(135deg, #00ff88, #00b35f); }
+        #pad-play.recording { background: #ffcc00; }
+        
+        #pad-stop { background: linear-gradient(135deg, #ff3366, #cc0033); }
 
         .fader-container {
-            flex: 1;
-            background: var(--panel);
-            border-radius: 16px;
-            border: 1px solid #2a2d3a;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 20px;
+            flex: 1; background: var(--panel); border-radius: 16px;
+            border: 1px solid #2a2d3a; display: flex; flex-direction: column;
+            align-items: center; padding: 20px;
         }
 
-        .fader-label {
-            font-size: 1.5rem;
-            font-weight: bold;
-            margin-bottom: 20px;
-            color: var(--accent-blue);
-        }
-
-        /* Massive Custom Range Slider for Laser Pointer */
         input[type=range] {
-            -webkit-appearance: none;
-            width: 300px; /* Length of the slider */
-            background: transparent;
-            transform: rotate(-90deg) translate(-100px, 0); /* Make it vertical */
-            transform-origin: left top;
-            margin-top: 150px; 
+            -webkit-appearance: none; width: 300px; background: transparent;
+            transform: rotate(-90deg) translate(-100px, 0); transform-origin: left top;
+            margin-top: 150px; cursor: pointer;
         }
 
         input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            height: 60px;
-            width: 90px;
-            border-radius: 10px;
-            background: var(--accent-blue);
-            cursor: pointer;
-            margin-top: -25px; 
-            box-shadow: 0 0 15px rgba(0, 229, 255, 0.5);
+            -webkit-appearance: none; height: 60px; width: 90px;
+            border-radius: 10px; background: var(--accent-blue);
         }
-
-        input[type=range]::-webkit-slider-runnable-track {
-            width: 100%;
-            height: 10px;
-            cursor: pointer;
-            background: #2a2d3a;
-            border-radius: 5px;
-        }
-
-        #vol-display {
-            margin-top: 180px;
-            font-size: 2.5rem;
-            font-weight: 900;
-        }
-
     </style>
 </head>
 <body>
 
     <div class="header">
-        <button id="btn-connect" onclick="initMidi()">Link USB Hardware</button>
-        <div id="status-text" class="status">DISCONNECTED</div>
+        <button id="btn-connect" onclick="initMidi()">Re-Scan USB Hardware</button>
+        <div id="status-text">DISCONNECTED</div>
     </div>
 
     <div class="dashboard">
         <div class="pad-container">
-            <button id="pad-play" class="drum-pad" onclick="fireCC(60, 127)">CYCLE / DUB</button>
-            <button id="pad-stop" class="drum-pad" onclick="fireCC(62, 0)">STOP</button>
+            <button id="pad-play" class="drum-pad" onclick="toggleRecord()">CYCLE / DUB</button>
+            <button id="pad-stop" class="drum-pad" 
+                onmousedown="startStopTimer()" onmouseup="clearStopTimer(event)" 
+                onmouseleave="clearStopTimer(event)">STOP / CLEAR</button>
         </div>
 
         <div class="fader-container">
-            <div class="fader-label">VOLUME</div>
             <input type="range" id="vol-slider" min="0" max="127" value="64" oninput="updateVolume(this.value)">
-            <div id="vol-display">64</div>
         </div>
     </div>
 
     <script>
         let midiOutput = null;
+        let isRecording = false;
+        let stopPressTimer = null;
 
         async function initMidi() {
-            if (!navigator.requestMIDIAccess) {
-                alert("WebMIDI API blocked. Ensure HTTPS connection.");
-                return;
-            }
-
             try {
                 const access = await navigator.requestMIDIAccess();
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
                 let found = false;
                 for (let output of access.outputs.values()) {
-                    const name = (output.name || "").toLowerCase();
-                    if (name.includes("pocket") || name.includes("master") || name.includes("usb")) {
+                    if (output.name.toLowerCase().includes("pocket") || output.name.toLowerCase().includes("master")) {
                         midiOutput = output;
                         found = true;
                         break;
                     }
                 }
-
-                if (!found && access.outputs.size > 0) {
-                    midiOutput = access.outputs.values().next().value;
-                    found = true;
-                }
-
-                if (found && midiOutput) {
-                    const btn = document.getElementById('btn-connect');
-                    const status = document.getElementById('status-text');
-                    
-                    btn.disabled = true;
-                    btn.innerText = "USB ACTIVE";
-                    status.innerText = "LINKED: " + midiOutput.name.toUpperCase();
-                    status.classList.add('active');
+                if (found) {
+                    document.getElementById('status-text').innerText = "LINKED: " + midiOutput.name;
                 } else {
-                    alert("No USB devices found. Reconnect cable.");
+                    alert("Pocketmaster not found. Check USB connection.");
                 }
-            } catch (err) {
-                console.error("MIDI Init Error:", err);
+            } catch (err) { alert("MIDI Access Denied"); }
+        }
+
+        function fireCC(cc, val) {
+            if (midiOutput) midiOutput.send([0xB0, cc, val]);
+        }
+
+        // REQUIREMENT 1: Toggle logic
+        function toggleRecord() {
+            isRecording = !isRecording;
+            const btn = document.getElementById('pad-play');
+            if (isRecording) {
+                fireCC(60, 127);
+                btn.classList.add('recording');
+            } else {
+                fireCC(60, 0); // Or 127 depending on your specific toggle hardware
+                btn.classList.remove('recording');
             }
         }
 
-        // Transmit standard Control Change
-        function fireCC(ccNumber, value) {
-            if (!midiOutput) return;
-            midiOutput.send([0xB0, ccNumber, value]);
+        // REQUIREMENT 2: Stop vs Clear (Long Press) logic
+        function startStopTimer() {
+            stopPressTimer = setTimeout(() => {
+                fireCC(64, 127); // CC 64 = Clear Command
+                console.log("Clear command sent");
+                stopPressTimer = null; // Prevent the click from firing on release
+            }, 1000); // 1 second hold
         }
 
-        // Throttle and transmit volume fader
-        let lastVolTime = 0;
+        function clearStopTimer(e) {
+            if (stopPressTimer) {
+                clearTimeout(stopPressTimer);
+                fireCC(62, 0); // CC 62 = Stop Command
+                stopPressTimer = null;
+            }
+        }
+
         function updateVolume(val) {
-            document.getElementById('vol-display').innerText = val;
-            
-            const now = performance.now();
-            // 30ms throttle prevents flooding the hardware buffer while dragging
-            if (now - lastVolTime > 30) {
-                fireCC(66, parseInt(val));
-                lastVolTime = now;
-            }
+            fireCC(66, parseInt(val));
         }
     </script>
 </body>
