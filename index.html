@@ -3,312 +3,250 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>44Quest 3 Multitasking MIDI Bridge</title>
+    <title>VR MIDI LOOPER Dashboard</title>
     <style>
         :root {
-            --bg-color: #0d0e15;
-            --panel-bg: #161923;
-            --accent-blue: #2979ff;
-            --accent-green: #00e676;
-            --text-main: #f0f2f5;
-            --text-muted: #788296;
-            --border-color: #232838;
+            --bg: #0a0a0f;
+            --panel: #161821;
+            --accent-green: #00ff88;
+            --accent-red: #ff3366;
+            --accent-blue: #00e5ff;
+            --text: #e0e0e0;
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-main);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
             margin: 0;
-            padding: 2rem;
+            padding: 20px;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            min-height: 100vh;
+            height: 100vh;
             box-sizing: border-box;
+            user-select: none; /* Prevents text highlighting when laser-clicking */
         }
 
-        .container {
+        .header {
             width: 100%;
-            max-width: 650px;
-            background: var(--panel-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 2rem;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-        }
-
-        h1 {
-            font-size: 1.8rem;
-            margin-top: 0;
-            margin-bottom: 0.5rem;
-            color: #fff;
-            text-align: center;
-        }
-
-        .subtitle {
-            color: var(--text-muted);
-            text-align: center;
-            font-size: 0.95rem;
-            margin-bottom: 2rem;
-        }
-
-        button {
-            width: 100%;
-            background-color: var(--accent-blue);
-            color: white;
-            border: none;
-            padding: 1rem 1.5rem;
-            font-size: 1.1rem;
-            font-weight: 600;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            margin-bottom: 1.5rem;
-        }
-
-        button:hover:not(:disabled) {
-            filter: brightness(1.1);
-        }
-
-        button:disabled {
-            background-color: #2c3040;
-            color: var(--text-muted);
-            cursor: not-allowed;
-            border: 1px solid var(--border-color);
-        }
-
-        .status-badge {
-            background: #1f2330;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            padding: 0.75rem 1rem;
-            font-size: 0.9rem;
+            max-width: 800px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 1.5rem;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: var(--panel);
+            border-radius: 12px;
+            border: 1px solid #2a2d3a;
         }
 
-        .status-val {
+        #btn-connect {
+            background: var(--accent-blue);
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            font-weight: 900;
+            border-radius: 8px;
+            cursor: pointer;
+            text-transform: uppercase;
+        }
+
+        #btn-connect:disabled {
+            background: #2a2d3a;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        .status {
+            font-size: 1.2rem;
             font-weight: bold;
-            color: #ff5252;
+            color: #ff3366;
         }
 
-        .status-val.connected {
+        .status.active {
             color: var(--accent-green);
         }
 
-        #log {
-            background-color: #090a0f;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            padding: 1rem;
-            font-family: "Courier New", Courier, monospace;
-            font-size: 0.85rem;
-            color: #00e676;
-            height: 250px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            text-align: left;
+        /* MASSIVE VR-FRIENDLY CONTROLS */
+        .dashboard {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            max-width: 800px;
+            flex: 1;
         }
 
-        .warning-box {
-            background: rgba(255, 152, 0, 0.1);
-            border-left: 4px solid #ff9800;
-            padding: 0.75rem 1rem;
-            font-size: 0.85rem;
-            color: #ffb74d;
-            border-radius: 0 6px 6px 0;
-            margin-bottom: 1.5rem;
+        .pad-container {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
         }
+
+        .drum-pad {
+            flex: 1;
+            border: none;
+            border-radius: 16px;
+            font-size: 3rem;
+            font-weight: 900;
+            color: #000;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: transform 0.05s ease, filter 0.1s ease;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .drum-pad:active {
+            transform: scale(0.95);
+            filter: brightness(1.3);
+        }
+
+        #pad-play {
+            background: linear-gradient(135deg, #00ff88, #00b35f);
+        }
+
+        #pad-stop {
+            background: linear-gradient(135deg, #ff3366, #cc0033);
+        }
+
+        .fader-container {
+            flex: 1;
+            background: var(--panel);
+            border-radius: 16px;
+            border: 1px solid #2a2d3a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .fader-label {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: var(--accent-blue);
+        }
+
+        /* Massive Custom Range Slider for Laser Pointer */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 300px; /* Length of the slider */
+            background: transparent;
+            transform: rotate(-90deg) translate(-100px, 0); /* Make it vertical */
+            transform-origin: left top;
+            margin-top: 150px; 
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 60px;
+            width: 90px;
+            border-radius: 10px;
+            background: var(--accent-blue);
+            cursor: pointer;
+            margin-top: -25px; 
+            box-shadow: 0 0 15px rgba(0, 229, 255, 0.5);
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 10px;
+            cursor: pointer;
+            background: #2a2d3a;
+            border-radius: 5px;
+        }
+
+        #vol-display {
+            margin-top: 180px;
+            font-size: 2.5rem;
+            font-weight: 900;
+        }
+
     </style>
 </head>
 <body>
 
-    <div class="container">
-        <h1>44 2D Multitasking MIDI Bridge</h1>
-        <div class="subtitle">Pure HTML5 Gamepad API (No WebXR Required)</div>
+    <div class="header">
+        <button id="btn-connect" onclick="initMidi()">Link USB Hardware</button>
+        <div id="status-text" class="status">DISCONNECTED</div>
+    </div>
 
-        <div class="warning-box">
-            <strong>FOCUS REQUIRED:</strong> Because this is running as a 2D panel alongside Vinyl Reality, you MUST point your laser at this window and click it to give it focus. If you click away, the OS will pause tracking your buttons.
+    <div class="dashboard">
+        <div class="pad-container">
+            <button id="pad-play" class="drum-pad" onclick="fireCC(60, 127)">CYCLE / DUB</button>
+            <button id="pad-stop" class="drum-pad" onclick="fireCC(62, 0)">STOP</button>
         </div>
 
-        <button id="btn-midi" onclick="initMidiSubsystem()">1. Initialize USB Hardware</button>
-        
-        <div class="status-badge">
-            <span>Hardware Status:</span>
-            <span id="midi-status" class="status-val">Disconnected</span>
+        <div class="fader-container">
+            <div class="fader-label">VOLUME</div>
+            <input type="range" id="vol-slider" min="0" max="127" value="64" oninput="updateVolume(this.value)">
+            <div id="vol-display">64</div>
         </div>
-
-        <div id="log">System Ready. Click the initialize button above...</div>
     </div>
 
     <script>
         let midiOutput = null;
-        let pollingActive = false;
-        
-        // Edge-trigger tracking
-        let prevXPressed = false;
-        let prevYPressed = false;
-        
-        // Continuous volume tracking
-        let looperVolume = 64.0; 
-        let lastSentVolume = -1;
-        let lastJoystickTime = 0;
-        const JOYSTICK_THROTTLE = 40; 
-        const VOLUME_RATE_SCALE = 2.0; 
 
-        function log(message) {
-            const logBox = document.getElementById('log');
-            const timestamp = new Date().toLocaleTimeString();
-            logBox.innerText += `\n[${timestamp}] ${message}`;
-            logBox.scrollTop = logBox.scrollHeight;
-        }
-
-        async function initMidiSubsystem() {
+        async function initMidi() {
             if (!navigator.requestMIDIAccess) {
-                log("CRITICAL: WebMIDI interface layer missing.");
+                alert("WebMIDI API blocked. Ensure HTTPS connection.");
                 return;
             }
 
             try {
-                log("Requesting OS-level USB MIDI routing...");
-                const midiAccess = await navigator.requestMIDIAccess();
-                
-                // 500ms delay to allow Android to build the hardware array
+                const access = await navigator.requestMIDIAccess();
                 await new Promise(resolve => setTimeout(resolve, 500));
                 
-                let foundDevice = false;
-                for (let output of midiAccess.outputs.values()) {
-                    const name = output.name || "";
-                    if (name.toLowerCase().includes("pocket") || name.toLowerCase().includes("master") || name.toLowerCase().includes("usb")) {
+                let found = false;
+                for (let output of access.outputs.values()) {
+                    const name = (output.name || "").toLowerCase();
+                    if (name.includes("pocket") || name.includes("master") || name.includes("usb")) {
                         midiOutput = output;
-                        foundDevice = true;
+                        found = true;
                         break;
                     }
                 }
 
-                // Fallback
-                if (!foundDevice && midiAccess.outputs.size > 0) {
-                    midiOutput = midiAccess.outputs.values().next().value;
-                    foundDevice = true;
-                    log(`Warning: String mismatch. Falling back to port: ${midiOutput.name}`);
+                if (!found && access.outputs.size > 0) {
+                    midiOutput = access.outputs.values().next().value;
+                    found = true;
                 }
 
-                if (foundDevice && midiOutput) {
-                    document.getElementById('midi-status').innerText = `Connected (${midiOutput.name})`;
-                    document.getElementById('midi-status').classList.add('connected');
-                    document.getElementById('btn-midi').disabled = true;
-                    document.getElementById('btn-midi').innerText = "Hardware Linked & Polling";
-                    log(`SUCCESS: Linked to hardware port: ${midiOutput.name}`);
+                if (found && midiOutput) {
+                    const btn = document.getElementById('btn-connect');
+                    const status = document.getElementById('status-text');
                     
-                    // Immediately start polling the 2D Gamepad API
-                    startGamepadPolling();
+                    btn.disabled = true;
+                    btn.innerText = "USB ACTIVE";
+                    status.innerText = "LINKED: " + midiOutput.name.toUpperCase();
+                    status.classList.add('active');
                 } else {
-                    log("ERROR: Hardware list is empty. Ensure USB is securely connected.");
+                    alert("No USB devices found. Reconnect cable.");
                 }
-
             } catch (err) {
-                log(`MIDI Initialization Error: ${err.message}`);
+                console.error("MIDI Init Error:", err);
             }
         }
 
-        function sendMidiCC(ccNumber, value) {
+        // Transmit standard Control Change
+        function fireCC(ccNumber, value) {
             if (!midiOutput) return;
             midiOutput.send([0xB0, ccNumber, value]);
         }
 
-        function startGamepadPolling() {
-            if (pollingActive) return;
-            pollingActive = true;
-            log("Gamepad Engine active. Make sure to click this window to give it focus!");
-            pollGamepads();
-        }
-
-        function pollGamepads() {
-            const gamepads = navigator.getGamepads();
+        // Throttle and transmit volume fader
+        let lastVolTime = 0;
+        function updateVolume(val) {
+            document.getElementById('vol-display').innerText = val;
             
-            for (let gp of gamepads) {
-                // Find Left Meta Touch Controller
-                if (gp && (gp.hand === 'left' || (gp.id && gp.id.toLowerCase().includes('left')))) {
-                    
-                    // --- LIVE DIAGNOSTIC LOGGER ---
-                    if (!window.btnLog) window.btnLog = {};
-                    for(let i=0; i<gp.buttons.length; i++) {
-                        if(gp.buttons[i] && gp.buttons[i].pressed) {
-                            if(!window.btnLog[i]) {
-                                log(`[DIAGNOSTIC] Pressed Button Index: [${i}]`);
-                                window.btnLog[i] = true;
-                            }
-                        } else {
-                            window.btnLog[i] = false;
-                        }
-                    }
-
-                    // In 2D Web contexts, standard mappings shift from VR mappings.
-                    // Usually: Index 0 = X, Index 1 = Y, Axes 1 = Thumbstick Y
-                    // If the diagnostic logger shows different numbers, change them here:
-                    const xButton = gp.buttons[4] || gp.buttons[0]; 
-                    const yButton = gp.buttons[5] || gp.buttons[1]; 
-                    
-                    // Find the Y axis (usually axes[1] or axes[3])
-                    let joyY = 0;
-                    if (gp.axes.length > 3 && Math.abs(gp.axes[3]) > 0.1) joyY = gp.axes[3];
-                    else if (gp.axes.length > 1 && Math.abs(gp.axes[1]) > 0.1) joyY = gp.axes[1];
-
-                    // --- Left Touch 'X' Button Processing ---
-                    if (xButton && xButton.pressed) {
-                        if (!prevXPressed) {
-                            sendMidiCC(60, 127);
-                            prevXPressed = true;
-                            log("Button X ➔ MIDI CC 60 [127]");
-                        }
-                    } else {
-                        prevXPressed = false;
-                    }
-
-                    // --- Left Touch 'Y' Button Processing ---
-                    if (yButton && yButton.pressed) {
-                        if (!prevYPressed) {
-                            sendMidiCC(62, 0);
-                            prevYPressed = true;
-                            log("Button Y ➔ MIDI CC 62 [0]");
-                        }
-                    } else {
-                        prevYPressed = false;
-                    }
-
-                    // --- Left Thumbstick Y Volume Logic ---
-                    if (joyY !== 0) {
-                        const currentTime = performance.now();
-                        if (currentTime - lastJoystickTime >= JOYSTICK_THROTTLE) {
-                            
-                            // Gamepad API: Pushing UP is usually negative
-                            if (joyY < -0.3) {
-                                looperVolume += VOLUME_RATE_SCALE;
-                            } 
-                            else if (joyY > 0.3) {
-                                looperVolume -= VOLUME_RATE_SCALE;
-                            }
-
-                            if (looperVolume > 127.0) looperVolume = 127.0;
-                            if (looperVolume < 0.0) looperVolume = 0.0;
-
-                            const intVol = Math.floor(looperVolume);
-                            if (intVol !== lastSentVolume && Math.abs(joyY) > 0.3) {
-                                sendMidiCC(66, intVol);
-                                lastSentVolume = intVol;
-                                log(`Volume Stick ➔ MIDI CC 66 [${intVol}]`);
-                            }
-                            lastJoystickTime = currentTime;
-                        }
-                    }
-                }
+            const now = performance.now();
+            // 30ms throttle prevents flooding the hardware buffer while dragging
+            if (now - lastVolTime > 30) {
+                fireCC(66, parseInt(val));
+                lastVolTime = now;
             }
-            // Loop natively without needing WebXR
-            requestAnimationFrame(pollGamepads);
         }
     </script>
 </body>
