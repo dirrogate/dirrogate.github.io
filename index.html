@@ -1,104 +1,297 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>VR MIDI Control v3</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPT fix VR MIDI Dashboard</title>
     <style>
-        body { background: #000; color: #fff; font-family: sans-serif; padding: 20px; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
-        button { font-size: 24px; padding: 30px; border-radius: 15px; border: none; cursor: pointer; color: #000; font-weight: bold; }
-        #btn-connect { background: #ff9800; grid-column: span 2; }
-        #btn-cycle { background: #00ff88; }
-        #btn-stop { background: #ff3366; }
-        .volume-container { grid-column: span 2; text-align: center; margin-top: 20px; }
-        input[type=range] { width: 100%; height: 50px; cursor: pointer; }
-        #log { margin-top: 20px; color: #0f0; font-family: monospace; }
+        :root {
+            --bg: #0a0a0f;
+            --panel: #161821;
+            --accent-green: #00ff88;
+            --accent-red: #ff3366;
+            --accent-blue: #00e5ff;
+            --text: #e0e0e0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            box-sizing: border-box;
+            user-select: none; /* Prevents text highlighting when laser-clicking */
+        }
+
+        .header {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: var(--panel);
+            border-radius: 12px;
+            border: 1px solid #2a2d3a;
+        }
+
+        #btn-connect {
+            background: var(--accent-blue);
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            font-weight: 900;
+            border-radius: 8px;
+            cursor: pointer;
+            text-transform: uppercase;
+        }
+
+        #btn-connect:disabled {
+            background: #2a2d3a;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        .status {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #ff3366;
+        }
+
+        .status.active {
+            color: var(--accent-green);
+        }
+
+        /* MASSIVE VR-FRIENDLY CONTROLS */
+        .dashboard {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            max-width: 800px;
+            flex: 1;
+        }
+
+        .pad-container {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .drum-pad {
+            flex: 1;
+            border: none;
+            border-radius: 16px;
+            font-size: 3rem;
+            font-weight: 900;
+            color: #000;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: transform 0.05s ease, filter 0.1s ease;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .drum-pad:active {
+            transform: scale(0.95);
+            filter: brightness(1.3);
+        }
+
+        #pad-play {
+            background: linear-gradient(135deg, #00ff88, #00b35f);
+        }
+
+        #pad-stop {
+            background: linear-gradient(135deg, #ff3366, #cc0033);
+        }
+
+        .fader-container {
+            flex: 1;
+            background: var(--panel);
+            border-radius: 16px;
+            border: 1px solid #2a2d3a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .fader-label {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: var(--accent-blue);
+        }
+
+        /* Massive Custom Range Slider for Laser Pointer */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 300px; /* Length of the slider */
+            background: transparent;
+            transform: rotate(-90deg) translate(-100px, 0); /* Make it vertical */
+            transform-origin: left top;
+            margin-top: 150px; 
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 60px;
+            width: 90px;
+            border-radius: 10px;
+            background: var(--accent-blue);
+            cursor: pointer;
+            margin-top: -25px; 
+            box-shadow: 0 0 15px rgba(0, 229, 255, 0.5);
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 10px;
+            cursor: pointer;
+            background: #2a2d3a;
+            border-radius: 5px;
+        }
+
+        #vol-display {
+            margin-top: 180px;
+            font-size: 2.5rem;
+            font-weight: 900;
+        }
+
     </style>
 </head>
 <body>
 
-    <button id="btn-connect" onclick="initMidi()">CONNECT & ENABLE MIDI</button>
+    <div class="header">
+        <button id="btn-connect" onclick="initMidi()">Link USB Hardware</button>
+        <div id="status-text" class="status">DISCONNECTED</div>
+    </div>
 
-    <div class="grid">
-        <button id="btn-cycle" onclick="toggleRecord()">CYCLE / DUB</button>
-        <button id="btn-stop" 
-                onmousedown="startStopTimer()" 
-                onmouseup="clearStopTimer()" 
-                onmouseleave="clearStopTimer()">STOP / HOLD TO CLEAR</button>
-        
-        <div class="volume-container">
-            <label>VOLUME (CC 66)</label>
-            <input type="range" min="0" max="127" value="64" oninput="sendVolume(this.value)">
+    <div class="dashboard">
+        <div class="pad-container">
+            <button id="pad-play" class="drum-pad" onclick="cycleDub()">CYCLE / DUB</button>
+            <button id="pad-stop" class="drum-pad" onclick="stopLoop()">STOP</button>
+        </div>
+
+        <div class="fader-container">
+            <div class="fader-label">VOLUME</div>
+            <input type="range" id="vol-slider" min="0" max="100" value="64" oninput="updateVolume(this.value)">
+            <div id="vol-display">64</div>
         </div>
     </div>
 
-    <div id="log">Status: Awaiting Connection...</div>
-
     <script>
         let midiOutput = null;
-        let isRecording = false;
-        let stopTimer = null;
 
-        function log(msg) { document.getElementById('log').innerText = msg; }
+        window.addEventListener('load', autoReconnect);
 
-        async function initMidi() {
+        async function autoReconnect() {
+            if (!navigator.requestMIDIAccess) return;
+
             try {
                 const access = await navigator.requestMIDIAccess();
+
+                for (let output of access.outputs.values()) {
+                    const name = (output.name || "").toLowerCase();
+
+                    if (
+                        name.includes("pocket") ||
+                        name.includes("master") ||
+                        name.includes("usb")
+                    ) {
+                        midiOutput = output;
+
+                        const btn = document.getElementById('btn-connect');
+                        const status = document.getElementById('status-text');
+
+                        btn.disabled = true;
+                        btn.innerText = "USB ACTIVE";
+                        status.innerText = "LINKED: " + midiOutput.name.toUpperCase();
+                        status.classList.add('active');
+                        break;
+                    }
+                }
+            } catch (e) {
+                console.log(e);
+            }
+        }
+
+        function cycleDub() {
+            fireCC(59, 127);
+            setTimeout(() => fireCC(60, 127), 20);
+        }
+
+        function stopLoop() {
+            fireCC(59, 127);
+            setTimeout(() => fireCC(62, 0), 20);
+        }
+
+
+
+        async function initMidi() {
+            if (!navigator.requestMIDIAccess) {
+                alert("WebMIDI API blocked. Ensure HTTPS connection.");
+                return;
+            }
+
+            try {
+                const access = await navigator.requestMIDIAccess();
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
                 let found = false;
                 for (let output of access.outputs.values()) {
-                    if (output.name.toLowerCase().includes("pocket") || output.name.toLowerCase().includes("master")) {
+                    const name = (output.name || "").toLowerCase();
+                    if (name.includes("pocket") || name.includes("master") || name.includes("usb")) {
                         midiOutput = output;
                         found = true;
                         break;
                     }
                 }
 
-                if (found) {
-                    log("Connected to: " + midiOutput.name);
-                    document.getElementById('btn-connect').style.background = "#00ff88";
-                    document.getElementById('btn-connect').innerText = "MIDI ACTIVE";
+                if (!found && access.outputs.size > 0) {
+                    midiOutput = access.outputs.values().next().value;
+                    found = true;
+                }
+
+                if (found && midiOutput) {
+                    const btn = document.getElementById('btn-connect');
+                    const status = document.getElementById('status-text');
+                    
+                    btn.disabled = true;
+                    btn.innerText = "USB ACTIVE";
+                    status.innerText = "LINKED: " + midiOutput.name.toUpperCase();
+                    status.classList.add('active');
                 } else {
-                    log("Error: MIDI found, but no matching device name.");
+                    alert("No USB devices found. Reconnect cable.");
                 }
             } catch (err) {
-                log("CRITICAL ERROR: " + err.message);
+                console.error("MIDI Init Error:", err);
             }
         }
 
-        function sendMidi(cc, val) {
-            if (midiOutput) {
-                midiOutput.send([0xB0, cc, val]);
-            } else {
-                log("Error: Click CONNECT first.");
+        // Transmit standard Control Change
+        function fireCC(ccNumber, value) {
+            if (!midiOutput) return;
+            midiOutput.send([0xB0, ccNumber, value]);
+        }
+
+        // Throttle and transmit volume fader
+        let lastVolTime = 0;
+        function updateVolume(val) {
+            document.getElementById('vol-display').innerText = val;
+            
+            const now = performance.now();
+            // 30ms throttle prevents flooding the hardware buffer while dragging
+            if (now - lastVolTime > 30) {
+                fireCC(66, parseInt(val));
+                lastVolTime = now;
             }
-        }
-
-        // Logic
-        function toggleRecord() {
-            isRecording = !isRecording;
-            sendMidi(60, isRecording ? 127 : 0);
-            log("Record State: " + (isRecording ? "RECORDING" : "PLAYING"));
-        }
-
-        function startStopTimer() {
-            stopTimer = setTimeout(() => {
-                sendMidi(64, 127);
-                log("COMMAND: CLEAR");
-                stopTimer = null;
-            }, 1000);
-        }
-
-        function clearStopTimer() {
-            if (stopTimer) {
-                clearTimeout(stopTimer);
-                stopTimer = null;
-                sendMidi(62, 0);
-                log("COMMAND: STOP");
-            }
-        }
-
-        function sendVolume(val) {
-            sendMidi(66, parseInt(val));
-            log("Volume: " + val);
         }
     </script>
 </body>
