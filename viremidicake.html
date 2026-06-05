@@ -2,49 +2,58 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Quest 3 Standalone MIDI Bridge</title>
+    <title>Quest 3 Direct BLE MIDI Bridge</title>
     <style>
         body { font-family: sans-serif; background: #111; color: #eee; padding: 20px; text-align: center; }
         .status { margin: 10px auto; padding: 10px; width: 80%; border-radius: 5px; font-weight: bold; }
         .connected { background: #1b4332; color: #75a47f; border: 1px solid #2d6a4f; }
         .disconnected { background: #4a1c1c; color: #e63946; border: 1px solid #660708; }
+        button { background: #0284c7; color: white; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 6px; cursor: pointer; margin-bottom: 15px; width: 84%; }
+        button:active { background: #0369a1; }
         #log { background: #000; color: #00ff66; font-family: monospace; text-align: left; padding: 10px; height: 180px; overflow-y: auto; font-size: 12px; border-radius: 4px; }
     </style>
 </head>
 <body>
 
-    <h3>Quest 3 Standalone MIDI Bridge</h3>
-    <div id="midi-status" class="status disconnected">MIDI: Disconnected</div>
+    <h3>Quest 3 Direct BLE MIDI Bridge</h3>
+    
+    <!-- User Gesture Anchor Required for Web Bluetooth -->
+    <button id="connect-btn" onclick="requestBLEConnection()">CONNECT SONICAKE HARDWARE</button>
+    
+    <div id="ble-status" class="status disconnected">BLE Link: Offline</div>
     <div id="gamepad-status" class="status disconnected">Gamepad: Press X/Y To Wake</div>
     
     <div style="text-align:left; margin: 10px auto; width: 80%;">
-        <span style="font-size: 12px; color: #888;">State Machine Logs:</span>
-        <div id="log">System Booted... Ready to couple.</div>
+        <span style="font-size: 12px; color: #888;">Coupler State Logs:</span>
+        <div id="log">System Ready. Click the button above to pair over the air...</div>
     </div>
 
     <script>
-        let midiAccess = null;
-        let midiOutput = null;
+        let bleDevice = null;
+        let midiCharacteristic = null;
 
-        // --- CORE LOOPER STATE ENGINE ---
-        let looperState = "EMPTY"; // EMPTY, RECORDING, PLAYING, STOPPED
+        // --- CORE LOOPER STATE ENGINE (Ported from VR_Midi_Coupler.py) ---
+        let looperState = "EMPTY"; 
         let looperVolume = 80.0;
         let lastSentVolume = -1;
         
-        const MIDI_CHANNEL = 0xB0; // CC Control Change
-        const CC_WAKE = 59;
-        const CC_REC = 60;
-        const CC_PLAY = 62;
-        const CC_CLEAR = 64;
-        const CC_VOL = 66;
+        const MIDI_CHANNEL = 0xB0; // Control Change Channel 1
+        const CC_WAKE = 59;        // Looper Module Wake[cite: 1]
+        const CC_REC = 60;         // Record State Toggle[cite: 1, 2]
+        const CC_PLAY = 62;        // Play/Stop State Toggle[cite: 1, 2]
+        const CC_CLEAR = 64;       // Flush Banks[cite: 1]
+        const CC_VOL = 66;         // Fader Throw[cite: 1, 2]
 
-        // Button Timing & Throttling Flags
+        // MIDI BLE Standard UUID Specifications
+        const MIDI_SERVICE_UUID = "03b80e5a-ede8-4b33-a751-6ce34ec4c700";
+        const MIDI_CHARACTERISTIC_UUID = "7772e5db-3868-4112-a1a9-f2669d106bf3";
+
         let buttonXPressed = false;
         let buttonYPressed = false;
         let yPressTime = null;
         let lastJoystickTime = 0;
-        const JOYSTICK_THROTTLE = 100; // 10Hz pacing limit (ms)
-        const VOLUME_RATE_SCALE = 2.0;  // Volume adjust scale per tick
+        const JOYSTICK_THROTTLE = 100; 
+        const VOLUME_RATE_SCALE = 2.0;  
 
         function uiLog(msg) {
             const logBox = document.getElementById('log');
@@ -52,50 +61,69 @@
             logBox.scrollTop = logBox.scrollHeight;
         }
 
-        // --- WEB MIDI CONFIGURATION ---
-        function initMIDI() {
-            if (!navigator.requestMIDIAccess) {
-                uiLog("CRITICAL: Web MIDI API not supported by this browser.");
-                return;
-            }
-            navigator.requestMIDIAccess({ sysex: false }).then(access => {
-                midiAccess = access;
-                scanPorts();
-                midiAccess.onstatechange = () => scanPorts();
-            }).catch(e => uiLog("MIDI Access Rejected: " + e));
-        }
+        // --- NATIVE WEB BLUETOOTH HANDSHAKE ---
+        async function requestBLEConnection() {
+            const statusEl = document.getElementById('ble-status');
+            uiLog("Opening native Bluetooth subsystem scan...");
+            
+            try {
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [MIDI_SERVICE_UUID] }],
+                    optionalServices: [MIDI_SERVICE_UUID]
+                });
 
-        function scanPorts() {
-            const outputs = midiAccess.outputs.values();
-            let found = false;
-            const statusEl = document.getElementById('midi-status');
+                uiLog(`Found device: ${bleDevice.name}. Connecting to GATT server...`);
+                const server = await bleDevice.gatt.connect();
+                
+                uiLog("Querying MIDI Service strings...");
+                const service = await server.getPrimaryService(MIDI_SERVICE_UUID);
+                
+                uiLog("Securing Direct Write Characteristic ports...");
+                midiCharacteristic = await service.getCharacteristic(MIDI_CHARACTERISTIC_UUID);
 
-            for (let output of outputs) {
-                if (output.name.toLowerCase().includes("pocket") || output.name.toLowerCase().includes("master")) {
-                    midiOutput = output;
-                    found = true;
-                    statusEl.innerText = `MIDI: Connected (${output.name})`;
-                    statusEl.className = "status connected";
-                    
-                    // Hardware Initialization Payload (Wake command)
-                    sendMIDI(CC_WAKE, 127);
-                    break;
-                }
-            }
-            if (!found) {
-                midiOutput = null;
-                statusEl.innerText = "MIDI: Pocket Master Offline";
+                statusEl.innerText = `BLE Link: Connected (${bleDevice.name})`;
+                statusEl.className = "status connected";
+                uiLog("SUCCESS: Wireless pipeline locked. Hardware active.");
+
+                // Watch for hardware power failures or drops
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+                // Initial hardware wake sequence mapping
+                sendMIDI(CC_WAKE, 127);
+
+            } catch (error) {
+                uiLog(`Connection Aborted: ${error.message}`);
+                statusEl.innerText = "BLE Link: Connection Failed";
                 statusEl.className = "status disconnected";
             }
         }
 
+        function onDisconnected() {
+            const statusEl = document.getElementById('ble-status');
+            statusEl.innerText = "BLE Link: Offline (Disconnected)";
+            statusEl.className = "status disconnected";
+            uiLog("WARNING: Hardware disconnected from page context.");
+            midiCharacteristic = null;
+        }
+
+        // --- ENCODE AND SEND STANDARD MIDI OVER BLE PACKETS ---
         function sendMIDI(cc, value) {
-            if (midiOutput) {
-                midiOutput.send([MIDI_CHANNEL, cc, value]);
+            if (!midiCharacteristic) return;
+            
+            try {
+                // The BLE MIDI standard requires wrapping standard 3-byte MIDI events 
+                // inside a Header and low-byte Timestamp frame. 
+                // 0x80 passes generic high-bit compliance flags to satisfy the parser.
+                const bleMidiPayload = new Uint8Array([0x80, 0x80, MIDI_CHANNEL, cc, value]);
+                
+                // Write directly over the wireless GATT stack without waiting for an OS response
+                midiCharacteristic.writeValueWithoutResponse(bleMidiPayload);
+            } catch (e) {
+                uiLog(`Payload Drop: ${e.message}`);
             }
         }
 
-        // --- GAMEPAD POLLING ENGINE ---
+        // --- GAMEPAD LOOP ---
         function pollGamepad() {
             const gamepads = navigator.getGamepads();
             let leftController = null;
@@ -103,7 +131,6 @@
 
             for (let gp of gamepads) {
                 if (gp && (gp.id.includes("Oculus") || gp.id.includes("Spatial") || gp.id.includes("Touch") || gp.id.includes("Gamepad"))) {
-                    // Verifying Left Controller via description or checking standard mapping configurations
                     leftController = gp;
                     break;
                 }
@@ -115,7 +142,7 @@
 
                 const now = Date.now();
 
-                // 1. THE X BUTTON (Index 4 on standard Quest Web mappings)
+                // 1. THE X BUTTON (Record / Play / Overdub Loop)[cite: 1]
                 if (leftController.buttons[4] && leftController.buttons[4].pressed) {
                     if (!buttonXPressed) {
                         buttonXPressed = true;
@@ -125,7 +152,7 @@
                     buttonXPressed = false;
                 }
 
-                // 2. THE Y BUTTON (Index 5 on standard Quest Web mappings)
+                // 2. THE Y BUTTON (Tap to Stop / Hold to Clear)[cite: 1]
                 if (leftController.buttons[5] && leftController.buttons[5].pressed) {
                     if (!buttonYPressed) {
                         buttonYPressed = true;
@@ -141,15 +168,15 @@
                     }
                 }
 
-                // 3. THUMBSTICK VOLUME CONTROL (Axis index 1 is Left Stick Y)
+                // 3. THUMBSTICK VOLUME CONTROL (Axis 1 = Left Stick Y)[cite: 2]
                 if (leftController.axes && leftController.axes[1] !== undefined) {
                     if (now - lastJoystickTime >= JOYSTICK_THROTTLE) {
-                        let joyY = leftController.axes[1]; // Web Gamepad standard: UP is negative, DOWN is positive
+                        let joyY = leftController.axes[1]; // Up is negative, Down is positive
                         
                         if (Math.abs(joyY) > 0.3) {
-                            if (joyY < -0.3) {       // Pushing UP
+                            if (joyY < -0.3) {       
                                 looperVolume += VOLUME_RATE_SCALE;
-                            } else if (joyY > 0.3) { // Pushing DOWN
+                            } else if (joyY > 0.3) { 
                                 looperVolume -= VOLUME_RATE_SCALE;
                             }
 
@@ -160,7 +187,7 @@
                             if (intVol !== lastSentVolume) {
                                 sendMIDI(CC_VOL, intVol);
                                 lastSentVolume = intVol;
-                                uiLog(`[VOLUME] -> ${intVol}%`);
+                                uiLog(`[VOLUME] ➔ ${intVol}%`);
                             }
                             lastJoystickTime = now;
                         }
@@ -175,14 +202,13 @@
             requestAnimationFrame(pollGamepad);
         }
 
-        // --- STATE TRANSITION MAPPINGS ---
         function handleXPress() {
             sendMIDI(CC_WAKE, 127);
             
             if (looperState === "EMPTY" || looperState === "STOPPED") {
                 sendMIDI(CC_REC, 127);
                 looperState = "RECORDING";
-                uiLog("X-Press ➔ RECORDING NEW LAYER (CC 60)");
+                uiLog("X-Press ➔ RECORDING LAYER (CC 60)");
             } 
             else if (looperState === "RECORDING") {
                 sendMIDI(CC_PLAY, 127);
@@ -191,7 +217,7 @@
             } 
             else if (looperState === "PLAYING") {
                 sendMIDI(CC_REC, 127);
-                uiLog("X-Press ➔ OVERDUB MODE TOGGLED (CC 60)");
+                uiLog("X-Press ➔ OVERDUBPING MATRIX (CC 60)");
             }
         }
 
@@ -199,20 +225,17 @@
             sendMIDI(CC_WAKE, 127);
             
             if (durationMs >= 500) {
-                // Long Hold -> Clear Matrix
                 sendMIDI(CC_CLEAR, 127);
                 looperState = "EMPTY";
-                uiLog(`Y-Hold (${(durationMs/1000).toFixed(2)}s) ➔ MEMORY ERASE FLUSH (CC 64)`);
+                uiLog(`Y-Hold (${(durationMs/1000).toFixed(2)}s) ➔ FLUSH MEMORY BANK (CC 64)`);
             } else {
-                // Quick Tap -> Stop Playback
                 sendMIDI(CC_PLAY, 0);
                 looperState = "STOPPED";
-                uiLog(`Y-Tap (${(durationMs/1000).toFixed(2)}s) ➔ STOP PRODUCTION (CC 62 Val 0)`);
+                uiLog(`Y-Tap (${(durationMs/1000).toFixed(2)}s) ➔ STOP PLAYBACK (CC 62 Val 0)`);
             }
         }
 
         window.addEventListener("DOMContentLoaded", () => {
-            initMIDI();
             requestAnimationFrame(pollGamepad);
         });
     </script>
