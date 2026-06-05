@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D USB MIDI Controller Bridge</title>
+    <title>USB MIDI ➔ 2D Gamepad Engine</title>
     <style>
         :root {
             --bg-color: #0b0c10;
@@ -107,7 +107,7 @@
             font-family: 'Courier New', Courier, monospace;
             font-size: 0.8rem;
             padding: 0.75rem;
-            height: 180px;
+            height: 240px;
             overflow-y: auto;
             border-radius: 4px;
             white-space: pre-wrap;
@@ -122,11 +122,11 @@
         <h1>USB MIDI ➔ 2D Gamepad Engine</h1>
         
         <div class="instructions">
-            <strong>Multitasking Workflow Setup:</strong><br>
-            1. Plug the Pocketmaster via USB directly into the Quest 3.<br>
-            2. Click the button below to initialize the wired USB MIDI pipeline.<br>
-            3. Float this browser window as a 2D overlay panel inside <em>Vinyl Reality Lite</em>.<br>
-            4. <strong>Note:</strong> Point and click on this window to focus input tracking before using looper buttons.
+            <strong>Wired Multitasking Setup Sequence:</strong><br>
+            1. Completely close old browser tabs to unlock the USB interface device.<br>
+            2. Cycle the USB connection from the headset to clear hanging kernel handles.<br>
+            3. Run this panel over HTTPS, then point and click to focus input tracking.<br>
+            4. Press any controller button to test structural assignment indices.
         </div>
 
         <button id="midi-init-btn" class="btn-action" onclick="connectUsbMidiEngine()">Link USB MIDI Pipeline</button>
@@ -136,7 +136,7 @@
             <div>Polling Loop: <span id="loop-status" class="status-indicator">Inactive</span></div>
         </div>
 
-        <div id="terminal-log">System initialized. Awaiting USB connection confirmation...</div>
+        <div id="terminal-log">System initialized. Ready for hardware pipeline connection...</div>
     </div>
 
     <script>
@@ -146,8 +146,9 @@
         // Input tracking edge states
         let lastStateX = false;
         let lastStateY = false;
+        let pressedButtonsTrack = {}; 
         
-        // Continuous Volume Tracking (Matching your Python scaling thresholds)
+        // Volume Tracking Configurations
         let softwareVolumeTracker = 64.0;
         let historicalVolumeValue = -1;
         let chronologicalThrottleMarker = 0;
@@ -163,50 +164,84 @@
 
         async function connectUsbMidiEngine() {
             if (!navigator.requestMIDIAccess) {
-                outputLog("CRITICAL: WebMIDI interface layers omitted from this browser build.");
+                outputLog("CRITICAL FAILURE: WebMIDI context layers missing or blocked by insecure HTTP protocols.");
                 return;
             }
 
             try {
-                outputLog("Scanning hardware architecture for wired USB buses...");
-                const accessLayer = await navigator.requestMIDIAccess();
-                
-                const connectedPorts = accessLayer.outputs.values();
-                for (let port of connectedPorts) {
-                    const identifier = port.name || "";
-                    // Explicit scan for hardwired USB device profile names
-                    if (identifier.toLowerCase().includes("pocket") || identifier.toLowerCase().includes("master")) {
-                        physicalMidiOutput = port;
-                        break;
-                    }
+                outputLog("Requesting WebMIDI access with SysEx promotion...");
+                let accessLayer;
+                try {
+                    accessLayer = await navigator.requestMIDIAccess({ sysex: true });
+                    outputLog("Success: Granted elevated SysEx permissions.");
+                } catch (e) {
+                    outputLog("SysEx requested rejected. Falling back to basic standard mode...");
+                    accessLayer = await navigator.requestMIDIAccess({ sysex: false });
+                    outputLog("Success: Granted standard permissions layer.");
                 }
 
-                // Hardwired physical fallback sequence
-                if (!physicalMidiOutput && accessLayer.outputs.size > 0) {
-                    physicalMidiOutput = accessLayer.outputs.values().next().value;
-                    outputLog(`Warning: Specific hardware descriptor missing. Forcing port: ${physicalMidiOutput.name}`);
-                }
+                // Bind hot-plug listeners to intercept manual USB cycling actions dynamically
+                accessLayer.onstatechange = (event) => {
+                    outputLog(`USB Bus Event: ${event.port.name || 'Device'} changed state to -> ${event.port.state}`);
+                    scanAndBindPorts(accessLayer);
+                };
 
-                if (physicalMidiOutput) {
-                    document.getElementById('usb-status').innerText = `READY (${physicalMidiOutput.name})`;
-                    document.getElementById('usb-status').classList.add('active');
-                    document.getElementById('midi-init-btn').disabled = true;
-                    document.getElementById('midi-init-btn').style.background = '#2c3540';
-                    document.getElementById('midi-init-btn').style.color = '#606870';
-                    
-                    // Trigger the 2D Gamepad scanning thread immediately
-                    startInterfacePollingLoop();
-                } else {
-                    outputLog("INTERFACE FAILURE: USB hardware target not detected. Check USB cable/OTG alignment.");
-                }
+                // Initial scan execution step
+                scanAndBindPorts(accessLayer);
+
             } catch (error) {
-                outputLog(`Fatal Engine Error: ${error.message}`);
+                outputLog(`Fatal Engine Error during layer request: ${error.message}`);
+            }
+        }
+
+        function scanAndBindPorts(accessLayer) {
+            const totalOutputsCount = accessLayer.outputs.size;
+            outputLog(`Hardware scan reporting: ${totalOutputsCount} available output targets.`);
+            
+            physicalMidiOutput = null; // Clear old assignments
+            
+            if (totalOutputsCount === 0) {
+                outputLog("WARN: Output array returned empty. Verify background tabs are killed and cycle USB cable.");
+                document.getElementById('usb-status').innerText = "Unlinked (Empty)";
+                document.getElementById('usb-status').classList.remove('active');
+                return;
+            }
+
+            outputLog("--- BEGIN SYSTEM HARDWARE SCAN ---");
+            const connectedPorts = accessLayer.outputs.values();
+            let portIdx = 0;
+            
+            for (let port of connectedPorts) {
+                portIdx++;
+                const identifier = port.name || "Generic USB Audio/MIDI End Device";
+                outputLog(`[Port Index ${portIdx}]: Name String -> "${identifier}"`);
+                
+                if (identifier.toLowerCase().includes("pocket") || identifier.toLowerCase().includes("master") || identifier.toLowerCase().includes("sonicake")) {
+                    physicalMidiOutput = port;
+                }
+            }
+            outputLog("--- END SYSTEM HARDWARE SCAN ---");
+
+            // Absolute hardware fallback routine if explicit naming metrics miss the device string
+            if (!physicalMidiOutput && totalOutputsCount > 0) {
+                physicalMidiOutput = accessLayer.outputs.values().next().value;
+                outputLog(`String pattern mismatch. Forcing fallback binding to entry 1: ${physicalMidiOutput.name}`);
+            }
+
+            if (physicalMidiOutput) {
+                document.getElementById('usb-status').innerText = `CONNECTED (${physicalMidiOutput.name})`;
+                document.getElementById('usb-status').classList.add('active');
+                document.getElementById('midi-init-btn').disabled = true;
+                document.getElementById('midi-init-btn').style.background = '#2c3540';
+                document.getElementById('midi-init-btn').style.color = '#606870';
+                
+                startInterfacePollingLoop();
             }
         }
 
         function transmitRawCC(controlChangeNumber, velocityPayload) {
             if (!physicalMidiOutput) return;
-            const statusByteChannelOne = 0xB0; // Standard CC Status Profile
+            const statusByteChannelOne = 0xB0; 
             physicalMidiOutput.send([statusByteChannelOne, controlChangeNumber, velocityPayload]);
         }
 
@@ -215,26 +250,35 @@
             controlLoopActive = true;
             document.getElementById('loop-status').innerText = "LIVE SCAN";
             document.getElementById('loop-status').classList.add('active');
-            outputLog("Polling Loop engaged. Awaiting 2D controller focus events...");
+            outputLog("Polling Loop engaged. Tap anywhere inside this window frame to route controller tracking.");
             executePollingCycle();
         }
 
         function executePollingCycle() {
-            // Read active Gamepads in flat 2D mode context
             const hardwareGamepads = navigator.getGamepads();
             
             for (let gamepad of hardwareGamepads) {
-                if (gamepad && gamepad.id.toLowerCase().includes("oculus") || (gamepad && gamepad.id.toLowerCase().includes("spatial"))) {
-                    
-                    // In a flat 2D standard webpage window, Meta Touch Controllers map to standard indices:
-                    // Left Controller Handedness Check
-                    if (gamepad.hand === 'left' || gamepad.id.toLowerCase().includes("left")) {
+                if (gamepad) {
+                    const idString = gamepad.id.toLowerCase();
+                    // Catch any active controller set explicitly labeled as the Left Hand unit
+                    const isLeftHandTracker = gamepad.hand === 'left' || idString.includes("left");
+
+                    if (isLeftHandTracker) {
                         
-                        // Flat 2D Web Gamepad Key Matrix:
-                        // buttons[4]: X Button
-                        // buttons[5]: Y Button
-                        // axes[0]: Thumbstick X-Axis
-                        // axes[1]: Thumbstick Y-Axis
+                        // --- LIVE INPUT OMNI-DIAGNOSTIC BLOCK ---
+                        // Loops through all controller keys to print button indices directly to the screen
+                        for (let bIdx = 0; bIdx < gamepad.buttons.length; bIdx++) {
+                            if (gamepad.buttons[bIdx] && gamepad.buttons[bIdx].pressed) {
+                                if (!pressedButtonsTrack[bIdx]) {
+                                    outputLog(`Raw Frame Diagnostic: Button index [${bIdx}] is currently pressed`);
+                                    pressedButtonsTrack[bIdx] = true;
+                                }
+                            } else {
+                                pressedButtonsTrack[bIdx] = false;
+                            }
+                        }
+
+                        // Standard 2D Gamepad Key Matrix
                         const actionButtonX = gamepad.buttons[4];
                         const actionButtonY = gamepad.buttons[5];
                         const verticalAnalogStick = gamepad.axes[1];
@@ -242,9 +286,9 @@
                         // --- Button X Evaluation Loop ---
                         if (actionButtonX && actionButtonX.pressed) {
                             if (!lastStateX) {
-                                transmitRawCC(60, 127); // Start / Cycle Looper
+                                transmitRawCC(60, 127); 
                                 lastStateX = true;
-                                outputLog("Trigger Event: Button X -> CC 60 [127]");
+                                outputLog("Midi Fire: Button X ➔ CC 60 [127]");
                             }
                         } else {
                             lastStateX = false;
@@ -253,38 +297,35 @@
                         // --- Button Y Evaluation Loop ---
                         if (actionButtonY && actionButtonY.pressed) {
                             if (!lastStateY) {
-                                transmitRawCC(62, 0); // Explicit Stop Execution
+                                transmitRawCC(62, 0); 
                                 lastStateY = true;
-                                outputLog("Trigger Event: Button Y -> CC 62 [0]");
+                                outputLog("Midi Fire: Button Y ➔ CC 62 [0]");
                             }
                         } else {
                             lastStateY = false;
                         }
 
-                        // --- Left Analog Stick Rate Scaling Engine ---
+                        // --- Analog Rate Scaling Engine ---
                         if (verticalAnalogStick !== undefined) {
                             const timeStampNow = performance.now();
                             if (timeStampNow - chronologicalThrottleMarker >= POLLING_WINDOW_LIMIT) {
                                 
-                                // Standard 2D Gamepad API mapping: Pushing UP returns a negative value
                                 if (verticalAnalogStick < -0.3) {
-                                    softwareVolumeTracker += VALUE_VELOCITY_STEP; // Increase volume when pushing up
+                                    softwareVolumeTracker += VALUE_VELOCITY_STEP; 
                                 } 
                                 else if (verticalAnalogStick > 0.3) {
-                                    softwareVolumeTracker -= VALUE_VELOCITY_STEP; // Decrease volume when pushing down
+                                    softwareVolumeTracker -= VALUE_VELOCITY_STEP; 
                                 }
 
-                                // Hardware Boundary Boundary Guards
                                 if (softwareVolumeTracker > 127.0) softwareVolumeTracker = 127.0;
                                 if (softwareVolumeTracker < 0.0) softwareVolumeTracker = 0.0;
 
                                 const quantizedOutputVolume = Math.floor(softwareVolumeTracker);
                                 
-                                // Only transmit data strings if value step changes under active deflection
                                 if (quantizedOutputVolume !== historicalVolumeValue && Math.abs(verticalAnalogStick) > 0.3) {
                                     transmitRawCC(66, quantizedOutputVolume);
                                     historicalVolumeValue = quantizedOutputVolume;
-                                    outputLog(`Continuous Move: Stick Y -> CC 66 [${quantizedOutputVolume}]`);
+                                    outputLog(`Continuous Move: Stick Y ➔ CC 66 [${quantizedOutputVolume}]`);
                                 }
                                 chronologicalThrottleMarker = timeStampNow;
                             }
@@ -292,8 +333,6 @@
                     }
                 }
             }
-
-            // High precision execution fallback loop for 2D standard windows
             requestAnimationFrame(executePollingCycle);
         }
     </script>
