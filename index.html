@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>New WebXR Inline MIDI Bridge</title>
+    <title>NEW NEW WebXR to WebMIDI Controller Bridge (Inline)</title>
     <style>
         :root {
             --bg-color: #0d0e15;
@@ -140,13 +140,18 @@
             border-radius: 0 6px 6px 0;
             margin-bottom: 1.5rem;
         }
+        
+        /* Hidden canvas required for WebXR inline mode */
+        #xr-canvas {
+            display: none;
+        }
     </style>
 </head>
 <body>
 
     <div class="container">
-        <h1>Inline WebXR ➔ USB MIDI Bridge</h1>
-        <div class="subtitle">Standard WebMIDI Connection + Inline XR Multitasking</div>
+        <h1>NEW Oculus Touch ➔ Pocketmaster Bridge</h1>
+        <div class="subtitle">Inline WebXR Multitasking Mode + USB MIDI</div>
 
         <div class="config-preview">
             <strong>Active Profile Rules:</strong><br>
@@ -156,7 +161,7 @@
         </div>
 
         <div class="control-group">
-            <button id="btn-midi" onclick="initMidiSubsystem()">1. Initialize WebMIDI Layer (USB)</button>
+            <button id="btn-midi" onclick="initMidiSubsystem()">1. Initialize USB MIDI Layer</button>
             <div class="status-badge">
                 <span>MIDI Pipeline Status:</span>
                 <span id="midi-status" class="status-val">Disconnected</span>
@@ -166,6 +171,8 @@
         </div>
 
         <div id="log">System Engine Idle. Awaiting WebMIDI Initialization...</div>
+        
+        <canvas id="xr-canvas"></canvas>
     </div>
 
     <script>
@@ -176,7 +183,7 @@
         let prevXPressed = false;
         let prevYPressed = false;
         
-        // Continuous rate scaling variables matching python configuration profiles
+        // Continuous rate scaling variables
         let looperVolume = 64.0; 
         let lastSentVolume = -1;
         let lastJoystickTime = 0;
@@ -190,7 +197,7 @@
             logBox.scrollTop = logBox.scrollHeight;
         }
 
-        // Phase 1: Initialize WebMIDI Engine (Untouched - this worked for you)
+        // Phase 1: Initialize WebMIDI Engine
         async function initMidiSubsystem() {
             if (!navigator.requestMIDIAccess) {
                 log("CRITICAL: WebMIDI interface layer missing in this browser binary.");
@@ -198,14 +205,18 @@
             }
 
             try {
-                log("Requesting background OS-level MIDI routing permissions...");
+                log("Requesting OS-level MIDI routing permissions...");
                 const midiAccess = await navigator.requestMIDIAccess();
+                
+                // Allow Android a half-second to populate the hardware arrays after granting permission
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
                 log("WebMIDI subsystem access successfully approved.");
 
                 const outputs = midiAccess.outputs.values();
                 for (let output of outputs) {
                     const name = output.name || "";
-                    if (name.toLowerCase().includes("pocket") || name.toLowerCase().includes("master")) {
+                    if (name.toLowerCase().includes("pocket") || name.toLowerCase().includes("master") || name.toLowerCase().includes("usb")) {
                         midiOutput = output;
                         break;
                     }
@@ -224,7 +235,7 @@
                     document.getElementById('btn-xr').disabled = false;
                     log(`SUCCESS: Linked output stream to hardware pipeline port: ${midiOutput.name}`);
                 } else {
-                    log("Awaiting hardware connection. 0 Devices found.");
+                    log("Awaiting hardware pairing. Close all other tabs and physically reconnect the USB cable.");
                 }
 
             } catch (err) {
@@ -238,7 +249,7 @@
             midiOutput.send([statusByte, ccNumber, value]);
         }
 
-        // Phase 2: Open INLINE session loop safely
+        // Phase 2: Open inline system session compositor loop safely
         async function enterXR() {
             if (!navigator.xr) {
                 log("CRITICAL: WebXR Device framework layer is unavailable.");
@@ -246,14 +257,15 @@
             }
 
             try {
-                log("Requesting inline WebXR runtime frame space...");
+                log("Requesting native inline tracking space...");
                 
-                // CHANGED: Removed 'immersive-vr' and 'local-floor' to force inline mode
+                // Changed from immersive-vr to inline
                 xrSession = await navigator.xr.requestSession('inline');
                 
-                log("WebXR Session initialized. Binding graphics context pipeline steps...");
+                log("WebXR Session initialized. Binding graphics context...");
 
-                const canvas = document.createElement('canvas');
+                // Build hidden background WebGL context
+                const canvas = document.getElementById('xr-canvas');
                 const gl = canvas.getContext('webgl', { xrCompatible: true });
                 await gl.makeXRCompatible();
                 
@@ -262,12 +274,12 @@
                 });
 
                 xrSession.addEventListener('end', () => {
-                    log("Inline view interface collapsed.");
+                    log("Inline tracking collapsed. Returning to idle state.");
                     xrSession = null;
                 });
 
                 xrSession.requestAnimationFrame(onXRFrame);
-                log("Tracking Loop active. Keep window visible to capture controller states.");
+                log("Tracking Loop active. Keep window pointed at to maintain focus.");
 
             } catch (err) {
                 log(`WebXR Spawn Runtime Failure: ${err.message}`);
@@ -284,24 +296,23 @@
                 if (input.handedness === 'left' && input.gamepad) {
                     const gamepad = input.gamepad;
 
-                    // --- DIAGNOSTIC BUTTON SCANNER ---
-                    // This will print to the screen exactly which index the Quest assigns to X and Y
-                    if (!window.btnTracker) window.btnTracker = {};
-                    for (let b = 0; b < gamepad.buttons.length; b++) {
-                        if (gamepad.buttons[b] && gamepad.buttons[b].pressed) {
-                            if (!window.btnTracker[b]) {
-                                // Skip logging the thumbstick hover/touch values so it doesn't spam
-                                if (b !== 3) log(`[DIAGNOSTIC] Left Button Index [${b}] is Pressed`);
-                                window.btnTracker[b] = true;
+                    // --- DIAGNOSTIC LOGGER: Prints index to screen to solve the X/Y shift ---
+                    if (!window.btnLog) window.btnLog = {};
+                    for(let i=0; i<gamepad.buttons.length; i++) {
+                        if(gamepad.buttons[i] && gamepad.buttons[i].pressed) {
+                            if(!window.btnLog[i] && i !== 3) { // Ignore thumbstick rest (usually 3)
+                                log(`[DEBUG] Left Button Index [${i}] Pressed`);
+                                window.btnLog[i] = true;
                             }
                         } else {
-                            window.btnTracker[b] = false;
+                            window.btnLog[i] = false;
                         }
                     }
 
-                    // Safely extract buttons matching standard VR mappings
-                    const xButton = gamepad.buttons.length > 4 ? gamepad.buttons[4] : null;
-                    const yButton = gamepad.buttons.length > 5 ? gamepad.buttons[5] : null;
+                    // Default mappings
+                    const xButton = gamepad.buttons.length > 4 ? gamepad.buttons[4] : gamepad.buttons[0];
+                    const yButton = gamepad.buttons.length > 5 ? gamepad.buttons[5] : gamepad.buttons[1];
+                    // Using index 3 for inline thumbstick Y axis
                     const joyY = gamepad.axes.length > 3 ? gamepad.axes[3] : undefined;
 
                     // --- Left Touch 'X' Button Processing Loop ---
