@@ -2,58 +2,50 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Quest 3 Direct BLE MIDI Bridge</title>
+    <title>Quest 3 Standalone MIDI Coupler</title>
     <style>
         body { font-family: sans-serif; background: #111; color: #eee; padding: 20px; text-align: center; }
         .status { margin: 10px auto; padding: 10px; width: 80%; border-radius: 5px; font-weight: bold; }
         .connected { background: #1b4332; color: #75a47f; border: 1px solid #2d6a4f; }
         .disconnected { background: #4a1c1c; color: #e63946; border: 1px solid #660708; }
         button { background: #0284c7; color: white; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 6px; cursor: pointer; margin-bottom: 15px; width: 84%; }
-        button:active { background: #0369a1; }
-        #log { background: #000; color: #00ff66; font-family: monospace; text-align: left; padding: 10px; height: 180px; overflow-y: auto; font-size: 12px; border-radius: 4px; }
+        #log { background: #000; color: #00ff66; font-family: monospace; text-align: left; padding: 10px; height: 220px; overflow-y: auto; font-size: 12px; border-radius: 4px; }
     </style>
 </head>
 <body>
 
-    <h3>Quest 3 Direct BLE MIDI Bridge</h3>
+    <h3>Quest 3 Standalone MIDI Coupler</h3>
     
-    <!-- User Gesture Anchor Required for Web Bluetooth -->
     <button id="connect-btn" onclick="requestBLEConnection()">CONNECT SONICAKE HARDWARE</button>
     
     <div id="ble-status" class="status disconnected">BLE Link: Offline</div>
-    <div id="gamepad-status" class="status disconnected">Gamepad: Press X/Y To Wake</div>
+    <div id="looper-status" class="status" style="background: #222; color: #aaa;">Looper State: EMPTY</div>
     
     <div style="text-align:left; margin: 10px auto; width: 80%;">
-        <span style="font-size: 12px; color: #888;">Coupler State Logs:</span>
-        <div id="log">System Ready. Click the button above to pair over the air...</div>
+        <span style="font-size: 12px; color: #888;">Live Terminal Logs:</span>
+        <div id="log">System Ready. Awaiting pairing gesture...</div>
     </div>
 
     <script>
         let bleDevice = null;
         let midiCharacteristic = null;
 
-        // --- CORE LOOPER STATE ENGINE (Ported from VR_Midi_Coupler.py) ---
-        let looperState = "EMPTY"; 
-        let looperVolume = 80.0;
+        // --- CORE LOOPER STATE ENGINE ---
+        let looperState = "EMPTY"; // EMPTY, RECORDING, PLAYING, STOPPED
+        let looperVolume = 80.0;   // Matches VR_Midi_Coupler.py initial line
         let lastSentVolume = -1;
         
-        const MIDI_CHANNEL = 0xB0; // Control Change Channel 1
-        const CC_WAKE = 59;        // Looper Module Wake[cite: 1]
-        const CC_REC = 60;         // Record State Toggle[cite: 1, 2]
-        const CC_PLAY = 62;        // Play/Stop State Toggle[cite: 1, 2]
-        const CC_CLEAR = 64;       // Flush Banks[cite: 1]
-        const CC_VOL = 66;         // Fader Throw[cite: 1, 2]
+        // Strict Hardware CC Mappings
+        const MIDI_CHANNEL = 0xB0; 
+        const CC_WAKE = 59;        // Looper Module Wake
+        const CC_REC = 60;         // Record / Overdub
+        const CC_PLAY = 62;        // Play / Stop
+        const CC_CLEAR = 64;       // Flush Banks
+        const CC_VOL = 66;         // Volume Fader Output
 
-        // MIDI BLE Standard UUID Specifications
+        // Standard BLE MIDI UUID Specifications
         const MIDI_SERVICE_UUID = "03b80e5a-ede8-4b33-a751-6ce34ec4c700";
         const MIDI_CHARACTERISTIC_UUID = "7772e5db-3868-4112-a1a9-f2669d106bf3";
-
-        let buttonXPressed = false;
-        let buttonYPressed = false;
-        let yPressTime = null;
-        let lastJoystickTime = 0;
-        const JOYSTICK_THROTTLE = 100; 
-        const VOLUME_RATE_SCALE = 2.0;  
 
         function uiLog(msg) {
             const logBox = document.getElementById('log');
@@ -61,183 +53,125 @@
             logBox.scrollTop = logBox.scrollHeight;
         }
 
-        // --- NATIVE WEB BLUETOOTH HANDSHAKE ---
+        function updateUIState() {
+            const statusEl = document.getElementById('looper-status');
+            statusEl.innerText = `Looper State: ${looperState} | Volume: ${Math.floor(looperVolume)}%`;
+        }
+
+        // --- WEB BLUETOOTH CONNECTION ---
         async function requestBLEConnection() {
             const statusEl = document.getElementById('ble-status');
-            uiLog("Opening native Bluetooth subsystem scan...");
-            
             try {
                 bleDevice = await navigator.bluetooth.requestDevice({
                     filters: [{ services: [MIDI_SERVICE_UUID] }],
                     optionalServices: [MIDI_SERVICE_UUID]
                 });
 
-                uiLog(`Found device: ${bleDevice.name}. Connecting to GATT server...`);
                 const server = await bleDevice.gatt.connect();
-                
-                uiLog("Querying MIDI Service strings...");
                 const service = await server.getPrimaryService(MIDI_SERVICE_UUID);
-                
-                uiLog("Securing Direct Write Characteristic ports...");
                 midiCharacteristic = await service.getCharacteristic(MIDI_CHARACTERISTIC_UUID);
 
                 statusEl.innerText = `BLE Link: Connected (${bleDevice.name})`;
                 statusEl.className = "status connected";
-                uiLog("SUCCESS: Wireless pipeline locked. Hardware active.");
+                uiLog("SUCCESS: Linked directly to Pocket Master BLE core.");
+                
+                bleDevice.addEventListener('gattserverdisconnected', () => {
+                    statusEl.innerText = "BLE Link: Offline";
+                    statusEl.className = "status disconnected";
+                    midiCharacteristic = null;
+                });
 
-                // Watch for hardware power failures or drops
-                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
-
-                // Initial hardware wake sequence mapping
+                // Run boot sequence initialization
                 sendMIDI(CC_WAKE, 127);
+                updateUIState();
 
             } catch (error) {
                 uiLog(`Connection Aborted: ${error.message}`);
-                statusEl.innerText = "BLE Link: Connection Failed";
-                statusEl.className = "status disconnected";
             }
         }
 
-        function onDisconnected() {
-            const statusEl = document.getElementById('ble-status');
-            statusEl.innerText = "BLE Link: Offline (Disconnected)";
-            statusEl.className = "status disconnected";
-            uiLog("WARNING: Hardware disconnected from page context.");
-            midiCharacteristic = null;
-        }
-
-        // --- ENCODE AND SEND STANDARD MIDI OVER BLE PACKETS ---
         function sendMIDI(cc, value) {
             if (!midiCharacteristic) return;
-            
             try {
-                // The BLE MIDI standard requires wrapping standard 3-byte MIDI events 
-                // inside a Header and low-byte Timestamp frame. 
-                // 0x80 passes generic high-bit compliance flags to satisfy the parser.
-                const bleMidiPayload = new Uint8Array([0x80, 0x80, MIDI_CHANNEL, cc, value]);
-                
-                // Write directly over the wireless GATT stack without waiting for an OS response
-                midiCharacteristic.writeValueWithoutResponse(bleMidiPayload);
+                // Wrap native MIDI message into the required 5-byte BLE MIDI packet framework
+                const blePayload = new Uint8Array([0x80, 0x80, MIDI_CHANNEL, cc, value]);
+                midiCharacteristic.writeValueWithoutResponse(blePayload);
             } catch (e) {
                 uiLog(`Payload Drop: ${e.message}`);
             }
         }
 
-        // --- GAMEPAD LOOP ---
-        function pollGamepad() {
-            const gamepads = navigator.getGamepads();
-            let leftController = null;
-            const gpStatus = document.getElementById('gamepad-status');
+        // --- KEYBOARD TRANSLATION MATRIX ---
+        window.addEventListener('keydown', (event) => {
+            // Protect configuration input boxes if present
+            if (document.activeElement.tagName === 'INPUT') return;
+            if (!midiCharacteristic) return;
 
-            for (let gp of gamepads) {
-                if (gp && (gp.id.includes("Oculus") || gp.id.includes("Spatial") || gp.id.includes("Touch") || gp.id.includes("Gamepad"))) {
-                    leftController = gp;
+            switch(event.key.toLowerCase()) {
+                
+                // 1. BUTTON X (Short Press) -> State Transition Loop
+                case '1':
+                    sendMIDI(CC_WAKE, 127);
+                    if (looperState === "EMPTY" || looperState === "STOPPED") {
+                        sendMIDI(CC_REC, 127);
+                        looperState = "RECORDING";
+                        uiLog("[LOOPER] X-Press ➔ RECORDING NEW LAYER (CC 60)");
+                    } 
+                    else if (looperState === "RECORDING") {
+                        sendMIDI(CC_PLAY, 127);
+                        looperState = "PLAYING";
+                        uiLog("[LOOPER] X-Press ➔ CLOSED LOOP / PLAYING (CC 62)");
+                    } 
+                    else if (looperState === "PLAYING") {
+                        sendMIDI(CC_REC, 127);
+                        uiLog("[LOOPER] X-Press ➔ OVERDUBBING CURRENT LAYER (CC 60)");
+                    }
+                    updateUIState();
                     break;
-                }
+
+                // 2. BUTTON Y (Short Press) -> Stop Playback
+                case '2':
+                    sendMIDI(CC_WAKE, 127);
+                    sendMIDI(CC_PLAY, 0);
+                    looperState = "STOPPED";
+                    uiLog("[LOOPER] Y-Tap ➔ STOP LOOP PLAYBACK (CC 62 Val 0)");
+                    updateUIState();
+                    break;
+
+                // 3. BUTTON Y (Long Press) -> Flush Memory Bank
+                case '3':
+                    sendMIDI(CC_WAKE, 127);
+                    sendMIDI(CC_CLEAR, 127);
+                    looperState = "EMPTY";
+                    uiLog("[LOOPER] Y-Hold ➔ CLEAR MEMORY WIPE (CC 64)");
+                    updateUIState();
+                    break;
+
+                // 4. THUMBSTICK UP -> Volume Pacing Up
+                case 'u':
+                    adjustVolume(2.0); // Step configuration rate matching VOLUME_RATE_SCALE
+                    break;
+
+                // 5. THUMBSTICK DOWN -> Volume Pacing Down
+                case 'd':
+                    adjustVolume(-2.0);
+                    break;
             }
-
-            if (leftController) {
-                gpStatus.innerText = "Gamepad: Focused & Stable";
-                gpStatus.className = "status connected";
-
-                const now = Date.now();
-
-                // 1. THE X BUTTON (Record / Play / Overdub Loop)[cite: 1]
-                if (leftController.buttons[4] && leftController.buttons[4].pressed) {
-                    if (!buttonXPressed) {
-                        buttonXPressed = true;
-                        handleXPress();
-                    }
-                } else {
-                    buttonXPressed = false;
-                }
-
-                // 2. THE Y BUTTON (Tap to Stop / Hold to Clear)[cite: 1]
-                if (leftController.buttons[5] && leftController.buttons[5].pressed) {
-                    if (!buttonYPressed) {
-                        buttonYPressed = true;
-                        yPressTime = now;
-                    }
-                } else {
-                    if (buttonYPressed) {
-                        buttonYPressed = false;
-                        if (yPressTime) {
-                            handleYRelease(now - yPressTime);
-                            yPressTime = null;
-                        }
-                    }
-                }
-
-                // 3. THUMBSTICK VOLUME CONTROL (Axis 1 = Left Stick Y)[cite: 2]
-                if (leftController.axes && leftController.axes[1] !== undefined) {
-                    if (now - lastJoystickTime >= JOYSTICK_THROTTLE) {
-                        let joyY = leftController.axes[1]; // Up is negative, Down is positive
-                        
-                        if (Math.abs(joyY) > 0.3) {
-                            if (joyY < -0.3) {       
-                                looperVolume += VOLUME_RATE_SCALE;
-                            } else if (joyY > 0.3) { 
-                                looperVolume -= VOLUME_RATE_SCALE;
-                            }
-
-                            if (looperVolume > 100.0) looperVolume = 100.0;
-                            if (looperVolume < 0.0) looperVolume = 0.0;
-
-                            let intVol = Math.floor(looperVolume);
-                            if (intVol !== lastSentVolume) {
-                                sendMIDI(CC_VOL, intVol);
-                                lastSentVolume = intVol;
-                                uiLog(`[VOLUME] ➔ ${intVol}%`);
-                            }
-                            lastJoystickTime = now;
-                        }
-                    }
-                }
-
-            } else {
-                gpStatus.innerText = "Gamepad: Link Idle (Tap Window/Press Button)";
-                gpStatus.className = "status disconnected";
-            }
-
-            requestAnimationFrame(pollGamepad);
-        }
-
-        function handleXPress() {
-            sendMIDI(CC_WAKE, 127);
-            
-            if (looperState === "EMPTY" || looperState === "STOPPED") {
-                sendMIDI(CC_REC, 127);
-                looperState = "RECORDING";
-                uiLog("X-Press ➔ RECORDING LAYER (CC 60)");
-            } 
-            else if (looperState === "RECORDING") {
-                sendMIDI(CC_PLAY, 127);
-                looperState = "PLAYING";
-                uiLog("X-Press ➔ CLOSED LOOP / PLAYING (CC 62)");
-            } 
-            else if (looperState === "PLAYING") {
-                sendMIDI(CC_REC, 127);
-                uiLog("X-Press ➔ OVERDUBPING MATRIX (CC 60)");
-            }
-        }
-
-        function handleYRelease(durationMs) {
-            sendMIDI(CC_WAKE, 127);
-            
-            if (durationMs >= 500) {
-                sendMIDI(CC_CLEAR, 127);
-                looperState = "EMPTY";
-                uiLog(`Y-Hold (${(durationMs/1000).toFixed(2)}s) ➔ FLUSH MEMORY BANK (CC 64)`);
-            } else {
-                sendMIDI(CC_PLAY, 0);
-                looperState = "STOPPED";
-                uiLog(`Y-Tap (${(durationMs/1000).toFixed(2)}s) ➔ STOP PLAYBACK (CC 62 Val 0)`);
-            }
-        }
-
-        window.addEventListener("DOMContentLoaded", () => {
-            requestAnimationFrame(pollGamepad);
         });
+
+        function adjustVolume(amount) {
+            looperVolume += amount;
+            if (looperVolume > 100.0) looperVolume = 100.0;
+            if (looperVolume < 0.0) looperVolume = 0.0;
+
+            let intVol = Math.floor(looperVolume);
+            if (intVol !== lastSentVolume) {
+                sendMIDI(CC_VOL, intVol);
+                lastSentVolume = intVol;
+                uiLog(`[VOLUME] ➔ ${intVol}%`);
+                updateUIState();
+            }
+        }
     </script>
 </body>
 </html>
