@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quest 3 BLE MIDI Tester</title>
+
+<style>
+:root {
+    --bg: #0a0a0f;
+    --panel: #161821;
+    --blue: #00e5ff;
+    --green: #00ff88;
+    --red: #ff3366;
+    --text: #ffffff;
+}
+
+body {
+    margin: 0;
+    padding: 20px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Arial, sans-serif;
+}
+
+h1 {
+    text-align: center;
+    color: var(--blue);
+    font-size: 2.5rem;
+}
+
+button {
+    width: 100%;
+    max-width: 700px;
+    display: block;
+    margin: 15px auto;
+    padding: 20px;
+    font-size: 1.4rem;
+    font-weight: bold;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+}
+
+#scanBtn {
+    background: var(--blue);
+    color: black;
+}
+
+#testBtn {
+    background: var(--green);
+    color: black;
+}
+
+#status {
+    text-align: center;
+    font-size: 1.3rem;
+    margin: 20px 0;
+}
+
+.panel {
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 20px;
+}
+
+pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+.device-found {
+    color: var(--green);
+    font-weight: bold;
+}
+
+.device-missing {
+    color: var(--red);
+    font-weight: bold;
+}
+</style>
+</head>
+
+<body>
+
+<h1>Quest 3 BLE MIDI Tester</h1>
+
+<button id="scanBtn">SCAN MIDI DEVICES</button>
+
+<button id="testBtn" disabled>
+SEND TEST CC59=127
+</button>
+
+<div id="status">
+Waiting...
+</div>
+
+<div class="panel">
+    <h2>MIDI Devices</h2>
+    <pre id="output"></pre>
+</div>
+
+<script>
+
+let midiAccess = null;
+let pocketOutput = null;
+
+document
+.getElementById("scanBtn")
+.addEventListener("click", scanMidi);
+
+document
+.getElementById("testBtn")
+.addEventListener("click", sendTestCC);
+
+async function scanMidi() {
+
+    const outputArea =
+        document.getElementById("output");
+
+    const status =
+        document.getElementById("status");
+
+    outputArea.textContent = "";
+    pocketOutput = null;
+
+    try {
+
+        status.textContent =
+            "Requesting WebMIDI access...";
+
+        midiAccess =
+            await navigator.requestMIDIAccess();
+
+        let text = "";
+
+        text +=
+            "====================\n";
+        text +=
+            "MIDI OUTPUTS\n";
+        text +=
+            "====================\n\n";
+
+        for (const output of midiAccess.outputs.values()) {
+
+            text +=
+                "NAME: " + output.name + "\n";
+
+            text +=
+                "MANUFACTURER: " +
+                (output.manufacturer || "Unknown") +
+                "\n";
+
+            text +=
+                "ID: " + output.id + "\n\n";
+
+            const name =
+                (output.name || "")
+                .toLowerCase();
+
+            if (
+                name.includes("pocket") ||
+                name.includes("master") ||
+                name.includes("sonicake") ||
+                name.includes("ble")
+            ) {
+                pocketOutput = output;
+            }
+        }
+
+        text +=
+            "\n====================\n";
+        text +=
+            "MIDI INPUTS\n";
+        text +=
+            "====================\n\n";
+
+        for (const input of midiAccess.inputs.values()) {
+
+            text +=
+                "NAME: " + input.name + "\n";
+
+            text +=
+                "MANUFACTURER: " +
+                (input.manufacturer || "Unknown") +
+                "\n";
+
+            text +=
+                "ID: " + input.id + "\n\n";
+        }
+
+        outputArea.textContent = text;
+
+        if (pocketOutput) {
+
+            status.innerHTML =
+                "<span class='device-found'>" +
+                "PocketMaster BLE MIDI FOUND" +
+                "</span>";
+
+            document
+                .getElementById("testBtn")
+                .disabled = false;
+
+        } else {
+
+            status.innerHTML =
+                "<span class='device-missing'>" +
+                "PocketMaster NOT visible to WebMIDI" +
+                "</span>";
+
+            document
+                .getElementById("testBtn")
+                .disabled = true;
+        }
+
+    } catch (err) {
+
+        console.error(err);
+
+        status.innerHTML =
+            "<span class='device-missing'>" +
+            "WebMIDI ERROR: " +
+            err.message +
+            "</span>";
+    }
+}
+
+function sendTestCC() {
+
+    if (!pocketOutput) {
+        alert("No PocketMaster output selected.");
+        return;
+    }
+
+    try {
+
+        pocketOutput.send([
+            0xB0,
+            59,
+            127
+        ]);
+
+        document
+            .getElementById("status")
+            .innerHTML =
+            "<span class='device-found'>" +
+            "Sent CC59 = 127 successfully" +
+            "</span>";
+
+    } catch (err) {
+
+        document
+            .getElementById("status")
+            .innerHTML =
+            "<span class='device-missing'>" +
+            "Send failed: " +
+            err.message +
+            "</span>";
+    }
+}
+
+</script>
+
+</body>
+</html>
