@@ -3,319 +3,339 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Strudel Master Studio Workspace</title>
-    
-    <script>
-        // --- 1. REAL-TIME LOSSLESS WAV INTERCEPTOR ---
-        // This block traps and clones raw PCM buffers directly from the master audio timeline
-        let audioContextInstance = null;
-        let recorderNode = null;
-        let isRecording = false;
-        let leftChannel = [];
-        let rightChannel = [];
-        let recordingLength = 0;
-        let sampleRate = 44100;
-
-        const OldAudioContext = window.AudioContext || window.webkitAudioContext;
-        window.AudioContext = window.webkitAudioContext = function(...args) {
-            const ctx = new OldAudioContext(...args);
-            audioContextInstance = ctx;
-            sampleRate = ctx.sampleRate;
-
-            // Capture raw processing stream splits
-            recorderNode = ctx.createScriptProcessor(4096, 2, 2);
-            recorderNode.onaudioprocess = function(e) {
-                if (!isRecording) return;
-                const left = e.inputBuffer.getChannelData(0);
-                const right = e.inputBuffer.getChannelData(1);
-                
-                // Deep clone allocation ensures browser reuse loops don't wipe memory
-                leftChannel.push(new Float32Array(left));
-                rightChannel.push(new Float32Array(right));
-                recordingLength += left.length;
-            };
-            
-            recorderNode.connect(ctx.destination);
-            return ctx;
-        };
-
-        // Intercept final destination node connections to pipe output straight to the encoder
-        const oldConnect = AudioNode.prototype.connect;
-        AudioNode.prototype.connect = function(destination, output, input) {
-            if (audioContextInstance && destination === audioContextInstance.destination) {
-                if (recorderNode && this !== recorderNode) {
-                    try {
-                        oldConnect.call(this, recorderNode, output, 0);
-                    } catch (e) {
-                        console.error("Audio recording routing bypass error:", e);
-                    }
-                }
-            }
-            return oldConnect.call(this, destination, output, input);
-        };
-    </script>
-
-    <script src="strudel-repl.js"></script>
-
+    <title>Inline XR ➔ BLE MIDI Bridge</title>
     <style>
-        html, body {
-            margin: 0; padding: 0; width: 100%; height: 100%;
-            background: #0b0b0e; color: #fff; font-family: monospace;
-            display: flex; flex-direction: column; overflow: hidden;
+        :root {
+            --bg-color: #0b0c10;
+            --panel-bg: #1f2833;
+            --accent-cyan: #66fcf1;
+            --accent-green: #45f3ff;
+            --text-main: #c5c6c7;
+            --text-highlight: #ffffff;
+            --border: #45a29e;
         }
 
-        /* FLEXIBLE ENGINE VIEWPORT CONTAINER */
-        #repl-container {
-            flex: 1; 
-            display: flex; 
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 1.5rem;
+            display: flex;
             flex-direction: column;
-            overflow-y: auto; /* Allows page scrolling to view inline canvases like piano rolls */
-            border-bottom: 3px solid #252530;
-            background: #0b0b0e;
-        }
-
-        /* Correct custom web component element formatting */
-        strudel-editor {
-            display: block;
-            width: 100%;
-            min-height: 450px;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
             box-sizing: border-box;
         }
 
-        /* CORE PERFORMANCE HUD INTERFACE */
-        #hud-overlay {
-            height: 85px; padding: 15px; background: #141419;
-            display: flex; align-items: center; justify-content: center; gap: 15px;
-            box-sizing: border-box; z-index: 100;
+        .wrapper {
+            width: 100%;
+            max-width: 600px;
+            background: var(--panel-bg);
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
         }
-        button {
-            background: #ff0055; border: none; color: white; padding: 12px 24px;
-            font-size: 14px; font-weight: bold; cursor: pointer; border-radius: 4px;
-            font-family: inherit; transition: background 0.1s, transform 0.05s;
-        }
-        button:hover { background: #ff2b70; }
-        button:active { transform: scale(0.98); }
-        
-        /* Functional Module Palette Mapping */
-        .acid-btn { background: #00ffcc; color: #000; }
-        .acid-btn:hover { background: #33ffdd; }
-        .record-btn { background: #ffaa00; color: #000; }
-        .record-btn:hover { background: #ffbb33; }
-        .recording-active { background: #ff3333 !important; color: #fff; animation: pulse 1.5s infinite; }
-        .stop-btn { background: #333344; }
-        .stop-btn:hover { background: #444455; }
 
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.6; }
-            100% { opacity: 1; }
+        h1 {
+            color: var(--text-highlight);
+            font-size: 1.5rem;
+            margin-top: 0;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .instructions {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 0.75rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            margin-bottom: 1.5rem;
+            line-height: 1.4;
+            border-left: 3px solid var(--accent-cyan);
+        }
+
+        .btn-container {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .btn-action {
+            flex: 1;
+            background: var(--accent-cyan);
+            color: var(--bg-color);
+            border: none;
+            padding: 0.85rem;
+            font-size: 0.95rem;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: all 0.2s ease;
+        }
+
+        .btn-action:hover:not(:disabled) {
+            background: var(--text-highlight);
+        }
+
+        .btn-action:disabled {
+            background: #2c3540;
+            color: #606870;
+            cursor: not-allowed;
+        }
+
+        #btn-xr {
+            background: #7c4dff;
+            color: white;
+        }
+
+        .status-container {
+            display: flex;
+            justify-content: space-between;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+            background: rgba(0,0,0,0.2);
+            padding: 0.5rem;
+            border-radius: 4px;
+        }
+
+        .status-indicator {
+            font-weight: bold;
+            color: #ff4d4d;
+        }
+
+        .status-indicator.active {
+            color: #00ffcc;
+        }
+
+        #terminal-log {
+            background: #000000;
+            color: var(--accent-green);
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.8rem;
+            padding: 0.75rem;
+            height: 220px;
+            overflow-y: auto;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            box-sizing: border-box;
+            border: 1px solid #111;
+        }
+
+        /* Hidden canvas required to satisfy WebXR context rules */
+        #xr-canvas {
+            display: none;
         }
     </style>
 </head>
 <body>
 
-    <div id="repl-container">
-        <strudel-editor id="main-repl"></strudel-editor>
-    </div>
+    <div class="wrapper">
+        <h1>Inline XR ➔ BLE MIDI Bridge</h1>
+        
+        <div class="instructions">
+            <strong>The "Inline" Multitasking Workflow:</strong><br>
+            1. Pair Pocketmaster to Quest OS via standard Bluetooth settings.<br>
+            2. Click <strong>1. Link OS MIDI</strong> to bind the hardware to the browser.<br>
+            3. Click <strong>2. Start Inline Tracker</strong> to spawn the background XR loop.<br>
+            4. Leave this panel floating. Ensure it has pointer focus before using X/Y.
+        </div>
 
-    <div id="hud-overlay">
-        <button id="macro-techno">Macro: Techno Beat</button>
-        <button id="macro-acid" class="acid-btn">Macro: Acid Line</button>
-        <button id="btn-record" class="record-btn">🔴 Record WAV</button>
-        <button id="macro-hush" class="stop-btn">Hush (Stop)</button>
+        <div class="btn-container">
+            <button id="btn-midi" class="btn-action" onclick="initWebMidi()">1. Link OS MIDI</button>
+            <button id="btn-xr" class="btn-action" onclick="startInlineXR()" disabled>2. Start Inline Tracker</button>
+        </div>
+
+        <div class="status-container">
+            <div>MIDI Bus: <span id="midi-status" class="status-indicator">Unlinked</span></div>
+            <div>XR Engine: <span id="xr-status" class="status-indicator">Inactive</span></div>
+        </div>
+
+        <div id="terminal-log">System initialized. Awaiting API bindings...</div>
+        
+        <canvas id="xr-canvas"></canvas>
     </div>
 
     <script>
-        const replComponent = document.getElementById('main-repl');
-        let globalSampleMap = null; // Holds the JSON manifest once fetched
-
-        // --- ASYNC JSON LOADER ---
-        async function loadSampleManifest() {
-            try {
-                // Fetch mapping asset data directly from inside the local sounds directory
-                const response = await fetch('./sounds/samples.json');
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                globalSampleMap = await response.json();
-                console.log("Sample map successfully loaded:", globalSampleMap);
-                
-                // If web component editor mounted before network request finished, populate immediately
-                if (replComponent && replComponent.editor) {
-                    setupDefaultWorkspace();
-                }
-            } catch (e) {
-                console.error("Could not load samples.json map. Falling back to empty object.", e);
-                globalSampleMap = {};
-            }
-        }
-        loadSampleManifest();
-
-        // --- WORKSPACE INITIALIZER TEMPLATE ---
-        // Dynamically seeds the engine on startup with full, absolute URL routing mappings
-        function setupDefaultWorkspace() {
-            if (replComponent && replComponent.editor && globalSampleMap) {
-                const cleanMap = { ...globalSampleMap };
-                delete cleanMap._base; // Strip internal fallback configurations
-                
-                // CRITICAL FIX: Convert relative path context to absolute domain routing strings
-                const absoluteBase = new URL('sounds/', window.location.href).href;
-                const serializedMap = JSON.stringify(cleanMap, null, 2);
-
-                const defaultCode = `// 🎛️ Your Local Studio Drums are mapped and ready!\nsamples(${serializedMap}, "${absoluteBase}");\n\n// Run this code block once (Ctrl+Enter or Play) to load assets into session memory.\n// Once initialized, you can wipe everything or type drum elements dynamically on the fly!\ns("bd:0 cp:0 bd:1 hh:2").slow(2).grid()`;
-                
-                replComponent.editor.setCode(defaultCode);
-            }
-        }
-
-        // Monitoring thread to latch onto CodeMirror / Strudel context elements at boot
-        const checkEditorReady = setInterval(() => {
-            if (replComponent && replComponent.editor) {
-                clearInterval(checkEditorReady);
-                if (globalSampleMap) {
-                    setupDefaultWorkspace();
-                }
-            }
-        }, 100);
-
-        // Central processing pipeline to pass data maps straight to CodeMirror structures
-        function injectMacroCode(patternCode) {
-            if (replComponent && replComponent.editor) {
-                replComponent.editor.setCode(patternCode);
-                replComponent.editor.evaluate();
-            } else {
-                alert("The Strudel compiler core is still mounting. Give it a brief second and tap again.");
-            }
-        }
-
-        // --- PERFORMANCE ROUTING HOOKS ---
-
-        // Macro 1: Techno Beat Setup (Synchronized via dynamic absolute asset resolution maps)
-        document.getElementById('macro-techno').addEventListener('click', () => {
-            if (!globalSampleMap || Object.keys(globalSampleMap).length === 0) {
-                alert("Manifest map is still loading from disk...");
-                return;
-            }
-            
-            const cleanMap = { ...globalSampleMap };
-            delete cleanMap._base;
-            
-            const absoluteBase = new URL('sounds/', window.location.href).href;
-            const serializedMap = JSON.stringify(cleanMap, null, 2);
-            
-            injectMacroCode(`// Map injected dynamically from samples.json\nsamples(${serializedMap}, "${absoluteBase}");\n\n// Use indices safely now!\ns("bd:0 cp:0 bd:1 bd:2").slow(2).room(0.2).grid()`);
-        });
-
-        // Macro 2: Acid Line Setup (Internal Synth Routing + Interactive Piano Roll)
-        document.getElementById('macro-acid').addEventListener('click', () => {
-            injectMacroCode(`// Internal hardware oscillator pipeline\nnote("e2 g2 b2 d3").s("sawtooth").lpf(1200).fast(2).pianoroll()`);
-        });
-
-        // Universal Engine Halt Sequence
-        document.getElementById('macro-hush').addEventListener('click', () => {
-            if (replComponent && replComponent.editor && typeof replComponent.editor.stop === 'function') {
-                replComponent.editor.stop();
-            } else {
-                injectMacroCode(`hush()`);
-            }
-        });
-
-        // --- 2. STUDIO GRADE MONOPHONIC/STEREO WAV RE-COMPILER ---
-        const recButton = document.getElementById('btn-record');
+        let midiOutputPort = null;
+        let xrSessionActive = null;
         
-        recButton.addEventListener('click', () => {
-            if (!audioContextInstance) {
-                alert("Please fire up an audio macro profile first to establish system canvas connections.");
-                return;
-            }
-            
-            if (!isRecording) {
-                // Initialize clean data arrays and engage audio collection threads
-                leftChannel = [];
-                rightChannel = [];
-                recordingLength = 0;
-                isRecording = true;
-                recButton.textContent = "⏹️ Stop & Save WAV";
-                recButton.classList.add('recording-active');
-            } else {
-                isRecording = false;
-                recButton.textContent = "🔴 Record WAV";
-                recButton.classList.remove('recording-active');
-                
-                // Transform internal float queues out to canonical disk structures
-                const leftBuffer = flattenArray(leftChannel, recordingLength);
-                const rightBuffer = flattenArray(rightChannel, recordingLength);
-                
-                const audioBuffer = audioContextInstance.createBuffer(2, recordingLength, sampleRate);
-                audioBuffer.getChannelData(0).set(leftBuffer);
-                audioBuffer.getChannelData(1).set(rightBuffer);
-                
-                const wavBlob = encodeWAV(audioBuffer);
-                const downloadUrl = URL.createObjectURL(wavBlob);
-                
-                const anchor = document.createElement('a');
-                anchor.href = downloadUrl;
-                anchor.download = `strudel_studio_bounce_${Date.now()}.wav`;
-                anchor.click();
-            }
-        });
+        // Edge tracking
+        let lastStateX = false;
+        let lastStateY = false;
+        
+        // Volume math
+        let looperVolume = 64.0;
+        let lastSentVolume = -1;
+        let lastThrottleTime = 0;
+        const POLL_THROTTLE_MS = 40; 
+        const VOL_STEP = 1.5; 
 
-        function flattenArray(channelBuffer, totalLength) {
-            let result = new Float32Array(totalLength);
-            let offset = 0;
-            for (let i = 0; i < channelBuffer.length; i++) {
-                result.set(channelBuffer[i], offset);
-                offset += channelBuffer[i].length;
-            }
-            return result;
+        function log(msg) {
+            const display = document.getElementById('terminal-log');
+            display.innerText += `\n[${new Date().toLocaleTimeString()}] ${msg}`;
+            display.scrollTop = display.scrollHeight;
         }
 
-        function encodeWAV(audioBuffer) {
-            const numOfChan = audioBuffer.numberOfChannels;
-            const sampleRate = audioBuffer.sampleRate;
-            const format = 1; // Uncompressed Linear LPCM Encoding Block
-            const bitDepth = 16;
-            
-            let resultLength = audioBuffer.length * numOfChan * (bitDepth / 8) + 44;
-            let arrayBuffer = new ArrayBuffer(resultLength);
-            let view = new DataView(arrayBuffer);
-            
-            function writeString(offset, string) {
-                for (let i = 0; i < string.length; i++) {
-                    view.setUint8(offset + i, string.charCodeAt(i));
-                }
+        // STEP 1: Connect to OS-level BLE MIDI Device
+        async function initWebMidi() {
+            if (!navigator.requestMIDIAccess) {
+                log("CRITICAL: WebMIDI API blocked or unsupported.");
+                return;
             }
 
-            // Assemble Standard RIFF Wave File Header Chunks
-            writeString(0, 'RIFF');
-            view.setUint32(4, resultLength - 8, true);
-            writeString(8, 'WAVE');
-            writeString(12, 'fmt ');
-            view.setUint32(16, 16, true);
-            view.setUint16(20, format, true);
-            view.setUint16(22, numOfChan, true);
-            view.setUint32(24, sampleRate, true);
-            view.setUint32(28, sampleRate * numOfChan * (bitDepth / 8), true);
-            view.setUint16(32, numOfChan * (bitDepth / 8), true);
-            view.setUint16(34, bitDepth, true);
-            writeString(36, 'data');
-            view.setUint32(40, resultLength - 44, true);
+            try {
+                log("Requesting standard WebMIDI OS bindings...");
+                const access = await navigator.requestMIDIAccess();
+                
+                let foundOutputs = access.outputs.size;
+                if (foundOutputs === 0) {
+                    log("ERROR: 0 MIDI devices found. Ensure Pocketmaster is paired in main Quest Bluetooth settings.");
+                    return;
+                }
 
-            // Interleave floating points downward into studio-aligned 16-bit integers
-            let offset = 44;
-            const channels = [];
-            for (let i = 0; i < numOfChan; i++) {
-                channels.push(audioBuffer.getChannelData(i));
+                log(`System scan found ${foundOutputs} MIDI port(s).`);
+                
+                // Route to the Pocketmaster
+                for (let port of access.outputs.values()) {
+                    let pName = (port.name || "").toLowerCase();
+                    if (pName.includes("pocket") || pName.includes("master") || pName.includes("bluetooth")) {
+                        midiOutputPort = port;
+                        break;
+                    }
+                }
+
+                // Fallback
+                if (!midiOutputPort && foundOutputs > 0) {
+                    midiOutputPort = access.outputs.values().next().value;
+                    log(`Explicit name missing. Forcing connection to: ${midiOutputPort.name}`);
+                }
+
+                if (midiOutputPort) {
+                    document.getElementById('midi-status').innerText = `READY (${midiOutputPort.name})`;
+                    document.getElementById('midi-status').classList.add('active');
+                    document.getElementById('btn-midi').disabled = true;
+                    document.getElementById('btn-xr').disabled = false;
+                    log(`SUCCESS: Linked to ${midiOutputPort.name}`);
+                }
+
+            } catch (err) {
+                log(`WebMIDI Initialization Error: ${err.message}`);
             }
-            
-            for (let i = 0; i < audioBuffer.length; i++) {
-                for (let channel = 0; channel < numOfChan; channel++) {
-                    let sample = channels[channel][i];
-                    sample = Math.max(-1, Math.min(1, sample)); // Hard ceiling safety clip
-                    sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
-                    view.setInt16(offset, sample, true);
-                    offset += 2;
+        }
+
+        function sendMidiCC(ccNumber, val) {
+            if (!midiOutputPort) return;
+            midiOutputPort.send([0xB0, ccNumber, val]); // Channel 1 Control Change
+        }
+
+        // STEP 2: Start the Non-Immersive WebXR Tracking Loop
+        async function startInlineXR() {
+            if (!navigator.xr) {
+                log("CRITICAL: WebXR API not supported in this browser.");
+                return;
+            }
+
+            try {
+                const supported = await navigator.xr.isSessionSupported('inline');
+                if (!supported) {
+                    log("ERROR: 'inline' WebXR sessions are disabled on this device.");
+                    return;
+                }
+
+                log("Requesting inline WebXR session (no full-screen takeover)...");
+                const session = await navigator.xr.requestSession('inline');
+                xrSessionActive = session;
+
+                // Bind a dummy WebGL context to satisfy the XR Engine constraints
+                const canvas = document.getElementById('xr-canvas');
+                const gl = canvas.getContext('webgl', { xrCompatible: true });
+                await gl.makeXRCompatible();
+                session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+
+                document.getElementById('xr-status').innerText = "TRACKING (INLINE)";
+                document.getElementById('xr-status').classList.add('active');
+                document.getElementById('btn-xr').disabled = true;
+                log("SUCCESS: Inline tracking active. Click window to ensure focus.");
+
+                session.requestAnimationFrame(onXRFrame);
+
+            } catch (err) {
+                log(`Inline XR Spawn Failed: ${err.message}`);
+            }
+        }
+
+        // STEP 3: The Frame Execution Loop
+        function onXRFrame(time, frame) {
+            if (!xrSessionActive) return;
+            xrSessionActive.requestAnimationFrame(onXRFrame);
+
+            const inputSources = frame.session.inputSources;
+            for (let source of inputSources) {
+                // Pinpoint Left Touch Controller
+                if (source.handedness === 'left' && source.gamepad) {
+                    const gp = source.gamepad;
+
+                    // WebXR Profile Indices for Touch Controllers
+                    const btnX = gp.buttons[4];
+                    const btnY = gp.buttons[5];
+                    // In WebXR standard mapping, the Thumbstick Y axis is usually index 3
+                    const stickY = gp.axes[3]; 
+
+                    // --- X Button Trigger (CC 60) ---
+                    if (btnX && btnX.pressed) {
+                        if (!lastStateX) {
+                            sendMidiCC(60, 127);
+                            lastStateX = true;
+                            log("Triggered: Button X ➔ CC 60 [127]");
+                        }
+                    } else {
+                        lastStateX = false;
+                    }
+
+                    // --- Y Button Trigger (CC 62) ---
+                    if (btnY && btnY.pressed) {
+                        if (!lastStateY) {
+                            sendMidiCC(62, 0);
+                            lastStateY = true;
+                            log("Triggered: Button Y ➔ CC 62 [0]");
+                        }
+                    } else {
+                        lastStateY = false;
+                    }
+
+                    // --- Thumbstick Y Volume Control (CC 66) ---
+                    if (stickY !== undefined) {
+                        const now = performance.now();
+                        if (now - lastThrottleTime >= POLL_THROTTLE_MS) {
+                            
+                            // WebXR mapping: Pushing UP yields negative vector
+                            if (stickY < -0.3) {
+                                looperVolume += VOL_STEP;
+                            } else if (stickY > 0.3) {
+                                looperVolume -= VOL_STEP;
+                            }
+
+                            if (looperVolume > 127.0) looperVolume = 127.0;
+                            if (looperVolume < 0.0) looperVolume = 0.0;
+
+                            const quantizedVol = Math.floor(looperVolume);
+                            
+                            // Prevent flooding the BLE connection
+                            if (quantizedVol !== lastSentVolume && Math.abs(stickY) > 0.3) {
+                                sendMidiCC(66, quantizedVol);
+                                lastSentVolume = quantizedVol;
+                                log(`Stick Y Shift ➔ CC 66 [${quantizedVol}]`);
+                            }
+                            lastThrottleTime = now;
+                        }
+                    }
                 }
             }
-            return new Blob([arrayBuffer], { type: 'audio/wav' });
         }
     </script>
 </body>
