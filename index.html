@@ -3,242 +3,355 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quest 3 Direct USB Inline Bridge</title>
+    <title>New WebXR Inline MIDI Bridge</title>
     <style>
         :root {
-            --bg-color: #0b0c10;
+            --bg-color: #0d0e15;
             --panel-bg: #161923;
-            --accent-cyan: #00e676;
             --accent-blue: #2979ff;
+            --accent-green: #00e676;
             --text-main: #f0f2f5;
             --text-muted: #788296;
-            --border: #232838;
+            --border-color: #232838;
         }
+
         body {
-            font-family: Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             background-color: var(--bg-color);
             color: var(--text-main);
-            padding: 1.5rem;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
             margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
             box-sizing: border-box;
         }
-        .wrapper {
+
+        .container {
             width: 100%;
-            max-width: 600px;
+            max-width: 650px;
             background: var(--panel-bg);
-            border: 2px solid var(--border);
+            border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 2rem;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
         }
-        h1 { color: #fff; font-size: 1.4rem; text-align: center; margin-top: 0; text-transform: uppercase; letter-spacing: 1px;}
-        .instructions {
-            background: rgba(0, 0, 0, 0.3);
-            padding: 0.75rem 1rem;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            margin-bottom: 1.5rem;
-            line-height: 1.4;
-            border-left: 4px solid var(--accent-blue);
+
+        h1 {
+            font-size: 1.8rem;
+            margin-top: 0;
+            margin-bottom: 0.5rem;
+            color: #fff;
+            text-align: center;
+        }
+
+        .subtitle {
             color: var(--text-muted);
+            text-align: center;
+            font-size: 0.95rem;
+            margin-bottom: 2rem;
         }
-        .btn {
-            width: 100%; padding: 1rem; border: none; border-radius: 8px; font-weight: bold;
-            cursor: pointer; text-transform: uppercase; font-size: 1rem; background: var(--accent-blue); color: #fff;
-            transition: all 0.2s ease; margin-bottom: 1rem;
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 2rem;
         }
-        .btn:disabled { background: #2c3040; color: var(--text-muted); cursor: not-allowed; }
-        .status-box {
-            display: flex; justify-content: space-between; background: #1f2330;
-            padding: 0.75rem; border-radius: 6px; font-size: 0.9rem; margin-bottom: 1rem; border: 1px solid var(--border);
+
+        button {
+            background-color: var(--accent-blue);
+            color: white;
+            border: none;
+            padding: 1rem 1.5rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
         }
-        .indicator { font-weight: bold; color: #ff5252; }
-        .indicator.active { color: var(--accent-cyan); }
-        #terminal {
-            background: #090a0f; color: var(--accent-cyan); font-family: monospace;
-            font-size: 0.85rem; padding: 1rem; height: 200px; overflow-y: auto;
-            border-radius: 6px; white-space: pre-wrap; text-align: left; border: 1px solid var(--border);
+
+        button:hover:not(:disabled) {
+            filter: brightness(1.1);
+            transform: translateY(-1px);
+        }
+
+        button:active:not(:disabled) {
+            transform: translateY(1px);
+        }
+
+        button:disabled {
+            background-color: #2c3040;
+            color: var(--text-muted);
+            cursor: not-allowed;
+            border: 1px solid var(--border-color);
+        }
+
+        #btn-xr {
+            background-color: #7c4dff;
+        }
+
+        .status-badge {
+            background: #1f2330;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-val {
+            font-weight: bold;
+            color: #ff5252;
+        }
+
+        .status-val.connected {
+            color: var(--accent-green);
+        }
+
+        #log {
+            background-color: #090a0f;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 0.85rem;
+            color: #00e676;
+            height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            text-align: left;
+        }
+
+        .config-preview {
+            background: #1a1d29;
+            border-left: 4px solid var(--accent-blue);
+            padding: 0.75rem 1rem;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            border-radius: 0 6px 6px 0;
+            margin-bottom: 1.5rem;
         }
     </style>
 </head>
 <body>
 
-    <div class="wrapper">
-        <h1>Quest 3 Direct USB Inline Bridge</h1>
-        
-        <div class="instructions">
-            <strong>Wired Multitasking Workflow:</strong><br>
-            1. Plug the Pocketmaster via USB directly into the Quest 3 headset.<br>
-            2. Tap <strong>Initialize USB Pipeline</strong> to claim the wired port interface.<br>
-            3. Keep this window floating inside your Vinyl Reality space.<br>
-            4. <em>Crucial:</em> Ensure this browser window has blue frame pointer focus before clicking X/Y.
+    <div class="container">
+        <h1>Inline WebXR ➔ USB MIDI Bridge</h1>
+        <div class="subtitle">Standard WebMIDI Connection + Inline XR Multitasking</div>
+
+        <div class="config-preview">
+            <strong>Active Profile Rules:</strong><br>
+            • Left Controller 'X' Button ➔ CC 60 (Val 127) [Start/Cycle]<br>
+            • Left Controller 'Y' Button ➔ CC 62 (Val 0) [Stop]<br>
+            • Left Thumbstick Y-Axis ➔ CC 66 (Continuous 0-127 Variable Volume Rate Scaling)
         </div>
 
-        <button id="btn-init" class="btn" onclick="initializePipeline()">Initialize USB Pipeline</button>
-
-        <div class="status-box">
-            <div>USB Hardware Link: <span id="usb-status" class="indicator">Disconnected</span></div>
-            <div>Inline Tracking State: <span id="track-status" class="indicator">Inactive</span></div>
+        <div class="control-group">
+            <button id="btn-midi" onclick="initMidiSubsystem()">1. Initialize WebMIDI Layer (USB)</button>
+            <div class="status-badge">
+                <span>MIDI Pipeline Status:</span>
+                <span id="midi-status" class="status-val">Disconnected</span>
+            </div>
+            
+            <button id="btn-xr" onclick="enterXR()" disabled>2. Enter Inline VR Mode</button>
         </div>
 
-        <div id="terminal">System Engine Idle. Awaiting USB pipeline initialization...</div>
+        <div id="log">System Engine Idle. Awaiting WebMIDI Initialization...</div>
     </div>
 
     <script>
-        let usbMidiOutput = null;
-        let pollingLoopActive = false;
+        let midiOutput = null;
+        let xrSession = null;
         
-        // Edge-trigger tracker flags
-        let lastStateX = false;
-        let lastStateY = false;
+        // Edge-trigger execution states
+        let prevXPressed = false;
+        let prevYPressed = false;
         
-        // Volume rate scaling variables
-        let systemVolume = 64.0;
+        // Continuous rate scaling variables matching python configuration profiles
+        let looperVolume = 64.0; 
         let lastSentVolume = -1;
-        let lastThrottleTime = 0;
-        const POLL_WINDOW_MS = 40; 
-        const VOLUME_STEP = 2.0; 
+        let lastJoystickTime = 0;
+        const JOYSTICK_THROTTLE = 40; 
+        const VOLUME_RATE_SCALE = 2.0; 
 
-        function log(msg) {
-            const el = document.getElementById('terminal');
-            el.innerText += `\n[${new Date().toLocaleTimeString()}] ${msg}`;
-            el.scrollTop = el.scrollHeight;
+        function log(message) {
+            const logBox = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logBox.innerText += `\n[${timestamp}] ${message}`;
+            logBox.scrollTop = logBox.scrollHeight;
         }
 
-        // Initialize wired framework + start gamepad monitoring inside a 2D panel frame
-        async function initializePipeline() {
+        // Phase 1: Initialize WebMIDI Engine (Untouched - this worked for you)
+        async function initMidiSubsystem() {
             if (!navigator.requestMIDIAccess) {
-                log("CRITICAL: WebMIDI framework is missing or running outside an HTTPS domain.");
+                log("CRITICAL: WebMIDI interface layer missing in this browser binary.");
                 return;
             }
 
             try {
-                log("Scanning hardware bus layers for physical USB connection...");
-                const access = await navigator.requestMIDIAccess();
-                
-                // Route explicitly to wired endpoint hardware
-                if (access.outputs.size === 0) {
-                    log("ERROR: 0 USB devices found. Ensure the Pocketmaster is securely wired directly to the Quest Type-C port.");
-                    return;
-                }
+                log("Requesting background OS-level MIDI routing permissions...");
+                const midiAccess = await navigator.requestMIDIAccess();
+                log("WebMIDI subsystem access successfully approved.");
 
-                for (let port of access.outputs.values()) {
-                    let pName = (port.name || "").toLowerCase();
-                    if (pName.includes("pocket") || pName.includes("master") || pName.includes("usb")) {
-                        usbMidiOutput = port;
+                const outputs = midiAccess.outputs.values();
+                for (let output of outputs) {
+                    const name = output.name || "";
+                    if (name.toLowerCase().includes("pocket") || name.toLowerCase().includes("master")) {
+                        midiOutput = output;
                         break;
                     }
                 }
 
-                // Fallback catch-all for default wired system bus assignments
-                if (!usbMidiOutput && access.outputs.size > 0) {
-                    usbMidiOutput = access.outputs.values().next().value;
+                if (!midiOutput && midiAccess.outputs.size > 0) {
+                    midiOutput = midiAccess.outputs.values().next().value;
+                    log(`Warning: Specific Pocketmaster string mismatch. Falling back to port: ${midiOutput.name}`);
                 }
 
-                if (usbMidiOutput) {
-                    document.getElementById('usb-status').innerText = `CONNECTED (${usbMidiOutput.name})`;
-                    document.getElementById('usb-status').classList.add('active');
-                    document.getElementById('btn-init').disabled = true;
-                    document.getElementById('btn-init').style.backgroundColor = 'var(--accent-cyan)';
-                    document.getElementById('btn-init').style.color = '#000';
-                    
-                    log(`SUCCESS: Hardware pipeline locked to output port: ${usbMidiOutput.name}`);
-                    startInlineTracking();
+                if (midiOutput) {
+                    document.getElementById('midi-status').innerText = `Connected (${midiOutput.name})`;
+                    document.getElementById('midi-status').classList.add('connected');
+                    document.getElementById('btn-midi').disabled = true;
+                    document.getElementById('btn-midi').style.backgroundColor = 'var(--accent-green)';
+                    document.getElementById('btn-xr').disabled = false;
+                    log(`SUCCESS: Linked output stream to hardware pipeline port: ${midiOutput.name}`);
+                } else {
+                    log("Awaiting hardware connection. 0 Devices found.");
                 }
 
             } catch (err) {
-                log(`Pipeline Failure: ${err.message}`);
+                log(`MIDI Initialization Error failure: ${err.message}`);
             }
         }
 
-        function transmitMidiCC(cc, value) {
-            if (!usbMidiOutput) return;
-            // Channel 1 Control Change status byte
-            usbMidiOutput.send([0xB0, cc, value]); 
+        function sendMidiCC(ccNumber, value) {
+            if (!midiOutput) return;
+            const statusByte = 0xB0; 
+            midiOutput.send([statusByte, ccNumber, value]);
         }
 
-        function startInlineTracking() {
-            if (pollingLoopActive) return;
-            pollingLoopActive = true;
-            
-            document.getElementById('track-status').innerText = "RUNNING (INLINE 2D)";
-            document.getElementById('track-status').classList.add('active');
-            
-            log("Tracking engine online. Ensure this panel has laser target pointer focus.");
-            executePollingLoop();
+        // Phase 2: Open INLINE session loop safely
+        async function enterXR() {
+            if (!navigator.xr) {
+                log("CRITICAL: WebXR Device framework layer is unavailable.");
+                return;
+            }
+
+            try {
+                log("Requesting inline WebXR runtime frame space...");
+                
+                // CHANGED: Removed 'immersive-vr' and 'local-floor' to force inline mode
+                xrSession = await navigator.xr.requestSession('inline');
+                
+                log("WebXR Session initialized. Binding graphics context pipeline steps...");
+
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl', { xrCompatible: true });
+                await gl.makeXRCompatible();
+                
+                xrSession.updateRenderState({ 
+                    baseLayer: new XRWebGLLayer(xrSession, gl) 
+                });
+
+                xrSession.addEventListener('end', () => {
+                    log("Inline view interface collapsed.");
+                    xrSession = null;
+                });
+
+                xrSession.requestAnimationFrame(onXRFrame);
+                log("Tracking Loop active. Keep window visible to capture controller states.");
+
+            } catch (err) {
+                log(`WebXR Spawn Runtime Failure: ${err.message}`);
+            }
         }
 
-        // High frequency background parsing loop matching HTML5 Gamepad specification indices
-        function executePollingLoop() {
-            const gamepads = navigator.getGamepads();
-            
-            for (let gp of gamepads) {
-                // Focus explicitly on the Left Touch controller profile
-                if (gp && (gp.hand === 'left' || gp.id.toLowerCase().includes('left'))) {
-                    
-                    // --- CORRECTION BLOCK FOR INLINE 2D PANEL WINDOW MAPPINGS ---
-                    // Inside flat 2D native browser layouts, the button index maps differently:
-                    // buttons[0] = Button X
-                    // buttons[1] = Button Y
-                    // axes[1]    = Thumbstick Y-Axis (Standard layout: UP = Negative, DOWN = Positive)
-                    
-                    const btnX = gp.buttons[0]; 
-                    const btnY = gp.buttons[1]; 
-                    const stickY = gp.axes[1]; 
+        // High frequency animation cycle thread
+        function onXRFrame(time, frame) {
+            if (!xrSession) return;
+            xrSession.requestAnimationFrame(onXRFrame);
+
+            const inputSources = frame.session.inputSources;
+            for (let input of inputSources) {
+                if (input.handedness === 'left' && input.gamepad) {
+                    const gamepad = input.gamepad;
+
+                    // --- DIAGNOSTIC BUTTON SCANNER ---
+                    // This will print to the screen exactly which index the Quest assigns to X and Y
+                    if (!window.btnTracker) window.btnTracker = {};
+                    for (let b = 0; b < gamepad.buttons.length; b++) {
+                        if (gamepad.buttons[b] && gamepad.buttons[b].pressed) {
+                            if (!window.btnTracker[b]) {
+                                // Skip logging the thumbstick hover/touch values so it doesn't spam
+                                if (b !== 3) log(`[DIAGNOSTIC] Left Button Index [${b}] is Pressed`);
+                                window.btnTracker[b] = true;
+                            }
+                        } else {
+                            window.btnTracker[b] = false;
+                        }
+                    }
+
+                    // Safely extract buttons matching standard VR mappings
+                    const xButton = gamepad.buttons.length > 4 ? gamepad.buttons[4] : null;
+                    const yButton = gamepad.buttons.length > 5 ? gamepad.buttons[5] : null;
+                    const joyY = gamepad.axes.length > 3 ? gamepad.axes[3] : undefined;
 
                     // --- Left Touch 'X' Button Processing Loop ---
-                    if (btnX && btnX.pressed) {
-                        if (!lastStateX) {
-                            transmitMidiCC(60, 127);
-                            lastStateX = true;
-                            log("Fire Execution: Button X ➔ CC 60 [127]");
+                    if (xButton && xButton.pressed) {
+                        if (!prevXPressed) {
+                            sendMidiCC(60, 127);
+                            prevXPressed = true;
+                            log("Button X ➔ MIDI CC 60 [127]");
                         }
-                    } else { lastStateX = false; }
+                    } else {
+                        prevXPressed = false;
+                    }
 
                     // --- Left Touch 'Y' Button Processing Loop ---
-                    if (btnY && btnY.pressed) {
-                        if (!lastStateY) {
-                            transmitMidiCC(62, 0);
-                            lastStateY = true;
-                            log("Fire Execution: Button Y ➔ CC 62 [0]");
+                    if (yButton && yButton.pressed) {
+                        if (!prevYPressed) {
+                            sendMidiCC(62, 0);
+                            prevYPressed = true;
+                            log("Button Y ➔ MIDI CC 62 [0]");
                         }
-                    } else { lastStateY = false; }
+                    } else {
+                        prevYPressed = false;
+                    }
 
-                    // --- Left Thumbstick Y Volume Control ---
-                    if (stickY !== undefined) {
-                        const immediateTime = performance.now();
-                        if (immediateTime - lastThrottleTime >= POLL_WINDOW_MS) {
+                    // --- Left Thumbstick Y Volume Logic Engine ---
+                    if (joyY !== undefined) {
+                        const currentTime = performance.now();
+                        if (currentTime - lastJoystickTime >= JOYSTICK_THROTTLE) {
                             
-                            // Native Gamepad mapping: Pushing UP generates negative values
-                            if (stickY < -0.3) {
-                                systemVolume += VOLUME_STEP;
-                            } else if (stickY > 0.3) {
-                                systemVolume -= VOLUME_STEP;
+                            if (joyY < -0.3) {
+                                looperVolume += VOLUME_RATE_SCALE;
+                            } 
+                            else if (joyY > 0.3) {
+                                looperVolume -= VOLUME_RATE_SCALE;
                             }
 
-                            // Bound protections matching hardware firmware specs
-                            if (systemVolume > 127.0) systemVolume = 127.0;
-                            if (systemVolume < 0.0) systemVolume = 0.0;
+                            if (looperVolume > 127.0) looperVolume = 127.0;
+                            if (looperVolume < 0.0) looperVolume = 0.0;
 
-                            const quantizedValue = Math.floor(systemVolume);
-                            
-                            // Bound change verification checks to prevent MIDI data overflow
-                            if (quantizedValue !== lastSentVolume && Math.abs(stickY) > 0.3) {
-                                transmitMidiCC(66, quantizedValue);
-                                lastSentVolume = quantizedValue;
-                                log(`Continuous Move: Stick Y ➔ CC 66 [${quantizedValue}]`);
+                            const intVol = Math.floor(looperVolume);
+                            if (intVol !== lastSentVolume && Math.abs(joyY) > 0.3) {
+                                sendMidiCC(66, intVol);
+                                lastSentVolume = intVol;
+                                log(`Volume Stick Y ➔ MIDI CC 66 [${intVol}]`);
                             }
-                            lastThrottleTime = immediateTime;
+                            lastJoystickTime = currentTime;
                         }
                     }
                 }
             }
-            // Keep loop executing smoothly on the browser rendering thread
-            requestAnimationFrame(executePollingLoop);
         }
     </script>
 </body>
