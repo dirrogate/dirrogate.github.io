@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gpt ver2 VR MIDI Dashboard</title>
+    <style>
+        :root {
+            --bg: #0a0a0f;
+            --panel: #161821;
+            --accent-green: #00ff88;
+            --accent-red: #ff3366;
+            --accent-blue: #00e5ff;
+            --text: #e0e0e0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            box-sizing: border-box;
+            user-select: none; /* Prevents text highlighting when laser-clicking */
+        }
+
+        .header {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: var(--panel);
+            border-radius: 12px;
+            border: 1px solid #2a2d3a;
+        }
+
+        #btn-connect {
+            background: var(--accent-blue);
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            font-weight: 900;
+            border-radius: 8px;
+            cursor: pointer;
+            text-transform: uppercase;
+        }
+
+        #btn-connect:disabled {
+            background: #2a2d3a;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        .status {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #ff3366;
+        }
+
+        .status.active {
+            color: var(--accent-green);
+        }
+
+        /* MASSIVE VR-FRIENDLY CONTROLS */
+        .dashboard {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            max-width: 800px;
+            flex: 1;
+        }
+
+        .pad-container {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .drum-pad {
+            flex: 1;
+            border: none;
+            border-radius: 16px;
+            font-size: 3rem;
+            font-weight: 900;
+            color: #000;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: transform 0.05s ease, filter 0.1s ease;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .drum-pad:active {
+            transform: scale(0.95);
+            filter: brightness(1.3);
+        }
+
+        #pad-play {
+            background: linear-gradient(135deg, #00ff88, #00b35f);
+        }
+
+        #pad-stop {
+            background: linear-gradient(135deg, #ff3366, #cc0033);
+        }
+
+        .fader-container {
+            flex: 1;
+            background: var(--panel);
+            border-radius: 16px;
+            border: 1px solid #2a2d3a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .fader-label {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: var(--accent-blue);
+        }
+
+        /* Massive Custom Range Slider for Laser Pointer */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 300px; /* Length of the slider */
+            background: transparent;
+            transform: rotate(-90deg) translate(-100px, 0); /* Make it vertical */
+            transform-origin: left top;
+            margin-top: 150px; 
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 60px;
+            width: 90px;
+            border-radius: 10px;
+            background: var(--accent-blue);
+            cursor: pointer;
+            margin-top: -25px; 
+            box-shadow: 0 0 15px rgba(0, 229, 255, 0.5);
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 10px;
+            cursor: pointer;
+            background: #2a2d3a;
+            border-radius: 5px;
+        }
+
+        #vol-display {
+            margin-top: 180px;
+            font-size: 2.5rem;
+            font-weight: 900;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <button id="btn-connect" onclick="initMidi()">Link Bluetooth</button>
+        <div id="status-text" class="status">DISCONNECTED</div>
+    </div>
+
+    <div class="dashboard">
+        <div class="pad-container">
+            <button id="pad-play" class="drum-pad" onclick="cycleDub()">CYCLE / DUB</button>
+            <button id="pad-stop" class="drum-pad" onclick="stopLoop()">STOP</button>
+            <button id="pad-playback" class="drum-pad" onclick="playLoop()">PLAY</button>
+            <button id="pad-panic" class="drum-pad" onclick="midiPanic()">MIDI PANIC</button>
+        </div>
+
+        <div class="fader-container">
+            <div class="fader-label">VOLUME</div>
+            <input type="range" id="vol-slider" min="0" max="100" value="64" oninput="updateVolume(this.value)">
+            <div id="vol-display">64</div>
+        </div>
+    </div>
+
+    <script>
+        let midiOutput = null; // stores BLE MIDI characteristic
+
+        let looperState = "EMPTY";
+
+        function cycleDub() {
+            fireCC(59, 127);
+
+            if (looperState === "EMPTY" || looperState === "STOPPED") {
+                setTimeout(() => fireCC(60, 127), 20);
+                looperState = "RECORDING";
+            } else if (looperState === "RECORDING") {
+                setTimeout(() => fireCC(62, 127), 20);
+                looperState = "PLAYING";
+            } else if (looperState === "PLAYING") {
+                setTimeout(() => fireCC(60, 127), 20);
+            }
+        }
+
+        function playLoop() {
+            fireCC(59, 127);
+            setTimeout(() => fireCC(62, 127), 20);
+            looperState = "PLAYING";
+        }
+
+        function stopLoop() {
+            fireCC(59, 127);
+            setTimeout(() => fireCC(62, 0), 20);
+            looperState = "STOPPED";
+        }
+
+        async function midiPanic() {
+            fireCC(59, 0);
+            await new Promise(r => setTimeout(r, 120));
+            fireCC(59, 127);
+            await new Promise(r => setTimeout(r, 50));
+            fireCC(62, 0);
+            await new Promise(r => setTimeout(r, 20));
+            fireCC(64, 127);
+            looperState = "EMPTY";
+        }
+
+
+
+        async function initMidi() {
+            if (!navigator.bluetooth) {
+                alert("Web Bluetooth not supported on this browser.");
+                return;
+            }
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    acceptAllDevices: true,
+                    optionalServices: ['03b80e5a-ede8-4b33-a751-6ce34ec4c700']
+                });
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService('03b80e5a-ede8-4b33-a751-6ce34ec4c700');
+                midiOutput = await service.getCharacteristic('7772e5db-3868-4112-a1a9-f2669d106bf3');
+
+                const btn = document.getElementById('btn-connect');
+                const status = document.getElementById('status-text');
+                btn.disabled = true;
+                btn.innerText = "BT ACTIVE";
+                status.innerText = "LINKED: " + device.name.toUpperCase();
+                status.classList.add('active');
+            } catch (err) {
+                console.error("BT MIDI Error:", err);
+                alert("Bluetooth MIDI failed: " + err.message);
+            }
+        }
+
+        // Transmit BLE MIDI Control Change (header + timestamp + CC bytes)
+        function fireCC(ccNumber, value) {
+            if (!midiOutput) return;
+            const ts = performance.now() & 0x1FFF;
+            const header = 0x80 | ((ts >> 7) & 0x3F);
+            const tsByte = 0x80 | (ts & 0x7F);
+            midiOutput.writeValueWithoutResponse(new Uint8Array([header, tsByte, 0xB0, ccNumber, value]));
+        }
+
+        // Throttle and transmit volume fader
+        let lastVolTime = 0;
+        function updateVolume(val) {
+            document.getElementById('vol-display').innerText = val;
+            
+            const now = performance.now();
+            // 30ms throttle prevents flooding the hardware buffer while dragging
+            if (now - lastVolTime > 30) {
+                fireCC(66, parseInt(val));
+                lastVolTime = now;
+            }
+        }
+    </script>
+</body>
+</html>
