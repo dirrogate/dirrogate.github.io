@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Moondance Estate · Nilgiris</title>
+  <meta name="description" content="Moondance Estate — a cocoon in the Nilgiris hills. Rooted in a living, breathing farming village. For those seeking space, stillness & intentional living." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌙</text></svg>" />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ---------- reset & base ---------- */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html {
+      scroll-behavior: smooth;
+    }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0b0a0a;
+      color: #ece6df;
+      overflow-x: hidden;
+    }
+    a {
+      text-decoration: none;
+      color: inherit;
+    }
+
+    /* ---------- scroll progress ---------- */
+    #scrollProgress {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #e8c9a0, #d4a373);
+      z-index: 9999;
+      width: 0%;
+      transition: width 0.08s linear;
+    }
+
+    /* ---------- navigation ---------- */
+    .navbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      padding: 0.9rem 0;
+      transition: background 0.35s ease, backdrop-filter 0.35s ease;
+      background: transparent;
+    }
+    .navbar.scrolled {
+      background: rgba(11, 10, 10, 0.85);
+      backdrop-filter: blur(14px);
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+      padding: 0.5rem 0;
+    }
+    .navbar .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo-img {
+      height: 40px;
+      width: 40px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 1.5px solid rgba(232, 201, 160, 0.3);
+      background: #1f1b18;
+    }
+    .logo-text {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: #f0e3d4;
+    }
+    .logo-text span {
+      color: #d4a373;
+      font-style: italic;
+      font-weight: 400;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+      align-items: center;
+    }
+    .nav-links a {
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(236, 230, 223, 0.7);
+      transition: color 0.25s;
+      position: relative;
+    }
+    .nav-links a::after {
+      content: '';
+      position: absolute;
+      bottom: -4px;
+      left: 0;
+      width: 0;
+      height: 1.5px;
+      background: #d4a373;
+      transition: width 0.3s ease;
+    }
+    .nav-links a:hover {
+      color: #f0e3d4;
+    }
+    .nav-links a:hover::after {
+      width: 100%;
+    }
+    .nav-cta {
+      background: #d4a373;
+      color: #0b0a0a !important;
+      padding: 0.4rem 1.4rem;
+      border-radius: 40px;
+      font-weight: 600;
+      text-transform: none !important;
+      letter-spacing: 0.02em !important;
+    }
+    .nav-cta::after {
+      display: none !important;
+    }
+    .nav-cta:hover {
+      background: #e8c9a0 !important;
+      color: #0b0a0a !important;
+    }
+
+    .hamburger {
+      display: none;
+      flex-direction: column;
+      gap: 5px;
+      background: none;
+      border: none;
+      padding: 4px;
+      cursor: pointer;
+    }
+    .hamburger span {
+      display: block;
+      width: 28px;
+      height: 2px;
+      background: #ece6df;
+      border-radius: 4px;
+      transition: all 0.3s ease;
+    }
+
+    /* ---------- HERO – 25% viewport height, 16:9 landscape ---------- */
+    .hero {
+      position: relative;
+      width: 100%;
+      height: 25vh;
+      min-height: 160px;
+      max-height: 320px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0b0a0a;
+    }
+    .hero-video {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 0;
+    }
+    .hero-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(11, 10, 10, 0.35);
+      z-index: 1;
+      background: linear-gradient(180deg, rgba(11,10,10,0.2) 0%, rgba(11,10,10,0.5) 100%);
+    }
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      text-align: center;
+      padding: 0 20px;
+    }
+    .hero-content .badge {
+      display: inline-block;
+      font-size: 0.6rem;
+      font-weight: 400;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #d4a373;
+      border: 1px solid rgba(212, 163, 115, 0.3);
+      padding: 0.2rem 1rem;
+      border-radius: 40px;
+      margin-bottom: 0.4rem;
+      backdrop-filter: blur(4px);
+      background: rgba(11, 10, 10, 0.2);
+    }
+    .hero-content h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(1.6rem, 4vw, 2.8rem);
+      font-weight: 700;
+      color: #fff;
+      text-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    .hero-content h1 span {
+      color: #d4a373;
+      font-style: italic;
+      font-weight: 400;
+    }
+    .hero-content .sub {
+      font-size: clamp(0.7rem, 1.2vw, 1rem);
+      font-weight: 300;
+      color: rgba(236, 230, 223, 0.8);
+      letter-spacing: 0.04em;
+      margin-top: 0.2rem;
+    }
+    .scroll-hint {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2;
+      color: rgba(236, 230, 223, 0.4);
+      font-size: 0.55rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      animation: floatDown 2.4s ease-in-out infinite;
+    }
+    @keyframes floatDown {
+      0%, 100% { transform: translateX(-50%) translateY(0); }
+      50% { transform: translateX(-50%) translateY(6px); }
+    }
+
+    /* ---------- parallax sections ---------- */
+    .parallax-section {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      overflow: hidden;
+      padding: 80px 0;
+    }
+    .parallax-section .bg-video-wrap {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 120%;
+      z-index: 0;
+      will-change: transform;
+    }
+    .parallax-section .bg-video-wrap video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .parallax-section .section-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+    .parallax-section .section-content {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    .overlay-dark   { background: rgba(11, 10, 10, 0.55); }
+    .overlay-deep   { background: rgba(11, 10, 10, 0.70); }
+    .overlay-warm   { background: rgba(11, 10, 10, 0.45); }
+    .overlay-light  { background: rgba(11, 10, 10, 0.30); }
+
+    /* ---------- typography ---------- */
+    .section-tag {
+      font-size: 0.7rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #d4a373;
+      display: inline-block;
+      margin-bottom: 0.4rem;
+    }
+    .section-title {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2rem, 4.5vw, 3.4rem);
+      font-weight: 700;
+      line-height: 1.15;
+      color: #f0e3d4;
+      margin-bottom: 0.8rem;
+    }
+    .section-title .highlight {
+      color: #d4a373;
+      font-style: italic;
+      font-weight: 400;
+    }
+    .section-sub {
+      font-size: 1.05rem;
+      font-weight: 300;
+      color: rgba(236, 230, 223, 0.75);
+      max-width: 600px;
+      line-height: 1.7;
+    }
+
+    /* ---------- about ---------- */
+    #about .about-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 50px;
+      align-items: center;
+    }
+    #about .about-text p {
+      color: rgba(236, 230, 223, 0.8);
+      line-height: 1.8;
+      font-weight: 300;
+      margin-bottom: 1.2rem;
+    }
+    .about-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 1.8rem;
+    }
+    .about-stats .stat {
+      text-align: center;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 1.2rem 0.5rem;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(4px);
+    }
+    .about-stats .stat-number {
+      font-family: 'Playfair Display', serif;
+      font-size: 2rem;
+      font-weight: 700;
+      color: #d4a373;
+      display: block;
+    }
+    .about-stats .stat-label {
+      font-size: 0.75rem;
+      color: rgba(236, 230, 223, 0.6);
+      letter-spacing: 0.04em;
+      margin-top: 2px;
+    }
+
+    /* ---------- cottages (sample homes) ---------- */
+    #cottages .section-content {
+      text-align: center;
+    }
+    #cottages .section-sub {
+      margin: 0 auto 2.5rem auto;
+    }
+    .cottage-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 30px;
+      text-align: left;
+    }
+    .cottage-card {
+      background: rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(6px);
+      border-radius: 20px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      transition: transform 0.4s ease, box-shadow 0.4s ease;
+    }
+    .cottage-card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 20px 48px rgba(0,0,0,0.3);
+    }
+    .cottage-card .card-img {
+      height: 200px;
+      overflow: hidden;
+      background: #1f1b18;
+    }
+    .cottage-card .card-img img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.6s ease;
+    }
+    .cottage-card:hover .card-img img {
+      transform: scale(1.05);
+    }
+    .cottage-card .card-body {
+      padding: 1.6rem 1.8rem 1.8rem;
+    }
+    .cottage-card .card-body h3 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.3rem;
+      font-weight: 600;
+      color: #f0e3d4;
+    }
+    .cottage-card .card-body .location {
+      font-size: 0.8rem;
+      color: rgba(236, 230, 223, 0.5);
+      margin-bottom: 0.4rem;
+    }
+    .cottage-card .card-body .price {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: #d4a373;
+      margin-bottom: 0.4rem;
+    }
+    .cottage-card .card-body .price small {
+      font-weight: 300;
+      font-size: 0.75rem;
+      color: rgba(236, 230, 223, 0.4);
+    }
+    .cottage-card .card-body .features {
+      display: flex;
+      gap: 16px;
+      font-size: 0.8rem;
+      color: rgba(236, 230, 223, 0.6);
+      border-top: 1px solid rgba(255,255,255,0.04);
+      padding-top: 0.8rem;
+      margin-top: 0.4rem;
+    }
+    .cottage-card .card-body .features span {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* ---------- testimonials ---------- */
+    #testimonials .section-content {
+      text-align: center;
+    }
+    #testimonials .section-sub {
+      margin: 0 auto 2.5rem auto;
+    }
+    .testimonial-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 30px;
+      text-align: left;
+    }
+    .testimonial-card {
+      background: rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(6px);
+      border-radius: 20px;
+      padding: 2rem;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      transition: transform 0.3s ease;
+    }
+    .testimonial-card:hover {
+      transform: translateY(-4px);
+    }
+    .testimonial-card .stars {
+      color: #f5b342;
+      font-size: 1.1rem;
+      letter-spacing: 2px;
+      margin-bottom: 0.6rem;
+    }
+    .testimonial-card blockquote {
+      font-size: 1rem;
+      line-height: 1.7;
+      color: rgba(236, 230, 223, 0.85);
+      font-weight: 300;
+      font-style: italic;
+      margin-bottom: 1rem;
+    }
+    .testimonial-card .client {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .testimonial-card .client .avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      overflow: hidden;
+      background: #2a2520;
+      flex-shrink: 0;
+    }
+    .testimonial-card .client .avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .testimonial-card .client .name {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: #f0e3d4;
+    }
+    .testimonial-card .client .role {
+      font-size: 0.8rem;
+      color: rgba(236, 230, 223, 0.4);
+    }
+
+    /* ---------- contact ---------- */
+    #contact .contact-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 50px;
+      align-items: start;
+    }
+    #contact .contact-info p {
+      color: rgba(236, 230, 223, 0.75);
+      line-height: 1.8;
+      font-weight: 300;
+      margin-bottom: 1.8rem;
+    }
+    .contact-details {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .contact-details .detail {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      color: rgba(236, 230, 223, 0.8);
+      font-size: 0.95rem;
+    }
+    .contact-details .detail .icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.04);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      flex-shrink: 0;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .contact-form-wrap {
+      background: rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(8px);
+      padding: 2.4rem;
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .contact-form-wrap h3 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.4rem;
+      color: #f0e3d4;
+      margin-bottom: 0.2rem;
+    }
+    .contact-form-wrap .form-sub {
+      font-size: 0.85rem;
+      color: rgba(236, 230, 223, 0.5);
+      margin-bottom: 1.6rem;
+    }
+    .contact-form-wrap input,
+    .contact-form-wrap textarea {
+      width: 100%;
+      padding: 0.9rem 1.2rem;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.95rem;
+      background: rgba(255, 255, 255, 0.04);
+      color: #ece6df;
+      transition: border 0.3s, background 0.3s;
+      margin-bottom: 1rem;
+    }
+    .contact-form-wrap input::placeholder,
+    .contact-form-wrap textarea::placeholder {
+      color: rgba(236, 230, 223, 0.3);
+    }
+    .contact-form-wrap input:focus,
+    .contact-form-wrap textarea:focus {
+      outline: none;
+      border-color: #d4a373;
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .contact-form-wrap textarea {
+      min-height: 110px;
+      resize: vertical;
+    }
+    .contact-form-wrap .btn {
+      width: 100%;
+      background: #d4a373;
+      color: #0b0a0a;
+      padding: 0.9rem;
+      border: none;
+      border-radius: 50px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.3s, transform 0.2s;
+    }
+    .contact-form-wrap .btn:hover {
+      background: #e8c9a0;
+      transform: translateY(-2px);
+    }
+
+    /* ---------- footer ---------- */
+    .footer {
+      background: #0b0a0a;
+      border-top: 1px solid rgba(255, 255, 255, 0.03);
+      padding: 2.6rem 0 2rem;
+    }
+    .footer .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+    .footer .logo-text {
+      font-size: 1.2rem;
+    }
+    .footer .footer-links {
+      display: flex;
+      gap: 2rem;
+      font-size: 0.8rem;
+    }
+    .footer .footer-links a {
+      color: rgba(236, 230, 223, 0.4);
+      transition: color 0.3s;
+    }
+    .footer .footer-links a:hover {
+      color: #d4a373;
+    }
+    .footer .copy {
+      font-size: 0.75rem;
+      color: rgba(236, 230, 223, 0.25);
+    }
+
+    /* ---------- responsive ---------- */
+    @media (max-width: 992px) {
+      #about .about-grid,
+      #contact .contact-grid {
+        grid-template-columns: 1fr;
+        gap: 30px;
+      }
+    }
+    @media (max-width: 768px) {
+      .nav-links {
+        position: fixed;
+        top: 0;
+        right: -100%;
+        width: 70%;
+        max-width: 300px;
+        height: 100vh;
+        background: rgba(11, 10, 10, 0.96);
+        backdrop-filter: blur(20px);
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        gap: 2rem;
+        transition: right 0.4s ease;
+        padding: 2rem;
+      }
+      .nav-links.open {
+        right: 0;
+      }
+      .hamburger {
+        display: flex;
+        z-index: 1001;
+      }
+      .hamburger.open span:nth-child(1) {
+        transform: rotate(45deg) translate(5px, 5px);
+      }
+      .hamburger.open span:nth-child(2) {
+        opacity: 0;
+      }
+      .hamburger.open span:nth-child(3) {
+        transform: rotate(-45deg) translate(5px, -5px);
+      }
+
+      .hero {
+        height: 20vh;
+        min-height: 140px;
+        max-height: 240px;
+      }
+      .hero-content h1 {
+        font-size: 1.4rem;
+      }
+
+      .about-stats {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+      }
+      .about-stats .stat-number {
+        font-size: 1.4rem;
+      }
+
+      .parallax-section {
+        padding: 60px 0;
+        min-height: 80vh;
+      }
+      .contact-form-wrap {
+        padding: 1.6rem;
+      }
+      .footer .container {
+        flex-direction: column;
+        text-align: center;
+      }
+    }
+    @media (max-width: 480px) {
+      .logo-img {
+        height: 34px;
+        width: 34px;
+      }
+      .logo-text {
+        font-size: 1.1rem;
+      }
+      .about-stats {
+        grid-template-columns: 1fr 1fr;
+      }
+      .about-stats .stat:last-child {
+        grid-column: span 2;
+      }
+      .cottage-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* ---------- video poster fallback ---------- */
+    .video-poster {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 0;
+      background: #1f1b18;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- scroll progress -->
+  <div id="scrollProgress"></div>
+
+  <!-- ===== NAV ===== -->
+  <nav class="navbar" id="navbar" role="navigation">
+    <div class="container">
+      <div class="logo-wrap">
+        <img class="logo-img" src="https://instagram.fbom19-4.fna.fbcdn.net/v/t51.82787-19/687217724_18118693093588761_6208842687887289380_n.jpg" alt="Moondance Estate" loading="lazy" onerror="this.style.display='none'" />
+        <span class="logo-text">Moondance<span>Estate</span></span>
+      </div>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="#about">About</a></li>
+        <li><a href="#cottages">Cottages</a></li>
+        <li><a href="#testimonials">Testimonials</a></li>
+        <li><a href="#contact" class="nav-cta">Inquire</a></li>
+      </ul>
+      <button class="hamburger" id="hamburger" aria-label="Menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ===== HERO – 25% viewport, 16:9 video ===== -->
+  <header class="hero" id="home">
+    <video class="hero-video" autoplay muted loop playsinline preload="auto" poster="https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800">
+      <source src="https://cdn.pixabay.com/video/2023/06/05/167315-835356023_large.mp4" type="video/mp4" />
+      <img class="video-poster" src="https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800" alt="Moondance landscape" />
+    </video>
+    <div class="hero-overlay"></div>
+    <div class="hero-content">
+      <span class="badge">🌙 Nilgiris</span>
+      <h1>A cocoon in the <span>hills</span></h1>
+      <p class="sub">Rooted in a living, breathing farming village.</p>
+    </div>
+    <div class="scroll-hint">Scroll to explore</div>
+  </header>
+
+  <!-- ===== ABOUT (parallax video) ===== -->
+  <section class="parallax-section" id="about">
+    <div class="bg-video-wrap" id="aboutVideoWrap">
+      <video muted loop playsinline preload="auto" poster="https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800">
+        <source src="https://cdn.pixabay.com/video/2023/05/20/163869-832055019_large.mp4" type="video/mp4" />
+      </video>
+    </div>
+    <div class="section-overlay overlay-dark"></div>
+    <div class="section-content">
+      <div class="about-grid">
+        <div class="about-text">
+          <span class="section-tag">About Moondance</span>
+          <h2 class="section-title">Rooted in <span class="highlight">community</span></h2>
+          <p>
+            Moondance Estate sits quietly in the Nilgiris, where mist rolls in like clockwork
+            and the earth smells of rain and wild grass. It is not a resort. It is a return —
+            to the rhythm of the land, to the simplicity of a farming village, and to the
+            kind of stillness that lets you hear your own thoughts again.
+          </p>
+          <p>
+            Here, the sunrise does not compete with yesterday’s sunrise. It simply shows up
+            fully. That is the kind of living we invite you into.
+          </p>
+          <div class="about-stats">
+            <div class="stat"><span class="stat-number">40+</span><span class="stat-label">Acres of forest</span></div>
+            <div class="stat"><span class="stat-number">6</span><span class="stat-label">Handcrafted cottages</span></div>
+            <div class="stat"><span class="stat-number">100%</span><span class="stat-label">Off‑grid &amp; solar</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== COTTAGES (parallax video) ===== -->
+  <section class="parallax-section" id="cottages">
+    <div class="bg-video-wrap" id="cottagesVideoWrap">
+      <video muted loop playsinline preload="auto" poster="https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800">
+        <source src="https://cdn.pixabay.com/video/2022/11/14/138833-770778038_large.mp4" type="video/mp4" />
+      </video>
+    </div>
+    <div class="section-overlay overlay-deep"></div>
+    <div class="section-content">
+      <span class="section-tag">Our cottages</span>
+      <h2 class="section-title">Homes in the <span class="highlight">hills</span></h2>
+      <p class="section-sub">Each cottage is a study in simplicity – stone, wood, and glass, framing the misty valleys.</p>
+
+      <div class="cottage-grid">
+        <div class="cottage-card">
+          <div class="card-img">
+            <img src="https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=600&h=400&fit=crop&crop=center" alt="Mist Cottage" loading="lazy" />
+          </div>
+          <div class="card-body">
+            <h3>Mist Cottage</h3>
+            <div class="location">📍 Ridge view</div>
+            <div class="price">₹12,000 <small>/ night</small></div>
+            <div class="features">
+              <span>🛏 2 Beds</span>
+              <span>🛁 1 Bath</span>
+              <span>🔥 Wood stove</span>
+            </div>
+          </div>
+        </div>
+        <div class="cottage-card">
+          <div class="card-img">
+            <img src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=600&h=400&fit=crop&crop=center" alt="Fern Cottage" loading="lazy" />
+          </div>
+          <div class="card-body">
+            <h3>Fern Cottage</h3>
+            <div class="location">📍 Forest edge</div>
+            <div class="price">₹15,000 <small>/ night</small></div>
+            <div class="features">
+              <span>🛏 3 Beds</span>
+              <span>🛁 2 Baths</span>
+              <span>🌿 Private deck</span>
+            </div>
+          </div>
+        </div>
+        <div class="cottage-card">
+          <div class="card-img">
+            <img src="https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=600&h=400&fit=crop&crop=center" alt="Sky Cottage" loading="lazy" />
+          </div>
+          <div class="card-body">
+            <h3>Sky Cottage</h3>
+            <div class="location">📍 Valley view</div>
+            <div class="price">₹18,000 <small>/ night</small></div>
+            <div class="features">
+              <span>🛏 2 Beds</span>
+              <span>🛁 1 Bath</span>
+              <span>🌟 Stargazing roof</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== TESTIMONIALS (parallax video) ===== -->
+  <section class="parallax-section" id="testimonials">
+    <div class="bg-video-wrap" id="testimonialsVideoWrap">
+      <video muted loop playsinline preload="auto" poster="https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800">
+        <source src="https://cdn.pixabay.com/video/2023/03/20/155552-809454728_large.mp4" type="video/mp4" />
+      </video>
+    </div>
+    <div class="section-overlay overlay-warm"></div>
+    <div class="section-content">
+      <span class="section-tag">Guest stories</span>
+      <h2 class="section-title">What they <span class="highlight">say</span></h2>
+      <p class="section-sub">Real words from people who found their stillness at Moondance.</p>
+
+      <div class="testimonial-grid">
+        <div class="testimonial-card">
+          <div class="stars">★★★★★</div>
+          <blockquote>“We came for a weekend and stayed a week. The silence, the mist, the warmth of the hosts – it stays with you.”</blockquote>
+          <div class="client">
+            <div class="avatar"><img src="https://images.unsplash.com/photo-1580618672591-eb180b1a973f?w=100&h=100&fit=crop&crop=face" alt="Ananya" loading="lazy" /></div>
+            <div><div class="name">Ananya &amp; Ravi</div><div class="role">Mist Cottage, Dec 2025</div></div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="stars">★★★★★</div>
+          <blockquote>“The farm‑to‑table meals, the walks through the forest, the stars at night – it’s a different world.”</blockquote>
+          <div class="client">
+            <div class="avatar"><img src="https://images.unsplash.com/photo-1564564321837-a57b7070ac4f?w=100&h=100&fit=crop&crop=face" alt="James" loading="lazy" /></div>
+            <div><div class="name">James &amp; Leela</div><div class="role">Fern Cottage, Jan 2026</div></div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="stars">★★★★★</div>
+          <blockquote>“We were looking for a space to breathe, and Moondance gave us that – plus a sense of belonging.”</blockquote>
+          <div class="client">
+            <div class="avatar"><img src="https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=100&h=100&fit=crop&crop=face" alt="Priya" loading="lazy" /></div>
+            <div><div class="name">Priya &amp; Arjun</div><div class="role">Sky Cottage, Feb 2026</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== CONTACT (parallax video) ===== -->
+  <section class="parallax-section" id="contact">
+    <div class="bg-video-wrap" id="contactVideoWrap">
+      <video muted loop playsinline preload="auto" poster="https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800">
+        <source src="https://cdn.pixabay.com/video/2023/07/12/171828-842632940_large.mp4" type="video/mp4" />
+      </video>
+    </div>
+    <div class="section-overlay overlay-deep"></div>
+    <div class="section-content">
+      <div class="contact-grid">
+        <div class="contact-info">
+          <span class="section-tag">Reach out</span>
+          <h2 class="section-title">Begin your <span class="highlight">story</span></h2>
+          <p>
+            Whether you're dreaming of a week of stillness or a lifetime of intentional
+            living, we'd love to hear from you. Come visit. Come breathe. Come home.
+          </p>
+          <div class="contact-details">
+            <div class="detail"><span class="icon">📍</span><span>Moondance Estate, Nilgiris, TN</span></div>
+            <div class="detail"><span class="icon">📞</span><span><a href="tel:+919876543210">+91 98765 43210</a></span></div>
+            <div class="detail"><span class="icon">✉️</span><span><a href="mailto:hello@moondanceestate.in">hello@moondanceestate.in</a></span></div>
+            <div class="detail" style="margin-top:0.5rem; border-top:1px solid rgba(255,255,255,0.05); padding-top:0.8rem;">
+              <span class="icon">📸</span>
+              <span><a href="https://www.instagram.com/moondanceestate/reel/DZFJ1G0Jgbb/" target="_blank" style="color:#d4a373; text-decoration:underline;">Watch our reel on Instagram</a></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="contact-form-wrap">
+          <h3>Inquire about a stay</h3>
+          <p class="form-sub">We'll respond within a day.</p>
+          <form id="contactForm">
+            <input type="text" name="name" placeholder="Full name" required />
+            <input type="email" name="email" placeholder="Email address" required />
+            <input type="tel" name="phone" placeholder="Phone (optional)" />
+            <textarea name="message" placeholder="Tell us what you're looking for…" required></textarea>
+            <button type="submit" class="btn">Send inquiry</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <div class="container">
+      <span class="logo-text">Moondance<span>Estate</span></span>
+      <div class="footer-links">
+        <a href="#about">About</a>
+        <a href="#cottages">Cottages</a>
+        <a href="#testimonials">Testimonials</a>
+        <a href="#contact">Contact</a>
+      </div>
+      <span class="copy">© 2026 Moondance Estate · Nilgiris</span>
+    </div>
+  </footer>
+
+  <!-- ========================================================== -->
+  <!-- JAVASCRIPT -->
+  <script>
+    (function() {
+      'use strict';
+
+      // navbar scroll + hamburger
+      const navbar = document.getElementById('navbar');
+      const hamburger = document.getElementById('hamburger');
+      const navLinks = document.getElementById('navLinks');
+
+      hamburger.addEventListener('click', function() {
+        const open = navLinks.classList.toggle('open');
+        hamburger.classList.toggle('open');
+        hamburger.setAttribute('aria-expanded', open);
+      });
+
+      navLinks.querySelectorAll('a').forEach(function(link) {
+        link.addEventListener('click', function() {
+          navLinks.classList.remove('open');
+          hamburger.classList.remove('open');
+          hamburger.setAttribute('aria-expanded', 'false');
+        });
+      });
+
+      window.addEventListener('scroll', function() {
+        const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+        navbar.classList.toggle('scrolled', scrollY > 40);
+      }, { passive: true });
+
+      // scroll progress
+      const progress = document.getElementById('scrollProgress');
+      window.addEventListener('scroll', function() {
+        const st = window.pageYOffset || document.documentElement.scrollTop;
+        const dh = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+        progress.style.width = (dh > 0 ? (st / dh) * 100 : 0) + '%';
+      }, { passive: true });
+
+      // parallax video effect
+      const wraps = document.querySelectorAll('.parallax-section .bg-video-wrap');
+
+      function updateParallax() {
+        const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+        const vh = window.innerHeight;
+
+        wraps.forEach(function(wrap) {
+          const section = wrap.closest('.parallax-section');
+          if (!section) return;
+          const rect = section.getBoundingClientRect();
+          const sectionTop = rect.top + scrollY;
+          const sectionH = rect.height;
+          const center = sectionTop + sectionH / 2;
+          const dist = (scrollY + vh / 2) - center;
+          const offset = dist * 0.16;
+          const maxOffset = sectionH * 0.10;
+          const clamped = Math.min(Math.max(offset, -maxOffset), maxOffset);
+          wrap.style.transform = 'translateY(' + clamped + 'px)';
+        });
+      }
+
+      let ticking = false;
+      window.addEventListener('scroll', function() {
+        if (!ticking) {
+          window.requestAnimationFrame(function() {
+            updateParallax();
+            ticking = false;
+          });
+          ticking = true;
+        }
+      }, { passive: true });
+
+      window.addEventListener('resize', updateParallax, { passive: true });
+      setTimeout(updateParallax, 100);
+
+      // force play videos
+      document.querySelectorAll('video').forEach(function(vid) {
+        vid.muted = true;
+        vid.setAttribute('playsinline', '');
+        vid.setAttribute('autoplay', '');
+        vid.setAttribute('loop', '');
+        vid.addEventListener('loadedmetadata', function() {
+          vid.play().catch(function() { /* ignore */ });
+        });
+        if (vid.readyState >= 3) {
+          vid.play().catch(function() { /* ignore */ });
+        }
+      });
+
+      // contact form
+      const form = document.getElementById('contactForm');
+      if (form) {
+        form.addEventListener('submit', function(e) {
+          e.preventDefault();
+          const btn = form.querySelector('.btn');
+          const orig = btn.textContent;
+          btn.textContent = 'Sending…';
+          btn.disabled = true;
+          setTimeout(function() {
+            btn.textContent = '✓ Sent!';
+            btn.style.background = '#7a9f7a';
+            setTimeout(function() {
+              btn.textContent = orig;
+              btn.style.background = '';
+              btn.disabled = false;
+              form.reset();
+            }, 2000);
+          }, 1200);
+        });
+      }
+
+      // smooth anchor scroll
+      document.querySelectorAll('a[href^="#"]').forEach(function(a) {
+        a.addEventListener('click', function(e) {
+          const targetId = this.getAttribute('href');
+          if (targetId === '#') return;
+          const target = document.querySelector(targetId);
+          if (target) {
+            e.preventDefault();
+            const top = target.getBoundingClientRect().top + window.pageYOffset - 70;
+            window.scrollTo({ top: top, behavior: 'smooth' });
+          }
+        });
+      });
+
+      console.log('🌙 Moondance Estate · Full video parallax loaded.');
+    })();
+  </script>
+</body>
+</html>
