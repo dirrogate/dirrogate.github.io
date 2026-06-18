@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<!-- saved from url=(0067)file:///C:/Users/cly3d/Downloads/deepseek_html_20260618_23967c.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moondance Estate – Hosting &amp; Customisation Guide</title>
+    <style>
+        /* ── reset & print styles ── */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #f5f2ed;
+            color: #1e1b1a;
+            padding: 40px 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: #ffffff;
+            padding: 50px 60px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
+        }
+
+        /* ── typography ── */
+        h1 {
+            font-family: 'Playfair Display', 'Georgia', serif;
+            font-size: 2.6rem;
+            font-weight: 700;
+            color: #1a1513;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.2rem;
+        }
+
+        h1 span {
+            color: #b88a5e;
+            font-style: italic;
+            font-weight: 400;
+        }
+
+        .subhead {
+            font-size: 1.1rem;
+            color: #6b625c;
+            margin-bottom: 2.5rem;
+            border-bottom: 2px solid #f0ebe6;
+            padding-bottom: 1.2rem;
+        }
+
+        h2 {
+            font-family: 'Playfair Display', 'Georgia', serif;
+            font-size: 1.8rem;
+            font-weight: 600;
+            color: #1a1513;
+            margin-top: 2.4rem;
+            margin-bottom: 0.8rem;
+            padding-top: 0.4rem;
+            border-top: 3px solid #f0ebe6;
+        }
+
+        h2:first-of-type {
+            border-top: none;
+            margin-top: 0;
+        }
+
+        h3 {
+            font-family: 'Playfair Display', 'Georgia', serif;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #2d2520;
+            margin-top: 1.8rem;
+            margin-bottom: 0.4rem;
+        }
+
+        h4 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #3d342e;
+            margin-top: 1.2rem;
+            margin-bottom: 0.2rem;
+        }
+
+        p,
+        li {
+            color: #2d2520;
+            margin-bottom: 0.8rem;
+        }
+
+        ul,
+        ol {
+            padding-left: 1.6rem;
+            margin-bottom: 1rem;
+        }
+
+        li {
+            margin-bottom: 0.4rem;
+        }
+
+        a {
+            color: #b88a5e;
+            text-decoration: none;
+            border-bottom: 1px dotted rgba(184, 138, 94, 0.3);
+        }
+
+        a:hover {
+            border-bottom-color: #b88a5e;
+        }
+
+        /* ── tables ── */
+        .table-wrap {
+            overflow-x: auto;
+            margin: 1.2rem 0 1.8rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.92rem;
+            background: #fcfaf8;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+        }
+
+        th {
+            background: #f0ebe6;
+            font-weight: 600;
+            text-align: left;
+            padding: 12px 16px;
+            color: #1a1513;
+            border-bottom: 2px solid #ddd6cf;
+        }
+
+        td {
+            padding: 10px 16px;
+            border-bottom: 1px solid #e8e0d8;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* ── code blocks ── */
+        .code-block {
+            background: #1e1b1a;
+            color: #f0ebe6;
+            padding: 16px 20px;
+            border-radius: 12px;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+            font-size: 0.82rem;
+            line-height: 1.7;
+            overflow-x: auto;
+            margin: 0.6rem 0 1.2rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .code-block .hl {
+            color: #d4a373;
+        }
+
+        .inline-code {
+            background: #f0ebe6;
+            padding: 0.1rem 0.5rem;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: #1a1513;
+        }
+
+        /* ── tips / boxes ── */
+        .tip {
+            background: #fbf6f0;
+            border-left: 4px solid #b88a5e;
+            padding: 1.2rem 1.6rem;
+            border-radius: 0 12px 12px 0;
+            margin: 1.2rem 0;
+        }
+
+        .tip strong {
+            color: #b88a5e;
+            font-weight: 600;
+        }
+
+        .tip-green {
+            border-left-color: #5a8f7a;
+            background: #f0f6f2;
+        }
+
+        .tip-green strong {
+            color: #3a6b56;
+        }
+
+        /* ── print ── */
+        @media print {
+            body {
+                background: #fff;
+                padding: 0.3in;
+            }
+            .container {
+                box-shadow: none;
+                padding: 0;
+                border-radius: 0;
+            }
+            .code-block {
+                background: #f4f1ee !important;
+                color: #1e1b1a !important;
+                border: 1px solid #ddd6cf;
+            }
+            .code-block .hl {
+                color: #b88a5e;
+            }
+            .tip {
+                background: #f8f4f0 !important;
+                border-left-color: #b88a5e !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            .tip-green {
+                background: #f0f6f2 !important;
+                border-left-color: #5a8f7a !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            table {
+                background: #fcfaf8 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            th {
+                background: #f0ebe6 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            h2 {
+                border-top-color: #e8e0d8;
+            }
+            .subhead {
+                border-bottom-color: #e8e0d8;
+            }
+            .no-print {
+                display: none;
+            }
+        }
+
+        /* ── utilities ── */
+        .mt-1 {
+            margin-top: 0.8rem;
+        }
+        .mb-1 {
+            margin-bottom: 0.8rem;
+        }
+        .fw-600 {
+            font-weight: 600;
+        }
+        .text-muted {
+            color: #6b625c;
+        }
+
+        /* ── print hint (visible on screen only) ── */
+        .print-hint {
+            text-align: center;
+            padding: 14px 20px;
+            background: #f0ebe6;
+            border-radius: 12px;
+            margin-top: 2rem;
+            font-size: 0.9rem;
+            color: #3d342e;
+        }
+
+        .print-hint kbd {
+            background: #1e1b1a;
+            color: #f0ebe6;
+            padding: 0.1rem 0.7rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        @media print {
+            .print-hint {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+
+        <!-- ===== HEADER ===== -->
+        <h1>Moondance <span>Estate</span></h1>
+        <div class="subhead">
+            Hosting &amp; Customisation Guide – your complete reference for keeping the site fresh.
+        </div>
+
+        <!-- ========================================================= -->
+        <!-- PART 1: HOSTING                                           -->
+        <!-- ========================================================= -->
+
+        <h2>Part 1: Hosting Your Site for Free</h2>
+
+        <p>
+            Your Moondance Estate site is a <strong>static website</strong> – just HTML, CSS, and JavaScript.
+            That means it works perfectly on any of these <strong>100% free</strong> platforms.
+            All of them give you a live URL to share immediately.
+        </p>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Platform</th>
+                        <th>Best for</th>
+                        <th>Key Free Features</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>GitHub Pages</strong></td>
+                        <td>Simple, one‑page sites</td>
+                        <td>Free custom domain, HTTPS, unlimited traffic</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Netlify</strong></td>
+                        <td>Drag‑and‑drop + Git workflows</td>
+                        <td>Free SSL, global CDN, form handling, 100 GB bandwidth/month</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Vercel</strong></td>
+                        <td>Modern frontend projects</td>
+                        <td>Unlimited deployments, custom domains, HTTPS, 100 GB bandwidth/month</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Cloudflare Pages</strong></td>
+                        <td>Performance + security</td>
+                        <td>Unlimited bandwidth, global CDN, built‑in analytics</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <p class="text-muted">All four are <strong>free forever</strong> – no credit card required.</p>
+
+        <!-- ===== Option A: Netlify ===== -->
+        <h3>Option A: Netlify <span class="text-muted">(Easiest – Drag &amp; Drop)</span></h3>
+        <ol>
+            <li>Go to <a href="https://www.netlify.com/" target="_blank">Netlify.com</a> and sign up for a free account.</li>
+            <li>On your dashboard, drag your <span class="inline-code">index.html</span> file (and any assets like images) into the box that says <strong>“Drag and drop your site folder here”</strong>.</li>
+            <li>That’s it – Netlify will give you a live URL in a few seconds.</li>
+            <li><strong>Optional:</strong> Connect your GitHub repository – any time you push changes, Netlify will auto‑redeploy.</li>
+        </ol>
+
+        <!-- ===== Option B: GitHub Pages ===== -->
+        <h3>Option B: GitHub Pages <span class="text-muted">(Best for Version Control)</span></h3>
+        <ol>
+            <li>Create a free account at <a href="https://github.com/" target="_blank">GitHub.com</a>.</li>
+            <li>Create a new repository (e.g., <span class="inline-code">moondance-estate</span>).</li>
+            <li>Upload your <span class="inline-code">index.html</span> file to that repository.</li>
+            <li>Go to <strong>Settings</strong> → <strong>Pages</strong> and under <strong>“Branch”</strong> select <span class="inline-code">main</span> (or <span class="inline-code">master</span>).</li>
+            <li>Save – your site will be live at <span class="inline-code">https://your-username.github.io/moondance-estate/</span>.</li>
+        </ol>
+
+        <!-- ===== Option C: Vercel ===== -->
+        <h3>Option C: Vercel <span class="text-muted">(One‑Click from GitHub)</span></h3>
+        <ol>
+            <li>Sign up at <a href="https://vercel.com/" target="_blank">Vercel.com</a>.</li>
+            <li>Click <strong>“Add New…”</strong> → <strong>“Project”</strong> and import your GitHub repository.</li>
+            <li>Vercel will automatically detect your HTML file and deploy it.</li>
+        </ol>
+
+        <!-- ========================================================= -->
+        <!-- PART 2: CUSTOMISATION                                     -->
+        <!-- ========================================================= -->
+
+        <h2>Part 2: Customising Your Site</h2>
+
+        <p>
+            All content lives in <span class="inline-code">index.html</span>. Open it in any text editor
+            (Notepad, VS Code, Sublime Text, etc.) and use the guides below to make changes.
+        </p>
+
+        <!-- ===== Changing Videos ===== -->
+        <h3>🔄 Changing Background Videos</h3>
+
+        <p>
+            Each section’s background video is defined inside a <span class="inline-code">&lt;video&gt;</span> tag.
+            Currently they all use one working URL. To replace any video:
+        </p>
+
+        <ol>
+            <li>Find the <span class="inline-code">&lt;video&gt;</span> tag for the section you want to change.</li>
+            <li>Locate the <span class="inline-code">&lt;source src="..."&gt;</span> line inside it.</li>
+            <li>Replace the URL with your own <strong>direct video link</strong> (must end in <span class="inline-code">.mp4</span>).</li>
+        </ol>
+
+        <p><strong>Example – Hero video:</strong></p>
+        <div class="code-block">
+            &lt;video class="hero-video" autoplay muted loop playsinline preload="auto" ...&gt;
+              &lt;source src="<span class="hl">https://cdn.pixabay.com/video/2023/11/28/191159-889246512_large.mp4</span>" type="video/mp4" /&gt;
+              ...
+            &lt;/video&gt;
+        </div>
+
+        <div class="tip">
+            <strong>💡 How to get your own video URL:</strong><br>
+            Upload your video to a free service like <strong>Cloudinary</strong>, <strong>ImgBB</strong>, or
+            <strong>Google Drive</strong> (set sharing to “Anyone with the link”). Copy the direct <span class="inline-code">.mp4</span>
+            link and paste it into <span class="inline-code">src=""</span>.
+        </div>
+
+        <div class="tip tip-green">
+            <strong>✅ Important:</strong> Videos must be in <strong>MP4 format</strong> and ideally in
+            <strong>16:9 landscape</strong> to fit the design properly.
+        </div>
+
+        <p><strong>Where each video appears:</strong></p>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th>Section</th><th>Video Tag Location</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Hero (25% banner)</td><td><span class="inline-code">&lt;video class="hero-video"&gt;</span></td></tr>
+                    <tr><td>About</td><td>Inside <span class="inline-code">&lt;div id="aboutVideoWrap"&gt;</span></td></tr>
+                    <tr><td>Cottages</td><td>Inside <span class="inline-code">&lt;div id="cottagesVideoWrap"&gt;</span></td></tr>
+                    <tr><td>Testimonials</td><td>Inside <span class="inline-code">&lt;div id="testimonialsVideoWrap"&gt;</span></td></tr>
+                    <tr><td>Contact</td><td>Inside <span class="inline-code">&lt;div id="contactVideoWrap"&gt;</span></td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ===== Testimonials ===== -->
+        <h3>💬 Updating Testimonials</h3>
+
+        <p>
+            Testimonials live inside the <span class="inline-code">&lt;div class="testimonial-grid"&gt;</span> block.
+            Each one follows this structure:
+        </p>
+
+        <div class="code-block">
+            &lt;div class="testimonial-card"&gt;
+              &lt;div class="stars"&gt;★★★★★&lt;/div&gt;
+              &lt;blockquote&gt;“Your testimonial text goes here.”&lt;/blockquote&gt;
+              &lt;div class="client"&gt;
+                &lt;div class="avatar"&gt;&lt;img src="<span class="hl">avatar-image-url.jpg</span>" alt="Name" /&gt;&lt;/div&gt;
+                &lt;div&gt;
+                  &lt;div class="name"&gt;<span class="hl">Guest Name</span>&lt;/div&gt;
+                  &lt;div class="role"&gt;<span class="hl">Cottage Name, Month Year</span>&lt;/div&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+        </div>
+
+        <p><strong>To edit:</strong></p>
+        <ul>
+            <li>Change the text inside <span class="inline-code">&lt;blockquote&gt;</span>.</li>
+            <li>Update the guest’s name and role.</li>
+            <li>Replace the avatar image URL with your own photo link.</li>
+        </ul>
+
+        <p>
+            You can add or remove as many testimonials as you like – just copy/paste the entire
+            <span class="inline-code">&lt;div class="testimonial-card"&gt;</span> block.
+        </p>
+
+        <!-- ===== Contact Info ===== -->
+        <h3>📞 Changing Contact Information</h3>
+
+        <p>Find the <span class="inline-code">&lt;div class="contact-details"&gt;</span> section:</p>
+
+        <div class="code-block">
+            &lt;div class="detail"&gt;&lt;span class="icon"&gt;📍&lt;/span&gt;&lt;span&gt;<span class="hl">Moondance Estate, Nilgiris, TN</span>&lt;/span&gt;&lt;/div&gt;
+            &lt;div class="detail"&gt;&lt;span class="icon"&gt;📞&lt;/span&gt;&lt;span&gt;&lt;a href="<span class="hl">tel:+919876543210</span>"&gt;<span class="hl">+91 98765 43210</span>&lt;/a&gt;&lt;/span&gt;&lt;/div&gt;
+            &lt;div class="detail"&gt;&lt;span class="icon"&gt;✉️&lt;/span&gt;&lt;span&gt;&lt;a href="<span class="hl">mailto:hello@moondanceestate.in</span>"&gt;<span class="hl">hello@moondanceestate.in</span>&lt;/a&gt;&lt;/span&gt;&lt;/div&gt;
+        </div>
+
+        <p><strong>To update:</strong></p>
+        <ul>
+            <li>Change the address text.</li>
+            <li>Replace the phone number in both the <span class="inline-code">href="tel:..."</span> and the visible text.</li>
+            <li>Replace the email in both the <span class="inline-code">href="mailto:..."</span> and the visible text.</li>
+        </ul>
+
+        <p><strong>Social / Instagram link</strong> – located just below:</p>
+
+        <div class="code-block">
+            &lt;div class="detail" ...&gt;
+              &lt;span class="icon"&gt;📸&lt;/span&gt;
+              &lt;span&gt;&lt;a href="<span class="hl">https://www.instagram.com/moondanceestate/reel/DZFJ1G0Jgbb/</span>" target="_blank" style="color:#d4a373; text-decoration:underline;"&gt;Watch our reel on Instagram&lt;/a&gt;&lt;/span&gt;
+            &lt;/div&gt;
+        </div>
+
+        <p>Replace the URL with your own Instagram (or any other social) link.</p>
+
+        <!-- ===== Quick Reference Table ===== -->
+        <h3>✏️ Quick Summary – What to Change &amp; Where</h3>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th>What to change</th><th>Where to look in <span class="inline-code">index.html</span></th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Background videos</td><td>Search for <span class="inline-code">&lt;source src=</span> – there are 5 of them</td></tr>
+                    <tr><td>Testimonial text &amp; photos</td><td>Search for <span class="inline-code">testimonial-card</span></td></tr>
+                    <tr><td>Contact address, phone, email</td><td>Search for <span class="inline-code">contact-details</span></td></tr>
+                    <tr><td>Instagram / social link</td><td>Search for <span class="inline-code">Watch our reel</span></td></tr>
+                    <tr><td>Logo image</td><td>Search for <span class="inline-code">logo-img</span> – replace the <span class="inline-code">src</span> URL</td></tr>
+                    <tr><td>Page title &amp; description</td><td>The <span class="inline-code">&lt;title&gt;</span> and <span class="inline-code">&lt;meta name="description"&gt;</span> tags at the very top</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ===== Final Tip ===== -->
+        <div class="tip tip-green" style="margin-top: 2rem;">
+            <strong>🚀 One Last Tip:</strong> After you make changes, <strong>save the file</strong> and re‑upload it
+            to your hosting platform (or push to GitHub – most platforms auto‑deploy). Your live site will update
+            within a minute or two.
+        </div>
+
+        <p style="font-size: 1.1rem; margin-top: 1rem; color: #3d342e;">
+            Enjoy your new site – and if you get stuck, just drop me a line! 🌙
+        </p>
+
+        <!-- ===== PRINT HINT ===== -->
+        <div class="print-hint">
+            🖨️ To save this guide as a PDF: press <kbd>Ctrl + P</kbd> (or <kbd>Cmd + P</kbd> on Mac) and choose <strong>“Save as PDF”</strong>.
+        </div>
+
+    </div>
+
+
+</body></html>
