@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hybrid Edge-Cloud Sim Client</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous"></script>
+    <script src="speech.js"></script>
+	  
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/loaders/GLTFLoader.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/utils/SkeletonUtils.js" crossorigin="anonymous"></script>
+	
+    <script src="avatar.js"></script>
+
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 20px; background: #f4f7f6; color: #333; }
+        body.webxr-overlay-active { background: transparent !important; margin: 0; overflow: hidden; }
+        body.webxr-overlay-active #main-container { display: none !important; }
+        body.webxr-overlay-active canvas { position: fixed !important; top: 0; left: 0; width: 100vw; height: 100vh; background: transparent !important; pointer-events: none; }
+
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        h2 { margin-top: 0; color: #1a365d; font-size: 1.2rem; }
+        textarea { width: 100%; height: 80px; border-radius: 8px; border: 1px solid #ccc; padding: 10px; box-sizing: border-box; font-size: 16px; }
+        select, input[type="text"], input[type="range"] { width: 100%; padding: 8px; margin: 5px 0 15px 0; border-radius: 6px; box-sizing: border-box; }
+        button { background: #3182ce; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-size: 16px; font-weight: bold; width: 100%; margin-top: 10px; cursor: pointer; transition: background 0.2s; }
+        button:disabled { background: #cbd5e0; cursor: not-allowed; opacity: 0.6; }
+        
+        .log-box { background: #1a202c; color: #a0aec0; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 13px; max-height: 180px; overflow-y: auto; margin-top: 10px; }
+        .output-box { background: #edf2f7; padding: 15px; border-radius: 8px; border-left: 4px solid #3182ce; margin-top: 10px; min-height: 50px; font-size: 15px; line-height: 1.5; }
+        .fact-box { background: #feebc8; padding: 10px; border-radius: 8px; border-left: 4px solid #dd6b20; font-size: 14px; margin-top: 10px; }
+        .room-caption-box { display: none; background: rgba(128, 90, 213, 0.08); padding: 15px; border-radius: 8px; border-left: 4px solid #805ad5; margin-top: 10px; font-size: 15px; font-style: italic; line-height: 1.5; }
+
+        .ar-username-tag { font-size: 11px; font-weight: bold; color: #00f5ff; letter-spacing: 1.5px; margin-bottom: 5px; font-family: monospace; }
+        
+        .typewriter-cursor::after { 
+            content: ' [' attr(data-pct) '] █'; 
+            animation: terminalBlink 0.8s infinite; 
+            color: #00f5ff; 
+            font-weight: bold;
+        }
+        @keyframes terminalBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        #ar-hud { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1000; color: #fff; pointer-events: none; font-family: monospace; box-sizing: border-box; }
+        .ar-interactive-layer { pointer-events: auto; }
+        .ar-terminal { background: rgba(15, 23, 42, 0.95) !important; border: 1.5px solid rgba(255, 255, 255, 0.15); border-radius: 14px; padding: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); transition: height 0.3s ease; }
+        .ar-input-row { display: flex; gap: 8px; margin-top: 10px; }
+        .ar-input-row input { flex-grow: 1; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; padding: 10px; color: #fff; font-size: 15px; margin: 0; }
+        .ar-input-row button { width: auto; margin-top: 0; padding: 10px 18px; background: #805ad5; }
+        .ar-styled-box { background: rgba(26, 32, 44, 0.9) !important; border-left: 4px solid #00f5ff; padding: 10px; border-radius: 6px; max-height: 120px; overflow-y: auto; font-size: 14px; margin-top: 8px; color: #e2e8f0; line-height: 1.5; }
+        .ar-caption-box { display: none; background: rgba(128, 90, 213, 0.25) !important; border-left: 4px solid #b7791f; padding: 10px; border-radius: 6px; font-size: 14px; margin-top: 8px; color: #f7fafc; font-style: italic; }
+
+        /* MINIMIZE FIX CLASSES */
+        .ar-terminal.minimized .ar-username-tag,
+        .ar-terminal.minimized .ar-styled-box,
+        .ar-terminal.minimized .ar-caption-box,
+        .ar-terminal.minimized .ar-input-row,
+        .ar-terminal.minimized #ar-actionButtons,
+        .ar-terminal.minimized .ar-exit-btn {
+            display: none !important;
+        }
+    </style>
+
+    <script>
+        let localEngine;
+        window.activeSimController = null; 
+        window.lastGeneratedText = ""; 
+        window.isARMode = false;
+        const LAPTOP_OLLAMA_URL = "http://192.168.1.2:11434/api/generate"; 
+
+        window.onload = () => {
+            if(window.populateVoiceList) window.populateVoiceList();
+            if(window.checkXRSupport) window.checkXRSupport();
+
+            const slider = document.getElementById("wordCount");
+            slider.value = localStorage.getItem("targetWordCount") || 150;
+            document.getElementById("wordCountDisplay").innerText = `${slider.value} words`;
+            slider.addEventListener("input", function() {
+                document.getElementById("wordCountDisplay").innerText = `${this.value} words`;
+                localStorage.setItem("targetWordCount", this.value);
+            });
+
+            document.getElementById("styleAdapter").addEventListener("change", function() {
+                const simBtn = document.getElementById("simBtn");
+                if (this.value === "none" || localEngine) simBtn.disabled = false;
+                else {
+                    simBtn.disabled = true;
+                    window.updateLog("Input Required: Please initialize Edge NPU to run this LoRA style.");
+                }
+            });
+        };
+
+        window.updateLog = function(msg) {
+            const box = document.getElementById("logBox");
+            box.innerHTML += `<div>> ${msg}</div>`;
+            box.scrollTop = box.scrollHeight;
+            // During a real immersive-ar session the #logBox is outside the dom-overlay
+            // root (#ar-hud) and is invisible to the AR user. Mirror important messages
+            // into the HUD status line so errors are never silently swallowed on the phone.
+            if (window.isARMode && window.updateARStatus) {
+                // Strip HTML tags for the plain-text status line.
+                const plain = msg.replace(/<[^>]*>/g, '');
+                window.updateARStatus(plain);
+            }
+        };
+
+        function cleanText(text) {
+            let t = text.replace(/^['"\s\:\,]+s\b/i, '').replace(/^['"\s\:\,]+/, '');
+            return t.replace(/^(assistant|system|bot|response)\s*:\s*/i, '').trim();
+        }
+
+        window.enterXR = async function() {
+            window.syncUIState(true);
+            if (window.startWebXR) await window.startWebXR();
+        };
+
+        window.exitXR = function() {
+            window.syncUIState(false);
+            if (window.stopWebXR) window.stopWebXR();
+        };
+
+        window.syncUIState = function(toAR) {
+            window.isARMode = toAR;
+            
+            const box2D = document.getElementById("styledOutput");
+            const boxAR = document.getElementById("ar-styledOutput");
+            
+            const btns2D = document.getElementById("actionButtons");
+            const btnsAR = document.getElementById("ar-actionButtons");
+            
+            const voice2D = document.getElementById("voiceBtn");
+            const voiceAR = document.getElementById("ar-voiceBtn");
+            const replay2D = document.getElementById("replayBtn");
+            const replayAR = document.getElementById("ar-replayBtn");
+
+            const currentPct = box2D.getAttribute('data-pct') || '0%';
+
+            if (toAR) {
+                boxAR.innerText = box2D.innerText;
+                boxAR.setAttribute('data-pct', currentPct);
+                if (box2D.classList.contains("typewriter-cursor")) boxAR.classList.add("typewriter-cursor");
+                else boxAR.classList.remove("typewriter-cursor");
+                
+                btnsAR.style.display = btns2D.style.display;
+                voiceAR.style.display = voice2D.style.display;
+                replayAR.style.display = replay2D.style.display;
+            } else {
+                box2D.innerText = boxAR.innerText;
+                box2D.setAttribute('data-pct', currentPct);
+                if (boxAR.classList.contains("typewriter-cursor")) box2D.classList.add("typewriter-cursor");
+                else box2D.classList.remove("typewriter-cursor");
+
+                btns2D.style.display = btnsAR.style.display;
+                voice2D.style.display = voiceAR.style.display;
+                replay2D.style.display = replayAR.style.display;
+            }
+        };
+
+        window.stopAllOperations = function() {
+            try {
+                if (window.activeSimController) window.activeSimController.abort();
+                
+                // speechSynthesis.cancel() can be silently dropped on Android Chrome
+                // during an active immersive-ar session. Call it twice with a short delay
+                // to ensure it lands. flushSpeech() handles the state reset either way.
+                window.speechSynthesis.cancel();
+                setTimeout(() => { window.speechSynthesis.cancel(); }, 80);
+                
+                window.flushSpeech();
+                
+                document.getElementById("styledOutput").classList.remove("typewriter-cursor");
+                document.getElementById("ar-styledOutput").classList.remove("typewriter-cursor");
+                
+                document.getElementById("simBtn").disabled = false;
+                if (document.getElementById("ar-simBtn")) document.getElementById("ar-simBtn").disabled = false;
+                window.updateLog("<span style='color:#e53e3e;'>[System] All operations halted by user.</span>");
+            } catch (err) {
+                // Surface the real error instead of silently dying mid-function.
+                window.updateLog(`<span style='color:#e53e3e;'>[Stop Error] ${err.message}</span>`);
+                console.error("[stopAllOperations] exception:", err);
+            }
+        };
+
+window.replaySimulation = function(isAR) {
+    window.stopAllOperations(); 
+    window.isARMode = isAR;
+    const styledBox = document.getElementById(isAR ? "ar-styledOutput" : "styledOutput");
+    
+    styledBox.innerText = ""; 
+    styledBox.setAttribute('data-pct', '100%'); 
+    styledBox.classList.add("typewriter-cursor");
+
+    // Reset the global speaker state back to your local client so the 3D speech
+    // bubble renders over your own avatar on remote screens.
+    window.activeSpeakerId = window.localClientId;
+
+    // Re-broadcast so other clients receive the text and hear/see it.
+    // Wrapped in its own try/catch so a stale/closed wsClient never prevents
+    // the local TTS replay from starting.
+    try {
+        if (window.wsClient && window.wsClient.readyState === 1) {
+            window.wsClient.send(JSON.stringify({
+                type: 'broadcast_text',
+                text: window.lastGeneratedText,
+                style: window.lastBroadcastStyle || "none"
+            }));
+            window.updateLog("[Network] Replay re-broadcast to multiplayer room.");
+        } else {
+            window.updateLog("<span style='color:#dd6b20;'>[Network] Replay: not connected — local playback only.</span>");
+        }
+    } catch (netErr) {
+        window.updateLog(`<span style='color:#e53e3e;'>[Network] Replay broadcast failed: ${netErr.message}</span>`);
+        console.error("[replaySimulation] wsClient.send error:", netErr);
+    }
+
+    let rawSentences = window.lastGeneratedText.match(/[^.!?\n。！？]+[.!?\n。！？]*/g) || [window.lastGeneratedText];
+    window.speechQueue = rawSentences.map(s => s.trim()).filter(s => s.length > 0).map(s => ({
+        text: s,
+        speakerId: window.localClientId  // tie replay TTS to your own avatar ID
+    }));
+    
+    window.isReplaying = true; 
+    
+    if (window.speechQueue.length > 0) {
+        window.voiceState = "speaking";
+        window.updateVoiceToggleUI("speaking");
+        // Delay by 150 ms so the speechSynthesis.cancel() called inside
+        // stopAllOperations() has fully settled before we enqueue new utterances.
+        // Without this delay, the first utterance is silently swallowed on
+        // Android Chrome during an active immersive-ar session.
+        setTimeout(() => {
+            if (window.playNextSentence) window.playNextSentence();
+        }, 150);
+    }
+};
+
+        window.appendReplayText = function(sentence) {
+            const styledBox = document.getElementById(window.isARMode ? "ar-styledOutput" : "styledOutput");
+            if (styledBox) {
+                styledBox.innerText += (styledBox.innerText.length > 0 ? " " : "") + sentence;
+            }
+        };
+
+        async function initLocalEngine() {
+            const activeModel = document.getElementById("hardwareProfile").value;
+            window.updateLog(`1. Fetching WebLLM to load profile: ${activeModel}...`);
+            try {
+                const webllm = await import("https://esm.run/@mlc-ai/web-llm");
+                localEngine = await webllm.CreateMLCEngine(activeModel, {
+                    initProgressCallback: (report) => window.updateLog(`[System] ${report.text}`)
+                });
+                window.updateLog(`3. Edge Engine ready!`);
+                document.getElementById("simBtn").disabled = false;
+            } catch (err) {
+                window.updateLog(`<span style="color:red">Init Failed: ${err.message}</span>`);
+            }
+        }
+
+        async function runSimulationLoop(isAR = false) {
+            window.isARMode = isAR;
+            const userInput = isAR ? document.getElementById("ar-userInput").value : document.getElementById("userInput").value;
+            const targetWords = parseInt(document.getElementById("wordCount").value, 10);
+            if(!userInput) return;
+
+            window.stopAllOperations(); 
+            window.activeSimController = new AbortController();
+
+            document.getElementById("simBtn").disabled = true;
+            if (document.getElementById("ar-simBtn")) document.getElementById("ar-simBtn").disabled = true;
+            
+            const actionDiv = isAR ? "ar-actionButtons" : "actionButtons";
+            document.getElementById(actionDiv).style.display = "flex"; 
+            
+            document.getElementById(isAR ? "ar-voiceBtn" : "voiceBtn").style.display = "none";
+            document.getElementById(isAR ? "ar-replayBtn" : "replayBtn").style.display = "none";
+            
+            const box2D = document.getElementById("styledOutput");
+            const boxAR = document.getElementById("ar-styledOutput");
+            
+            box2D.innerText = "";
+            boxAR.innerText = "";
+            
+            box2D.classList.add("typewriter-cursor");
+            boxAR.classList.add("typewriter-cursor");
+
+            box2D.setAttribute('data-pct', '0%');
+            boxAR.setAttribute('data-pct', '0%');
+            
+            window.updateLog("Requesting objective data from Laptop Server..."); 
+            if (isAR && window.updateARStatus) window.updateARStatus("Querying Laptop...");
+
+            try {
+                const response = await fetch(LAPTOP_OLLAMA_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    signal: window.activeSimController.signal,
+                    body: JSON.stringify({
+                        model: 'university-brain',
+                        prompt: `Provide absolute dry, clinical facts regarding this request. Your entire reply must stay under ${targetWords} words. Request: ${userInput}`,
+                        stream: false,
+                        options: { temperature: 0.2, num_predict: targetWords * 2 }
+                    })
+                });
+                
+                let clinicalFacts = (await response.json()).response;
+                document.getElementById("factOutput").innerText = clinicalFacts;
+                document.getElementById("factSection").style.display = "block";
+                
+                const selectedStyle = document.getElementById("styleAdapter").value;
+                window.lastBroadcastStyle = selectedStyle; // remembered so Replay can re-broadcast with the same style
+                document.getElementById("styleSection").style.display = "block";
+
+                if (selectedStyle === "none") {
+                    box2D.innerText = clinicalFacts;
+                    boxAR.innerText = clinicalFacts;
+                    window.lastGeneratedText = clinicalFacts;
+                } else {
+                    window.updateLog(`Engaging Edge NPU Styling...`); 
+
+                    const explicitLimit = userInput.toLowerCase().includes("word") || userInput.toLowerCase().includes("limit");
+                    const stylePrompt = `You are a style translator adapter. 
+ROLE: Rewrite the clinical source facts provided below strictly inside the persona of a: ${selectedStyle}.
+CRITICAL MULTILINGUAL RULE:
+- You MUST write your final response using the exact same language and alphabet script as the SOURCE CLINICAL FACTS provided below. 
+IMPORTANT USER INTENT CONTEXT:
+- The user's original query was: "${userInput}"
+INSTRUCTION CONSTRAINTS:
+- HARD LIMIT: your entire output must be ${targetWords} words or fewer. ${explicitLimit ? "The user explicitly asked for this exact word count -- treat it as non-negotiable." : "Aim close to this target."}
+- Do not include introductory notes or character notes. Output only the pure styled response.
+SOURCE CLINICAL FACTS:
+${clinicalFacts}`;
+
+                    const stream = await localEngine.chat.completions.create({
+                        messages: [{ role: "user", content: stylePrompt }],
+                        temperature: 0.3,
+                        max_tokens: targetWords * 2,
+                        stream: true 
+                    });
+                    
+                    let sentenceBuffer = "";
+                    let displayedText = "";
+
+                    for await (const chunk of stream) {
+                        if (window.activeSimController.signal.aborted) throw new Error("Aborted by user");
+                        
+                        sentenceBuffer += chunk.choices[0]?.delta?.content || "";
+                        
+                        let estimatedWords = (displayedText + sentenceBuffer).trim().split(/\s+/).filter(Boolean).length;
+                        let livePct = Math.min(Math.round((estimatedWords / targetWords) * 100), 99);
+                        
+                        box2D.setAttribute('data-pct', livePct + '%');
+                        boxAR.setAttribute('data-pct', livePct + '%');
+                        
+                        let match = sentenceBuffer.match(/([^.!?\n。路線！？]+[.!?\n。！？]+)/);
+                        if (match) {
+                            let completeSentence = match[0];
+                            displayedText += completeSentence;
+                            
+                            box2D.innerText = cleanText(displayedText); 
+                            boxAR.innerText = cleanText(displayedText); 
+                            
+                            sentenceBuffer = sentenceBuffer.slice(completeSentence.length);
+                        }
+                    }
+                    
+                    if (!window.activeSimController.signal.aborted && sentenceBuffer.trim()) {
+                        displayedText += sentenceBuffer;
+                        box2D.innerText = cleanText(displayedText);
+                        boxAR.innerText = cleanText(displayedText);
+                    }
+                    
+                    window.lastGeneratedText = cleanText(displayedText);
+                    window.updateLog("Translation complete. Ready for voice synthesis."); 
+                }
+                
+                box2D.setAttribute('data-pct', '100%');
+                boxAR.setAttribute('data-pct', '100%');
+                
+                box2D.classList.remove("typewriter-cursor"); 
+                boxAR.classList.remove("typewriter-cursor"); 
+                
+                if (window.wsClient && window.wsClient.readyState === 1) {
+                    window.wsClient.send(JSON.stringify({
+                        type: 'broadcast_text',
+                        text: window.lastGeneratedText,
+                        style: selectedStyle
+                    }));
+                    window.updateLog("[Network] Styled payload broadcasted to multiplayer room.");
+                }
+
+                document.getElementById(isAR ? "ar-voiceBtn" : "voiceBtn").style.display = "block";
+                document.getElementById(isAR ? "ar-replayBtn" : "replayBtn").style.display = "block";
+                
+                if (isAR && window.updateARStatus) window.updateARStatus("Handoff Success! Ready to read.");
+                
+            } catch (error) {
+                if (error.name !== 'AbortError' && !error.message.includes("Aborted")) {
+                    window.updateLog(`Execution error: ${error.message}`);
+                }
+            } finally {
+                document.getElementById("simBtn").disabled = false;
+                if (document.getElementById("ar-simBtn")) document.getElementById("ar-simBtn").disabled = false;
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="main-container">
+        <div class="card">
+            <h2>1. Architecture Control Panel</h2>
+            <select id="hardwareProfile">
+                <option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">Qwen 2.5 (0.5B) - Ultra-Fast Edge</option>
+                <option value="Llama-3.2-1B-Instruct-q4f16_1-MLC">Llama 3.2 (1.2B) - High Quality</option>
+                <option value="SmolLM2-360M-Instruct-q4f16_1-MLC">SmolLM2 (360M) - Hyper-Lightweight</option>
+            </select>
+            <button onclick="initLocalEngine()">Initialize Phone WebLLM Engine</button>
+            
+            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 15px 0;">
+            <label style="font-weight: bold; font-size: 14px;">Select Simulation Role & Identity:</label>
+            
+            <input type="text" id="userName" placeholder="Enter Display Name (e.g., Prof. Smith)" value="Faculty 1">
+            
+            <select id="userRole">
+                <option value="ar_human">Physical Room User (AR Mobile)</option>
+                <option value="remote_human">Remote Room User (Virtual Map)</option>
+            </select>
+            <button onclick="window.connectToRoomBroker('192.168.1.2', document.getElementById('userRole').value, document.getElementById('userName').value)" style="background: #2b6cb0;">
+                Connect to Room Synchronization Server
+            </button>
+
+            <div class="log-box" id="logBox">> System idle. Awaiting edge engine startup...</div>
+        </div>
+
+        <div class="card">
+            <h2>2. Edge Styling Parameters</h2>
+            <select id="styleAdapter">
+                <option value="none">No LoRA Style (Raw Facts Only)</option>
+                <option value="1920s hardboiled Noir Detective speaking in gritty, metaphor-heavy sentences">1920s Noir Detective</option>
+                <option value="Hyper-clinical tech executive using modern enterprise jargon">Tech Executive</option>
+            </select>
+
+            <div class="slider-container">
+                <strong>Target Output Length:</strong>
+                <span id="wordCountDisplay">150 words</span>
+            </div>
+            <input type="range" id="wordCount" min="50" max="500" step="10" value="150">
+            
+            <label for="voiceSelect">Device OS Voice:</label>
+            <select id="voiceSelect"></select>
+        </div>
+
+        <div class="card">
+            <h2>3. Execute Handoff</h2>
+            <textarea id="userInput" placeholder="Ask a question..."></textarea>
+            <button id="simBtn" onclick="runSimulationLoop(false)">Execute Split-Cognition Handoff</button>
+            <button id="xrBtn" style="background:#805ad5;" onclick="window.enterXR()">🔮 Project Dirrogate in WebXR / 3D Space</button>
+        </div>
+
+        <div class="card" id="factSection" style="display:none;">
+            <h2>4. Cloud Workstation (Dry Facts)</h2>
+            <div class="fact-box" id="factOutput"></div>
+        </div>
+
+        <div class="card" id="styleSection" style="display:none;">
+            <h2>5. Edge Device (Styled Output)</h2>
+            <div class="ar-username-tag">🤖 AGENT: DIRROGATE</div>
+            <div class="output-box" id="styledOutput"></div>
+            <div id="roomCaption" class="room-caption-box"></div>
+            
+            <div id="actionButtons" style="display:none; gap: 8px; margin-top: 15px;">
+                <button id="voiceBtn" onclick="window.toggleVoicePause(false)" style="flex: 1; margin:0; background:#3182ce;">🔊 Read</button>
+                <button id="replayBtn" onclick="window.replaySimulation(false)" style="flex: 1; margin:0; background:#319795;">🔄 Replay</button>
+                <button id="stopBtn" onclick="window.stopAllOperations()" style="flex: 1; margin:0; background:#e53e3e;">🛑 Stop</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="ar-hud">
+        <div id="joystick-zone" style="display:none; position: absolute; bottom: 250px; left: 0; width: 100%; height: 150px; pointer-events: none; z-index: 1001;">
+            <div id="move-stick" style="position:absolute; left: 8%; width: 120px; height: 120px; background: rgba(0,245,255,0.1); border: 2px solid rgba(0,245,255,0.3); border-radius: 50%; pointer-events: auto; touch-action: none; cursor: pointer;">
+                <div id="move-knob" style="position:absolute; top:35px; left:35px; width:50px; height:50px; background: rgba(0,245,255,0.6); border-radius:50%; box-shadow: 0 0 10px #00f5ff; transition: transform 0.05s; pointer-events: none;"></div>
+            </div>
+            <div id="look-stick" style="position:absolute; right: 8%; width: 120px; height: 120px; background: rgba(128,90,213,0.1); border: 2px solid rgba(128,90,213,0.3); border-radius: 50%; pointer-events: auto; touch-action: none; cursor: pointer;">
+                <div id="look-knob" style="position:absolute; top:35px; left:35px; width:50px; height:50px; background: rgba(128,90,213,0.6); border-radius:50%; box-shadow: 0 0 10px #805ad5; transition: transform 0.05s; pointer-events: none;"></div>
+            </div>
+        </div>
+
+        <div class="ar-interactive-layer" style="position: absolute; bottom: 20px; left: 5%; width: 90%;">
+            <div class="ar-terminal">
+                
+                <div style="font-size: 12px; font-weight: bold; color: #63b3ed; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <button onclick="document.querySelector('.ar-terminal').classList.toggle('minimized')" style="width: 24px; height: 24px; padding: 0; margin: 0; background: rgba(255,255,255,0.2); border: none; border-radius: 4px; display: flex; justify-content: center; align-items: center; font-size: 16px; color: white;">_</button>
+                        <span>DIRROGATE HUD</span>
+                        <span id="ar-status-text" style="color: #a0aec0; font-weight: normal; margin-left: 5px;">&gt; Holding Core...</span>
+                    </div>
+                    <button id="ar-calibrate-btn" onclick="if(window.calibrateRoomCenter) window.calibrateRoomCenter()" style="width:auto; margin:0; background:#dd6b20; padding:4px 10px; font-size:11px; font-family:monospace;">🎯 SET LANDMARK</button>
+                </div>
+                
+                <div class="ar-username-tag" style="margin-top: 12px;">🤖 AGENT: DIRROGATE</div>
+                <div id="ar-styledOutput" class="ar-styled-box">Awaiting handoff execution...</div>
+                <div id="ar-roomCaption" class="ar-caption-box"></div>
+                
+                <div class="ar-input-row">
+                    <input type="text" id="ar-userInput" placeholder="Type prompt inside AR room...">
+                    <button id="ar-simBtn" onclick="runSimulationLoop(true)">Send</button>
+                </div>
+                
+                <div id="ar-actionButtons" style="display:none; gap: 8px; margin-top: 15px;">
+                    <button id="ar-voiceBtn" onclick="window.toggleVoicePause(true)" style="flex: 1; margin:0; background:#3182ce; padding:10px; font-size:14px;">🔊 Read</button>
+                    <button id="ar-replayBtn" onclick="window.replaySimulation(true)" style="flex: 1; margin:0; background:#319795; padding:10px; font-size:14px;">🔄 Replay</button>
+                    <button id="ar-stopBtn" onclick="window.stopAllOperations()" style="flex: 1; margin:0; background:#e53e3e; padding:10px; font-size:14px;">🛑 Stop</button>
+                </div>
+                
+                <button class="ar-exit-btn" onclick="window.exitXR()" style="width:100%; margin-top:10px; background: rgba(255,255,255,0.1); padding: 8px;">❌ Exit AR Mode</button>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
