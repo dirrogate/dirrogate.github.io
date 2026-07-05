@@ -13,6 +13,11 @@
 	
     <script src="avatar.js"></script>
 
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+
+	<script src="vision.js?v=5"></script>
+
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 20px; background: #f4f7f6; color: #333; }
         body.webxr-overlay-active { background: transparent !important; margin: 0; overflow: hidden; }
@@ -94,11 +99,7 @@
             const box = document.getElementById("logBox");
             box.innerHTML += `<div>> ${msg}</div>`;
             box.scrollTop = box.scrollHeight;
-            // During a real immersive-ar session the #logBox is outside the dom-overlay
-            // root (#ar-hud) and is invisible to the AR user. Mirror important messages
-            // into the HUD status line so errors are never silently swallowed on the phone.
             if (window.isARMode && window.updateARStatus) {
-                // Strip HTML tags for the plain-text status line.
                 const plain = msg.replace(/<[^>]*>/g, '');
                 window.updateARStatus(plain);
             }
@@ -160,12 +161,16 @@
             try {
                 if (window.activeSimController) window.activeSimController.abort();
                 
-                // speechSynthesis.cancel() can be silently dropped on Android Chrome
-                // during an active immersive-ar session. Call it twice with a short delay
-                // to ensure it lands. flushSpeech() handles the state reset either way.
+                if (window._deferredCancelTimeout) {
+                    clearTimeout(window._deferredCancelTimeout);
+                    window._deferredCancelTimeout = null;
+                }
                 window.speechSynthesis.cancel();
-                setTimeout(() => { window.speechSynthesis.cancel(); }, 80);
-                
+                window._deferredCancelTimeout = setTimeout(() => {
+                    window.speechSynthesis.cancel();
+                    window._deferredCancelTimeout = null;
+                }, 80);
+
                 window.flushSpeech();
                 
                 document.getElementById("styledOutput").classList.remove("typewriter-cursor");
@@ -175,64 +180,54 @@
                 if (document.getElementById("ar-simBtn")) document.getElementById("ar-simBtn").disabled = false;
                 window.updateLog("<span style='color:#e53e3e;'>[System] All operations halted by user.</span>");
             } catch (err) {
-                // Surface the real error instead of silently dying mid-function.
                 window.updateLog(`<span style='color:#e53e3e;'>[Stop Error] ${err.message}</span>`);
                 console.error("[stopAllOperations] exception:", err);
             }
         };
 
-window.replaySimulation = function(isAR) {
-    window.stopAllOperations(); 
-    window.isARMode = isAR;
-    const styledBox = document.getElementById(isAR ? "ar-styledOutput" : "styledOutput");
-    
-    styledBox.innerText = ""; 
-    styledBox.setAttribute('data-pct', '100%'); 
-    styledBox.classList.add("typewriter-cursor");
+        window.replaySimulation = function(isAR) {
+            window.stopAllOperations(); 
+            window.isARMode = isAR;
+            const styledBox = document.getElementById(isAR ? "ar-styledOutput" : "styledOutput");
+            
+            styledBox.innerText = ""; 
+            styledBox.setAttribute('data-pct', '100%'); 
+            styledBox.classList.add("typewriter-cursor");
 
-    // Reset the global speaker state back to your local client so the 3D speech
-    // bubble renders over your own avatar on remote screens.
-    window.activeSpeakerId = window.localClientId;
+            window.activeSpeakerId = window.localClientId;
 
-    // Re-broadcast so other clients receive the text and hear/see it.
-    // Wrapped in its own try/catch so a stale/closed wsClient never prevents
-    // the local TTS replay from starting.
-    try {
-        if (window.wsClient && window.wsClient.readyState === 1) {
-            window.wsClient.send(JSON.stringify({
-                type: 'broadcast_text',
-                text: window.lastGeneratedText,
-                style: window.lastBroadcastStyle || "none"
+            try {
+                if (window.wsClient && window.wsClient.readyState === 1) {
+                    window.wsClient.send(JSON.stringify({
+                        type: 'broadcast_text',
+                        text: window.lastGeneratedText,
+                        style: window.lastBroadcastStyle || "none"
+                    }));
+                    window.updateLog("[Network] Replay re-broadcast to multiplayer room.");
+                } else {
+                    window.updateLog("<span style='color:#dd6b20;'>[Network] Replay: not connected — local playback only.</span>");
+                }
+            } catch (netErr) {
+                window.updateLog(`<span style='color:#e53e3e;'>[Network] Replay broadcast failed: ${netErr.message}</span>`);
+                console.error("[replaySimulation] wsClient.send error:", netErr);
+            }
+
+            let rawSentences = window.lastGeneratedText.match(/[^.!?\n。！？]+[.!?\n。！？]*/g) || [window.lastGeneratedText];
+            window.speechQueue = rawSentences.map(s => s.trim()).filter(s => s.length > 0).map(s => ({
+                text: s,
+                speakerId: window.localClientId  
             }));
-            window.updateLog("[Network] Replay re-broadcast to multiplayer room.");
-        } else {
-            window.updateLog("<span style='color:#dd6b20;'>[Network] Replay: not connected — local playback only.</span>");
-        }
-    } catch (netErr) {
-        window.updateLog(`<span style='color:#e53e3e;'>[Network] Replay broadcast failed: ${netErr.message}</span>`);
-        console.error("[replaySimulation] wsClient.send error:", netErr);
-    }
-
-    let rawSentences = window.lastGeneratedText.match(/[^.!?\n。！？]+[.!?\n。！？]*/g) || [window.lastGeneratedText];
-    window.speechQueue = rawSentences.map(s => s.trim()).filter(s => s.length > 0).map(s => ({
-        text: s,
-        speakerId: window.localClientId  // tie replay TTS to your own avatar ID
-    }));
-    
-    window.isReplaying = true; 
-    
-    if (window.speechQueue.length > 0) {
-        window.voiceState = "speaking";
-        window.updateVoiceToggleUI("speaking");
-        // Delay by 150 ms so the speechSynthesis.cancel() called inside
-        // stopAllOperations() has fully settled before we enqueue new utterances.
-        // Without this delay, the first utterance is silently swallowed on
-        // Android Chrome during an active immersive-ar session.
-        setTimeout(() => {
-            if (window.playNextSentence) window.playNextSentence();
-        }, 150);
-    }
-};
+            
+            window.isReplaying = true; 
+            
+            if (window.speechQueue.length > 0) {
+                window.voiceState = "speaking";
+                window.updateVoiceToggleUI("speaking");
+                setTimeout(() => {
+                    if (window.playNextSentence) window.playNextSentence();
+                }, 150);
+            }
+        };
 
         window.appendReplayText = function(sentence) {
             const styledBox = document.getElementById(window.isARMode ? "ar-styledOutput" : "styledOutput");
@@ -290,49 +285,63 @@ window.replaySimulation = function(isAR) {
             if (isAR && window.updateARStatus) window.updateARStatus("Querying Laptop...");
 
             try {
+                if (window.lastCapturedImage) {
+                    window.updateLog("[Vision] Attaching recent scene snapshot to context...");
+                }
+
+                const promptText = window.lastCapturedImage 
+                    ? `Referencing the attached image of my current view, intelligently answer this request. Your entire reply must stay under ${targetWords} words. Request: ${userInput}`
+                    : `Please answer the following request naturally and helpfully. Your entire reply must stay under ${targetWords} words. Request: ${userInput}`;
+
+                const requestBody = {
+                    model: 'gemma3:4b',
+                    prompt: promptText,
+                    stream: false,
+                    options: { temperature: 0.6, num_predict: targetWords * 2 } 
+                };
+
+                if (window.lastCapturedImage) {
+                    requestBody.images = [window.lastCapturedImage];
+                }
+
                 const response = await fetch(LAPTOP_OLLAMA_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     signal: window.activeSimController.signal,
-                    body: JSON.stringify({
-                        model: 'university-brain',
-                        prompt: `Provide absolute dry, clinical facts regarding this request. Your entire reply must stay under ${targetWords} words. Request: ${userInput}`,
-                        stream: false,
-                        options: { temperature: 0.2, num_predict: targetWords * 2 }
-                    })
+                    body: JSON.stringify(requestBody)
                 });
                 
-                let clinicalFacts = (await response.json()).response;
-                document.getElementById("factOutput").innerText = clinicalFacts;
+                let cloudResponse = (await response.json()).response;
+                document.getElementById("factOutput").innerText = cloudResponse;
                 document.getElementById("factSection").style.display = "block";
                 
                 const selectedStyle = document.getElementById("styleAdapter").value;
-                window.lastBroadcastStyle = selectedStyle; // remembered so Replay can re-broadcast with the same style
+                window.lastBroadcastStyle = selectedStyle; 
                 document.getElementById("styleSection").style.display = "block";
 
                 if (selectedStyle === "none") {
-                    box2D.innerText = clinicalFacts;
-                    boxAR.innerText = clinicalFacts;
-                    window.lastGeneratedText = clinicalFacts;
+                    box2D.innerText = cloudResponse;
+                    boxAR.innerText = cloudResponse;
+                    window.lastGeneratedText = cloudResponse;
                 } else {
                     window.updateLog(`Engaging Edge NPU Styling...`); 
 
                     const explicitLimit = userInput.toLowerCase().includes("word") || userInput.toLowerCase().includes("limit");
                     const stylePrompt = `You are a style translator adapter. 
-ROLE: Rewrite the clinical source facts provided below strictly inside the persona of a: ${selectedStyle}.
+ROLE: Rewrite the source text provided below strictly inside the persona of a: ${selectedStyle}.
 CRITICAL MULTILINGUAL RULE:
-- You MUST write your final response using the exact same language and alphabet script as the SOURCE CLINICAL FACTS provided below. 
+- You MUST write your final response using the exact same language and alphabet script as the SOURCE TEXT provided below. 
 IMPORTANT USER INTENT CONTEXT:
 - The user's original query was: "${userInput}"
 INSTRUCTION CONSTRAINTS:
 - HARD LIMIT: your entire output must be ${targetWords} words or fewer. ${explicitLimit ? "The user explicitly asked for this exact word count -- treat it as non-negotiable." : "Aim close to this target."}
 - Do not include introductory notes or character notes. Output only the pure styled response.
-SOURCE CLINICAL FACTS:
-${clinicalFacts}`;
+SOURCE TEXT:
+${cloudResponse}`;
 
                     const stream = await localEngine.chat.completions.create({
                         messages: [{ role: "user", content: stylePrompt }],
-                        temperature: 0.3,
+                        temperature: 0.6,
                         max_tokens: targetWords * 2,
                         stream: true 
                     });
@@ -351,7 +360,7 @@ ${clinicalFacts}`;
                         box2D.setAttribute('data-pct', livePct + '%');
                         boxAR.setAttribute('data-pct', livePct + '%');
                         
-                        let match = sentenceBuffer.match(/([^.!?\n。路線！？]+[.!?\n。！？]+)/);
+                        let match = sentenceBuffer.match(/([^.!?\n。！？]+[.!?\n。！？]*)/);
                         if (match) {
                             let completeSentence = match[0];
                             displayedText += completeSentence;
@@ -455,10 +464,11 @@ ${clinicalFacts}`;
             <textarea id="userInput" placeholder="Ask a question..."></textarea>
             <button id="simBtn" onclick="runSimulationLoop(false)">Execute Split-Cognition Handoff</button>
             <button id="xrBtn" style="background:#805ad5;" onclick="window.enterXR()">🔮 Project Dirrogate in WebXR / 3D Space</button>
+            <button id="lookBtn" style="background:#38a169;" onclick="if(window.captureAndAnalyzeScene) window.captureAndAnalyzeScene(false)">👁 Dirrogate, Look (Capture &amp; Narrate)</button>
         </div>
 
         <div class="card" id="factSection" style="display:none;">
-            <h2>4. Cloud Workstation (Dry Facts)</h2>
+            <h2>4. Cloud Workstation (Base Response)</h2>
             <div class="fact-box" id="factOutput"></div>
         </div>
 
@@ -496,6 +506,7 @@ ${clinicalFacts}`;
                         <span id="ar-status-text" style="color: #a0aec0; font-weight: normal; margin-left: 5px;">&gt; Holding Core...</span>
                     </div>
                     <button id="ar-calibrate-btn" onclick="if(window.calibrateRoomCenter) window.calibrateRoomCenter()" style="width:auto; margin:0; background:#dd6b20; padding:4px 10px; font-size:11px; font-family:monospace;">🎯 SET LANDMARK</button>
+                    <button id="ar-snap-btn" onclick="if(window.requestARCapture) window.requestARCapture()" style="width:auto; margin:0; background:#38a169; padding:4px 10px; font-size:11px; font-family:monospace;">📸 SNAP</button>
                 </div>
                 
                 <div class="ar-username-tag" style="margin-top: 12px;">🤖 AGENT: DIRROGATE</div>
