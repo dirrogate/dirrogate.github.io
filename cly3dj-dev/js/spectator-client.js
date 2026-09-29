@@ -262,7 +262,7 @@ export function startCamera(ctx) {
       const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay'], domOverlay: { root: ov } });
       $('#spS').style.display = 'none';
       await renderer.xr.setSession(session);
-      scene.background = null; room.visible = false; envI = scene.environmentIntensity; scene.environmentIntensity = 0.28;   // like the Quest in passthrough
+      scene.background = null; room.visible = false; envI = scene.environmentIntensity; scene.environmentIntensity = 0.6;   // #180 (default of the Quest's passthrough setting); like the Quest in passthrough
       const viewer = await session.requestReferenceSpace('viewer');
       hitSource = await session.requestHitTestSource({ space: viewer });
       touchSource = await session.requestHitTestSourceForTransientInput({ profile: 'generic-touchscreen' }).catch(() => null);
