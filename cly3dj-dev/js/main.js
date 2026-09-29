@@ -14,6 +14,7 @@ import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
 import * as store from './storage.js';
 import { EnvLight } from './env.js';
+import { Skybox, detectLayout, leftEyeCanvas, brightestDir, savePano, loadPano } from './skybox.js';
 import { Stage, FlightCase } from './layout.js';
 import { loadCaseKit } from './flightcase.js';
 import { setRecordTexSize } from './textures.js';
@@ -27,7 +28,8 @@ const params = new URLSearchParams(location.search);
 const CAMERA_ROLE = params.get('role') === 'camera';   // #161: this page is the spectator phone (spectator.html sends it here)
 // start-screen settings, remembered per browser
 const SETTINGS_DEFAULT = { source: 'pc', xml: 'rekordbox.xml', hands: 'real', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
-  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off', arRefl: 60 };   // turntable physics (#120)
+  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off', arRefl: 60,
+  skyH: 1.5, skyTurn: 0, skyType: 'auto', skyKey: 'on', skyFile: '' };   // turntable physics (#120)
 const settings = (() => { try { return { ...SETTINGS_DEFAULT, ...JSON.parse(localStorage.getItem('vire.settings') || '{}') }; } catch { return { ...SETTINGS_DEFAULT }; } })();
 if (params.get('xml')) { settings.source = 'pc'; settings.xml = params.get('xml'); }
 if (settings.env === 'camera') settings.env = 'studio'; // camera snapshots removed (CLAUDE.md #39)
@@ -76,6 +78,15 @@ key.position.set(0.4, 2.6, 1.2); key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048); key.shadow.camera.left = -1.2; key.shadow.camera.right = 1.5;
 key.shadow.camera.top = 1; key.shadow.camera.bottom = -1; key.shadow.bias = -0.0004;
 rig.add(key); rig.add(key.target); key.target.position.set(0.1, 0.9, 0);
+const KEY_POS = key.position.clone();
+// #182 grounded panorama skybox (skybox.js). Centred where the DJ stands: the XR origin, which is rig (0.05, 0, 0.62)
+// because the rig is moved by (-0.05, 0, -0.62) in the headset. With real-time shadows a shadow-only floor
+// catches the gear's shadows on the panorama's floor (the studio floor is hidden then).
+const skybox = new Skybox(renderer); rig.add(skybox.group); skybox.group.position.x = 0.05; skybox.group.position.z = 0.62;
+const skyShadow = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.ShadowMaterial({ opacity: 0.4 }));
+skyShadow.rotation.x = -Math.PI / 2; skyShadow.position.y = 0.001; skyShadow.receiveShadow = true; skyShadow.visible = false; skyShadow.raycast = () => {};
+rig.add(skyShadow);
+let skyKeyLight = null;   // brightest direction + colour of the chosen image (for the key light)
 
 // floor
 const floor = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.MeshStandardMaterial({ color: 0x0d0f15, roughness: 0.85, metalness: 0.1 }));
@@ -2578,7 +2589,8 @@ async function begin(mode) {
     xr.setHandMode(mode === 'immersive-ar' && settings.hands === 'real' ? 'real' : '3d');
     // passthrough rooms are much dimmer than the studio environment: tone reflections down so metal isn't self-lit
     arMode = mode === 'immersive-ar';
-    if (mode === 'immersive-ar') { scene.background = null; room.visible = false; scene.environmentIntensity = settings.arRefl / 100; }   // #180: was a fixed 0.28, now Settings > Reflections in passthrough (default 60 %)
+    if (mode === 'immersive-ar') { scene.background = null; room.visible = false; skybox.group.visible = skyShadow.visible = false; scene.environmentIntensity = settings.arRefl / 100; }
+    else applySky();   // #182: stereo panoramas split per eye while presenting   // #180: was a fixed 0.28, now Settings > Reflections in passthrough (default 60 %)
     session.addEventListener('end', () => { arMode = false; applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
     toast('Reach out and touch: pinch or grip right at a knob, fader, tonearm or record', 5000);
   } catch (e) { toast('Could not start XR: ' + e.message, 4000); }
@@ -2590,28 +2602,90 @@ async function applyEnv() {
   envLight.stopCamera(); envLight.mix = settings.envMix / 100;
   if (settings.env === 'image') {
     const url = envImageStored();
-    if (!url) { envLight.setImage(null); applySky(); return; }
+    if (!url) { envLight.setImage(null); skybox.setImage(null); applySky(); return; }
     const im = new Image(); im.src = url; await im.decode().catch(() => {}); envLight.setImage(im);
-  } else envLight.setImage(null);
+    skyKeyLight = im.width ? brightestDir(im) : null;
+    if (settings.sky === 'on') await ensureSky();
+  } else { envLight.setImage(null); skyKeyLight = null; }
   applySky();
 }
-// #175: skybox. With an image chosen and 'Show as surroundings' on, the panorama is the visible background and the
-// studio room (floor + wall) is hidden, in Desktop and Full VR. Passthrough always shows the real room.
+// #182: layout of a picture (per Settings > Pano type): { layout: 'mono' | 'ou' | 'sbs', swap } or null = not a panorama
+function skyLayoutFor(w, h) {
+  const t = settings.skyType;
+  if (t === 'auto') { const l = detectLayout(w, h); return l ? { layout: l, swap: false } : null; }
+  return { layout: t.replace('-swap', ''), swap: t.endsWith('-swap') };
+}
+// Use a picked (or stored) image file: the lighting copy (left eye, <= 2048 wide) and, for panoramas, the full-size sky.
+async function useSkyFile(f, fresh) {
+  const bmp = await createImageBitmap(f), L = skyLayoutFor(bmp.width, bmp.height);
+  let c;
+  if (L) c = leftEyeCanvas(bmp, L.layout, L.swap, 2048);
+  else {   // #143 / #175: landscape photos keep up to 2048 px wide, others 1024
+    c = document.createElement('canvas');
+    c.width = Math.min(bmp.width / bmp.height >= 1.3 ? 2048 : 1024, bmp.width); c.height = Math.round(c.width * bmp.height / bmp.width);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);   // #178: keep this line out of the comment above
+  }
+  const dims = [bmp.width, bmp.height]; bmp.close();
+  try { localStorage.setItem('vire.envimage', c.toDataURL('image/jpeg', 0.85)); } catch { if (fresh) toast('Image too large to remember; it will be used this session only'); }
+  envLight.setImage(c); skyKeyLight = brightestDir(c);
+  if (L) { try { await skybox.load(f, L.layout, L.swap); skybox.setHeight(settings.skyH); } catch (e) { skybox.setImage(null); toast('Panorama too big for this device: ' + e.message, 4000); } }
+  else skybox.setImage(null);
+  skyInfo(dims, L); applySky();
+}
+async function ensureSky() {   // full-size panorama from storage, loaded when first shown
+  if (skybox.tex || settings.env !== 'image') return;
+  const f = await loadPano(); if (f) await useSkyFile(f, false);
+}
+function skyInfo(dims, L) {
+  const el = $('#skyInfo'); if (!el) return;
+  if (!dims) { el.textContent = ''; return; }
+  if (!L) { el.textContent = `${dims[0]} x ${dims[1]}: not a 360 panorama, shown as a wrap-around picture (no grounded floor).`; return; }
+  const eyeW = L.layout === 'sbs' ? dims[0] / 2 : dims[0], ppd = eyeW / 360;
+  el.textContent = `${dims[0]} x ${dims[1]}, ${L.layout === 'mono' ? 'mono' : 'stereo ' + (L.layout === 'ou' ? 'over-under' : 'side-by-side')}` +
+    (skybox.size && skybox.size[0] < dims[0] ? ` (shown at ${skybox.size[0]} x ${skybox.size[1]})` : '') + `, ${ppd.toFixed(1)} px per degree` +
+    (ppd < 15 ? ': soft in the headset; 8192 x 4096 mono is sharp.' : '.') + ' Orbit the view and set the height until the floor stops sliding under the gear.';
+}
+// #175 / #182: skybox. With an image chosen and 'Show as surroundings' on, the studio room is hidden in Desktop and
+// Full VR. A 360 panorama becomes the grounded skybox; other pictures stay a plain background. Passthrough always
+// shows the real room.
+const DEG = Math.PI / 180;
 function applySky() {
-  const sky = !arMode && settings.env === 'image' && settings.sky === 'on' && envLight.skyTex;
-  scene.background = arMode ? null : sky ? envLight.skyTex : BG;
-  room.visible = !arMode && !sky;
+  const want = !arMode && settings.env === 'image' && settings.sky === 'on';
+  const full = want && !!skybox.tex, bg = want && !full && envLight.skyTex;
+  scene.background = arMode ? null : bg ? envLight.skyTex : full ? null : BG;
+  skybox.group.visible = full; skyShadow.visible = full;
+  skybox.setStereo(renderer.xr.isPresenting);
+  room.visible = !arMode && !full && !bg;
+  const turn = settings.env === 'image' ? settings.skyTurn * DEG : 0;
+  skybox.setTurn(turn); scene.environmentRotation.set(0, turn, 0); scene.backgroundRotation.set(0, turn, 0);
+  // key light from the picture's brightest area (windows, lamps), at least 35 deg up so shadows stay short
+  if (full && settings.skyKey === 'on' && skyKeyLight) {
+    const d = skyKeyLight.dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), turn);
+    const hz = Math.hypot(d.x, d.z) || 1, up = Math.max(d.y, Math.sin(35 * DEG)), k = Math.sqrt(1 - up * up) / hz;
+    key.position.set(d.x * k, up, d.z * k).multiplyScalar(2.7).add(key.target.position);
+    key.color.setRGB(1, 1, 1).lerp(skyKeyLight.color, 0.5);
+  } else { key.position.copy(KEY_POS); key.color.setRGB(1, 1, 1); }
+}
+// per-image pano settings (height, turn, type, key light), keyed by file name + size
+function skyPrefs() { try { return JSON.parse(localStorage.getItem('vire.skyPrefs') || '{}'); } catch { return {}; } }
+function saveSkyPrefs() {
+  if (!settings.skyFile) return; const m = skyPrefs();
+  m[settings.skyFile] = { h: settings.skyH, turn: settings.skyTurn, type: settings.skyType, key: settings.skyKey };
+  try { localStorage.setItem('vire.skyPrefs', JSON.stringify(m)); } catch {}
 }
 $('#fEnv').onchange = async e => {
-  const f = e.target.files && e.target.files[0]; if (!f) return;
-  const bmp = await createImageBitmap(f); const c = document.createElement('canvas');
-  // #143 panoramas and #175 landscape photos keep up to 2048 px wide (sharper skybox), others 1024
-  c.width = Math.min(bmp.width / bmp.height >= 1.3 ? 2048 : 1024, bmp.width); c.height = Math.round(c.width * bmp.height / bmp.width);
-  // #178: this drawImage had ended up inside the comment above, so every picked image was stored blank (black)
-  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-  try { localStorage.setItem('vire.envimage', c.toDataURL('image/jpeg', 0.85)); } catch { toast('Image too large to remember; it will be used this session only'); }
-  settings.env = 'image'; saveSettings(); syncSettingsUI(); envLight.setImage(c); applySky();
+  const f = e.target.files && e.target.files[0]; if (!f) return; e.target.value = '';
+  settings.skyFile = f.name + ':' + f.size;
+  const p = skyPrefs()[settings.skyFile] || { h: 1.5, turn: 0, type: 'auto', key: 'on' };
+  Object.assign(settings, { skyH: p.h, skyTurn: p.turn, skyType: p.type, skyKey: p.key });
+  settings.env = 'image'; saveSettings(); syncSettingsUI();
+  skybox.setImage(null); await savePano(f);   // full size kept in the site's storage (OPFS)
+  await useSkyFile(f, true);
 };
+$('#sSkyH').oninput = e => { settings.skyH = +e.target.value; saveSettings(); saveSkyPrefs(); $('#skyHVal').textContent = settings.skyH.toFixed(2) + ' m'; skybox.setHeight(settings.skyH); };
+$('#sSkyTurn').oninput = e => { settings.skyTurn = +e.target.value; saveSettings(); saveSkyPrefs(); $('#skyTurnVal').textContent = settings.skyTurn + '°'; applySky(); };
+$('#sSkyType').onchange = async e => { settings.skyType = e.target.value; saveSettings(); saveSkyPrefs(); const f = await loadPano(); if (f) await useSkyFile(f, false); };
+$('#sSkyKey').onchange = e => { settings.skyKey = e.target.value; saveSettings(); saveSkyPrefs(); applySky(); };
 $('#bEnvImg').onclick = () => $('#fEnv').click();
 // #176 LED wall videos: picked each session (the browser can't keep a folder), up to 5, played muted
 $('#bLedPick').onclick = () => $('#fLed').click();
@@ -2633,6 +2707,11 @@ function syncSettingsUI() {
   $('#bEnvImg').hidden = settings.env !== 'image'; $('#rowEnvMix').hidden = settings.env === 'studio';
   $('#sArRefl').value = settings.arRefl; $('#arReflVal').textContent = settings.arRefl + '%';
   $('#sSky').value = settings.sky; $('#rowSky').hidden = settings.env === 'studio';
+  const skyAdj = settings.env !== 'image' || settings.sky !== 'on';
+  for (const id of ['#rowSkyH', '#rowSkyTurn', '#rowSkyType', '#rowSkyKey', '#skyInfo']) $(id).hidden = skyAdj;
+  $('#sSkyH').value = settings.skyH; $('#skyHVal').textContent = (+settings.skyH).toFixed(2) + ' m';
+  $('#sSkyTurn').value = settings.skyTurn; $('#skyTurnVal').textContent = settings.skyTurn + '°';
+  $('#sSkyType').value = settings.skyType; $('#sSkyKey').value = settings.skyKey;
   $('#rowXml').hidden = settings.source !== 'pc';
   $('#rowImport').hidden = settings.source !== 'headset';
   if (settings.source === 'headset') showStorage();
@@ -2674,7 +2753,7 @@ for (const [id, k] of [['#sSource', 'source'], ['#sXml', 'xml'], ['#sHands', 'ha
     if (k === 'micRoute') { if (micOn) { micOn = false; engine.setMicOn(false); } if (engine.mic) engine.micClose(); showMicRoute(); }
     if (k === 'shadows') applyShadows(false);
     if (k === 'spect') applySpect();
-    if (k === 'sky') applySky();
+    if (k === 'sky') ensureSky().then(applySky);
     if (k === 'source' || k === 'xml') loadLibrary();
     if (k === 'env') { if (settings.env === 'image' && !envImageStored()) $('#fEnv').click(); applyEnv(); }
   };
@@ -2750,7 +2829,7 @@ applyEnv();
 if (!CAMERA_ROLE) loadLibrary();
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam };
+window.vire = { THREE, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
