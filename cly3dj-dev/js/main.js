@@ -32,6 +32,7 @@ if (settings.env === 'camera') settings.env = 'studio'; // camera snapshots remo
 // #114: Recording-friendly mode removed (always 90 Hz, 'interactive' audio); the owner records with the Quest
 // recorder's mic off, so the voice goes through the mixer; wired headphones, so no echo cancelling by default
 if (!settings.mig114) { delete settings.perf; settings.micRoute = 'app'; settings.micEcho = false; settings.mig114 = 1; saveSettings(); }
+let spect = null;   // #158 spectator host (declared early: drawMixScreen reads it, #164)
 function saveSettings() { try { localStorage.setItem('vire.settings', JSON.stringify(settings)); } catch {} }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DECK_NAMES = ['A', 'B'];
@@ -2207,6 +2208,7 @@ function ledBeat(d) {
 // so pitch moves the key too (12 x log2 of the speed ratio; ~6 % = 1 semitone). Key from ID3 TKEY, else Rekordbox.
 const BPM_MODES = ['orig', 'cur', 'key'];
 const bpmMode = (() => { try { const v = JSON.parse(localStorage.getItem('vire.bpmMode')); if (Array.isArray(v) && v.length === 2 && v.every(m => BPM_MODES.includes(m))) return v; } catch {} return ['cur', 'cur']; })();
+const SP_HIT = [];   // #164 spectator strip buttons
 const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set while drawing
 const NOTES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
 function parseKey(k) {
@@ -2244,6 +2246,8 @@ function readout(d, st) {
 function mixScreenPress(uv) {
   if (!uv) return;
   const c = mixScreen.canvas, px = uv.x * c.width, py = (1 - uv.y) * c.height;
+  // #164 spectator strip: MR GUI (helpers on/off) and CELL REC (phone goes clean for recording)
+  for (const b of SP_HIT) if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) { b.act(); drawMixScreen(); return true; }
   for (let i = 0; i < 2; i++) {
     const b = MS_HIT[i]; if (!b || px < b.x || px > b.x + b.w || py < b.y || py > b.y + b.h) continue;
     bpmMode[i] = BPM_MODES[(BPM_MODES.indexOf(bpmMode[i]) + 1) % BPM_MODES.length];
@@ -2254,6 +2258,8 @@ function mixScreenPress(uv) {
 }
 function drawMixScreen() {
   const { g, canvas: c } = mixScreen; const W = c.width, H = c.height;
+  const sp = settings.spect === 'on' && spect ? spect.ui() : null;   // #164/#167: MR GUI toggle at the bottom left
+  const DOTS = 186, TXT = 202;   // #166: beat dots + needle state right under the BPM (frees the bottom for the spectator strip)
   g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H);
   for (const d of decks) {
     const x0 = d.i ? W / 2 + 6 : 6, w = W / 2 - 12;
@@ -2278,21 +2284,31 @@ function drawMixScreen() {
       const pos = engine.pos(d.i), rem = Math.max(0, d.duration - pos);
       g.fillStyle = '#dfe6f2'; g.font = '600 22px ui-monospace, monospace';
       g.fillText('-' + fmt(rem), x0 + w - 12, 182);
-      // progress + cues
-      const by = 212, bh = 16;
-      g.fillStyle = '#1b2436'; g.fillRect(x0 + 12, by, w - 24, bh);
-      g.fillStyle = st.needle ? '#39a8ff' : '#3a4a66'; g.fillRect(x0 + 12, by, (w - 24) * clamp(pos / d.duration, 0, 1), bh);
-      for (const q of t.cues) { g.fillStyle = q.color; g.fillRect(x0 + 12 + (w - 24) * q.time / d.duration - 1, by - 5, 3, bh + 10); }
+      // #165 (owner): no progress bar; the grooves on the record show where you are
       // beat phase dots
       const beatInBar = ledBeat(d);   // #117: grey until beat 1 and a BPM exist
-      for (let k = 0; k < 4; k++) { g.fillStyle = k === beatInBar ? '#39a8ff' : '#26324a'; g.fillRect(x0 + 12 + k * 30, 250, 24, 10); }
+      for (let k = 0; k < 4; k++) { g.fillStyle = k === beatInBar ? '#39a8ff' : '#26324a'; g.fillRect(x0 + 12 + k * 30, DOTS, 24, 10); }
       if (t && tapEntry(t)) {   // sidecar save state for this track
         const tx = { saved: 'taps saved', saving: 'saving…', retry: 'not saved: retrying', static: 'saved on this device', local: 'saved on this device' }[taps.status] || '';
-        g.textAlign = 'right'; g.fillStyle = taps.status === 'saved' ? '#56627a' : '#c9a040'; g.font = '500 13px system-ui'; g.fillText(tx, x0 + w - 12, 262);
+        g.textAlign = 'right'; g.fillStyle = taps.status === 'saved' ? '#56627a' : '#c9a040'; g.font = '500 13px system-ui'; g.fillText(tx, x0 + w - 12, TXT);
       }
       g.textAlign = 'left'; g.fillStyle = st.needle ? '#40ff70' : '#56627a'; g.font = '600 15px system-ui';
-      g.fillText(st.needle ? 'NEEDLE DOWN' : 'NEEDLE UP', x0 + 140, 262);
+      g.fillText(st.needle ? 'NEEDLE DOWN' : 'NEEDLE UP', x0 + 140, TXT);
     }
+  }
+  SP_HIT.length = 0;
+  if (sp) {   // #167: one small MR GUI toggle, bottom left (room to the right for future buttons)
+    const x = 14, y = 262, w = 118, h = 34;
+    g.fillStyle = sp.mr ? '#c8202c' : '#c9ced8'; g.fillRect(x, y, w, h);
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = sp.mr ? '#fff' : '#5a6272'; g.font = '700 22px system-ui';
+    g.fillText('MR GUI', x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
+    { // #169: small phone icon; its LED is green while the spectator phone is connected, grey when not
+      const px = x + w + 14, py = y + 1, pw = 18, ph = 32;
+      g.strokeStyle = '#8c96a8'; g.lineWidth = 2; g.beginPath(); g.roundRect(px, py, pw, ph, 4); g.stroke();
+      g.fillStyle = '#8c96a8'; g.fillRect(px + 6, py + ph - 5, pw - 12, 2);   // home bar
+      g.fillStyle = sp.phone ? '#40ff70' : '#56627a'; g.beginPath(); g.arc(px + pw / 2, py + 9, 4, 0, Math.PI * 2); g.fill();
+    }
+    SP_HIT.push({ x: x - 6, y: y - 8, w: w + 12, h: h + 16, act: () => spect.setMR(!sp.mr) });
   }
   mixScreen.commit();
 }
@@ -2624,8 +2640,7 @@ if (navigator.xr) {
   navigator.xr.isSessionSupported('immersive-vr').catch(e => { window.__vireStage = 'xr check failed: ' + e.message; });
 }
 
-// ---- spectator camera (#158): loaded only when switched on; default off
-let spect = null;
+// ---- spectator camera (#158): loaded only when switched on; default off (`spect` is declared near the top)
 function spectCode() {
   let c = null; try { c = localStorage.getItem('vire.spectCode'); } catch {}
   if (!c || !/^\d{5}$/.test(c)) { c = String(10000 + Math.floor(Math.random() * 90000)); try { localStorage.setItem('vire.spectCode', c); } catch {} }

@@ -101,6 +101,18 @@ export function startCamera(ctx) {
   }
   setInterval(() => { for (const [id, e] of nodes) { const o = resolve(id); if (o) e.o = o; } }, 3000);   // late model upgrades swap nodes
 
+  // flight case sizes (#163): same rebuild as on the Quest (FlightCase.size), then re-find its parts
+  const pendingSize = {}; let sizeT = 0;
+  function onCaseSizes(cs) { if (cs) Object.assign(pendingSize, cs); }
+  function applyCaseSizes(now, force) {
+    if (!force && now - sizeT < 120) return;   // a live resize drag arrives 30x/s; rebuild at most ~8x/s
+    for (const [k, d] of Object.entries(pendingSize)) {
+      const c = stage.cases[k]; delete pendingSize[k]; if (!c) continue;
+      if (Math.abs(c.W - d[0]) < 1e-3 && Math.abs(c.D - d[1]) < 1e-3 && Math.abs(c.H - d[2]) < 1e-3) continue;
+      c.size(d[0], d[1], d[2]); sizeT = now;
+      for (const [id, e] of nodes) if (id === k || id.startsWith(k + '.')) { const o = resolve(id); if (o) e.o = o; else nodes.delete(id); }
+    }
+  }
   // ---------------------------------------------------------------- records
   const recs = new Map();   // uid -> { r, s: [] , meshX, meshY }
   const u8of = b64 => { const s = atob(b64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
@@ -173,15 +185,19 @@ export function startCamera(ctx) {
       stats.pkts++; stats.xr = m.xr; stats.last = performance.now();
       if (stats.off !== null) stats.age = performance.now() + stats.off - m.t;
       head.position.set(m.h[0], m.h[1], m.h[2]); head.quaternion.set(m.h[3], m.h[4], m.h[5], m.h[6]);
+      if (m.cs) onCaseSizes(m.cs);
       if (m.g) for (const a of m.g) nodeSample(a, m.t);
       if (m.r) for (const a of m.r) recSample(a, m.t);
       if (m.hd) onHands(m.hd);
-    } else if (m.k === 'full') { for (const a of m.n) nodeSample(a, m.t); }
+    } else if (m.k === 'full') { onCaseSizes(m.cs); applyCaseSizes(performance.now(), true); for (const a of m.n) nodeSample(a, m.t); }
+    else if (m.k === 'layout') { const cs = {}; for (const [k, v] of Object.entries(m.layout.cases || {})) cs[k] = [v[4], v[5], v[6]]; onCaseSizes(cs); }
     else if (m.k === 'rec') onRec(m);
     else if (m.k === 'renv') onRecEnv(m);
     else if (m.k === 'rart') onRecArt(m);
     else if (m.k === 'recdel') onRecDel(m.uid);
     else if (m.k === 'calpt') onCalPoint(m);
+    else if (m.k === 'mr') setMR(!!m.on);                  // #164 from the Quest's mixer screen
+    else if (m.k === 'cellrec') setClean(!!m.on);   // (#164, no longer sent)
     else if (m.k === 'pong') { const now = performance.now(); stats.rtt = now - m.t; const off = m.qt - (m.t + now) / 2; stats.off = stats.off === null ? off : stats.off * 0.8 + off * 0.2; }
   }
 
@@ -291,6 +307,17 @@ export function startCamera(ctx) {
   $('#bHide').onclick = () => { uiHidden = true; ov.classList.add('hide'); };
   $('#bExit').onclick = () => { const s = renderer.xr.getSession(); if (s) s.end(); };
 
+  // #164: helpers and clean-take switches, driven from the Quest's mixer screen (or the buttons here)
+  function setMR(on) {   // #167: from the Quest; ON also brings the menus back, OFF also cleans the screen
+    showHead = on; $('#bMark').classList.toggle('on', on);
+    setHandsDebug(on); $('#bHands').classList.toggle('on', on);
+    setClean(!on);
+  }
+  function setClean(on) {   // CELL REC: nothing on screen but the camera and the gear
+    uiHidden = on; ov.classList.toggle('hide', on);
+    if (on) { xMark.visible = false; reticle.visible = false; }
+    else if (cal.Xp) xMark.visible = true;
+  }
   // ---------------------------------------------------------------- loop (replaces main.js's frame())
   const clock = new THREE.Clock();
   let infoT = 0, camT = 0, found = false;
@@ -302,7 +329,7 @@ export function startCamera(ctx) {
       const ref = renderer.xr.getReferenceSpace();
       if (hitSource) {
         const hits = frame.getHitTestResults(hitSource);
-        if (hits.length && mode !== 'live') { reticle.visible = true; reticle.matrix.fromArray(hits[0].getPose(ref).transform.matrix); } else reticle.visible = false;
+        if (hits.length && mode !== 'live' && !uiHidden) { reticle.visible = true; reticle.matrix.fromArray(hits[0].getPose(ref).transform.matrix); } else reticle.visible = false;
         if (mode === 'find' && hits.length && !found) { found = true; setMode('find', 'Floor found. Press Calibrate (or Rough place).'); }
       }
       if (touchSource) for (const r of frame.getHitTestResultsForTransientInput(touchSource))
@@ -317,6 +344,7 @@ export function startCamera(ctx) {
       }
     }
     // mirror: gear nodes and records at the Quest's time minus DELAY
+    applyCaseSizes(now);
     const rt = questNow() - DELAY;
     for (const e of nodes.values()) blendTo(e.s, rt, e.o, true);
     for (const R of recs.values()) {

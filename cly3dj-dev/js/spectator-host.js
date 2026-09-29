@@ -15,6 +15,8 @@ const CAL_TEXT = {
 
 export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs }) {
   let acc = 0, seq = 0, was = false, calStep = null, doneT = 0;
+  let mr = true;   // #164/#167: MR GUI (default on for setting up)
+  let lastPing = 0;   // #169: the phone pings every second; silent for 3.5 s = not connected (a closed page can leave the channel 'open' for ~30 s)
   const status = s => { const el = document.getElementById('spectStatus'); if (el) el.textContent = label(s); };
   const label = s => ({ relay: 'Waiting for the phone (code ' + code + ')', 'relay-retry': 'No internet for the handshake, retrying…',
     connected: 'Phone connected', disconnected: 'Phone disconnected', failed: 'Phone link failed' }[s] || s);
@@ -103,6 +105,16 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     for (const [id, e] of reg) if (e.t && now - e.t < 5000 && e.last) { const L = e.last; out.push([id, r4(L[0]), r4(L[1]), r4(L[2]), r4(L[3]), r4(L[4]), r4(L[5]), r4(L[6]), r4(L[7]), L[8]]); }
     return out;
   }
+  // flight case sizes (#163): a resize rebuilds the case, so the phone must rebuild its copy too
+  const caseDims = {};
+  function caseSizes(all) {
+    let out = null;
+    for (const [k, c] of Object.entries(stage.cases)) {
+      const d = [r4(c.W), r4(c.D), r4(c.H)], L = caseDims[k];
+      if (all || !L || L[0] !== d[0] || L[1] !== d[1] || L[2] !== d[2]) { caseDims[k] = d; (out = out || {})[k] = d; }
+    }
+    return out;
+  }
   // ---- records: sent once (track info, groove envelope, label image), then followed by their transform
   const uidOf = new WeakMap(); let nextUid = 1; const live = new Map();   // uid -> { r, env: {A,B}, art: {A,B} }
   const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
@@ -154,16 +166,16 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   const link = hostLink(code, {
     onStatus: status,
     onState: s => status(s),
-    onOpen: () => { link.send('ctl', layout()); full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
+    onOpen: () => { link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
     onClose: () => { status('disconnected'); calStep = null; panel.visible = false; frustum.visible = false; },
     onMessage: m => {
-      if (m.k === 'ping') link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() });
+      if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }
       else if (m.k === 'cal') {
         if (m.step === 'lens' || m.step === 'x') { calStep = m.step; say(CAL_TEXT[m.step]); toast && toast(CAL_TEXT[m.step].slice(1).join(' '), 6000); }
         else if (m.step === 'done') { calStep = null; say(['Spectator camera calibrated', m.err != null ? 'Match: ' + m.err + ' cm' : '', 'The blue outline shows what it films.'], '#40d080'); doneT = 3; }
         else { calStep = null; panel.visible = false; }
       } else if (m.k === 'cam') {
-        setFrustum(m.fov, m.asp); frustum.position.fromArray(m.p); frustum.quaternion.fromArray(m.q); frustum.visible = true; camT = 0;
+        setFrustum(m.fov, m.asp); frustum.position.fromArray(m.p); frustum.quaternion.fromArray(m.q); frustum.visible = mr; camT = 0;
       }
     },
   });
@@ -181,11 +193,18 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     cam.matrixWorld.decompose(_p, _q, _s); _p.sub(rig.position);   // rig space (the rig only moves, never turns)
     const now = performance.now();
     if (full || now - regT > 2000) { regT = now; buildRegistry(); }
-    if (full) { full = false; link.send('ctl', { k: 'full', t: Math.round(now), n: nodeDiffs(true) }); }
+    if (full) { full = false; link.send('ctl', { k: 'full', t: Math.round(now), cs: caseSizes(true), n: nodeDiffs(true) }); }
     else if (now - settleT > 1000) { settleT = now; const n = settled(now); if (n.length) link.send('ctl', { k: 'full', t: Math.round(now), n }); }
     link.send('state', { k: 's', n: seq++, t: Math.round(now), xr: renderer.xr.isPresenting ? 1 : 0,
       h: [r3(_p.x), r3(_p.y), r3(_p.z), r4(_q.x), r4(_q.y), r4(_q.z), r4(_q.w)],
-      g: nodeDiffs(false), r: recordsTick(), hd: renderer.xr.isPresenting ? handsTick() : [] });
+      cs: caseSizes(false), g: nodeDiffs(false), r: recordsTick(), hd: renderer.xr.isPresenting ? handsTick() : [] });
   }
-  return { tick, close: () => { link.close(); scene.remove(panel); rig.remove(frustum); } };
+  // #167: one switch. ON = viewfinder outline here + helpers and menus on the phone; OFF = everything hidden
+  // (the phone shows only camera + gear: start its screen recorder by hand)
+  function setMR(on) {
+    mr = on; if (!on) frustum.visible = false; if (link.isOpen) link.send('ctl', { k: 'mr', on });
+    say(on ? ['MR GUI ON', 'Viewfinder here, menus + helpers on the phone.'] : ['MR GUI OFF', 'Phone is clean: start its screen recorder,', 'then clap once.'], on ? '#39a8ff' : '#ff5060'); doneT = 2.5;
+  }
+  return { tick, close: () => { link.close(); scene.remove(panel); rig.remove(frustum); },
+    ui: () => ({ mr, phone: link.isOpen && performance.now() - lastPing < 3500 }), setMR };
 }
