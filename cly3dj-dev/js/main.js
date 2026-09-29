@@ -2633,7 +2633,7 @@ async function applySpect() {
   if (spect) return;
   try {
     const m = await import('./spectator-host.js');
-    if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, renderer, camera, toast });
+    if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, getInputs: () => xr && xr.inputs });
   } catch (e) { toast('Spectator camera failed to start: ' + e.message, 4000); }
 }
 syncSettingsUI();

@@ -23,6 +23,8 @@
   #ov .info { position:absolute; top:8px; left:8px; right:8px; font:12px/1.4 ui-monospace,monospace; background:var(--panel); padding:6px 9px; border-radius:8px; pointer-events:none; }
   #ov .hint { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:var(--panel); padding:8px 12px; border-radius:8px; text-align:center; max-width:80%; pointer-events:none; }
   #ov.hide .bar, #ov.hide .info, #ov.hide .hint { display:none; }
+  #ov .bar button.on { border-color:var(--acc); color:#fff; }
+  #ov .hint.go { border:1px solid var(--acc); font-weight:600; }
 </style>
 </head>
 <body>
@@ -36,10 +38,11 @@
 </div>
 <div id="ov" hidden>
   <div class="info" id="info">…</div>
-  <div class="hint" id="hint">Move the phone slowly until the floor is found, then tap the floor under the middle of the DJ table.</div>
+  <div class="hint" id="hint">Move the phone slowly until the floor is found (a blue ring appears).</div>
   <div class="bar" id="bar">
-    <button id="bL">⟲ 5°</button><button id="bR">5° ⟳</button>
-    <button id="bPlace">Re-place</button><button id="bHide">Hide UI</button><button id="bExit">Exit</button>
+    <button id="bCal">Calibrate</button><button id="bFix">Fix (tap X)</button>
+    <button id="bL">⟲ 1°</button><button id="bR">1° ⟳</button>
+    <button id="bPlace">Rough place</button><button id="bMark">Head</button><button id="bHide">Hide UI</button><button id="bExit">Exit</button>
   </div>
 </div>
 <script type="importmap">
