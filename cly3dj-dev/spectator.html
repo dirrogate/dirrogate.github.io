@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cly3DJ Spectator</title>
+<meta name="theme-color" content="#0b0d12">
+<link rel="icon" href="icon-192.png">
+<style>
+  :root { --fg:#e6e8ec; --dim:#8b909a; --acc:#39a8ff; --bg:#0b0d12; --panel:rgba(14,16,22,.78); }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui,sans-serif; }
+  #start { max-width:460px; margin:0 auto; padding:24px 16px; }
+  h1 { font-size:34px; margin:0 0 2px; font-weight:800; letter-spacing:.04em; } h1 span { color:var(--acc); }
+  p { color:var(--dim); margin:0 0 18px; }
+  input { font:600 28px system-ui,sans-serif; letter-spacing:.2em; width:100%; box-sizing:border-box; padding:12px; border-radius:10px; border:1px solid #2e3850; background:#1c2230; color:var(--fg); text-align:center; }
+  button { font:600 15px system-ui,sans-serif; color:var(--fg); background:#1c2230; border:1px solid #2e3850; border-radius:10px; padding:12px 16px; }
+  button.big { width:100%; margin-top:12px; font-size:17px; padding:14px; }
+  button:disabled { opacity:.4; }
+  #st { margin-top:14px; color:var(--dim); min-height:1.4em; }
+  #ov { position:fixed; inset:0; pointer-events:none; }
+  #ov .bar { position:absolute; left:8px; right:8px; bottom:12px; display:flex; flex-wrap:wrap; gap:6px; justify-content:center; pointer-events:auto; }
+  #ov .bar button { padding:10px 12px; background:var(--panel); }
+  #ov .info { position:absolute; top:8px; left:8px; right:8px; font:12px/1.4 ui-monospace,monospace; background:var(--panel); padding:6px 9px; border-radius:8px; pointer-events:none; }
+  #ov .hint { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:var(--panel); padding:8px 12px; border-radius:8px; text-align:center; max-width:80%; pointer-events:none; }
+  #ov.hide .bar, #ov.hide .info, #ov.hide .hint { display:none; }
+</style>
+</head>
+<body>
+<div id="start">
+  <h1>Cly3<span>DJ</span> camera</h1>
+  <p>Films the DJ with the virtual gear. On the Quest: Settings, Spectator camera On, then read the code shown there.</p>
+  <input id="code" inputmode="numeric" maxlength="5" placeholder="00000">
+  <button class="big" id="bConnect">Connect</button>
+  <button class="big" id="bAR" disabled>Start camera (AR)</button>
+  <div id="st"></div>
+</div>
+<div id="ov" hidden>
+  <div class="info" id="info">…</div>
+  <div class="hint" id="hint">Move the phone slowly until the floor is found, then tap the floor under the middle of the DJ table.</div>
+  <div class="bar" id="bar">
+    <button id="bL">⟲ 5°</button><button id="bR">5° ⟳</button>
+    <button id="bPlace">Re-place</button><button id="bHide">Hide UI</button><button id="bExit">Exit</button>
+  </div>
+</div>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js" } }
+</script>
+<script type="module" src="./js/spectator.js"></script>
+</body>
+</html>
