@@ -5,7 +5,7 @@
 // and songs imported on the headset live in the app's own storage (OPFS), not in this cache.
 const CACHE = 'vire-app-v1';
 // files the app only fetches later (first record load, first MIC press): fetch them up front
-const LATE = ['js/deck-worklet.js', 'js/decode-worker.js', 'js/mic-worklet.js', 'js/bump-worker.js', 'js/spectator-host.js', 'js/net-link.js', 'vendor/three/libs/basis/basis_transcoder.js', 'vendor/three/libs/basis/basis_transcoder.wasm'];
+const LATE = ['js/deck-worklet.js', 'js/decode-worker.js', 'js/mic-worklet.js', 'js/bump-worker.js', 'js/spectator-host.js', 'js/net-link.js', 'js/spectator-client.js', 'vendor/three/libs/basis/basis_transcoder.js', 'vendor/three/libs/basis/basis_transcoder.wasm'];
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => Promise.all(LATE.map(f => c.add(new URL(f, self.registration.scope).href).catch(() => null)))));

@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { hostLink } from './net-link.js';
 
-const RATE = 20;                     // state packets per second
+const RATE = 30;                     // state packets per second (the phone interpolates between them)
 const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _f = new THREE.Vector3();
 const r3 = v => Math.round(v * 1000) / 1000, r4 = v => Math.round(v * 10000) / 10000;
 const CAL_TEXT = {
@@ -13,7 +13,7 @@ const CAL_TEXT = {
   x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
-export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs }) {
+export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs }) {
   let acc = 0, seq = 0, was = false, calStep = null, doneT = 0;
   const status = s => { const el = document.getElementById('spectStatus'); if (el) el.textContent = label(s); };
   const label = s => ({ relay: 'Waiting for the phone (code ' + code + ')', 'relay-retry': 'No internet for the handshake, retrying…',
@@ -70,10 +70,91 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   }
   for (const i of [0, 1]) renderer.xr.getController(i).addEventListener('selectstart', () => onTrigger(i));
 
+
+  // ---- scene mirror (#161): the phone builds the same gear from the same code; we send what moves.
+  // Every node under each gear root (stage items + flight cases) gets an id = root key + child-index path.
+  // Each tick, only nodes whose local transform or visibility changed are sent. Records are separate (below).
+  let reg = new Map(), regT = 0, full = false;
+  const _rm = new THREE.Matrix4(), _ri = new THREE.Matrix4(), _rp = new THREE.Vector3(), _rq = new THREE.Quaternion(), _rs = new THREE.Vector3();
+  function buildRegistry() {
+    const recs = new Set(getRecords().map(r => r.group)), next = new Map();
+    const roots = [...Object.entries(stage.items).map(([k, v]) => [k, v.obj]), ...Object.entries(stage.cases).map(([k, c]) => [k, c.group])];
+    const walk = (o, id) => { if (recs.has(o)) return; next.set(id, reg.get(id)?.o === o ? reg.get(id) : { o, last: null }); o.children.forEach((c, i) => walk(c, id + '.' + i)); };
+    for (const [k, o] of roots) walk(o, k);
+    reg = next;
+  }
+  const E = 2e-4;
+  function nodeDiffs(all) {
+    const out = [];
+    for (const [id, e] of reg) {
+      const o = e.o, p = o.position, q = o.quaternion, sc = o.scale.x, v = o.visible ? 1 : 0, L = e.last;
+      if (!all && L && Math.abs(L[0] - p.x) < E && Math.abs(L[1] - p.y) < E && Math.abs(L[2] - p.z) < E && Math.abs(L[3] - q.x) < E && Math.abs(L[4] - q.y) < E &&
+        Math.abs(L[5] - q.z) < E && Math.abs(L[6] - q.w) < E && Math.abs(L[7] - sc) < 5e-4 && L[8] === v) continue;
+      e.last = [p.x, p.y, p.z, q.x, q.y, q.z, q.w, sc, v]; e.t = performance.now();
+      out.push([id, r4(p.x), r4(p.y), r4(p.z), r4(q.x), r4(q.y), r4(q.z), r4(q.w), r4(sc), v]);
+    }
+    return out;
+  }
+  // the state channel may drop packets, so once a second the final pose of anything that moved in the
+  // last 5 s goes again on the reliable channel (a fader that stopped moving can't stay stuck half way)
+  let settleT = 0;
+  function settled(now) {
+    const out = [];
+    for (const [id, e] of reg) if (e.t && now - e.t < 5000 && e.last) { const L = e.last; out.push([id, r4(L[0]), r4(L[1]), r4(L[2]), r4(L[3]), r4(L[4]), r4(L[5]), r4(L[6]), r4(L[7]), L[8]]); }
+    return out;
+  }
+  // ---- records: sent once (track info, groove envelope, label image), then followed by their transform
+  const uidOf = new WeakMap(); let nextUid = 1; const live = new Map();   // uid -> { r, env: {A,B}, art: {A,B} }
+  const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+  const meta = t => t ? { id: t.id, title: t.title, artist: t.artist, bpm: t.bpm, duration: t.duration, split: t.split, missing: t.missing } : null;
+  function recordsTick() {
+    const out = [], seen = new Set();
+    _ri.copy(rig.matrixWorld).invert();
+    for (const r of getRecords()) {
+      if (!r || r.disposed) continue;
+      let uid = uidOf.get(r); if (!uid) { uid = nextUid++; uidOf.set(r, uid); }
+      seen.add(uid);
+      let L = live.get(uid);
+      if (!L) { L = { r, env: {}, art: {} }; live.set(uid, L); link.send('ctl', { k: 'rec', uid, rec: { id: r.rec.id, sides: { A: meta(r.rec.sides.A), B: meta(r.rec.sides.B) } }, sideUp: r.sideUp }); }
+      for (const side of ['A', 'B']) {
+        const env = r.envs[side];
+        if (env && L.env[side] !== env) {   // 8192 bins 0..1 -> 16 bit, ~22 KB once per side
+          L.env[side] = env; const q = new Uint16Array(env.length); for (let i = 0; i < env.length; i++) q[i] = Math.round(Math.max(0, Math.min(1, env[i])) * 65535);
+          link.send('ctl', { k: 'renv', uid, side, dur: r.durations[side] || 0, env: b64(new Uint8Array(q.buffer)) });
+        }
+        const t = r.rec.sides[side], blob = t && r.labelImgs[side] && artBlobs.get(t.id);
+        if (blob && !L.art[side]) {   // the cover exactly as stored in the MP3, no re-encoding
+          L.art[side] = 'pending';
+          blob.arrayBuffer().then(buf => { if (live.get(uid) === L) link.send('ctl', { k: 'rart', uid, side, mime: blob.type, img: b64(new Uint8Array(buf)) }); L.art[side] = 'sent'; }).catch(() => { L.art[side] = null; });
+        }
+      }
+      r.group.updateMatrixWorld(); _rm.multiplyMatrices(_ri, r.group.matrixWorld); _rm.decompose(_rp, _rq, _rs);
+      out.push([uid, r4(_rp.x), r4(_rp.y), r4(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), r4(r.mesh.rotation.x), r4(r.mesh.position.y), r.sideUp]);
+    }
+    for (const uid of [...live.keys()]) if (!seen.has(uid)) { live.delete(uid); link.send('ctl', { k: 'recdel', uid }); }
+    return out;
+  }
+  // ---- hands / controllers, so the phone can let the real hands show in front of the gear
+  function handsTick() {
+    const out = [], inputs = getInputs() || [];
+    for (const st of inputs) {
+      if (!st || !st.connected) continue;
+      if (st.isHand) {
+        const h = renderer.xr.getHand(st.i), a = [];
+        for (const j of Object.values(h.joints || {})) { if (!j.visible) continue; j.getWorldPosition(_rp).sub(rig.position); a.push(r3(_rp.x), r3(_rp.y), r3(_rp.z)); }
+        if (a.length >= 30) out.push([st.i, 'h', a]);
+      } else if (st.grip) {
+        st.grip.matrixWorld.decompose(_rp, _rq, _rs); _rp.sub(rig.position);
+        out.push([st.i, 'c', [r3(_rp.x), r3(_rp.y), r3(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w)]]);
+      }
+    }
+    return out;
+  }
+
   const link = hostLink(code, {
     onStatus: status,
     onState: s => status(s),
-    onOpen: () => { link.send('ctl', layout()); toast && toast('Spectator phone connected', 2500); status('connected'); },
+    onOpen: () => { link.send('ctl', layout()); full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
     onClose: () => { status('disconnected'); calStep = null; panel.visible = false; frustum.visible = false; },
     onMessage: m => {
       if (m.k === 'ping') link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() });
@@ -98,8 +179,13 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     acc += dt; if (acc < 1 / RATE) return; acc = 0;
     const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
     cam.matrixWorld.decompose(_p, _q, _s); _p.sub(rig.position);   // rig space (the rig only moves, never turns)
-    link.send('state', { k: 's', n: seq++, t: Math.round(performance.now()), xr: renderer.xr.isPresenting ? 1 : 0,
-      h: [r3(_p.x), r3(_p.y), r3(_p.z), r4(_q.x), r4(_q.y), r4(_q.z), r4(_q.w)] });
+    const now = performance.now();
+    if (full || now - regT > 2000) { regT = now; buildRegistry(); }
+    if (full) { full = false; link.send('ctl', { k: 'full', t: Math.round(now), n: nodeDiffs(true) }); }
+    else if (now - settleT > 1000) { settleT = now; const n = settled(now); if (n.length) link.send('ctl', { k: 'full', t: Math.round(now), n }); }
+    link.send('state', { k: 's', n: seq++, t: Math.round(now), xr: renderer.xr.isPresenting ? 1 : 0,
+      h: [r3(_p.x), r3(_p.y), r3(_p.z), r4(_q.x), r4(_q.y), r4(_q.z), r4(_q.w)],
+      g: nodeDiffs(false), r: recordsTick(), hd: renderer.xr.isPresenting ? handsTick() : [] });
   }
   return { tick, close: () => { link.close(); scene.remove(panel); rig.remove(frustum); } };
 }

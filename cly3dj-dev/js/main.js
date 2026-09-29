@@ -22,6 +22,7 @@ import {
 
 const $ = s => document.querySelector(s);
 const params = new URLSearchParams(location.search);
+const CAMERA_ROLE = params.get('role') === 'camera';   // #161: this page is the spectator phone (spectator.html sends it here)
 // start-screen settings, remembered per browser
 const SETTINGS_DEFAULT = { source: 'pc', xml: 'rekordbox.xml', hands: 'real', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
   deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off' };   // turntable physics (#120)
@@ -44,6 +45,7 @@ renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.xr.enabled = true;
+if (CAMERA_ROLE) { renderer.setPixelRatio(1); renderer.shadowMap.enabled = false; }   // #161: phone GPU
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -521,6 +523,7 @@ Object.keys(mixVal).forEach(updateMixVisual);
 const crateState = { pl: 0, sel: 0 };
 const sideCache = new Map(); // track id -> Promise<{bytes, art}>
 const artCache = new Map();  // track id -> ImageBitmap|null
+const artBlobs = new Map();  // track id -> the cover as stored in the MP3 (sent as-is to the spectator phone, #161)
 
 function currentList() { return search.results ? search.results : lib ? lib.playlists[crateState.pl].records : []; }
 
@@ -672,7 +675,7 @@ async function pumpArt() {
         if (head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) {
           const size = ((head[6] & 127) << 21) | ((head[7] & 127) << 14) | ((head[8] & 127) << 7) | (head[9] & 127);
           const tag = await part(0, Math.min(size + 10, 4 * 1024 * 1024));
-          const t = readID3(tag); useID3Bpm(track, t); if (t.picture) art = await createImageBitmap(t.picture);
+          const t = readID3(tag); useID3Bpm(track, t); if (t.picture) { art = await createImageBitmap(t.picture); artBlobs.set(track.id, t.picture); }
         }
       } catch (e) { /* no art */ }
       artCache.set(track.id, art); artPending.delete(track.id); res(art);
@@ -694,7 +697,7 @@ function fetchSide(track) {
     let art = null;
     try {
       const tag = readID3(bytes); useID3Bpm(track, tag);
-      if (tag.picture) art = await createImageBitmap(tag.picture);
+      if (tag.picture) { art = await createImageBitmap(tag.picture); artBlobs.set(track.id, tag.picture); }
     } catch (e) { console.warn('art', e); }
     artCache.set(track.id, art);
     return { bytes, art };
@@ -2453,7 +2456,7 @@ addEventListener('resize', () => {
 });
 
 // ------------------------------------------------------------------ XR input (hands + controllers)
-const xr = setupXR({
+const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or controllers to drive
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack,
   REC, DECK, CRATE, ARM,
@@ -2633,14 +2636,21 @@ async function applySpect() {
   if (spect) return;
   try {
     const m = await import('./spectator-host.js');
-    if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, getInputs: () => xr && xr.inputs });
+    if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, getInputs: () => xr && xr.inputs,
+      getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs });
   } catch (e) { toast('Spectator camera failed to start: ' + e.message, 4000); }
 }
 syncSettingsUI();
-applySpect();
+if (!CAMERA_ROLE) applySpect();
 applyEnv();
-loadLibrary();
+if (!CAMERA_ROLE) loadLibrary();
 drawMixScreen();
 // debugging handle
 window.vire = { THREE, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
+// #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
+if (CAMERA_ROLE) {
+  $('#start').style.display = 'none'; const hud = document.getElementById('hud'); if (hud) hud.style.display = 'none';
+  import('./spectator-client.js').then(m => m.startCamera({ THREE, renderer, scene, camera, rig, room, stage, cases, decks, deckInst, neon,
+    newMilk, stepWallGlow, stepBlobs, Record3D, BG })).catch(e => { document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;top:0;left:0;right:0;color:#fbb;background:#300;padding:8px;z-index:99">Spectator failed: ${e.message}</pre>`); });
+}
