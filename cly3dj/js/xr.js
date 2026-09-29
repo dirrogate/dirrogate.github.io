@@ -217,6 +217,14 @@ export function setupXR(ctx) {
     //    platter rim = nudge. Grabbing the edge never takes the record off.
     //    #104 (owner): lift-off zone = the plain vinyl ring just outside the label, from 3 mm to 2 cm past its
     //    edge; the label itself does nothing (kept free for the spindle); scratch = the grooves beyond that.
+    // #181 (owner): the grip also lifts a record off the platter (label or the ring just outside it), like pulling one
+    // from a sleeve; every other turntable action stays trigger-only (#104)
+    if (!deckOk) for (const d of ctx.decks) {
+      if (!d.record) continue;
+      const l = d.g.worldToLocal(v2.copy(P));
+      const r = Math.hypot(l.x - ctx.DECK.spindle.x, l.z - ctx.DECK.spindle.z), h = l.y - (d.g.userData.platterSurface + ctx.REC.THICK);
+      if (h > -0.035 && h < 0.05 && r < ctx.REC.LABEL + LIFT_OUT) { st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true; }
+    }
     if (deckOk) for (const d of ctx.decks) {
       const l = d.g.worldToLocal(v2.copy(P));
       const r = Math.hypot(l.x - ctx.DECK.spindle.x, l.z - ctx.DECK.spindle.z);
@@ -276,6 +284,16 @@ export function setupXR(ctx) {
         st.direct = { kind: 'tap' }; return true;
       }
     }
+    // #176 LED wall: a second hand anywhere on it while the other hand holds it = resize (pull apart = bigger)
+    if (hit && hit.key === 'ledwall') {
+      const other = inputs.find(o => o !== st && o.direct && o.direct.kind === 'move' && o.direct.target === 'ledwall');
+      if (other) {
+        ctx.stage.endMove(other.direct.stMove);
+        const R = { a: other, b: st, d0: Math.max(0.02, pinchOf(other).distanceTo(P)), s0: ctx.ledwall.scale.x };
+        other.direct = { kind: 'ledScale', R }; st.direct = { kind: 'ledScale', R };
+        buzz(st, 0.5, 40); buzz(other, 0.5, 40); return true;
+      }
+    }
     if (hit && ctx.cases[hit.key]) {
       // second hand on a case the other hand already holds = two-handed resize (CLAUDE.md #43)
       const other = inputs.find(o => o !== st && o.direct && o.direct.kind === 'move' && o.direct.target === hit.key);
@@ -295,6 +313,7 @@ export function setupXR(ctx) {
     mixer: { x: 0.14, z: 0.19, y0: 0, y1: 0.09 }, crate: { x: 0.2, z: 0.19, y0: 0, y1: 0.32 },
     milk: { x: 0.19, z: 0.19, y0: 0, y1: 0.29 },
     neon: { x: 0.33, z: 0.07, y0: -0.33, y1: 0.33 },   // sign-local (unscaled) units: worldToLocal takes its scale out
+    ledwall: { x: 0.84, z: 0.08, y0: -0.49, y1: 0.49 },   // #176, wall-local (unscaled)
   };
   // which centre bar of the neon sign P is on: -1 left, 1 right, 0 neither
   function neonBar(P) {
@@ -390,6 +409,8 @@ export function setupXR(ctx) {
       if (!g.done && Math.abs(dy) > 0.35) { ctx.setPower(g.d, g.d.power === false); g.done = true; buzz(st, 0.6, 40); }
     } else if (g.kind === 'neonScale') {
       if (g.R.a === st) ctx.setNeonScale(g.R.s0 * pinchOf(g.R.a).distanceTo(pinchOf(g.R.b)) / g.R.d0);
+    } else if (g.kind === 'ledScale') {
+      if (g.R.a === st) ctx.setLedScale(g.R.s0 * pinchOf(g.R.a).distanceTo(pinchOf(g.R.b)) / g.R.d0);
     } else if (g.kind === 'twoHand') {
       if (g.R.a === st) twoHandStep(g.R);            // computed once per frame, by the first hand
     }
@@ -405,6 +426,11 @@ export function setupXR(ctx) {
     else if (g.kind === 'held') { const h = ctx.getHeld(); if (h && h.attach === st.anchor) ctx.releaseHeld(); }
     else if (g.kind === 'move') { ctx.stage.endMove(g.stMove); if (!(g.target.startsWith('milk') && g.vel && g.vel.length() > 1.2)) ctx.settleStack(g.target); if (g.target.startsWith('milk')) ctx.releaseMilk(g.target, g.vel); }
     else if (g.kind === 'lid') ctx.lidRelease();
+    else if (g.kind === 'ledScale') {
+      const o = g.R.a === st ? g.R.b : g.R.a;
+      if (o.direct && o.direct.kind === 'ledScale') o.direct = null;
+      ctx.saveLedScale(); ctx.stage.save();
+    }
     else if (g.kind === 'neonScale') {
       const o = g.R.a === st ? g.R.b : g.R.a;
       if (o.direct && o.direct.kind === 'neonScale') o.direct = null;   // either hand letting go ends the resize

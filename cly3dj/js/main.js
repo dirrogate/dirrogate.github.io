@@ -7,6 +7,8 @@ import { AudioEngine, PITCH_RANGE } from './audio.js';
 import { REC, timeToRadius, radiusToTime, Screen, fitText, drawRecordSide, recordMaterial, setRecordSide, grooveAnisoMap } from './textures.js';
 import { setupXR } from './xr.js';
 import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeNeon } from './neon.js';
+import { makeLedWall, LedPlayer, LED } from './ledwall.js';
+import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
@@ -22,15 +24,17 @@ import {
 
 const $ = s => document.querySelector(s);
 const params = new URLSearchParams(location.search);
+const CAMERA_ROLE = params.get('role') === 'camera';   // #161: this page is the spectator phone (spectator.html sends it here)
 // start-screen settings, remembered per browser
 const SETTINGS_DEFAULT = { source: 'pc', xml: 'rekordbox.xml', hands: 'real', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
-  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false };   // turntable physics (#120)
+  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off', arRefl: 60 };   // turntable physics (#120)
 const settings = (() => { try { return { ...SETTINGS_DEFAULT, ...JSON.parse(localStorage.getItem('vire.settings') || '{}') }; } catch { return { ...SETTINGS_DEFAULT }; } })();
 if (params.get('xml')) { settings.source = 'pc'; settings.xml = params.get('xml'); }
 if (settings.env === 'camera') settings.env = 'studio'; // camera snapshots removed (CLAUDE.md #39)
 // #114: Recording-friendly mode removed (always 90 Hz, 'interactive' audio); the owner records with the Quest
 // recorder's mic off, so the voice goes through the mixer; wired headphones, so no echo cancelling by default
 if (!settings.mig114) { delete settings.perf; settings.micRoute = 'app'; settings.micEcho = false; settings.mig114 = 1; saveSettings(); }
+let spect = null;   // #158 spectator host (declared early: drawMixScreen reads it, #164)
 function saveSettings() { try { localStorage.setItem('vire.settings', JSON.stringify(settings)); } catch {} }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DECK_NAMES = ['A', 'B'];
@@ -44,6 +48,7 @@ renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.xr.enabled = true;
+if (CAMERA_ROLE) { renderer.setPixelRatio(1); renderer.shadowMap.enabled = false; }   // #161: phone GPU
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -278,7 +283,7 @@ function stackTops(key) {   // [{ top, key }] of everything under the footprint 
   const out = [];
   for (const k in cases) { const c = cases[k], g = c.group; if (rectsOverlap(me, footprint(g, c.W, c.D))) out.push({ top: g.position.y + c.H, key: k }); }
   for (const [k, it] of Object.entries(stage.items)) {
-    if (k === key || k === 'neon') continue;
+    if (k === key || k === 'neon' || k === 'ledwall') continue;
     const g = it.obj; let fp, top;
     if (STACK_KEYS.test(k)) { const r2 = k === 'crate'; fp = footprint(g, r2 ? CRATE.W : MILK.W, r2 ? CRATE.D : MILK.D); top = g.position.y + (r2 ? CRATE.H : MILK.H); }
     else { const b = localBoxOf(g); fp = footprint(g, b.max.x - b.min.x, b.max.z - b.min.z, (b.max.x + b.min.x) / 2, (b.max.z + b.min.z) / 2); top = g.position.y + b.max.y; }
@@ -323,6 +328,45 @@ function applyShadows(xrLight = false) {
 }
 setGlowMode(glowMat, settings.glow);
 applyShadows(false);   // desktop default: per the Shadows setting (blob by default = no shadow map)
+// LED wall (#176): moves like the neon sign; wheel / two hands resize it; size kept in 'vire.ledScale'
+const ledwall = makeLedWall(); rig.add(ledwall);
+try { const s = parseFloat(localStorage.getItem('vire.ledScale')); if (s > 0) ledwall.scale.setScalar(clamp(s, 0.4, 4)); } catch (e) {}
+const ledBase = () => (LED.H / 2 + LED.BEZ) * ledwall.scale.x;
+function setLedScale(s) { s = clamp(s, 0.4, 4); ledwall.scale.setScalar(s); if (stage) stage.items.ledwall.base = ledBase(); return s; }
+function saveLedScale() { try { localStorage.setItem('vire.ledScale', String(ledwall.scale.x)); } catch (e) {} }
+const led = new LedPlayer(ledwall);
+led.onChange = () => drawMixScreen();
+// #177 VideoVinyl + LED wall modes. LED WALL cycles OFF -> CLIPS (if videos were picked) -> DECKS -> OFF.
+let ledMode = 'off';
+const deckVid = [new DeckVideo(), new DeckVideo()];
+let vvIndex = new Map();          // headset: title key -> OPFS path of the video
+const vvPC = new Map();           // PC: title key -> Promise<url|null> (HEAD videos/<title>.mp4)
+function vvSource(t) {
+  const key = vvKey(t.name);
+  if (settings.source === 'headset') { const p = vvIndex.get(key); return Promise.resolve(p ? store.readFile(p) : null); }
+  if (!vvPC.has(key)) {
+    const url = 'videos/' + encodeURIComponent(t.name.trim()) + '.mp4';
+    vvPC.set(key, fetch(url, { method: 'HEAD' }).then(r => (r.ok ? url : null)).catch(() => null));
+  }
+  return vvPC.get(key);
+}
+function vvStep(d) {   // per frame: open/close the deck's video to match its track, then follow the playhead
+  const dv = deckVid[d.i], t = d.record && d.track, want = t ? vvKey(t.name) : null;
+  if (want !== dv.want) {
+    dv.want = want; dv.close();
+    if (t) vvSource(t).then(src => { if (src && dv.want === want) { dv.open(want, src); drawMixScreen(); } }).catch(() => {});
+    drawMixScreen();
+  }
+  if (dv.v) dv.follow(engine.ctx ? engine.pos(d.i) : 0, engine.state.decks[d.i].rate || 0);
+}
+function setLedMode(m) {
+  if (m === 'clips' && !led.hasFiles) m = 'decks';
+  if (m !== 'clips' && led.on) led.stop();
+  ledMode = m;
+  if (m === 'clips') led.playRandom();
+  else if (m === 'off') ledwall.userData.setVideo(null);
+  drawMixScreen();
+}
 function setNeonScale(s) { s = clamp(s, 0.3, 4); neon.scale.setScalar(s); neon.userData.setLodScale(s); if (stage) stage.items.neon.base = NEON.R * s; return s; }
 function saveNeonScale() { try { localStorage.setItem('vire.neonScale', String(neon.scale.x)); } catch (e) {} }
 try { const s = parseFloat(localStorage.getItem('vire.neonScale')); if (s > 0) { neon.scale.setScalar(clamp(s, 0.3, 4)); neon.userData.setLodScale(neon.scale.x); } } catch (e) {}
@@ -339,8 +383,9 @@ const stage = new Stage(rig, {
   milk: { obj: milk, base: 0 },
   ...Object.fromEntries(Object.entries(extraMilk).map(([k, m]) => [k, { obj: m, base: 0 }])),
   neon: { obj: neon, base: NEON.R * neon.scale.x },
+  ledwall: { obj: ledwall, base: ledBase() },
 }, cases, {
-  items: { deckA: [-DECK_X, 0.898, 0, 0], deckB: [DECK_X, 0.898, 0, 0], mixer: [0, 0.88, 0, 0], crate: [0.98, 0, 0.12, -0.5], milk: [-1.0, 0, 0.15, 0.35], milk2: [-1.0, 0, 0.6, 0.35], milk3: [-1.45, 0, 0.3, 0.2], milk4: [-1.45, 0, 0.75, 0.2], milk5: [-1.0, 0, 1.05, 0.35], milk6: [-1.45, 0, 1.2, 0.2], neon: [0, 1.45, -0.5, 0] },
+  items: { deckA: [-DECK_X, 0.898, 0, 0], deckB: [DECK_X, 0.898, 0, 0], mixer: [0, 0.88, 0, 0], crate: [0.98, 0, 0.12, -0.5], milk: [-1.0, 0, 0.15, 0.35], milk2: [-1.0, 0, 0.6, 0.35], milk3: [-1.45, 0, 0.3, 0.2], milk4: [-1.45, 0, 0.75, 0.2], milk5: [-1.0, 0, 1.05, 0.35], milk6: [-1.45, 0, 1.2, 0.2], neon: [0, 1.45, -0.5, 0], ledwall: [-2.0, 1.6, -0.55, 0] },
   cases: { caseA: [0, 0, 0, 0, 1.3, 0.52, 0.88] },
 });
 const MOVABLE = new Proxy({}, { get: (_, k) => stage.object(k) });
@@ -521,6 +566,7 @@ Object.keys(mixVal).forEach(updateMixVisual);
 const crateState = { pl: 0, sel: 0 };
 const sideCache = new Map(); // track id -> Promise<{bytes, art}>
 const artCache = new Map();  // track id -> ImageBitmap|null
+const artBlobs = new Map();  // track id -> the cover as stored in the MP3 (sent as-is to the spectator phone, #161)
 
 function currentList() { return search.results ? search.results : lib ? lib.playlists[crateState.pl].records : []; }
 
@@ -619,6 +665,7 @@ async function loadLibrary() {
       const pick = xmls.find(f => /(^|\/)rekordbox\.xml$/i.test(f.path)) || xmls[0];
       text = await (await store.readFile(pick.path)).text();
       resolve = store.opfsResolver(index); from = pick.path + ' on this headset';
+      vvIndex = new Map(index.filter(f => VIDEO_EXT.test(f.path)).map(f => [vvKey(baseName(f.path)), f.path]));   // #177
     } else {
       const tryXml = [settings.xml, ...['rekordbox.xml', 'ViRE_rekordbox.xml'].filter(x => x !== settings.xml)];
       for (const x of tryXml) { const r = await fetch(x); if (r.ok) { text = await r.text(); from = x; break; } }
@@ -672,7 +719,7 @@ async function pumpArt() {
         if (head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) {
           const size = ((head[6] & 127) << 21) | ((head[7] & 127) << 14) | ((head[8] & 127) << 7) | (head[9] & 127);
           const tag = await part(0, Math.min(size + 10, 4 * 1024 * 1024));
-          const t = readID3(tag); useID3Bpm(track, t); if (t.picture) art = await createImageBitmap(t.picture);
+          const t = readID3(tag); useID3Bpm(track, t); if (t.picture) { art = await createImageBitmap(t.picture); artBlobs.set(track.id, t.picture); }
         }
       } catch (e) { /* no art */ }
       artCache.set(track.id, art); artPending.delete(track.id); res(art);
@@ -694,7 +741,7 @@ function fetchSide(track) {
     let art = null;
     try {
       const tag = readID3(bytes); useID3Bpm(track, tag);
-      if (tag.picture) art = await createImageBitmap(tag.picture);
+      if (tag.picture) { art = await createImageBitmap(tag.picture); artBlobs.set(track.id, tag.picture); }
     } catch (e) { console.warn('art', e); }
     artCache.set(track.id, art);
     return { bytes, art };
@@ -1498,7 +1545,7 @@ function dropNeedleAt(d, time) {
 // worklet makes the scrape. Lift your hand ~7 cm (or drag off the record) to lift the needle.
 function armGrab(d) {
   const a = d.arm, st = engine.state.decks[d.i];
-  a.manual = true; a.manualYaw = a.yaw; a.onLand = null; a.wantDown = false; a.auto = false; a.prevR = armRadius(d, a.yaw);
+  a.manual = true; a.manualYaw = a.yaw; a.onLand = null; a.wantDown = false; a.auto = false; a.pendingR = null; a.prevR = armRadius(d, a.yaw);
   if (st.needle && d.loaded) {
     a.dragDown = true; a.lastDragT = radiusToTime(armRadius(d, a.yaw), d.duration);
     engine.post({ type: 'needleDrag', deck: d.i, active: true });
@@ -1541,11 +1588,21 @@ function armRelease(d) {
   if (d.loaded && r < REC.EDGE && r > REC.IN - 0.004) {
     a.cueTime = radiusToTime(r, d.duration); a.targetYaw = a.yaw; a.parking = false; a.wantDown = true;
     a.onLand = () => { engine.post({ type: 'seek', deck: d.i, time: a.cueTime }); engine.deck(d.i, 'needle', true); };
+  } else if (d.record && d.track && !d.loaded && r < REC.EDGE && r > REC.IN - 0.004) {
+    // #181 (owner): let go over a record whose grooves are still loading: hover there and drop by itself once it's ready
+    a.targetYaw = a.yaw; a.parking = false; a.pendingR = r;
   } else { a.targetYaw = a.yaw; a.parking = r > REC.R; }
 }
 function updateArm(d, dt) {
   const a = d.arm, u = d.g.userData;
   const st = engine.state.decks[d.i];
+  if (a.pendingR != null) {   // #181: arm waiting over a loading record
+    if (a.manual || !d.record || !d.track) a.pendingR = null;
+    else if (d.loaded) {
+      a.cueTime = radiusToTime(a.pendingR, d.duration); a.pendingR = null; a.targetYaw = a.yaw; a.wantDown = true;
+      a.onLand = () => { engine.post({ type: 'seek', deck: d.i, time: a.cueTime }); engine.deck(d.i, 'needle', true); };
+    }
+  }
   if (a.manual) {
     a.yaw = a.manualYaw; a.lift = a.dragDown ? 0 : Math.min(1, a.lift + dt * 6);
     u.arm.userData.yaw.rotation.y = a.yaw; u.arm.userData.pitch.rotation.x = armTilt(u, a.lift); return;
@@ -1638,7 +1695,7 @@ const shown = o => { for (; o; o = o.parent) if (!o.visible) return false; retur
 function castRay(ray, objects) { raycaster.ray.copy(ray); raycaster.near = 0; raycaster.far = 20; return raycaster.intersectObjects(objects, true).filter(h => shown(h.object)); }
 function rayPlaneY(ray, y) { return ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -y), new THREE.Vector3()); }
 function mouseRay(e) { ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); raycaster.setFromCamera(ndc, camera); return raycaster.ray.clone(); }
-function interactive() { return [deckGroups[0], deckGroups[1], mixer, crateRig, ...milks(), neon, cases.caseA.group, ...loose.filter(l => !l.inMilk).map(l => l.rec.group)]; }
+function interactive() { return [deckGroups[0], deckGroups[1], mixer, crateRig, ...milks(), neon, ledwall, cases.caseA.group, ...loose.filter(l => !l.inMilk).map(l => l.rec.group)]; }
 // instanced parts (the mixer knobs, #84): a hit on instance i stands for that knob's proxy object
 function hitTarget(hit) { const o = hit.object, ids = o.userData.knobIds; return ids && hit.instanceId !== undefined ? mixer.userData.controls[ids[hit.instanceId]] : o; }
 function controlOf(o) {
@@ -1770,7 +1827,7 @@ function scratchIdle() { // a still hand holds the record still
   }
 }
 
-const NAMES = { neon: 'the neon sign', deckA: 'turntable A', deckB: 'turntable B', mixer: 'the mixer', crate: 'the record crate', caseA: 'flight case 1', caseB: 'flight case 2' };
+const NAMES = { neon: 'the neon sign', ledwall: 'the LED wall', deckA: 'turntable A', deckB: 'turntable B', mixer: 'the mixer', crate: 'the record crate', caseA: 'flight case 1', caseB: 'flight case 2' };
 // Resize from a bottom handle. P = new handle position in world (horizontal change), dH = height change.
 function resizeCase(dr, P, dH) {
   const c = cases[dr.key], g = c.group, h = dr.h;
@@ -1969,6 +2026,7 @@ function hover(e) {
   else if (c && c.id === 'arm') showTip('Tonearm: click to cue to start / lift and park; drag to move it (drag while playing to scrape across the record)', e.clientX, e.clientY);
   else if (obj && obj.userData.lid && obj.userData.lidHandle && lidShut()) showTip('Handle: drag to carry the crate (Shift-drag to turn it)', e.clientX, e.clientY);
   else if (obj && obj.userData.lid) showTip('Crate lid: click to open / close, or drag up and down to swing it (O)', e.clientX, e.clientY);
+  else if (obj && obj.userData.move === 'ledwall') showTip('LED wall: drag to move, Shift-drag to rotate, wheel to resize (headset: grab it with both hands and pull apart)', e.clientX, e.clientY);
   else if (obj && obj.userData.move === 'neon') showTip('Neon sign: drag to move, Shift-drag to rotate, wheel to resize (headset: grab both centre bars and pull apart)', e.clientX, e.clientY);
   else if (obj && obj.userData.move) showTip(`Drag to move ${NAMES[obj.userData.move]}, Shift-drag to rotate`, e.clientX, e.clientY);
   else if (obj && obj.userData.resize) showTip('Drag to resize the case; Shift-drag up/down for height', e.clientX, e.clientY);
@@ -1988,6 +2046,7 @@ canvas.addEventListener('wheel', e => {
   const obj = hit && controlOf(hitTarget(hit));
   if (!obj) return;
   const u = obj.userData;
+  if (u.move === 'ledwall') { e.preventDefault(); e.stopImmediatePropagation(); setLedScale(ledwall.scale.x * (e.deltaY < 0 ? 1.05 : 1 / 1.05)); saveLedScale(); stage.save(); showTip(`LED wall ${(LED.W * ledwall.scale.x * 100).toFixed(0)} cm wide`, e.clientX, e.clientY); return; }
   if (u.move === 'neon') { e.preventDefault(); e.stopImmediatePropagation(); setNeonScale(neon.scale.x * (e.deltaY < 0 ? 1.05 : 1 / 1.05)); saveNeonScale(); showTip(`Neon sign ${(NEON.DIA * neon.scale.x * 100).toFixed(0)} cm across`, e.clientX, e.clientY); return; }
   if (u.crateScreen || u.crateSleeves || u.crateCover) { e.preventDefault(); e.stopImmediatePropagation(); if (crateLidOpen()) crateSelect(Math.sign(e.deltaY)); return; }
   if (u.record && !u.loose) {   // #105 spindle twist on desktop: wheel over the spindle (#106), 5 ms a notch (Shift: 1 ms)
@@ -2204,6 +2263,7 @@ function ledBeat(d) {
 // so pitch moves the key too (12 x log2 of the speed ratio; ~6 % = 1 semitone). Key from ID3 TKEY, else Rekordbox.
 const BPM_MODES = ['orig', 'cur', 'key'];
 const bpmMode = (() => { try { const v = JSON.parse(localStorage.getItem('vire.bpmMode')); if (Array.isArray(v) && v.length === 2 && v.every(m => BPM_MODES.includes(m))) return v; } catch {} return ['cur', 'cur']; })();
+const SP_HIT = [];   // #164 spectator strip buttons
 const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set while drawing
 const NOTES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
 function parseKey(k) {
@@ -2241,6 +2301,8 @@ function readout(d, st) {
 function mixScreenPress(uv) {
   if (!uv) return;
   const c = mixScreen.canvas, px = uv.x * c.width, py = (1 - uv.y) * c.height;
+  // #164 spectator strip: MR GUI (helpers on/off) and CELL REC (phone goes clean for recording)
+  for (const b of SP_HIT) if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) { b.act(); drawMixScreen(); return true; }
   for (let i = 0; i < 2; i++) {
     const b = MS_HIT[i]; if (!b || px < b.x || px > b.x + b.w || py < b.y || py > b.y + b.h) continue;
     bpmMode[i] = BPM_MODES[(BPM_MODES.indexOf(bpmMode[i]) + 1) % BPM_MODES.length];
@@ -2251,6 +2313,8 @@ function mixScreenPress(uv) {
 }
 function drawMixScreen() {
   const { g, canvas: c } = mixScreen; const W = c.width, H = c.height;
+  const sp = settings.spect === 'on' && spect ? spect.ui() : null;   // #164/#167: MR GUI toggle at the bottom left
+  const DOTS = 186, TXT = 202;   // #166: beat dots + needle state right under the BPM (frees the bottom for the spectator strip)
   g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H);
   for (const d of decks) {
     const x0 = d.i ? W / 2 + 6 : 6, w = W / 2 - 12;
@@ -2262,7 +2326,7 @@ function drawMixScreen() {
     g.fillStyle = '#dfe6f2'; g.font = '600 22px system-ui';
     fitText2(g, d.loading ? 'Loading…' : t ? t.title : (d.record ? `Side ${d.side} blank` : 'No record'), x0 + 12, 66, w - 24);
     g.fillStyle = '#8c96a8'; g.font = '400 17px system-ui';
-    fitText2(g, t ? `${t.artist}${d.side ? '  ·  side ' + d.side : ''}${t.split ? '  ·  split' : ''}` : '', x0 + 12, 90, w - 24);
+    fitText2(g, t ? `${deckVid[d.i].v ? 'VV  ·  ' : ''}${t.artist}${d.side ? '  ·  side ' + d.side : ''}${t.split ? '  ·  split' : ''}` : '', x0 + 12, 90, w - 24);
     const st = engine.state.decks[d.i];
     const rd = readout(d, st);
     g.fillStyle = '#fff'; g.font = '700 46px system-ui'; g.fillText(rd.big, x0 + 12, 150);
@@ -2275,21 +2339,40 @@ function drawMixScreen() {
       const pos = engine.pos(d.i), rem = Math.max(0, d.duration - pos);
       g.fillStyle = '#dfe6f2'; g.font = '600 22px ui-monospace, monospace';
       g.fillText('-' + fmt(rem), x0 + w - 12, 182);
-      // progress + cues
-      const by = 212, bh = 16;
-      g.fillStyle = '#1b2436'; g.fillRect(x0 + 12, by, w - 24, bh);
-      g.fillStyle = st.needle ? '#39a8ff' : '#3a4a66'; g.fillRect(x0 + 12, by, (w - 24) * clamp(pos / d.duration, 0, 1), bh);
-      for (const q of t.cues) { g.fillStyle = q.color; g.fillRect(x0 + 12 + (w - 24) * q.time / d.duration - 1, by - 5, 3, bh + 10); }
+      // #165 (owner): no progress bar; the grooves on the record show where you are
       // beat phase dots
       const beatInBar = ledBeat(d);   // #117: grey until beat 1 and a BPM exist
-      for (let k = 0; k < 4; k++) { g.fillStyle = k === beatInBar ? '#39a8ff' : '#26324a'; g.fillRect(x0 + 12 + k * 30, 250, 24, 10); }
+      for (let k = 0; k < 4; k++) { g.fillStyle = k === beatInBar ? '#39a8ff' : '#26324a'; g.fillRect(x0 + 12 + k * 30, DOTS, 24, 10); }
       if (t && tapEntry(t)) {   // sidecar save state for this track
         const tx = { saved: 'taps saved', saving: 'saving…', retry: 'not saved: retrying', static: 'saved on this device', local: 'saved on this device' }[taps.status] || '';
-        g.textAlign = 'right'; g.fillStyle = taps.status === 'saved' ? '#56627a' : '#c9a040'; g.font = '500 13px system-ui'; g.fillText(tx, x0 + w - 12, 262);
+        g.textAlign = 'right'; g.fillStyle = taps.status === 'saved' ? '#56627a' : '#c9a040'; g.font = '500 13px system-ui'; g.fillText(tx, x0 + w - 12, TXT);
       }
       g.textAlign = 'left'; g.fillStyle = st.needle ? '#40ff70' : '#56627a'; g.font = '600 15px system-ui';
-      g.fillText(st.needle ? 'NEEDLE DOWN' : 'NEEDLE UP', x0 + 140, 262);
+      g.fillText(st.needle ? 'NEEDLE DOWN' : 'NEEDLE UP', x0 + 140, TXT);
     }
+  }
+  SP_HIT.length = 0;
+  { // #176 LED WALL switch: deck B's top row, right-aligned (same look as MR GUI). OFF <-> VIDEO
+    const w = 134, h = 28, y = 12, x = W - 14 - w;
+    const on = ledMode !== 'off';
+    g.fillStyle = on ? '#c8202c' : '#c9ced8'; g.fillRect(x, y, w, h);
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : '#5a6272'; g.font = '700 22px system-ui';
+    g.fillText({ off: 'LED WALL', clips: 'LED CLIPS', decks: 'LED DECKS' }[ledMode], x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
+    SP_HIT.push({ x: x - 6, y: 4, w: w + 12, h: h + 16, act: () => setLedMode({ off: 'clips', clips: 'decks', decks: 'off' }[ledMode]) });
+  }
+  if (sp) {   // #174: MR GUI toggle + phone icon on deck A's top row, right-aligned to its panel (the divider stays clear)
+    const right = W / 2 - 14, pw = 14, ph = 24, w = 108, h = 28, y = 12;
+    const px = right - pw, x = px - 10 - w;
+    g.fillStyle = sp.mr ? '#c8202c' : '#c9ced8'; g.fillRect(x, y, w, h);
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = sp.mr ? '#fff' : '#5a6272'; g.font = '700 22px system-ui';
+    g.fillText('MR GUI', x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
+    { // small phone icon; its LED is green while the spectator phone is connected, grey when not (#169)
+      const py = y + (h - ph) / 2;
+      g.strokeStyle = '#8c96a8'; g.lineWidth = 2; g.beginPath(); g.roundRect(px, py, pw, ph, 3); g.stroke();
+      g.fillStyle = '#8c96a8'; g.fillRect(px + 4, py + ph - 4, pw - 8, 2);
+      g.fillStyle = sp.phone ? '#40ff70' : '#56627a'; g.beginPath(); g.arc(px + pw / 2, py + 7, 3, 0, Math.PI * 2); g.fill();
+    }
+    SP_HIT.push({ x: x - 6, y: 4, w: w + 12, h: h + 16, act: () => spect.setMR(!sp.mr) });
   }
   mixScreen.commit();
 }
@@ -2443,6 +2526,9 @@ function frame() {
   for (const d of decks) { const k = ledBeat(d); if (k !== d.ledShown) { d.ledShown = k; beatChanged = true; } }
   if (beatChanged || screenTimer > 1 / 15) { screenTimer = 0; drawMixScreen(); }
   if (deckInst) deckInst.update();   // #154
+  for (const d of decks) vvStep(d);   // #177 VideoVinyl
+  if (ledMode === 'decks') ledwall.userData.setDecks(deckVid[0].tex, deckVid[1].tex, ...deckGains(mixVal));
+  if (spect) spect.tick(dt);          // #158 spectator camera (nothing when off / no phone)
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(frame);
@@ -2452,7 +2538,7 @@ addEventListener('resize', () => {
 });
 
 // ------------------------------------------------------------------ XR input (hands + controllers)
-const xr = setupXR({
+const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or controllers to drive
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack,
   REC, DECK, CRATE, ARM,
@@ -2463,7 +2549,7 @@ const xr = setupXR({
   armGrab, armDrag, armRelease,
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
   crateScreenPress, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, drawCrateScreen, layoutSleeves, crateDisc,
-  neon, NEON, setNeonScale, saveNeonScale, releaseMilk,
+  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, ledwall, setLedScale, saveLedScale,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
 });
@@ -2492,8 +2578,8 @@ async function begin(mode) {
     xr.setHandMode(mode === 'immersive-ar' && settings.hands === 'real' ? 'real' : '3d');
     // passthrough rooms are much dimmer than the studio environment: tone reflections down so metal isn't self-lit
     arMode = mode === 'immersive-ar';
-    if (mode === 'immersive-ar') { scene.background = null; room.visible = false; scene.environmentIntensity = 0.28; }
-    session.addEventListener('end', () => { arMode = false; applyShadows(false); xr.end(); rig.position.set(0, 0, 0); scene.background = BG; room.visible = true; scene.environmentIntensity = envLight.intensity; });
+    if (mode === 'immersive-ar') { scene.background = null; room.visible = false; scene.environmentIntensity = settings.arRefl / 100; }   // #180: was a fixed 0.28, now Settings > Reflections in passthrough (default 60 %)
+    session.addEventListener('end', () => { arMode = false; applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
     toast('Reach out and touch: pinch or grip right at a knob, fader, tonearm or record', 5000);
   } catch (e) { toast('Could not start XR: ' + e.message, 4000); }
 }
@@ -2504,18 +2590,37 @@ async function applyEnv() {
   envLight.stopCamera(); envLight.mix = settings.envMix / 100;
   if (settings.env === 'image') {
     const url = envImageStored();
-    if (!url) { envLight.setImage(null); return; }
+    if (!url) { envLight.setImage(null); applySky(); return; }
     const im = new Image(); im.src = url; await im.decode().catch(() => {}); envLight.setImage(im);
   } else envLight.setImage(null);
+  applySky();
+}
+// #175: skybox. With an image chosen and 'Show as surroundings' on, the panorama is the visible background and the
+// studio room (floor + wall) is hidden, in Desktop and Full VR. Passthrough always shows the real room.
+function applySky() {
+  const sky = !arMode && settings.env === 'image' && settings.sky === 'on' && envLight.skyTex;
+  scene.background = arMode ? null : sky ? envLight.skyTex : BG;
+  room.visible = !arMode && !sky;
 }
 $('#fEnv').onchange = async e => {
   const f = e.target.files && e.target.files[0]; if (!f) return;
   const bmp = await createImageBitmap(f); const c = document.createElement('canvas');
-  c.width = Math.min(bmp.width / bmp.height > 1.8 ? 2048 : 1024, bmp.width); c.height = Math.round(c.width * bmp.height / bmp.width);   // #143: panoramas keep 2048 c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  // #143 panoramas and #175 landscape photos keep up to 2048 px wide (sharper skybox), others 1024
+  c.width = Math.min(bmp.width / bmp.height >= 1.3 ? 2048 : 1024, bmp.width); c.height = Math.round(c.width * bmp.height / bmp.width);
+  // #178: this drawImage had ended up inside the comment above, so every picked image was stored blank (black)
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
   try { localStorage.setItem('vire.envimage', c.toDataURL('image/jpeg', 0.85)); } catch { toast('Image too large to remember; it will be used this session only'); }
-  settings.env = 'image'; saveSettings(); syncSettingsUI(); envLight.setImage(c);
+  settings.env = 'image'; saveSettings(); syncSettingsUI(); envLight.setImage(c); applySky();
 };
 $('#bEnvImg').onclick = () => $('#fEnv').click();
+// #176 LED wall videos: picked each session (the browser can't keep a folder), up to 5, played muted
+$('#bLedPick').onclick = () => $('#fLed').click();
+$('#fLed').onchange = e => {
+  const all = [...(e.target.files || [])], n = led.setFiles(all);
+  $('#ledList').textContent = n ? `${n} video${n > 1 ? 's' : ''}: ${led.files.map(f => f.name).join(' · ')}` + (all.length > 5 ? '  (only the first 5 are used)' : '') : 'No playable videos in that pick (mp4 / webm).';
+  drawMixScreen();
+};
+$('#sArRefl').oninput = e => { settings.arRefl = +e.target.value; saveSettings(); $('#arReflVal').textContent = settings.arRefl + '%'; if (arMode) scene.environmentIntensity = settings.arRefl / 100; };
 $('#sEnvMix').oninput = e => { settings.envMix = +e.target.value; saveSettings(); envLight.setMix(settings.envMix / 100); $('#envMixVal').textContent = settings.envMix + '%'; };
 
 // ---- settings UI
@@ -2523,8 +2628,11 @@ function syncSettingsUI() {
   $('#sSource').value = settings.source; $('#sXml').value = settings.xml; $('#sHands').value = settings.hands;
   $('#sGlow').value = settings.glow; $('#sShadows').value = settings.shadows; $('#sMicRoute').value = settings.micRoute; showMicRoute();
   $('#sEnv').value = settings.env; $('#sEnvMix').value = settings.envMix; $('#envMixVal').textContent = settings.envMix + '%';
+  $('#sSpect').value = settings.spect; $('#rowSpect').hidden = settings.spect !== 'on'; $('#spectCode').textContent = spectCode();
   $('#sDeckModel').value = settings.deckModel; $('#sRecWeight').value = settings.recWeight; $('#sSlipmat').value = settings.slipmat; $('#cPll').checked = !!settings.pll;
   $('#bEnvImg').hidden = settings.env !== 'image'; $('#rowEnvMix').hidden = settings.env === 'studio';
+  $('#sArRefl').value = settings.arRefl; $('#arReflVal').textContent = settings.arRefl + '%';
+  $('#sSky').value = settings.sky; $('#rowSky').hidden = settings.env === 'studio';
   $('#rowXml').hidden = settings.source !== 'pc';
   $('#rowImport').hidden = settings.source !== 'headset';
   if (settings.source === 'headset') showStorage();
@@ -2545,7 +2653,7 @@ $('#bPersist').onclick = async () => {
 window.__vireStage = 'service worker';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).then(reg => {
   // hand the worker everything this page already loaded (app code, three.js, models) for offline use (#66)
-  const own = u => u.startsWith(location.origin) && !/\/vire-music\/|\.(mp3|m4a|wav|flac|aiff?|ogg)(\?|$)/i.test(u);
+  const own = u => u.startsWith(location.origin) && !/\/vire-music\/|\.(mp3|m4a|wav|flac|aiff?|ogg|mp4|m4v|webm|mov)(\?|$)/i.test(u);
   const urls = [location.href.split('#')[0], ...performance.getEntriesByType('resource').map(r => r.name).filter(own)];
   if (reg.active) reg.active.postMessage({ cache: [...new Set(urls)] });
 }).catch(() => {});
@@ -2554,17 +2662,19 @@ async function showStorage() {
   showPersist();
   const idx = await store.loadIndex(); const est = await store.usage();
   const mb = n => (n / 1048576).toFixed(0) + ' MB';
-  $('#impStatus').textContent = `${idx.filter(f => !/\.xml$/i.test(f.path)).length} songs, ${idx.filter(f => /\.xml$/i.test(f.path)).length} XML stored` +
+  $('#impStatus').textContent = `${idx.filter(f => !/\.xml$/i.test(f.path) && !VIDEO_EXT.test(f.path)).length} songs, ${idx.filter(f => VIDEO_EXT.test(f.path)).length} VideoVinyl videos, ${idx.filter(f => /\.xml$/i.test(f.path)).length} XML stored` +
     (est ? ` · using ${mb(est.usage || 0)} of ${mb(est.quota || 0)} available to this site` : '');
 }
 for (const [id, k] of [['#sSource', 'source'], ['#sXml', 'xml'], ['#sHands', 'hands'], ['#sEnv', 'env'], ['#sGlow', 'glow'], ['#sShadows', 'shadows'], ['#sMicRoute', 'micRoute'],
-  ['#sDeckModel', 'deckModel'], ['#sRecWeight', 'recWeight'], ['#sSlipmat', 'slipmat']]) {
+  ['#sDeckModel', 'deckModel'], ['#sRecWeight', 'recWeight'], ['#sSlipmat', 'slipmat'], ['#sSpect', 'spect'], ['#sSky', 'sky']]) {
   $(id).onchange = e => {
     settings[k] = e.target.value; saveSettings(); syncSettingsUI();
     if (k === 'deckModel' || k === 'recWeight' || k === 'slipmat') sendPhysics();
     if (k === 'glow') setGlowMode(glowMat, settings.glow);
     if (k === 'micRoute') { if (micOn) { micOn = false; engine.setMicOn(false); } if (engine.mic) engine.micClose(); showMicRoute(); }
     if (k === 'shadows') applyShadows(false);
+    if (k === 'spect') applySpect();
+    if (k === 'sky') applySky();
     if (k === 'source' || k === 'xml') loadLibrary();
     if (k === 'env') { if (settings.env === 'image' && !envImageStored()) $('#fEnv').click(); applyEnv(); }
   };
@@ -2618,10 +2728,33 @@ if (navigator.xr) {
   navigator.xr.isSessionSupported('immersive-vr').catch(e => { window.__vireStage = 'xr check failed: ' + e.message; });
 }
 
+// ---- spectator camera (#158): loaded only when switched on; default off (`spect` is declared near the top)
+function spectCode() {
+  let c = null; try { c = localStorage.getItem('vire.spectCode'); } catch {}
+  if (!c || !/^\d{5}$/.test(c)) { c = String(10000 + Math.floor(Math.random() * 90000)); try { localStorage.setItem('vire.spectCode', c); } catch {} }
+  return c;
+}
+async function applySpect() {
+  if (settings.spect !== 'on') { if (spect) { spect.close(); spect = null; } return; }
+  if (spect) return;
+  try {
+    const m = await import('./spectator-host.js');
+    if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, getInputs: () => xr && xr.inputs,
+      getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(),
+      getVV: () => ({ mode: ledMode, gains: deckGains(mixVal), decks: deckVid.map((dv, i) => dv.v ? [i, dv.key, engine.ctx ? engine.pos(i) : 0, engine.state.decks[i].rate || 0] : null).filter(Boolean) }) });
+  } catch (e) { toast('Spectator camera failed to start: ' + e.message, 4000); }
+}
 syncSettingsUI();
+if (!CAMERA_ROLE) applySpect();
 applyEnv();
-loadLibrary();
+if (!CAMERA_ROLE) loadLibrary();
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam };
+window.vire = { THREE, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
+// #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
+if (CAMERA_ROLE) {
+  $('#start').style.display = 'none'; const hud = document.getElementById('hud'); if (hud) hud.style.display = 'none';
+  import('./spectator-client.js').then(m => m.startCamera({ THREE, renderer, scene, camera, rig, room, stage, cases, decks, deckInst, neon,
+    newMilk, stepWallGlow, stepBlobs, Record3D, BG, led })).catch(e => { document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;top:0;left:0;right:0;color:#fbb;background:#300;padding:8px;z-index:99">Spectator failed: ${e.message}</pre>`); });
+}

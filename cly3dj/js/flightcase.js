@@ -57,13 +57,21 @@ function mats() {
 // map, world-scale UVs). build() places and stretches the pieces for the current size and merges them: 2 draw calls.
 let KIT = null;
 const TILE = 0.14, LAM = 0.16;   // trim-sheet period along a strip (2 rivets), laminate tile size (m)
-const CELL = { chrome: [0.1875, 0.875], bronze: [0.5625, 0.875] };
+const CELL = { chrome: [0.1875, 0.875], bronze: [0.5625, 0.875],
+  mirror: [1.1875, 0.875] };   // #172: same texel as chrome (the sheet repeats in u), but u > 1 tells the shader: mirror polish
 export async function loadCaseKit(url, loadBaked) {
   if (KIT) return KIT;
   const gltf = await loadBaked(url);
   const get = n => { const o = gltf.scene.getObjectByName(n); if (!o || !o.isMesh) throw new Error('flight case kit: missing ' + n); return o; };
   const k = {}; for (const n of ['Angle', 'Rail', 'Corner', 'Latch', 'Handle', 'LamTile']) k[n] = get('Case' + n);
   const kit = k.Angle.material; kit.vertexColors = true; kit.name = 'case_kit';
+  // #172: mirror-polished chrome for pieces whose trim-sheet u is past 1 (the top ball corners). No new texture,
+  // no extra material or draw call: roughness 0.15 there (#173 owner: ~15 % satin; was 0.45 x 0.15 = 0.07); the reflection is the same environment map.
+  kit.onBeforeCompile = sh => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <roughnessmap_fragment>',
+      '#include <roughnessmap_fragment>\n#ifdef USE_ROUGHNESSMAP\n  if (vRoughnessMapUv.x > 1.0) roughnessFactor = 0.15;\n#endif');
+  };
+  kit.customProgramCacheKey = () => 'case-kit-mirror';
   for (const t of [kit.normalMap, kit.roughnessMap, kit.aoMap]) if (t) { t.wrapS = THREE.RepeatWrapping; t.needsUpdate = true; }
   const lam = k.LamTile.material; lam.name = 'case_laminate';
   if (lam.normalMap) { lam.normalMap.wrapS = lam.normalMap.wrapT = THREE.RepeatWrapping; lam.normalMap.needsUpdate = true; }
@@ -107,7 +115,7 @@ function buildKit(fc) {
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) edge(V3(0, 1, 0), V3(sx, 0, 0), V3(0, 0, sz), V3(sx * hw, 0, sz * hd), H);
   // ball corners: chrome top and bottom (#153 owner: the top ones were dark bronze); bottom ones flattened: the case stands on them
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    parts.push(piece(KIT.corner, V3(sx, 0, 0), V3(0, 1, 0), V3(0, 0, sz), V3(sx * hw, H, sz * hd), { color: 0xc4c7cc, cell: CELL.chrome }));
+    parts.push(piece(KIT.corner, V3(sx, 0, 0), V3(0, 1, 0), V3(0, 0, sz), V3(sx * hw, H, sz * hd), { color: 0xd4d7dc, cell: CELL.mirror }));   // #172 top: mirror chrome
     parts.push(piece(KIT.corner, V3(sx, 0, 0), V3(0, -0.45, 0), V3(0, 0, sz), V3(sx * hw, 0, sz * hd), { color: 0x8f9298, cell: CELL.chrome }));
   }
   // lid seam rail and butterfly latches (the rail is cut under each latch dish)
