@@ -217,6 +217,14 @@ export function setupXR(ctx) {
     //    platter rim = nudge. Grabbing the edge never takes the record off.
     //    #104 (owner): lift-off zone = the plain vinyl ring just outside the label, from 3 mm to 2 cm past its
     //    edge; the label itself does nothing (kept free for the spindle); scratch = the grooves beyond that.
+    // #181 (owner): the grip also lifts a record off the platter (label or the ring just outside it), like pulling one
+    // from a sleeve; every other turntable action stays trigger-only (#104)
+    if (!deckOk) for (const d of ctx.decks) {
+      if (!d.record) continue;
+      const l = d.g.worldToLocal(v2.copy(P));
+      const r = Math.hypot(l.x - ctx.DECK.spindle.x, l.z - ctx.DECK.spindle.z), h = l.y - (d.g.userData.platterSurface + ctx.REC.THICK);
+      if (h > -0.035 && h < 0.05 && r < ctx.REC.LABEL + LIFT_OUT) { st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true; }
+    }
     if (deckOk) for (const d of ctx.decks) {
       const l = d.g.worldToLocal(v2.copy(P));
       const r = Math.hypot(l.x - ctx.DECK.spindle.x, l.z - ctx.DECK.spindle.z);

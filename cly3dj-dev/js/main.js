@@ -1545,7 +1545,7 @@ function dropNeedleAt(d, time) {
 // worklet makes the scrape. Lift your hand ~7 cm (or drag off the record) to lift the needle.
 function armGrab(d) {
   const a = d.arm, st = engine.state.decks[d.i];
-  a.manual = true; a.manualYaw = a.yaw; a.onLand = null; a.wantDown = false; a.auto = false; a.prevR = armRadius(d, a.yaw);
+  a.manual = true; a.manualYaw = a.yaw; a.onLand = null; a.wantDown = false; a.auto = false; a.pendingR = null; a.prevR = armRadius(d, a.yaw);
   if (st.needle && d.loaded) {
     a.dragDown = true; a.lastDragT = radiusToTime(armRadius(d, a.yaw), d.duration);
     engine.post({ type: 'needleDrag', deck: d.i, active: true });
@@ -1588,11 +1588,21 @@ function armRelease(d) {
   if (d.loaded && r < REC.EDGE && r > REC.IN - 0.004) {
     a.cueTime = radiusToTime(r, d.duration); a.targetYaw = a.yaw; a.parking = false; a.wantDown = true;
     a.onLand = () => { engine.post({ type: 'seek', deck: d.i, time: a.cueTime }); engine.deck(d.i, 'needle', true); };
+  } else if (d.record && d.track && !d.loaded && r < REC.EDGE && r > REC.IN - 0.004) {
+    // #181 (owner): let go over a record whose grooves are still loading: hover there and drop by itself once it's ready
+    a.targetYaw = a.yaw; a.parking = false; a.pendingR = r;
   } else { a.targetYaw = a.yaw; a.parking = r > REC.R; }
 }
 function updateArm(d, dt) {
   const a = d.arm, u = d.g.userData;
   const st = engine.state.decks[d.i];
+  if (a.pendingR != null) {   // #181: arm waiting over a loading record
+    if (a.manual || !d.record || !d.track) a.pendingR = null;
+    else if (d.loaded) {
+      a.cueTime = radiusToTime(a.pendingR, d.duration); a.pendingR = null; a.targetYaw = a.yaw; a.wantDown = true;
+      a.onLand = () => { engine.post({ type: 'seek', deck: d.i, time: a.cueTime }); engine.deck(d.i, 'needle', true); };
+    }
+  }
   if (a.manual) {
     a.yaw = a.manualYaw; a.lift = a.dragDown ? 0 : Math.min(1, a.lift + dt * 6);
     u.arm.userData.yaw.rotation.y = a.yaw; u.arm.userData.pitch.rotation.x = armTilt(u, a.lift); return;
