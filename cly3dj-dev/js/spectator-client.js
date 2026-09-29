@@ -33,7 +33,7 @@ export function startCamera(ctx) {
       <h1>Cly<span>3DJ</span> camera</h1>
       <p>Films the DJ with the virtual gear. On the Quest: Settings, Spectator camera On, then read the code shown there.</p>
       <input id="spCode" inputmode="numeric" maxlength="5" placeholder="00000">
-      <button id="spConnect">Connect</button><button id="spAR" disabled>Start camera (AR)</button>
+      <button id="spConnect">Connect</button><button id="spAR" disabled>Start camera (AR)</button><button id="spCamTest">Camera access test (no Quest needed)</button>
       <button id="spLed">Videos: LED wall clips + VideoVinyls (same files as the Quest)…</button><input type="file" id="spLedF" accept="video/*" multiple hidden>
       <div id="spLedList" style="color:#8b909a;font-size:13px;margin-top:6px">Optional: pick the same videos as on the Quest so the LED wall plays here too.</div>
       <div id="spSt"></div></div></div>
@@ -87,6 +87,7 @@ export function startCamera(ctx) {
     if (vvMode === 'decks') led.wall.userData.setDecks(pdv[0].tex, pdv[1].tex, vvGains[0], vvGains[1]);
   }
   $('#spLed').onclick = () => $('#spLedF').click();
+  $('#spCamTest').onclick = () => import('./camtest.js').then(m => m.camTest()).catch(e => st('Camera test failed: ' + e.message));   // #183
   $('#spLedF').onchange = e => {   // #176: same file names as on the Quest; matched by name
     const all = [...(e.target.files || [])], n = led.setFiles(all, 500);
     vvFiles = new Map(all.filter(f => VIDEO_EXT.test(f.name)).map(f => [vvKey(baseName(f.name)), f]));   // #177 VideoVinyl by title
