@@ -2595,7 +2595,10 @@ function applySky() {
 $('#fEnv').onchange = async e => {
   const f = e.target.files && e.target.files[0]; if (!f) return;
   const bmp = await createImageBitmap(f); const c = document.createElement('canvas');
-  c.width = Math.min(bmp.width / bmp.height >= 1.3 ? 2048 : 1024, bmp.width);   /* #175: landscape photos keep 2048 too (sharper skybox) */ c.height = Math.round(c.width * bmp.height / bmp.width);   // #143: panoramas keep 2048 c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  // #143 panoramas and #175 landscape photos keep up to 2048 px wide (sharper skybox), others 1024
+  c.width = Math.min(bmp.width / bmp.height >= 1.3 ? 2048 : 1024, bmp.width); c.height = Math.round(c.width * bmp.height / bmp.width);
+  // #178: this drawImage had ended up inside the comment above, so every picked image was stored blank (black)
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
   try { localStorage.setItem('vire.envimage', c.toDataURL('image/jpeg', 0.85)); } catch { toast('Image too large to remember; it will be used this session only'); }
   settings.env = 'image'; saveSettings(); syncSettingsUI(); envLight.setImage(c); applySky();
 };
