@@ -23,6 +23,26 @@ function windowPanorama(src) {
   g.drawImage(tmp, x0, y0);
   return c;
 }
+// #172 (owner): a landscape photo (e.g. 16:9) that isn't a panorama wraps the whole room as two copies of 180 deg
+// each: the photo straight ahead, a mirror image of it behind, so both joins match edge to edge. Above and below
+// the photo the top and bottom rows are stretched out to the ceiling and floor, so they keep the room's colours.
+function twinPanorama(src) {
+  const W = 2048, H = 1024, half = W / 2, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d'), sw = src.width, sh = src.height;
+  const ph = Math.min(H, Math.round(half * sh / sw)), y0 = Math.round((H - ph) / 2);
+  const band = (dx, flip) => {
+    g.save(); if (flip) { g.translate(dx + half, 0); g.scale(-1, 1); } else g.translate(dx, 0);
+    g.drawImage(src, 0, 0, sw, sh, 0, y0, half, ph);                              // the photo
+    if (y0 > 0) {
+      g.drawImage(src, 0, 0, sw, 1, 0, 0, half, y0);                              // top row -> ceiling
+      g.drawImage(src, 0, sh - 1, sw, 1, 0, y0 + ph, half, H - y0 - ph);          // bottom row -> floor
+    }
+    g.restore();
+  };
+  band(0, false);      // front: u 0..0.5, centred on straight ahead (u = 0.25)
+  band(half, true);    // back: mirrored
+  return c;
+}
 export class EnvLight {
   constructor(renderer, scene, intensity = 0.55) {
     this.renderer = renderer; this.scene = scene; this.intensity = intensity;
@@ -46,9 +66,9 @@ export class EnvLight {
     // neon sign, a window...) becomes a window about 100 deg wide at eye level straight ahead (-z, the way the DJ
     // faces), with soft edges; the studio lighting shows everywhere else instead of the photo being stretched
     // round the whole room.
-    const w = source.width, h = source.height, pano = w / h > 1.8 && w / h < 2.2;
+    const w = source.width, h = source.height, pano = w / h > 1.8 && w / h < 2.2, wide = !pano && w / h >= 1.3;
     this.isPano = pano;
-    const img = pano ? source : windowPanorama(source);
+    const img = pano ? source : wide ? twinPanorama(source) : windowPanorama(source);   // #172: landscape -> two 180 deg copies; portrait/square -> window
     const t = new THREE.Texture(img); t.needsUpdate = true; t.colorSpace = THREE.SRGBColorSpace;
     // flip so it isn't mirrored from the inside
     t.wrapS = THREE.RepeatWrapping; t.repeat.x = -1;
