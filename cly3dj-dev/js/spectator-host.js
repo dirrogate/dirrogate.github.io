@@ -13,10 +13,10 @@ const CAL_TEXT = {
   x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
-export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getVV }) {
+export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getVV, getSky }) {
   let acc = 0, seq = 0, was = false, calStep = null, doneT = 0;
   let mr = true;   // #164/#167: MR GUI (default on for setting up)
-  let lastPing = 0, ledT = 0, ledKey = '';   // #169: the phone pings every second; silent for 3.5 s = not connected (a closed page can leave the channel 'open' for ~30 s)
+  let lastPing = 0, ledT = 0, ledKey = '', skyKey = '';   // #169: the phone pings every second; silent for 3.5 s = not connected (a closed page can leave the channel 'open' for ~30 s)
   const status = s => { const el = document.getElementById('spectStatus'); if (el) el.textContent = label(s); };
   const label = s => ({ relay: 'Waiting for the phone (code ' + code + ')', 'relay-retry': 'No internet for the handshake, retrying…',
     connected: 'Phone connected', disconnected: 'Phone disconnected', failed: 'Phone link failed' }[s] || s);
@@ -172,7 +172,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   const link = hostLink(code, {
     onStatus: status,
     onState: s => status(s),
-    onOpen: () => { link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
+    onOpen: () => { link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
     onClose: () => { status('disconnected'); calStep = null; panel.visible = false; frustum.visible = false; },
     onMessage: m => {
       if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }
@@ -201,6 +201,10 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     if (getLed) {   // #176: which LED wall clip is playing and where; the phone plays its own copy of the same file
       const L = getLed(), key = (L.on ? 1 : 0) + '|' + (L.name || '');
       if (key !== ledKey || now - ledT > 2000) { ledKey = key; ledT = now; link.send('ctl', { k: 'led', on: L.on, name: L.name, t: L.t, qt: now }); }
+    }
+    if (getSky) {   // #184: panorama height / turn / type for the phone's virtual set (the phone has its own copy of the image)
+      const S = getSky(), k = JSON.stringify(S);
+      if (k !== skyKey) { skyKey = k; link.send('ctl', { k: 'sky', ...S }); }
     }
     if (full || now - regT > 2000) { regT = now; buildRegistry(); }
     if (full) { full = false; link.send('ctl', { k: 'full', t: Math.round(now), cs: caseSizes(true), n: nodeDiffs(true) }); }

@@ -6,9 +6,11 @@
 // front of the virtual gear.
 import { spectatorLink } from './net-link.js';
 import { DeckVideo, vvKey, baseName, VIDEO_EXT } from './videovinyl.js';
+import { makeVirtualSet } from './vset.js';
 
 export function startCamera(ctx) {
-  const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG, led } = ctx;
+  const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, skybox, envLight, key } = ctx;
+  const vs = makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key });   // #184 live green-screen key
   const DELAY = 70;   // ms the mirror runs behind the Quest, so there are always two samples to blend
   // ---------------------------------------------------------------- UI (built here; index.html's own UI is hidden)
   document.head.insertAdjacentHTML('beforeend', `<style>
@@ -26,7 +28,9 @@ export function startCamera(ctx) {
     #spO .info { position:absolute; top:8px; left:8px; right:8px; font:12px/1.4 ui-monospace,monospace; background:rgba(14,16,22,.78); padding:6px 9px; border-radius:8px; }
     #spO .hint { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(14,16,22,.82); padding:8px 12px; border-radius:8px; text-align:center; max-width:80%; }
     #spO .hint.go { border:1px solid #39a8ff; font-weight:600; }
-    #spO.hide .bar, #spO.hide .info, #spO.hide .hint { display:none; }
+    #spO.hide .bar, #spO.hide .info, #spO.hide .hint, #spO.hide .kp { display:none; }
+    #spO .kp { position:absolute; left:8px; right:8px; bottom:120px; background:rgba(14,16,22,.85); border:1px solid #2e3850; border-radius:12px; padding:10px 12px; color:#e6e8ec; font:600 14px system-ui,sans-serif; pointer-events:auto; }
+    #spO .kp label { display:flex; align-items:center; gap:10px; margin:6px 0; } #spO .kp input[type=range] { flex:1; } #spO .kp span { width:44px; text-align:right; }
   </style>`);
   document.body.insertAdjacentHTML('beforeend', `
     <div id="spS"><div class="box">
@@ -34,15 +38,23 @@ export function startCamera(ctx) {
       <p>Films the DJ with the virtual gear. On the Quest: Settings, Spectator camera On, then read the code shown there.</p>
       <input id="spCode" inputmode="numeric" maxlength="5" placeholder="00000">
       <button id="spConnect">Connect</button><button id="spAR" disabled>Start camera (AR)</button><button id="spCamTest">Camera access test (no Quest needed)</button>
+      <button id="spPano">Virtual set panorama (same picture as the Quest)…</button><input type="file" id="spPanoF" accept="image/*" hidden>
+      <div id="spPanoSt" style="color:#8b909a;font-size:13px;margin-top:6px">For the green-screen virtual set: pick the same 360 picture the Quest shows. Kept on this phone.</div>
       <button id="spLed">Videos: LED wall clips + VideoVinyls (same files as the Quest)…</button><input type="file" id="spLedF" accept="video/*" multiple hidden>
       <div id="spLedList" style="color:#8b909a;font-size:13px;margin-top:6px">Optional: pick the same videos as on the Quest so the LED wall plays here too.</div>
       <div id="spSt"></div></div></div>
     <div id="spO" hidden>
       <div class="info" id="spInfo">…</div>
       <div class="hint" id="spHint"></div>
+      <div class="kp" id="spKey" hidden>
+        <label>Strength <input type="range" id="kThr" min="0" max="0.4" step="0.005"><span id="kThrV"></span></label>
+        <label>Softness <input type="range" id="kSoft" min="0.01" max="0.3" step="0.005"><span id="kSoftV"></span></label>
+        <label>Spill <input type="range" id="kSpill" min="0" max="1" step="0.05"><span id="kSpillV"></span></label>
+        <label><input type="checkbox" id="kMatte"> Show matte (white = kept, black = keyed)</label>
+      </div>
       <div class="bar" id="spBar">
         <button id="bCal">Calibrate</button><button id="bFix">Fix (tap X)</button><button id="bL">⟲ 1°</button><button id="bR">1° ⟳</button>
-        <button id="bPlace">Rough place</button><button id="bMark">Head</button><button id="bHands">Hands</button><button id="bHide">Hide UI</button><button id="bExit">Exit</button>
+        <button id="bPlace">Rough place</button><button id="bMark">Head</button><button id="bHands">Hands</button><button id="bSet">Set</button><button id="bKey">Key</button><button id="bHide">Hide UI</button><button id="bExit">Exit</button>
       </div></div>`);
   const $ = s => document.querySelector(s);
   const ov = $('#spO'), hint = $('#spHint');
@@ -87,6 +99,19 @@ export function startCamera(ctx) {
     if (vvMode === 'decks') led.wall.userData.setDecks(pdv[0].tex, pdv[1].tex, vvGains[0], vvGains[1]);
   }
   $('#spLed').onclick = () => $('#spLedF').click();
+  // #184 virtual set: panorama picked here (same file as the Quest), key sliders in the AR overlay
+  $('#spPano').onclick = () => $('#spPanoF').click();
+  $('#spPanoF').onchange = async e => {
+    const f = e.target.files && e.target.files[0]; if (!f) return; e.target.value = '';
+    $('#spPanoSt').textContent = 'Loading ' + f.name + '…';
+    try { await vs.pick(f); $('#spPanoSt').textContent = f.name + (vs.sameAsQuest() ? '' : ' (not the Quest\'s current picture)') + ': ready for the virtual set.'; }
+    catch (err) { $('#spPanoSt').textContent = 'Could not use it: ' + err.message; }
+  };
+  for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill']]) {
+    const el = $(id), v = $(id + 'V'); el.value = vs.K[k]; v.textContent = (+vs.K[k]).toFixed(2);
+    el.oninput = () => { vs.setKey(k, +el.value); v.textContent = (+el.value).toFixed(2); };
+  }
+  $('#kMatte').onchange = e => vs.setMatte(e.target.checked);
   $('#spCamTest').onclick = () => import('./camtest.js').then(m => m.camTest()).catch(e => st('Camera test failed: ' + e.message));   // #183
   $('#spLedF').onchange = e => {   // #176: same file names as on the Quest; matched by name
     const all = [...(e.target.files || [])], n = led.setFiles(all, 500);
@@ -224,6 +249,7 @@ export function startCamera(ctx) {
     else if (m.k === 'recdel') onRecDel(m.uid);
     else if (m.k === 'calpt') onCalPoint(m);
     else if (m.k === 'led') led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000);   // #176
+    else if (m.k === 'sky') vs.onSky(m);                   // #184
     else if (m.k === 'mr') setMR(!!m.on);                  // #164 from the Quest's mixer screen
     else if (m.k === 'cellrec') setClean(!!m.on);   // (#164, no longer sent)
     else if (m.k === 'pong') { const now = performance.now(); stats.rtt = now - m.t; const off = m.qt - (m.t + now) / 2; stats.off = stats.off === null ? off : stats.off * 0.8 + off * 0.2; }
@@ -260,7 +286,7 @@ export function startCamera(ctx) {
     ov.hidden = false;
     try {
       renderer.xr.setReferenceSpaceType('local');
-      const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay'], domOverlay: { root: ov } });
+      const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay', 'camera-access'], domOverlay: { root: ov } });
       $('#spS').style.display = 'none';
       await renderer.xr.setSession(session);
       scene.background = null; room.visible = false; envI = scene.environmentIntensity; scene.environmentIntensity = 0.6;   // #180 (default of the Quest's passthrough setting); like the Quest in passthrough
@@ -268,7 +294,9 @@ export function startCamera(ctx) {
       hitSource = await session.requestHitTestSource({ space: viewer });
       touchSource = await session.requestHitTestSourceForTransientInput({ profile: 'generic-touchscreen' }).catch(() => null);
       session.addEventListener('select', onTap);
+      vs.onSession(session); $('#bSet').classList.remove('on'); $('#bSet').disabled = !vs.S.can;
       session.addEventListener('end', () => {
+        vs.onEnd(); $('#bSet').classList.remove('on');
         hitSource = touchSource = null; ov.hidden = true; $('#spS').style.display = '';
         scene.background = BG; room.visible = true; scene.environmentIntensity = envI;
         if (link && link.isOpen) link.send('ctl', { k: 'cal', step: 'cancel' });
@@ -332,6 +360,8 @@ export function startCamera(ctx) {
   $('#bPlace').onclick = () => setMode('place');
   $('#bMark').onclick = () => { showHead = !showHead; $('#bMark').classList.toggle('on', showHead); };
   $('#bHands').onclick = () => { setHandsDebug(!showHands); $('#bHands').classList.toggle('on', showHands); };
+  $('#bSet').onclick = async () => { const msg = await vs.setOn(!vs.S.on); $('#bSet').classList.toggle('on', vs.S.on); setMode(mode === 'live' ? 'live' : mode, msg); if (mode !== 'live') setTimeout(() => setMode(mode), 3000); };
+  $('#bKey').onclick = () => { const p = $('#spKey'); p.hidden = !p.hidden; $('#bKey').classList.toggle('on', !p.hidden); };
   $('#bHide').onclick = () => { uiHidden = true; ov.classList.add('hide'); };
   $('#bExit').onclick = () => { const s = renderer.xr.getSession(); if (s) s.end(); };
 
@@ -389,10 +419,11 @@ export function startCamera(ctx) {
       infoT = t;
       const live = link && link.isOpen, stale = now - stats.last > 1000;
       $('#spInfo').textContent = live
-        ? `Quest ${stats.xr ? 'in XR' : 'not in XR yet'} · round trip ${stats.rtt.toFixed(0)} ms · pose age ${stale ? 'no data' : stats.age.toFixed(0) + ' ms'} · ${stats.pps}/s · ${nodes.size} parts · ${recs.size} records` + (cal.ok ? ` · cal ${cal.err ?? '-'} cm` : ' · not calibrated')
+        ? `Quest ${stats.xr ? 'in XR' : 'not in XR yet'} · round trip ${stats.rtt.toFixed(0)} ms · pose age ${stale ? 'no data' : stats.age.toFixed(0) + ' ms'} · ${stats.pps}/s · ${nodes.size} parts · ${recs.size} records` + (cal.ok ? ` · cal ${cal.err ?? '-'} cm` : ' · not calibrated') + (vs.S.on ? ` · set ${vs.S.got}/${vs.S.got + vs.S.miss}` + (vs.S.err ? ' ' + vs.S.err : '') : '')
         : 'Not connected to the Quest (' + (STATUS[linkState] || linkState || 'idle') + ')';
     }
+    vs.frame(frame);   // #184: camera picture for the key (only while the virtual set is on)
     renderer.render(scene, camera);
   });
-  window.spect = { stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
+  window.spect = { vs, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
 }
