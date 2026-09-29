@@ -14,7 +14,7 @@
   #start { position:fixed; inset:0; display:flex; overflow-y:auto; background:radial-gradient(ellipse at 50% 40%, #182030 0%, #0b0d12 70%); z-index:20; }
   #start .box { text-align:center; max-width:520px; padding:24px; margin:auto; }   /* centred when it fits, scrolls when the window is short (#96) */
   #start h1 { font-size:44px; margin:0 0 4px; letter-spacing:.06em; font-weight:800; }
-  #start h1 span { color:var(--acc); }
+  #start h1 span { color:#e0202a; }   /* #176: Cly white, 3DJ red */
   #start p { color:var(--dim); margin:0 0 22px; }
   #start .btns { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
   button.big { font:600 16px system-ui,sans-serif; color:var(--fg); background:#1c2230; border:1px solid #2e3850; border-radius:10px; padding:14px 22px; cursor:pointer; min-width:150px; }
@@ -49,7 +49,7 @@
 <body>
 <div id="start">
   <div class="box">
-    <h1>Cly3<span>DJ</span></h1>
+    <h1>Cly<span>3DJ</span></h1>
     <p>Two decks, one mixer, your crate.</p>
     <div class="settings">
       <label>Songs
@@ -100,7 +100,16 @@
       </label>
       <div class="imp"><button class="small" id="bEnvImg">Choose image…</button></div>
       <label id="rowEnvMix">Image mix <span style="display:flex;gap:10px;align-items:center"><input type="range" id="sEnvMix" min="0" max="100" step="5" style="flex:1"><span id="envMixVal"></span></span></label>
+      <label id="rowSky">Show as surroundings
+        <select id="sSky">
+          <option value="off">Off (image only lights and reflects)</option>
+          <option value="on">On: the image replaces the studio room (Desktop / Full VR)</option>
+        </select>
+      </label>
       <input type="file" id="fEnv" accept="image/*" hidden>
+      <label>LED wall videos <span><button class="small" id="bLedPick">Choose videos… (up to 5)</button></span></label>
+      <div class="note" id="ledList">None picked. Pick them each session; they play muted on the LED wall (LED WALL button on the mixer, deck B side).</div>
+      <input type="file" id="fLed" accept="video/*" multiple hidden>
       <label>Neon wall glow
         <select id="sGlow">
           <option value="add">On: adds light (try this first in passthrough)</option>

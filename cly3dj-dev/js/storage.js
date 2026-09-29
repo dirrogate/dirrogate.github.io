@@ -34,7 +34,7 @@ export function opfsSupported() { return !!(navigator.storage && navigator.stora
 // Copy picked files into the library. relPath keeps folder structure when a folder was picked.
 export async function importFiles(fileList, onProgress) {
   if (navigator.storage.persist) { try { await navigator.storage.persist(); } catch {} }
-  const files = [...fileList].filter(f => /\.(mp3|m4a|aac|wav|aiff?|flac|ogg|xml)$/i.test(f.name));
+  const files = [...fileList].filter(f => /\.(mp3|m4a|aac|wav|aiff?|flac|ogg|xml|mp4|m4v|webm|mov)$/i.test(f.name));   // #177: + VideoVinyl videos
   let done = 0, bytes = 0; const total = files.reduce((a, f) => a + f.size, 0);
   for (const f of files) {
     const rel = (f.webkitRelativePath || f.name).replace(/\\/g, '/');

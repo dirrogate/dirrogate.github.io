@@ -13,10 +13,10 @@ const CAL_TEXT = {
   x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
-export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs }) {
+export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getVV }) {
   let acc = 0, seq = 0, was = false, calStep = null, doneT = 0;
   let mr = true;   // #164/#167: MR GUI (default on for setting up)
-  let lastPing = 0;   // #169: the phone pings every second; silent for 3.5 s = not connected (a closed page can leave the channel 'open' for ~30 s)
+  let lastPing = 0, ledT = 0, ledKey = '';   // #169: the phone pings every second; silent for 3.5 s = not connected (a closed page can leave the channel 'open' for ~30 s)
   const status = s => { const el = document.getElementById('spectStatus'); if (el) el.textContent = label(s); };
   const label = s => ({ relay: 'Waiting for the phone (code ' + code + ')', 'relay-retry': 'No internet for the handshake, retrying…',
     connected: 'Phone connected', disconnected: 'Phone disconnected', failed: 'Phone link failed' }[s] || s);
@@ -115,6 +115,12 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     }
     return out;
   }
+  // #177 VideoVinyl: LED wall mode, the two deck gains and, per deck with a video, its title key, playhead and speed
+  function vvTick() {
+    if (!getVV) return null;
+    const V = getVV();
+    return { mode: V.mode, gains: V.gains.map(r4), decks: V.decks.map(([i, key, pos, rate]) => [i, key, r3(pos), r4(rate)]) };
+  }
   // ---- records: sent once (track info, groove envelope, label image), then followed by their transform
   const uidOf = new WeakMap(); let nextUid = 1; const live = new Map();   // uid -> { r, env: {A,B}, art: {A,B} }
   const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
@@ -166,7 +172,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   const link = hostLink(code, {
     onStatus: status,
     onState: s => status(s),
-    onOpen: () => { link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
+    onOpen: () => { link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
     onClose: () => { status('disconnected'); calStep = null; panel.visible = false; frustum.visible = false; },
     onMessage: m => {
       if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }
@@ -192,12 +198,16 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
     cam.matrixWorld.decompose(_p, _q, _s); _p.sub(rig.position);   // rig space (the rig only moves, never turns)
     const now = performance.now();
+    if (getLed) {   // #176: which LED wall clip is playing and where; the phone plays its own copy of the same file
+      const L = getLed(), key = (L.on ? 1 : 0) + '|' + (L.name || '');
+      if (key !== ledKey || now - ledT > 2000) { ledKey = key; ledT = now; link.send('ctl', { k: 'led', on: L.on, name: L.name, t: L.t, qt: now }); }
+    }
     if (full || now - regT > 2000) { regT = now; buildRegistry(); }
     if (full) { full = false; link.send('ctl', { k: 'full', t: Math.round(now), cs: caseSizes(true), n: nodeDiffs(true) }); }
     else if (now - settleT > 1000) { settleT = now; const n = settled(now); if (n.length) link.send('ctl', { k: 'full', t: Math.round(now), n }); }
     link.send('state', { k: 's', n: seq++, t: Math.round(now), xr: renderer.xr.isPresenting ? 1 : 0,
       h: [r3(_p.x), r3(_p.y), r3(_p.z), r4(_q.x), r4(_q.y), r4(_q.z), r4(_q.w)],
-      cs: caseSizes(false), g: nodeDiffs(false), r: recordsTick(), hd: renderer.xr.isPresenting ? handsTick() : [] });
+      cs: caseSizes(false), g: nodeDiffs(false), r: recordsTick(), vv: vvTick(), hd: renderer.xr.isPresenting ? handsTick() : [] });
   }
   // #167: one switch. ON = viewfinder outline here + helpers and menus on the phone; OFF = everything hidden
   // (the phone shows only camera + gear: start its screen recorder by hand)

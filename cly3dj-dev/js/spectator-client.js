@@ -5,15 +5,16 @@
 // envelope and label the Quest sends once), and depth-only shapes at the DJ's hands so the real hands show in
 // front of the virtual gear.
 import { spectatorLink } from './net-link.js';
+import { DeckVideo, vvKey, baseName, VIDEO_EXT } from './videovinyl.js';
 
 export function startCamera(ctx) {
-  const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG } = ctx;
+  const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG, led } = ctx;
   const DELAY = 70;   // ms the mirror runs behind the Quest, so there are always two samples to blend
   // ---------------------------------------------------------------- UI (built here; index.html's own UI is hidden)
   document.head.insertAdjacentHTML('beforeend', `<style>
     #spS { position:fixed; inset:0; overflow:auto; z-index:30; background:radial-gradient(ellipse at 50% 30%,#182030 0%,#0b0d12 75%); color:#e6e8ec; font:15px/1.45 system-ui,sans-serif; }
     #spS .box { max-width:460px; margin:0 auto; padding:24px 16px; }
-    #spS h1 { font-size:34px; margin:0 0 2px; font-weight:800; letter-spacing:.04em; } #spS h1 span { color:#39a8ff; }
+    #spS h1 { font-size:34px; margin:0 0 2px; font-weight:800; letter-spacing:.04em; } #spS h1 span { color:#e0202a; }
     #spS p { color:#8b909a; margin:0 0 18px; }
     #spS input { font:600 28px system-ui,sans-serif; letter-spacing:.2em; width:100%; box-sizing:border-box; padding:12px; border-radius:10px; border:1px solid #2e3850; background:#1c2230; color:#e6e8ec; text-align:center; }
     #spS button, #spO button { font:600 15px system-ui,sans-serif; color:#e6e8ec; background:#1c2230; border:1px solid #2e3850; border-radius:10px; padding:12px 16px; }
@@ -29,10 +30,12 @@ export function startCamera(ctx) {
   </style>`);
   document.body.insertAdjacentHTML('beforeend', `
     <div id="spS"><div class="box">
-      <h1>Cly3<span>DJ</span> camera</h1>
+      <h1>Cly<span>3DJ</span> camera</h1>
       <p>Films the DJ with the virtual gear. On the Quest: Settings, Spectator camera On, then read the code shown there.</p>
       <input id="spCode" inputmode="numeric" maxlength="5" placeholder="00000">
       <button id="spConnect">Connect</button><button id="spAR" disabled>Start camera (AR)</button>
+      <button id="spLed">Videos: LED wall clips + VideoVinyls (same files as the Quest)…</button><input type="file" id="spLedF" accept="video/*" multiple hidden>
+      <div id="spLedList" style="color:#8b909a;font-size:13px;margin-top:6px">Optional: pick the same videos as on the Quest so the LED wall plays here too.</div>
       <div id="spSt"></div></div></div>
     <div id="spO" hidden>
       <div class="info" id="spInfo">…</div>
@@ -67,6 +70,28 @@ export function startCamera(ctx) {
   };
   setInterval(() => { if (link && link.isOpen) link.send('ctl', { k: 'ping', t: performance.now() }); stats.pps = stats.pkts; stats.pkts = 0; }, 1000);
   const questNow = () => performance.now() + (stats.off || 0);
+  // #177 VideoVinyl on the phone: its own copies of the videos, following the Quest's playheads
+  let vvFiles = new Map(), vvMode = 'off', vvGains = [0, 0];
+  const pdv = [new DeckVideo(), new DeckVideo()], pdvAt = [null, null];
+  function onVV(V) {
+    const prev = vvMode; vvMode = V.mode; vvGains = V.gains;
+    for (let i = 0; i < 2; i++) {
+      const e = V.decks.find(x => x[0] === i), want = e ? e[1] : null, dv = pdv[i];
+      if (want !== dv.want) { dv.want = want; dv.close(); const f = want && vvFiles.get(want); if (f) dv.open(want, f); }
+      pdvAt[i] = e ? { pos: e[2], rate: e[3], at: performance.now() } : null;
+    }
+    if (prev === 'decks' && vvMode !== 'decks' && !led.on) led.wall.userData.setVideo(null);
+  }
+  function vvFrame(now) {
+    for (let i = 0; i < 2; i++) { const a = pdvAt[i]; if (a && pdv[i].v) pdv[i].follow(a.pos + a.rate * (now - a.at) / 1000, a.rate, now); }
+    if (vvMode === 'decks') led.wall.userData.setDecks(pdv[0].tex, pdv[1].tex, vvGains[0], vvGains[1]);
+  }
+  $('#spLed').onclick = () => $('#spLedF').click();
+  $('#spLedF').onchange = e => {   // #176: same file names as on the Quest; matched by name
+    const all = [...(e.target.files || [])], n = led.setFiles(all, 500);
+    vvFiles = new Map(all.filter(f => VIDEO_EXT.test(f.name)).map(f => [vvKey(baseName(f.name)), f]));   // #177 VideoVinyl by title
+    $('#spLedList').textContent = n ? `${n} video${n > 1 ? 's' : ''}: ${led.files.map(f => f.name).join(' · ')}` : 'No playable videos in that pick.';
+  };
 
   // ---------------------------------------------------------------- mirrored gear nodes
   const nodes = new Map();   // id -> { o, s: [{ t, p, q, sc, v }] }
@@ -189,6 +214,7 @@ export function startCamera(ctx) {
       if (m.g) for (const a of m.g) nodeSample(a, m.t);
       if (m.r) for (const a of m.r) recSample(a, m.t);
       if (m.hd) onHands(m.hd);
+      if (m.vv) onVV(m.vv);
     } else if (m.k === 'full') { onCaseSizes(m.cs); applyCaseSizes(performance.now(), true); for (const a of m.n) nodeSample(a, m.t); }
     else if (m.k === 'layout') { const cs = {}; for (const [k, v] of Object.entries(m.layout.cases || {})) cs[k] = [v[4], v[5], v[6]]; onCaseSizes(cs); }
     else if (m.k === 'rec') onRec(m);
@@ -196,6 +222,7 @@ export function startCamera(ctx) {
     else if (m.k === 'rart') onRecArt(m);
     else if (m.k === 'recdel') onRecDel(m.uid);
     else if (m.k === 'calpt') onCalPoint(m);
+    else if (m.k === 'led') led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000);   // #176
     else if (m.k === 'mr') setMR(!!m.on);                  // #164 from the Quest's mixer screen
     else if (m.k === 'cellrec') setClean(!!m.on);   // (#164, no longer sent)
     else if (m.k === 'pong') { const now = performance.now(); stats.rtt = now - m.t; const off = m.qt - (m.t + now) / 2; stats.off = stats.off === null ? off : stats.off * 0.8 + off * 0.2; }
@@ -352,6 +379,7 @@ export function startCamera(ctx) {
       if (R.meshX !== undefined) { R.r.mesh.rotation.x = R.meshX; R.r.mesh.position.y = R.meshY; }
     }
     handsTimeout();
+    vvFrame(now);
     head.visible = showHead && now - stats.last < 1000;
     if (deckInst) deckInst.update();
     if (neon.userData.update) neon.userData.update(dt);

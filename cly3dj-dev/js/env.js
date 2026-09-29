@@ -64,6 +64,7 @@ export class EnvLight {
   }
   setImage(source) { // HTMLImageElement | ImageBitmap | HTMLCanvasElement | null
     if (this.sphereMat.map) this.sphereMat.map.dispose();
+    if (this.skyTex) { this.skyTex.dispose(); this.skyTex = null; }
     if (!source) { this.sphere.visible = false; this.sphereMat.map = null; this.rebuild(); return; }
     // #143: a 360 panorama (equirectangular, about 2:1) wraps the whole sphere. Any other picture (a photo of a
     // neon sign, a window...) becomes a window about 100 deg wide at eye level straight ahead (-z, the way the DJ
@@ -76,6 +77,9 @@ export class EnvLight {
     // flip so it isn't mirrored from the inside
     t.wrapS = THREE.RepeatWrapping; t.repeat.x = -1;
     this.sphereMat.map = t; this.sphereMat.opacity = this.mix; this.sphereMat.needsUpdate = true; this.sphere.visible = true;
+    // #175: the same panorama as a visible skybox (main.js shows it when Settings > Show as surroundings is on)
+    const st = new THREE.Texture(img); st.mapping = THREE.EquirectangularReflectionMapping; st.colorSpace = THREE.SRGBColorSpace; st.needsUpdate = true;
+    this.skyTex = st;
     this.rebuild();
   }
   setMix(m) { this.mix = m; this.sphereMat.opacity = m; if (this.sphere.visible) this.rebuild(); }

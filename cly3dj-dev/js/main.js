@@ -7,6 +7,8 @@ import { AudioEngine, PITCH_RANGE } from './audio.js';
 import { REC, timeToRadius, radiusToTime, Screen, fitText, drawRecordSide, recordMaterial, setRecordSide, grooveAnisoMap } from './textures.js';
 import { setupXR } from './xr.js';
 import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeNeon } from './neon.js';
+import { makeLedWall, LedPlayer, LED } from './ledwall.js';
+import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
@@ -25,7 +27,7 @@ const params = new URLSearchParams(location.search);
 const CAMERA_ROLE = params.get('role') === 'camera';   // #161: this page is the spectator phone (spectator.html sends it here)
 // start-screen settings, remembered per browser
 const SETTINGS_DEFAULT = { source: 'pc', xml: 'rekordbox.xml', hands: 'real', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
-  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off' };   // turntable physics (#120)
+  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off' };   // turntable physics (#120)
 const settings = (() => { try { return { ...SETTINGS_DEFAULT, ...JSON.parse(localStorage.getItem('vire.settings') || '{}') }; } catch { return { ...SETTINGS_DEFAULT }; } })();
 if (params.get('xml')) { settings.source = 'pc'; settings.xml = params.get('xml'); }
 if (settings.env === 'camera') settings.env = 'studio'; // camera snapshots removed (CLAUDE.md #39)
@@ -281,7 +283,7 @@ function stackTops(key) {   // [{ top, key }] of everything under the footprint 
   const out = [];
   for (const k in cases) { const c = cases[k], g = c.group; if (rectsOverlap(me, footprint(g, c.W, c.D))) out.push({ top: g.position.y + c.H, key: k }); }
   for (const [k, it] of Object.entries(stage.items)) {
-    if (k === key || k === 'neon') continue;
+    if (k === key || k === 'neon' || k === 'ledwall') continue;
     const g = it.obj; let fp, top;
     if (STACK_KEYS.test(k)) { const r2 = k === 'crate'; fp = footprint(g, r2 ? CRATE.W : MILK.W, r2 ? CRATE.D : MILK.D); top = g.position.y + (r2 ? CRATE.H : MILK.H); }
     else { const b = localBoxOf(g); fp = footprint(g, b.max.x - b.min.x, b.max.z - b.min.z, (b.max.x + b.min.x) / 2, (b.max.z + b.min.z) / 2); top = g.position.y + b.max.y; }
@@ -326,6 +328,45 @@ function applyShadows(xrLight = false) {
 }
 setGlowMode(glowMat, settings.glow);
 applyShadows(false);   // desktop default: per the Shadows setting (blob by default = no shadow map)
+// LED wall (#176): moves like the neon sign; wheel / two hands resize it; size kept in 'vire.ledScale'
+const ledwall = makeLedWall(); rig.add(ledwall);
+try { const s = parseFloat(localStorage.getItem('vire.ledScale')); if (s > 0) ledwall.scale.setScalar(clamp(s, 0.4, 4)); } catch (e) {}
+const ledBase = () => (LED.H / 2 + LED.BEZ) * ledwall.scale.x;
+function setLedScale(s) { s = clamp(s, 0.4, 4); ledwall.scale.setScalar(s); if (stage) stage.items.ledwall.base = ledBase(); return s; }
+function saveLedScale() { try { localStorage.setItem('vire.ledScale', String(ledwall.scale.x)); } catch (e) {} }
+const led = new LedPlayer(ledwall);
+led.onChange = () => drawMixScreen();
+// #177 VideoVinyl + LED wall modes. LED WALL cycles OFF -> CLIPS (if videos were picked) -> DECKS -> OFF.
+let ledMode = 'off';
+const deckVid = [new DeckVideo(), new DeckVideo()];
+let vvIndex = new Map();          // headset: title key -> OPFS path of the video
+const vvPC = new Map();           // PC: title key -> Promise<url|null> (HEAD videos/<title>.mp4)
+function vvSource(t) {
+  const key = vvKey(t.name);
+  if (settings.source === 'headset') { const p = vvIndex.get(key); return Promise.resolve(p ? store.readFile(p) : null); }
+  if (!vvPC.has(key)) {
+    const url = 'videos/' + encodeURIComponent(t.name.trim()) + '.mp4';
+    vvPC.set(key, fetch(url, { method: 'HEAD' }).then(r => (r.ok ? url : null)).catch(() => null));
+  }
+  return vvPC.get(key);
+}
+function vvStep(d) {   // per frame: open/close the deck's video to match its track, then follow the playhead
+  const dv = deckVid[d.i], t = d.record && d.track, want = t ? vvKey(t.name) : null;
+  if (want !== dv.want) {
+    dv.want = want; dv.close();
+    if (t) vvSource(t).then(src => { if (src && dv.want === want) { dv.open(want, src); drawMixScreen(); } }).catch(() => {});
+    drawMixScreen();
+  }
+  if (dv.v) dv.follow(engine.ctx ? engine.pos(d.i) : 0, engine.state.decks[d.i].rate || 0);
+}
+function setLedMode(m) {
+  if (m === 'clips' && !led.hasFiles) m = 'decks';
+  if (m !== 'clips' && led.on) led.stop();
+  ledMode = m;
+  if (m === 'clips') led.playRandom();
+  else if (m === 'off') ledwall.userData.setVideo(null);
+  drawMixScreen();
+}
 function setNeonScale(s) { s = clamp(s, 0.3, 4); neon.scale.setScalar(s); neon.userData.setLodScale(s); if (stage) stage.items.neon.base = NEON.R * s; return s; }
 function saveNeonScale() { try { localStorage.setItem('vire.neonScale', String(neon.scale.x)); } catch (e) {} }
 try { const s = parseFloat(localStorage.getItem('vire.neonScale')); if (s > 0) { neon.scale.setScalar(clamp(s, 0.3, 4)); neon.userData.setLodScale(neon.scale.x); } } catch (e) {}
@@ -342,8 +383,9 @@ const stage = new Stage(rig, {
   milk: { obj: milk, base: 0 },
   ...Object.fromEntries(Object.entries(extraMilk).map(([k, m]) => [k, { obj: m, base: 0 }])),
   neon: { obj: neon, base: NEON.R * neon.scale.x },
+  ledwall: { obj: ledwall, base: ledBase() },
 }, cases, {
-  items: { deckA: [-DECK_X, 0.898, 0, 0], deckB: [DECK_X, 0.898, 0, 0], mixer: [0, 0.88, 0, 0], crate: [0.98, 0, 0.12, -0.5], milk: [-1.0, 0, 0.15, 0.35], milk2: [-1.0, 0, 0.6, 0.35], milk3: [-1.45, 0, 0.3, 0.2], milk4: [-1.45, 0, 0.75, 0.2], milk5: [-1.0, 0, 1.05, 0.35], milk6: [-1.45, 0, 1.2, 0.2], neon: [0, 1.45, -0.5, 0] },
+  items: { deckA: [-DECK_X, 0.898, 0, 0], deckB: [DECK_X, 0.898, 0, 0], mixer: [0, 0.88, 0, 0], crate: [0.98, 0, 0.12, -0.5], milk: [-1.0, 0, 0.15, 0.35], milk2: [-1.0, 0, 0.6, 0.35], milk3: [-1.45, 0, 0.3, 0.2], milk4: [-1.45, 0, 0.75, 0.2], milk5: [-1.0, 0, 1.05, 0.35], milk6: [-1.45, 0, 1.2, 0.2], neon: [0, 1.45, -0.5, 0], ledwall: [-2.0, 1.6, -0.55, 0] },
   cases: { caseA: [0, 0, 0, 0, 1.3, 0.52, 0.88] },
 });
 const MOVABLE = new Proxy({}, { get: (_, k) => stage.object(k) });
@@ -623,6 +665,7 @@ async function loadLibrary() {
       const pick = xmls.find(f => /(^|\/)rekordbox\.xml$/i.test(f.path)) || xmls[0];
       text = await (await store.readFile(pick.path)).text();
       resolve = store.opfsResolver(index); from = pick.path + ' on this headset';
+      vvIndex = new Map(index.filter(f => VIDEO_EXT.test(f.path)).map(f => [vvKey(baseName(f.path)), f.path]));   // #177
     } else {
       const tryXml = [settings.xml, ...['rekordbox.xml', 'ViRE_rekordbox.xml'].filter(x => x !== settings.xml)];
       for (const x of tryXml) { const r = await fetch(x); if (r.ok) { text = await r.text(); from = x; break; } }
@@ -1642,7 +1685,7 @@ const shown = o => { for (; o; o = o.parent) if (!o.visible) return false; retur
 function castRay(ray, objects) { raycaster.ray.copy(ray); raycaster.near = 0; raycaster.far = 20; return raycaster.intersectObjects(objects, true).filter(h => shown(h.object)); }
 function rayPlaneY(ray, y) { return ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -y), new THREE.Vector3()); }
 function mouseRay(e) { ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); raycaster.setFromCamera(ndc, camera); return raycaster.ray.clone(); }
-function interactive() { return [deckGroups[0], deckGroups[1], mixer, crateRig, ...milks(), neon, cases.caseA.group, ...loose.filter(l => !l.inMilk).map(l => l.rec.group)]; }
+function interactive() { return [deckGroups[0], deckGroups[1], mixer, crateRig, ...milks(), neon, ledwall, cases.caseA.group, ...loose.filter(l => !l.inMilk).map(l => l.rec.group)]; }
 // instanced parts (the mixer knobs, #84): a hit on instance i stands for that knob's proxy object
 function hitTarget(hit) { const o = hit.object, ids = o.userData.knobIds; return ids && hit.instanceId !== undefined ? mixer.userData.controls[ids[hit.instanceId]] : o; }
 function controlOf(o) {
@@ -1774,7 +1817,7 @@ function scratchIdle() { // a still hand holds the record still
   }
 }
 
-const NAMES = { neon: 'the neon sign', deckA: 'turntable A', deckB: 'turntable B', mixer: 'the mixer', crate: 'the record crate', caseA: 'flight case 1', caseB: 'flight case 2' };
+const NAMES = { neon: 'the neon sign', ledwall: 'the LED wall', deckA: 'turntable A', deckB: 'turntable B', mixer: 'the mixer', crate: 'the record crate', caseA: 'flight case 1', caseB: 'flight case 2' };
 // Resize from a bottom handle. P = new handle position in world (horizontal change), dH = height change.
 function resizeCase(dr, P, dH) {
   const c = cases[dr.key], g = c.group, h = dr.h;
@@ -1973,6 +2016,7 @@ function hover(e) {
   else if (c && c.id === 'arm') showTip('Tonearm: click to cue to start / lift and park; drag to move it (drag while playing to scrape across the record)', e.clientX, e.clientY);
   else if (obj && obj.userData.lid && obj.userData.lidHandle && lidShut()) showTip('Handle: drag to carry the crate (Shift-drag to turn it)', e.clientX, e.clientY);
   else if (obj && obj.userData.lid) showTip('Crate lid: click to open / close, or drag up and down to swing it (O)', e.clientX, e.clientY);
+  else if (obj && obj.userData.move === 'ledwall') showTip('LED wall: drag to move, Shift-drag to rotate, wheel to resize (headset: grab it with both hands and pull apart)', e.clientX, e.clientY);
   else if (obj && obj.userData.move === 'neon') showTip('Neon sign: drag to move, Shift-drag to rotate, wheel to resize (headset: grab both centre bars and pull apart)', e.clientX, e.clientY);
   else if (obj && obj.userData.move) showTip(`Drag to move ${NAMES[obj.userData.move]}, Shift-drag to rotate`, e.clientX, e.clientY);
   else if (obj && obj.userData.resize) showTip('Drag to resize the case; Shift-drag up/down for height', e.clientX, e.clientY);
@@ -1992,6 +2036,7 @@ canvas.addEventListener('wheel', e => {
   const obj = hit && controlOf(hitTarget(hit));
   if (!obj) return;
   const u = obj.userData;
+  if (u.move === 'ledwall') { e.preventDefault(); e.stopImmediatePropagation(); setLedScale(ledwall.scale.x * (e.deltaY < 0 ? 1.05 : 1 / 1.05)); saveLedScale(); stage.save(); showTip(`LED wall ${(LED.W * ledwall.scale.x * 100).toFixed(0)} cm wide`, e.clientX, e.clientY); return; }
   if (u.move === 'neon') { e.preventDefault(); e.stopImmediatePropagation(); setNeonScale(neon.scale.x * (e.deltaY < 0 ? 1.05 : 1 / 1.05)); saveNeonScale(); showTip(`Neon sign ${(NEON.DIA * neon.scale.x * 100).toFixed(0)} cm across`, e.clientX, e.clientY); return; }
   if (u.crateScreen || u.crateSleeves || u.crateCover) { e.preventDefault(); e.stopImmediatePropagation(); if (crateLidOpen()) crateSelect(Math.sign(e.deltaY)); return; }
   if (u.record && !u.loose) {   // #105 spindle twist on desktop: wheel over the spindle (#106), 5 ms a notch (Shift: 1 ms)
@@ -2271,7 +2316,7 @@ function drawMixScreen() {
     g.fillStyle = '#dfe6f2'; g.font = '600 22px system-ui';
     fitText2(g, d.loading ? 'Loading…' : t ? t.title : (d.record ? `Side ${d.side} blank` : 'No record'), x0 + 12, 66, w - 24);
     g.fillStyle = '#8c96a8'; g.font = '400 17px system-ui';
-    fitText2(g, t ? `${t.artist}${d.side ? '  ·  side ' + d.side : ''}${t.split ? '  ·  split' : ''}` : '', x0 + 12, 90, w - 24);
+    fitText2(g, t ? `${deckVid[d.i].v ? 'VV  ·  ' : ''}${t.artist}${d.side ? '  ·  side ' + d.side : ''}${t.split ? '  ·  split' : ''}` : '', x0 + 12, 90, w - 24);
     const st = engine.state.decks[d.i];
     const rd = readout(d, st);
     g.fillStyle = '#fff'; g.font = '700 46px system-ui'; g.fillText(rd.big, x0 + 12, 150);
@@ -2297,6 +2342,14 @@ function drawMixScreen() {
     }
   }
   SP_HIT.length = 0;
+  { // #176 LED WALL switch: deck B's top row, right-aligned (same look as MR GUI). OFF <-> VIDEO
+    const w = 134, h = 28, y = 12, x = W - 14 - w;
+    const on = ledMode !== 'off';
+    g.fillStyle = on ? '#c8202c' : '#c9ced8'; g.fillRect(x, y, w, h);
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : '#5a6272'; g.font = '700 22px system-ui';
+    g.fillText({ off: 'LED WALL', clips: 'LED CLIPS', decks: 'LED DECKS' }[ledMode], x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
+    SP_HIT.push({ x: x - 6, y: 4, w: w + 12, h: h + 16, act: () => setLedMode({ off: 'clips', clips: 'decks', decks: 'off' }[ledMode]) });
+  }
   if (sp) {   // #174: MR GUI toggle + phone icon on deck A's top row, right-aligned to its panel (the divider stays clear)
     const right = W / 2 - 14, pw = 14, ph = 24, w = 108, h = 28, y = 12;
     const px = right - pw, x = px - 10 - w;
@@ -2463,6 +2516,8 @@ function frame() {
   for (const d of decks) { const k = ledBeat(d); if (k !== d.ledShown) { d.ledShown = k; beatChanged = true; } }
   if (beatChanged || screenTimer > 1 / 15) { screenTimer = 0; drawMixScreen(); }
   if (deckInst) deckInst.update();   // #154
+  for (const d of decks) vvStep(d);   // #177 VideoVinyl
+  if (ledMode === 'decks') ledwall.userData.setDecks(deckVid[0].tex, deckVid[1].tex, ...deckGains(mixVal));
   if (spect) spect.tick(dt);          // #158 spectator camera (nothing when off / no phone)
   renderer.render(scene, camera);
 }
@@ -2484,7 +2539,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   armGrab, armDrag, armRelease,
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
   crateScreenPress, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, drawCrateScreen, layoutSleeves, crateDisc,
-  neon, NEON, setNeonScale, saveNeonScale, releaseMilk,
+  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, ledwall, setLedScale, saveLedScale,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
 });
@@ -2514,7 +2569,7 @@ async function begin(mode) {
     // passthrough rooms are much dimmer than the studio environment: tone reflections down so metal isn't self-lit
     arMode = mode === 'immersive-ar';
     if (mode === 'immersive-ar') { scene.background = null; room.visible = false; scene.environmentIntensity = 0.28; }
-    session.addEventListener('end', () => { arMode = false; applyShadows(false); xr.end(); rig.position.set(0, 0, 0); scene.background = BG; room.visible = true; scene.environmentIntensity = envLight.intensity; });
+    session.addEventListener('end', () => { arMode = false; applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
     toast('Reach out and touch: pinch or grip right at a knob, fader, tonearm or record', 5000);
   } catch (e) { toast('Could not start XR: ' + e.message, 4000); }
 }
@@ -2525,18 +2580,33 @@ async function applyEnv() {
   envLight.stopCamera(); envLight.mix = settings.envMix / 100;
   if (settings.env === 'image') {
     const url = envImageStored();
-    if (!url) { envLight.setImage(null); return; }
+    if (!url) { envLight.setImage(null); applySky(); return; }
     const im = new Image(); im.src = url; await im.decode().catch(() => {}); envLight.setImage(im);
   } else envLight.setImage(null);
+  applySky();
+}
+// #175: skybox. With an image chosen and 'Show as surroundings' on, the panorama is the visible background and the
+// studio room (floor + wall) is hidden, in Desktop and Full VR. Passthrough always shows the real room.
+function applySky() {
+  const sky = !arMode && settings.env === 'image' && settings.sky === 'on' && envLight.skyTex;
+  scene.background = arMode ? null : sky ? envLight.skyTex : BG;
+  room.visible = !arMode && !sky;
 }
 $('#fEnv').onchange = async e => {
   const f = e.target.files && e.target.files[0]; if (!f) return;
   const bmp = await createImageBitmap(f); const c = document.createElement('canvas');
-  c.width = Math.min(bmp.width / bmp.height > 1.8 ? 2048 : 1024, bmp.width); c.height = Math.round(c.width * bmp.height / bmp.width);   // #143: panoramas keep 2048 c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  c.width = Math.min(bmp.width / bmp.height >= 1.3 ? 2048 : 1024, bmp.width);   /* #175: landscape photos keep 2048 too (sharper skybox) */ c.height = Math.round(c.width * bmp.height / bmp.width);   // #143: panoramas keep 2048 c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
   try { localStorage.setItem('vire.envimage', c.toDataURL('image/jpeg', 0.85)); } catch { toast('Image too large to remember; it will be used this session only'); }
-  settings.env = 'image'; saveSettings(); syncSettingsUI(); envLight.setImage(c);
+  settings.env = 'image'; saveSettings(); syncSettingsUI(); envLight.setImage(c); applySky();
 };
 $('#bEnvImg').onclick = () => $('#fEnv').click();
+// #176 LED wall videos: picked each session (the browser can't keep a folder), up to 5, played muted
+$('#bLedPick').onclick = () => $('#fLed').click();
+$('#fLed').onchange = e => {
+  const all = [...(e.target.files || [])], n = led.setFiles(all);
+  $('#ledList').textContent = n ? `${n} video${n > 1 ? 's' : ''}: ${led.files.map(f => f.name).join(' · ')}` + (all.length > 5 ? '  (only the first 5 are used)' : '') : 'No playable videos in that pick (mp4 / webm).';
+  drawMixScreen();
+};
 $('#sEnvMix').oninput = e => { settings.envMix = +e.target.value; saveSettings(); envLight.setMix(settings.envMix / 100); $('#envMixVal').textContent = settings.envMix + '%'; };
 
 // ---- settings UI
@@ -2547,6 +2617,7 @@ function syncSettingsUI() {
   $('#sSpect').value = settings.spect; $('#rowSpect').hidden = settings.spect !== 'on'; $('#spectCode').textContent = spectCode();
   $('#sDeckModel').value = settings.deckModel; $('#sRecWeight').value = settings.recWeight; $('#sSlipmat').value = settings.slipmat; $('#cPll').checked = !!settings.pll;
   $('#bEnvImg').hidden = settings.env !== 'image'; $('#rowEnvMix').hidden = settings.env === 'studio';
+  $('#sSky').value = settings.sky; $('#rowSky').hidden = settings.env === 'studio';
   $('#rowXml').hidden = settings.source !== 'pc';
   $('#rowImport').hidden = settings.source !== 'headset';
   if (settings.source === 'headset') showStorage();
@@ -2567,7 +2638,7 @@ $('#bPersist').onclick = async () => {
 window.__vireStage = 'service worker';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).then(reg => {
   // hand the worker everything this page already loaded (app code, three.js, models) for offline use (#66)
-  const own = u => u.startsWith(location.origin) && !/\/vire-music\/|\.(mp3|m4a|wav|flac|aiff?|ogg)(\?|$)/i.test(u);
+  const own = u => u.startsWith(location.origin) && !/\/vire-music\/|\.(mp3|m4a|wav|flac|aiff?|ogg|mp4|m4v|webm|mov)(\?|$)/i.test(u);
   const urls = [location.href.split('#')[0], ...performance.getEntriesByType('resource').map(r => r.name).filter(own)];
   if (reg.active) reg.active.postMessage({ cache: [...new Set(urls)] });
 }).catch(() => {});
@@ -2576,11 +2647,11 @@ async function showStorage() {
   showPersist();
   const idx = await store.loadIndex(); const est = await store.usage();
   const mb = n => (n / 1048576).toFixed(0) + ' MB';
-  $('#impStatus').textContent = `${idx.filter(f => !/\.xml$/i.test(f.path)).length} songs, ${idx.filter(f => /\.xml$/i.test(f.path)).length} XML stored` +
+  $('#impStatus').textContent = `${idx.filter(f => !/\.xml$/i.test(f.path) && !VIDEO_EXT.test(f.path)).length} songs, ${idx.filter(f => VIDEO_EXT.test(f.path)).length} VideoVinyl videos, ${idx.filter(f => /\.xml$/i.test(f.path)).length} XML stored` +
     (est ? ` · using ${mb(est.usage || 0)} of ${mb(est.quota || 0)} available to this site` : '');
 }
 for (const [id, k] of [['#sSource', 'source'], ['#sXml', 'xml'], ['#sHands', 'hands'], ['#sEnv', 'env'], ['#sGlow', 'glow'], ['#sShadows', 'shadows'], ['#sMicRoute', 'micRoute'],
-  ['#sDeckModel', 'deckModel'], ['#sRecWeight', 'recWeight'], ['#sSlipmat', 'slipmat'], ['#sSpect', 'spect']]) {
+  ['#sDeckModel', 'deckModel'], ['#sRecWeight', 'recWeight'], ['#sSlipmat', 'slipmat'], ['#sSpect', 'spect'], ['#sSky', 'sky']]) {
   $(id).onchange = e => {
     settings[k] = e.target.value; saveSettings(); syncSettingsUI();
     if (k === 'deckModel' || k === 'recWeight' || k === 'slipmat') sendPhysics();
@@ -2588,6 +2659,7 @@ for (const [id, k] of [['#sSource', 'source'], ['#sXml', 'xml'], ['#sHands', 'ha
     if (k === 'micRoute') { if (micOn) { micOn = false; engine.setMicOn(false); } if (engine.mic) engine.micClose(); showMicRoute(); }
     if (k === 'shadows') applyShadows(false);
     if (k === 'spect') applySpect();
+    if (k === 'sky') applySky();
     if (k === 'source' || k === 'xml') loadLibrary();
     if (k === 'env') { if (settings.env === 'image' && !envImageStored()) $('#fEnv').click(); applyEnv(); }
   };
@@ -2653,7 +2725,8 @@ async function applySpect() {
   try {
     const m = await import('./spectator-host.js');
     if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, getInputs: () => xr && xr.inputs,
-      getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs });
+      getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(),
+      getVV: () => ({ mode: ledMode, gains: deckGains(mixVal), decks: deckVid.map((dv, i) => dv.v ? [i, dv.key, engine.ctx ? engine.pos(i) : 0, engine.state.decks[i].rate || 0] : null).filter(Boolean) }) });
   } catch (e) { toast('Spectator camera failed to start: ' + e.message, 4000); }
 }
 syncSettingsUI();
@@ -2662,11 +2735,11 @@ applyEnv();
 if (!CAMERA_ROLE) loadLibrary();
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam };
+window.vire = { THREE, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
   $('#start').style.display = 'none'; const hud = document.getElementById('hud'); if (hud) hud.style.display = 'none';
   import('./spectator-client.js').then(m => m.startCamera({ THREE, renderer, scene, camera, rig, room, stage, cases, decks, deckInst, neon,
-    newMilk, stepWallGlow, stepBlobs, Record3D, BG })).catch(e => { document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;top:0;left:0;right:0;color:#fbb;background:#300;padding:8px;z-index:99">Spectator failed: ${e.message}</pre>`); });
+    newMilk, stepWallGlow, stepBlobs, Record3D, BG, led })).catch(e => { document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;top:0;left:0;right:0;color:#fbb;background:#300;padding:8px;z-index:99">Spectator failed: ${e.message}</pre>`); });
 }
