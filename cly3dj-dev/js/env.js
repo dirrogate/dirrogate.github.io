@@ -49,7 +49,10 @@ export class EnvLight {
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.room = new RoomEnvironment();
     this.sphereMat = new THREE.MeshBasicMaterial({ side: THREE.BackSide, transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false });
-    this.sphere = new THREE.Mesh(new THREE.SphereGeometry(4, 48, 24), this.sphereMat);
+    // #174: radius 0.5, inside everything in the studio (its floor is only 0.93 m below the centre; the nearest box
+    // starts ~2.8 m out). At 4 m the studio floor and some boxes sat inside the photo sphere, so they still showed
+    // in reflections even at 100 % image. (PMREM's cube camera near plane is 0.1 m.)
+    this.sphere = new THREE.Mesh(new THREE.SphereGeometry(0.5, 48, 24), this.sphereMat);
     this.sphere.visible = false; this.room.add(this.sphere);
     this.rt = null; this.timer = null; this.mix = 0.5;
     this.rebuild();

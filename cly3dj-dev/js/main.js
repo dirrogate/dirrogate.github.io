@@ -2297,18 +2297,19 @@ function drawMixScreen() {
     }
   }
   SP_HIT.length = 0;
-  if (sp) {   // #167: one small MR GUI toggle, bottom left (room to the right for future buttons)
-    const x = 14, y = 262, w = 118, h = 34;
+  if (sp) {   // #174: MR GUI toggle + phone icon on deck A's top row, right-aligned to its panel (the divider stays clear)
+    const right = W / 2 - 14, pw = 14, ph = 24, w = 108, h = 28, y = 12;
+    const px = right - pw, x = px - 10 - w;
     g.fillStyle = sp.mr ? '#c8202c' : '#c9ced8'; g.fillRect(x, y, w, h);
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = sp.mr ? '#fff' : '#5a6272'; g.font = '700 22px system-ui';
     g.fillText('MR GUI', x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
-    { // #169: small phone icon; its LED is green while the spectator phone is connected, grey when not
-      const px = x + w + 14, py = y + 1, pw = 18, ph = 32;
-      g.strokeStyle = '#8c96a8'; g.lineWidth = 2; g.beginPath(); g.roundRect(px, py, pw, ph, 4); g.stroke();
-      g.fillStyle = '#8c96a8'; g.fillRect(px + 6, py + ph - 5, pw - 12, 2);   // home bar
-      g.fillStyle = sp.phone ? '#40ff70' : '#56627a'; g.beginPath(); g.arc(px + pw / 2, py + 9, 4, 0, Math.PI * 2); g.fill();
+    { // small phone icon; its LED is green while the spectator phone is connected, grey when not (#169)
+      const py = y + (h - ph) / 2;
+      g.strokeStyle = '#8c96a8'; g.lineWidth = 2; g.beginPath(); g.roundRect(px, py, pw, ph, 3); g.stroke();
+      g.fillStyle = '#8c96a8'; g.fillRect(px + 4, py + ph - 4, pw - 8, 2);
+      g.fillStyle = sp.phone ? '#40ff70' : '#56627a'; g.beginPath(); g.arc(px + pw / 2, py + 7, 3, 0, Math.PI * 2); g.fill();
     }
-    SP_HIT.push({ x: x - 6, y: y - 8, w: w + 12, h: h + 16, act: () => spect.setMR(!sp.mr) });
+    SP_HIT.push({ x: x - 6, y: 4, w: w + 12, h: h + 16, act: () => spect.setMR(!sp.mr) });
   }
   mixScreen.commit();
 }
