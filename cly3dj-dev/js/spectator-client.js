@@ -25,7 +25,7 @@ export function startCamera(ctx) {
   document.head.insertAdjacentHTML('beforeend', `<style>
     #spS { position:fixed; inset:0; overflow:auto; z-index:30; background:radial-gradient(ellipse at 50% 30%,#182030 0%,#0b0d12 75%); color:#e6e8ec; font:15px/1.45 system-ui,sans-serif; }
     #spS .box { max-width:460px; margin:0 auto; padding:24px 16px; }
-    #spS h1 { font-size:34px; margin:0 0 2px; font-weight:800; letter-spacing:.04em; } #spS h1 span { color:#e0202a; }
+    #spS h1 { font-size:34px; margin:0 0 2px; font-weight:800; letter-spacing:.04em; } #spS h1 span { color:#e0202a; letter-spacing:-.01em; }
     #spS p { color:#8b909a; margin:0 0 18px; }
     #spS input { font:600 28px system-ui,sans-serif; letter-spacing:.2em; width:100%; box-sizing:border-box; padding:12px; border-radius:10px; border:1px solid #2e3850; background:#1c2230; color:#e6e8ec; text-align:center; }
     #spS button, #spO button { font:600 15px system-ui,sans-serif; color:#e6e8ec; background:#1c2230; border:1px solid #2e3850; border-radius:10px; padding:12px 16px; }

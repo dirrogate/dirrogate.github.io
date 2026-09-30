@@ -413,7 +413,7 @@ export function mixerFaceTextures(layout) {
   for (const t of layout.texts) {
     const [x, y] = px(t.x, t.z); g.fillStyle = t.color || '#15161a';
     g.font = `${t.bold ? 700 : 600} ${Math.round((t.size || 0.0036) * k)}px system-ui, Arial, sans-serif`;
-    g.fillText(t.text, x, y);
+    g.textAlign = t.align || 'center'; g.fillText(t.text, x, y);
   }
   // screws
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {

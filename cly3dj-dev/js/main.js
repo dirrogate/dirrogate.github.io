@@ -209,7 +209,7 @@ function milks() { return [milk, ...Object.values(extraMilk)]; }
 initKTX2(renderer);   // #132
 loadRecordCrateBaked('models/record_crate.glb').then(() => upgradeRecordCrate(crate))   // #127
   .catch(e => console.warn('record crate GLB not loaded, keeping the procedural crate', e));
-loadMilkCrateBaked('models/milk_crate.glb').then(() => { for (const m of milks()) upgradeMilkCrate(m); })
+Promise.resolve()   // #192: the cut-out crate (models.js) replaces the baked GLB; loadMilkCrateBaked / upgradeMilkCrate kept for a switch back
   .catch(e => console.warn('milk crate GLB not loaded, keeping the procedural crate', e));
 function milkOf(o) { const all = milks(); while (o) { if (all.includes(o)) return o; o = o.parent; } return null; }
 // neon sign prop (CLAUDE.md #80): moves like the gear; two hands on the two centre bars resize it; its size is
@@ -429,7 +429,7 @@ const stage = new Stage(rig, {
   ledwall: { obj: ledwall, base: ledBase() },
   preview: { obj: pvWin, base: PV_H / 2 + 0.015 },
 }, cases, {
-  items: { deckA: [-DECK_X, 0.898, 0, 0], deckB: [DECK_X, 0.898, 0, 0], mixer: [0, 0.88, 0, 0], crate: [0.98, 0, 0.12, -0.5], milk: [-1.0, 0, 0.15, 0.35], milk2: [-1.0, 0, 0.6, 0.35], milk3: [-1.45, 0, 0.3, 0.2], milk4: [-1.45, 0, 0.75, 0.2], milk5: [-1.0, 0, 1.05, 0.35], milk6: [-1.45, 0, 1.2, 0.2], neon: [0, 1.45, -0.5, 0], ledwall: [-2.0, 1.6, -0.55, 0], preview: [0.78, 1.28, -0.22, -0.45] },
+  items: { deckA: [-DECK_X, 0.898, 0, 0], deckB: [DECK_X, 0.898, 0, 0], mixer: [0, 0.88, 0, 0], crate: [0.98, 0, 0.12, -0.5], milk: [-1.0, 0, 0.15, 0.35], milk2: [-1.0, 0, 0.68, 0.35], milk3: [-1.47, 0, 0.3, 0.2], milk4: [-1.47, 0, 0.83, 0.2], milk5: [-1.0, 0, 1.21, 0.35], milk6: [-1.47, 0, 1.36, 0.2], neon: [0, 1.45, -0.5, 0], ledwall: [-2.0, 1.6, -0.55, 0], preview: [0.78, 1.28, -0.22, -0.45] },
   cases: { caseA: [0, 0, 0, 0, 1.3, 0.52, 0.88] },
 });
 const MOVABLE = new Proxy({}, { get: (_, k) => stage.object(k) });
@@ -2089,7 +2089,7 @@ function hover(e) {
   else if (obj && obj.userData.lid) showTip('Crate lid: click to open / close, or drag up and down to swing it (O)', e.clientX, e.clientY);
   else if (obj && obj.userData.move === 'ledwall') showTip('LED wall: drag to move, Shift-drag to rotate, wheel to resize (headset: grab it with both hands and pull apart)', e.clientX, e.clientY);
   else if (obj && obj.userData.move === 'neon') showTip('Neon sign: drag to move, Shift-drag to rotate, wheel to resize (headset: grab both centre bars and pull apart)', e.clientX, e.clientY);
-  else if (obj && obj.userData.move) showTip(`Drag to move ${NAMES[obj.userData.move]}, Shift-drag to rotate`, e.clientX, e.clientY);
+  else if (obj && obj.userData.move) showTip(`Drag to move ${NAMES[obj.userData.move] || (obj.userData.move.startsWith('milk') ? 'the milk crate' : 'it')}, Shift-drag to rotate`, e.clientX, e.clientY);
   else if (obj && obj.userData.resize) showTip('Drag to resize the case; Shift-drag up/down for height', e.clientX, e.clientY);
   else showTip('');
 }
