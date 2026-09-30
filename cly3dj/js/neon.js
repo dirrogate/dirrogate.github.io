@@ -190,16 +190,16 @@ export function makeNeonSign() {
   u.setLodScale = s => { lod.levels[1].distance = LOD_DIST * s; light.distance = 2.5 * s; light.userData.k = s; light.intensity = NEON_LIGHT * s * (u.level ?? 1); };
   const setLevel = v => { u.level = v; for (const m of u.mats) m.uniforms.uOn.value = v; light.intensity = NEON_LIGHT * (light.userData.k ?? 1) * v; rimM.color.setRGB(0.19 + 0.81 * v, 0.06 + 0.1 * v, 0.06 + 0.04 * v); };
   u.setOn = on => { u.enabled = on; setLevel(on ? 1 : 0); };
-  // Random flicker (owner, #86): every 30 s to 2 min a short burst of drop-outs like a tired transformer:
-  // 3-9 quick dips to a faint glow (30-150 ms), sometimes one longer dark gap, then steady again. Both LOD levels
-  // follow (the far quad uses the same uOn). Call u.update(dt) every frame.
-  const fl = { wait: 30 + Math.random() * 90, seq: null, t: 0, last: 1 };
+  // Random flicker (owner, #86; #199 made rare and subtle): one short burst every 5 to 7 minutes (a new random wait each
+  // time), 2-4 soft dips to 60-80 % brightness (40-110 ms), no dark gap. Both LOD levels follow (the far quad uses the
+  // same uOn). Call u.update(dt) every frame.
+  const nextWait = () => 300 + Math.random() * 120;
+  const fl = { wait: nextWait(), seq: null, t: 0, last: 1 };
   const burst = () => {
-    const out = [], n = 3 + Math.floor(Math.random() * 7);
+    const out = [], n = 2 + Math.floor(Math.random() * 3);
     for (let i = 0; i < n; i++) {
-      out.push({ v: 0.04 + Math.random() * 0.3, d: 0.03 + Math.random() * 0.12 });
-      if (i === Math.floor(n / 2) && Math.random() < 0.4) out.push({ v: 0.02, d: 0.35 + Math.random() * 0.5 });   // the long gap
-      out.push({ v: 0.7 + Math.random() * 0.3, d: 0.04 + Math.random() * 0.3 });
+      out.push({ v: 0.6 + Math.random() * 0.2, d: 0.04 + Math.random() * 0.07 });
+      out.push({ v: 0.92 + Math.random() * 0.08, d: 0.05 + Math.random() * 0.2 });
     }
     out.push({ v: 1, d: 0 });
     return out;
@@ -213,7 +213,7 @@ export function makeNeonSign() {
       fl.t += dt;
       while (fl.i < fl.seq.length - 1 && fl.t > fl.seq[fl.i].d) { fl.t -= fl.seq[fl.i].d; fl.i++; }
       v = fl.seq[fl.i].v;
-      if (fl.i >= fl.seq.length - 1) { fl.seq = null; fl.wait = 30 + Math.random() * 90; v = 1; }
+      if (fl.i >= fl.seq.length - 1) { fl.seq = null; fl.wait = nextWait(); v = 1; }
     }
     if (v !== fl.last) { fl.last = v; setLevel(v); }
   };

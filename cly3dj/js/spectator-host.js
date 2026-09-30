@@ -82,7 +82,8 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   function buildRegistry() {
     const recs = new Set(getRecords().map(r => r.group)), next = new Map();
     const roots = [...Object.entries(stage.items).filter(([k]) => k !== 'preview').map(([k, v]) => [k, v.obj]), ...Object.entries(stage.cases).map(([k, c]) => [k, c.group])];
-    const walk = (o, id) => { if (recs.has(o)) return; next.set(id, reg.get(id)?.o === o ? reg.get(id) : { o, last: null }); o.children.forEach((c, i) => walk(c, id + '.' + i)); };
+    const walk = (o, id) => { if (recs.has(o) || o.userData.noMirror) return;   // #195 noMirror: headset-only parts (preview lid, tablet corner)
+      next.set(id, reg.get(id)?.o === o ? reg.get(id) : { o, last: null }); o.children.forEach((c, i) => walk(c, id + '.' + i)); };
     for (const [k, o] of roots) walk(o, k);
     reg = next;
   }
