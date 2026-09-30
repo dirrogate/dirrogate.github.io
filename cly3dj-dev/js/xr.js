@@ -184,13 +184,30 @@ export function setupXR(ctx) {
     }
     // 0a. #189 the mixer's tablet: grip (controllers) or pinch (hands) on its frame picks it up; it keeps its pose
     //     relative to the hand while held (main.js places it; it stays a child of the mixer so the phone mirrors it)
-    if (btn === 'grip' || st.isHand) {
-      const tb = ctx.mixer.userData.tablet, l = tb && tb.worldToLocal(v2.copy(P));
-      if (l && Math.abs(l.x) < 0.115 && Math.abs(l.y) < 0.05 && l.z > -0.035 && l.z < 0.035) {
-        updateAnchor(st);
+    // #195 (owner): pick-up = grip only (hands: pinch); resize = trigger (or pinch) on the lower-right corner handle and
+    // drag, or a second grip on the tablet while the other hand holds it, pulling apart
+    {
+      const tb = ctx.mixer.userData.tablet;
+      if (tb) {
         tb.updateMatrixWorld();
-        st.direct = { kind: 'tablet', off: new THREE.Matrix4().copy(st.anchor.matrixWorld).invert().multiply(tb.matrixWorld) };
-        ctx.tabletGrab && ctx.tabletGrab(); buzz(st, 0.4, 25); return true;
+        const l = tb.worldToLocal(v2.copy(P)), corner = tb.localToWorld(v1.set(0.095, 0.035, 0));   // #196b the silver corner L (#202 top-right)
+        const onCorner = corner.distanceTo(P) < 0.03 * Math.max(1, tb.scale.x * 0.8);
+        const inside = Math.abs(l.x) < 0.115 && Math.abs(l.y) < 0.05 && l.z > -0.035 && l.z < 0.035;
+        const docked = tb.position.distanceTo(ctx.mixer.userData.tabletDock.p) < 1e-4;
+        if (onCorner && !docked && (st.isHand || btn !== 'grip')) {
+          const c = tb.getWorldPosition(new THREE.Vector3());
+          st.direct = { kind: 'tabletScale', c0: c, d0: Math.max(0.02, c.distanceTo(P)), s0: tb.scale.x }; buzz(st, 0.4, 25); return true;
+        }
+        if (inside && (btn === 'grip' || st.isHand)) {
+          const other = inputs.find(o => o !== st && o.direct && o.direct.kind === 'tablet');
+          if (other && !docked) {   // second hand: two-handed stretch (the first hand keeps holding it)
+            st.direct = { kind: 'tabletStretch', other, d0: Math.max(0.02, pinchOf(other).distanceTo(P)), s0: tb.scale.x }; buzz(st, 0.5, 40); buzz(other, 0.5, 40); return true;
+          }
+          ctx.tabletGrab && ctx.tabletGrab();
+          updateAnchor(st); tb.updateMatrixWorld();
+          st.direct = { kind: 'tablet', off: new THREE.Matrix4().copy(st.anchor.matrixWorld).invert().multiply(tb.matrixWorld) };
+          buzz(st, 0.4, 25); return true;
+        }
       }
     }
     // 0b. 33 / 45, controllers only: trigger (or grip) at the button, never by hovering (owner, #64)
@@ -213,8 +230,9 @@ export function setupXR(ctx) {
       if (pk && pk.getWorldPosition(v2).distanceTo(P) < 0.035) { st.direct = { kind: 'power', d, yaw0: yawOf(handQuat(st, q1)), done: false }; buzz(st); return true; }
     }
     // 2. faders, pitch, knobs
+    // #195 (owner): knobs, faders and pitch faders take the trigger only (hands: pinch); the grip never turns or slides them
     let best = null, bestD = REACH;
-    for (const k of knobList()) {
+    if (deckOk) for (const k of knobList()) {
       k.g.getWorldPosition(v2); v2.y += 0.012;
       const dd = v2.distanceTo(P); if (dd < bestD) { bestD = dd; best = k; }
     }
@@ -312,6 +330,7 @@ export function setupXR(ctx) {
     }
     if (hit) {
       const g = ctx.MOVABLE[hit.key];
+      if (ctx.flyingMilk && ctx.flyingMilk.has(g)) { ctx.flyingMilk.delete(g); g.rotation.x = 0; g.rotation.z = 0; }   // #200 caught mid-bounce
       st.direct = { kind: 'move', target: hit.key, stMove: ctx.stage.beginMove(hit.key), p0: P.clone(), pos0: g.position.clone(), yaw0: g.rotation.y, hyaw0: yawOf(handQuat(st, q1)) };
       buzz(st); return true;
     }
@@ -334,7 +353,11 @@ export function setupXR(ctx) {
   }
   function hitMovable(P) {
     for (const k of [...Object.keys(GEAR), ...Object.keys(ctx.stage.items).filter(k => /^milk\d$/.test(k))]) {   // + spawned milk crates (#88)
-      const b = GEAR[k] || GEAR.milk, o = ctx.MOVABLE[k]; if (!o) continue; const l = o.worldToLocal(v2.copy(P));
+      const o = ctx.MOVABLE[k]; if (!o) continue;
+      // #200 milk crates: the grab box follows the crate's real size (#193 made it longer and taller than the old box), 3 cm
+      // of reach round the sides and 6 cm over the rim, so it can be picked up by its rim, ends or sides
+      const M = ctx.MILK, b = k.startsWith('milk') && M ? { x: M.W / 2 + 0.03, z: M.D / 2 + 0.03, y0: -0.02, y1: M.H + 0.06 } : GEAR[k];
+      const l = o.worldToLocal(v2.copy(P));
       if (Math.abs(l.x) < b.x && Math.abs(l.z) < b.z && l.y > b.y0 && l.y < b.y1) return { key: k };
     }
     for (const k in ctx.cases) {
@@ -417,6 +440,11 @@ export function setupXR(ctx) {
       g.lastP = (g.lastP || new THREE.Vector3()).copy(P); g.lastT = now;
     } else if (g.kind === 'tablet') {   // #189
       updateAnchor(st); ctx.tabletHold(new THREE.Matrix4().multiplyMatrices(st.anchor.matrixWorld, g.off));
+    } else if (g.kind === 'tabletScale') {   // #195 corner drag: size follows the distance from the tablet's centre
+      ctx.tabletScale(g.s0 * g.c0.distanceTo(P) / g.d0);
+    } else if (g.kind === 'tabletStretch') {   // #195 two grips: size follows the distance between the hands
+      if (!g.other.direct || g.other.direct.kind !== 'tablet') st.direct = null;
+      else ctx.tabletScale(g.s0 * pinchOf(g.other).distanceTo(P) / g.d0);
     } else if (g.kind === 'power') {
       const dy = wrap(yawOf(handQuat(st, q1)) - g.yaw0);
       if (!g.done && Math.abs(dy) > 0.35) { ctx.setPower(g.d, g.d.power === false); g.done = true; buzz(st, 0.6, 40); }
@@ -437,9 +465,10 @@ export function setupXR(ctx) {
     else if (g.kind === 'pitch') ctx.heldPitch.delete(g.d.i);
     else if (g.kind === 'scratch') ctx.scratchEnd(g.s);
     else if (g.kind === 'held') { const h = ctx.getHeld(); if (h && h.attach === st.anchor) ctx.releaseHeld(); }
-    else if (g.kind === 'move') { ctx.stage.endMove(g.stMove); if (!(g.target.startsWith('milk') && g.vel && g.vel.length() > 1.2)) ctx.settleStack(g.target); if (g.target.startsWith('milk')) ctx.releaseMilk(g.target, g.vel); }
+    else if (g.kind === 'move') { ctx.stage.endMove(g.stMove); if (g.target.startsWith('milk')) ctx.releaseMilk(g.target, g.vel); else ctx.settleStack(g.target); }   // #200 milk: releaseMilk drops / throws / settles it
     else if (g.kind === 'lid') ctx.lidRelease();
-    else if (g.kind === 'tablet') { if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
+    else if (g.kind === 'tablet') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'tabletStretch') o.direct = null; if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
+    else if (g.kind === 'tabletScale' || g.kind === 'tabletStretch') ctx.saveTablet();
     else if (g.kind === 'ledScale') {
       const o = g.R.a === st ? g.R.b : g.R.a;
       if (o.direct && o.direct.kind === 'ledScale') o.direct = null;

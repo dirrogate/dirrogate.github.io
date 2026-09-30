@@ -47,7 +47,7 @@ export function startCamera(ctx) {
       <p>Films the DJ with the virtual gear. On the Quest: Settings, Spectator camera On, then read the code shown there.</p>
       <input id="spCode" inputmode="numeric" maxlength="5" placeholder="00000">
       <button id="spConnect">Connect</button><button id="spAR" disabled>Start camera (AR)</button><button id="spCamTest">Camera access test (no Quest needed)</button>
-      <button id="spLib">Library: panoramas, videos, images (push to the Quest)…</button>
+      <button id="spLibBtn">Library: panoramas, videos, images (push to the Quest)…</button>
       <button id="spPano">Virtual set panorama (same picture as the Quest)…</button><input type="file" id="spPanoF" accept="image/*" hidden>
       <div id="spPanoSt" style="color:#8b909a;font-size:13px;margin-top:6px">For the green-screen virtual set: pick the same 360 picture the Quest shows. Kept on this phone.</div>
       <button id="spLed">Videos: LED wall clips + VideoVinyls (same files as the Quest)…</button><input type="file" id="spLedF" accept="video/*" multiple hidden>
@@ -124,7 +124,7 @@ export function startCamera(ctx) {
   }
   $('#spLed').onclick = () => $('#spLedF').click();
   // #184 virtual set: panorama picked here (same file as the Quest), key sliders in the AR overlay
-  $('#spLib').onclick = () => lib.open();
+  $('#spLibBtn').onclick = () => lib.open();   // #195: was id spLib, the same id as the Library screen, so the screen's full-page style covered the start page
   $('#spPano').onclick = () => $('#spPanoF').click();
   $('#spPanoF').onchange = async e => {
     const f = e.target.files && e.target.files[0]; if (!f) return; e.target.value = '';

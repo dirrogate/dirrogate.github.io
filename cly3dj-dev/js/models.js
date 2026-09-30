@@ -610,9 +610,17 @@ diffuseColor.rgb = diffuseColor.rgb * vireHs * 1.5 + vec3(0.45) * smoothstep(0.7
   // go within 8 cm of it. Docked, it sits exactly where the #115 stand was. Same size as before (owner: not wider).
   const tab = new THREE.Group(); tab.name = 'tablet';
   tab.position.set(0, top + 0.03, -0.185); tab.rotation.x = TILT; g.add(tab);
-  const stand = box(0.2, 0.08, 0.02, MAT.black); tab.add(stand);   // the tablet's body
+  // the tablet's body; #196 iPad-thin (was 20 mm), black brushed metal. #201 (owner: the screen stood proud of the frame):
+  // a 1 mm deep recess for the screen, inside a bezel (5 mm at the sides, 2.5 mm top and bottom); one merged mesh
+  const REC_D = 0.001, bez = [];
+  const part = (w, h, d, x, y, z) => { const b = new THREE.BoxGeometry(w, h, d); b.translate(x, y, z); bez.push(b); };
+  part(0.2, 0.08, TABLET_T - REC_D, 0, 0, -REC_D / 2);                       // back slab, up to the recess floor
+  const fz = TABLET_T / 2 - REC_D / 2;
+  part(0.2, 0.0025, REC_D, 0, 0.03875, fz); part(0.2, 0.0025, REC_D, 0, -0.03875, fz);   // bezel top / bottom
+  part(0.005, 0.075, REC_D, 0.0975, 0, fz); part(0.005, 0.075, REC_D, -0.0975, 0, fz);   // bezel sides
+  const stand = new THREE.Mesh(mergeGeometries(bez), tabletBodyMat()); bez.forEach(b => b.dispose()); tab.add(stand);
   const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.075), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
-  scr.position.set(0, 0, 0.0115);   // 1.5 mm proud of the body's face
+  scr.position.set(0, 0, TABLET_T / 2 - REC_D + 0.0001);   // #201 on the recess floor, 1 mm below the bezel
   tab.add(scr); u.screen = scr; scr.userData.mixScreen = true;   // BPM / ORIG / KEY readout taps (#116)
   u.tablet = tab; u.tabletDock = { p: tab.position.clone(), q: tab.quaternion.clone() };
   const slot = box(0.206, 0.0012, 0.016, new THREE.MeshStandardMaterial({ color: 0x030303, roughness: 0.95, metalness: 0 }));   // the slot (1.2 mm)
@@ -621,13 +629,14 @@ diffuseColor.rgb = diffuseColor.rgb * vireHs * 1.5 + vec3(0.45) * smoothstep(0.7
   // glass plate over the readout (owner, 26 Sep): 2 mm in front of the screen, a touch larger. Black base with
   // additive blending, so it only ADDS its reflection (Fresnel: faint face-on, stronger at grazing angles) and
   // never dims the readout; no transmission pass (too costly on Quest). Not pickable.
-  const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.194, 0.079), new THREE.MeshPhysicalMaterial({
+  // #201: the glass fills the recess exactly (0.19 x 0.075) and sits 0.3 mm below the bezel, so nothing sticks out
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.075), new THREE.MeshPhysicalMaterial({
     // #115: glossier and fainter. roughness 0 = sharp mirror-like reflections and a tight highlight instead of a
     // broad milky veil; specularIntensity 0.4 -> 0.2 and specularF90 0.45 keep the reflection from washing the
     // readout out, even at grazing angles. envMapIntensity does nothing here (scene.environmentIntensity rules).
     color: 0x000000, metalness: 0, roughness: 0, specularIntensity: 0.2, specularF90: 0.45,
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-  glass.position.z = 0.002; glass.renderOrder = 2; glass.raycast = () => {}; scr.add(glass); u.screenGlass = glass;
+  glass.position.z = REC_D - 0.0003 - 0.0001; glass.renderOrder = 2; glass.raycast = () => {}; scr.add(glass); u.screenGlass = glass;
   // knobs, drawn as instances: skirt, body (side + top), pointer = 4 draw calls for all 15 (was 75)
   {
     const m = knobMats(), R0 = 0.0105, n = knobs.length;
@@ -657,8 +666,24 @@ diffuseColor.rgb = diffuseColor.rgb * vireHs * 1.5 + vec3(0.45) * smoothstep(0.7
   if (MIXP) u.buttonMeshes = mixButtons(g, btns, top);
   // static body parts (body, fader slots, screen stand): one mesh (#84)
   const ctl = new Set(Object.values(u.controls));
-  mergeStatic(g, a => ctl.has(a) || a === scr || !!a.userData.control);
+  mergeStatic(g, a => ctl.has(a) || a === scr || a === u.tablet || !!a.userData.control);   // #195: the tablet's body stays its own mesh (it was merged into the mixer, so a picked-up tablet was a bare one-sided screen)
   return g;
+}
+
+// #196 mixer tablet: iPad-thin body in black brushed metal (the mixer face's look, darker). One material, so still one
+// draw call. The brushing is a small streak texture in the roughness channel plus anisotropy (highlight stretched
+// along the brushing).
+export const TABLET_T = 0.007;
+let TABLET_MAT = null;
+export function tabletBodyMat() {
+  if (TABLET_MAT) return TABLET_MAT;
+  const c = document.createElement('canvas'); c.width = 16; c.height = 256; const g = c.getContext('2d');
+  let s = 991; const r = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  for (let y = 0; y < 256; y++) { const v = Math.round(150 + r() * 70 + (r() < 0.08 ? 35 : 0)); g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(0, y, 16, 1); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1, 3);
+  TABLET_MAT = new THREE.MeshPhysicalMaterial({ color: 0x16171a, metalness: 0.85, roughness: 0.55, roughnessMap: t, anisotropy: 0.7 });
+  TABLET_MAT.name = 'tablet_brushed_black';
+  return TABLET_MAT;
 }
 
 // ---------- milk crate (CLAUDE.md #61): green HDPE crate for records you want to keep handy mid-set.
