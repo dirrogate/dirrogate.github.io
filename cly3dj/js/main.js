@@ -410,14 +410,18 @@ let ledMode = 'off';
 const deckVid = [new DeckVideo(), new DeckVideo()];
 let vvIndex = new Map();          // headset: title key -> OPFS path of the video
 const vvPC = new Map();           // PC: title key -> Promise<url|null> (HEAD videos/<title>.mp4)
+let libVV = new Map();            // #206 title key -> Library Video clip name
+function refreshLibVV() { media.list('Video').then(v => { libVV = new Map(v.filter(i => VIDEO_EXT.test(i.name)).map(i => [vvKey(baseName(i.name)), i.name])); }).catch(() => {}); }
+refreshLibVV();
 function vvSource(t) {
   const key = vvKey(t.name);
-  if (settings.source === 'headset') { const p = vvIndex.get(key); return Promise.resolve(p ? store.readFile(p) : null); }
+  const lib = () => (libVV.has(key) ? media.getFile('Video', libVV.get(key)) : null);   // #206 a Library Video clip with the title (e.g. synced from the phone)
+  if (settings.source === 'headset') { const p = vvIndex.get(key); return Promise.resolve(p ? store.readFile(p) : lib()); }
   if (!vvPC.has(key)) {
     const url = 'videos/' + encodeURIComponent(t.name.trim()) + '.mp4';
     vvPC.set(key, fetch(url, { method: 'HEAD' }).then(r => (r.ok ? url : null)).catch(() => null));
   }
-  return vvPC.get(key);
+  return vvPC.get(key).then(u => u || lib());
 }
 // #185 (owner): a Video library clip put on a deck from the mixer's Video page replaces the title match for the record
 // that is on the deck now; it clears when that record comes off.
@@ -484,13 +488,11 @@ function removeMilk(key) {
   delete extraMilk[key]; delete stage.items[key]; flyingMilk.delete(m);
   saveMilkKeys(); stage.save(); toast('Milk crate removed');
 }
-// let go of a moved milk crate. #200 (owner): thrown or dropped it flies with simple physics: gravity, bounces
-// (plastic crate: 35 % of the landing speed comes back), skids to a stop with friction, spins and rocks back flat on
-// its base; it lands on anything under it (case, other crates) and knocks back off their sides. Once it is more than
-// 1 m from you (horizontally) it shrinks away over 1 s: an extra crate is deleted with its records, the first crate
-// comes back beside the record crate. On the desktop, dragged beyond 3 m from the decks an extra crate is deleted.
-const flyingMilk = new Map();
-const MILK_GONE_R = 1.0, MILK_GONE_T = 1.0, MILK_E = 0.35, MILK_MU = 0.45;
+// let go of a moved milk crate. #207 (owner): no physics any more (#200's bounce and fall went through real furniture in
+// passthrough). Let go, it stays where it is (settling onto a case / crate top within 6 cm, like the other gear).
+// Tossed away (let go moving faster than 1.2 m/s): an extra crate shrinks away where it is and is deleted with its
+// records; the first crate stays. On the desktop, dragged beyond 3 m from the decks an extra crate is deleted.
+const flyingMilk = new Map();   // #207: crates shrinking away (name kept for xr.js / the record code)
 function placeMilk(m) {   // first free spot on the floor round the record crate (front first), clear of the case and crates
   const c = crateRig, up = new THREE.Vector3(0, 1, 0), blockers = [cases.caseA.group, crateRig, ...milks().filter(x => x !== m)].map(o => new THREE.Box3().setFromObject(o).expandByScalar(0.03));
   m.rotation.set(0, c.rotation.y, 0); m.position.set(c.position.x, 0, c.position.z + 0.5);
@@ -503,80 +505,20 @@ function placeMilk(m) {   // first free spot on the floor round the record crate
 }
 function releaseMilk(key, vel) {
   const m = key === 'milk' ? milk : extraMilk[key]; if (!m) return;
-  const v = vel ? vel.clone().applyQuaternion(rig.getWorldQuaternion(new THREE.Quaternion()).invert()) : new THREE.Vector3();
-  const air = m.position.y - (stage.items[key] ? stackFloor(key, m.position.y + 0.01) : 0);
-  if (v.length() > 0.5 || air > 0.02) {
-    m.rotation.reorder('YXZ');   // y = heading, x / z = tilt
-    const sp = v.length(), r = () => Math.random() - 0.5;
-    flyingMilk.set(m, { key, vel: v, spin: r() * 2 * Math.min(6, 1 + sp * 1.2), tv: new THREE.Vector2(r() * sp * 1.4, r() * sp * 1.4), ground: false, t: 0 });
-    return;
-  }
+  m.rotation.x = 0; m.rotation.z = 0;
   if (stage.items[key]) settleStack(key);
-  if (key !== 'milk' && Math.hypot(m.position.x, m.position.z) > MILK_FAR) removeMilk(key);
-}
-function stepFlyingMilk(m, f, h) {
-  const v = f.vel, p = m.position, rot = m.rotation, key = f.key, staged = !!stage.items[key];
-  const sink = () => MILK.D / 2 * Math.abs(Math.sin(rot.x)) + MILK.W / 2 * Math.abs(Math.sin(rot.z));   // tilted: a corner dips below the origin
-  v.y -= GRAV * h;
-  // sideways, knocking back off anything taller than where the crate's bottom is (the flight case, a stack)
-  const ox = p.x, oz = p.z; p.x += v.x * h; p.z += v.z * h; rot.y += f.spin * h;
-  if (staged) {
-    let top = 0; for (const t of stackTops(key)) top = Math.max(top, t.top);
-    if (top > p.y - sink() + 0.04) { p.x = ox; p.z = oz; v.x *= -0.3; v.z *= -0.3; f.spin *= 0.5; f.tv.x += (Math.random() - 0.5) * 2; }
-  }
-  // tilt: free in the air (limited), springs back flat on its base once it is down
-  if (f.ground) f.tv.addScaledVector(new THREE.Vector2(rot.x, rot.z), -80 * h).multiplyScalar(Math.max(0, 1 - 13 * h));
-  rot.x += f.tv.x * h; rot.z += f.tv.y * h;
-  for (const a of ['x', 'z']) if (Math.abs(rot[a]) > 0.7) { rot[a] = Math.sign(rot[a]) * 0.7; f.tv[a === 'x' ? 'x' : 'y'] *= -0.3; }
-  // down: bounce, or come to rest on the floor / whatever is under it
-  const was = p.y - sink();   // #201 bottom before this step: tops below it can catch the crate (no tunnelling at speed)
-  p.y += v.y * h;
-  const s = sink(), fl = staged ? stackFloor(key, Math.max(was, p.y - s) + 0.03) : 0;
-  if (p.y - s <= fl) {
-    p.y = fl + s;
-    if (v.y < 0) {
-      const hit = -v.y;
-      if (hit > 0.6) {
-        v.y = hit * MILK_E; v.x *= 0.7; v.z *= 0.7; f.spin *= 0.6;
-        f.tv.x += (Math.random() - 0.5) * hit * 0.6; f.tv.y += (Math.random() - 0.5) * hit * 0.6; f.ground = false;
-      } else { v.y = 0; f.ground = true; }
-    }
-  } else if (p.y - s > fl + 0.005) f.ground = false;
-  if (f.ground) {   // skidding: friction slows it, the spin dies away
-    const hs = Math.hypot(v.x, v.z), dec = MILK_MU * GRAV * h;
-    if (hs <= dec) { v.x = 0; v.z = 0; } else { v.x *= (hs - dec) / hs; v.z *= (hs - dec) / hs; }
-    f.spin *= Math.max(0, 1 - 6 * h);
-  }
+  if (key === 'milk') return;
+  if ((vel && vel.length() > 1.2) || Math.hypot(m.position.x, m.position.z) > MILK_FAR) flyingMilk.set(m, { key, gone: 0 });
 }
 function stepMilkCrates(dt) {
   for (const m of milks()) if (m.userData.pop !== undefined) {
     m.userData.pop = Math.min(1, m.userData.pop + dt / 0.25); const k = m.userData.pop; m.scale.setScalar(Math.max(0.01, k * k * (3 - 2 * k)));
     if (k >= 1) delete m.userData.pop;
   }
-  camera.getWorldPosition(_eyeM);
-  for (const [m, f] of flyingMilk) {
-    const n = Math.max(1, Math.ceil(dt / (1 / 120))), h = Math.min(dt, 0.1) / n;
-    m.position.y -= f.off || 0;   // #201 the shrink-away lift is visual only
-    for (let i = 0; i < n; i++) stepFlyingMilk(m, f, h);
-    m.position.y += f.off || 0;
-    f.t += dt;
-    if (f.gone !== undefined) {   // past 1 m: shrinks away over 1 s while it keeps moving
-      // #201 it shrinks about its middle (the origin is at its base, so it looked like it sank through the floor)
-      f.gone += dt; const k = Math.min(1, f.gone / MILK_GONE_T), sc = Math.max(0.01, 1 - k * k * (3 - 2 * k)); m.scale.setScalar(sc);
-      m.position.y += MILK.H / 2 * (1 - sc) - (f.off || 0); f.off = MILK.H / 2 * (1 - sc);
-      if (k >= 1) {
-        if (f.key !== 'milk') { removeMilk(f.key); continue; }
-        flyingMilk.delete(m); placeMilk(m); m.scale.setScalar(0.01); m.userData.pop = 0; stage.save(); continue;   // the first crate comes back
-      }
-      continue;
-    }
-    m.getWorldPosition(_milkW);
-    if (Math.hypot(_milkW.x - _eyeM.x, _milkW.z - _eyeM.z) > MILK_GONE_R) { f.gone = 0; continue; }
-    const r = m.rotation, still = f.ground && Math.hypot(f.vel.x, f.vel.z) < 0.01 && Math.abs(f.spin) < 0.05 && Math.abs(r.x) < 0.004 && Math.abs(r.z) < 0.004 && f.tv.length() < 0.05;
-    if (still || f.t > 8) {
-      r.x = 0; r.z = 0; m.position.y = stage.items[f.key] ? stackFloor(f.key, m.position.y + 0.01) : 0;
-      flyingMilk.delete(m); stage.save();
-    }
+  for (const [m, f] of flyingMilk) {   // tossed away: shrinks about its middle over 0.3 s, then it's deleted
+    f.gone += dt; const k = Math.min(1, f.gone / 0.3), sc = Math.max(0.01, 1 - k * k * (3 - 2 * k));
+    m.scale.setScalar(sc); m.position.y += MILK.H / 2 * (1 - sc) - (f.off || 0); f.off = MILK.H / 2 * (1 - sc);
+    if (k >= 1) removeMilk(f.key);
   }
 }
 const _eyeM = new THREE.Vector3(), _milkW = new THREE.Vector3(), _eyeB = new THREE.Vector3(), _recB = new THREE.Vector3();
@@ -590,7 +532,7 @@ const mixScreen = new Screen(768, 304);
 const mixScreenP = new Screen(304, 768); mixScreenP.texture.center.set(0.5, 0.5);
 let scrDir = 'up';
 const scr = () => (scrDir === 'up' ? mixScreen : mixScreenP), portrait = () => scrDir !== 'up';
-const vpPer = () => (scrDir === 'up' ? 8 : 12);   // thumbnails a page on the Video page
+const vpPer = () => (scrDir === 'up' ? 8 : 10);   // thumbnails a page on the Video page (#206 portrait: 5 rows, a third tab row)
 function stepScrDir() {
   const dir = tabletDir(scrDir); if (dir === scrDir) return;
   scrDir = dir;
@@ -2471,9 +2413,10 @@ const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set whil
 // page; pick one, then where it goes (sky, a deck's VideoVinyl, the LED wall). LED WALL mode lives here too now.
 let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null;
 const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
-const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA' };
+const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA', Sync: 'SYNC' };
 async function vpLoad() {
   if (vpFolder === 'Camera') { vpItems = []; drawMixScreen(); return; }
+  if (vpFolder === 'Sync') { vpItems = []; syncLoad(); return; }   // #206
   vpItems = await media.list(vpFolder);
   if (vpSel && !vpItems.some(i => i.name === vpSel)) vpSel = null;
   vpPg = Math.min(vpPg, Math.max(0, Math.ceil(vpItems.length / vpPer()) - 1));
@@ -2550,8 +2493,8 @@ function drawCamTab(btn, y0) {
   }));
   g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = cs ? '#8c96a8' : '#c9a040';
   const stTxt = !cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone and start its camera.'
-    : `Phone ${cs.fps} fps · ${cs.ar ? 'camera on' : 'camera not started'} · ${cs.cal ? 'calibrated' : 'not calibrated'}${cs.can ? '' : ' · no camera access'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : '');
-  const extra = cs && (cs.auto || cs.look) ? [cs.auto, cs.look].filter(Boolean).join(' · ') : '';
+    : `Phone ${cs.fps} fps${cs.late ? ` (${cs.late} late/s)` : ''} · ${cs.ar ? 'camera on' : 'camera not started'} · ${cs.cal ? 'calibrated' : 'not calibrated'}${cs.can ? '' : ' · no camera access'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : '');
+  const extra = cs ? [cs.auto, cs.look].filter(Boolean).join(' · ') : '';
   if (P) {   // portrait: the status lines wrap under the steppers
     let y = ry + CAM_ROWS.flat().length * 42 + 24;
     y += wrapText(g, stTxt, 12, y, W - 24, 20, 5) * 20 + 8;
@@ -2560,6 +2503,76 @@ function drawCamTab(btn, y0) {
   }
   fitText2(g, stTxt, 12, H - 30, W - 24);
   if (extra) { g.fillStyle = '#56627a'; g.font = '500 13px system-ui'; fitText2(g, extra, 12, H - 10, W - 24); }
+}
+// ---- #206 SYNC tab (VIDEO page): both libraries side by side (Quest and phone), pick items, COPY puts each one on the
+// side that doesn't have it. Only adds (spectator-host.js syncList / syncCopy); a name on both sides is left alone.
+let syncItems = null, syncMsg = '', syncPg = 0, syncAll = false;
+const syncSel = new Set();   // 'folder/name'
+const SYNC_TAG = { Pano: 'PANO', 'Video pano': 'VPANO', Video: 'VIDEO', Images: 'IMG' };
+function syncExtras() {   // the Quest's VideoVinyl clips stored with its songs (headset library), offered as Video items
+  if (settings.source !== 'headset') return [];
+  return [...vvIndex.values()].map(p => ({ f: 'Video', n: p.split('/').pop(), get: () => store.readFile(p) }));
+}
+async function syncLoad() {
+  syncMsg = 'Reading both libraries…'; drawMixScreen();
+  if (!spect || !spect.syncList) { syncItems = null; syncMsg = 'Spectator camera is off: Settings > Spectator camera On, then Connect on the phone.'; drawMixScreen(); return; }
+  try { syncItems = await spect.syncList(syncExtras); syncMsg = ''; for (const k of [...syncSel]) if (!syncItems.some(i => i.f + '/' + i.n === k && i.q !== i.p)) syncSel.delete(k); }
+  catch (e) { syncItems = null; syncMsg = e.message; }
+  drawMixScreen();
+}
+async function syncCopy() {
+  if (!spect || !syncItems || (spect.sync && spect.sync.on)) return;
+  const pick = syncItems.filter(i => syncSel.has(i.f + '/' + i.n) && i.q !== i.p); if (!pick.length) return;
+  try { await spect.syncCopy(pick, () => drawMixScreen()); } catch (e) { syncMsg = e.message; }
+  syncSel.clear(); await syncLoad();
+}
+function drawSyncTab(btn, y0) {
+  const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
+  const sy = spect && spect.sync, busy = !!(sy && sy.on);
+  const shown = (syncItems || []).filter(i => syncAll || i.q !== i.p);
+  const cols = P ? 1 : 2, rows = P ? 18 : 7, per = cols * rows, RH = 26, colW = (W - (P ? 44 : 16) - (cols - 1) * 8) / cols, x0 = P ? 22 : 8;
+  const pages = Math.max(1, Math.ceil(shown.length / per)); syncPg = Math.min(syncPg, pages - 1);
+  g.textBaseline = 'middle';
+  shown.slice(syncPg * per, syncPg * per + per).forEach((it, i) => {
+    const cx = x0 + Math.floor(i / rows) * (colW + 8), cy = y0 + (i % rows) * RH, key = it.f + '/' + it.n, can = it.q !== it.p && !busy, on = syncSel.has(key);
+    g.fillStyle = on ? '#16304a' : '#0d1422'; g.fillRect(cx, cy, colW, RH - 3);
+    g.strokeStyle = can ? '#8c96a8' : '#2e3850'; g.lineWidth = 2; g.strokeRect(cx + 6, cy + 5, 13, 13);
+    if (on) { g.fillStyle = '#39a8ff'; g.fillRect(cx + 9, cy + 8, 7, 7); }
+    g.textAlign = 'left'; g.font = '700 11px system-ui'; g.fillStyle = '#56627a'; g.fillText(SYNC_TAG[it.f] || it.f, cx + 26, cy + 12);
+    g.font = '500 14px system-ui'; g.fillStyle = it.q !== it.p ? '#dfe6f2' : '#56627a';
+    fitText2(g, it.n.replace(/\.[^.]+$/, ''), cx + 70, cy + 12, colW - 70 - 64);
+    g.font = '700 13px system-ui'; g.textAlign = 'center';
+    g.fillStyle = it.q ? '#40d080' : '#3a4252'; g.fillText('QUEST', cx + colW - 44, cy + 12);
+    g.fillStyle = it.p ? '#40d080' : '#3a4252'; g.fillText('PH', cx + colW - 12, cy + 12);
+    if (can) VP_HIT.push({ x: cx, y: cy, w: colW, h: RH - 3, act: () => { on ? syncSel.delete(key) : syncSel.add(key); drawMixScreen(); } });
+  });
+  g.textBaseline = 'alphabetic'; g.textAlign = 'left';
+  if (!shown.length) {
+    g.fillStyle = '#8c96a8'; g.font = '500 16px system-ui';
+    const t = syncMsg || (syncItems ? (syncItems.length ? 'Both have everything: nothing to copy (SHOW ALL lists it all).' : 'Both libraries are empty.') : '');
+    wrapText(g, t, x0 + 8, y0 + 30, W - 2 * x0 - 16, 22, 4);
+  }
+  // status line: progress or the last result
+  let stTxt = syncMsg && shown.length ? syncMsg : '';
+  if (busy) stTxt = `${sy.dir === 'in' ? 'Phone → Quest' : 'Quest → phone'} ${sy.i} of ${sy.n}: ${sy.name} ${sy.pct}%`;
+  else if (sy && sy.n && !syncMsg) stTxt = `Last copy: ${sy.done} copied${sy.skipped ? `, ${sy.skipped} skipped` : ''}${sy.err ? ' · stopped: ' + sy.err : ''}`;
+  g.font = '500 13px system-ui'; g.fillStyle = busy ? '#40d080' : '#8c96a8';
+  if (stTxt) fitText2(g, stTxt, x0 + 4, P ? H - 116 : H - 50, W - 2 * x0 - 8);
+  // buttons
+  const nSel = syncSel.size, bh = 36, missing = shown.filter(i => i.q !== i.p);
+  const selAll = () => { const all = missing.every(i => syncSel.has(i.f + '/' + i.n)); for (const i of missing) all ? syncSel.delete(i.f + '/' + i.n) : syncSel.add(i.f + '/' + i.n); drawMixScreen(); };
+  const b = [
+    ['‹', false, () => { syncPg = Math.max(0, syncPg - 1); drawMixScreen(); }, syncPg === 0, 44],
+    ['›', false, () => { syncPg = Math.min(pages - 1, syncPg + 1); drawMixScreen(); }, syncPg >= pages - 1, 44],
+    ['SELECT ALL', false, selAll, busy || !missing.length, 0],
+    [syncAll ? 'MISSING ONLY' : 'SHOW ALL', syncAll, () => { syncAll = !syncAll; syncPg = 0; drawMixScreen(); }, false, 0],
+    ['REFRESH', false, () => syncLoad(), busy, 0],
+    [busy ? `COPYING ${sy.i}/${sy.n}` : `COPY ${nSel || ''}`.trim(), busy, () => syncCopy(), busy || !nSel, 0],
+  ];
+  const row = (list, y, x1, x2) => { const fixed = list.reduce((a, q) => a + (q[4] || 0), 0), flex = list.filter(q => !q[4]).length, w = (x2 - x1 - fixed - (list.length - 1) * 6) / Math.max(1, flex); let x = x1;
+    for (const [label, on, act, dim, fw] of list) { const bw = fw || w; btn(x, y, bw, bh, label, on, dim ? null : act, dim); x += bw + 6; } };
+  if (P) { row(b.slice(2, 5), H - 106, x0, W - x0); row([b[0], b[1], b[5]], H - 62, 26, W - 26); }
+  else row(b, H - 44, 8, W - 8);
 }
 function drawVideoPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait(), PER = vpPer();
@@ -2574,17 +2587,18 @@ function drawVideoPage() {
     if (act) VP_HIT.push({ x, y, w, h, act });
   };
   const pick = f => () => { vpFolder = f; vpSel = null; vpPg = 0; vpLoad(); };
-  if (P) {   // #198 portrait: tabs in 2 rows of 3 (the last one is MIXER); top and bottom keep clear of the corner L
-    const tabs = [...media.FOLDERS, 'Camera'], tw = (W - 30 - 12) / 3;
+  if (P) {   // #198 portrait: tabs in rows of 3 (#206: 3 rows, SYNC added, MIXER last); top and bottom keep clear of the corner L
+    const tabs = [...media.FOLDERS, 'Camera', 'Sync'], tw = (W - 30 - 12) / 3;
     tabs.forEach((f, i) => btn(22 + (i % 3) * (tw + 6), 28 + Math.floor(i / 3) * 40, tw, 34, VP_TABS[f], f === vpFolder, pick(f)));
-    btn(22 + 2 * (tw + 6), 68, tw, 34, 'MIXER', false, () => setVideoPage(false));
+    btn(22, 108, tw, 34, 'MIXER', false, () => setVideoPage(false));
   } else {
     let x = 8;
-    for (const f of [...media.FOLDERS, 'Camera']) { const w = f === 'Video pano' ? 140 : f === 'Camera' ? 104 : 96; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
+    for (const f of [...media.FOLDERS, 'Camera', 'Sync']) { const w = f === 'Video pano' ? 140 : f === 'Camera' ? 104 : f === 'Sync' ? 84 : 96; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
     btn(W - 8 - 100, 8, 100, 32, 'MIXER', false, () => setVideoPage(false));
   }
-  const y0 = P ? 112 : 48;
+  const y0 = P ? 152 : 48;
   if (vpFolder === 'Camera') { drawCamTab(btn, y0); return; }
+  if (vpFolder === 'Sync') { drawSyncTab(btn, y0); return; }   // #206
   // thumbnails: 4 x 2 (portrait 2 x 6)
   const COLS = P ? 2 : 4, CW = (W - 16 - (COLS - 1) * 8) / COLS, TH = P ? 64 : 76, CH = TH + 20;
   const pages = Math.max(1, Math.ceil(vpItems.length / PER)); vpPg = Math.min(vpPg, pages - 1);
@@ -3215,7 +3229,7 @@ async function applySpect() {
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(),
       getVV: () => ({ mode: ledMode, gains: deckGains(mixVal), decks: deckVid.map((dv, i) => dv.v ? [i, dv.key, engine.ctx ? engine.pos(i) : 0, engine.state.decks[i].rate || 0] : null).filter(Boolean) }),
       getSky: () => ({ h: settings.skyH, turn: settings.skyTurn, type: settings.skyType, key: settings.skyKey, file: settings.skyFile, media: settings.env === 'image' ? settings.skyMedia : '' }),
-      onMedia: () => { if (videoPage) vpLoad(); },
+      onMedia: () => { refreshLibVV(); if (videoPage && vpFolder !== 'Sync') vpLoad(); },
       onCam: m => { if (m && pvWanted && !m.pv && spect) spect.camSet({ what: 'preview', v: true }); if (videoPage && vpFolder === 'Camera') drawMixScreen(); },   // a reconnected phone gets PREVIEW back
       onPreview: onPreviewFrame });
   } catch (e) { toast('Spectator camera failed to start: ' + e.message, 4000); }

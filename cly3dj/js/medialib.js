@@ -33,6 +33,8 @@ export async function remove(folder, name) {
   for (const n of [name, name + '.part']) { try { await (await folderDir(folder)).removeEntry(n); } catch {} }
   try { await (await thumbDir(folder)).removeEntry(name + '.jpg'); } catch {}
 }
+// #205 the #203 in-app recorder is gone: free the space its takes used on the phone (once, harmless if none)
+export async function dropTakes() { try { await (await rootDir()).removeEntry('Takes', { recursive: true }); } catch {} }
 export async function usage() { try { return await navigator.storage.estimate(); } catch { return null; } }
 
 // ---- thumbnails: 320 px wide JPEG; stereo over-under panoramas show the top (left-eye) half

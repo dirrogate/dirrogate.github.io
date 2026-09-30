@@ -18,8 +18,36 @@ export function startCamera(ctx) {
   // #185 media library (phone side); its Video + Images items also feed the LED wall / VideoVinyl mirrors
   const lib = makePhoneLibrary({ getLink: () => link, onChange: () => refreshMedia() });
   let pickedLed = [], mediaLed = [];
-  async function refreshMedia() { const its = [...await media.list('Video'), ...await media.list('Images')]; mediaLed = (await Promise.all(its.map(i => media.getFile(i.folder, i.name)))).filter(Boolean); led.setFiles([...pickedLed, ...mediaLed], 1000); }
-  refreshMedia();
+  let libVV = new Map();   // #206 title key -> name of a Library Video clip (VideoVinyl by title, e.g. clips synced from the Quest)
+  async function refreshMedia() {
+    const vids = await media.list('Video'), its = [...vids, ...await media.list('Images')];
+    mediaLed = (await Promise.all(its.map(i => media.getFile(i.folder, i.name)))).filter(Boolean); led.setFiles([...pickedLed, ...mediaLed], 1000);
+    libVV = new Map(vids.filter(i => VIDEO_EXT.test(i.name)).map(i => [vvKey(baseName(i.name)), i.name]));
+  }
+  refreshMedia(); media.dropTakes();   // #205
+  // #206 media sync: the Quest lists both libraries ('mls?'), asks for phone files ('mpull', sent by phonelib) and sends
+  // its own ('qput', then chunks on the 'file' channel, resumable like #185). Only adds, never deletes.
+  async function sendMediaList() { const all = await media.listAll(), items = []; for (const f of media.FOLDERS) for (const it of all[f]) items.push([f, it.name, it.size]); if (link && link.isOpen) link.send('ctl', { k: 'mls', items }); }
+  let qrx = null, qQ = Promise.resolve();
+  function onQput(m) {
+    qQ = qQ.then(async () => {
+      if (qrx) { await qrx.abort(); qrx = null; }
+      const r = await media.beginReceive(m.f, m.n, m.size);
+      if (r.have) { link.send('ctl', { k: 'qok', f: m.f, n: m.n }); return; }
+      if (m.thumb) { try { await media.putThumb(m.f, m.n, new Blob([Uint8Array.from(atob(m.thumb), c => c.charCodeAt(0))], { type: 'image/jpeg' })); } catch {} }
+      qrx = r.rx; qrx.req = m.n; st(`Sync: receiving ${m.n}…`);
+      link.send('ctl', { k: 'qgo', f: m.f, n: m.n, off: r.off });
+    }).catch(e => st('Sync: ' + e.message));
+  }
+  function onSyncBin(buf, label) {
+    if (label !== 'file') return;
+    const r = qrx; if (!r) return;
+    if (r.write(buf)) {
+      qrx = null;
+      r.finish().then(() => { link.send('ctl', { k: 'qok', f: r.folder, n: r.req }); st(`Sync: ${r.req} received.`); refreshMedia(); lib.refresh(); })
+        .catch(e => st('Sync: saving failed: ' + e.message));
+    }
+  }
   const DELAY = 70;   // ms the mirror runs behind the Quest, so there are always two samples to blend
   // ---------------------------------------------------------------- UI (built here; index.html's own UI is hidden)
   document.head.insertAdjacentHTML('beforeend', `<style>
@@ -98,6 +126,7 @@ export function startCamera(ctx) {
       onOpen: () => { linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; lib.onLinkOpen(); sendCst(true); },
       onClose: () => { linkState = 'disconnected'; st(STATUS.disconnected); },
       onMessage: onMsg,
+      onBinary: onSyncBin,   // #206 media sync: files from the Quest
     });
   };
   setInterval(() => { if (link && link.isOpen) link.send('ctl', { k: 'ping', t: performance.now() }); stats.pps = stats.pkts; stats.pkts = 0; }, 1000);
@@ -112,7 +141,8 @@ export function startCamera(ctx) {
       if (want !== dv.want) {
         dv.want = want; dv.close();
         if (want && want.startsWith('media:')) media.getFile('Video', want.slice(12)).then(f => { if (f && dv.want === want) dv.open(want, f); });   // #185 'media:Video/<name>'
-        else { const f = want && vvFiles.get(want); if (f) dv.open(want, f); }
+        else if (want && vvFiles.get(want)) dv.open(want, vvFiles.get(want));
+        else if (want && libVV.get(want)) media.getFile('Video', libVV.get(want)).then(f => { if (f && dv.want === want) dv.open(want, f); });   // #206
       }
       pdvAt[i] = e ? { pos: e[2], rate: e[3], at: performance.now() } : null;
     }
@@ -159,10 +189,10 @@ export function startCamera(ctx) {
   }
   $('#kAuto').onclick = runAuto;   // #186
   // ---- #188 the Quest's mixer CAMERA tab: the phone reports its state ('cst') and takes changes ('cset')
-  let lastCst = '', fps = 0, fpsN = 0, fpsT = 0;
+  let lastCst = '', fps = 0, fpsN = 0, fpsT = 0, late = 0, lateN = 0, lastXT = 0; const dts = [];
   function sendCst(force) {
     if (!link || !link.isOpen) return;
-    const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession(), cal: cal.ok, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, auto: autoMsg, look: look.status() };
+    const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession(), cal: cal.ok, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, late, auto: autoMsg, look: look.status() };
     const j = JSON.stringify(m); if (force || j !== lastCst) { lastCst = j; link.send('ctl', m); }
   }
   const LIM = { thr: [0, 0.8], soft: [0.02, 0.4], spill: [0, 1], wrap: [0, 1], cmatch: [0, 1], strength: [0, 1], grain: [0, 1] };
@@ -177,10 +207,13 @@ export function startCamera(ctx) {
     sendCst(true);
   }
   // ---- #188 headset preview: every ~150 ms a 480 px tall copy of what this phone shows, as a JPEG on the 'prev' channel
-  let pvOn = false, pvT = 0, pvBusy = false;
+  // (#205: back to this, the #203 in-app recorder and its compose() are gone. It runs after the AR frame; #204 keeps
+  // that frame on screen. Held on its side, the picture is turned upright before it is sent.)
+  let pvOn = false, pvT = 0, pvBusy = false, rotDir = 0;   // rotDir: 0 = phone upright, 1 = its right edge up, -1 = its left edge up
   const pvRT = new THREE.WebGLRenderTarget(4, 4); pvRT.texture.colorSpace = THREE.SRGBColorSpace;   // sRGB storage: the GPU encodes on write, readPixels gives display bytes
   const pvCam = new THREE.PerspectiveCamera(); pvCam.matrixAutoUpdate = false;
   const pvCanvas = document.createElement('canvas'), pvCtx = pvCanvas.getContext('2d');
+  const pvTurn = document.createElement('canvas'), pvTurnCtx = pvTurn.getContext('2d');
   let pvBuf = null;
   function renderPreview(now) {
     pvT = now; if (pvBusy) return;
@@ -199,7 +232,17 @@ export function startCamera(ctx) {
     for (let y = 0; y < H; y++) { img.data.set(pvBuf.subarray((H - 1 - y) * row, (H - y) * row), y * row); }
     for (let i = 3; i < img.data.length; i += 4) img.data[i] = 255;
     pvCtx.putImageData(img, 0, 0); pvBusy = true;
-    pvCanvas.toBlob(b => { if (!b) { pvBusy = false; return; } b.arrayBuffer().then(buf => { if (link) link.sendPrev(buf); pvBusy = false; }); }, 'image/jpeg', 0.6);
+    // #205 which edge of the phone is up (dead zone so it doesn't flip at 45 deg); on its side = turn the picture upright
+    const m = c0.matrixWorld.elements, a = Math.atan2(m[1], m[5]) * 180 / Math.PI;
+    rotDir = rotDir === 0 ? (a > 55 ? 1 : a < -55 ? -1 : 0) : rotDir === 1 ? (a < 35 ? (a < -55 ? -1 : 0) : 1) : (a > -35 ? (a > 55 ? 1 : 0) : -1);
+    let out = pvCanvas;
+    if (rotDir) {
+      if (pvTurn.width !== H || pvTurn.height !== W) { pvTurn.width = H; pvTurn.height = W; }
+      const g = pvTurnCtx; g.setTransform(1, 0, 0, 1, 0, 0);
+      if (rotDir === 1) { g.translate(0, W); g.rotate(-Math.PI / 2); } else { g.translate(H, 0); g.rotate(Math.PI / 2); }
+      g.drawImage(pvCanvas, 0, 0); g.setTransform(1, 0, 0, 1, 0, 0); out = pvTurn;
+    }
+    out.toBlob(b => { if (!b) { pvBusy = false; return; } b.arrayBuffer().then(buf => { if (link) link.sendPrev(buf); pvBusy = false; }); }, 'image/jpeg', 0.6);
   }
   $('#spCamTest').onclick = () => import('./camtest.js').then(m => m.camTest()).catch(e => st('Camera test failed: ' + e.message));   // #183
   $('#spLedF').onchange = e => {   // #176: same file names as on the Quest; matched by name
@@ -340,7 +383,10 @@ export function startCamera(ctx) {
     else if (m.k === 'led') led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000);   // #176
     else if (m.k === 'sky') vs.onSky(m);
     else if (m.k === 'cset') onCset(m);   // #188
-    else if (m.k === 'mls' || m.k === 'mgo' || m.k === 'mok') lib.onMsg(m);   // #185                   // #184
+    else if (m.k === 'mls' || m.k === 'mgo' || m.k === 'mok') lib.onMsg(m);
+    else if (m.k === 'mls?') sendMediaList();   // #206 media sync (the Quest's VIDEO page)
+    else if (m.k === 'mpull') lib.pull(m.f, m.n);
+    else if (m.k === 'qput') onQput(m);   // #185                   // #184
     else if (m.k === 'mr') setMR(!!m.on);                  // #164 from the Quest's mixer screen
     else if (m.k === 'cellrec') setClean(!!m.on);   // (#164, no longer sent)
     else if (m.k === 'pong') { const now = performance.now(); stats.rtt = now - m.t; const off = m.qt - (m.t + now) / 2; stats.off = stats.off === null ? off : stats.off * 0.8 + off * 0.2; }
@@ -365,8 +411,45 @@ export function startCamera(ctx) {
     calQX: 'Calibrate 3/3 (DJ): touch the floor mark with the controller tip, pull the trigger.',
     fix: 'Fix: tap the floor mark on the screen again.',
   };
+  // #204 (owner): while placing / calibrating / fixing, the gear gets out of the way so the floor mark shows.
+  // #205 (owner): only outline boxes at 25 %: every piece of gear stops drawing (colour and depth writes off, so the
+  // Quest's show / hide of parts is untouched) and a thin box is drawn round each one (in its own frame, so it turns
+  // and moves with it). Restored when calibration ends.
+  const GHOST = new Set(['place', 'calX', 'calLens', 'calQX', 'fix']);
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x39e0ff, transparent: true, opacity: 0.25, depthTest: false, depthWrite: false });
+  let ghosted = false, outlines = [];
+  const _gm = new THREE.Matrix4(), _gb = new THREE.Box3(), _gs = new THREE.Vector3(), _gc = new THREE.Vector3();
+  function ghost(on) {
+    if (on === ghosted) return; ghosted = on;
+    for (const l of outlines) { l.parent && l.parent.remove(l); l.geometry.dispose(); } outlines = [];
+    const seen = new Set();
+    rig.traverse(o => {
+      if (!o.isMesh || !o.material) return;
+      for (const mt of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (seen.has(mt)) continue; seen.add(mt);
+        if (on) { mt.userData.ghost = { c: mt.colorWrite, d: mt.depthWrite }; mt.colorWrite = false; mt.depthWrite = false; }
+        else if (mt.userData.ghost) { mt.colorWrite = mt.userData.ghost.c; mt.depthWrite = mt.userData.ghost.d; delete mt.userData.ghost; }
+      }
+    });
+    if (!on) return;
+    rig.updateMatrixWorld(true);
+    for (const top of rig.children) {   // one box per piece of gear (decks, mixer, crates, case, sign, LED wall)
+      if (!top.visible || top === skybox.group || top.isLight) continue;
+      const box = new THREE.Box3(), inv = _gm.copy(top.matrixWorld).invert();
+      top.traverse(o => {
+        if (!o.isMesh || !o.visible || !o.geometry || (o.material && o.material.userData.ghost && o.material.userData.ghost.c === false)) return;   // skip depth-only hand shapes
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        _gb.copy(o.geometry.boundingBox).applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld)); box.union(_gb);
+      });
+      if (box.isEmpty()) continue;
+      box.getSize(_gs); box.getCenter(_gc);
+      if (_gs.x < 0.02 && _gs.y < 0.02 && _gs.z < 0.02) continue;
+      const l = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(Math.max(_gs.x, 0.002), Math.max(_gs.y, 0.002), Math.max(_gs.z, 0.002))), lineMat);
+      l.position.copy(_gc); l.renderOrder = 20; l.raycast = () => {}; top.add(l); outlines.push(l);
+    }
+  }
   function setMode(m, text) {
-    mode = m; hint.textContent = text || HINTS[m] || ''; hint.style.display = (m === 'live' && !text) ? 'none' : '';
+    mode = m; ghost(GHOST.has(m)); hint.textContent = text || HINTS[m] || ''; hint.style.display = (m === 'live' && !text) ? 'none' : '';
     hint.classList.toggle('go', m !== 'live' && m !== 'find');
     if (text && m === 'live') setTimeout(() => { if (mode === 'live') hint.style.display = 'none'; }, 5000);
   }
@@ -475,6 +558,11 @@ export function startCamera(ctx) {
   const _m = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _s = new THREE.Vector3();
   renderer.setAnimationLoop((t, frame) => {
     const dt = Math.min(0.05, clock.getDelta()), now = performance.now();
+    // #204 three.js binds the AR layer's framebuffer once, just before this callback. Anything that calls
+    // renderer.resetState() or setRenderTarget() in between (the camera-picture copy in vset.js, Look match's sample)
+    // unbinds it, and the AR frame was then drawn into the hidden canvas instead: the
+    // phone showed the bare camera for that frame. That was the flicker. It is re-bound just before the AR render.
+    const xrRT = renderer.getRenderTarget();
     if (frame) {
       poseLog.push([now, lensNow()]); while (poseLog.length && now - poseLog[0][0] > 3000) poseLog.shift();
       const ref = renderer.xr.getReferenceSpace();
@@ -512,16 +600,21 @@ export function startCamera(ctx) {
       infoT = t;
       const live = link && link.isOpen, stale = now - stats.last > 1000;
       $('#spInfo').textContent = live
-        ? `Quest ${stats.xr ? 'in XR' : 'not in XR yet'} · round trip ${stats.rtt.toFixed(0)} ms · pose age ${stale ? 'no data' : stats.age.toFixed(0) + ' ms'} · ${stats.pps}/s · ${nodes.size} parts · ${recs.size} records` + (cal.ok ? ` · cal ${cal.err ?? '-'} cm` : ' · not calibrated') + (vs.S.on ? ` · set ${vs.S.got}/${vs.S.got + vs.S.miss}` + (vs.S.err ? ' ' + vs.S.err : '') : '')
+        ? `${renderer.xr.getSession() ? 'late ' + late + '/s · ' : ''}Quest ${stats.xr ? 'in XR' : 'not in XR yet'} · round trip ${stats.rtt.toFixed(0)} ms · pose age ${stale ? 'no data' : stats.age.toFixed(0) + ' ms'} · ${stats.pps}/s · ${nodes.size} parts · ${recs.size} records` + (cal.ok ? ` · cal ${cal.err ?? '-'} cm` : ' · not calibrated') + (vs.S.on ? ` · set ${vs.S.got}/${vs.S.got + vs.S.miss}` + (vs.S.err ? ' ' + vs.S.err : '') : '')
         : 'Not connected to the Quest (' + (STATUS[linkState] || linkState || 'idle') + ')';
     }
     look.frame(frame, dt, vs.S.on);   // #187 (before vs.frame: it asks for the camera sample)
     if (t - lookT > 500) { lookT = t; if (!$('#spLook').hidden) $('#lkSt').textContent = look.status(); }
     vs.S.pvNeed = !!(pvOn && frame && link && link.isOpen && now - pvT > 150);   // #188
-    vs.frame(frame);   // #184: camera picture for the key (only while the virtual set is on)
+    vs.frame(frame);   // #184: camera picture for the key / preview
+    if (frame) renderer.setRenderTarget(xrRT);   // #204 back to the AR layer
     renderer.render(scene, camera);
-    if (vs.S.pvNeed) renderPreview(now);   // #188
-    fpsN++; if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; sendCst(); }
+    if (vs.S.pvNeed) renderPreview(now);   // #188 (after the AR frame)
+    if (frame) {   // #203 late AR frames (each one shows as a flash of bare camera on the phone's screen)
+      if (lastXT) { const d = t - lastXT; dts.push(d); if (dts.length > 60) dts.shift(); const md = [...dts].sort((x, y) => x - y)[dts.length >> 1]; if (dts.length > 10 && d > md * 1.5) lateN++; }
+      lastXT = t;
+    } else lastXT = 0;
+    fpsN++; if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; late = lateN; lateN = 0; sendCst(); }
   });
-  window.spect = { vs, look, renderPreview, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
+  window.spect = { vs, look, renderPreview, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
 }
