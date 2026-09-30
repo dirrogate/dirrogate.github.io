@@ -10,7 +10,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 
 export function makePhoneLibrary({ getLink, onChange }) {
   document.head.insertAdjacentHTML('beforeend', `<style>
-    #spLib { position:fixed; inset:0; z-index:40; background:#0b0d12; color:#e6e8ec; font:15px/1.4 system-ui,sans-serif; display:flex; flex-direction:column; }
+    #spLib { position:fixed; inset:0; z-index:40; background:#0b0d12; color:#e6e8ec; font:15px/1.4 system-ui,sans-serif; display:flex; flex-direction:column; } #spLib[hidden] { display:none; }
     #spLib header { display:flex; align-items:center; gap:10px; padding:12px 12px 6px; } #spLib header h2 { flex:1; margin:0; font-size:22px; }
     #spLib .tabs { display:flex; gap:6px; padding:0 12px; overflow-x:auto; }
     #spLib button { font:600 14px system-ui,sans-serif; color:#e6e8ec; background:#1c2230; border:1px solid #2e3850; border-radius:10px; padding:10px 12px; white-space:nowrap; }

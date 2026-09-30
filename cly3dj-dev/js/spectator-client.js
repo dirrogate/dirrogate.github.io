@@ -55,8 +55,9 @@ export function startCamera(ctx) {
       <div class="info" id="spInfo">…</div>
       <div class="hint" id="spHint"></div>
       <div class="kp" id="spKey" hidden>
-        <label>Strength <input type="range" id="kThr" min="0" max="0.4" step="0.005"><span id="kThrV"></span></label>
-        <label>Softness <input type="range" id="kSoft" min="0.01" max="0.3" step="0.005"><span id="kSoftV"></span></label>
+        <label><button id="kAuto">Auto</button><span id="kAutoSt" style="width:auto;flex:1;text-align:left;font-weight:500;font-size:12px;color:#8b909a">Point at the EMPTY green screen first</span></label>
+        <label>Strength <input type="range" id="kThr" min="0" max="0.8" step="0.005"><span id="kThrV"></span></label>
+        <label>Softness <input type="range" id="kSoft" min="0.02" max="0.4" step="0.005"><span id="kSoftV"></span></label>
         <label>Spill <input type="range" id="kSpill" min="0" max="1" step="0.05"><span id="kSpillV"></span></label>
         <label><input type="checkbox" id="kMatte"> Show matte (white = kept, black = keyed)</label>
       </div>
@@ -125,6 +126,12 @@ export function startCamera(ctx) {
     el.oninput = () => { vs.setKey(k, +el.value); v.textContent = (+el.value).toFixed(2); };
   }
   $('#kMatte').onchange = e => vs.setMatte(e.target.checked);
+  const syncKeyUI = () => { for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill']]) { $(id).value = vs.K[k]; $(id + 'V').textContent = (+vs.K[k]).toFixed(2); } };
+  $('#kAuto').onclick = async () => {   // #186
+    $('#kAutoSt').textContent = 'Measuring…';
+    try { const r = await vs.autoKey(); syncKeyUI(); $('#kAutoSt').textContent = `Done: green fills ${r.cover} % of the view. Now step in; check with Show matte.`; }
+    catch (e) { $('#kAutoSt').textContent = 'Auto: ' + e.message; }
+  };
   $('#spCamTest').onclick = () => import('./camtest.js').then(m => m.camTest()).catch(e => st('Camera test failed: ' + e.message));   // #183
   $('#spLedF').onchange = e => {   // #176: same file names as on the Quest; matched by name
     const all = [...(e.target.files || [])]; pickedLed = all; const n = led.setFiles([...all, ...mediaLed], 1000);
