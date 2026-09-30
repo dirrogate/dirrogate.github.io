@@ -11,10 +11,13 @@ import * as media from './medialib.js';
 const FRAG = /* glsl */`
 uniform sampler2D cam;
 uniform float thr, soft, spill, matte;
+uniform vec3 panoCol, panoTint;   // #187 the pano's average colour (display values) and its cast (average / brightness)
+uniform float wrap, cmatch; uniform vec2 texel;
 varying vec2 vUv;
 // #186: how much greener than red / blue, divided by the green level (not below 0.15 so dark noise can't key), so a
 // shaded wrinkle keys like the lit part of the screen. Skin and grey give <= 0. Same formula as autoKey() in JS.
 float keyOf(vec3 c) { return (c.g - max(c.r, c.b)) / max(c.g, 0.15); }
+float keptAt(vec2 uv) { return 1.0 - smoothstep(thr, thr + soft, keyOf(texture2D(cam, uv).rgb)); }
 vec3 lin(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
 void main() {
   vec3 c = texture2D(cam, vUv).rgb;                  // camera values are display (sRGB) values
@@ -22,6 +25,16 @@ void main() {
   float a = 1.0 - smoothstep(thr, thr + soft, g);     // 1 = keep (the DJ), 0 = green screen
   float m = max(c.r, c.b);
   if (c.g > m) c.g = mix(c.g, m, spill);              // spill: pull the green tint off skin, hair and clothes
+  // #187 colour match: pull the DJ toward the pano's overall cast (warm desert, cool night)
+  c *= mix(vec3(1.0), panoTint, cmatch);
+  // #187 light wrap: how much keyed-out (pano) surrounds this kept pixel, from 6 samples 8 camera pixels away;
+  // that much of the pano's light is added, so the edges look lit by the world instead of cut out
+  if (wrap > 0.0 && a > 0.01 && matte < 0.5) {
+    float k = 0.0;
+    for (int i = 0; i < 6; i++) { float t = float(i) * 1.0472; k += keptAt(vUv + vec2(cos(t), sin(t)) * texel * 8.0); }
+    float edge = 1.0 - k / 6.0;
+    c = mix(c, c + panoCol * 0.9, edge * wrap);
+  }
   if (matte > 0.5) { c = vec3(a); a = 1.0; }          // check view: white = kept, black = keyed out
   gl_FragColor = vec4(lin(c), a);
   #include <colorspace_fragment>
@@ -34,13 +47,14 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
   const gl = renderer.getContext();
   const KEY0 = key.position.clone(), DEG = Math.PI / 180;
   const S = { on: false, can: false, loaded: false, file: null, sky: { h: 1.5, turn: 0, type: 'auto', key: 'on', file: '' }, light: null, miss: 0, got: 0, err: '' };
-  const K = { v: 2, thr: 0.1, soft: 0.1, spill: 0.7 };
+  const K = { v: 2, thr: 0.1, soft: 0.1, spill: 0.7, wrap: 0.5, cmatch: 0.4 };
   try { const k = JSON.parse(localStorage.getItem('vire.vsetKey') || '{}'); if (k.v === 2) Object.assign(K, k); } catch {}   // v1 used the old key formula
 
   const camTex = new THREE.Texture(); camTex.colorSpace = THREE.NoColorSpace;
   const camProps = renderer.properties.get(camTex);
   const mat = new THREE.ShaderMaterial({
-    uniforms: { cam: { value: camTex }, thr: { value: K.thr }, soft: { value: K.soft }, spill: { value: K.spill }, matte: { value: 0 } },
+    uniforms: { cam: { value: camTex }, thr: { value: K.thr }, soft: { value: K.soft }, spill: { value: K.spill }, matte: { value: 0 },
+      wrap: { value: K.wrap }, cmatch: { value: K.cmatch }, panoCol: { value: new THREE.Vector3(0.5, 0.5, 0.5) }, panoTint: { value: new THREE.Vector3(1, 1, 1) }, texel: { value: new THREE.Vector2(1 / 861, 1 / 1920) } },
     vertexShader: VERT, fragmentShader: FRAG, depthTest: false, depthWrite: false, toneMapped: false,
     // stays in the opaque pass (so the gear draws after it) but blends by the key; alpha of the frame stays 1
     blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
@@ -59,7 +73,7 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fbD); gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, own, 0);
-      ow = W; oh = H;
+      ow = W; oh = H; mat.uniforms.texel.value.set(1 / W, 1 / H);
     }
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fbR); gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, src, 0);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fbD);
@@ -70,15 +84,17 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
     return ok;
   }
   // #186 Auto key: one small copy of the camera picture (blit down to about 120 x 240, read back once)
-  let smallTex = null, fbS = null, sw = 0, sh = 0, autoCb = null;
-  function sample(src, W, H) {
-    const k = Math.min(1, 240 / Math.max(W, H)), w = Math.max(8, Math.round(W * k)), h = Math.max(8, Math.round(H * k));
-    if (!smallTex || w !== sw || h !== sh) {
-      if (smallTex) gl.deleteTexture(smallTex); if (!fbS) fbS = gl.createFramebuffer();
-      smallTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, smallTex); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
-      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fbS); gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, smallTex, 0);
-      sw = w; sh = h;
+  const smalls = {};   // size -> { tex, fb, w, h }
+  let autoCb = null, look = null;
+  function sample(src, W, H, max = 240) {
+    const k = Math.min(1, max / Math.max(W, H)), w = Math.max(4, Math.round(W * k)), h = Math.max(4, Math.round(H * k));
+    let sm = smalls[max];
+    if (!sm || sm.w !== w || sm.h !== h) {
+      if (sm) gl.deleteTexture(sm.tex); sm = smalls[max] = { tex: gl.createTexture(), fb: (sm && sm.fb) || gl.createFramebuffer(), w, h };
+      gl.bindTexture(gl.TEXTURE_2D, sm.tex); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, sm.fb); gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, sm.tex, 0);
     }
+    const fbS = sm.fb;
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fbR); gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, src, 0);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fbS);
     gl.blitFramebuffer(0, 0, W, H, 0, 0, w, h, gl.COLOR_BUFFER_BIT, gl.LINEAR);
@@ -92,7 +108,8 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
     return new Promise((res, rej) => { autoCb = { res, rej }; setTimeout(() => { if (autoCb) { autoCb = null; rej(new Error('no camera picture (start the camera first)')); } }, 3000); });
   }
   function frame(fr) {   // call once per XR frame, before rendering
-    if (!fr || !(S.on || autoCb)) return;
+    const lookCam = !!(look && look.wantsCam() && S.can);   // #187 Look match: a 32 px copy every 8th frame
+    if (!fr || !(S.on || autoCb || lookCam)) return;
     const session = renderer.xr.getSession(); if (!session) return;
     if (!binding) binding = new XRWebGLBinding(session, gl);
     const pose = fr.getViewerPose(renderer.xr.getReferenceSpace()), view = pose && pose.views[0];
@@ -104,6 +121,8 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
       try { const r = analyseKey(sample(src, view.camera.width, view.camera.height)); for (const k of ['thr', 'soft']) setKey(k, r[k]); cb.res(r); } catch (e) { renderer.resetState(); cb.rej(e); }
       if (!S.on) return;
     }
+    if (lookCam) { try { look.onCamera(sample(src, view.camera.width, view.camera.height, 32)); } catch { renderer.resetState(); } }
+    if (!S.on) return;
     S.got++;
     if (blitOK && grab(src, view.camera.width, view.camera.height)) { camProps.__webglTexture = own; quad.visible = true; }
     else { blitOK = false; camProps.__webglTexture = src; quad.visible = true; }   // fallback: use it directly (no hold on a missed frame)
@@ -116,12 +135,20 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
     return { layout: t.replace('-swap', ''), swap: t.endsWith('-swap') };
   }
   let vid = null, mediaId = '';
+  function panoColour(c) {   // #187 average colour of the pano (display values) and its cast, clamped to +-25 %
+    const t = document.createElement('canvas'); t.width = 32; t.height = 16; const g = t.getContext('2d', { willReadFrequently: true });
+    g.drawImage(c, 0, 0, 32, 16); const px = g.getImageData(0, 0, 32, 16).data; let r = 0, gg = 0, b = 0;
+    for (let i = 0; i < px.length; i += 4) { r += px[i]; gg += px[i + 1]; b += px[i + 2]; }
+    const n = px.length / 4 * 255; r /= n; gg /= n; b /= n;
+    const l = Math.max(0.02, 0.2126 * r + 0.7152 * gg + 0.0722 * b), cl = v => Math.min(1.25, Math.max(0.8, v / l));
+    mat.uniforms.panoCol.value.set(r, gg, b); mat.uniforms.panoTint.value.set(cl(r), cl(gg), cl(b));
+  }
   async function loadFile(f) {
     if (vid) { closePanoVideo(vid); vid = null; }
     if (media.isVideoName(f.name)) {   // #185 video panorama (from the library)
       const { video, snap } = await openPanoVideo(f); vid = video;
       const L = layoutOf(video.videoWidth, video.videoHeight) || { layout: 'mono', swap: false };
-      const c = leftEyeCanvas(snap, L.layout, L.swap, 2048); S.envCanvas = c; S.light = brightestDir(c);
+      const c = leftEyeCanvas(snap, L.layout, L.swap, 2048); S.envCanvas = c; S.light = brightestDir(c); panoColour(c);
       skybox.setVideo(video, L.layout, L.swap); skybox.setHeight(S.sky.h); S.file = f; S.loaded = true;
       if (!S.on) video.pause();
       return;
@@ -129,7 +156,7 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
     const bmp = await createImageBitmap(f), L = layoutOf(bmp.width, bmp.height);
     if (!L) { bmp.close(); throw new Error('not a 360 panorama (2:1, 1:1 or 4:1)'); }
     const c = leftEyeCanvas(bmp, L.layout, L.swap, 2048); bmp.close();
-    S.envCanvas = c; S.light = brightestDir(c);
+    S.envCanvas = c; S.light = brightestDir(c); panoColour(c);
     await skybox.load(f, L.layout, L.swap); skybox.setHeight(S.sky.h);
     S.file = f; S.loaded = true;
   }
@@ -175,7 +202,7 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
     S.can = !!(session.enabledFeatures ? session.enabledFeatures.includes('camera-access') : typeof XRWebGLBinding !== 'undefined' && XRWebGLBinding.prototype.getCameraImage);
   }
   function onEnd() { const was = S.on; S.on = false; binding = null; quad.visible = false; if (was) apply(); }
-  return { S, K, quad, mat, autoKey, frame, pick, setOn, onSky, setKey, onSession, onEnd, apply, setMatte: v => { mat.uniforms.matte.value = v ? 1 : 0; }, sameAsQuest };
+  return { S, K, quad, mat, autoKey, setLook: l => { look = l; }, frame, pick, setOn, onSky, setKey, onSession, onEnd, apply, setMatte: v => { mat.uniforms.matte.value = v ? 1 : 0; }, sameAsQuest };
 }
 
 // #186 Auto key from the empty screen. px: RGBA bytes. The green pixels are those whose key value (same formula as

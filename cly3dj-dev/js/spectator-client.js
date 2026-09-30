@@ -7,12 +7,14 @@
 import { spectatorLink } from './net-link.js';
 import { DeckVideo, vvKey, baseName, VIDEO_EXT } from './videovinyl.js';
 import { makeVirtualSet } from './vset.js';
+import { makeLookMatch } from './lookmatch.js';
 import { makePhoneLibrary } from './phonelib.js';
 import * as media from './medialib.js';
 
 export function startCamera(ctx) {
   const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, skybox, envLight, key } = ctx;
   const vs = makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key });   // #184 live green-screen key
+  const look = makeLookMatch({ THREE, renderer, scene, rig, key }); vs.setLook(look);   // #187 Look match
   // #185 media library (phone side); its Video + Images items also feed the LED wall / VideoVinyl mirrors
   const lib = makePhoneLibrary({ getLink: () => link, onChange: () => refreshMedia() });
   let pickedLed = [], mediaLed = [];
@@ -54,16 +56,25 @@ export function startCamera(ctx) {
     <div id="spO" hidden>
       <div class="info" id="spInfo">…</div>
       <div class="hint" id="spHint"></div>
+      <div class="kp" id="spLook" hidden>
+        <label><input type="checkbox" id="lkOn"> Look match: the gear follows the camera</label>
+        <label>Strength <input type="range" id="lkStr" min="0" max="1" step="0.05"><span id="lkStrV"></span></label>
+        <label>Grain <input type="range" id="lkGrain" min="0" max="1" step="0.05"><span id="lkGrainV"></span></label>
+        <label><input type="checkbox" id="lkRoom"> Room light (the phone measures the real room's light)</label>
+        <div id="lkSt" style="font-weight:500;font-size:12px;color:#8b909a"></div>
+      </div>
       <div class="kp" id="spKey" hidden>
         <label><button id="kAuto">Auto</button><span id="kAutoSt" style="width:auto;flex:1;text-align:left;font-weight:500;font-size:12px;color:#8b909a">Point at the EMPTY green screen first</span></label>
         <label>Strength <input type="range" id="kThr" min="0" max="0.8" step="0.005"><span id="kThrV"></span></label>
         <label>Softness <input type="range" id="kSoft" min="0.02" max="0.4" step="0.005"><span id="kSoftV"></span></label>
         <label>Spill <input type="range" id="kSpill" min="0" max="1" step="0.05"><span id="kSpillV"></span></label>
+        <label>Light wrap <input type="range" id="kWrap" min="0" max="1" step="0.05"><span id="kWrapV"></span></label>
+        <label>Colour match <input type="range" id="kCm" min="0" max="1" step="0.05"><span id="kCmV"></span></label>
         <label><input type="checkbox" id="kMatte"> Show matte (white = kept, black = keyed)</label>
       </div>
       <div class="bar" id="spBar">
         <button id="bCal">Calibrate</button><button id="bFix">Fix (tap X)</button><button id="bL">⟲ 1°</button><button id="bR">1° ⟳</button>
-        <button id="bPlace">Rough place</button><button id="bMark">Head</button><button id="bHands">Hands</button><button id="bSet">Set</button><button id="bKey">Key</button><button id="bHide">Hide UI</button><button id="bExit">Exit</button>
+        <button id="bPlace">Rough place</button><button id="bMark">Head</button><button id="bHands">Hands</button><button id="bSet">Set</button><button id="bKey">Key</button><button id="bLook">Look</button><button id="bHide">Hide UI</button><button id="bExit">Exit</button>
       </div></div>`);
   const $ = s => document.querySelector(s);
   const ov = $('#spO'), hint = $('#spHint');
@@ -121,11 +132,19 @@ export function startCamera(ctx) {
     try { await vs.pick(f); $('#spPanoSt').textContent = f.name + (vs.sameAsQuest() ? '' : ' (not the Quest\'s current picture)') + ': ready for the virtual set.'; }
     catch (err) { $('#spPanoSt').textContent = 'Could not use it: ' + err.message; }
   };
-  for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill']]) {
+  for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill'], ['#kWrap', 'wrap'], ['#kCm', 'cmatch']]) {
     const el = $(id), v = $(id + 'V'); el.value = vs.K[k]; v.textContent = (+vs.K[k]).toFixed(2);
     el.oninput = () => { vs.setKey(k, +el.value); v.textContent = (+el.value).toFixed(2); };
   }
   $('#kMatte').onchange = e => vs.setMatte(e.target.checked);
+  // #187 Look panel
+  $('#lkOn').checked = look.L.on; $('#lkRoom').checked = look.L.room;
+  $('#lkOn').onchange = e => look.set('on', e.target.checked);
+  $('#lkRoom').onchange = e => look.set('room', e.target.checked);
+  for (const [id, k] of [['#lkStr', 'strength'], ['#lkGrain', 'grain']]) {
+    const el = $(id), v = $(id + 'V'); el.value = look.L[k]; v.textContent = Math.round(look.L[k] * 100) + '%';
+    el.oninput = () => { look.set(k, +el.value); v.textContent = Math.round(+el.value * 100) + '%'; };
+  }
   const syncKeyUI = () => { for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill']]) { $(id).value = vs.K[k]; $(id + 'V').textContent = (+vs.K[k]).toFixed(2); } };
   $('#kAuto').onclick = async () => {   // #186
     $('#kAutoSt').textContent = 'Measuring…';
@@ -307,7 +326,7 @@ export function startCamera(ctx) {
     ov.hidden = false;
     try {
       renderer.xr.setReferenceSpaceType('local');
-      const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay', 'camera-access'], domOverlay: { root: ov } });
+      const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay', 'camera-access', 'light-estimation'], domOverlay: { root: ov } });
       $('#spS').style.display = 'none';
       await renderer.xr.setSession(session);
       scene.background = null; room.visible = false; envI = scene.environmentIntensity; scene.environmentIntensity = 0.6;   // #180 (default of the Quest's passthrough setting); like the Quest in passthrough
@@ -315,9 +334,9 @@ export function startCamera(ctx) {
       hitSource = await session.requestHitTestSource({ space: viewer });
       touchSource = await session.requestHitTestSourceForTransientInput({ profile: 'generic-touchscreen' }).catch(() => null);
       session.addEventListener('select', onTap);
-      vs.onSession(session); $('#bSet').classList.remove('on'); $('#bSet').disabled = !vs.S.can;
+      vs.onSession(session); look.onSession(session); $('#bSet').classList.remove('on'); $('#bSet').disabled = !vs.S.can;
       session.addEventListener('end', () => {
-        vs.onEnd(); $('#bSet').classList.remove('on');
+        vs.onEnd(); look.onEnd(); $('#bSet').classList.remove('on');
         hitSource = touchSource = null; ov.hidden = true; $('#spS').style.display = '';
         scene.background = BG; room.visible = true; scene.environmentIntensity = envI;
         if (link && link.isOpen) link.send('ctl', { k: 'cal', step: 'cancel' });
@@ -382,7 +401,8 @@ export function startCamera(ctx) {
   $('#bMark').onclick = () => { showHead = !showHead; $('#bMark').classList.toggle('on', showHead); };
   $('#bHands').onclick = () => { setHandsDebug(!showHands); $('#bHands').classList.toggle('on', showHands); };
   $('#bSet').onclick = async () => { const msg = await vs.setOn(!vs.S.on); $('#bSet').classList.toggle('on', vs.S.on); setMode(mode === 'live' ? 'live' : mode, msg); if (mode !== 'live') setTimeout(() => setMode(mode), 3000); };
-  $('#bKey').onclick = () => { const p = $('#spKey'); p.hidden = !p.hidden; $('#bKey').classList.toggle('on', !p.hidden); };
+  $('#bKey').onclick = () => { const p = $('#spKey'); p.hidden = !p.hidden; $('#bKey').classList.toggle('on', !p.hidden); if (!p.hidden) { $('#spLook').hidden = true; $('#bLook').classList.remove('on'); } };
+  $('#bLook').onclick = () => { const p = $('#spLook'); p.hidden = !p.hidden; $('#bLook').classList.toggle('on', !p.hidden); if (!p.hidden) { $('#spKey').hidden = true; $('#bKey').classList.remove('on'); } };
   $('#bHide').onclick = () => { uiHidden = true; ov.classList.add('hide'); };
   $('#bExit').onclick = () => { const s = renderer.xr.getSession(); if (s) s.end(); };
 
@@ -399,7 +419,7 @@ export function startCamera(ctx) {
   }
   // ---------------------------------------------------------------- loop (replaces main.js's frame())
   const clock = new THREE.Clock();
-  let infoT = 0, camT = 0, found = false;
+  let infoT = 0, camT = 0, found = false, lookT = 0;
   const _m = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _s = new THREE.Vector3();
   renderer.setAnimationLoop((t, frame) => {
     const dt = Math.min(0.05, clock.getDelta()), now = performance.now();
@@ -443,8 +463,10 @@ export function startCamera(ctx) {
         ? `Quest ${stats.xr ? 'in XR' : 'not in XR yet'} · round trip ${stats.rtt.toFixed(0)} ms · pose age ${stale ? 'no data' : stats.age.toFixed(0) + ' ms'} · ${stats.pps}/s · ${nodes.size} parts · ${recs.size} records` + (cal.ok ? ` · cal ${cal.err ?? '-'} cm` : ' · not calibrated') + (vs.S.on ? ` · set ${vs.S.got}/${vs.S.got + vs.S.miss}` + (vs.S.err ? ' ' + vs.S.err : '') : '')
         : 'Not connected to the Quest (' + (STATUS[linkState] || linkState || 'idle') + ')';
     }
+    look.frame(frame, dt, vs.S.on);   // #187 (before vs.frame: it asks for the camera sample)
+    if (t - lookT > 500) { lookT = t; if (!$('#spLook').hidden) $('#lkSt').textContent = look.status(); }
     vs.frame(frame);   // #184: camera picture for the key (only while the virtual set is on)
     renderer.render(scene, camera);
   });
-  window.spect = { vs, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
+  window.spect = { vs, look, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
 }
