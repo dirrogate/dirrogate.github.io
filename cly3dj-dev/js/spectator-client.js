@@ -10,7 +10,6 @@ import { makeVirtualSet } from './vset.js';
 import { makeLookMatch } from './lookmatch.js';
 import { makePhoneLibrary } from './phonelib.js';
 import * as media from './medialib.js';
-import { makeRecorder, draw as drawRot, fmtT } from './recorder.js';
 
 export function startCamera(ctx) {
   const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, skybox, envLight, key } = ctx;
@@ -20,7 +19,7 @@ export function startCamera(ctx) {
   const lib = makePhoneLibrary({ getLink: () => link, onChange: () => refreshMedia() });
   let pickedLed = [], mediaLed = [];
   async function refreshMedia() { const its = [...await media.list('Video'), ...await media.list('Images')]; mediaLed = (await Promise.all(its.map(i => media.getFile(i.folder, i.name)))).filter(Boolean); led.setFiles([...pickedLed, ...mediaLed], 1000); }
-  refreshMedia();
+  refreshMedia(); media.dropTakes();   // #205
   const DELAY = 70;   // ms the mirror runs behind the Quest, so there are always two samples to blend
   // ---------------------------------------------------------------- UI (built here; index.html's own UI is hidden)
   document.head.insertAdjacentHTML('beforeend', `<style>
@@ -38,8 +37,6 @@ export function startCamera(ctx) {
     #spO .info { position:absolute; top:8px; left:8px; right:8px; font:12px/1.4 ui-monospace,monospace; background:rgba(14,16,22,.78); padding:6px 9px; border-radius:8px; }
     #spO .hint { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(14,16,22,.82); padding:8px 12px; border-radius:8px; text-align:center; max-width:80%; }
     #spO .hint.go { border:1px solid #39a8ff; font-weight:600; }
-    #spO .bar button.rec { background:rgba(200,32,44,.9); border-color:#ff5060; color:#fff; }
-    #spRecDot { position:absolute; top:44px; right:10px; font:700 13px system-ui,sans-serif; color:#fff; background:rgba(200,32,44,.85); padding:4px 8px; border-radius:6px; }
     #spO.hide .bar, #spO.hide .info, #spO.hide .hint, #spO.hide .kp { display:none; }
     #spO .kp { position:absolute; left:8px; right:8px; bottom:120px; background:rgba(14,16,22,.85); border:1px solid #2e3850; border-radius:12px; padding:10px 12px; color:#e6e8ec; font:600 14px system-ui,sans-serif; pointer-events:auto; }
     #spO .kp label { display:flex; align-items:center; gap:10px; margin:6px 0; } #spO .kp input[type=range] { flex:1; } #spO .kp span { width:44px; text-align:right; }
@@ -55,11 +52,9 @@ export function startCamera(ctx) {
       <div id="spPanoSt" style="color:#8b909a;font-size:13px;margin-top:6px">For the green-screen virtual set: pick the same 360 picture the Quest shows. Kept on this phone.</div>
       <button id="spLed">Videos: LED wall clips + VideoVinyls (same files as the Quest)…</button><input type="file" id="spLedF" accept="video/*" multiple hidden>
       <div id="spLedList" style="color:#8b909a;font-size:13px;margin-top:6px">Optional: pick the same videos as on the Quest so the LED wall plays here too.</div>
-      <label style="display:flex;gap:8px;align-items:center;margin-top:12px"><input type="checkbox" id="spRecSound"> Recording: phone mic sound</label>
-      <label style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="spRecSave"> Recording: save each take to Downloads too</label>
       <div id="spSt"></div></div></div>
     <div id="spO" hidden>
-      <div class="info" id="spInfo">…</div><div id="spRecDot" hidden></div>
+      <div class="info" id="spInfo">…</div>
       <div class="hint" id="spHint"></div>
       <div class="kp" id="spLook" hidden>
         <label><input type="checkbox" id="lkOn"> Look match: the gear follows the camera</label>
@@ -79,7 +74,7 @@ export function startCamera(ctx) {
       </div>
       <div class="bar" id="spBar">
         <button id="bCal">Calibrate</button><button id="bFix">Fix (tap X)</button><button id="bL">⟲ 1°</button><button id="bR">1° ⟳</button>
-        <button id="bPlace">Rough place</button><button id="bMark">Head</button><button id="bHands">Hands</button><button id="bSet">Set</button><button id="bKey">Key</button><button id="bLook">Look</button><button id="bRec">● REC</button><button id="bRes">720p</button><button id="bHide">Hide UI</button><button id="bExit">Exit</button>
+        <button id="bPlace">Rough place</button><button id="bMark">Head</button><button id="bHands">Hands</button><button id="bSet">Set</button><button id="bKey">Key</button><button id="bLook">Look</button><button id="bHide">Hide UI</button><button id="bExit">Exit</button>
       </div></div>`);
   const $ = s => document.querySelector(s);
   const ov = $('#spO'), hint = $('#spHint');
@@ -167,7 +162,7 @@ export function startCamera(ctx) {
   let lastCst = '', fps = 0, fpsN = 0, fpsT = 0, late = 0, lateN = 0, lastXT = 0; const dts = [];
   function sendCst(force) {
     if (!link || !link.isOpen) return;
-    const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession(), cal: cal.ok, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, late, auto: autoMsg, look: look.status(), rec: rec.status() };
+    const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession(), cal: cal.ok, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, late, auto: autoMsg, look: look.status() };
     const j = JSON.stringify(m); if (force || j !== lastCst) { lastCst = j; link.send('ctl', m); }
   }
   const LIM = { thr: [0, 0.8], soft: [0.02, 0.4], spill: [0, 1], wrap: [0, 1], cmatch: [0, 1], strength: [0, 1], grain: [0, 1] };
@@ -179,76 +174,45 @@ export function startCamera(ctx) {
     else if (m.what === 'matte') { matteOn = !!m.v; vs.setMatte(matteOn); $('#kMatte').checked = matteOn; }
     else if (m.what === 'auto') { await runAuto(); return; }
     else if (m.what === 'preview') pvOn = !!m.v;
-    else if (m.what === 'rec') { if (m.v) await startRec(); else await rec.stop(); }   // #203
-    else if (m.what === 'recres') rec.set('res', m.v);
     sendCst(true);
   }
-  // ---- #188 headset preview + #203 in-app recorder. Both use a frame Cly3DJ composes itself: the camera picture and
-  // the gear drawn into the WebGL canvas's own framebuffer (not on screen during AR), BEFORE the AR frame, then copied
-  // into a 2D canvas (GPU copy, no read-back). #203 replaced the preview's readPixels, which made the phone wait for its
-  // graphics chip mid-frame; a late AR frame shows the bare camera, which is what blinked in the screen recordings.
-  // The preview is turned upright when the phone is held on its side (rotDir), and sent about 4 times a second.
-  let pvOn = false, pvT = 0, pvBusy = false;
-  const rec = makeRecorder(); rec.onChange = () => { recUI(); sendCst(true); };
-  const recCam = new THREE.PerspectiveCamera(); recCam.matrixAutoUpdate = false; recCam.layers.mask = 3;   // layers 0 + 1 (mono)
-  const pvCanvas = document.createElement('canvas'), pvCtx = pvCanvas.getContext('2d', { alpha: false });
-  const _vp = new THREE.Vector4(), _cc = new THREE.Color();
-  let rotDir = 0;   // which edge of the phone is up: 0 = held upright, 1 = its right edge, -1 = its left edge
-  function viewCam(frame) {
-    const pose = frame.getViewerPose(renderer.xr.getReferenceSpace()), v = pose && pose.views[0]; if (!v) return null;
-    recCam.projectionMatrix.fromArray(v.projectionMatrix); recCam.projectionMatrixInverse.copy(recCam.projectionMatrix).invert();
-    recCam.matrixWorld.fromArray(v.transform.matrix); if (camera.parent) recCam.matrixWorld.premultiply(camera.parent.matrixWorld);
-    recCam.matrixWorldInverse.copy(recCam.matrixWorld).invert();
-    const m = v.transform.matrix, a = Math.atan2(m[1], m[5]) * 180 / Math.PI;   // 0 = upright, +90 = right edge up
-    rotDir = rotDir === 0 ? (a > 55 ? 1 : a < -55 ? -1 : 0) : rotDir === 1 ? (a < 35 ? (a < -55 ? -1 : 0) : 1) : (a > -35 ? (a > 55 ? 1 : 0) : -1);
-    return v;
-  }
-  function compose(W, H) {
-    const cv = renderer.domElement;
-    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  // ---- #188 headset preview: every ~150 ms a 480 px tall copy of what this phone shows, as a JPEG on the 'prev' channel
+  // (#205: back to this, the #203 in-app recorder and its compose() are gone. It runs after the AR frame; #204 keeps
+  // that frame on screen. Held on its side, the picture is turned upright before it is sent.)
+  let pvOn = false, pvT = 0, pvBusy = false, rotDir = 0;   // rotDir: 0 = phone upright, 1 = its right edge up, -1 = its left edge up
+  const pvRT = new THREE.WebGLRenderTarget(4, 4); pvRT.texture.colorSpace = THREE.SRGBColorSpace;   // sRGB storage: the GPU encodes on write, readPixels gives display bytes
+  const pvCam = new THREE.PerspectiveCamera(); pvCam.matrixAutoUpdate = false;
+  const pvCanvas = document.createElement('canvas'), pvCtx = pvCanvas.getContext('2d');
+  const pvTurn = document.createElement('canvas'), pvTurnCtx = pvTurn.getContext('2d');
+  let pvBuf = null;
+  function renderPreview(now) {
+    pvT = now; if (pvBusy) return;
+    const xc = renderer.xr.getCamera(), c0 = xc && xc.cameras && xc.cameras[0]; if (!c0) return;
+    const P = c0.projectionMatrix.elements, H = 480, W = Math.max(64, Math.round(H * P[5] / P[0] / 2) * 2);
+    if (pvRT.width !== W || pvRT.height !== H) { pvRT.setSize(W, H); pvCanvas.width = W; pvCanvas.height = H; pvBuf = new Uint8Array(W * H * 4); }
+    pvCam.projectionMatrix.copy(c0.projectionMatrix); pvCam.projectionMatrixInverse.copy(c0.projectionMatrixInverse);
+    pvCam.matrixWorld.copy(c0.matrixWorld); pvCam.matrixWorldInverse.copy(c0.matrixWorldInverse); pvCam.layers.mask = c0.layers.mask;
     const raw = !vs.S.on && vs.S.pvReady, qv = vs.quad.visible, rv = reticle.visible, xv = xMark.visible;
     if (raw) { vs.quad.visible = true; vs.mat.uniforms.raw.value = 1; }
     reticle.visible = xMark.visible = false;
-    renderer.getViewport(_vp); renderer.getClearColor(_cc); const ca = renderer.getClearAlpha(), sm = renderer.shadowMap.autoUpdate;
-    // opaque black under everything (AR clears to alpha 0, and a see-through canvas copies as washed-out colour);
-    // the shadow map from the AR frame is reused (re-rendering it here doubled the cost)
-    renderer.setClearColor(0x000000, 1); renderer.shadowMap.autoUpdate = false;
-    renderer.xr.enabled = false; renderer.setRenderTarget(null); renderer.setViewport(0, 0, W, H); renderer.clear(); renderer.render(scene, recCam);
-    renderer.setViewport(_vp); renderer.xr.enabled = true; renderer.setClearColor(_cc, ca); renderer.shadowMap.autoUpdate = sm;
+    renderer.xr.enabled = false; renderer.setRenderTarget(pvRT); renderer.clear(); renderer.render(scene, pvCam); renderer.setRenderTarget(null); renderer.xr.enabled = true;
     vs.quad.visible = qv; vs.mat.uniforms.raw.value = 0; reticle.visible = rv; xMark.visible = xv;
-    return cv;
-  }
-  function sendPreview(src, sw, sh, rot, now) {
-    pvT = now;
-    const ow = rot ? sh : sw, oh = rot ? sw : sh, k = Math.min(640 / Math.max(ow, oh), 300 / Math.min(ow, oh));
-    const W = Math.round(ow * k / 2) * 2, H = Math.round(oh * k / 2) * 2;
-    if (pvCanvas.width !== W || pvCanvas.height !== H) { pvCanvas.width = W; pvCanvas.height = H; }
-    drawRot(pvCtx, src, sw, sh, rot, W, H); pvBusy = true;
-    pvCanvas.toBlob(b => { if (!b) { pvBusy = false; return; } b.arrayBuffer().then(buf => { if (link) link.sendPrev(buf); pvBusy = false; }); }, 'image/jpeg', 0.6);
-  }
-  function composed(frame, now, pvNeed) {   // per AR frame, before the AR render
-    const v = viewCam(frame); if (!v) return;
-    const P = v.projectionMatrix, a = P[5] / P[0];   // view width / height
-    if (rec.R.on) {
-      const sz = rec.sizeFor(a, Math.min(vs.S.camW || 0, vs.S.camH || 0)), cv = compose(sz.w, sz.h);
-      rec.push(cv, sz.w, sz.h, rotDir);
-      if (pvNeed) sendPreview(cv, sz.w, sz.h, rec.R.rot, now);
-    } else if (pvNeed) {
-      const s = 300, w = a < 1 ? s : Math.round(s * a / 2) * 2, h = a < 1 ? Math.round(s / a / 2) * 2 : s;
-      sendPreview(compose(w, h), w, h, rotDir, now);
+    renderer.readRenderTargetPixels(pvRT, 0, 0, W, H, pvBuf);
+    const img = pvCtx.createImageData(W, H), row = W * 4;
+    for (let y = 0; y < H; y++) { img.data.set(pvBuf.subarray((H - 1 - y) * row, (H - y) * row), y * row); }
+    for (let i = 3; i < img.data.length; i += 4) img.data[i] = 255;
+    pvCtx.putImageData(img, 0, 0); pvBusy = true;
+    // #205 which edge of the phone is up (dead zone so it doesn't flip at 45 deg); on its side = turn the picture upright
+    const m = c0.matrixWorld.elements, a = Math.atan2(m[1], m[5]) * 180 / Math.PI;
+    rotDir = rotDir === 0 ? (a > 55 ? 1 : a < -55 ? -1 : 0) : rotDir === 1 ? (a < 35 ? (a < -55 ? -1 : 0) : 1) : (a > -35 ? (a > 55 ? 1 : 0) : -1);
+    let out = pvCanvas;
+    if (rotDir) {
+      if (pvTurn.width !== H || pvTurn.height !== W) { pvTurn.width = H; pvTurn.height = W; }
+      const g = pvTurnCtx; g.setTransform(1, 0, 0, 1, 0, 0);
+      if (rotDir === 1) { g.translate(0, W); g.rotate(-Math.PI / 2); } else { g.translate(H, 0); g.rotate(Math.PI / 2); }
+      g.drawImage(pvCanvas, 0, 0); g.setTransform(1, 0, 0, 1, 0, 0); out = pvTurn;
     }
-  }
-  async function startRec() {
-    if (!renderer.xr.getSession()) { rec.R.err = 'start the camera (AR) first'; recUI(); sendCst(true); return; }
-    if (!vs.S.can) { rec.R.err = 'this AR session has no camera access (restart the camera and allow it)'; recUI(); sendCst(true); return; }
-    await rec.start();
-  }
-  function recUI() {
-    const s = rec.status(), b = $('#bRec'); if (!b) return;
-    b.classList.toggle('rec', s.on); b.textContent = s.on ? `■ ${fmtT(s.t)}` : '● REC';
-    $('#bRes').textContent = { 720: '720p', 1080: '1080p', full: 'Full' }[s.res]; $('#bRes').disabled = s.on;
-    const d = $('#spRecDot'); d.hidden = !s.on; d.textContent = `● REC ${fmtT(s.t)} · ${s.mb} MB`;
-    if (s.err || (!s.on && s.last)) setMode(mode, s.err ? 'Recording: ' + s.err : 'Saved: ' + s.last + (rec.R.save ? ' (also in Downloads)' : ' (Library > Takes)'));
+    out.toBlob(b => { if (!b) { pvBusy = false; return; } b.arrayBuffer().then(buf => { if (link) link.sendPrev(buf); pvBusy = false; }); }, 'image/jpeg', 0.6);
   }
   $('#spCamTest').onclick = () => import('./camtest.js').then(m => m.camTest()).catch(e => st('Camera test failed: ' + e.message));   // #183
   $('#spLedF').onchange = e => {   // #176: same file names as on the Quest; matched by name
@@ -414,23 +378,42 @@ export function startCamera(ctx) {
     calQX: 'Calibrate 3/3 (DJ): touch the floor mark with the controller tip, pull the trigger.',
     fix: 'Fix: tap the floor mark on the screen again.',
   };
-  // #204 (owner): while placing / calibrating / fixing, the gear is see-through (50 %) so the floor mark under the
-  // virtual flight case stays visible
+  // #204 (owner): while placing / calibrating / fixing, the gear gets out of the way so the floor mark shows.
+  // #205 (owner): only outline boxes at 25 %: every piece of gear stops drawing (colour and depth writes off, so the
+  // Quest's show / hide of parts is untouched) and a thin box is drawn round each one (in its own frame, so it turns
+  // and moves with it). Restored when calibration ends.
   const GHOST = new Set(['place', 'calX', 'calLens', 'calQX', 'fix']);
-  let ghosted = false;
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x39e0ff, transparent: true, opacity: 0.25, depthTest: false, depthWrite: false });
+  let ghosted = false, outlines = [];
+  const _gm = new THREE.Matrix4(), _gb = new THREE.Box3(), _gs = new THREE.Vector3(), _gc = new THREE.Vector3();
   function ghost(on) {
     if (on === ghosted) return; ghosted = on;
+    for (const l of outlines) { l.parent && l.parent.remove(l); l.geometry.dispose(); } outlines = [];
     const seen = new Set();
     rig.traverse(o => {
       if (!o.isMesh || !o.material) return;
       for (const mt of Array.isArray(o.material) ? o.material : [o.material]) {
         if (seen.has(mt)) continue; seen.add(mt);
-        if (on) { mt.userData.ghost = { t: mt.transparent, o: mt.opacity, d: mt.depthWrite }; mt.transparent = true; mt.opacity = mt.opacity * 0.5; mt.depthWrite = false; }
-        else if (mt.userData.ghost) { const g = mt.userData.ghost; mt.transparent = g.t; mt.opacity = g.o; mt.depthWrite = g.d; delete mt.userData.ghost; }
-        else continue;
-        mt.needsUpdate = true;
+        if (on) { mt.userData.ghost = { c: mt.colorWrite, d: mt.depthWrite }; mt.colorWrite = false; mt.depthWrite = false; }
+        else if (mt.userData.ghost) { mt.colorWrite = mt.userData.ghost.c; mt.depthWrite = mt.userData.ghost.d; delete mt.userData.ghost; }
       }
     });
+    if (!on) return;
+    rig.updateMatrixWorld(true);
+    for (const top of rig.children) {   // one box per piece of gear (decks, mixer, crates, case, sign, LED wall)
+      if (!top.visible || top === skybox.group || top.isLight) continue;
+      const box = new THREE.Box3(), inv = _gm.copy(top.matrixWorld).invert();
+      top.traverse(o => {
+        if (!o.isMesh || !o.visible || !o.geometry || (o.material && o.material.userData.ghost && o.material.userData.ghost.c === false)) return;   // skip depth-only hand shapes
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        _gb.copy(o.geometry.boundingBox).applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld)); box.union(_gb);
+      });
+      if (box.isEmpty()) continue;
+      box.getSize(_gs); box.getCenter(_gc);
+      if (_gs.x < 0.02 && _gs.y < 0.02 && _gs.z < 0.02) continue;
+      const l = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(Math.max(_gs.x, 0.002), Math.max(_gs.y, 0.002), Math.max(_gs.z, 0.002))), lineMat);
+      l.position.copy(_gc); l.renderOrder = 20; l.raycast = () => {}; top.add(l); outlines.push(l);
+    }
   }
   function setMode(m, text) {
     mode = m; ghost(GHOST.has(m)); hint.textContent = text || HINTS[m] || ''; hint.style.display = (m === 'live' && !text) ? 'none' : '';
@@ -442,7 +425,6 @@ export function startCamera(ctx) {
 
   $('#spAR').onclick = async () => {
     ov.hidden = false;
-    if (rec.R.sound) rec.ensureMic();   // #203 ask for the mic now (a tap), not mid-take
     try {
       renderer.xr.setReferenceSpaceType('local');
       const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay', 'camera-access', 'light-estimation'], domOverlay: { root: ov } });
@@ -455,7 +437,7 @@ export function startCamera(ctx) {
       session.addEventListener('select', onTap);
       vs.onSession(session); look.onSession(session); $('#bSet').classList.remove('on'); $('#bSet').disabled = !vs.S.can;
       session.addEventListener('end', () => {
-        vs.onEnd(); look.onEnd(); $('#bSet').classList.remove('on'); rec.stop();   // #203
+        vs.onEnd(); look.onEnd(); $('#bSet').classList.remove('on');
         hitSource = touchSource = null; ov.hidden = true; $('#spS').style.display = '';
         scene.background = BG; room.visible = true; scene.environmentIntensity = envI;
         if (link && link.isOpen) link.send('ctl', { k: 'cal', step: 'cancel' });
@@ -523,12 +505,6 @@ export function startCamera(ctx) {
   $('#bSet').onclick = () => toggleSet(!vs.S.on);
   $('#bKey').onclick = () => { const p = $('#spKey'); p.hidden = !p.hidden; $('#bKey').classList.toggle('on', !p.hidden); if (!p.hidden) { $('#spLook').hidden = true; $('#bLook').classList.remove('on'); } };
   $('#bLook').onclick = () => { const p = $('#spLook'); p.hidden = !p.hidden; $('#bLook').classList.toggle('on', !p.hidden); if (!p.hidden) { $('#spKey').hidden = true; $('#bKey').classList.remove('on'); } };
-  $('#bRec').onclick = () => (rec.R.on ? rec.stop() : startRec());   // #203
-  $('#bRes').onclick = () => { const o = ['720', '1080', 'full']; rec.set('res', o[(o.indexOf(rec.R.res) + 1) % 3]); };
-  $('#spRecSound').checked = rec.R.sound; $('#spRecSound').onchange = e => { rec.set('sound', e.target.checked); if (e.target.checked) rec.ensureMic(); };
-  $('#spRecSave').checked = rec.R.save; $('#spRecSave').onchange = e => rec.set('save', e.target.checked);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) rec.stop(); });
-  recUI();
   $('#bHide').onclick = () => { uiHidden = true; ov.classList.add('hide'); };
   $('#bExit').onclick = () => { const s = renderer.xr.getSession(); if (s) s.end(); };
 
@@ -550,8 +526,8 @@ export function startCamera(ctx) {
   renderer.setAnimationLoop((t, frame) => {
     const dt = Math.min(0.05, clock.getDelta()), now = performance.now();
     // #204 three.js binds the AR layer's framebuffer once, just before this callback. Anything that calls
-    // renderer.resetState() or setRenderTarget() in between (the camera-picture copy in vset.js, Look match's sample,
-    // the preview / recorder compose) unbinds it, and the AR frame was then drawn into the hidden canvas instead: the
+    // renderer.resetState() or setRenderTarget() in between (the camera-picture copy in vset.js, Look match's sample)
+    // unbinds it, and the AR frame was then drawn into the hidden canvas instead: the
     // phone showed the bare camera for that frame. That was the flicker. It is re-bound just before the AR render.
     const xrRT = renderer.getRenderTarget();
     if (frame) {
@@ -596,18 +572,16 @@ export function startCamera(ctx) {
     }
     look.frame(frame, dt, vs.S.on);   // #187 (before vs.frame: it asks for the camera sample)
     if (t - lookT > 500) { lookT = t; if (!$('#spLook').hidden) $('#lkSt').textContent = look.status(); }
-    vs.S.pvNeed = !!(pvOn && !pvBusy && frame && link && link.isOpen && now - pvT > 250);   // #188 (#203: 4 a second)
-    vs.S.recNeed = !!(rec.R.on && frame);   // #203
-    vs.frame(frame);   // #184: camera picture for the key / preview / recorder
-    if (frame && (vs.S.recNeed || vs.S.pvNeed)) composed(frame, now, vs.S.pvNeed);   // #203 before the AR frame
+    vs.S.pvNeed = !!(pvOn && frame && link && link.isOpen && now - pvT > 150);   // #188
+    vs.frame(frame);   // #184: camera picture for the key / preview
     if (frame) renderer.setRenderTarget(xrRT);   // #204 back to the AR layer
     renderer.render(scene, camera);
-    if (!frame && rec.R.on) { const c = renderer.domElement; rec.push(c, c.width, c.height, 0); }   // PC test (no AR): the page's own view
+    if (vs.S.pvNeed) renderPreview(now);   // #188 (after the AR frame)
     if (frame) {   // #203 late AR frames (each one shows as a flash of bare camera on the phone's screen)
       if (lastXT) { const d = t - lastXT; dts.push(d); if (dts.length > 60) dts.shift(); const md = [...dts].sort((x, y) => x - y)[dts.length >> 1]; if (dts.length > 10 && d > md * 1.5) lateN++; }
       lastXT = t;
     } else lastXT = 0;
-    fpsN++; if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; late = lateN; lateN = 0; if (rec.R.on) recUI(); sendCst(); }
+    fpsN++; if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; late = lateN; lateN = 0; sendCst(); }
   });
-  window.spect = { vs, look, rec, compose, _ghost: on => ghost(on), _composed: (f, now, pv) => composed(f, now, pv), _recCam: recCam, get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
+  window.spect = { vs, look, renderPreview, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
 }

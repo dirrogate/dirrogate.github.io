@@ -151,8 +151,7 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
     const lookCam = !!(look && look.wantsCam() && S.can);   // #187 Look match: a 32 px copy every 8th frame
     S.pvReady = false;
     if (pending.length) pollAsync();   // #203
-    // #188 pvNeed: a headset preview frame is due; #203 recNeed: the in-app recorder is running
-    if (!fr || !(S.on || autoCb || lookCam || S.pvNeed || S.recNeed)) return;
+    if (!fr || !(S.on || autoCb || lookCam || S.pvNeed)) return;   // #188 pvNeed: a headset preview frame is due
     const session = renderer.xr.getSession(); if (!session) return;
     if (!binding) binding = new XRWebGLBinding(session, gl);
     const pose = fr.getViewerPose(renderer.xr.getReferenceSpace()), view = pose && pose.views[0];
@@ -165,8 +164,7 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
       if (!S.on) return;
     }
     if (lookCam) { try { sampleAsync(src, view.camera.width, view.camera.height, 32, px => look.onCamera(px)); } catch { renderer.resetState(); } }   // #203 in the background
-    if (!S.on && !S.pvNeed && !S.recNeed) return;
-    S.camW = view.camera.width; S.camH = view.camera.height;
+    if (!S.on && !S.pvNeed) return;
     if (S.on) S.got++;
     if (blitOK && grab(src, view.camera.width, view.camera.height)) camProps.__webglTexture = own;
     else { blitOK = false; camProps.__webglTexture = src; }   // fallback: use it directly (no hold on a missed frame)
