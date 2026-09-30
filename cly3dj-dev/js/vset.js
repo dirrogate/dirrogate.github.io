@@ -10,7 +10,7 @@ import * as media from './medialib.js';
 
 const FRAG = /* glsl */`
 uniform sampler2D cam;
-uniform float thr, soft, spill, matte;
+uniform float thr, soft, spill, matte, raw;   // #188 raw: the camera as it is (headset preview with the set off)
 uniform vec3 panoCol, panoTint;   // #187 the pano's average colour (display values) and its cast (average / brightness)
 uniform float wrap, cmatch; uniform vec2 texel;
 varying vec2 vUv;
@@ -21,6 +21,11 @@ float keptAt(vec2 uv) { return 1.0 - smoothstep(thr, thr + soft, keyOf(texture2D
 vec3 lin(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
 void main() {
   vec3 c = texture2D(cam, vUv).rgb;                  // camera values are display (sRGB) values
+  if (raw > 0.5) {
+    gl_FragColor = vec4(lin(c), 1.0);
+    #include <colorspace_fragment>
+    return;
+  }
   float g = keyOf(c);                                 // #186 greenness relative to brightness (see keyOf)
   float a = 1.0 - smoothstep(thr, thr + soft, g);     // 1 = keep (the DJ), 0 = green screen
   float m = max(c.r, c.b);
@@ -53,7 +58,7 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
   const camTex = new THREE.Texture(); camTex.colorSpace = THREE.NoColorSpace;
   const camProps = renderer.properties.get(camTex);
   const mat = new THREE.ShaderMaterial({
-    uniforms: { cam: { value: camTex }, thr: { value: K.thr }, soft: { value: K.soft }, spill: { value: K.spill }, matte: { value: 0 },
+    uniforms: { cam: { value: camTex }, thr: { value: K.thr }, soft: { value: K.soft }, spill: { value: K.spill }, matte: { value: 0 }, raw: { value: 0 },
       wrap: { value: K.wrap }, cmatch: { value: K.cmatch }, panoCol: { value: new THREE.Vector3(0.5, 0.5, 0.5) }, panoTint: { value: new THREE.Vector3(1, 1, 1) }, texel: { value: new THREE.Vector2(1 / 861, 1 / 1920) } },
     vertexShader: VERT, fragmentShader: FRAG, depthTest: false, depthWrite: false, toneMapped: false,
     // stays in the opaque pass (so the gear draws after it) but blends by the key; alpha of the frame stays 1
@@ -109,7 +114,8 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
   }
   function frame(fr) {   // call once per XR frame, before rendering
     const lookCam = !!(look && look.wantsCam() && S.can);   // #187 Look match: a 32 px copy every 8th frame
-    if (!fr || !(S.on || autoCb || lookCam)) return;
+    S.pvReady = false;
+    if (!fr || !(S.on || autoCb || lookCam || S.pvNeed)) return;   // #188 pvNeed: a headset preview frame is due
     const session = renderer.xr.getSession(); if (!session) return;
     if (!binding) binding = new XRWebGLBinding(session, gl);
     const pose = fr.getViewerPose(renderer.xr.getReferenceSpace()), view = pose && pose.views[0];
@@ -122,10 +128,12 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
       if (!S.on) return;
     }
     if (lookCam) { try { look.onCamera(sample(src, view.camera.width, view.camera.height, 32)); } catch { renderer.resetState(); } }
-    if (!S.on) return;
-    S.got++;
-    if (blitOK && grab(src, view.camera.width, view.camera.height)) { camProps.__webglTexture = own; quad.visible = true; }
-    else { blitOK = false; camProps.__webglTexture = src; quad.visible = true; }   // fallback: use it directly (no hold on a missed frame)
+    if (!S.on && !S.pvNeed) return;
+    if (S.on) S.got++;
+    if (blitOK && grab(src, view.camera.width, view.camera.height)) camProps.__webglTexture = own;
+    else { blitOK = false; camProps.__webglTexture = src; }   // fallback: use it directly (no hold on a missed frame)
+    if (S.on) quad.visible = true;
+    S.pvReady = true;
   }
 
   // ---- panorama (picked on the phone; height / turn / type follow the Quest)

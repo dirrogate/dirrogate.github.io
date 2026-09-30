@@ -604,10 +604,18 @@ diffuseColor.rgb = diffuseColor.rgb * vireHs * 1.5 + vec3(0.45) * smoothstep(0.7
   // screen on a stand behind the mixer, tilted toward the DJ
   // tilted back 25 deg (owner, #115: 35 was too far; #89 had raised it from 20)
   const TILT = -25 * Math.PI / 180;
-  const stand = box(0.2, 0.08, 0.02, MAT.black); stand.position.set(0, top + 0.03, -0.185); stand.rotation.x = TILT; g.add(stand);
+  // #189 (owner): the display is a tablet. Grip (or pinch) its frame to pick it up and hold it like an iPad; let go
+  // and it stays in the air where it is, or snaps back into a very shallow slot along the mixer's back edge when let
+  // go within 8 cm of it. Docked, it sits exactly where the #115 stand was. Same size as before (owner: not wider).
+  const tab = new THREE.Group(); tab.name = 'tablet';
+  tab.position.set(0, top + 0.03, -0.185); tab.rotation.x = TILT; g.add(tab);
+  const stand = box(0.2, 0.08, 0.02, MAT.black); tab.add(stand);   // the tablet's body
   const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.075), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
-  scr.position.set(0, top + 0.03 + 0.0115 * Math.sin(-TILT), -0.185 + 0.0115 * Math.cos(TILT));   // 1.5 mm proud of the stand's face, along its normal
-  scr.rotation.x = TILT; g.add(scr); u.screen = scr; scr.userData.mixScreen = true;   // BPM / ORIG / KEY readout taps (#116)
+  scr.position.set(0, 0, 0.0115);   // 1.5 mm proud of the body's face
+  tab.add(scr); u.screen = scr; scr.userData.mixScreen = true;   // BPM / ORIG / KEY readout taps (#116)
+  u.tablet = tab; u.tabletDock = { p: tab.position.clone(), q: tab.quaternion.clone() };
+  const slot = box(0.206, 0.0012, 0.016, new THREE.MeshStandardMaterial({ color: 0x030303, roughness: 0.95, metalness: 0 }));   // the slot (1.2 mm)
+  slot.position.set(0, top + 0.0006, -0.168); slot.raycast = () => {}; g.add(slot);
   // #115: the fake refraction / bevel-edge shader from #89 is removed (read as an artifact at the border)
   // glass plate over the readout (owner, 26 Sep): 2 mm in front of the screen, a touch larger. Black base with
   // additive blending, so it only ADDS its reflection (Fresnel: faint face-on, stronger at grazing angles) and

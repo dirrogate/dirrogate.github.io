@@ -6,6 +6,7 @@
 // connections but no longer forwards messages, 29 Sep 2026.)
 // Two channels: 'state' (unordered, no retransmits: a late pose is useless) and 'ctl' (reliable).
 // #185: a third, 'file' (reliable, binary): media library pushes from the phone, 64 KB chunks with backpressure.
+// #188: a fourth, 'prev' (unordered, no retransmits, binary): the phone's small preview JPEGs for the headset.
 
 const RELAY = 'https://ntfy.sh/';
 const ICE = [{ urls: 'stun:stun.l.google.com:19302' }];
@@ -47,14 +48,15 @@ class Pipe {
   wire(c) {
     this.ch[c.label] = c; c.binaryType = 'arraybuffer';
     if (c.label === 'file') c.bufferedAmountLowThreshold = 1 << 20;
-    c.onopen = () => { if (c.label !== 'file' && this.ch.state && this.ch.ctl && this.ch.state.readyState === 'open' && this.ch.ctl.readyState === 'open') this.h.onOpen && this.h.onOpen(); };
-    c.onmessage = e => { if (typeof e.data !== 'string') { this.h.onBinary && this.h.onBinary(e.data); return; } let m; try { m = JSON.parse(e.data); } catch { return; } this.h.onMessage && this.h.onMessage(m, c.label); };
-    c.onclose = () => { if (c.label !== 'file') this.h.onClose && this.h.onClose(); };
+    c.onopen = () => { if (c.label !== 'file' && c.label !== 'prev' && this.ch.state && this.ch.ctl && this.ch.state.readyState === 'open' && this.ch.ctl.readyState === 'open') this.h.onOpen && this.h.onOpen(); };
+    c.onmessage = e => { if (typeof e.data !== 'string') { this.h.onBinary && this.h.onBinary(e.data, c.label); return; } let m; try { m = JSON.parse(e.data); } catch { return; } this.h.onMessage && this.h.onMessage(m, c.label); };
+    c.onclose = () => { if (c.label !== 'file' && c.label !== 'prev') this.h.onClose && this.h.onClose(); };
   }
   async call() { // spectator side: make the channels and the offer
     this.wire(this.pc.createDataChannel('state', { ordered: false, maxRetransmits: 0 }));
     this.wire(this.pc.createDataChannel('ctl'));
     this.wire(this.pc.createDataChannel('file'));   // #185
+    this.wire(this.pc.createDataChannel('prev', { ordered: false, maxRetransmits: 0 }));   // #188
     await this.pc.setLocalDescription(await this.pc.createOffer());
     await this.gathered();
     this.relay.send('OFFER', this.remote, { sdp: this.pc.localDescription.toJSON() });
@@ -85,6 +87,8 @@ class Pipe {
       c.addEventListener('bufferedamountlow', () => { clearInterval(t); res(); }, { once: true }); });
     c.send(buf);
   }
+  // #188: preview frame; dropped (false) when the previous one hasn't gone yet
+  sendPrev(buf) { const c = this.ch.prev; if (!c || c.readyState !== 'open' || c.bufferedAmount > 65536) return false; c.send(buf); return true; }
   get fileOpen() { return !!(this.ch.file && this.ch.file.readyState === 'open'); }
   get isOpen() { return !!(this.ch.state && this.ch.state.readyState === 'open' && this.ch.ctl && this.ch.ctl.readyState === 'open'); }
   close() { try { this.pc.close(); } catch {} }
@@ -115,5 +119,6 @@ export function spectatorLink(code, handlers) {
       const p0 = pipe; setTimeout(() => { if (pipe === p0 && !p0.isOpen && p0.pc.connectionState !== 'connecting') handlers.onStatus && handlers.onStatus('quest-offline'); }, 12000); } });
   return { send: (l, o) => !!pipe && pipe.send(l, o), get isOpen() { return !!pipe && pipe.isOpen; }, get fileOpen() { return !!pipe && pipe.fileOpen; },
     sendBin: buf => pipe ? pipe.sendBin(buf) : Promise.reject(new Error('not connected')),
+    sendPrev: buf => !!pipe && pipe.sendPrev(buf),
     close() { relay.close(); if (pipe) pipe.close(); } };
 }

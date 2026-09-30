@@ -182,6 +182,17 @@ export function setupXR(ctx) {
         ctx.pressControl({ deck: d.name, id: 'target' }); st.direct = { kind: 'tap' }; buzz(st, 0.5, 30); return true;
       }
     }
+    // 0a. #189 the mixer's tablet: grip (controllers) or pinch (hands) on its frame picks it up; it keeps its pose
+    //     relative to the hand while held (main.js places it; it stays a child of the mixer so the phone mirrors it)
+    if (btn === 'grip' || st.isHand) {
+      const tb = ctx.mixer.userData.tablet, l = tb && tb.worldToLocal(v2.copy(P));
+      if (l && Math.abs(l.x) < 0.115 && Math.abs(l.y) < 0.05 && l.z > -0.035 && l.z < 0.035) {
+        updateAnchor(st);
+        tb.updateMatrixWorld();
+        st.direct = { kind: 'tablet', off: new THREE.Matrix4().copy(st.anchor.matrixWorld).invert().multiply(tb.matrixWorld) };
+        ctx.tabletGrab && ctx.tabletGrab(); buzz(st, 0.4, 25); return true;
+      }
+    }
     // 0b. 33 / 45, controllers only: trigger (or grip) at the button, never by hovering (owner, #64)
     if (!st.isHand) {
       let best = null, bd = 0.016;
@@ -404,6 +415,8 @@ export function setupXR(ctx) {
       const now = performance.now();
       if (g.lastP) { const dtm = Math.max(0.004, (now - g.lastT) / 1000), v = v1.copy(P).sub(g.lastP).divideScalar(dtm); g.vel = g.vel ? g.vel.lerp(v, 0.4) : v.clone(); }
       g.lastP = (g.lastP || new THREE.Vector3()).copy(P); g.lastT = now;
+    } else if (g.kind === 'tablet') {   // #189
+      updateAnchor(st); ctx.tabletHold(new THREE.Matrix4().multiplyMatrices(st.anchor.matrixWorld, g.off));
     } else if (g.kind === 'power') {
       const dy = wrap(yawOf(handQuat(st, q1)) - g.yaw0);
       if (!g.done && Math.abs(dy) > 0.35) { ctx.setPower(g.d, g.d.power === false); g.done = true; buzz(st, 0.6, 40); }
@@ -426,6 +439,7 @@ export function setupXR(ctx) {
     else if (g.kind === 'held') { const h = ctx.getHeld(); if (h && h.attach === st.anchor) ctx.releaseHeld(); }
     else if (g.kind === 'move') { ctx.stage.endMove(g.stMove); if (!(g.target.startsWith('milk') && g.vel && g.vel.length() > 1.2)) ctx.settleStack(g.target); if (g.target.startsWith('milk')) ctx.releaseMilk(g.target, g.vel); }
     else if (g.kind === 'lid') ctx.lidRelease();
+    else if (g.kind === 'tablet') { if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
     else if (g.kind === 'ledScale') {
       const o = g.R.a === st ? g.R.b : g.R.a;
       if (o.direct && o.direct.kind === 'ledScale') o.direct = null;

@@ -95,7 +95,7 @@ export function startCamera(ctx) {
     link = spectatorLink(code, {
       onStatus: s => { linkState = s; st(STATUS[s] || s); },
       onState: s => { linkState = s; st(STATUS[s] || s); },
-      onOpen: () => { linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; lib.onLinkOpen(); },
+      onOpen: () => { linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; lib.onLinkOpen(); sendCst(true); },
       onClose: () => { linkState = 'disconnected'; st(STATUS.disconnected); },
       onMessage: onMsg,
     });
@@ -134,23 +134,73 @@ export function startCamera(ctx) {
   };
   for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill'], ['#kWrap', 'wrap'], ['#kCm', 'cmatch']]) {
     const el = $(id), v = $(id + 'V'); el.value = vs.K[k]; v.textContent = (+vs.K[k]).toFixed(2);
-    el.oninput = () => { vs.setKey(k, +el.value); v.textContent = (+el.value).toFixed(2); };
+    el.oninput = () => { vs.setKey(k, +el.value); v.textContent = (+el.value).toFixed(2); sendCst(); };
   }
-  $('#kMatte').onchange = e => vs.setMatte(e.target.checked);
+  let matteOn = false, autoMsg = '';
+  $('#kMatte').onchange = e => { matteOn = e.target.checked; vs.setMatte(matteOn); };
   // #187 Look panel
   $('#lkOn').checked = look.L.on; $('#lkRoom').checked = look.L.room;
-  $('#lkOn').onchange = e => look.set('on', e.target.checked);
-  $('#lkRoom').onchange = e => look.set('room', e.target.checked);
+  $('#lkOn').onchange = e => { look.set('on', e.target.checked); sendCst(); };
+  $('#lkRoom').onchange = e => { look.set('room', e.target.checked); sendCst(); };
   for (const [id, k] of [['#lkStr', 'strength'], ['#lkGrain', 'grain']]) {
     const el = $(id), v = $(id + 'V'); el.value = look.L[k]; v.textContent = Math.round(look.L[k] * 100) + '%';
-    el.oninput = () => { look.set(k, +el.value); v.textContent = Math.round(+el.value * 100) + '%'; };
+    el.oninput = () => { look.set(k, +el.value); v.textContent = Math.round(+el.value * 100) + '%'; sendCst(); };
   }
-  const syncKeyUI = () => { for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill']]) { $(id).value = vs.K[k]; $(id + 'V').textContent = (+vs.K[k]).toFixed(2); } };
-  $('#kAuto').onclick = async () => {   // #186
-    $('#kAutoSt').textContent = 'Measuring…';
-    try { const r = await vs.autoKey(); syncKeyUI(); $('#kAutoSt').textContent = `Done: green fills ${r.cover} % of the view. Now step in; check with Show matte.`; }
-    catch (e) { $('#kAutoSt').textContent = 'Auto: ' + e.message; }
+  const syncKeyUI = () => { for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill'], ['#kWrap', 'wrap'], ['#kCm', 'cmatch']]) { $(id).value = vs.K[k]; $(id + 'V').textContent = (+vs.K[k]).toFixed(2); } };
+  const syncLookUI = () => {
+    $('#lkOn').checked = look.L.on; $('#lkRoom').checked = look.L.room;
+    for (const [id, k] of [['#lkStr', 'strength'], ['#lkGrain', 'grain']]) { $(id).value = look.L[k]; $(id + 'V').textContent = Math.round(look.L[k] * 100) + '%'; }
   };
+  async function runAuto() {
+    $('#kAutoSt').textContent = autoMsg = 'Measuring…'; sendCst(true);
+    try { const r = await vs.autoKey(); syncKeyUI(); $('#kAutoSt').textContent = `Done: green fills ${r.cover} % of the view. Now step in; check with Show matte.`; autoMsg = `Auto done: green ${r.cover} % of the view`; }
+    catch (e) { $('#kAutoSt').textContent = autoMsg = 'Auto: ' + e.message; }
+    sendCst(true);
+  }
+  $('#kAuto').onclick = runAuto;   // #186
+  // ---- #188 the Quest's mixer CAMERA tab: the phone reports its state ('cst') and takes changes ('cset')
+  let lastCst = '', fps = 0, fpsN = 0, fpsT = 0;
+  function sendCst(force) {
+    if (!link || !link.isOpen) return;
+    const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession(), cal: cal.ok, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, auto: autoMsg, look: look.status() };
+    const j = JSON.stringify(m); if (force || j !== lastCst) { lastCst = j; link.send('ctl', m); }
+  }
+  const LIM = { thr: [0, 0.8], soft: [0.02, 0.4], spill: [0, 1], wrap: [0, 1], cmatch: [0, 1], strength: [0, 1], grain: [0, 1] };
+  const lim = (k, v) => Math.min(LIM[k][1], Math.max(LIM[k][0], +v));
+  async function onCset(m) {
+    if (m.what === 'set') await toggleSet(!!m.v);
+    else if (m.what === 'key') { vs.setKey(m.key, lim(m.key, m.v)); syncKeyUI(); }
+    else if (m.what === 'look') { look.set(m.key, typeof m.v === 'boolean' ? m.v : lim(m.key, m.v)); syncLookUI(); }
+    else if (m.what === 'matte') { matteOn = !!m.v; vs.setMatte(matteOn); $('#kMatte').checked = matteOn; }
+    else if (m.what === 'auto') { await runAuto(); return; }
+    else if (m.what === 'preview') pvOn = !!m.v;
+    sendCst(true);
+  }
+  // ---- #188 headset preview: every ~150 ms a 480 px tall copy of what this phone shows, as a JPEG on the 'prev' channel
+  let pvOn = false, pvT = 0, pvBusy = false;
+  const pvRT = new THREE.WebGLRenderTarget(4, 4); pvRT.texture.colorSpace = THREE.SRGBColorSpace;   // sRGB storage: the GPU encodes on write, readPixels gives display bytes
+  const pvCam = new THREE.PerspectiveCamera(); pvCam.matrixAutoUpdate = false;
+  const pvCanvas = document.createElement('canvas'), pvCtx = pvCanvas.getContext('2d');
+  let pvBuf = null;
+  function renderPreview(now) {
+    pvT = now; if (pvBusy) return;
+    const xc = renderer.xr.getCamera(), c0 = xc && xc.cameras && xc.cameras[0]; if (!c0) return;
+    const P = c0.projectionMatrix.elements, H = 480, W = Math.max(64, Math.round(H * P[5] / P[0] / 2) * 2);
+    if (pvRT.width !== W || pvRT.height !== H) { pvRT.setSize(W, H); pvCanvas.width = W; pvCanvas.height = H; pvBuf = new Uint8Array(W * H * 4); }
+    pvCam.projectionMatrix.copy(c0.projectionMatrix); pvCam.projectionMatrixInverse.copy(c0.projectionMatrixInverse);
+    pvCam.matrixWorld.copy(c0.matrixWorld); pvCam.matrixWorldInverse.copy(c0.matrixWorldInverse); pvCam.layers.mask = c0.layers.mask;
+    const raw = !vs.S.on && vs.S.pvReady, qv = vs.quad.visible, rv = reticle.visible, xv = xMark.visible;
+    if (raw) { vs.quad.visible = true; vs.mat.uniforms.raw.value = 1; }
+    reticle.visible = xMark.visible = false;
+    renderer.xr.enabled = false; renderer.setRenderTarget(pvRT); renderer.clear(); renderer.render(scene, pvCam); renderer.setRenderTarget(null); renderer.xr.enabled = true;
+    vs.quad.visible = qv; vs.mat.uniforms.raw.value = 0; reticle.visible = rv; xMark.visible = xv;
+    renderer.readRenderTargetPixels(pvRT, 0, 0, W, H, pvBuf);
+    const img = pvCtx.createImageData(W, H), row = W * 4;
+    for (let y = 0; y < H; y++) { img.data.set(pvBuf.subarray((H - 1 - y) * row, (H - y) * row), y * row); }
+    for (let i = 3; i < img.data.length; i += 4) img.data[i] = 255;
+    pvCtx.putImageData(img, 0, 0); pvBusy = true;
+    pvCanvas.toBlob(b => { if (!b) { pvBusy = false; return; } b.arrayBuffer().then(buf => { if (link) link.sendPrev(buf); pvBusy = false; }); }, 'image/jpeg', 0.6);
+  }
   $('#spCamTest').onclick = () => import('./camtest.js').then(m => m.camTest()).catch(e => st('Camera test failed: ' + e.message));   // #183
   $('#spLedF').onchange = e => {   // #176: same file names as on the Quest; matched by name
     const all = [...(e.target.files || [])]; pickedLed = all; const n = led.setFiles([...all, ...mediaLed], 1000);
@@ -289,6 +339,7 @@ export function startCamera(ctx) {
     else if (m.k === 'calpt') onCalPoint(m);
     else if (m.k === 'led') led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000);   // #176
     else if (m.k === 'sky') vs.onSky(m);
+    else if (m.k === 'cset') onCset(m);   // #188
     else if (m.k === 'mls' || m.k === 'mgo' || m.k === 'mok') lib.onMsg(m);   // #185                   // #184
     else if (m.k === 'mr') setMR(!!m.on);                  // #164 from the Quest's mixer screen
     else if (m.k === 'cellrec') setClean(!!m.on);   // (#164, no longer sent)
@@ -400,7 +451,8 @@ export function startCamera(ctx) {
   $('#bPlace').onclick = () => setMode('place');
   $('#bMark').onclick = () => { showHead = !showHead; $('#bMark').classList.toggle('on', showHead); };
   $('#bHands').onclick = () => { setHandsDebug(!showHands); $('#bHands').classList.toggle('on', showHands); };
-  $('#bSet').onclick = async () => { const msg = await vs.setOn(!vs.S.on); $('#bSet').classList.toggle('on', vs.S.on); setMode(mode === 'live' ? 'live' : mode, msg); if (mode !== 'live') setTimeout(() => setMode(mode), 3000); };
+  async function toggleSet(on) { const msg = await vs.setOn(on); $('#bSet').classList.toggle('on', vs.S.on); setMode(mode === 'live' ? 'live' : mode, msg); if (mode !== 'live') setTimeout(() => setMode(mode), 3000); sendCst(true); }
+  $('#bSet').onclick = () => toggleSet(!vs.S.on);
   $('#bKey').onclick = () => { const p = $('#spKey'); p.hidden = !p.hidden; $('#bKey').classList.toggle('on', !p.hidden); if (!p.hidden) { $('#spLook').hidden = true; $('#bLook').classList.remove('on'); } };
   $('#bLook').onclick = () => { const p = $('#spLook'); p.hidden = !p.hidden; $('#bLook').classList.toggle('on', !p.hidden); if (!p.hidden) { $('#spKey').hidden = true; $('#bKey').classList.remove('on'); } };
   $('#bHide').onclick = () => { uiHidden = true; ov.classList.add('hide'); };
@@ -465,8 +517,11 @@ export function startCamera(ctx) {
     }
     look.frame(frame, dt, vs.S.on);   // #187 (before vs.frame: it asks for the camera sample)
     if (t - lookT > 500) { lookT = t; if (!$('#spLook').hidden) $('#lkSt').textContent = look.status(); }
+    vs.S.pvNeed = !!(pvOn && frame && link && link.isOpen && now - pvT > 150);   // #188
     vs.frame(frame);   // #184: camera picture for the key (only while the virtual set is on)
     renderer.render(scene, camera);
+    if (vs.S.pvNeed) renderPreview(now);   // #188
+    fpsN++; if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; sendCst(); }
   });
-  window.spect = { vs, look, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
+  window.spect = { vs, look, renderPreview, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
 }

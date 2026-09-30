@@ -347,6 +347,32 @@ const ledBase = () => (LED.H / 2 + LED.BEZ) * ledwall.scale.x;
 function setLedScale(s) { s = clamp(s, 0.4, 4); ledwall.scale.setScalar(s); if (stage) stage.items.ledwall.base = ledBase(); return s; }
 function saveLedScale() { try { localStorage.setItem('vire.ledScale', String(ledwall.scale.x)); } catch (e) {} }
 const led = new LedPlayer(ledwall);
+// #188 camera preview window: the spectator phone's picture (small JPEGs, ~6 a second) while grading from the mixer's
+// CAMERA tab. Moves like the other gear; only shown while PREVIEW is on; never sent to the phone.
+const pvWin = new THREE.Group(); pvWin.name = 'preview'; pvWin.visible = false; rig.add(pvWin);
+const PV_H = 0.62;
+const pvTex = new THREE.Texture(); pvTex.colorSpace = THREE.SRGBColorSpace; pvTex.flipY = false;
+const pvScreen = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x202020, toneMapped: false }));
+const pvFrame = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.02), new THREE.MeshStandardMaterial({ color: 0x121317, metalness: 0.5, roughness: 0.5 }));
+pvFrame.position.z = -0.011; pvWin.add(pvFrame, pvScreen);
+function pvAspect(a) { pvScreen.scale.set(PV_H * a, PV_H, 1); pvFrame.scale.set(PV_H * a + 0.03, PV_H + 0.03, 1); pvWin.userData.base = PV_H / 2 + 0.015; }
+pvAspect(0.45);
+pvWin.traverse(o => { if (o.isMesh) o.userData.move = 'preview'; });
+let pvWanted = false, pvLast = 0, pvDecoding = false;
+function onPreviewFrame(buf) {
+  if (!pvWanted || pvDecoding) return; pvDecoding = true;
+  createImageBitmap(new Blob([buf], { type: 'image/jpeg' }), { imageOrientation: 'flipY' }).then(b => {
+    const old = pvTex.image; pvTex.image = b; pvTex.needsUpdate = true; if (old && old.close) old.close();
+    if (!pvScreen.material.map) { pvScreen.material.map = pvTex; pvScreen.material.color.setScalar(1); pvScreen.material.needsUpdate = true; }
+    const a = b.width / b.height; if (Math.abs(a - pvScreen.scale.x / PV_H) > 0.01) pvAspect(a);
+    pvLast = performance.now();
+  }).catch(() => {}).finally(() => { pvDecoding = false; });
+}
+function setPreview(on) {
+  pvWanted = on; pvWin.visible = on;
+  if (spect && spect.camSet) spect.camSet({ what: 'preview', v: on });
+  drawMixScreen();
+}
 led.onChange = () => drawMixScreen();
 // #177 VideoVinyl + LED wall modes. LED WALL cycles OFF -> CLIPS (if videos were picked) -> DECKS -> OFF.
 let ledMode = 'off';
@@ -401,8 +427,9 @@ const stage = new Stage(rig, {
   ...Object.fromEntries(Object.entries(extraMilk).map(([k, m]) => [k, { obj: m, base: 0 }])),
   neon: { obj: neon, base: NEON.R * neon.scale.x },
   ledwall: { obj: ledwall, base: ledBase() },
+  preview: { obj: pvWin, base: PV_H / 2 + 0.015 },
 }, cases, {
-  items: { deckA: [-DECK_X, 0.898, 0, 0], deckB: [DECK_X, 0.898, 0, 0], mixer: [0, 0.88, 0, 0], crate: [0.98, 0, 0.12, -0.5], milk: [-1.0, 0, 0.15, 0.35], milk2: [-1.0, 0, 0.6, 0.35], milk3: [-1.45, 0, 0.3, 0.2], milk4: [-1.45, 0, 0.75, 0.2], milk5: [-1.0, 0, 1.05, 0.35], milk6: [-1.45, 0, 1.2, 0.2], neon: [0, 1.45, -0.5, 0], ledwall: [-2.0, 1.6, -0.55, 0] },
+  items: { deckA: [-DECK_X, 0.898, 0, 0], deckB: [DECK_X, 0.898, 0, 0], mixer: [0, 0.88, 0, 0], crate: [0.98, 0, 0.12, -0.5], milk: [-1.0, 0, 0.15, 0.35], milk2: [-1.0, 0, 0.6, 0.35], milk3: [-1.45, 0, 0.3, 0.2], milk4: [-1.45, 0, 0.75, 0.2], milk5: [-1.0, 0, 1.05, 0.35], milk6: [-1.45, 0, 1.2, 0.2], neon: [0, 1.45, -0.5, 0], ledwall: [-2.0, 1.6, -0.55, 0], preview: [0.78, 1.28, -0.22, -0.45] },
   cases: { caseA: [0, 0, 0, 0, 1.3, 0.52, 0.88] },
 });
 const MOVABLE = new Proxy({}, { get: (_, k) => stage.object(k) });
@@ -466,6 +493,23 @@ function resetLayout() { for (const k of Object.keys(extraMilk)) removeMilk(k); 
 
 // screens
 const mixScreen = new Screen(768, 304);
+// #189 the mixer's tablet (models.js): held in the hand (xr.js 'tablet' grab), stays where it is let go, snaps into the
+// mixer's slot within 8 cm. Its pose is kept (mixer-local) in 'vire.tablet'. It stays a child of the mixer, so the phone
+// mirrors it like any other mixer part.
+const TABLET = mixer.userData.tablet, TDOCK = mixer.userData.tabletDock;
+function saveTablet() { try { localStorage.setItem('vire.tablet', JSON.stringify({ p: TABLET.position.toArray(), q: TABLET.quaternion.toArray() })); } catch {} }
+try { const t = JSON.parse(localStorage.getItem('vire.tablet') || 'null'); if (t) { TABLET.position.fromArray(t.p); TABLET.quaternion.fromArray(t.q); } } catch {}
+const _tm = new THREE.Matrix4(), _tp = new THREE.Vector3(), _tq = new THREE.Quaternion(), _ts = new THREE.Vector3();
+function tabletHold(world) {   // world pose from the hand -> mixer-local
+  mixer.updateMatrixWorld(); _tm.copy(mixer.matrixWorld).invert().multiply(world).decompose(_tp, _tq, _ts);
+  TABLET.position.copy(_tp); TABLET.quaternion.copy(_tq);
+}
+function tabletRelease() {
+  const snap = TABLET.position.distanceTo(TDOCK.p) < 0.08;
+  if (snap) { TABLET.position.copy(TDOCK.p); TABLET.quaternion.copy(TDOCK.q); }
+  saveTablet(); return snap;
+}
+function tabletDock() { TABLET.position.copy(TDOCK.p); TABLET.quaternion.copy(TDOCK.q); saveTablet(); }
 mixer.userData.screen.material.map = mixScreen.texture; mixer.userData.screen.material.needsUpdate = true;
 const crateScreen = new Screen(1024, 960);   // same shape as the lid monitor (flush lid, 32 x 30 cm LCD)
 const CS = { head: 74, foot: 66, rows: 13, rh: 62 };   // crate screen layout (CLAUDE.md #61, #70)
@@ -1844,7 +1888,7 @@ function scratchIdle() { // a still hand holds the record still
   }
 }
 
-const NAMES = { neon: 'the neon sign', ledwall: 'the LED wall', deckA: 'turntable A', deckB: 'turntable B', mixer: 'the mixer', crate: 'the record crate', caseA: 'flight case 1', caseB: 'flight case 2' };
+const NAMES = { preview: 'the camera preview', neon: 'the neon sign', ledwall: 'the LED wall', deckA: 'turntable A', deckB: 'turntable B', mixer: 'the mixer', crate: 'the record crate', caseA: 'flight case 1', caseB: 'flight case 2' };
 // Resize from a bottom handle. P = new handle position in world (horizontal change), dH = height change.
 function resizeCase(dr, P, dH) {
   const c = cases[dr.key], g = c.group, h = dr.h;
@@ -2286,8 +2330,9 @@ const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set whil
 // page; pick one, then where it goes (sky, a deck's VideoVinyl, the LED wall). LED WALL mode lives here too now.
 let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null;
 const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
-const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES' };
+const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA' };
 async function vpLoad() {
+  if (vpFolder === 'Camera') { vpItems = []; drawMixScreen(); return; }
   vpItems = await media.list(vpFolder);
   if (vpSel && !vpItems.some(i => i.name === vpSel)) vpSel = null;
   vpPg = Math.min(vpPg, Math.max(0, Math.ceil(vpItems.length / 8) - 1));
@@ -2313,6 +2358,46 @@ async function vpAct(what) {
   else if (what === 'ledadd') { const n = led.add(f); toast(`LED playlist: ${n} item${n > 1 ? 's' : ''}`, 2000); }
   drawMixScreen();
 }
+// #188 CAMERA tab: the spectator phone's virtual set, key and Look match, changed from here; the phone applies each
+// change and reports back (spect.cam), so this page always shows the phone's real values.
+const CAM_ROWS = [
+  [['Strength', 'key', 'thr', 0.01], ['Softness', 'key', 'soft', 0.01], ['Spill', 'key', 'spill', 0.05], ['Light wrap', 'key', 'wrap', 0.05]],
+  [['Colour match', 'key', 'cmatch', 0.05], ['Look strength', 'look', 'strength', 0.05], ['Grain', 'look', 'grain', 0.05]],
+];
+function drawCamTab(btn) {
+  const { g, canvas: c } = mixScreen; const W = c.width, H = c.height;
+  const cs = spect && spect.cam, dim = !cs;
+  const send = o => { if (spect && spect.camSet) spect.camSet(o); };
+  const bw = (W - 16 - 5 * 6) / 6; let x = 8;
+  const top = [
+    ['SET', cs && cs.set, () => send({ what: 'set', v: !cs.set })],
+    ['AUTO KEY', false, () => { send({ what: 'auto' }); toast('Auto key: point the phone at the empty green screen', 3000); }],
+    ['MATTE', cs && cs.matte, () => send({ what: 'matte', v: !cs.matte })],
+    ['PREVIEW', pvWanted, () => setPreview(!pvWanted)],
+    ['LOOK', cs && cs.L && cs.L.on, () => send({ what: 'look', key: 'on', v: !cs.L.on })],
+    ['ROOM LIGHT', cs && cs.L && cs.L.room, () => send({ what: 'look', key: 'room', v: !cs.L.room })],
+  ];
+  for (const [label, on, act] of top) { const off = dim && label !== 'PREVIEW'; btn(x, 48, bw, 36, label, !!on, off ? null : act, off); x += bw + 6; }
+  const colW = (W - 24) / 2;
+  CAM_ROWS.forEach((col, ci) => col.forEach(([label, what, key, step], ri) => {
+    const cx = 8 + ci * (colW + 8), cy = 94 + ri * 42;
+    g.fillStyle = '#0d1422'; g.fillRect(cx, cy, colW, 36);
+    g.fillStyle = dim ? '#56627a' : '#dfe6f2'; g.font = '600 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    g.fillText(label, cx + 10, cy + 19);
+    const src = cs ? (what === 'key' ? cs.K : cs.L) : null, v = src ? src[key] : null;
+    g.textAlign = 'right'; g.fillStyle = dim ? '#56627a' : '#fff'; g.font = '700 18px ui-monospace, monospace';
+    g.fillText(v == null ? '--' : what === 'look' ? Math.round(v * 100) + '%' : v.toFixed(2), cx + colW - 110, cy + 19);
+    g.textBaseline = 'alphabetic';
+    const bump = d => () => { const nv = Math.round((v + d) * 1000) / 1000; src[key] = nv; send({ what, key, v: nv }); drawMixScreen(); };
+    btn(cx + colW - 100, cy + 2, 44, 32, '−', false, dim ? null : bump(-step), dim);
+    btn(cx + colW - 50, cy + 2, 44, 32, '+', false, dim ? null : bump(step), dim);
+  }));
+  g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = cs ? '#8c96a8' : '#c9a040';
+  const stTxt = !cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone and start its camera.'
+    : `Phone ${cs.fps} fps · ${cs.ar ? 'camera on' : 'camera not started'} · ${cs.cal ? 'calibrated' : 'not calibrated'}${cs.can ? '' : ' · no camera access'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : '');
+  fitText2(g, stTxt, 12, H - 30, W - 24);
+  if (cs && (cs.auto || cs.look)) { g.fillStyle = '#56627a'; g.font = '500 13px system-ui'; fitText2(g, [cs.auto, cs.look].filter(Boolean).join(' · '), 12, H - 10, W - 24); }
+}
 function drawVideoPage() {
   const { g, canvas: c } = mixScreen; const W = c.width, H = c.height;
   VP_HIT.length = 0;
@@ -2324,8 +2409,9 @@ function drawVideoPage() {
     if (act) VP_HIT.push({ x, y, w, h, act });
   };
   let x = 8;
-  for (const f of media.FOLDERS) { const w = f === 'Video pano' ? 150 : 104; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, () => { vpFolder = f; vpSel = null; vpPg = 0; vpLoad(); }); x += w + 6; }
-  btn(W - 8 - 110, 8, 110, 32, 'MIXER', false, () => setVideoPage(false));
+  for (const f of [...media.FOLDERS, 'Camera']) { const w = f === 'Video pano' ? 140 : f === 'Camera' ? 104 : 96; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, () => { vpFolder = f; vpSel = null; vpPg = 0; vpLoad(); }); x += w + 6; }
+  btn(W - 8 - 100, 8, 100, 32, 'MIXER', false, () => setVideoPage(false));
+  if (vpFolder === 'Camera') { drawCamTab(btn); return; }
   // thumbnails: 4 x 2
   const CW = (W - 16 - 3 * 8) / 4, TH = 76, CH = TH + 20, y0 = 48;
   if (!vpItems.length) {
@@ -2639,7 +2725,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack,
   REC, DECK, CRATE, ARM,
-  castRay, interactive, pointerDown, pointerMove, pointerUp,
+  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab: () => {}, tabletHold, tabletRelease,
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
   scratchBegin, scratchMove, scratchEnd, spindleTwist,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
@@ -2935,7 +3021,9 @@ async function applySpect() {
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(),
       getVV: () => ({ mode: ledMode, gains: deckGains(mixVal), decks: deckVid.map((dv, i) => dv.v ? [i, dv.key, engine.ctx ? engine.pos(i) : 0, engine.state.decks[i].rate || 0] : null).filter(Boolean) }),
       getSky: () => ({ h: settings.skyH, turn: settings.skyTurn, type: settings.skyType, key: settings.skyKey, file: settings.skyFile, media: settings.env === 'image' ? settings.skyMedia : '' }),
-      onMedia: () => { if (videoPage) vpLoad(); } });
+      onMedia: () => { if (videoPage) vpLoad(); },
+      onCam: m => { if (m && pvWanted && !m.pv && spect) spect.camSet({ what: 'preview', v: true }); if (videoPage && vpFolder === 'Camera') drawMixScreen(); },   // a reconnected phone gets PREVIEW back
+      onPreview: onPreviewFrame });
   } catch (e) { toast('Spectator camera failed to start: ' + e.message, 4000); }
 }
 syncSettingsUI();
@@ -2944,7 +3032,7 @@ applyEnv();
 if (!CAMERA_ROLE) loadLibrary();
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, TABLET, tabletHold, tabletRelease, tabletDock, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
