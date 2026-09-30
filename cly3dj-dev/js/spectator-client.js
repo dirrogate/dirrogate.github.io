@@ -192,7 +192,7 @@ export function startCamera(ctx) {
   const rec = makeRecorder(); rec.onChange = () => { recUI(); sendCst(true); };
   const recCam = new THREE.PerspectiveCamera(); recCam.matrixAutoUpdate = false; recCam.layers.mask = 3;   // layers 0 + 1 (mono)
   const pvCanvas = document.createElement('canvas'), pvCtx = pvCanvas.getContext('2d', { alpha: false });
-  const _vp = new THREE.Vector4();
+  const _vp = new THREE.Vector4(), _cc = new THREE.Color();
   let rotDir = 0;   // which edge of the phone is up: 0 = held upright, 1 = its right edge, -1 = its left edge
   function viewCam(frame) {
     const pose = frame.getViewerPose(renderer.xr.getReferenceSpace()), v = pose && pose.views[0]; if (!v) return null;
@@ -209,9 +209,12 @@ export function startCamera(ctx) {
     const raw = !vs.S.on && vs.S.pvReady, qv = vs.quad.visible, rv = reticle.visible, xv = xMark.visible;
     if (raw) { vs.quad.visible = true; vs.mat.uniforms.raw.value = 1; }
     reticle.visible = xMark.visible = false;
-    renderer.getViewport(_vp);
+    renderer.getViewport(_vp); renderer.getClearColor(_cc); const ca = renderer.getClearAlpha(), sm = renderer.shadowMap.autoUpdate;
+    // opaque black under everything (AR clears to alpha 0, and a see-through canvas copies as washed-out colour);
+    // the shadow map from the AR frame is reused (re-rendering it here doubled the cost)
+    renderer.setClearColor(0x000000, 1); renderer.shadowMap.autoUpdate = false;
     renderer.xr.enabled = false; renderer.setRenderTarget(null); renderer.setViewport(0, 0, W, H); renderer.clear(); renderer.render(scene, recCam);
-    renderer.setViewport(_vp); renderer.xr.enabled = true;
+    renderer.setViewport(_vp); renderer.xr.enabled = true; renderer.setClearColor(_cc, ca); renderer.shadowMap.autoUpdate = sm;
     vs.quad.visible = qv; vs.mat.uniforms.raw.value = 0; reticle.visible = rv; xMark.visible = xv;
     return cv;
   }
@@ -411,8 +414,26 @@ export function startCamera(ctx) {
     calQX: 'Calibrate 3/3 (DJ): touch the floor mark with the controller tip, pull the trigger.',
     fix: 'Fix: tap the floor mark on the screen again.',
   };
+  // #204 (owner): while placing / calibrating / fixing, the gear is see-through (50 %) so the floor mark under the
+  // virtual flight case stays visible
+  const GHOST = new Set(['place', 'calX', 'calLens', 'calQX', 'fix']);
+  let ghosted = false;
+  function ghost(on) {
+    if (on === ghosted) return; ghosted = on;
+    const seen = new Set();
+    rig.traverse(o => {
+      if (!o.isMesh || !o.material) return;
+      for (const mt of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (seen.has(mt)) continue; seen.add(mt);
+        if (on) { mt.userData.ghost = { t: mt.transparent, o: mt.opacity, d: mt.depthWrite }; mt.transparent = true; mt.opacity = mt.opacity * 0.5; mt.depthWrite = false; }
+        else if (mt.userData.ghost) { const g = mt.userData.ghost; mt.transparent = g.t; mt.opacity = g.o; mt.depthWrite = g.d; delete mt.userData.ghost; }
+        else continue;
+        mt.needsUpdate = true;
+      }
+    });
+  }
   function setMode(m, text) {
-    mode = m; hint.textContent = text || HINTS[m] || ''; hint.style.display = (m === 'live' && !text) ? 'none' : '';
+    mode = m; ghost(GHOST.has(m)); hint.textContent = text || HINTS[m] || ''; hint.style.display = (m === 'live' && !text) ? 'none' : '';
     hint.classList.toggle('go', m !== 'live' && m !== 'find');
     if (text && m === 'live') setTimeout(() => { if (mode === 'live') hint.style.display = 'none'; }, 5000);
   }
@@ -528,6 +549,11 @@ export function startCamera(ctx) {
   const _m = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _s = new THREE.Vector3();
   renderer.setAnimationLoop((t, frame) => {
     const dt = Math.min(0.05, clock.getDelta()), now = performance.now();
+    // #204 three.js binds the AR layer's framebuffer once, just before this callback. Anything that calls
+    // renderer.resetState() or setRenderTarget() in between (the camera-picture copy in vset.js, Look match's sample,
+    // the preview / recorder compose) unbinds it, and the AR frame was then drawn into the hidden canvas instead: the
+    // phone showed the bare camera for that frame. That was the flicker. It is re-bound just before the AR render.
+    const xrRT = renderer.getRenderTarget();
     if (frame) {
       poseLog.push([now, lensNow()]); while (poseLog.length && now - poseLog[0][0] > 3000) poseLog.shift();
       const ref = renderer.xr.getReferenceSpace();
@@ -574,6 +600,7 @@ export function startCamera(ctx) {
     vs.S.recNeed = !!(rec.R.on && frame);   // #203
     vs.frame(frame);   // #184: camera picture for the key / preview / recorder
     if (frame && (vs.S.recNeed || vs.S.pvNeed)) composed(frame, now, vs.S.pvNeed);   // #203 before the AR frame
+    if (frame) renderer.setRenderTarget(xrRT);   // #204 back to the AR layer
     renderer.render(scene, camera);
     if (!frame && rec.R.on) { const c = renderer.domElement; rec.push(c, c.width, c.height, 0); }   // PC test (no AR): the page's own view
     if (frame) {   // #203 late AR frames (each one shows as a flash of bare camera on the phone's screen)
@@ -582,5 +609,5 @@ export function startCamera(ctx) {
     } else lastXT = 0;
     fpsN++; if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; late = lateN; lateN = 0; if (rec.R.on) recUI(); sendCst(); }
   });
-  window.spect = { vs, look, rec, compose, get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
+  window.spect = { vs, look, rec, compose, _ghost: on => ghost(on), _composed: (f, now, pv) => composed(f, now, pv), _recCam: recCam, get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
 }
