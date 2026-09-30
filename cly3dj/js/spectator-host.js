@@ -4,6 +4,7 @@
 // calibration prompt panel and the phone's view outline (a few lines) when those are active.
 import * as THREE from 'three';
 import { hostLink } from './net-link.js';
+import * as media from './medialib.js';
 
 const RATE = 30;                     // state packets per second (the phone interpolates between them)
 const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _f = new THREE.Vector3();
@@ -13,10 +14,10 @@ const CAL_TEXT = {
   x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
-export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getVV }) {
+export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getVV, getSky, onMedia, onCam, onPreview }) {
   let acc = 0, seq = 0, was = false, calStep = null, doneT = 0;
   let mr = true;   // #164/#167: MR GUI (default on for setting up)
-  let lastPing = 0, ledT = 0, ledKey = '';   // #169: the phone pings every second; silent for 3.5 s = not connected (a closed page can leave the channel 'open' for ~30 s)
+  let lastPing = 0, ledT = 0, ledKey = '', skyKey = '';   // #169: the phone pings every second; silent for 3.5 s = not connected (a closed page can leave the channel 'open' for ~30 s)
   const status = s => { const el = document.getElementById('spectStatus'); if (el) el.textContent = label(s); };
   const label = s => ({ relay: 'Waiting for the phone (code ' + code + ')', 'relay-retry': 'No internet for the handshake, retrying…',
     connected: 'Phone connected', disconnected: 'Phone disconnected', failed: 'Phone link failed' }[s] || s);
@@ -80,7 +81,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   const _rm = new THREE.Matrix4(), _ri = new THREE.Matrix4(), _rp = new THREE.Vector3(), _rq = new THREE.Quaternion(), _rs = new THREE.Vector3();
   function buildRegistry() {
     const recs = new Set(getRecords().map(r => r.group)), next = new Map();
-    const roots = [...Object.entries(stage.items).map(([k, v]) => [k, v.obj]), ...Object.entries(stage.cases).map(([k, c]) => [k, c.group])];
+    const roots = [...Object.entries(stage.items).filter(([k]) => k !== 'preview').map(([k, v]) => [k, v.obj]), ...Object.entries(stage.cases).map(([k, c]) => [k, c.group])];
     const walk = (o, id) => { if (recs.has(o)) return; next.set(id, reg.get(id)?.o === o ? reg.get(id) : { o, last: null }); o.children.forEach((c, i) => walk(c, id + '.' + i)); };
     for (const [k, o] of roots) walk(o, k);
     reg = next;
@@ -169,12 +170,43 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     return out;
   }
 
+  // #185 media pushes from the phone's library: one file at a time, resumable (medialib.beginReceive)
+  let rx = null, rxQ = Promise.resolve(), camState = null;
+  async function mediaList() { const all = await media.listAll(); const items = []; for (const f of media.FOLDERS) for (const it of all[f]) items.push([f, it.name, it.size]); return items; }
+  function sendList() { mediaList().then(items => { if (link.isOpen) link.send('ctl', { k: 'mls', items }); }); }
+  function onMediaMsg(m) {
+    rxQ = rxQ.then(async () => {
+      if (m.k === 'mls?') sendList();
+      else if (m.k === 'mput') {
+        if (rx) { await rx.abort(); rx = null; }
+        const r = await media.beginReceive(m.f, m.n, m.size);
+        if (r.have) { link.send('ctl', { k: 'mok', f: m.f, n: m.n }); return; }
+        if (m.thumb) { try { await media.putThumb(m.f, m.n, new Blob([Uint8Array.from(atob(m.thumb), c => c.charCodeAt(0))], { type: 'image/jpeg' })); } catch {} }
+        rx = r.rx; rx.t0 = performance.now(); toast && toast(`Receiving ${m.n}…`, 2500);
+        link.send('ctl', { k: 'mgo', f: m.f, n: m.n, off: r.off });
+      } else if (m.k === 'mdel') { await media.remove(m.f, m.n); sendList(); onMedia && onMedia(); }
+    }).catch(e => { toast && toast('Media: ' + e.message, 4000); });
+  }
+  function onBin(buf, label) {
+    if (label === 'prev') { onPreview && onPreview(buf); return; }   // #188
+    const r = rx; if (!r) return;
+    if (r.write(buf)) {
+      rx = null;
+      r.finish().then(() => {
+        link.send('ctl', { k: 'mok', f: r.folder, n: r.name }); sendList(); onMedia && onMedia();
+        const s = (performance.now() - r.t0) / 1000; toast && toast(`${r.name} received (${(r.size / 1048576).toFixed(1)} MB, ${((r.size - r.off) / 1048576 / Math.max(0.1, s)).toFixed(1)} MB/s)`, 3000);
+      }).catch(e => toast && toast('Media save failed: ' + e.message, 4000));
+    }
+  }
   const link = hostLink(code, {
     onStatus: status,
+    onBinary: onBin,
     onState: s => status(s),
-    onOpen: () => { link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
-    onClose: () => { status('disconnected'); calStep = null; panel.visible = false; frustum.visible = false; },
+    onOpen: () => { link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
+    onClose: () => { if (rx) { rx.abort(); rx = null; } camState = null; onCam && onCam(null); status('disconnected'); calStep = null; panel.visible = false; frustum.visible = false; },
     onMessage: m => {
+      if (m.k[0] === 'm' && m.k !== 'mr') { onMediaMsg(m); return; }   // #185 mls? / mput / mdel
+      if (m.k === 'cst') { camState = m; onCam && onCam(m); return; }   // #188 the phone's camera / key / look state
       if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }
       else if (m.k === 'cal') {
         if (m.step === 'lens' || m.step === 'x') { calStep = m.step; say(CAL_TEXT[m.step]); toast && toast(CAL_TEXT[m.step].slice(1).join(' '), 6000); }
@@ -202,6 +234,10 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       const L = getLed(), key = (L.on ? 1 : 0) + '|' + (L.name || '');
       if (key !== ledKey || now - ledT > 2000) { ledKey = key; ledT = now; link.send('ctl', { k: 'led', on: L.on, name: L.name, t: L.t, qt: now }); }
     }
+    if (getSky) {   // #184: panorama height / turn / type for the phone's virtual set (the phone has its own copy of the image)
+      const S = getSky(), k = JSON.stringify(S);
+      if (k !== skyKey) { skyKey = k; link.send('ctl', { k: 'sky', ...S }); }
+    }
     if (full || now - regT > 2000) { regT = now; buildRegistry(); }
     if (full) { full = false; link.send('ctl', { k: 'full', t: Math.round(now), cs: caseSizes(true), n: nodeDiffs(true) }); }
     else if (now - settleT > 1000) { settleT = now; const n = settled(now); if (n.length) link.send('ctl', { k: 'full', t: Math.round(now), n }); }
@@ -216,5 +252,8 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     say(on ? ['MR GUI ON', 'Viewfinder here, menus + helpers on the phone.'] : ['MR GUI OFF', 'Phone is clean: start its screen recorder,', 'then clap once.'], on ? '#39a8ff' : '#ff5060'); doneT = 2.5;
   }
   return { tick, close: () => { link.close(); scene.remove(panel); rig.remove(frustum); },
-    ui: () => ({ mr, phone: link.isOpen && performance.now() - lastPing < 3500 }), setMR };
+    ui: () => ({ mr, phone: link.isOpen && performance.now() - lastPing < 3500 }), setMR,
+    // #188 camera tab: the phone's last reported state, and remote changes to it
+    get cam() { return link.isOpen && performance.now() - lastPing < 3500 ? camState : null; },
+    camSet: o => link.isOpen && link.send('ctl', { k: 'cset', ...o }) };
 }

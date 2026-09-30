@@ -6,15 +6,26 @@
 // front of the virtual gear.
 import { spectatorLink } from './net-link.js';
 import { DeckVideo, vvKey, baseName, VIDEO_EXT } from './videovinyl.js';
+import { makeVirtualSet } from './vset.js';
+import { makeLookMatch } from './lookmatch.js';
+import { makePhoneLibrary } from './phonelib.js';
+import * as media from './medialib.js';
 
 export function startCamera(ctx) {
-  const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG, led } = ctx;
+  const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, skybox, envLight, key } = ctx;
+  const vs = makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key });   // #184 live green-screen key
+  const look = makeLookMatch({ THREE, renderer, scene, rig, key }); vs.setLook(look);   // #187 Look match
+  // #185 media library (phone side); its Video + Images items also feed the LED wall / VideoVinyl mirrors
+  const lib = makePhoneLibrary({ getLink: () => link, onChange: () => refreshMedia() });
+  let pickedLed = [], mediaLed = [];
+  async function refreshMedia() { const its = [...await media.list('Video'), ...await media.list('Images')]; mediaLed = (await Promise.all(its.map(i => media.getFile(i.folder, i.name)))).filter(Boolean); led.setFiles([...pickedLed, ...mediaLed], 1000); }
+  refreshMedia();
   const DELAY = 70;   // ms the mirror runs behind the Quest, so there are always two samples to blend
   // ---------------------------------------------------------------- UI (built here; index.html's own UI is hidden)
   document.head.insertAdjacentHTML('beforeend', `<style>
     #spS { position:fixed; inset:0; overflow:auto; z-index:30; background:radial-gradient(ellipse at 50% 30%,#182030 0%,#0b0d12 75%); color:#e6e8ec; font:15px/1.45 system-ui,sans-serif; }
     #spS .box { max-width:460px; margin:0 auto; padding:24px 16px; }
-    #spS h1 { font-size:34px; margin:0 0 2px; font-weight:800; letter-spacing:.04em; } #spS h1 span { color:#e0202a; }
+    #spS h1 { font-size:34px; margin:0 0 2px; font-weight:800; letter-spacing:.04em; } #spS h1 span { color:#e0202a; letter-spacing:-.01em; }
     #spS p { color:#8b909a; margin:0 0 18px; }
     #spS input { font:600 28px system-ui,sans-serif; letter-spacing:.2em; width:100%; box-sizing:border-box; padding:12px; border-radius:10px; border:1px solid #2e3850; background:#1c2230; color:#e6e8ec; text-align:center; }
     #spS button, #spO button { font:600 15px system-ui,sans-serif; color:#e6e8ec; background:#1c2230; border:1px solid #2e3850; border-radius:10px; padding:12px 16px; }
@@ -26,23 +37,44 @@ export function startCamera(ctx) {
     #spO .info { position:absolute; top:8px; left:8px; right:8px; font:12px/1.4 ui-monospace,monospace; background:rgba(14,16,22,.78); padding:6px 9px; border-radius:8px; }
     #spO .hint { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(14,16,22,.82); padding:8px 12px; border-radius:8px; text-align:center; max-width:80%; }
     #spO .hint.go { border:1px solid #39a8ff; font-weight:600; }
-    #spO.hide .bar, #spO.hide .info, #spO.hide .hint { display:none; }
+    #spO.hide .bar, #spO.hide .info, #spO.hide .hint, #spO.hide .kp { display:none; }
+    #spO .kp { position:absolute; left:8px; right:8px; bottom:120px; background:rgba(14,16,22,.85); border:1px solid #2e3850; border-radius:12px; padding:10px 12px; color:#e6e8ec; font:600 14px system-ui,sans-serif; pointer-events:auto; }
+    #spO .kp label { display:flex; align-items:center; gap:10px; margin:6px 0; } #spO .kp input[type=range] { flex:1; } #spO .kp span { width:44px; text-align:right; }
   </style>`);
   document.body.insertAdjacentHTML('beforeend', `
     <div id="spS"><div class="box">
       <h1>Cly<span>3DJ</span> camera</h1>
       <p>Films the DJ with the virtual gear. On the Quest: Settings, Spectator camera On, then read the code shown there.</p>
       <input id="spCode" inputmode="numeric" maxlength="5" placeholder="00000">
-      <button id="spConnect">Connect</button><button id="spAR" disabled>Start camera (AR)</button>
+      <button id="spConnect">Connect</button><button id="spAR" disabled>Start camera (AR)</button><button id="spCamTest">Camera access test (no Quest needed)</button>
+      <button id="spLib">Library: panoramas, videos, images (push to the Quest)…</button>
+      <button id="spPano">Virtual set panorama (same picture as the Quest)…</button><input type="file" id="spPanoF" accept="image/*" hidden>
+      <div id="spPanoSt" style="color:#8b909a;font-size:13px;margin-top:6px">For the green-screen virtual set: pick the same 360 picture the Quest shows. Kept on this phone.</div>
       <button id="spLed">Videos: LED wall clips + VideoVinyls (same files as the Quest)…</button><input type="file" id="spLedF" accept="video/*" multiple hidden>
       <div id="spLedList" style="color:#8b909a;font-size:13px;margin-top:6px">Optional: pick the same videos as on the Quest so the LED wall plays here too.</div>
       <div id="spSt"></div></div></div>
     <div id="spO" hidden>
       <div class="info" id="spInfo">…</div>
       <div class="hint" id="spHint"></div>
+      <div class="kp" id="spLook" hidden>
+        <label><input type="checkbox" id="lkOn"> Look match: the gear follows the camera</label>
+        <label>Strength <input type="range" id="lkStr" min="0" max="1" step="0.05"><span id="lkStrV"></span></label>
+        <label>Grain <input type="range" id="lkGrain" min="0" max="1" step="0.05"><span id="lkGrainV"></span></label>
+        <label><input type="checkbox" id="lkRoom"> Room light (the phone measures the real room's light)</label>
+        <div id="lkSt" style="font-weight:500;font-size:12px;color:#8b909a"></div>
+      </div>
+      <div class="kp" id="spKey" hidden>
+        <label><button id="kAuto">Auto</button><span id="kAutoSt" style="width:auto;flex:1;text-align:left;font-weight:500;font-size:12px;color:#8b909a">Point at the EMPTY green screen first</span></label>
+        <label>Strength <input type="range" id="kThr" min="0" max="0.8" step="0.005"><span id="kThrV"></span></label>
+        <label>Softness <input type="range" id="kSoft" min="0.02" max="0.4" step="0.005"><span id="kSoftV"></span></label>
+        <label>Spill <input type="range" id="kSpill" min="0" max="1" step="0.05"><span id="kSpillV"></span></label>
+        <label>Light wrap <input type="range" id="kWrap" min="0" max="1" step="0.05"><span id="kWrapV"></span></label>
+        <label>Colour match <input type="range" id="kCm" min="0" max="1" step="0.05"><span id="kCmV"></span></label>
+        <label><input type="checkbox" id="kMatte"> Show matte (white = kept, black = keyed)</label>
+      </div>
       <div class="bar" id="spBar">
         <button id="bCal">Calibrate</button><button id="bFix">Fix (tap X)</button><button id="bL">⟲ 1°</button><button id="bR">1° ⟳</button>
-        <button id="bPlace">Rough place</button><button id="bMark">Head</button><button id="bHands">Hands</button><button id="bHide">Hide UI</button><button id="bExit">Exit</button>
+        <button id="bPlace">Rough place</button><button id="bMark">Head</button><button id="bHands">Hands</button><button id="bSet">Set</button><button id="bKey">Key</button><button id="bLook">Look</button><button id="bHide">Hide UI</button><button id="bExit">Exit</button>
       </div></div>`);
   const $ = s => document.querySelector(s);
   const ov = $('#spO'), hint = $('#spHint');
@@ -63,7 +95,7 @@ export function startCamera(ctx) {
     link = spectatorLink(code, {
       onStatus: s => { linkState = s; st(STATUS[s] || s); },
       onState: s => { linkState = s; st(STATUS[s] || s); },
-      onOpen: () => { linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; },
+      onOpen: () => { linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; lib.onLinkOpen(); sendCst(true); },
       onClose: () => { linkState = 'disconnected'; st(STATUS.disconnected); },
       onMessage: onMsg,
     });
@@ -77,7 +109,11 @@ export function startCamera(ctx) {
     const prev = vvMode; vvMode = V.mode; vvGains = V.gains;
     for (let i = 0; i < 2; i++) {
       const e = V.decks.find(x => x[0] === i), want = e ? e[1] : null, dv = pdv[i];
-      if (want !== dv.want) { dv.want = want; dv.close(); const f = want && vvFiles.get(want); if (f) dv.open(want, f); }
+      if (want !== dv.want) {
+        dv.want = want; dv.close();
+        if (want && want.startsWith('media:')) media.getFile('Video', want.slice(12)).then(f => { if (f && dv.want === want) dv.open(want, f); });   // #185 'media:Video/<name>'
+        else { const f = want && vvFiles.get(want); if (f) dv.open(want, f); }
+      }
       pdvAt[i] = e ? { pos: e[2], rate: e[3], at: performance.now() } : null;
     }
     if (prev === 'decks' && vvMode !== 'decks' && !led.on) led.wall.userData.setVideo(null);
@@ -87,8 +123,87 @@ export function startCamera(ctx) {
     if (vvMode === 'decks') led.wall.userData.setDecks(pdv[0].tex, pdv[1].tex, vvGains[0], vvGains[1]);
   }
   $('#spLed').onclick = () => $('#spLedF').click();
+  // #184 virtual set: panorama picked here (same file as the Quest), key sliders in the AR overlay
+  $('#spLib').onclick = () => lib.open();
+  $('#spPano').onclick = () => $('#spPanoF').click();
+  $('#spPanoF').onchange = async e => {
+    const f = e.target.files && e.target.files[0]; if (!f) return; e.target.value = '';
+    $('#spPanoSt').textContent = 'Loading ' + f.name + '…';
+    try { await vs.pick(f); $('#spPanoSt').textContent = f.name + (vs.sameAsQuest() ? '' : ' (not the Quest\'s current picture)') + ': ready for the virtual set.'; }
+    catch (err) { $('#spPanoSt').textContent = 'Could not use it: ' + err.message; }
+  };
+  for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill'], ['#kWrap', 'wrap'], ['#kCm', 'cmatch']]) {
+    const el = $(id), v = $(id + 'V'); el.value = vs.K[k]; v.textContent = (+vs.K[k]).toFixed(2);
+    el.oninput = () => { vs.setKey(k, +el.value); v.textContent = (+el.value).toFixed(2); sendCst(); };
+  }
+  let matteOn = false, autoMsg = '';
+  $('#kMatte').onchange = e => { matteOn = e.target.checked; vs.setMatte(matteOn); };
+  // #187 Look panel
+  $('#lkOn').checked = look.L.on; $('#lkRoom').checked = look.L.room;
+  $('#lkOn').onchange = e => { look.set('on', e.target.checked); sendCst(); };
+  $('#lkRoom').onchange = e => { look.set('room', e.target.checked); sendCst(); };
+  for (const [id, k] of [['#lkStr', 'strength'], ['#lkGrain', 'grain']]) {
+    const el = $(id), v = $(id + 'V'); el.value = look.L[k]; v.textContent = Math.round(look.L[k] * 100) + '%';
+    el.oninput = () => { look.set(k, +el.value); v.textContent = Math.round(+el.value * 100) + '%'; sendCst(); };
+  }
+  const syncKeyUI = () => { for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill'], ['#kWrap', 'wrap'], ['#kCm', 'cmatch']]) { $(id).value = vs.K[k]; $(id + 'V').textContent = (+vs.K[k]).toFixed(2); } };
+  const syncLookUI = () => {
+    $('#lkOn').checked = look.L.on; $('#lkRoom').checked = look.L.room;
+    for (const [id, k] of [['#lkStr', 'strength'], ['#lkGrain', 'grain']]) { $(id).value = look.L[k]; $(id + 'V').textContent = Math.round(look.L[k] * 100) + '%'; }
+  };
+  async function runAuto() {
+    $('#kAutoSt').textContent = autoMsg = 'Measuring…'; sendCst(true);
+    try { const r = await vs.autoKey(); syncKeyUI(); $('#kAutoSt').textContent = `Done: green fills ${r.cover} % of the view. Now step in; check with Show matte.`; autoMsg = `Auto done: green ${r.cover} % of the view`; }
+    catch (e) { $('#kAutoSt').textContent = autoMsg = 'Auto: ' + e.message; }
+    sendCst(true);
+  }
+  $('#kAuto').onclick = runAuto;   // #186
+  // ---- #188 the Quest's mixer CAMERA tab: the phone reports its state ('cst') and takes changes ('cset')
+  let lastCst = '', fps = 0, fpsN = 0, fpsT = 0;
+  function sendCst(force) {
+    if (!link || !link.isOpen) return;
+    const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession(), cal: cal.ok, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, auto: autoMsg, look: look.status() };
+    const j = JSON.stringify(m); if (force || j !== lastCst) { lastCst = j; link.send('ctl', m); }
+  }
+  const LIM = { thr: [0, 0.8], soft: [0.02, 0.4], spill: [0, 1], wrap: [0, 1], cmatch: [0, 1], strength: [0, 1], grain: [0, 1] };
+  const lim = (k, v) => Math.min(LIM[k][1], Math.max(LIM[k][0], +v));
+  async function onCset(m) {
+    if (m.what === 'set') await toggleSet(!!m.v);
+    else if (m.what === 'key') { vs.setKey(m.key, lim(m.key, m.v)); syncKeyUI(); }
+    else if (m.what === 'look') { look.set(m.key, typeof m.v === 'boolean' ? m.v : lim(m.key, m.v)); syncLookUI(); }
+    else if (m.what === 'matte') { matteOn = !!m.v; vs.setMatte(matteOn); $('#kMatte').checked = matteOn; }
+    else if (m.what === 'auto') { await runAuto(); return; }
+    else if (m.what === 'preview') pvOn = !!m.v;
+    sendCst(true);
+  }
+  // ---- #188 headset preview: every ~150 ms a 480 px tall copy of what this phone shows, as a JPEG on the 'prev' channel
+  let pvOn = false, pvT = 0, pvBusy = false;
+  const pvRT = new THREE.WebGLRenderTarget(4, 4); pvRT.texture.colorSpace = THREE.SRGBColorSpace;   // sRGB storage: the GPU encodes on write, readPixels gives display bytes
+  const pvCam = new THREE.PerspectiveCamera(); pvCam.matrixAutoUpdate = false;
+  const pvCanvas = document.createElement('canvas'), pvCtx = pvCanvas.getContext('2d');
+  let pvBuf = null;
+  function renderPreview(now) {
+    pvT = now; if (pvBusy) return;
+    const xc = renderer.xr.getCamera(), c0 = xc && xc.cameras && xc.cameras[0]; if (!c0) return;
+    const P = c0.projectionMatrix.elements, H = 480, W = Math.max(64, Math.round(H * P[5] / P[0] / 2) * 2);
+    if (pvRT.width !== W || pvRT.height !== H) { pvRT.setSize(W, H); pvCanvas.width = W; pvCanvas.height = H; pvBuf = new Uint8Array(W * H * 4); }
+    pvCam.projectionMatrix.copy(c0.projectionMatrix); pvCam.projectionMatrixInverse.copy(c0.projectionMatrixInverse);
+    pvCam.matrixWorld.copy(c0.matrixWorld); pvCam.matrixWorldInverse.copy(c0.matrixWorldInverse); pvCam.layers.mask = c0.layers.mask;
+    const raw = !vs.S.on && vs.S.pvReady, qv = vs.quad.visible, rv = reticle.visible, xv = xMark.visible;
+    if (raw) { vs.quad.visible = true; vs.mat.uniforms.raw.value = 1; }
+    reticle.visible = xMark.visible = false;
+    renderer.xr.enabled = false; renderer.setRenderTarget(pvRT); renderer.clear(); renderer.render(scene, pvCam); renderer.setRenderTarget(null); renderer.xr.enabled = true;
+    vs.quad.visible = qv; vs.mat.uniforms.raw.value = 0; reticle.visible = rv; xMark.visible = xv;
+    renderer.readRenderTargetPixels(pvRT, 0, 0, W, H, pvBuf);
+    const img = pvCtx.createImageData(W, H), row = W * 4;
+    for (let y = 0; y < H; y++) { img.data.set(pvBuf.subarray((H - 1 - y) * row, (H - y) * row), y * row); }
+    for (let i = 3; i < img.data.length; i += 4) img.data[i] = 255;
+    pvCtx.putImageData(img, 0, 0); pvBusy = true;
+    pvCanvas.toBlob(b => { if (!b) { pvBusy = false; return; } b.arrayBuffer().then(buf => { if (link) link.sendPrev(buf); pvBusy = false; }); }, 'image/jpeg', 0.6);
+  }
+  $('#spCamTest').onclick = () => import('./camtest.js').then(m => m.camTest()).catch(e => st('Camera test failed: ' + e.message));   // #183
   $('#spLedF').onchange = e => {   // #176: same file names as on the Quest; matched by name
-    const all = [...(e.target.files || [])], n = led.setFiles(all, 500);
+    const all = [...(e.target.files || [])]; pickedLed = all; const n = led.setFiles([...all, ...mediaLed], 1000);
     vvFiles = new Map(all.filter(f => VIDEO_EXT.test(f.name)).map(f => [vvKey(baseName(f.name)), f]));   // #177 VideoVinyl by title
     $('#spLedList').textContent = n ? `${n} video${n > 1 ? 's' : ''}: ${led.files.map(f => f.name).join(' · ')}` : 'No playable videos in that pick.';
   };
@@ -223,6 +338,9 @@ export function startCamera(ctx) {
     else if (m.k === 'recdel') onRecDel(m.uid);
     else if (m.k === 'calpt') onCalPoint(m);
     else if (m.k === 'led') led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000);   // #176
+    else if (m.k === 'sky') vs.onSky(m);
+    else if (m.k === 'cset') onCset(m);   // #188
+    else if (m.k === 'mls' || m.k === 'mgo' || m.k === 'mok') lib.onMsg(m);   // #185                   // #184
     else if (m.k === 'mr') setMR(!!m.on);                  // #164 from the Quest's mixer screen
     else if (m.k === 'cellrec') setClean(!!m.on);   // (#164, no longer sent)
     else if (m.k === 'pong') { const now = performance.now(); stats.rtt = now - m.t; const off = m.qt - (m.t + now) / 2; stats.off = stats.off === null ? off : stats.off * 0.8 + off * 0.2; }
@@ -259,7 +377,7 @@ export function startCamera(ctx) {
     ov.hidden = false;
     try {
       renderer.xr.setReferenceSpaceType('local');
-      const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay'], domOverlay: { root: ov } });
+      const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay', 'camera-access', 'light-estimation'], domOverlay: { root: ov } });
       $('#spS').style.display = 'none';
       await renderer.xr.setSession(session);
       scene.background = null; room.visible = false; envI = scene.environmentIntensity; scene.environmentIntensity = 0.6;   // #180 (default of the Quest's passthrough setting); like the Quest in passthrough
@@ -267,7 +385,9 @@ export function startCamera(ctx) {
       hitSource = await session.requestHitTestSource({ space: viewer });
       touchSource = await session.requestHitTestSourceForTransientInput({ profile: 'generic-touchscreen' }).catch(() => null);
       session.addEventListener('select', onTap);
+      vs.onSession(session); look.onSession(session); $('#bSet').classList.remove('on'); $('#bSet').disabled = !vs.S.can;
       session.addEventListener('end', () => {
+        vs.onEnd(); look.onEnd(); $('#bSet').classList.remove('on');
         hitSource = touchSource = null; ov.hidden = true; $('#spS').style.display = '';
         scene.background = BG; room.visible = true; scene.environmentIntensity = envI;
         if (link && link.isOpen) link.send('ctl', { k: 'cal', step: 'cancel' });
@@ -331,6 +451,10 @@ export function startCamera(ctx) {
   $('#bPlace').onclick = () => setMode('place');
   $('#bMark').onclick = () => { showHead = !showHead; $('#bMark').classList.toggle('on', showHead); };
   $('#bHands').onclick = () => { setHandsDebug(!showHands); $('#bHands').classList.toggle('on', showHands); };
+  async function toggleSet(on) { const msg = await vs.setOn(on); $('#bSet').classList.toggle('on', vs.S.on); setMode(mode === 'live' ? 'live' : mode, msg); if (mode !== 'live') setTimeout(() => setMode(mode), 3000); sendCst(true); }
+  $('#bSet').onclick = () => toggleSet(!vs.S.on);
+  $('#bKey').onclick = () => { const p = $('#spKey'); p.hidden = !p.hidden; $('#bKey').classList.toggle('on', !p.hidden); if (!p.hidden) { $('#spLook').hidden = true; $('#bLook').classList.remove('on'); } };
+  $('#bLook').onclick = () => { const p = $('#spLook'); p.hidden = !p.hidden; $('#bLook').classList.toggle('on', !p.hidden); if (!p.hidden) { $('#spKey').hidden = true; $('#bKey').classList.remove('on'); } };
   $('#bHide').onclick = () => { uiHidden = true; ov.classList.add('hide'); };
   $('#bExit').onclick = () => { const s = renderer.xr.getSession(); if (s) s.end(); };
 
@@ -347,7 +471,7 @@ export function startCamera(ctx) {
   }
   // ---------------------------------------------------------------- loop (replaces main.js's frame())
   const clock = new THREE.Clock();
-  let infoT = 0, camT = 0, found = false;
+  let infoT = 0, camT = 0, found = false, lookT = 0;
   const _m = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _s = new THREE.Vector3();
   renderer.setAnimationLoop((t, frame) => {
     const dt = Math.min(0.05, clock.getDelta()), now = performance.now();
@@ -388,10 +512,16 @@ export function startCamera(ctx) {
       infoT = t;
       const live = link && link.isOpen, stale = now - stats.last > 1000;
       $('#spInfo').textContent = live
-        ? `Quest ${stats.xr ? 'in XR' : 'not in XR yet'} · round trip ${stats.rtt.toFixed(0)} ms · pose age ${stale ? 'no data' : stats.age.toFixed(0) + ' ms'} · ${stats.pps}/s · ${nodes.size} parts · ${recs.size} records` + (cal.ok ? ` · cal ${cal.err ?? '-'} cm` : ' · not calibrated')
+        ? `Quest ${stats.xr ? 'in XR' : 'not in XR yet'} · round trip ${stats.rtt.toFixed(0)} ms · pose age ${stale ? 'no data' : stats.age.toFixed(0) + ' ms'} · ${stats.pps}/s · ${nodes.size} parts · ${recs.size} records` + (cal.ok ? ` · cal ${cal.err ?? '-'} cm` : ' · not calibrated') + (vs.S.on ? ` · set ${vs.S.got}/${vs.S.got + vs.S.miss}` + (vs.S.err ? ' ' + vs.S.err : '') : '')
         : 'Not connected to the Quest (' + (STATUS[linkState] || linkState || 'idle') + ')';
     }
+    look.frame(frame, dt, vs.S.on);   // #187 (before vs.frame: it asks for the camera sample)
+    if (t - lookT > 500) { lookT = t; if (!$('#spLook').hidden) $('#lkSt').textContent = look.status(); }
+    vs.S.pvNeed = !!(pvOn && frame && link && link.isOpen && now - pvT > 150);   // #188
+    vs.frame(frame);   // #184: camera picture for the key (only while the virtual set is on)
     renderer.render(scene, camera);
+    if (vs.S.pvNeed) renderPreview(now);   // #188
+    fpsN++; if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; sendCst(); }
   });
-  window.spect = { stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
+  window.spect = { vs, look, renderPreview, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
 }

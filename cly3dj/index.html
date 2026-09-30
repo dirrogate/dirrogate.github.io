@@ -14,7 +14,7 @@
   #start { position:fixed; inset:0; display:flex; overflow-y:auto; background:radial-gradient(ellipse at 50% 40%, #182030 0%, #0b0d12 70%); z-index:20; }
   #start .box { text-align:center; max-width:520px; padding:24px; margin:auto; }   /* centred when it fits, scrolls when the window is short (#96) */
   #start h1 { font-size:44px; margin:0 0 4px; letter-spacing:.06em; font-weight:800; }
-  #start h1 span { color:#e0202a; }   /* #176: Cly white, 3DJ red */
+  #start h1 span { color:#e0202a; letter-spacing:-.01em; }   /* #176: Cly white, 3DJ red; #191 3DJ kerned tighter */
   #start p { color:var(--dim); margin:0 0 22px; }
   #start .btns { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
   button.big { font:600 16px system-ui,sans-serif; color:var(--fg); background:#1c2230; border:1px solid #2e3850; border-radius:10px; padding:14px 22px; cursor:pointer; min-width:150px; }
@@ -107,6 +107,25 @@
           <option value="on">On: the image replaces the studio room (Desktop / Full VR)</option>
         </select>
       </label>
+      <label id="rowSkyH">Pano height (camera above its floor) <span style="display:flex;gap:10px;align-items:center"><input type="range" id="sSkyH" min="0.5" max="3" step="0.05" style="flex:1"><span id="skyHVal"></span></span></label>
+      <label id="rowSkyTurn">Pano turn <span style="display:flex;gap:10px;align-items:center"><input type="range" id="sSkyTurn" min="0" max="359" step="1" style="flex:1"><span id="skyTurnVal"></span></span></label>
+      <label id="rowSkyType">Pano type
+        <select id="sSkyType">
+          <option value="auto">Auto (2:1 mono, 1:1 over-under, 4:1 side-by-side)</option>
+          <option value="mono">Mono</option>
+          <option value="ou">Stereo over-under, left eye on top</option>
+          <option value="ou-swap">Stereo over-under, right eye on top</option>
+          <option value="sbs">Stereo side-by-side, left eye first</option>
+          <option value="sbs-swap">Stereo side-by-side, right eye first</option>
+        </select>
+      </label>
+      <label id="rowSkyKey">Key light from the image
+        <select id="sSkyKey">
+          <option value="on">On: comes from the image's brightest area</option>
+          <option value="off">Off: studio key light</option>
+        </select>
+      </label>
+      <div class="note" id="skyInfo"></div>
       <input type="file" id="fEnv" accept="image/*" hidden>
       <label>LED wall videos <span><button class="small" id="bLedPick">Choose videos… (up to 5)</button></span></label>
       <div class="note" id="ledList">None picked. Pick them each session; they play muted on the LED wall (LED WALL button on the mixer, deck B side).</div>

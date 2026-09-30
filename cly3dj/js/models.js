@@ -505,7 +505,7 @@ export function makeMixer() {
     layout.ticks.push({ x, z, r }); // tick ring is printed on the face
     u.controls[id] = k; knobs.push(k); return k;
   };
-  const label = (text, x, z, size, bold, color) => layout.texts.push({ text, x, z, size, bold, color });
+  const label = (text, x, z, size, bold, color, align) => layout.texts.push({ text, x, z, size, bold, color, align });
   // buttons (#134): each is a proxy group at its place carrying the control tag and set/setColor/press; with the
   // Blender parts loaded all of them are drawn by mixButtons() at the end, else each holds a makeRubberButton
   const btns = [];
@@ -532,9 +532,10 @@ export function makeMixer() {
     layout.slots.push({ x, z: 0.104, w: 0.0035, d: 0.066 });
     layout.faderScales.push({ x: x + (x < 0 ? 0.013 : -0.013), z0: 0.076, z1: 0.132 });
     const slot = box(0.0033, 0.004, 0.064, MAT.black); slot.position.set(x, top - 0.0021, 0.104); g.add(slot);
-    const lx = x < 0 ? x + 0.036 : x - 0.036;
-    label('TRIM', lx, -0.142); label('HI', lx, -0.108); label('MID', lx, -0.074); label('LOW', lx, -0.040);
-    label('FILTER', lx, -0.004); label('PAN', lx, 0.030);
+    // #191 (owner): legends right beside their knob (just outside its dotted scale, toward the centre), so LOW can't be
+    // read as belonging to the mic PITCH knob; was centred 36 mm from the knob
+    const lx = x < 0 ? x + 0.0195 : x - 0.0195, al = x < 0 ? 'left' : 'right';
+    for (const [t, z] of [['TRIM', -0.142], ['HI', -0.108], ['MID', -0.074], ['LOW', -0.040], ['FILTER', -0.004], ['PAN', 0.030]]) label(t, lx, z, undefined, false, undefined, al);
     label(ch, x, -0.163, 0.006, true);
     const cap = (MIXP ? mixFaderCap : makeFaderCap)(0.0196, 0.011); cap.position.set(x, top, 0.104); g.add(cap);   // wide to the printed scale (owner, 26 Sep): top plate 20 mm, 0.8 mm short of the long ticks
     cap.traverse(o => { if (o.isMesh) o.userData.control = { mixer: true, id: ch + '.fader' }; });
@@ -604,10 +605,18 @@ diffuseColor.rgb = diffuseColor.rgb * vireHs * 1.5 + vec3(0.45) * smoothstep(0.7
   // screen on a stand behind the mixer, tilted toward the DJ
   // tilted back 25 deg (owner, #115: 35 was too far; #89 had raised it from 20)
   const TILT = -25 * Math.PI / 180;
-  const stand = box(0.2, 0.08, 0.02, MAT.black); stand.position.set(0, top + 0.03, -0.185); stand.rotation.x = TILT; g.add(stand);
+  // #189 (owner): the display is a tablet. Grip (or pinch) its frame to pick it up and hold it like an iPad; let go
+  // and it stays in the air where it is, or snaps back into a very shallow slot along the mixer's back edge when let
+  // go within 8 cm of it. Docked, it sits exactly where the #115 stand was. Same size as before (owner: not wider).
+  const tab = new THREE.Group(); tab.name = 'tablet';
+  tab.position.set(0, top + 0.03, -0.185); tab.rotation.x = TILT; g.add(tab);
+  const stand = box(0.2, 0.08, 0.02, MAT.black); tab.add(stand);   // the tablet's body
   const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.075), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
-  scr.position.set(0, top + 0.03 + 0.0115 * Math.sin(-TILT), -0.185 + 0.0115 * Math.cos(TILT));   // 1.5 mm proud of the stand's face, along its normal
-  scr.rotation.x = TILT; g.add(scr); u.screen = scr; scr.userData.mixScreen = true;   // BPM / ORIG / KEY readout taps (#116)
+  scr.position.set(0, 0, 0.0115);   // 1.5 mm proud of the body's face
+  tab.add(scr); u.screen = scr; scr.userData.mixScreen = true;   // BPM / ORIG / KEY readout taps (#116)
+  u.tablet = tab; u.tabletDock = { p: tab.position.clone(), q: tab.quaternion.clone() };
+  const slot = box(0.206, 0.0012, 0.016, new THREE.MeshStandardMaterial({ color: 0x030303, roughness: 0.95, metalness: 0 }));   // the slot (1.2 mm)
+  slot.position.set(0, top + 0.0006, -0.168); slot.raycast = () => {}; g.add(slot);
   // #115: the fake refraction / bevel-edge shader from #89 is removed (read as an artifact at the border)
   // glass plate over the readout (owner, 26 Sep): 2 mm in front of the screen, a touch larger. Black base with
   // additive blending, so it only ADDS its reflection (Fresnel: faint face-on, stronger at grazing angles) and
@@ -654,7 +663,7 @@ diffuseColor.rgb = diffuseColor.rgb * vireHs * 1.5 + vec3(0.45) * smoothstep(0.7
 
 // ---------- milk crate (CLAUDE.md #61): green HDPE crate for records you want to keep handy mid-set.
 // Open lattice sides, hand holes in two sides, grid floor. Records dropped in stand leaning on each other.
-export const MILK = { W: 0.345, D: 0.345, H: 0.28, wall: 0.012 };
+export const MILK = { W: 0.36, D: 0.47, H: 0.306, wall: 0.008 };   // #192: the photo's proportions (was a 0.345 cube, 0.28 tall); #193 owner: 10 % shorter, 12 % longer
 export const MILK_CREDIT = '"Plastic Crate 02" by Console Art Cybernetic (sketchfab.com/cacybernetic), Sketchfab Standard licence, recoloured';
 // The owner's crate model: 505 x 405 x 254 mm, open top, origin bottom centre. Recoloured black
 // (colour texture dropped; its normal, roughness and occlusion maps kept for the moulded detail).
@@ -674,35 +683,197 @@ export async function loadMilkCrate(url) {
   g.userData.records = [];
   return g;
 }
+// #192 (owner: the crate looked fake; photo of a real produce crate; "fake the geometry, don't add triangles").
+// Proportions from the photo: taller and deeper than wide. Colour: deep blue (owner). The slots, holes and hand holes are painted into ONE
+// 1024 x 1024 texture sheet (cut out with alpha, smooth edges by alpha-to-coverage on MSAA), each wall is an outer
+// and an inner panel 6 mm apart (so the holes show real depth when you move), and only the rim, corner posts and
+// base skirt are real boxes. About 170 triangles and one draw call per crate (the Blender GLB was 868).
+// Sheet quadrants: top-left = long walls (columns of short oval slots, a centre rib, as the photo's back wall),
+// top-right = short walls (grid of small square holes + hand hole), bottom-left = floor (grid of holes),
+// bottom-right = solid (the boxes). A normal map made from a blurred copy of the cutout rounds every slot edge;
+// the colour map darkens slightly toward each hole (moulded lip) and adds a faint moulding grain.
+let MILK_ATLAS = null;
+function milkAtlas() {
+  if (MILK_ATLAS) return MILK_ATLAS;
+  const N = 1024, Q = N / 2;
+  const m = document.createElement('canvas'); m.width = m.height = N;   // mask: white = plastic, black = hole
+  const g = m.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, N, N);
+  const rr = (x, y, w, h, r) => { g.beginPath(); g.roundRect(x, y, w, h, r); g.fill(); };
+  g.fillStyle = '#000';
+  // long wall (0.42 x 0.34 m on a 512 x 512 quadrant): 2 blocks of columns either side of a centre rib
+  {
+    const x0 = 0, y0 = 0, sx = Q / MILK.D, sy = Q / MILK.H;          // px per metre
+    const top = 0.05, bot = 0.035, side = 0.03, rib = 0.028;
+    const sw = 0.009, sh = 0.03, px = 0.0155, py = 0.038;             // slot size and pitch
+    const half = (MILK.D - 2 * side - rib) / 2, cols = Math.floor((half + px - sw) / px), rows = Math.floor((MILK.H - top - bot + py - sh) / py);
+    for (const bx of [side, side + half + rib]) {
+      const ox = bx + (half - ((cols - 1) * px + sw)) / 2, oy = top + (MILK.H - top - bot - ((rows - 1) * py + sh)) / 2;
+      for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) rr(x0 + (ox + c * px) * sx, y0 + (oy + r * py) * sy, sw * sx, sh * sy, sw * sx / 2);
+    }
+  }
+  // short wall (0.36 x 0.34 m): hand hole under the rim, then a grid of small square holes
+  {
+    const x0 = Q, y0 = 0, sx = Q / MILK.W, sy = Q / MILK.H;
+    rr(x0 + (MILK.W / 2 - 0.06) * sx, y0 + 0.03 * sy, 0.12 * sx, 0.034 * sy, 0.017 * sy);
+    const top = 0.085, bot = 0.035, side = 0.03, s = 0.009, p = 0.0145;
+    const cols = Math.floor((MILK.W - 2 * side + p - s) / p), rows = Math.floor((MILK.H - top - bot + p - s) / p);
+    const ox = (MILK.W - ((cols - 1) * p + s)) / 2, oy = top + (MILK.H - top - bot - ((rows - 1) * p + s)) / 2;
+    for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) rr(x0 + (ox + c * p) * sx, y0 + (oy + r * p) * sy, s * sx, s * sy, 2);
+  }
+  // floor (0.36 x 0.42 m): grid of short slots with a solid cross
+  {
+    const x0 = 0, y0 = Q, sx = Q / MILK.W, sy = Q / MILK.D;
+    const edge = 0.025, cross = 0.022, sw = 0.009, sh = 0.016, px = 0.0145, py = 0.022;
+    for (const [ax, aw] of [[edge, MILK.W / 2 - edge - cross / 2], [MILK.W / 2 + cross / 2, MILK.W / 2 - edge - cross / 2]])
+      for (const [az, ad] of [[edge, MILK.D / 2 - edge - cross / 2], [MILK.D / 2 + cross / 2, MILK.D / 2 - edge - cross / 2]]) {
+        const cols = Math.floor((aw + px - sw) / px), rows = Math.floor((ad + py - sh) / py);
+        const ox = ax + (aw - ((cols - 1) * px + sw)) / 2, oz = az + (ad - ((rows - 1) * py + sh)) / 2;
+        for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) rr(x0 + (ox + c * px) * sx, y0 + (oz + r * py) * sy, sw * sx, sh * sy, 2);
+      }
+  }
+  // (bottom-right quadrant stays solid white)
+  const mask = g.getImageData(0, 0, N, N).data;
+  // #193 (owner: too pristine) wear and tear, all in the textures. Seeded, so every load looks the same. Layers drawn with
+  // the 2D canvas: W = stress whitening (knocked edges, rim, round the hand holes), G = grime (bottom of the walls, the
+  // floor), S = scratches, E = dents (height: dark = pressed in). Walls: canvas row 0 = top of the wall (the rim).
+  let seed = 1937; const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const layer = () => { const c = document.createElement('canvas'); c.width = c.height = N; const x = c.getContext('2d'); return [c, x]; };
+  const [wc, wx] = layer(), [gc, gx] = layer(), [sc, sx2] = layer(), [ec, ex] = layer();
+  ex.fillStyle = 'rgb(128,128,128)'; ex.fillRect(0, 0, N, N);
+  const blob = (ctx, x, y, r, a, rgb = '255,255,255', sy = 1) => {
+    ctx.save(); ctx.translate(x, y); ctx.scale(1, sy);
+    const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, r); gr.addColorStop(0, `rgba(${rgb},${a})`); gr.addColorStop(1, `rgba(${rgb},0)`);
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  };
+  for (const [qx, qy, isWall] of [[0, 0, true], [Q, 0, true], [0, Q, false], [Q, Q, false]]) {
+    const R = (a, b) => a + rnd() * (b - a);
+    if (isWall) {
+      for (let i = 0; i < 22; i++) blob(wx, qx + R(0, Q), qy + R(0, 26), R(8, 30), R(0.25, 0.6), '255,255,255', R(0.3, 0.7));     // knocked rim edge
+      for (let i = 0; i < 7; i++) blob(wx, qx + R(10, Q - 10), qy + R(30, Q - 30), R(10, 28), R(0.12, 0.3));                           // random knocks
+      const gr = gx.createLinearGradient(0, qy + Q * 0.55, 0, qy + Q); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.75)');
+      gx.fillStyle = gr; gx.fillRect(qx, qy, Q, Q);                                                                                   // dirt toward the bottom
+      for (let i = 0; i < 9; i++) { const x = qx + R(20, Q - 20), y = qy + R(60, Q - 30), r = R(9, 26);                                // dents: pressed in, whitened rim
+        blob(ex, x, y, r, R(0.5, 0.9), '0,0,0', R(0.6, 1)); blob(wx, x, y, r * 1.25, 0.18); }
+    } else {
+      for (let i = 0; i < 40; i++) blob(gx, qx + R(0, Q), qy + R(0, Q), R(15, 60), R(0.15, 0.45), '0,0,0');                           // floor / box grime
+      const solid = qx === Q;   // #194: heavy scuffing on the rim / post / skirt patches only; the floor just a few light ones
+      for (let i = 0; i < (solid ? 26 : 8); i++) blob(wx, qx + R(0, Q), qy + R(0, Q), R(6, 24), solid ? R(0.2, 0.5) : R(0.08, 0.2), '255,255,255', R(0.3, 1));
+      for (let i = 0; i < 12; i++) blob(ex, qx + R(10, Q - 10), qy + R(10, Q - 10), R(6, 18), R(0.4, 0.8), '0,0,0');
+    }
+    for (let i = 0; i < 55; i++) {                                                                                                     // scratches
+      const x = qx + R(0, Q), y = qy + R(0, Q), a = R(0, Math.PI), l = R(8, 70);
+      sx2.strokeStyle = `rgba(255,255,255,${R(0.15, 0.55)})`; sx2.lineWidth = R(0.5, 1.3);
+      sx2.beginPath(); sx2.moveTo(x, y); sx2.quadraticCurveTo(x + Math.cos(a) * l * 0.5 + R(-4, 4), y + Math.sin(a) * l * 0.5 + R(-4, 4), x + Math.cos(a) * l, y + Math.sin(a) * l); sx2.stroke();
+    }
+  }
+  // whitening round the hand holes (short-wall quadrant)
+  { const sxm = Q / MILK.W, sym = Q / MILK.H; for (let i = 0; i < 10; i++) blob(wx, Q + (MILK.W / 2 + (rnd() - 0.5) * 0.14) * sxm, (0.047 + (rnd() - 0.5) * 0.04) * sym, 10 + rnd() * 14, 0.35); }
+  // #194: soft random mottling (no repeat) instead of the #192 sine 'grain', which read as a cross-hatch up close
+  const [mc2, mx2] = layer(); { const t = document.createElement('canvas'); t.width = t.height = 48; const tx = t.getContext('2d'), id = tx.createImageData(48, 48);
+    for (let i = 0; i < id.data.length; i += 4) { const v = Math.round(rnd() * 255); id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255; }
+    tx.putImageData(id, 0, 0); mx2.imageSmoothingEnabled = true; mx2.imageSmoothingQuality = 'high'; mx2.filter = 'blur(6px)'; mx2.drawImage(t, -16, -16, N + 32, N + 32); }
+  const M8 = mx2.getImageData(0, 0, N, N).data;
+  const W8 = wx.getImageData(0, 0, N, N).data, G8 = gx.getImageData(0, 0, N, N).data, S8 = sx2.getImageData(0, 0, N, N).data;
+  ex.filter = 'blur(2px)'; ex.drawImage(ec, 0, 0); const E8 = ex.getImageData(0, 0, N, N).data;
+  // height = blurred mask (rounded slot edges) + dents; colour = the crate's blue, darker toward holes, whitened, dirtied,
+  // scratched; roughness = rougher where scuffed / dirty. Alpha = the cutout.
+  const b = document.createElement('canvas'); b.width = b.height = N; const bg = b.getContext('2d');
+  bg.filter = 'blur(3px)'; bg.drawImage(m, 0, 0); const hgt = bg.getImageData(0, 0, N, N).data;
+  const H = new Float32Array(N * N);
+  for (let i = 0; i < N * N; i++) H[i] = hgt[i * 4] / 255 + (E8[i * 4] - 128) / 128 * 0.6;
+  const base = [13, 44, 120], white = [150, 160, 185], dirt = [20, 22, 26];   // owner: deep blue; stress-whitened plastic; grime
+  const col = new ImageData(N, N), nor = new ImageData(N, N), rou = new ImageData(N, N);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const j = y * N + x, i = j * 4, h = hgt[i] / 255;
+    const grain = 0.965 + 0.07 * (M8[i] / 255 - 0.5);
+    const lip = 0.62 + 0.38 * Math.min(1, h * 1.25);
+    const w = Math.min(1, W8[i + 3] / 255 * 0.8 + S8[i + 3] / 255 * 0.4), gd = G8[i + 3] / 255 * 0.7;
+    for (let c = 0; c < 3; c++) { let v = base[c] * lip * grain; v += (white[c] - v) * w; v += (dirt[c] - v) * gd; col.data[i + c] = Math.max(0, Math.min(255, Math.round(v))); }
+    col.data[i + 3] = mask[i] > 127 ? 255 : 0;
+    const r = 0.5 + 0.25 * gd + 0.2 * (S8[i + 3] / 255) + 0.1 * (W8[i + 3] / 255);
+    rou.data[i] = rou.data[i + 1] = rou.data[i + 2] = Math.round(Math.min(1, r) * 255); rou.data[i + 3] = 255;
+    const hx = H[y * N + Math.min(N - 1, x + 1)] - H[y * N + Math.max(0, x - 1)];
+    const hy = H[Math.min(N - 1, y + 1) * N + x] - H[Math.max(0, y - 1) * N + x];
+    const k = 2.5, nx = -hx * k, ny = hy * k, l = Math.hypot(nx, ny, 1);
+    nor.data[i] = Math.round((nx / l * 0.5 + 0.5) * 255); nor.data[i + 1] = Math.round((ny / l * 0.5 + 0.5) * 255); nor.data[i + 2] = Math.round((1 / l * 0.5 + 0.5) * 255); nor.data[i + 3] = 255;
+  }
+  const cc = document.createElement('canvas'); cc.width = cc.height = N; cc.getContext('2d').putImageData(col, 0, 0);
+  const nc = document.createElement('canvas'); nc.width = nc.height = N; nc.getContext('2d').putImageData(nor, 0, 0);
+  const rc = document.createElement('canvas'); rc.width = rc.height = N; rc.getContext('2d').putImageData(rou, 0, 0);
+  const map = new THREE.CanvasTexture(cc); map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4;
+  const normalMap = new THREE.CanvasTexture(nc); normalMap.anisotropy = 4;
+  const roughnessMap = new THREE.CanvasTexture(rc);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, map, normalMap, roughnessMap, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 1, metalness: 0,   // #193: the colour lives in the map (so wear can whiten it)
+    alphaTest: 0.5, alphaToCoverage: true, side: THREE.FrontSide });
+  mat.name = 'milk_crate_cutout';
+  const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map, alphaTest: 0.5 });   // shadows through the holes
+  MILK_ATLAS = { map, normalMap, mat, depth, geo: null };
+  return MILK_ATLAS;
+}
+function milkGeometry() {
+  const A = milkAtlas(); if (A.geo) return A.geo;
+  const { W, D, H } = MILK, T = 0.006, F = 0.008;       // panel gap (wall thickness), floor thickness
+  const pos = [], nrm = [], uv = [];
+  // quad from 4 corners (counter-clockwise seen from the side it faces) with uv from a quadrant
+  const quad = (p, u, n) => { for (const k of [0, 1, 2, 0, 2, 3]) { pos.push(...p[k]); uv.push(...u[k]); nrm.push(...n); } };
+  const R = (q, u, v) => [(q[0] + u) * 0.5, 1 - (q[1] + 1 - v) * 0.5];   // quadrant (col,row) + local u,v (v up) -> atlas uv
+  const QL = [0, 0], QS = [1, 0], QF = [0, 1];
+  // long walls (x = +-W/2), running along z; u along z, v up
+  for (const s of [-1, 1]) for (const inner of [false, true]) {
+    const x = s * (W / 2 - (inner ? T : 0)), out = inner ? -s : s;
+    const z0 = -D / 2, z1 = D / 2, pts = [[x, 0, z0], [x, 0, z1], [x, H, z1], [x, H, z0]], us = [R(QL, 0, 0), R(QL, 1, 0), R(QL, 1, 1), R(QL, 0, 1)];
+    const cw = out > 0 ? [pts[1], pts[0], pts[3], pts[2]] : pts, cu = out > 0 ? [us[1], us[0], us[3], us[2]] : us;
+    quad(cw, cu, [out, 0, 0]);
+  }
+  // short walls (z = +-D/2), running along x
+  for (const s of [-1, 1]) for (const inner of [false, true]) {
+    const z = s * (D / 2 - (inner ? T : 0)), out = inner ? -s : s;
+    const pts = [[-W / 2, 0, z], [W / 2, 0, z], [W / 2, H, z], [-W / 2, H, z]], us = [R(QS, 0, 0), R(QS, 1, 0), R(QS, 1, 1), R(QS, 0, 1)];
+    const cw = out > 0 ? pts : [pts[1], pts[0], pts[3], pts[2]], cu = out > 0 ? us : [us[1], us[0], us[3], us[2]];
+    quad(cw, cu, [0, 0, out]);
+  }
+  // floor: top face (up) and underside (down)
+  for (const [y, up] of [[F, 1], [0.0005, -1]]) {
+    const pts = [[-W / 2, y, D / 2], [W / 2, y, D / 2], [W / 2, y, -D / 2], [-W / 2, y, -D / 2]], us = [R(QF, 0, 0), R(QF, 1, 0), R(QF, 1, 1), R(QF, 0, 1)];
+    quad(up > 0 ? pts : [pts[1], pts[0], pts[3], pts[2]], up > 0 ? us : [us[1], us[0], us[3], us[2]], [0, up, 0]);
+  }
+  const walls = new THREE.BufferGeometry();
+  walls.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); walls.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3)); walls.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  // real boxes: top rim (a lip wider than the wall), corner posts, base skirt; uv on the solid quadrant
+  const parts = [walls];
+  let bs = 71; const br = () => { bs = (bs * 1664525 + 1013904223) >>> 0; return bs / 4294967296; };
+  // #193: each box face gets its own worn patch of the solid quadrant (atlas u 0.5-1, v 0-0.5), sized like the walls' texels
+  const bx = (w, h, d, x, y, z) => {
+    const b = new THREE.BoxGeometry(w, h, d).toNonIndexed(); b.translate(x, y, z); const u = b.getAttribute('uv');
+    const dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];   // BoxGeometry face order: +x -x +y -y +z -z
+    for (let f = 0; f < 6; f++) {
+      const su = Math.min(0.48, dims[f][0] / 0.84), sv = Math.min(0.48, dims[f][1] / 0.84), ou = 0.51 + br() * (0.48 - su), ov = 0.01 + br() * (0.48 - sv);
+      for (let k = 0; k < 6; k++) { const i = f * 6 + k; u.setXY(i, ou + u.getX(i) * su, ov + u.getY(i) * sv); }
+    }
+    parts.push(b);
+  };
+  const L = 0.02, LT = 0.014;
+  bx(W + 0.006, L, LT, 0, H - L / 2, -D / 2 + LT / 2 - 0.003); bx(W + 0.006, L, LT, 0, H - L / 2, D / 2 - LT / 2 + 0.003);
+  bx(LT, L, D - 2 * LT + 0.006, -W / 2 + LT / 2 - 0.003, H - L / 2, 0); bx(LT, L, D - 2 * LT + 0.006, W / 2 - LT / 2 + 0.003, H - L / 2, 0);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) bx(0.028, H - L, 0.028, sx * (W / 2 - 0.012), (H - L) / 2, sz * (D / 2 - 0.012));   // #194: 2 mm proud of the panels and 1 mm of the base skirt (were coplanar: z-fighting)
+  const K = 0.016;
+  bx(W, K, T + 0.002, 0, K / 2, -D / 2 + T / 2); bx(W, K, T + 0.002, 0, K / 2, D / 2 - T / 2);
+  bx(T + 0.002, K, D, -W / 2 + T / 2, K / 2, 0); bx(T + 0.002, K, D, W / 2 - T / 2, K / 2, 0);
+  A.geo = mergeGeometries(parts, false);
+  A.geo.computeBoundingSphere();
+  return A.geo;
+}
 export function makeMilkCrate() {
   const g = new THREE.Group(); g.name = 'milkCrate';
-  const { W, D, H, wall } = MILK, parts = [];
-  const bx = (w, h, d, x, y, z) => { const b = new THREE.BoxGeometry(w, h, d); b.translate(x, y, z); parts.push(b); };
-  // four rounded-ish corner posts
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) bx(0.026, H, 0.026, sx * (W / 2 - 0.013), H / 2, sz * (D / 2 - 0.013));
-  // each side: bottom band, top rim (with a hand hole on the +/-x sides), 7 vertical and 2 horizontal bars
-  const side = (len, along, off, hand) => {
-    const at = (u, y, w, h, t) => along === 'x' ? bx(w, h, t, u, y, off) : bx(t, h, w, off, y, u);
-    at(0, 0.012, len, 0.024, wall);
-    if (hand) { const hw = 0.11; for (const s of [-1, 1]) at(s * (hw / 2 + (len - hw) / 4), H - 0.022, (len - hw) / 2, 0.044, wall); at(0, H - 0.006, hw, 0.012, wall); at(0, H - 0.041, hw, 0.008, wall); }
-    else at(0, H - 0.017, len, 0.034, wall);
-    for (let i = 1; i <= 7; i++) at(-len / 2 + i * len / 8, H / 2, 0.012, H - 0.05, wall * 0.9);
-    for (const y of [0.1, 0.17]) at(0, y, len, 0.01, wall * 0.9);
-  };
-  side(W, 'x', -D / 2 + wall / 2, false); side(W, 'x', D / 2 - wall / 2, false);
-  side(D, 'z', -W / 2 + wall / 2, true); side(D, 'z', W / 2 - wall / 2, true);
-  // grid floor
-  for (let i = 0; i <= 8; i++) { const u = -W / 2 + wall + i * (W - 2 * wall) / 8; bx(0.008, 0.008, D - wall, u, 0.004, 0); bx(W - wall, 0.008, 0.008, 0, 0.004, u); }
-  const geo = mergeGeometries(parts.map(p => p.toNonIndexed()), false);
-  geo.computeVertexNormals();
-  // glossy moulded HDPE, dark green (owner, #68)
-  const mat = new THREE.MeshPhysicalMaterial({ color: 0x0c4a22, roughness: 0.24, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.15, specularIntensity: 0.6, envMapIntensity: 0.9 });
-  const mesh = MILK_BAKED ? new THREE.Mesh(MILK_BAKED.geo, MILK_BAKED.mat) : new THREE.Mesh(geo, mat);
+  const A = milkAtlas(), mesh = new THREE.Mesh(milkGeometry(), A.mat);
+  mesh.customDepthMaterial = A.depth;
   mesh.castShadow = true; mesh.receiveShadow = true; mesh.userData.milkBody = true; g.add(mesh);
-  g.userData.inner = { x: W / 2 - wall, z: D / 2 - wall, floor: 0.008, rim: H };
+  g.userData.inner = { x: MILK.W / 2 - 0.008, z: MILK.D / 2 - 0.008, floor: 0.008, rim: MILK.H };
   g.userData.records = [];
   return g;
 }
+
 // #124: the Blender-baked milk crate (blender/milk_crate/milk_crate.blend -> web/models/milk_crate.glb). Same size,
 // origin and wall/floor planes as the procedural one above (which stays as the fallback), so the crate physics
 // (userData.inner) is unchanged. #125 (owner: v1 was 3x the triangles and ~30 MB of textures): v2 = 868 triangles,
@@ -717,6 +888,10 @@ export async function loadMilkCrateBaked(url) {
   if (!src) throw new Error('milk crate GLB has no mesh');
   const mat = src.material; mat.side = THREE.FrontSide;   // closed shell: no need to draw back faces
   mat.name = 'milk_crate_baked';
+  // #191 (owner: too fake, too much sheen in passthrough; photo of a real crate): moulded HDPE is satin, not
+  // lacquered. Clearcoat 0.6 / 0.15 -> 0.08 / 0.5, specular 1 -> 0.45, and the brighter bottle green of the photo
+  // (was a near-black 0c4a22). Roughness / normal / AO maps from the GLB unchanged.
+  mat.color.setHex(0x144a24); mat.clearcoat = 0.08; mat.clearcoatRoughness = 0.5; mat.specularIntensity = 0.45; mat.needsUpdate = true;
   MILK_BAKED = { geo: src.geometry, mat };
   return MILK_BAKED;
 }

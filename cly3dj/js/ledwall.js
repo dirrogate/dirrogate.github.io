@@ -28,6 +28,16 @@ export function makeLedWall() {
     screen.material = deckA; screenB.visible = !!texB;
   };
   let tex = null;
+  // #185: a still image (ImageBitmap made with imageOrientation 'flipY'), same 'cover' fit as a video
+  g.userData.setImage = bmp => {
+    if (tex) { tex.dispose(); tex = null; }
+    screenB.visible = false;
+    if (!bmp) { screen.material = offMat; return; }
+    tex = new THREE.Texture(bmp); tex.flipY = false; tex.colorSpace = THREE.SRGBColorSpace; tex.needsUpdate = true;
+    const va = bmp.width / bmp.height, sa = LED.W / LED.H;
+    if (va > sa) { tex.repeat.set(sa / va, 1); tex.offset.set((1 - sa / va) / 2, 0); } else { tex.repeat.set(1, va / sa); tex.offset.set(0, (1 - va / sa) / 2); }
+    onMat.map = tex; onMat.needsUpdate = true; screen.material = onMat;
+  };
   // show a <video> (or nothing). 'cover': the clip fills the 16:9 panel, cropping the long side if it isn't 16:9.
   g.userData.setVideo = video => {
     if (tex) { tex.dispose(); tex = null; }
@@ -46,17 +56,27 @@ export function makeLedWall() {
 
 // Plays clips on a wall. Host (Quest): random order from its files. Follower (spectator phone): plays whatever
 // clip name + time the Quest reports, if it has a file with the same name.
+const IMG_SECONDS = 8;
+const isImage = f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|avif)$/i.test(f.name);
 export class LedPlayer {
   constructor(wall) { this.wall = wall; this.files = []; this.video = null; this.name = null; this.on = false; this.onChange = null; }
-  setFiles(list, max = 5) {
-    this.files = [...list].filter(f => /^video\//.test(f.type) || /\.(mp4|m4v|webm|mov|mkv)$/i.test(f.name)).slice(0, max);
+  setFiles(list, max = 5) {   // #185: images too (shown IMG_SECONDS each in the playlist)
+    this.files = [...list].filter(f => /^(video|image)\//.test(f.type) || /\.(mp4|m4v|webm|mov|mkv|jpe?g|png|webp|gif|avif)$/i.test(f.name)).slice(0, max);
     if (this.on && !this.files.length) this.stop();
     return this.files.length;
   }
   get hasFiles() { return this.files.length > 0; }
   fileNamed(n) { return this.files.find(f => f.name === n) || null; }
+  add(file) { if (!this.files.some(f => f.name === file.name)) this.files.push(file); return this.files.length; }
+  play(file, loop = false) { this.on = true; this._open(file, loop ? null : () => this.playRandom()); if (loop && this.video) this.video.loop = true; this.onChange && this.onChange(); }
   _open(file, onEnded) {
     this._close();
+    if (isImage(file)) {   // #185 still image
+      const name = file.name; this.name = name; this.img = true;
+      createImageBitmap(file, { imageOrientation: 'flipY' }).then(b => { if (this.name === name && this.img) this.wall.userData.setImage(b); }).catch(() => {});
+      if (onEnded) this.imgT = setTimeout(() => { if (this.name === name) onEnded(); }, IMG_SECONDS * 1000);
+      return;
+    }
     const v = document.createElement('video');
     v.muted = true; v.playsInline = true; v.preload = 'auto'; v.crossOrigin = 'anonymous';
     v.src = URL.createObjectURL(file); v._url = v.src;
@@ -65,6 +85,7 @@ export class LedPlayer {
     this.video = v; this.name = file.name; this.wall.userData.setVideo(v);
   }
   _close() {
+    clearTimeout(this.imgT); this.img = false;
     const v = this.video; this.video = null; this.name = null; this.wall.userData.setVideo(null);
     if (v) { v.pause(); URL.revokeObjectURL(v._url); v.removeAttribute('src'); v.load(); }   // frees the decoder
   }
@@ -80,7 +101,7 @@ export class LedPlayer {
   follow(on, name, t) {
     if (!on || !name) { if (this.video) this._close(); this.on = false; return; }
     const f = this.fileNamed(name); if (!f) { if (this.video) this._close(); return; }
-    if (this.name !== name) { this._open(f, null); this.video.loop = true; }
+    if (this.name !== name) { this._open(f, null); if (this.video) this.video.loop = true; }
     this.on = true;
     const v = this.video; if (v && v.readyState >= 1 && Math.abs(v.currentTime - t) > 0.3) v.currentTime = t;
   }
