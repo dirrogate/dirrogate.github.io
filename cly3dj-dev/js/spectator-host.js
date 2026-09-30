@@ -181,11 +181,13 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       else if (m.k === 'mput') {
         if (rx) { await rx.abort(); rx = null; }
         const r = await media.beginReceive(m.f, m.n, m.size);
-        if (r.have) { link.send('ctl', { k: 'mok', f: m.f, n: m.n }); return; }
+        if (r.have) { link.send('ctl', { k: 'mok', f: m.f, n: m.n }); resolveWait(m.f, m.n, 'rx'); return; }
         if (m.thumb) { try { await media.putThumb(m.f, m.n, new Blob([Uint8Array.from(atob(m.thumb), c => c.charCodeAt(0))], { type: 'image/jpeg' })); } catch {} }
-        rx = r.rx; rx.t0 = performance.now(); toast && toast(`Receiving ${m.n}…`, 2500);
+        rx = r.rx; rx.t0 = performance.now(); rx.req = m.n; if (!sync.on) toast && toast(`Receiving ${m.n}…`, 2500);
         link.send('ctl', { k: 'mgo', f: m.f, n: m.n, off: r.off });
       } else if (m.k === 'mdel') { await media.remove(m.f, m.n); sendList(); onMedia && onMedia(); }
+      else if (m.k === 'mls') { if (listWait) { const w = listWait; listWait = null; w(m.items || []); } }   // #206 the phone's list (media sync)
+      else if (m.k === 'mpullx') resolveWait(m.f, m.n, 'mpullx');
     }).catch(e => { toast && toast('Media: ' + e.message, 4000); });
   }
   function onBin(buf, label) {
@@ -194,10 +196,74 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     if (r.write(buf)) {
       rx = null;
       r.finish().then(() => {
-        link.send('ctl', { k: 'mok', f: r.folder, n: r.name }); sendList(); onMedia && onMedia();
-        const s = (performance.now() - r.t0) / 1000; toast && toast(`${r.name} received (${(r.size / 1048576).toFixed(1)} MB, ${((r.size - r.off) / 1048576 / Math.max(0.1, s)).toFixed(1)} MB/s)`, 3000);
+        link.send('ctl', { k: 'mok', f: r.folder, n: r.req || r.name }); sendList(); onMedia && onMedia(); resolveWait(r.folder, r.req || r.name, 'rx');
+        const s = (performance.now() - r.t0) / 1000; if (!sync.on) toast && toast(`${r.name} received (${(r.size / 1048576).toFixed(1)} MB, ${((r.size - r.off) / 1048576 / Math.max(0.1, s)).toFixed(1)} MB/s)`, 3000);
       }).catch(e => toast && toast('Media save failed: ' + e.message, 4000));
     }
+  }
+  // ---- #206 MEDIA SYNC page (the mixer's VIDEO page, SYNC): lists what the Quest's and the phone's libraries have
+  // (Pano, Video pano, Video, Images; plus the Quest's VideoVinyl clips stored with its songs, offered as Video), the
+  // owner picks items, and each picked item is copied to the side that doesn't have it. Only adds: nothing is deleted
+  // or overwritten (a name on both sides is left alone). Phone to Quest uses the #185 push (the Quest asks for each
+  // file: 'mpull'); Quest to phone is the same protocol the other way ('qput' / 'qgo' / 'qok', chunks on 'file').
+  const CH = 64 * 1024;
+  const sync = { on: false, i: 0, n: 0, name: '', dir: '', pct: 0, done: 0, skipped: 0, err: '' };
+  const waits = new Map(); let listWait = null;
+  function waitMsg(kinds, f, n, ms) {
+    return new Promise((res, rej) => {
+      const key = f + '/' + n, t = setTimeout(() => { waits.delete(key); rej(new Error('no answer from the phone')); }, ms);
+      waits.set(key, { kinds, res: m => { clearTimeout(t); waits.delete(key); res(m); } });
+    });
+  }
+  function resolveWait(f, n, k, m) { const w = waits.get(f + '/' + n); if (w && w.kinds.includes(k)) w.res(m || { k }); }
+  const toB64 = async blob => { const u = new Uint8Array(await blob.arrayBuffer()); let s = ''; for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode(...u.subarray(i, i + 8192)); return btoa(s); };
+  // both lists: [{ f, n, size, q: on the Quest, p: on the phone, get? }] sorted by folder then name
+  async function syncList(getExtras) {
+    if (!link.isOpen) throw new Error('phone not connected');
+    const phoneItems = await new Promise((res, rej) => { listWait = res; link.send('ctl', { k: 'mls?' }); setTimeout(() => { if (listWait === res) { listWait = null; rej(new Error('the phone did not send its list (reload Cly3DJ on the phone)')); } }, 10000); });
+    const all = new Map();
+    for (const [f, n, size] of await mediaList()) all.set(f + '/' + n, { f, n, size, q: true, p: false });
+    for (const e of (getExtras ? await getExtras() : [])) { const k = e.f + '/' + e.n; if (!all.has(k)) all.set(k, { ...e, q: true, p: false }); }
+    for (const [f, n, size] of phoneItems) { const k = f + '/' + n, it = all.get(k); if (it) it.p = true; else all.set(k, { f, n, size, q: false, p: true }); }
+    const order = [...media.FOLDERS];
+    return [...all.values()].sort((a, b) => order.indexOf(a.f) - order.indexOf(b.f) || a.n.localeCompare(b.n));
+  }
+  // copy the picked items to whichever side is missing them, one at a time
+  async function syncCopy(items, onStep) {
+    if (sync.on) return sync;
+    if (!link.isOpen) throw new Error('phone not connected');
+    if (!link.fileOpen) throw new Error('reload Cly3DJ on the phone, then Connect again');
+    const list = items.filter(it => it.q !== it.p);
+    Object.assign(sync, { on: true, i: 0, n: list.length, name: '', dir: '', pct: 0, done: 0, skipped: 0, err: '' }); onStep && onStep(sync);
+    const tick = setInterval(() => { if (sync.dir === 'in' && rx) sync.pct = Math.round(rx.got / rx.size * 100); onStep && onStep(sync); }, 500);
+    try {
+      for (const it of list) {
+        Object.assign(sync, { i: sync.i + 1, name: it.n, dir: it.p ? 'in' : 'out', pct: 0 }); onStep && onStep(sync);
+        if (it.p) {   // phone -> Quest
+          const got = waitMsg(['rx', 'mpullx'], it.f, it.n, 60 * 60000);
+          link.send('ctl', { k: 'mpull', f: it.f, n: it.n });
+          const a = await got; if (a.k === 'mpullx') sync.skipped++; else { sync.done++; it.q = true; }
+          continue;
+        }
+        const file = it.get ? await it.get().catch(() => null) : await media.getFile(it.f, it.n);   // Quest -> phone
+        if (!file) { sync.skipped++; continue; }
+        let tb = await media.getThumb(it.f, it.n); if (!tb) tb = await media.makeThumb(file, it.f).catch(() => null);
+        const a0 = waitMsg(['qgo', 'qok'], it.f, it.n, 30000);
+        link.send('ctl', { k: 'qput', f: it.f, n: it.n, size: file.size, thumb: tb ? await toB64(tb) : null });
+        const a = await a0;
+        if (a.k !== 'qok') {
+          const done = waitMsg(['qok'], it.f, it.n, 60 * 60000);
+          for (let pos = a.off || 0; pos < file.size; pos += CH) {
+            await link.sendBin(await file.slice(pos, Math.min(file.size, pos + CH)).arrayBuffer());
+            sync.pct = Math.min(100, Math.round((pos + CH) / file.size * 100));
+          }
+          await done;
+        }
+        sync.done++; it.p = true;
+      }
+    } catch (e) { sync.err = e.message; }
+    finally { clearInterval(tick); sync.on = false; sendList(); onMedia && onMedia(); onStep && onStep(sync); }
+    return sync;
   }
   const link = hostLink(code, {
     onStatus: status,
@@ -206,7 +272,8 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     onOpen: () => { link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
     onClose: () => { if (rx) { rx.abort(); rx = null; } camState = null; onCam && onCam(null); status('disconnected'); calStep = null; panel.visible = false; frustum.visible = false; },
     onMessage: m => {
-      if (m.k[0] === 'm' && m.k !== 'mr') { onMediaMsg(m); return; }   // #185 mls? / mput / mdel
+      if (m.k === 'qgo' || m.k === 'qok') { resolveWait(m.f, m.n, m.k, m); return; }   // #206 media sync, Quest to phone
+      if (m.k[0] === 'm' && m.k !== 'mr') { onMediaMsg(m); return; }   // #185 mls? / mput / mdel (#206 mls / mpullx)
       if (m.k === 'cst') { camState = m; onCam && onCam(m); return; }   // #188 the phone's camera / key / look state
       if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }
       else if (m.k === 'cal') {
@@ -256,5 +323,6 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     ui: () => ({ mr, phone: link.isOpen && performance.now() - lastPing < 3500 }), setMR,
     // #188 camera tab: the phone's last reported state, and remote changes to it
     get cam() { return link.isOpen && performance.now() - lastPing < 3500 ? camState : null; },
-    camSet: o => link.isOpen && link.send('ctl', { k: 'cset', ...o }) };
+    camSet: o => link.isOpen && link.send('ctl', { k: 'cset', ...o }),
+    syncList, syncCopy, get sync() { return sync; } };
 }

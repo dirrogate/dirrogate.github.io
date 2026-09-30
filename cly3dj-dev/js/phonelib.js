@@ -103,6 +103,28 @@ export function makePhoneLibrary({ getLink, onChange }) {
     for (const n of sel) l.send('ctl', { k: 'mdel', f: folder, n });
     say('Removed from the Quest.');
   };
+  // one item to the Quest: offer it, the Quest says where to start (resume) or that it has it, then the chunks
+  async function sendOne(l, folder, name, label) {
+    const file = await media.getFile(folder, name); if (!file) return false;
+    const tb = await media.getThumb(folder, name);
+    let thumb = null;
+    if (tb) { const u = new Uint8Array(await tb.arrayBuffer()); let s = ''; for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode(...u.subarray(i, i + 8192)); thumb = btoa(s); }
+    const a0 = waitFor(['mgo', 'mok'], folder, name, 30000);
+    l.send('ctl', { k: 'mput', f: folder, n: name, size: file.size, thumb });
+    const a = await a0;
+    if (a.k === 'mok') return true;
+    const done = waitFor(['mok'], folder, name, 60 * 60000), t0 = performance.now();
+    let last = 0;
+    for (let pos = a.off; pos < file.size; pos += CH) {
+      await l.sendBin(await file.slice(pos, Math.min(file.size, pos + CH)).arrayBuffer());
+      const now = performance.now();
+      if (now - last > 300) { last = now; const s = (now - t0) / 1000, sent = pos + CH - a.off;
+        say(`${label}${name}: ${Math.min(100, Math.round((pos + CH) / file.size * 100))}% · ${(sent / 1048576 / Math.max(0.1, s)).toFixed(1)} MB/s` + (a.off ? ' (resumed)' : '')); }
+    }
+    say(`${label}${name}: saving on the Quest…`);
+    await done;
+    return true;
+  }
   $('#lbPush').onclick = async () => {
     const l = linked(); if (!l || busy) return;
     if (!l.fileOpen) { say('This Quest page is older: reload Cly3DJ on the Quest, then Connect again.'); return; }
@@ -114,27 +136,23 @@ export function makePhoneLibrary({ getLink, onChange }) {
       for (const it of list) {
         k++;
         if (quest && quest.get(folder + '/' + it.name) === it.size) continue;
-        const file = await media.getFile(folder, it.name); if (!file) continue;
-        const tb = await media.getThumb(folder, it.name);
-        let thumb = null;
-        if (tb) { const u = new Uint8Array(await tb.arrayBuffer()); let s = ''; for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode(...u.subarray(i, i + 8192)); thumb = btoa(s); }
-        l.send('ctl', { k: 'mput', f: folder, n: it.name, size: file.size, thumb });
-        const a = await waitFor(['mgo', 'mok'], folder, it.name, 30000);
-        if (a.k === 'mok') continue;
-        const done = waitFor(['mok'], folder, it.name, 600000), t0 = performance.now();
-        let last = 0;
-        for (let pos = a.off; pos < file.size; pos += CH) {
-          await l.sendBin(await file.slice(pos, Math.min(file.size, pos + CH)).arrayBuffer());
-          const now = performance.now();
-          if (now - last > 300) { last = now; const s = (now - t0) / 1000, sent = pos + CH - a.off;
-            say(`Pushing ${it.name} (${k} of ${list.length}): ${Math.min(100, Math.round((pos + CH) / file.size * 100))}% · ${(sent / 1048576 / Math.max(0.1, s)).toFixed(1)} MB/s` + (a.off ? ' (resumed)' : '')); }
-        }
-        say(`Pushing ${it.name}: saving on the Quest…`);
-        await done;
+        await sendOne(l, folder, it.name, `Pushing (${k} of ${list.length}) `);
       }
       say(`Pushed ${list.length} item(s) to the Quest.`);
     } catch (e) { say('Push stopped: ' + e.message + '. Push again to resume.'); }
     finally { busy = false; if (lock) lock.release().catch(() => {}); const l2 = linked(); if (l2) l2.send('ctl', { k: 'mls?' }); render(); }
   };
-  return { open() { root.hidden = false; load(); onLinkOpen(); }, onMsg, onLinkOpen, get folder() { return folder; } };
+  // #206 media sync from the Quest's VIDEO page: the Quest asks for one file at a time ('mpull'); queued here
+  let pullQ = Promise.resolve(), pullLock = null;
+  function pull(f, n) {
+    pullQ = pullQ.then(async () => {
+      const l = linked(); if (!l) return;
+      if (!pullLock) { try { pullLock = await navigator.wakeLock.request('screen'); } catch {} }
+      let ok = false;
+      try { ok = await sendOne(l, f, n, 'Sync to the Quest: '); } catch (e) { say('Sync: ' + e.message); }
+      if (!ok) l.send('ctl', { k: 'mpullx', f, n });
+      else say(`Sync: ${n} copied to the Quest.`);
+    }).finally(() => { setTimeout(() => { if (pullLock) { pullLock.release().catch(() => {}); pullLock = null; } }, 5000); });
+  }
+  return { open() { root.hidden = false; load(); onLinkOpen(); }, onMsg, onLinkOpen, pull, refresh() { if (!root.hidden) load(); }, get folder() { return folder; } };
 }

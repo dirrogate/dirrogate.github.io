@@ -18,8 +18,36 @@ export function startCamera(ctx) {
   // #185 media library (phone side); its Video + Images items also feed the LED wall / VideoVinyl mirrors
   const lib = makePhoneLibrary({ getLink: () => link, onChange: () => refreshMedia() });
   let pickedLed = [], mediaLed = [];
-  async function refreshMedia() { const its = [...await media.list('Video'), ...await media.list('Images')]; mediaLed = (await Promise.all(its.map(i => media.getFile(i.folder, i.name)))).filter(Boolean); led.setFiles([...pickedLed, ...mediaLed], 1000); }
+  let libVV = new Map();   // #206 title key -> name of a Library Video clip (VideoVinyl by title, e.g. clips synced from the Quest)
+  async function refreshMedia() {
+    const vids = await media.list('Video'), its = [...vids, ...await media.list('Images')];
+    mediaLed = (await Promise.all(its.map(i => media.getFile(i.folder, i.name)))).filter(Boolean); led.setFiles([...pickedLed, ...mediaLed], 1000);
+    libVV = new Map(vids.filter(i => VIDEO_EXT.test(i.name)).map(i => [vvKey(baseName(i.name)), i.name]));
+  }
   refreshMedia(); media.dropTakes();   // #205
+  // #206 media sync: the Quest lists both libraries ('mls?'), asks for phone files ('mpull', sent by phonelib) and sends
+  // its own ('qput', then chunks on the 'file' channel, resumable like #185). Only adds, never deletes.
+  async function sendMediaList() { const all = await media.listAll(), items = []; for (const f of media.FOLDERS) for (const it of all[f]) items.push([f, it.name, it.size]); if (link && link.isOpen) link.send('ctl', { k: 'mls', items }); }
+  let qrx = null, qQ = Promise.resolve();
+  function onQput(m) {
+    qQ = qQ.then(async () => {
+      if (qrx) { await qrx.abort(); qrx = null; }
+      const r = await media.beginReceive(m.f, m.n, m.size);
+      if (r.have) { link.send('ctl', { k: 'qok', f: m.f, n: m.n }); return; }
+      if (m.thumb) { try { await media.putThumb(m.f, m.n, new Blob([Uint8Array.from(atob(m.thumb), c => c.charCodeAt(0))], { type: 'image/jpeg' })); } catch {} }
+      qrx = r.rx; qrx.req = m.n; st(`Sync: receiving ${m.n}…`);
+      link.send('ctl', { k: 'qgo', f: m.f, n: m.n, off: r.off });
+    }).catch(e => st('Sync: ' + e.message));
+  }
+  function onSyncBin(buf, label) {
+    if (label !== 'file') return;
+    const r = qrx; if (!r) return;
+    if (r.write(buf)) {
+      qrx = null;
+      r.finish().then(() => { link.send('ctl', { k: 'qok', f: r.folder, n: r.req }); st(`Sync: ${r.req} received.`); refreshMedia(); lib.refresh(); })
+        .catch(e => st('Sync: saving failed: ' + e.message));
+    }
+  }
   const DELAY = 70;   // ms the mirror runs behind the Quest, so there are always two samples to blend
   // ---------------------------------------------------------------- UI (built here; index.html's own UI is hidden)
   document.head.insertAdjacentHTML('beforeend', `<style>
@@ -98,6 +126,7 @@ export function startCamera(ctx) {
       onOpen: () => { linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; lib.onLinkOpen(); sendCst(true); },
       onClose: () => { linkState = 'disconnected'; st(STATUS.disconnected); },
       onMessage: onMsg,
+      onBinary: onSyncBin,   // #206 media sync: files from the Quest
     });
   };
   setInterval(() => { if (link && link.isOpen) link.send('ctl', { k: 'ping', t: performance.now() }); stats.pps = stats.pkts; stats.pkts = 0; }, 1000);
@@ -112,7 +141,8 @@ export function startCamera(ctx) {
       if (want !== dv.want) {
         dv.want = want; dv.close();
         if (want && want.startsWith('media:')) media.getFile('Video', want.slice(12)).then(f => { if (f && dv.want === want) dv.open(want, f); });   // #185 'media:Video/<name>'
-        else { const f = want && vvFiles.get(want); if (f) dv.open(want, f); }
+        else if (want && vvFiles.get(want)) dv.open(want, vvFiles.get(want));
+        else if (want && libVV.get(want)) media.getFile('Video', libVV.get(want)).then(f => { if (f && dv.want === want) dv.open(want, f); });   // #206
       }
       pdvAt[i] = e ? { pos: e[2], rate: e[3], at: performance.now() } : null;
     }
@@ -353,7 +383,10 @@ export function startCamera(ctx) {
     else if (m.k === 'led') led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000);   // #176
     else if (m.k === 'sky') vs.onSky(m);
     else if (m.k === 'cset') onCset(m);   // #188
-    else if (m.k === 'mls' || m.k === 'mgo' || m.k === 'mok') lib.onMsg(m);   // #185                   // #184
+    else if (m.k === 'mls' || m.k === 'mgo' || m.k === 'mok') lib.onMsg(m);
+    else if (m.k === 'mls?') sendMediaList();   // #206 media sync (the Quest's VIDEO page)
+    else if (m.k === 'mpull') lib.pull(m.f, m.n);
+    else if (m.k === 'qput') onQput(m);   // #185                   // #184
     else if (m.k === 'mr') setMR(!!m.on);                  // #164 from the Quest's mixer screen
     else if (m.k === 'cellrec') setClean(!!m.on);   // (#164, no longer sent)
     else if (m.k === 'pong') { const now = performance.now(); stats.rtt = now - m.t; const off = m.qt - (m.t + now) / 2; stats.off = stats.off === null ? off : stats.off * 0.8 + off * 0.2; }
