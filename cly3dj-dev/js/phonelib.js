@@ -25,10 +25,10 @@ export function makePhoneLibrary({ getLink, onChange }) {
   </style>`);
   document.body.insertAdjacentHTML('beforeend', `<div id="spLib" hidden>
     <header><h2>Library</h2><button id="lbClose">Close</button></header>
-    <div class="tabs" id="lbTabs">${media.FOLDERS.map(f => `<button data-f="${f}">${f}</button>`).join('')}</div>
+    <div class="tabs" id="lbTabs">${[...media.FOLDERS, 'Takes'].map(f => `<button data-f="${f}">${f}</button>`).join('')}</div>
     <div class="tools">
       <button id="lbImp">Import…</button><button id="lbPush">Push to Quest</button><button id="lbAll">Select all</button>
-      <button id="lbDelQ">Remove from Quest</button><button id="lbDelP">Remove from phone</button>
+      <button id="lbSave" hidden>Save to Downloads</button><button id="lbShare" hidden>Share…</button><button id="lbDelQ">Remove from Quest</button><button id="lbDelP">Remove from phone</button>
     </div>
     <div class="st" id="lbSt"></div><div class="st" id="lbUse"></div>
     <div class="grid" id="lbGrid"></div>
@@ -59,10 +59,13 @@ export function makePhoneLibrary({ getLink, onChange }) {
   async function render(thumbs) {
     for (const b of document.querySelectorAll('#lbTabs button')) b.classList.toggle('on', b.dataset.f === folder);
     const l = linked();
+    const tk = folder === 'Takes';   // #203 recordings made on this phone: save / share them; they are not pushed to the Quest
+    for (const id of ['#lbImp', '#lbPush', '#lbDelQ']) $(id).hidden = tk; for (const id of ['#lbSave', '#lbShare']) $(id).hidden = !tk;
+    $('#lbSave').disabled = $('#lbShare').disabled = busy || !sel.size;
     $('#lbPush').disabled = $('#lbDelQ').disabled = busy || !l || !sel.size; $('#lbDelP').disabled = busy || !sel.size; $('#lbImp').disabled = busy;
     const g = $('#lbGrid');
     if (thumbs) { urls.splice(0).forEach(u => URL.revokeObjectURL(u)); g.innerHTML = ''; }
-    if (!items.length) { g.innerHTML = `<div class="st" style="grid-column:1/-1">Nothing in ${esc(folder)} yet. Import… picks files on this phone (for example from Downloads).</div>`; return; }
+    if (!items.length) { g.innerHTML = `<div class="st" style="grid-column:1/-1">${folder === 'Takes' ? 'No takes yet: press ● REC in the camera view (or on the Quest\'s CAMERA tab).' : `Nothing in ${esc(folder)} yet. Import… picks files on this phone (for example from Downloads).`}</div>`; return; }
     if (thumbs) for (const it of items) {
       const d = document.createElement('div'); d.className = 'it'; d.dataset.n = it.name;
       const tb = await media.getThumb(folder, it.name); let im;
@@ -92,6 +95,14 @@ export function makePhoneLibrary({ getLink, onChange }) {
       try { await media.importFile(folder, f); } catch (err) { say(`Could not import ${f.name}: ${err.message}`); await new Promise(r => setTimeout(r, 2500)); }
     }
     busy = false; say(`Imported ${n} into ${folder}. You can delete the originals from Downloads.`); await load(); onChange && onChange();
+  };
+  $('#lbSave').onclick = async () => {   // #203
+    for (const n of sel) { const f = await media.getFile(folder, n); if (!f) continue; const a = document.createElement('a'), u = URL.createObjectURL(f); a.href = u; a.download = n; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 60000); }
+    say('Saving to Downloads (Chrome shows the progress).');
+  };
+  $('#lbShare').onclick = async () => {
+    const files = (await Promise.all([...sel].map(n => media.getFile(folder, n)))).filter(Boolean);
+    try { if (!navigator.canShare || !navigator.canShare({ files })) throw new Error('this phone cannot share files from Chrome'); await navigator.share({ files }); } catch (e) { if (e.name !== 'AbortError') say('Share: ' + e.message); }
   };
   $('#lbDelP').onclick = async () => {
     if (!confirm(`Remove ${sel.size} item(s) from this phone? (The Quest keeps its copies.)`)) return;

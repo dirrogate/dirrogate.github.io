@@ -109,13 +109,50 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
     renderer.resetState();
     return px;
   }
+  // #203 the same, but read back in the background: the pixels are fetched a frame or two later (a GPU fence says
+  // when), so the phone never waits for its graphics chip mid-frame (a stall there made it miss AR frames: the gear
+  // blinked out of the picture). WebGL2 pixel buffer + fenceSync.
+  const pending = [];
+  function sampleAsync(src, W, H, max, cb) {
+    if (pending.length > 2) return;   // still waiting on older ones: skip this sample
+    const k = Math.min(1, max / Math.max(W, H)), w = Math.max(4, Math.round(W * k)), h = Math.max(4, Math.round(H * k));
+    let sm = smalls[max];
+    if (!sm || sm.w !== w || sm.h !== h) {
+      if (sm) gl.deleteTexture(sm.tex); sm = smalls[max] = { tex: gl.createTexture(), fb: (sm && sm.fb) || gl.createFramebuffer(), w, h };
+      gl.bindTexture(gl.TEXTURE_2D, sm.tex); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, sm.fb); gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, sm.tex, 0);
+    }
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fbR); gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, src, 0);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, sm.fb);
+    gl.blitFramebuffer(0, 0, W, H, 0, 0, w, h, gl.COLOR_BUFFER_BIT, gl.LINEAR);
+    const pbo = gl.createBuffer(); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo); gl.bufferData(gl.PIXEL_PACK_BUFFER, w * h * 4, gl.STREAM_READ);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, sm.fb); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+    const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0); gl.flush();
+    pending.push({ fence, pbo, n: w * h * 4, cb, age: 0 });
+    renderer.resetState();
+  }
+  function pollAsync() {
+    for (let i = 0; i < pending.length; i++) {
+      const p = pending[i], r = gl.clientWaitSync(p.fence, 0, 0); p.age++;
+      if (r !== gl.ALREADY_SIGNALED && r !== gl.CONDITION_SATISFIED && p.age < 30) continue;
+      if (r === gl.ALREADY_SIGNALED || r === gl.CONDITION_SATISFIED) {
+        const px = new Uint8Array(p.n); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, p.pbo); gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, px); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        try { p.cb(px); } catch {}
+      }
+      gl.deleteSync(p.fence); gl.deleteBuffer(p.pbo); pending.splice(i--, 1);
+    }
+  }
   function autoKey() {   // call with the phone pointed at the EMPTY green screen; resolves with a report
     return new Promise((res, rej) => { autoCb = { res, rej }; setTimeout(() => { if (autoCb) { autoCb = null; rej(new Error('no camera picture (start the camera first)')); } }, 3000); });
   }
   function frame(fr) {   // call once per XR frame, before rendering
     const lookCam = !!(look && look.wantsCam() && S.can);   // #187 Look match: a 32 px copy every 8th frame
     S.pvReady = false;
-    if (!fr || !(S.on || autoCb || lookCam || S.pvNeed)) return;   // #188 pvNeed: a headset preview frame is due
+    if (pending.length) pollAsync();   // #203
+    // #188 pvNeed: a headset preview frame is due; #203 recNeed: the in-app recorder is running
+    if (!fr || !(S.on || autoCb || lookCam || S.pvNeed || S.recNeed)) return;
     const session = renderer.xr.getSession(); if (!session) return;
     if (!binding) binding = new XRWebGLBinding(session, gl);
     const pose = fr.getViewerPose(renderer.xr.getReferenceSpace()), view = pose && pose.views[0];
@@ -127,8 +164,9 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
       try { const r = analyseKey(sample(src, view.camera.width, view.camera.height)); for (const k of ['thr', 'soft']) setKey(k, r[k]); cb.res(r); } catch (e) { renderer.resetState(); cb.rej(e); }
       if (!S.on) return;
     }
-    if (lookCam) { try { look.onCamera(sample(src, view.camera.width, view.camera.height, 32)); } catch { renderer.resetState(); } }
-    if (!S.on && !S.pvNeed) return;
+    if (lookCam) { try { sampleAsync(src, view.camera.width, view.camera.height, 32, px => look.onCamera(px)); } catch { renderer.resetState(); } }   // #203 in the background
+    if (!S.on && !S.pvNeed && !S.recNeed) return;
+    S.camW = view.camera.width; S.camH = view.camera.height;
     if (S.on) S.got++;
     if (blitOK && grab(src, view.camera.width, view.camera.height)) camProps.__webglTexture = own;
     else { blitOK = false; camProps.__webglTexture = src; }   // fallback: use it directly (no hold on a missed frame)

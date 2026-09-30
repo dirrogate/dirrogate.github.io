@@ -2528,13 +2528,16 @@ function drawCamTab(btn, y0) {
     ['PREVIEW', pvWanted, () => setPreview(!pvWanted)],
     ['LOOK', cs && cs.L && cs.L.on, () => send({ what: 'look', key: 'on', v: !cs.L.on })],
     ['ROOM LIGHT', cs && cs.L && cs.L.room, () => send({ what: 'look', key: 'room', v: !cs.L.room })],
+    // #203 the phone's in-app recorder: start / stop, and its resolution (not while recording)
+    [cs && cs.rec && cs.rec.on ? `■ ${fmt(cs.rec.t || 0)}` : '● REC', cs && cs.rec && cs.rec.on, () => send({ what: 'rec', v: !(cs.rec && cs.rec.on) })],
+    [{ 720: '720P', 1080: '1080P', full: 'FULL RES' }[cs && cs.rec ? cs.rec.res : '720'] || '720P', false, cs && cs.rec && cs.rec.on ? null : () => { const o = ['720', '1080', 'full']; send({ what: 'recres', v: o[(o.indexOf(cs.rec ? cs.rec.res : '720') + 1) % 3] }); }],
   ];
-  const per = P ? 3 : 6, bw = (W - 16 - (per - 1) * 6) / per;   // portrait: 2 rows of 3
+  const per = P ? 3 : 8, bw = (W - 16 - (per - 1) * 6) / per;   // portrait: 3 rows of 3 (#203: was 2)
   top.forEach(([label, on, act], i) => {
     const off = dim && label !== 'PREVIEW';
     btn(8 + (i % per) * (bw + 6), y0 + Math.floor(i / per) * 42, bw, 36, label, !!on, off ? null : act, off);
   });
-  const cols = P ? [CAM_ROWS.flat()] : CAM_ROWS, colW = P ? W - 16 : (W - 24) / 2, ry = y0 + (P ? 92 : 46);
+  const cols = P ? [CAM_ROWS.flat()] : CAM_ROWS, colW = P ? W - 16 : (W - 24) / 2, ry = y0 + (P ? 134 : 46);
   cols.forEach((col, ci) => col.forEach(([label, what, key, step], ri) => {
     const cx = 8 + ci * (colW + 8), cy = ry + ri * 42;
     g.fillStyle = '#0d1422'; g.fillRect(cx, cy, colW, 36);
@@ -2550,8 +2553,10 @@ function drawCamTab(btn, y0) {
   }));
   g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = cs ? '#8c96a8' : '#c9a040';
   const stTxt = !cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone and start its camera.'
-    : `Phone ${cs.fps} fps · ${cs.ar ? 'camera on' : 'camera not started'} · ${cs.cal ? 'calibrated' : 'not calibrated'}${cs.can ? '' : ' · no camera access'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : '');
-  const extra = cs && (cs.auto || cs.look) ? [cs.auto, cs.look].filter(Boolean).join(' · ') : '';
+    : (cs.rec && cs.rec.on ? `REC ${fmt(cs.rec.t || 0)} · ${cs.rec.mb} MB · ${cs.rec.w}x${cs.rec.h} ${cs.rec.fps} fps · ` : '')
+      + `Phone ${cs.fps} fps${cs.late ? ` (${cs.late} late/s)` : ''} · ${cs.ar ? 'camera on' : 'camera not started'} · ${cs.cal ? 'calibrated' : 'not calibrated'}${cs.can ? '' : ' · no camera access'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : '');
+  const recNote = cs && cs.rec && !cs.rec.on ? (cs.rec.err ? 'Recording: ' + cs.rec.err : cs.rec.last ? 'Last take: ' + cs.rec.last : '') : '';
+  const extra = cs ? [recNote, cs.auto, cs.look].filter(Boolean).join(' · ') : '';
   if (P) {   // portrait: the status lines wrap under the steppers
     let y = ry + CAM_ROWS.flat().length * 42 + 24;
     y += wrapText(g, stTxt, 12, y, W - 24, 20, 5) * 20 + 8;
