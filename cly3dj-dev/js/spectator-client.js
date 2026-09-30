@@ -7,10 +7,17 @@
 import { spectatorLink } from './net-link.js';
 import { DeckVideo, vvKey, baseName, VIDEO_EXT } from './videovinyl.js';
 import { makeVirtualSet } from './vset.js';
+import { makePhoneLibrary } from './phonelib.js';
+import * as media from './medialib.js';
 
 export function startCamera(ctx) {
   const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, skybox, envLight, key } = ctx;
   const vs = makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key });   // #184 live green-screen key
+  // #185 media library (phone side); its Video + Images items also feed the LED wall / VideoVinyl mirrors
+  const lib = makePhoneLibrary({ getLink: () => link, onChange: () => refreshMedia() });
+  let pickedLed = [], mediaLed = [];
+  async function refreshMedia() { const its = [...await media.list('Video'), ...await media.list('Images')]; mediaLed = (await Promise.all(its.map(i => media.getFile(i.folder, i.name)))).filter(Boolean); led.setFiles([...pickedLed, ...mediaLed], 1000); }
+  refreshMedia();
   const DELAY = 70;   // ms the mirror runs behind the Quest, so there are always two samples to blend
   // ---------------------------------------------------------------- UI (built here; index.html's own UI is hidden)
   document.head.insertAdjacentHTML('beforeend', `<style>
@@ -38,6 +45,7 @@ export function startCamera(ctx) {
       <p>Films the DJ with the virtual gear. On the Quest: Settings, Spectator camera On, then read the code shown there.</p>
       <input id="spCode" inputmode="numeric" maxlength="5" placeholder="00000">
       <button id="spConnect">Connect</button><button id="spAR" disabled>Start camera (AR)</button><button id="spCamTest">Camera access test (no Quest needed)</button>
+      <button id="spLib">Library: panoramas, videos, images (push to the Quest)…</button>
       <button id="spPano">Virtual set panorama (same picture as the Quest)…</button><input type="file" id="spPanoF" accept="image/*" hidden>
       <div id="spPanoSt" style="color:#8b909a;font-size:13px;margin-top:6px">For the green-screen virtual set: pick the same 360 picture the Quest shows. Kept on this phone.</div>
       <button id="spLed">Videos: LED wall clips + VideoVinyls (same files as the Quest)…</button><input type="file" id="spLedF" accept="video/*" multiple hidden>
@@ -75,7 +83,7 @@ export function startCamera(ctx) {
     link = spectatorLink(code, {
       onStatus: s => { linkState = s; st(STATUS[s] || s); },
       onState: s => { linkState = s; st(STATUS[s] || s); },
-      onOpen: () => { linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; },
+      onOpen: () => { linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; lib.onLinkOpen(); },
       onClose: () => { linkState = 'disconnected'; st(STATUS.disconnected); },
       onMessage: onMsg,
     });
@@ -89,7 +97,11 @@ export function startCamera(ctx) {
     const prev = vvMode; vvMode = V.mode; vvGains = V.gains;
     for (let i = 0; i < 2; i++) {
       const e = V.decks.find(x => x[0] === i), want = e ? e[1] : null, dv = pdv[i];
-      if (want !== dv.want) { dv.want = want; dv.close(); const f = want && vvFiles.get(want); if (f) dv.open(want, f); }
+      if (want !== dv.want) {
+        dv.want = want; dv.close();
+        if (want && want.startsWith('media:')) media.getFile('Video', want.slice(12)).then(f => { if (f && dv.want === want) dv.open(want, f); });   // #185 'media:Video/<name>'
+        else { const f = want && vvFiles.get(want); if (f) dv.open(want, f); }
+      }
       pdvAt[i] = e ? { pos: e[2], rate: e[3], at: performance.now() } : null;
     }
     if (prev === 'decks' && vvMode !== 'decks' && !led.on) led.wall.userData.setVideo(null);
@@ -100,6 +112,7 @@ export function startCamera(ctx) {
   }
   $('#spLed').onclick = () => $('#spLedF').click();
   // #184 virtual set: panorama picked here (same file as the Quest), key sliders in the AR overlay
+  $('#spLib').onclick = () => lib.open();
   $('#spPano').onclick = () => $('#spPanoF').click();
   $('#spPanoF').onchange = async e => {
     const f = e.target.files && e.target.files[0]; if (!f) return; e.target.value = '';
@@ -114,7 +127,7 @@ export function startCamera(ctx) {
   $('#kMatte').onchange = e => vs.setMatte(e.target.checked);
   $('#spCamTest').onclick = () => import('./camtest.js').then(m => m.camTest()).catch(e => st('Camera test failed: ' + e.message));   // #183
   $('#spLedF').onchange = e => {   // #176: same file names as on the Quest; matched by name
-    const all = [...(e.target.files || [])], n = led.setFiles(all, 500);
+    const all = [...(e.target.files || [])]; pickedLed = all; const n = led.setFiles([...all, ...mediaLed], 1000);
     vvFiles = new Map(all.filter(f => VIDEO_EXT.test(f.name)).map(f => [vvKey(baseName(f.name)), f]));   // #177 VideoVinyl by title
     $('#spLedList').textContent = n ? `${n} video${n > 1 ? 's' : ''}: ${led.files.map(f => f.name).join(' · ')}` : 'No playable videos in that pick.';
   };
@@ -249,7 +262,8 @@ export function startCamera(ctx) {
     else if (m.k === 'recdel') onRecDel(m.uid);
     else if (m.k === 'calpt') onCalPoint(m);
     else if (m.k === 'led') led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000);   // #176
-    else if (m.k === 'sky') vs.onSky(m);                   // #184
+    else if (m.k === 'sky') vs.onSky(m);
+    else if (m.k === 'mls' || m.k === 'mgo' || m.k === 'mok') lib.onMsg(m);   // #185                   // #184
     else if (m.k === 'mr') setMR(!!m.on);                  // #164 from the Quest's mixer screen
     else if (m.k === 'cellrec') setClean(!!m.on);   // (#164, no longer sent)
     else if (m.k === 'pong') { const now = performance.now(); stats.rtt = now - m.t; const off = m.qt - (m.t + now) / 2; stats.off = stats.off === null ? off : stats.off * 0.8 + off * 0.2; }

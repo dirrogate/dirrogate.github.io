@@ -5,7 +5,8 @@
 // in front of it). Off = the normal AR view (nothing keyed), so a take can be recorded either way.
 // The camera picture is only valid during its XR frame, so each frame it is copied (GPU blit) into our own texture:
 // if a frame arrives without a picture (about 1 in 100) the previous one is shown instead of a flash of the room.
-import { detectLayout, leftEyeCanvas, brightestDir, savePano, loadPano } from './skybox.js';
+import { detectLayout, leftEyeCanvas, brightestDir, savePano, loadPano, openPanoVideo, closePanoVideo } from './skybox.js';
+import * as media from './medialib.js';
 
 const FRAG = /* glsl */`
 uniform sampler2D cam;
@@ -84,7 +85,17 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
     if (t === 'auto') { const l = detectLayout(w, h); return l ? { layout: l, swap: false } : null; }
     return { layout: t.replace('-swap', ''), swap: t.endsWith('-swap') };
   }
+  let vid = null, mediaId = '';
   async function loadFile(f) {
+    if (vid) { closePanoVideo(vid); vid = null; }
+    if (media.isVideoName(f.name)) {   // #185 video panorama (from the library)
+      const { video, snap } = await openPanoVideo(f); vid = video;
+      const L = layoutOf(video.videoWidth, video.videoHeight) || { layout: 'mono', swap: false };
+      const c = leftEyeCanvas(snap, L.layout, L.swap, 2048); S.envCanvas = c; S.light = brightestDir(c);
+      skybox.setVideo(video, L.layout, L.swap); skybox.setHeight(S.sky.h); S.file = f; S.loaded = true;
+      if (!S.on) video.pause();
+      return;
+    }
     const bmp = await createImageBitmap(f), L = layoutOf(bmp.width, bmp.height);
     if (!L) { bmp.close(); throw new Error('not a 360 panorama (2:1, 1:1 or 4:1)'); }
     const c = leftEyeCanvas(bmp, L.layout, L.swap, 2048); bmp.close();
@@ -99,6 +110,7 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
   function apply() {
     const on = S.on && S.loaded;
     skybox.group.visible = on; skybox.setStereo(false);
+    if (vid) { if (on) vid.play().catch(() => {}); else vid.pause(); }
     if (!on) quad.visible = false;
     const turn = S.sky.turn * DEG;
     skybox.setTurn(turn); scene.environmentRotation.set(0, on ? turn : 0, 0);
@@ -117,11 +129,14 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
     S.on = on; if (!on) binding = null; apply();
     return on ? (sameAsQuest() ? 'Virtual set on.' : 'Virtual set on (note: a different picture from the Quest\'s).') : 'Virtual set off: normal camera view.';
   }
-  function onSky(m) {   // from the Quest: { h, turn, type, key, file }
+  function onSky(m) {   // from the Quest: { h, turn, type, key, file, media }
     const typeChanged = m.type !== S.sky.type;
     Object.assign(S.sky, m);
     skybox.setHeight(S.sky.h);
-    if (typeChanged && S.file) loadFile(S.file).then(apply).catch(() => {});
+    if (m.media && m.media !== mediaId) {   // #185 the Quest chose a library item: use this phone's copy of it
+      mediaId = m.media; const i = m.media.indexOf('/');
+      media.getFile(m.media.slice(0, i), m.media.slice(i + 1)).then(f => f ? loadFile(f).then(apply) : null).catch(() => {});
+    } else if (typeChanged && S.file) loadFile(S.file).then(apply).catch(() => {});
     else apply();
   }
   function setKey(k, v) { K[k] = v; mat.uniforms[k].value = v; try { localStorage.setItem('vire.vsetKey', JSON.stringify(K)); } catch {} }

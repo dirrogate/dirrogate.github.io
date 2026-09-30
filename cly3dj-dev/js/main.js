@@ -14,7 +14,8 @@ import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
 import * as store from './storage.js';
 import { EnvLight } from './env.js';
-import { Skybox, detectLayout, leftEyeCanvas, brightestDir, savePano, loadPano } from './skybox.js';
+import { Skybox, detectLayout, leftEyeCanvas, brightestDir, savePano, loadPano, openPanoVideo, closePanoVideo } from './skybox.js';
+import * as media from './medialib.js';
 import { Stage, FlightCase } from './layout.js';
 import { loadCaseKit } from './flightcase.js';
 import { setRecordTexSize } from './textures.js';
@@ -29,7 +30,7 @@ const CAMERA_ROLE = params.get('role') === 'camera';   // #161: this page is the
 // start-screen settings, remembered per browser
 const SETTINGS_DEFAULT = { source: 'pc', xml: 'rekordbox.xml', hands: 'real', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
   deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off', arRefl: 60,
-  skyH: 1.5, skyTurn: 0, skyType: 'auto', skyKey: 'on', skyFile: '' };   // turntable physics (#120)
+  skyH: 1.5, skyTurn: 0, skyType: 'auto', skyKey: 'on', skyFile: '', skyMedia: '' };   // turntable physics (#120)
 const settings = (() => { try { return { ...SETTINGS_DEFAULT, ...JSON.parse(localStorage.getItem('vire.settings') || '{}') }; } catch { return { ...SETTINGS_DEFAULT }; } })();
 if (params.get('xml')) { settings.source = 'pc'; settings.xml = params.get('xml'); }
 if (settings.env === 'camera') settings.env = 'studio'; // camera snapshots removed (CLAUDE.md #39)
@@ -361,11 +362,16 @@ function vvSource(t) {
   }
   return vvPC.get(key);
 }
+// #185 (owner): a Video library clip put on a deck from the mixer's Video page replaces the title match for the record
+// that is on the deck now; it clears when that record comes off.
+const vvOverride = [null, null];   // { rec, name }
 function vvStep(d) {   // per frame: open/close the deck's video to match its track, then follow the playhead
-  const dv = deckVid[d.i], t = d.record && d.track, want = t ? vvKey(t.name) : null;
+  if (vvOverride[d.i] && vvOverride[d.i].rec !== d.record) vvOverride[d.i] = null;
+  const dv = deckVid[d.i], ov = vvOverride[d.i], t = d.record && d.track, want = ov ? 'media:Video/' + ov.name : t ? vvKey(t.name) : null;
   if (want !== dv.want) {
     dv.want = want; dv.close();
-    if (t) vvSource(t).then(src => { if (src && dv.want === want) { dv.open(want, src); drawMixScreen(); } }).catch(() => {});
+    const srcP = ov ? media.getFile('Video', ov.name) : t ? vvSource(t) : null;
+    if (srcP) srcP.then(src => { if (src && dv.want === want) { dv.open(want, src); drawMixScreen(); } }).catch(() => {});
     drawMixScreen();
   }
   if (dv.v) dv.follow(engine.ctx ? engine.pos(d.i) : 0, engine.state.decks[d.i].rate || 0);
@@ -2276,6 +2282,84 @@ const BPM_MODES = ['orig', 'cur', 'key'];
 const bpmMode = (() => { try { const v = JSON.parse(localStorage.getItem('vire.bpmMode')); if (Array.isArray(v) && v.length === 2 && v.every(m => BPM_MODES.includes(m))) return v; } catch {} return ['cur', 'cur']; })();
 const SP_HIT = [];   // #164 spectator strip buttons
 const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set while drawing
+// ---- #185 mixer Video page: the media library pushed from the phone (Pano, Video pano, Video, Images), 8 thumbnails a
+// page; pick one, then where it goes (sky, a deck's VideoVinyl, the LED wall). LED WALL mode lives here too now.
+let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null;
+const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
+const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES' };
+async function vpLoad() {
+  vpItems = await media.list(vpFolder);
+  if (vpSel && !vpItems.some(i => i.name === vpSel)) vpSel = null;
+  vpPg = Math.min(vpPg, Math.max(0, Math.ceil(vpItems.length / 8) - 1));
+  drawMixScreen();
+}
+function vpThumb(folder, name) {
+  const k = folder + '/' + name; if (vpThumbs.has(k)) return vpThumbs.get(k);
+  vpThumbs.set(k, 'loading');
+  media.getThumb(folder, name).then(b => b ? createImageBitmap(b) : null).then(bm => { vpThumbs.set(k, bm); drawMixScreen(); }).catch(() => vpThumbs.set(k, null));
+  return 'loading';
+}
+function setVideoPage(on) { videoPage = on; if (on) vpLoad(); drawMixScreen(); }
+async function vpAct(what) {
+  const name = vpSel; if (!name) { toast('Pick a thumbnail first'); return; }
+  if (what === 'sky') return useSkyMedia(vpFolder, name).catch(e => toast('Sky: ' + e.message, 4000));
+  if (what === 'skyoff') { settings.sky = 'off'; saveSettings(); syncSettingsUI(); applySky(); drawMixScreen(); return; }
+  const f = await media.getFile(vpFolder, name); if (!f) return;
+  if (what === 'deckA' || what === 'deckB') {
+    const d = decks[what === 'deckA' ? 0 : 1];
+    if (!d.record) { toast(`No record on ${d.name}: put one on first`); return; }
+    vvOverride[d.i] = { rec: d.record, name }; toast(`${d.name}: ${name} (until this record comes off)`, 2500);
+  } else if (what === 'lednow') { led.add(f); led.play(f, led.files.length < 2); ledMode = 'clips'; }
+  else if (what === 'ledadd') { const n = led.add(f); toast(`LED playlist: ${n} item${n > 1 ? 's' : ''}`, 2000); }
+  drawMixScreen();
+}
+function drawVideoPage() {
+  const { g, canvas: c } = mixScreen; const W = c.width, H = c.height;
+  VP_HIT.length = 0;
+  g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H);
+  const btn = (x, y, w, h, label, on, act, dim) => {
+    g.fillStyle = on ? '#c8202c' : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : dim ? '#56627a' : '#3a4252'; g.font = '700 17px system-ui';
+    g.fillText(label, x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
+    if (act) VP_HIT.push({ x, y, w, h, act });
+  };
+  let x = 8;
+  for (const f of media.FOLDERS) { const w = f === 'Video pano' ? 150 : 104; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, () => { vpFolder = f; vpSel = null; vpPg = 0; vpLoad(); }); x += w + 6; }
+  btn(W - 8 - 110, 8, 110, 32, 'MIXER', false, () => setVideoPage(false));
+  // thumbnails: 4 x 2
+  const CW = (W - 16 - 3 * 8) / 4, TH = 76, CH = TH + 20, y0 = 48;
+  if (!vpItems.length) {
+    g.fillStyle = '#8c96a8'; g.font = '500 18px system-ui'; g.textAlign = 'left';
+    g.fillText(`Nothing in ${vpFolder} on this headset yet.`, 16, y0 + 40);
+    g.fillText('On the phone: Library, Import, then Push to Quest.', 16, y0 + 66);
+  }
+  const cur = settings.env === 'image' && settings.sky === 'on' ? settings.skyMedia : '';
+  vpItems.slice(vpPg * 8, vpPg * 8 + 8).forEach((it, i) => {
+    const cx = 8 + (i % 4) * (CW + 8), cy = y0 + Math.floor(i / 4) * (CH + 6);
+    const t = vpThumb(vpFolder, it.name);
+    g.fillStyle = '#121824'; g.fillRect(cx, cy, CW, TH);
+    if (t && t !== 'loading') {   // cover the 2.4:1 cell
+      const s = Math.max(CW / t.width, TH / t.height), sw = CW / s, sh = TH / s;
+      g.drawImage(t, (t.width - sw) / 2, (t.height - sh) / 2, sw, sh, cx, cy, CW, TH);
+    }
+    const on = [vvOverride[0], vvOverride[1]].map(o => o && vpFolder === 'Video' && o.name === it.name);
+    const tag = cur === vpFolder + '/' + it.name ? 'SKY' : on[0] ? 'A' : on[1] ? 'B' : led.name === it.name ? 'LED' : '';
+    if (tag) { g.fillStyle = '#40d080'; g.fillRect(cx + 4, cy + 4, 14 + tag.length * 11, 20); g.fillStyle = '#05070c'; g.font = '700 14px system-ui'; g.textAlign = 'left'; g.fillText(tag, cx + 9, cy + 19); }
+    if (it.name === vpSel) { g.strokeStyle = '#39a8ff'; g.lineWidth = 4; g.strokeRect(cx + 2, cy + 2, CW - 4, TH + 16); }
+    g.fillStyle = it.name === vpSel ? '#fff' : '#b8c0cf'; g.font = '500 14px system-ui'; g.textAlign = 'left';
+    fitText2(g, it.name.replace(/\.[^.]+$/, ''), cx + 2, cy + TH + 15, CW - 4);
+    VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, act: () => { vpSel = it.name === vpSel ? null : it.name; drawMixScreen(); } });
+  });
+  // bottom bar: pages, targets for this folder, LED mode
+  const by = H - 44, bh = 36, pages = Math.max(1, Math.ceil(vpItems.length / 8));
+  btn(8, by, 44, bh, '‹', false, () => { vpPg = Math.max(0, vpPg - 1); drawMixScreen(); }, vpPg === 0);
+  btn(56, by, 44, bh, '›', false, () => { vpPg = Math.min(pages - 1, vpPg + 1); drawMixScreen(); }, vpPg >= pages - 1);
+  const T = { Pano: [['SKY', 'sky'], ['SKY OFF', 'skyoff']], 'Video pano': [['SKY', 'sky'], ['SKY OFF', 'skyoff']],
+    Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['LED NOW', 'lednow'], ['+ LED', 'ledadd']], Images: [['LED NOW', 'lednow'], ['+ LED', 'ledadd']] }[vpFolder];
+  x = 108;
+  for (const [label, what] of T) { const dim = !vpSel && what !== 'skyoff'; btn(x, by, 98, bh, label, false, dim ? null : () => vpAct(what), dim); x += 104; }
+  btn(W - 8 - 140, by, 140, bh, { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED DECKS' }[ledMode], ledMode !== 'off', () => setLedMode({ off: 'clips', clips: 'decks', decks: 'off' }[ledMode]));
+}
 const NOTES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
 function parseKey(k) {
   k = (k || '').trim(); if (!k) return null;
@@ -2312,6 +2396,7 @@ function readout(d, st) {
 function mixScreenPress(uv) {
   if (!uv) return;
   const c = mixScreen.canvas, px = uv.x * c.width, py = (1 - uv.y) * c.height;
+  if (videoPage) { for (const b of VP_HIT) if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) { b.act(); drawMixScreen(); return true; } return true; }   // #185
   // #164 spectator strip: MR GUI (helpers on/off) and CELL REC (phone goes clean for recording)
   for (const b of SP_HIT) if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) { b.act(); drawMixScreen(); return true; }
   for (let i = 0; i < 2; i++) {
@@ -2323,6 +2408,7 @@ function mixScreenPress(uv) {
   return false;
 }
 function drawMixScreen() {
+  if (videoPage) { drawVideoPage(); mixScreen.commit(); return; }   // #185
   const { g, canvas: c } = mixScreen; const W = c.width, H = c.height;
   const sp = settings.spect === 'on' && spect ? spect.ui() : null;   // #164/#167: MR GUI toggle at the bottom left
   const DOTS = 186, TXT = 202;   // #166: beat dots + needle state right under the BPM (frees the bottom for the spectator strip)
@@ -2363,13 +2449,13 @@ function drawMixScreen() {
     }
   }
   SP_HIT.length = 0;
-  { // #176 LED WALL switch: deck B's top row, right-aligned (same look as MR GUI). OFF <-> VIDEO
-    const w = 134, h = 28, y = 12, x = W - 14 - w;
+  { // #185 VIDEO: deck B's top row (was the #176 LED WALL switch, which is on the Video page now). Red while the LED wall plays.
+    const w = 108, h = 28, y = 12, x = W - 14 - w;
     const on = ledMode !== 'off';
     g.fillStyle = on ? '#c8202c' : '#c9ced8'; g.fillRect(x, y, w, h);
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : '#5a6272'; g.font = '700 22px system-ui';
-    g.fillText({ off: 'LED WALL', clips: 'LED CLIPS', decks: 'LED DECKS' }[ledMode], x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
-    SP_HIT.push({ x: x - 6, y: 4, w: w + 12, h: h + 16, act: () => setLedMode({ off: 'clips', clips: 'decks', decks: 'off' }[ledMode]) });
+    g.fillText('VIDEO', x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
+    SP_HIT.push({ x: x - 6, y: 4, w: w + 12, h: h + 16, act: () => setVideoPage(true) });
   }
   if (sp) {   // #174: MR GUI toggle + phone icon on deck A's top row, right-aligned to its panel (the divider stays clear)
     const right = W / 2 - 14, pw = 14, ph = 24, w = 108, h = 28, y = 12;
@@ -2628,13 +2714,39 @@ async function useSkyFile(f, fresh) {
   const dims = [bmp.width, bmp.height]; bmp.close();
   try { localStorage.setItem('vire.envimage', c.toDataURL('image/jpeg', 0.85)); } catch { if (fresh) toast('Image too large to remember; it will be used this session only'); }
   envLight.setImage(c); skyKeyLight = brightestDir(c);
-  if (L) { try { await skybox.load(f, L.layout, L.swap); skybox.setHeight(settings.skyH); } catch (e) { skybox.setImage(null); toast('Panorama too big for this device: ' + e.message, 4000); } }
+  if (L) { try { closeSkyVideo(); await skybox.load(f, L.layout, L.swap); skybox.setHeight(settings.skyH); } catch (e) { skybox.setImage(null); toast('Panorama too big for this device: ' + e.message, 4000); } }
   else skybox.setImage(null);
   skyInfo(dims, L); applySky();
 }
 async function ensureSky() {   // full-size panorama from storage, loaded when first shown
   if (skybox.tex || settings.env !== 'image') return;
+  if (settings.skyMedia) {   // #185 chosen from the media library (mixer Video page)
+    const i = settings.skyMedia.indexOf('/'), folder = settings.skyMedia.slice(0, i), f = await media.getFile(folder, settings.skyMedia.slice(i + 1));
+    if (f) { if (folder === 'Video pano') await useSkyVideo(f); else await useSkyFile(f, false); return; }
+  }
   const f = await loadPano(); if (f) await useSkyFile(f, false);
+}
+// #185 sky from the library: a still (Pano) or a looping video panorama (Video pano)
+let skyVid = null;
+function closeSkyVideo() { if (skyVid) { closePanoVideo(skyVid); skyVid = null; } }
+async function useSkyMedia(folder, name) {
+  const f = await media.getFile(folder, name); if (!f) { toast('Not on this headset: ' + name); return; }
+  settings.skyMedia = folder + '/' + name; settings.skyFile = name + ':' + f.size;
+  const p = skyPrefs()[settings.skyFile] || { h: 1.5, turn: 0, type: 'auto', key: 'on' };
+  Object.assign(settings, { skyH: p.h, skyTurn: p.turn, skyType: p.type, skyKey: p.key, env: 'image', sky: 'on' });
+  saveSettings(); syncSettingsUI();
+  if (folder === 'Video pano') await useSkyVideo(f); else { closeSkyVideo(); await useSkyFile(f, true); }
+  toast('Sky: ' + name, 2000);
+}
+async function useSkyVideo(f) {
+  closeSkyVideo();
+  const { video, snap } = await openPanoVideo(f); skyVid = video;
+  const L = skyLayoutFor(video.videoWidth, video.videoHeight) || { layout: 'mono', swap: false };
+  const c = leftEyeCanvas(snap, L.layout, L.swap, 2048);
+  try { localStorage.setItem('vire.envimage', c.toDataURL('image/jpeg', 0.85)); } catch {}
+  envLight.setImage(c); skyKeyLight = brightestDir(c);
+  skybox.setVideo(video, L.layout, L.swap); skybox.setHeight(settings.skyH);
+  skyInfo([video.videoWidth, video.videoHeight], L); applySky();
 }
 function skyInfo(dims, L) {
   const el = $('#skyInfo'); if (!el) return;
@@ -2654,6 +2766,7 @@ function applySky() {
   const full = want && !!skybox.tex, bg = want && !full && envLight.skyTex;
   scene.background = arMode ? null : bg ? envLight.skyTex : full ? null : BG;
   skybox.group.visible = full; skyShadow.visible = full;
+  if (skyVid) { if (full) skyVid.play().catch(() => {}); else skyVid.pause(); }   // #185 video pano only decodes while shown
   skybox.setStereo(renderer.xr.isPresenting);
   room.visible = !arMode && !full && !bg;
   const turn = settings.env === 'image' ? settings.skyTurn * DEG : 0;
@@ -2675,7 +2788,7 @@ function saveSkyPrefs() {
 }
 $('#fEnv').onchange = async e => {
   const f = e.target.files && e.target.files[0]; if (!f) return; e.target.value = '';
-  settings.skyFile = f.name + ':' + f.size;
+  settings.skyFile = f.name + ':' + f.size; settings.skyMedia = ''; closeSkyVideo();
   const p = skyPrefs()[settings.skyFile] || { h: 1.5, turn: 0, type: 'auto', key: 'on' };
   Object.assign(settings, { skyH: p.h, skyTurn: p.turn, skyType: p.type, skyKey: p.key });
   settings.env = 'image'; saveSettings(); syncSettingsUI();
@@ -2684,7 +2797,7 @@ $('#fEnv').onchange = async e => {
 };
 $('#sSkyH').oninput = e => { settings.skyH = +e.target.value; saveSettings(); saveSkyPrefs(); $('#skyHVal').textContent = settings.skyH.toFixed(2) + ' m'; skybox.setHeight(settings.skyH); };
 $('#sSkyTurn').oninput = e => { settings.skyTurn = +e.target.value; saveSettings(); saveSkyPrefs(); $('#skyTurnVal').textContent = settings.skyTurn + '°'; applySky(); };
-$('#sSkyType').onchange = async e => { settings.skyType = e.target.value; saveSettings(); saveSkyPrefs(); const f = await loadPano(); if (f) await useSkyFile(f, false); };
+$('#sSkyType').onchange = async e => { settings.skyType = e.target.value; saveSettings(); saveSkyPrefs(); skybox.setImage(null); closeSkyVideo(); await ensureSky(); applySky(); };
 $('#sSkyKey').onchange = e => { settings.skyKey = e.target.value; saveSettings(); saveSkyPrefs(); applySky(); };
 $('#bEnvImg').onclick = () => $('#fEnv').click();
 // #176 LED wall videos: picked each session (the browser can't keep a folder), up to 5, played muted
@@ -2821,7 +2934,8 @@ async function applySpect() {
     if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, getInputs: () => xr && xr.inputs,
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(),
       getVV: () => ({ mode: ledMode, gains: deckGains(mixVal), decks: deckVid.map((dv, i) => dv.v ? [i, dv.key, engine.ctx ? engine.pos(i) : 0, engine.state.decks[i].rate || 0] : null).filter(Boolean) }),
-      getSky: () => ({ h: settings.skyH, turn: settings.skyTurn, type: settings.skyType, key: settings.skyKey, file: settings.skyFile }) });
+      getSky: () => ({ h: settings.skyH, turn: settings.skyTurn, type: settings.skyType, key: settings.skyKey, file: settings.skyFile, media: settings.env === 'image' ? settings.skyMedia : '' }),
+      onMedia: () => { if (videoPage) vpLoad(); } });
   } catch (e) { toast('Spectator camera failed to start: ' + e.message, 4000); }
 }
 syncSettingsUI();
@@ -2830,7 +2944,7 @@ applyEnv();
 if (!CAMERA_ROLE) loadLibrary();
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {

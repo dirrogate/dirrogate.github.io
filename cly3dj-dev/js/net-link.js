@@ -5,6 +5,7 @@
 // all traffic is phone <-> Quest on the local network. (The PeerJS cloud relay was tried first: it accepts
 // connections but no longer forwards messages, 29 Sep 2026.)
 // Two channels: 'state' (unordered, no retransmits: a late pose is useless) and 'ctl' (reliable).
+// #185: a third, 'file' (reliable, binary): media library pushes from the phone, 64 KB chunks with backpressure.
 
 const RELAY = 'https://ntfy.sh/';
 const ICE = [{ urls: 'stun:stun.l.google.com:19302' }];
@@ -44,14 +45,16 @@ class Pipe {
     pc.ondatachannel = e => this.wire(e.channel);
   }
   wire(c) {
-    this.ch[c.label] = c;
-    c.onopen = () => { if (this.ch.state && this.ch.ctl && this.ch.state.readyState === 'open' && this.ch.ctl.readyState === 'open') this.h.onOpen && this.h.onOpen(); };
-    c.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch { return; } this.h.onMessage && this.h.onMessage(m, c.label); };
-    c.onclose = () => this.h.onClose && this.h.onClose();
+    this.ch[c.label] = c; c.binaryType = 'arraybuffer';
+    if (c.label === 'file') c.bufferedAmountLowThreshold = 1 << 20;
+    c.onopen = () => { if (c.label !== 'file' && this.ch.state && this.ch.ctl && this.ch.state.readyState === 'open' && this.ch.ctl.readyState === 'open') this.h.onOpen && this.h.onOpen(); };
+    c.onmessage = e => { if (typeof e.data !== 'string') { this.h.onBinary && this.h.onBinary(e.data); return; } let m; try { m = JSON.parse(e.data); } catch { return; } this.h.onMessage && this.h.onMessage(m, c.label); };
+    c.onclose = () => { if (c.label !== 'file') this.h.onClose && this.h.onClose(); };
   }
   async call() { // spectator side: make the channels and the offer
     this.wire(this.pc.createDataChannel('state', { ordered: false, maxRetransmits: 0 }));
     this.wire(this.pc.createDataChannel('ctl'));
+    this.wire(this.pc.createDataChannel('file'));   // #185
     await this.pc.setLocalDescription(await this.pc.createOffer());
     await this.gathered();
     this.relay.send('OFFER', this.remote, { sdp: this.pc.localDescription.toJSON() });
@@ -75,6 +78,14 @@ class Pipe {
     if (label === 'state' && c.bufferedAmount > 16384) return false;
     c.send(JSON.stringify(obj)); return true;
   }
+  // #185: binary chunk on the 'file' channel; resolves once the send buffer has room again (keeps ~4 MB in flight)
+  async sendBin(buf) {
+    const c = this.ch.file; if (!c || c.readyState !== 'open') throw new Error('file channel closed');
+    if (c.bufferedAmount > (4 << 20)) await new Promise((res, rej) => { const t = setInterval(() => { if (c.readyState !== 'open') { clearInterval(t); rej(new Error('file channel closed')); } }, 500);
+      c.addEventListener('bufferedamountlow', () => { clearInterval(t); res(); }, { once: true }); });
+    c.send(buf);
+  }
+  get fileOpen() { return !!(this.ch.file && this.ch.file.readyState === 'open'); }
   get isOpen() { return !!(this.ch.state && this.ch.state.readyState === 'open' && this.ch.ctl && this.ch.ctl.readyState === 'open'); }
   close() { try { this.pc.close(); } catch {} }
 }
@@ -90,7 +101,7 @@ export function hostLink(code, handlers) {
     }
     if (pipe && m.src === pipe.remote) { try { await pipe.signal(m); } catch (e) { handlers.onStatus && handlers.onStatus('error: ' + e.message); } }
   }, handlers.onStatus);
-  const link = { get pipe() { return pipe; }, set pipe(p) {}, send: (l, o) => !!pipe && pipe.send(l, o), get isOpen() { return !!pipe && pipe.isOpen; },
+  const link = { get pipe() { return pipe; }, set pipe(p) {}, send: (l, o) => !!pipe && pipe.send(l, o), get isOpen() { return !!pipe && pipe.isOpen; }, get fileOpen() { return !!pipe && pipe.fileOpen; },
     close() { relay.close(); if (pipe) pipe.close(); } };
   return link;
 }
@@ -102,6 +113,7 @@ export function spectatorLink(code, handlers) {
   const relay = new Relay(me, async m => { if (pipe && m.src === pipe.remote) { try { await pipe.signal(m); } catch (e) { handlers.onStatus && handlers.onStatus('error: ' + e.message); } } },
     s => { handlers.onStatus && handlers.onStatus(s); if (s === 'relay' && !pipe) { pipe = new Pipe(relay, ID_PREFIX + code, handlers); pipe.call().catch(e => handlers.onStatus && handlers.onStatus('error: ' + e.message));
       const p0 = pipe; setTimeout(() => { if (pipe === p0 && !p0.isOpen && p0.pc.connectionState !== 'connecting') handlers.onStatus && handlers.onStatus('quest-offline'); }, 12000); } });
-  return { send: (l, o) => !!pipe && pipe.send(l, o), get isOpen() { return !!pipe && pipe.isOpen; },
+  return { send: (l, o) => !!pipe && pipe.send(l, o), get isOpen() { return !!pipe && pipe.isOpen; }, get fileOpen() { return !!pipe && pipe.fileOpen; },
+    sendBin: buf => pipe ? pipe.sendBin(buf) : Promise.reject(new Error('not connected')),
     close() { relay.close(); if (pipe) pipe.close(); } };
 }

@@ -138,6 +138,16 @@ export class Skybox {
     this.mats.forEach(m => { m.uniforms.map.value = t; });
     this.setLayout(layout, swap);
   }
+  // #185 video panorama: a looping muted <video> (see openPanoVideo); no mipmaps, decoded every frame
+  setVideo(video, layout, swap = false) {
+    if (this.tex) { this.tex.dispose(); this.tex = null; }
+    const t = new THREE.VideoTexture(video);
+    t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
+    t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
+    this.tex = t; this.size = [video.videoWidth, video.videoHeight];
+    this.mats.forEach(m => { m.uniforms.map.value = t; });
+    this.setLayout(layout, swap);
+  }
   setLayout(layout, swap) {
     this.layout = layout; this.swap = !!swap;
     const [l, r] = halves(layout, this.swap);
@@ -173,3 +183,16 @@ export async function loadPano() {
 export async function clearPano() {
   try { const root = await navigator.storage.getDirectory(); await root.removeEntry(DIR, { recursive: true }); } catch {}
 }
+
+// #185 open a video panorama file: looping, muted, playing; plus a still of its first frame (<= 2048 wide) for the
+// lighting / reflections and the layout check
+export async function openPanoVideo(file) {
+  const v = document.createElement('video'); v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
+  v._url = URL.createObjectURL(file); v.src = v._url;
+  await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('this video does not play here')); });
+  await v.play().catch(() => {});
+  const W = Math.min(2048, v.videoWidth), c = document.createElement('canvas'); c.width = W; c.height = Math.round(W * v.videoHeight / v.videoWidth);
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  return { video: v, snap: c };
+}
+export function closePanoVideo(v) { if (!v) return; v.pause(); URL.revokeObjectURL(v._url); v.removeAttribute('src'); v.load(); }
