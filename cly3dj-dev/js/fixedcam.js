@@ -387,8 +387,10 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     b.addEventListener('pointerdown', e => { e.preventDefault(); go(); t = setInterval(go, 120); });
     for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, () => { clearInterval(t); t = null; });
   }
-  $('#fxStep').onclick = () => { coarse = !coarse; $('#fxStep').textContent = coarse ? 'coarse' : 'fine'; };
-  $('#fxReset').onclick = () => { S.pose = defaultPose(); savePose(); ui(); };
+  function setCoarse(v) { coarse = !!v; $('#fxStep').textContent = coarse ? 'coarse' : 'fine'; }   // #217 also from the Quest
+  $('#fxStep').onclick = () => setCoarse(!coarse);
+  function resetView() { S.pose = defaultPose(); S.err = null; savePose(); ui(); }
+  $('#fxReset').onclick = resetView;
 
   // ---------------------------------------------------------------- exposure / focus / white balance
   async function setLock(on) {
@@ -449,7 +451,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     $('#fxInfo').textContent = `${S.facing === 'user' ? 'selfie' : 'main'} ${S.vw}x${S.vh}` + (P ? ` · zoom ${P.fov.toFixed(1)}°` : '') + (S.err != null ? ` · cal ${S.err.toFixed(1)} px` : ' · not calibrated')
       + (ec != null ? ` · exp ${ec > 0 ? '+' : ''}${(+ec).toFixed(1)}` : '') + (S.swap ? ` · swap ${S.swap}` : '') + (extra ? ' · ' + extra : '');
   }
-  return { S, video, start, stop, frame, camState, onCalPoint, calSkip, calStart, calRescan, detect, info, get on() { return S.on; } };
+  return { S, video, start, stop, frame, camState, onCalPoint, nudge, setCoarse, resetView, calCancel, get coarse() { return coarse; }, calSkip, calStart, calRescan, detect, info, get on() { return S.on; } };
 }
 
 // ---------------------------------------------------------------- pose solve

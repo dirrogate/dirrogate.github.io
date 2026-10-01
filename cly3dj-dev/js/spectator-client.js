@@ -195,7 +195,7 @@ export function startCamera(ctx) {
   let lastCst = '', fps = 0, fpsN = 0, fpsT = 0, late = 0, lateN = 0, lastXT = 0; const dts = [];
   function sendCst(force) {
     if (!link || !link.isOpen) return;
-    const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession() || fixed.on, cal: cal.ok || !!(fixed.on && fixed.S.err != null), fixed: fixed.on, fcam: fixed.on ? fixed.S.facing : null, fpx: fixed.on && fixed.S.err != null ? +fixed.S.err.toFixed(1) : null, fcal: fixed.on && !!fixed.S.cal, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, late, auto: autoMsg, look: look.status(), FL: flook.state(), flErr };
+    const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession() || fixed.on, cal: cal.ok || !!(fixed.on && fixed.S.err != null), fixed: fixed.on, fcam: fixed.on ? fixed.S.facing : null, fpx: fixed.on && fixed.S.err != null ? +fixed.S.err.toFixed(1) : null, fcal: fixed.on && !!fixed.S.cal, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, late, auto: autoMsg, look: look.status(), FL: flook.state(), flErr, FX: fixed.on && fixed.S.pose ? { fov: +fixed.S.pose.fov.toFixed(1), coarse: fixed.coarse, cal: !!fixed.S.cal } : null };
     const j = JSON.stringify(m); if (force || j !== lastCst) { lastCst = j; link.send('ctl', m); }
   }
   const LIM = { thr: [0, 0.8], soft: [0.02, 0.4], spill: [0, 1], wrap: [0, 1], cmatch: [0, 1], strength: [0, 1], grain: [0, 1] };
@@ -208,6 +208,10 @@ export function startCamera(ctx) {
     else if (m.what === 'auto') { await runAuto(); return; }
     else if (m.what === 'preview') pvOn = !!m.v;
     else if (m.what === 'flook') { flErr = flook.set(m.key, m.v) || ''; }   // #214
+    else if (m.what === 'fnudge' && fixed.on) {   // #217 fixed camera nudges / calibrate from the Quest's LOOK tab
+      if (m.key === 'coarse') fixed.setCoarse(m.v); else if (m.key === 'reset') fixed.resetView();
+      else if (m.key === 'cal') { if (fixed.S.cal) fixed.calCancel(); else fixed.calStart(); } else fixed.nudge(m.key);
+    }
     sendCst(true);
   }
   // ---- #188 headset preview: every ~150 ms a 480 px tall copy of what this phone shows, as a JPEG on the 'prev' channel

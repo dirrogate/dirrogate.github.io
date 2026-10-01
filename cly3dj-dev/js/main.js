@@ -38,7 +38,7 @@ if (settings.env === 'camera') settings.env = 'studio'; // camera snapshots remo
 // #114: Recording-friendly mode removed (always 90 Hz, 'interactive' audio); the owner records with the Quest
 // recorder's mic off, so the voice goes through the mixer; wired headphones, so no echo cancelling by default
 if (!settings.mig114) { delete settings.perf; settings.micRoute = 'app'; settings.micEcho = false; settings.mig114 = 1; saveSettings(); }
-let spect = null;   // #158 spectator host (declared early: drawMixScreen reads it, #164)
+let spect = null, spectErrShown = false;   // #158 spectator host (declared early: drawMixScreen reads it, #164)
 function saveSettings() { try { localStorage.setItem('vire.settings', JSON.stringify(settings)); } catch {} }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DECK_NAMES = ['A', 'B'];
@@ -2528,7 +2528,11 @@ const LOOK_ROWS = [
   [['Grade', 'strength', 0.05, 'pct'], ['Grain', 'grain', 0.05, 'pct'], ['Ambient', 'amb', 0.05, 'x'], ['Photo turn', 'envTurn', 15, 'deg']],
   [['Light turn', 'kTurn', 15, 'deg'], ['Light height', 'kHeight', 5, 'deg'], ['Light power', 'kInt', 0.1, 'x'], ['Light colour', 'kTemp', 250, 'K']],
 ];
-let lightBusy = '';
+let lightBusy = '', lookPage = 'look';   // #217 LOOK tab pages: 'look' (light / grade) or 'nudge' (the fixed camera's pose)
+const NUDGE_ROWS = [
+  [['Move', 'x-', '◀', 'x+', '▶'], ['Up / down', 'y+', '▲', 'y-', '▼'], ['Near / far', 'z-', 'NEAR', 'z+', 'FAR'], ['Zoom', 'fov-', 'IN', 'fov+', 'OUT']],
+  [['Turn', 'yaw+', '⟲', 'yaw-', '⟳'], ['Tilt', 'pitch+', 'UP', 'pitch-', 'DOWN'], ['Roll', 'roll+', '⟲', 'roll-', '⟳']],
+];
 async function lightPhone(folder, name) {
   const cs = spect && spect.cam;
   if (!cs || !cs.fixed) { toast('Start Fixed camera on the phone first (the light belongs to its camera)', 3500); return; }
@@ -2547,18 +2551,44 @@ function drawLookTab(btn, y0) {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   const cs = spect && spect.cam, F = cs && cs.FL, dim = !F;
   const send = (key, v) => { if (spect && spect.camSet) spect.camSet({ what: 'flook', key, v }); };
-  const top = [
+  const X = cs && cs.FX, nudgeOn = lookPage === 'nudge', setPage = pg => () => { lookPage = pg; drawMixScreen(); };
+  const nsend = (key, v) => { if (spect && spect.camSet) spect.camSet({ what: 'fnudge', key, v }); };
+  const top = nudgeOn ? [
+    ['◀ LOOK', false, setPage('look')],
+    ['PREVIEW', pvWanted, () => setPreview(!pvWanted)],
+    [X && X.cal ? 'CANCEL CAL' : 'CALIBRATE', !!(X && X.cal), () => nsend('cal', true)],
+    [X && X.coarse ? 'STEP: COARSE' : 'STEP: FINE', !!(X && X.coarse), () => { X.coarse = !X.coarse; nsend('coarse', X.coarse); drawMixScreen(); }],
+    ['RESET VIEW', false, () => { toast('Reset view: tap again within 3 s to confirm', 2500); if (performance.now() - (drawLookTab.rv || 0) < 3000) { drawLookTab.rv = 0; nsend('reset', true); } else drawLookTab.rv = performance.now(); }],
+  ] : [
     ['LOOK', F && F.on, () => send('on', !F.on)],
     ['PREVIEW', pvWanted, () => setPreview(!pvWanted)],
     ['PHOTO KEY', false, () => send('keyFromPano', true), !(F && F.envOK)],
     ['PHOTO OFF', false, () => send('env', ''), !(F && F.env)],
     ['RESET', false, () => send('reset', true)],
+    ['NUDGE ▶', false, setPage('nudge')],
   ];
-  const per = P ? 3 : 5, bw = (W - 16 - (per - 1) * 6) / per;
+  const per = P ? 3 : 6, bw = (W - 16 - (per - 1) * 6) / per;
   top.forEach(([label, on, act, off], i) => {
-    const d = (dim && label !== 'PREVIEW') || off;
+    const d = (dim && label !== 'PREVIEW' && label !== '◀ LOOK' && label !== 'NUDGE ▶') || off;
     btn(8 + (i % per) * (bw + 6), y0 + Math.floor(i / per) * 42, bw, 36, label, !!on, d ? null : act, d);
   });
+  if (nudgeOn) {   // #217 the fixed camera's nudges, one step per tap (STEP: COARSE for big moves); saved on the phone
+    const cols = P ? [NUDGE_ROWS.flat()] : NUDGE_ROWS, colW = P ? W - 16 : (W - 24) / 2, ry = y0 + (P ? 92 : 46), off = !X;
+    cols.forEach((col, ci) => col.forEach(([label, k1, t1, k2, t2], ri) => {
+      const cx = 8 + ci * (colW + 8), cy = ry + ri * 42;
+      g.fillStyle = '#0d1422'; g.fillRect(cx, cy, colW, 36);
+      g.fillStyle = off ? '#56627a' : '#dfe6f2'; g.font = P ? '600 15px system-ui' : '600 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+      g.fillText(label, cx + 10, cy + 19); g.textBaseline = 'alphabetic';
+      btn(cx + colW - 150, cy + 2, 70, 32, t1, false, off ? null : () => nsend(k1), off);
+      btn(cx + colW - 74, cy + 2, 70, 32, t2, false, off ? null : () => nsend(k2), off);
+    }));
+    const rows = P ? NUDGE_ROWS.flat().length : NUDGE_ROWS[0].length, y = ry + rows * 42 + (P ? 22 : 14);
+    g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = X ? '#8c96a8' : '#c9a040';
+    const txt = !cs ? 'Phone not connected.' : !X ? 'Start Fixed camera on the phone (tripod mode) to nudge its view from here.'
+      : `Zoom ${X.fov}° · ${X.coarse ? 'coarse' : 'fine'} steps · ${X.cal ? 'calibrating (touch the points)' : cs.cal ? 'calibrated' + (cs.fpx != null ? ' ' + cs.fpx + ' px' : '') : 'not calibrated'} · Tip: hands on the platters, nudge until the virtual hands sit on yours`;
+    wrapText(g, txt, 12, y, W - 24, 20, P ? 5 : 2);
+    return;
+  }
   const cols = P ? [LOOK_ROWS.flat()] : LOOK_ROWS, colW = P ? W - 16 : (W - 24) / 2, ry = y0 + (P ? 92 : 46);
   const fmtV = (k, v, u) => v == null ? '--' : u === 'pct' ? Math.round(v * 100) + '%' : u === 'deg' ? Math.round(v) + '°' : u === 'K' ? (F && F.kRGB ? 'photo' : Math.round(v) + 'K') : (+v).toFixed(2);
   cols.forEach((col, ci) => col.forEach(([label, key, step, u], ri) => {
@@ -3072,7 +3102,10 @@ function frame() {
   stepPvLid(dt);   // #196 preview lid
   stepScrDir();    // #198 portrait menu
   if (ledMode === 'decks') ledwall.userData.setDecks(deckVid[0].tex, deckVid[1].tex, ...deckGains(mixVal));
-  if (spect) spect.tick(dt);          // #158 spectator camera (nothing when off / no phone)
+  if (spect) {   // #158 spectator camera (nothing when off / no phone)
+    try { spect.tick(dt); }   // #217: a spectator error must never stop the headset's frame (it froze on a record pull)
+    catch (e) { if (!spectErrShown) { spectErrShown = true; console.error(e); toast('Spectator link error (headset keeps running): ' + e.message, 5000); } }
+  }
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(frame);

@@ -187,8 +187,8 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   const uidOf = new WeakMap(); let nextUid = 1; const live = new Map();   // uid -> { r, env: {A,B}, art: {A,B} }
   const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
   const meta = t => t ? { id: t.id, title: t.title, artist: t.artist, bpm: t.bpm, duration: t.duration, split: t.split, missing: t.missing } : null;
-  function recordsTick() {
-    const out = [], seen = new Set();
+  function recordsTick() {   // #217: the rows are 'rows' (a local 'out' hid the sender: out.send threw on every new record)
+    const rows = [], seen = new Set();
     _ri.copy(rig.matrixWorld).invert();
     for (const r of getRecords()) {
       if (!r || r.disposed) continue;
@@ -209,10 +209,10 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
         }
       }
       r.group.updateMatrixWorld(); _rm.multiplyMatrices(_ri, r.group.matrixWorld); _rm.decompose(_rp, _rq, _rs);
-      out.push([uid, r4(_rp.x), r4(_rp.y), r4(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), r4(r.mesh.rotation.x), r4(r.mesh.position.y), r.sideUp]);
+      rows.push([uid, r4(_rp.x), r4(_rp.y), r4(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), r4(r.mesh.rotation.x), r4(r.mesh.position.y), r.sideUp]);
     }
     for (const uid of [...live.keys()]) if (!seen.has(uid)) { live.delete(uid); out.send('ctl', { k: 'recdel', uid }); }
-    return out;
+    return rows;
   }
   // ---- hands / controllers, so the phone can let the real hands show in front of the gear
   function handsTick() {
