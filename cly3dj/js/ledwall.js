@@ -27,6 +27,17 @@ export function makeLedWall() {
     deckA.color.setScalar(texA ? gA : 0); deckB.color.setScalar(texB ? gB : 0);
     screen.material = deckA; screenB.visible = !!texB;
   };
+  // #220 DJ CAM: the virtual camera's picture (a linear HDR render target, so this one IS tone-mapped like the scene).
+  // mirror = flipped left/right (reads like a mirror to the DJ facing the wall)
+  const camMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: true });
+  g.userData.setCam = (camTex, mirror) => {
+    if (tex) { tex.dispose(); tex = null; }
+    screenB.visible = false;
+    if (!camTex) { screen.material = offMat; return; }
+    camTex.repeat.set(mirror ? -1 : 1, 1); camTex.offset.set(mirror ? 1 : 0, 0); camTex.wrapS = THREE.ClampToEdgeWrapping; camTex.needsUpdate = false;
+    if (camMat.map !== camTex) { camMat.map = camTex; camMat.needsUpdate = true; }
+    screen.material = camMat;
+  };
   let tex = null;
   // #185: a still image (ImageBitmap made with imageOrientation 'flipY'), same 'cover' fit as a video
   g.userData.setImage = bmp => {

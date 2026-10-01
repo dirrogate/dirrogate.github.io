@@ -8,6 +8,7 @@ import { REC, timeToRadius, radiusToTime, Screen, fitText, drawRecordSide, recor
 import { setupXR } from './xr.js';
 import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeNeon } from './neon.js';
 import { makeLedWall, LedPlayer, LED } from './ledwall.js';
+import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose } from './director.js';
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
@@ -348,6 +349,13 @@ const ledBase = () => (LED.H / 2 + LED.BEZ) * ledwall.scale.x;
 function setLedScale(s) { s = clamp(s, 0.4, 4); ledwall.scale.setScalar(s); if (stage) stage.items.ledwall.base = ledBase(); return s; }
 function saveLedScale() { try { localStorage.setItem('vire.ledScale', String(ledwall.scale.x)); } catch (e) {} }
 const led = new LedPlayer(ledwall);
+// #220 DJ CAM: a virtual camera on the LED wall, with an avatar copying the DJ's head and hands (Quest only, no phone)
+const djSet = (() => { try { return { preset: 'front', mirror: true, avatar: true, ...JSON.parse(localStorage.getItem('vire.djcam') || '{}') }; } catch { return { preset: 'front', mirror: true, avatar: true }; } })();
+function saveDjSet() { try { localStorage.setItem('vire.djcam', JSON.stringify(djSet)); } catch {} }
+const avatar = CAMERA_ROLE ? null : new Avatar(rig);
+const djcam = CAMERA_ROLE ? null : new DjCam(renderer, rig);
+if (djcam) djcam.preset = CAM_PRESETS[djSet.preset] ? djSet.preset : 'front';
+if (avatar) { avatar.root.visible = djSet.avatar; avatar.load('models/avatar/dirroface.glb').catch(e => { avatar.status = 'failed: ' + e.message; console.warn('avatar not loaded', e); }); }
 // #188 / #195 / #196 camera preview: the spectator phone's picture (small JPEGs, ~6 a second) while grading from the
 // mixer's CAMERA tab. #196 (owner): a thin screen (3 mm) that lives inside the 7 mm tablet and slides up out of its top
 // edge when PREVIEW goes on, and back down inside when it goes off (eased, like the deck lamps). Headset only (noMirror).
@@ -406,7 +414,7 @@ function setPreview(on) {
   drawMixScreen();
 }
 led.onChange = () => drawMixScreen();
-// #177 VideoVinyl + LED wall modes. LED WALL cycles OFF -> CLIPS (if videos were picked) -> DECKS -> OFF.
+// #177 VideoVinyl + LED wall modes. LED WALL cycles OFF -> CLIPS (if videos were picked) -> DECKS -> CAM (#220) -> OFF.
 let ledMode = 'off';
 const deckVid = [new DeckVideo(), new DeckVideo()];
 let vvIndex = new Map();          // headset: title key -> OPFS path of the video
@@ -441,9 +449,11 @@ function vvStep(d) {   // per frame: open/close the deck's video to match its tr
 function setLedMode(m) {
   if (m === 'clips' && !led.hasFiles) m = 'decks';
   if (m !== 'clips' && led.on) led.stop();
+  if (m === 'cam' && !djcam) m = 'off';
   ledMode = m;
   if (m === 'clips') led.playRandom();
   else if (m === 'off') ledwall.userData.setVideo(null);
+  else if (m === 'cam') ledwall.userData.setCam(djcam.rt.texture, djSet.mirror);   // #220
   drawMixScreen();
 }
 function setNeonScale(s) { s = clamp(s, 0.3, 4); neon.scale.setScalar(s); neon.userData.setLodScale(s); if (stage) stage.items.neon.base = NEON.R * s; return s; }
@@ -2499,9 +2509,9 @@ const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set whil
 // page; pick one, then where it goes (sky, a deck's VideoVinyl, the LED wall). LED WALL mode lives here too now.
 let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null;
 const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
-const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA', Sync: 'SYNC', Look: 'LOOK' };
+const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA', Sync: 'SYNC', Look: 'LOOK', 'DJ Cam': 'DJ CAM' };
 async function vpLoad() {
-  if (vpFolder === 'Camera' || vpFolder === 'Look') { vpItems = []; drawMixScreen(); return; }
+  if (vpFolder === 'Camera' || vpFolder === 'Look' || vpFolder === 'DJ Cam') { vpItems = []; drawMixScreen(); return; }
   if (vpFolder === 'Sync') { vpItems = []; syncLoad(); return; }   // #206
   vpItems = await media.list(vpFolder);
   if (vpSel && !vpItems.some(i => i.name === vpSel)) vpSel = null;
@@ -2623,6 +2633,29 @@ async function lightPhone(folder, name) {
   spect.camSet({ what: 'flook', key: 'env', v: folder + '/' + name });
   toast(`Phone lit by ${name}: turn it with PHOTO TURN to match the room`, 3500);
   vpFolder = 'Look'; vpLoad();
+}
+// #220 DJ CAM tab: the LED wall's virtual camera (angle, mirror) and the avatar
+function setDjPreset(k) { djSet.preset = k; if (djcam) djcam.preset = k; saveDjSet(); drawMixScreen(); }
+function setDjMirror(on) { djSet.mirror = on; saveDjSet(); if (ledMode === 'cam') ledwall.userData.setCam(djcam.rt.texture, on); drawMixScreen(); }
+function setDjAvatar(on) { djSet.avatar = on; saveDjSet(); if (avatar) avatar.root.visible = on; drawMixScreen(); }
+function drawDjCamTab(btn, y0) {
+  const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
+  const on = ledMode === 'cam';
+  const top = [
+    ['LED CAM', on, () => setLedMode(on ? 'off' : 'cam')],
+    ['MIRROR', djSet.mirror, () => setDjMirror(!djSet.mirror)],
+    ['AVATAR', djSet.avatar, () => setDjAvatar(!djSet.avatar)],
+  ];
+  const per = 3, bw = (W - 16 - (per - 1) * 6) / per;
+  top.forEach(([label, o, act], i) => btn(8 + i * (bw + 6), y0, bw, 36, label, !!o, act));
+  const keys = Object.keys(CAM_PRESETS), pp = P ? 2 : 4, pw = (W - 16 - (pp - 1) * 6) / pp;
+  keys.forEach((k, i) => btn(8 + (i % pp) * (pw + 6), y0 + 50 + Math.floor(i / pp) * 42, pw, 36, CAM_PRESETS[k].label, djSet.preset === k, () => setDjPreset(k)));
+  const ty = y0 + 50 + Math.ceil(keys.length / pp) * 42 + 18;
+  g.fillStyle = '#8c96a8'; g.font = '500 16px system-ui'; g.textAlign = 'left';
+  const av = !avatar ? 'no avatar' : avatar.status === 'ready' ? 'avatar ready' : 'avatar ' + avatar.status;
+  const lines = [`${av} · ${on && djcam ? `cam ${djcam.ms.toFixed(1)} ms a frame (every 3rd headset frame)` : 'LED wall not on CAM'}`,
+    'Look at the LED wall to put the camera in the Meta cast.'];
+  lines.forEach((t, i) => fitText2(g, t, 12, Math.min(H - 12, ty + i * 24), W - 24));
 }
 function drawLookTab(btn, y0) {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
@@ -2787,18 +2820,19 @@ function drawVideoPage() {
   };
   const pick = f => () => { vpFolder = f; vpSel = null; vpPg = 0; vpLoad(); };
   if (P) {   // #198 portrait: tabs in rows of 3 (#206: 3 rows, SYNC added, MIXER last); top and bottom keep clear of the corner L
-    const tabs = [...media.FOLDERS, 'Camera', 'Sync', 'Look'], tw = (W - 30 - 12) / 3;   // #214 LOOK
+    const tabs = [...media.FOLDERS, 'Camera', 'Sync', 'Look', 'DJ Cam'], tw = (W - 30 - 12) / 3;   // #214 LOOK, #220 DJ CAM
     tabs.forEach((f, i) => btn(22 + (i % 3) * (tw + 6), 28 + Math.floor(i / 3) * 40, tw, 34, VP_TABS[f], f === vpFolder, pick(f)));
-    btn(22 + (tw + 6), 108, tw, 34, 'MIXER', false, () => setVideoPage(false));
+    btn(22 + 2 * (tw + 6), 108, tw, 34, 'MIXER', false, () => setVideoPage(false));
   } else {
-    let x = 8;   // #214 seven tabs fit left of MIXER
-    for (const f of [...media.FOLDERS, 'Camera', 'Sync', 'Look']) { const w = { Pano: 80, 'Video pano': 118, Video: 80, Images: 86, Camera: 96, Sync: 70, Look: 70 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
+    let x = 8;   // #214 seven tabs fit left of MIXER; #220 eight (narrower)
+    for (const f of [...media.FOLDERS, 'Camera', 'Sync', 'Look', 'DJ Cam']) { const w = { Pano: 70, 'Video pano': 100, Video: 72, Images: 80, Camera: 84, Sync: 62, Look: 60, 'DJ Cam': 72 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
     btn(W - 8 - 100, 8, 100, 32, 'MIXER', false, () => setVideoPage(false));
   }
   const y0 = P ? 152 : 48;
   if (vpFolder === 'Camera') { drawCamTab(btn, y0); return; }
   if (vpFolder === 'Sync') { drawSyncTab(btn, y0); return; }   // #206
   if (vpFolder === 'Look') { drawLookTab(btn, y0); return; }   // #214
+  if (vpFolder === 'DJ Cam') { drawDjCamTab(btn, y0); return; }   // #220
   // thumbnails: 4 x 2 (portrait 2 x 6)
   const COLS = P ? 2 : 4, CW = (W - 16 - (COLS - 1) * 8) / COLS, TH = P ? 64 : 76, CH = TH + 20;
   const pages = Math.max(1, Math.ceil(vpItems.length / PER)); vpPg = Math.min(vpPg, pages - 1);
@@ -2833,7 +2867,7 @@ function drawVideoPage() {
   const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : 98, ty = P ? H - 106 : by;
   let x = P ? 8 : 108;
   for (const [label, what] of T) { const dim = !vpSel && what !== 'skyoff'; btn(x, ty, tw, bh, label, false, dim ? null : () => vpAct(what), dim); x += tw + 6; }
-  btn(W - (P ? 26 : 8) - 140, by, 140, bh, { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED DECKS' }[ledMode], ledMode !== 'off', () => setLedMode({ off: 'clips', clips: 'decks', decks: 'off' }[ledMode]));
+  btn(W - (P ? 26 : 8) - 140, by, 140, bh, { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED DECKS', cam: 'LED CAM' }[ledMode], ledMode !== 'off', () => setLedMode({ off: 'clips', clips: 'decks', decks: 'cam', cam: 'off' }[ledMode]));
 }
 const NOTES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
 function parseKey(k) {
@@ -3198,9 +3232,37 @@ function frame() {
     try { spect.tick(dt); }   // #217: a spectator error must never stop the headset's frame (it froze on a record pull)
     catch (e) { if (!spectErrShown) { spectErrShown = true; console.error(e); toast('Spectator link error (headset keeps running): ' + e.message, 5000); } }
   }
+  if (ledMode === 'cam' && djcam) stepDjCam(dt);   // #220
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(frame);
+// #220 DJ CAM: pose the avatar (headset: head + hands; desktop: a demo DJ), then render the camera into the LED wall
+const _djT0 = performance.now();
+const DJ_HIDE_NEON = new Set(['front', 'low', 'faders']);
+function djGear() {
+  return { deckA: deckGroups[0].position, deckB: deckGroups[1].position, mixer: mixer.position, crate: crateRig.position, top: deckGroups[0].position.y + DECK.H };
+}
+function djPrep() {   // what the camera must not see: the LED wall itself, XR hand / controller models and occluders
+  const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
+  hide(ledwall);
+  if (DJ_HIDE_NEON.has(djSet.preset)) hide(neon);   // the sign stands between these angles and the DJ (its back faces them)
+  if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); }
+  const bg = scene.background, roomV = room.visible;
+  if (!bg && !skybox.group.visible) { scene.background = BG; room.visible = true; }   // passthrough: studio floor + dark backdrop for the camera
+  return () => { for (const o of undo) o.visible = true; scene.background = bg; room.visible = roomV; };
+}
+function stepDjCam(dt) {
+  const gear = djGear(), xrOn = renderer.xr.isPresenting;
+  const pose = xrOn ? xrPose(renderer, xr && xr.inputs) : demoPose(rig, gear, (performance.now() - _djT0) / 1000);
+  if (avatar && avatar.ready && avatar.root.visible) {
+    try { avatar.update({ ...pose, floorY: rig.getWorldPosition(_djFloor).y, mic: micLevel(), dt }); }
+    catch (e) { if (!stepDjCam.err) { stepDjCam.err = true; console.error(e); toast('Avatar error (headset keeps running): ' + e.message, 5000); } }
+  }
+  const dj = rig.worldToLocal(pose.head.p.clone());
+  djcam.aimAt(gear, dj);
+  djcam.render(scene, dt, xrOn ? 3 : 2, djPrep);
+}
+const _djFloor = new THREE.Vector3();
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight);
@@ -3519,7 +3581,7 @@ applyEnv();
 if (!CAMERA_ROLE) loadLibrary();
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, avatar, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
