@@ -38,7 +38,7 @@ if (settings.env === 'camera') settings.env = 'studio'; // camera snapshots remo
 // #114: Recording-friendly mode removed (always 90 Hz, 'interactive' audio); the owner records with the Quest
 // recorder's mic off, so the voice goes through the mixer; wired headphones, so no echo cancelling by default
 if (!settings.mig114) { delete settings.perf; settings.micRoute = 'app'; settings.micEcho = false; settings.mig114 = 1; saveSettings(); }
-let spect = null;   // #158 spectator host (declared early: drawMixScreen reads it, #164)
+let spect = null, spectErrShown = false;   // #158 spectator host (declared early: drawMixScreen reads it, #164)
 function saveSettings() { try { localStorage.setItem('vire.settings', JSON.stringify(settings)); } catch {} }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DECK_NAMES = ['A', 'B'];
@@ -721,7 +721,80 @@ const sideCache = new Map(); // track id -> Promise<{bytes, art}>
 const artCache = new Map();  // track id -> ImageBitmap|null
 const artBlobs = new Map();  // track id -> the cover as stored in the MP3 (sent as-is to the spectator phone, #161)
 
-function currentList() { return search.results ? search.results : lib ? lib.playlists[crateState.pl].records : []; }
+function currentList() {
+  if (CAMERA_ROLE) return remoteCrate ? remoteCrate.list : [];   // #218 the phone shows the Quest's crate view
+  return search.results ? search.results : lib ? lib.playlists[crateState.pl].records : [];
+}
+// ---- #218 the record crate on the spectator phone: real sleeve covers, the picked record and the lid screen.
+// The Quest sends a small 'crate' message whenever its crate view changes (the tracks in the visible slots, the
+// pick, lid open / shut) and the lid screen as a small JPEG when it changes; the phone runs the same layoutSleeves /
+// assignCovers / drawCrateDiscLabel on it. Covers travel once per track (256 px JPEG, on request) and the phone keeps
+// them in its own storage ('vire-covers/<key>.jpg'), so after a set or a PREP COVERS (SYNC tab) they are local.
+// key = hash of title | artist | duration: stable even if the library is re-imported with new ids.
+let remoteCrate = null;
+const coverTracks = new Map();   // Quest: key -> track (for the phone's cover requests)
+function coverKey(t) { let h = 2166136261; for (const ch of (t.title || '') + '|' + (t.artist || '') + '|' + Math.round(t.duration || 0)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; } return 'c' + h.toString(36); }
+function crateView(list, start, n, shut) {   // Quest: what the phone needs to lay out the same sleeves
+  const items = [];
+  for (let k = 0; k < n; k++) {
+    const r = list[start + k]; if (!r) continue;
+    const t = r.sides.A || r.sides.B, key = t ? coverKey(t) : '';
+    if (t && key) coverTracks.set(key, t);
+    items.push([start + k, key, r.title || '', r.artist || '', r.bpm ? +(+r.bpm).toFixed(1) : 0, r.missing ? 1 : 0]);
+  }
+  return { k: 'crate', n: list.length, sel: crateState.sel, shut: shut ? 1 : 0, items };
+}
+async function coverFor(key) {   // Quest: the cover of a track by key, as stored in the MP3 (null = none)
+  const t = coverTracks.get(key); if (!t) return null;
+  await fetchArt(t); return artBlobs.get(t.id) || null;
+}
+// phone side
+const phoneCovers = { ask: null, waits: new Map(), dir: null };
+async function coverDir() { if (!phoneCovers.dir) phoneCovers.dir = (await navigator.storage.getDirectory()).getDirectoryHandle('vire-covers', { create: true }); return phoneCovers.dir; }
+async function coverHave(keys) { const d = await coverDir(), have = []; for (const k of keys) { try { await d.getFileHandle(k + '.jpg'); have.push(k); } catch {} } return have; }
+function phoneArt(track) {   // camera role: fetchArt from the phone's cover store, else ask the Quest
+  const key = track.id;
+  if (artCache.has(key)) return Promise.resolve(artCache.get(key));
+  if (artPending.has(key)) return artPending.get(key);
+  const p = (async () => {
+    let art = null;
+    try { const f = await (await (await coverDir()).getFileHandle(key + '.jpg')).getFile(); art = await createImageBitmap(f); }
+    catch {
+      if (!phoneCovers.ask) { artPending.delete(key); return null; }   // not cached yet, and no Quest: try again later
+      art = await new Promise(res => { phoneCovers.waits.set(key, res); phoneCovers.ask(key); setTimeout(() => { if (phoneCovers.waits.get(key) === res) { phoneCovers.waits.delete(key); res(undefined); } }, 15000); });
+      if (art === undefined) { artPending.delete(key); return null; }   // timed out: not cached, asked again next time
+    }
+    artCache.set(key, art); artPending.delete(key); return art;
+  })();
+  artPending.set(key, p); return p;
+}
+const crateRemote = {   // handed to spectator-client.js (camera role)
+  setAsk(fn) { phoneCovers.ask = fn; },
+  onCrate(m) {
+    const list = new Array(m.n);
+    for (const [i, key, title, artist, bpm, missing] of m.items) list[i] = { title, artist, bpm, missing: !!missing, sides: { A: { id: key || 'none', missing: !key }, B: null } };
+    remoteCrate = { list, shut: !!m.shut }; crateState.sel = Math.min(m.sel, Math.max(0, m.n - 1));
+    layoutSleeves();
+  },
+  async onScreen(m) {   // the lid screen as the Quest draws it
+    try {
+      const bm = await createImageBitmap(new Blob([Uint8Array.from(atob(m.img), c => c.charCodeAt(0))], { type: 'image/jpeg' }));
+      const { g, canvas: c } = crateScreen; g.drawImage(bm, 0, 0, c.width, c.height); bm.close(); crateScreen.commit();
+    } catch {}
+  },
+  async onCover(m) {   // a cover from the Quest: keep it, and draw it wherever it is waiting
+    let art = null;
+    if (m.img) {
+      const blob = new Blob([Uint8Array.from(atob(m.img), c => c.charCodeAt(0))], { type: 'image/jpeg' });
+      try { const w = await (await (await coverDir()).getFileHandle(m.key + '.jpg', { create: true })).createWritable(); await w.write(blob); await w.close(); } catch {}
+      try { art = await createImageBitmap(blob); } catch {}
+    }
+    const res = phoneCovers.waits.get(m.key);
+    if (res) { phoneCovers.waits.delete(m.key); res(art); }
+    else if (art && !artCache.get(m.key)) { artCache.set(m.key, art); if (remoteCrate) layoutSleeves(); }
+  },
+  coverHave,
+};
 
 // ---- crate search (owner, 26 Sep; CLAUDE.md #73). Whole collection, every field: title, artist, genre,
 // key and BPM ('128' = within 1 BPM, '124-130' = range). All words must match. Results replace the
@@ -851,6 +924,7 @@ function useID3Bpm(track, tag) {
 const artPending = new Map(); let artActive = 0; const artQueue = [];
 function fetchArt(track) {
   if (!track || track.missing) return Promise.resolve(null);
+  if (CAMERA_ROLE) return phoneArt(track);   // #218
   if (artCache.has(track.id)) return Promise.resolve(artCache.get(track.id));
   if (artPending.has(track.id)) return artPending.get(track.id);
   const p = new Promise(res => artQueue.push({ track, res }));
@@ -958,6 +1032,7 @@ function drawCrateScreen() {
   const { g, canvas: c } = crateScreen; const W = c.width, H = c.height;
   g.fillStyle = '#101316'; g.fillRect(0, 0, W, H);
   g.textBaseline = 'middle';
+  if (CAMERA_ROLE) { if (!remoteCrate) crateScreen.commit(); return; }   // #218 the phone shows the Quest's lid screen (crateRemote.onScreen)
   if (!lib) { g.fillStyle = '#8d96a1'; g.font = '500 34px system-ui'; g.textAlign = 'left'; g.fillText('No library', 30, 60); crateScreen.commit(); return; }
   const pl = lib.playlists[crateState.pl];
   const list = currentList(), searching = !!search.results;
@@ -1042,6 +1117,7 @@ function drawCrateScreen() {
   g.textAlign = 'right'; g.fillStyle = '#aab2bc';
   g.fillText(`${list.length ? crateState.sel + 1 : 0} / ${list.length}`, W - 22, fy);
   crateScreen.commit();
+  if (spect && spect.crateScreen) spect.crateScreen(crateScreen.canvas);   // #218 the phone's lid screen
   crateScreen.rows = { start, ROWS, RH, y0, kbY: search.kb ? kbY : Infinity };
 }
 // little green milk crate with a plus: spawns another crate (#88)
@@ -1131,7 +1207,7 @@ function layoutSleeves() {
   const n = Math.min(CRATE.slots, list.length);
   const start = clamp(crateState.sel - 8, 0, Math.max(0, list.length - n));
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1), e = new THREE.Euler();
-  const front = CRATE.D / 2 - 0.03, shut = !crateLidOpen();
+  const front = CRATE.D / 2 - 0.03, shut = remoteCrate ? remoteCrate.shut : !crateLidOpen();   // #218 phone: the Quest's lid
   // #129: keep every jacket inside the case. Bottoms stand on the floor (the old -4 cm sank them through it);
   // the pitch shrinks so the last one clears the back wall even with its lean; with the lid shut the jackets
   // are squashed to fit under it (hidden then anyway: a 315 mm sleeve is taller than the 288 mm inside).
@@ -1176,6 +1252,7 @@ function layoutSleeves() {
   const selRec = list[crateState.sel];
   if (shut || !selRec || selRec.missing || (held && held.rec === selRec) || copiesOut(selRec) >= COPIES) crateDisc.visible = false;
   S.instanceMatrix.needsUpdate = true;
+  if (!CAMERA_ROLE && spect && spect.crate) spect.crate(crateView(list, start, n, shut));   // #218 the phone mirrors this view
 }
 function crateSelect(delta) {
   const list = currentList(); if (!list.length) return;
@@ -2528,7 +2605,11 @@ const LOOK_ROWS = [
   [['Grade', 'strength', 0.05, 'pct'], ['Grain', 'grain', 0.05, 'pct'], ['Ambient', 'amb', 0.05, 'x'], ['Photo turn', 'envTurn', 15, 'deg']],
   [['Light turn', 'kTurn', 15, 'deg'], ['Light height', 'kHeight', 5, 'deg'], ['Light power', 'kInt', 0.1, 'x'], ['Light colour', 'kTemp', 250, 'K']],
 ];
-let lightBusy = '';
+let lightBusy = '', lookPage = 'look';   // #217 LOOK tab pages: 'look' (light / grade) or 'nudge' (the fixed camera's pose)
+const NUDGE_ROWS = [
+  [['Move', 'x-', '◀', 'x+', '▶'], ['Up / down', 'y+', '▲', 'y-', '▼'], ['Near / far', 'z-', 'NEAR', 'z+', 'FAR'], ['Zoom', 'fov-', 'IN', 'fov+', 'OUT']],
+  [['Turn', 'yaw+', '⟲', 'yaw-', '⟳'], ['Tilt', 'pitch+', 'UP', 'pitch-', 'DOWN'], ['Roll', 'roll+', '⟲', 'roll-', '⟳']],
+];
 async function lightPhone(folder, name) {
   const cs = spect && spect.cam;
   if (!cs || !cs.fixed) { toast('Start Fixed camera on the phone first (the light belongs to its camera)', 3500); return; }
@@ -2547,18 +2628,44 @@ function drawLookTab(btn, y0) {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   const cs = spect && spect.cam, F = cs && cs.FL, dim = !F;
   const send = (key, v) => { if (spect && spect.camSet) spect.camSet({ what: 'flook', key, v }); };
-  const top = [
+  const X = cs && cs.FX, nudgeOn = lookPage === 'nudge', setPage = pg => () => { lookPage = pg; drawMixScreen(); };
+  const nsend = (key, v) => { if (spect && spect.camSet) spect.camSet({ what: 'fnudge', key, v }); };
+  const top = nudgeOn ? [
+    ['◀ LOOK', false, setPage('look')],
+    ['PREVIEW', pvWanted, () => setPreview(!pvWanted)],
+    [X && X.cal ? 'CANCEL CAL' : 'CALIBRATE', !!(X && X.cal), () => nsend('cal', true)],
+    [X && X.coarse ? 'STEP: COARSE' : 'STEP: FINE', !!(X && X.coarse), () => { X.coarse = !X.coarse; nsend('coarse', X.coarse); drawMixScreen(); }],
+    ['RESET VIEW', false, () => { toast('Reset view: tap again within 3 s to confirm', 2500); if (performance.now() - (drawLookTab.rv || 0) < 3000) { drawLookTab.rv = 0; nsend('reset', true); } else drawLookTab.rv = performance.now(); }],
+  ] : [
     ['LOOK', F && F.on, () => send('on', !F.on)],
     ['PREVIEW', pvWanted, () => setPreview(!pvWanted)],
     ['PHOTO KEY', false, () => send('keyFromPano', true), !(F && F.envOK)],
     ['PHOTO OFF', false, () => send('env', ''), !(F && F.env)],
     ['RESET', false, () => send('reset', true)],
+    ['NUDGE ▶', false, setPage('nudge')],
   ];
-  const per = P ? 3 : 5, bw = (W - 16 - (per - 1) * 6) / per;
+  const per = P ? 3 : 6, bw = (W - 16 - (per - 1) * 6) / per;
   top.forEach(([label, on, act, off], i) => {
-    const d = (dim && label !== 'PREVIEW') || off;
+    const d = (dim && label !== 'PREVIEW' && label !== '◀ LOOK' && label !== 'NUDGE ▶') || off;
     btn(8 + (i % per) * (bw + 6), y0 + Math.floor(i / per) * 42, bw, 36, label, !!on, d ? null : act, d);
   });
+  if (nudgeOn) {   // #217 the fixed camera's nudges, one step per tap (STEP: COARSE for big moves); saved on the phone
+    const cols = P ? [NUDGE_ROWS.flat()] : NUDGE_ROWS, colW = P ? W - 16 : (W - 24) / 2, ry = y0 + (P ? 92 : 46), off = !X;
+    cols.forEach((col, ci) => col.forEach(([label, k1, t1, k2, t2], ri) => {
+      const cx = 8 + ci * (colW + 8), cy = ry + ri * 42;
+      g.fillStyle = '#0d1422'; g.fillRect(cx, cy, colW, 36);
+      g.fillStyle = off ? '#56627a' : '#dfe6f2'; g.font = P ? '600 15px system-ui' : '600 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+      g.fillText(label, cx + 10, cy + 19); g.textBaseline = 'alphabetic';
+      btn(cx + colW - 150, cy + 2, 70, 32, t1, false, off ? null : () => nsend(k1), off);
+      btn(cx + colW - 74, cy + 2, 70, 32, t2, false, off ? null : () => nsend(k2), off);
+    }));
+    const rows = P ? NUDGE_ROWS.flat().length : NUDGE_ROWS[0].length, y = ry + rows * 42 + (P ? 22 : 14);
+    g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = X ? '#8c96a8' : '#c9a040';
+    const txt = !cs ? 'Phone not connected.' : !X ? 'Start Fixed camera on the phone (tripod mode) to nudge its view from here.'
+      : `Zoom ${X.fov}° · ${X.coarse ? 'coarse' : 'fine'} steps · ${X.cal ? 'calibrating (touch the points)' : cs.cal ? 'calibrated' + (cs.fpx != null ? ' ' + cs.fpx + ' px' : '') : 'not calibrated'} · Tip: hands on the platters, nudge until the virtual hands sit on yours`;
+    wrapText(g, txt, 12, y, W - 24, 20, P ? 5 : 2);
+    return;
+  }
   const cols = P ? [LOOK_ROWS.flat()] : LOOK_ROWS, colW = P ? W - 16 : (W - 24) / 2, ry = y0 + (P ? 92 : 46);
   const fmtV = (k, v, u) => v == null ? '--' : u === 'pct' ? Math.round(v * 100) + '%' : u === 'deg' ? Math.round(v) + '°' : u === 'K' ? (F && F.kRGB ? 'photo' : Math.round(v) + 'K') : (+v).toFixed(2);
   cols.forEach((col, ci) => col.forEach(([label, key, step, u], ri) => {
@@ -2584,6 +2691,20 @@ function drawLookTab(btn, y0) {
 // ---- #206 SYNC tab (VIDEO page): both libraries side by side (Quest and phone), pick items, COPY puts each one on the
 // side that doesn't have it. Only adds (spectator-host.js syncList / syncCopy); a name on both sides is left alone.
 let syncItems = null, syncMsg = '', syncPg = 0, syncAll = false;
+// #218 PREP COVERS: every cover of the crate's current list (playlist or search) to the phone ahead of a gig
+const prep = { on: false, i: 0, n: 0, sent: 0, stop: false };
+async function prepCovers() {
+  if (prep.on) { prep.stop = true; return; }
+  if (!spect || !spect.prepCovers) { syncMsg = 'Spectator camera is off: Settings > Spectator camera On, then Connect on the phone.'; drawMixScreen(); return; }
+  const tracks = new Map();
+  for (const r of currentList()) { const t = r && !r.missing && (r.sides.A || r.sides.B); if (t && !t.missing) { const k = coverKey(t); coverTracks.set(k, t); tracks.set(k, t); } }
+  Object.assign(prep, { on: true, i: 0, n: tracks.size, sent: 0, stop: false }); drawMixScreen();
+  try {
+    await spect.prepCovers([...tracks.keys()], st => { Object.assign(prep, st); syncMsg = `Covers to the phone: ${prep.i} of ${prep.n} checked, ${prep.sent} sent`; if (videoPage) drawMixScreen(); return prep.stop; });
+    syncMsg = `Covers ready on the phone: ${prep.n} tracks (${prep.sent} new)` + (prep.stop ? ' · stopped' : '');
+  } catch (e) { syncMsg = 'PREP COVERS: ' + e.message; }
+  prep.on = false; drawMixScreen();
+}
 const syncSel = new Set();   // 'folder/name'
 const SYNC_TAG = { Pano: 'PANO', 'Video pano': 'VPANO', Video: 'VIDEO', Images: 'IMG' };
 function syncExtras() {   // the Quest's VideoVinyl clips stored with its songs (headset library), offered as Video items
@@ -2645,10 +2766,11 @@ function drawSyncTab(btn, y0) {
     [syncAll ? 'MISSING ONLY' : 'SHOW ALL', syncAll, () => { syncAll = !syncAll; syncPg = 0; drawMixScreen(); }, false, 0],
     ['REFRESH', false, () => syncLoad(), busy, 0],
     [busy ? `COPYING ${sy.i}/${sy.n}` : `COPY ${nSel || ''}`.trim(), busy, () => syncCopy(), busy || !nSel, 0],
+    [prep.on ? `STOP ${prep.i}/${prep.n}` : (P ? 'COVERS' : 'PREP COVERS'), prep.on, () => prepCovers(), false, 0],   // #218
   ];
   const row = (list, y, x1, x2) => { const fixed = list.reduce((a, q) => a + (q[4] || 0), 0), flex = list.filter(q => !q[4]).length, w = (x2 - x1 - fixed - (list.length - 1) * 6) / Math.max(1, flex); let x = x1;
     for (const [label, on, act, dim, fw] of list) { const bw = fw || w; btn(x, y, bw, bh, label, on, dim ? null : act, dim); x += bw + 6; } };
-  if (P) { row(b.slice(2, 5), H - 106, x0, W - x0); row([b[0], b[1], b[5]], H - 62, 26, W - 26); }
+  if (P) { row(b.slice(2, 5), H - 106, x0, W - x0); row([b[0], b[1], b[5], b[6]], H - 62, 26, W - 26); }
   else row(b, H - 44, 8, W - 8);
 }
 function drawVideoPage() {
@@ -3072,7 +3194,10 @@ function frame() {
   stepPvLid(dt);   // #196 preview lid
   stepScrDir();    // #198 portrait menu
   if (ledMode === 'decks') ledwall.userData.setDecks(deckVid[0].tex, deckVid[1].tex, ...deckGains(mixVal));
-  if (spect) spect.tick(dt);          // #158 spectator camera (nothing when off / no phone)
+  if (spect) {   // #158 spectator camera (nothing when off / no phone)
+    try { spect.tick(dt); }   // #217: a spectator error must never stop the headset's frame (it froze on a record pull)
+    catch (e) { if (!spectErrShown) { spectErrShown = true; console.error(e); toast('Spectator link error (headset keeps running): ' + e.message, 5000); } }
+  }
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(frame);
@@ -3380,7 +3505,7 @@ async function applySpect() {
   try {
     const m = await import('./spectator-host.js');
     if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, perf, getInputs: () => xr && xr.inputs,
-      getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(),
+      getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(), coverFor,   // #218
       getVV: () => ({ mode: ledMode, gains: deckGains(mixVal), decks: deckVid.map((dv, i) => dv.v ? [i, dv.key, engine.ctx ? engine.pos(i) : 0, engine.state.decks[i].rate || 0] : null).filter(Boolean) }),
       getSky: () => ({ h: settings.skyH, turn: settings.skyTurn, type: settings.skyType, key: settings.skyKey, file: settings.skyFile, media: settings.env === 'image' ? settings.skyMedia : '' }),
       onMedia: () => { refreshLibVV(); if (videoPage && vpFolder !== 'Sync') vpLoad(); },
@@ -3400,5 +3525,5 @@ window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 if (CAMERA_ROLE) {
   $('#start').style.display = 'none'; const hud = document.getElementById('hud'); if (hud) hud.style.display = 'none';
   import('./spectator-client.js').then(m => m.startCamera({ THREE, renderer, scene, camera, rig, room, stage, cases, decks, deckInst, neon,
-    newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, skybox, envLight, key })).catch(e => { document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;top:0;left:0;right:0;color:#fbb;background:#300;padding:8px;z-index:99">Spectator failed: ${e.message}</pre>`); });
+    newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, skybox, envLight, key, crateRemote })).catch(e => { document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;top:0;left:0;right:0;color:#fbb;background:#300;padding:8px;z-index:99">Spectator failed: ${e.message}</pre>`); });
 }

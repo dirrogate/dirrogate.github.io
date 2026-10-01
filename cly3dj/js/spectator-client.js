@@ -195,7 +195,7 @@ export function startCamera(ctx) {
   let lastCst = '', fps = 0, fpsN = 0, fpsT = 0, late = 0, lateN = 0, lastXT = 0; const dts = [];
   function sendCst(force) {
     if (!link || !link.isOpen) return;
-    const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession() || fixed.on, cal: cal.ok || !!(fixed.on && fixed.S.err != null), fixed: fixed.on, fcam: fixed.on ? fixed.S.facing : null, fpx: fixed.on && fixed.S.err != null ? +fixed.S.err.toFixed(1) : null, fcal: fixed.on && !!fixed.S.cal, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, late, auto: autoMsg, look: look.status(), FL: flook.state(), flErr };
+    const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession() || fixed.on, cal: cal.ok || !!(fixed.on && fixed.S.err != null), fixed: fixed.on, fcam: fixed.on ? fixed.S.facing : null, fpx: fixed.on && fixed.S.err != null ? +fixed.S.err.toFixed(1) : null, fcal: fixed.on && !!fixed.S.cal, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, late, auto: autoMsg, look: look.status(), FL: flook.state(), flErr, FX: fixed.on && fixed.S.pose ? { fov: +fixed.S.pose.fov.toFixed(1), coarse: fixed.coarse, cal: !!fixed.S.cal } : null };
     const j = JSON.stringify(m); if (force || j !== lastCst) { lastCst = j; link.send('ctl', m); }
   }
   const LIM = { thr: [0, 0.8], soft: [0.02, 0.4], spill: [0, 1], wrap: [0, 1], cmatch: [0, 1], strength: [0, 1], grain: [0, 1] };
@@ -208,6 +208,10 @@ export function startCamera(ctx) {
     else if (m.what === 'auto') { await runAuto(); return; }
     else if (m.what === 'preview') pvOn = !!m.v;
     else if (m.what === 'flook') { flErr = flook.set(m.key, m.v) || ''; }   // #214
+    else if (m.what === 'fnudge' && fixed.on) {   // #217 fixed camera nudges / calibrate from the Quest's LOOK tab
+      if (m.key === 'coarse') fixed.setCoarse(m.v); else if (m.key === 'reset') fixed.resetView();
+      else if (m.key === 'cal') { if (fixed.S.cal) fixed.calCancel(); else fixed.calStart(); } else fixed.nudge(m.key);
+    }
     sendCst(true);
   }
   // ---- #188 headset preview: every ~150 ms a 480 px tall copy of what this phone shows, as a JPEG on the 'prev' channel
@@ -254,6 +258,7 @@ export function startCamera(ctx) {
   // #214 look without AR (fixed mode): camera grade from the video, 360 photo as light, manual key light; set from the Quest's LOOK tab
   const flook = makeFixLook({ THREE, scene, key, envLight, look, getVideo: () => fixed.video });
   flook.onChange = () => sendCst(true);
+  if (ctx.crateRemote) ctx.crateRemote.setAsk(key => { if (link && link.isOpen) link.send('ctl', { k: 'cover?', key }); });   // #218 covers from the Quest
   let flErr = '';
   $('#spFix').onclick = async () => { const err = await fixed.start($('#spFixCam').value); if (err) st(err); };
   function fixedPreview(now) {   // the program picture (the canvas just drawn), 480 px on its long side, as a JPEG
@@ -397,6 +402,10 @@ export function startCamera(ctx) {
     else if (m.k === 'rec') onRec(m);
     else if (m.k === 'renv') onRecEnv(m);
     else if (m.k === 'rart') onRecArt(m);
+    else if (m.k === 'crate') { if (ctx.crateRemote) ctx.crateRemote.onCrate(m); }   // #218 the Quest's crate view
+    else if (m.k === 'cscr') { if (ctx.crateRemote) ctx.crateRemote.onScreen(m); }
+    else if (m.k === 'cover') { if (ctx.crateRemote) ctx.crateRemote.onCover(m); }
+    else if (m.k === 'covhave?') { if (ctx.crateRemote) ctx.crateRemote.coverHave(m.keys || []).then(keys => { if (link && link.isOpen) link.send('ctl', { k: 'covhave', keys }); }); }
     else if (m.k === 'recdel') onRecDel(m.uid);
     else if (m.k === 'calpt') { if (!(fixed.on && fixed.onCalPoint(m))) onCalPoint(m); }   // #208 fixed camera taps first
     else if (m.k === 'calskip') { if (fixed.on) fixed.calSkip(); }   // #211 the Quest's grip skips an auto point

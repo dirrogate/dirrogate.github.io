@@ -14,7 +14,7 @@ const CAL_TEXT = {
   x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
-export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getVV, getSky, onMedia, onCam, onPreview, perf }) {
+export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getVV, getSky, onMedia, onCam, onPreview, perf, coverFor }) {
   // #209 PerfCap: every mirror message also goes to the PerfCap recorder while it records (phone or not)
   const out = { send(ch, m) { if (link.isOpen) link.send(ch, m); if (perf && perf.on) perf.write(ch, m); } };
   let perfMarks = false;   // #209 PerfCap MARKS mode: each trigger press records a floor mark
@@ -187,8 +187,8 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   const uidOf = new WeakMap(); let nextUid = 1; const live = new Map();   // uid -> { r, env: {A,B}, art: {A,B} }
   const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
   const meta = t => t ? { id: t.id, title: t.title, artist: t.artist, bpm: t.bpm, duration: t.duration, split: t.split, missing: t.missing } : null;
-  function recordsTick() {
-    const out = [], seen = new Set();
+  function recordsTick() {   // #217: the rows are 'rows' (a local 'out' hid the sender: out.send threw on every new record)
+    const rows = [], seen = new Set();
     _ri.copy(rig.matrixWorld).invert();
     for (const r of getRecords()) {
       if (!r || r.disposed) continue;
@@ -209,11 +209,68 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
         }
       }
       r.group.updateMatrixWorld(); _rm.multiplyMatrices(_ri, r.group.matrixWorld); _rm.decompose(_rp, _rq, _rs);
-      out.push([uid, r4(_rp.x), r4(_rp.y), r4(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), r4(r.mesh.rotation.x), r4(r.mesh.position.y), r.sideUp]);
+      rows.push([uid, r4(_rp.x), r4(_rp.y), r4(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), r4(r.mesh.rotation.x), r4(r.mesh.position.y), r.sideUp]);
     }
     for (const uid of [...live.keys()]) if (!seen.has(uid)) { live.delete(uid); out.send('ctl', { k: 'recdel', uid }); }
-    return out;
+    return rows;
   }
+  // ---- #218 the record crate on the phone: the view (sent when it changes), the lid screen (JPEG, at most every
+  // 0.4 s) and covers (256 px JPEG, when the phone asks; PerfCap takes get each cover once too)
+  let crateMsg = null, crateSent = '', scrCanvas = null, scrDirty = false, scrT = 0, scrBusy = false, lastScr = null;
+  const perfCov = new Set(); let perfCovQ = Promise.resolve();
+  function crate(m) {
+    crateMsg = m;
+    if (perf && perf.on) for (const it of m.items) if (it[1] && !perfCov.has(it[1])) { const key = it[1]; perfCov.add(key); perfCovQ = perfCovQ.then(() => coverMsg(key)).then(cm => { if (cm && perf.on) perf.write('ctl', cm); }).catch(() => {}); }
+  }
+  function crateScreen(c) { scrCanvas = c; scrDirty = true; }
+  const scrC = document.createElement('canvas'); scrC.width = 512; scrC.height = 480;
+  function crateTick(now) {
+    if (crateMsg) { const j = JSON.stringify(crateMsg); if (j !== crateSent) { crateSent = j; out.send('ctl', crateMsg); } }
+    if (scrDirty && scrCanvas && !scrBusy && now - scrT > 400) {
+      scrDirty = false; scrT = now; scrBusy = true;
+      scrC.getContext('2d').drawImage(scrCanvas, 0, 0, 512, 480);
+      scrC.toBlob(b => { if (!b) { scrBusy = false; return; } b.arrayBuffer().then(buf => { lastScr = { k: 'cscr', img: b64(new Uint8Array(buf)) }; out.send('ctl', lastScr); scrBusy = false; }); }, 'image/jpeg', 0.7);
+    }
+  }
+  async function shrink(blob) {   // cover -> 256 px JPEG (about 15 to 30 KB)
+    const bm = await createImageBitmap(blob), s = Math.min(1, 256 / Math.max(bm.width, bm.height));
+    const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(bm.width * s)); c.height = Math.max(1, Math.round(bm.height * s));
+    c.getContext('2d').drawImage(bm, 0, 0, c.width, c.height); bm.close();
+    const j = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.82));
+    return new Uint8Array(await j.arrayBuffer());
+  }
+  const shrunk = new Map();   // key -> b64 (or '' = no cover), small in-memory cache for repeat requests
+  async function coverMsg(key) {
+    if (!shrunk.has(key)) {
+      let v = '';
+      try { const blob = coverFor ? await coverFor(key) : null; if (blob) v = b64(await shrink(blob)); } catch {}
+      shrunk.set(key, v); if (shrunk.size > 400) shrunk.delete(shrunk.keys().next().value);
+    }
+    const v = shrunk.get(key); return { k: 'cover', key, img: v || null };
+  }
+  let covQ = Promise.resolve();
+  function onCoverAsk(key) { covQ = covQ.then(() => coverMsg(key)).then(m => { if (link.isOpen) link.send('ctl', m); }).catch(() => {}); }
+  let haveWait = null;
+  async function prepCovers(keys, onStep) {   // PREP COVERS: ask which the phone has, send the rest one by one
+    if (!link.isOpen) throw new Error('phone not connected');
+    const have = new Set();
+    for (let i = 0; i < keys.length; i += 500) {
+      const part = keys.slice(i, i + 500);
+      const got = await new Promise((res, rej) => { haveWait = res; link.send('ctl', { k: 'covhave?', keys: part }); setTimeout(() => { if (haveWait === res) { haveWait = null; rej(new Error('the phone did not answer (reload Cly3DJ on the phone)')); } }, 15000); });
+      for (const k of got) have.add(k);
+    }
+    const st = { i: 0, n: keys.length, sent: 0 };
+    for (const key of keys) {
+      st.i++;
+      if (!have.has(key)) {
+        const m = await coverMsg(key);
+        if (m.img) { if (!link.isOpen) throw new Error('phone disconnected'); link.send('ctl', m); st.sent++; await new Promise(r => setTimeout(r, 15)); }
+      }
+      if (onStep && onStep(st)) break;
+    }
+    return st;
+  }
+
   // ---- hands / controllers, so the phone can let the real hands show in front of the gear
   function handsTick() {
     const out = [], inputs = getInputs() || [];
@@ -329,12 +386,14 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     onStatus: status,
     onBinary: onBin,
     onState: s => status(s),
-    onOpen: () => { link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
+    onOpen: () => { crateSent = ''; if (lastScr) scrDirty = true; link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
     onClose: () => { if (rx) { rx.abort(); rx = null; } camState = null; onCam && onCam(null); status('disconnected'); calStep = null; ghost(false); panel.visible = false; frustum.visible = false; },
     onMessage: m => {
       if (m.k === 'qgo' || m.k === 'qok') { resolveWait(m.f, m.n, m.k, m); return; }   // #206 media sync, Quest to phone
       if (m.k[0] === 'm' && m.k !== 'mr') { onMediaMsg(m); return; }   // #185 mls? / mput / mdel (#206 mls / mpullx)
       if (m.k === 'cst') { camState = m; onCam && onCam(m); return; }   // #188 the phone's camera / key / look state
+      if (m.k === 'cover?') { onCoverAsk(m.key); return; }   // #218
+      if (m.k === 'covhave') { if (haveWait) { const w = haveWait; haveWait = null; w(m.keys || []); } return; }
       if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }
       else if (m.k === 'cal') {
         if (m.step === 'lens' || m.step === 'x') { calStep = m.step; showImg(null); say(CAL_TEXT[m.step]); toast && toast(CAL_TEXT[m.step].slice(1).join(' '), 6000); }
@@ -367,6 +426,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     const open = link.isOpen || !!(perf && perf.on); if (!open) { was = false; return; }   // #209 PerfCap records without a phone too
     if (!was) { was = true; acc = 1; }
     acc += dt; if (acc < 1 / RATE) return; acc = 0;
+    crateTick(performance.now());   // #218
     const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
     rig.updateMatrixWorld(); rig.getWorldQuaternion(_riq).invert();
     cam.matrixWorld.decompose(_p, _q, _s); rig.worldToLocal(_p); _q.premultiply(_riq);   // rig space (#210: the rig can turn, with its spatial anchor)
@@ -399,6 +459,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     camSet: o => link.isOpen && link.send('ctl', { k: 'cset', ...o }),
     syncList, syncCopy, get sync() { return sync; },
     // #209 PerfCap: a take starts with a full snapshot (layout, every part, every record with its grooves / labels)
-    perfBegin() { full = true; live.clear(); ledKey = ''; skyKey = ''; if (perf && perf.on) { perf.write('ctl', layout()); perf.write('ctl', { k: 'mr', on: mr }); } },
+    crate, crateScreen, prepCovers,   // #218
+    perfBegin() { full = true; live.clear(); ledKey = ''; skyKey = ''; crateSent = ''; scrDirty = !!scrCanvas; perfCov.clear(); if (crateMsg) crate(crateMsg); if (perf && perf.on) { perf.write('ctl', layout()); perf.write('ctl', { k: 'mr', on: mr }); } },
     get perfMarks() { return perfMarks; }, set perfMarks(v) { perfMarks = !!v; } };
 }
