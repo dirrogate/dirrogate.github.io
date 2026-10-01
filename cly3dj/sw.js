@@ -5,7 +5,7 @@
 // and songs imported on the headset live in the app's own storage (OPFS), not in this cache.
 const CACHE = 'vire-app-v1';   // (sw.js itself is always re-checked by the browser, so this change reaches everyone on the next load)
 // files the app only fetches later (first record load, first MIC press): fetch them up front
-const LATE = ['js/deck-worklet.js', 'js/decode-worker.js', 'js/mic-worklet.js', 'js/bump-worker.js', 'js/spectator-host.js', 'js/net-link.js', 'js/spectator-client.js', 'js/ledwall.js', 'js/videovinyl.js', 'js/camtest.js', 'js/vset.js', 'js/medialib.js', 'js/phonelib.js', 'js/lookmatch.js', 'js/skybox.js', 'vendor/three/libs/basis/basis_transcoder.js', 'vendor/three/libs/basis/basis_transcoder.wasm'];
+const LATE = ['js/deck-worklet.js', 'js/decode-worker.js', 'js/mic-worklet.js', 'js/bump-worker.js', 'js/spectator-host.js', 'js/net-link.js', 'js/spectator-client.js', 'js/ledwall.js', 'js/videovinyl.js', 'js/camtest.js', 'js/vset.js', 'js/medialib.js', 'js/phonelib.js', 'js/lookmatch.js', 'js/skybox.js', 'js/fixedcam.js', 'js/fixlook.js', 'vendor/webxr-input-profiles/profilesList.json', 'vendor/webxr-input-profiles/meta-quest-touch-plus/profile.json', 'vendor/webxr-input-profiles/meta-quest-touch-plus/left.glb', 'vendor/webxr-input-profiles/meta-quest-touch-plus/right.glb', 'vendor/webxr-input-profiles/generic-hand/left.glb', 'vendor/webxr-input-profiles/generic-hand/right.glb', 'js/perfcap.js', 'vendor/three/libs/basis/basis_transcoder.js', 'vendor/three/libs/basis/basis_transcoder.wasm'];
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => Promise.all(LATE.map(f => c.add(new URL(f, self.registration.scope).href).catch(() => null)))));

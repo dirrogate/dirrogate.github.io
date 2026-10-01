@@ -16,6 +16,7 @@ import * as store from './storage.js';
 import { EnvLight } from './env.js';
 import { Skybox, detectLayout, leftEyeCanvas, brightestDir, savePano, loadPano, openPanoVideo, closePanoVideo } from './skybox.js';
 import * as media from './medialib.js';
+import { makePerfCap } from './perfcap.js';
 import { Stage, FlightCase } from './layout.js';
 import { loadCaseKit } from './flightcase.js';
 import { setRecordTexSize } from './textures.js';
@@ -623,6 +624,14 @@ document.querySelectorAll('#hud [data-cam]').forEach(b => b.onclick = () => setC
 
 // ------------------------------------------------------------------ UI helpers
 let toastTimer;
+// #209 PerfCap recorder (the spectator host feeds it the mirror messages)
+const perf = makePerfCap({ toast: (m, ms) => toast(m, ms) });
+setInterval(() => { if (perf.on && videoPage && vpFolder === 'Camera') drawMixScreen(); }, 1000);
+async function perfToggle() {
+  if (!spect) { toast('PerfCap needs Settings > Spectator camera On (it records what the phone would mirror)', 4000); return; }
+  if (perf.on) await perf.stop(); else { await perf.start(); spect.perfBegin && spect.perfBegin(); }
+  drawMixScreen();
+}
 function toast(msg, ms = 2200) {
   const t = $('#toast'); t.textContent = msg; t.style.opacity = 1;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.opacity = 0, ms);
@@ -2413,9 +2422,9 @@ const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set whil
 // page; pick one, then where it goes (sky, a deck's VideoVinyl, the LED wall). LED WALL mode lives here too now.
 let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null;
 const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
-const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA', Sync: 'SYNC' };
+const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA', Sync: 'SYNC', Look: 'LOOK' };
 async function vpLoad() {
-  if (vpFolder === 'Camera') { vpItems = []; drawMixScreen(); return; }
+  if (vpFolder === 'Camera' || vpFolder === 'Look') { vpItems = []; drawMixScreen(); return; }
   if (vpFolder === 'Sync') { vpItems = []; syncLoad(); return; }   // #206
   vpItems = await media.list(vpFolder);
   if (vpSel && !vpItems.some(i => i.name === vpSel)) vpSel = null;
@@ -2432,6 +2441,7 @@ function setVideoPage(on) { videoPage = on; if (on) vpLoad(); drawMixScreen(); }
 async function vpAct(what) {
   const name = vpSel; if (!name) { toast('Pick a thumbnail first'); return; }
   if (what === 'sky') return useSkyMedia(vpFolder, name).catch(e => toast('Sky: ' + e.message, 4000));
+  if (what === 'light') return lightPhone(vpFolder, name);   // #214
   if (what === 'skyoff') { settings.sky = 'off'; saveSettings(); syncSettingsUI(); applySky(); drawMixScreen(); return; }
   const f = await media.getFile(vpFolder, name); if (!f) return;
   if (what === 'deckA' || what === 'deckB') {
@@ -2471,13 +2481,17 @@ function drawCamTab(btn, y0) {
     ['PREVIEW', pvWanted, () => setPreview(!pvWanted)],
     ['LOOK', cs && cs.L && cs.L.on, () => send({ what: 'look', key: 'on', v: !cs.L.on })],
     ['ROOM LIGHT', cs && cs.L && cs.L.room, () => send({ what: 'look', key: 'room', v: !cs.L.room })],
+    // #209 PerfCap (Quest only, works without the phone): record / stop, floor-mark mode, save the last take
+    [perf.on ? `■ ${fmt((Date.now() - perf.P.wall) / 1000)}` : '● PERFCAP', perf.on, () => perfToggle()],
+    [`MARKS ${perf.P.marks.length}`, !!(spect && spect.perfMarks), () => { if (!spect) { perfToggle(); return; } spect.perfMarks = !spect.perfMarks; toast(spect.perfMarks ? 'PerfCap marks: touch each floor mark with the controller tip, pull the trigger' : 'PerfCap marks off', 3500); drawMixScreen(); }],
+    ['SAVE TAKE', false, () => perf.download()],
   ];
-  const per = P ? 3 : 6, bw = (W - 16 - (per - 1) * 6) / per;   // portrait: 2 rows of 3
+  const per = P ? 3 : 9, bw = (W - 16 - (per - 1) * 6) / per;   // portrait: 3 rows of 3 (#209: was 2)
   top.forEach(([label, on, act], i) => {
-    const off = dim && label !== 'PREVIEW';
+    const off = dim && label !== 'PREVIEW' && i < 6;   // #209 the PerfCap buttons work without the phone
     btn(8 + (i % per) * (bw + 6), y0 + Math.floor(i / per) * 42, bw, 36, label, !!on, off ? null : act, off);
   });
-  const cols = P ? [CAM_ROWS.flat()] : CAM_ROWS, colW = P ? W - 16 : (W - 24) / 2, ry = y0 + (P ? 92 : 46);
+  const cols = P ? [CAM_ROWS.flat()] : CAM_ROWS, colW = P ? W - 16 : (W - 24) / 2, ry = y0 + (P ? 134 : 46);
   cols.forEach((col, ci) => col.forEach(([label, what, key, step], ri) => {
     const cx = 8 + ci * (colW + 8), cy = ry + ri * 42;
     g.fillStyle = '#0d1422'; g.fillRect(cx, cy, colW, 36);
@@ -2492,9 +2506,11 @@ function drawCamTab(btn, y0) {
     btn(cx + colW - 50, cy + 2, 44, 32, '+', false, dim ? null : bump(step), dim);
   }));
   g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = cs ? '#8c96a8' : '#c9a040';
-  const stTxt = !cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone and start its camera.'
-    : `Phone ${cs.fps} fps${cs.late ? ` (${cs.late} late/s)` : ''} · ${cs.ar ? 'camera on' : 'camera not started'} · ${cs.cal ? 'calibrated' : 'not calibrated'}${cs.can ? '' : ' · no camera access'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : '');
-  const extra = cs ? [cs.auto, cs.look].filter(Boolean).join(' · ') : '';
+  const pcTxt = perf.on ? `PERFCAP ${fmt((Date.now() - perf.P.wall) / 1000)} · ${perf.P.bytes < 1048576 ? Math.round(perf.P.bytes / 1024) + ' KB' : (perf.P.bytes / 1048576).toFixed(1) + ' MB'} · ` : '';   // #209
+  const stTxt = pcTxt + (!cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone and start its camera.'
+    : cs.fixed ? `Phone ${cs.fps} fps · fixed camera (${cs.fcam === 'user' ? 'selfie' : 'main'}) · ${cs.fcal ? 'calibrating' : cs.cal ? 'calibrated' + (cs.fpx != null ? ' ' + cs.fpx + ' px' : '') : 'not calibrated: Calibrate on the phone'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : '')   // #213
+    : `Phone ${cs.fps} fps${cs.late ? ` (${cs.late} late/s)` : ''} · ${cs.ar ? 'camera on' : 'camera not started'} · ${cs.cal ? 'calibrated' : 'not calibrated'}${cs.can ? '' : ' · no camera access'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : ''));
+  const extra = cs ? (cs.fixed ? 'Fixed camera: look match / key are AR-only for now' : [cs.auto, cs.look].filter(Boolean).join(' · ')) : '';
   if (P) {   // portrait: the status lines wrap under the steppers
     let y = ry + CAM_ROWS.flat().length * 42 + 24;
     y += wrapText(g, stTxt, 12, y, W - 24, 20, 5) * 20 + 8;
@@ -2503,6 +2519,67 @@ function drawCamTab(btn, y0) {
   }
   fitText2(g, stTxt, 12, H - 30, W - 24);
   if (extra) { g.fillStyle = '#56627a'; g.font = '500 13px system-ui'; fitText2(g, extra, 12, H - 10, W - 24); }
+}
+// ---- #214 LOOK tab (VIDEO page): the fixed-camera phone's look without AR, changed from here while the PREVIEW
+// pop-up shows the phone's picture. Grade / grain (camera grade from the plain video), ambient level, the 360 light
+// photo (pick it in the PANO tab, LIGHT PHONE: copied to the phone if it hasn't got it) and the key light by hand.
+// The phone saves it all per camera (main / selfie) and reports back (cst.FL), so this page shows its real values.
+const LOOK_ROWS = [
+  [['Grade', 'strength', 0.05, 'pct'], ['Grain', 'grain', 0.05, 'pct'], ['Ambient', 'amb', 0.05, 'x'], ['Photo turn', 'envTurn', 15, 'deg']],
+  [['Light turn', 'kTurn', 15, 'deg'], ['Light height', 'kHeight', 5, 'deg'], ['Light power', 'kInt', 0.1, 'x'], ['Light colour', 'kTemp', 250, 'K']],
+];
+let lightBusy = '';
+async function lightPhone(folder, name) {
+  const cs = spect && spect.cam;
+  if (!cs || !cs.fixed) { toast('Start Fixed camera on the phone first (the light belongs to its camera)', 3500); return; }
+  if (!spect.syncCopy) return;
+  lightBusy = name; drawMixScreen(); toast(`Sending ${name} to the phone…`, 2500);
+  let res = null;
+  try { res = await spect.syncCopy([{ f: folder, n: name, q: true, p: false }], st => { lightBusy = `${name} ${st.pct || 0}%`; if (videoPage) drawMixScreen(); }); }
+  catch (e) { res = { err: e.message }; }
+  lightBusy = '';
+  if (res && res.err) { toast('LIGHT PHONE: ' + res.err, 4000); drawMixScreen(); return; }
+  spect.camSet({ what: 'flook', key: 'env', v: folder + '/' + name });
+  toast(`Phone lit by ${name}: turn it with PHOTO TURN to match the room`, 3500);
+  vpFolder = 'Look'; vpLoad();
+}
+function drawLookTab(btn, y0) {
+  const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
+  const cs = spect && spect.cam, F = cs && cs.FL, dim = !F;
+  const send = (key, v) => { if (spect && spect.camSet) spect.camSet({ what: 'flook', key, v }); };
+  const top = [
+    ['LOOK', F && F.on, () => send('on', !F.on)],
+    ['PREVIEW', pvWanted, () => setPreview(!pvWanted)],
+    ['PHOTO KEY', false, () => send('keyFromPano', true), !(F && F.envOK)],
+    ['PHOTO OFF', false, () => send('env', ''), !(F && F.env)],
+    ['RESET', false, () => send('reset', true)],
+  ];
+  const per = P ? 3 : 5, bw = (W - 16 - (per - 1) * 6) / per;
+  top.forEach(([label, on, act, off], i) => {
+    const d = (dim && label !== 'PREVIEW') || off;
+    btn(8 + (i % per) * (bw + 6), y0 + Math.floor(i / per) * 42, bw, 36, label, !!on, d ? null : act, d);
+  });
+  const cols = P ? [LOOK_ROWS.flat()] : LOOK_ROWS, colW = P ? W - 16 : (W - 24) / 2, ry = y0 + (P ? 92 : 46);
+  const fmtV = (k, v, u) => v == null ? '--' : u === 'pct' ? Math.round(v * 100) + '%' : u === 'deg' ? Math.round(v) + '°' : u === 'K' ? (F && F.kRGB ? 'photo' : Math.round(v) + 'K') : (+v).toFixed(2);
+  cols.forEach((col, ci) => col.forEach(([label, key, step, u], ri) => {
+    const cx = 8 + ci * (colW + 8), cy = ry + ri * 42, v = F ? F[key] : null, off = dim || (key === 'envTurn' && !F.env);
+    g.fillStyle = '#0d1422'; g.fillRect(cx, cy, colW, 36);
+    g.fillStyle = off ? '#56627a' : '#dfe6f2'; g.font = P ? '600 15px system-ui' : '600 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    g.fillText(label, cx + 10, cy + 19);
+    g.textAlign = 'right'; g.fillStyle = off ? '#56627a' : '#fff'; g.font = P ? '700 15px ui-monospace, monospace' : '700 18px ui-monospace, monospace';
+    g.fillText(fmtV(key, v, u), cx + colW - 106, cy + 19); g.textBaseline = 'alphabetic';
+    const bump = d => () => { const nv = Math.round((v + d) * 1000) / 1000; F[key] = nv; if (key === 'kTemp') F.kRGB = null; send(key, nv); drawMixScreen(); };
+    btn(cx + colW - 100, cy + 2, 44, 32, '−', false, off ? null : bump(-step), off);
+    btn(cx + colW - 50, cy + 2, 44, 32, '+', false, off ? null : bump(step), off);
+  }));
+  const rows = P ? LOOK_ROWS.flat().length : LOOK_ROWS[0].length;
+  let y = ry + rows * 42 + (P ? 22 : 14);
+  g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = F ? '#8c96a8' : '#c9a040';
+  const photo = F ? (F.env ? (F.envOK ? F.env.split('/').pop() : (F.envMsg || 'loading…')) : 'none (PANO tab: pick one, LIGHT PHONE)') : '';
+  const txt = !cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone.'
+    : !F ? 'Start Fixed camera on the phone (tripod mode): this page sets its look. AR mode uses the CAMERA tab.'
+    : `${F.cam === 'user' ? 'Selfie' : 'Main'} camera (saved for it) · 360 light photo: ${photo}` + (lightBusy ? ` · sending ${lightBusy}` : '') + (cs.flErr ? ' · ' + cs.flErr : '');
+  if (P) wrapText(g, txt, 12, y, W - 24, 20, 5); else { wrapText(g, txt, 12, y, W - 24, 20, 2); }
 }
 // ---- #206 SYNC tab (VIDEO page): both libraries side by side (Quest and phone), pick items, COPY puts each one on the
 // side that doesn't have it. Only adds (spectator-host.js syncList / syncCopy); a name on both sides is left alone.
@@ -2588,17 +2665,18 @@ function drawVideoPage() {
   };
   const pick = f => () => { vpFolder = f; vpSel = null; vpPg = 0; vpLoad(); };
   if (P) {   // #198 portrait: tabs in rows of 3 (#206: 3 rows, SYNC added, MIXER last); top and bottom keep clear of the corner L
-    const tabs = [...media.FOLDERS, 'Camera', 'Sync'], tw = (W - 30 - 12) / 3;
+    const tabs = [...media.FOLDERS, 'Camera', 'Sync', 'Look'], tw = (W - 30 - 12) / 3;   // #214 LOOK
     tabs.forEach((f, i) => btn(22 + (i % 3) * (tw + 6), 28 + Math.floor(i / 3) * 40, tw, 34, VP_TABS[f], f === vpFolder, pick(f)));
-    btn(22, 108, tw, 34, 'MIXER', false, () => setVideoPage(false));
+    btn(22 + (tw + 6), 108, tw, 34, 'MIXER', false, () => setVideoPage(false));
   } else {
-    let x = 8;
-    for (const f of [...media.FOLDERS, 'Camera', 'Sync']) { const w = f === 'Video pano' ? 140 : f === 'Camera' ? 104 : f === 'Sync' ? 84 : 96; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
+    let x = 8;   // #214 seven tabs fit left of MIXER
+    for (const f of [...media.FOLDERS, 'Camera', 'Sync', 'Look']) { const w = { Pano: 80, 'Video pano': 118, Video: 80, Images: 86, Camera: 96, Sync: 70, Look: 70 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
     btn(W - 8 - 100, 8, 100, 32, 'MIXER', false, () => setVideoPage(false));
   }
   const y0 = P ? 152 : 48;
   if (vpFolder === 'Camera') { drawCamTab(btn, y0); return; }
   if (vpFolder === 'Sync') { drawSyncTab(btn, y0); return; }   // #206
+  if (vpFolder === 'Look') { drawLookTab(btn, y0); return; }   // #214
   // thumbnails: 4 x 2 (portrait 2 x 6)
   const COLS = P ? 2 : 4, CW = (W - 16 - (COLS - 1) * 8) / COLS, TH = P ? 64 : 76, CH = TH + 20;
   const pages = Math.max(1, Math.ceil(vpItems.length / PER)); vpPg = Math.min(vpPg, pages - 1);
@@ -2628,7 +2706,7 @@ function drawVideoPage() {
   const by = P ? H - 62 : H - 44, bh = 36, bx = P ? 26 : 8;
   btn(bx, by, 44, bh, '‹', false, () => { vpPg = Math.max(0, vpPg - 1); drawMixScreen(); }, vpPg === 0);
   btn(bx + 48, by, 44, bh, '›', false, () => { vpPg = Math.min(pages - 1, vpPg + 1); drawMixScreen(); }, vpPg >= pages - 1);
-  const T = { Pano: [['SKY', 'sky'], ['SKY OFF', 'skyoff']], 'Video pano': [['SKY', 'sky'], ['SKY OFF', 'skyoff']],
+  const T = { Pano: [['SKY', 'sky'], ['SKY OFF', 'skyoff'], ['LIGHT PHONE', 'light']], 'Video pano': [['SKY', 'sky'], ['SKY OFF', 'skyoff']],
     Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['LED NOW', 'lednow'], ['+ LED', 'ledadd']], Images: [['LED NOW', 'lednow'], ['+ LED', 'ledadd']] }[vpFolder];
   const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : 98, ty = P ? H - 106 : by;
   let x = P ? 8 : 108;
@@ -2749,9 +2827,11 @@ function drawMixScreen() {
       drawTopBtn(g, 24, y, w, h, 'MR GUI', sp.mr); drawPhoneIcon(g, 24 + w + 8, y + (h - 24) / 2, 14, 24, sp.phone);
       SP_HIT.push({ x: 18, y: y - 8, w: w + 12, h: h + 16, act: () => spect.setMR(!sp.mr) });
     }
+    drawPin(g, (W - 150) / 2, H - 50, 150, 34);   // #210
     scr().commit(); return;
   }
   for (const d of decks) drawDeckPanel(g, d, d.i ? W / 2 + 6 : 6, 6, W / 2 - 12, H - 12, false);
+  drawPin(g, W - 14 - 150, H - 46, 150, 30);   // #210
   { // #185 VIDEO: deck B's top row (was the #176 LED WALL switch, which is on the Video page now)
     const w = 108, h = 28, y = 12, x = W - 36 - w;   // #202 moved in, clear of the corner L (now top-right)
     drawTopBtn(g, x, y, w, h, 'VIDEO', on);
@@ -2765,7 +2845,79 @@ function drawMixScreen() {
   }
   mixScreen.commit();
 }
+// #210 GEAR HERE (in XR): tap twice within 3 s; a small pin status beside it
+function drawPin(g, x, y, w, h) {
+  if (!renderer.xr.isPresenting) return;
+  const armed = performance.now() - gearHereArm < 3000;
+  g.fillStyle = armed ? '#c8202c' : '#2a3140'; g.fillRect(x, y, w, h);
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = armed ? '#fff' : '#c9ced8'; g.font = '700 15px system-ui';
+  g.fillText(armed ? 'TAP AGAIN' : 'GEAR HERE', x + w / 2, y + h / 2 + 1);
+  g.textAlign = 'right'; g.font = '600 13px system-ui'; g.fillStyle = /^pinned/.test(anchorMsg) ? '#40d080' : '#c9a040';
+  g.fillText(anchorMsg ? (anchorMsg.length > 26 ? anchorMsg.slice(0, 25) + '…' : anchorMsg) : 'not pinned', x - 8, y + h / 2 + 1); g.textBaseline = 'alphabetic';
+  SP_HIT.push({ x, y: y - 4, w, h: h + 8, act: () => { if (performance.now() - gearHereArm < 3000) { gearHereArm = 0; gearHere(); } else { gearHereArm = performance.now(); setTimeout(drawMixScreen, 3100); } } });
+}
 const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+// ---- #210 spatial anchor: all the gear (the rig) is pinned to the real room with a WebXR anchor, so re-centring,
+// taking the headset off or walking out of the boundary no longer moves it. The anchor is kept (persistent handle,
+// Quest Browser) and restored next session in the same room; up to 6 rooms are remembered (newest first). If no saved
+// anchor restores, the rig starts where it always did and a new anchor is made there. GEAR HERE (mixer screen, tap
+// twice) brings all the gear in front of you, facing you, and re-pins it. Only the anchor's heading is used: the rig
+// stays upright on the floor.
+const ANCH_KEY = 'vire.rigAnchors';
+let rigAnchor = null, anchorPending = false, anchorBusy = false, anchorMsg = '', gearHereArm = 0;
+const _aq = new THREE.Quaternion(), _ae = new THREE.Euler();
+const anchorList = () => { try { return JSON.parse(localStorage.getItem(ANCH_KEY) || '[]'); } catch { return []; } };
+const saveAnchorList = l => { try { localStorage.setItem(ANCH_KEY, JSON.stringify(l.slice(0, 6))); } catch {} };
+async function anchorSetup(session) {
+  rigAnchor = null; anchorPending = false; anchorMsg = '';
+  if (!(window.XRFrame && XRFrame.prototype.createAnchor)) { anchorMsg = 'no anchors in this browser'; drawMixScreen(); return; }
+  if (session.restorePersistentAnchor) for (const id of anchorList()) {
+    try {
+      const a = await session.restorePersistentAnchor(id);
+      if (a) { a._id = id; rigAnchor = a; anchorMsg = 'pinned'; toast('Gear is where you left it in this room (pinned)', 3000); drawMixScreen(); return; }
+    } catch {}
+  }
+  anchorPending = true;   // made at the rig's current pose on the next XR frame (createAnchor needs a frame)
+}
+async function anchorCreate(xf) {
+  anchorPending = false; anchorBusy = true;
+  try {
+    rig.updateMatrixWorld();
+    const p = rig.position, q = rig.quaternion;
+    const a = await xf.createAnchor(new XRRigidTransform({ x: p.x, y: p.y, z: p.z }, { x: q.x, y: q.y, z: q.z, w: q.w }), renderer.xr.getReferenceSpace());
+    rigAnchor = a; anchorMsg = 'pinned';
+    if (a.requestPersistentHandle) {
+      try { const id = await a.requestPersistentHandle(); a._id = id; const l = anchorList().filter(x => x !== id); l.unshift(id); saveAnchorList(l); }
+      catch (e) { anchorMsg = 'pinned (this session only)'; }
+    } else anchorMsg = 'pinned (this session only)';
+  } catch (e) { anchorMsg = 'not pinned: ' + e.message; }
+  anchorBusy = false; drawMixScreen();
+}
+function anchorFollow() {   // per XR frame: the rig sits on the anchor (position + heading only)
+  const xf = renderer.xr.getFrame && renderer.xr.getFrame(); if (!xf) return;
+  if (anchorPending && !anchorBusy) { anchorCreate(xf); return; }
+  if (!rigAnchor) return;
+  let pose = null; try { pose = xf.getPose(rigAnchor.anchorSpace, renderer.xr.getReferenceSpace()); } catch {}
+  if (!pose) return;   // not tracked this frame: keep the last pose
+  const t = pose.transform;
+  rig.position.set(t.position.x, t.position.y, t.position.z);
+  _aq.set(t.orientation.x, t.orientation.y, t.orientation.z, t.orientation.w); _ae.setFromQuaternion(_aq, 'YXZ');
+  rig.rotation.set(0, _ae.y, 0);
+}
+function gearHere() {   // all the gear in front of the DJ, facing them, then a new anchor there
+  const s = renderer.xr.getSession(); if (!s) { toast('Enter XR first'); return; }
+  const old = rigAnchor; rigAnchor = null;
+  if (old) { try { old.delete(); } catch {} if (old._id) { if (s.deletePersistentAnchor) s.deletePersistentAnchor(old._id).catch(() => {}); saveAnchorList(anchorList().filter(x => x !== old._id)); } }
+  const xc = renderer.xr.getCamera(); xc.updateMatrixWorld();
+  const head = new THREE.Vector3().setFromMatrixPosition(xc.matrixWorld), fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(xc.getWorldQuaternion(new THREE.Quaternion()));
+  const yaw = Math.atan2(-fwd.x, -fwd.z);
+  rig.rotation.set(0, yaw, 0);
+  const off = new THREE.Vector3(-0.05, 0, -0.62).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);   // the usual start offset, turned with you
+  rig.position.set(head.x + off.x, 0, head.z + off.z);
+  anchorPending = !!(window.XRFrame && XRFrame.prototype.createAnchor); anchorMsg = anchorPending ? 'pinning…' : 'not pinned';
+  toast('Gear moved in front of you' + (anchorPending ? ' and pinned to the room' : ''), 3000); drawMixScreen();
+}
 
 // ------------------------------------------------------------------ frame loop
 const clock = new THREE.Clock();
@@ -2777,6 +2929,7 @@ const _holdOff = new THREE.Vector3();
 function wrapPi(a) { a %= 2 * Math.PI; return a > Math.PI ? a - 2 * Math.PI : a < -Math.PI ? a + 2 * Math.PI : a; }
 function frame() {
   const dt = Math.min(0.05, clock.getDelta());
+  if (renderer.xr.isPresenting) anchorFollow();   // #210
   if (camTween) {
     camTween.t = Math.min(1, camTween.t + dt * 1.6); const k = camTween.t * camTween.t * (3 - 2 * camTween.t);
     camera.position.lerpVectors(camTween.from.pos, camTween.to.pos, k);
@@ -2957,7 +3110,7 @@ async function begin(mode) {
     setRecordTexSize(2048); // only a few full-detail records exist at once; grooves need the resolution
     applyShadows(false);   // real-time shadows per the Shadows setting (#96)
     renderer.setPixelRatio(1);
-    const session = await navigator.xr.requestSession(mode, { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] });
+    const session = await navigator.xr.requestSession(mode, { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'anchors'] });   // #210 anchors
     renderer.xr.setReferenceSpaceType('local-floor');
     renderer.xr.setFoveation(0.5);
     await renderer.xr.setSession(session);
@@ -2965,13 +3118,14 @@ async function begin(mode) {
       const want = 90; const rates = [...session.supportedFrameRates];
       if (rates.includes(want)) session.updateTargetFrameRate(want).catch(() => {});
     }
-    rig.position.set(-0.05, 0, -0.62);
+    rig.position.set(-0.05, 0, -0.62); rig.rotation.set(0, 0, 0);
+    anchorSetup(session);   // #210 pin the gear to the room (restores the saved pin in a known room)
     xr.setHandMode(mode === 'immersive-ar' && settings.hands === 'real' ? 'real' : '3d');
     // passthrough rooms are much dimmer than the studio environment: tone reflections down so metal isn't self-lit
     arMode = mode === 'immersive-ar';
     if (mode === 'immersive-ar') { scene.background = null; room.visible = false; skybox.group.visible = skyShadow.visible = false; scene.environmentIntensity = settings.arRefl / 100; }
     else applySky();   // #182: stereo panoramas split per eye while presenting   // #180: was a fixed 0.28, now Settings > Reflections in passthrough (default 60 %)
-    session.addEventListener('end', () => { arMode = false; applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
+    session.addEventListener('end', () => { rigAnchor = null; anchorPending = false; rig.rotation.set(0, 0, 0); arMode = false; applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
     toast('Reach out and touch: pinch or grip right at a knob, fader, tonearm or record', 5000);
   } catch (e) { toast('Could not start XR: ' + e.message, 4000); }
 }
@@ -3225,7 +3379,7 @@ async function applySpect() {
   if (spect) return;
   try {
     const m = await import('./spectator-host.js');
-    if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, getInputs: () => xr && xr.inputs,
+    if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, perf, getInputs: () => xr && xr.inputs,
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(),
       getVV: () => ({ mode: ledMode, gains: deckGains(mixVal), decks: deckVid.map((dv, i) => dv.v ? [i, dv.key, engine.ctx ? engine.pos(i) : 0, engine.state.decks[i].rate || 0] : null).filter(Boolean) }),
       getSky: () => ({ h: settings.skyH, turn: settings.skyTurn, type: settings.skyType, key: settings.skyKey, file: settings.skyFile, media: settings.env === 'image' ? settings.skyMedia : '' }),
@@ -3240,7 +3394,7 @@ applyEnv();
 if (!CAMERA_ROLE) loadLibrary();
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {

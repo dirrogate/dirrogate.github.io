@@ -14,7 +14,10 @@ const CAL_TEXT = {
   x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
-export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getVV, getSky, onMedia, onCam, onPreview }) {
+export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getVV, getSky, onMedia, onCam, onPreview, perf }) {
+  // #209 PerfCap: every mirror message also goes to the PerfCap recorder while it records (phone or not)
+  const out = { send(ch, m) { if (link.isOpen) link.send(ch, m); if (perf && perf.on) perf.write(ch, m); } };
+  let perfMarks = false;   // #209 PerfCap MARKS mode: each trigger press records a floor mark
   let acc = 0, seq = 0, was = false, calStep = null, doneT = 0;
   let mr = true;   // #164/#167: MR GUI (default on for setting up)
   let lastPing = 0, ledT = 0, ledKey = '', skyKey = '';   // #169: the phone pings every second; silent for 3.5 s = not connected (a closed page can leave the channel 'open' for ~30 s)
@@ -28,6 +31,23 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
   const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.13), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
   panel.renderOrder = 999; panel.visible = false; scene.add(panel);
+  // #211 picture of the point to touch (the whole shot + a close-up), under the text
+  const icv = document.createElement('canvas'); icv.width = 1024; icv.height = 480;
+  const itex = new THREE.CanvasTexture(icv); itex.colorSpace = THREE.SRGBColorSpace;
+  const ipanel = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.197), new THREE.MeshBasicMaterial({ map: itex, transparent: true, depthTest: false }));
+  ipanel.renderOrder = 999; ipanel.position.y = -0.168; ipanel.visible = false; panel.add(ipanel);
+  let imgSeq = 0;
+  function showImg(url) {
+    const n = ++imgSeq; if (!url) { ipanel.visible = false; return; }
+    const im = new Image(); im.onload = () => {
+      if (n !== imgSeq) return;
+      const g = icv.getContext('2d'); g.clearRect(0, 0, 1024, 480);
+      g.fillStyle = 'rgba(10,12,18,0.9)'; g.beginPath(); g.roundRect(4, 4, 1016, 472, 24); g.fill(); g.strokeStyle = '#ffd040'; g.lineWidth = 5; g.stroke();
+      const k = Math.min(1000 / im.width, 456 / im.height), w = im.width * k, h = im.height * k;
+      g.drawImage(im, (1024 - w) / 2, (480 - h) / 2, w, h); itex.needsUpdate = true; ipanel.visible = true;
+    };
+    im.src = url;
+  }
   function say(lines, color = '#39a8ff') {
     const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);
     g.fillStyle = 'rgba(10,12,18,0.86)'; g.beginPath(); g.roundRect(4, 4, cv.width - 8, cv.height - 8, 28); g.fill();
@@ -63,21 +83,61 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     frustum.geometry.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
   }
 
+  // ---- #212 while the phone's point calibration runs, the gear is hidden in the headset too (only faint cyan boxes
+  // round each piece), so real corners under the virtual decks / case can be seen and touched. Back when it ends.
+  const gLine = new THREE.LineBasicMaterial({ color: 0x39e0ff, transparent: true, opacity: 0.25, depthTest: false, depthWrite: false });
+  let ghosted = false, gOut = [];
+  const _gm = new THREE.Matrix4(), _gm2 = new THREE.Matrix4(), _gb = new THREE.Box3(), _gs = new THREE.Vector3(), _gc = new THREE.Vector3();
+  function ghost(on) {
+    if (on === ghosted) return; ghosted = on;
+    for (const l of gOut) { l.parent && l.parent.remove(l); l.geometry.dispose(); } gOut = [];
+    const seen = new Set();
+    rig.traverse(o => {
+      if (!o.isMesh || !o.material) return;
+      for (const mt of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (seen.has(mt)) continue; seen.add(mt);
+        if (on) { mt.userData.ghost = { c: mt.colorWrite, d: mt.depthWrite }; mt.colorWrite = false; mt.depthWrite = false; }
+        else if (mt.userData.ghost) { mt.colorWrite = mt.userData.ghost.c; mt.depthWrite = mt.userData.ghost.d; delete mt.userData.ghost; }
+      }
+    });
+    if (!on) return;
+    rig.updateMatrixWorld(true);
+    for (const top of rig.children) {   // one box per piece of gear, in its own frame (turns with it)
+      if (!top.visible || top.isLight || top === frustum) continue;
+      const box = new THREE.Box3(), inv = _gm.copy(top.matrixWorld).invert();
+      top.traverse(o => {
+        if (!o.isMesh || !o.visible || !o.geometry || (o.material && o.material.userData.ghost && o.material.userData.ghost.c === false)) return;
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        _gb.copy(o.geometry.boundingBox).applyMatrix4(_gm2.multiplyMatrices(inv, o.matrixWorld)); box.union(_gb);
+      });
+      if (box.isEmpty()) continue;
+      box.getSize(_gs); box.getCenter(_gc);
+      if (Math.max(_gs.x, _gs.y, _gs.z) < 0.02 || Math.max(_gs.x, _gs.y, _gs.z) > 6) continue;   // specks / sky / room shell
+      const l = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(Math.max(_gs.x, 0.002), Math.max(_gs.y, 0.002), Math.max(_gs.z, 0.002))), gLine);
+      l.position.copy(_gc); l.renderOrder = 20; l.raycast = () => {}; top.add(l); gOut.push(l);
+    }
+  }
+
   // ---- calibration: the trigger (or a pinch) marks the tip of whichever hand pressed it
   function onTrigger(i) {
-    if (!calStep || !link.isOpen) return;
     const st = (getInputs() || [])[i]; if (!st || !st.connected) return;
-    const p = st.tip.clone().sub(rig.position);
+    if (perfMarks && perf && !calStep) { perf.mark(rig.worldToLocal(st.tip.clone()).toArray().map(r4)); return; }   // #209 (#210 rig space, the rig may turn)
+    if (!calStep || !link.isOpen) return;
+    const p = rig.worldToLocal(st.tip.clone());   // #210 rig space (the rig turns with its spatial anchor)
     link.send('ctl', { k: 'calpt', step: calStep, p: p.toArray().map(r4), qt: performance.now() });
     calStep = null; panel.visible = false;
   }
   for (const i of [0, 1]) renderer.xr.getController(i).addEventListener('selectstart', () => onTrigger(i));
+  for (const i of [0, 1]) renderer.xr.getController(i).addEventListener('squeezestart', () => {   // #211 grip = skip this auto point
+    if ((calStep === 'flens' || (calStep === 'pt' && ipanel.visible)) && link.isOpen) link.send('ctl', { k: 'calskip' });
+  });
 
 
   // ---- scene mirror (#161): the phone builds the same gear from the same code; we send what moves.
   // Every node under each gear root (stage items + flight cases) gets an id = root key + child-index path.
   // Each tick, only nodes whose local transform or visibility changed are sent. Records are separate (below).
   let reg = new Map(), regT = 0, full = false;
+  const _riq = new THREE.Quaternion();   // #210 inverse of the rig's turn, set each tick
   const _rm = new THREE.Matrix4(), _ri = new THREE.Matrix4(), _rp = new THREE.Vector3(), _rq = new THREE.Quaternion(), _rs = new THREE.Vector3();
   function buildRegistry() {
     const recs = new Set(getRecords().map(r => r.group)), next = new Map();
@@ -135,23 +195,23 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       let uid = uidOf.get(r); if (!uid) { uid = nextUid++; uidOf.set(r, uid); }
       seen.add(uid);
       let L = live.get(uid);
-      if (!L) { L = { r, env: {}, art: {} }; live.set(uid, L); link.send('ctl', { k: 'rec', uid, rec: { id: r.rec.id, sides: { A: meta(r.rec.sides.A), B: meta(r.rec.sides.B) } }, sideUp: r.sideUp }); }
+      if (!L) { L = { r, env: {}, art: {} }; live.set(uid, L); out.send('ctl', { k: 'rec', uid, rec: { id: r.rec.id, sides: { A: meta(r.rec.sides.A), B: meta(r.rec.sides.B) } }, sideUp: r.sideUp }); }
       for (const side of ['A', 'B']) {
         const env = r.envs[side];
         if (env && L.env[side] !== env) {   // 8192 bins 0..1 -> 16 bit, ~22 KB once per side
           L.env[side] = env; const q = new Uint16Array(env.length); for (let i = 0; i < env.length; i++) q[i] = Math.round(Math.max(0, Math.min(1, env[i])) * 65535);
-          link.send('ctl', { k: 'renv', uid, side, dur: r.durations[side] || 0, env: b64(new Uint8Array(q.buffer)) });
+          out.send('ctl', { k: 'renv', uid, side, dur: r.durations[side] || 0, env: b64(new Uint8Array(q.buffer)) });
         }
         const t = r.rec.sides[side], blob = t && r.labelImgs[side] && artBlobs.get(t.id);
         if (blob && !L.art[side]) {   // the cover exactly as stored in the MP3, no re-encoding
           L.art[side] = 'pending';
-          blob.arrayBuffer().then(buf => { if (live.get(uid) === L) link.send('ctl', { k: 'rart', uid, side, mime: blob.type, img: b64(new Uint8Array(buf)) }); L.art[side] = 'sent'; }).catch(() => { L.art[side] = null; });
+          blob.arrayBuffer().then(buf => { if (live.get(uid) === L) out.send('ctl', { k: 'rart', uid, side, mime: blob.type, img: b64(new Uint8Array(buf)) }); L.art[side] = 'sent'; }).catch(() => { L.art[side] = null; });
         }
       }
       r.group.updateMatrixWorld(); _rm.multiplyMatrices(_ri, r.group.matrixWorld); _rm.decompose(_rp, _rq, _rs);
       out.push([uid, r4(_rp.x), r4(_rp.y), r4(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), r4(r.mesh.rotation.x), r4(r.mesh.position.y), r.sideUp]);
     }
-    for (const uid of [...live.keys()]) if (!seen.has(uid)) { live.delete(uid); link.send('ctl', { k: 'recdel', uid }); }
+    for (const uid of [...live.keys()]) if (!seen.has(uid)) { live.delete(uid); out.send('ctl', { k: 'recdel', uid }); }
     return out;
   }
   // ---- hands / controllers, so the phone can let the real hands show in front of the gear
@@ -161,10 +221,10 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       if (!st || !st.connected) continue;
       if (st.isHand) {
         const h = renderer.xr.getHand(st.i), a = [];
-        for (const j of Object.values(h.joints || {})) { if (!j.visible) continue; j.getWorldPosition(_rp).sub(rig.position); a.push(r3(_rp.x), r3(_rp.y), r3(_rp.z)); }
+        for (const j of Object.values(h.joints || {})) { if (!j.visible) continue; rig.worldToLocal(j.getWorldPosition(_rp)); a.push(r3(_rp.x), r3(_rp.y), r3(_rp.z)); }
         if (a.length >= 30) out.push([st.i, 'h', a]);
       } else if (st.grip) {
-        st.grip.matrixWorld.decompose(_rp, _rq, _rs); _rp.sub(rig.position);
+        st.grip.matrixWorld.decompose(_rp, _rq, _rs); rig.worldToLocal(_rp); _rq.premultiply(_riq);
         out.push([st.i, 'c', [r3(_rp.x), r3(_rp.y), r3(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w)]]);
       }
     }
@@ -270,16 +330,28 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     onBinary: onBin,
     onState: s => status(s),
     onOpen: () => { link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
-    onClose: () => { if (rx) { rx.abort(); rx = null; } camState = null; onCam && onCam(null); status('disconnected'); calStep = null; panel.visible = false; frustum.visible = false; },
+    onClose: () => { if (rx) { rx.abort(); rx = null; } camState = null; onCam && onCam(null); status('disconnected'); calStep = null; ghost(false); panel.visible = false; frustum.visible = false; },
     onMessage: m => {
       if (m.k === 'qgo' || m.k === 'qok') { resolveWait(m.f, m.n, m.k, m); return; }   // #206 media sync, Quest to phone
       if (m.k[0] === 'm' && m.k !== 'mr') { onMediaMsg(m); return; }   // #185 mls? / mput / mdel (#206 mls / mpullx)
       if (m.k === 'cst') { camState = m; onCam && onCam(m); return; }   // #188 the phone's camera / key / look state
       if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }
       else if (m.k === 'cal') {
-        if (m.step === 'lens' || m.step === 'x') { calStep = m.step; say(CAL_TEXT[m.step]); toast && toast(CAL_TEXT[m.step].slice(1).join(' '), 6000); }
-        else if (m.step === 'done') { calStep = null; say(['Spectator camera calibrated', m.err != null ? 'Match: ' + m.err + ' cm' : '', 'The blue outline shows what it films.'], '#40d080'); doneT = 3; }
-        else { calStep = null; panel.visible = false; }
+        if (m.step === 'lens' || m.step === 'x') { calStep = m.step; showImg(null); say(CAL_TEXT[m.step]); toast && toast(CAL_TEXT[m.step].slice(1).join(' '), 6000); }
+        else if (m.step === 'flens') {   // #213 fixed camera step 1: the phone's own lens
+          calStep = 'flens'; ghost(true); showImg(null);
+          const t = ['Fixed camera calibration', `Touch the phone's ${m.cam === 'user' ? 'FRONT (selfie)' : 'BACK (main)'} LENS`, 'with the controller tip, pull the trigger.', 'Grip = skip this step.'];
+          say(t); toast && toast(t.slice(1).join(' '), 6000);
+        }
+        else if (m.step === 'hold') { calStep = null; panel.visible = false; showImg(null); }   // #213 phone is waiting for a tap; gear stays hidden
+        else if (m.step === 'pt') {   // #208 fixed camera tap calibration: one numbered mark at a time
+          calStep = 'pt';
+          const t = m.img ? ['Fixed camera calibration', `Touch POINT ${m.n} of ${m.of} (yellow, below)`, 'with the controller tip, pull the trigger.', 'Grip = skip this point.']
+            : ['Fixed camera calibration', `Touch MARK ${m.n} on the floor`, 'with the controller tip (blue ball),', 'then pull the trigger.'];
+          ghost(true); say(t); showImg(m.img); toast && toast(t.slice(1).join(' '), 6000);
+        }
+        else if (m.step === 'done') { calStep = null; ghost(false); showImg(null); say(['Spectator camera calibrated', m.px != null ? 'Match: ' + m.px + ' px' : m.err != null ? 'Match: ' + m.err + ' cm' : '', 'The blue outline shows what it films.'], '#40d080'); doneT = 3; }
+        else { calStep = null; ghost(false); panel.visible = false; showImg(null); }
       } else if (m.k === 'cam') {
         setFrustum(m.fov, m.asp); frustum.position.fromArray(m.p); frustum.quaternion.fromArray(m.q); frustum.visible = mr; camT = 0;
       }
@@ -287,36 +359,37 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   });
   // any saved layout change (moving gear, resizing the case) goes to the phone too
   const save = stage.save.bind(stage);
-  stage.save = () => { save(); if (link.isOpen) link.send('ctl', layout()); };
+  stage.save = () => { save(); out.send('ctl', layout()); };   // #209 out: phone and PerfCap
 
   function tick(dt) {
     if (panel.visible) { placePanel(); if (doneT > 0 && (doneT -= dt) <= 0) panel.visible = false; }
     if (frustum.visible && (camT += dt) > 2) frustum.visible = false;   // phone stopped sending: hide it
-    const open = link.isOpen; if (!open) { was = false; return; }
+    const open = link.isOpen || !!(perf && perf.on); if (!open) { was = false; return; }   // #209 PerfCap records without a phone too
     if (!was) { was = true; acc = 1; }
     acc += dt; if (acc < 1 / RATE) return; acc = 0;
     const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
-    cam.matrixWorld.decompose(_p, _q, _s); _p.sub(rig.position);   // rig space (the rig only moves, never turns)
+    rig.updateMatrixWorld(); rig.getWorldQuaternion(_riq).invert();
+    cam.matrixWorld.decompose(_p, _q, _s); rig.worldToLocal(_p); _q.premultiply(_riq);   // rig space (#210: the rig can turn, with its spatial anchor)
     const now = performance.now();
     if (getLed) {   // #176: which LED wall clip is playing and where; the phone plays its own copy of the same file
       const L = getLed(), key = (L.on ? 1 : 0) + '|' + (L.name || '');
-      if (key !== ledKey || now - ledT > 2000) { ledKey = key; ledT = now; link.send('ctl', { k: 'led', on: L.on, name: L.name, t: L.t, qt: now }); }
+      if (key !== ledKey || now - ledT > 2000) { ledKey = key; ledT = now; out.send('ctl', { k: 'led', on: L.on, name: L.name, t: L.t, qt: now }); }
     }
     if (getSky) {   // #184: panorama height / turn / type for the phone's virtual set (the phone has its own copy of the image)
       const S = getSky(), k = JSON.stringify(S);
-      if (k !== skyKey) { skyKey = k; link.send('ctl', { k: 'sky', ...S }); }
+      if (k !== skyKey) { skyKey = k; out.send('ctl', { k: 'sky', ...S }); }
     }
     if (full || now - regT > 2000) { regT = now; buildRegistry(); }
-    if (full) { full = false; link.send('ctl', { k: 'full', t: Math.round(now), cs: caseSizes(true), n: nodeDiffs(true) }); }
-    else if (now - settleT > 1000) { settleT = now; const n = settled(now); if (n.length) link.send('ctl', { k: 'full', t: Math.round(now), n }); }
-    link.send('state', { k: 's', n: seq++, t: Math.round(now), xr: renderer.xr.isPresenting ? 1 : 0,
+    if (full) { full = false; out.send('ctl', { k: 'full', t: Math.round(now), cs: caseSizes(true), n: nodeDiffs(true) }); }
+    else if (now - settleT > 1000) { settleT = now; const n = settled(now); if (n.length) out.send('ctl', { k: 'full', t: Math.round(now), n }); }
+    out.send('state', { k: 's', n: seq++, t: Math.round(now), xr: renderer.xr.isPresenting ? 1 : 0,
       h: [r3(_p.x), r3(_p.y), r3(_p.z), r4(_q.x), r4(_q.y), r4(_q.z), r4(_q.w)],
       cs: caseSizes(false), g: nodeDiffs(false), r: recordsTick(), vv: vvTick(), hd: renderer.xr.isPresenting ? handsTick() : [] });
   }
   // #167: one switch. ON = viewfinder outline here + helpers and menus on the phone; OFF = everything hidden
   // (the phone shows only camera + gear: start its screen recorder by hand)
   function setMR(on) {
-    mr = on; if (!on) frustum.visible = false; if (link.isOpen) link.send('ctl', { k: 'mr', on });
+    mr = on; if (!on) frustum.visible = false; out.send('ctl', { k: 'mr', on });
     say(on ? ['MR GUI ON', 'Viewfinder here, menus + helpers on the phone.'] : ['MR GUI OFF', 'Phone is clean: start its screen recorder,', 'then clap once.'], on ? '#39a8ff' : '#ff5060'); doneT = 2.5;
   }
   return { tick, close: () => { link.close(); scene.remove(panel); rig.remove(frustum); },
@@ -324,5 +397,8 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     // #188 camera tab: the phone's last reported state, and remote changes to it
     get cam() { return link.isOpen && performance.now() - lastPing < 3500 ? camState : null; },
     camSet: o => link.isOpen && link.send('ctl', { k: 'cset', ...o }),
-    syncList, syncCopy, get sync() { return sync; } };
+    syncList, syncCopy, get sync() { return sync; },
+    // #209 PerfCap: a take starts with a full snapshot (layout, every part, every record with its grooves / labels)
+    perfBegin() { full = true; live.clear(); ledKey = ''; skyKey = ''; if (perf && perf.on) { perf.write('ctl', layout()); perf.write('ctl', { k: 'mr', on: mr }); } },
+    get perfMarks() { return perfMarks; }, set perfMarks(v) { perfMarks = !!v; } };
 }
