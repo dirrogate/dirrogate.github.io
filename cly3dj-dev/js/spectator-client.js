@@ -393,6 +393,7 @@ export function startCamera(ctx) {
     else if (m.k === 'rart') onRecArt(m);
     else if (m.k === 'recdel') onRecDel(m.uid);
     else if (m.k === 'calpt') { if (!(fixed.on && fixed.onCalPoint(m))) onCalPoint(m); }   // #208 fixed camera taps first
+    else if (m.k === 'calskip') { if (fixed.on) fixed.calSkip(); }   // #211 the Quest's grip skips an auto point
     else if (m.k === 'led') led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000);   // #176
     else if (m.k === 'sky') vs.onSky(m);
     else if (m.k === 'cset') onCset(m);   // #188

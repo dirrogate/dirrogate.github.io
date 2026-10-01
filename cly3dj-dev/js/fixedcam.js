@@ -1,7 +1,7 @@
 // #208 Fixed camera mode (spectator phone, no AR). The phone stands on a tripod and never moves, so it needs no
 // tracking: its normal camera (main or selfie) is the background, and the gear is drawn from one fixed camera pose
-// in the Quest's rig space. The pose comes from a tap calibration (tap a floor mark on the screen, touch the same
-// mark with the controller tip; 4 to 8 marks; the page solves position, direction and zoom), and manual nudge
+// in the Quest's rig space. The pose comes from a point calibration (#211: the phone picks 4 to 6 sharp corners in its
+// picture, the DJ touches each with the controller tip; or tap your own marks; the page solves position, direction, zoom), and manual nudge
 // controls fine-tune it. Saved per camera (main / selfie). Also: exposure / focus / white-balance lock where the
 // phone allows, and a test that times the main <-> selfie swap.
 const DEG = Math.PI / 180;
@@ -29,6 +29,9 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     #fxO .nudge button { padding:9px 4px; }
     #fxTap { position:fixed; inset:0; z-index:34; pointer-events:auto; }
     .fxMark { position:fixed; z-index:36; width:22px; height:22px; margin:-11px 0 0 -11px; border:2px solid #ffd040; border-radius:50%; pointer-events:none; color:#ffd040; font:700 12px system-ui; text-align:center; line-height:18px; }
+    .fxMark.cur { border-color:#ffd040; width:30px; height:30px; margin:-15px 0 0 -15px; line-height:26px; box-shadow:0 0 0 2px rgba(0,0,0,.6); }
+    .fxMark.done { border-color:#40d080; color:#40d080; } .fxMark.next { border-color:#39a8ff; color:#39a8ff; }
+    #fxMag { position:absolute; right:8px; top:96px; width:min(56vw,340px); border:1px solid #ffd040; border-radius:8px; }
     .fxMark.rep { border-color:#40ff70; border-radius:2px; width:10px; height:10px; margin:-5px 0 0 -5px; }
     #fxO [hidden], #fxTap[hidden] { display:none !important; }
     #fxO.hide .bar, #fxO.hide .info, #fxO.hide .nudge, #fxO.hide .hint { display:none; }
@@ -46,7 +49,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
       <span>Step</span><button id="fxStep">fine</button><button id="fxReset">reset view</button>
     </div>
     <div class="bar">
-      <button id="fxCal">Calibrate (taps)</button><button id="fxSolve" hidden>Solve</button><button id="fxUndo" hidden>Undo mark</button><button id="fxCancel" hidden>Cancel</button>
+      <button id="fxCal">Calibrate</button><button id="fxSolve" hidden>Solve</button><button id="fxSkip" hidden>Skip point</button><button id="fxRescan" hidden>New points</button><button id="fxUndo" hidden>Undo mark</button><button id="fxCancel" hidden>Cancel</button>
       <button id="fxNud">Nudge</button><button id="fxCamB">Main camera</button><button id="fxLock">Lock exposure</button><button id="fxEm">Exp −</button><button id="fxEp">Exp +</button>
       <button id="fxSwap">Swap test</button><button id="fxHide">Hide UI</button><button id="fxExit">Exit</button>
     </div></div><div id="fxTap" hidden></div>`);
@@ -122,21 +125,170 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     onChange && onChange();
   }
 
-  // ---------------------------------------------------------------- tap calibration
+  // ---------------------------------------------------------------- calibration (#211 auto points first, taps as the fallback)
+  // Calibrate looks for 4 to 6 sharp, high-contrast corners in the camera picture (table / case corners, tile
+  // crossings, box corners...), spread across the shot, and numbers them. For each one in turn the Quest shows a
+  // picture of it (the whole shot with the point ringed + a close-up); the DJ touches that spot with the controller
+  // tip and pulls the trigger, and the phone moves to the next. Skip (phone button, or the Quest's grip) swaps the
+  // current point for another corner; tapping the screen moves the current point to the tap (snapped to the
+  // sharpest corner right there). With fewer than 4 corners found it falls back to tapping each mark yourself.
+  const AUTO_N = 6;
+  const gcv = document.createElement('canvas'), gg = gcv.getContext('2d', { willReadFrequently: true });
+  function grayOf(sx, sy, sw, sh, dw, dh) {   // video region -> Float32 grey dw x dh
+    gcv.width = dw; gcv.height = dh; gg.drawImage(video, sx, sy, sw, sh, 0, 0, dw, dh);
+    const d = gg.getImageData(0, 0, dw, dh).data, g = new Float32Array(dw * dh);
+    for (let i = 0, j = 0; i < g.length; i++, j += 4) g[i] = (0.299 * d[j] + 0.587 * d[j + 1] + 0.114 * d[j + 2]) / 255;
+    return g;
+  }
+  function cornerMap(g, w, h, r = 2) {   // Shi-Tomasi: smallest eigenvalue of the gradient structure tensor, (2r+1)^2 window
+    const A = new Float32Array(w * h), B = new Float32Array(w * h), C = new Float32Array(w * h), out = new Float32Array(w * h);
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      const gx = (g[i - w + 1] + 2 * g[i + 1] + g[i + w + 1]) - (g[i - w - 1] + 2 * g[i - 1] + g[i + w - 1]);
+      const gy = (g[i + w - 1] + 2 * g[i + w] + g[i + w + 1]) - (g[i - w - 1] + 2 * g[i - w] + g[i - w + 1]);
+      A[i] = gx * gx; B[i] = gx * gy; C[i] = gy * gy;
+    }
+    const box = (M) => {   // separable box sum
+      const t = new Float32Array(w * h), o = new Float32Array(w * h);
+      for (let y = 0; y < h; y++) { let s = 0; for (let x = -r; x < w + r; x++) { if (x + r < w) s += M[y * w + x + r]; if (x - r - 1 >= 0) s -= M[y * w + x - r - 1]; if (x >= 0 && x < w) t[y * w + x] = s; } }
+      for (let x = 0; x < w; x++) { let s = 0; for (let y = -r; y < h + r; y++) { if (y + r < h) s += t[(y + r) * w + x]; if (y - r - 1 >= 0) s -= t[(y - r - 1) * w + x]; if (y >= 0 && y < h) o[y * w + x] = s; } }
+      return o;
+    };
+    const a = box(A), b = box(B), c = box(C);
+    for (let i = 0; i < out.length; i++) { const m = (a[i] + c[i]) / 2, d = Math.sqrt(((a[i] - c[i]) / 2) ** 2 + b[i] * b[i]); out[i] = m - d; }
+    return out;
+  }
+  function peaks(m, w, h, edge, nms = 3) {   // local maxima, strongest first
+    let max = 0; for (const v of m) if (v > max) max = v;
+    const thr = max * 0.03, out = [];
+    for (let y = edge; y < h - edge; y++) for (let x = edge; x < w - edge; x++) {
+      const v = m[y * w + x]; if (v <= thr) continue;
+      let ok = true;
+      for (let dy = -nms; dy <= nms && ok; dy++) for (let dx = -nms; dx <= nms; dx++) if ((dx || dy) && m[(y + dy) * w + x + dx] > v) { ok = false; break; }
+      if (ok) out.push({ x, y, s: v });
+    }
+    return out.sort((p, q) => q.s - p.s).slice(0, 400);
+  }
+  function subPix(m, w, x, y) {   // parabola through the peak and its neighbours
+    const c = m[y * w + x], l = m[y * w + x - 1], r = m[y * w + x + 1], u = m[(y - 1) * w + x], d = m[(y + 1) * w + x];
+    const dx = (l - r) / (2 * (l - 2 * c + r) || 1), dy = (u - d) / (2 * (u - 2 * c + d) || 1);
+    return [x + Math.max(-0.5, Math.min(0.5, dx)), y + Math.max(-0.5, Math.min(0.5, dy))];
+  }
+  // the sharpest corner near video point (vx, vy), at full camera resolution (r = search radius, video px)
+  function refine(vx, vy, r) {
+    const R = Math.round(r) + 4, x0 = Math.round(vx) - R, y0 = Math.round(vy) - R, n = 2 * R + 1;
+    if (x0 < 0 || y0 < 0 || x0 + n > S.vw || y0 + n > S.vh) return null;
+    const g = grayOf(x0, y0, n, n, n, n), m = cornerMap(g, n, n, 2);
+    let best = -1, bx = 0, by = 0;
+    for (let y = 4; y < n - 4; y++) for (let x = 4; x < n - 4; x++) {
+      const v = m[y * n + x]; if (v > best && Math.hypot(x0 + x - vx, y0 + y - vy) <= r) { best = v; bx = x; by = y; }
+    }
+    if (best <= 0) return null;
+    const [sx, sy] = subPix(m, n, bx, by);
+    return { x: x0 + sx, y: y0 + sy, s: best };
+  }
+  // find candidate corners in the visible part of the picture; pick AUTO_N spread out, the rest stay as spares
+  function detect() {
+    const c = S.crop; if (!c || !S.vw) return null;
+    const ix = c.w * 0.05, iy = c.h * 0.05, sx = c.x + ix, sy = c.y + iy, sw = c.w - 2 * ix, sh = c.h - 2 * iy;
+    const dw = Math.min(480, Math.round(sw)), k = sw / dw, dh = Math.round(sh / k);
+    const m = cornerMap(grayOf(sx, sy, sw, sh, dw, dh), dw, dh, 2);
+    const cand = peaks(m, dw, dh, 4).map(p => { const [x, y] = subPix(m, dw, p.x, p.y); return { x: sx + x * k, y: sy + y * k, s: p.s }; });
+    if (!cand.length) return { pick: [], spare: [] };
+    const sMax = cand[0].s, diag = Math.hypot(sw, sh), minD = diag * 0.08;
+    const pick = [cand[0]];
+    while (pick.length < AUTO_N) {
+      let best = null, bs = 0;
+      for (const p of cand) {
+        if (pick.includes(p)) continue;
+        const d = Math.min(...pick.map(q => Math.hypot(p.x - q.x, p.y - q.y))); if (d < minD) continue;
+        const sc = (d / diag) * Math.sqrt(p.s / sMax); if (sc > bs) { bs = sc; best = p; }
+      }
+      if (!best) break; pick.push(best);
+    }
+    pick.sort((p, q) => p.x - q.x);   // numbered left to right, so the walk is simple
+    for (const p of pick) { const f = refine(p.x, p.y, 3 * k); if (f) { p.x = f.x; p.y = f.y; } }
+    return { pick, spare: cand.filter(p => !pick.includes(p)), minD };
+  }
+
+  // the picture the Quest shows for one point: the whole shot with the point ringed + a 4x close-up
+  const icv = document.createElement('canvas'), ig = icv.getContext('2d');
+  function pointImage(C, i) {
+    const c = S.crop, p = C.auto[i], H = 240, W1 = Math.round(H * c.w / c.h), Z = 240;
+    icv.width = W1 + 8 + Z; icv.height = H; ig.fillStyle = '#0a0c12'; ig.fillRect(0, 0, icv.width, H);
+    ig.drawImage(video, c.x, c.y, c.w, c.h, 0, 0, W1, H);
+    const k = W1 / c.w;
+    C.auto.forEach((q, j) => {
+      const x = (q.x - c.x) * k, y = (q.y - c.y) * k, cur = j === i;
+      ig.lineWidth = cur ? 4 : 2; ig.strokeStyle = cur ? '#ffd040' : j < i ? '#40d080' : 'rgba(57,168,255,.9)';
+      ig.beginPath(); ig.arc(x, y, cur ? 14 : 7, 0, 7); ig.stroke();
+      if (cur) { ig.font = '700 20px system-ui'; ig.fillStyle = '#ffd040'; ig.fillText(String(i + 1), x + 16, y - 10); }
+    });
+    const half = Math.max(24, Math.min(S.vw, S.vh) * 0.05);   // close-up: about a tenth of the picture height
+    ig.save(); ig.beginPath(); ig.rect(W1 + 8, 0, Z, H); ig.clip();
+    ig.drawImage(video, p.x - half, p.y - half, 2 * half, 2 * half, W1 + 8, 0, Z, Z);
+    ig.strokeStyle = '#ffd040'; ig.lineWidth = 2; const cx = W1 + 8 + Z / 2, cy = H / 2;
+    ig.beginPath(); ig.moveTo(cx - 40, cy); ig.lineTo(cx - 8, cy); ig.moveTo(cx + 8, cy); ig.lineTo(cx + 40, cy);
+    ig.moveTo(cx, cy - 40); ig.lineTo(cx, cy - 8); ig.moveTo(cx, cy + 8); ig.lineTo(cx, cy + 40); ig.stroke(); ig.restore();
+    return icv.toDataURL('image/jpeg', 0.72);
+  }
+  const mag = document.createElement('img'); mag.id = 'fxMag'; mag.hidden = true; ov.append(mag);
+
+  function drawAuto() {
+    const C = S.cal; clearMarks(); if (!C || !C.auto) return;
+    C.auto.forEach((p, j) => { markAt(p.x, p.y, j + 1); const m = marks[marks.length - 1]; if (m) m.classList.add(j < C.i ? 'done' : j === C.i ? 'cur' : 'next'); });
+  }
+  function askPoint() {   // send the current auto point to the Quest
+    const C = S.cal, l = link(); if (!C || !l) return;
+    if (C.i >= C.auto.length) { if (C.pts.length >= 4) calSolve(); else say('Not enough points: press New points, or Cancel.'); return; }
+    const img = pointImage(C, C.i); mag.src = img; mag.hidden = false;
+    C.wait = 'touch'; drawAuto();
+    l.send('ctl', { k: 'cal', step: 'pt', n: C.i + 1, of: C.auto.length, img });
+    say(`Point ${C.i + 1} of ${C.auto.length}: touch it with the controller tip and pull the trigger. Skip if you can't reach it; tap the screen to move it.`);
+    ui();
+  }
   function calStart() {
-    if (!link()) { say('Connect to the Quest first (the controller touches the marks).'); return; }
-    S.cal = { pix: [], pts: [], wait: 'tap' }; clearMarks(); tap.hidden = false; ui();
-    say('Mark 1: tap it on the screen.');
+    if (!link()) { say('Connect to the Quest first (the controller touches the points).'); return; }
+    S.cal = { pix: [], pts: [], wait: 'tap', auto: null, spare: [], i: 0 }; clearMarks(); tap.hidden = false;
+    const d = detect();
+    if (d && d.pick.length >= 4) { Object.assign(S.cal, { auto: d.pick, spare: d.spare, minD: d.minD }); askPoint(); return; }
+    ui(); say('Not enough sharp corners in the picture: tap mark 1 on the screen yourself.');
+  }
+  function calRescan() {
+    const C = S.cal; if (!C) return;
+    const d = detect(); if (!d || d.pick.length < 4) { say('Still not enough sharp corners: tap the marks yourself.'); C.auto = null; C.wait = 'tap'; mag.hidden = true; drawAuto(); ui(); return; }
+    // keep the points already touched, add new ones (away from them) after them
+    const keep = C.auto ? C.auto.slice(0, C.i) : C.pix.map(([x, y]) => ({ x, y }));
+    const fresh = d.pick.filter(p => keep.every(q => Math.hypot(p.x - q.x, p.y - q.y) > d.minD));
+    C.auto = keep.concat(fresh).slice(0, Math.max(AUTO_N, keep.length + 1)); C.spare = d.spare; C.minD = d.minD; C.i = keep.length;
+    askPoint();
+  }
+  function calSkip() {   // swap the current point for the best spare corner away from the others
+    const C = S.cal; if (!C || !C.auto || C.i >= C.auto.length) return false;
+    const others = C.auto.filter((_, j) => j !== C.i), diag = Math.hypot(S.crop.w, S.crop.h);
+    C.spare = C.spare.filter(p => p !== C.auto[C.i]);
+    let best = null, bs = 0;
+    for (const p of C.spare) { const d = Math.min(...others.map(q => Math.hypot(p.x - q.x, p.y - q.y))); if (d < (C.minD || 0)) continue; const sc = (d / diag) * Math.sqrt(p.s); if (sc > bs) { bs = sc; best = p; } }
+    if (best) { C.spare = C.spare.filter(p => p !== best); const f = refine(best.x, best.y, 4); C.auto[C.i] = f ? { x: f.x, y: f.y, s: best.s } : best; }
+    else C.auto.splice(C.i, 1);   // no spare left: just drop it
+    askPoint(); return true;
   }
   tap.addEventListener('pointerdown', e => {
-    const C = S.cal, c = S.crop; if (!C || C.wait !== 'tap' || !c) return;
-    const vx = c.x + e.clientX / c.s, vy = c.y + e.clientY / c.s, n = C.pix.length + 1;
-    C.pix.push([vx, vy]); markAt(vx, vy, n); C.wait = 'touch';
+    const C = S.cal, c = S.crop; if (!C || !c) return;
+    const vx = c.x + e.clientX / c.s, vy = c.y + e.clientY / c.s;
+    if (C.auto) {   // move the current point here, snapped to the sharpest corner within about 25 screen px
+      if (C.i >= C.auto.length) return;
+      const f = refine(vx, vy, 25 / c.s); C.auto[C.i] = f || { x: vx, y: vy, s: 0 }; askPoint(); return;
+    }
+    if (C.wait !== 'tap') return;
+    const f = refine(vx, vy, 12 / c.s), px = f ? f.x : vx, py = f ? f.y : vy, n = C.pix.length + 1;
+    C.pix.push([px, py]); markAt(px, py, n); C.wait = 'touch';
     const l = link(); if (l) l.send('ctl', { k: 'cal', step: 'pt', n });
     say(`Mark ${n}: now touch it with the controller tip and pull the trigger.`); ui();
   });
-  function onCalPoint(m) {   // the controller tip on the mark, from the Quest (rig space)
+  function onCalPoint(m) {   // the controller tip on the point, from the Quest (rig space)
     const C = S.cal; if (!C || C.wait !== 'touch') return false;
+    if (C.auto) { const p = C.auto[C.i]; C.pix.push([p.x, p.y]); C.pts.push(m.p.slice(0, 3)); C.i++; askPoint(); return true; }
     C.pts.push(m.p.slice(0, 3)); C.wait = 'tap';
     const n = C.pts.length;
     say(n >= 4 ? `${n} marks. Tap mark ${n + 1}, or press Solve.` : `Mark ${n + 1}: tap it on the screen.`); ui();
@@ -144,13 +296,14 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
   }
   function calUndo() {
     const C = S.cal; if (!C) return;
+    if (C.auto) { if (C.i > 0) { C.i--; C.pix.pop(); C.pts.pop(); } askPoint(); return; }
     if (C.wait === 'touch') { C.pix.pop(); } else if (C.pts.length) { C.pts.pop(); C.pix.pop(); }
     C.wait = 'tap'; const l = link(); if (l) l.send('ctl', { k: 'cal', step: 'cancel' });
     clearMarks(); C.pix.forEach(([x, y], i) => markAt(x, y, i + 1));
     say(`Mark ${C.pix.length + 1}: tap it on the screen.`); ui();
   }
   function calCancel() {
-    S.cal = null; tap.hidden = true; clearMarks(); const l = link(); if (l) l.send('ctl', { k: 'cal', step: 'cancel' });
+    S.cal = null; tap.hidden = true; clearMarks(); mag.hidden = true; const l = link(); if (l) l.send('ctl', { k: 'cal', step: 'cancel' });
     say(''); ui();
   }
   function calSolve() {
@@ -159,14 +312,14 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     const r = solvePose(C.pts, pix, S.vw, S.vh);
     if (!r) { say('Could not solve: check the marks are spread out and tapped in the same order.'); return; }
     S.pose = r.pose; S.err = r.rms; savePose();
-    tap.hidden = true; S.cal = null; clearMarks();
+    tap.hidden = true; S.cal = null; clearMarks(); mag.hidden = true;
     frame();
     // show where the solved camera puts each mark (green squares) against the taps (yellow rings)
     pix.forEach(([x, y], i) => markAt(x, y, i + 1)); r.proj.forEach(([x, y]) => markAt(x, y, '', true));
     setTimeout(clearMarks, 8000);
     const px = Math.round(r.rms * 10) / 10;
     const l = link(); if (l) l.send('ctl', { k: 'cal', step: 'done', px });
-    say(`Calibrated: marks match within ${px} px` + (r.rms > 6 ? ' (high: redo, tap the mark centres exactly).' : '. Fine-tune with Nudge if needed.'));
+    say(`Calibrated: points match within ${px} px` + (r.rms > 6 ? ' (high: redo; touch the exact corner of each point).' : '. Fine-tune with Nudge if needed.'));
     setTimeout(() => { if (!S.cal) say(''); }, 8000);
     ui();
   }
@@ -232,6 +385,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
 
   // ---------------------------------------------------------------- buttons / info
   $('#fxCal').onclick = calStart; $('#fxSolve').onclick = calSolve; $('#fxUndo').onclick = calUndo; $('#fxCancel').onclick = calCancel;
+  $('#fxSkip').onclick = calSkip; $('#fxRescan').onclick = calRescan;
   $('#fxNud').onclick = () => { const n = $('#fxNudge'); n.hidden = !n.hidden; ui(); };
   $('#fxCamB').onclick = switchCam; $('#fxLock').onclick = () => setLock(!S.lock);
   $('#fxEm').onclick = () => expStep(-1); $('#fxEp').onclick = () => expStep(1);
@@ -242,6 +396,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
   function ui() {
     const C = S.cal;
     $('#fxCal').hidden = !!C; for (const id of ['#fxSolve', '#fxUndo', '#fxCancel']) $(id).hidden = !C;
+    $('#fxSkip').hidden = !(C && C.auto); $('#fxRescan').hidden = !C;
     if (C) { $('#fxSolve').disabled = C.pts.length < 4; $('#fxUndo').disabled = !C.pix.length; }
     $('#fxNud').classList.toggle('on', !$('#fxNudge').hidden); $('#fxLock').classList.toggle('on', S.lock);
     $('#fxLock').textContent = S.lock ? 'Exposure locked' : 'Lock exposure';
@@ -253,7 +408,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     $('#fxInfo').textContent = `${S.facing === 'user' ? 'selfie' : 'main'} ${S.vw}x${S.vh}` + (P ? ` · zoom ${P.fov.toFixed(1)}°` : '') + (S.err != null ? ` · cal ${S.err.toFixed(1)} px` : ' · not calibrated')
       + (ec != null ? ` · exp ${ec > 0 ? '+' : ''}${(+ec).toFixed(1)}` : '') + (S.swap ? ` · swap ${S.swap}` : '') + (extra ? ' · ' + extra : '');
   }
-  return { S, start, stop, frame, camState, onCalPoint, info, get on() { return S.on; } };
+  return { S, start, stop, frame, camState, onCalPoint, calSkip, calStart, calRescan, detect, info, get on() { return S.on; } };
 }
 
 // ---------------------------------------------------------------- pose solve

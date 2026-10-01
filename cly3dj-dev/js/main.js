@@ -2763,9 +2763,11 @@ function drawMixScreen() {
       drawTopBtn(g, 24, y, w, h, 'MR GUI', sp.mr); drawPhoneIcon(g, 24 + w + 8, y + (h - 24) / 2, 14, 24, sp.phone);
       SP_HIT.push({ x: 18, y: y - 8, w: w + 12, h: h + 16, act: () => spect.setMR(!sp.mr) });
     }
+    drawPin(g, (W - 150) / 2, H - 50, 150, 34);   // #210
     scr().commit(); return;
   }
   for (const d of decks) drawDeckPanel(g, d, d.i ? W / 2 + 6 : 6, 6, W / 2 - 12, H - 12, false);
+  drawPin(g, W - 14 - 150, H - 46, 150, 30);   // #210
   { // #185 VIDEO: deck B's top row (was the #176 LED WALL switch, which is on the Video page now)
     const w = 108, h = 28, y = 12, x = W - 36 - w;   // #202 moved in, clear of the corner L (now top-right)
     drawTopBtn(g, x, y, w, h, 'VIDEO', on);
@@ -2779,7 +2781,79 @@ function drawMixScreen() {
   }
   mixScreen.commit();
 }
+// #210 GEAR HERE (in XR): tap twice within 3 s; a small pin status beside it
+function drawPin(g, x, y, w, h) {
+  if (!renderer.xr.isPresenting) return;
+  const armed = performance.now() - gearHereArm < 3000;
+  g.fillStyle = armed ? '#c8202c' : '#2a3140'; g.fillRect(x, y, w, h);
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = armed ? '#fff' : '#c9ced8'; g.font = '700 15px system-ui';
+  g.fillText(armed ? 'TAP AGAIN' : 'GEAR HERE', x + w / 2, y + h / 2 + 1);
+  g.textAlign = 'right'; g.font = '600 13px system-ui'; g.fillStyle = /^pinned/.test(anchorMsg) ? '#40d080' : '#c9a040';
+  g.fillText(anchorMsg ? (anchorMsg.length > 26 ? anchorMsg.slice(0, 25) + '…' : anchorMsg) : 'not pinned', x - 8, y + h / 2 + 1); g.textBaseline = 'alphabetic';
+  SP_HIT.push({ x, y: y - 4, w, h: h + 8, act: () => { if (performance.now() - gearHereArm < 3000) { gearHereArm = 0; gearHere(); } else { gearHereArm = performance.now(); setTimeout(drawMixScreen, 3100); } } });
+}
 const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+// ---- #210 spatial anchor: all the gear (the rig) is pinned to the real room with a WebXR anchor, so re-centring,
+// taking the headset off or walking out of the boundary no longer moves it. The anchor is kept (persistent handle,
+// Quest Browser) and restored next session in the same room; up to 6 rooms are remembered (newest first). If no saved
+// anchor restores, the rig starts where it always did and a new anchor is made there. GEAR HERE (mixer screen, tap
+// twice) brings all the gear in front of you, facing you, and re-pins it. Only the anchor's heading is used: the rig
+// stays upright on the floor.
+const ANCH_KEY = 'vire.rigAnchors';
+let rigAnchor = null, anchorPending = false, anchorBusy = false, anchorMsg = '', gearHereArm = 0;
+const _aq = new THREE.Quaternion(), _ae = new THREE.Euler();
+const anchorList = () => { try { return JSON.parse(localStorage.getItem(ANCH_KEY) || '[]'); } catch { return []; } };
+const saveAnchorList = l => { try { localStorage.setItem(ANCH_KEY, JSON.stringify(l.slice(0, 6))); } catch {} };
+async function anchorSetup(session) {
+  rigAnchor = null; anchorPending = false; anchorMsg = '';
+  if (!(window.XRFrame && XRFrame.prototype.createAnchor)) { anchorMsg = 'no anchors in this browser'; drawMixScreen(); return; }
+  if (session.restorePersistentAnchor) for (const id of anchorList()) {
+    try {
+      const a = await session.restorePersistentAnchor(id);
+      if (a) { a._id = id; rigAnchor = a; anchorMsg = 'pinned'; toast('Gear is where you left it in this room (pinned)', 3000); drawMixScreen(); return; }
+    } catch {}
+  }
+  anchorPending = true;   // made at the rig's current pose on the next XR frame (createAnchor needs a frame)
+}
+async function anchorCreate(xf) {
+  anchorPending = false; anchorBusy = true;
+  try {
+    rig.updateMatrixWorld();
+    const p = rig.position, q = rig.quaternion;
+    const a = await xf.createAnchor(new XRRigidTransform({ x: p.x, y: p.y, z: p.z }, { x: q.x, y: q.y, z: q.z, w: q.w }), renderer.xr.getReferenceSpace());
+    rigAnchor = a; anchorMsg = 'pinned';
+    if (a.requestPersistentHandle) {
+      try { const id = await a.requestPersistentHandle(); a._id = id; const l = anchorList().filter(x => x !== id); l.unshift(id); saveAnchorList(l); }
+      catch (e) { anchorMsg = 'pinned (this session only)'; }
+    } else anchorMsg = 'pinned (this session only)';
+  } catch (e) { anchorMsg = 'not pinned: ' + e.message; }
+  anchorBusy = false; drawMixScreen();
+}
+function anchorFollow() {   // per XR frame: the rig sits on the anchor (position + heading only)
+  const xf = renderer.xr.getFrame && renderer.xr.getFrame(); if (!xf) return;
+  if (anchorPending && !anchorBusy) { anchorCreate(xf); return; }
+  if (!rigAnchor) return;
+  let pose = null; try { pose = xf.getPose(rigAnchor.anchorSpace, renderer.xr.getReferenceSpace()); } catch {}
+  if (!pose) return;   // not tracked this frame: keep the last pose
+  const t = pose.transform;
+  rig.position.set(t.position.x, t.position.y, t.position.z);
+  _aq.set(t.orientation.x, t.orientation.y, t.orientation.z, t.orientation.w); _ae.setFromQuaternion(_aq, 'YXZ');
+  rig.rotation.set(0, _ae.y, 0);
+}
+function gearHere() {   // all the gear in front of the DJ, facing them, then a new anchor there
+  const s = renderer.xr.getSession(); if (!s) { toast('Enter XR first'); return; }
+  const old = rigAnchor; rigAnchor = null;
+  if (old) { try { old.delete(); } catch {} if (old._id) { if (s.deletePersistentAnchor) s.deletePersistentAnchor(old._id).catch(() => {}); saveAnchorList(anchorList().filter(x => x !== old._id)); } }
+  const xc = renderer.xr.getCamera(); xc.updateMatrixWorld();
+  const head = new THREE.Vector3().setFromMatrixPosition(xc.matrixWorld), fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(xc.getWorldQuaternion(new THREE.Quaternion()));
+  const yaw = Math.atan2(-fwd.x, -fwd.z);
+  rig.rotation.set(0, yaw, 0);
+  const off = new THREE.Vector3(-0.05, 0, -0.62).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);   // the usual start offset, turned with you
+  rig.position.set(head.x + off.x, 0, head.z + off.z);
+  anchorPending = !!(window.XRFrame && XRFrame.prototype.createAnchor); anchorMsg = anchorPending ? 'pinning…' : 'not pinned';
+  toast('Gear moved in front of you' + (anchorPending ? ' and pinned to the room' : ''), 3000); drawMixScreen();
+}
 
 // ------------------------------------------------------------------ frame loop
 const clock = new THREE.Clock();
@@ -2791,6 +2865,7 @@ const _holdOff = new THREE.Vector3();
 function wrapPi(a) { a %= 2 * Math.PI; return a > Math.PI ? a - 2 * Math.PI : a < -Math.PI ? a + 2 * Math.PI : a; }
 function frame() {
   const dt = Math.min(0.05, clock.getDelta());
+  if (renderer.xr.isPresenting) anchorFollow();   // #210
   if (camTween) {
     camTween.t = Math.min(1, camTween.t + dt * 1.6); const k = camTween.t * camTween.t * (3 - 2 * camTween.t);
     camera.position.lerpVectors(camTween.from.pos, camTween.to.pos, k);
@@ -2971,7 +3046,7 @@ async function begin(mode) {
     setRecordTexSize(2048); // only a few full-detail records exist at once; grooves need the resolution
     applyShadows(false);   // real-time shadows per the Shadows setting (#96)
     renderer.setPixelRatio(1);
-    const session = await navigator.xr.requestSession(mode, { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] });
+    const session = await navigator.xr.requestSession(mode, { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'anchors'] });   // #210 anchors
     renderer.xr.setReferenceSpaceType('local-floor');
     renderer.xr.setFoveation(0.5);
     await renderer.xr.setSession(session);
@@ -2979,13 +3054,14 @@ async function begin(mode) {
       const want = 90; const rates = [...session.supportedFrameRates];
       if (rates.includes(want)) session.updateTargetFrameRate(want).catch(() => {});
     }
-    rig.position.set(-0.05, 0, -0.62);
+    rig.position.set(-0.05, 0, -0.62); rig.rotation.set(0, 0, 0);
+    anchorSetup(session);   // #210 pin the gear to the room (restores the saved pin in a known room)
     xr.setHandMode(mode === 'immersive-ar' && settings.hands === 'real' ? 'real' : '3d');
     // passthrough rooms are much dimmer than the studio environment: tone reflections down so metal isn't self-lit
     arMode = mode === 'immersive-ar';
     if (mode === 'immersive-ar') { scene.background = null; room.visible = false; skybox.group.visible = skyShadow.visible = false; scene.environmentIntensity = settings.arRefl / 100; }
     else applySky();   // #182: stereo panoramas split per eye while presenting   // #180: was a fixed 0.28, now Settings > Reflections in passthrough (default 60 %)
-    session.addEventListener('end', () => { arMode = false; applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
+    session.addEventListener('end', () => { rigAnchor = null; anchorPending = false; rig.rotation.set(0, 0, 0); arMode = false; applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
     toast('Reach out and touch: pinch or grip right at a knob, fader, tonearm or record', 5000);
   } catch (e) { toast('Could not start XR: ' + e.message, 4000); }
 }

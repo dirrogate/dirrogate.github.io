@@ -31,6 +31,23 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
   const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.13), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
   panel.renderOrder = 999; panel.visible = false; scene.add(panel);
+  // #211 picture of the point to touch (the whole shot + a close-up), under the text
+  const icv = document.createElement('canvas'); icv.width = 1024; icv.height = 480;
+  const itex = new THREE.CanvasTexture(icv); itex.colorSpace = THREE.SRGBColorSpace;
+  const ipanel = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.197), new THREE.MeshBasicMaterial({ map: itex, transparent: true, depthTest: false }));
+  ipanel.renderOrder = 999; ipanel.position.y = -0.168; ipanel.visible = false; panel.add(ipanel);
+  let imgSeq = 0;
+  function showImg(url) {
+    const n = ++imgSeq; if (!url) { ipanel.visible = false; return; }
+    const im = new Image(); im.onload = () => {
+      if (n !== imgSeq) return;
+      const g = icv.getContext('2d'); g.clearRect(0, 0, 1024, 480);
+      g.fillStyle = 'rgba(10,12,18,0.9)'; g.beginPath(); g.roundRect(4, 4, 1016, 472, 24); g.fill(); g.strokeStyle = '#ffd040'; g.lineWidth = 5; g.stroke();
+      const k = Math.min(1000 / im.width, 456 / im.height), w = im.width * k, h = im.height * k;
+      g.drawImage(im, (1024 - w) / 2, (480 - h) / 2, w, h); itex.needsUpdate = true; ipanel.visible = true;
+    };
+    im.src = url;
+  }
   function say(lines, color = '#39a8ff') {
     const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);
     g.fillStyle = 'rgba(10,12,18,0.86)'; g.beginPath(); g.roundRect(4, 4, cv.width - 8, cv.height - 8, 28); g.fill();
@@ -69,19 +86,23 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   // ---- calibration: the trigger (or a pinch) marks the tip of whichever hand pressed it
   function onTrigger(i) {
     const st = (getInputs() || [])[i]; if (!st || !st.connected) return;
-    if (perfMarks && perf && !calStep) { perf.mark(st.tip.clone().sub(rig.position).toArray().map(r4)); return; }   // #209
+    if (perfMarks && perf && !calStep) { perf.mark(rig.worldToLocal(st.tip.clone()).toArray().map(r4)); return; }   // #209 (#210 rig space, the rig may turn)
     if (!calStep || !link.isOpen) return;
-    const p = st.tip.clone().sub(rig.position);
+    const p = rig.worldToLocal(st.tip.clone());   // #210 rig space (the rig turns with its spatial anchor)
     link.send('ctl', { k: 'calpt', step: calStep, p: p.toArray().map(r4), qt: performance.now() });
     calStep = null; panel.visible = false;
   }
   for (const i of [0, 1]) renderer.xr.getController(i).addEventListener('selectstart', () => onTrigger(i));
+  for (const i of [0, 1]) renderer.xr.getController(i).addEventListener('squeezestart', () => {   // #211 grip = skip this auto point
+    if (calStep === 'pt' && ipanel.visible && link.isOpen) link.send('ctl', { k: 'calskip' });
+  });
 
 
   // ---- scene mirror (#161): the phone builds the same gear from the same code; we send what moves.
   // Every node under each gear root (stage items + flight cases) gets an id = root key + child-index path.
   // Each tick, only nodes whose local transform or visibility changed are sent. Records are separate (below).
   let reg = new Map(), regT = 0, full = false;
+  const _riq = new THREE.Quaternion();   // #210 inverse of the rig's turn, set each tick
   const _rm = new THREE.Matrix4(), _ri = new THREE.Matrix4(), _rp = new THREE.Vector3(), _rq = new THREE.Quaternion(), _rs = new THREE.Vector3();
   function buildRegistry() {
     const recs = new Set(getRecords().map(r => r.group)), next = new Map();
@@ -165,10 +186,10 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       if (!st || !st.connected) continue;
       if (st.isHand) {
         const h = renderer.xr.getHand(st.i), a = [];
-        for (const j of Object.values(h.joints || {})) { if (!j.visible) continue; j.getWorldPosition(_rp).sub(rig.position); a.push(r3(_rp.x), r3(_rp.y), r3(_rp.z)); }
+        for (const j of Object.values(h.joints || {})) { if (!j.visible) continue; rig.worldToLocal(j.getWorldPosition(_rp)); a.push(r3(_rp.x), r3(_rp.y), r3(_rp.z)); }
         if (a.length >= 30) out.push([st.i, 'h', a]);
       } else if (st.grip) {
-        st.grip.matrixWorld.decompose(_rp, _rq, _rs); _rp.sub(rig.position);
+        st.grip.matrixWorld.decompose(_rp, _rq, _rs); rig.worldToLocal(_rp); _rq.premultiply(_riq);
         out.push([st.i, 'c', [r3(_rp.x), r3(_rp.y), r3(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w)]]);
       }
     }
@@ -281,13 +302,15 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       if (m.k === 'cst') { camState = m; onCam && onCam(m); return; }   // #188 the phone's camera / key / look state
       if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }
       else if (m.k === 'cal') {
-        if (m.step === 'lens' || m.step === 'x') { calStep = m.step; say(CAL_TEXT[m.step]); toast && toast(CAL_TEXT[m.step].slice(1).join(' '), 6000); }
+        if (m.step === 'lens' || m.step === 'x') { calStep = m.step; showImg(null); say(CAL_TEXT[m.step]); toast && toast(CAL_TEXT[m.step].slice(1).join(' '), 6000); }
         else if (m.step === 'pt') {   // #208 fixed camera tap calibration: one numbered mark at a time
-          calStep = 'pt'; const t = ['Fixed camera calibration', `Touch MARK ${m.n} on the floor`, 'with the controller tip (blue ball),', 'then pull the trigger.'];
-          say(t); toast && toast(t.slice(1).join(' '), 6000);
+          calStep = 'pt';
+          const t = m.img ? ['Fixed camera calibration', `Touch POINT ${m.n} of ${m.of} (yellow, below)`, 'with the controller tip, pull the trigger.', 'Grip = skip this point.']
+            : ['Fixed camera calibration', `Touch MARK ${m.n} on the floor`, 'with the controller tip (blue ball),', 'then pull the trigger.'];
+          say(t); showImg(m.img); toast && toast(t.slice(1).join(' '), 6000);
         }
-        else if (m.step === 'done') { calStep = null; say(['Spectator camera calibrated', m.px != null ? 'Match: ' + m.px + ' px' : m.err != null ? 'Match: ' + m.err + ' cm' : '', 'The blue outline shows what it films.'], '#40d080'); doneT = 3; }
-        else { calStep = null; panel.visible = false; }
+        else if (m.step === 'done') { calStep = null; showImg(null); say(['Spectator camera calibrated', m.px != null ? 'Match: ' + m.px + ' px' : m.err != null ? 'Match: ' + m.err + ' cm' : '', 'The blue outline shows what it films.'], '#40d080'); doneT = 3; }
+        else { calStep = null; panel.visible = false; showImg(null); }
       } else if (m.k === 'cam') {
         setFrustum(m.fov, m.asp); frustum.position.fromArray(m.p); frustum.quaternion.fromArray(m.q); frustum.visible = mr; camT = 0;
       }
@@ -304,7 +327,8 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     if (!was) { was = true; acc = 1; }
     acc += dt; if (acc < 1 / RATE) return; acc = 0;
     const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
-    cam.matrixWorld.decompose(_p, _q, _s); _p.sub(rig.position);   // rig space (the rig only moves, never turns)
+    rig.updateMatrixWorld(); rig.getWorldQuaternion(_riq).invert();
+    cam.matrixWorld.decompose(_p, _q, _s); rig.worldToLocal(_p); _q.premultiply(_riq);   // rig space (#210: the rig can turn, with its spatial anchor)
     const now = performance.now();
     if (getLed) {   // #176: which LED wall clip is playing and where; the phone plays its own copy of the same file
       const L = getLed(), key = (L.on ? 1 : 0) + '|' + (L.name || '');
