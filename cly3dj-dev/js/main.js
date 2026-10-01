@@ -9,6 +9,7 @@ import { setupXR } from './xr.js';
 import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeNeon } from './neon.js';
 import { makeLedWall, LedPlayer, LED } from './ledwall.js';
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose } from './director.js';
+import { RobotAvatar } from './robot.js';
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
@@ -350,12 +351,23 @@ function setLedScale(s) { s = clamp(s, 0.4, 4); ledwall.scale.setScalar(s); if (
 function saveLedScale() { try { localStorage.setItem('vire.ledScale', String(ledwall.scale.x)); } catch (e) {} }
 const led = new LedPlayer(ledwall);
 // #220 DJ CAM: a virtual camera on the LED wall, with an avatar copying the DJ's head and hands (Quest only, no phone)
-const djSet = (() => { try { return { preset: 'front', mirror: true, avatar: true, ...JSON.parse(localStorage.getItem('vire.djcam') || '{}') }; } catch { return { preset: 'front', mirror: true, avatar: true }; } })();
+const djSet = (() => { try { return { preset: 'front', mirror: true, avatar: true, style: 'robot', ...JSON.parse(localStorage.getItem('vire.djcam') || '{}') }; } catch { return { preset: 'front', mirror: true, avatar: true, style: 'robot' }; } })();
 function saveDjSet() { try { localStorage.setItem('vire.djcam', JSON.stringify(djSet)); } catch {} }
-const avatar = CAMERA_ROLE ? null : new Avatar(rig);
 const djcam = CAMERA_ROLE ? null : new DjCam(renderer, rig);
 if (djcam) djcam.preset = CAM_PRESETS[djSet.preset] ? djSet.preset : 'front';
-if (avatar) { avatar.root.visible = djSet.avatar; avatar.load('models/avatar/dirroface.glb').catch(e => { avatar.status = 'failed: ' + e.message; console.warn('avatar not loaded', e); }); }
+// #221 avatar styles: ROBOT (Blender model models/avatar/robot.glb, robot.js, default) or HUMAN (the Ready Player Me GLB, loaded when first picked)
+const avatars = {};
+let avatar = null;
+function useAvatarStyle(st) {
+  if (CAMERA_ROLE) return;
+  if (!avatars[st]) {
+    if (st === 'human') { const a = new Avatar(rig); avatars.human = a; a.load('models/avatar/dirroface.glb').catch(e => { a.status = 'failed: ' + e.message; console.warn('avatar not loaded', e); }); }
+    else { const a = new RobotAvatar(rig); avatars.robot = a; a.load('models/avatar/robot.glb').catch(e => { a.status = 'failed: ' + e.message; console.warn('robot avatar not loaded', e); }); }
+  }
+  for (const a of Object.values(avatars)) a.root.visible = false;
+  avatar = avatars[st]; avatar.root.visible = djSet.avatar;
+}
+useAvatarStyle(djSet.style === 'human' ? 'human' : 'robot');
 // #188 / #195 / #196 camera preview: the spectator phone's picture (small JPEGs, ~6 a second) while grading from the
 // mixer's CAMERA tab. #196 (owner): a thin screen (3 mm) that lives inside the 7 mm tablet and slides up out of its top
 // edge when PREVIEW goes on, and back down inside when it goes off (eased, like the deck lamps). Headset only (noMirror).
@@ -2638,6 +2650,7 @@ async function lightPhone(folder, name) {
 function setDjPreset(k) { djSet.preset = k; if (djcam) djcam.preset = k; saveDjSet(); drawMixScreen(); }
 function setDjMirror(on) { djSet.mirror = on; saveDjSet(); if (ledMode === 'cam') ledwall.userData.setCam(djcam.rt.texture, on); drawMixScreen(); }
 function setDjAvatar(on) { djSet.avatar = on; saveDjSet(); if (avatar) avatar.root.visible = on; drawMixScreen(); }
+function setDjStyle(st) { djSet.style = st; saveDjSet(); useAvatarStyle(st); drawMixScreen(); }
 function drawDjCamTab(btn, y0) {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   const on = ledMode === 'cam';
@@ -2645,8 +2658,9 @@ function drawDjCamTab(btn, y0) {
     ['LED CAM', on, () => setLedMode(on ? 'off' : 'cam')],
     ['MIRROR', djSet.mirror, () => setDjMirror(!djSet.mirror)],
     ['AVATAR', djSet.avatar, () => setDjAvatar(!djSet.avatar)],
+    [djSet.style === 'human' ? 'STYLE: HUMAN' : 'STYLE: ROBOT', false, () => setDjStyle(djSet.style === 'human' ? 'robot' : 'human')],
   ];
-  const per = 3, bw = (W - 16 - (per - 1) * 6) / per;
+  const per = 4, bw = (W - 16 - (per - 1) * 6) / per;
   top.forEach(([label, o, act], i) => btn(8 + i * (bw + 6), y0, bw, 36, label, !!o, act));
   const keys = Object.keys(CAM_PRESETS), pp = P ? 2 : 4, pw = (W - 16 - (pp - 1) * 6) / pp;
   keys.forEach((k, i) => btn(8 + (i % pp) * (pw + 6), y0 + 50 + Math.floor(i / pp) * 42, pw, 36, CAM_PRESETS[k].label, djSet.preset === k, () => setDjPreset(k)));
@@ -3254,7 +3268,7 @@ function djPrep() {   // what the camera must not see: the LED wall itself, XR h
 function stepDjCam(dt) {
   const gear = djGear(), xrOn = renderer.xr.isPresenting;
   const pose = xrOn ? xrPose(renderer, xr && xr.inputs) : demoPose(rig, gear, (performance.now() - _djT0) / 1000);
-  if (avatar && avatar.ready && avatar.root.visible) {
+  if (avatar && avatar.ready && avatar.root.visible) {   // #221 robot or human
     try { avatar.update({ ...pose, floorY: rig.getWorldPosition(_djFloor).y, mic: micLevel(), dt }); }
     catch (e) { if (!stepDjCam.err) { stepDjCam.err = true; console.error(e); toast('Avatar error (headset keeps running): ' + e.message, 5000); } }
   }
@@ -3581,7 +3595,7 @@ applyEnv();
 if (!CAMERA_ROLE) loadLibrary();
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, avatar, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
