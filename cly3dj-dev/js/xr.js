@@ -17,8 +17,11 @@ const PITCH_STEP = 0.0005;   // 0.05 % per thumbstick flick
 
 export function setupXR(ctx) {
   const { renderer, scene } = ctx;
-  const cmf = new XRControllerModelFactory();
-  const hmf = new XRHandModelFactory();
+  // #215 controller and hand models ship with the app (vendor/webxr-input-profiles), so nothing is fetched from
+  // cdn.jsdelivr.net: works offline and can't break if the CDN changes. Quest 3/3S, Quest Pro, Quest 2 + hands.
+  const PROF = new URL('../vendor/webxr-input-profiles', import.meta.url).href;   // no trailing slash: motion-controllers adds '/'
+  const cmf = new XRControllerModelFactory().setPath(PROF);
+  const hmf = new XRHandModelFactory().setPath(PROF + '/generic-hand/');
 
   const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
   const tipGeo = new THREE.SphereGeometry(0.006, 12, 8);

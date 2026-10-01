@@ -8,6 +8,7 @@ import { spectatorLink } from './net-link.js';
 import { DeckVideo, vvKey, baseName, VIDEO_EXT } from './videovinyl.js';
 import { makeVirtualSet } from './vset.js';
 import { makeLookMatch } from './lookmatch.js';
+import { makeFixLook } from './fixlook.js';
 import { makePhoneLibrary } from './phonelib.js';
 import { makeFixedCam } from './fixedcam.js';
 import * as media from './medialib.js';
@@ -194,7 +195,7 @@ export function startCamera(ctx) {
   let lastCst = '', fps = 0, fpsN = 0, fpsT = 0, late = 0, lateN = 0, lastXT = 0; const dts = [];
   function sendCst(force) {
     if (!link || !link.isOpen) return;
-    const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession() || fixed.on, cal: cal.ok || !!(fixed.on && fixed.S.err != null), fixed: fixed.on, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, late, auto: autoMsg, look: look.status() };
+    const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession() || fixed.on, cal: cal.ok || !!(fixed.on && fixed.S.err != null), fixed: fixed.on, fcam: fixed.on ? fixed.S.facing : null, fpx: fixed.on && fixed.S.err != null ? +fixed.S.err.toFixed(1) : null, fcal: fixed.on && !!fixed.S.cal, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, late, auto: autoMsg, look: look.status(), FL: flook.state(), flErr };
     const j = JSON.stringify(m); if (force || j !== lastCst) { lastCst = j; link.send('ctl', m); }
   }
   const LIM = { thr: [0, 0.8], soft: [0.02, 0.4], spill: [0, 1], wrap: [0, 1], cmatch: [0, 1], strength: [0, 1], grain: [0, 1] };
@@ -206,6 +207,7 @@ export function startCamera(ctx) {
     else if (m.what === 'matte') { matteOn = !!m.v; vs.setMatte(matteOn); $('#kMatte').checked = matteOn; }
     else if (m.what === 'auto') { await runAuto(); return; }
     else if (m.what === 'preview') pvOn = !!m.v;
+    else if (m.what === 'flook') { flErr = flook.set(m.key, m.v) || ''; }   // #214
     sendCst(true);
   }
   // ---- #188 headset preview: every ~150 ms a 480 px tall copy of what this phone shows, as a JPEG on the 'prev' channel
@@ -249,6 +251,10 @@ export function startCamera(ctx) {
   // #208 fixed camera mode (tripod, no AR): fixedcam.js
   const fixed = makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLink: () => link,
     onChange: () => { $('#spS').style.display = fixed.on ? 'none' : ''; sendCst(true); } });
+  // #214 look without AR (fixed mode): camera grade from the video, 360 photo as light, manual key light; set from the Quest's LOOK tab
+  const flook = makeFixLook({ THREE, scene, key, envLight, look, getVideo: () => fixed.video });
+  flook.onChange = () => sendCst(true);
+  let flErr = '';
   $('#spFix').onclick = async () => { const err = await fixed.start($('#spFixCam').value); if (err) st(err); };
   function fixedPreview(now) {   // the program picture (the canvas just drawn), 480 px on its long side, as a JPEG
     pvT = now; if (pvBusy) return;
@@ -623,6 +629,7 @@ export function startCamera(ctx) {
         ? `${renderer.xr.getSession() ? 'late ' + late + '/s · ' : ''}Quest ${stats.xr ? 'in XR' : 'not in XR yet'} · round trip ${stats.rtt.toFixed(0)} ms · pose age ${stale ? 'no data' : stats.age.toFixed(0) + ' ms'} · ${stats.pps}/s · ${nodes.size} parts · ${recs.size} records` + (cal.ok ? ` · cal ${cal.err ?? '-'} cm` : ' · not calibrated') + (vs.S.on ? ` · set ${vs.S.got}/${vs.S.got + vs.S.miss}` + (vs.S.err ? ' ' + vs.S.err : '') : '')
         : 'Not connected to the Quest (' + (STATUS[linkState] || linkState || 'idle') + ')';
     }
+    flook.sync(fixed.on, fixed.S.facing); flook.frame();   // #214 fixed mode look (grade from the plain video)
     look.frame(frame, dt, vs.S.on);   // #187 (before vs.frame: it asks for the camera sample)
     if (t - lookT > 500) { lookT = t; if (!$('#spLook').hidden) $('#lkSt').textContent = look.status(); }
     vs.S.pvNeed = !!(pvOn && frame && link && link.isOpen && now - pvT > 150);   // #188
@@ -637,5 +644,5 @@ export function startCamera(ctx) {
     } else lastXT = 0;
     fpsN++; if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; late = lateN; lateN = 0; sendCst(); }
   });
-  window.spect = { vs, look, renderPreview, fixed, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
+  window.spect = { vs, look, renderPreview, fixed, flook, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
 }

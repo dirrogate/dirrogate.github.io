@@ -49,7 +49,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
       <span>Step</span><button id="fxStep">fine</button><button id="fxReset">reset view</button>
     </div>
     <div class="bar">
-      <button id="fxCal">Calibrate</button><button id="fxSolve" hidden>Solve</button><button id="fxSkip" hidden>Skip point</button><button id="fxRescan" hidden>New points</button><button id="fxUndo" hidden>Undo mark</button><button id="fxCancel" hidden>Cancel</button>
+      <button id="fxCal">Calibrate</button><button id="fxSolve" hidden>Solve</button><button id="fxSkip" hidden>Skip point</button><button id="fxRescan" hidden>New points</button><button id="fxOwn" hidden>Mark my own</button><button id="fxUndo" hidden>Undo mark</button><button id="fxCancel" hidden>Cancel</button>
       <button id="fxNud">Nudge</button><button id="fxCamB">Main camera</button><button id="fxLock">Lock exposure</button><button id="fxEm">Exp −</button><button id="fxEp">Exp +</button>
       <button id="fxSwap">Swap test</button><button id="fxHide">Hide UI</button><button id="fxExit">Exit</button>
     </div></div><div id="fxTap" hidden></div>`);
@@ -112,7 +112,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     scene.background = tex; room.visible = false; scene.environmentIntensity = 0.6;
     rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0); rig.visible = true;   // fixed mode works in the Quest's rig space directly
     S.on = true; ov.hidden = false; ov.classList.remove('hide');
-    say(S.pose && loadPose(facing) ? '' : 'Not calibrated yet: press Calibrate (taps).');
+    say(S.pose && loadPose(facing) ? '' : 'Not calibrated yet: press Calibrate.');
     onChange && onChange();
     return '';
   }
@@ -249,13 +249,38 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
   }
   function calStart() {
     if (!link()) { say('Connect to the Quest first (the controller touches the points).'); return; }
-    S.cal = { pix: [], pts: [], wait: 'tap', auto: null, spare: [], i: 0 }; clearMarks(); tap.hidden = false;
+    S.cal = { pix: [], pts: [], wait: 'lens', lens: null, auto: null, spare: [], i: 0 }; clearMarks(); tap.hidden = false;
     const d = detect();
-    if (d && d.pick.length >= 4) { Object.assign(S.cal, { auto: d.pick, spare: d.spare, minD: d.minD }); askPoint(); return; }
-    ui(); say('Not enough sharp corners in the picture: tap mark 1 on the screen yourself.');
+    if (d && d.pick.length >= 4) Object.assign(S.cal, { auto: d.pick, spare: d.spare, minD: d.minD });
+    drawAuto(); askLens();
+  }
+  // #213 step 1: the controller tip on the phone's own camera lens. That fixes where the camera is, so the points
+  // only have to find its direction and zoom: far steadier than points alone (4 points can fit a wrong pose closely).
+  function askLens() {
+    const C = S.cal, l = link(); if (!C || !l) return;
+    C.wait = 'lens'; mag.hidden = true;
+    l.send('ctl', { k: 'cal', step: 'flens', cam: S.facing });
+    say(`Step 1: touch the phone's ${S.facing === 'user' ? 'FRONT (selfie)' : 'BACK (main)'} camera lens with the controller tip and pull the trigger. Skip if you can't reach it.`);
+    ui();
+  }
+  function afterLens() {
+    const C = S.cal; if (!C) return;
+    if (C.auto) { askPoint(); return; }
+    C.wait = 'tap'; const l = link(); if (l) l.send('ctl', { k: 'cal', step: 'hold' });
+    say(`Mark ${C.pix.length + 1}: tap a sharp real corner on the screen.`); ui();
+  }
+  function calOwn() {   // #213 switch to marking your own points (tap on the phone, then touch with the controller)
+    const C = S.cal; if (!C) return;
+    if (C.auto) { C.auto = null; mag.hidden = true; }
+    if (C.wait === 'lens') { ui(); say('Own points: first touch the lens (or Skip), then tap each mark.'); return; }
+    if (C.pix.length > C.pts.length) C.pix.pop();   // a tapped mark not yet touched
+    C.wait = 'tap'; const l = link(); if (l) l.send('ctl', { k: 'cal', step: 'hold' });
+    clearMarks(); C.pix.forEach(([x, y], i) => markAt(x, y, i + 1));
+    say(`Own points: tap mark ${C.pix.length + 1} on the screen (a sharp real corner), then touch it with the controller tip.`); ui();
   }
   function calRescan() {
     const C = S.cal; if (!C) return;
+    if (C.wait === 'lens') { const d = detect(); if (d && d.pick.length >= 4) Object.assign(C, { auto: d.pick, spare: d.spare, minD: d.minD }); drawAuto(); ui(); return; }
     const d = detect(); if (!d || d.pick.length < 4) { say('Still not enough sharp corners: tap the marks yourself.'); C.auto = null; C.wait = 'tap'; mag.hidden = true; drawAuto(); ui(); return; }
     // keep the points already touched, add new ones (away from them) after them
     const keep = C.auto ? C.auto.slice(0, C.i) : C.pix.map(([x, y]) => ({ x, y }));
@@ -264,7 +289,8 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     askPoint();
   }
   function calSkip() {   // swap the current point for the best spare corner away from the others
-    const C = S.cal; if (!C || !C.auto || C.i >= C.auto.length) return false;
+    const C = S.cal; if (C && C.wait === 'lens') { C.lens = null; afterLens(); return true; }   // #213 no lens touch
+    if (!C || !C.auto || C.i >= C.auto.length) return false;
     const others = C.auto.filter((_, j) => j !== C.i), diag = Math.hypot(S.crop.w, S.crop.h);
     C.spare = C.spare.filter(p => p !== C.auto[C.i]);
     let best = null, bs = 0;
@@ -274,7 +300,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     askPoint(); return true;
   }
   tap.addEventListener('pointerdown', e => {
-    const C = S.cal, c = S.crop; if (!C || !c) return;
+    const C = S.cal, c = S.crop; if (!C || !c || C.wait === 'lens') return;
     const vx = c.x + e.clientX / c.s, vy = c.y + e.clientY / c.s;
     if (C.auto) {   // move the current point here, snapped to the sharpest corner within about 25 screen px
       if (C.i >= C.auto.length) return;
@@ -287,7 +313,9 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     say(`Mark ${n}: now touch it with the controller tip and pull the trigger.`); ui();
   });
   function onCalPoint(m) {   // the controller tip on the point, from the Quest (rig space)
-    const C = S.cal; if (!C || C.wait !== 'touch') return false;
+    const C = S.cal; if (!C) return false;
+    if (C.wait === 'lens') { C.lens = m.p.slice(0, 3); afterLens(); return true; }   // #213
+    if (C.wait !== 'touch') return false;
     if (C.auto) { const p = C.auto[C.i]; C.pix.push([p.x, p.y]); C.pts.push(m.p.slice(0, 3)); C.i++; askPoint(); return true; }
     C.pts.push(m.p.slice(0, 3)); C.wait = 'tap';
     const n = C.pts.length;
@@ -296,7 +324,9 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
   }
   function calUndo() {
     const C = S.cal; if (!C) return;
-    if (C.auto) { if (C.i > 0) { C.i--; C.pix.pop(); C.pts.pop(); } askPoint(); return; }
+    if (C.wait === 'lens') return;
+    if (C.auto) { if (C.i > 0) { C.i--; C.pix.pop(); C.pts.pop(); askPoint(); } else askLens(); return; }
+    if (!C.pix.length) { askLens(); return; }
     if (C.wait === 'touch') { C.pix.pop(); } else if (C.pts.length) { C.pts.pop(); C.pix.pop(); }
     C.wait = 'tap'; const l = link(); if (l) l.send('ctl', { k: 'cal', step: 'cancel' });
     clearMarks(); C.pix.forEach(([x, y], i) => markAt(x, y, i + 1));
@@ -308,19 +338,29 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
   }
   function calSolve() {
     const C = S.cal; if (!C || C.pts.length < 4) return;
-    const pix = C.pix.slice(0, C.pts.length);
-    const r = solvePose(C.pts, pix, S.vw, S.vh);
-    if (!r) { say('Could not solve: check the marks are spread out and tapped in the same order.'); return; }
+    let pts = C.pts.slice(), pix = C.pix.slice(0, C.pts.length), dropped = 0;
+    say('Solving…');
+    let r = solvePose(pts, pix, S.vw, S.vh, C.lens);
+    if (!r) { say('Could not solve: check the points are spread out and touched in the same order.'); return; }
+    // #213 one bad touch (wrong corner, a point on something that moved) pulls the whole fit: with 6+ points, leave
+    // each out in turn; if one stands out, drop it
+    if (pts.length >= (C.lens ? 5 : 7) && r.rms > 2) {   // without the lens, 5-6 points always fit tighter with one left out: don't trust that
+      let best = null, bi = -1;
+      for (let i = 0; i < pts.length; i++) { const q = solvePose(pts.filter((_, j) => j !== i), pix.filter((_, j) => j !== i), S.vw, S.vh, C.lens); if (q && (!best || q.rms < best.rms)) { best = q; bi = i; } }
+      if (best && best.rms < r.rms * 0.45) { dropped = bi + 1; pts = pts.filter((_, j) => j !== bi); pix = pix.filter((_, j) => j !== bi); r = best; }
+    }
     S.pose = r.pose; S.err = r.rms; savePose();
     tap.hidden = true; S.cal = null; clearMarks(); mag.hidden = true;
     frame();
     // show where the solved camera puts each mark (green squares) against the taps (yellow rings)
     pix.forEach(([x, y], i) => markAt(x, y, i + 1)); r.proj.forEach(([x, y]) => markAt(x, y, '', true));
     setTimeout(clearMarks, 8000);
-    const px = Math.round(r.rms * 10) / 10;
+    const px = Math.round(r.rms * 10) / 10, lensCm = C.lens ? Math.round(Math.hypot(...r.pose.p.map((v, k) => v - C.lens[k])) * 1000) / 10 : null;
     const l = link(); if (l) l.send('ctl', { k: 'cal', step: 'done', px });
-    say(`Calibrated: points match within ${px} px` + (r.rms > 6 ? ' (high: redo; touch the exact corner of each point).' : '. Fine-tune with Nudge if needed.'));
-    setTimeout(() => { if (!S.cal) say(''); }, 8000);
+    const weak = !C.lens && pts.length < 6;
+    say(`Calibrated: points match within ${px} px` + (lensCm != null ? `, lens ${lensCm} cm from your touch` : '') + (dropped ? ` (point ${dropped} didn't fit and was left out)` : '')
+      + (r.rms > 6 || (lensCm != null && lensCm > 4) ? '. High: redo; touch the exact corner of each point.' : weak ? '. Only ' + pts.length + ' points and no lens touch: check the blue outline in the headset sits on the phone, else redo with the lens touch.' : '. Fine-tune with Nudge if needed.'));
+    setTimeout(() => { if (!S.cal) say(''); }, 12000);
     ui();
   }
 
@@ -385,7 +425,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
 
   // ---------------------------------------------------------------- buttons / info
   $('#fxCal').onclick = calStart; $('#fxSolve').onclick = calSolve; $('#fxUndo').onclick = calUndo; $('#fxCancel').onclick = calCancel;
-  $('#fxSkip').onclick = calSkip; $('#fxRescan').onclick = calRescan;
+  $('#fxSkip').onclick = calSkip; $('#fxRescan').onclick = calRescan; $('#fxOwn').onclick = calOwn;
   $('#fxNud').onclick = () => { const n = $('#fxNudge'); n.hidden = !n.hidden; ui(); };
   $('#fxCamB').onclick = switchCam; $('#fxLock').onclick = () => setLock(!S.lock);
   $('#fxEm').onclick = () => expStep(-1); $('#fxEp').onclick = () => expStep(1);
@@ -396,7 +436,8 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
   function ui() {
     const C = S.cal;
     $('#fxCal').hidden = !!C; for (const id of ['#fxSolve', '#fxUndo', '#fxCancel']) $(id).hidden = !C;
-    $('#fxSkip').hidden = !(C && C.auto); $('#fxRescan').hidden = !C;
+    $('#fxSkip').hidden = !(C && (C.auto || C.wait === 'lens')); $('#fxRescan').hidden = !C; $('#fxOwn').hidden = !(C && C.auto);
+    $('#fxSkip').textContent = C && C.wait === 'lens' ? 'Skip lens' : 'Skip point';
     if (C) { $('#fxSolve').disabled = C.pts.length < 4; $('#fxUndo').disabled = !C.pix.length; }
     $('#fxNud').classList.toggle('on', !$('#fxNudge').hidden); $('#fxLock').classList.toggle('on', S.lock);
     $('#fxLock').textContent = S.lock ? 'Exposure locked' : 'Lock exposure';
@@ -408,15 +449,19 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     $('#fxInfo').textContent = `${S.facing === 'user' ? 'selfie' : 'main'} ${S.vw}x${S.vh}` + (P ? ` · zoom ${P.fov.toFixed(1)}°` : '') + (S.err != null ? ` · cal ${S.err.toFixed(1)} px` : ' · not calibrated')
       + (ec != null ? ` · exp ${ec > 0 ? '+' : ''}${(+ec).toFixed(1)}` : '') + (S.swap ? ` · swap ${S.swap}` : '') + (extra ? ' · ' + extra : '');
   }
-  return { S, start, stop, frame, camState, onCalPoint, calSkip, calStart, calRescan, detect, info, get on() { return S.on; } };
+  return { S, video, start, stop, frame, camState, onCalPoint, calSkip, calStart, calRescan, detect, info, get on() { return S.on; } };
 }
 
 // ---------------------------------------------------------------- pose solve
 // Pinhole camera, principal point at the image centre, square pixels, no lens distortion. Unknowns: position (3),
 // yaw / pitch / roll (Euler YXZ, camera looks down its -Z), focal length (as log). Levenberg-Marquardt on the pixel
 // error, from many starting guesses round the marks; the best fit wins. pts: [[x,y,z]] rig space, pix: [[u,v]] video px.
-export function solvePose(pts, pix, W, H) {
-  const N = pts.length; if (N < 4) return null;
+// lens (optional, #213): the controller tip on the phone's lens, rig space: a soft prior on the camera position
+// (weight LENS_W px per metre: 1 cm off costs like 6 px), so 4 points are enough and the pose can't drift away.
+const LENS_W = 600;
+export function solvePose(pts, pix, W, H, lens) {
+  const N = pts.length; if (N < (lens ? 3 : 4)) return null;
+  const NR = 2 * N + (lens ? 3 : 0);
   const cx = W / 2, cy = H / 2;
   function project(x, P, out) {   // x = [px,py,pz,yaw,pitch,roll,logf]
     const [px, py, pz, yaw, pitch, roll, lf] = x, f = Math.exp(lf);
@@ -431,14 +476,18 @@ export function solvePose(pts, pix, W, H) {
     out[0] = cx + f * X / -Z; out[1] = cy - f * Y / -Z; return true;
   }
   const o = [0, 0];
-  function resid(x, r) { let s = 0; for (let i = 0; i < N; i++) { project(x, pts[i], o); r[2 * i] = o[0] - pix[i][0]; r[2 * i + 1] = o[1] - pix[i][1]; s += r[2 * i] ** 2 + r[2 * i + 1] ** 2; } return s; }
+  function resid(x, r) {
+    let s = 0; for (let i = 0; i < N; i++) { project(x, pts[i], o); r[2 * i] = o[0] - pix[i][0]; r[2 * i + 1] = o[1] - pix[i][1]; s += r[2 * i] ** 2 + r[2 * i + 1] ** 2; }
+    if (lens) for (let k = 0; k < 3; k++) { const v = (x[k] - lens[k]) * LENS_W; r[2 * N + k] = v; s += v * v; }
+    return s;
+  }
   function lm(x0) {
-    let x = x0.slice(), r = new Float64Array(2 * N), r2 = new Float64Array(2 * N), cost = resid(x, r), lam = 1e-3;
-    const J = Array.from({ length: 2 * N }, () => new Float64Array(7));
+    let x = x0.slice(), r = new Float64Array(NR), r2 = new Float64Array(NR), cost = resid(x, r), lam = 1e-3;
+    const J = Array.from({ length: NR }, () => new Float64Array(7));
     for (let it = 0; it < 60; it++) {
-      for (let j = 0; j < 7; j++) { const h = j < 3 ? 1e-4 : 1e-5, xs = x.slice(); xs[j] += h; resid(xs, r2); for (let i = 0; i < 2 * N; i++) J[i][j] = (r2[i] - r[i]) / h; }
+      for (let j = 0; j < 7; j++) { const h = j < 3 ? 1e-4 : 1e-5, xs = x.slice(); xs[j] += h; resid(xs, r2); for (let i = 0; i < NR; i++) J[i][j] = (r2[i] - r[i]) / h; }
       const A = Array.from({ length: 7 }, () => new Float64Array(7)), g = new Float64Array(7);
-      for (let i = 0; i < 2 * N; i++) for (let a = 0; a < 7; a++) { g[a] += J[i][a] * r[i]; for (let b = 0; b < 7; b++) A[a][b] += J[i][a] * J[i][b]; }
+      for (let i = 0; i < NR; i++) for (let a = 0; a < 7; a++) { g[a] += J[i][a] * r[i]; for (let b = 0; b < 7; b++) A[a][b] += J[i][a] * J[i][b]; }
       let improved = false;
       for (let tries = 0; tries < 8 && !improved; tries++) {
         const M = A.map((row, a) => { const rr = Array.from(row); rr[a] *= 1 + lam; rr[a] += 1e-9; return rr; });
@@ -453,7 +502,12 @@ export function solvePose(pts, pix, W, H) {
   // starting guesses: around the marks' centre, several directions, heights, distances and zooms
   const c = [0, 0, 0]; for (const p of pts) for (let k = 0; k < 3; k++) c[k] += p[k] / N;
   let best = null;
-  for (const dist of [1.2, 2.2, 3.5]) for (const elev of [10, 30, 55]) for (let az = 0; az < 360; az += 30) for (const fovV of [45, 70]) {
+  if (lens) for (const fovV of [35, 50, 65, 80]) for (const roll of [0, Math.PI / 2, -Math.PI / 2]) {   // camera at the lens, looking at the points
+    const d = [c[0] - lens[0], c[1] - lens[1], c[2] - lens[2]], yaw = Math.atan2(-d[0], -d[2]), pitch = Math.atan2(d[1], Math.hypot(d[0], d[2]));
+    const r = lm([lens[0], lens[1], lens[2], yaw, pitch, roll, Math.log((H / 2) / Math.tan(fovV * Math.PI / 360))]);
+    if (!best || r.cost < best.cost) best = r;
+  }
+  else for (const dist of [1.2, 2.2, 3.5]) for (const elev of [10, 30, 55]) for (let az = 0; az < 360; az += 30) for (const fovV of [45, 70]) {
     const a = az * Math.PI / 180, e = elev * Math.PI / 180;
     const C = [c[0] + Math.sin(a) * Math.cos(e) * dist, c[1] + Math.sin(e) * dist, c[2] + Math.cos(a) * Math.cos(e) * dist];
     const d = [c[0] - C[0], c[1] - C[1], c[2] - C[2]], yaw = Math.atan2(-d[0], -d[2]), pitch = Math.atan2(d[1], Math.hypot(d[0], d[2]));
@@ -462,7 +516,8 @@ export function solvePose(pts, pix, W, H) {
     if (!best || r.cost < best.cost) best = r;
   }
   if (!best || !isFinite(best.cost)) return null;
-  const x = best.x, rms = Math.sqrt(best.cost / N), f = Math.exp(x[6]), fov = 2 * Math.atan((H / 2) / f) * 180 / Math.PI;
+  let pc = 0; { const rr = new Float64Array(NR); resid(best.x, rr); for (let i = 0; i < 2 * N; i++) pc += rr[i] * rr[i]; }   // pixel part only
+  const x = best.x, rms = Math.sqrt(pc / N), f = Math.exp(x[6]), fov = 2 * Math.atan((H / 2) / f) * 180 / Math.PI;
   if (rms > 500 || !(fov > 5 && fov < 150)) return null;
   const proj = pts.map(p => { const out = [0, 0]; project(x, p, out); return out; });
   return { pose: { p: [x[0], x[1], x[2]].map(v => +v.toFixed(4)), e: [x[3], x[4], x[5]], fov: +fov.toFixed(3) }, rms, proj };

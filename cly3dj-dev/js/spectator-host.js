@@ -129,7 +129,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   }
   for (const i of [0, 1]) renderer.xr.getController(i).addEventListener('selectstart', () => onTrigger(i));
   for (const i of [0, 1]) renderer.xr.getController(i).addEventListener('squeezestart', () => {   // #211 grip = skip this auto point
-    if (calStep === 'pt' && ipanel.visible && link.isOpen) link.send('ctl', { k: 'calskip' });
+    if ((calStep === 'flens' || (calStep === 'pt' && ipanel.visible)) && link.isOpen) link.send('ctl', { k: 'calskip' });
   });
 
 
@@ -338,6 +338,12 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }
       else if (m.k === 'cal') {
         if (m.step === 'lens' || m.step === 'x') { calStep = m.step; showImg(null); say(CAL_TEXT[m.step]); toast && toast(CAL_TEXT[m.step].slice(1).join(' '), 6000); }
+        else if (m.step === 'flens') {   // #213 fixed camera step 1: the phone's own lens
+          calStep = 'flens'; ghost(true); showImg(null);
+          const t = ['Fixed camera calibration', `Touch the phone's ${m.cam === 'user' ? 'FRONT (selfie)' : 'BACK (main)'} LENS`, 'with the controller tip, pull the trigger.', 'Grip = skip this step.'];
+          say(t); toast && toast(t.slice(1).join(' '), 6000);
+        }
+        else if (m.step === 'hold') { calStep = null; panel.visible = false; showImg(null); }   // #213 phone is waiting for a tap; gear stays hidden
         else if (m.step === 'pt') {   // #208 fixed camera tap calibration: one numbered mark at a time
           calStep = 'pt';
           const t = m.img ? ['Fixed camera calibration', `Touch POINT ${m.n} of ${m.of} (yellow, below)`, 'with the controller tip, pull the trigger.', 'Grip = skip this point.']

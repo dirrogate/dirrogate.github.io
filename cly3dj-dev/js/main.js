@@ -2422,9 +2422,9 @@ const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set whil
 // page; pick one, then where it goes (sky, a deck's VideoVinyl, the LED wall). LED WALL mode lives here too now.
 let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null;
 const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
-const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA', Sync: 'SYNC' };
+const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA', Sync: 'SYNC', Look: 'LOOK' };
 async function vpLoad() {
-  if (vpFolder === 'Camera') { vpItems = []; drawMixScreen(); return; }
+  if (vpFolder === 'Camera' || vpFolder === 'Look') { vpItems = []; drawMixScreen(); return; }
   if (vpFolder === 'Sync') { vpItems = []; syncLoad(); return; }   // #206
   vpItems = await media.list(vpFolder);
   if (vpSel && !vpItems.some(i => i.name === vpSel)) vpSel = null;
@@ -2441,6 +2441,7 @@ function setVideoPage(on) { videoPage = on; if (on) vpLoad(); drawMixScreen(); }
 async function vpAct(what) {
   const name = vpSel; if (!name) { toast('Pick a thumbnail first'); return; }
   if (what === 'sky') return useSkyMedia(vpFolder, name).catch(e => toast('Sky: ' + e.message, 4000));
+  if (what === 'light') return lightPhone(vpFolder, name);   // #214
   if (what === 'skyoff') { settings.sky = 'off'; saveSettings(); syncSettingsUI(); applySky(); drawMixScreen(); return; }
   const f = await media.getFile(vpFolder, name); if (!f) return;
   if (what === 'deckA' || what === 'deckB') {
@@ -2507,8 +2508,9 @@ function drawCamTab(btn, y0) {
   g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = cs ? '#8c96a8' : '#c9a040';
   const pcTxt = perf.on ? `PERFCAP ${fmt((Date.now() - perf.P.wall) / 1000)} · ${perf.P.bytes < 1048576 ? Math.round(perf.P.bytes / 1024) + ' KB' : (perf.P.bytes / 1048576).toFixed(1) + ' MB'} · ` : '';   // #209
   const stTxt = pcTxt + (!cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone and start its camera.'
+    : cs.fixed ? `Phone ${cs.fps} fps · fixed camera (${cs.fcam === 'user' ? 'selfie' : 'main'}) · ${cs.fcal ? 'calibrating' : cs.cal ? 'calibrated' + (cs.fpx != null ? ' ' + cs.fpx + ' px' : '') : 'not calibrated: Calibrate on the phone'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : '')   // #213
     : `Phone ${cs.fps} fps${cs.late ? ` (${cs.late} late/s)` : ''} · ${cs.ar ? 'camera on' : 'camera not started'} · ${cs.cal ? 'calibrated' : 'not calibrated'}${cs.can ? '' : ' · no camera access'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : ''));
-  const extra = cs ? [cs.auto, cs.look].filter(Boolean).join(' · ') : '';
+  const extra = cs ? (cs.fixed ? 'Fixed camera: look match / key are AR-only for now' : [cs.auto, cs.look].filter(Boolean).join(' · ')) : '';
   if (P) {   // portrait: the status lines wrap under the steppers
     let y = ry + CAM_ROWS.flat().length * 42 + 24;
     y += wrapText(g, stTxt, 12, y, W - 24, 20, 5) * 20 + 8;
@@ -2517,6 +2519,67 @@ function drawCamTab(btn, y0) {
   }
   fitText2(g, stTxt, 12, H - 30, W - 24);
   if (extra) { g.fillStyle = '#56627a'; g.font = '500 13px system-ui'; fitText2(g, extra, 12, H - 10, W - 24); }
+}
+// ---- #214 LOOK tab (VIDEO page): the fixed-camera phone's look without AR, changed from here while the PREVIEW
+// pop-up shows the phone's picture. Grade / grain (camera grade from the plain video), ambient level, the 360 light
+// photo (pick it in the PANO tab, LIGHT PHONE: copied to the phone if it hasn't got it) and the key light by hand.
+// The phone saves it all per camera (main / selfie) and reports back (cst.FL), so this page shows its real values.
+const LOOK_ROWS = [
+  [['Grade', 'strength', 0.05, 'pct'], ['Grain', 'grain', 0.05, 'pct'], ['Ambient', 'amb', 0.05, 'x'], ['Photo turn', 'envTurn', 15, 'deg']],
+  [['Light turn', 'kTurn', 15, 'deg'], ['Light height', 'kHeight', 5, 'deg'], ['Light power', 'kInt', 0.1, 'x'], ['Light colour', 'kTemp', 250, 'K']],
+];
+let lightBusy = '';
+async function lightPhone(folder, name) {
+  const cs = spect && spect.cam;
+  if (!cs || !cs.fixed) { toast('Start Fixed camera on the phone first (the light belongs to its camera)', 3500); return; }
+  if (!spect.syncCopy) return;
+  lightBusy = name; drawMixScreen(); toast(`Sending ${name} to the phone…`, 2500);
+  let res = null;
+  try { res = await spect.syncCopy([{ f: folder, n: name, q: true, p: false }], st => { lightBusy = `${name} ${st.pct || 0}%`; if (videoPage) drawMixScreen(); }); }
+  catch (e) { res = { err: e.message }; }
+  lightBusy = '';
+  if (res && res.err) { toast('LIGHT PHONE: ' + res.err, 4000); drawMixScreen(); return; }
+  spect.camSet({ what: 'flook', key: 'env', v: folder + '/' + name });
+  toast(`Phone lit by ${name}: turn it with PHOTO TURN to match the room`, 3500);
+  vpFolder = 'Look'; vpLoad();
+}
+function drawLookTab(btn, y0) {
+  const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
+  const cs = spect && spect.cam, F = cs && cs.FL, dim = !F;
+  const send = (key, v) => { if (spect && spect.camSet) spect.camSet({ what: 'flook', key, v }); };
+  const top = [
+    ['LOOK', F && F.on, () => send('on', !F.on)],
+    ['PREVIEW', pvWanted, () => setPreview(!pvWanted)],
+    ['PHOTO KEY', false, () => send('keyFromPano', true), !(F && F.envOK)],
+    ['PHOTO OFF', false, () => send('env', ''), !(F && F.env)],
+    ['RESET', false, () => send('reset', true)],
+  ];
+  const per = P ? 3 : 5, bw = (W - 16 - (per - 1) * 6) / per;
+  top.forEach(([label, on, act, off], i) => {
+    const d = (dim && label !== 'PREVIEW') || off;
+    btn(8 + (i % per) * (bw + 6), y0 + Math.floor(i / per) * 42, bw, 36, label, !!on, d ? null : act, d);
+  });
+  const cols = P ? [LOOK_ROWS.flat()] : LOOK_ROWS, colW = P ? W - 16 : (W - 24) / 2, ry = y0 + (P ? 92 : 46);
+  const fmtV = (k, v, u) => v == null ? '--' : u === 'pct' ? Math.round(v * 100) + '%' : u === 'deg' ? Math.round(v) + '°' : u === 'K' ? (F && F.kRGB ? 'photo' : Math.round(v) + 'K') : (+v).toFixed(2);
+  cols.forEach((col, ci) => col.forEach(([label, key, step, u], ri) => {
+    const cx = 8 + ci * (colW + 8), cy = ry + ri * 42, v = F ? F[key] : null, off = dim || (key === 'envTurn' && !F.env);
+    g.fillStyle = '#0d1422'; g.fillRect(cx, cy, colW, 36);
+    g.fillStyle = off ? '#56627a' : '#dfe6f2'; g.font = P ? '600 15px system-ui' : '600 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    g.fillText(label, cx + 10, cy + 19);
+    g.textAlign = 'right'; g.fillStyle = off ? '#56627a' : '#fff'; g.font = P ? '700 15px ui-monospace, monospace' : '700 18px ui-monospace, monospace';
+    g.fillText(fmtV(key, v, u), cx + colW - 106, cy + 19); g.textBaseline = 'alphabetic';
+    const bump = d => () => { const nv = Math.round((v + d) * 1000) / 1000; F[key] = nv; if (key === 'kTemp') F.kRGB = null; send(key, nv); drawMixScreen(); };
+    btn(cx + colW - 100, cy + 2, 44, 32, '−', false, off ? null : bump(-step), off);
+    btn(cx + colW - 50, cy + 2, 44, 32, '+', false, off ? null : bump(step), off);
+  }));
+  const rows = P ? LOOK_ROWS.flat().length : LOOK_ROWS[0].length;
+  let y = ry + rows * 42 + (P ? 22 : 14);
+  g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = F ? '#8c96a8' : '#c9a040';
+  const photo = F ? (F.env ? (F.envOK ? F.env.split('/').pop() : (F.envMsg || 'loading…')) : 'none (PANO tab: pick one, LIGHT PHONE)') : '';
+  const txt = !cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone.'
+    : !F ? 'Start Fixed camera on the phone (tripod mode): this page sets its look. AR mode uses the CAMERA tab.'
+    : `${F.cam === 'user' ? 'Selfie' : 'Main'} camera (saved for it) · 360 light photo: ${photo}` + (lightBusy ? ` · sending ${lightBusy}` : '') + (cs.flErr ? ' · ' + cs.flErr : '');
+  if (P) wrapText(g, txt, 12, y, W - 24, 20, 5); else { wrapText(g, txt, 12, y, W - 24, 20, 2); }
 }
 // ---- #206 SYNC tab (VIDEO page): both libraries side by side (Quest and phone), pick items, COPY puts each one on the
 // side that doesn't have it. Only adds (spectator-host.js syncList / syncCopy); a name on both sides is left alone.
@@ -2602,17 +2665,18 @@ function drawVideoPage() {
   };
   const pick = f => () => { vpFolder = f; vpSel = null; vpPg = 0; vpLoad(); };
   if (P) {   // #198 portrait: tabs in rows of 3 (#206: 3 rows, SYNC added, MIXER last); top and bottom keep clear of the corner L
-    const tabs = [...media.FOLDERS, 'Camera', 'Sync'], tw = (W - 30 - 12) / 3;
+    const tabs = [...media.FOLDERS, 'Camera', 'Sync', 'Look'], tw = (W - 30 - 12) / 3;   // #214 LOOK
     tabs.forEach((f, i) => btn(22 + (i % 3) * (tw + 6), 28 + Math.floor(i / 3) * 40, tw, 34, VP_TABS[f], f === vpFolder, pick(f)));
-    btn(22, 108, tw, 34, 'MIXER', false, () => setVideoPage(false));
+    btn(22 + (tw + 6), 108, tw, 34, 'MIXER', false, () => setVideoPage(false));
   } else {
-    let x = 8;
-    for (const f of [...media.FOLDERS, 'Camera', 'Sync']) { const w = f === 'Video pano' ? 140 : f === 'Camera' ? 104 : f === 'Sync' ? 84 : 96; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
+    let x = 8;   // #214 seven tabs fit left of MIXER
+    for (const f of [...media.FOLDERS, 'Camera', 'Sync', 'Look']) { const w = { Pano: 80, 'Video pano': 118, Video: 80, Images: 86, Camera: 96, Sync: 70, Look: 70 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
     btn(W - 8 - 100, 8, 100, 32, 'MIXER', false, () => setVideoPage(false));
   }
   const y0 = P ? 152 : 48;
   if (vpFolder === 'Camera') { drawCamTab(btn, y0); return; }
   if (vpFolder === 'Sync') { drawSyncTab(btn, y0); return; }   // #206
+  if (vpFolder === 'Look') { drawLookTab(btn, y0); return; }   // #214
   // thumbnails: 4 x 2 (portrait 2 x 6)
   const COLS = P ? 2 : 4, CW = (W - 16 - (COLS - 1) * 8) / COLS, TH = P ? 64 : 76, CH = TH + 20;
   const pages = Math.max(1, Math.ceil(vpItems.length / PER)); vpPg = Math.min(vpPg, pages - 1);
@@ -2642,7 +2706,7 @@ function drawVideoPage() {
   const by = P ? H - 62 : H - 44, bh = 36, bx = P ? 26 : 8;
   btn(bx, by, 44, bh, '‹', false, () => { vpPg = Math.max(0, vpPg - 1); drawMixScreen(); }, vpPg === 0);
   btn(bx + 48, by, 44, bh, '›', false, () => { vpPg = Math.min(pages - 1, vpPg + 1); drawMixScreen(); }, vpPg >= pages - 1);
-  const T = { Pano: [['SKY', 'sky'], ['SKY OFF', 'skyoff']], 'Video pano': [['SKY', 'sky'], ['SKY OFF', 'skyoff']],
+  const T = { Pano: [['SKY', 'sky'], ['SKY OFF', 'skyoff'], ['LIGHT PHONE', 'light']], 'Video pano': [['SKY', 'sky'], ['SKY OFF', 'skyoff']],
     Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['LED NOW', 'lednow'], ['+ LED', 'ledadd']], Images: [['LED NOW', 'lednow'], ['+ LED', 'ledadd']] }[vpFolder];
   const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : 98, ty = P ? H - 106 : by;
   let x = P ? 8 : 108;
