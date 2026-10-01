@@ -83,6 +83,41 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     frustum.geometry.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
   }
 
+  // ---- #212 while the phone's point calibration runs, the gear is hidden in the headset too (only faint cyan boxes
+  // round each piece), so real corners under the virtual decks / case can be seen and touched. Back when it ends.
+  const gLine = new THREE.LineBasicMaterial({ color: 0x39e0ff, transparent: true, opacity: 0.25, depthTest: false, depthWrite: false });
+  let ghosted = false, gOut = [];
+  const _gm = new THREE.Matrix4(), _gm2 = new THREE.Matrix4(), _gb = new THREE.Box3(), _gs = new THREE.Vector3(), _gc = new THREE.Vector3();
+  function ghost(on) {
+    if (on === ghosted) return; ghosted = on;
+    for (const l of gOut) { l.parent && l.parent.remove(l); l.geometry.dispose(); } gOut = [];
+    const seen = new Set();
+    rig.traverse(o => {
+      if (!o.isMesh || !o.material) return;
+      for (const mt of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (seen.has(mt)) continue; seen.add(mt);
+        if (on) { mt.userData.ghost = { c: mt.colorWrite, d: mt.depthWrite }; mt.colorWrite = false; mt.depthWrite = false; }
+        else if (mt.userData.ghost) { mt.colorWrite = mt.userData.ghost.c; mt.depthWrite = mt.userData.ghost.d; delete mt.userData.ghost; }
+      }
+    });
+    if (!on) return;
+    rig.updateMatrixWorld(true);
+    for (const top of rig.children) {   // one box per piece of gear, in its own frame (turns with it)
+      if (!top.visible || top.isLight || top === frustum) continue;
+      const box = new THREE.Box3(), inv = _gm.copy(top.matrixWorld).invert();
+      top.traverse(o => {
+        if (!o.isMesh || !o.visible || !o.geometry || (o.material && o.material.userData.ghost && o.material.userData.ghost.c === false)) return;
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        _gb.copy(o.geometry.boundingBox).applyMatrix4(_gm2.multiplyMatrices(inv, o.matrixWorld)); box.union(_gb);
+      });
+      if (box.isEmpty()) continue;
+      box.getSize(_gs); box.getCenter(_gc);
+      if (Math.max(_gs.x, _gs.y, _gs.z) < 0.02 || Math.max(_gs.x, _gs.y, _gs.z) > 6) continue;   // specks / sky / room shell
+      const l = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(Math.max(_gs.x, 0.002), Math.max(_gs.y, 0.002), Math.max(_gs.z, 0.002))), gLine);
+      l.position.copy(_gc); l.renderOrder = 20; l.raycast = () => {}; top.add(l); gOut.push(l);
+    }
+  }
+
   // ---- calibration: the trigger (or a pinch) marks the tip of whichever hand pressed it
   function onTrigger(i) {
     const st = (getInputs() || [])[i]; if (!st || !st.connected) return;
@@ -295,7 +330,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     onBinary: onBin,
     onState: s => status(s),
     onOpen: () => { link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
-    onClose: () => { if (rx) { rx.abort(); rx = null; } camState = null; onCam && onCam(null); status('disconnected'); calStep = null; panel.visible = false; frustum.visible = false; },
+    onClose: () => { if (rx) { rx.abort(); rx = null; } camState = null; onCam && onCam(null); status('disconnected'); calStep = null; ghost(false); panel.visible = false; frustum.visible = false; },
     onMessage: m => {
       if (m.k === 'qgo' || m.k === 'qok') { resolveWait(m.f, m.n, m.k, m); return; }   // #206 media sync, Quest to phone
       if (m.k[0] === 'm' && m.k !== 'mr') { onMediaMsg(m); return; }   // #185 mls? / mput / mdel (#206 mls / mpullx)
@@ -307,10 +342,10 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
           calStep = 'pt';
           const t = m.img ? ['Fixed camera calibration', `Touch POINT ${m.n} of ${m.of} (yellow, below)`, 'with the controller tip, pull the trigger.', 'Grip = skip this point.']
             : ['Fixed camera calibration', `Touch MARK ${m.n} on the floor`, 'with the controller tip (blue ball),', 'then pull the trigger.'];
-          say(t); showImg(m.img); toast && toast(t.slice(1).join(' '), 6000);
+          ghost(true); say(t); showImg(m.img); toast && toast(t.slice(1).join(' '), 6000);
         }
-        else if (m.step === 'done') { calStep = null; showImg(null); say(['Spectator camera calibrated', m.px != null ? 'Match: ' + m.px + ' px' : m.err != null ? 'Match: ' + m.err + ' cm' : '', 'The blue outline shows what it films.'], '#40d080'); doneT = 3; }
-        else { calStep = null; panel.visible = false; showImg(null); }
+        else if (m.step === 'done') { calStep = null; ghost(false); showImg(null); say(['Spectator camera calibrated', m.px != null ? 'Match: ' + m.px + ' px' : m.err != null ? 'Match: ' + m.err + ' cm' : '', 'The blue outline shows what it films.'], '#40d080'); doneT = 3; }
+        else { calStep = null; ghost(false); panel.visible = false; showImg(null); }
       } else if (m.k === 'cam') {
         setFrustum(m.fov, m.asp); frustum.position.fromArray(m.p); frustum.quaternion.fromArray(m.q); frustum.visible = mr; camT = 0;
       }

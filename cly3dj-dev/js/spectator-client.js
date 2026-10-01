@@ -610,6 +610,7 @@ export function startCamera(ctx) {
     if (deckInst) deckInst.update();
     if (neon.userData.update) neon.userData.update(dt);
     try { stepWallGlow(); stepBlobs(); } catch {}
+    ghost(fixed.on ? !!fixed.S.cal : GHOST.has(mode));   // #212 fixed camera: gear hidden (faint outlines) while calibrating
     if (fixed.on) {   // #208 fixed camera: background crop + camera pose; the Quest's blue outline every 200 ms
       fixed.frame();
       if (link && link.isOpen && t - camT > 200) { camT = t; const c = fixed.camState(); if (c) link.send('state', { k: 'cam', ...c }); }
