@@ -258,6 +258,7 @@ export function startCamera(ctx) {
   // #214 look without AR (fixed mode): camera grade from the video, 360 photo as light, manual key light; set from the Quest's LOOK tab
   const flook = makeFixLook({ THREE, scene, key, envLight, look, getVideo: () => fixed.video });
   flook.onChange = () => sendCst(true);
+  if (ctx.crateRemote) ctx.crateRemote.setAsk(key => { if (link && link.isOpen) link.send('ctl', { k: 'cover?', key }); });   // #218 covers from the Quest
   let flErr = '';
   $('#spFix').onclick = async () => { const err = await fixed.start($('#spFixCam').value); if (err) st(err); };
   function fixedPreview(now) {   // the program picture (the canvas just drawn), 480 px on its long side, as a JPEG
@@ -401,6 +402,10 @@ export function startCamera(ctx) {
     else if (m.k === 'rec') onRec(m);
     else if (m.k === 'renv') onRecEnv(m);
     else if (m.k === 'rart') onRecArt(m);
+    else if (m.k === 'crate') { if (ctx.crateRemote) ctx.crateRemote.onCrate(m); }   // #218 the Quest's crate view
+    else if (m.k === 'cscr') { if (ctx.crateRemote) ctx.crateRemote.onScreen(m); }
+    else if (m.k === 'cover') { if (ctx.crateRemote) ctx.crateRemote.onCover(m); }
+    else if (m.k === 'covhave?') { if (ctx.crateRemote) ctx.crateRemote.coverHave(m.keys || []).then(keys => { if (link && link.isOpen) link.send('ctl', { k: 'covhave', keys }); }); }
     else if (m.k === 'recdel') onRecDel(m.uid);
     else if (m.k === 'calpt') { if (!(fixed.on && fixed.onCalPoint(m))) onCalPoint(m); }   // #208 fixed camera taps first
     else if (m.k === 'calskip') { if (fixed.on) fixed.calSkip(); }   // #211 the Quest's grip skips an auto point
