@@ -9,6 +9,7 @@ import { DeckVideo, vvKey, baseName, VIDEO_EXT } from './videovinyl.js';
 import { makeVirtualSet } from './vset.js';
 import { makeLookMatch } from './lookmatch.js';
 import { makePhoneLibrary } from './phonelib.js';
+import { makeFixedCam } from './fixedcam.js';
 import * as media from './medialib.js';
 
 export function startCamera(ctx) {
@@ -74,7 +75,8 @@ export function startCamera(ctx) {
       <h1>Cly<span>3DJ</span> camera</h1>
       <p>Films the DJ with the virtual gear. On the Quest: Settings, Spectator camera On, then read the code shown there.</p>
       <input id="spCode" inputmode="numeric" maxlength="5" placeholder="00000">
-      <button id="spConnect">Connect</button><button id="spAR" disabled>Start camera (AR)</button><button id="spCamTest">Camera access test (no Quest needed)</button>
+      <button id="spConnect">Connect</button><button id="spAR" disabled>Start camera (AR)</button><button id="spFix" disabled>Fixed camera: tripod, no AR</button>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:8px;color:#8b909a;font-size:14px">Fixed camera uses <select id="spFixCam" style="font:600 14px system-ui;background:#1c2230;color:#e6e8ec;border:1px solid #2e3850;border-radius:8px;padding:6px"><option value="environment">main camera</option><option value="user">selfie camera</option></select></label><button id="spCamTest">Camera access test (no Quest needed)</button>
       <button id="spLibBtn">Library: panoramas, videos, images (push to the Quest)…</button>
       <button id="spPano">Virtual set panorama (same picture as the Quest)…</button><input type="file" id="spPanoF" accept="image/*" hidden>
       <div id="spPanoSt" style="color:#8b909a;font-size:13px;margin-top:6px">For the green-screen virtual set: pick the same 360 picture the Quest shows. Kept on this phone.</div>
@@ -123,7 +125,7 @@ export function startCamera(ctx) {
     link = spectatorLink(code, {
       onStatus: s => { linkState = s; st(STATUS[s] || s); },
       onState: s => { linkState = s; st(STATUS[s] || s); },
-      onOpen: () => { linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; lib.onLinkOpen(); sendCst(true); },
+      onOpen: () => { linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; $('#spFix').disabled = false; lib.onLinkOpen(); sendCst(true); },
       onClose: () => { linkState = 'disconnected'; st(STATUS.disconnected); },
       onMessage: onMsg,
       onBinary: onSyncBin,   // #206 media sync: files from the Quest
@@ -192,7 +194,7 @@ export function startCamera(ctx) {
   let lastCst = '', fps = 0, fpsN = 0, fpsT = 0, late = 0, lateN = 0, lastXT = 0; const dts = [];
   function sendCst(force) {
     if (!link || !link.isOpen) return;
-    const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession(), cal: cal.ok, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, late, auto: autoMsg, look: look.status() };
+    const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession() || fixed.on, cal: cal.ok || !!(fixed.on && fixed.S.err != null), fixed: fixed.on, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, late, auto: autoMsg, look: look.status() };
     const j = JSON.stringify(m); if (force || j !== lastCst) { lastCst = j; link.send('ctl', m); }
   }
   const LIM = { thr: [0, 0.8], soft: [0.02, 0.4], spill: [0, 1], wrap: [0, 1], cmatch: [0, 1], strength: [0, 1], grain: [0, 1] };
@@ -243,6 +245,17 @@ export function startCamera(ctx) {
       g.drawImage(pvCanvas, 0, 0); g.setTransform(1, 0, 0, 1, 0, 0); out = pvTurn;
     }
     out.toBlob(b => { if (!b) { pvBusy = false; return; } b.arrayBuffer().then(buf => { if (link) link.sendPrev(buf); pvBusy = false; }); }, 'image/jpeg', 0.6);
+  }
+  // #208 fixed camera mode (tripod, no AR): fixedcam.js
+  const fixed = makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLink: () => link,
+    onChange: () => { $('#spS').style.display = fixed.on ? 'none' : ''; sendCst(true); } });
+  $('#spFix').onclick = async () => { const err = await fixed.start($('#spFixCam').value); if (err) st(err); };
+  function fixedPreview(now) {   // the program picture (the canvas just drawn), 480 px on its long side, as a JPEG
+    pvT = now; if (pvBusy) return;
+    const c = renderer.domElement, k = 480 / Math.max(c.width, c.height), W = Math.round(c.width * k / 2) * 2, H = Math.round(c.height * k / 2) * 2;
+    if (pvCanvas.width !== W || pvCanvas.height !== H) { pvCanvas.width = W; pvCanvas.height = H; }
+    pvCtx.drawImage(c, 0, 0, W, H); pvBusy = true;
+    pvCanvas.toBlob(b => { if (!b) { pvBusy = false; return; } b.arrayBuffer().then(buf => { if (link) link.sendPrev(buf); pvBusy = false; }); }, 'image/jpeg', 0.6);
   }
   $('#spCamTest').onclick = () => import('./camtest.js').then(m => m.camTest()).catch(e => st('Camera test failed: ' + e.message));   // #183
   $('#spLedF').onchange = e => {   // #176: same file names as on the Quest; matched by name
@@ -379,7 +392,7 @@ export function startCamera(ctx) {
     else if (m.k === 'renv') onRecEnv(m);
     else if (m.k === 'rart') onRecArt(m);
     else if (m.k === 'recdel') onRecDel(m.uid);
-    else if (m.k === 'calpt') onCalPoint(m);
+    else if (m.k === 'calpt') { if (!(fixed.on && fixed.onCalPoint(m))) onCalPoint(m); }   // #208 fixed camera taps first
     else if (m.k === 'led') led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000);   // #176
     else if (m.k === 'sky') vs.onSky(m);
     else if (m.k === 'cset') onCset(m);   // #188
@@ -596,8 +609,13 @@ export function startCamera(ctx) {
     if (deckInst) deckInst.update();
     if (neon.userData.update) neon.userData.update(dt);
     try { stepWallGlow(); stepBlobs(); } catch {}
+    if (fixed.on) {   // #208 fixed camera: background crop + camera pose; the Quest's blue outline every 200 ms
+      fixed.frame();
+      if (link && link.isOpen && t - camT > 200) { camT = t; const c = fixed.camState(); if (c) link.send('state', { k: 'cam', ...c }); }
+    }
     if (t - infoT > 250) {
       infoT = t;
+      if (fixed.on) fixed.info(link && link.isOpen ? `${fps} fps · link ok` : 'not connected to the Quest');
       const live = link && link.isOpen, stale = now - stats.last > 1000;
       $('#spInfo').textContent = live
         ? `${renderer.xr.getSession() ? 'late ' + late + '/s · ' : ''}Quest ${stats.xr ? 'in XR' : 'not in XR yet'} · round trip ${stats.rtt.toFixed(0)} ms · pose age ${stale ? 'no data' : stats.age.toFixed(0) + ' ms'} · ${stats.pps}/s · ${nodes.size} parts · ${recs.size} records` + (cal.ok ? ` · cal ${cal.err ?? '-'} cm` : ' · not calibrated') + (vs.S.on ? ` · set ${vs.S.got}/${vs.S.got + vs.S.miss}` + (vs.S.err ? ' ' + vs.S.err : '') : '')
@@ -610,11 +628,12 @@ export function startCamera(ctx) {
     if (frame) renderer.setRenderTarget(xrRT);   // #204 back to the AR layer
     renderer.render(scene, camera);
     if (vs.S.pvNeed) renderPreview(now);   // #188 (after the AR frame)
+    else if (fixed.on && pvOn && link && link.isOpen && now - pvT > 150) fixedPreview(now);   // #208 the screen itself, scaled
     if (frame) {   // #203 late AR frames (each one shows as a flash of bare camera on the phone's screen)
       if (lastXT) { const d = t - lastXT; dts.push(d); if (dts.length > 60) dts.shift(); const md = [...dts].sort((x, y) => x - y)[dts.length >> 1]; if (dts.length > 10 && d > md * 1.5) lateN++; }
       lastXT = t;
     } else lastXT = 0;
     fpsN++; if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; late = lateN; lateN = 0; sendCst(); }
   });
-  window.spect = { vs, look, renderPreview, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
+  window.spect = { vs, look, renderPreview, fixed, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
 }

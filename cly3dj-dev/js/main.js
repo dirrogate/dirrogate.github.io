@@ -16,6 +16,7 @@ import * as store from './storage.js';
 import { EnvLight } from './env.js';
 import { Skybox, detectLayout, leftEyeCanvas, brightestDir, savePano, loadPano, openPanoVideo, closePanoVideo } from './skybox.js';
 import * as media from './medialib.js';
+import { makePerfCap } from './perfcap.js';
 import { Stage, FlightCase } from './layout.js';
 import { loadCaseKit } from './flightcase.js';
 import { setRecordTexSize } from './textures.js';
@@ -623,6 +624,14 @@ document.querySelectorAll('#hud [data-cam]').forEach(b => b.onclick = () => setC
 
 // ------------------------------------------------------------------ UI helpers
 let toastTimer;
+// #209 PerfCap recorder (the spectator host feeds it the mirror messages)
+const perf = makePerfCap({ toast: (m, ms) => toast(m, ms) });
+setInterval(() => { if (perf.on && videoPage && vpFolder === 'Camera') drawMixScreen(); }, 1000);
+async function perfToggle() {
+  if (!spect) { toast('PerfCap needs Settings > Spectator camera On (it records what the phone would mirror)', 4000); return; }
+  if (perf.on) await perf.stop(); else { await perf.start(); spect.perfBegin && spect.perfBegin(); }
+  drawMixScreen();
+}
 function toast(msg, ms = 2200) {
   const t = $('#toast'); t.textContent = msg; t.style.opacity = 1;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.opacity = 0, ms);
@@ -2471,13 +2480,17 @@ function drawCamTab(btn, y0) {
     ['PREVIEW', pvWanted, () => setPreview(!pvWanted)],
     ['LOOK', cs && cs.L && cs.L.on, () => send({ what: 'look', key: 'on', v: !cs.L.on })],
     ['ROOM LIGHT', cs && cs.L && cs.L.room, () => send({ what: 'look', key: 'room', v: !cs.L.room })],
+    // #209 PerfCap (Quest only, works without the phone): record / stop, floor-mark mode, save the last take
+    [perf.on ? `■ ${fmt((Date.now() - perf.P.wall) / 1000)}` : '● PERFCAP', perf.on, () => perfToggle()],
+    [`MARKS ${perf.P.marks.length}`, !!(spect && spect.perfMarks), () => { if (!spect) { perfToggle(); return; } spect.perfMarks = !spect.perfMarks; toast(spect.perfMarks ? 'PerfCap marks: touch each floor mark with the controller tip, pull the trigger' : 'PerfCap marks off', 3500); drawMixScreen(); }],
+    ['SAVE TAKE', false, () => perf.download()],
   ];
-  const per = P ? 3 : 6, bw = (W - 16 - (per - 1) * 6) / per;   // portrait: 2 rows of 3
+  const per = P ? 3 : 9, bw = (W - 16 - (per - 1) * 6) / per;   // portrait: 3 rows of 3 (#209: was 2)
   top.forEach(([label, on, act], i) => {
-    const off = dim && label !== 'PREVIEW';
+    const off = dim && label !== 'PREVIEW' && i < 6;   // #209 the PerfCap buttons work without the phone
     btn(8 + (i % per) * (bw + 6), y0 + Math.floor(i / per) * 42, bw, 36, label, !!on, off ? null : act, off);
   });
-  const cols = P ? [CAM_ROWS.flat()] : CAM_ROWS, colW = P ? W - 16 : (W - 24) / 2, ry = y0 + (P ? 92 : 46);
+  const cols = P ? [CAM_ROWS.flat()] : CAM_ROWS, colW = P ? W - 16 : (W - 24) / 2, ry = y0 + (P ? 134 : 46);
   cols.forEach((col, ci) => col.forEach(([label, what, key, step], ri) => {
     const cx = 8 + ci * (colW + 8), cy = ry + ri * 42;
     g.fillStyle = '#0d1422'; g.fillRect(cx, cy, colW, 36);
@@ -2492,8 +2505,9 @@ function drawCamTab(btn, y0) {
     btn(cx + colW - 50, cy + 2, 44, 32, '+', false, dim ? null : bump(step), dim);
   }));
   g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = cs ? '#8c96a8' : '#c9a040';
-  const stTxt = !cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone and start its camera.'
-    : `Phone ${cs.fps} fps${cs.late ? ` (${cs.late} late/s)` : ''} · ${cs.ar ? 'camera on' : 'camera not started'} · ${cs.cal ? 'calibrated' : 'not calibrated'}${cs.can ? '' : ' · no camera access'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : '');
+  const pcTxt = perf.on ? `PERFCAP ${fmt((Date.now() - perf.P.wall) / 1000)} · ${perf.P.bytes < 1048576 ? Math.round(perf.P.bytes / 1024) + ' KB' : (perf.P.bytes / 1048576).toFixed(1) + ' MB'} · ` : '';   // #209
+  const stTxt = pcTxt + (!cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone and start its camera.'
+    : `Phone ${cs.fps} fps${cs.late ? ` (${cs.late} late/s)` : ''} · ${cs.ar ? 'camera on' : 'camera not started'} · ${cs.cal ? 'calibrated' : 'not calibrated'}${cs.can ? '' : ' · no camera access'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : ''));
   const extra = cs ? [cs.auto, cs.look].filter(Boolean).join(' · ') : '';
   if (P) {   // portrait: the status lines wrap under the steppers
     let y = ry + CAM_ROWS.flat().length * 42 + 24;
@@ -3225,7 +3239,7 @@ async function applySpect() {
   if (spect) return;
   try {
     const m = await import('./spectator-host.js');
-    if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, getInputs: () => xr && xr.inputs,
+    if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, perf, getInputs: () => xr && xr.inputs,
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(),
       getVV: () => ({ mode: ledMode, gains: deckGains(mixVal), decks: deckVid.map((dv, i) => dv.v ? [i, dv.key, engine.ctx ? engine.pos(i) : 0, engine.state.decks[i].rate || 0] : null).filter(Boolean) }),
       getSky: () => ({ h: settings.skyH, turn: settings.skyTurn, type: settings.skyType, key: settings.skyKey, file: settings.skyFile, media: settings.env === 'image' ? settings.skyMedia : '' }),
@@ -3240,7 +3254,7 @@ applyEnv();
 if (!CAMERA_ROLE) loadLibrary();
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {

@@ -14,7 +14,10 @@ const CAL_TEXT = {
   x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
-export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getVV, getSky, onMedia, onCam, onPreview }) {
+export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getVV, getSky, onMedia, onCam, onPreview, perf }) {
+  // #209 PerfCap: every mirror message also goes to the PerfCap recorder while it records (phone or not)
+  const out = { send(ch, m) { if (link.isOpen) link.send(ch, m); if (perf && perf.on) perf.write(ch, m); } };
+  let perfMarks = false;   // #209 PerfCap MARKS mode: each trigger press records a floor mark
   let acc = 0, seq = 0, was = false, calStep = null, doneT = 0;
   let mr = true;   // #164/#167: MR GUI (default on for setting up)
   let lastPing = 0, ledT = 0, ledKey = '', skyKey = '';   // #169: the phone pings every second; silent for 3.5 s = not connected (a closed page can leave the channel 'open' for ~30 s)
@@ -65,8 +68,9 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
 
   // ---- calibration: the trigger (or a pinch) marks the tip of whichever hand pressed it
   function onTrigger(i) {
-    if (!calStep || !link.isOpen) return;
     const st = (getInputs() || [])[i]; if (!st || !st.connected) return;
+    if (perfMarks && perf && !calStep) { perf.mark(st.tip.clone().sub(rig.position).toArray().map(r4)); return; }   // #209
+    if (!calStep || !link.isOpen) return;
     const p = st.tip.clone().sub(rig.position);
     link.send('ctl', { k: 'calpt', step: calStep, p: p.toArray().map(r4), qt: performance.now() });
     calStep = null; panel.visible = false;
@@ -135,23 +139,23 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       let uid = uidOf.get(r); if (!uid) { uid = nextUid++; uidOf.set(r, uid); }
       seen.add(uid);
       let L = live.get(uid);
-      if (!L) { L = { r, env: {}, art: {} }; live.set(uid, L); link.send('ctl', { k: 'rec', uid, rec: { id: r.rec.id, sides: { A: meta(r.rec.sides.A), B: meta(r.rec.sides.B) } }, sideUp: r.sideUp }); }
+      if (!L) { L = { r, env: {}, art: {} }; live.set(uid, L); out.send('ctl', { k: 'rec', uid, rec: { id: r.rec.id, sides: { A: meta(r.rec.sides.A), B: meta(r.rec.sides.B) } }, sideUp: r.sideUp }); }
       for (const side of ['A', 'B']) {
         const env = r.envs[side];
         if (env && L.env[side] !== env) {   // 8192 bins 0..1 -> 16 bit, ~22 KB once per side
           L.env[side] = env; const q = new Uint16Array(env.length); for (let i = 0; i < env.length; i++) q[i] = Math.round(Math.max(0, Math.min(1, env[i])) * 65535);
-          link.send('ctl', { k: 'renv', uid, side, dur: r.durations[side] || 0, env: b64(new Uint8Array(q.buffer)) });
+          out.send('ctl', { k: 'renv', uid, side, dur: r.durations[side] || 0, env: b64(new Uint8Array(q.buffer)) });
         }
         const t = r.rec.sides[side], blob = t && r.labelImgs[side] && artBlobs.get(t.id);
         if (blob && !L.art[side]) {   // the cover exactly as stored in the MP3, no re-encoding
           L.art[side] = 'pending';
-          blob.arrayBuffer().then(buf => { if (live.get(uid) === L) link.send('ctl', { k: 'rart', uid, side, mime: blob.type, img: b64(new Uint8Array(buf)) }); L.art[side] = 'sent'; }).catch(() => { L.art[side] = null; });
+          blob.arrayBuffer().then(buf => { if (live.get(uid) === L) out.send('ctl', { k: 'rart', uid, side, mime: blob.type, img: b64(new Uint8Array(buf)) }); L.art[side] = 'sent'; }).catch(() => { L.art[side] = null; });
         }
       }
       r.group.updateMatrixWorld(); _rm.multiplyMatrices(_ri, r.group.matrixWorld); _rm.decompose(_rp, _rq, _rs);
       out.push([uid, r4(_rp.x), r4(_rp.y), r4(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), r4(r.mesh.rotation.x), r4(r.mesh.position.y), r.sideUp]);
     }
-    for (const uid of [...live.keys()]) if (!seen.has(uid)) { live.delete(uid); link.send('ctl', { k: 'recdel', uid }); }
+    for (const uid of [...live.keys()]) if (!seen.has(uid)) { live.delete(uid); out.send('ctl', { k: 'recdel', uid }); }
     return out;
   }
   // ---- hands / controllers, so the phone can let the real hands show in front of the gear
@@ -278,7 +282,11 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }
       else if (m.k === 'cal') {
         if (m.step === 'lens' || m.step === 'x') { calStep = m.step; say(CAL_TEXT[m.step]); toast && toast(CAL_TEXT[m.step].slice(1).join(' '), 6000); }
-        else if (m.step === 'done') { calStep = null; say(['Spectator camera calibrated', m.err != null ? 'Match: ' + m.err + ' cm' : '', 'The blue outline shows what it films.'], '#40d080'); doneT = 3; }
+        else if (m.step === 'pt') {   // #208 fixed camera tap calibration: one numbered mark at a time
+          calStep = 'pt'; const t = ['Fixed camera calibration', `Touch MARK ${m.n} on the floor`, 'with the controller tip (blue ball),', 'then pull the trigger.'];
+          say(t); toast && toast(t.slice(1).join(' '), 6000);
+        }
+        else if (m.step === 'done') { calStep = null; say(['Spectator camera calibrated', m.px != null ? 'Match: ' + m.px + ' px' : m.err != null ? 'Match: ' + m.err + ' cm' : '', 'The blue outline shows what it films.'], '#40d080'); doneT = 3; }
         else { calStep = null; panel.visible = false; }
       } else if (m.k === 'cam') {
         setFrustum(m.fov, m.asp); frustum.position.fromArray(m.p); frustum.quaternion.fromArray(m.q); frustum.visible = mr; camT = 0;
@@ -287,12 +295,12 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   });
   // any saved layout change (moving gear, resizing the case) goes to the phone too
   const save = stage.save.bind(stage);
-  stage.save = () => { save(); if (link.isOpen) link.send('ctl', layout()); };
+  stage.save = () => { save(); out.send('ctl', layout()); };   // #209 out: phone and PerfCap
 
   function tick(dt) {
     if (panel.visible) { placePanel(); if (doneT > 0 && (doneT -= dt) <= 0) panel.visible = false; }
     if (frustum.visible && (camT += dt) > 2) frustum.visible = false;   // phone stopped sending: hide it
-    const open = link.isOpen; if (!open) { was = false; return; }
+    const open = link.isOpen || !!(perf && perf.on); if (!open) { was = false; return; }   // #209 PerfCap records without a phone too
     if (!was) { was = true; acc = 1; }
     acc += dt; if (acc < 1 / RATE) return; acc = 0;
     const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
@@ -300,23 +308,23 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     const now = performance.now();
     if (getLed) {   // #176: which LED wall clip is playing and where; the phone plays its own copy of the same file
       const L = getLed(), key = (L.on ? 1 : 0) + '|' + (L.name || '');
-      if (key !== ledKey || now - ledT > 2000) { ledKey = key; ledT = now; link.send('ctl', { k: 'led', on: L.on, name: L.name, t: L.t, qt: now }); }
+      if (key !== ledKey || now - ledT > 2000) { ledKey = key; ledT = now; out.send('ctl', { k: 'led', on: L.on, name: L.name, t: L.t, qt: now }); }
     }
     if (getSky) {   // #184: panorama height / turn / type for the phone's virtual set (the phone has its own copy of the image)
       const S = getSky(), k = JSON.stringify(S);
-      if (k !== skyKey) { skyKey = k; link.send('ctl', { k: 'sky', ...S }); }
+      if (k !== skyKey) { skyKey = k; out.send('ctl', { k: 'sky', ...S }); }
     }
     if (full || now - regT > 2000) { regT = now; buildRegistry(); }
-    if (full) { full = false; link.send('ctl', { k: 'full', t: Math.round(now), cs: caseSizes(true), n: nodeDiffs(true) }); }
-    else if (now - settleT > 1000) { settleT = now; const n = settled(now); if (n.length) link.send('ctl', { k: 'full', t: Math.round(now), n }); }
-    link.send('state', { k: 's', n: seq++, t: Math.round(now), xr: renderer.xr.isPresenting ? 1 : 0,
+    if (full) { full = false; out.send('ctl', { k: 'full', t: Math.round(now), cs: caseSizes(true), n: nodeDiffs(true) }); }
+    else if (now - settleT > 1000) { settleT = now; const n = settled(now); if (n.length) out.send('ctl', { k: 'full', t: Math.round(now), n }); }
+    out.send('state', { k: 's', n: seq++, t: Math.round(now), xr: renderer.xr.isPresenting ? 1 : 0,
       h: [r3(_p.x), r3(_p.y), r3(_p.z), r4(_q.x), r4(_q.y), r4(_q.z), r4(_q.w)],
       cs: caseSizes(false), g: nodeDiffs(false), r: recordsTick(), vv: vvTick(), hd: renderer.xr.isPresenting ? handsTick() : [] });
   }
   // #167: one switch. ON = viewfinder outline here + helpers and menus on the phone; OFF = everything hidden
   // (the phone shows only camera + gear: start its screen recorder by hand)
   function setMR(on) {
-    mr = on; if (!on) frustum.visible = false; if (link.isOpen) link.send('ctl', { k: 'mr', on });
+    mr = on; if (!on) frustum.visible = false; out.send('ctl', { k: 'mr', on });
     say(on ? ['MR GUI ON', 'Viewfinder here, menus + helpers on the phone.'] : ['MR GUI OFF', 'Phone is clean: start its screen recorder,', 'then clap once.'], on ? '#39a8ff' : '#ff5060'); doneT = 2.5;
   }
   return { tick, close: () => { link.close(); scene.remove(panel); rig.remove(frustum); },
@@ -324,5 +332,8 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     // #188 camera tab: the phone's last reported state, and remote changes to it
     get cam() { return link.isOpen && performance.now() - lastPing < 3500 ? camState : null; },
     camSet: o => link.isOpen && link.send('ctl', { k: 'cset', ...o }),
-    syncList, syncCopy, get sync() { return sync; } };
+    syncList, syncCopy, get sync() { return sync; },
+    // #209 PerfCap: a take starts with a full snapshot (layout, every part, every record with its grooves / labels)
+    perfBegin() { full = true; live.clear(); ledKey = ''; skyKey = ''; if (perf && perf.on) { perf.write('ctl', layout()); perf.write('ctl', { k: 'mr', on: mr }); } },
+    get perfMarks() { return perfMarks; }, set perfMarks(v) { perfMarks = !!v; } };
 }
