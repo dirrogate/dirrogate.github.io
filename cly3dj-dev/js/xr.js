@@ -252,9 +252,11 @@ export function setupXR(ctx) {
       const dd = v2.distanceTo(P); if (dd < bestD) { bestD = dd; best = k; }
     }
     if (best) {
+      // #230 faders and pitch move relative to where they were grabbed (the cap no longer jumps to the pinch)
       if (best.kind === 'knob') st.direct = { kind: 'knob', id: best.id, yawL: yawOf(handQuat(st, q1)) };
-      else if (best.kind === 'slider') st.direct = { kind: 'slider', id: best.id };
-      else { st.direct = { kind: 'pitch', d: best.deck }; ctx.setLastTouched(best.deck.i); ctx.heldPitch.add(best.deck.i); }
+      else if (best.kind === 'slider') st.direct = { kind: 'slider', id: best.id, v0: ctx.mixVal[best.id], m0: ctx.sliderFromLocal(best.id, ctx.mixer.worldToLocal(v2.copy(P))) };
+      else { st.direct = { kind: 'pitch', d: best.deck, v0: best.deck.pitch, m0: ctx.pitchFromLocalZ(best.deck, best.deck.g.worldToLocal(v2.copy(P)).z) }; ctx.setLastTouched(best.deck.i); ctx.heldPitch.add(best.deck.i); }
+      st.direct.hist = []; st.direct.dmin = Infinity;
       buzz(st); return true;
     }
     // 3. platter and record (CLAUDE.md #35): label = lift off (only after a 3 cm lift), grooves = scratch,
@@ -427,6 +429,8 @@ export function setupXR(ctx) {
       const l = g.d.g.worldToLocal(v2.copy(P)); const pv = g.d.g.userData.pivot;
       if (ctx.armDrag(g.d, Math.atan2(l.x - pv.x, l.z - pv.z), P.y - g.y0) === 'drop') buzz(st, 0.6, 35);   // #104: needle found the lead-in
       if (g.d.arm.dragDown && (g.buzzT = (g.buzzT || 0) + 1) % 3 === 0) buzz(st, 0.15, 12);   // feel the grooves
+    } else if (g.frozen) {   // #230 fingers opening: the control stays put
+      if (g.kind === 'knob') g.yawL = yawOf(handQuat(st, q1));
     } else if (g.kind === 'knob') {
       // Hard stops (owner, 26 Sep): the value moves by each frame's twist and is clamped at 0 / 1, so turning
       // past an end does nothing and turning back leaves the stop at once. The old version mapped the total
@@ -435,9 +439,13 @@ export function setupXR(ctx) {
       const dy = Math.max(-0.6, Math.min(0.6, wrap(y - g.yawL))); g.yawL = y;   // cap: ignore yaw flips when the hand points straight up/down
       ctx.setMix(g.id, ctx.mixVal[g.id] - dy / (300 * Math.PI / 180) * 1.2);   // turn clockwise (seen from above) = up
     } else if (g.kind === 'slider') {
-      ctx.setMix(g.id, ctx.sliderFromLocal(g.id, ctx.mixer.worldToLocal(v2.copy(P))));
+      const m = ctx.sliderFromLocal(g.id, ctx.mixer.worldToLocal(v2.copy(P)));
+      if (g.m0 == null) { g.m0 = m; g.v0 = ctx.mixVal[g.id]; }
+      ctx.setMix(g.id, g.v0 + (m - g.m0));
     } else if (g.kind === 'pitch') {
-      ctx.setPitch(g.d, ctx.pitchFromLocalZ(g.d, g.d.g.worldToLocal(v2.copy(P)).z), true);
+      const m = ctx.pitchFromLocalZ(g.d, g.d.g.worldToLocal(v2.copy(P)).z);
+      if (g.m0 == null) { g.m0 = m; g.v0 = g.d.pitch; }
+      if (ctx.setPitch(g.d, g.v0 + (m - g.m0), true) === 'detent') buzz(st, 0.5, 18);   // #230 the click at zero
     } else if (g.kind === 'spindle') {
       // #105: twist about the vertical, 1:1 like a real spindle; clockwise from above = forward. A tick every 5 ms.
       const y = yawOf(handQuat(st, q1)), dy = Math.max(-0.6, Math.min(0.6, wrap(y - g.yawL))); g.yawL = y;
@@ -607,6 +615,29 @@ export function setupXR(ctx) {
     }
   }
 
+  // #230 precise let-go for knobs, faders and pitch with bare hands. Tracking calls it a pinch until the fingers are
+  // 3.2 cm apart, and the control used to follow the hand all the while they opened: hit and miss. Now the control
+  // freezes as soon as the pinch opens 5 mm past its tightest, and rolls back ~60 ms (the slip already under way).
+  // Close the pinch again (within 3 mm of the tightest) and it carries on from there without a jump.
+  const CTL = { knob: 1, slider: 1, pitch: 1 };
+  const ctlGet = g => g.kind === 'pitch' ? g.d.pitch : ctx.mixVal[g.id];
+  const ctlPut = (g, v) => { if (g.kind === 'pitch') ctx.setPitch(g.d, v); else ctx.setMix(g.id, v); };
+  function ctlLetGo(st, dd) {
+    const g = st.direct; if (!g || !CTL[g.kind] || !st.pinching) return;
+    const now = performance.now();
+    if (!g.frozen) {
+      g.hist.push({ t: now, v: ctlGet(g) }); while (g.hist.length && now - g.hist[0].t > 300) g.hist.shift();
+      if (dd < g.dmin) g.dmin = dd;
+      if (dd > g.dmin + 0.005) {
+        g.frozen = true;
+        let back = null; for (let i = g.hist.length - 1; i >= 0; i--) if (now - g.hist[i].t >= 60) { back = g.hist[i].v; break; }
+        if (back != null) ctlPut(g, back);
+      }
+    } else if (dd < g.dmin + 0.003) {   // pinched again: carry on from here
+      g.frozen = false; g.hist.length = 0; g.m0 = null;
+    }
+  }
+
   // ---------------------------------------------------------------- per-frame
   function update(dt) {
     for (const st of inputs) {
@@ -626,6 +657,7 @@ export function setupXR(ctx) {
           hasTip = true;
           st.pinchPt.copy(st.tip).add(tt).multiplyScalar(0.5);
           const dd = st.tip.distanceTo(tt);
+          ctlLetGo(st, dd);   // #230
           if (!st.pinching && dd < PINCH_ON) {
             st.pinching = true;
             grabStart(st, st.pinchPt);

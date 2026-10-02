@@ -2016,12 +2016,21 @@ function setPower(d, on) {
   if (on) d.motorWasOn = false;
 }
 function setSpeed(d, s) { d.speed = s; engine.deck(d.i, 'speed', s); }
+// #230 centre click like an SL1200: from the hand, within 0.5% of zero it clicks to exactly 0 and holds there until
+// the fader is pushed 1.2% away (about 4 mm of travel), then lets go with a small jump, the feel of a detent.
+// Returns 'detent' on the frame it clicks in (the hand code buzzes the controller).
+const PITCH_IN = 0.005, PITCH_OUT = 0.012;
 function setPitch(d, p, fromUser = false) {
   p = clamp(p, -PITCH_RANGE, PITCH_RANGE);
-  if (fromUser && Math.abs(p) < 0.0035) p = 0; // centre detent
+  let ev = null;
+  if (fromUser) {
+    if (d.pitchLock) { if (Math.abs(p) < PITCH_OUT) p = 0; else d.pitchLock = false; }
+    else if (Math.abs(p) < PITCH_IN) { p = 0; d.pitchLock = true; ev = 'detent'; }
+  } else d.pitchLock = p === 0;
   d.pitch = p; engine.deck(d.i, 'pitch', p);
   const t = d.g.userData.pitchTravel;
   d.g.userData.pitchCap.position.z = (t.z0 + t.z1) / 2 + (p / PITCH_RANGE) * (t.z1 - t.z0) / 2;
+  return ev;
 }
 
 // tonearm
