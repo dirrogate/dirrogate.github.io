@@ -565,7 +565,7 @@ export function setupXR(ctx) {
     const armed = st.poke.get(scr) !== false;
     if (inside && l.z < 0.008 && l.z > -0.02 && ctx.crateLidOpen()) {
       if (armed) { ctx.crateScreenPress({ x: l.x / sw + 0.5, y: l.y / sh + 0.5 }); st.poke.set(scr, false); buzz(st, 0.4, 20); }
-    } else if (!inside || l.z > 0.02) st.poke.set(scr, true);
+    } else if (!inside || l.z > 0.02) { if (!armed && ctx.crateScreenRelease) ctx.crateScreenRelease(); st.poke.set(scr, true); }   // #226 fingertip off = end of a long press
     // fingertip on the vinyl (hands): touch = hold, move = scratch, lift = let go
     if (st.isHand && !st.direct) {
       let touching = null, local = null;

@@ -10,7 +10,7 @@ import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeN
 import { makeLedWall, LedPlayer, LED } from './ledwall.js';
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose } from './director.js';
 import { RobotAvatar } from './robot.js';
-import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, readLabel, labelFrom, blankWav } from './tools.js';
+import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, labelFrom, blankWav } from './tools.js';
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
@@ -1151,6 +1151,10 @@ function drawCrateScreen() {
     g.textAlign = 'right'; g.font = '600 26px system-ui'; g.fillStyle = '#f1b650'; g.fillText(badge, W - 138, y + RH / 2);
     g.fillStyle = sel ? '#ffffff' : '#aab2bc'; g.font = '600 32px system-ui';
     g.fillText(r.bpm ? r.bpm.toFixed(r.bpm % 1 ? 1 : 0) : '', W - 22, y + RH / 2);
+    if (r === crateDel) {   // #226 the delete offer
+      g.fillStyle = '#c8202c'; g.fillRect(W - CDEL_W - 12, y + 3, CDEL_W + 6, RH - 6);
+      g.fillStyle = '#fff'; g.font = '700 30px system-ui'; g.textAlign = 'center'; g.fillText('✕ DELETE', W - 9 - CDEL_W / 2, y + RH / 2 + 1);
+    }
   }
   // on-screen keyboard: 10 units per row, ~3 cm keys on the LCD
   search.keys = [];
@@ -1183,6 +1187,14 @@ function drawCrateScreen() {
   }
   g.textAlign = 'right'; g.fillStyle = '#aab2bc';
   g.fillText(`${list.length ? crateState.sel + 1 : 0} / ${list.length}`, W - 22, fy);
+  // #226 messages and hints the DJ must read in the headset go in the footer
+  const cm = crateMsg && performance.now() < crateMsg.until ? crateMsg : null;
+  const hintDel = !cm && crateDel ? { text: 'Tap ✕ DELETE to remove this stamped record, or anywhere else to keep it', ok: true } : null;
+  if (cm || hintDel) {
+    const m = cm || hintDel;
+    g.fillStyle = cm ? (m.ok ? '#1d7a3a' : '#8a2a1a') : '#3a1a1e'; g.fillRect(0, H - CS.foot, W, CS.foot);
+    g.fillStyle = '#fff'; g.font = '600 28px system-ui'; g.textAlign = 'center'; fitText2Center(g, m.text, W / 2, fy, W - 40);
+  }
   crateScreen.commit();
   if (spect && spect.crateScreen) spect.crateScreen(crateScreen.canvas);   // #218 the phone's lid screen
   crateScreen.rows = { start, ROWS, RH, y0, kbY: search.kb ? kbY : Infinity };
@@ -2057,6 +2069,7 @@ function micLevel() {
 function crateScreenPress(uv) {
   const c = crateScreen.canvas; const px = uv.x * c.width, py = (1 - uv.y) * c.height;
   const inR = b => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h;
+  if (crateDel && py < SB.y + SB.h) crateDel = null;   // #226
   if (py < CS.head) { if (search.results) exitSearch(); else cratePlaylist(px < c.width / 2 ? -1 : 1); return; }
   if (py < SB.y + SB.h) {
     const b = search.btns.find(inR); if (!b) return;
@@ -2070,11 +2083,51 @@ function crateScreenPress(uv) {
   const R = crateScreen.rows;
   if (py >= R.kbY) { const key = search.keys.find(inR); if (key) kbKey(key.k); return; }
   const k = Math.floor((py - R.y0) / R.RH);
+  if (crateDel) {   // #226 delete offer open: the red DELETE button deletes, any other tap closes the offer
+    const r = crateDel; crateDel = null;
+    if (k >= 0 && k < R.ROWS && currentList()[R.start + k] === r && px >= c.width - CDEL_W - 12) deleteStamped(r);
+    else drawCrateScreen();
+    return;
+  }
   if (k >= 0 && k < R.ROWS) {
-    const idx = R.start + k;
+    const idx = R.start + k, r = currentList()[idx];
+    const id = ++crateHoldSeq;
+    if (r && r.pressed) {   // #226 a stamped record: hold 0.6 s for the delete offer
+      crateHold = { id, r, pull: idx === crateState.sel };
+      setTimeout(() => { if (crateHold && crateHold.id === id) { crateHold = null; crateDel = r; drawCrateScreen(); } }, 600);
+      if (idx !== crateState.sel) { crateState.sel = idx; drawCrateScreen(); layoutSleeves(); }
+      return;   // a short tap on the selected one pulls it on release
+    }
+    crateHold = null;
     if (idx === crateState.sel) pullSelected();
     else if (idx < currentList().length) { crateState.sel = idx; drawCrateScreen(); layoutSleeves(); }
   }
+}
+// #226 delete stamped records from the crate: long press a stamped record's row, then tap the red DELETE
+let crateHold = null, crateHoldSeq = 0, crateDel = null, crateMsg = null;
+const CDEL_W = 210;
+function crateScreenRelease() {
+  const h = crateHold; crateHold = null;
+  if (h && h.pull) pullSelected();
+}
+function crateSay(text, ok, ms = 4000) {
+  crateMsg = { text, ok, until: performance.now() + ms }; toast(text, ms); drawCrateScreen();
+  setTimeout(() => { if (crateMsg && performance.now() >= crateMsg.until - 5) { crateMsg = null; drawCrateScreen(); } }, ms);
+}
+async function deleteStamped(r) {
+  const t = r.sides.A, p = t && t.press;
+  if (!p) { drawCrateScreen(); return; }
+  if (copiesOut(r) > 0) { crateSay('Put it back in the crate first (it is on a deck or in your hand)', false); return; }
+  try { await deletePressing(p.id); }
+  catch (e) { crateSay('Not deleted: ' + e.message, false); return; }
+  lib.tracks.delete(t.id);
+  lib.records = lib.records.filter(x => x !== r);
+  for (const pl of lib.playlists) pl.records = pl.records.filter(x => x !== r);
+  if (search.results) search.results = search.results.filter(x => x !== r);
+  artCache.delete(t.id); artBlobs.delete(t.id);
+  crateState.sel = Math.max(0, Math.min(crateState.sel, currentList().length - 1));
+  layoutSleeves();
+  crateSay(`Deleted "${r.title}"`, true);
 }
 function pitchFromLocalZ(d, z) { const t = d.g.userData.pitchTravel; return ((z - (t.z0 + t.z1) / 2) / ((t.z1 - t.z0) / 2)) * PITCH_RANGE; }
 function sliderFromLocal(id, l) {
@@ -2164,7 +2217,7 @@ function pointerDown(p) {
   }
   if (u.lid) { p.drag = { kind: 'lid', y0: p.y, a0: lidSt.a, moved: false }; activePointers.add(p); return true; }
   if (u.mixScreen) { mixScreenPress(hit.uv); p.drag = { kind: 'screen' }; activePointers.add(p); return true; }   // #222 the release ends a long press
-  if (u.crateScreen) { if (crateLidOpen()) crateScreenPress(hit.uv); return true; }
+  if (u.crateScreen) { if (crateLidOpen()) { crateScreenPress(hit.uv); p.drag = { kind: 'crateScreen' }; activePointers.add(p); } return true; }   // #226 the release ends a long press
   if (u.crateDisc) { pullSelected(p.space); layoutSleeves(); return true; }
   if ((u.crateSleeves || u.crateCover) && !crateLidOpen()) return true;
   if (u.crateSleeves || u.crateCover) {
@@ -2287,6 +2340,7 @@ function pointerUp(p) {
   if (dr.kind === 'move') { stage.endMove(dr.st); settleStack(dr.target); if (dr.target.startsWith('milk')) releaseMilk(dr.target, null); }
   if (dr.kind === 'resize') stage.save();
   if (dr.kind === 'screen') mixScreenRelease();   // #222
+  if (dr.kind === 'crateScreen') crateScreenRelease();   // #226
   p.drag = null; activePointers.delete(p);
 }
 
@@ -3712,7 +3766,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
   armGrab, armDrag, armRelease,
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
-  crateScreenPress, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, drawCrateScreen, layoutSleeves, crateDisc,
+  crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, drawCrateScreen, layoutSleeves, crateDisc,
   neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, toast, mixScreenRelease,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
@@ -4015,7 +4069,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
