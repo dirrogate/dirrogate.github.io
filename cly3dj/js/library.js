@@ -105,3 +105,38 @@ export function parseLibrary(xmlText, resolve = defaultResolve) {
 
   return { tracks, records, playlists };
 }
+
+// #222 songs imported into the headset without a Rekordbox XML (or not in it): an 'Unsorted' playlist, also added to
+// the Collection. Records are made the same way (a '_A' / '_B' file-name suffix pairs two sides); titles come from
+// the file name until the ID3 tags are read (main.js scanUnsorted fills title, artist, BPM, key).
+const AUDIO = /\.(mp3|m4a|aac|wav|aiff?|flac|ogg)$/i;
+export function emptyLibrary() { return { tracks: new Map(), records: [], playlists: [{ name: 'Collection', path: 'Collection', records: [] }] }; }
+export function addUnsorted(lib, index) {
+  const used = new Set(); for (const t of lib.tracks.values()) if (t.opfs) used.add(t.opfs);
+  const recs = [], byKey = new Map(); let n = 0;
+  for (const f of index) {
+    if (!AUDIO.test(f.path) || used.has(f.path)) continue;
+    const base = f.path.split('/').pop().replace(/\.[^.]+$/, ''), nm = parseTitle(base), id = 'u' + (n++);
+    const t = { id, name: base, title: nm.title, side: nm.side, split: nm.split, artist: '', album: '', genre: '', key: '', bpm: 0, duration: 0,
+      location: f.path, url: null, opfs: f.path, missing: false, cues: [], unsorted: true };
+    lib.tracks.set(id, t);
+    let r;
+    if (!t.side) { r = { id: 'r' + id, title: t.title, sides: { A: t, B: null } }; recs.push(r); }
+    else {
+      const k = t.title.toLowerCase(); r = byKey.get(k);
+      if (!r) { r = { id: 'p' + id, title: t.title, sides: { A: null, B: null } }; byKey.set(k, r); recs.push(r); }
+      if (r.sides[t.side]) continue; r.sides[t.side] = t;
+    }
+    t.record = r;
+  }
+  if (!recs.length) return 0;
+  for (const r of recs) {
+    const main = r.sides.A || r.sides.B;
+    r.artist = main.artist; r.genre = ''; r.key = ''; r.bpm = 0; r.duration = 0; r.missing = false; r.paired = !!(r.sides.A && r.sides.B); r.unsorted = true;
+  }
+  recs.sort((a, b) => a.title.localeCompare(b.title));
+  lib.records.push(...recs);
+  const all = lib.playlists[0]; all.records.push(...recs); all.records.sort((a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title));
+  lib.playlists.splice(1, 0, { name: 'Unsorted', path: 'Unsorted (on this headset)', records: recs });
+  return recs.length;
+}

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from '../vendor/three/OrbitControls.js';
 import { RoomEnvironment } from '../vendor/three/RoomEnvironment.js';
-import { parseLibrary } from './library.js';
+import { parseLibrary, addUnsorted, emptyLibrary } from './library.js';
 import { readID3 } from './id3.js';
 import { AudioEngine, PITCH_RANGE } from './audio.js';
 import { REC, timeToRadius, radiusToTime, Screen, fitText, drawRecordSide, recordMaterial, setRecordSide, grooveAnisoMap } from './textures.js';
@@ -234,6 +234,7 @@ wallGlow.renderOrder = 2; wallGlow.raycast = () => {}; neon.add(wallGlow);
 let arMode = false;
 const GLOW_BACK = 0.05;   // passthrough: the glow lands 5 cm behind the tubes, so hang the sign ~5 cm off your real wall
 function stepWallGlow() {
+  ledwall.userData.tick();   // #222 LED wall turn + picture fit (Quest and phone)
   studioWall.visible = settings.glow !== 'off';
   if (settings.glow === 'off') { wallGlow.visible = false; return; }
   const s = neon.scale.x; let d;   // tubes-to-wall distance, metres
@@ -346,7 +347,14 @@ applyShadows(false);   // desktop default: per the Shadows setting (blob by defa
 // LED wall (#176): moves like the neon sign; wheel / two hands resize it; size kept in 'vire.ledScale'
 const ledwall = makeLedWall(); rig.add(ledwall);
 try { const s = parseFloat(localStorage.getItem('vire.ledScale')); if (s > 0) ledwall.scale.setScalar(clamp(s, 0.4, 4)); } catch (e) {}
-const ledBase = () => (LED.H / 2 + LED.BEZ) * ledwall.scale.x;
+const ledBase = (r = ledwall.rotation.z) => ((Math.abs(Math.round(r / (Math.PI / 2))) % 2 ? LED.W : LED.H) / 2 + LED.BEZ) * ledwall.scale.x;   // #222 portrait: half the width is the half-height
+function ledTurned() {   // #222 let go after a twist: settle on portrait / landscape, keep it off the floor, save
+  const t = ledwall.userData.settle(); stage.items.ledwall.base = ledBase(t);
+  if (ledwall.position.y < stage.items.ledwall.base) ledwall.position.y = stage.items.ledwall.base;
+  toast(Math.abs(Math.round(t / (Math.PI / 2))) % 2 ? 'LED wall: portrait' : 'LED wall: landscape', 1500);
+  setTimeout(() => stage.save(), 500);
+}
+function toggleLedPortrait() { ledwall.userData.turnTo(ledwall.userData.portrait() ? 0 : Math.PI / 2); setTimeout(ledTurned, 450); }
 function setLedScale(s) { s = clamp(s, 0.4, 4); ledwall.scale.setScalar(s); if (stage) stage.items.ledwall.base = ledBase(); return s; }
 function saveLedScale() { try { localStorage.setItem('vire.ledScale', String(ledwall.scale.x)); } catch (e) {} }
 const led = new LedPlayer(ledwall);
@@ -904,15 +912,17 @@ function crateMicSelect(P) {
 async function loadLibrary() {
   sideCache.clear();
   try {
-    let text, resolve, from;
+    let text, resolve, from, index = null;
     if (settings.source === 'headset') {
       if (!store.opfsSupported()) throw new Error('this browser has no private file storage');
-      const index = await store.loadIndex();
+      index = await store.loadIndex();
       const xmls = index.filter(f => /\.xml$/i.test(f.path));
-      if (!xmls.length) throw new Error(index.length ? 'no Rekordbox XML among the imported files' : 'nothing imported yet');
-      const pick = xmls.find(f => /(^|\/)rekordbox\.xml$/i.test(f.path)) || xmls[0];
-      text = await (await store.readFile(pick.path)).text();
-      resolve = store.opfsResolver(index); from = pick.path + ' on this headset';
+      if (!xmls.length && !index.some(f => /\.(mp3|m4a|aac|wav|aiff?|flac|ogg)$/i.test(f.path))) throw new Error(index.length ? 'no songs or Rekordbox XML among the imported files' : 'nothing imported yet');
+      if (xmls.length) {   // #222 an XML is optional now: songs without one go to 'Unsorted'
+        const pick = xmls.find(f => /(^|\/)rekordbox\.xml$/i.test(f.path)) || xmls[0];
+        text = await (await store.readFile(pick.path)).text(); from = pick.path + ' on this headset';
+      } else from = 'songs on this headset (no Rekordbox XML)';
+      resolve = store.opfsResolver(index);
       vvIndex = new Map(index.filter(f => VIDEO_EXT.test(f.path)).map(f => [vvKey(baseName(f.path)), f.path]));   // #177
     } else {
       const tryXml = [settings.xml, ...['rekordbox.xml', 'ViRE_rekordbox.xml'].filter(x => x !== settings.xml)];
@@ -920,11 +930,13 @@ async function loadLibrary() {
       if (!text) throw new Error('no library XML found on the PC');
       resolve = store.pcResolver;
     }
-    lib = parseLibrary(text, resolve);
+    lib = text ? parseLibrary(text, resolve) : emptyLibrary();
+    const unsorted = index ? addUnsorted(lib, index) : 0;   // #222
+    if (unsorted) scanUnsorted(lib);
     const pairs = lib.records.filter(r => r.paired).length;
     const splits = [...lib.tracks.values()].filter(t => t.split).length;
     const missing = [...lib.tracks.values()].filter(t => t.missing).length;
-    $('#libstatus').textContent = `${from}: ${lib.tracks.size} tracks${missing ? ` (${missing} not found)` : ''}, ${lib.records.length} records, ${pairs} with A/B sides, ${splits} split sides, ${lib.playlists.length - 1} playlists`;
+    $('#libstatus').textContent = `${from}: ${lib.tracks.size} tracks${unsorted ? ` (${unsorted} records in Unsorted)` : ''}${missing ? ` (${missing} not found)` : ''}, ${lib.records.length} records, ${pairs} with A/B sides, ${splits} split sides, ${lib.playlists.length - 1} playlists`;
   } catch (e) {
     lib = null;
     $('#libstatus').textContent = `No library: ${e.message}`;
@@ -933,6 +945,33 @@ async function loadLibrary() {
   drawCrateScreen(); layoutSleeves();
 }
 
+// #222 Unsorted songs: read each file's ID3 tag in the background (title, artist, BPM, key; the cover is left for
+// the crate's own lazy cover reading), then re-sort the Unsorted list and the Collection by the real titles.
+async function scanUnsorted(L) {
+  const tracks = [...L.tracks.values()].filter(t => t.unsorted); let n = 0;
+  for (const t of tracks) {
+    if (lib !== L) return;   // the library was reloaded
+    try {
+      const f = await store.readFile(t.opfs), head = new Uint8Array(await f.slice(0, 10).arrayBuffer());
+      if (head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) {
+        const size = ((head[6] & 127) << 21) | ((head[7] & 127) << 14) | ((head[8] & 127) << 7) | (head[9] & 127);
+        const tag = readID3(await f.slice(0, Math.min(size + 10, 4 * 1024 * 1024)).arrayBuffer());
+        const r = t.record;
+        if (tag.artist) t.artist = tag.artist;
+        if (tag.title && !t.side) t.title = tag.title;   // two-sided records keep the file-name title that paired them
+        if (tag.bpm > 0) { t.bpm = tag.bpm; t.bpmSrc = 'id3'; }
+        if (tag.key) { t.key = tag.key; t.id3Key = tag.key; }
+        if (r) { const m = r.sides.A || r.sides.B; if (m === t) { r.title = t.title; r.artist = t.artist; r.bpm = t.bpm; r.key = t.key; } }
+      }
+    } catch {}
+    if (++n % 25 === 0) { drawCrateScreen(); await new Promise(res => setTimeout(res, 0)); }
+  }
+  if (lib !== L) return;
+  const byT = (a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title);
+  const un = L.playlists.find(p => p.name === 'Unsorted'); if (un) un.records.sort(byT);
+  L.playlists[0].records.sort(byT);
+  drawCrateScreen(); layoutSleeves();
+}
 // BPM priority (owner, #102): the MP3's own ID3 BPM (TBPM) first, Rekordbox only when the file has none.
 // Read whenever the tag is read (cover art for the crate, or the whole file when a record is pulled).
 function useID3Bpm(track, tag) {
@@ -2118,7 +2157,7 @@ function pointerDown(p) {
     activePointers.add(p); return true;
   }
   if (u.lid) { p.drag = { kind: 'lid', y0: p.y, a0: lidSt.a, moved: false }; activePointers.add(p); return true; }
-  if (u.mixScreen) { mixScreenPress(hit.uv); return true; }
+  if (u.mixScreen) { mixScreenPress(hit.uv); p.drag = { kind: 'screen' }; activePointers.add(p); return true; }   // #222 the release ends a long press
   if (u.crateScreen) { if (crateLidOpen()) crateScreenPress(hit.uv); return true; }
   if (u.crateDisc) { pullSelected(p.space); layoutSleeves(); return true; }
   if ((u.crateSleeves || u.crateCover) && !crateLidOpen()) return true;
@@ -2241,6 +2280,7 @@ function pointerUp(p) {
   if (dr.kind === 'pitch') heldPitch.delete(dr.deck.i);
   if (dr.kind === 'move') { stage.endMove(dr.st); settleStack(dr.target); if (dr.target.startsWith('milk')) releaseMilk(dr.target, null); }
   if (dr.kind === 'resize') stage.save();
+  if (dr.kind === 'screen') mixScreenRelease();   // #222
   p.drag = null; activePointers.delete(p);
 }
 
@@ -2285,6 +2325,10 @@ function hover(e) {
   else showTip('');
 }
 
+canvas.addEventListener('dblclick', e => {   // #222 desktop: double-click the LED wall = portrait / landscape
+  mouseSync(e); const hit = castRay(mouse.ray, interactive())[0], obj = hit && controlOf(hitTarget(hit));
+  if (obj && obj.userData.move === 'ledwall') toggleLedPortrait();
+});
 canvas.addEventListener('wheel', e => {
   if (mouse.drag && mouse.drag.kind === 'move') { // rotate while moving
     e.preventDefault(); e.stopImmediatePropagation();
@@ -2523,7 +2567,7 @@ let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null;
 const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
 const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA', Sync: 'SYNC', Look: 'LOOK', 'DJ Cam': 'DJ CAM' };
 async function vpLoad() {
-  if (vpFolder === 'Camera' || vpFolder === 'Look' || vpFolder === 'DJ Cam') { vpItems = []; drawMixScreen(); return; }
+  if (vpFolder === 'Camera' || vpFolder === 'Look' || vpFolder === 'DJ Cam' || vpFolder === 'LedList') { vpItems = []; drawMixScreen(); return; }
   if (vpFolder === 'Sync') { vpItems = []; syncLoad(); return; }   // #206
   vpItems = await media.list(vpFolder);
   if (vpSel && !vpItems.some(i => i.name === vpSel)) vpSel = null;
@@ -2547,8 +2591,8 @@ async function vpAct(what) {
     const d = decks[what === 'deckA' ? 0 : 1];
     if (!d.record) { toast(`No record on ${d.name}: put one on first`); return; }
     vvOverride[d.i] = { rec: d.record, name }; toast(`${d.name}: ${name} (until this record comes off)`, 2500);
-  } else if (what === 'lednow') { led.add(f); led.play(f, led.files.length < 2); ledMode = 'clips'; }
-  else if (what === 'ledadd') { const n = led.add(f); toast(`LED playlist: ${n} item${n > 1 ? 's' : ''}`, 2000); }
+  } else if (what === 'lednow') { led.add(f); ledSrc.set(f.name, vpFolder); saveLedList(); led.play(f, led.files.length < 2); ledMode = 'clips'; }
+  else if (what === 'ledadd') { const n = led.add(f); ledSrc.set(f.name, vpFolder); saveLedList(); toast(`LED playlist: ${n} item${n > 1 ? 's' : ''} (LED LIST to see it)`, 2000); }
   drawMixScreen();
 }
 // #188 CAMERA tab: the spectator phone's virtual set, key and Look match, changed from here; the phone applies each
@@ -2847,6 +2891,7 @@ function drawVideoPage() {
   if (vpFolder === 'Sync') { drawSyncTab(btn, y0); return; }   // #206
   if (vpFolder === 'Look') { drawLookTab(btn, y0); return; }   // #214
   if (vpFolder === 'DJ Cam') { drawDjCamTab(btn, y0); return; }   // #220
+  if (vpFolder === 'LedList') { drawLedList(btn, y0); return; }   // #222
   // thumbnails: 4 x 2 (portrait 2 x 6)
   const COLS = P ? 2 : 4, CW = (W - 16 - (COLS - 1) * 8) / COLS, TH = P ? 64 : 76, CH = TH + 20;
   const pages = Math.max(1, Math.ceil(vpItems.length / PER)); vpPg = Math.min(vpPg, pages - 1);
@@ -2870,7 +2915,17 @@ function drawVideoPage() {
     if (it.name === vpSel) { g.strokeStyle = '#39a8ff'; g.lineWidth = 4; g.strokeRect(cx + 2, cy + 2, CW - 4, TH + 16); }
     g.fillStyle = it.name === vpSel ? '#fff' : '#b8c0cf'; g.font = '500 14px system-ui'; g.textAlign = 'left';
     fitText2(g, it.name.replace(/\.[^.]+$/, ''), cx + 2, cy + TH + 15, CW - 4);
-    VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, act: () => { vpSel = it.name === vpSel ? null : it.name; drawMixScreen(); } });
+    if (vpDel === it.name) {   // #222 delete offer: red frame + X
+      g.strokeStyle = '#ff3040'; g.lineWidth = 5; g.strokeRect(cx + 2, cy + 2, CW - 4, TH + 16);
+      g.fillStyle = 'rgba(5,7,12,0.55)'; g.fillRect(cx, cy, CW, TH);
+      const xs = 40, xx = cx + CW - xs - 4, xy = cy + 4;
+      g.fillStyle = '#d0202c'; g.fillRect(xx, xy, xs, xs); g.strokeStyle = '#fff'; g.lineWidth = 4;
+      g.beginPath(); g.moveTo(xx + 11, xy + 11); g.lineTo(xx + xs - 11, xy + xs - 11); g.moveTo(xx + xs - 11, xy + 11); g.lineTo(xx + 11, xy + xs - 11); g.stroke();
+      g.fillStyle = '#fff'; g.font = '700 13px system-ui'; g.textAlign = 'left'; g.fillText('DELETE?', cx + 6, cy + TH - 8);
+      const folder = vpFolder, name = it.name;
+      VP_HIT.push({ x: xx - 4, y: xy - 4, w: xs + 8, h: xs + 8, del: true, act: () => deleteMedia(folder, name) });
+    }
+    VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, item: it.name, act: () => { vpSel = it.name === vpSel ? null : it.name; drawMixScreen(); } });
   });
   // bottom bar: pages, targets for this folder, LED mode (portrait: targets get a row of their own)
   const by = P ? H - 62 : H - 44, bh = 36, bx = P ? 26 : 8;
@@ -2881,6 +2936,48 @@ function drawVideoPage() {
   const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : 98, ty = P ? H - 106 : by;
   let x = P ? 8 : 108;
   for (const [label, what] of T) { const dim = !vpSel && what !== 'skyoff'; btn(x, ty, tw, bh, label, false, dim ? null : () => vpAct(what), dim); x += tw + 6; }
+  const hasList = vpFolder === 'Video' || vpFolder === 'Images';   // #222 the LED playlist, one tap away
+  if (hasList) btn(P ? 124 : 522, by, P ? 70 : 92, bh, `LED LIST ${led.files.length}`, false, () => { vpBack = vpFolder; vpFolder = 'LedList'; vpLoad(); });
+  const mw = P && hasList ? 78 : 140;
+  btn(W - (P ? 26 : 8) - mw, by, mw, bh, { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED DECKS', cam: 'LED CAM' }[ledMode], ledMode !== 'off', () => setLedMode({ off: 'clips', clips: 'decks', decks: 'cam', cam: 'off' }[ledMode]));
+}
+// ---- #222 LED LIST: the LED wall's playlist (what LED NOW / + LED added), in order: play one now, move it up or
+// down, take it off the list; IN ORDER / RANDOM. Kept between sessions (names + library folder).
+let vpBack = 'Video', ledPg = 0;
+const ledSrc = new Map();   // file name -> library folder
+function saveLedList() { try { localStorage.setItem('vire.ledList', JSON.stringify({ order: led.order, items: led.files.map(f => [ledSrc.get(f.name) || '', f.name]) })); } catch {} }
+async function restoreLedList() {
+  let L = null; try { L = JSON.parse(localStorage.getItem('vire.ledList') || 'null'); } catch {}
+  if (!L) return; led.order = L.order === 'list' ? 'list' : 'random';
+  for (const [folder, name] of L.items || []) { if (!folder) continue; const f = await media.getFile(folder, name).catch(() => null); if (f) { led.add(f); ledSrc.set(name, folder); } }
+  drawMixScreen();
+}
+function drawLedList(btn, y0) {
+  const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
+  const RH = 42, rows = P ? 11 : 4, files = led.files, pages = Math.max(1, Math.ceil(files.length / rows)); ledPg = Math.min(ledPg, pages - 1);
+  g.textBaseline = 'middle';
+  if (!files.length) { g.fillStyle = '#8c96a8'; g.font = '500 17px system-ui'; g.textAlign = 'left'; wrapText(g, 'The LED playlist is empty. In VIDEO or IMAGES pick a thumbnail, then + LED (or LED NOW).', 14, y0 + 24, W - 28, 24, 4); }
+  files.slice(ledPg * rows, ledPg * rows + rows).forEach((f, k) => {
+    const i = ledPg * rows + k, y = y0 + k * RH, cur = led.on && led.name === f.name;
+    g.fillStyle = cur ? '#14324a' : '#0d1422'; g.fillRect(8, y, W - 16, RH - 6);
+    const folder = ledSrc.get(f.name), t = folder ? vpThumb(folder, f.name) : null;
+    if (t && t !== 'loading') { const s = Math.max(56 / t.width, 32 / t.height), sw = 56 / s, sh = 32 / s; g.drawImage(t, (t.width - sw) / 2, (t.height - sh) / 2, sw, sh, 12, y + 2, 56, 32); }
+    g.fillStyle = cur ? '#40d080' : '#dfe6f2'; g.font = `${cur ? 700 : 500} ${P ? 14 : 16}px system-ui`; g.textAlign = 'left';
+    const bw = P ? 40 : 46, bx = W - 8 - 4 * (bw + 4);
+    fitText2(g, `${i + 1}. ${f.name.replace(/\.[^.]+$/, '')}`, 74, y + RH / 2 - 3, bx - 80);
+    btn(bx, y + 2, bw, RH - 10, '▶', cur, () => { led.play(f); ledMode = 'clips'; });
+    btn(bx + (bw + 4), y + 2, bw, RH - 10, '▲', false, i > 0 ? () => { led.move(f.name, -1); saveLedList(); } : null, i === 0);
+    btn(bx + 2 * (bw + 4), y + 2, bw, RH - 10, '▼', false, i < files.length - 1 ? () => { led.move(f.name, 1); saveLedList(); } : null, i === files.length - 1);
+    btn(bx + 3 * (bw + 4), y + 2, bw, RH - 10, '✕', false, () => { led.remove(f.name); ledSrc.delete(f.name); saveLedList(); });
+  });
+  g.textBaseline = 'alphabetic';
+  const by = P ? H - 62 : H - 44, bh = 36, bx = P ? 26 : 8;
+  btn(bx, by, 44, bh, '‹', false, () => { ledPg = Math.max(0, ledPg - 1); }, ledPg === 0);
+  btn(bx + 48, by, 44, bh, '›', false, () => { ledPg = Math.min(pages - 1, ledPg + 1); }, ledPg >= pages - 1);
+  const row2 = P ? H - 106 : by, x2 = P ? 8 : 108, w2 = P ? (W - 16 - 12) / 3 : 120;
+  btn(x2, row2, w2, bh, '◀ BACK', false, () => { vpFolder = vpBack; vpLoad(); });
+  btn(x2 + w2 + 6, row2, w2, bh, led.order === 'list' ? 'IN ORDER' : 'RANDOM', led.order === 'list', () => { led.order = led.order === 'list' ? 'random' : 'list'; saveLedList(); });
+  btn(x2 + 2 * (w2 + 6), row2, w2, bh, 'NEXT ▶▶', false, files.length ? () => { ledMode = 'clips'; led.next(); } : null, !files.length);
   btn(W - (P ? 26 : 8) - 140, by, 140, bh, { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED DECKS', cam: 'LED CAM' }[ledMode], ledMode !== 'off', () => setLedMode({ off: 'clips', clips: 'decks', decks: 'cam', cam: 'off' }[ledMode]));
 }
 const NOTES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
@@ -2916,13 +3013,35 @@ function readout(d, st) {
   const src = !t ? '' : run ? ` · tapping (${run.t.length})` : fileBpmSrc(t) === 'id3' ? '' : fileBpmSrc(t) === 'rb' ? ' · RB' : live ? ' · tapped' : ' · none, tap BEAT 1';
   return { big: eff ? eff.toFixed(1) : '--.-', label: 'BPM' + src };
 }
+// #222 long press on the tablet (trigger / pinch / fingertip held 0.6 s): on a VIDEO page thumbnail it offers delete
+let screenHold = null, holdSeq = 0, vpDel = null;
+function mixScreenRelease() { screenHold = null; }
+function mixScreenLong(px, py) {
+  if (!videoPage || !media.FOLDERS.includes(vpFolder)) return;
+  const b = VP_HIT.find(h => h.item && px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h);
+  if (!b) return;
+  vpDel = b.item; vpSel = b.item; drawMixScreen();
+}
+async function deleteMedia(folder, name) {   // remove from this headset's library, and stop using it anywhere
+  if (led.files.some(f => f.name === name)) { led.remove(name); ledSrc.delete(name); saveLedList(); }
+  if (settings.skyMedia === folder + '/' + name) { settings.sky = 'off'; saveSettings(); syncSettingsUI(); applySky(); }
+  for (let i = 0; i < 2; i++) if (vvOverride[i] && vvOverride[i].name === name) vvOverride[i] = null;
+  await media.remove(folder, name); vpThumbs.delete(folder + '/' + name);
+  if (vpSel === name) vpSel = null; vpDel = null;
+  toast(`Deleted ${name}`, 2000); vpLoad();
+}
 function mixScreenPress(uv) {
   if (!uv) return;
   // #198 portrait: the canvas is turned 90 deg on the screen, so map the screen's uv back onto it
   const c = scr().canvas;
   const px = (scrDir === 'px' ? 1 - uv.y : scrDir === 'nx' ? uv.y : uv.x) * c.width;
   const py = (scrDir === 'px' ? 1 - uv.x : scrDir === 'nx' ? uv.x : 1 - uv.y) * c.height;
-  if (videoPage) { for (const b of VP_HIT) if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) { b.act(); drawMixScreen(); return true; } return true; }   // #185
+  const id = ++holdSeq; screenHold = id; setTimeout(() => { if (screenHold === id) { screenHold = null; mixScreenLong(px, py); } }, 600);   // #222
+  if (videoPage) {
+    const b = VP_HIT.find(h => px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h);
+    if (vpDel && !(b && b.del)) vpDel = null;   // any other tap closes the delete offer
+    if (b) b.act(); drawMixScreen(); return true;
+  }   // #185
   // #164 spectator strip: MR GUI (helpers on/off) and CELL REC (phone goes clean for recording)
   for (const b of SP_HIT) if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) { b.act(); drawMixScreen(); return true; }
   for (let i = 0; i < 2; i++) {
@@ -3294,7 +3413,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   armGrab, armDrag, armRelease,
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
   crateScreenPress, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, drawCrateScreen, layoutSleeves, crateDisc,
-  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale,
+  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, toast, mixScreenRelease,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
 });
@@ -3593,9 +3712,10 @@ syncSettingsUI();
 if (!CAMERA_ROLE) applySpect();
 applyEnv();
 if (!CAMERA_ROLE) loadLibrary();
+if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
