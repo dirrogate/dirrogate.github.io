@@ -1402,6 +1402,16 @@ function releaseHeld() {
       placeOnDeck(d, held); return;
     }
   }
+  // #228 let go flat over an upright finger of the other hand: it spins on the fingertip
+  if (renderer.xr.isPresenting) {
+    const n = discNormal(held, _fsN), up = _fsU.copy(n).multiplyScalar(n.y >= 0 ? 1 : -1);
+    const F = Math.abs(n.y) > 0.7 ? spinFingerFor(_rc, up, held.attach) : null;
+    if (F) {
+      let w = held.angVel ? held.angVel.dot(up) : 0; if (Math.abs(w) < SPIN.MIN_START) w = (w < 0 ? -1 : 1) * SPIN.MIN_START;
+      const r = held; throwRecord(r); held = null;
+      startSpin(loose[loose.length - 1], F, w); layoutSleeves(); return;
+    }
+  }
   // anywhere else in XR: let go = it flies with the hand's momentum and lands (CLAUDE.md #49)
   if (renderer.xr.isPresenting && held.vel) { throwRecord(held); held = null; layoutSleeves(); return; }
   returnHeld();
@@ -1417,6 +1427,81 @@ function throwRecord(r) {
   r.mesh.userData.loose = true;
   const free = loose.filter(l => !l.inMilk);
   while (free.length > 20) { const o = free.shift(); loose.splice(loose.indexOf(o), 1); scene.remove(o.rec.group); o.rec.dispose(); }
+}
+// #228 finger spin (owner): balance a record on an upright index finger and spin it like a basketball.
+// Start: hold a record roughly flat with one hand, put the other hand's straight index finger under the centre hole
+// (pointing up), and let go: it sits on the fingertip and spins (the wrist's twist at release sets the speed, at
+// least ~1.4 turns a second). A record thrown or dropped flat onto an upright finger is caught the same way.
+// While it spins: any other fingertip or controller tip brushing the rim along the edge spins it faster (or slows
+// it if it goes against it); it wobbles more as it slows, and slides off when the finger tilts past ~40 deg, jerks,
+// tracking loses the finger, or the spin dies. Pinch it to take it. Hands only for the finger (controllers can flick).
+const SPIN = { MIN_START: 9, MAX: 45, DROP_W: 2.5, TILT_DROP: 0.7, CATCH_R: 0.03 };
+const _fsN = new THREE.Vector3(), _fsA = new THREE.Vector3(), _fsB = new THREE.Vector3(), _fsU = new THREE.Vector3(), _fsQ = new THREE.Quaternion(), _fsQ2 = new THREE.Quaternion();
+function discNormal(rec, out) { return out.set(0, 1, 0).applyQuaternion(rec.mesh.getWorldQuaternion(_fsQ)).normalize(); }
+function spinFingerFor(c, nUp, exclude) {   // a straight index finger pointing up, its tip just under the centre hole
+  if (!xr || !xr.fingers || !renderer.xr.isPresenting) return null;
+  for (const F of xr.fingers()) {
+    if (exclude && F.st.anchor === exclude) continue;
+    if (F.dir.y < 0.82) continue;   // within ~35 deg of straight up
+    _fsA.copy(c).sub(F.tip); const h = _fsA.dot(nUp), rad = _fsA.addScaledVector(nUp, -h).length();
+    if (rad < SPIN.CATCH_R && h > -0.02 && h < 0.05) return F;
+  }
+  return null;
+}
+function startSpin(L, F, w) {
+  L.spin = { F, w: Math.max(-SPIN.MAX, Math.min(SPIN.MAX, w)), ph: Math.random() * 6.28, last: F.tip.clone(), fv: new THREE.Vector3(), fvSet: false, lost: 0 };
+  L.resting = false; L.vel.set(0, 0, 0); L.ang.set(0, 0, 0);
+  if (xr.buzz) xr.buzz(F.st, 0.3, 30);
+}
+function dropSpin(L, upAx, push) {
+  const S = L.spin; L.spin = null;
+  L.vel.copy(S.fv); if (push) L.vel.add(_fsB.set(push.x, 0, push.z).multiplyScalar(0.8));
+  L.ang.copy(upAx).multiplyScalar(S.w); L.resting = false;
+}
+function stepSpin(L, dt) {
+  const S = L.spin, F = S.F, g = L.rec.group;
+  const n = discNormal(L.rec, _fsN), face = n.y >= 0 ? 1 : -1;
+  const upAx = _fsU.copy(n).multiplyScalar(face);
+  if (!F.ok) { if ((S.lost += dt) > 0.15) return dropSpin(L, upAx); } else S.lost = 0;   // bridge tracking blips
+  if (dt > 0 && F.ok) {
+    const v = _fsA.copy(F.tip).sub(S.last).multiplyScalar(1 / dt);
+    const acc = S.fvSet ? v.distanceTo(S.fv) / dt : 0;
+    S.fv.lerp(v, S.fvSet ? 0.5 : 1); S.fvSet = true;
+    if (acc > 45) return dropSpin(L, upAx);   // a jerk of the finger throws it off
+  }
+  S.last.copy(F.tip);
+  const tilt = Math.acos(Math.max(-1, Math.min(1, F.dir.y)));
+  if (tilt > SPIN.TILT_DROP) return dropSpin(L, upAx, F.dir);
+  // flicks: other tips on the rim, moving along the edge
+  if (xr.tips && dt > 0) for (const t of xr.tips()) {
+    const prev = t.st._spinPrev || (t.st._spinPrev = t.p.clone());
+    if (t.st !== F.st) {
+      _fsA.copy(t.p).sub(g.position); const h = _fsA.dot(upAx); _fsA.addScaledVector(upAx, -h); const rl = _fsA.length();
+      if (Math.abs(h) < 0.03 && rl > R_DISC - 0.035 && rl < R_DISC + 0.025) {
+        const vt = _fsB.copy(t.p).sub(prev).multiplyScalar(1 / dt);
+        const tang = _fsA.multiplyScalar(1 / rl).cross(upAx).negate();   // up x radial = the way the rim moves for +w
+        const wv = vt.dot(tang) / R_DISC;
+        if (Math.abs(wv) > 2) {
+          if (Math.sign(wv) === Math.sign(S.w) || Math.abs(S.w) < 1) { if (Math.abs(wv) > Math.abs(S.w)) S.w += (wv - S.w) * 0.5; }
+          else S.w *= 0.85;   // against the spin: the finger drags it slower
+          S.w = Math.max(-SPIN.MAX, Math.min(SPIN.MAX, S.w));
+          if (!t.hand && xr.buzz) xr.buzz(t.st, 0.25, 12);
+        }
+      }
+    }
+    prev.copy(t.p);
+  }
+  S.w -= Math.sign(S.w) * (0.25 + 0.035 * Math.abs(S.w)) * dt;   // friction on the fingertip and in the air
+  if (Math.abs(S.w) < SPIN.DROP_W) return dropSpin(L, upAx);
+  // pose: the axis leans half with the finger; the wobble grows as it slows and goes round (precession)
+  const aw = Math.abs(S.w), wob = Math.min(0.35, 0.02 + 1.0 / aw);
+  S.ph += (1.2 + 25 / aw) * dt;
+  const base = _fsB.set(0, 1, 0).lerp(F.dir, 0.5).normalize();
+  const side = _fsA.set(Math.cos(S.ph), 0, Math.sin(S.ph)); side.addScaledVector(base, -side.dot(base)).normalize();
+  const tgt = base.multiplyScalar(Math.cos(wob)).addScaledVector(side, Math.sin(wob)).normalize();
+  g.quaternion.premultiply(_fsQ2.setFromUnitVectors(upAx, tgt));
+  g.quaternion.premultiply(_fsQ2.setFromAxisAngle(tgt, S.w * dt)).normalize();
+  g.position.copy(F.tip).addScaledVector(tgt, 0.004);   // the fingertip sits a little way into the centre hole
 }
 function pickUpLoose(r, attach) {
   const i = loose.findIndex(l => l.rec === r); if (i < 0) return null;
@@ -1667,6 +1752,7 @@ function stepLoose(dt) {
   for (let i = loose.length - 1; i >= 0; i--) {
     const L = loose[i], g = L.rec.group;
     if (L.inMilk) { if (!L.resting) stepMilk(L, dt); L.rec.setLOD(g.getWorldPosition(_cv).distanceTo(eye) > 0.3); continue; }
+    if (L.spin) { stepSpin(L, dt); L.rec.setLOD(g.position.distanceTo(eye) > 0.3); continue; }   // #228
     if (!L.resting) {
       L.vel.y -= GRAV * dt;
       L.vel.multiplyScalar(1 - 0.5 * dt);              // a flat disc sheds speed quickly in air
@@ -1678,6 +1764,10 @@ function stepLoose(dt) {
       g.updateMatrixWorld(true);
       const n = _dn.set(0, 1, 0).applyQuaternion(L.rec.mesh.getWorldQuaternion(_dq)).normalize();
       const low = R_DISC * Math.sqrt(Math.max(0, 1 - n.y * n.y)) + REC.THICK / 2 * Math.abs(n.y);
+      if (Math.abs(n.y) > 0.8 && L.vel.y < 0.5) {   // #228 dropped or thrown flat onto an upright finger: caught spinning
+        const up = _fsU.copy(n).multiplyScalar(n.y >= 0 ? 1 : -1), F = spinFingerFor(g.position, up);
+        if (F) { const w = L.ang.dot(up); startSpin(L, F, Math.abs(w) < SPIN.MIN_START * 0.8 ? (w < 0 ? -1 : 1) * SPIN.MIN_START * 0.8 : w); continue; }
+      }
       const s = supportUnder(g.position);
       if (s.kind === 'milk') { enterMilk(L, s.m); continue; }       // over the spare crate: its own physics takes over
       if (g.position.y - low <= s.y && L.vel.y <= 0) {
@@ -4069,7 +4159,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {

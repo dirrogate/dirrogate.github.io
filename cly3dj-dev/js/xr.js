@@ -597,6 +597,13 @@ export function setupXR(ctx) {
       let hasTip = false;
       if (st.isHand) {
         const it = jointPos(st, 'index-finger-tip', st.tip), tt = jointPos(st, 'thumb-tip', v2);
+        // #228 finger spin: the index finger's direction (knuckle to tip) and whether it is held out straight
+        {
+          const F = st.finger || (st.finger = { tip: new THREE.Vector3(), dir: new THREE.Vector3(), ok: false, st });
+          const kn = it && jointPos(st, 'index-finger-phalanx-proximal', v1);
+          F.ok = !!(kn && tt) && !st.pinching && st.tip.distanceTo(kn) > 0.055 && st.tip.distanceTo(tt) > 0.05;
+          if (F.ok) { F.tip.copy(st.tip); F.dir.copy(st.tip).sub(kn).normalize(); }
+        }
         if (it && tt) {
           hasTip = true;
           st.pinchPt.copy(st.tip).add(tt).multiplyScalar(0.5);
@@ -725,5 +732,8 @@ export function setupXR(ctx) {
   }
   function end() { for (const st of inputs) release(st); }
 
-  return { update, end, inputs, setHandMode, _t: { grabStart, grabMove, release, pokes, updateAnchor } };
+  // #228 for the finger spin: each tracked hand's index finger, and every fingertip / controller tip (to flick the rim)
+  const fingers = () => inputs.filter(st => st.connected && st.isHand && st.finger && st.finger.ok).map(st => st.finger);
+  const tips = () => inputs.filter(st => st.connected).map(st => ({ st, p: st.tip, anchor: st.anchor, hand: st.isHand }));
+  return { update, end, inputs, setHandMode, fingers, tips, buzz, _t: { grabStart, grabMove, release, pokes, updateAnchor } };
 }
