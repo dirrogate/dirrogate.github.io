@@ -1,6 +1,7 @@
 // Minimal ID3v2.2/2.3/2.4 reader: returns { title, artist, bpm, picture: Blob|null, back: Blob|null, media: Blob|null }.
 // #231 picture types: picture = the cover (Front cover 3, else Other 0, else any other); back = Back cover (4), for
-// the back of the sleeve; media = Media (6, 'label side of CD'), for the centre label. bpm = TBPM (#102), 0 if none.
+// the back of the sleeve; media = Media (6, 'label side of CD'), for the centre label.
+// #232 mediaB = the B label kept in the same file (description 'Label B' / 'Side B'), for one-file records. bpm = TBPM (#102), 0 if none.
 // Only reads what the labels need. Must be called before decodeAudioData (which detaches the buffer).
 
 function syncsafe(b, o) { return (b[o] << 21) | (b[o + 1] << 14) | (b[o + 2] << 7) | b[o + 3]; }
@@ -27,7 +28,7 @@ function skipString(enc, b, o) {
 }
 
 export function readID3(arrayBuffer) {
-  const res = { title: '', artist: '', bpm: 0, key: '', picture: null, back: null, media: null };
+  const res = { title: '', artist: '', bpm: 0, key: '', picture: null, back: null, media: null, mediaB: null };
   const b = new Uint8Array(arrayBuffer);
   if (b.length < 10 || b[0] !== 0x49 || b[1] !== 0x44 || b[2] !== 0x33) return res;
   const ver = b[3], flags = b[5];
@@ -61,12 +62,18 @@ export function readID3(arrayBuffer) {
       if (id === 'PIC') { const f = String.fromCharCode(...data.subarray(1, 4)).toLowerCase(); mime = f === 'png' ? 'image/png' : 'image/jpeg'; p = 4; }
       else { let e = p; while (e < data.length && data[e]) e++; mime = new TextDecoder('latin1').decode(data.subarray(p, e)) || 'image/jpeg'; p = e + 1; }
       const type = data[p]; p++;
-      p = skipString(enc, data, p);
+      const d0 = p; p = skipString(enc, data, p);
+      // #232 the description names a label side: 'Label B' / 'Side B' (any picture type) = the B label, 'Label A' /
+      // 'Side A' = the A label; a Media picture described just 'B' is the B label, any other Media picture the A label
+      const desc = decodeText(enc, data.subarray(d0, Math.max(d0, p - (enc === 1 || enc === 2 ? 2 : 1)))).replace(/\0+$/, '').trim();
+      const isB = /\b(label|side)[\s_-]*b\b/i.test(desc) || (type === 6 && /^b$/i.test(desc));
+      const isA = !isB && (/\b(label|side)[\s_-]*a\b/i.test(desc) || type === 6);
       if (!mime.includes('/')) mime = 'image/' + mime.toLowerCase().replace('jpg', 'jpeg');
       const blob = () => new Blob([data.slice(p)], { type: mime });
-      if (type === 4 && !res.back) res.back = blob();
-      if (type === 6 && !res.media) res.media = blob();
-      const score = type === 3 ? 10 : type === 0 ? 5 : type === 4 || type === 6 ? 0 : 1; // prefer front cover; back / label only as a last resort
+      if (type === 4 && !isA && !isB && !res.back) res.back = blob();
+      if (isB && !res.mediaB) res.mediaB = blob();
+      else if (isA && !res.media) res.media = blob();
+      const score = isA || isB || type === 4 ? 0 : type === 3 ? 10 : type === 0 ? 5 : 1; // prefer front cover; back / labels only as a last resort
       if (score > bestType) { bestType = score; bestPic = blob(); }
     }
   }

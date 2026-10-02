@@ -756,8 +756,10 @@ const artBlobs = new Map();  // track id -> the cover as stored in the MP3 (sent
 // #231 more pictures from the tag: the centre label (ID3 picture type 6, Media) and the back cover (type 4)
 const labelArt = new Map();  // track id -> ImageBitmap (only when the file has a Media picture)
 const backBlobs = new Map(); // track id -> Blob (only when the file has a Back cover)
+const labelArtB = new Map(); // #232 track id -> the B label kept inside that (A side's) file
 async function keepExtraPics(track, tag) {
   if (tag.media) { try { labelArt.set(track.id, await createImageBitmap(tag.media)); } catch {} }
+  if (tag.mediaB) { try { labelArtB.set(track.id, await createImageBitmap(tag.mediaB)); } catch {} }
   if (tag.back) backBlobs.set(track.id, tag.back);
 }
 const labelOf = t => (t && (labelArt.get(t.id) || artCache.get(t.id))) || null;   // label: Media picture, else the cover
@@ -1048,7 +1050,7 @@ function fetchSide(track) {
       await keepExtraPics(track, tag);
     } catch (e) { console.warn('art', e); }
     artCache.set(track.id, art);
-    return { bytes, art: labelArt.get(track.id) || art };   // #231 the record's label
+    return { bytes, art: labelArt.get(track.id) || (track.side === 'B' && labelArtB.get(track.id)) || art };   // #231 the record's label (#232 a _b file's 'Label B' is its own)
   })();
   sideCache.set(track.id, p);
   p.catch(() => sideCache.delete(track.id));
@@ -1092,6 +1094,9 @@ async function prepareArt(rec3d) {
       if (d && d.art) { rec3d.labelImgs[s] = d.art; rec3d.redraw(s); }
     } catch (e) { toast(e.message); }
   }
+  // #232 the B label from inside the A file: a one-file record's B face, or a _b file without pictures of its own
+  const a = rec3d.track('A'), b = rec3d.track('B'), lb = a && labelArtB.get(a.id);
+  if (lb && !rec3d.disposed && (!b || !rec3d.labelImgs.B)) { rec3d.labelImgs.B = lb; rec3d.redraw('B'); }
 }
 
 // Crate screen (CLAUDE.md #61, #72, #73): header, search bar, rows, optional on-screen keyboard, footer.
@@ -3473,7 +3478,9 @@ async function pressRecord() {
 // #231 built-in example records (web/examples/, streamed like songs from the PC), in Unsorted and the Collection.
 // "Sleeve Art Demo": every ID3 picture type the app reads (tools/make_sleeve_demo.py builds it). Long press +
 // DELETE hides one for good on this device (vire.hiddenExamples).
-const EXAMPLES = [{ id: 'sleeve', title: 'Sleeve Art Demo', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3' }];
+const EXAMPLES = [{ id: 'sleeve', title: 'Sleeve Art Demo', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3' },
+  // #232 the same pictures in one file: front cover, back cover, and an 'Other' picture described 'Label B'
+  { id: 'sleeve1', title: 'Sleeve Art Demo (One File)', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo (One File).mp3', b: null }];
 function hiddenExamples() { try { return JSON.parse(localStorage.getItem('vire.hiddenExamples') || '[]'); } catch { return []; } }
 function addExamples(L) {
   const hide = hiddenExamples();
@@ -3481,8 +3488,8 @@ function addExamples(L) {
   for (const ex of EXAMPLES) {
     if (hide.includes(ex.id) || L.tracks.has('ex_' + ex.id + '_A')) continue;
     if (!un) { un = { name: 'Unsorted', path: 'Unsorted (on this headset)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, un); }
-    const r = { id: 'rex_' + ex.id, title: ex.title, artist: ex.artist, sides: { A: null, B: null }, bpm: ex.bpm, key: ex.key, genre: 'Example', duration: 0, missing: false, paired: true, unsorted: true, example: ex.id };
-    for (const side of ['A', 'B']) {
+    const r = { id: 'rex_' + ex.id, title: ex.title, artist: ex.artist, sides: { A: null, B: null }, bpm: ex.bpm, key: ex.key, genre: 'Example', duration: 0, missing: false, paired: !!ex.b, unsorted: true, example: ex.id };
+    for (const side of ex.b ? ['A', 'B'] : ['A']) {
       const id = 'ex_' + ex.id + '_' + side, url = encodeURI(side === 'A' ? ex.a : ex.b);
       const t = { id, name: ex.title + '_' + side.toLowerCase(), title: ex.title, side, split: false, artist: ex.artist, album: ex.title, genre: 'Example', key: ex.key, bpm: ex.bpm, duration: 0,
         location: url, url, opfs: null, missing: false, cues: [], unsorted: true, record: r };
