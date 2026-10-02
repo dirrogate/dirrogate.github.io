@@ -183,6 +183,11 @@ export function setupXR(ctx) {
     if (st.direct) return true;
     const deckOk = st.isHand || btn !== 'grip';   // #104: turntable actions = trigger (or hand pinch)
     if (ctx.getHeld() && ctx.getHeld().attach === st.anchor) return true; // already holding a record
+    // #229 the other hand on the record peeking out of a sleeve in your hand: slide it out
+    if (ctx.sleeveHeldBy && ctx.sleeveHeldBy() && ctx.sleeveHeldBy() !== st.anchor) {
+      const sl = ctx.sleeveSlideTest(P);
+      if (sl) { st.direct = { kind: 'sleeveSlide', y0: sl.y0, s0: sl.s0 }; buzz(st, 0.3, 20); return true; }
+    }
     // 0. target lamp, controllers only: the trigger (or grip) at the lamp head toggles it (CLAUDE.md #58).
     //    Controllers never toggle it by hovering; bare hands still press it with a fingertip poke.
     if (!st.isHand) for (const d of ctx.decks) {
@@ -302,6 +307,10 @@ export function setupXR(ctx) {
     const lidOpen = ctx.crateLidOpen();
     if (lidOpen && cd.visible && Math.abs(cl.z - cd.position.z) < 0.05 && cl.y > cd.position.y - 0.03 && Math.hypot(cl.x - cd.position.x, cl.y - cd.position.y) < ctx.REC.R + 0.02) {
       updateAnchor(st); if (ctx.pullSelected(st.anchor)) { st.direct = { kind: 'held' }; buzz(st); return true; }
+    }
+    // 4b. #229 a hand down in the middle of the selected sleeve lifts the whole sleeve out
+    if (lidOpen && ctx.sleeveGrabTest && ctx.sleeveGrabTest(P)) {
+      updateAnchor(st); if (ctx.sleeveGrab(st.anchor)) { st.direct = { kind: 'sleeve' }; buzz(st, 0.4, 30); return true; }
     }
     // 5. digging: pinch inside the crate and move along the rack to flip, lift out to pull
     if (lidOpen && Math.abs(cl.x) < C.W / 2 && Math.abs(cl.z) < C.D / 2 && cl.y > 0.05 && cl.y < C.H + 0.15) {
@@ -441,6 +450,14 @@ export function setupXR(ctx) {
       ctx.scratchMove(g.s, l, g.s.nudge ? rimForce(st, rimR(g.d, l)) : undefined);
     } else if (g.kind === 'lid') {
       ctx.lidDragTo(P, g.off);
+    } else if (g.kind === 'sleeveSlide') {   // #229
+      const r = ctx.sleeveSlideTo(P, g);
+      if (r === null) st.direct = null;
+      else if (r === 'out') {
+        ctx.sleevePulled(); updateAnchor(st);
+        if (ctx.pullSelected(st.anchor)) { st.direct = { kind: 'held' }; buzz(st, 0.5, 40); } else st.direct = null;
+        ctx.sleeveReturn();
+      } else if ((g.bz = (g.bz || 0) + 1) % 4 === 0) buzz(st, 0.1, 8);   // the record rubbing on the inner sleeve
     } else if (g.kind === 'dig') {
       const cl = ctx.crate.worldToLocal(v2.copy(P));
       if (cl.y > ctx.CRATE.H + 0.1) { updateAnchor(st); if (ctx.pullSelected(st.anchor)) { st.direct = { kind: 'held' }; buzz(st); } }
@@ -488,6 +505,7 @@ export function setupXR(ctx) {
     else if (g.kind === 'held') { const h = ctx.getHeld(); if (h && h.attach === st.anchor) ctx.releaseHeld(); }
     else if (g.kind === 'move') { ctx.stage.endMove(g.stMove); if (g.target.startsWith('milk')) ctx.releaseMilk(g.target, g.vel); else ctx.settleStack(g.target); }   // #200 milk: releaseMilk drops / throws / settles it
     else if (g.kind === 'lid') ctx.lidRelease();
+    else if (g.kind === 'sleeve') ctx.sleeveReturn();   // #229 let go of the sleeve: back into the crate
     else if (g.kind === 'tablet') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'tabletStretch') o.direct = null; if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
     else if (g.kind === 'tabletScale' || g.kind === 'tabletStretch') ctx.saveTablet();
     else if (g.kind === 'ledTurn') { ctx.ledTurned(); buzz(st, 0.5, 30); }   // #222 settle on portrait / landscape

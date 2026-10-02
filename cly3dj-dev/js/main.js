@@ -1307,6 +1307,7 @@ function layoutSleeves() {
     e.set(tilt, 0, 0); q.setFromEuler(e); p.set(0, y, z);
     const r = list[idx];
     s.set(1, hy, r && r.missing ? 0.001 : 1);
+    if (sleeveOut && r === sleeveOut.rec) { sleeveOut.slotK = k; sleeveOut.slotM = new THREE.Matrix4().compose(p, q, s); s.set(0, 0, 0); }   // #229 that sleeve is in a hand
     m.compose(p, q, s); S.setMatrixAt(k, m);
     if (rel === 0 && r && !r.missing && !shut) {
       crateDisc.userData.target.set(0, yDisc + 0.012 + 0.315 / 2 - 0.005, z); crateDisc.userData.tilt = tilt;
@@ -1322,16 +1323,119 @@ function layoutSleeves() {
   const near = [];
   for (let k = 0; k < n; k++) {
     const idx = start + k, rel = idx - crateState.sel, r = list[idx];
-    if (!r || r.missing || rel < -4 || rel > 5) continue;
+    if (!r || r.missing || rel < -4 || rel > 5 || (sleeveOut && r === sleeveOut.rec)) continue;
     S.getMatrixAt(k, m); m.decompose(p, q, s);
     near.push({ idx, rel, p: p.clone(), q: q.clone(), sy: s.y });   // #153: covers squash with their jackets
   }
   near.sort((a, b) => (Math.abs(a.rel) + (a.rel > 0 ? 0.5 : 0)) - (Math.abs(b.rel) + (b.rel > 0 ? 0.5 : 0)));
   assignCovers(list, near);
   const selRec = list[crateState.sel];
-  if (shut || !selRec || selRec.missing || (held && held.rec === selRec) || copiesOut(selRec) >= COPIES) crateDisc.visible = false;
+  if (shut || !selRec || selRec.missing || (held && held.rec === selRec) || copiesOut(selRec) >= COPIES || (sleeveOut && sleeveOut.rec === selRec)) crateDisc.visible = false;
   S.instanceMatrix.needsUpdate = true;
   if (!CAMERA_ROLE && spect && spect.crate) spect.crate(crateView(list, start, n, shut));   // #218 the phone mirrors this view
+}
+// #229 sleeve dig (owner): reach down into the crate to the middle of the selected sleeve (the hand at least ~7 cm
+// below the crate's top edge, on that sleeve) and grab (pinch / grip / trigger): the whole jacket comes up in your
+// hand with the record peeking out of its opening. Grab the record's edge with the other hand and slide it out
+// along the sleeve; once it is clear it is in that hand like any pulled record, and the sleeve flies back into its
+// slot. Let go of the sleeve any time and it goes back (record and all). Grabbing the record that pops up above the
+// crate (or flicking through the tops of the sleeves) works as before: that only pulls the record.
+// Cost: one card box + a copy of the crate disc (shared geometry and materials) + one 1024 px cover canvas
+// (~5 MB with mips, made once), all only while a sleeve is out.
+let sleeveOut = null;   // { rec, g, disc, anchor, off, s, slotK, slotM, back }
+const SLEEVE = { H: 0.315, PEEK: 0.05, OUT: 0.31 };
+let sleeveCv = null, sleeveTex = null, sleeveBackCv = null, sleeveBackTex = null, sleeveMesh = null, sleeveDisc = null, sleeveGroup = null;
+function sleeveParts() {
+  if (sleeveGroup) return;
+  sleeveCv = document.createElement('canvas'); sleeveCv.width = sleeveCv.height = 1024;
+  sleeveTex = new THREE.CanvasTexture(sleeveCv); sleeveTex.colorSpace = THREE.SRGBColorSpace; sleeveTex.anisotropy = 4;
+  sleeveBackCv = document.createElement('canvas'); sleeveBackCv.width = sleeveBackCv.height = 256;
+  sleeveBackTex = new THREE.CanvasTexture(sleeveBackCv); sleeveBackTex.colorSpace = THREE.SRGBColorSpace;
+  const card = new THREE.MeshStandardMaterial({ color: 0xd9d2c3, roughness: 0.85 });
+  const front = new THREE.MeshStandardMaterial({ map: sleeveTex, roughness: 0.7 }), back = new THREE.MeshStandardMaterial({ map: sleeveBackTex, roughness: 0.8 });
+  // box faces: +x, -x, +y (the opening edge), -y, +z (front cover, toward you in the crate), -z (back)
+  sleeveMesh = new THREE.Mesh(new THREE.BoxGeometry(SLEEVE.H, SLEEVE.H, 0.003), [card, card, card, card, front, back]);
+  sleeveMesh.castShadow = true;
+  sleeveDisc = new THREE.Group();   // the crate disc's own geometry and materials (its label = the selected record's)
+  for (const c of crateDisc.children) { const m = new THREE.Mesh(c.geometry, c.material); m.position.copy(c.position); m.quaternion.copy(c.quaternion); m.userData = { sleeveDisc: true }; sleeveDisc.add(m); }
+  sleeveGroup = new THREE.Group(); sleeveGroup.add(sleeveMesh, sleeveDisc); sleeveGroup.visible = false; scene.add(sleeveGroup);
+}
+function drawSleeveCovers(r) {
+  const g = sleeveCv.getContext('2d'), t = r.sides.A || r.sides.B, art = t && artCache.get(t.id);
+  if (art) { const k = Math.max(1024 / art.width, 1024 / art.height); g.drawImage(art, 512 - art.width * k / 2, 512 - art.height * k / 2, art.width * k, art.height * k); }
+  else { const pm = coverPool.find(m => m.userData.rec === r); if (pm) g.drawImage(pm.userData.canvas, 0, 0, 1024, 1024); else { g.fillStyle = '#333'; g.fillRect(0, 0, 1024, 1024); } }
+  sleeveTex.needsUpdate = true;
+  const b = sleeveBackCv.getContext('2d');   // back: plain card, title and artist
+  b.fillStyle = '#d9d2c3'; b.fillRect(0, 0, 256, 256); b.fillStyle = '#2b2b2b'; b.textAlign = 'center';
+  b.font = '700 15px system-ui'; fitText2Center(b, r.title || '', 128, 120, 220); b.font = '400 13px system-ui'; fitText2Center(b, r.artist || '', 128, 142, 220);
+  sleeveBackTex.needsUpdate = true;
+}
+function selectedSlotPose() {   // the selected sleeve's pose, crate-local
+  const S = crate.userData.sleeves, m = new THREE.Matrix4();
+  const k = sleeveMap.indexOf(crateState.sel); if (k < 0) return null;
+  S.getMatrixAt(k, m); const p = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(); m.decompose(p, q, sc);
+  return { k, p, q, m };
+}
+function sleeveGrabTest(P) {   // a hand down in the middle of the selected sleeve
+  if (sleeveOut || !crateLidOpen() || !crateDisc.visible) return false;
+  const r = currentList()[crateState.sel]; if (!r || r.missing) return false;
+  const pose = selectedSlotPose(); if (!pose) return false;
+  const cl = crate.worldToLocal(P.clone());
+  return Math.abs(cl.x) < 0.14 && Math.abs(cl.z - pose.p.z) < 0.03 && cl.y > 0.05 && cl.y < CRATE.H - 0.07;
+}
+function sleeveGrab(anchor) {
+  const r = currentList()[crateState.sel], pose = selectedSlotPose(); if (!r || !pose) return false;
+  sleeveParts(); drawSleeveCovers(r);
+  sleeveGroup.position.copy(pose.p); sleeveGroup.quaternion.copy(pose.q);
+  crate.updateMatrixWorld(); sleeveGroup.applyMatrix4(crate.matrixWorld);   // crate-local -> world
+  sleeveGroup.updateMatrixWorld();
+  sleeveDisc.position.set(0, SLEEVE.PEEK, 0); sleeveGroup.visible = true;
+  sleeveOut = { rec: r, anchor, off: new THREE.Matrix4().copy(anchor.matrixWorld).invert().multiply(sleeveGroup.matrixWorld), s: SLEEVE.PEEK, back: null };
+  layoutSleeves(); return true;
+}
+function sleeveHeldBy() { return sleeveOut && !sleeveOut.back ? sleeveOut.anchor : null; }
+// the other hand on the record's exposed part: returns its start (sleeve-local y), or null
+function sleeveSlideTest(P) {
+  if (!sleeveOut || sleeveOut.back || !sleeveDisc.visible) return null;
+  sleeveGroup.updateMatrixWorld(); const l = sleeveGroup.worldToLocal(P.clone());
+  const top = SLEEVE.H / 2, discTop = sleeveOut.s + REC.R;
+  if (Math.abs(l.x) < REC.R && Math.abs(l.z) < 0.05 && l.y > top - 0.03 && l.y < discTop + 0.04) return { y0: l.y, s0: sleeveOut.s };
+  return null;
+}
+// slide the record along the sleeve; 'out' when it is clear (the caller then pulls it into that hand)
+function sleeveSlideTo(P, g) {
+  if (!sleeveOut || sleeveOut.back) return null;
+  const l = sleeveGroup.worldToLocal(P.clone());
+  sleeveOut.s = Math.max(0, Math.min(SLEEVE.OUT + 0.02, g.s0 + (l.y - g.y0)));
+  sleeveDisc.position.y = sleeveOut.s;
+  return sleeveOut.s >= SLEEVE.OUT ? 'out' : 'in';
+}
+function sleevePulled() {   // the record left the sleeve: select it (pullSelected uses the selection) and hide the inner disc
+  const i = currentList().indexOf(sleeveOut.rec); if (i >= 0) crateState.sel = i;
+  sleeveDisc.visible = false;
+}
+function sleeveReturn() {   // fly back into the slot, then the crate's own sleeve takes over
+  if (!sleeveOut || sleeveOut.back) return;
+  const m = sleeveOut.slotM ? new THREE.Matrix4().multiplyMatrices(crate.matrixWorld, sleeveOut.slotM) : null;
+  if (!m) { sleeveDone(); return; }
+  const p = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(); m.decompose(p, q, sc);
+  sleeveOut.back = { t: 0, p0: sleeveGroup.position.clone(), q0: sleeveGroup.quaternion.clone(), p, q };
+}
+function sleeveDone() {
+  sleeveGroup.visible = false; sleeveDisc.visible = true; sleeveOut = null; layoutSleeves();
+}
+function stepSleeve(dt) {
+  if (!sleeveOut) return;
+  const S = sleeveOut;
+  if (S.back) {
+    const b = S.back; b.t = Math.min(1, b.t + dt / 0.35); const e = b.t * b.t * (3 - 2 * b.t);
+    sleeveGroup.position.lerpVectors(b.p0, b.p, e); sleeveGroup.quaternion.slerpQuaternions(b.q0, b.q, e);
+    if (S.s > 0.001 && sleeveDisc.visible) { S.s = Math.max(0, S.s - dt * 0.6); sleeveDisc.position.y = S.s; }
+    if (b.t >= 1) sleeveDone();
+    return;
+  }
+  S.anchor.updateMatrixWorld();
+  new THREE.Matrix4().multiplyMatrices(S.anchor.matrixWorld, S.off).decompose(sleeveGroup.position, sleeveGroup.quaternion, sleeveGroup.scale);
 }
 function crateSelect(delta) {
   const list = currentList(); if (!list.length) return;
@@ -3681,6 +3785,7 @@ function frame() {
     crateDisc.rotation.x = crateDisc.userData.tilt;
   }
   if (xr && renderer.xr.isPresenting) xr.update(dt);
+  stepSleeve(dt);   // #229
 
   for (const d of decks) {
     const u = d.g.userData, st = engine.state.decks[d.i];
@@ -3856,6 +3961,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
   armGrab, armDrag, armRelease,
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
+  sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn,
   crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, drawCrateScreen, layoutSleeves, crateDisc,
   neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, toast, mixScreenRelease,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
@@ -4159,7 +4265,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
