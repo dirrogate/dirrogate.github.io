@@ -14,13 +14,13 @@ const CAL_TEXT = {
   x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
-export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getVV, getSky, onMedia, onCam, onPreview, perf, coverFor }) {
+export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getScroll, getVV, getSky, onMedia, onCam, onPreview, perf, coverFor }) {
   // #209 PerfCap: every mirror message also goes to the PerfCap recorder while it records (phone or not)
   const out = { send(ch, m) { if (link.isOpen) link.send(ch, m); if (perf && perf.on) perf.write(ch, m); } };
   let perfMarks = false;   // #209 PerfCap MARKS mode: each trigger press records a floor mark
   let acc = 0, seq = 0, was = false, calStep = null, doneT = 0;
   let mr = true;   // #164/#167: MR GUI (default on for setting up)
-  let lastPing = 0, ledT = 0, ledKey = '', skyKey = '';   // #169: the phone pings every second; silent for 3.5 s = not connected (a closed page can leave the channel 'open' for ~30 s)
+  let lastPing = 0, ledT = 0, ledKey = '', skyKey = '', scrollKey = '', scrollT = 0;   // #169: the phone pings every second; silent for 3.5 s = not connected (a closed page can leave the channel 'open' for ~30 s)
   const status = s => { const el = document.getElementById('spectStatus'); if (el) el.textContent = label(s); };
   const label = s => ({ relay: 'Waiting for the phone (code ' + code + ')', 'relay-retry': 'No internet for the handshake, retrying…',
     connected: 'Phone connected', disconnected: 'Phone disconnected', failed: 'Phone link failed' }[s] || s);
@@ -386,7 +386,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     onStatus: status,
     onBinary: onBin,
     onState: s => status(s),
-    onOpen: () => { crateSent = ''; if (lastScr) scrDirty = true; link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
+    onOpen: () => { crateSent = ''; if (lastScr) scrDirty = true; link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; scrollKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
     onClose: () => { if (rx) { rx.abort(); rx = null; } camState = null; onCam && onCam(null); status('disconnected'); calStep = null; ghost(false); panel.visible = false; frustum.visible = false; },
     onMessage: m => {
       if (m.k === 'qgo' || m.k === 'qok') { resolveWait(m.f, m.n, m.k, m); return; }   // #206 media sync, Quest to phone
@@ -435,6 +435,10 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       const L = getLed(), key = (L.on ? 1 : 0) + '|' + (L.name || '');
       if (key !== ledKey || now - ledT > 2000) { ledKey = key; ledT = now; out.send('ctl', { k: 'led', on: L.on, name: L.name, t: L.t, qt: now }); }
     }
+    if (getScroll) {   // #236 the VJ scroller: the phone draws its own copy from the text, wave and speed
+      const S = getScroll(), k = JSON.stringify(S);
+      if (k !== scrollKey || now - scrollT > 3000) { scrollKey = k; scrollT = now; out.send('ctl', { k: 'scroll', ...S }); }
+    }
     if (getSky) {   // #184: panorama height / turn / type for the phone's virtual set (the phone has its own copy of the image)
       const S = getSky(), k = JSON.stringify(S);
       if (k !== skyKey) { skyKey = k; out.send('ctl', { k: 'sky', ...S }); }
@@ -460,6 +464,6 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     syncList, syncCopy, get sync() { return sync; },
     // #209 PerfCap: a take starts with a full snapshot (layout, every part, every record with its grooves / labels)
     crate, crateScreen, prepCovers,   // #218
-    perfBegin() { full = true; live.clear(); ledKey = ''; skyKey = ''; crateSent = ''; scrDirty = !!scrCanvas; perfCov.clear(); if (crateMsg) crate(crateMsg); if (perf && perf.on) { perf.write('ctl', layout()); perf.write('ctl', { k: 'mr', on: mr }); } },
+    perfBegin() { full = true; live.clear(); ledKey = ''; skyKey = ''; scrollKey = ''; crateSent = ''; scrDirty = !!scrCanvas; perfCov.clear(); if (crateMsg) crate(crateMsg); if (perf && perf.on) { perf.write('ctl', layout()); perf.write('ctl', { k: 'mr', on: mr }); } },
     get perfMarks() { return perfMarks; }, set perfMarks(v) { perfMarks = !!v; } };
 }

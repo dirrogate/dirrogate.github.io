@@ -14,7 +14,7 @@ import { makeFixedCam } from './fixedcam.js';
 import * as media from './medialib.js';
 
 export function startCamera(ctx) {
-  const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, skybox, envLight, key } = ctx;
+  const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, scroller, skybox, envLight, key } = ctx;
   const vs = makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key });   // #184 live green-screen key
   const look = makeLookMatch({ THREE, renderer, scene, rig, key }); vs.setLook(look);   // #187 Look match
   // #185 media library (phone side); its Video + Images items also feed the LED wall / VideoVinyl mirrors
@@ -410,6 +410,11 @@ export function startCamera(ctx) {
     else if (m.k === 'calpt') { if (!(fixed.on && fixed.onCalPoint(m))) onCalPoint(m); }   // #208 fixed camera taps first
     else if (m.k === 'calskip') { if (fixed.on) fixed.calSkip(); }   // #211 the Quest's grip skips an auto point
     else if (m.k === 'led') led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000);   // #176
+    else if (m.k === 'scroll' && scroller) {   // #236 the Quest's VJ scroller, drawn here from its text, wave and speed
+      scroller.wave = m.wave; scroller.speed = m.speed;
+      if (!m.on) { if (scroller.on) scroller.stop(); }
+      else if (!scroller.on || scroller.text !== m.text) { scroller.on = true; scroller.text = m.text; scroller.x = scroller.canvas.width; scroller.mesh.visible = true; }
+    }
     else if (m.k === 'sky') vs.onSky(m);
     else if (m.k === 'cset') onCset(m);   // #188
     else if (m.k === 'mls' || m.k === 'mgo' || m.k === 'mok') lib.onMsg(m);
@@ -624,7 +629,7 @@ export function startCamera(ctx) {
     head.visible = showHead && now - stats.last < 1000;
     if (deckInst) deckInst.update();
     if (neon.userData.update) neon.userData.update(dt);
-    try { stepWallGlow(); stepBlobs(); } catch {}
+    try { stepWallGlow(); stepBlobs(); if (scroller) scroller.tick(dt); } catch {}
     ghost(fixed.on ? !!fixed.S.cal : GHOST.has(mode));   // #212 fixed camera: gear hidden (faint outlines) while calibrating
     if (fixed.on) {   // #208 fixed camera: background crop + camera pose; the Quest's blue outline every 200 ms
       fixed.frame();
