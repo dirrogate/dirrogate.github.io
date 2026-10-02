@@ -75,7 +75,6 @@ export function setupXR(ctx) {
     // (middle finger) still grabs and moves everything else. A grab ends only when its own button is let go.
     const down = btn => {
       if (ctx.crateMicSelect(st.isHand ? st.pinchPt : st.tip)) { buzz(st, 0.4, 20); return; }
-      if (ctx.tabletImportSelect && ctx.tabletImportSelect(st.isHand ? st.pinchPt : st.tip)) { buzz(st, 0.4, 20); st.noGrabT = performance.now() + 1000; return; }   // #234 the file picker needs this real tap event
       if (!st.isHand && !st.direct && grabStart(st, st.tip, btn)) st.btn = btn;
     };
     const up = btn => { if (!st.isHand && (!st.direct || st.btn === btn)) release(st); };
@@ -384,7 +383,7 @@ export function setupXR(ctx) {
   }
   function hitMovable(P) {
     for (const k of [...Object.keys(GEAR), ...Object.keys(ctx.stage.items).filter(k => /^milk\d$/.test(k))]) {   // + spawned milk crates (#88)
-      const o = ctx.MOVABLE[k]; if (!o) continue;
+      const o = ctx.MOVABLE[k]; if (!o || !o.visible) continue;   // #235 switched-off pieces can't be grabbed
       // #200 milk crates: the grab box follows the crate's real size (#193 made it longer and taller than the old box), 3 cm
       // of reach round the sides and 6 cm over the rim, so it can be picked up by its rim, ends or sides
       const M = ctx.MILK, b = k.startsWith('milk') && M ? { x: M.W / 2 + 0.03, z: M.D / 2 + 0.03, y0: -0.02, y1: M.H + 0.06 } : GEAR[k];
@@ -661,7 +660,7 @@ export function setupXR(ctx) {
           ctlLetGo(st, dd);   // #230
           if (!st.pinching && dd < PINCH_ON) {
             st.pinching = true;
-            if (!(st.noGrabT > performance.now())) grabStart(st, st.pinchPt);   // #234 not when that pinch opened the file picker
+            grabStart(st, st.pinchPt);
           } else if (st.pinching && dd > PINCH_OFF) { st.pinching = false; release(st); }
         }
       } else {

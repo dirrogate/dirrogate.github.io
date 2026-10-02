@@ -20,9 +20,12 @@
   button.big { font:600 16px system-ui,sans-serif; color:var(--fg); background:#1c2230; border:1px solid #2e3850; border-radius:10px; padding:14px 22px; cursor:pointer; min-width:150px; }
   button.big:hover { border-color:var(--acc); }
   button.big:disabled { opacity:.4; cursor:default; }
-  #libstatus { margin-top:18px; color:var(--dim); font-size:13px; min-height:1.4em; }
-  #start .box { max-width:600px; }
-  .settings { display:grid; gap:10px; text-align:left; background:#121722; border:1px solid #232b3c; border-radius:12px; padding:14px 16px; margin:0 0 20px; }
+  #libstatus { margin-top:14px; color:var(--dim); font-size:13px; min-height:1.4em; }
+  /* #235 two columns of grouped cards that fall back to one column on a narrow window */
+  #start .box { max-width:1180px; width:100%; box-sizing:border-box; padding:24px 20px; }
+  .cols { column-width:440px; column-gap:18px; text-align:left; margin-top:20px; }
+  .settings { display:grid; gap:10px; text-align:left; background:#121722; border:1px solid #232b3c; border-radius:12px; padding:14px 16px; margin:0 0 18px; break-inside:avoid; }
+  .settings h2 { margin:0 0 2px; padding-bottom:7px; border-bottom:1px solid #232b3c; font:700 16px system-ui,sans-serif; color:#fff; letter-spacing:.02em; }
   .settings label { display:grid; grid-template-columns:150px 1fr; align-items:center; gap:10px; color:var(--dim); font-size:13px; }
   .settings select { font:14px system-ui,sans-serif; color:var(--fg); background:#1c2230; border:1px solid #2e3850; border-radius:8px; padding:8px; min-width:0; }
   .imp { display:flex; gap:8px; flex-wrap:wrap; margin-left:160px; }
@@ -51,7 +54,15 @@
   <div class="box">
     <h1>Cly<span>3DJ</span></h1>
     <p>Two decks, one mixer, your crate.</p>
-    <div class="settings">
+    <div class="btns">
+      <button class="big" id="bDesktop">Desktop</button>
+      <button class="big" id="bVR" hidden>Full VR</button>
+      <button class="big" id="bAR" hidden>Passthrough</button>
+    </div>
+    <div id="libstatus">Loading library…</div>
+    <div class="cols">
+    <section class="settings">
+      <h2>Music library</h2>
       <label>Songs
         <select id="sSource">
           <option value="pc">Streamed from the PC</option>
@@ -77,6 +88,52 @@
         <div id="persistStatus" class="note"></div>
         <div class="imp"><button class="small" id="bPersist">Keep songs on this headset</button></div>
       </div>
+    </section>
+    <section class="settings">
+      <h2>Turntables</h2>
+      <label>Turntable motor
+        <select id="sDeckModel">
+          <option value="classic">Classic: MK2-style, 1.5 kg·cm, quartz PLL (default)</option>
+          <option value="modern">Modern: MK7-style, 1.8 kg·cm, coreless, soft start</option>
+          <option value="legacy">Before physics (fixed ramps, #119 feel)</option>
+        </select>
+      </label>
+      <label>Record weight
+        <select id="sRecWeight">
+          <option value="140">140 g (standard pressing)</option>
+          <option value="180">180 g (heavyweight)</option>
+          <option value="200">200 g</option>
+        </select>
+      </label>
+      <label>Slipmat
+        <select id="sSlipmat">
+          <option value="slick">Felt on a slipsheet (slick)</option>
+          <option value="felt">Felt only (drags)</option>
+          <option value="rubber">Rubber mat (grips: scratching drags the platter)</option>
+        </select>
+      </label>
+      <div class="imp"><span class="chk"><input type="checkbox" id="cPll"> PLL phase memory: after a touch the motor wins back up to ~10 ms it lost (off = the nudge sticks)</span></div>
+    </section>
+    <section class="settings">
+      <h2>Microphone</h2>
+      <label>Mic route
+        <select id="sMicRoute">
+          <option value="app">Through the mixer (voice PITCH; recorded with the music)</option>
+          <option value="quest">Quest recorder / BeamXR mic (talkover duck only)</option>
+        </select>
+      </label>
+      <div class="note">Through the mixer: turn Include mic audio OFF in Quest Camera &gt; Settings, or your voice is recorded twice. Second option: the app leaves the mic alone and MIC only ducks the music; the recorder or BeamXR records the voice. Only one app can use the Quest mic at a time.</div>
+      <div id="rowMicApp" hidden>
+      <label>Microphone
+        <select id="sMic"><option value="">Default (headset's own mic)</option></select>
+      </label>
+      <div class="imp"><button class="small" id="bMicAllow">Allow microphone…</button>
+        <span class="chk"><input type="checkbox" id="cMicEcho"> Feedback guard (echo cancelling; only for the headset speakers, leave off with headphones)</span></div>
+      <div id="micStatus" class="note">Press MIC on the mixer; it shows how late you hear yourself.</div>
+      </div>
+    </section>
+    <section class="settings">
+      <h2>Passthrough &amp; spectator camera</h2>
       <label>Hands in passthrough
         <select id="sHands">
           <option value="real">My real hands (camera)</option>
@@ -92,6 +149,9 @@
       <div id="rowSpect" hidden>
         <div class="note">Phone: open spectator.html next to this page and enter code <b id="spectCode"></b>. Needs internet for the first handshake only. <span id="spectStatus"></span></div>
       </div>
+    </section>
+    <section class="settings">
+      <h2>Light &amp; surroundings</h2>
       <label>Environment light
         <select id="sEnv">
           <option value="studio">Studio (built in)</option>
@@ -127,11 +187,22 @@
       </label>
       <div class="note" id="skyInfo"></div>
       <input type="file" id="fEnv" accept="image/*" hidden>
+      <label>Shadows
+        <select id="sShadows">
+          <option value="blob">Blob shadows (cheap)</option>
+          <option value="realtime">Real-time</option>
+          <option value="both">Both</option>
+          <option value="off">Off</option>
+        </select>
+      </label>
+    </section>
+    <section class="settings">
+      <h2>Visuals: LED wall, neon &amp; media</h2>
       <label>LED wall videos <span><button class="small" id="bLedPick">Choose videos… (up to 5)</button></span></label>
       <div class="note" id="ledList">None picked. Pick them each session; they play muted on the LED wall (LED WALL button on the mixer, deck B side).</div>
       <input type="file" id="fLed" accept="video/*" multiple hidden>
       <label>Picture &amp; video library <span><button class="small" id="bMediaAdd">Add pictures / videos…</button></span></label>
-      <div class="note" id="mediaAddInfo">From this Quest's own files (Downloads, Pictures, Movies). 360 pictures and videos (2:1) go to PANO, the rest to IMAGES / VIDEO, ready on the mixer's VISUALS page. In VR: pinch or pull the trigger on the + IMPORT tile there.</div>
+      <div class="note" id="mediaAddInfo">From this Quest's own files (Downloads, Pictures, Movies). 360 pictures and videos (2:1) go to PANO, the rest to IMAGES / VIDEO, ready on the mixer's VISUALS page.</div>
       <input type="file" id="fMedia" accept="image/*,video/*" multiple hidden>
       <label>Neon wall glow
         <select id="sGlow">
@@ -141,58 +212,9 @@
         </select>
       </label>
       <div class="note">Passthrough: hang the sign about 5 cm off your real wall. Full VR: it lights the studio wall behind the decks.</div>
-      <label>Shadows
-        <select id="sShadows">
-          <option value="blob">Blob shadows (cheap)</option>
-          <option value="realtime">Real-time</option>
-          <option value="both">Both</option>
-          <option value="off">Off</option>
-        </select>
-      </label>
-      <label>Turntable motor
-        <select id="sDeckModel">
-          <option value="classic">Classic: MK2-style, 1.5 kg·cm, quartz PLL (default)</option>
-          <option value="modern">Modern: MK7-style, 1.8 kg·cm, coreless, soft start</option>
-          <option value="legacy">Before physics (fixed ramps, #119 feel)</option>
-        </select>
-      </label>
-      <label>Record weight
-        <select id="sRecWeight">
-          <option value="140">140 g (standard pressing)</option>
-          <option value="180">180 g (heavyweight)</option>
-          <option value="200">200 g</option>
-        </select>
-      </label>
-      <label>Slipmat
-        <select id="sSlipmat">
-          <option value="slick">Felt on a slipsheet (slick)</option>
-          <option value="felt">Felt only (drags)</option>
-          <option value="rubber">Rubber mat (grips: scratching drags the platter)</option>
-        </select>
-      </label>
-      <div class="imp"><span class="chk"><input type="checkbox" id="cPll"> PLL phase memory: after a touch the motor wins back up to ~10 ms it lost (off = the nudge sticks)</span></div>
-      <label>Mic route
-        <select id="sMicRoute">
-          <option value="app">Through the mixer (voice PITCH; recorded with the music)</option>
-          <option value="quest">Quest recorder / BeamXR mic (talkover duck only)</option>
-        </select>
-      </label>
-      <div class="note">Through the mixer: turn Include mic audio OFF in Quest Camera &gt; Settings, or your voice is recorded twice. Second option: the app leaves the mic alone and MIC only ducks the music; the recorder or BeamXR records the voice. Only one app can use the Quest mic at a time.</div>
-      <div id="rowMicApp" hidden>
-      <label>Microphone
-        <select id="sMic"><option value="">Default (headset's own mic)</option></select>
-      </label>
-      <div class="imp"><button class="small" id="bMicAllow">Allow microphone…</button>
-        <span class="chk"><input type="checkbox" id="cMicEcho"> Feedback guard (echo cancelling; only for the headset speakers, leave off with headphones)</span></div>
-      <div id="micStatus" class="note">Press MIC on the mixer; it shows how late you hear yourself.</div>
-      </div>
+      <div class="note">The LED wall and the neon sign can be switched off (to save work) on the mixer: TOOLS &gt; VJ TOOLS.</div>
+    </section>
     </div>
-    <div class="btns">
-      <button class="big" id="bDesktop">Desktop</button>
-      <button class="big" id="bVR" hidden>Full VR</button>
-      <button class="big" id="bAR" hidden>Passthrough</button>
-    </div>
-    <div id="libstatus">Loading library…</div>
     <div class="credit" id="credit"></div>
   </div>
 </div>
