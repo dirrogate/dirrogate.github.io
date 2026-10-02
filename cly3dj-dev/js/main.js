@@ -753,6 +753,14 @@ const crateState = { pl: 0, sel: 0 };
 const sideCache = new Map(); // track id -> Promise<{bytes, art}>
 const artCache = new Map();  // track id -> ImageBitmap|null
 const artBlobs = new Map();  // track id -> the cover as stored in the MP3 (sent as-is to the spectator phone, #161)
+// #231 more pictures from the tag: the centre label (ID3 picture type 6, Media) and the back cover (type 4)
+const labelArt = new Map();  // track id -> ImageBitmap (only when the file has a Media picture)
+const backBlobs = new Map(); // track id -> Blob (only when the file has a Back cover)
+async function keepExtraPics(track, tag) {
+  if (tag.media) { try { labelArt.set(track.id, await createImageBitmap(tag.media)); } catch {} }
+  if (tag.back) backBlobs.set(track.id, tag.back);
+}
+const labelOf = t => (t && (labelArt.get(t.id) || artCache.get(t.id))) || null;   // label: Media picture, else the cover
 
 function currentList() {
   if (CAMERA_ROLE) return remoteCrate ? remoteCrate.list : [];   // #218 the phone shows the Quest's crate view
@@ -945,6 +953,7 @@ async function loadLibrary() {
     $('#libstatus').textContent = `No library: ${e.message}`;
   }
   try { const pr = await listPressings(); if (pr.length) { if (!lib) lib = emptyLibrary(); addPressings(lib, pr); } } catch (e) { console.warn('pressings', e); }   // #224
+  if (!CAMERA_ROLE) { if (!lib) lib = emptyLibrary(); addExamples(lib); }   // #231
   crateState.pl = 0; crateState.sel = 0; search.q = ''; search.results = null; searchInput.value = '';
   drawCrateScreen(); layoutSleeves();
 }
@@ -1012,7 +1021,7 @@ async function pumpArt() {
         if (head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) {
           const size = ((head[6] & 127) << 21) | ((head[7] & 127) << 14) | ((head[8] & 127) << 7) | (head[9] & 127);
           const tag = await part(0, Math.min(size + 10, 4 * 1024 * 1024));
-          const t = readID3(tag); useID3Bpm(track, t); if (t.picture) { art = await createImageBitmap(t.picture); artBlobs.set(track.id, t.picture); }
+          const t = readID3(tag); useID3Bpm(track, t); if (t.picture) { art = await createImageBitmap(t.picture); artBlobs.set(track.id, t.picture); } await keepExtraPics(track, t);
         }
       } catch (e) { /* no art */ }
       artCache.set(track.id, art); artPending.delete(track.id); res(art);
@@ -1036,9 +1045,10 @@ function fetchSide(track) {
     try {
       const tag = readID3(bytes); useID3Bpm(track, tag);
       if (tag.picture) { art = await createImageBitmap(tag.picture); artBlobs.set(track.id, tag.picture); }
+      await keepExtraPics(track, tag);
     } catch (e) { console.warn('art', e); }
     artCache.set(track.id, art);
-    return { bytes, art };
+    return { bytes, art: labelArt.get(track.id) || art };   // #231 the record's label
   })();
   sideCache.set(track.id, p);
   p.catch(() => sideCache.delete(track.id));
@@ -1189,7 +1199,7 @@ function drawCrateScreen() {
   g.fillText(`${list.length ? crateState.sel + 1 : 0} / ${list.length}`, W - 22, fy);
   // #226 messages and hints the DJ must read in the headset go in the footer
   const cm = crateMsg && performance.now() < crateMsg.until ? crateMsg : null;
-  const hintDel = !cm && crateDel ? { text: 'Tap ✕ DELETE to remove this stamped record, or anywhere else to keep it', ok: true } : null;
+  const hintDel = !cm && crateDel ? { text: 'Tap ✕ DELETE to remove this record, or anywhere else to keep it', ok: true } : null;
   if (cm || hintDel) {
     const m = cm || hintDel;
     g.fillStyle = cm ? (m.ok ? '#1d7a3a' : '#8a2a1a') : '#3a1a1e'; g.fillRect(0, H - CS.foot, W, CS.foot);
@@ -1268,7 +1278,7 @@ function assignCovers(list, slots) { // slots: [{ idx, p, q }] nearest first
 
 function drawCrateDiscLabel(r) {
   const { canvas: c, tex } = crateDisc.userData; const g = c.getContext('2d');
-  const t = r && (r.sides.A || r.sides.B); const art = t && artCache.get(t.id);
+  const t = r && (r.sides.A || r.sides.B); const art = labelOf(t);   // #231
   let h = 0; for (const ch of (r ? r.title : '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0; h %= 360;
   g.save(); g.clearRect(0, 0, 256, 256); g.beginPath(); g.arc(128, 128, 128, 0, Math.PI * 2); g.clip();
   if (art) { const s = Math.max(256 / art.width, 256 / art.height); g.drawImage(art, 128 - art.width * s / 2, 128 - art.height * s / 2, art.width * s, art.height * s); }
@@ -1349,7 +1359,7 @@ function sleeveParts() {
   if (sleeveGroup) return;
   sleeveCv = document.createElement('canvas'); sleeveCv.width = sleeveCv.height = 1024;
   sleeveTex = new THREE.CanvasTexture(sleeveCv); sleeveTex.colorSpace = THREE.SRGBColorSpace; sleeveTex.anisotropy = 4;
-  sleeveBackCv = document.createElement('canvas'); sleeveBackCv.width = sleeveBackCv.height = 256;
+  sleeveBackCv = document.createElement('canvas'); sleeveBackCv.width = sleeveBackCv.height = 1024;   // #231 back cover: small print stays readable
   sleeveBackTex = new THREE.CanvasTexture(sleeveBackCv); sleeveBackTex.colorSpace = THREE.SRGBColorSpace;
   const card = new THREE.MeshStandardMaterial({ color: 0xd9d2c3, roughness: 0.85 });
   const front = new THREE.MeshStandardMaterial({ map: sleeveTex, roughness: 0.7 }), back = new THREE.MeshStandardMaterial({ map: sleeveBackTex, roughness: 0.8 });
@@ -1365,10 +1375,16 @@ function drawSleeveCovers(r) {
   if (art) { const k = Math.max(1024 / art.width, 1024 / art.height); g.drawImage(art, 512 - art.width * k / 2, 512 - art.height * k / 2, art.width * k, art.height * k); }
   else { const pm = coverPool.find(m => m.userData.rec === r); if (pm) g.drawImage(pm.userData.canvas, 0, 0, 1024, 1024); else { g.fillStyle = '#333'; g.fillRect(0, 0, 1024, 1024); } }
   sleeveTex.needsUpdate = true;
-  const b = sleeveBackCv.getContext('2d');   // back: plain card, title and artist
-  b.fillStyle = '#d9d2c3'; b.fillRect(0, 0, 256, 256); b.fillStyle = '#2b2b2b'; b.textAlign = 'center';
-  b.font = '700 15px system-ui'; fitText2Center(b, r.title || '', 128, 120, 220); b.font = '400 13px system-ui'; fitText2Center(b, r.artist || '', 128, 142, 220);
+  const b = sleeveBackCv.getContext('2d');   // back: plain card, title and artist, unless the file has a Back cover (#231)
+  b.fillStyle = '#d9d2c3'; b.fillRect(0, 0, 1024, 1024); b.fillStyle = '#2b2b2b'; b.textAlign = 'center';
+  b.font = '700 60px system-ui'; fitText2Center(b, r.title || '', 512, 480, 880); b.font = '400 52px system-ui'; fitText2Center(b, r.artist || '', 512, 568, 880);
   sleeveBackTex.needsUpdate = true;
+  const bb = t && backBlobs.get(t.id);
+  if (bb) createImageBitmap(bb).then(im => {
+    if (!sleeveOut || sleeveOut.rec !== r) { im.close && im.close(); return; }
+    const k = Math.max(1024 / im.width, 1024 / im.height); b.drawImage(im, 512 - im.width * k / 2, 512 - im.height * k / 2, im.width * k, im.height * k);
+    im.close && im.close(); sleeveBackTex.needsUpdate = true;
+  }).catch(() => {});
 }
 function selectedSlotPose() {   // the selected sleeve's pose, crate-local
   const S = crate.userData.sleeves, m = new THREE.Matrix4();
@@ -2295,7 +2311,7 @@ function crateScreenPress(uv) {
   if (k >= 0 && k < R.ROWS) {
     const idx = R.start + k, r = currentList()[idx];
     const id = ++crateHoldSeq;
-    if (r && r.pressed) {   // #226 a stamped record: hold 0.6 s for the delete offer
+    if (r && (r.pressed || r.example)) {   // #226 a stamped record (#231 or a built-in example): hold 0.6 s for the delete offer
       crateHold = { id, r, pull: idx === crateState.sel };
       setTimeout(() => { if (crateHold && crateHold.id === id) { crateHold = null; crateDel = r; drawCrateScreen(); } }, 600);
       if (idx !== crateState.sel) { crateState.sel = idx; drawCrateScreen(); layoutSleeves(); }
@@ -2319,11 +2335,15 @@ function crateSay(text, ok, ms = 4000) {
 }
 async function deleteStamped(r) {
   const t = r.sides.A, p = t && t.press;
-  if (!p) { drawCrateScreen(); return; }
+  if (!p && !r.example) { drawCrateScreen(); return; }
   if (copiesOut(r) > 0) { crateSay('Put it back in the crate first (it is on a deck or in your hand)', false); return; }
-  try { await deletePressing(p.id); }
+  if (r.example) {   // #231 built-in example: hidden on this device
+    const h = hiddenExamples(); if (!h.includes(r.example)) h.push(r.example);
+    try { localStorage.setItem('vire.hiddenExamples', JSON.stringify(h)); } catch {}
+    for (const s of ['A', 'B']) if (r.sides[s]) lib.tracks.delete(r.sides[s].id);
+  } else try { await deletePressing(p.id); }
   catch (e) { crateSay('Not deleted: ' + e.message, false); return; }
-  lib.tracks.delete(t.id);
+  if (t) lib.tracks.delete(t.id);
   lib.records = lib.records.filter(x => x !== r);
   for (const pl of lib.playlists) pl.records = pl.records.filter(x => x !== r);
   if (search.results) search.results = search.results.filter(x => x !== r);
@@ -3449,6 +3469,29 @@ async function pressRecord() {
     makerSay(`✓ STAMPED "${title}": in the crate, Unsorted`, true, 6000);
   } catch (e) { maker.busy = false; makerSay('Not stamped: ' + e.message, false, 6000); }
   maker.busy = false; drawMixScreen();
+}
+// #231 built-in example records (web/examples/, streamed like songs from the PC), in Unsorted and the Collection.
+// "Sleeve Art Demo": every ID3 picture type the app reads (tools/make_sleeve_demo.py builds it). Long press +
+// DELETE hides one for good on this device (vire.hiddenExamples).
+const EXAMPLES = [{ id: 'sleeve', title: 'Sleeve Art Demo', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3' }];
+function hiddenExamples() { try { return JSON.parse(localStorage.getItem('vire.hiddenExamples') || '[]'); } catch { return []; } }
+function addExamples(L) {
+  const hide = hiddenExamples();
+  let un = L.playlists.find(p => p.name === 'Unsorted');
+  for (const ex of EXAMPLES) {
+    if (hide.includes(ex.id) || L.tracks.has('ex_' + ex.id + '_A')) continue;
+    if (!un) { un = { name: 'Unsorted', path: 'Unsorted (on this headset)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, un); }
+    const r = { id: 'rex_' + ex.id, title: ex.title, artist: ex.artist, sides: { A: null, B: null }, bpm: ex.bpm, key: ex.key, genre: 'Example', duration: 0, missing: false, paired: true, unsorted: true, example: ex.id };
+    for (const side of ['A', 'B']) {
+      const id = 'ex_' + ex.id + '_' + side, url = encodeURI(side === 'A' ? ex.a : ex.b);
+      const t = { id, name: ex.title + '_' + side.toLowerCase(), title: ex.title, side, split: false, artist: ex.artist, album: ex.title, genre: 'Example', key: ex.key, bpm: ex.bpm, duration: 0,
+        location: url, url, opfs: null, missing: false, cues: [], unsorted: true, record: r };
+      r.sides[side] = t; L.tracks.set(id, t);
+    }
+    L.records.push(r); un.records.push(r); L.playlists[0].records.push(r);
+  }
+  const byT = (a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title);
+  if (un) un.records.sort(byT); L.playlists[0].records.sort(byT);
 }
 // pressed records join the 'Unsorted (on this headset)' list (made if there is none) and the Collection
 function addPressings(L, list) {

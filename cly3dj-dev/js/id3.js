@@ -1,4 +1,6 @@
-// Minimal ID3v2.2/2.3/2.4 reader: returns { title, artist, bpm, picture: Blob|null }. bpm = TBPM (#102), 0 if none.
+// Minimal ID3v2.2/2.3/2.4 reader: returns { title, artist, bpm, picture: Blob|null, back: Blob|null, media: Blob|null }.
+// #231 picture types: picture = the cover (Front cover 3, else Other 0, else any other); back = Back cover (4), for
+// the back of the sleeve; media = Media (6, 'label side of CD'), for the centre label. bpm = TBPM (#102), 0 if none.
 // Only reads what the labels need. Must be called before decodeAudioData (which detaches the buffer).
 
 function syncsafe(b, o) { return (b[o] << 21) | (b[o + 1] << 14) | (b[o + 2] << 7) | b[o + 3]; }
@@ -25,7 +27,7 @@ function skipString(enc, b, o) {
 }
 
 export function readID3(arrayBuffer) {
-  const res = { title: '', artist: '', bpm: 0, key: '', picture: null };
+  const res = { title: '', artist: '', bpm: 0, key: '', picture: null, back: null, media: null };
   const b = new Uint8Array(arrayBuffer);
   if (b.length < 10 || b[0] !== 0x49 || b[1] !== 0x44 || b[2] !== 0x33) return res;
   const ver = b[3], flags = b[5];
@@ -61,8 +63,11 @@ export function readID3(arrayBuffer) {
       const type = data[p]; p++;
       p = skipString(enc, data, p);
       if (!mime.includes('/')) mime = 'image/' + mime.toLowerCase().replace('jpg', 'jpeg');
-      const score = type === 3 ? 10 : type === 0 ? 5 : 1; // prefer front cover
-      if (score > bestType) { bestType = score; bestPic = new Blob([data.slice(p)], { type: mime }); }
+      const blob = () => new Blob([data.slice(p)], { type: mime });
+      if (type === 4 && !res.back) res.back = blob();
+      if (type === 6 && !res.media) res.media = blob();
+      const score = type === 3 ? 10 : type === 0 ? 5 : type === 4 || type === 6 ? 0 : 1; // prefer front cover; back / label only as a last resort
+      if (score > bestType) { bestType = score; bestPic = blob(); }
     }
   }
   res.picture = bestPic;
