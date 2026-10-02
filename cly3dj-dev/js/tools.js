@@ -148,27 +148,55 @@ export async function labelFrom(file) {
   g.drawImage(bm, (S - w) / 2, (S - h) / 2, w, h); bm.close && bm.close();
   return c.convertToBlob({ type: 'image/jpeg', quality: 0.88 });
 }
-// the blank record's sound: 3 minutes of quiet vinyl crackle in four "tracks" with lead-in gaps, so the grooves
-// show the usual bands; made once per session (16-bit mono WAV, 22.05 kHz)
+// the blank record's sound (#227, was sparse loud clicks over almost no hiss at 22 kHz): 3 minutes of vinyl surface
+// noise at 44.1 kHz, built once per session (about 0.5 s of work, in slices), mono 16-bit WAV. Seeded, so every blank sounds and looks
+// the same. Layers:
+//  - surface hiss: band-limited noise (about 300 Hz to 9 kHz), a little louder and softer once per turn (33 rpm = 1.8 s)
+//  - crackle bed: a few hundred tiny ticks a second, sizes on a power law (mostly faint, now and then a loud one),
+//    each an impulse rung through a bright band-pass (2 to 6 kHz) so it crackles instead of thudding
+//  - pops: a couple a second, lower (about 900 Hz) and longer
+//  - two scratches on the vinyl that tick once per turn, at fixed spots
+//  - rumble: soft noise under 40 Hz
+// Four "tracks" with quieter lead-in gaps, so the grooves show the usual bands; the run-out ticks once per turn.
 let blankBuf = null;
-export function blankWav() {
+export async function blankWav() {   // async: built in 1 s slices between frames, so the headset never hitches
   if (blankBuf) return blankBuf.slice(0);
-  const rate = 22050, secs = 180, n = rate * secs, data = new Int16Array(n);
-  let seed = 12345; const rnd = () => (seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296;
-  let lp = 0, pop = 0;
+  const rate = 44100, secs = 180, n = rate * secs, data = new Int16Array(n), TURN = 60 / 33.333, TS = TURN * rate;
+  let x = 2463534242; const rnd = () => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; };
+  // band-pass biquads, scaled so an impulse of size a rings to a peak of about a
+  const bp = (f, q) => { const w = 2 * Math.PI * f / rate, al = Math.sin(w) / (2 * q), a0 = 1 + al;
+    return { g: a0 / al, b0: al / a0, b2: -al / a0, a1: -2 * Math.cos(w) / a0, a2: (1 - al) / a0, x1: 0, x2: 0, y1: 0, y2: 0, k: 0 }; };
+  const run = f => { const v = f.k * f.g; f.k = 0; const y = f.b0 * v + f.b2 * f.x2 - f.a1 * f.y1 - f.a2 * f.y2; f.x2 = f.x1; f.x1 = v; f.y2 = f.y1; f.y1 = y; return y; };
+  const tA = bp(2600, 0.9), tB = bp(4800, 1.1), pop = bp(900, 1.4);
+  const gapAt = s => s < 2 || s > secs - 6 || (s > 44 && s < 47) || (s > 90 && s < 93) || (s > 135 && s < 138);
+  const next = r => Math.max(1, Math.round(-Math.log(1 - rnd()) * rate / r));   // Poisson: samples to the next event
+  let nTick = next(320), nPop = next(1.8);
+  const scr = [];   // scratches: once per turn at fixed places on the record, stronger in the run-out
+  for (let t = 0; t * TS < n; t++) for (const [p, a] of [[0.23, 0.11], [0.71, 0.06]]) { const at = Math.round((t + p) * TS); if (at < n) scr.push([at, a * (at > n - 6 * rate ? 1.5 : 1)]); }
+  scr.sort((a, b) => a[0] - b[0]); let si = 0;
+  let hp = 0, hpx = 0, lpH = 0, rum = 0, rum2 = 0, gap = true, wob = 1, hissG = 0.016;
   for (let i = 0; i < n; i++) {
-    const s = i / rate, inGap = [44, 90, 135].some(b => s > b && s < b + 3) || s < 2 || s > secs - 4;
-    lp += (rnd() * 2 - 1 - lp) * 0.08;                              // soft surface hiss
-    if (rnd() < (inGap ? 2 : 7) / rate) pop = (rnd() * 0.25 + 0.05) * (rnd() < 0.5 ? -1 : 1);
-    pop *= 0.93;
-    const groove = inGap ? 0.004 : 0.012 + 0.006 * Math.sin(s * 0.7);
-    data[i] = Math.max(-32767, Math.min(32767, (lp * groove * 4 + pop) * 32767));
+    if (i % rate === 0 && i) await new Promise(r => setTimeout(r, 0));
+    if ((i & 1023) === 0) {   // slow things, once per 23 ms
+      const s = i / rate; gap = gapAt(s); wob = 1 + 0.25 * Math.sin(2 * Math.PI * s / TURN); hissG = (gap ? 0.009 : 0.016) * wob;
+      rum += ((rnd() * 2 - 1) - rum) * 0.15;
+    }
+    const w = rnd() * 2 - 1; hp = 0.957 * (hp + w - hpx); hpx = w; lpH += (hp - lpH) * 0.72;   // hiss ~300 Hz to 9 kHz
+    if (--nTick <= 0) {   // crackle bed: power-law sizes, mostly faint
+      const a = Math.min(0.14, 0.003 * Math.pow(rnd() + 1e-4, -0.6)) * (rnd() < 0.5 ? -1 : 1);
+      (rnd() < 0.6 ? tA : tB).k += a; nTick = next(gap ? 90 : 320);
+    }
+    if (--nPop <= 0) { pop.k += (0.04 + rnd() * 0.10) * (rnd() < 0.5 ? -1 : 1); nPop = next(gap ? 0.6 : 1.8); }
+    if (si < scr.length && scr[si][0] === i) pop.k += scr[si++][1] * (0.85 + rnd() * 0.3);
+    rum2 += (rum - rum2) * 0.004;
+    const v = lpH * hissG + run(tA) + run(tB) * 0.8 + run(pop) + rum2 * 0.02;
+    data[i] = v > 1 ? 32767 : v < -1 ? -32767 : (v * 32767) | 0;
   }
-  const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
-  const str = (o, t) => { for (let k = 0; k < t.length; k++) v.setUint8(o + k, t.charCodeAt(k)); };
-  str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt '); v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
-  v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, n * 2, true);
+  const buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
+  const str = (o, t) => { for (let k = 0; k < t.length; k++) dv.setUint8(o + k, t.charCodeAt(k)); };
+  str(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt '); dv.setUint32(16, 16, true);
+  dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, rate, true); dv.setUint32(28, rate * 2, true);
+  dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); str(36, 'data'); dv.setUint32(40, n * 2, true);
   new Int16Array(buf, 44).set(data);
   blankBuf = buf; return buf.slice(0);
 }
