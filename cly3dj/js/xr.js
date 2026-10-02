@@ -383,7 +383,7 @@ export function setupXR(ctx) {
   }
   function hitMovable(P) {
     for (const k of [...Object.keys(GEAR), ...Object.keys(ctx.stage.items).filter(k => /^milk\d$/.test(k))]) {   // + spawned milk crates (#88)
-      const o = ctx.MOVABLE[k]; if (!o) continue;
+      const o = ctx.MOVABLE[k]; if (!o || !o.visible) continue;   // #235 switched-off pieces can't be grabbed
       // #200 milk crates: the grab box follows the crate's real size (#193 made it longer and taller than the old box), 3 cm
       // of reach round the sides and 6 cm over the rim, so it can be picked up by its rim, ends or sides
       const M = ctx.MILK, b = k.startsWith('milk') && M ? { x: M.W / 2 + 0.03, z: M.D / 2 + 0.03, y0: -0.02, y1: M.H + 0.06 } : GEAR[k];

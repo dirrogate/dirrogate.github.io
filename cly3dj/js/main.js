@@ -208,6 +208,24 @@ function newMilk(key) { const m = makeMilkCrate(); m.userData.key = key; rig.add
 try { for (const k of JSON.parse(localStorage.getItem('vire.milkKeys') || '[]')) if (/^milk[2-6]$/.test(k)) newMilk(k); } catch (e) {}
 milk.userData.key = 'milk';
 function milks() { return [milk, ...Object.values(extraMilk)]; }
+// #235 stage pieces the DJ can switch off to save work (TOOLS: LED wall and neon sign in VJ TOOLS, the first milk
+// crate in DJ TOOLS). Off = hidden, not hit by rays or hands, no shadow blob, nothing lands on it, and its per-frame
+// work stops (LED videos / camera / scroller, neon flicker). It keeps its place in the saved layout.
+function pieceObj(k) { return k === 'ledwall' ? ledwall : k === 'neon' ? neon : milk; }
+function pieceOn(k) { return !(settings.pieces && settings.pieces[k] === false); }
+function applyPiece(k) {
+  const o = pieceObj(k), on = pieceOn(k);
+  o.visible = on;
+  o.traverse(m => {
+    if (!m.isMesh && !m.isSprite && !m.isPoints && !m.isLine) return;
+    if (!on && !m.userData.pieceOff) { m.userData.pieceOff = Object.prototype.hasOwnProperty.call(m, 'raycast') ? { own: m.raycast } : { own: null }; m.raycast = () => {}; }
+    else if (on && m.userData.pieceOff) { const r = m.userData.pieceOff.own; if (r) m.raycast = r; else delete m.raycast; delete m.userData.pieceOff; }
+  });
+  // #236 LED wall off: clips keep running silently (not decoded) and the scroller keeps its text, both for the phone;
+  // DECKS and CAM only ever show on the Quest, so those stop
+  if (k === 'ledwall') { led.setSilent(!on); if (!on && (ledMode === 'decks' || ledMode === 'cam')) setLedMode('off'); }
+}
+function setPiece(k, on) { settings.pieces = { ...(settings.pieces || {}), [k]: on }; saveSettings(); applyPiece(k); drawMixScreen(); }
 // #124: Blender-baked crate body; crates already in the scene switch over when it arrives, the procedural body stays
 // if the file is missing
 initKTX2(renderer);   // #132
@@ -258,7 +276,7 @@ function blobFor(key, kind, parent) { let b = blobs.get(key); if (!b) { b = make
 function supportUnderItem(key, x, z, bottom) {
   let y = 0; const c = stage.caseTopAt(x, z, key); if (c.key && c.y <= bottom + 0.02) y = Math.max(y, c.y);
   for (const [k2, it] of Object.entries(stage.items)) {
-    if (k2 === key || !/^(crate|milk\d?)$/.test(k2)) continue;
+    if (k2 === key || !/^(crate|milk\d?)$/.test(k2) || !it.obj.visible) continue;   // #235 switched off
     const o = it.obj, rc = k2 === 'crate', H = rc ? CRATE.H : MILK.H, W = rc ? CRATE.W : MILK.W, D = rc ? CRATE.D : MILK.D;
     const dx = x - o.position.x, dz = z - o.position.z, cs = Math.cos(o.rotation.y), sn = Math.sin(o.rotation.y);
     const lx = dx * cs - dz * sn, lz = dx * sn + dz * cs;
@@ -331,6 +349,7 @@ function stepBlobs() {
   for (const [k, b] of blobs) if (!k.startsWith('rec') && !items[k] && !cases[k]) b.visible = false;   // removed milk crates
   for (const [k, [w, d, str]] of Object.entries(items)) {
     const it = stage.items[k]; if (!it) continue; const o = it.obj;
+    if (!o.visible) { blobFor(k, 'box', rig).visible = false; continue; }   // #235 switched off
     const bottom = o.position.y - (it.base || 0), sy = supportUnderItem(k, o.position.x, o.position.z, bottom);
     placeBlob(blobFor(k, 'box', rig), o.position.x, sy, o.position.z, w, d, o.rotation.y, bottom - sy, str);
   }
@@ -359,7 +378,7 @@ function toggleLedPortrait() { ledwall.userData.turnTo(ledwall.userData.portrait
 function setLedScale(s) { s = clamp(s, 0.4, 4); ledwall.scale.setScalar(s); if (stage) stage.items.ledwall.base = ledBase(); return s; }
 function saveLedScale() { try { localStorage.setItem('vire.ledScale', String(ledwall.scale.x)); } catch (e) {} }
 const led = new LedPlayer(ledwall);
-const scroller = CAMERA_ROLE ? null : new Scroller(ledwall, LED);   // #224 VJ TOOLS scroller over the LED wall
+const scroller = new Scroller(ledwall, LED);   // #224 VJ TOOLS scroller over the LED wall (#236 the phone draws its own copy)
 // #220 DJ CAM: a virtual camera on the LED wall, with an avatar copying the DJ's head and hands (Quest only, no phone)
 const djSet = (() => { try { return { preset: 'front', mirror: true, avatar: true, style: 'robot', ...JSON.parse(localStorage.getItem('vire.djcam') || '{}') }; } catch { return { preset: 'front', mirror: true, avatar: true, style: 'robot' }; } })();
 function saveDjSet() { try { localStorage.setItem('vire.djcam', JSON.stringify(djSet)); } catch {} }
@@ -438,6 +457,7 @@ function setPreview(on) {
 led.onChange = () => drawMixScreen();
 // #177 VideoVinyl + LED wall modes. LED WALL cycles OFF -> CLIPS (if videos were picked) -> DECKS -> CAM (#220) -> OFF.
 let ledMode = 'off';
+if (!CAMERA_ROLE) for (const k of ['ledwall', 'neon', 'milk']) applyPiece(k);   // #235 pieces switched off last time stay off
 const deckVid = [new DeckVideo(), new DeckVideo()];
 let vvIndex = new Map();          // headset: title key -> OPFS path of the video
 const vvPC = new Map();           // PC: title key -> Promise<url|null> (HEAD videos/<title>.mp4)
@@ -471,6 +491,7 @@ function vvStep(d) {   // per frame: open/close the deck's video to match its tr
 }
 function setLedMode(m) {
   if (m === 'clips' && !led.hasFiles) m = 'decks';
+  if (!pieceOn('ledwall') && (m === 'decks' || m === 'cam')) m = 'off';   // #236 switched off: only clips run (for the phone)
   if (m !== 'clips' && led.on) led.stop();
   if (m === 'cam' && !djcam) m = 'off';
   ledMode = m;
@@ -1847,7 +1868,7 @@ function surfaceUnder(p) {
   // standing on it, a record dropped over both used to go into the milk crate "through" the record crate.
   let topMilk = crateRim;   // with milk crates stacked, the highest one under the point takes the record
   for (const mc of milks()) {
-    if (flyingMilk.has(mc)) continue;
+    if (flyingMilk.has(mc) || !mc.visible) continue;   // #235 switched off
     const mk = mc.worldToLocal(_su.copy(p));
     if (Math.abs(mk.x) < MILK.W / 2 && Math.abs(mk.z) < MILK.D / 2 && mk.y > -0.05 && mk.y < MILK.H + 0.4) {
       const milkRim = mc.localToWorld(_su2.set(0, MILK.H, 0)).y;
@@ -2855,6 +2876,36 @@ let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null, 
 const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
 const VP_LIB = ['Pano', 'Video', 'Images'];   // #224 one PANO tab for still and video panoramas
 const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA', Sync: 'SYNC', Look: 'LOOK', 'DJ Cam': 'DJ CAM' };
+// #234 add pictures and videos from the Quest's own files (Downloads, Pictures, Movies) to the media library, from
+// the start page ('Add pictures / videos…'). Folder by shape: 2:1 (or a big square, over-under stereo) = 360.
+// (#235: the in-VR + IMPORT tile was removed: the Quest did not open its file picker from inside a VR session.)
+async function mediaShape(file) {
+  const vid = (file.type || '').startsWith('video/') || /\.(mp4|m4v|webm|mov)$/i.test(file.name);
+  let w = 0, h = 0;
+  try {
+    if (vid) {
+      const v = document.createElement('video'); v.preload = 'metadata'; v.muted = true; v.src = URL.createObjectURL(file);
+      await new Promise(res => { v.onloadedmetadata = res; v.onerror = res; setTimeout(res, 4000); });
+      w = v.videoWidth; h = v.videoHeight; URL.revokeObjectURL(v.src);
+    } else { const b = await createImageBitmap(file); w = b.width; h = b.height; b.close && b.close(); }
+  } catch {}
+  const pano = h > 0 && (Math.abs(w / h - 2) < 0.08 || (w === h && w >= 3840));
+  return { vid, pano };
+}
+async function importMedia(files, tab = null, say = null) {
+  const done = { Pano: 0, 'Video pano': 0, Video: 0, Images: 0 }; let skipped = 0, n = 0;
+  for (const f of files) {
+    const { vid, pano } = await mediaShape(f);
+    let folder = tab === 'Video' ? (vid ? 'Video' : null) : tab === 'Images' ? (vid ? null : 'Images') : tab === 'Pano' ? (vid ? 'Video pano' : 'Pano')
+      : vid ? (pano ? 'Video pano' : 'Video') : (pano ? 'Pano' : 'Images');
+    if (!folder) { skipped++; continue; }
+    if (say) say(`Importing ${++n} of ${files.length}: ${f.name}`, true);
+    try { await media.importFile(folder, f); done[folder]++; } catch (e) { skipped++; console.warn('import', e); }
+  }
+  const parts = Object.entries(done).filter(([, k]) => k).map(([k, v]) => `${v} to ${k === 'Video pano' ? 'PANO (video)' : k.toUpperCase()}`);
+  if (videoPage) vpLoad();
+  return (parts.length ? 'Added ' + parts.join(', ') : 'Nothing added') + (skipped ? ` (${skipped} skipped)` : '');
+}
 async function vpLoad() {
   if (vpFolder === 'Camera' || vpFolder === 'Look' || vpFolder === 'DJ Cam' || vpFolder === 'LedList') { vpItems = []; drawMixScreen(); return; }
   if (vpFolder === 'Sync') { vpItems = []; syncLoad(); return; }   // #206
@@ -3188,8 +3239,8 @@ function drawVideoPage() {
   const pages = Math.max(1, Math.ceil(vpItems.length / PER)); vpPg = Math.min(vpPg, pages - 1);
   if (!vpItems.length) {
     g.fillStyle = '#8c96a8'; g.font = '500 18px system-ui'; g.textAlign = 'left';
-    if (P) { const n = wrapText(g, `Nothing in ${vpFolder} on this headset yet.`, 16, y0 + 40, W - 32, 26, 3); wrapText(g, 'On the phone: Library, Import, then Push to Quest.', 16, y0 + 52 + n * 26, W - 32, 26, 3); }
-    else { g.fillText(`Nothing in ${vpFolder} on this headset yet.`, 16, y0 + 40); g.fillText('On the phone: Library, Import, then Push to Quest.', 16, y0 + 66); }
+    const n = wrapText(g, `Nothing in ${vpFolder} on this headset yet.`, 16, y0 + 40, W - 32, 26, 3);
+    wrapText(g, 'Add some on the start page (Add pictures / videos…), or on the phone: Library, Import, then Push to Quest.', 16, y0 + 48 + n * 26, W - 32, 24, 4);
   }
   const cur = settings.env === 'image' && settings.sky === 'on' ? settings.skyMedia : '';
   vpItems.slice(vpPg * PER, vpPg * PER + PER).forEach((it, i) => {
@@ -3555,15 +3606,28 @@ function drawToolsPage() {
   const page = toolsPage;
   if (page === 'home') {
     const y0 = head('TOOLS', 'mixer');
-    if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26); note('DJ TOOLS: Record Maker. VJ TOOLS: Scroller on the LED wall.', y0 + 240); }
-    else { const bw = (R - L - 12) / 2; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); note('DJ TOOLS: Record Maker.     VJ TOOLS: Scroller on the LED wall.', y0 + 166); }
+    if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26); note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off.', y0 + 240); }
+    else { const bw = (R - L - 12) / 2; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); note('DJ TOOLS: Record Maker, milk crate on / off.   VJ TOOLS: Scroller, LED wall and neon sign on / off.', y0 + 166); }
     return;
   }
   if (page === 'dj' || page === 'vj') {
     const y0 = head(page === 'dj' ? 'DJ TOOLS' : 'VJ TOOLS', 'home');
-    const bw = P ? R - L : 300;
-    if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); note('Press your own record: blank grooves, a song from the crate or a clip, with a picture from IMAGES as its label. It goes into the crate, Unsorted.', y0 + 116); }
-    else { btn(L, y0 + 8, bw, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24); note('A sine-wave text scroller across the bottom of the LED wall, over whatever it shows. Type a message, ENTER starts it.', y0 + 116); }
+    // #235 switches for stage pieces (off = hidden and no per-frame work), green = on
+    const sw = (x, y, w, h, label, k) => { const on = pieceOn(k); btn(x, y, w, h, `${label}: ${on ? 'ON' : 'OFF'}`, on, () => setPiece(k, !on), false, P ? 18 : 20); };
+    if (P) {
+      if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
+        note('RECORD MAKER: press your own record. It goes into the crate, Unsorted. MILK CRATE: the first milk crate (extra ones come from the crate screen).', y0 + 196); }
+      else { btn(L, y0 + 8, R - L, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
+        sw(L, y0 + 100, R - L, 64, 'LED WALL', 'ledwall'); sw(L, y0 + 176, R - L, 64, 'NEON SIGN', 'neon');
+        note('Switched off, the LED wall or the sign is hidden and costs nothing; it keeps its place for when it comes back.', y0 + 272); }
+    } else {
+      const bw = 300, x2 = L + bw + 12, w2 = R - x2;
+      if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(x2, y0 + 8, w2, 80, 'MILK CRATE', 'milk');
+        note('RECORD MAKER: press your own record (blank, a song or a clip, a picture label); it goes into the crate, Unsorted. MILK CRATE: the first milk crate; switched off it is hidden and costs nothing.', y0 + 116); }
+      else { btn(L, y0 + 8, bw, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
+        const hw = (w2 - 8) / 2; sw(x2, y0 + 8, hw, 80, 'LED WALL', 'ledwall'); sw(x2 + hw + 8, y0 + 8, hw, 80, 'NEON', 'neon');
+        note('SCROLLER: a sine-wave text scroller across the bottom of the LED wall. LED WALL / NEON: switched off they are hidden and cost nothing; they keep their place for when they come back.', y0 + 116); }
+    }
     return;
   }
   if (page === 'scroller') {
@@ -3838,7 +3902,7 @@ function frame() {
   // scratch: a still hand holds the record
   scratchIdle();
   stepLid(dt);
-  neon.userData.update(dt);   // random flicker bursts (#86)
+  if (neon.visible) neon.userData.update(dt);   // random flicker bursts (#86); #235 not while switched off
   if (crateDisc.visible) { // record rides up out of its sleeve
     crateDisc.position.lerp(crateDisc.userData.target, Math.min(1, dt * 10));
     crateDisc.rotation.x = crateDisc.userData.tilt;
@@ -3926,7 +3990,7 @@ function frame() {
   stepLoose(dt);
   stepMilkCrates(dt);
   stepWallGlow(); stepBlobs();
-  if (scroller) scroller.tick(dt);   // #224
+  if (ledwall.visible) scroller.tick(dt);   // #224 (#236 switched off: it keeps running for the phone, nothing drawn here)
   // label relief (#94): on within arm's length of your eyes (0.65 m), off again past 0.8 m
   camera.getWorldPosition(_eyeB);
   for (const r of [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)]) {
@@ -4179,6 +4243,12 @@ $('#sSkyKey').onchange = e => { settings.skyKey = e.target.value; saveSettings()
 $('#bEnvImg').onclick = () => $('#fEnv').click();
 // #176 LED wall videos: picked each session (the browser can't keep a folder), up to 5, played muted
 $('#bLedPick').onclick = () => $('#fLed').click();
+$('#bMediaAdd').onclick = () => $('#fMedia').click();   // #234
+$('#fMedia').onchange = async e => {
+  const fs = [...e.target.files]; e.target.value = ''; if (!fs.length) return;
+  const info = $('#mediaAddInfo'), say = t => { info.textContent = t; };
+  say(await importMedia(fs, null, say));
+};
 $('#fLed').onchange = e => {
   const all = [...(e.target.files || [])], n = led.setFiles(all);
   $('#ledList').textContent = n ? `${n} video${n > 1 ? 's' : ''}: ${led.files.map(f => f.name).join(' · ')}` + (all.length > 5 ? '  (only the first 5 are used)' : '') : 'No playable videos in that pick (mp4 / webm).';
@@ -4309,7 +4379,7 @@ async function applySpect() {
   try {
     const m = await import('./spectator-host.js');
     if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, perf, getInputs: () => xr && xr.inputs,
-      getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(), coverFor,   // #218
+      getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(), getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), coverFor,   // #218
       getVV: () => ({ mode: ledMode, gains: deckGains(mixVal), decks: deckVid.map((dv, i) => dv.v ? [i, dv.key, engine.ctx ? engine.pos(i) : 0, engine.state.decks[i].rate || 0] : null).filter(Boolean) }),
       getSky: () => ({ h: settings.skyH, turn: settings.skyTurn, type: settings.skyType, key: settings.skyKey, file: settings.skyFile, media: settings.env === 'image' ? settings.skyMedia : '' }),
       onMedia: () => { refreshLibVV(); if (videoPage && vpFolder !== 'Sync') vpLoad(); },
@@ -4324,11 +4394,11 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
   $('#start').style.display = 'none'; const hud = document.getElementById('hud'); if (hud) hud.style.display = 'none';
   import('./spectator-client.js').then(m => m.startCamera({ THREE, renderer, scene, camera, rig, room, stage, cases, decks, deckInst, neon,
-    newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, skybox, envLight, key, crateRemote })).catch(e => { document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;top:0;left:0;right:0;color:#fbb;background:#300;padding:8px;z-index:99">Spectator failed: ${e.message}</pre>`); });
+    newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, scroller, skybox, envLight, key, crateRemote })).catch(e => { document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;top:0;left:0;right:0;color:#fbb;background:#300;padding:8px;z-index:99">Spectator failed: ${e.message}</pre>`); });
 }

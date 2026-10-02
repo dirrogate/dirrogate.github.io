@@ -95,7 +95,27 @@ export function makeLedWall() {
 const IMG_SECONDS = 8;
 const isImage = f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|avif)$/i.test(f.name);
 export class LedPlayer {
-  constructor(wall) { this.wall = wall; this.files = []; this.video = null; this.name = null; this.on = false; this.onChange = null; this.order = 'random'; }
+  constructor(wall) { this.wall = wall; this.files = []; this.video = null; this.name = null; this.on = false; this.onChange = null; this.order = 'random'; this.silent = false; this.clk = null; }
+  // #236 silent: the LED wall is switched off on the Quest but the playlist keeps running for the spectator phone.
+  // Videos are not decoded: a clock (from the clip's length, read from its metadata) stands in for the video, ends
+  // the clip on time and gives state() its playhead, so the phone plays its own copy in step. Switching back on
+  // reopens the clip at the clock's time.
+  setSilent(s) {
+    if (this.silent === s) return;
+    const f = this.on && this.name ? this.fileNamed(this.name) : null, t = this.state().t, img = this.img;
+    const dur = this.video ? this.video.duration : this.clk && this.clk.dur, loop = this.video ? this.video.loop : !!(this.clk && this.clk.loop);
+    const onEnded = this._ended || null;
+    this.silent = s;
+    if (!f) return;
+    if (img) { if (!s) createImageBitmap(f, { imageOrientation: 'flipY' }).then(b => { if (this.name === f.name && this.img && !this.silent) this.wall.userData.setImage(b); }).catch(() => {}); else this.wall.userData.setVideo(null); return; }
+    this._open(f, loop ? null : onEnded, t, dur); if (loop) this._loop(true);
+  }
+  _loop(on) { if (this.video) this.video.loop = on; if (this.clk) { this.clk.loop = on; this._arm(); } }
+  _arm() {   // silent clock: end the clip when its time is up (or wrap round when it loops)
+    const c = this.clk; clearTimeout(this.clkT); if (!c || !c.dur || c.loop) return;
+    const left = c.dur - (performance.now() - c.t0) / 1000;
+    this.clkT = setTimeout(() => { if (this.clk === c && c.onEnded) c.onEnded(); }, Math.max(0, left) * 1000);
+  }
   setFiles(list, max = 5) {   // #185: images too (shown IMG_SECONDS each in the playlist)
     this.files = [...list].filter(f => /^(video|image)\//.test(f.type) || /\.(mp4|m4v|webm|mov|mkv|jpe?g|png|webp|gif|avif)$/i.test(f.name)).slice(0, max);
     if (this.on && !this.files.length) this.stop();
@@ -113,24 +133,33 @@ export class LedPlayer {
     const i = this.files.findIndex(f => f.name === this.name), f = this.files[(i + 1) % this.files.length];
     this.on = true; this._open(f, () => this.next()); this.onChange && this.onChange(); return true;
   }
-  play(file, loop = false) { this.on = true; this._open(file, loop ? null : () => this.next()); if (loop && this.video) this.video.loop = true; this.onChange && this.onChange(); }
-  _open(file, onEnded) {
-    this._close();
+  play(file, loop = false) { this.on = true; this._open(file, loop ? null : () => this.next()); if (loop) this._loop(true); this.onChange && this.onChange(); }
+  _open(file, onEnded, at = 0, dur = null) {
+    this._close(); this._ended = onEnded;
     if (isImage(file)) {   // #185 still image
       const name = file.name; this.name = name; this.img = true;
-      createImageBitmap(file, { imageOrientation: 'flipY' }).then(b => { if (this.name === name && this.img) this.wall.userData.setImage(b); }).catch(() => {});
+      if (!this.silent) createImageBitmap(file, { imageOrientation: 'flipY' }).then(b => { if (this.name === name && this.img && !this.silent) this.wall.userData.setImage(b); }).catch(() => {});
       if (onEnded) this.imgT = setTimeout(() => { if (this.name === name) onEnded(); }, IMG_SECONDS * 1000);
+      return;
+    }
+    if (this.silent) {   // #236 no decoding: a clock stands in for the video
+      const c = this.clk = { t0: performance.now() - at * 1000, dur: dur || 0, loop: false, onEnded }; this.name = file.name;
+      if (!c.dur) {   // the clip's length from its metadata only (no frames decoded)
+        const p = document.createElement('video'); p.preload = 'metadata'; p.muted = true; p.src = URL.createObjectURL(file);
+        p.onloadedmetadata = () => { if (this.clk === c) { c.dur = isFinite(p.duration) ? p.duration : 30; this._arm(); } URL.revokeObjectURL(p.src); p.removeAttribute('src'); p.load(); };
+      } else this._arm();
       return;
     }
     const v = document.createElement('video');
     v.muted = true; v.playsInline = true; v.preload = 'auto'; v.crossOrigin = 'anonymous';
     v.src = URL.createObjectURL(file); v._url = v.src;
     v.addEventListener('ended', () => onEnded && onEnded());
+    if (at > 0) v.addEventListener('loadedmetadata', () => { try { v.currentTime = at % (v.duration || Infinity); } catch {} }, { once: true });
     v.play().catch(() => {});
     this.video = v; this.name = file.name; this.wall.userData.setVideo(v);
   }
   _close() {
-    clearTimeout(this.imgT); this.img = false;
+    clearTimeout(this.imgT); this.img = false; clearTimeout(this.clkT); this.clk = null;
     const v = this.video; this.video = null; this.name = null; this.wall.userData.setVideo(null);
     if (v) { v.pause(); URL.revokeObjectURL(v._url); v.removeAttribute('src'); v.load(); }   // frees the decoder
   }
@@ -150,5 +179,9 @@ export class LedPlayer {
     this.on = true;
     const v = this.video; if (v && v.readyState >= 1 && Math.abs(v.currentTime - t) > 0.3) v.currentTime = t;
   }
-  state() { return { on: this.on, name: this.name, t: this.video ? this.video.currentTime : 0 }; }
+  state() {
+    let t = this.video ? this.video.currentTime : 0;
+    if (this.clk) { t = (performance.now() - this.clk.t0) / 1000; if (this.clk.loop && this.clk.dur) t %= this.clk.dur; }
+    return { on: this.on, name: this.name, t };
+  }
 }
