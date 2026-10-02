@@ -2855,6 +2855,67 @@ let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null, 
 const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
 const VP_LIB = ['Pano', 'Video', 'Images'];   // #224 one PANO tab for still and video panoramas
 const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA', Sync: 'SYNC', Look: 'LOOK', 'DJ Cam': 'DJ CAM' };
+// #234 add pictures and videos from the Quest's own files (Downloads, Pictures, Movies) to the media library.
+// Start page: 'Add pictures / videos…'. In VR: the + IMPORT tile on VISUALS; the Quest opens the file picker only
+// straight after a real tap event, so a pinch or trigger on the tile does it (xr.js 'down' -> tabletImportSelect,
+// like the crate's mic button); a fingertip poke only shows how. Folder: the tab's own (PANO: still or video by
+// type), from the start page by shape: 2:1 (or a big square, over-under stereo) = 360.
+async function mediaShape(file) {
+  const vid = (file.type || '').startsWith('video/') || /\.(mp4|m4v|webm|mov)$/i.test(file.name);
+  let w = 0, h = 0;
+  try {
+    if (vid) {
+      const v = document.createElement('video'); v.preload = 'metadata'; v.muted = true; v.src = URL.createObjectURL(file);
+      await new Promise(res => { v.onloadedmetadata = res; v.onerror = res; setTimeout(res, 4000); });
+      w = v.videoWidth; h = v.videoHeight; URL.revokeObjectURL(v.src);
+    } else { const b = await createImageBitmap(file); w = b.width; h = b.height; b.close && b.close(); }
+  } catch {}
+  const pano = h > 0 && (Math.abs(w / h - 2) < 0.08 || (w === h && w >= 3840));
+  return { vid, pano };
+}
+async function importMedia(files, tab = null, say = null) {
+  const done = { Pano: 0, 'Video pano': 0, Video: 0, Images: 0 }; let skipped = 0, n = 0;
+  for (const f of files) {
+    const { vid, pano } = await mediaShape(f);
+    let folder = tab === 'Video' ? (vid ? 'Video' : null) : tab === 'Images' ? (vid ? null : 'Images') : tab === 'Pano' ? (vid ? 'Video pano' : 'Pano')
+      : vid ? (pano ? 'Video pano' : 'Video') : (pano ? 'Pano' : 'Images');
+    if (!folder) { skipped++; continue; }
+    if (say) say(`Importing ${++n} of ${files.length}: ${f.name}`, true);
+    try { await media.importFile(folder, f); done[folder]++; } catch (e) { skipped++; console.warn('import', e); }
+  }
+  const parts = Object.entries(done).filter(([, k]) => k).map(([k, v]) => `${v} to ${k === 'Video pano' ? 'PANO (video)' : k.toUpperCase()}`);
+  if (videoPage) vpLoad();
+  return (parts.length ? 'Added ' + parts.join(', ') : 'Nothing added') + (skipped ? ` (${skipped} skipped)` : '');
+}
+let vpMsg = null, vpMsgT = 0, vpImportRect = null;
+function vpSay(text, ok = true, ms = 6000) {
+  vpMsg = { text, ok }; toast(text, ms); clearTimeout(vpMsgT); vpMsgT = setTimeout(() => { vpMsg = null; drawMixScreen(); }, ms); drawMixScreen();
+}
+let fMediaXR = null, importOpenT = 0;
+function openImport(tab) {   // must run inside a tap event (user activation)
+  if (performance.now() - importOpenT < 1500) return true;   // the same pinch arrives as an event and from the hand loop
+  if (navigator.userActivation && !navigator.userActivation.isActive) {
+    vpSay('Pinch (or pull the trigger) on + IMPORT: the Quest opens its files only from a pinch or trigger', false); return false;
+  }
+  if (!fMediaXR) { fMediaXR = document.createElement('input'); fMediaXR.type = 'file'; fMediaXR.multiple = true; fMediaXR.hidden = true; document.body.appendChild(fMediaXR); }
+  fMediaXR.accept = tab === 'Video' ? 'video/*' : tab === 'Images' ? 'image/*' : 'image/*,video/*';
+  fMediaXR.value = '';
+  fMediaXR.onchange = async () => { const fs = [...fMediaXR.files]; if (fs.length) vpSay(await importMedia(fs, tab, (t) => vpSay(t, true, 60000)), true); };
+  importOpenT = performance.now(); fMediaXR.click(); vpSay('Opening this Quest\'s files…', true, 4000);
+  return true;
+}
+// xr.js 'down' (a pinch or trigger event): is the pinch / controller tip on the + IMPORT tile?
+function tabletImportSelect(P) {
+  if (!videoPage || toolsPage || !vpImportRect || !media.FOLDERS.includes(vpFolder === 'Pano' ? 'Pano' : vpFolder)) return false;
+  const ms = mixer.userData.screen; if (!ms) return false;
+  const l = ms.worldToLocal(P.clone()), sw = ms.geometry.parameters.width, sh = ms.geometry.parameters.height;
+  if (Math.abs(l.x) > sw / 2 || Math.abs(l.y) > sh / 2 || Math.abs(l.z) > 0.04) return false;
+  const c = scr().canvas, uv = { x: l.x / sw + 0.5, y: l.y / sh + 0.5 };
+  const px = (scrDir === 'px' ? 1 - uv.y : scrDir === 'nx' ? uv.y : uv.x) * c.width;
+  const py = (scrDir === 'px' ? 1 - uv.x : scrDir === 'nx' ? uv.x : 1 - uv.y) * c.height;
+  const b = vpImportRect; if (px < b.x - 6 || px > b.x + b.w + 6 || py < b.y - 6 || py > b.y + b.h + 6) return false;
+  return openImport(vpFolder);
+}
 async function vpLoad() {
   if (vpFolder === 'Camera' || vpFolder === 'Look' || vpFolder === 'DJ Cam' || vpFolder === 'LedList') { vpItems = []; drawMixScreen(); return; }
   if (vpFolder === 'Sync') { vpItems = []; syncLoad(); return; }   // #206
@@ -3185,12 +3246,24 @@ function drawVideoPage() {
   if (vpFolder === 'LedList') { drawLedList(btn, y0); return; }   // #222
   // thumbnails: 4 x 2 (portrait 2 x 6)
   const COLS = P ? 2 : 4, CW = (W - 16 - (COLS - 1) * 8) / COLS, TH = P ? 64 : 76, CH = TH + 20;
-  const pages = Math.max(1, Math.ceil(vpItems.length / PER)); vpPg = Math.min(vpPg, pages - 1);
+  const pages = Math.max(1, Math.ceil((vpItems.length + 1) / PER)); vpPg = Math.min(vpPg, pages - 1);   // #234 + the IMPORT tile
   if (!vpItems.length) {
     g.fillStyle = '#8c96a8'; g.font = '500 18px system-ui'; g.textAlign = 'left';
-    if (P) { const n = wrapText(g, `Nothing in ${vpFolder} on this headset yet.`, 16, y0 + 40, W - 32, 26, 3); wrapText(g, 'On the phone: Library, Import, then Push to Quest.', 16, y0 + 52 + n * 26, W - 32, 26, 3); }
-    else { g.fillText(`Nothing in ${vpFolder} on this headset yet.`, 16, y0 + 40); g.fillText('On the phone: Library, Import, then Push to Quest.', 16, y0 + 66); }
+    const tx = P ? 16 : 8 + CW + 20, ty = P ? y0 + CH + 40 : y0 + 30, tw = P ? W - 32 : W - tx - 16;
+    const n = wrapText(g, `Nothing in ${vpFolder} on this headset yet.`, tx, ty, tw, 26, 3);
+    wrapText(g, '+ IMPORT: pinch or trigger on it to add from this Quest\'s files. Or on the phone: Library, Import, then Push to Quest.', tx, ty + n * 26 + 8, tw, 24, 5);
   }
+  vpImportRect = null;
+  { const k = vpItems.length - vpPg * PER;   // #234 the + IMPORT tile after the last thumbnail
+    if (k >= 0 && k < PER) {
+      const cx = 8 + (k % COLS) * (CW + 8), cy = y0 + Math.floor(k / COLS) * (CH + 6);
+      g.fillStyle = '#0e1a2a'; g.fillRect(cx, cy, CW, TH); g.strokeStyle = '#39a8ff'; g.lineWidth = 2; g.setLineDash([6, 5]); g.strokeRect(cx + 1, cy + 1, CW - 2, TH - 2); g.setLineDash([]);
+      g.fillStyle = '#7cc4ff'; g.font = '700 30px system-ui'; g.textAlign = 'center'; g.fillText('+', cx + CW / 2, cy + TH / 2 - 2);
+      g.font = '700 14px system-ui'; g.fillText('IMPORT', cx + CW / 2, cy + TH / 2 + 22);
+      g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.fillText('pinch / trigger', cx + CW / 2, cy + TH + 15);
+      vpImportRect = { x: cx, y: cy, w: CW, h: CH };
+      const tab = vpFolder; VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, act: () => openImport(tab) });
+    } }
   const cur = settings.env === 'image' && settings.sky === 'on' ? settings.skyMedia : '';
   vpItems.slice(vpPg * PER, vpPg * PER + PER).forEach((it, i) => {
     const cx = 8 + (i % COLS) * (CW + 8), cy = y0 + Math.floor(i / COLS) * (CH + 6);
@@ -3230,6 +3303,11 @@ function drawVideoPage() {
   for (const [label, what] of T) { const dim = (!vpSel && what !== 'skyoff') || (what === 'light' && vpSelFolder === 'Video pano'); btn(x, ty, tw, bh, label, false, dim ? null : () => vpAct(what), dim); x += tw + 6; }
   const hasList = vpFolder === 'Video' || vpFolder === 'Images';   // #222 the LED playlist, one tap away
   if (hasList) btn(P ? 124 : 522, by, P ? 70 : 92, bh, `LED LIST ${led.files.length}`, false, () => { vpBack = vpFolder; vpFolder = 'LedList'; vpLoad(); });
+  if (vpMsg) {   // #234 import progress / result, on the tablet (toast is invisible in the headset)
+    const my = P ? H - 150 : by - 40;
+    g.fillStyle = vpMsg.ok ? '#1d5a3a' : '#7a2a1a'; g.fillRect(8, my, W - 16, 32);
+    g.fillStyle = '#fff'; g.font = '600 15px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; fitText2(g, vpMsg.text, 16, my + 16, W - 32); g.textBaseline = 'alphabetic';
+  }
   const mw = P && hasList ? 78 : 140;
   btn(W - (P ? 26 : 8) - mw, by, mw, bh, { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED DECKS', cam: 'LED CAM' }[ledMode], ledMode !== 'off', () => setLedMode({ off: 'clips', clips: 'decks', decks: 'cam', cam: 'off' }[ledMode]));
 }
@@ -4021,7 +4099,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   armGrab, armDrag, armRelease,
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
   sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn,
-  crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, drawCrateScreen, layoutSleeves, crateDisc,
+  tabletImportSelect, crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, drawCrateScreen, layoutSleeves, crateDisc,
   neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, toast, mixScreenRelease,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
@@ -4179,6 +4257,12 @@ $('#sSkyKey').onchange = e => { settings.skyKey = e.target.value; saveSettings()
 $('#bEnvImg').onclick = () => $('#fEnv').click();
 // #176 LED wall videos: picked each session (the browser can't keep a folder), up to 5, played muted
 $('#bLedPick').onclick = () => $('#fLed').click();
+$('#bMediaAdd').onclick = () => $('#fMedia').click();   // #234
+$('#fMedia').onchange = async e => {
+  const fs = [...e.target.files]; e.target.value = ''; if (!fs.length) return;
+  const info = $('#mediaAddInfo'), say = t => { info.textContent = t; };
+  say(await importMedia(fs, null, say));
+};
 $('#fLed').onchange = e => {
   const all = [...(e.target.files || [])], n = led.setFiles(all);
   $('#ledList').textContent = n ? `${n} video${n > 1 ? 's' : ''}: ${led.files.map(f => f.name).join(' · ')}` + (all.length > 5 ? '  (only the first 5 are used)' : '') : 'No playable videos in that pick (mp4 / webm).';

@@ -75,6 +75,7 @@ export function setupXR(ctx) {
     // (middle finger) still grabs and moves everything else. A grab ends only when its own button is let go.
     const down = btn => {
       if (ctx.crateMicSelect(st.isHand ? st.pinchPt : st.tip)) { buzz(st, 0.4, 20); return; }
+      if (ctx.tabletImportSelect && ctx.tabletImportSelect(st.isHand ? st.pinchPt : st.tip)) { buzz(st, 0.4, 20); st.noGrabT = performance.now() + 1000; return; }   // #234 the file picker needs this real tap event
       if (!st.isHand && !st.direct && grabStart(st, st.tip, btn)) st.btn = btn;
     };
     const up = btn => { if (!st.isHand && (!st.direct || st.btn === btn)) release(st); };
@@ -660,7 +661,7 @@ export function setupXR(ctx) {
           ctlLetGo(st, dd);   // #230
           if (!st.pinching && dd < PINCH_ON) {
             st.pinching = true;
-            grabStart(st, st.pinchPt);
+            if (!(st.noGrabT > performance.now())) grabStart(st, st.pinchPt);   // #234 not when that pinch opened the file picker
           } else if (st.pinching && dd > PINCH_OFF) { st.pinching = false; release(st); }
         }
       } else {

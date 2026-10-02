@@ -130,6 +130,9 @@
       <label>LED wall videos <span><button class="small" id="bLedPick">Choose videos… (up to 5)</button></span></label>
       <div class="note" id="ledList">None picked. Pick them each session; they play muted on the LED wall (LED WALL button on the mixer, deck B side).</div>
       <input type="file" id="fLed" accept="video/*" multiple hidden>
+      <label>Picture &amp; video library <span><button class="small" id="bMediaAdd">Add pictures / videos…</button></span></label>
+      <div class="note" id="mediaAddInfo">From this Quest's own files (Downloads, Pictures, Movies). 360 pictures and videos (2:1) go to PANO, the rest to IMAGES / VIDEO, ready on the mixer's VISUALS page. In VR: pinch or pull the trigger on the + IMPORT tile there.</div>
+      <input type="file" id="fMedia" accept="image/*,video/*" multiple hidden>
       <label>Neon wall glow
         <select id="sGlow">
           <option value="add">On: adds light (try this first in passthrough)</option>
