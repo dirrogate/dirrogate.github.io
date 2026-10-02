@@ -96,6 +96,13 @@ export function setupXR(ctx) {
     return st.grip.getWorldQuaternion(out);
   }
 
+  // #222 the hand's turn about the LED wall's front axis (its X axis seen in the wall's un-turned frame)
+  const _wq = new THREE.Quaternion(), _we = new THREE.Euler();
+  function wallRoll(st) {
+    const w = ctx.ledwall; w.parent.getWorldQuaternion(_wq); _wq.multiply(q1.setFromEuler(_we.set(0, w.rotation.y, 0))).invert();
+    const x = v1.set(1, 0, 0).applyQuaternion(handQuat(st, q1)).applyQuaternion(_wq);
+    return Math.atan2(x.y, x.x);
+  }
   function rayDown(st) {
     const p = st.pointer; syncRay(st);
     st.rayActive = ctx.pointerDown(p) || false;
@@ -316,6 +323,15 @@ export function setupXR(ctx) {
         st.direct = { kind: 'tap' }; return true;
       }
     }
+    // #222 LED wall: grab the middle of the screen and twist the wrist = turn it (portrait / landscape); it settles
+    // on 0 or 90 deg when let go. Grabbing nearer the edges still moves it; a second hand still resizes (below).
+    if (hit && hit.key === 'ledwall' && !inputs.some(o => o !== st && o.direct && o.direct.target === 'ledwall')) {
+      const l = ctx.ledwall.worldToLocal(v2.copy(P));
+      if (Math.abs(l.x) < ctx.LED.W * 0.22 && Math.abs(l.y) < ctx.LED.H * 0.3) {
+        st.direct = { kind: 'ledTurn', target: 'ledwall', roll0: ctx.ledwall.rotation.z, h0: wallRoll(st) };
+        buzz(st, 0.4, 30); ctx.toast && ctx.toast('Twist your wrist to turn the LED wall (portrait / landscape)', 2500); return true;
+      }
+    }
     // #176 LED wall: a second hand anywhere on it while the other hand holds it = resize (pull apart = bigger)
     if (hit && hit.key === 'ledwall') {
       const other = inputs.find(o => o !== st && o.direct && o.direct.kind === 'move' && o.direct.target === 'ledwall');
@@ -453,6 +469,8 @@ export function setupXR(ctx) {
       if (!g.done && Math.abs(dy) > 0.35) { ctx.setPower(g.d, g.d.power === false); g.done = true; buzz(st, 0.6, 40); }
     } else if (g.kind === 'neonScale') {
       if (g.R.a === st) ctx.setNeonScale(g.R.s0 * pinchOf(g.R.a).distanceTo(pinchOf(g.R.b)) / g.R.d0);
+    } else if (g.kind === 'ledTurn') {   // #222
+      ctx.ledwall.rotation.z = g.roll0 + wrap(wallRoll(st) - g.h0);
     } else if (g.kind === 'ledScale') {
       if (g.R.a === st) ctx.setLedScale(g.R.s0 * pinchOf(g.R.a).distanceTo(pinchOf(g.R.b)) / g.R.d0);
     } else if (g.kind === 'twoHand') {
@@ -472,6 +490,7 @@ export function setupXR(ctx) {
     else if (g.kind === 'lid') ctx.lidRelease();
     else if (g.kind === 'tablet') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'tabletStretch') o.direct = null; if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
     else if (g.kind === 'tabletScale' || g.kind === 'tabletStretch') ctx.saveTablet();
+    else if (g.kind === 'ledTurn') { ctx.ledTurned(); buzz(st, 0.5, 30); }   // #222 settle on portrait / landscape
     else if (g.kind === 'ledScale') {
       const o = g.R.a === st ? g.R.b : g.R.a;
       if (o.direct && o.direct.kind === 'ledScale') o.direct = null;
@@ -536,7 +555,7 @@ export function setupXR(ctx) {
       const sw = ms.geometry.parameters.width, sh = ms.geometry.parameters.height;
       const inside = Math.abs(l.x) < sw / 2 && Math.abs(l.y) < sh / 2, armed = st.poke.get(ms) !== false;
       if (inside && l.z < 0.006 && l.z > -0.015) { if (armed && ctx.mixScreenPress({ x: l.x / sw + 0.5, y: l.y / sh + 0.5 })) { st.poke.set(ms, false); buzz(st, 0.4, 20); } }
-      else if (!inside || l.z > 0.02) st.poke.set(ms, true);
+      else if (!inside || l.z > 0.02) { if (!armed && ctx.mixScreenRelease) ctx.mixScreenRelease(); st.poke.set(ms, true); }   // #222 fingertip off = end of a long press
     }
     // crate screen
     const scr = ctx.crate.userData.screen;
