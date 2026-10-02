@@ -2889,11 +2889,11 @@ function drawVideoPage() {
   if (P) {   // #198 portrait: tabs in rows of 3 (#206: 3 rows, SYNC added, MIXER last); top and bottom keep clear of the corner L
     const tabs = [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam'], tw = (W - 30 - 12) / 3;   // #214 LOOK, #220 DJ CAM
     tabs.forEach((f, i) => btn(22 + (i % 3) * (tw + 6), 28 + Math.floor(i / 3) * 40, tw, 34, VP_TABS[f], f === vpFolder, pick(f)));
-    btn(22 + 2 * (tw + 6), 108, tw, 34, 'MIXER', false, () => setVideoPage(false));
+    btn(22 + 2 * (tw + 6), 108, tw, 34, 'DJ MIXER', false, () => setVideoPage(false));
   } else {
     let x = 8;   // #214 seven tabs fit left of MIXER; #220 eight (narrower)
     for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam']) { const w = { Pano: 80, Video: 80, Images: 86, Camera: 96, Sync: 70, Look: 70, 'DJ Cam': 80 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
-    btn(W - 8 - 100, 8, 100, 32, 'MIXER', false, () => setVideoPage(false));
+    btn(W - 8 - 120, 8, 120, 32, 'DJ MIXER', false, () => setVideoPage(false));   // #225 was MIXER
   }
   const y0 = P ? 152 : 48;
   if (vpFolder === 'Camera') { drawCamTab(btn, y0); return; }
@@ -3112,7 +3112,14 @@ function drawPhoneIcon(g, px, py, pw, ph, on) {   // small phone icon; its LED i
 // ---- #224 TOOLS page on the mixer tablet (TOOLS button, bottom-left of the main HUD): DJ TOOLS (Record Maker) and
 // VJ TOOLS (Scroller). Pages: home, dj, vj, maker, pickSong, pickVideo, pickImage, kbd, scroller.
 let pickItems = [], pickPg = 0;   // toolsPage is declared with videoPage (drawMixScreen reads it early)
-const maker = { kind: 'blank', song: null, video: null, image: null, name: '', busy: false };
+const maker = { kind: 'blank', song: null, video: null, image: null, name: '', busy: false, msg: '', msgOk: true };
+// #225 the Record Maker's answers show on the tablet (toast() is a desktop-only overlay, invisible in the headset)
+let makerMsgT = 0;
+function makerSay(text, ok, ms = 5000) {
+  maker.msg = text; maker.msgOk = ok; toast(text, ms);
+  clearTimeout(makerMsgT); makerMsgT = setTimeout(() => { maker.msg = ''; if (toolsPage === 'maker') drawMixScreen(); }, ms);
+  drawMixScreen();
+}
 const kbd = { title: '', text: '', emoji: false, max: 40, done: null, back: 'home' };
 function setTools(p) {
   toolsPage = p; pickPg = 0;
@@ -3123,7 +3130,7 @@ async function loadPick(folder) { pickItems = (await media.list(folder)).map(i =
 function openKbd(title, text, emoji, max, done, back) { Object.assign(kbd, { title, text: text || '', emoji, max, done, back }); setTools('kbd'); }
 function kbdKey(k) {
   const n = [...kbd.text].length;
-  if (k === 'ENTER') { const d = kbd.done, t = kbd.text; setTools(kbd.back); if (d) d(t); return; }
+  if (k === 'ENTER') { const d = kbd.done, t = kbd.text; if (d) d(t); setTools(kbd.back); return; }
   if (k === 'DEL') kbd.text = [...kbd.text].slice(0, -1).join('');
   else if (k === 'SPACE') { if (n < kbd.max) kbd.text += ' '; }
   else if (n < kbd.max) kbd.text += k;
@@ -3165,8 +3172,8 @@ function makerSourceText() {
 }
 async function pressRecord() {
   if (maker.busy) return;
-  if (maker.kind === 'song' && !maker.song) { toast('Pick a song first (SONG…)'); return; }
-  if (maker.kind === 'clip' && !maker.video) { toast('Pick a clip first (CLIP…)'); return; }
+  if (maker.kind === 'song' && !maker.song) { makerSay('Pick a song first (SONG…)', false, 3000); return; }
+  if (maker.kind === 'clip' && !maker.video) { makerSay('Pick a clip first (CLIP…)', false, 3000); return; }
   const title = maker.name.trim() || `DUBPLATE ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`;
   maker.busy = true; drawMixScreen();
   try {
@@ -3181,9 +3188,9 @@ async function pressRecord() {
     search.q = ''; search.results = null; searchInput.value = '';
     crateState.pl = pi; crateState.sel = Math.max(0, lib.playlists[pi].records.indexOf(r));
     drawCrateScreen(); layoutSleeves();
-    toast(`Stamped "${title}": it is in the crate, Unsorted, ready to pull`, 4000);
-    maker.name = '';
-  } catch (e) { toast('Record Maker: ' + e.message, 4500); }
+    maker.busy = false; maker.name = '';
+    makerSay(`✓ STAMPED "${title}": in the crate, Unsorted`, true, 6000);
+  } catch (e) { maker.busy = false; makerSay('Not stamped: ' + e.message, false, 6000); }
   maker.busy = false; drawMixScreen();
 }
 // pressed records join the 'Unsorted (on this headset)' list (made if there is none) and the Collection
@@ -3233,8 +3240,8 @@ function drawToolsPage() {
   const head = (title, back) => {
     const y = P ? 28 : 8;
     g.fillStyle = '#dfe6f2'; g.font = '700 20px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
-    fitText2(g, title, L + 4, y + 17, R - L - 120); g.textBaseline = 'alphabetic';
-    btn(R - 104, y, 104, 34, back === 'mixer' ? 'MIXER' : '◀ BACK', false, () => setTools(back === 'mixer' ? null : back));
+    fitText2(g, title, L + 4, y + 17, R - L - 136); g.textBaseline = 'alphabetic';
+    btn(R - 120, y, 120, 34, back === 'mixer' ? 'DJ MIXER' : '◀ BACK', false, () => setTools(back === 'mixer' ? null : back));
     return y + 46;
   };
   const note = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; return wrapText(g, s, L + 4, y, R - L - 8, 20, 5); };
@@ -3324,7 +3331,13 @@ function drawToolsPage() {
     g.fillStyle = maker.name ? '#ffffff' : '#56627a'; g.font = '600 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
     fitText2(g, maker.name || '(no name yet)', x0 + lw + bw + 14, y + 17, R - x0 - lw - bw - 14); g.textBaseline = 'alphabetic';
     y += 46;
-    btn(x0, y, R - x0, P ? 52 : Math.min(52, H - y - 6), maker.busy ? 'STAMPING…' : 'STAMP RECORD', maker.busy, maker.busy ? null : pressRecord, false, 22);
+    const sh = P ? 52 : Math.min(52, H - y - 6);
+    if (maker.msg && !maker.busy) {   // #225 the answer, on the tablet; tap to clear
+      g.fillStyle = maker.msgOk ? '#1d7a3a' : '#8a2a1a'; g.fillRect(x0, y, R - x0, sh);
+      g.fillStyle = '#fff'; g.font = '700 16px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      fitText2Center(g, maker.msg, x0 + (R - x0) / 2, y + sh / 2 + 1, R - x0 - 16); g.textBaseline = 'alphabetic';
+      VP_HIT.push({ x: x0, y, w: R - x0, h: sh, act: () => { maker.msg = ''; clearTimeout(makerMsgT); } });
+    } else btn(x0, y, R - x0, sh, maker.busy ? 'STAMPING…' : 'STAMP RECORD', maker.busy, maker.busy ? null : pressRecord, false, 22);
     return;
   }
   if (page === 'pickSong') {
