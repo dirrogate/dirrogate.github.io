@@ -10,6 +10,7 @@ import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeN
 import { makeLedWall, LedPlayer, LED } from './ledwall.js';
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose } from './director.js';
 import { RobotAvatar } from './robot.js';
+import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, readLabel, labelFrom, blankWav } from './tools.js';
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
@@ -358,6 +359,7 @@ function toggleLedPortrait() { ledwall.userData.turnTo(ledwall.userData.portrait
 function setLedScale(s) { s = clamp(s, 0.4, 4); ledwall.scale.setScalar(s); if (stage) stage.items.ledwall.base = ledBase(); return s; }
 function saveLedScale() { try { localStorage.setItem('vire.ledScale', String(ledwall.scale.x)); } catch (e) {} }
 const led = new LedPlayer(ledwall);
+const scroller = CAMERA_ROLE ? null : new Scroller(ledwall, LED);   // #224 VJ TOOLS scroller over the LED wall
 // #220 DJ CAM: a virtual camera on the LED wall, with an avatar copying the DJ's head and hands (Quest only, no phone)
 const djSet = (() => { try { return { preset: 'front', mirror: true, avatar: true, style: 'robot', ...JSON.parse(localStorage.getItem('vire.djcam') || '{}') }; } catch { return { preset: 'front', mirror: true, avatar: true, style: 'robot' }; } })();
 function saveDjSet() { try { localStorage.setItem('vire.djcam', JSON.stringify(djSet)); } catch {} }
@@ -443,6 +445,7 @@ let libVV = new Map();            // #206 title key -> Library Video clip name
 function refreshLibVV() { media.list('Video').then(v => { libVV = new Map(v.filter(i => VIDEO_EXT.test(i.name)).map(i => [vvKey(baseName(i.name)), i.name])); }).catch(() => {}); }
 refreshLibVV();
 function vvSource(t) {
+  if (t.pressVideo) return media.getFile('Video', t.pressVideo);   // #224 a record pressed from a clip plays that clip
   const key = vvKey(t.name);
   const lib = () => (libVV.has(key) ? media.getFile('Video', libVV.get(key)) : null);   // #206 a Library Video clip with the title (e.g. synced from the phone)
   if (settings.source === 'headset') { const p = vvIndex.get(key); return Promise.resolve(p ? store.readFile(p) : lib()); }
@@ -941,6 +944,7 @@ async function loadLibrary() {
     lib = null;
     $('#libstatus').textContent = `No library: ${e.message}`;
   }
+  try { const pr = await listPressings(); if (pr.length) { if (!lib) lib = emptyLibrary(); addPressings(lib, pr); } } catch (e) { console.warn('pressings', e); }   // #224
   crateState.pl = 0; crateState.sel = 0; search.q = ''; search.results = null; searchInput.value = '';
   drawCrateScreen(); layoutSleeves();
 }
@@ -986,6 +990,7 @@ const artPending = new Map(); let artActive = 0; const artQueue = [];
 function fetchArt(track) {
   if (!track || track.missing) return Promise.resolve(null);
   if (CAMERA_ROLE) return phoneArt(track);   // #218
+  if (track.press) return pressArt(track);   // #224 pressed record: its own label picture
   if (artCache.has(track.id)) return Promise.resolve(artCache.get(track.id));
   if (artPending.has(track.id)) return artPending.get(track.id);
   const p = new Promise(res => artQueue.push({ track, res }));
@@ -1019,6 +1024,7 @@ function fetchSide(track) {
   if (!track || track.missing) return Promise.resolve(null);
   if (sideCache.has(track.id)) return sideCache.get(track.id);
   const p = (async () => {
+    if (track.press) return { bytes: await pressBytes(track), art: await pressArt(track) };   // #224
     let bytes;
     if (track.opfs) bytes = await (await store.readFile(track.opfs)).arrayBuffer();
     else {
@@ -2368,7 +2374,7 @@ canvas.addEventListener('wheel', e => {
 
 // ------------------------------------------------------------------ keyboard
 addEventListener('keydown', e => {
-  if ($('#start').style.display !== 'none' || e.target === searchInput) return;
+  if ($('#start').style.display !== 'none' || e.target === searchInput || toolsPage === 'kbd') return;   // #224 typing on the tablet keyboard
   const k = e.key;
   if (k === '/') { e.preventDefault(); openNativeKeyboard(); return; }
   if (k === '1') setCam('dj'); else if (k === '2') setCam('top'); else if (k === '3') setCam('crate');
@@ -2563,13 +2569,14 @@ const SP_HIT = [];   // #164 spectator strip buttons
 const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set while drawing
 // ---- #185 mixer Video page: the media library pushed from the phone (Pano, Video pano, Video, Images), 8 thumbnails a
 // page; pick one, then where it goes (sky, a deck's VideoVinyl, the LED wall). LED WALL mode lives here too now.
-let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null;
+let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null, vpSelFolder = null, toolsPage = null;   // #224 vpSelFolder: Pano tab mixes Pano + Video pano
 const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
+const VP_LIB = ['Pano', 'Video', 'Images'];   // #224 one PANO tab for still and video panoramas
 const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA', Sync: 'SYNC', Look: 'LOOK', 'DJ Cam': 'DJ CAM' };
 async function vpLoad() {
   if (vpFolder === 'Camera' || vpFolder === 'Look' || vpFolder === 'DJ Cam' || vpFolder === 'LedList') { vpItems = []; drawMixScreen(); return; }
   if (vpFolder === 'Sync') { vpItems = []; syncLoad(); return; }   // #206
-  vpItems = await media.list(vpFolder);
+  vpItems = vpFolder === 'Pano' ? [...await media.list('Pano'), ...await media.list('Video pano')].sort((a, b) => a.name.localeCompare(b.name)) : await media.list(vpFolder);
   if (vpSel && !vpItems.some(i => i.name === vpSel)) vpSel = null;
   vpPg = Math.min(vpPg, Math.max(0, Math.ceil(vpItems.length / vpPer()) - 1));
   drawMixScreen();
@@ -2580,9 +2587,11 @@ function vpThumb(folder, name) {
   media.getThumb(folder, name).then(b => b ? createImageBitmap(b) : null).then(bm => { vpThumbs.set(k, bm); drawMixScreen(); }).catch(() => vpThumbs.set(k, null));
   return 'loading';
 }
-function setVideoPage(on) { videoPage = on; if (on) vpLoad(); drawMixScreen(); }
+function videoPageFolder() { return vpFolder === 'Pano' ? (vpSelFolder || 'Pano') : vpFolder; }
+function setVideoPage(on) { videoPage = on; if (on) { toolsPage = null; vpLoad(); } drawMixScreen(); }
 async function vpAct(what) {
   const name = vpSel; if (!name) { toast('Pick a thumbnail first'); return; }
+  const vpFolder = videoPageFolder();   // #224 the Pano tab holds two library folders (local, shadows the tab name)
   if (what === 'sky') return useSkyMedia(vpFolder, name).catch(e => toast('Sky: ' + e.message, 4000));
   if (what === 'light') return lightPhone(vpFolder, name);   // #214
   if (what === 'skyoff') { settings.sky = 'off'; saveSettings(); syncSettingsUI(); applySky(); drawMixScreen(); return; }
@@ -2876,14 +2885,14 @@ function drawVideoPage() {
     g.fillText(label, x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
     if (act) VP_HIT.push({ x, y, w, h, act });
   };
-  const pick = f => () => { vpFolder = f; vpSel = null; vpPg = 0; vpLoad(); };
+  const pick = f => () => { vpFolder = f; vpSel = null; vpSelFolder = null; vpPg = 0; vpLoad(); };
   if (P) {   // #198 portrait: tabs in rows of 3 (#206: 3 rows, SYNC added, MIXER last); top and bottom keep clear of the corner L
-    const tabs = [...media.FOLDERS, 'Camera', 'Sync', 'Look', 'DJ Cam'], tw = (W - 30 - 12) / 3;   // #214 LOOK, #220 DJ CAM
+    const tabs = [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam'], tw = (W - 30 - 12) / 3;   // #214 LOOK, #220 DJ CAM
     tabs.forEach((f, i) => btn(22 + (i % 3) * (tw + 6), 28 + Math.floor(i / 3) * 40, tw, 34, VP_TABS[f], f === vpFolder, pick(f)));
     btn(22 + 2 * (tw + 6), 108, tw, 34, 'MIXER', false, () => setVideoPage(false));
   } else {
     let x = 8;   // #214 seven tabs fit left of MIXER; #220 eight (narrower)
-    for (const f of [...media.FOLDERS, 'Camera', 'Sync', 'Look', 'DJ Cam']) { const w = { Pano: 70, 'Video pano': 100, Video: 72, Images: 80, Camera: 84, Sync: 62, Look: 60, 'DJ Cam': 72 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
+    for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam']) { const w = { Pano: 80, Video: 80, Images: 86, Camera: 96, Sync: 70, Look: 70, 'DJ Cam': 80 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
     btn(W - 8 - 100, 8, 100, 32, 'MIXER', false, () => setVideoPage(false));
   }
   const y0 = P ? 152 : 48;
@@ -2903,14 +2912,15 @@ function drawVideoPage() {
   const cur = settings.env === 'image' && settings.sky === 'on' ? settings.skyMedia : '';
   vpItems.slice(vpPg * PER, vpPg * PER + PER).forEach((it, i) => {
     const cx = 8 + (i % COLS) * (CW + 8), cy = y0 + Math.floor(i / COLS) * (CH + 6);
-    const t = vpThumb(vpFolder, it.name);
+    const itF = it.folder || vpFolder, t = vpThumb(itF, it.name);
     g.fillStyle = '#121824'; g.fillRect(cx, cy, CW, TH);
     if (t && t !== 'loading') {   // cover the cell
       const s = Math.max(CW / t.width, TH / t.height), sw = CW / s, sh = TH / s;
       g.drawImage(t, (t.width - sw) / 2, (t.height - sh) / 2, sw, sh, cx, cy, CW, TH);
     }
+    drawTypeBadge(g, cx + CW - 30, cy + TH - 22, itF === 'Video' || itF === 'Video pano');   // #224
     const on = [vvOverride[0], vvOverride[1]].map(o => o && vpFolder === 'Video' && o.name === it.name);
-    const tag = cur === vpFolder + '/' + it.name ? 'SKY' : on[0] ? 'A' : on[1] ? 'B' : led.name === it.name ? 'LED' : '';
+    const tag = cur === itF + '/' + it.name ? 'SKY' : on[0] ? 'A' : on[1] ? 'B' : led.name === it.name ? 'LED' : '';
     if (tag) { g.fillStyle = '#40d080'; g.fillRect(cx + 4, cy + 4, 14 + tag.length * 11, 20); g.fillStyle = '#05070c'; g.font = '700 14px system-ui'; g.textAlign = 'left'; g.fillText(tag, cx + 9, cy + 19); }
     if (it.name === vpSel) { g.strokeStyle = '#39a8ff'; g.lineWidth = 4; g.strokeRect(cx + 2, cy + 2, CW - 4, TH + 16); }
     g.fillStyle = it.name === vpSel ? '#fff' : '#b8c0cf'; g.font = '500 14px system-ui'; g.textAlign = 'left';
@@ -2922,10 +2932,10 @@ function drawVideoPage() {
       g.fillStyle = '#d0202c'; g.fillRect(xx, xy, xs, xs); g.strokeStyle = '#fff'; g.lineWidth = 4;
       g.beginPath(); g.moveTo(xx + 11, xy + 11); g.lineTo(xx + xs - 11, xy + xs - 11); g.moveTo(xx + xs - 11, xy + 11); g.lineTo(xx + 11, xy + xs - 11); g.stroke();
       g.fillStyle = '#fff'; g.font = '700 13px system-ui'; g.textAlign = 'left'; g.fillText('DELETE?', cx + 6, cy + TH - 8);
-      const folder = vpFolder, name = it.name;
+      const folder = itF, name = it.name;
       VP_HIT.push({ x: xx - 4, y: xy - 4, w: xs + 8, h: xs + 8, del: true, act: () => deleteMedia(folder, name) });
     }
-    VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, item: it.name, act: () => { vpSel = it.name === vpSel ? null : it.name; drawMixScreen(); } });
+    VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, item: it.name, act: () => { vpSel = it.name === vpSel ? null : it.name; vpSelFolder = vpSel ? itF : null; drawMixScreen(); } });
   });
   // bottom bar: pages, targets for this folder, LED mode (portrait: targets get a row of their own)
   const by = P ? H - 62 : H - 44, bh = 36, bx = P ? 26 : 8;
@@ -2935,7 +2945,7 @@ function drawVideoPage() {
     Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['LED NOW', 'lednow'], ['+ LED', 'ledadd']], Images: [['LED NOW', 'lednow'], ['+ LED', 'ledadd']] }[vpFolder];
   const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : 98, ty = P ? H - 106 : by;
   let x = P ? 8 : 108;
-  for (const [label, what] of T) { const dim = !vpSel && what !== 'skyoff'; btn(x, ty, tw, bh, label, false, dim ? null : () => vpAct(what), dim); x += tw + 6; }
+  for (const [label, what] of T) { const dim = (!vpSel && what !== 'skyoff') || (what === 'light' && vpSelFolder === 'Video pano'); btn(x, ty, tw, bh, label, false, dim ? null : () => vpAct(what), dim); x += tw + 6; }
   const hasList = vpFolder === 'Video' || vpFolder === 'Images';   // #222 the LED playlist, one tap away
   if (hasList) btn(P ? 124 : 522, by, P ? 70 : 92, bh, `LED LIST ${led.files.length}`, false, () => { vpBack = vpFolder; vpFolder = 'LedList'; vpLoad(); });
   const mw = P && hasList ? 78 : 140;
@@ -3037,7 +3047,7 @@ function mixScreenPress(uv) {
   const px = (scrDir === 'px' ? 1 - uv.y : scrDir === 'nx' ? uv.y : uv.x) * c.width;
   const py = (scrDir === 'px' ? 1 - uv.x : scrDir === 'nx' ? uv.x : 1 - uv.y) * c.height;
   const id = ++holdSeq; screenHold = id; setTimeout(() => { if (screenHold === id) { screenHold = null; mixScreenLong(px, py); } }, 600);   // #222
-  if (videoPage) {
+  if (videoPage || toolsPage) {   // #224 the TOOLS pages use the same tap list
     const b = VP_HIT.find(h => px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h);
     if (vpDel && !(b && b.del)) vpDel = null;   // any other tap closes the delete offer
     if (b) b.act(); drawMixScreen(); return true;
@@ -3099,7 +3109,276 @@ function drawPhoneIcon(g, px, py, pw, ph, on) {   // small phone icon; its LED i
   g.fillStyle = '#8c96a8'; g.fillRect(px + 4, py + ph - 4, pw - 8, 2);
   g.fillStyle = on ? '#40ff70' : '#56627a'; g.beginPath(); g.arc(px + pw / 2, py + 7, 3, 0, Math.PI * 2); g.fill();
 }
+// ---- #224 TOOLS page on the mixer tablet (TOOLS button, bottom-left of the main HUD): DJ TOOLS (Record Maker) and
+// VJ TOOLS (Scroller). Pages: home, dj, vj, maker, pickSong, pickVideo, pickImage, kbd, scroller.
+let pickItems = [], pickPg = 0;   // toolsPage is declared with videoPage (drawMixScreen reads it early)
+const maker = { kind: 'blank', song: null, video: null, image: null, name: '', busy: false };
+const kbd = { title: '', text: '', emoji: false, max: 40, done: null, back: 'home' };
+function setTools(p) {
+  toolsPage = p; pickPg = 0;
+  if (p === 'pickVideo' || p === 'pickImage') { pickItems = []; loadPick(p === 'pickVideo' ? 'Video' : 'Images'); }
+  drawMixScreen();
+}
+async function loadPick(folder) { pickItems = (await media.list(folder)).map(i => ({ ...i, folder })); drawMixScreen(); }
+function openKbd(title, text, emoji, max, done, back) { Object.assign(kbd, { title, text: text || '', emoji, max, done, back }); setTools('kbd'); }
+function kbdKey(k) {
+  const n = [...kbd.text].length;
+  if (k === 'ENTER') { const d = kbd.done, t = kbd.text; setTools(kbd.back); if (d) d(t); return; }
+  if (k === 'DEL') kbd.text = [...kbd.text].slice(0, -1).join('');
+  else if (k === 'SPACE') { if (n < kbd.max) kbd.text += ' '; }
+  else if (n < kbd.max) kbd.text += k;
+  drawMixScreen();
+}
+addEventListener('keydown', e => {   // desktop: type straight into the tablet keyboard
+  if (toolsPage !== 'kbd' || e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key;
+  if (k === 'Enter') kbdKey('ENTER'); else if (k === 'Backspace') kbdKey('DEL'); else if (k === ' ') kbdKey('SPACE');
+  else if (k.length === 1 && FONT_OK(k.toUpperCase())) kbdKey(k.toUpperCase()); else return;
+  e.preventDefault(); e.stopImmediatePropagation();
+}, true);
+// a record seen from above: grooves (with track bands), the label picture or a plain red label, the spindle
+function drawDisc(g, cx, cy, R, bmp, title) {
+  g.save();
+  g.fillStyle = '#0a0a0c'; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill();
+  for (let r = R * 0.37; r < R * 0.97; r += 2) {
+    const band = [0.52, 0.66, 0.8].some(b => Math.abs(r / R - b) < 0.012);
+    g.strokeStyle = band ? '#2c2c33' : (Math.round(r) % 4 ? '#16161a' : '#1f1f24'); g.lineWidth = band ? 2 : 1;
+    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
+  }
+  g.strokeStyle = 'rgba(255,255,255,0.10)'; g.lineWidth = R * 0.18; g.beginPath(); g.arc(cx, cy, R * 0.68, -2.3, -1.6); g.stroke();   // sheen
+  const lr = R * 0.34;
+  g.beginPath(); g.arc(cx, cy, lr, 0, Math.PI * 2); g.clip();
+  if (bmp && bmp !== 'loading') { const s = Math.max(2 * lr / bmp.width, 2 * lr / bmp.height); g.drawImage(bmp, cx - bmp.width * s / 2, cy - bmp.height * s / 2, bmp.width * s, bmp.height * s); }
+  else {
+    g.fillStyle = '#c8202c'; g.fillRect(cx - lr, cy - lr, 2 * lr, 2 * lr);
+    g.fillStyle = '#fff'; g.font = `700 ${Math.round(lr * 0.22)}px system-ui`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    fitText2Center(g, title || 'BLANK', cx, cy - lr * 0.35, lr * 1.6); g.textBaseline = 'alphabetic';
+  }
+  g.restore();
+  g.fillStyle = '#d8dce4'; g.beginPath(); g.arc(cx, cy, Math.max(2, R * 0.025), 0, Math.PI * 2); g.fill();
+}
+function fitText2Center(g, s, x, y, w) { let t = s; while (t.length > 3 && g.measureText(t).width > w) t = t.slice(0, -2); if (t !== s) t = t.slice(0, -1) + '…'; g.fillText(t, x, y); }
+function makerSourceText() {
+  if (maker.kind === 'song') return maker.song ? `Song: ${maker.song.title}${maker.song.artist ? '  ·  ' + maker.song.artist : ''}` : 'Song: pick one (SONG…)';
+  if (maker.kind === 'clip') return maker.video ? `Clip: ${maker.video.replace(/\.[^.]+$/, '')} (its sound, and it plays on the record)` : 'Clip: pick one (CLIP…)';
+  return 'Blank: generic grooves (quiet vinyl crackle)';
+}
+async function pressRecord() {
+  if (maker.busy) return;
+  if (maker.kind === 'song' && !maker.song) { toast('Pick a song first (SONG…)'); return; }
+  if (maker.kind === 'clip' && !maker.video) { toast('Pick a clip first (CLIP…)'); return; }
+  const title = maker.name.trim() || `DUBPLATE ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`;
+  maker.busy = true; drawMixScreen();
+  try {
+    let label = null;
+    if (maker.image) { const f = await media.getFile('Images', maker.image); if (f) label = await labelFrom(f); }
+    const s = maker.song, src = maker.kind === 'blank' ? { kind: 'blank' } : maker.kind === 'clip' ? { kind: 'video', video: maker.video }
+      : { kind: 'song', opfs: s.opfs || null, url: s.url || null, bpm: s.bpm || 0, artist: s.artist || '', from: s.title };
+    const p = await savePressing({ id: 'p' + Date.now().toString(36), title, src, made: Date.now() }, label);
+    if (!lib) lib = emptyLibrary();
+    const r = addPressings(lib, [p]);
+    const pi = lib.playlists.findIndex(pl => pl.name === 'Unsorted');
+    search.q = ''; search.results = null; searchInput.value = '';
+    crateState.pl = pi; crateState.sel = Math.max(0, lib.playlists[pi].records.indexOf(r));
+    drawCrateScreen(); layoutSleeves();
+    toast(`Stamped "${title}": it is in the crate, Unsorted, ready to pull`, 4000);
+    maker.name = '';
+  } catch (e) { toast('Record Maker: ' + e.message, 4500); }
+  maker.busy = false; drawMixScreen();
+}
+// pressed records join the 'Unsorted (on this headset)' list (made if there is none) and the Collection
+function addPressings(L, list) {
+  let un = L.playlists.find(p => p.name === 'Unsorted');
+  if (!un) { un = { name: 'Unsorted', path: 'Unsorted (on this headset)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, un); }
+  let last = null;
+  for (const p of list) {
+    const id = 'pr_' + p.id, s = p.src || {};
+    if (L.tracks.has(id)) continue;
+    const t = { id, name: p.title, title: p.title, side: null, split: false, artist: s.kind === 'song' ? (s.artist || 'Pressed') : 'Pressed on Cly3DJ', album: '', genre: '', key: '', bpm: s.bpm || 0, duration: 0,
+      location: 'press:' + p.id, url: s.url || null, opfs: s.opfs || null, missing: false, cues: [], unsorted: true, press: p };
+    if (s.kind === 'video') t.pressVideo = s.video;
+    const r = { id: 'r' + id, title: p.title, artist: t.artist, sides: { A: t, B: null }, bpm: t.bpm, key: '', genre: '', duration: 0, missing: false, paired: false, unsorted: true, pressed: true };
+    t.record = r; L.tracks.set(id, t); L.records.push(r); un.records.push(r); L.playlists[0].records.push(r); last = r;
+  }
+  const byT = (a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title);
+  un.records.sort(byT); L.playlists[0].records.sort(byT);
+  return last;
+}
+async function pressArt(track) {
+  if (artCache.has(track.id)) return artCache.get(track.id);
+  let art = null;
+  try { const f = await readLabel(track.press); if (f) { art = await createImageBitmap(f); artBlobs.set(track.id, f); } } catch {}
+  artCache.set(track.id, art); return art;
+}
+async function pressBytes(track) {
+  const s = track.press.src || {};
+  if (s.kind === 'blank') return blankWav();
+  if (s.kind === 'video') { const f = await media.getFile('Video', s.video); if (!f) throw new Error(`the clip ${s.video} is no longer on this headset`); return f.arrayBuffer(); }
+  if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
+  const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
+}
+function drawToolsPage() {
+  const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
+  VP_HIT.length = 0;
+  g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H);
+  const btn = (x, y, w, h, label, on, act, dim, fs0 = 17) => {
+    g.fillStyle = on ? '#c8202c' : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : dim ? '#56627a' : '#3a4252';
+    let fs = fs0; g.font = `700 ${fs}px system-ui`;
+    while (fs > 11 && g.measureText(label).width > w - 8) g.font = `700 ${--fs}px system-ui`;
+    g.fillText(label, x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
+    if (act) VP_HIT.push({ x, y, w, h, act });
+  };
+  const L = P ? 24 : 8, R = W - (P ? 26 : 8);   // portrait keeps clear of the silver corner L
+  const head = (title, back) => {
+    const y = P ? 28 : 8;
+    g.fillStyle = '#dfe6f2'; g.font = '700 20px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    fitText2(g, title, L + 4, y + 17, R - L - 120); g.textBaseline = 'alphabetic';
+    btn(R - 104, y, 104, 34, back === 'mixer' ? 'MIXER' : '◀ BACK', false, () => setTools(back === 'mixer' ? null : back));
+    return y + 46;
+  };
+  const note = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; return wrapText(g, s, L + 4, y, R - L - 8, 20, 5); };
+  const page = toolsPage;
+  if (page === 'home') {
+    const y0 = head('TOOLS', 'mixer');
+    if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26); note('DJ TOOLS: Record Maker. VJ TOOLS: Scroller on the LED wall.', y0 + 240); }
+    else { const bw = (R - L - 12) / 2; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); note('DJ TOOLS: Record Maker.     VJ TOOLS: Scroller on the LED wall.', y0 + 166); }
+    return;
+  }
+  if (page === 'dj' || page === 'vj') {
+    const y0 = head(page === 'dj' ? 'DJ TOOLS' : 'VJ TOOLS', 'home');
+    const bw = P ? R - L : 300;
+    if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); note('Press your own record: blank grooves, a song from the crate or a clip, with a picture from IMAGES as its label. It goes into the crate, Unsorted.', y0 + 116); }
+    else { btn(L, y0 + 8, bw, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24); note('A sine-wave text scroller across the bottom of the LED wall, over whatever it shows. Type a message, ENTER starts it.', y0 + 116); }
+    return;
+  }
+  if (page === 'scroller') {
+    const y0 = head('SCROLLER', 'vj');
+    g.fillStyle = '#0d1422'; g.fillRect(L, y0, R - L, 52);
+    g.save(); g.beginPath(); g.rect(L, y0, R - L, 52); g.clip();
+    drawBitText(g, scroller.text || ' ', L + 10, y0 + 13, 4, x => `hsl(${(x * 0.7) % 360},100%,62%)`); g.restore();
+    let y = y0 + 62; const bw = P ? (R - L - 6) / 2 : 200;
+    btn(L, y, bw, 42, 'EDIT TEXT', false, () => openKbd('SCROLLER TEXT', scroller.text, true, 120, t => { t = cleanText(t, 120); if (t.trim()) scroller.start(t); else scroller.stop(); }, 'scroller'));
+    btn(L + bw + 6, y, bw, 42, scroller.on ? 'STOP' : 'START', scroller.on, () => { if (scroller.on) scroller.stop(); else scroller.start(); });
+    y += 52;
+    for (const [label, k] of [['WAVE', 'wave'], ['SPEED', 'speed']]) {
+      g.fillStyle = '#dfe6f2'; g.font = '700 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(label, L + 4, y + 20);
+      g.textAlign = 'center'; g.fillText(String(scroller[k]), L + 196, y + 20); g.textBaseline = 'alphabetic';
+      btn(L + 110, y, 56, 40, '−', false, () => { scroller[k] = Math.max(k === 'speed' ? 1 : 0, scroller[k] - 1); scroller.save(); });
+      btn(L + 226, y, 56, 40, '+', false, () => { scroller[k] = Math.min(10, scroller[k] + 1); scroller.save(); });
+      y += 46;
+    }
+    if (!P) note('ENTER on the keyboard starts it at the bottom of the LED wall, over whatever is playing.', y + 14);
+    return;
+  }
+  if (page === 'kbd') {
+    const y0 = head(kbd.title, kbd.back);
+    g.fillStyle = '#0d1422'; g.fillRect(L, y0, R - L, 44);
+    g.save(); g.beginPath(); g.rect(L, y0, R - L, 44); g.clip();
+    const tw = bitWidth(kbd.text + ' ', 4), tx = Math.min(L + 10, R - 12 - tw);
+    drawBitText(g, kbd.text, tx, y0 + 9, 4, '#ffffff');
+    g.fillStyle = '#39a8ff'; g.fillRect(tx + bitWidth(kbd.text, 4), y0 + 9, 16, 28);   // cursor
+    g.restore();
+    const gap = 4, kh = P ? 46 : 36, ky0 = y0 + 52;
+    KEY_ROWS.forEach((row, ri) => {
+      const keys = [...row], kw = (R - L - (keys.length - 1) * gap) / keys.length;
+      keys.forEach((k, i) => btn(L + i * (kw + gap), ky0 + ri * (kh + gap), kw, kh, k, false, () => kbdKey(k), false, P ? 15 : 17));
+    });
+    const by = ky0 + KEY_ROWS.length * (kh + gap);
+    let x = L, by2 = by; const ew = P ? (R - L - 2 * gap) / 3 : 56;
+    if (kbd.emoji) {
+      for (const em of BIT_EMOJI) {
+        g.fillStyle = '#1c2434'; g.fillRect(x, by, ew, kh);
+        drawBitText(g, em, x + ew / 2 - 12, by + kh / 2 - 9, 3, '#fff');
+        VP_HIT.push({ x, y: by, w: ew, h: kh, act: () => kbdKey(em) }); x += ew + gap;
+      }
+      if (P) { x = L; by2 = by + kh + gap; }   // portrait: emoji on a row of their own
+    }
+    const cw = P ? 48 : 70; btn(x, by2, cw, kh, 'CLR', false, () => { kbd.text = ''; }); x += cw + gap;
+    const rest = R - x, dw = P ? 50 : 80, ew2 = P ? 64 : 110, sw = rest - dw - ew2 - 2 * gap;
+    btn(x, by2, sw, kh, 'SPACE', false, () => kbdKey('SPACE'));
+    btn(x + sw + gap, by2, dw, kh, '⌫', false, () => kbdKey('DEL'));
+    btn(x + sw + dw + 2 * gap, by2, ew2, kh, kbd.emoji ? 'ENTER' : 'OK', true, () => kbdKey('ENTER'));
+    return;
+  }
+  if (page === 'maker') {
+    const y0 = head('RECORD MAKER', 'dj');
+    const bmp = maker.image ? vpThumb('Images', maker.image) : null;
+    let x0, cy0, rad;
+    if (P) { rad = 92; drawDisc(g, W / 2, y0 + rad + 4, rad, bmp, maker.name || 'BLANK'); x0 = L; cy0 = y0 + 2 * rad + 20; }
+    else { rad = 106; drawDisc(g, L + rad + 4, y0 + rad + 18, rad, bmp, maker.name || 'BLANK'); x0 = L + 2 * rad + 24; cy0 = y0; }
+    const lw = 70, bw = Math.min(118, (R - x0 - lw - 12) / 3), row = (y, label) => { g.fillStyle = '#dfe6f2'; g.font = '700 15px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(label, x0, y + 17); g.textBaseline = 'alphabetic'; };
+    const sub = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, s, x0 + lw, y, R - x0 - lw); };
+    let y = cy0;
+    row(y, 'SOUND');
+    btn(x0 + lw, y, bw, 34, 'BLANK', maker.kind === 'blank', () => { maker.kind = 'blank'; });
+    btn(x0 + lw + bw + 6, y, bw, 34, 'SONG…', maker.kind === 'song', () => setTools('pickSong'));
+    btn(x0 + lw + 2 * (bw + 6), y, bw, 34, 'CLIP…', maker.kind === 'clip', () => setTools('pickVideo'));
+    sub(makerSourceText(), y + 52); y += 64;
+    row(y, 'LABEL');
+    btn(x0 + lw, y, bw, 34, 'PICTURE…', !!maker.image, () => setTools('pickImage'));
+    btn(x0 + lw + bw + 6, y, bw, 34, 'NONE', !maker.image, () => { maker.image = null; });
+    sub(maker.image ? 'Picture: ' + maker.image.replace(/\.[^.]+$/, '') : 'Plain red label with the name', y + 52); y += 64;
+    row(y, 'NAME');
+    btn(x0 + lw, y, bw, 34, 'NAME…', false, () => openKbd('RECORD NAME', maker.name, false, 32, t => { maker.name = t.trim(); }, 'maker'));
+    g.fillStyle = maker.name ? '#ffffff' : '#56627a'; g.font = '600 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    fitText2(g, maker.name || '(no name yet)', x0 + lw + bw + 14, y + 17, R - x0 - lw - bw - 14); g.textBaseline = 'alphabetic';
+    y += 46;
+    btn(x0, y, R - x0, P ? 52 : Math.min(52, H - y - 6), maker.busy ? 'STAMPING…' : 'STAMP RECORD', maker.busy, maker.busy ? null : pressRecord, false, 22);
+    return;
+  }
+  if (page === 'pickSong') {
+    const y0 = head('PICK A SONG', 'maker');
+    const list = lib ? currentList() : [], rows = P ? 12 : 4, RH = 44, pages = Math.max(1, Math.ceil(list.length / rows)); pickPg = Math.min(pickPg, pages - 1);
+    if (!list.length) note('No songs in the crate list. Load a library (start page) or pick a list on the crate first.', y0 + 20);
+    else { g.fillStyle = '#56627a'; g.font = '500 13px system-ui'; g.textAlign = 'left'; fitText2(g, 'From the crate list: ' + (search.results ? 'search results' : lib.playlists[crateState.pl].path), L + 4, y0 + 6, R - L); }
+    list.slice(pickPg * rows, pickPg * rows + rows).forEach((r, k) => {
+      const y = y0 + 14 + k * RH, t = r.sides.A || r.sides.B, ok = t && !t.missing && !t.press;
+      g.fillStyle = '#0d1422'; g.fillRect(L, y, R - L, RH - 6);
+      g.fillStyle = ok ? '#dfe6f2' : '#56627a'; g.font = '600 16px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+      fitText2(g, `${r.title}${r.artist ? '  ·  ' + r.artist : ''}${r.bpm ? '  ·  ' + (+r.bpm).toFixed(0) + ' BPM' : ''}`, L + 10, y + (RH - 6) / 2, R - L - 20); g.textBaseline = 'alphabetic';
+      if (ok) VP_HIT.push({ x: L, y, w: R - L, h: RH - 6, act: () => { maker.kind = 'song'; maker.song = { title: r.title, artist: r.artist || '', opfs: t.opfs || null, url: t.url || null, bpm: r.bpm || t.bpm || 0 }; if (!maker.name) maker.name = cleanText(r.title, 32); setTools('maker'); } });
+    });
+    const by = P ? H - 62 : H - 44;
+    btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
+    btn(L + 48, by, 44, 36, '›', false, () => { pickPg = Math.min(pages - 1, pickPg + 1); }, pickPg >= pages - 1);
+    return;
+  }
+  if (page === 'pickVideo' || page === 'pickImage') {
+    const folder = page === 'pickVideo' ? 'Video' : 'Images';
+    const y0 = head(page === 'pickVideo' ? 'PICK A CLIP' : 'PICK A LABEL PICTURE', 'maker');
+    const COLS = P ? 2 : 4, PER = P ? 10 : 8, CW = (R - L - (COLS - 1) * 8) / COLS, TH = P ? 64 : 76, CH = TH + 20;
+    const pages = Math.max(1, Math.ceil(pickItems.length / PER)); pickPg = Math.min(pickPg, pages - 1);
+    if (!pickItems.length) note(`Nothing in ${folder === 'Video' ? 'VIDEO' : 'IMAGES'} on this headset yet. On the phone: Library, Import, then Push to Quest.`, y0 + 24);
+    pickItems.slice(pickPg * PER, pickPg * PER + PER).forEach((it, i) => {
+      const cx = L + (i % COLS) * (CW + 8), cy = y0 + Math.floor(i / COLS) * (CH + 6), t = vpThumb(folder, it.name);
+      g.fillStyle = '#121824'; g.fillRect(cx, cy, CW, TH);
+      if (t && t !== 'loading') { const s = Math.max(CW / t.width, TH / t.height), sw = CW / s, sh = TH / s; g.drawImage(t, (t.width - sw) / 2, (t.height - sh) / 2, sw, sh, cx, cy, CW, TH); }
+      drawTypeBadge(g, cx + CW - 30, cy + TH - 22, folder === 'Video');
+      g.fillStyle = '#b8c0cf'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, it.name.replace(/\.[^.]+$/, ''), cx + 2, cy + TH + 15, CW - 4);
+      VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, act: () => { if (folder === 'Video') { maker.video = it.name; maker.kind = 'clip'; if (!maker.name) maker.name = cleanText(it.name.replace(/\.[^.]+$/, ''), 32); } else maker.image = it.name; setTools('maker'); } });
+    });
+    const by = P ? H - 62 : H - 44;
+    btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
+    btn(L + 48, by, 44, 36, '›', false, () => { pickPg = Math.min(pages - 1, pickPg + 1); }, pickPg >= pages - 1);
+  }
+}
+// #224 a tiny type badge for thumbnails (lower right): a camcorder for videos, a picture for images
+function drawTypeBadge(g, x, y, video) {
+  g.fillStyle = 'rgba(5,7,12,0.78)'; g.beginPath(); g.roundRect(x - 2, y - 2, 28, 20, 4); g.fill();
+  g.fillStyle = '#e8ecf3'; g.strokeStyle = '#e8ecf3'; g.lineWidth = 1.6;
+  if (video) {   // body + lens cone
+    g.beginPath(); g.roundRect(x + 2, y + 4, 14, 10, 2); g.fill();
+    g.beginPath(); g.moveTo(x + 17, y + 9); g.lineTo(x + 23, y + 5); g.lineTo(x + 23, y + 13); g.closePath(); g.fill();
+  } else {       // frame, sun, mountain
+    g.strokeRect(x + 2, y + 2, 20, 14);
+    g.beginPath(); g.arc(x + 8, y + 7, 2, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.moveTo(x + 3, y + 15); g.lineTo(x + 10, y + 9); g.lineTo(x + 14, y + 12); g.lineTo(x + 17, y + 10); g.lineTo(x + 21, y + 15); g.closePath(); g.fill();
+  }
+}
+
 function drawMixScreen() {
+  if (toolsPage) { drawToolsPage(); scr().commit(); return; }   // #224
   if (videoPage) { drawVideoPage(); scr().commit(); return; }   // #185
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   const sp = settings.spect === 'on' && spect ? spect.ui() : null;   // #164/#167: MR GUI toggle
@@ -3110,21 +3389,28 @@ function drawMixScreen() {
     // (keep clear of the silver corner L: #202 it is top-left when held +x edge up, bottom-right the other way)
     const TOP = 76, ph = (H - TOP - 12) / 2, w = 120, h = 40, y = 28;
     for (const d of decks) drawDeckPanel(g, d, 6, TOP + d.i * (ph + 6), W - 12, ph, true);
-    drawTopBtn(g, W - 14 - w, y, w, h, 'VIDEO', on);
+    drawTopBtn(g, W - 14 - w, y, w, h, 'VISUALS', on);
     SP_HIT.push({ x: W - 20 - w, y: y - 8, w: w + 12, h: h + 16, act: () => setVideoPage(true) });
     if (sp) {
       drawTopBtn(g, 24, y, w, h, 'MR GUI', sp.mr); drawPhoneIcon(g, 24 + w + 8, y + (h - 24) / 2, 14, 24, sp.phone);
       SP_HIT.push({ x: 18, y: y - 8, w: w + 12, h: h + 16, act: () => spect.setMR(!sp.mr) });
     }
-    drawPin(g, (W - 150) / 2, H - 50, 150, 34);   // #210
+    drawTopBtn(g, 20, H - 52, 92, 36, 'TOOLS', !!(scroller && scroller.on));   // #224
+    SP_HIT.push({ x: 14, y: H - 60, w: 104, h: 52, act: () => setTools('home') });
+    drawPin(g, W - 26 - 150, H - 50, 150, 34);   // #210 (#224: right of TOOLS)
     scr().commit(); return;
   }
   for (const d of decks) drawDeckPanel(g, d, d.i ? W / 2 + 6 : 6, 6, W / 2 - 12, H - 12, false);
   drawPin(g, W - 14 - 150, H - 46, 150, 30);   // #210
   { // #185 VIDEO: deck B's top row (was the #176 LED WALL switch, which is on the Video page now)
     const w = 108, h = 28, y = 12, x = W - 36 - w;   // #202 moved in, clear of the corner L (now top-right)
-    drawTopBtn(g, x, y, w, h, 'VIDEO', on);
+    drawTopBtn(g, x, y, w, h, 'VISUALS', on);
     SP_HIT.push({ x: x - 6, y: 4, w: w + 12, h: h + 16, act: () => setVideoPage(true) });
+  }
+  { // #224 TOOLS: bottom-left of the main page (DJ TOOLS: Record Maker, VJ TOOLS: Scroller)
+    const w = 108, h = 28, x = 14, y = H - 40;
+    drawTopBtn(g, x, y, w, h, 'TOOLS', !!(scroller && scroller.on));
+    SP_HIT.push({ x: x - 6, y: y - 8, w: w + 12, h: h + 14, act: () => setTools('home') });
   }
   if (sp) {   // #174: MR GUI toggle + phone icon on deck A's top row, right-aligned to its panel (the divider stays clear)
     const right = W / 2 - 14, pw = 14, ph = 24, w = 108, h = 28, y = 12;
@@ -3319,6 +3605,7 @@ function frame() {
   stepLoose(dt);
   stepMilkCrates(dt);
   stepWallGlow(); stepBlobs();
+  if (scroller) scroller.tick(dt);   // #224
   // label relief (#94): on within arm's length of your eyes (0.65 m), off again past 0.8 m
   camera.getWorldPosition(_eyeB);
   for (const r of [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)]) {
