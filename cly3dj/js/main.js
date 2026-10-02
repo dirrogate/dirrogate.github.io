@@ -10,6 +10,7 @@ import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeN
 import { makeLedWall, LedPlayer, LED } from './ledwall.js';
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose } from './director.js';
 import { RobotAvatar } from './robot.js';
+import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, labelFrom, blankWav } from './tools.js';
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
@@ -358,6 +359,7 @@ function toggleLedPortrait() { ledwall.userData.turnTo(ledwall.userData.portrait
 function setLedScale(s) { s = clamp(s, 0.4, 4); ledwall.scale.setScalar(s); if (stage) stage.items.ledwall.base = ledBase(); return s; }
 function saveLedScale() { try { localStorage.setItem('vire.ledScale', String(ledwall.scale.x)); } catch (e) {} }
 const led = new LedPlayer(ledwall);
+const scroller = CAMERA_ROLE ? null : new Scroller(ledwall, LED);   // #224 VJ TOOLS scroller over the LED wall
 // #220 DJ CAM: a virtual camera on the LED wall, with an avatar copying the DJ's head and hands (Quest only, no phone)
 const djSet = (() => { try { return { preset: 'front', mirror: true, avatar: true, style: 'robot', ...JSON.parse(localStorage.getItem('vire.djcam') || '{}') }; } catch { return { preset: 'front', mirror: true, avatar: true, style: 'robot' }; } })();
 function saveDjSet() { try { localStorage.setItem('vire.djcam', JSON.stringify(djSet)); } catch {} }
@@ -443,6 +445,7 @@ let libVV = new Map();            // #206 title key -> Library Video clip name
 function refreshLibVV() { media.list('Video').then(v => { libVV = new Map(v.filter(i => VIDEO_EXT.test(i.name)).map(i => [vvKey(baseName(i.name)), i.name])); }).catch(() => {}); }
 refreshLibVV();
 function vvSource(t) {
+  if (t.pressVideo) return media.getFile('Video', t.pressVideo);   // #224 a record pressed from a clip plays that clip
   const key = vvKey(t.name);
   const lib = () => (libVV.has(key) ? media.getFile('Video', libVV.get(key)) : null);   // #206 a Library Video clip with the title (e.g. synced from the phone)
   if (settings.source === 'headset') { const p = vvIndex.get(key); return Promise.resolve(p ? store.readFile(p) : lib()); }
@@ -750,6 +753,16 @@ const crateState = { pl: 0, sel: 0 };
 const sideCache = new Map(); // track id -> Promise<{bytes, art}>
 const artCache = new Map();  // track id -> ImageBitmap|null
 const artBlobs = new Map();  // track id -> the cover as stored in the MP3 (sent as-is to the spectator phone, #161)
+// #231 more pictures from the tag: the centre label (ID3 picture type 6, Media) and the back cover (type 4)
+const labelArt = new Map();  // track id -> ImageBitmap (only when the file has a Media picture)
+const backBlobs = new Map(); // track id -> Blob (only when the file has a Back cover)
+const labelArtB = new Map(); // #232 track id -> the B label kept inside that (A side's) file
+async function keepExtraPics(track, tag) {
+  if (tag.media) { try { labelArt.set(track.id, await createImageBitmap(tag.media)); } catch {} }
+  if (tag.mediaB) { try { labelArtB.set(track.id, await createImageBitmap(tag.mediaB)); } catch {} }
+  if (tag.back) backBlobs.set(track.id, tag.back);
+}
+const labelOf = t => (t && (labelArt.get(t.id) || artCache.get(t.id))) || null;   // label: Media picture, else the cover
 
 function currentList() {
   if (CAMERA_ROLE) return remoteCrate ? remoteCrate.list : [];   // #218 the phone shows the Quest's crate view
@@ -941,6 +954,8 @@ async function loadLibrary() {
     lib = null;
     $('#libstatus').textContent = `No library: ${e.message}`;
   }
+  try { const pr = await listPressings(); if (pr.length) { if (!lib) lib = emptyLibrary(); addPressings(lib, pr); } } catch (e) { console.warn('pressings', e); }   // #224
+  if (!CAMERA_ROLE) { if (!lib) lib = emptyLibrary(); addExamples(lib); }   // #231
   crateState.pl = 0; crateState.sel = 0; search.q = ''; search.results = null; searchInput.value = '';
   drawCrateScreen(); layoutSleeves();
 }
@@ -986,6 +1001,7 @@ const artPending = new Map(); let artActive = 0; const artQueue = [];
 function fetchArt(track) {
   if (!track || track.missing) return Promise.resolve(null);
   if (CAMERA_ROLE) return phoneArt(track);   // #218
+  if (track.press) return pressArt(track);   // #224 pressed record: its own label picture
   if (artCache.has(track.id)) return Promise.resolve(artCache.get(track.id));
   if (artPending.has(track.id)) return artPending.get(track.id);
   const p = new Promise(res => artQueue.push({ track, res }));
@@ -1007,7 +1023,7 @@ async function pumpArt() {
         if (head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) {
           const size = ((head[6] & 127) << 21) | ((head[7] & 127) << 14) | ((head[8] & 127) << 7) | (head[9] & 127);
           const tag = await part(0, Math.min(size + 10, 4 * 1024 * 1024));
-          const t = readID3(tag); useID3Bpm(track, t); if (t.picture) { art = await createImageBitmap(t.picture); artBlobs.set(track.id, t.picture); }
+          const t = readID3(tag); useID3Bpm(track, t); if (t.picture) { art = await createImageBitmap(t.picture); artBlobs.set(track.id, t.picture); } await keepExtraPics(track, t);
         }
       } catch (e) { /* no art */ }
       artCache.set(track.id, art); artPending.delete(track.id); res(art);
@@ -1019,6 +1035,7 @@ function fetchSide(track) {
   if (!track || track.missing) return Promise.resolve(null);
   if (sideCache.has(track.id)) return sideCache.get(track.id);
   const p = (async () => {
+    if (track.press) return { bytes: await pressBytes(track), art: await pressArt(track) };   // #224
     let bytes;
     if (track.opfs) bytes = await (await store.readFile(track.opfs)).arrayBuffer();
     else {
@@ -1030,9 +1047,10 @@ function fetchSide(track) {
     try {
       const tag = readID3(bytes); useID3Bpm(track, tag);
       if (tag.picture) { art = await createImageBitmap(tag.picture); artBlobs.set(track.id, tag.picture); }
+      await keepExtraPics(track, tag);
     } catch (e) { console.warn('art', e); }
     artCache.set(track.id, art);
-    return { bytes, art };
+    return { bytes, art: labelArt.get(track.id) || (track.side === 'B' && labelArtB.get(track.id)) || art };   // #231 the record's label (#232 a _b file's 'Label B' is its own)
   })();
   sideCache.set(track.id, p);
   p.catch(() => sideCache.delete(track.id));
@@ -1076,6 +1094,9 @@ async function prepareArt(rec3d) {
       if (d && d.art) { rec3d.labelImgs[s] = d.art; rec3d.redraw(s); }
     } catch (e) { toast(e.message); }
   }
+  // #232 the B label from inside the A file: a one-file record's B face, or a _b file without pictures of its own
+  const a = rec3d.track('A'), b = rec3d.track('B'), lb = a && labelArtB.get(a.id);
+  if (lb && !rec3d.disposed && (!b || !rec3d.labelImgs.B)) { rec3d.labelImgs.B = lb; rec3d.redraw('B'); }
 }
 
 // Crate screen (CLAUDE.md #61, #72, #73): header, search bar, rows, optional on-screen keyboard, footer.
@@ -1145,6 +1166,10 @@ function drawCrateScreen() {
     g.textAlign = 'right'; g.font = '600 26px system-ui'; g.fillStyle = '#f1b650'; g.fillText(badge, W - 138, y + RH / 2);
     g.fillStyle = sel ? '#ffffff' : '#aab2bc'; g.font = '600 32px system-ui';
     g.fillText(r.bpm ? r.bpm.toFixed(r.bpm % 1 ? 1 : 0) : '', W - 22, y + RH / 2);
+    if (r === crateDel) {   // #226 the delete offer
+      g.fillStyle = '#c8202c'; g.fillRect(W - CDEL_W - 12, y + 3, CDEL_W + 6, RH - 6);
+      g.fillStyle = '#fff'; g.font = '700 30px system-ui'; g.textAlign = 'center'; g.fillText('✕ DELETE', W - 9 - CDEL_W / 2, y + RH / 2 + 1);
+    }
   }
   // on-screen keyboard: 10 units per row, ~3 cm keys on the LCD
   search.keys = [];
@@ -1177,6 +1202,14 @@ function drawCrateScreen() {
   }
   g.textAlign = 'right'; g.fillStyle = '#aab2bc';
   g.fillText(`${list.length ? crateState.sel + 1 : 0} / ${list.length}`, W - 22, fy);
+  // #226 messages and hints the DJ must read in the headset go in the footer
+  const cm = crateMsg && performance.now() < crateMsg.until ? crateMsg : null;
+  const hintDel = !cm && crateDel ? { text: 'Tap ✕ DELETE to remove this record, or anywhere else to keep it', ok: true } : null;
+  if (cm || hintDel) {
+    const m = cm || hintDel;
+    g.fillStyle = cm ? (m.ok ? '#1d7a3a' : '#8a2a1a') : '#3a1a1e'; g.fillRect(0, H - CS.foot, W, CS.foot);
+    g.fillStyle = '#fff'; g.font = '600 28px system-ui'; g.textAlign = 'center'; fitText2Center(g, m.text, W / 2, fy, W - 40);
+  }
   crateScreen.commit();
   if (spect && spect.crateScreen) spect.crateScreen(crateScreen.canvas);   // #218 the phone's lid screen
   crateScreen.rows = { start, ROWS, RH, y0, kbY: search.kb ? kbY : Infinity };
@@ -1250,7 +1283,7 @@ function assignCovers(list, slots) { // slots: [{ idx, p, q }] nearest first
 
 function drawCrateDiscLabel(r) {
   const { canvas: c, tex } = crateDisc.userData; const g = c.getContext('2d');
-  const t = r && (r.sides.A || r.sides.B); const art = t && artCache.get(t.id);
+  const t = r && (r.sides.A || r.sides.B); const art = labelOf(t);   // #231
   let h = 0; for (const ch of (r ? r.title : '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0; h %= 360;
   g.save(); g.clearRect(0, 0, 256, 256); g.beginPath(); g.arc(128, 128, 128, 0, Math.PI * 2); g.clip();
   if (art) { const s = Math.max(256 / art.width, 256 / art.height); g.drawImage(art, 128 - art.width * s / 2, 128 - art.height * s / 2, art.width * s, art.height * s); }
@@ -1289,6 +1322,7 @@ function layoutSleeves() {
     e.set(tilt, 0, 0); q.setFromEuler(e); p.set(0, y, z);
     const r = list[idx];
     s.set(1, hy, r && r.missing ? 0.001 : 1);
+    if (sleeveOut && r === sleeveOut.rec) { sleeveOut.slotK = k; sleeveOut.slotM = new THREE.Matrix4().compose(p, q, s); s.set(0, 0, 0); }   // #229 that sleeve is in a hand
     m.compose(p, q, s); S.setMatrixAt(k, m);
     if (rel === 0 && r && !r.missing && !shut) {
       crateDisc.userData.target.set(0, yDisc + 0.012 + 0.315 / 2 - 0.005, z); crateDisc.userData.tilt = tilt;
@@ -1304,16 +1338,125 @@ function layoutSleeves() {
   const near = [];
   for (let k = 0; k < n; k++) {
     const idx = start + k, rel = idx - crateState.sel, r = list[idx];
-    if (!r || r.missing || rel < -4 || rel > 5) continue;
+    if (!r || r.missing || rel < -4 || rel > 5 || (sleeveOut && r === sleeveOut.rec)) continue;
     S.getMatrixAt(k, m); m.decompose(p, q, s);
     near.push({ idx, rel, p: p.clone(), q: q.clone(), sy: s.y });   // #153: covers squash with their jackets
   }
   near.sort((a, b) => (Math.abs(a.rel) + (a.rel > 0 ? 0.5 : 0)) - (Math.abs(b.rel) + (b.rel > 0 ? 0.5 : 0)));
   assignCovers(list, near);
   const selRec = list[crateState.sel];
-  if (shut || !selRec || selRec.missing || (held && held.rec === selRec) || copiesOut(selRec) >= COPIES) crateDisc.visible = false;
+  if (shut || !selRec || selRec.missing || (held && held.rec === selRec) || copiesOut(selRec) >= COPIES || (sleeveOut && sleeveOut.rec === selRec)) crateDisc.visible = false;
   S.instanceMatrix.needsUpdate = true;
   if (!CAMERA_ROLE && spect && spect.crate) spect.crate(crateView(list, start, n, shut));   // #218 the phone mirrors this view
+}
+// #229 sleeve dig (owner): reach down into the crate to the middle of the selected sleeve (the hand at least ~7 cm
+// below the crate's top edge, on that sleeve) and grab (pinch / grip / trigger): the whole jacket comes up in your
+// hand with the record peeking out of its opening. Grab the record's edge with the other hand and slide it out
+// along the sleeve; once it is clear it is in that hand like any pulled record, and the sleeve flies back into its
+// slot. Let go of the sleeve any time and it goes back (record and all). Grabbing the record that pops up above the
+// crate (or flicking through the tops of the sleeves) works as before: that only pulls the record.
+// Cost: one card box + a copy of the crate disc (shared geometry and materials) + one 1024 px cover canvas
+// (~5 MB with mips, made once), all only while a sleeve is out.
+let sleeveOut = null;   // { rec, g, disc, anchor, off, s, slotK, slotM, back }
+const SLEEVE = { H: 0.315, PEEK: 0.05, OUT: 0.31 };
+let sleeveCv = null, sleeveTex = null, sleeveBackCv = null, sleeveBackTex = null, sleeveMesh = null, sleeveDisc = null, sleeveGroup = null;
+function sleeveParts() {
+  if (sleeveGroup) return;
+  sleeveCv = document.createElement('canvas'); sleeveCv.width = sleeveCv.height = 1024;
+  sleeveTex = new THREE.CanvasTexture(sleeveCv); sleeveTex.colorSpace = THREE.SRGBColorSpace; sleeveTex.anisotropy = 4;
+  sleeveBackCv = document.createElement('canvas'); sleeveBackCv.width = sleeveBackCv.height = 1024;   // #231 back cover: small print stays readable
+  sleeveBackTex = new THREE.CanvasTexture(sleeveBackCv); sleeveBackTex.colorSpace = THREE.SRGBColorSpace;
+  const card = new THREE.MeshStandardMaterial({ color: 0xd9d2c3, roughness: 0.85 });
+  const front = new THREE.MeshStandardMaterial({ map: sleeveTex, roughness: 0.7 }), back = new THREE.MeshStandardMaterial({ map: sleeveBackTex, roughness: 0.8 });
+  // box faces: +x, -x, +y (the opening edge), -y, +z (front cover, toward you in the crate), -z (back)
+  sleeveMesh = new THREE.Mesh(new THREE.BoxGeometry(SLEEVE.H, SLEEVE.H, 0.003), [card, card, card, card, front, back]);
+  sleeveMesh.castShadow = true;
+  sleeveDisc = new THREE.Group();   // the crate disc's own geometry and materials (its label = the selected record's)
+  for (const c of crateDisc.children) { const m = new THREE.Mesh(c.geometry, c.material); m.position.copy(c.position); m.quaternion.copy(c.quaternion); m.userData = { sleeveDisc: true }; sleeveDisc.add(m); }
+  sleeveGroup = new THREE.Group(); sleeveGroup.add(sleeveMesh, sleeveDisc); sleeveGroup.visible = false; scene.add(sleeveGroup);
+}
+function drawSleeveCovers(r) {
+  const g = sleeveCv.getContext('2d'), t = r.sides.A || r.sides.B, art = t && artCache.get(t.id);
+  if (art) { const k = Math.max(1024 / art.width, 1024 / art.height); g.drawImage(art, 512 - art.width * k / 2, 512 - art.height * k / 2, art.width * k, art.height * k); }
+  else { const pm = coverPool.find(m => m.userData.rec === r); if (pm) g.drawImage(pm.userData.canvas, 0, 0, 1024, 1024); else { g.fillStyle = '#333'; g.fillRect(0, 0, 1024, 1024); } }
+  sleeveTex.needsUpdate = true;
+  const b = sleeveBackCv.getContext('2d');   // back: plain card, title and artist, unless the file has a Back cover (#231)
+  b.fillStyle = '#d9d2c3'; b.fillRect(0, 0, 1024, 1024); b.fillStyle = '#2b2b2b'; b.textAlign = 'center';
+  b.font = '700 60px system-ui'; fitText2Center(b, r.title || '', 512, 480, 880); b.font = '400 52px system-ui'; fitText2Center(b, r.artist || '', 512, 568, 880);
+  sleeveBackTex.needsUpdate = true;
+  const bb = t && backBlobs.get(t.id);
+  if (bb) createImageBitmap(bb).then(im => {
+    if (!sleeveOut || sleeveOut.rec !== r) { im.close && im.close(); return; }
+    const k = Math.max(1024 / im.width, 1024 / im.height); b.drawImage(im, 512 - im.width * k / 2, 512 - im.height * k / 2, im.width * k, im.height * k);
+    im.close && im.close(); sleeveBackTex.needsUpdate = true;
+  }).catch(() => {});
+}
+function selectedSlotPose() {   // the selected sleeve's pose, crate-local
+  const S = crate.userData.sleeves, m = new THREE.Matrix4();
+  const k = sleeveMap.indexOf(crateState.sel); if (k < 0) return null;
+  S.getMatrixAt(k, m); const p = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(); m.decompose(p, q, sc);
+  return { k, p, q, m };
+}
+function sleeveGrabTest(P) {   // a hand down in the middle of the selected sleeve
+  if (sleeveOut || !crateLidOpen() || !crateDisc.visible) return false;
+  const r = currentList()[crateState.sel]; if (!r || r.missing) return false;
+  const pose = selectedSlotPose(); if (!pose) return false;
+  const cl = crate.worldToLocal(P.clone());
+  return Math.abs(cl.x) < 0.14 && Math.abs(cl.z - pose.p.z) < 0.03 && cl.y > 0.05 && cl.y < CRATE.H - 0.07;
+}
+function sleeveGrab(anchor) {
+  const r = currentList()[crateState.sel], pose = selectedSlotPose(); if (!r || !pose) return false;
+  sleeveParts(); drawSleeveCovers(r);
+  sleeveGroup.position.copy(pose.p); sleeveGroup.quaternion.copy(pose.q);
+  crate.updateMatrixWorld(); sleeveGroup.applyMatrix4(crate.matrixWorld);   // crate-local -> world
+  sleeveGroup.updateMatrixWorld();
+  sleeveDisc.position.set(0, SLEEVE.PEEK, 0); sleeveGroup.visible = true;
+  sleeveOut = { rec: r, anchor, off: new THREE.Matrix4().copy(anchor.matrixWorld).invert().multiply(sleeveGroup.matrixWorld), s: SLEEVE.PEEK, back: null };
+  layoutSleeves(); return true;
+}
+function sleeveHeldBy() { return sleeveOut && !sleeveOut.back ? sleeveOut.anchor : null; }
+// the other hand on the record's exposed part: returns its start (sleeve-local y), or null
+function sleeveSlideTest(P) {
+  if (!sleeveOut || sleeveOut.back || !sleeveDisc.visible) return null;
+  sleeveGroup.updateMatrixWorld(); const l = sleeveGroup.worldToLocal(P.clone());
+  const top = SLEEVE.H / 2, discTop = sleeveOut.s + REC.R;
+  if (Math.abs(l.x) < REC.R && Math.abs(l.z) < 0.05 && l.y > top - 0.03 && l.y < discTop + 0.04) return { y0: l.y, s0: sleeveOut.s };
+  return null;
+}
+// slide the record along the sleeve; 'out' when it is clear (the caller then pulls it into that hand)
+function sleeveSlideTo(P, g) {
+  if (!sleeveOut || sleeveOut.back) return null;
+  const l = sleeveGroup.worldToLocal(P.clone());
+  sleeveOut.s = Math.max(0, Math.min(SLEEVE.OUT + 0.02, g.s0 + (l.y - g.y0)));
+  sleeveDisc.position.y = sleeveOut.s;
+  return sleeveOut.s >= SLEEVE.OUT ? 'out' : 'in';
+}
+function sleevePulled() {   // the record left the sleeve: select it (pullSelected uses the selection) and hide the inner disc
+  const i = currentList().indexOf(sleeveOut.rec); if (i >= 0) crateState.sel = i;
+  sleeveDisc.visible = false;
+}
+function sleeveReturn() {   // fly back into the slot, then the crate's own sleeve takes over
+  if (!sleeveOut || sleeveOut.back) return;
+  const m = sleeveOut.slotM ? new THREE.Matrix4().multiplyMatrices(crate.matrixWorld, sleeveOut.slotM) : null;
+  if (!m) { sleeveDone(); return; }
+  const p = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(); m.decompose(p, q, sc);
+  sleeveOut.back = { t: 0, p0: sleeveGroup.position.clone(), q0: sleeveGroup.quaternion.clone(), p, q };
+}
+function sleeveDone() {
+  sleeveGroup.visible = false; sleeveDisc.visible = true; sleeveOut = null; layoutSleeves();
+}
+function stepSleeve(dt) {
+  if (!sleeveOut) return;
+  const S = sleeveOut;
+  if (S.back) {
+    const b = S.back; b.t = Math.min(1, b.t + dt / 0.35); const e = b.t * b.t * (3 - 2 * b.t);
+    sleeveGroup.position.lerpVectors(b.p0, b.p, e); sleeveGroup.quaternion.slerpQuaternions(b.q0, b.q, e);
+    if (S.s > 0.001 && sleeveDisc.visible) { S.s = Math.max(0, S.s - dt * 0.6); sleeveDisc.position.y = S.s; }
+    if (b.t >= 1) sleeveDone();
+    return;
+  }
+  S.anchor.updateMatrixWorld();
+  new THREE.Matrix4().multiplyMatrices(S.anchor.matrixWorld, S.off).decompose(sleeveGroup.position, sleeveGroup.quaternion, sleeveGroup.scale);
 }
 function crateSelect(delta) {
   const list = currentList(); if (!list.length) return;
@@ -1384,6 +1527,16 @@ function releaseHeld() {
       placeOnDeck(d, held); return;
     }
   }
+  // #228 let go flat over an upright finger of the other hand: it spins on the fingertip
+  if (renderer.xr.isPresenting) {
+    const n = discNormal(held, _fsN), up = _fsU.copy(n).multiplyScalar(n.y >= 0 ? 1 : -1);
+    const F = Math.abs(n.y) > 0.7 ? spinFingerFor(_rc, up, held.attach) : null;
+    if (F) {
+      let w = held.angVel ? held.angVel.dot(up) : 0; if (Math.abs(w) < SPIN.MIN_START) w = (w < 0 ? -1 : 1) * SPIN.MIN_START;
+      const r = held; throwRecord(r); held = null;
+      startSpin(loose[loose.length - 1], F, w); layoutSleeves(); return;
+    }
+  }
   // anywhere else in XR: let go = it flies with the hand's momentum and lands (CLAUDE.md #49)
   if (renderer.xr.isPresenting && held.vel) { throwRecord(held); held = null; layoutSleeves(); return; }
   returnHeld();
@@ -1399,6 +1552,81 @@ function throwRecord(r) {
   r.mesh.userData.loose = true;
   const free = loose.filter(l => !l.inMilk);
   while (free.length > 20) { const o = free.shift(); loose.splice(loose.indexOf(o), 1); scene.remove(o.rec.group); o.rec.dispose(); }
+}
+// #228 finger spin (owner): balance a record on an upright index finger and spin it like a basketball.
+// Start: hold a record roughly flat with one hand, put the other hand's straight index finger under the centre hole
+// (pointing up), and let go: it sits on the fingertip and spins (the wrist's twist at release sets the speed, at
+// least ~1.4 turns a second). A record thrown or dropped flat onto an upright finger is caught the same way.
+// While it spins: any other fingertip or controller tip brushing the rim along the edge spins it faster (or slows
+// it if it goes against it); it wobbles more as it slows, and slides off when the finger tilts past ~40 deg, jerks,
+// tracking loses the finger, or the spin dies. Pinch it to take it. Hands only for the finger (controllers can flick).
+const SPIN = { MIN_START: 9, MAX: 45, DROP_W: 2.5, TILT_DROP: 0.7, CATCH_R: 0.03 };
+const _fsN = new THREE.Vector3(), _fsA = new THREE.Vector3(), _fsB = new THREE.Vector3(), _fsU = new THREE.Vector3(), _fsQ = new THREE.Quaternion(), _fsQ2 = new THREE.Quaternion();
+function discNormal(rec, out) { return out.set(0, 1, 0).applyQuaternion(rec.mesh.getWorldQuaternion(_fsQ)).normalize(); }
+function spinFingerFor(c, nUp, exclude) {   // a straight index finger pointing up, its tip just under the centre hole
+  if (!xr || !xr.fingers || !renderer.xr.isPresenting) return null;
+  for (const F of xr.fingers()) {
+    if (exclude && F.st.anchor === exclude) continue;
+    if (F.dir.y < 0.82) continue;   // within ~35 deg of straight up
+    _fsA.copy(c).sub(F.tip); const h = _fsA.dot(nUp), rad = _fsA.addScaledVector(nUp, -h).length();
+    if (rad < SPIN.CATCH_R && h > -0.02 && h < 0.05) return F;
+  }
+  return null;
+}
+function startSpin(L, F, w) {
+  L.spin = { F, w: Math.max(-SPIN.MAX, Math.min(SPIN.MAX, w)), ph: Math.random() * 6.28, last: F.tip.clone(), fv: new THREE.Vector3(), fvSet: false, lost: 0 };
+  L.resting = false; L.vel.set(0, 0, 0); L.ang.set(0, 0, 0);
+  if (xr.buzz) xr.buzz(F.st, 0.3, 30);
+}
+function dropSpin(L, upAx, push) {
+  const S = L.spin; L.spin = null;
+  L.vel.copy(S.fv); if (push) L.vel.add(_fsB.set(push.x, 0, push.z).multiplyScalar(0.8));
+  L.ang.copy(upAx).multiplyScalar(S.w); L.resting = false;
+}
+function stepSpin(L, dt) {
+  const S = L.spin, F = S.F, g = L.rec.group;
+  const n = discNormal(L.rec, _fsN), face = n.y >= 0 ? 1 : -1;
+  const upAx = _fsU.copy(n).multiplyScalar(face);
+  if (!F.ok) { if ((S.lost += dt) > 0.15) return dropSpin(L, upAx); } else S.lost = 0;   // bridge tracking blips
+  if (dt > 0 && F.ok) {
+    const v = _fsA.copy(F.tip).sub(S.last).multiplyScalar(1 / dt);
+    const acc = S.fvSet ? v.distanceTo(S.fv) / dt : 0;
+    S.fv.lerp(v, S.fvSet ? 0.5 : 1); S.fvSet = true;
+    if (acc > 45) return dropSpin(L, upAx);   // a jerk of the finger throws it off
+  }
+  S.last.copy(F.tip);
+  const tilt = Math.acos(Math.max(-1, Math.min(1, F.dir.y)));
+  if (tilt > SPIN.TILT_DROP) return dropSpin(L, upAx, F.dir);
+  // flicks: other tips on the rim, moving along the edge
+  if (xr.tips && dt > 0) for (const t of xr.tips()) {
+    const prev = t.st._spinPrev || (t.st._spinPrev = t.p.clone());
+    if (t.st !== F.st) {
+      _fsA.copy(t.p).sub(g.position); const h = _fsA.dot(upAx); _fsA.addScaledVector(upAx, -h); const rl = _fsA.length();
+      if (Math.abs(h) < 0.03 && rl > R_DISC - 0.035 && rl < R_DISC + 0.025) {
+        const vt = _fsB.copy(t.p).sub(prev).multiplyScalar(1 / dt);
+        const tang = _fsA.multiplyScalar(1 / rl).cross(upAx).negate();   // up x radial = the way the rim moves for +w
+        const wv = vt.dot(tang) / R_DISC;
+        if (Math.abs(wv) > 2) {
+          if (Math.sign(wv) === Math.sign(S.w) || Math.abs(S.w) < 1) { if (Math.abs(wv) > Math.abs(S.w)) S.w += (wv - S.w) * 0.5; }
+          else S.w *= 0.85;   // against the spin: the finger drags it slower
+          S.w = Math.max(-SPIN.MAX, Math.min(SPIN.MAX, S.w));
+          if (!t.hand && xr.buzz) xr.buzz(t.st, 0.25, 12);
+        }
+      }
+    }
+    prev.copy(t.p);
+  }
+  S.w -= Math.sign(S.w) * (0.25 + 0.035 * Math.abs(S.w)) * dt;   // friction on the fingertip and in the air
+  if (Math.abs(S.w) < SPIN.DROP_W) return dropSpin(L, upAx);
+  // pose: the axis leans half with the finger; the wobble grows as it slows and goes round (precession)
+  const aw = Math.abs(S.w), wob = Math.min(0.35, 0.02 + 1.0 / aw);
+  S.ph += (1.2 + 25 / aw) * dt;
+  const base = _fsB.set(0, 1, 0).lerp(F.dir, 0.5).normalize();
+  const side = _fsA.set(Math.cos(S.ph), 0, Math.sin(S.ph)); side.addScaledVector(base, -side.dot(base)).normalize();
+  const tgt = base.multiplyScalar(Math.cos(wob)).addScaledVector(side, Math.sin(wob)).normalize();
+  g.quaternion.premultiply(_fsQ2.setFromUnitVectors(upAx, tgt));
+  g.quaternion.premultiply(_fsQ2.setFromAxisAngle(tgt, S.w * dt)).normalize();
+  g.position.copy(F.tip).addScaledVector(tgt, 0.004);   // the fingertip sits a little way into the centre hole
 }
 function pickUpLoose(r, attach) {
   const i = loose.findIndex(l => l.rec === r); if (i < 0) return null;
@@ -1649,6 +1877,7 @@ function stepLoose(dt) {
   for (let i = loose.length - 1; i >= 0; i--) {
     const L = loose[i], g = L.rec.group;
     if (L.inMilk) { if (!L.resting) stepMilk(L, dt); L.rec.setLOD(g.getWorldPosition(_cv).distanceTo(eye) > 0.3); continue; }
+    if (L.spin) { stepSpin(L, dt); L.rec.setLOD(g.position.distanceTo(eye) > 0.3); continue; }   // #228
     if (!L.resting) {
       L.vel.y -= GRAV * dt;
       L.vel.multiplyScalar(1 - 0.5 * dt);              // a flat disc sheds speed quickly in air
@@ -1660,6 +1889,10 @@ function stepLoose(dt) {
       g.updateMatrixWorld(true);
       const n = _dn.set(0, 1, 0).applyQuaternion(L.rec.mesh.getWorldQuaternion(_dq)).normalize();
       const low = R_DISC * Math.sqrt(Math.max(0, 1 - n.y * n.y)) + REC.THICK / 2 * Math.abs(n.y);
+      if (Math.abs(n.y) > 0.8 && L.vel.y < 0.5) {   // #228 dropped or thrown flat onto an upright finger: caught spinning
+        const up = _fsU.copy(n).multiplyScalar(n.y >= 0 ? 1 : -1), F = spinFingerFor(g.position, up);
+        if (F) { const w = L.ang.dot(up); startSpin(L, F, Math.abs(w) < SPIN.MIN_START * 0.8 ? (w < 0 ? -1 : 1) * SPIN.MIN_START * 0.8 : w); continue; }
+      }
       const s = supportUnder(g.position);
       if (s.kind === 'milk') { enterMilk(L, s.m); continue; }       // over the spare crate: its own physics takes over
       if (g.position.y - low <= s.y && L.vel.y <= 0) {
@@ -1804,12 +2037,21 @@ function setPower(d, on) {
   if (on) d.motorWasOn = false;
 }
 function setSpeed(d, s) { d.speed = s; engine.deck(d.i, 'speed', s); }
+// #230 centre click like an SL1200: from the hand, within 0.5% of zero it clicks to exactly 0 and holds there until
+// the fader is pushed 1.2% away (about 4 mm of travel), then lets go with a small jump, the feel of a detent.
+// Returns 'detent' on the frame it clicks in (the hand code buzzes the controller).
+const PITCH_IN = 0.005, PITCH_OUT = 0.012;
 function setPitch(d, p, fromUser = false) {
   p = clamp(p, -PITCH_RANGE, PITCH_RANGE);
-  if (fromUser && Math.abs(p) < 0.0035) p = 0; // centre detent
+  let ev = null;
+  if (fromUser) {
+    if (d.pitchLock) { if (Math.abs(p) < PITCH_OUT) p = 0; else d.pitchLock = false; }
+    else if (Math.abs(p) < PITCH_IN) { p = 0; d.pitchLock = true; ev = 'detent'; }
+  } else d.pitchLock = p === 0;
   d.pitch = p; engine.deck(d.i, 'pitch', p);
   const t = d.g.userData.pitchTravel;
   d.g.userData.pitchCap.position.z = (t.z0 + t.z1) / 2 + (p / PITCH_RANGE) * (t.z1 - t.z0) / 2;
+  return ev;
 }
 
 // tonearm
@@ -2051,6 +2293,7 @@ function micLevel() {
 function crateScreenPress(uv) {
   const c = crateScreen.canvas; const px = uv.x * c.width, py = (1 - uv.y) * c.height;
   const inR = b => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h;
+  if (crateDel && py < SB.y + SB.h) crateDel = null;   // #226
   if (py < CS.head) { if (search.results) exitSearch(); else cratePlaylist(px < c.width / 2 ? -1 : 1); return; }
   if (py < SB.y + SB.h) {
     const b = search.btns.find(inR); if (!b) return;
@@ -2064,11 +2307,55 @@ function crateScreenPress(uv) {
   const R = crateScreen.rows;
   if (py >= R.kbY) { const key = search.keys.find(inR); if (key) kbKey(key.k); return; }
   const k = Math.floor((py - R.y0) / R.RH);
+  if (crateDel) {   // #226 delete offer open: the red DELETE button deletes, any other tap closes the offer
+    const r = crateDel; crateDel = null;
+    if (k >= 0 && k < R.ROWS && currentList()[R.start + k] === r && px >= c.width - CDEL_W - 12) deleteStamped(r);
+    else drawCrateScreen();
+    return;
+  }
   if (k >= 0 && k < R.ROWS) {
-    const idx = R.start + k;
+    const idx = R.start + k, r = currentList()[idx];
+    const id = ++crateHoldSeq;
+    if (r && (r.pressed || r.example)) {   // #226 a stamped record (#231 or a built-in example): hold 0.6 s for the delete offer
+      crateHold = { id, r, pull: idx === crateState.sel };
+      setTimeout(() => { if (crateHold && crateHold.id === id) { crateHold = null; crateDel = r; drawCrateScreen(); } }, 600);
+      if (idx !== crateState.sel) { crateState.sel = idx; drawCrateScreen(); layoutSleeves(); }
+      return;   // a short tap on the selected one pulls it on release
+    }
+    crateHold = null;
     if (idx === crateState.sel) pullSelected();
     else if (idx < currentList().length) { crateState.sel = idx; drawCrateScreen(); layoutSleeves(); }
   }
+}
+// #226 delete stamped records from the crate: long press a stamped record's row, then tap the red DELETE
+let crateHold = null, crateHoldSeq = 0, crateDel = null, crateMsg = null;
+const CDEL_W = 210;
+function crateScreenRelease() {
+  const h = crateHold; crateHold = null;
+  if (h && h.pull) pullSelected();
+}
+function crateSay(text, ok, ms = 4000) {
+  crateMsg = { text, ok, until: performance.now() + ms }; toast(text, ms); drawCrateScreen();
+  setTimeout(() => { if (crateMsg && performance.now() >= crateMsg.until - 5) { crateMsg = null; drawCrateScreen(); } }, ms);
+}
+async function deleteStamped(r) {
+  const t = r.sides.A, p = t && t.press;
+  if (!p && !r.example) { drawCrateScreen(); return; }
+  if (copiesOut(r) > 0) { crateSay('Put it back in the crate first (it is on a deck or in your hand)', false); return; }
+  if (r.example) {   // #231 built-in example: hidden on this device
+    const h = hiddenExamples(); if (!h.includes(r.example)) h.push(r.example);
+    try { localStorage.setItem('vire.hiddenExamples', JSON.stringify(h)); } catch {}
+    for (const s of ['A', 'B']) if (r.sides[s]) lib.tracks.delete(r.sides[s].id);
+  } else try { await deletePressing(p.id); }
+  catch (e) { crateSay('Not deleted: ' + e.message, false); return; }
+  if (t) lib.tracks.delete(t.id);
+  lib.records = lib.records.filter(x => x !== r);
+  for (const pl of lib.playlists) pl.records = pl.records.filter(x => x !== r);
+  if (search.results) search.results = search.results.filter(x => x !== r);
+  artCache.delete(t.id); artBlobs.delete(t.id);
+  crateState.sel = Math.max(0, Math.min(crateState.sel, currentList().length - 1));
+  layoutSleeves();
+  crateSay(`Deleted "${r.title}"`, true);
 }
 function pitchFromLocalZ(d, z) { const t = d.g.userData.pitchTravel; return ((z - (t.z0 + t.z1) / 2) / ((t.z1 - t.z0) / 2)) * PITCH_RANGE; }
 function sliderFromLocal(id, l) {
@@ -2158,7 +2445,7 @@ function pointerDown(p) {
   }
   if (u.lid) { p.drag = { kind: 'lid', y0: p.y, a0: lidSt.a, moved: false }; activePointers.add(p); return true; }
   if (u.mixScreen) { mixScreenPress(hit.uv); p.drag = { kind: 'screen' }; activePointers.add(p); return true; }   // #222 the release ends a long press
-  if (u.crateScreen) { if (crateLidOpen()) crateScreenPress(hit.uv); return true; }
+  if (u.crateScreen) { if (crateLidOpen()) { crateScreenPress(hit.uv); p.drag = { kind: 'crateScreen' }; activePointers.add(p); } return true; }   // #226 the release ends a long press
   if (u.crateDisc) { pullSelected(p.space); layoutSleeves(); return true; }
   if ((u.crateSleeves || u.crateCover) && !crateLidOpen()) return true;
   if (u.crateSleeves || u.crateCover) {
@@ -2281,6 +2568,7 @@ function pointerUp(p) {
   if (dr.kind === 'move') { stage.endMove(dr.st); settleStack(dr.target); if (dr.target.startsWith('milk')) releaseMilk(dr.target, null); }
   if (dr.kind === 'resize') stage.save();
   if (dr.kind === 'screen') mixScreenRelease();   // #222
+  if (dr.kind === 'crateScreen') crateScreenRelease();   // #226
   p.drag = null; activePointers.delete(p);
 }
 
@@ -2368,7 +2656,7 @@ canvas.addEventListener('wheel', e => {
 
 // ------------------------------------------------------------------ keyboard
 addEventListener('keydown', e => {
-  if ($('#start').style.display !== 'none' || e.target === searchInput) return;
+  if ($('#start').style.display !== 'none' || e.target === searchInput || toolsPage === 'kbd') return;   // #224 typing on the tablet keyboard
   const k = e.key;
   if (k === '/') { e.preventDefault(); openNativeKeyboard(); return; }
   if (k === '1') setCam('dj'); else if (k === '2') setCam('top'); else if (k === '3') setCam('crate');
@@ -2563,13 +2851,14 @@ const SP_HIT = [];   // #164 spectator strip buttons
 const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set while drawing
 // ---- #185 mixer Video page: the media library pushed from the phone (Pano, Video pano, Video, Images), 8 thumbnails a
 // page; pick one, then where it goes (sky, a deck's VideoVinyl, the LED wall). LED WALL mode lives here too now.
-let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null;
+let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null, vpSelFolder = null, toolsPage = null;   // #224 vpSelFolder: Pano tab mixes Pano + Video pano
 const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
+const VP_LIB = ['Pano', 'Video', 'Images'];   // #224 one PANO tab for still and video panoramas
 const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA', Sync: 'SYNC', Look: 'LOOK', 'DJ Cam': 'DJ CAM' };
 async function vpLoad() {
   if (vpFolder === 'Camera' || vpFolder === 'Look' || vpFolder === 'DJ Cam' || vpFolder === 'LedList') { vpItems = []; drawMixScreen(); return; }
   if (vpFolder === 'Sync') { vpItems = []; syncLoad(); return; }   // #206
-  vpItems = await media.list(vpFolder);
+  vpItems = vpFolder === 'Pano' ? [...await media.list('Pano'), ...await media.list('Video pano')].sort((a, b) => a.name.localeCompare(b.name)) : await media.list(vpFolder);
   if (vpSel && !vpItems.some(i => i.name === vpSel)) vpSel = null;
   vpPg = Math.min(vpPg, Math.max(0, Math.ceil(vpItems.length / vpPer()) - 1));
   drawMixScreen();
@@ -2580,9 +2869,11 @@ function vpThumb(folder, name) {
   media.getThumb(folder, name).then(b => b ? createImageBitmap(b) : null).then(bm => { vpThumbs.set(k, bm); drawMixScreen(); }).catch(() => vpThumbs.set(k, null));
   return 'loading';
 }
-function setVideoPage(on) { videoPage = on; if (on) vpLoad(); drawMixScreen(); }
+function videoPageFolder() { return vpFolder === 'Pano' ? (vpSelFolder || 'Pano') : vpFolder; }
+function setVideoPage(on) { videoPage = on; if (on) { toolsPage = null; vpLoad(); } drawMixScreen(); }
 async function vpAct(what) {
   const name = vpSel; if (!name) { toast('Pick a thumbnail first'); return; }
+  const vpFolder = videoPageFolder();   // #224 the Pano tab holds two library folders (local, shadows the tab name)
   if (what === 'sky') return useSkyMedia(vpFolder, name).catch(e => toast('Sky: ' + e.message, 4000));
   if (what === 'light') return lightPhone(vpFolder, name);   // #214
   if (what === 'skyoff') { settings.sky = 'off'; saveSettings(); syncSettingsUI(); applySky(); drawMixScreen(); return; }
@@ -2876,15 +3167,15 @@ function drawVideoPage() {
     g.fillText(label, x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
     if (act) VP_HIT.push({ x, y, w, h, act });
   };
-  const pick = f => () => { vpFolder = f; vpSel = null; vpPg = 0; vpLoad(); };
+  const pick = f => () => { vpFolder = f; vpSel = null; vpSelFolder = null; vpPg = 0; vpLoad(); };
   if (P) {   // #198 portrait: tabs in rows of 3 (#206: 3 rows, SYNC added, MIXER last); top and bottom keep clear of the corner L
-    const tabs = [...media.FOLDERS, 'Camera', 'Sync', 'Look', 'DJ Cam'], tw = (W - 30 - 12) / 3;   // #214 LOOK, #220 DJ CAM
+    const tabs = [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam'], tw = (W - 30 - 12) / 3;   // #214 LOOK, #220 DJ CAM
     tabs.forEach((f, i) => btn(22 + (i % 3) * (tw + 6), 28 + Math.floor(i / 3) * 40, tw, 34, VP_TABS[f], f === vpFolder, pick(f)));
-    btn(22 + 2 * (tw + 6), 108, tw, 34, 'MIXER', false, () => setVideoPage(false));
+    btn(22 + 2 * (tw + 6), 108, tw, 34, 'DJ MIXER', false, () => setVideoPage(false));
   } else {
     let x = 8;   // #214 seven tabs fit left of MIXER; #220 eight (narrower)
-    for (const f of [...media.FOLDERS, 'Camera', 'Sync', 'Look', 'DJ Cam']) { const w = { Pano: 70, 'Video pano': 100, Video: 72, Images: 80, Camera: 84, Sync: 62, Look: 60, 'DJ Cam': 72 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
-    btn(W - 8 - 100, 8, 100, 32, 'MIXER', false, () => setVideoPage(false));
+    for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam']) { const w = { Pano: 80, Video: 80, Images: 86, Camera: 96, Sync: 70, Look: 70, 'DJ Cam': 80 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
+    btn(W - 8 - 120, 8, 120, 32, 'DJ MIXER', false, () => setVideoPage(false));   // #225 was MIXER
   }
   const y0 = P ? 152 : 48;
   if (vpFolder === 'Camera') { drawCamTab(btn, y0); return; }
@@ -2903,14 +3194,15 @@ function drawVideoPage() {
   const cur = settings.env === 'image' && settings.sky === 'on' ? settings.skyMedia : '';
   vpItems.slice(vpPg * PER, vpPg * PER + PER).forEach((it, i) => {
     const cx = 8 + (i % COLS) * (CW + 8), cy = y0 + Math.floor(i / COLS) * (CH + 6);
-    const t = vpThumb(vpFolder, it.name);
+    const itF = it.folder || vpFolder, t = vpThumb(itF, it.name);
     g.fillStyle = '#121824'; g.fillRect(cx, cy, CW, TH);
     if (t && t !== 'loading') {   // cover the cell
       const s = Math.max(CW / t.width, TH / t.height), sw = CW / s, sh = TH / s;
       g.drawImage(t, (t.width - sw) / 2, (t.height - sh) / 2, sw, sh, cx, cy, CW, TH);
     }
+    drawTypeBadge(g, cx + CW - 30, cy + TH - 22, itF === 'Video' || itF === 'Video pano');   // #224
     const on = [vvOverride[0], vvOverride[1]].map(o => o && vpFolder === 'Video' && o.name === it.name);
-    const tag = cur === vpFolder + '/' + it.name ? 'SKY' : on[0] ? 'A' : on[1] ? 'B' : led.name === it.name ? 'LED' : '';
+    const tag = cur === itF + '/' + it.name ? 'SKY' : on[0] ? 'A' : on[1] ? 'B' : led.name === it.name ? 'LED' : '';
     if (tag) { g.fillStyle = '#40d080'; g.fillRect(cx + 4, cy + 4, 14 + tag.length * 11, 20); g.fillStyle = '#05070c'; g.font = '700 14px system-ui'; g.textAlign = 'left'; g.fillText(tag, cx + 9, cy + 19); }
     if (it.name === vpSel) { g.strokeStyle = '#39a8ff'; g.lineWidth = 4; g.strokeRect(cx + 2, cy + 2, CW - 4, TH + 16); }
     g.fillStyle = it.name === vpSel ? '#fff' : '#b8c0cf'; g.font = '500 14px system-ui'; g.textAlign = 'left';
@@ -2922,10 +3214,10 @@ function drawVideoPage() {
       g.fillStyle = '#d0202c'; g.fillRect(xx, xy, xs, xs); g.strokeStyle = '#fff'; g.lineWidth = 4;
       g.beginPath(); g.moveTo(xx + 11, xy + 11); g.lineTo(xx + xs - 11, xy + xs - 11); g.moveTo(xx + xs - 11, xy + 11); g.lineTo(xx + 11, xy + xs - 11); g.stroke();
       g.fillStyle = '#fff'; g.font = '700 13px system-ui'; g.textAlign = 'left'; g.fillText('DELETE?', cx + 6, cy + TH - 8);
-      const folder = vpFolder, name = it.name;
+      const folder = itF, name = it.name;
       VP_HIT.push({ x: xx - 4, y: xy - 4, w: xs + 8, h: xs + 8, del: true, act: () => deleteMedia(folder, name) });
     }
-    VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, item: it.name, act: () => { vpSel = it.name === vpSel ? null : it.name; drawMixScreen(); } });
+    VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, item: it.name, act: () => { vpSel = it.name === vpSel ? null : it.name; vpSelFolder = vpSel ? itF : null; drawMixScreen(); } });
   });
   // bottom bar: pages, targets for this folder, LED mode (portrait: targets get a row of their own)
   const by = P ? H - 62 : H - 44, bh = 36, bx = P ? 26 : 8;
@@ -2935,7 +3227,7 @@ function drawVideoPage() {
     Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['LED NOW', 'lednow'], ['+ LED', 'ledadd']], Images: [['LED NOW', 'lednow'], ['+ LED', 'ledadd']] }[vpFolder];
   const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : 98, ty = P ? H - 106 : by;
   let x = P ? 8 : 108;
-  for (const [label, what] of T) { const dim = !vpSel && what !== 'skyoff'; btn(x, ty, tw, bh, label, false, dim ? null : () => vpAct(what), dim); x += tw + 6; }
+  for (const [label, what] of T) { const dim = (!vpSel && what !== 'skyoff') || (what === 'light' && vpSelFolder === 'Video pano'); btn(x, ty, tw, bh, label, false, dim ? null : () => vpAct(what), dim); x += tw + 6; }
   const hasList = vpFolder === 'Video' || vpFolder === 'Images';   // #222 the LED playlist, one tap away
   if (hasList) btn(P ? 124 : 522, by, P ? 70 : 92, bh, `LED LIST ${led.files.length}`, false, () => { vpBack = vpFolder; vpFolder = 'LedList'; vpLoad(); });
   const mw = P && hasList ? 78 : 140;
@@ -3037,7 +3329,7 @@ function mixScreenPress(uv) {
   const px = (scrDir === 'px' ? 1 - uv.y : scrDir === 'nx' ? uv.y : uv.x) * c.width;
   const py = (scrDir === 'px' ? 1 - uv.x : scrDir === 'nx' ? uv.x : 1 - uv.y) * c.height;
   const id = ++holdSeq; screenHold = id; setTimeout(() => { if (screenHold === id) { screenHold = null; mixScreenLong(px, py); } }, 600);   // #222
-  if (videoPage) {
+  if (videoPage || toolsPage) {   // #224 the TOOLS pages use the same tap list
     const b = VP_HIT.find(h => px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h);
     if (vpDel && !(b && b.del)) vpDel = null;   // any other tap closes the delete offer
     if (b) b.act(); drawMixScreen(); return true;
@@ -3099,7 +3391,314 @@ function drawPhoneIcon(g, px, py, pw, ph, on) {   // small phone icon; its LED i
   g.fillStyle = '#8c96a8'; g.fillRect(px + 4, py + ph - 4, pw - 8, 2);
   g.fillStyle = on ? '#40ff70' : '#56627a'; g.beginPath(); g.arc(px + pw / 2, py + 7, 3, 0, Math.PI * 2); g.fill();
 }
+// ---- #224 TOOLS page on the mixer tablet (TOOLS button, bottom-left of the main HUD): DJ TOOLS (Record Maker) and
+// VJ TOOLS (Scroller). Pages: home, dj, vj, maker, pickSong, pickVideo, pickImage, kbd, scroller.
+let pickItems = [], pickPg = 0;   // toolsPage is declared with videoPage (drawMixScreen reads it early)
+const maker = { kind: 'blank', song: null, video: null, image: null, name: '', busy: false, msg: '', msgOk: true };
+// #225 the Record Maker's answers show on the tablet (toast() is a desktop-only overlay, invisible in the headset)
+let makerMsgT = 0;
+function makerSay(text, ok, ms = 5000) {
+  maker.msg = text; maker.msgOk = ok; toast(text, ms);
+  clearTimeout(makerMsgT); makerMsgT = setTimeout(() => { maker.msg = ''; if (toolsPage === 'maker') drawMixScreen(); }, ms);
+  drawMixScreen();
+}
+const kbd = { title: '', text: '', emoji: false, max: 40, done: null, back: 'home' };
+function setTools(p) {
+  toolsPage = p; pickPg = 0;
+  if (p === 'pickVideo' || p === 'pickImage') { pickItems = []; loadPick(p === 'pickVideo' ? 'Video' : 'Images'); }
+  drawMixScreen();
+}
+async function loadPick(folder) { pickItems = (await media.list(folder)).map(i => ({ ...i, folder })); drawMixScreen(); }
+function openKbd(title, text, emoji, max, done, back) { Object.assign(kbd, { title, text: text || '', emoji, max, done, back }); setTools('kbd'); }
+function kbdKey(k) {
+  const n = [...kbd.text].length;
+  if (k === 'ENTER') { const d = kbd.done, t = kbd.text; if (d) d(t); setTools(kbd.back); return; }
+  if (k === 'DEL') kbd.text = [...kbd.text].slice(0, -1).join('');
+  else if (k === 'SPACE') { if (n < kbd.max) kbd.text += ' '; }
+  else if (n < kbd.max) kbd.text += k;
+  drawMixScreen();
+}
+addEventListener('keydown', e => {   // desktop: type straight into the tablet keyboard
+  if (toolsPage !== 'kbd' || e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key;
+  if (k === 'Enter') kbdKey('ENTER'); else if (k === 'Backspace') kbdKey('DEL'); else if (k === ' ') kbdKey('SPACE');
+  else if (k.length === 1 && FONT_OK(k.toUpperCase())) kbdKey(k.toUpperCase()); else return;
+  e.preventDefault(); e.stopImmediatePropagation();
+}, true);
+// a record seen from above: grooves (with track bands), the label picture or a plain red label, the spindle
+function drawDisc(g, cx, cy, R, bmp, title) {
+  g.save();
+  g.fillStyle = '#0a0a0c'; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill();
+  for (let r = R * 0.37; r < R * 0.97; r += 2) {
+    const band = [0.52, 0.66, 0.8].some(b => Math.abs(r / R - b) < 0.012);
+    g.strokeStyle = band ? '#2c2c33' : (Math.round(r) % 4 ? '#16161a' : '#1f1f24'); g.lineWidth = band ? 2 : 1;
+    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
+  }
+  g.strokeStyle = 'rgba(255,255,255,0.10)'; g.lineWidth = R * 0.18; g.beginPath(); g.arc(cx, cy, R * 0.68, -2.3, -1.6); g.stroke();   // sheen
+  const lr = R * 0.34;
+  g.beginPath(); g.arc(cx, cy, lr, 0, Math.PI * 2); g.clip();
+  if (bmp && bmp !== 'loading') { const s = Math.max(2 * lr / bmp.width, 2 * lr / bmp.height); g.drawImage(bmp, cx - bmp.width * s / 2, cy - bmp.height * s / 2, bmp.width * s, bmp.height * s); }
+  else {
+    g.fillStyle = '#c8202c'; g.fillRect(cx - lr, cy - lr, 2 * lr, 2 * lr);
+    g.fillStyle = '#fff'; g.font = `700 ${Math.round(lr * 0.22)}px system-ui`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    fitText2Center(g, title || 'BLANK', cx, cy - lr * 0.35, lr * 1.6); g.textBaseline = 'alphabetic';
+  }
+  g.restore();
+  g.fillStyle = '#d8dce4'; g.beginPath(); g.arc(cx, cy, Math.max(2, R * 0.025), 0, Math.PI * 2); g.fill();
+}
+function fitText2Center(g, s, x, y, w) { let t = s; while (t.length > 3 && g.measureText(t).width > w) t = t.slice(0, -2); if (t !== s) t = t.slice(0, -1) + '…'; g.fillText(t, x, y); }
+function makerSourceText() {
+  if (maker.kind === 'song') return maker.song ? `Song: ${maker.song.title}${maker.song.artist ? '  ·  ' + maker.song.artist : ''}` : 'Song: pick one (SONG…)';
+  if (maker.kind === 'clip') return maker.video ? `Clip: ${maker.video.replace(/\.[^.]+$/, '')} (its sound, and it plays on the record)` : 'Clip: pick one (CLIP…)';
+  return 'Blank: generic grooves (quiet vinyl crackle)';
+}
+async function pressRecord() {
+  if (maker.busy) return;
+  if (maker.kind === 'song' && !maker.song) { makerSay('Pick a song first (SONG…)', false, 3000); return; }
+  if (maker.kind === 'clip' && !maker.video) { makerSay('Pick a clip first (CLIP…)', false, 3000); return; }
+  const title = maker.name.trim() || `DUBPLATE ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`;
+  maker.busy = true; drawMixScreen();
+  try {
+    let label = null;
+    if (maker.image) { const f = await media.getFile('Images', maker.image); if (f) label = await labelFrom(f); }
+    const s = maker.song, src = maker.kind === 'blank' ? { kind: 'blank' } : maker.kind === 'clip' ? { kind: 'video', video: maker.video }
+      : { kind: 'song', opfs: s.opfs || null, url: s.url || null, bpm: s.bpm || 0, artist: s.artist || '', from: s.title };
+    const p = await savePressing({ id: 'p' + Date.now().toString(36), title, src, made: Date.now() }, label);
+    if (!lib) lib = emptyLibrary();
+    const r = addPressings(lib, [p]);
+    const pi = lib.playlists.findIndex(pl => pl.name === 'Unsorted');
+    search.q = ''; search.results = null; searchInput.value = '';
+    crateState.pl = pi; crateState.sel = Math.max(0, lib.playlists[pi].records.indexOf(r));
+    drawCrateScreen(); layoutSleeves();
+    maker.busy = false; maker.name = '';
+    makerSay(`✓ STAMPED "${title}": in the crate, Unsorted`, true, 6000);
+  } catch (e) { maker.busy = false; makerSay('Not stamped: ' + e.message, false, 6000); }
+  maker.busy = false; drawMixScreen();
+}
+// #231 built-in example records (web/examples/, streamed like songs from the PC), in Unsorted and the Collection.
+// "Sleeve Art Demo": every ID3 picture type the app reads (tools/make_sleeve_demo.py builds it). Long press +
+// DELETE hides one for good on this device (vire.hiddenExamples).
+const EXAMPLES = [{ id: 'sleeve', title: 'Sleeve Art Demo', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3' },
+  // #232 the same pictures in one file: front cover, back cover, and an 'Other' picture described 'Label B'
+  { id: 'sleeve1', title: 'Sleeve Art Demo (One File)', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo (One File).mp3', b: null }];
+function hiddenExamples() { try { return JSON.parse(localStorage.getItem('vire.hiddenExamples') || '[]'); } catch { return []; } }
+function addExamples(L) {
+  const hide = hiddenExamples();
+  let un = L.playlists.find(p => p.name === 'Unsorted');
+  for (const ex of EXAMPLES) {
+    if (hide.includes(ex.id) || L.tracks.has('ex_' + ex.id + '_A')) continue;
+    if (!un) { un = { name: 'Unsorted', path: 'Unsorted (on this headset)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, un); }
+    const r = { id: 'rex_' + ex.id, title: ex.title, artist: ex.artist, sides: { A: null, B: null }, bpm: ex.bpm, key: ex.key, genre: 'Example', duration: 0, missing: false, paired: !!ex.b, unsorted: true, example: ex.id };
+    for (const side of ex.b ? ['A', 'B'] : ['A']) {
+      const id = 'ex_' + ex.id + '_' + side, url = encodeURI(side === 'A' ? ex.a : ex.b);
+      const t = { id, name: ex.title + '_' + side.toLowerCase(), title: ex.title, side, split: false, artist: ex.artist, album: ex.title, genre: 'Example', key: ex.key, bpm: ex.bpm, duration: 0,
+        location: url, url, opfs: null, missing: false, cues: [], unsorted: true, record: r };
+      r.sides[side] = t; L.tracks.set(id, t);
+    }
+    L.records.push(r); un.records.push(r); L.playlists[0].records.push(r);
+  }
+  const byT = (a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title);
+  if (un) un.records.sort(byT); L.playlists[0].records.sort(byT);
+}
+// pressed records join the 'Unsorted (on this headset)' list (made if there is none) and the Collection
+function addPressings(L, list) {
+  let un = L.playlists.find(p => p.name === 'Unsorted');
+  if (!un) { un = { name: 'Unsorted', path: 'Unsorted (on this headset)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, un); }
+  let last = null;
+  for (const p of list) {
+    const id = 'pr_' + p.id, s = p.src || {};
+    if (L.tracks.has(id)) continue;
+    const t = { id, name: p.title, title: p.title, side: null, split: false, artist: s.kind === 'song' ? (s.artist || 'Pressed') : 'Pressed on Cly3DJ', album: '', genre: '', key: '', bpm: s.bpm || 0, duration: 0,
+      location: 'press:' + p.id, url: s.url || null, opfs: s.opfs || null, missing: false, cues: [], unsorted: true, press: p };
+    if (s.kind === 'video') t.pressVideo = s.video;
+    const r = { id: 'r' + id, title: p.title, artist: t.artist, sides: { A: t, B: null }, bpm: t.bpm, key: '', genre: '', duration: 0, missing: false, paired: false, unsorted: true, pressed: true };
+    t.record = r; L.tracks.set(id, t); L.records.push(r); un.records.push(r); L.playlists[0].records.push(r); last = r;
+  }
+  const byT = (a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title);
+  un.records.sort(byT); L.playlists[0].records.sort(byT);
+  return last;
+}
+async function pressArt(track) {
+  if (artCache.has(track.id)) return artCache.get(track.id);
+  let art = null;
+  try { const f = await readLabel(track.press); if (f) { art = await createImageBitmap(f); artBlobs.set(track.id, f); } } catch {}
+  artCache.set(track.id, art); return art;
+}
+async function pressBytes(track) {
+  const s = track.press.src || {};
+  if (s.kind === 'blank') return blankWav();
+  if (s.kind === 'video') { const f = await media.getFile('Video', s.video); if (!f) throw new Error(`the clip ${s.video} is no longer on this headset`); return f.arrayBuffer(); }
+  if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
+  const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
+}
+function drawToolsPage() {
+  const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
+  VP_HIT.length = 0;
+  g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H);
+  const btn = (x, y, w, h, label, on, act, dim, fs0 = 17) => {
+    g.fillStyle = on ? '#c8202c' : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : dim ? '#56627a' : '#3a4252';
+    let fs = fs0; g.font = `700 ${fs}px system-ui`;
+    while (fs > 11 && g.measureText(label).width > w - 8) g.font = `700 ${--fs}px system-ui`;
+    g.fillText(label, x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
+    if (act) VP_HIT.push({ x, y, w, h, act });
+  };
+  const L = P ? 24 : 8, R = W - (P ? 26 : 8);   // portrait keeps clear of the silver corner L
+  const head = (title, back) => {
+    const y = P ? 28 : 8;
+    g.fillStyle = '#dfe6f2'; g.font = '700 20px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    fitText2(g, title, L + 4, y + 17, R - L - 136); g.textBaseline = 'alphabetic';
+    btn(R - 120, y, 120, 34, back === 'mixer' ? 'DJ MIXER' : '◀ BACK', false, () => setTools(back === 'mixer' ? null : back));
+    return y + 46;
+  };
+  const note = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; return wrapText(g, s, L + 4, y, R - L - 8, 20, 5); };
+  const page = toolsPage;
+  if (page === 'home') {
+    const y0 = head('TOOLS', 'mixer');
+    if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26); note('DJ TOOLS: Record Maker. VJ TOOLS: Scroller on the LED wall.', y0 + 240); }
+    else { const bw = (R - L - 12) / 2; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); note('DJ TOOLS: Record Maker.     VJ TOOLS: Scroller on the LED wall.', y0 + 166); }
+    return;
+  }
+  if (page === 'dj' || page === 'vj') {
+    const y0 = head(page === 'dj' ? 'DJ TOOLS' : 'VJ TOOLS', 'home');
+    const bw = P ? R - L : 300;
+    if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); note('Press your own record: blank grooves, a song from the crate or a clip, with a picture from IMAGES as its label. It goes into the crate, Unsorted.', y0 + 116); }
+    else { btn(L, y0 + 8, bw, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24); note('A sine-wave text scroller across the bottom of the LED wall, over whatever it shows. Type a message, ENTER starts it.', y0 + 116); }
+    return;
+  }
+  if (page === 'scroller') {
+    const y0 = head('SCROLLER', 'vj');
+    g.fillStyle = '#0d1422'; g.fillRect(L, y0, R - L, 52);
+    g.save(); g.beginPath(); g.rect(L, y0, R - L, 52); g.clip();
+    drawBitText(g, scroller.text || ' ', L + 10, y0 + 13, 4, x => `hsl(${(x * 0.7) % 360},100%,62%)`); g.restore();
+    let y = y0 + 62; const bw = P ? (R - L - 6) / 2 : 200;
+    btn(L, y, bw, 42, 'EDIT TEXT', false, () => openKbd('SCROLLER TEXT', scroller.text, true, 120, t => { t = cleanText(t, 120); if (t.trim()) scroller.start(t); else scroller.stop(); }, 'scroller'));
+    btn(L + bw + 6, y, bw, 42, scroller.on ? 'STOP' : 'START', scroller.on, () => { if (scroller.on) scroller.stop(); else scroller.start(); });
+    y += 52;
+    for (const [label, k] of [['WAVE', 'wave'], ['SPEED', 'speed']]) {
+      g.fillStyle = '#dfe6f2'; g.font = '700 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(label, L + 4, y + 20);
+      g.textAlign = 'center'; g.fillText(String(scroller[k]), L + 196, y + 20); g.textBaseline = 'alphabetic';
+      btn(L + 110, y, 56, 40, '−', false, () => { scroller[k] = Math.max(k === 'speed' ? 1 : 0, scroller[k] - 1); scroller.save(); });
+      btn(L + 226, y, 56, 40, '+', false, () => { scroller[k] = Math.min(10, scroller[k] + 1); scroller.save(); });
+      y += 46;
+    }
+    if (!P) note('ENTER on the keyboard starts it at the bottom of the LED wall, over whatever is playing.', y + 14);
+    return;
+  }
+  if (page === 'kbd') {
+    const y0 = head(kbd.title, kbd.back);
+    g.fillStyle = '#0d1422'; g.fillRect(L, y0, R - L, 44);
+    g.save(); g.beginPath(); g.rect(L, y0, R - L, 44); g.clip();
+    const tw = bitWidth(kbd.text + ' ', 4), tx = Math.min(L + 10, R - 12 - tw);
+    drawBitText(g, kbd.text, tx, y0 + 9, 4, '#ffffff');
+    g.fillStyle = '#39a8ff'; g.fillRect(tx + bitWidth(kbd.text, 4), y0 + 9, 16, 28);   // cursor
+    g.restore();
+    const gap = 4, kh = P ? 46 : 36, ky0 = y0 + 52;
+    KEY_ROWS.forEach((row, ri) => {
+      const keys = [...row], kw = (R - L - (keys.length - 1) * gap) / keys.length;
+      keys.forEach((k, i) => btn(L + i * (kw + gap), ky0 + ri * (kh + gap), kw, kh, k, false, () => kbdKey(k), false, P ? 15 : 17));
+    });
+    const by = ky0 + KEY_ROWS.length * (kh + gap);
+    let x = L, by2 = by; const ew = P ? (R - L - 2 * gap) / 3 : 56;
+    if (kbd.emoji) {
+      for (const em of BIT_EMOJI) {
+        g.fillStyle = '#1c2434'; g.fillRect(x, by, ew, kh);
+        drawBitText(g, em, x + ew / 2 - 12, by + kh / 2 - 9, 3, '#fff');
+        VP_HIT.push({ x, y: by, w: ew, h: kh, act: () => kbdKey(em) }); x += ew + gap;
+      }
+      if (P) { x = L; by2 = by + kh + gap; }   // portrait: emoji on a row of their own
+    }
+    const cw = P ? 48 : 70; btn(x, by2, cw, kh, 'CLR', false, () => { kbd.text = ''; }); x += cw + gap;
+    const rest = R - x, dw = P ? 50 : 80, ew2 = P ? 64 : 110, sw = rest - dw - ew2 - 2 * gap;
+    btn(x, by2, sw, kh, 'SPACE', false, () => kbdKey('SPACE'));
+    btn(x + sw + gap, by2, dw, kh, '⌫', false, () => kbdKey('DEL'));
+    btn(x + sw + dw + 2 * gap, by2, ew2, kh, kbd.emoji ? 'ENTER' : 'OK', true, () => kbdKey('ENTER'));
+    return;
+  }
+  if (page === 'maker') {
+    const y0 = head('RECORD MAKER', 'dj');
+    const bmp = maker.image ? vpThumb('Images', maker.image) : null;
+    let x0, cy0, rad;
+    if (P) { rad = 92; drawDisc(g, W / 2, y0 + rad + 4, rad, bmp, maker.name || 'BLANK'); x0 = L; cy0 = y0 + 2 * rad + 20; }
+    else { rad = 106; drawDisc(g, L + rad + 4, y0 + rad + 18, rad, bmp, maker.name || 'BLANK'); x0 = L + 2 * rad + 24; cy0 = y0; }
+    const lw = 70, bw = Math.min(118, (R - x0 - lw - 12) / 3), row = (y, label) => { g.fillStyle = '#dfe6f2'; g.font = '700 15px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(label, x0, y + 17); g.textBaseline = 'alphabetic'; };
+    const sub = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, s, x0 + lw, y, R - x0 - lw); };
+    let y = cy0;
+    row(y, 'SOUND');
+    btn(x0 + lw, y, bw, 34, 'BLANK', maker.kind === 'blank', () => { maker.kind = 'blank'; });
+    btn(x0 + lw + bw + 6, y, bw, 34, 'SONG…', maker.kind === 'song', () => setTools('pickSong'));
+    btn(x0 + lw + 2 * (bw + 6), y, bw, 34, 'CLIP…', maker.kind === 'clip', () => setTools('pickVideo'));
+    sub(makerSourceText(), y + 52); y += 64;
+    row(y, 'LABEL');
+    btn(x0 + lw, y, bw, 34, 'PICTURE…', !!maker.image, () => setTools('pickImage'));
+    btn(x0 + lw + bw + 6, y, bw, 34, 'NONE', !maker.image, () => { maker.image = null; });
+    sub(maker.image ? 'Picture: ' + maker.image.replace(/\.[^.]+$/, '') : 'Plain red label with the name', y + 52); y += 64;
+    row(y, 'NAME');
+    btn(x0 + lw, y, bw, 34, 'NAME…', false, () => openKbd('RECORD NAME', maker.name, false, 32, t => { maker.name = t.trim(); }, 'maker'));
+    g.fillStyle = maker.name ? '#ffffff' : '#56627a'; g.font = '600 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    fitText2(g, maker.name || '(no name yet)', x0 + lw + bw + 14, y + 17, R - x0 - lw - bw - 14); g.textBaseline = 'alphabetic';
+    y += 46;
+    const sh = P ? 52 : Math.min(52, H - y - 6);
+    if (maker.msg && !maker.busy) {   // #225 the answer, on the tablet; tap to clear
+      g.fillStyle = maker.msgOk ? '#1d7a3a' : '#8a2a1a'; g.fillRect(x0, y, R - x0, sh);
+      g.fillStyle = '#fff'; g.font = '700 16px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      fitText2Center(g, maker.msg, x0 + (R - x0) / 2, y + sh / 2 + 1, R - x0 - 16); g.textBaseline = 'alphabetic';
+      VP_HIT.push({ x: x0, y, w: R - x0, h: sh, act: () => { maker.msg = ''; clearTimeout(makerMsgT); } });
+    } else btn(x0, y, R - x0, sh, maker.busy ? 'STAMPING…' : 'STAMP RECORD', maker.busy, maker.busy ? null : pressRecord, false, 22);
+    return;
+  }
+  if (page === 'pickSong') {
+    const y0 = head('PICK A SONG', 'maker');
+    const list = lib ? currentList() : [], rows = P ? 12 : 4, RH = 44, pages = Math.max(1, Math.ceil(list.length / rows)); pickPg = Math.min(pickPg, pages - 1);
+    if (!list.length) note('No songs in the crate list. Load a library (start page) or pick a list on the crate first.', y0 + 20);
+    else { g.fillStyle = '#56627a'; g.font = '500 13px system-ui'; g.textAlign = 'left'; fitText2(g, 'From the crate list: ' + (search.results ? 'search results' : lib.playlists[crateState.pl].path), L + 4, y0 + 6, R - L); }
+    list.slice(pickPg * rows, pickPg * rows + rows).forEach((r, k) => {
+      const y = y0 + 14 + k * RH, t = r.sides.A || r.sides.B, ok = t && !t.missing && !t.press;
+      g.fillStyle = '#0d1422'; g.fillRect(L, y, R - L, RH - 6);
+      g.fillStyle = ok ? '#dfe6f2' : '#56627a'; g.font = '600 16px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+      fitText2(g, `${r.title}${r.artist ? '  ·  ' + r.artist : ''}${r.bpm ? '  ·  ' + (+r.bpm).toFixed(0) + ' BPM' : ''}`, L + 10, y + (RH - 6) / 2, R - L - 20); g.textBaseline = 'alphabetic';
+      if (ok) VP_HIT.push({ x: L, y, w: R - L, h: RH - 6, act: () => { maker.kind = 'song'; maker.song = { title: r.title, artist: r.artist || '', opfs: t.opfs || null, url: t.url || null, bpm: r.bpm || t.bpm || 0 }; if (!maker.name) maker.name = cleanText(r.title, 32); setTools('maker'); } });
+    });
+    const by = P ? H - 62 : H - 44;
+    btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
+    btn(L + 48, by, 44, 36, '›', false, () => { pickPg = Math.min(pages - 1, pickPg + 1); }, pickPg >= pages - 1);
+    return;
+  }
+  if (page === 'pickVideo' || page === 'pickImage') {
+    const folder = page === 'pickVideo' ? 'Video' : 'Images';
+    const y0 = head(page === 'pickVideo' ? 'PICK A CLIP' : 'PICK A LABEL PICTURE', 'maker');
+    const COLS = P ? 2 : 4, PER = P ? 10 : 8, CW = (R - L - (COLS - 1) * 8) / COLS, TH = P ? 64 : 76, CH = TH + 20;
+    const pages = Math.max(1, Math.ceil(pickItems.length / PER)); pickPg = Math.min(pickPg, pages - 1);
+    if (!pickItems.length) note(`Nothing in ${folder === 'Video' ? 'VIDEO' : 'IMAGES'} on this headset yet. On the phone: Library, Import, then Push to Quest.`, y0 + 24);
+    pickItems.slice(pickPg * PER, pickPg * PER + PER).forEach((it, i) => {
+      const cx = L + (i % COLS) * (CW + 8), cy = y0 + Math.floor(i / COLS) * (CH + 6), t = vpThumb(folder, it.name);
+      g.fillStyle = '#121824'; g.fillRect(cx, cy, CW, TH);
+      if (t && t !== 'loading') { const s = Math.max(CW / t.width, TH / t.height), sw = CW / s, sh = TH / s; g.drawImage(t, (t.width - sw) / 2, (t.height - sh) / 2, sw, sh, cx, cy, CW, TH); }
+      drawTypeBadge(g, cx + CW - 30, cy + TH - 22, folder === 'Video');
+      g.fillStyle = '#b8c0cf'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, it.name.replace(/\.[^.]+$/, ''), cx + 2, cy + TH + 15, CW - 4);
+      VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, act: () => { if (folder === 'Video') { maker.video = it.name; maker.kind = 'clip'; if (!maker.name) maker.name = cleanText(it.name.replace(/\.[^.]+$/, ''), 32); } else maker.image = it.name; setTools('maker'); } });
+    });
+    const by = P ? H - 62 : H - 44;
+    btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
+    btn(L + 48, by, 44, 36, '›', false, () => { pickPg = Math.min(pages - 1, pickPg + 1); }, pickPg >= pages - 1);
+  }
+}
+// #224 a tiny type badge for thumbnails (lower right): a camcorder for videos, a picture for images
+function drawTypeBadge(g, x, y, video) {
+  g.fillStyle = 'rgba(5,7,12,0.78)'; g.beginPath(); g.roundRect(x - 2, y - 2, 28, 20, 4); g.fill();
+  g.fillStyle = '#e8ecf3'; g.strokeStyle = '#e8ecf3'; g.lineWidth = 1.6;
+  if (video) {   // body + lens cone
+    g.beginPath(); g.roundRect(x + 2, y + 4, 14, 10, 2); g.fill();
+    g.beginPath(); g.moveTo(x + 17, y + 9); g.lineTo(x + 23, y + 5); g.lineTo(x + 23, y + 13); g.closePath(); g.fill();
+  } else {       // frame, sun, mountain
+    g.strokeRect(x + 2, y + 2, 20, 14);
+    g.beginPath(); g.arc(x + 8, y + 7, 2, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.moveTo(x + 3, y + 15); g.lineTo(x + 10, y + 9); g.lineTo(x + 14, y + 12); g.lineTo(x + 17, y + 10); g.lineTo(x + 21, y + 15); g.closePath(); g.fill();
+  }
+}
+
 function drawMixScreen() {
+  if (toolsPage) { drawToolsPage(); scr().commit(); return; }   // #224
   if (videoPage) { drawVideoPage(); scr().commit(); return; }   // #185
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   const sp = settings.spect === 'on' && spect ? spect.ui() : null;   // #164/#167: MR GUI toggle
@@ -3110,21 +3709,28 @@ function drawMixScreen() {
     // (keep clear of the silver corner L: #202 it is top-left when held +x edge up, bottom-right the other way)
     const TOP = 76, ph = (H - TOP - 12) / 2, w = 120, h = 40, y = 28;
     for (const d of decks) drawDeckPanel(g, d, 6, TOP + d.i * (ph + 6), W - 12, ph, true);
-    drawTopBtn(g, W - 14 - w, y, w, h, 'VIDEO', on);
+    drawTopBtn(g, W - 14 - w, y, w, h, 'VISUALS', on);
     SP_HIT.push({ x: W - 20 - w, y: y - 8, w: w + 12, h: h + 16, act: () => setVideoPage(true) });
     if (sp) {
       drawTopBtn(g, 24, y, w, h, 'MR GUI', sp.mr); drawPhoneIcon(g, 24 + w + 8, y + (h - 24) / 2, 14, 24, sp.phone);
       SP_HIT.push({ x: 18, y: y - 8, w: w + 12, h: h + 16, act: () => spect.setMR(!sp.mr) });
     }
-    drawPin(g, (W - 150) / 2, H - 50, 150, 34);   // #210
+    drawTopBtn(g, 20, H - 52, 92, 36, 'TOOLS', !!(scroller && scroller.on));   // #224
+    SP_HIT.push({ x: 14, y: H - 60, w: 104, h: 52, act: () => setTools('home') });
+    drawPin(g, W - 26 - 150, H - 50, 150, 34);   // #210 (#224: right of TOOLS)
     scr().commit(); return;
   }
   for (const d of decks) drawDeckPanel(g, d, d.i ? W / 2 + 6 : 6, 6, W / 2 - 12, H - 12, false);
   drawPin(g, W - 14 - 150, H - 46, 150, 30);   // #210
   { // #185 VIDEO: deck B's top row (was the #176 LED WALL switch, which is on the Video page now)
     const w = 108, h = 28, y = 12, x = W - 36 - w;   // #202 moved in, clear of the corner L (now top-right)
-    drawTopBtn(g, x, y, w, h, 'VIDEO', on);
+    drawTopBtn(g, x, y, w, h, 'VISUALS', on);
     SP_HIT.push({ x: x - 6, y: 4, w: w + 12, h: h + 16, act: () => setVideoPage(true) });
+  }
+  { // #224 TOOLS: bottom-left of the main page (DJ TOOLS: Record Maker, VJ TOOLS: Scroller)
+    const w = 108, h = 28, x = 14, y = H - 40;
+    drawTopBtn(g, x, y, w, h, 'TOOLS', !!(scroller && scroller.on));
+    SP_HIT.push({ x: x - 6, y: y - 8, w: w + 12, h: h + 14, act: () => setTools('home') });
   }
   if (sp) {   // #174: MR GUI toggle + phone icon on deck A's top row, right-aligned to its panel (the divider stays clear)
     const right = W / 2 - 14, pw = 14, ph = 24, w = 108, h = 28, y = 12;
@@ -3238,6 +3844,7 @@ function frame() {
     crateDisc.rotation.x = crateDisc.userData.tilt;
   }
   if (xr && renderer.xr.isPresenting) xr.update(dt);
+  stepSleeve(dt);   // #229
 
   for (const d of decks) {
     const u = d.g.userData, st = engine.state.decks[d.i];
@@ -3319,6 +3926,7 @@ function frame() {
   stepLoose(dt);
   stepMilkCrates(dt);
   stepWallGlow(); stepBlobs();
+  if (scroller) scroller.tick(dt);   // #224
   // label relief (#94): on within arm's length of your eyes (0.65 m), off again past 0.8 m
   camera.getWorldPosition(_eyeB);
   for (const r of [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)]) {
@@ -3412,7 +4020,8 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
   armGrab, armDrag, armRelease,
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
-  crateScreenPress, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, drawCrateScreen, layoutSleeves, crateDisc,
+  sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn,
+  crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, drawCrateScreen, layoutSleeves, crateDisc,
   neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, toast, mixScreenRelease,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
@@ -3715,7 +4324,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
