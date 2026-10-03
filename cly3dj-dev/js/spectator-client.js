@@ -273,7 +273,10 @@ export function startCamera(ctx) {
   // the screen canvas scaled to 854 px on its long side, 30 fps. AR mode: the AR view rendered again at 480 px tall
   // (like the preview) with a non-blocking GPU read-back, 20 fps, turned upright when the phone is on its side.
   // This phone's own LED wall shows a Cly3DJ LIVE card meanwhile (the scroller still runs over it): no video tunnel.
-  let liveOn = false, liveT = 0, liveBusy = false, liveTrack = null, liveBuf = null, liveCard = null;
+  // #239 SOLO: the camera picture only (no gear): fixed mode draws the camera video itself, AR mode renders only the
+  // camera quad (layer 30), so it is cheaper than LIVE.
+  let liveOn = false, liveSolo = false, liveT = 0, liveBusy = false, liveTrack = null, liveBuf = null, liveCard = null;
+  vs.quad.layers.enable(30);
   const liveRT = new THREE.WebGLRenderTarget(4, 4); liveRT.texture.colorSpace = THREE.SRGBColorSpace;
   const liveRaw = document.createElement('canvas'), liveRawCtx = liveRaw.getContext('2d');
   const liveOut = document.createElement('canvas'), liveOutCtx = liveOut.getContext('2d'); liveOut.width = 854; liveOut.height = 480;
@@ -288,9 +291,10 @@ export function startCamera(ctx) {
     if (liveTrack) { liveTrack.stop(); liveTrack = null; }
   }
   function liveFrame() { if (liveTrack && liveTrack.requestFrame) liveTrack.requestFrame(); }
-  function liveFixed(now) {   // the program picture just drawn
-    liveT = now; const c = renderer.domElement, k = 854 / Math.max(c.width, c.height);
-    const W = Math.round(c.width * k / 2) * 2, H = Math.round(c.height * k / 2) * 2;
+  function liveFixed(now) {   // the program picture just drawn (#239 SOLO: the camera video itself)
+    liveT = now; const v = fixed.video, c = liveSolo && v && v.videoWidth ? v : renderer.domElement;
+    const cw = c.videoWidth || c.width, ch = c.videoHeight || c.height, k = 854 / Math.max(cw, ch);
+    const W = Math.round(cw * k / 2) * 2, H = Math.round(ch * k / 2) * 2;
     if (liveOut.width !== W || liveOut.height !== H) { liveOut.width = W; liveOut.height = H; }
     liveOutCtx.drawImage(c, 0, 0, W, H); liveFrame();
   }
@@ -301,7 +305,8 @@ export function startCamera(ctx) {
     if (liveRT.width !== W || liveRT.height !== H) { liveRT.setSize(W, H); liveRaw.width = W; liveRaw.height = H; liveBuf = new Uint8Array(W * H * 4); }
     pvCam.projectionMatrix.copy(c0.projectionMatrix); pvCam.projectionMatrixInverse.copy(c0.projectionMatrixInverse);
     pvCam.matrixWorld.copy(c0.matrixWorld); pvCam.matrixWorldInverse.copy(c0.matrixWorldInverse); pvCam.layers.mask = c0.layers.mask;
-    const raw = !vs.S.on && vs.S.pvReady, qv = vs.quad.visible, rv = reticle.visible, xv = xMark.visible;
+    if (liveSolo) pvCam.layers.set(30);   // #239 SOLO: only the camera quad
+    const raw = (liveSolo || !vs.S.on) && vs.S.pvReady, qv = vs.quad.visible, rv = reticle.visible, xv = xMark.visible;
     if (raw) { vs.quad.visible = true; vs.mat.uniforms.raw.value = 1; }
     reticle.visible = xMark.visible = false;
     renderer.xr.enabled = false; renderer.setRenderTarget(liveRT); renderer.clear(); renderer.render(scene, pvCam); renderer.setRenderTarget(null); renderer.xr.enabled = true;
@@ -476,7 +481,7 @@ export function startCamera(ctx) {
     else if (m.k === 'calpt') { if (!(fixed.on && fixed.onCalPoint(m))) onCalPoint(m); }   // #208 fixed camera taps first
     else if (m.k === 'calskip') { if (fixed.on) fixed.calSkip(); }   // #211 the Quest's grip skips an auto point
     else if (m.k === 'led') { led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000); if (liveOn && !led.on) showLiveCard(true); }   // #176 (#238 the LIVE card stays up)
-    else if (m.k === 'live') { liveOn = !!m.on; if (liveOn) liveStart(); else liveStop(); showLiveCard(liveOn); }   // #238 LIVE CAM
+    else if (m.k === 'live') { const was = liveOn; liveOn = !!m.on; liveSolo = !!m.solo; if (liveOn && !was) liveStart(); else if (!liveOn) liveStop(); showLiveCard(liveOn); }   // #238 LIVE CAM (#239 SOLO)
     else if (m.k === 'scroll' && scroller) {   // #236 the Quest's VJ scroller, drawn here from its text, wave and speed
       scroller.wave = m.wave; scroller.speed = m.speed;
       if (!m.on) { if (scroller.on) scroller.stop(); }

@@ -223,7 +223,7 @@ function applyPiece(k) {
   });
   // #236 LED wall off: clips keep running silently (not decoded) and the scroller keeps its text, both for the phone;
   // DECKS and CAM only ever show on the Quest, so those stop
-  if (k === 'ledwall') { led.setSilent(!on); if (!on && (ledMode === 'decks' || ledMode === 'cam' || ledMode === 'live')) setLedMode('off'); }
+  if (k === 'ledwall') { led.setSilent(!on); if (!on && (ledMode === 'decks' || ledMode === 'cam' || isLive(ledMode))) setLedMode('off'); }
 }
 function setPiece(k, on) { settings.pieces = { ...(settings.pieces || {}), [k]: on }; saveSettings(); applyPiece(k); drawMixScreen(); }
 // #124: Blender-baked crate body; crates already in the scene switch over when it arrives, the procedural body stays
@@ -495,29 +495,30 @@ const liveVideo = document.createElement('video'); liveVideo.muted = true; liveV
 let liveTrack = null;
 function onLiveTrack(t) {
   liveTrack = t; liveVideo.srcObject = t ? new MediaStream([t]) : null;
-  if (t) liveVideo.play().catch(() => {}); else if (ledMode === 'live') setLedMode('off');
+  if (t) liveVideo.play().catch(() => {}); else if (isLive(ledMode)) setLedMode('off');
 }
 const livePossible = () => !!(liveTrack && spect && spect.ui && spect.ui().phone);
-function nextLedMode(m) {   // OFF > CLIPS > DECKS > CAM > LIVE (only with the phone linked) > OFF
-  const order = ['off', 'clips', 'decks', 'cam', 'live'];
+function isLive(m) { return m === 'live' || m === 'solo'; }   // #239 SOLO = the phone's camera only, no gear
+function nextLedMode(m) {   // OFF > CLIPS > DECKS > CAM > LIVE > SOLO (the last two only with the phone linked) > OFF
+  const order = ['off', 'clips', 'decks', 'cam', 'live', 'solo'];
   let i = order.indexOf(m);
-  for (let k = 0; k < order.length; k++) { i = (i + 1) % order.length; if (order[i] !== 'live' || livePossible()) return order[i]; }
+  for (let k = 0; k < order.length; k++) { i = (i + 1) % order.length; if (!isLive(order[i]) || livePossible()) return order[i]; }
   return 'off';
 }
-function clipsMode() { if (ledMode === 'live' && spect && spect.liveCam) spect.liveCam(false); ledMode = 'clips'; }   // #238 a clip from the LED list ends LIVE
-const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED DECKS', cam: 'LED CAM', live: 'LED LIVE' };
+function clipsMode() { if (isLive(ledMode) && spect && spect.liveCam) spect.liveCam(false); ledMode = 'clips'; }   // #238 a clip from the LED list ends LIVE
+const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED DECKS', cam: 'LED CAM', live: 'LED LIVE', solo: 'LED SOLO' };
 function setLedMode(m) {
   if (m === 'clips' && !led.hasFiles) m = 'decks';
-  if (!pieceOn('ledwall') && (m === 'decks' || m === 'cam' || m === 'live')) m = 'off';   // #236 switched off: only clips run (for the phone)
-  if (m === 'live' && !livePossible()) m = 'off';   // #238 needs the phone linked
+  if (!pieceOn('ledwall') && (m === 'decks' || m === 'cam' || isLive(m))) m = 'off';   // #236 switched off: only clips run (for the phone)
+  if (isLive(m) && !livePossible()) m = 'off';   // #238 needs the phone linked
   if (m !== 'clips' && led.on) led.stop();
   if (m === 'cam' && !djcam) m = 'off';
-  if (ledMode === 'live' && m !== 'live' && spect && spect.liveCam) spect.liveCam(false);
+  if (isLive(ledMode) && !isLive(m) && spect && spect.liveCam) spect.liveCam(false);
   ledMode = m;
   if (m === 'clips') led.playRandom();
   else if (m === 'off') ledwall.userData.setVideo(null);
   else if (m === 'cam') ledwall.userData.setCam(djcam.rt.texture, djSet.mirror);   // #220
-  else if (m === 'live') { spect.liveCam(true); ledwall.userData.setVideo(liveVideo); }   // #238
+  else if (isLive(m)) { spect.liveCam(true, m === 'solo'); ledwall.userData.setVideo(liveVideo); }   // #238 (#239 SOLO: camera only)
   drawMixScreen();
 }
 function setNeonScale(s) { s = clamp(s, 0.3, 4); neon.scale.setScalar(s); neon.userData.setLodScale(s); if (stage) stage.items.neon.base = NEON.R * s; return s; }

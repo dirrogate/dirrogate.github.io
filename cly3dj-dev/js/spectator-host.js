@@ -459,7 +459,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   }
   return { tick, close: () => { link.close(); scene.remove(panel); rig.remove(frustum); },
     ui: () => ({ mr, phone: link.isOpen && performance.now() - lastPing < 3500 }), setMR,
-    liveCam: on => link.send('ctl', { k: 'live', on: !!on }),   // #238 ask the phone to start / stop its LIVE CAM video
+    liveCam: (on, solo = false) => link.send('ctl', { k: 'live', on: !!on, solo: !!solo }),   // #238 ask the phone to start / stop its LIVE CAM video (#239 solo: camera only)
     // #188 camera tab: the phone's last reported state, and remote changes to it
     get cam() { return link.isOpen && performance.now() - lastPing < 3500 ? camState : null; },
     camSet: o => link.isOpen && link.send('ctl', { k: 'cset', ...o }),
