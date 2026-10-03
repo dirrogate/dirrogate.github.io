@@ -10,6 +10,7 @@ import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeN
 import { makeLedWall, LedPlayer, LED } from './ledwall.js';
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose } from './director.js';
 import { RobotAvatar } from './robot.js';
+import { RobotAvatar2 } from './robot2.js';   // #245 the licensed AvatarRobot (EntroPi Games)
 import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, labelFrom, blankWav } from './tools.js';
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
@@ -391,7 +392,7 @@ function useAvatarStyle(st) {
   if (CAMERA_ROLE) return;
   if (!avatars[st]) {
     if (st === 'human') { const a = new Avatar(rig); avatars.human = a; a.load('models/avatar/dirroface.glb').catch(e => { a.status = 'failed: ' + e.message; console.warn('avatar not loaded', e); }); }
-    else { const a = new RobotAvatar(rig); avatars.robot = a; a.load('models/avatar/robot.glb').catch(e => { a.status = 'failed: ' + e.message; console.warn('robot avatar not loaded', e); }); }
+    else { const a = new RobotAvatar2(rig); avatars.robot = a; a.load('models/avatar/avatar_robot.glb').catch(e => { a.status = 'failed: ' + e.message; console.warn('robot avatar not loaded', e); }); }
   }
   for (const a of Object.values(avatars)) a.root.visible = false;
   avatar = avatars[st]; avatar.root.visible = djSet.avatar;
