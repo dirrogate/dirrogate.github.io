@@ -44,6 +44,21 @@ class Pipe {
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') this.h.onClose && this.h.onClose();
     };
     pc.ondatachannel = e => this.wire(e.channel);
+    pc.ontrack = e => { this.h.onTrack && this.h.onTrack(e.track); };   // #238 LIVE CAM: the phone's composite as video
+  }
+  // #238 LIVE CAM (phone side): the video slot made with the offer, so the picture starts and stops mid-set without
+  // a new handshake. Capped at 2 Mbit/s and 30 fps, lowest priority (the gear data on 'state' goes first), and on a
+  // weak link it keeps the frame rate and softens the picture instead.
+  async setVideo(track) {
+    const tx = this.vtx; if (!tx) return false;
+    await tx.sender.replaceTrack(track || null);
+    if (track) try {
+      const p = tx.sender.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+      Object.assign(p.encodings[0], { maxBitrate: 2000000, maxFramerate: 30, priority: 'very-low', networkPriority: 'very-low' });
+      p.degradationPreference = 'maintain-framerate';
+      await tx.sender.setParameters(p);
+    } catch (e) { console.warn('live cam params', e); }
+    return true;
   }
   wire(c) {
     this.ch[c.label] = c; c.binaryType = 'arraybuffer';
@@ -53,10 +68,11 @@ class Pipe {
     c.onclose = () => { if (c.label !== 'file' && c.label !== 'prev') this.h.onClose && this.h.onClose(); };
   }
   async call() { // spectator side: make the channels and the offer
-    this.wire(this.pc.createDataChannel('state', { ordered: false, maxRetransmits: 0 }));
-    this.wire(this.pc.createDataChannel('ctl'));
+    this.wire(this.pc.createDataChannel('state', { ordered: false, maxRetransmits: 0, priority: 'high' }));   // #238 the gear data before LIVE CAM video
+    this.wire(this.pc.createDataChannel('ctl', { priority: 'high' }));
     this.wire(this.pc.createDataChannel('file'));   // #185
     this.wire(this.pc.createDataChannel('prev', { ordered: false, maxRetransmits: 0 }));   // #188
+    this.vtx = this.pc.addTransceiver('video', { direction: 'sendonly' });   // #238 LIVE CAM slot, empty until asked for
     await this.pc.setLocalDescription(await this.pc.createOffer());
     await this.gathered();
     this.relay.send('OFFER', this.remote, { sdp: this.pc.localDescription.toJSON() });
@@ -121,5 +137,6 @@ export function spectatorLink(code, handlers) {
   return { send: (l, o) => !!pipe && pipe.send(l, o), get isOpen() { return !!pipe && pipe.isOpen; }, get fileOpen() { return !!pipe && pipe.fileOpen; },
     sendBin: buf => pipe ? pipe.sendBin(buf) : Promise.reject(new Error('not connected')),
     sendPrev: buf => !!pipe && pipe.sendPrev(buf),
+    setVideo: t => pipe ? pipe.setVideo(t) : Promise.resolve(false),   // #238
     close() { relay.close(); if (pipe) pipe.close(); } };
 }

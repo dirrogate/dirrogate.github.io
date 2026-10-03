@@ -223,7 +223,7 @@ function applyPiece(k) {
   });
   // #236 LED wall off: clips keep running silently (not decoded) and the scroller keeps its text, both for the phone;
   // DECKS and CAM only ever show on the Quest, so those stop
-  if (k === 'ledwall') { led.setSilent(!on); if (!on && (ledMode === 'decks' || ledMode === 'cam')) setLedMode('off'); }
+  if (k === 'ledwall') { led.setSilent(!on); if (!on && (ledMode === 'decks' || ledMode === 'cam' || ledMode === 'live')) setLedMode('off'); }
 }
 function setPiece(k, on) { settings.pieces = { ...(settings.pieces || {}), [k]: on }; saveSettings(); applyPiece(k); drawMixScreen(); }
 // #124: Blender-baked crate body; crates already in the scene switch over when it arrives, the procedural body stays
@@ -489,15 +489,35 @@ function vvStep(d) {   // per frame: open/close the deck's video to match its tr
   }
   if (dv.v) dv.follow(engine.ctx ? engine.pos(d.i) : 0, engine.state.decks[d.i].rate || 0);
 }
+// #238 LIVE CAM: the spectator phone's composite (camera + gear) as live video on the LED wall. The phone sends it on
+// the link's video slot only while this mode is on (spect.liveCam); its own copy of the wall shows a LIVE card.
+const liveVideo = document.createElement('video'); liveVideo.muted = true; liveVideo.playsInline = true; liveVideo.autoplay = true;
+let liveTrack = null;
+function onLiveTrack(t) {
+  liveTrack = t; liveVideo.srcObject = t ? new MediaStream([t]) : null;
+  if (t) liveVideo.play().catch(() => {}); else if (ledMode === 'live') setLedMode('off');
+}
+const livePossible = () => !!(liveTrack && spect && spect.ui && spect.ui().phone);
+function nextLedMode(m) {   // OFF > CLIPS > DECKS > CAM > LIVE (only with the phone linked) > OFF
+  const order = ['off', 'clips', 'decks', 'cam', 'live'];
+  let i = order.indexOf(m);
+  for (let k = 0; k < order.length; k++) { i = (i + 1) % order.length; if (order[i] !== 'live' || livePossible()) return order[i]; }
+  return 'off';
+}
+function clipsMode() { if (ledMode === 'live' && spect && spect.liveCam) spect.liveCam(false); ledMode = 'clips'; }   // #238 a clip from the LED list ends LIVE
+const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED DECKS', cam: 'LED CAM', live: 'LED LIVE' };
 function setLedMode(m) {
   if (m === 'clips' && !led.hasFiles) m = 'decks';
-  if (!pieceOn('ledwall') && (m === 'decks' || m === 'cam')) m = 'off';   // #236 switched off: only clips run (for the phone)
+  if (!pieceOn('ledwall') && (m === 'decks' || m === 'cam' || m === 'live')) m = 'off';   // #236 switched off: only clips run (for the phone)
+  if (m === 'live' && !livePossible()) m = 'off';   // #238 needs the phone linked
   if (m !== 'clips' && led.on) led.stop();
   if (m === 'cam' && !djcam) m = 'off';
+  if (ledMode === 'live' && m !== 'live' && spect && spect.liveCam) spect.liveCam(false);
   ledMode = m;
   if (m === 'clips') led.playRandom();
   else if (m === 'off') ledwall.userData.setVideo(null);
   else if (m === 'cam') ledwall.userData.setCam(djcam.rt.texture, djSet.mirror);   // #220
+  else if (m === 'live') { spect.liveCam(true); ledwall.userData.setVideo(liveVideo); }   // #238
   drawMixScreen();
 }
 function setNeonScale(s) { s = clamp(s, 0.3, 4); neon.scale.setScalar(s); neon.userData.setLodScale(s); if (stage) stage.items.neon.base = NEON.R * s; return s; }
@@ -2933,7 +2953,7 @@ async function vpAct(what) {
     const d = decks[what === 'deckA' ? 0 : 1];
     if (!d.record) { toast(`No record on ${d.name}: put one on first`); return; }
     vvOverride[d.i] = { rec: d.record, name }; toast(`${d.name}: ${name} (until this record comes off)`, 2500);
-  } else if (what === 'lednow') { led.add(f); ledSrc.set(f.name, vpFolder); saveLedList(); led.play(f, led.files.length < 2); ledMode = 'clips'; }
+  } else if (what === 'lednow') { led.add(f); ledSrc.set(f.name, vpFolder); saveLedList(); led.play(f, led.files.length < 2); clipsMode(); }
   else if (what === 'ledadd') { const n = led.add(f); ledSrc.set(f.name, vpFolder); saveLedList(); toast(`LED playlist: ${n} item${n > 1 ? 's' : ''} (LED LIST to see it)`, 2000); }
   drawMixScreen();
 }
@@ -3282,7 +3302,7 @@ function drawVideoPage() {
   const hasList = vpFolder === 'Video' || vpFolder === 'Images';   // #222 the LED playlist, one tap away
   if (hasList) btn(P ? 124 : 522, by, P ? 70 : 92, bh, `LED LIST ${led.files.length}`, false, () => { vpBack = vpFolder; vpFolder = 'LedList'; vpLoad(); });
   const mw = P && hasList ? 78 : 140;
-  btn(W - (P ? 26 : 8) - mw, by, mw, bh, { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED DECKS', cam: 'LED CAM' }[ledMode], ledMode !== 'off', () => setLedMode({ off: 'clips', clips: 'decks', decks: 'cam', cam: 'off' }[ledMode]));
+  btn(W - (P ? 26 : 8) - mw, by, mw, bh, LED_LABEL[ledMode], ledMode !== 'off', () => setLedMode(nextLedMode(ledMode)));   // #238 + LIVE
 }
 // ---- #222 LED LIST: the LED wall's playlist (what LED NOW / + LED added), in order: play one now, move it up or
 // down, take it off the list; IN ORDER / RANDOM. Kept between sessions (names + library folder).
@@ -3308,7 +3328,7 @@ function drawLedList(btn, y0) {
     g.fillStyle = cur ? '#40d080' : '#dfe6f2'; g.font = `${cur ? 700 : 500} ${P ? 14 : 16}px system-ui`; g.textAlign = 'left';
     const bw = P ? 40 : 46, bx = W - 8 - 4 * (bw + 4);
     fitText2(g, `${i + 1}. ${f.name.replace(/\.[^.]+$/, '')}`, 74, y + RH / 2 - 3, bx - 80);
-    btn(bx, y + 2, bw, RH - 10, '▶', cur, () => { led.play(f); ledMode = 'clips'; });
+    btn(bx, y + 2, bw, RH - 10, '▶', cur, () => { led.play(f); clipsMode(); });
     btn(bx + (bw + 4), y + 2, bw, RH - 10, '▲', false, i > 0 ? () => { led.move(f.name, -1); saveLedList(); } : null, i === 0);
     btn(bx + 2 * (bw + 4), y + 2, bw, RH - 10, '▼', false, i < files.length - 1 ? () => { led.move(f.name, 1); saveLedList(); } : null, i === files.length - 1);
     btn(bx + 3 * (bw + 4), y + 2, bw, RH - 10, '✕', false, () => { led.remove(f.name); ledSrc.delete(f.name); saveLedList(); });
@@ -3320,8 +3340,8 @@ function drawLedList(btn, y0) {
   const row2 = P ? H - 106 : by, x2 = P ? 8 : 108, w2 = P ? (W - 16 - 12) / 3 : 120;
   btn(x2, row2, w2, bh, '◀ BACK', false, () => { vpFolder = vpBack; vpLoad(); });
   btn(x2 + w2 + 6, row2, w2, bh, led.order === 'list' ? 'IN ORDER' : 'RANDOM', led.order === 'list', () => { led.order = led.order === 'list' ? 'random' : 'list'; saveLedList(); });
-  btn(x2 + 2 * (w2 + 6), row2, w2, bh, 'NEXT ▶▶', false, files.length ? () => { ledMode = 'clips'; led.next(); } : null, !files.length);
-  btn(W - (P ? 26 : 8) - 140, by, 140, bh, { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED DECKS', cam: 'LED CAM' }[ledMode], ledMode !== 'off', () => setLedMode({ off: 'clips', clips: 'decks', decks: 'cam', cam: 'off' }[ledMode]));
+  btn(x2 + 2 * (w2 + 6), row2, w2, bh, 'NEXT ▶▶', false, files.length ? () => { clipsMode(); led.next(); } : null, !files.length);
+  btn(W - (P ? 26 : 8) - 140, by, 140, bh, LED_LABEL[ledMode], ledMode !== 'off', () => setLedMode(nextLedMode(ledMode)));   // #238 + LIVE
 }
 const NOTES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
 function parseKey(k) {
@@ -4379,7 +4399,7 @@ async function applySpect() {
   try {
     const m = await import('./spectator-host.js');
     if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, perf, getInputs: () => xr && xr.inputs,
-      getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(), getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), coverFor,   // #218
+      getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(), getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
       getVV: () => ({ mode: ledMode, gains: deckGains(mixVal), decks: deckVid.map((dv, i) => dv.v ? [i, dv.key, engine.ctx ? engine.pos(i) : 0, engine.state.decks[i].rate || 0] : null).filter(Boolean) }),
       getSky: () => ({ h: settings.skyH, turn: settings.skyTurn, type: settings.skyType, key: settings.skyKey, file: settings.skyFile, media: settings.env === 'image' ? settings.skyMedia : '' }),
       onMedia: () => { refreshLibVV(); if (videoPage && vpFolder !== 'Sync') vpLoad(); },

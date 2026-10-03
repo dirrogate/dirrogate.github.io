@@ -127,7 +127,7 @@ export function startCamera(ctx) {
       onStatus: s => { linkState = s; st(STATUS[s] || s); },
       onState: s => { linkState = s; st(STATUS[s] || s); },
       onOpen: () => { linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; $('#spFix').disabled = false; lib.onLinkOpen(); sendCst(true); },
-      onClose: () => { linkState = 'disconnected'; st(STATUS.disconnected); },
+      onClose: () => { linkState = 'disconnected'; st(STATUS.disconnected); if (liveOn) { liveOn = false; liveStop(); showLiveCard(false); } },
       onMessage: onMsg,
       onBinary: onSyncBin,   // #206 media sync: files from the Quest
     });
@@ -267,6 +267,72 @@ export function startCamera(ctx) {
     if (pvCanvas.width !== W || pvCanvas.height !== H) { pvCanvas.width = W; pvCanvas.height = H; }
     pvCtx.drawImage(c, 0, 0, W, H); pvBusy = true;
     pvCanvas.toBlob(b => { if (!b) { pvBusy = false; return; } b.arrayBuffer().then(buf => { if (link) link.sendPrev(buf); pvBusy = false; }); }, 'image/jpeg', 0.6);
+  }
+  // ---- #238 LIVE CAM: this phone's composite (camera + gear) as live video to the Quest's LED wall. The Quest asks
+  // ({k:'live'}); the picture goes on the link's video slot (2 Mbit/s cap, lowest priority, net-link.js). Fixed mode:
+  // the screen canvas scaled to 854 px on its long side, 30 fps. AR mode: the AR view rendered again at 480 px tall
+  // (like the preview) with a non-blocking GPU read-back, 20 fps, turned upright when the phone is on its side.
+  // This phone's own LED wall shows a Cly3DJ LIVE card meanwhile (the scroller still runs over it): no video tunnel.
+  let liveOn = false, liveT = 0, liveBusy = false, liveTrack = null, liveBuf = null, liveCard = null;
+  const liveRT = new THREE.WebGLRenderTarget(4, 4); liveRT.texture.colorSpace = THREE.SRGBColorSpace;
+  const liveRaw = document.createElement('canvas'), liveRawCtx = liveRaw.getContext('2d');
+  const liveOut = document.createElement('canvas'), liveOutCtx = liveOut.getContext('2d'); liveOut.width = 854; liveOut.height = 480;
+  async function liveStart() {
+    if (!link) return;
+    if (!liveTrack) { liveTrack = liveOut.captureStream(0).getVideoTracks()[0]; liveTrack.contentHint = 'motion'; }
+    const ok = await link.setVideo(liveTrack).catch(() => false);
+    if (!ok) st('LIVE CAM: this link has no video slot (reconnect the phone)');
+  }
+  function liveStop() {
+    if (link && link.setVideo) link.setVideo(null).catch(() => {});
+    if (liveTrack) { liveTrack.stop(); liveTrack = null; }
+  }
+  function liveFrame() { if (liveTrack && liveTrack.requestFrame) liveTrack.requestFrame(); }
+  function liveFixed(now) {   // the program picture just drawn
+    liveT = now; const c = renderer.domElement, k = 854 / Math.max(c.width, c.height);
+    const W = Math.round(c.width * k / 2) * 2, H = Math.round(c.height * k / 2) * 2;
+    if (liveOut.width !== W || liveOut.height !== H) { liveOut.width = W; liveOut.height = H; }
+    liveOutCtx.drawImage(c, 0, 0, W, H); liveFrame();
+  }
+  function liveAR(now) {   // the AR view again, into a render target, read back without stalling the GPU
+    liveT = now; if (liveBusy) return;
+    const xc = renderer.xr.getCamera(), c0 = xc && xc.cameras && xc.cameras[0]; if (!c0) return;
+    const P = c0.projectionMatrix.elements, H = 480, W = Math.max(64, Math.round(H * P[5] / P[0] / 2) * 2);
+    if (liveRT.width !== W || liveRT.height !== H) { liveRT.setSize(W, H); liveRaw.width = W; liveRaw.height = H; liveBuf = new Uint8Array(W * H * 4); }
+    pvCam.projectionMatrix.copy(c0.projectionMatrix); pvCam.projectionMatrixInverse.copy(c0.projectionMatrixInverse);
+    pvCam.matrixWorld.copy(c0.matrixWorld); pvCam.matrixWorldInverse.copy(c0.matrixWorldInverse); pvCam.layers.mask = c0.layers.mask;
+    const raw = !vs.S.on && vs.S.pvReady, qv = vs.quad.visible, rv = reticle.visible, xv = xMark.visible;
+    if (raw) { vs.quad.visible = true; vs.mat.uniforms.raw.value = 1; }
+    reticle.visible = xMark.visible = false;
+    renderer.xr.enabled = false; renderer.setRenderTarget(liveRT); renderer.clear(); renderer.render(scene, pvCam); renderer.setRenderTarget(null); renderer.xr.enabled = true;
+    vs.quad.visible = qv; vs.mat.uniforms.raw.value = 0; reticle.visible = rv; xMark.visible = xv;
+    const m = c0.matrixWorld.elements, a = Math.atan2(m[1], m[5]) * 180 / Math.PI;   // same upright rule as the preview (#205)
+    rotDir = rotDir === 0 ? (a > 55 ? 1 : a < -55 ? -1 : 0) : rotDir === 1 ? (a < 35 ? (a < -55 ? -1 : 0) : 1) : (a > -35 ? (a > 55 ? 1 : 0) : -1);
+    const rd = rotDir, buf = liveBuf; liveBusy = true;
+    renderer.readRenderTargetPixelsAsync(liveRT, 0, 0, W, H, buf).then(() => {
+      liveBusy = false; if (!liveOn || buf !== liveBuf) return;
+      const img = new ImageData(new Uint8ClampedArray(buf.buffer, buf.byteOffset, buf.byteLength), W, H);
+      for (let i = 3; i < buf.length; i += 4) buf[i] = 255;
+      liveRawCtx.putImageData(img, 0, 0);
+      const ow = rd ? H : W, oh = rd ? W : H; if (liveOut.width !== ow || liveOut.height !== oh) { liveOut.width = ow; liveOut.height = oh; }
+      const g = liveOutCtx; g.setTransform(1, 0, 0, 1, 0, 0);
+      if (rd === 1) { g.translate(0, W); g.rotate(-Math.PI / 2); } else if (rd === -1) { g.translate(H, 0); g.rotate(Math.PI / 2); }
+      g.translate(0, H); g.scale(1, -1);   // read-back rows come bottom-up
+      g.drawImage(liveRaw, 0, 0); g.setTransform(1, 0, 0, 1, 0, 0); liveFrame();
+    }).catch(() => { liveBusy = false; });
+  }
+  async function showLiveCard(on) {
+    if (!on) { if (!led.on) led.wall.userData.setVideo(null); return; }
+    if (!liveCard) {
+      const c = document.createElement('canvas'); c.width = 1280; c.height = 720; const g = c.getContext('2d');
+      const gr = g.createRadialGradient(640, 330, 40, 640, 360, 760); gr.addColorStop(0, '#1b2233'); gr.addColorStop(1, '#05070c'); g.fillStyle = gr; g.fillRect(0, 0, 1280, 720);
+      g.textAlign = 'right'; g.textBaseline = 'middle'; g.font = '800 170px system-ui,sans-serif'; g.fillStyle = '#ffffff'; g.fillText('Cly', 640, 300);
+      g.textAlign = 'left'; g.fillStyle = '#e0202a'; g.fillText('3DJ', 640, 300);
+      g.fillStyle = '#e0202a'; g.beginPath(); g.arc(520, 480, 22, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#ffffff'; g.font = '700 64px system-ui,sans-serif'; g.fillText('LIVE', 560, 482);
+      liveCard = await createImageBitmap(c, { imageOrientation: 'flipY' });
+    }
+    if (liveOn) led.wall.userData.setImage(liveCard);
   }
   $('#spCamTest').onclick = () => import('./camtest.js').then(m => m.camTest()).catch(e => st('Camera test failed: ' + e.message));   // #183
   $('#spLedF').onchange = e => {   // #176: same file names as on the Quest; matched by name
@@ -409,7 +475,8 @@ export function startCamera(ctx) {
     else if (m.k === 'recdel') onRecDel(m.uid);
     else if (m.k === 'calpt') { if (!(fixed.on && fixed.onCalPoint(m))) onCalPoint(m); }   // #208 fixed camera taps first
     else if (m.k === 'calskip') { if (fixed.on) fixed.calSkip(); }   // #211 the Quest's grip skips an auto point
-    else if (m.k === 'led') led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000);   // #176
+    else if (m.k === 'led') { led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000); if (liveOn && !led.on) showLiveCard(true); }   // #176 (#238 the LIVE card stays up)
+    else if (m.k === 'live') { liveOn = !!m.on; if (liveOn) liveStart(); else liveStop(); showLiveCard(liveOn); }   // #238 LIVE CAM
     else if (m.k === 'scroll' && scroller) {   // #236 the Quest's VJ scroller, drawn here from its text, wave and speed
       scroller.wave = m.wave; scroller.speed = m.speed;
       if (!m.on) { if (scroller.on) scroller.stop(); }
@@ -646,11 +713,14 @@ export function startCamera(ctx) {
     flook.sync(fixed.on, fixed.S.facing); flook.frame();   // #214 fixed mode look (grade from the plain video)
     look.frame(frame, dt, vs.S.on);   // #187 (before vs.frame: it asks for the camera sample)
     if (t - lookT > 500) { lookT = t; if (!$('#spLook').hidden) $('#lkSt').textContent = look.status(); }
-    vs.S.pvNeed = !!(pvOn && frame && link && link.isOpen && now - pvT > 150);   // #188
+    const liveLink = liveOn && link && link.isOpen, liveDue = liveLink && !!frame && now - liveT > 48;   // #238 AR LIVE CAM at ~20 fps
+    vs.S.pvNeed = !!(pvOn && frame && link && link.isOpen && now - pvT > 150) || liveDue;   // #188 (#238 the camera picture for LIVE CAM too)
     vs.frame(frame);   // #184: camera picture for the key / preview
     if (frame) renderer.setRenderTarget(xrRT);   // #204 back to the AR layer
     renderer.render(scene, camera);
-    if (vs.S.pvNeed) renderPreview(now);   // #188 (after the AR frame)
+    if (liveDue) liveAR(now);   // #238
+    else if (liveLink && fixed.on && now - liveT > 32) liveFixed(now);   // #238 fixed mode at ~30 fps
+    if (vs.S.pvNeed && pvOn && now - pvT > 150) renderPreview(now);   // #188 (after the AR frame)
     else if (fixed.on && pvOn && link && link.isOpen && now - pvT > 150) fixedPreview(now);   // #208 the screen itself, scaled
     if (frame) {   // #203 late AR frames (each one shows as a flash of bare camera on the phone's screen)
       if (lastXT) { const d = t - lastXT; dts.push(d); if (dts.length > 60) dts.shift(); const md = [...dts].sort((x, y) => x - y)[dts.length >> 1]; if (dts.length > 10 && d > md * 1.5) lateN++; }
@@ -658,5 +728,5 @@ export function startCamera(ctx) {
     } else lastXT = 0;
     fpsN++; if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; late = lateN; lateN = 0; sendCst(); }
   });
-  window.spect = { vs, look, renderPreview, fixed, flook, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
+  window.spect = { vs, look, renderPreview, fixed, flook, _live: { fixedFrame: liveFixed, get on() { return liveOn; }, get track() { return liveTrack; } } /* #238 test hook */, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
 }
