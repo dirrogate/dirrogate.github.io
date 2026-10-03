@@ -787,5 +787,6 @@ export function setupXR(ctx) {
   // #228 for the finger spin: each tracked hand's index finger, and every fingertip / controller tip (to flick the rim)
   const fingers = () => inputs.filter(st => st.connected && st.isHand && st.finger && st.finger.ok).map(st => st.finger);
   const tips = () => inputs.filter(st => st.connected).map(st => ({ st, p: st.tip, anchor: st.anchor, hand: st.isHand }));
-  return { update, end, inputs, setHandMode, fingers, tips, buzz, _t: { grabStart, grabMove, release, pokes, updateAnchor } };
+  const buzzAnchor = (anchor, v, ms) => { const st = inputs.find(o => o.anchor === anchor); if (st) buzz(st, v, ms); };   // #243
+  return { update, end, inputs, setHandMode, fingers, tips, buzz, buzzAnchor, _t: { grabStart, grabMove, release, pokes, updateAnchor } };
 }

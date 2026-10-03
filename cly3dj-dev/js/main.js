@@ -1474,6 +1474,7 @@ function sleeveGrab(anchor, P) {
   }
   sl.g.updateMatrixWorld(); anchor.updateMatrixWorld();
   sl.anchor = anchor; sl.off = new THREE.Matrix4().copy(anchor.matrixWorld).invert().multiply(sl.g.matrixWorld);
+  refreshSleeveColliders();   // #243 the gear as it stands now
   sleeveOut = sl; layoutSleeves(); return true;
 }
 function sleeveHeldBy() { const sl = sleeves.find(x => x.anchor); return sl ? sl.anchor : null; }
@@ -1527,7 +1528,7 @@ function stepSleeves(dt) {
       if (b.t >= 1) { disposeSleeve(sl); layoutSleeves(); }
       continue;
     }
-    if (sl.anchor) { sl.anchor.updateMatrixWorld(); new THREE.Matrix4().multiplyMatrices(sl.anchor.matrixWorld, sl.off).decompose(sl.g.position, sl.g.quaternion, sl.g.scale); }
+    if (sl.anchor) { sl.anchor.updateMatrixWorld(); sleeveFollow(sl); }   // #243 kinematic: stopped by the gear
   }
 }
 // #242 tidy-up (each VR / passthrough start, as the Quest may keep the page alive between sessions): sleeves, records
@@ -1541,6 +1542,89 @@ function tidyRecords() {
   for (const mc of milks()) if (mc.userData.records) mc.userData.records.length = 0;
   for (const d of decks) if (d.record && !d.motorOn) { pickUpFromDeck(d, null); returnHeld(); }
   layoutSleeves(); drawCrateScreen();
+}
+// #243 sleeves are kinematic (owner): no gravity, the hand moves them, but they can't go into the gear. The decks, the
+// mixer and the flight case are oriented boxes measured from their own meshes when a sleeve is grabbed (records on
+// them, the tablet and invisible parts left out); the record crate and milk crates are not colliders (sleeves go in
+// there). Each frame a held sleeve moves toward the hand's pose in steps of at most 2 cm and is pushed out of any box
+// along the shortest way (separating-axis test), so it stops at a surface and slides along it while the hand goes on
+// through; it catches up when the hand comes back. A controller buzzes on first contact.
+let sleeveColliders = [];
+const _sc = { m: new THREE.Matrix4(), inv: new THREE.Matrix4(), b: new THREE.Box3(), v: new THREE.Vector3(), q: new THREE.Quaternion(), s: new THREE.Vector3() };
+function localBox(obj) {   // obj-space box of its visible meshes, skipping records and the tablet
+  obj.updateMatrixWorld(true); _sc.inv.copy(obj.matrixWorld).invert();
+  const box = new THREE.Box3(), skip = new Set([mixer.userData.tablet].filter(Boolean));
+  const walk = o => {
+    if (!o.visible || skip.has(o) || o.userData.record || o.userData.loose) return;
+    if (o.isMesh && o.geometry && !o.isInstancedMesh) {
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      _sc.b.copy(o.geometry.boundingBox).applyMatrix4(_sc.m.multiplyMatrices(_sc.inv, o.matrixWorld)); box.union(_sc.b);
+    }
+    for (const c of o.children) walk(c);
+  };
+  walk(obj); return box.isEmpty() ? null : box;
+}
+function refreshSleeveColliders() {
+  sleeveColliders = [];
+  for (const o of [...deckGroups, mixer, ...Object.values(cases).map(c => c.group)]) { const b = localBox(o); if (b) sleeveColliders.push({ o, b }); }
+}
+// an oriented box as centre, three unit axes and half sizes
+function obbOf(matrixWorld, box, out) {
+  const e = matrixWorld.elements, c = box.getCenter(_sc.v).applyMatrix4(matrixWorld);
+  out.c.copy(c);
+  for (let i = 0; i < 3; i++) { out.a[i].set(e[i * 4], e[i * 4 + 1], e[i * 4 + 2]); const L = out.a[i].length(); out.a[i].multiplyScalar(1 / L); out.h[i] = (box.max.getComponent(i) - box.min.getComponent(i)) / 2 * L; }
+  return out;
+}
+const mkObb = () => ({ c: new THREE.Vector3(), a: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()], h: [0, 0, 0] });
+const _oA = mkObb(), _oB = mkObb(), _ax = new THREE.Vector3(), _d = new THREE.Vector3();
+// shortest push that separates A from B (null when they don't overlap)
+function obbPush(A, B) {
+  _d.subVectors(A.c, B.c); let best = Infinity, bx = 0, by = 0, bz = 0;
+  const test = ax => {
+    const L = ax.length(); if (L < 1e-6) return true; ax.multiplyScalar(1 / L);
+    let ra = 0, rb = 0; for (let i = 0; i < 3; i++) { ra += A.h[i] * Math.abs(A.a[i].dot(ax)); rb += B.h[i] * Math.abs(B.a[i].dot(ax)); }
+    const dist = _d.dot(ax), o = ra + rb - Math.abs(dist); if (o <= 0) return false;
+    if (o < best) { best = o; const sg = dist < 0 ? -1 : 1; bx = ax.x * sg; by = ax.y * sg; bz = ax.z * sg; }
+    return true;
+  };
+  for (let i = 0; i < 3; i++) { if (!test(_ax.copy(A.a[i]))) return null; if (!test(_ax.copy(B.a[i]))) return null; }
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if (!test(_ax.crossVectors(A.a[i], B.a[j]))) return null;
+  return best === Infinity ? null : new THREE.Vector3(bx, by, bz).multiplyScalar(best + 0.001);
+}
+function sleeveBox(sl) {   // the sleeve plus the record peeking out of it, sleeve-local
+  const top = sl.hasRec ? Math.max(SLEEVE.H / 2, sl.s + REC.R) : SLEEVE.H / 2;
+  return new THREE.Box3(new THREE.Vector3(-SLEEVE.H / 2, -SLEEVE.H / 2, -0.004), new THREE.Vector3(SLEEVE.H / 2, top, 0.004));
+}
+function sleeveDepen(sl, pos, q, sb) {   // push pos out of every collider (a few passes); true if it touched one
+  let hit = false;
+  for (let pass = 0; pass < 4; pass++) {
+    let moved = false;
+    _sc.m.compose(pos, q, _sc.s.set(1, 1, 1)); obbOf(_sc.m, sb, _oA);
+    for (const C of sleeveColliders) {
+      obbOf(C.o.matrixWorld, C.b, _oB); const push = obbPush(_oA, _oB);
+      if (push) { pos.add(push); _oA.c.add(push); hit = moved = true; }
+    }
+    if (!moved) break;
+  }
+  return hit;
+}
+function sleeveFollow(sl) {   // the held sleeve toward the hand, stopped by the gear
+  const tp = new THREE.Vector3(), tq = new THREE.Quaternion(), ts = new THREE.Vector3();
+  new THREE.Matrix4().multiplyMatrices(sl.anchor.matrixWorld, sl.off).decompose(tp, tq, ts);
+  if (!sleeveColliders.length) { sl.g.position.copy(tp); sl.g.quaternion.copy(tq); return; }
+  const sb = sleeveBox(sl), p = sl.g.position.clone(), q0 = sl.g.quaternion.clone();
+  // steps of at most 1.5 cm (and 10 deg), so a push-out always points back the way the sleeve came (never through)
+  const n = Math.min(40, Math.max(1, Math.ceil(p.distanceTo(tp) / 0.015), Math.ceil(q0.angleTo(tq) / 0.17)));
+  let hit = false; const q = new THREE.Quaternion(), step = new THREE.Vector3();
+  for (let k = 1; k <= n; k++) {
+    step.subVectors(tp, p); const len = step.length();   // never more than 1.5 cm a step (a blocked sleeve never leaps)
+    if (len > 0.015) step.multiplyScalar(0.015 / len);
+    p.add(step); q.slerpQuaternions(q0, tq, k / n);
+    if (sleeveDepen(sl, p, q, sb)) hit = true;
+  }
+  sl.g.position.copy(p); sl.g.quaternion.copy(q);
+  if (hit && !sl.touch && xr && xr.buzzAnchor) xr.buzzAnchor(sl.anchor, 0.3, 20);
+  sl.touch = hit;
 }
 function sleevesHome() { for (const sl of [...sleeves]) disposeSleeve(sl); layoutSleeves(); }   // #242 tidy-up: all back at once
 function crateSelect(delta) {
@@ -4464,7 +4548,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
