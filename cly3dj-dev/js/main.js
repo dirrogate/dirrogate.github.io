@@ -1569,6 +1569,7 @@ function tidyRecords() {
   for (const mc of milks()) if (mc.userData.records) mc.userData.records.length = 0;
   for (const d of decks) if (d.record && !d.motorOn) { pickUpFromDeck(d, null); returnHeld(); }
   layoutSleeves(); drawCrateScreen();
+  refreshSleeveColliders();   // #250 works out the gear's pieces now (once), not on the first sleeve grab
 }
 // #243 sleeves are kinematic (owner): no gravity, the hand moves them, but they can't go into the gear. The decks, the
 // mixer and the flight case are oriented boxes measured from their own meshes when a sleeve is grabbed (records on
@@ -1595,6 +1596,27 @@ function localBox(obj) {   // obj-space box of its visible meshes, skipping reco
 // (knobs, buttons, screws) are left out; a box that wraps another one holding 80 %+ of its volume (the flight case's
 // alu edge trim around the panels) gives way to the inner one; boxes inside another are dropped. So a sleeve can
 // lie on the plinth next to the tonearm and go right up to the case's panels.
+// #250 the connected pieces of a geometry (vertices welded at 0.1 mm), as boxes in the geometry's own space,
+// worked out once per geometry. A piece is 'round' when its outline in plan is about as far from its centre at
+// 45 deg as along the axes (a disc / cylinder, not a square block).
+function partBoxes(geo) {
+  if (geo.userData.__parts) return geo.userData.__parts;
+  const pos = geo.attributes.position, n = pos.count, idx = geo.index, par = new Int32Array(n);
+  for (let i = 0; i < n; i++) par[i] = i;
+  const find = x => { while (par[x] !== x) { par[x] = par[par[x]]; x = par[x]; } return x; };
+  const join = (a, b) => { a = find(a); b = find(b); if (a !== b) par[a] = b; };
+  const seen = new Map();
+  for (let i = 0; i < n; i++) { const k = Math.round(pos.getX(i) * 1e4) + ',' + Math.round(pos.getY(i) * 1e4) + ',' + Math.round(pos.getZ(i) * 1e4); const j = seen.get(k); if (j !== undefined) join(i, j); else seen.set(k, i); }
+  if (idx) for (let t = 0; t < idx.count; t += 3) { join(idx.getX(t), idx.getX(t + 1)); join(idx.getX(t), idx.getX(t + 2)); }
+  else for (let t = 0; t + 2 < n; t += 3) { join(t, t + 1); join(t, t + 2); }
+  const boxes = new Map(), v = new THREE.Vector3();
+  for (let i = 0; i < n; i++) { const c = find(i); let b = boxes.get(c); if (!b) boxes.set(c, b = new THREE.Box3()); b.expandByPoint(v.fromBufferAttribute(pos, i)); }
+  const out = [...boxes.values()];
+  // roundness: farthest vertex along the 45 deg diagonal vs the half-width (a disc ~0.71, a square 1.0)
+  const diag = new Map(); for (let i = 0; i < n; i++) { const c = find(i), b = boxes.get(c), cx = (b.min.x + b.max.x) / 2, cz = (b.min.z + b.max.z) / 2; const d = Math.abs((pos.getX(i) - cx) + (pos.getZ(i) - cz)) / Math.SQRT2; if (!(diag.get(c) > d)) diag.set(c, d); }
+  for (const [c, b] of boxes) { const hw = (b.max.x - b.min.x) / 2; b.userData_round = hw > 0 && diag.get(c) < 0.85 * hw * Math.SQRT2; }
+  return (geo.userData.__parts = out);
+}
 function localBoxes(obj) {
   obj.updateMatrixWorld(true); _sc.inv.copy(obj.matrixWorld).invert();
   const out = [], skip = new Set([mixer.userData.tablet].filter(Boolean)), sz = new THREE.Vector3();
@@ -1603,9 +1625,17 @@ function localBoxes(obj) {
     if (o.isMesh && o.geometry && !o.isInstancedMesh) {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       if (!mats.every(x => x && x.visible === false)) {
-        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-        const b = o.geometry.boundingBox.clone().applyMatrix4(_sc.m.multiplyMatrices(_sc.inv, o.matrixWorld)); b.getSize(sz);
-        if (Math.max(sz.x, sz.y, sz.z) >= 0.05 && Math.max(sz.x, sz.y, sz.z) < 3) out.push(b);
+        _sc.m.multiplyMatrices(_sc.inv, o.matrixWorld);
+        for (const pb of partBoxes(o.geometry)) {   // #250 each separate piece of a merged mesh (four feet, not one slab)
+          const b = pb.clone().applyMatrix4(_sc.m); b.getSize(sz);
+          const big = Math.max(sz.x, sz.y, sz.z); if (big < 0.03 || big >= 3) continue;
+          // round pieces (feet, platter: width = depth, not taller than wide) get a box 10 % narrower, about the
+          // area of the disc, so the corners poke out only a few mm past the rim
+          if (Math.abs(sz.x - sz.z) < 0.1 * Math.max(sz.x, sz.z) && sz.y < 1.2 * sz.x && pb.userData_round) {
+            const c = b.getCenter(_sc.v); b.min.x = c.x - sz.x * 0.45; b.max.x = c.x + sz.x * 0.45; b.min.z = c.z - sz.z * 0.45; b.max.z = c.z + sz.z * 0.45;
+          }
+          out.push(b);
+        }
       }
     }
     for (const c of o.children) walk(c);

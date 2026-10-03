@@ -275,6 +275,11 @@ export class DjCam {
     const half = renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float');
     this.rt = new THREE.WebGLRenderTarget(1024, 576, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 });
     this.rt.texture.name = 'djcam';
+    // #250 (owner: AVACAM flickers most, wall above and tilted down): the sharp rendered picture shown smaller than
+    // its 1024 px on the wall, at an angle, sparkled and crawled with every head movement (no mipmaps). Mipmaps
+    // (made after each render, every 3rd frame) + anisotropic filtering smooth it like a real screen seen from afar.
+    this.rt.texture.generateMipmaps = true; this.rt.texture.minFilter = THREE.LinearMipmapLinearFilter;
+    this.rt.texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
     this.preset = 'front'; this.n = 0; this.t = 0; this.lastMs = 0; this.ms = 0;
   }
   aimAt(gear, dj) {   // rig-local positions
