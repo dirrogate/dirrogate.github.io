@@ -47,6 +47,29 @@ function handFrame(w, idx, mid, pinky) {
   return { F, N: V().crossVectors(F, S).normalize() };
 }
 
+// #251 (owner: the jaw 'glitches' an inch when the head moves, worst on AVACAM): the helmet's lower edge was skinned
+// half to Head, half to Neck, and the neck follows the head slowly (smoothed bust), so every head move stretched
+// the chin between the two. Each loose piece (shell, inner part, ear cups, bust) now follows just one bone, the one
+// most of its vertices lean on: the helmet moves rigidly with the head and the bust turns underneath it.
+function rigidPieces(geo) {
+  const pos = geo.attributes.position, si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight, idx = geo.index;
+  if (!si || !sw) return;
+  const n = pos.count, par = new Int32Array(n); for (let i = 0; i < n; i++) par[i] = i;
+  const find = x => { while (par[x] !== x) { par[x] = par[par[x]]; x = par[x]; } return x; };
+  const join = (a, b) => { a = find(a); b = find(b); if (a !== b) par[a] = b; };
+  const seen = new Map();
+  for (let i = 0; i < n; i++) { const k = `${pos.getX(i).toFixed(4)},${pos.getY(i).toFixed(4)},${pos.getZ(i).toFixed(4)}`; if (seen.has(k)) join(i, seen.get(k)); else seen.set(k, i); }
+  if (idx) for (let t = 0; t < idx.count; t += 3) { join(idx.getX(t), idx.getX(t + 1)); join(idx.getX(t), idx.getX(t + 2)); }
+  const votes = new Map();   // piece -> { bone: summed weight }
+  for (let i = 0; i < n; i++) {
+    const c = find(i); let v = votes.get(c); if (!v) votes.set(c, v = {});
+    for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k); if (w > 0) { const b = si.getComponent(i, k); v[b] = (v[b] || 0) + w; } }
+  }
+  const pick = new Map(); for (const [c, v] of votes) { let best = 0, bw = -1; for (const b in v) if (v[b] > bw) { bw = v[b]; best = +b; } pick.set(c, best); }
+  for (let i = 0; i < n; i++) { si.setXYZW(i, pick.get(find(i)), 0, 0, 0); sw.setXYZW(i, 1, 0, 0, 0); }
+  si.needsUpdate = sw.needsUpdate = true;
+}
+
 // #245 (owner): no headband. The helmet mesh is six loose pieces (shell, inner part, two ear cups, bust, headband);
 // the headband is the piece that runs across the top between the cups: wide (> 20 cm), shallow front to back
 // (< 5 cm) and above the visor. Its triangles are left out of the index at load, the file stays as it came.
@@ -118,7 +141,7 @@ export class RobotAvatar2 {
         o.material = m;
       }
       if (o.isSkinnedMesh && o.material && o.material.name === 'AvatarRobot') {
-        dropHeadband(o.geometry);
+        dropHeadband(o.geometry); rigidPieces(o.geometry);
         // chrome shell like the flight case ball corners (MAT.chrome); the painted map (black fuzzy stripe) stays.
         // Neck and collar (triangles touching a Neck-weighted vertex) keep the model's own matte material.
         const chrome = o.material.clone(); chrome.metalness = 1; chrome.roughness = 0.14;
