@@ -208,7 +208,7 @@ const extraMilk = {};
 function newMilk(key) { const m = makeMilkCrate(); m.userData.key = key; rig.add(m); m.traverse(o => { if (o.isMesh) o.userData.move = key; }); extraMilk[key] = m; return m; }
 try { for (const k of JSON.parse(localStorage.getItem('vire.milkKeys') || '[]')) if (/^milk[2-6]$/.test(k)) newMilk(k); } catch (e) {}
 milk.userData.key = 'milk';
-function milks() { return [milk, ...Object.values(extraMilk)]; }
+function milks() { return [milk, ...Object.values(extraMilk)].filter(m => m.parent); }   // #248 a switched-off first crate is out of the scene
 // #235 stage pieces the DJ can switch off to save work (TOOLS: LED wall and neon sign in VJ TOOLS, the first milk
 // crate in DJ TOOLS). Off = hidden, not hit by rays or hands, no shadow blob, nothing lands on it, and its per-frame
 // work stops (LED videos / camera / scroller, neon flicker). It keeps its place in the saved layout.
@@ -224,6 +224,12 @@ function applyPiece(k) {
   });
   // #236 LED wall off: clips keep running silently (not decoded) and the scroller keeps its text, both for the phone;
   // DECKS and CAM only ever show on the Quest, so those stop
+  // #248 (owner): a switched-off milk crate leaves the scene altogether, so nothing at all can bump into it, land in
+  // it or carry it along (it was only hidden); it comes back to the same spot when switched on
+  if (k === 'milk') {
+    if (!on && o.parent) { o.userData.homeParent = o.parent; o.parent.remove(o); }
+    else if (on && !o.parent && o.userData.homeParent) o.userData.homeParent.add(o);
+  }
   if (k === 'ledwall') { led.setSilent(!on); if (!on && (ledMode === 'decks' || ledMode === 'cam' || isLive(ledMode))) setLedMode('off'); }
 }
 function setPiece(k, on) { settings.pieces = { ...(settings.pieces || {}), [k]: on }; saveSettings(); applyPiece(k); drawMixScreen(); }
@@ -375,6 +381,7 @@ function ledTurned() {   // #222 let go after a twist: settle on portrait / land
   toast(Math.abs(Math.round(t / (Math.PI / 2))) % 2 ? 'LED wall: portrait' : 'LED wall: landscape', 1500);
   setTimeout(() => stage.save(), 500);
 }
+function ledTilted() { toast('LED wall: tilted ' + Math.round(ledwall.rotation.x * 180 / Math.PI) + ' deg', 1500); setTimeout(() => stage.save(), 300); }   // #248
 function toggleLedPortrait() { ledwall.userData.turnTo(ledwall.userData.portrait() ? 0 : Math.PI / 2); setTimeout(ledTurned, 450); }
 function setLedScale(s) { s = clamp(s, 0.4, 4); ledwall.scale.setScalar(s); if (stage) stage.items.ledwall.base = ledBase(); return s; }
 function saveLedScale() { try { localStorage.setItem('vire.ledScale', String(ledwall.scale.x)); } catch (e) {} }
@@ -1400,7 +1407,7 @@ function layoutSleeves() {
 // crate, on a real table in passthrough); let go over the record crate and it goes back in. Up to 3 can lie about:
 // a 4th sends the oldest back into the crate. Grab a lying sleeve anywhere on it to pick it up again, or slide its
 // record out. Each sleeve: a card box, a 1024 px front and back, a disc with the record's own label.
-const SLEEVE = { H: 0.315, PEEK: 0.05, OUT: 0.31, MAX_OUT: 3 };
+const SLEEVE = { H: 0.315, PEEK: 0.05, OUT: 0.31, MAX_OUT: 3, HOME_NEAR: 0.10, ARM_CLEAR: 0.25, ARM_MS: 5000 };   // #247 auto-return: 10 cm, armed 25 cm clear or after 5 s
 const sleeves = [];   // { rec, g, mesh, disc, tex: [front, back], anchor, off, s, hasRec, slotM, back, placedT }
 let sleeveOut = null;   // kept for older checks: the most recent sleeve (or null)
 const sleeveCard = new THREE.MeshStandardMaterial({ color: 0xd9d2c3, roughness: 0.85 });
@@ -1475,6 +1482,7 @@ function sleeveGrab(anchor, P) {
   }
   sl.g.updateMatrixWorld(); anchor.updateMatrixWorld();
   sl.anchor = anchor; sl.off = new THREE.Matrix4().copy(anchor.matrixWorld).invert().multiply(sl.g.matrixWorld);
+  sl.grabT = performance.now(); sl.armed = false;   // #247 auto-return near the crate arms once it has clearly left
   refreshSleeveColliders();   // #243 the gear as it stands now
   sleeveOut = sl; layoutSleeves(); return true;
 }
@@ -1529,8 +1537,26 @@ function stepSleeves(dt) {
       if (b.t >= 1) { disposeSleeve(sl); layoutSleeves(); }
       continue;
     }
-    if (sl.anchor) { sl.anchor.updateMatrixWorld(); sleeveFollow(sl); }   // #243 kinematic: stopped by the gear
+    if (sl.anchor) {
+      sl.anchor.updateMatrixWorld(); sleeveFollow(sl);   // #243 kinematic: stopped by the gear
+      // #247 (owner): a held sleeve brought within 10 cm (4 in) of the record crate goes back in by itself. Armed only
+      // once it has clearly left: 25 cm clear of the crate, or 5 s after the grab, so pulling one out never sends it
+      // straight back.
+      const d = sleeveCrateDist(sl);
+      if (!sl.armed && (d > SLEEVE.ARM_CLEAR || performance.now() - (sl.grabT || 0) > SLEEVE.ARM_MS)) sl.armed = true;
+      if (sl.armed && d < SLEEVE.HOME_NEAR && crateLidOpen()) { const a = sl.anchor; sleeveReturn(sl); if (xr && xr.buzzAnchor) xr.buzzAnchor(a, 0.4, 30); }
+    }
   }
+}
+// #247 nearest gap between the sleeve (its 4 corners and centre) and the record crate's box (crate space)
+function sleeveCrateDist(sl) {
+  sl.g.updateMatrixWorld(); let best = Infinity; const h = SLEEVE.H / 2, v = _sc.v2 || (_sc.v2 = new THREE.Vector3());
+  for (const [x, y] of [[0, 0], [-h, -h], [h, -h], [-h, h], [h, h]]) {
+    crate.worldToLocal(sl.g.localToWorld(v.set(x, y, 0)));
+    const dx = Math.max(0, Math.abs(v.x) - CRATE.W / 2), dz = Math.max(0, Math.abs(v.z) - CRATE.D / 2), dy = Math.max(0, -v.y, v.y - CRATE.H);
+    best = Math.min(best, Math.hypot(dx, dy, dz));
+  }
+  return best;
 }
 // #242 tidy-up (each VR / passthrough start, as the Quest may keep the page alive between sessions): sleeves, records
 // in hands, on the floor, on cases, spinning on a finger and in the milk crates go back into the crate; a record stays
@@ -1565,9 +1591,35 @@ function localBox(obj) {   // obj-space box of its visible meshes, skipping reco
   };
   walk(obj); return box.isEmpty() ? null : box;
 }
+// #247 (owner: hug the gear tighter): one box per visible part instead of one around everything. Parts under 5 cm
+// (knobs, buttons, screws) are left out; a box that wraps another one holding 80 %+ of its volume (the flight case's
+// alu edge trim around the panels) gives way to the inner one; boxes inside another are dropped. So a sleeve can
+// lie on the plinth next to the tonearm and go right up to the case's panels.
+function localBoxes(obj) {
+  obj.updateMatrixWorld(true); _sc.inv.copy(obj.matrixWorld).invert();
+  const out = [], skip = new Set([mixer.userData.tablet].filter(Boolean)), sz = new THREE.Vector3();
+  const walk = o => {
+    if (!o.visible || skip.has(o) || o.userData.record || o.userData.loose) return;
+    if (o.isMesh && o.geometry && !o.isInstancedMesh) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      if (!mats.every(x => x && x.visible === false)) {
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        const b = o.geometry.boundingBox.clone().applyMatrix4(_sc.m.multiplyMatrices(_sc.inv, o.matrixWorld)); b.getSize(sz);
+        if (Math.max(sz.x, sz.y, sz.z) >= 0.05 && Math.max(sz.x, sz.y, sz.z) < 3) out.push(b);
+      }
+    }
+    for (const c of o.children) walk(c);
+  };
+  walk(obj);
+  const vol = b => { b.getSize(sz); return Math.max(sz.x, 1e-3) * Math.max(sz.y, 1e-3) * Math.max(sz.z, 1e-3); };
+  const keep = out.filter(a => !out.some(b => b !== a && a.containsBox(b) && vol(b) >= 0.8 * vol(a)));   // shells give way to what they wrap
+  return keep.filter((a, i) => !keep.some((b, j) => j !== i && b.containsBox(a) && !(a.equals(b) && j > i)));
+}
 function refreshSleeveColliders() {
   sleeveColliders = [];
-  for (const o of [...deckGroups, mixer, ...Object.values(cases).map(c => c.group)]) { const b = localBox(o); if (b) sleeveColliders.push({ o, b }); }
+  for (const o of [...deckGroups, mixer, ...Object.values(cases).map(c => c.group)]) {
+    for (const b of localBoxes(o)) sleeveColliders.push({ o, b });
+  }
 }
 // an oriented box as centre, three unit axes and half sizes
 function obbOf(matrixWorld, box, out) {
@@ -1601,8 +1653,11 @@ function sleeveDepen(sl, pos, q, sb) {   // push pos out of every collider (a fe
   for (let pass = 0; pass < 4; pass++) {
     let moved = false;
     _sc.m.compose(pos, q, _sc.s.set(1, 1, 1)); obbOf(_sc.m, sb, _oA);
+    const rA = Math.hypot(_oA.h[0], _oA.h[1], _oA.h[2]);
     for (const C of sleeveColliders) {
-      obbOf(C.o.matrixWorld, C.b, _oB); const push = obbPush(_oA, _oB);
+      obbOf(C.o.matrixWorld, C.b, _oB);
+      if (_oB.c.distanceTo(_oA.c) > rA + Math.hypot(_oB.h[0], _oB.h[1], _oB.h[2]) + 0.01) continue;   // far apart: skip the full test
+      const push = obbPush(_oA, _oB);
       if (push) { pos.add(push); _oA.c.add(push); hit = moved = true; }
     }
     if (!moved) break;
@@ -4240,7 +4295,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
   sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease,
   crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, drawCrateScreen, layoutSleeves, crateDisc,
-  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, toast, mixScreenRelease,
+  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, ledTilted, toast, mixScreenRelease,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
 });

@@ -103,6 +103,12 @@ export function setupXR(ctx) {
     const x = v1.set(1, 0, 0).applyQuaternion(handQuat(st, q1)).applyQuaternion(_wq);
     return Math.atan2(x.y, x.x);
   }
+  // #248 the hand's tilt toward / away from you, in the same un-turned wall frame (pitch of its pointing direction)
+  function wallPitch(st) {
+    const w = ctx.ledwall; w.parent.getWorldQuaternion(_wq); _wq.multiply(q1.setFromEuler(_we.set(0, w.rotation.y, 0))).invert();
+    const f = v1.set(0, 0, -1).applyQuaternion(handQuat(st, q1)).applyQuaternion(_wq);
+    return Math.atan2(f.y, Math.hypot(f.x, f.z));
+  }
   function rayDown(st) {
     const p = st.pointer; syncRay(st);
     st.rayActive = ctx.pointerDown(p) || false;
@@ -342,8 +348,8 @@ export function setupXR(ctx) {
     if (hit && hit.key === 'ledwall' && !inputs.some(o => o !== st && o.direct && o.direct.target === 'ledwall')) {
       const l = ctx.ledwall.worldToLocal(v2.copy(P));
       if (Math.abs(l.x) < ctx.LED.W * 0.22 && Math.abs(l.y) < ctx.LED.H * 0.3) {
-        st.direct = { kind: 'ledTurn', target: 'ledwall', roll0: ctx.ledwall.rotation.z, h0: wallRoll(st) };
-        buzz(st, 0.4, 30); ctx.toast && ctx.toast('Twist your wrist to turn the LED wall (portrait / landscape)', 2500); return true;
+        st.direct = { kind: 'ledTurn', target: 'ledwall', roll0: ctx.ledwall.rotation.z, h0: wallRoll(st), tilt0: ctx.ledwall.rotation.x, p0: wallPitch(st), axis: null };
+        buzz(st, 0.4, 30); ctx.toast && ctx.toast('Twist your wrist to turn the LED wall, or tip your hand toward / away from you to tilt it', 2500); return true;
       }
     }
     // #176 LED wall: a second hand anywhere on it while the other hand holds it = resize (pull apart = bigger)
@@ -496,8 +502,11 @@ export function setupXR(ctx) {
       if (!g.done && Math.abs(dy) > 0.35) { ctx.setPower(g.d, g.d.power === false); g.done = true; buzz(st, 0.6, 40); }
     } else if (g.kind === 'neonScale') {
       if (g.R.a === st) ctx.setNeonScale(g.R.s0 * pinchOf(g.R.a).distanceTo(pinchOf(g.R.b)) / g.R.d0);
-    } else if (g.kind === 'ledTurn') {   // #222
-      ctx.ledwall.rotation.z = g.roll0 + wrap(wallRoll(st) - g.h0);
+    } else if (g.kind === 'ledTurn') {   // #222 twist = portrait / landscape; #248 tip toward / away = tilt
+      const dr = wrap(wallRoll(st) - g.h0), dp = wallPitch(st) - g.p0;
+      if (!g.axis && Math.max(Math.abs(dr), Math.abs(dp)) > 0.17) { g.axis = Math.abs(dr) >= Math.abs(dp) ? 'roll' : 'tilt'; buzz(st, 0.3, 20); }   // the first 10 deg decide which, then it stays on that one
+      if (g.axis === 'roll') ctx.ledwall.rotation.z = g.roll0 + dr;
+      else if (g.axis === 'tilt') ctx.ledwall.rotation.x = Math.max(-0.8, Math.min(0.8, g.tilt0 + dp));   // up to ~45 deg either way
     } else if (g.kind === 'ledScale') {
       if (g.R.a === st) ctx.setLedScale(g.R.s0 * pinchOf(g.R.a).distanceTo(pinchOf(g.R.b)) / g.R.d0);
     } else if (g.kind === 'twoHand') {
@@ -518,7 +527,7 @@ export function setupXR(ctx) {
     else if (g.kind === 'sleeve') ctx.sleeveRelease(st.anchor);   // #242 let go: it stays there (over the record crate: back in)
     else if (g.kind === 'tablet') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'tabletStretch') o.direct = null; if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
     else if (g.kind === 'tabletScale' || g.kind === 'tabletStretch') ctx.saveTablet();
-    else if (g.kind === 'ledTurn') { ctx.ledTurned(); buzz(st, 0.5, 30); }   // #222 settle on portrait / landscape
+    else if (g.kind === 'ledTurn') { if (g.axis === 'tilt') ctx.ledTilted && ctx.ledTilted(); else ctx.ledTurned(); buzz(st, 0.5, 30); }   // #222 settle on portrait / landscape; #248 a tilt just stays
     else if (g.kind === 'ledScale') {
       const o = g.R.a === st ? g.R.b : g.R.a;
       if (o.direct && o.direct.kind === 'ledScale') o.direct = null;

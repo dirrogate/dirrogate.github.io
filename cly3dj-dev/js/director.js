@@ -235,6 +235,7 @@ export function xrPose(renderer, inputs) {
         p: gp.clone().add(new THREE.Vector3(0, 0, 0.07).applyQuaternion(gq)),   // wrist sits a little behind the grip centre
         f: new THREE.Vector3(0, -0.35, -1).applyQuaternion(gq), s: new THREE.Vector3(0, -1, 0.25).applyQuaternion(gq),
         curl: bt && bt[1] ? 0.25 + 0.75 * bt[1].value : 0.3, curlIndex: bt && bt[0] ? 0.15 + 0.85 * bt[0].value : 0.2,
+        tip: st.tip ? st.tip.clone() : null,   // #247: the blue tip ball; the robot's index fingertip is put on it
       };
     }
   }
@@ -252,8 +253,9 @@ export function demoPose(rig, gear, t) {
     q: rq.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.55 + 0.05 * bob, 0.15 * Math.sin(t * 0.4), 0, 'YXZ'))),
   };
   const sc = Math.sin(t * 3.1);   // scratch back and forth on deck A's record edge
-  const lp = L(a.x + 0.06 + 0.04 * sc, top + 0.07, a.z + 0.13 + 0.02 * Math.cos(t * 3.1));
-  const rp = L(mx + 0.02 + 0.05 * Math.sin(t * 0.9), top + 0.06, mz + 0.14);
+  // #248: wrists 4 cm higher (the demo's fingertips sat 2 to 4 cm under the plinth and mixer tops)
+  const lp = L(a.x + 0.06 + 0.04 * sc, top + 0.11, a.z + 0.13 + 0.02 * Math.cos(t * 3.1));
+  const rp = L(mx + 0.02 + 0.05 * Math.sin(t * 0.9), top + 0.10, mz + 0.14);
   const d = (x, y, z) => new THREE.Vector3(x, y, z).applyQuaternion(rq);
   return { head, hands: [
     { p: lp, f: d(0.15, -0.45, -1), s: d(-1, 0, 0.1), curl: 0.3, curlIndex: 0.25 },
