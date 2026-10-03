@@ -249,9 +249,17 @@ export function setupXR(ctx) {
       if (headshellDist(d, P) < ARM_REACH) { ctx.armGrab(d); st.direct = { kind: 'arm', d, y0: P.y }; buzz(st); return true; }
     }
     // 1b. power dial: twist it (about a quarter turn) to switch the deck on or off
-    if (deckOk) for (const d of ctx.decks) {
+    // #252 (owner): with controllers the power dial and START / STOP answer the grip only (a trigger or a brushing tip
+    // never switches a deck off or stops it); bare hands as before (pinch the dial, poke the button)
+    const gripOk = st.isHand || btn === 'grip';
+    if (gripOk) for (const d of ctx.decks) {
       const pk = d.g.userData.powerKnob;
       if (pk && pk.getWorldPosition(v2).distanceTo(P) < 0.035) { st.direct = { kind: 'power', d, yaw0: yawOf(handQuat(st, q1)), done: false }; buzz(st); return true; }
+    }
+    if (!st.isHand && btn === 'grip') for (const d of ctx.decks) {
+      const sb = d.g.userData.start; if (!sb) continue;
+      sb.getWorldPosition(v2);
+      if (Math.hypot(P.x - v2.x, P.z - v2.z) < 0.03 && P.y - v2.y < 0.04 && P.y - v2.y > -0.02) { ctx.pressControl({ deck: d.name, id: 'start' }, st); st.direct = { kind: 'tap' }; buzz(st, 0.5, 30); return true; }
     }
     // 2. faders, pitch, knobs
     // #195 (owner): knobs, faders and pitch faders take the trigger only (hands: pinch); the grip never turns or slides them
@@ -577,7 +585,7 @@ export function setupXR(ctx) {
   function pokes(st, T) {
     buttons = buttons || buttonList();
     for (const b of buttons) {
-      if ((b.c.id === 'target' || b.c.id === 'rpm33' || b.c.id === 'rpm45') && !st.isHand) continue;   // controllers: trigger only, see grabStart
+      if ((b.c.id === 'target' || b.c.id === 'rpm33' || b.c.id === 'rpm45' || b.c.id === 'start') && !st.isHand) continue;   // controllers: trigger (START / STOP: grip, #252) only, see grabStart
       b.g.getWorldPosition(v2); v2.y += b.top ? b.top() + 0.006 : 0.006;
       const h = T.y - v2.y, dxz = Math.hypot(T.x - v2.x, T.z - v2.z);
       const key = b;

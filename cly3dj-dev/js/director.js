@@ -283,7 +283,11 @@ export class DjCam {
     this.preset = 'front'; this.n = 0; this.t = 0; this.lastMs = 0; this.ms = 0;
   }
   aimAt(gear, dj) {   // rig-local positions
-    const m = gear.mixer, A = gear.deckA, Bk = gear.deckB, c = gear.crate, top = gear.top, z = dj.z;
+    // #252 (owner: AVACAM still erratic when the head moves): the aim followed the DJ's head depth raw, so every lean
+    // swung the whole picture. Now it follows a slow average of it (~2 s), like an operator reframing, not shaking.
+    const now = performance.now(), k = this.zT ? Math.min(1, (now - this.zT) / 2000) : 1; this.zT = now;
+    this.zs = this.zs == null ? dj.z : this.zs + (dj.z - this.zs) * k;
+    const m = gear.mixer, A = gear.deckA, Bk = gear.deckB, c = gear.crate, top = gear.top, z = this.zs;
     const P = {
       front: [[m.x, 1.55, m.z - 1.65], [m.x, 1.22, (m.z + z) / 2]],
       wide: [[m.x + 1.5, 1.95, m.z - 1.8], [m.x, 1.1, (m.z + z) / 2]],
