@@ -291,7 +291,9 @@ export function setupXR(ctx) {
       // #107: lift zone widened 5 mm into the label (45-70 mm radius); inside that the label does nothing
       if (d.record && r < ctx.REC.LABEL - 0.005) { st.direct = { kind: 'tap' }; return true; }
       // #136 (owner): lift zone 3 cm wider (label edge + 5 cm, was + 2 cm); lifting a record off was too fiddly
-      if (d.record && r < ctx.REC.LABEL + LIFT_OUT) { st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true; }
+      // #249 (owner): with a controller the record only comes off with the grip (block above); the trigger there scratches,
+      // so a rough scratch that pulls up can never take it off. Bare hands still lift with a pinch.
+      if (st.isHand && d.record && r < ctx.REC.LABEL + LIFT_OUT) { st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true; }
       if (d.record && r < ctx.REC.R - 0.004) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l) }; buzz(st); return true; }
       if (r > ctx.REC.R - 0.004) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l, true, st.isHand ? 0.6 : rimForce(st, r)) }; buzz(st, 0.2, 15); return true; }
     }
