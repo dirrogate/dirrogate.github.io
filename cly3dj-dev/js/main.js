@@ -499,14 +499,14 @@ function onLiveTrack(t) {
 }
 const livePossible = () => !!(liveTrack && spect && spect.ui && spect.ui().phone);
 function isLive(m) { return m === 'live' || m === 'solo'; }   // #239 SOLO = the phone's camera only, no gear
-function nextLedMode(m) {   // OFF > CLIPS > DECKS > CAM > LIVE > SOLO (the last two only with the phone linked) > OFF
+function nextLedMode(m) {   // OFF > CLIPS > VIDVINYL ('decks') > AVACAM ('cam', #240 names) > LIVE > SOLO (the last two only with the phone linked) > OFF
   const order = ['off', 'clips', 'decks', 'cam', 'live', 'solo'];
   let i = order.indexOf(m);
   for (let k = 0; k < order.length; k++) { i = (i + 1) % order.length; if (!isLive(order[i]) || livePossible()) return order[i]; }
   return 'off';
 }
 function clipsMode() { if (isLive(ledMode) && spect && spect.liveCam) spect.liveCam(false); ledMode = 'clips'; }   // #238 a clip from the LED list ends LIVE
-const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED DECKS', cam: 'LED CAM', live: 'LED LIVE', solo: 'LED SOLO' };
+const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED VIDVINYL', cam: 'LED AVACAM', live: 'LED LIVE', solo: 'LED SOLO' };
 function setLedMode(m) {
   if (m === 'clips' && !led.hasFiles) m = 'decks';
   if (!pieceOn('ledwall') && (m === 'decks' || m === 'cam' || isLive(m))) m = 'off';   // #236 switched off: only clips run (for the phone)
@@ -3062,7 +3062,7 @@ function drawDjCamTab(btn, y0) {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   const on = ledMode === 'cam';
   const top = [
-    ['LED CAM', on, () => setLedMode(on ? 'off' : 'cam')],
+    ['LED AVACAM', on, () => setLedMode(on ? 'off' : 'cam')],   // #240 was LED CAM
     ['MIRROR', djSet.mirror, () => setDjMirror(!djSet.mirror)],
     ['AVATAR', djSet.avatar, () => setDjAvatar(!djSet.avatar)],
     [djSet.style === 'human' ? 'STYLE: HUMAN' : 'STYLE: ROBOT', false, () => setDjStyle(djSet.style === 'human' ? 'robot' : 'human')],
@@ -3074,7 +3074,7 @@ function drawDjCamTab(btn, y0) {
   const ty = y0 + 50 + Math.ceil(keys.length / pp) * 42 + 18;
   g.fillStyle = '#8c96a8'; g.font = '500 16px system-ui'; g.textAlign = 'left';
   const av = !avatar ? 'no avatar' : avatar.status === 'ready' ? 'avatar ready' : 'avatar ' + avatar.status;
-  const lines = [`${av} · ${on && djcam ? `cam ${djcam.ms.toFixed(1)} ms a frame (every 3rd headset frame)` : 'LED wall not on CAM'}`,
+  const lines = [`${av} · ${on && djcam ? `cam ${djcam.ms.toFixed(1)} ms a frame (every 3rd headset frame)` : 'LED wall not on AVACAM'}`,
     'Look at the LED wall to put the camera in the Meta cast.'];
   lines.forEach((t, i) => fitText2(g, t, 12, Math.min(H - 12, ty + i * 24), W - 24));
 }
