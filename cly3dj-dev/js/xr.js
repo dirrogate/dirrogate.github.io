@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { XRControllerModelFactory } from '../vendor/three/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from '../vendor/three/webxr/XRHandModelFactory.js';
-import { createControllerHand, POSE as CTL_POSE } from './ctlhands.js';   // #276, #291
+import { createControllerHand, driveGloveHand, POSE as CTL_POSE } from './ctlhands.js';   // #276, #291
 const LIFT_OUT = 0.05;
 // #260 the record on a deck: 12" or 7" sizes (lift zone just past a 45's label, 1.2 cm)
 let REC12 = null; const RD = d => (d.record && d.record.dims) || REC12; const LO = D => (D.SIZE === 7 ? 0.012 : LIFT_OUT);   // #136: record lift-off zone reaches this far past the label edge (m)
@@ -835,7 +835,7 @@ export function setupXR(ctx) {
     h.root.updateMatrixWorld(true);
     const J = new Map(); for (const n in h.bones) J.set(n, h.bones[n].getWorldPosition(new THREE.Vector3()));
     if (J.size < 25) return;
-    g.hand(H, { joints: J, tip: J.get('index-finger-tip').clone(), curlIndex: Math.max(st.tA || 0, st.gA || 0) }, dt);   // #289 glove index on the skin hand's index (the ball is on the thumb now)
+    driveGloveHand(g, H, J, dt);   // #300 knuckles on the skin hand's knuckles, no fingertip shift
     st.gloveH = H;
   }
   // #291 HAND FIT: the owner's move / turn of the 3D hands (and glove) on the controllers, saved

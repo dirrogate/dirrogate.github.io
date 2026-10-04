@@ -133,3 +133,19 @@ function update(h, t, g, th) {
   _t.setFromMatrixPosition(tb.matrixWorld).applyMatrix4(_inv); _d.setFromMatrixPosition(db.matrixWorld).applyMatrix4(_inv);
   (h.tipLive || (h.tipLive = new THREE.Vector3())).copy(_t).addScaledVector(_d.subVectors(_t, _d).normalize(), 0.006);
 }
+
+// #300 (owner: the glove looked mangled / squashed). The glove follows the skin hand's 25 joints through robot2.js's
+// solver, which also shifted it so its index fingertip sat on the tracked one (#247). Since the index rests curled
+// (#295) that shift chased a fingertip inside the fist and dragged the glove's hand through itself. Now no fingertip
+// shift: the glove's middle knuckle is put on the skin hand's middle knuckle each frame (its long cuff then sits back
+// over the wrist, as measured in #287).
+const _gv = new THREE.Vector3(), _gw = new THREE.Vector3();
+export function driveGloveHand(g, H, J, dt) {
+  if (!H.node0) H.node0 = H.node.position.clone();
+  H.node.position.copy(H.node0); H.node.updateMatrixWorld(true); H.off = null;
+  g.hand(H, { joints: J, tip: J.get('index-finger-tip'), curlIndex: 1 }, dt);   // tip + curl 1 = robot2 skips its fingertip shift
+  const want = J.get('middle-finger-phalanx-proximal'); if (!want || !H.B.Middle_Proximal) return;
+  H.B.Middle_Proximal.getWorldPosition(_gv);
+  H.node.getWorldPosition(_gw).add(want).sub(_gv);
+  H.node.parent.updateWorldMatrix(true, false); H.node.position.copy(H.node.parent.worldToLocal(_gw)); H.node.updateMatrixWorld(true);
+}

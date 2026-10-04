@@ -6,7 +6,7 @@
 // Later: realistic human hand textures.
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
-import { createControllerHand, POSE } from './ctlhands.js';
+import { createControllerHand, driveGloveHand, POSE } from './ctlhands.js';
 
 const SPEC = ['wrist', 'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
   ...['index-finger', 'middle-finger', 'ring-finger', 'pinky-finger'].flatMap(f => [`${f}-metacarpal`, `${f}-phalanx-proximal`, `${f}-phalanx-intermediate`, `${f}-phalanx-distal`, `${f}-tip`])];
@@ -81,8 +81,7 @@ export function makePhoneHands(rig) {
     h.root.updateMatrixWorld(true);
     const J = new Map(); for (const n in h.bones) J.set(n, h.bones[n].getWorldPosition(new THREE.Vector3()));
     if (J.size < 25) return;
-    const tip = h.bones['index-finger-tip'].getWorldPosition(new THREE.Vector3());
-    g.hand(H, { joints: J, tip, curlIndex: curl }, dt); S.gloveH = H;
+    driveGloveHand(g, H, J, dt); S.gloveH = H;   // #300
   }
   // list = the Quest's hands entries: [i, 'c', [x y z qx qy qz qw  trigger grip thumb], hd] or [i, 'h', joints[75], hd]
   function update(list, lk, dt) {
