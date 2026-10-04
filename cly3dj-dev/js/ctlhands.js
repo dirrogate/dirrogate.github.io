@@ -75,11 +75,17 @@ function place(h, handed) {
   const dj = h.bones['index-finger-phalanx-distal']; dj.updateWorldMatrix(true, false);
   const ti = new THREE.Vector3().setFromMatrixPosition(it.matrixWorld).applyMatrix4(inv), di = new THREE.Vector3().setFromMatrixPosition(dj.matrixWorld).applyMatrix4(inv);
   h.tipO = ti.clone().addScaledVector(ti.clone().sub(di).normalize(), 0.006);
-  // #293 the relaxed hand's index fingertip (6 mm past the tip joint): THE touch point and ball, fixed in grip space
-  // (as #279, the last setup where dials and faders behaved: a press never moves it)
-  pose(h, 0, 0, false); h.holder.updateMatrix(); it.updateWorldMatrix(true, false); dj.updateWorldMatrix(true, false);
-  const tr = new THREE.Vector3().setFromMatrixPosition(it.matrixWorld).applyMatrix4(inv), dr = new THREE.Vector3().setFromMatrixPosition(dj.matrixWorld).applyMatrix4(inv);
-  h.tipRest = tr.clone().addScaledVector(tr.clone().sub(dr).normalize(), 0.006);
+  // #294 (owner) THE touch point and ball, fixed in grip space: the inner side of the relaxed thumb's pad (60 % of the
+  // way from the thumb's last joint to its tip, 8 mm toward the index fingertip). A press closes the O and slides the
+  // drawn hand (h.oShift, eased with the press) so the middle of the O lands on that point: the fingers close round
+  // whatever the ball was on, and the touch point itself never moves.
+  pose(h, 0, 0, false); h.holder.updateMatrix(); it.updateWorldMatrix(true, false); tt.updateWorldMatrix(true, false);
+  const tdj = h.bones['thumb-phalanx-distal']; tdj.updateWorldMatrix(true, false);
+  const P = o => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).applyMatrix4(inv);
+  const td = P(tdj), tp = P(tt), ip = P(it), pad = td.clone().lerp(tp, 0.6);
+  h.tipRest = pad.clone().addScaledVector(ip.sub(pad).normalize(), 0.008);
+  h.basePos = h.holder.position.clone();
+  h.oShift = h.tipRest.clone().sub(h.oLocal);   // root (grip) space = the holder's parent space
   h.cur = '';
 }
 
@@ -117,6 +123,7 @@ function update(h, t, g, th) {
   if (!h.ready) return;
   const key = `${t.toFixed(2)}|${g.toFixed(2)}|${th ? 1 : 0}`; if (key === h.cur) return; h.cur = key;
   pose(h, t, g, th);
+  if (h.basePos && h.oShift) h.holder.position.copy(h.basePos).addScaledVector(h.oShift, Math.max(t, g));   // #294 the O onto the ball
   // #280 / #289 the blue ball and the touch point follow the thumb tip (6 mm past the tip joint, which is inside the
   // skin), in the hand root's space (= grip space)
   h.holder.updateMatrix();
