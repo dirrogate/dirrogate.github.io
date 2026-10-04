@@ -756,7 +756,8 @@ export function setupXR(ctx) {
   // virtual scene so the passthrough camera image of your actual hand shows through, in front of the
   // decks. '3d': a shaded skin-tone hand (always used in full VR).
   const OCCLUDER = new THREE.MeshBasicMaterial({ color: 0x000000, opacity: 0, blending: THREE.NoBlending });
-  const SKIN = new THREE.MeshStandardMaterial({ color: 0xc8906f, roughness: 0.55, metalness: 0 });
+  const SKIN = new THREE.MeshStandardMaterial({ color: 0xbe8969,   // #269 owner: 5% darker (was 0xc8906f)
+    roughness: 0.55, metalness: 0 });
   let handMode = '3d';
   function setHandMode(m) { handMode = m; for (const st of inputs) st.handMatFor = null; }
   function applyHandLook(st) {
