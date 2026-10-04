@@ -879,8 +879,8 @@ export function setupXR(ctx) {
     // #296 (owner: on the trigger the ball sometimes sat on the back of the thumb): the pose follows the select / squeeze
     // events (st.held, with the system's own hysteresis) instead of gamepad.pressed, which flickers on a light trigger
     // and left the O half closed. The thumb-stick touch no longer changes the thumb either (it moved the thumb off the ball).
-    const hd = st.held || {};
-    h.update(Math.round(ease('tA', hd.trigger) * 20) / 20, Math.round(ease('gA', hd.grip) * 20) / 20, false);
+    const hb = st.held || {};   // (#298: was "hd", which clashed with the handedness above)
+    h.update(Math.round(ease('tA', hb.trigger) * 20) / 20, Math.round(ease('gA', hb.grip) * 20) / 20, false);
     h.holder.visible = ctlLook !== 'glove';   // #287 the skin hand stays posed (it drives the glove) but is not drawn
     if (ctlLook === 'glove') gloveStep(st, h, 1 / 60);
   }
