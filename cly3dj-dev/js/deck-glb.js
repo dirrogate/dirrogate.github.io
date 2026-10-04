@@ -260,28 +260,70 @@ function legendMat(text, aspect, withLed) {
 // #264 (owner: the strobe dot ring looked smudgy). The model's rim texture is 128 px with the dots' lighting painted
 // in, blurred by the time it reaches the headset. Redrawn at 512 px in the same layout (silver chamfers top and
 // bottom, 4 dots a tile, rows top to bottom: small, big, medium, medium; the strobe shader's row bands unchanged),
-// each dot a raised satin-metal stud: crisp anti-aliased edge, a soft dome shade, a thin highlight on the upper
-// left and a shadow line on the lower right. Mipmaps + 8x anisotropy keep it crisp at a glance angle.
+// each dot a raised satin-metal stud with a crisp anti-aliased edge and a soft dome shade.
+// #266 (owner: dots looked doubled, "overlaid over the original"). The model's own 128 px normal map still put
+// its bumps where the model has them, and each row there sits at its own x phase (measured from that map:
+// 19.4 / 15.9 / 17.5 / 12.8 px, rows at y 28.7 / 56.2 / 83.9 / 108.1), so the redrawn dots (all at x 15) and the
+// bumps were side by side. Now the albedo and a new 512 px normal map are both drawn from the one list below.
+const DOT_ROWS = [   // x phase, centre y (128 px layout), dot radius, plateau radius of the stud
+  { x: 19.4, y: 28.7, r: 6.2, top: 2.0 },
+  { x: 15.9, y: 56.2, r: 13.4, top: 7.0 },
+  { x: 17.5, y: 83.9, r: 8.6, top: 3.5 },
+  { x: 12.8, y: 108.1, r: 9.6, top: 3.8 },
+];
 let dotsTex = null;
 function crispDots(orig) {
   if (dotsTex) return dotsTex;
   const S = 512, k = S / 128, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d');
   g.fillStyle = '#000'; g.fillRect(0, 0, S, S);
   g.fillStyle = '#ffffff'; g.fillRect(0, 0, S, 11.5 * k); g.fillRect(0, 122 * k, S, S - 122 * k);   // the rim's chamfers
-  const rows = [[27.5, 5.8], [55, 13.2], [83, 8.4], [107, 9.6]];   // centre y, radius (in the 128 px layout)
-  for (const [cy, r] of rows) for (let i = -1; i <= 4; i++) {
-    const cx = (15 + 32 * i) * k, y = cy * k, R = r * k;
-    g.fillStyle = 'rgba(0,0,0,0.9)'; g.beginPath(); g.arc(cx + R * 0.12, y + R * 0.14, R * 1.06, 0, Math.PI * 2); g.fill();   // contact shadow
-    const gr = g.createRadialGradient(cx - R * 0.3, y - R * 0.35, R * 0.1, cx, y, R);
-    gr.addColorStop(0, '#e4e4e6'); gr.addColorStop(0.55, '#bfbfc2'); gr.addColorStop(1, '#8c8c90');
+  for (const row of DOT_ROWS) for (let i = -1; i <= 4; i++) {
+    const cx = (row.x + 32 * i) * k, y = row.y * k, R = row.r * k;
+    g.fillStyle = 'rgba(0,0,0,0.9)'; g.beginPath(); g.arc(cx + R * 0.08, y + R * 0.1, R * 1.05, 0, Math.PI * 2); g.fill();   // contact shadow
+    const gr = g.createRadialGradient(cx - R * 0.25, y - R * 0.3, R * 0.1, cx, y, R);
+    gr.addColorStop(0, '#e6e6e8'); gr.addColorStop(0.6, '#c4c4c7'); gr.addColorStop(1, '#9a9a9e');
     g.fillStyle = gr; g.beginPath(); g.arc(cx, y, R, 0, Math.PI * 2); g.fill();
-    g.lineWidth = Math.max(1, R * 0.09); g.strokeStyle = 'rgba(255,255,255,0.85)'; g.beginPath(); g.arc(cx, y, R * 0.92, Math.PI * 0.95, Math.PI * 1.6); g.stroke();
-    g.strokeStyle = 'rgba(30,30,32,0.9)'; g.beginPath(); g.arc(cx, y, R * 0.95, -Math.PI * 0.05, Math.PI * 0.55); g.stroke();
   }
   const t = new THREE.CanvasTexture(c);
   if (orig) { t.colorSpace = orig.colorSpace; t.flipY = orig.flipY; t.channel = orig.channel; }
   t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter;
   return (dotsTex = t);
+}
+// Matching normal map (#266): height field of the same studs (flat top, rounded bevel down to the dot edge) and
+// the chamfer steps, turned into normals with the original map's convention (R = 128 - dh/dx, G = 128 - dh/dy).
+let dotsNrm = null;
+function crispDotsNormal(orig) {
+  if (dotsNrm) return dotsNrm;
+  const S = 512, k = S / 128, H = new Float32Array(S * S);
+  for (let j = 0; j < S; j++) {
+    const yy = (j + 0.5) / k;
+    const band = yy < 12 || yy > 121.5 ? 1 : 0;
+    for (let i = 0; i < S; i++) H[j * S + i] = band;
+  }
+  for (const row of DOT_ROWS) for (let i = -1; i <= 4; i++) {
+    const cx = row.x + 32 * i, R = row.r + 0.6, T = row.top;
+    for (let j = Math.floor((row.y - R - 1) * k); j <= Math.ceil((row.y + R + 1) * k); j++) {
+      if (j < 0 || j >= S) continue;
+      for (let ii = Math.floor((cx - R - 1) * k); ii <= Math.ceil((cx + R + 1) * k); ii++) {
+        const d = Math.hypot((ii + 0.5) / k - cx, (j + 0.5) / k - row.y);
+        if (d >= R) continue;
+        const e = d <= T ? 1 : Math.cos((d - T) / (R - T) * Math.PI / 2);   // rounded shoulder
+        const x = ((ii % S) + S) % S, idx = j * S + x; H[idx] = Math.max(H[idx], 0.55 * e);
+      }
+    }
+  }
+  const data = new Uint8Array(S * S * 4), str = 2.2;   // height units per texel -> normal strength
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
+    const h = (x, y) => H[Math.min(S - 1, Math.max(0, y)) * S + ((x % S) + S) % S];
+    const dx = (h(i + 1, j) - h(i - 1, j)) * 0.5 * str, dy = (h(i, j + 1) - h(i, j - 1)) * 0.5 * str;
+    const l = Math.hypot(dx, dy, 1), o = (j * S + i) * 4;
+    data[o] = Math.round(128 - 127 * dx / l); data[o + 1] = Math.round(128 - 127 * dy / l); data[o + 2] = Math.round(128 + 127 / l); data[o + 3] = 255;
+  }
+  const t = new THREE.DataTexture(data, S, S);
+  if (orig) { t.flipY = orig.flipY; t.channel = orig.channel; }
+  t.colorSpace = THREE.NoColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+  t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.needsUpdate = true;
+  return (dotsNrm = t);
 }
 
 export function makeGlbDeck(name) {
@@ -372,6 +414,7 @@ export function makeGlbDeck(name) {
     const uni = { uBlur: { value: 0 }, uStrobe: { value: new THREE.Vector4() }, uLampPos: { value: new THREE.Vector3() }, uLampCol: { value: new THREE.Color(0, 0, 0) } };
     const mat = mesh.material.clone();
     mat.map = crispDots(mesh.material.map);   // #264 sharp dots (the model's 128 px texture went soft in the headset)
+    if (mesh.material.normalMap) mat.normalMap = crispDotsNormal(mesh.material.normalMap);   // #266 bumps where the dots are
     mat.onBeforeCompile = sh => {
       Object.assign(sh.uniforms, uni);
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vStWP; varying vec3 vStWN;')
@@ -401,7 +444,7 @@ export function makeGlbDeck(name) {
     const lens = new THREE.MeshStandardMaterial({ color: 0x220404, emissive: 0xff1a08, emissiveIntensity: 0, roughness: 0.25, toneMapped: false });
     if (win) win.material = lens;
     const lampPt = new THREE.Object3D(); lampPt.position.copy(KNOB_LAMP_RAW); if (win) win.add(lampPt);
-    u.strobe = { uni, lens, lampPt, kU: 7.7209,       /* texture u per radian of rim, measured from the mesh */ P: 0.25, F: 100,
+    u.strobe = { uni, lens, lampPt, mat, kU: 7.7209,       /* texture u per radian of rim, measured from the mesh */ P: 0.25, F: 100,
       // rows by texture v (bottom to top of the rim): -3.3 %, 0 % (big dots), +3.3 %, +6 %, like the printed legend
       rows: [-0.033, 0, 0.033, 0.06].map(p => ({ p, phi: 0 })) };
   }

@@ -4400,12 +4400,21 @@ function frame() {
       const S = u.strobe, w = prate * W33;                       // rad/s (#120: the platter's dots)
       d.frameDt = (d.frameDt || 1 / 72) * 0.9 + Math.min(1 / 30, Math.max(1 / 120, dt)) * 0.1;
       S.uni.uBlur.value = Math.min(0.75, Math.abs(w) * d.frameDt * S.kU);
+      // #266: the stud bumps fade out as the dots smear (the normal map isn't blurred, so at speed it drew
+      // sharp bumps beside the smeared dots, a second image)
+      if (S.mat && S.mat.normalMap) { const b = S.uni.uBlur.value, f = 1 - Math.min(1, Math.max(0, (b - 0.02) / 0.12)); S.mat.normalScale.set(f, f); }
       // strobe lamp: 100 flashes/s; per flash the dots advance a fraction `a` of their pitch (wrapped), so a
       // row stands still when the speed matches its calibration and drifts slowly either side of it
       const nom = W33 * d.speed, off = [0, 0, 0, 0];
       S.rows.forEach((r, k) => {
         const sR = w / (nom * (1 + r.p)); const a = sR - Math.round(sR);
-        r.phi += a * S.F * (S.P / S.kU) * dt;                    // apparent angle, rad (texture dot pitch)
+        if (Math.abs(sR) < 0.5) {
+          // #266 (owner: red dots beside the silver ones, a double image). Slow or stopped, a strobe just shows
+          // the real dots, so the lamp's sample eases back onto them (it used to keep the offset it had when the
+          // platter stopped, and the red copy sat between the dots).
+          let o = r.phi - d.platterAngle; const pr = S.P / S.kU; o -= Math.round(o / pr) * pr;
+          r.phi = d.platterAngle + o * Math.max(0, 1 - dt * 6);
+        } else r.phi += a * S.F * (S.P / S.kU) * dt;           // apparent angle, rad (texture dot pitch)
         const o = S.kU * (r.phi - d.platterAngle); off[k] = o - Math.floor(o / S.P) * S.P;
       });
       S.uni.uStrobe.value.set(off[0], off[1], off[2], off[3]);
