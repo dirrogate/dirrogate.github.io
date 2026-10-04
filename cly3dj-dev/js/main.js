@@ -3947,7 +3947,13 @@ function drawToolsPage() {
   if (page === 'home') {
     const y0 = head('TOOLS', 'mixer');
     if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26); note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off.', y0 + 240); }
-    else { const bw = (R - L - 12) / 2; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); note('DJ TOOLS: Record Maker, milk crate on / off.   VJ TOOLS: Scroller, LED wall and neon sign on / off.', y0 + 166); }
+    else { const bw = (R - L - 12) / 2; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); note('DJ TOOLS: Record Maker, milk crate on / off.   VJ TOOLS: Scroller, LED wall and neon sign on / off.', y0 + 160); }
+    { // #258 flicker tests
+      const ty = H - (P ? 60 : 46), tw = (R - L - 16) / 3;
+      btn(L, ty, tw, 36, testState.glass ? 'GLASS TEST: GLASS OFF' : 'GLASS TEST', testState.glass, () => setTest('glass'), false, 15);
+      btn(L + tw + 8, ty, tw, 36, 'CAM 2ND FRAME', testState.cam2, () => setTest('cam2'), false, 15);
+      btn(L + 2 * (tw + 8), ty, tw, 36, 'FPS', testState.fps, () => setTest('fps'), false, 15);
+    }
     return;
   }
   if (page === 'dj' || page === 'vj') {
@@ -4137,6 +4143,11 @@ function drawMixScreen() {
     drawTopBtn(g, x, y, w, h, 'TOOLS', !!(scroller && scroller.on));
     SP_HIT.push({ x: x - 6, y: y - 8, w: w + 12, h: h + 14, act: () => setTools('home') });
     drawResetMix(g, x + w + 12, y, 120, h);   // #254
+    if (testState.fps) {   // #258 live frame rate (TOOLS > FPS)
+      const st = fpsStats(); g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '700 16px system-ui';
+      g.fillStyle = !st ? '#8c96a8' : st.drops > 3 ? '#ff5050' : st.drops ? '#f1b650' : '#40d080';
+      g.font = '700 15px system-ui'; fitText2(g, st ? `${st.fps} fps · ${st.drops} dropped / 10 s · worst ${st.worst.toFixed(0)} ms` : 'measuring…', x + w + 144, y + h / 2, W - 180 - (x + w + 144)); g.textBaseline = 'alphabetic';
+    }
   }
   if (sp) {   // #174: MR GUI toggle + phone icon on deck A's top row, right-aligned to its panel (the divider stays clear)
     const right = W / 2 - 14, pw = 14, ph = 24, w = 108, h = 28, y = 12;
@@ -4244,7 +4255,27 @@ const qHoldXR = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -Math.
 const _holdOff = new THREE.Vector3();
 
 function wrapPi(a) { a %= 2 * Math.PI; return a > Math.PI ? a - 2 * Math.PI : a < -Math.PI ? a + 2 * Math.PI : a; }
+// #258 flicker hunt (owner): temporary test switches on the TOOLS page. GLASS TEST hides the tablet's glass plate;
+// CAM 2ND FRAME draws AVACAM every 2nd headset frame (45 fps at 90 Hz) instead of every 3rd; FPS shows the real frame
+// rate and the frames that took over 1.5x the usual time (dropped) in the last 10 s, on the tablet's main page.
+const testState = { glass: false, cam2: false, fps: false };
+const fpsLog = [];   // frame start times (ms), last 10 s
+function fpsStats() {
+  const now = performance.now(); while (fpsLog.length && now - fpsLog[0] > 10000) fpsLog.shift();
+  if (fpsLog.length < 10) return null;
+  const d = []; for (let i = 1; i < fpsLog.length; i++) d.push(fpsLog[i] - fpsLog[i - 1]);
+  const srt = [...d].sort((a, b) => a - b), med = srt[srt.length >> 1];
+  const last1 = fpsLog.filter(t => now - t < 1000).length;
+  return { fps: last1, med, drops: d.filter(x => x > med * 1.5).length, worst: srt[srt.length - 1] };
+}
+function setTest(k) {
+  testState[k] = !testState[k];
+  if (k === 'glass' && mixer.userData.screenGlass) mixer.userData.screenGlass.visible = !testState.glass;
+  if (k === 'fps') { clearInterval(setTest.iv); if (testState.fps) setTest.iv = setInterval(drawMixScreen, 1000); }
+  drawMixScreen();
+}
 function frame() {
+  if (testState.fps) fpsLog.push(performance.now());   // #258
   const dt = Math.min(0.05, clock.getDelta());
   if (renderer.xr.isPresenting) anchorFollow();   // #210
   if (camTween) {
@@ -4425,7 +4456,7 @@ function stepDjCam(dt) {
   }
   const dj = rig.worldToLocal(pose.head.p.clone());
   djcam.aimAt(gear, dj);
-  djcam.render(scene, dt, xrOn ? 3 : 2, djPrep);
+  djcam.render(scene, dt, xrOn ? (testState.cam2 ? 2 : 3) : 2, djPrep);   // #258 CAM 2ND FRAME test
 }
 const _djFloor = new THREE.Vector3();
 
