@@ -23,7 +23,7 @@ export async function loadBaked(url) {
 }
 import { mergeStatic } from './merge.js';
 import { logoHeightCanvas } from './neon.js';
-import { REC, LABEL_BUMP_R, labelBumpMap, labelBumpMapAsync, grooveAnisoMap, drawRecordSide, recordMaterial, setRecordSide, glowTexture, strobeDotTexture, brushedTexture, mixerFaceTextures, satinSteel } from './textures.js';
+import { REC, REC7, dimsOf, LABEL_BUMP_R, labelBumpMap, labelBumpMapAsync, grooveAnisoMap, drawRecordSide, recordMaterial, setRecordSide, glowTexture, strobeDotTexture, brushedTexture, mixerFaceTextures, satinSteel } from './textures.js';
 
 export const W33 = 2 * Math.PI * (100 / 3) / 60; // rad/s at 33 1/3
 
@@ -281,9 +281,10 @@ export class Record3D {
     this.rec = rec;
     this.group = new THREE.Group();
     this.disc = new THREE.Group(); this.group.add(this.disc);
-    const geo = new THREE.CylinderGeometry(REC.R, REC.R, REC.THICK, 128, 1, false);
+    const D = this.dims = dimsOf(rec);   // #257 12" or 7"
+    const geo = new THREE.CylinderGeometry(D.R, D.R, D.THICK, 128, 1, false);
     { // uv1: the label bump map (#94) spans only the label, so it is scaled up round the centre
-      const uv = geo.attributes.uv, k = REC.R / LABEL_BUMP_R, a = new Float32Array(uv.count * 2);
+      const uv = geo.attributes.uv, k = D.R / (D.LABEL * 1.12), a = new Float32Array(uv.count * 2);
       for (let i = 0; i < uv.count; i++) { a[i * 2] = (uv.getX(i) - 0.5) * k + 0.5; a[i * 2 + 1] = (uv.getY(i) - 0.5) * k + 0.5; }
       geo.setAttribute('uv1', new THREE.BufferAttribute(a, 2));
     }
@@ -320,6 +321,7 @@ export class Record3D {
       labelImg: this.labelImgs[side], title: t ? t.title : '', artist: t ? t.artist : '', bpm: t ? t.bpm : 0,
       side, blank: !t || t.missing, split: t && t.split, showText: this.showText(side),
       low: this.low,   // #137: label canvas 128 instead of 512; the grooves are the same strip at every distance
+      dims: this.dims,   // #257
     });
     setRecordSide(mat, sd);
     if (this.bump[side]) { this.bump[side].dispose(); this.bump[side] = null; }   // label changed: relief is rebuilt

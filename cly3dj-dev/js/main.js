@@ -4,7 +4,7 @@ import { RoomEnvironment } from '../vendor/three/RoomEnvironment.js';
 import { parseLibrary, addUnsorted, emptyLibrary } from './library.js';
 import { readID3 } from './id3.js';
 import { AudioEngine, PITCH_RANGE } from './audio.js';
-import { REC, timeToRadius, radiusToTime, Screen, fitText, drawRecordSide, recordMaterial, setRecordSide, grooveAnisoMap } from './textures.js';
+import { REC, REC7, dimsOf, timeToRadius, radiusToTime, Screen, fitText, drawRecordSide, recordMaterial, setRecordSide, grooveAnisoMap } from './textures.js';
 import { setupXR } from './xr.js';
 import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeNeon } from './neon.js';
 import { makeLedWall, LedPlayer, LED } from './ledwall.js';
@@ -1325,6 +1325,11 @@ const crateDisc = (() => {
   for (const zz of [1, -1]) { const l = new THREE.Mesh(new THREE.CircleGeometry(REC.LABEL, 48), lmat); l.position.z = zz * (REC.THICK / 2 + 0.0002); if (zz < 0) l.rotation.y = Math.PI; grp.add(l); }
   grp.traverse(o => { if (o.isMesh) o.userData.crateDisc = true; });
   grp.userData = { canvas: lc, tex: ltex, target: new THREE.Vector3(), tilt: 0 };
+  grp.userData.size = r => {   // #257 7" or 12": the disc shrinks, its label to the 7" label size
+    const D = dimsOf(r), k = D.R / REC.R; disc.scale.set(k, D.THICK / REC.THICK, k);
+    grp.children.forEach(o => { if (o !== disc) { o.scale.setScalar(D.LABEL / REC.LABEL); o.position.z = Math.sign(o.position.z) * (D.THICK / 2 + 0.0002); } });
+    mat.userData.rec.uHoleN.value = D === REC7 ? D.HOLE / D.R : 0; grp.userData.hole = D === REC7 ? D.HOLE / D.LABEL : 6 / 128;
+  };
   return grp;
 })();
 // Album jackets on the sleeves nearest the selection only (the rest are plain): ~10 small textures,
@@ -1358,7 +1363,7 @@ function assignCovers(list, slots) { // slots: [{ idx, p, q }] nearest first
   coverPool.forEach((m, i) => {
     const s = want[i]; if (!s) { m.visible = false; return; }
     const r = list[s.idx];
-    m.position.copy(s.p).add(new THREE.Vector3(0, 0, 0.0009).applyQuaternion(s.q)); m.quaternion.copy(s.q); m.scale.set(1, s.sy ?? 1, 1); m.visible = true;   // #153: lid shut = squashed like the jacket (was poking through the floor)
+    m.position.copy(s.p).add(new THREE.Vector3(0, 0, 0.0009).applyQuaternion(s.q)); m.quaternion.copy(s.q); m.scale.set(s.sx ?? 1, s.sy ?? 1, 1); m.visible = true;   // #153: lid shut = squashed like the jacket (was poking through the floor)
     if (m.userData.rec !== r || (!m.userData.hasArt && artCache.get((r.sides.A || r.sides.B).id))) { m.userData.rec = r; drawJacket(m, r); }
     const t = r.sides.A || r.sides.B;
     if (t && !t.missing && !artCache.has(t.id)) fetchArt(t).then(a => { if (a && m.userData.rec === r) drawJacket(m, r); });
@@ -1377,7 +1382,7 @@ function drawCrateDiscLabel(r) {
     g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '600 22px system-ui'; fitText2(g, r ? r.title : '', 128, 170, 200);
     g.font = '700 18px system-ui'; g.fillText(r && r.bpm ? `${r.bpm.toFixed(r.bpm % 1 ? 1 : 0)} BPM` : '', 128, 200);
   }
-  g.fillStyle = '#000'; g.beginPath(); g.arc(128, 128, 6, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#000'; g.beginPath(); g.arc(128, 128, 128 * (crateDisc.userData.hole || 6 / 128), 0, Math.PI * 2); g.fill();
   g.restore(); tex.needsUpdate = true;
 }
 function layoutSleeves() {
@@ -1396,23 +1401,23 @@ function layoutSleeves() {
     const idx = start + k; sleeveMap[k] = idx < list.length ? idx : -1;
     if (k >= n) { m.makeScale(0, 0, 0); S.setMatrixAt(k, m); continue; }
     const rel = idx - crateState.sel;
-    let z = front - k * pitch, y = FLOOR + 0.001 + SH * hy / 2, tilt = -0.08;
-    const yDisc = 0.012 + 0.315 / 2 - 0.04;               // the record riding out keeps its old height
+    const r = list[idx], sh = sleeveDims(r).H, ks = sh / SH, hyr = shut ? Math.min(1, (CRATE.H - FLOOR - 0.006) / sh) : 1;   // #257 7" sleeves: smaller, standing lower
+    let z = front - k * pitch, y = FLOOR + 0.001 + sh * hyr / 2, tilt = -0.08;
+    const yDisc = 0.012 + sh / 2 - 0.04 * ks;              // the record riding out keeps its old height
     if (rel < 0) { tilt = 0.32; z += 0.012; }              // flipped past: lean toward the DJ
     if (rel === 0 && shut) tilt = 0.05;                   // lid shut: selection stays down in its sleeve
     else if (rel === 0) { tilt = 0.05; y += 0.012; }       // selected: sleeve nudged up, record pops out (below)
-    if (rel !== 0 || shut) y = Math.max(y, FLOOR + 0.001 + SH * hy / 2 * Math.cos(tilt) + 0.0007 * Math.abs(Math.sin(tilt)));
+    if (rel !== 0 || shut) y = Math.max(y, FLOOR + 0.001 + sh * hyr / 2 * Math.cos(tilt) + 0.0007 * Math.abs(Math.sin(tilt)));
     if (rel > 0) z -= 0.02;                                 // gap behind the selection
     e.set(tilt, 0, 0); q.setFromEuler(e); p.set(0, y, z);
-    const r = list[idx];
-    s.set(1, hy, r && r.missing ? 0.001 : 1);
+    s.set(ks, hyr * ks, r && r.missing ? 0.001 : 1);
     { const so = r && sleeveOf(r); if (so) { so.slotM = new THREE.Matrix4().compose(p, q, s); if (!so.back || so.back.t < 1) s.set(0, 0, 0); } }   // #229 / #242 that sleeve is out of the crate
     m.compose(p, q, s); S.setMatrixAt(k, m);
     if (rel === 0 && r && !r.missing && !shut) {
-      crateDisc.userData.target.set(0, yDisc + 0.012 + 0.315 / 2 - 0.005, z); crateDisc.userData.tilt = tilt;
+      crateDisc.userData.target.set(0, yDisc + 0.012 + sh / 2 - 0.005, z); crateDisc.userData.tilt = tilt;
       if (!crateDisc.visible) { crateDisc.position.set(0, yDisc + 0.012, z); crateDisc.visible = true; }
       if (crateDisc.userData.rec !== r) {
-        crateDisc.userData.rec = r; crateDisc.position.y = yDisc + 0.012; drawCrateDiscLabel(r);
+        crateDisc.userData.rec = r; crateDisc.position.y = yDisc + 0.012; crateDisc.userData.size(r); drawCrateDiscLabel(r);
         const t = r.sides.A || r.sides.B; // fetch cover art in the background for the label
         if (t && !t.missing && !artCache.has(t.id)) fetchArt(t).then(() => { if (crateDisc.userData.rec === r) drawCrateDiscLabel(r); });
       }
@@ -1424,7 +1429,7 @@ function layoutSleeves() {
     const idx = start + k, rel = idx - crateState.sel, r = list[idx];
     if (!r || r.missing || rel < -4 || rel > 5 || sleeveOf(r)) continue;
     S.getMatrixAt(k, m); m.decompose(p, q, s);
-    near.push({ idx, rel, p: p.clone(), q: q.clone(), sy: s.y });   // #153: covers squash with their jackets
+    near.push({ idx, rel, p: p.clone(), q: q.clone(), sx: s.x, sy: s.y });   // #153: covers squash with their jackets
   }
   near.sort((a, b) => (Math.abs(a.rel) + (a.rel > 0 ? 0.5 : 0)) - (Math.abs(b.rel) + (b.rel > 0 ? 0.5 : 0)));
   assignCovers(list, near);
@@ -1442,25 +1447,30 @@ function layoutSleeves() {
 // a 4th sends the oldest back into the crate. Grab a lying sleeve anywhere on it to pick it up again, or slide its
 // record out. Each sleeve: a card box, a 1024 px front and back, a disc with the record's own label.
 const SLEEVE = { H: 0.315, PEEK: 0.05, OUT: 0.31, MAX_OUT: 3, HOME_NEAR: 0.10, ARM_CLEAR: 0.25, ARM_MS: 5000 };   // #247 auto-return: 10 cm, armed 25 cm clear or after 5 s
+// #257 7" single sleeves: 184 mm (7.25") square
+const SLEEVE7 = { ...SLEEVE, H: 0.184, PEEK: 0.03, OUT: 0.18 };
+const sleeveDims = r => (r && r.size === 7 ? SLEEVE7 : SLEEVE);
 const sleeves = [];   // { rec, g, mesh, disc, tex: [front, back], anchor, off, s, hasRec, slotM, back, placedT }
 let sleeveOut = null;   // kept for older checks: the most recent sleeve (or null)
 const sleeveCard = new THREE.MeshStandardMaterial({ color: 0xd9d2c3, roughness: 0.85 });
 const sleeveVinyl = new THREE.MeshStandardMaterial({ color: 0x0b0b0c, roughness: 0.35, metalness: 0.1 });
 const sleeveDiscGeo = new THREE.CylinderGeometry(REC.R, REC.R, REC.THICK, 64), sleeveLabelGeo = new THREE.CircleGeometry(REC.LABEL, 40);
+const sleeveDiscGeo7 = new THREE.CylinderGeometry(REC7.R, REC7.R, REC7.THICK, 48), sleeveLabelGeo7 = new THREE.RingGeometry(REC7.HOLE, REC7.LABEL, 40);   // #257
 function sleeveOf(r) { return sleeves.find(x => x.rec === r && !x.gone) || null; }
 function canvasTex(size) { const c = document.createElement('canvas'); c.width = c.height = size; const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
 function makeSleeve(r) {
   const fT = canvasTex(1024), bT = canvasTex(1024), lT = canvasTex(256);
   const front = new THREE.MeshStandardMaterial({ map: fT, roughness: 0.7 }), back = new THREE.MeshStandardMaterial({ map: bT, roughness: 0.8 });
   // box faces: +x, -x, +y (the opening edge), -y, +z (front cover, toward you in the crate), -z (back)
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(SLEEVE.H, SLEEVE.H, 0.003), [sleeveCard, sleeveCard, sleeveCard, sleeveCard, front, back]);
+  const sz = sleeveDims(r), D = dimsOf(r), s7 = D === REC7;   // #257
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(sz.H, sz.H, 0.003), [sleeveCard, sleeveCard, sleeveCard, sleeveCard, front, back]);
   mesh.castShadow = true; mesh.userData.sleeveBody = true;
-  const disc = new THREE.Group(), dm = new THREE.Mesh(sleeveDiscGeo, sleeveVinyl); dm.rotation.x = Math.PI / 2; disc.add(dm);
+  const disc = new THREE.Group(), dm = new THREE.Mesh(s7 ? sleeveDiscGeo7 : sleeveDiscGeo, sleeveVinyl); dm.rotation.x = Math.PI / 2; disc.add(dm);
   const lm = new THREE.MeshStandardMaterial({ map: lT, roughness: 0.8 });
-  for (const zz of [1, -1]) { const l = new THREE.Mesh(sleeveLabelGeo, lm); l.position.z = zz * (REC.THICK / 2 + 0.0002); if (zz < 0) l.rotation.y = Math.PI; disc.add(l); }
+  for (const zz of [1, -1]) { const l = new THREE.Mesh(s7 ? sleeveLabelGeo7 : sleeveLabelGeo, lm); l.position.z = zz * (D.THICK / 2 + 0.0002); if (zz < 0) l.rotation.y = Math.PI; disc.add(l); }
   const g = new THREE.Group(); g.add(mesh, disc); scene.add(g);
-  const sl = { rec: r, g, mesh, disc, tex: [fT, bT, lT], mats: [front, back, lm], anchor: null, off: null, s: SLEEVE.PEEK, hasRec: true, slotM: null, back: null, placedT: 0 };
-  disc.position.set(0, SLEEVE.PEEK, 0);
+  const sl = { rec: r, sz, D, g, mesh, disc, tex: [fT, bT, lT], mats: [front, back, lm], anchor: null, off: null, s: sz.PEEK, hasRec: true, slotM: null, back: null, placedT: 0 };
+  disc.position.set(0, sz.PEEK, 0);
   drawSleeveArt(sl); return sl;
 }
 function drawSleeveArt(sl) {
@@ -1497,13 +1507,13 @@ function sleeveGrabTest(P) {
   for (const sl of sleeves) {
     if (sl.anchor || sl.back) continue;
     sl.g.updateMatrixWorld(); const l = sl.g.worldToLocal(P.clone());
-    if (Math.abs(l.x) < SLEEVE.H / 2 + 0.02 && Math.abs(l.y) < SLEEVE.H / 2 + 0.02 && Math.abs(l.z) < 0.04) return { sl };
+    if (Math.abs(l.x) < sl.sz.H / 2 + 0.02 && Math.abs(l.y) < sl.sz.H / 2 + 0.02 && Math.abs(l.z) < 0.04) return { sl };
   }
   if (!crateLidOpen() || !crateDisc.visible) return null;
   const r = currentList()[crateState.sel]; if (!r || r.missing || sleeveOf(r)) return null;
   const pose = selectedSlotPose(); if (!pose) return null;
   const cl = crate.worldToLocal(P.clone());
-  return Math.abs(cl.x) < SLEEVE.H / 2 + 0.02 && Math.abs(cl.z - pose.p.z) < 0.03 && cl.y > -0.01 && cl.y < CRATE.H - 0.07 ? { crate: true } : null;   // #242 edges and lower corners too
+  return Math.abs(cl.x) < sleeveDims(r).H / 2 + 0.02 && Math.abs(cl.z - pose.p.z) < 0.03 && cl.y > -0.01 && cl.y < Math.min(CRATE.H - 0.07, 0.013 + sleeveDims(r).H - 0.04) ? { crate: true } : null;   // #242 edges and lower corners too
 }
 function sleeveGrab(anchor, P) {
   const hit = P ? sleeveGrabTest(P) : { crate: true }; if (!hit) return false;
@@ -1526,8 +1536,8 @@ function sleeveSlideTest(P, anchor = null) {
   for (const sl of sleeves) {
     if (sl.back || !sl.hasRec || (anchor && sl.anchor === anchor)) continue;
     sl.g.updateMatrixWorld(); const l = sl.g.worldToLocal(P.clone());
-    const top = SLEEVE.H / 2, discTop = sl.s + REC.R;
-    if (Math.abs(l.x) < REC.R && Math.abs(l.z) < 0.05 && l.y > top - 0.03 && l.y < discTop + 0.04) return { sl, y0: l.y, s0: sl.s };
+    const top = sl.sz.H / 2, discTop = sl.s + sl.D.R;
+    if (Math.abs(l.x) < sl.D.R && Math.abs(l.z) < 0.05 && l.y > top - 0.03 && l.y < discTop + 0.04) return { sl, y0: l.y, s0: sl.s };
   }
   return null;
 }
@@ -1535,9 +1545,9 @@ function sleeveSlideTest(P, anchor = null) {
 function sleeveSlideTo(P, g) {
   const sl = g.sl; if (!sl || sl.gone || sl.back || !sl.hasRec) return null;
   const l = sl.g.worldToLocal(P.clone());
-  sl.s = Math.max(0, Math.min(SLEEVE.OUT + 0.02, g.s0 + (l.y - g.y0)));
+  sl.s = Math.max(0, Math.min(sl.sz.OUT + 0.02, g.s0 + (l.y - g.y0)));
   sl.disc.position.y = sl.s;
-  return sl.s >= SLEEVE.OUT ? 'out' : 'in';
+  return sl.s >= sl.sz.OUT ? 'out' : 'in';
 }
 // the record left its sleeve into a hand (not through the crate's selection: the sleeve may come from any list)
 function sleevePulled(g, attach) {
@@ -1584,7 +1594,7 @@ function stepSleeves(dt) {
 }
 // #247 nearest gap between the sleeve (its 4 corners and centre) and the record crate's box (crate space)
 function sleeveCrateDist(sl) {
-  sl.g.updateMatrixWorld(); let best = Infinity; const h = SLEEVE.H / 2, v = _sc.v2 || (_sc.v2 = new THREE.Vector3());
+  sl.g.updateMatrixWorld(); let best = Infinity; const h = sl.sz.H / 2, v = _sc.v2 || (_sc.v2 = new THREE.Vector3());
   for (const [x, y] of [[0, 0], [-h, -h], [h, -h], [-h, h], [h, h]]) {
     crate.worldToLocal(sl.g.localToWorld(v.set(x, y, 0)));
     const dx = Math.max(0, Math.abs(v.x) - CRATE.W / 2), dz = Math.max(0, Math.abs(v.z) - CRATE.D / 2), dy = Math.max(0, -v.y, v.y - CRATE.H);
@@ -1709,8 +1719,8 @@ function obbPush(A, B) {
   return best === Infinity ? null : new THREE.Vector3(bx, by, bz).multiplyScalar(best + 0.001);
 }
 function sleeveBox(sl) {   // the sleeve plus the record peeking out of it, sleeve-local
-  const top = sl.hasRec ? Math.max(SLEEVE.H / 2, sl.s + REC.R) : SLEEVE.H / 2;
-  return new THREE.Box3(new THREE.Vector3(-SLEEVE.H / 2, -SLEEVE.H / 2, -0.004), new THREE.Vector3(SLEEVE.H / 2, top, 0.004));
+  const H = sl.sz.H, top = sl.hasRec ? Math.max(H / 2, sl.s + sl.D.R) : H / 2;
+  return new THREE.Box3(new THREE.Vector3(-H / 2, -H / 2, -0.004), new THREE.Vector3(H / 2, top, 0.004));
 }
 function sleeveDepen(sl, pos, q, sb) {   // push pos out of every collider (a few passes); true if it touched one
   let hit = false;
@@ -3857,22 +3867,26 @@ async function pressRecord() {
 // DELETE hides one for good on this device (vire.hiddenExamples).
 const EXAMPLES = [{ id: 'sleeve', title: 'Sleeve Art Demo', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3' },
   // #232 the same pictures in one file: front cover, back cover, and an 'Other' picture described 'Label B'
-  { id: 'sleeve1', title: 'Sleeve Art Demo (One File)', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo (One File).mp3', b: null }];
+  { id: 'sleeve1', title: 'Sleeve Art Demo (One File)', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo (One File).mp3', b: null },
+  // #257 a test 7" single (45s list) until 45s can be pressed
+  { id: 'single45', title: 'Test 45 (Sleeve Art Demo)', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3', size: 7 }];
 function hiddenExamples() { try { return JSON.parse(localStorage.getItem('vire.hiddenExamples') || '[]'); } catch { return []; } }
 function addExamples(L) {
   const hide = hiddenExamples();
   let un = L.playlists.find(p => p.name === 'Unsorted');
   for (const ex of EXAMPLES) {
     if (hide.includes(ex.id) || L.tracks.has('ex_' + ex.id + '_A')) continue;
-    if (!un) { un = { name: 'Unsorted', path: 'Unsorted (on this headset)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, un); }
-    const r = { id: 'rex_' + ex.id, title: ex.title, artist: ex.artist, sides: { A: null, B: null }, bpm: ex.bpm, key: ex.key, genre: 'Example', duration: 0, missing: false, paired: !!ex.b, unsorted: true, example: ex.id };
+    let dest = un;
+    if (ex.size === 7) { dest = L.playlists.find(p => p.name === '45s'); if (!dest) { dest = { name: '45s', path: '45s (7" singles on this headset)', records: [] }; L.playlists.push(dest); } }
+    else if (!un) { un = dest = { name: 'Unsorted', path: 'Unsorted (on this headset)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, un); }
+    const r = { id: 'rex_' + ex.id, size: ex.size || 12, title: ex.title, artist: ex.artist, sides: { A: null, B: null }, bpm: ex.bpm, key: ex.key, genre: 'Example', duration: 0, missing: false, paired: !!ex.b, unsorted: true, example: ex.id };
     for (const side of ex.b ? ['A', 'B'] : ['A']) {
       const id = 'ex_' + ex.id + '_' + side, url = encodeURI(side === 'A' ? ex.a : ex.b);
       const t = { id, name: ex.title + '_' + side.toLowerCase(), title: ex.title, side, split: false, artist: ex.artist, album: ex.title, genre: 'Example', key: ex.key, bpm: ex.bpm, duration: 0,
         location: url, url, opfs: null, missing: false, cues: [], unsorted: true, record: r };
       r.sides[side] = t; L.tracks.set(id, t);
     }
-    L.records.push(r); un.records.push(r); L.playlists[0].records.push(r);
+    L.records.push(r); dest.records.push(r); L.playlists[0].records.push(r);
   }
   const byT = (a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title);
   if (un) un.records.sort(byT); L.playlists[0].records.sort(byT);
@@ -4349,7 +4363,7 @@ function frame() {
     // in a hand: hold it by the edge, disc face pointing out of the side of the hand
     held.attach.updateMatrixWorld();
     const prevP = held.group.position.clone(), prevQ = held.group.quaternion.clone();
-    held.group.position.copy(held.attach.localToWorld(_holdOff.set(0, 0, -0.135)));
+    held.group.position.copy(held.attach.localToWorld(_holdOff.set(0, 0, -((held.dims || REC).R - 0.0174))));   // #257 held by its edge, 12" or 7"
     held.group.quaternion.copy(held.attach.getWorldQuaternion(_wq)).multiply(qHoldXR);
     // track the hand's momentum so a release can throw the record
     if (dt > 0 && held.prevOk) {
