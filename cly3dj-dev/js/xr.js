@@ -160,7 +160,7 @@ export function setupXR(ctx) {
   // measure force, so: controllers = the analogue trigger (0.35 N at the click point .. 2 N squeezed); fingertip =
   // how far the tracked tip sits inside the platter's edge (0.35 N just touching .. 2 N at 12 mm); pinch = 0.6 N.
   // For scale: ~0.9 N of still finger stalls a Classic (MK2) platter; under ~0.5 N the servo wins it back.
-  function rimForce(st, r) { return 0.5 * rimForce0(st, r); }   // #270 (owner): rim nudges half as strong
+  function rimForce(st, r) { return 1.5 * rimForce0(st, r); }   // #271 (owner): more friction on the rim (1.5x the old force)
   function rimForce0(st, r) {
     if (!st.isHand) {
       const b = st.source && st.source.gamepad && st.source.gamepad.buttons && st.source.gamepad.buttons[0];
