@@ -808,7 +808,7 @@ export function setupXR(ctx) {
   // puts the glove's index fingertip on the blue ball (#247). Measured: the glove's knuckle width 6.4 cm and middle finger
   // 9.9 cm against the generic hand's 6.0 / 8.6 cm, so it is drawn at 94 %; its palm (wrist to knuckles 14.1 cm, a hand's
   // ~9 cm) is long because it carries a cuff, which then sits back over the wrist.
-  const GLOVE_SCALE = 0.94;
+  const GLOVE_SCALE = 1.1;   // #301 (owner: smaller than my real hands) was 0.94
   let glove = null, gloveLoading = false;
   function gloveFor(st) {
     if (glove && glove.ready) return glove;
@@ -881,6 +881,7 @@ export function setupXR(ctx) {
     // and left the O half closed. The thumb-stick touch no longer changes the thumb either (it moved the thumb off the ball).
     const hb = st.held || {};   // (#298: was "hd", which clashed with the handedness above)
     h.update(Math.round(ease('tA', hb.trigger) * 20) / 20, Math.round(ease('gA', hb.grip) * 20) / 20, false);
+    if (h.soft !== (ctlLook === 'glove')) { h.soft = ctlLook === 'glove'; h.cur = ''; }   // #301 looser relaxed hand for the glove
     h.holder.visible = ctlLook !== 'glove';   // #287 the skin hand stays posed (it drives the glove) but is not drawn
     if (ctlLook === 'glove') gloveStep(st, h, 1 / 60);
   }

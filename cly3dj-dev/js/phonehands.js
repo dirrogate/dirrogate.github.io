@@ -26,7 +26,7 @@ export function makePhoneHands(rig) {
         const holder = new THREE.Group(); rig.add(holder);
         const a = new R.RobotAvatar2(holder);
         return a.load('models/avatar/avatar_robot.glb').then(() => {
-          const keep = new Set(); for (const H of a.hands) { H.node.traverse(o => keep.add(o)); H.node.scale.multiplyScalar(0.94); }   // #287 sizes
+          const keep = new Set(); for (const H of a.hands) { H.node.traverse(o => keep.add(o)); H.node.scale.multiplyScalar(1.1); }   // #287 sizes, #301 1.1
           a.root.traverse(o => { if (o.isMesh) { if (keep.has(o)) { o.layers.set(0); o.frustumCulled = false; } else o.visible = false; } });
           if (a.headBone) a.headBone.visible = false;
           for (const H of a.hands) { H.vis = 0; if (H.mesh) H.mesh.visible = false; }
@@ -97,7 +97,7 @@ export function makePhoneHands(rig) {
         else {
           if (S.model) S.model.visible = false;
           const h = hand(S, hd, 'ctl'); h.root.visible = true; h.root.matrix.copy(_m); h.root.matrixWorldNeedsUpdate = true;
-          const t = a[7] || 0, g = a[8] || 0; h.update(t, g, !!a[9]);
+          const t = a[7] || 0, g = a[8] || 0; if (h.soft !== (look === 'glove')) { h.soft = look === 'glove'; h.cur = ''; } h.update(t, g, !!a[9]);   // #301
           h.holder.visible = look !== 'glove';
           if (look === 'glove') driveGlove(S, h, hd, dt, Math.max(t, g));
         }

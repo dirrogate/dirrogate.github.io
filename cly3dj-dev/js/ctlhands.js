@@ -13,7 +13,8 @@ const D = Math.PI / 180;
 
 // Pose numbers (degrees), open = button released, shut = fully pressed. Tuned on the PC against the Touch Plus model.
 export const POSE = {
-  index: { open: [18, 22, 12], shut: [40, 55, 35], rest: [60, 80, 45] },      // on the trigger; rest = curled when not pressed (#295)
+  index: { open: [18, 22, 12], shut: [40, 55, 35], rest: [60, 80, 45] },
+  gloveSoft: 0.45,   // #301 glove mode: relaxed curls at 45 % (pressing the grip still closes the fist fully)      // on the trigger; rest = curled when not pressed (#295)
   rest: { open: [55, 75, 40], shut: [75, 85, 45] },       // middle / ring / pinky round the handle
   thumb: { open: [8, 10, 10], down: [18, 22, 18], spread: 0 },
   // #280 grip = an O of thumb and index (tips meeting), blended from whatever the trigger / thumb were doing
@@ -112,6 +113,8 @@ function pose(h, t, g, th, openIndex = false) {
   const O = POSE.O, o = Math.max(t, g);
   // #295 (owner): the index rests curled into the palm and only comes up to close the O on a press
   const idx = lerp3(openIndex ? POSE.index.open : POSE.index.rest, O.index, o), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
+  // #301 GLOVE mode: a looser relaxed hand (the robot's thick fingers crushed into each other in the full fist)
+  if (h.soft) { const k = POSE.gloveSoft; for (let j = 0; j < 3; j++) { rest[j] *= k + (1 - k) * g; if (!openIndex) idx[j] = lerp3(POSE.index.rest.map(v => v * k), O.index, o)[j]; } }
   for (const f of FINGERS) { const c = CH(f), a = f === 'index-finger' ? idx : rest; for (let j = 0; j < 3; j++) curl(h, c, j + 1, a[j]); }
   // #293 (owner): the thumb moves naturally again (#292 had it fixed in the O); the ball is back on the index tip
   const tp = lerp3(th ? POSE.thumb.down : POSE.thumb.open, O.thumb, o);
