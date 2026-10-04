@@ -16,9 +16,10 @@ export const POSE = {
   index: { open: [18, 22, 12], shut: [40, 55, 35] },      // on the trigger
   rest: { open: [55, 75, 40], shut: [75, 85, 45] },       // middle / ring / pinky round the handle
   thumb: { open: [8, 10, 10], down: [18, 22, 18], spread: 0 },
-  // #277 grip: extra curl (deg at full grip) bringing index and thumb together, never closer than `gap` (2 cm of skin
-  // between them; the tip joints sit ~8 mm inside the skin, so centre to centre 3.6 cm)
-  pinch: { index: [20, 30, 20], thumb: [12, 30, 30], gap: 0.036 },
+  // #277 grip: extra curl (deg at full grip) bringing index and thumb together, never closer than `gap`
+  // #279 (owner, headset test: hardly moved): the thumb also swings across (about its metacarpal's Z) toward the index,
+  // and the gap is 2 cm of skin = 3 cm between the tip joints; PC: 5.2 cm released, a clear C shape at 3 cm pressed
+  pinch: { index: [20, 30, 20], thumb: [12, 30, 30], swing: 20, swingAxis: 'z', gap: 0.03 },
   // where the hand sits in grip space (right hand; the left is the mirror in X; grip -Z runs along the handle toward
   // the face): back of the hand facing out (+X),
   // the knuckle line along the handle (index at the front by the trigger, pinky toward the back), the middle knuckle at `knuckle`
@@ -28,7 +29,7 @@ export const POSE = {
 export function createControllerHand(handed, url, material) {
   const root = new THREE.Group(); root.name = 'ctlHand-' + handed;
   const holder = new THREE.Group(); root.add(holder);
-  const h = { root, holder, ready: false, bones: {}, bind: {}, t: 0, g: 0, th: 0, cur: '' };
+  const h = { handed, root, holder, ready: false, bones: {}, bind: {}, t: 0, g: 0, th: 0, cur: '' };
   new GLTFLoader().loadAsync(url).then(gltf => {
     const s = gltf.scene; holder.add(s);
     s.traverse(o => {
@@ -56,13 +57,21 @@ function place(h, handed) {
   h.holder.quaternion.setFromRotationMatrix(R);
   const k = B['middle-finger-phalanx-proximal'].p.clone().applyQuaternion(h.holder.quaternion);
   h.holder.position.set(POSE.knuckle[0] * sx, POSE.knuckle[1], POSE.knuckle[2]).sub(k);
+  // #279 the blue tip ball sits on the index fingertip of the relaxed hand (fixed in grip space, so a trigger curl
+  // never moves the point that scratches or presses)
+  pose(h, 0, 0, false, 0); h.holder.updateMatrix();
+  const tb = h.bones['index-finger-tip'], db = h.bones['index-finger-phalanx-distal']; tb.updateWorldMatrix(true, false); db.updateWorldMatrix(true, false);
+  const inv = new THREE.Matrix4().copy(h.root.matrixWorld).invert();
+  const t = new THREE.Vector3().setFromMatrixPosition(tb.matrixWorld).applyMatrix4(inv), d = new THREE.Vector3().setFromMatrixPosition(db.matrixWorld).applyMatrix4(inv);
+  h.tipLocal = t.clone().addScaledVector(t.clone().sub(d).normalize(), 0.006);   // just past the fingertip (the joint is inside the skin)
+  h.cur = '';
 }
 
 const qa = new THREE.Quaternion(), qb = new THREE.Quaternion(), qr = new THREE.Quaternion(), ax = new THREE.Vector3(), vv = new THREE.Vector3();
 // turn joints[k+1..] about joint k's own X axis by -angle (curl toward the palm)
-function curl(h, chain, k, deg) {
+function curl(h, chain, k, deg, axis = 'x') {
   const j = h.bones[chain[k]]; if (!j || !deg) return;
-  ax.set(1, 0, 0).applyQuaternion(j.quaternion);
+  ax.set(axis === 'x' ? 1 : 0, axis === 'y' ? 1 : 0, axis === 'z' ? 1 : 0).applyQuaternion(j.quaternion);
   qr.setFromAxisAngle(ax, -deg * D);
   for (let i = k; i < chain.length; i++) {
     const b = h.bones[chain[i]]; if (!b) continue;
@@ -77,7 +86,9 @@ function pose(h, t, g, th, k) {   // k = how far the grip has brought thumb and 
   for (const n in h.bind) { h.bones[n].position.copy(h.bind[n].p); h.bones[n].quaternion.copy(h.bind[n].q); }
   const idx = add3(lerp3(POSE.index.open, POSE.index.shut, t), POSE.pinch.index, k), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
   for (const f of FINGERS) { const c = CH(f), a = f === 'index-finger' ? idx : rest; for (let j = 0; j < 3; j++) curl(h, c, j + 1, a[j]); }
-  const tp = add3(th ? POSE.thumb.down : POSE.thumb.open, POSE.pinch.thumb, k); for (let j = 0; j < 3; j++) curl(h, THUMB, j, tp[j]);
+  const tp = add3(th ? POSE.thumb.down : POSE.thumb.open, POSE.pinch.thumb, k);
+  if (POSE.pinch.swing) curl(h, THUMB, 0, POSE.pinch.swing * k * (h.handed === 'left' ? -1 : 1), POSE.pinch.swingAxis || 'y');   // #279 thumb swings across toward the index
+  for (let j = 0; j < 3; j++) curl(h, THUMB, j, tp[j]);
   return h.bones['index-finger-tip'].position.distanceTo(h.bones['thumb-tip'].position);
 }
 function update(h, t, g, th) {

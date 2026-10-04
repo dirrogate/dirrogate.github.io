@@ -59,7 +59,7 @@ export function setupXR(ctx) {
     line.visible = false; // no pointing rays
     // #140 (owner): a solid, depth-tested ball, so it reads as a nub on the controller's nose (it used to be drawn
     // over the model and looked like a dot floating off to one side). Hands keep the same ball at the fingertip.
-    const tipDot = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0x7cc4ff }));
+    const tipDot = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0x7cc4ff, transparent: true, opacity: 0.5, depthWrite: false }));   // #279 semi-transparent
     tipDot.visible = false; scene.add(tipDot);
     const hitDot = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
     hitDot.visible = false; scene.add(hitDot);
@@ -719,7 +719,8 @@ export function setupXR(ctx) {
         // tip just protruding from the controller's front edge (grip space: -z forward)
         st.grip.updateMatrixWorld();
         if (!st.tipLocal) st.tipLocal = measureTip(st.grip);
-        st.grip.localToWorld(st.tip.copy(st.tipLocal || TIP_DEFAULT));
+        const hl = ctlLook === '3dhands' && st.ctlHand && st.ctlHand.tipLocal;   // #279 3D hands: the ball on the index fingertip
+        st.grip.localToWorld(st.tip.copy(hl || st.tipLocal || TIP_DEFAULT));
         st.pinchPt.copy(st.tip); hasTip = true;
       }
       st.tipDot.visible = hasTip && !(st.isHand && handMode === 'real'); if (hasTip) st.tipDot.position.copy(st.tip);
@@ -785,6 +786,8 @@ export function setupXR(ctx) {
   function setCtlLook(v) { ctlLook = v; try { localStorage.setItem('vire.ctlLook', v); } catch (e) {} }
   function ctlHandStep(st) {
     const want = st.connected && !st.isHand && ctlLook === '3dhands' && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
+    // #279 (owner): 3D hands mode shows just the hand, no controller inside it
+    const ctlModel = st.grip.children[0]; if (ctlModel) ctlModel.visible = !want;
     if (!want) { if (st.ctlHand) st.ctlHand.root.visible = false; return; }
     const hd = st.source.handedness;
     if (!st.ctlHand || st.ctlHand.handed !== hd) {

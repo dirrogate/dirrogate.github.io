@@ -4554,7 +4554,7 @@ function djPrep() {   // what the camera must not see: the LED wall itself, XR h
   const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
   hide(ledwall);
   if (DJ_HIDE_NEON.has(djSet.preset)) hide(neon);   // the sign stands between these angles and the DJ (its back faces them)
-  if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); }
+  if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand) hide(st.ctlHand.root); }
   const bg = scene.background, roomV = room.visible;
   if (!bg && !skybox.group.visible) { scene.background = BG; room.visible = true; }   // passthrough: studio floor + dark backdrop for the camera
   return () => { for (const o of undo) o.visible = true; scene.background = bg; room.visible = roomV; };
