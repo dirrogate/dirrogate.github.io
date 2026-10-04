@@ -482,7 +482,10 @@ export function setupXR(ctx) {
       const m = ctx.pitchFromLocalZ(g.d, g.d.g.worldToLocal(v2.copy(P)).z);
       // #253 fine pitch: while the other hand pulls its trigger (or pinches), the fader moves at quarter speed;
       // switching in or out re-anchors here, so the pitch never jumps
-      const fine = inputs.some(o => o !== st && o.connected && (o.isHand ? !!o.pinching : !!(o.source && o.source.gamepad && o.source.gamepad.buttons[0] && o.source.gamepad.buttons[0].pressed)));
+      // #265 (owner DJs with one controller): squeezing the grip on the SAME controller that holds the fader is fine mode;
+      // the other hand's trigger / pinch still works too (bare hands: only that way)
+      const gpS = !st.isHand && st.source && st.source.gamepad, ownGrip = !!(gpS && gpS.buttons[1] && gpS.buttons[1].pressed);
+      const fine = ownGrip || inputs.some(o => o !== st && o.connected && (o.isHand ? !!o.pinching : !!(o.source && o.source.gamepad && o.source.gamepad.buttons[0] && o.source.gamepad.buttons[0].pressed)));
       if (g.m0 == null || fine !== !!g.fine) { g.m0 = m; g.v0 = g.d.pitch; if (fine !== !!g.fine) { g.fine = fine; buzz(st, fine ? 0.35 : 0.2, 15); } }
       ctx.setPitch(g.d, g.v0 + (m - g.m0) * (fine ? 0.25 : 1));
     } else if (g.kind === 'spindle') {
