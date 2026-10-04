@@ -257,6 +257,33 @@ function legendMat(text, aspect, withLed) {
   legendCache.set(key, m); return m;
 }
 
+// #264 (owner: the strobe dot ring looked smudgy). The model's rim texture is 128 px with the dots' lighting painted
+// in, blurred by the time it reaches the headset. Redrawn at 512 px in the same layout (silver chamfers top and
+// bottom, 4 dots a tile, rows top to bottom: small, big, medium, medium; the strobe shader's row bands unchanged),
+// each dot a raised satin-metal stud: crisp anti-aliased edge, a soft dome shade, a thin highlight on the upper
+// left and a shadow line on the lower right. Mipmaps + 8x anisotropy keep it crisp at a glance angle.
+let dotsTex = null;
+function crispDots(orig) {
+  if (dotsTex) return dotsTex;
+  const S = 512, k = S / 128, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0, 0, S, S);
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, S, 11.5 * k); g.fillRect(0, 122 * k, S, S - 122 * k);   // the rim's chamfers
+  const rows = [[27.5, 5.8], [55, 13.2], [83, 8.4], [107, 9.6]];   // centre y, radius (in the 128 px layout)
+  for (const [cy, r] of rows) for (let i = -1; i <= 4; i++) {
+    const cx = (15 + 32 * i) * k, y = cy * k, R = r * k;
+    g.fillStyle = 'rgba(0,0,0,0.9)'; g.beginPath(); g.arc(cx + R * 0.12, y + R * 0.14, R * 1.06, 0, Math.PI * 2); g.fill();   // contact shadow
+    const gr = g.createRadialGradient(cx - R * 0.3, y - R * 0.35, R * 0.1, cx, y, R);
+    gr.addColorStop(0, '#e4e4e6'); gr.addColorStop(0.55, '#bfbfc2'); gr.addColorStop(1, '#8c8c90');
+    g.fillStyle = gr; g.beginPath(); g.arc(cx, y, R, 0, Math.PI * 2); g.fill();
+    g.lineWidth = Math.max(1, R * 0.09); g.strokeStyle = 'rgba(255,255,255,0.85)'; g.beginPath(); g.arc(cx, y, R * 0.92, Math.PI * 0.95, Math.PI * 1.6); g.stroke();
+    g.strokeStyle = 'rgba(30,30,32,0.9)'; g.beginPath(); g.arc(cx, y, R * 0.95, -Math.PI * 0.05, Math.PI * 0.55); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  if (orig) { t.colorSpace = orig.colorSpace; t.flipY = orig.flipY; t.channel = orig.channel; }
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter;
+  return (dotsTex = t);
+}
+
 export function makeGlbDeck(name) {
   const g = new THREE.Group(); g.name = name; const u = {}; g.userData = u;
   const model = template.clone(true);
@@ -344,6 +371,7 @@ export function makeGlbDeck(name) {
     const mesh = g.getObjectByName('table_sm_tt_sp_mat_0');
     const uni = { uBlur: { value: 0 }, uStrobe: { value: new THREE.Vector4() }, uLampPos: { value: new THREE.Vector3() }, uLampCol: { value: new THREE.Color(0, 0, 0) } };
     const mat = mesh.material.clone();
+    mat.map = crispDots(mesh.material.map);   // #264 sharp dots (the model's 128 px texture went soft in the headset)
     mat.onBeforeCompile = sh => {
       Object.assign(sh.uniforms, uni);
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vStWP; varying vec3 vStWN;')
