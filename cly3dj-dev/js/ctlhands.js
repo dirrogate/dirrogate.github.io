@@ -150,36 +150,86 @@ export function driveGloveHand(g, H, J, dt) {
   if (!H.node0) H.node0 = H.node.position.clone();
   H.node.position.copy(H.node0); H.node.updateMatrixWorld(true); H.off = null;
   g.hand(H, { joints: J, tip: J.get('index-finger-tip'), curlIndex: 1 }, dt);   // tip + curl 1 = robot2 skips its fingertip shift
-  if (H.cap) H.cap.visible = !!(H.mesh && H.mesh.visible);
   const want = J.get('middle-finger-phalanx-proximal'); if (!want || !H.B.Middle_Proximal) return;
   H.B.Middle_Proximal.getWorldPosition(_gv);
   H.node.getWorldPosition(_gw).add(want).sub(_gv);
   H.node.parent.updateWorldMatrix(true, false); H.node.position.copy(H.node.parent.worldToLocal(_gw)); H.node.updateMatrixWorld(true);
 }
 
-// #302 (owner: you could see into the glove through its cuff): a black disc closes the cuff's open end. Found from the
-// mesh: the vertices skinned mainly to the Root bone (the cuff), measured in Root space along the knuckle direction;
-// the ring of the farthest ones gives the disc's centre, size and facing. The disc rides on the Root bone.
+// #303 (owner: cap it properly, and smoother without more triangles). Done once on the glove's own geometry (both
+// gloves share it), nothing in the licensed GLB is changed:
+//  - smooth shading: vertices at the same spot share an averaged normal when their faces are within 50 deg of each
+//    other (sharp creases between the plates and the glove stay sharp); the triangle count is unchanged;
+//  - the cuff's open end is closed with a fan from its own rim (16 triangles or so), skinned like the rim, so it moves
+//    with the glove exactly (replaces #302's black disc).
 export function gloveCap(H) {
-  const mesh = H.mesh, sk = mesh && mesh.skeleton; if (!sk || !H.B.Root || !H.B.Middle_Proximal) return;
-  const ri = sk.bones.indexOf(H.B.Root); if (ri < 0) return;
-  const Mx = sk.boneInverses[ri].clone().multiply(mesh.bindMatrix);   // bind space -> Root bone space
-  const g = mesh.geometry, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, pa = g.attributes.position, v = new THREE.Vector3();
-  // knuckle direction in Root space (rest)
-  const mi = sk.bones.indexOf(H.B.Middle_Proximal);
-  const kn = new THREE.Vector3().setFromMatrixPosition(sk.boneInverses[mi].clone().invert()).applyMatrix4(sk.boneInverses[ri]).normalize();
-  const pts = [];
-  for (let k = 0; k < pa.count; k++) {
-    let b = 0, bw = -1; for (let c = 0; c < 4; c++) { const w = sw.getComponent(k, c); if (w > bw) { bw = w; b = si.getComponent(k, c); } }
-    if (b !== ri) continue; pts.push(v.fromBufferAttribute(pa, k).applyMatrix4(Mx).clone());
+  const mesh = H.mesh; if (!mesh || !mesh.geometry || mesh.geometry.userData.vireFixed) return;
+  const g = mesh.geometry, pa = g.attributes.position, na = g.attributes.normal, n = pa.count;
+  // weld by position
+  const key = i => `${pa.getX(i).toFixed(5)},${pa.getY(i).toFixed(5)},${pa.getZ(i).toFixed(5)}`;
+  const wid = new Int32Array(n), ids = new Map();
+  for (let i = 0; i < n; i++) { const k = key(i); let w = ids.get(k); if (w === undefined) ids.set(k, w = ids.size); wid[i] = w; }
+  // 1. smooth normals within 50 deg
+  if (na) {
+    const groups = new Map(); for (let i = 0; i < n; i++) { let a = groups.get(wid[i]); if (!a) groups.set(wid[i], a = []); a.push(i); }
+    const out = new Float32Array(n * 3), v = new THREE.Vector3(), u = new THREE.Vector3(), cs = Math.cos(50 * Math.PI / 180);
+    for (const a of groups.values()) for (const i of a) {
+      v.fromBufferAttribute(na, i); const sum = new THREE.Vector3();
+      for (const j of a) { u.fromBufferAttribute(na, j); if (u.dot(v) > cs) sum.add(u); }
+      sum.normalize(); out.set([sum.x, sum.y, sum.z], i * 3);
+    }
+    na.array.set(out); na.needsUpdate = true;
   }
-  if (pts.length < 8) return;
-  let lo = Infinity; for (const p of pts) lo = Math.min(lo, p.dot(kn));
-  const ring = pts.filter(p => p.dot(kn) < lo + 0.006); if (ring.length < 4) return;
-  const c = ring.reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(1 / ring.length);
-  let r = 0; for (const p of ring) r = Math.max(r, p.clone().sub(c).addScaledVector(kn, -p.clone().sub(c).dot(kn)).length());
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(r * 1.02, 24), new THREE.MeshStandardMaterial({ color: 0x0b0b0d, roughness: 0.7, side: THREE.DoubleSide }));
-  disc.position.copy(c).addScaledVector(kn, 0.002); disc.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), kn);
-  disc.frustumCulled = false; disc.visible = false; H.B.Root.add(disc); H.cap = disc;
+  // 2. cap the cuff: boundary edges (welded) of the Root-skinned part, the biggest loop
+  const sk = mesh.skeleton, ri = sk.bones.indexOf(H.B.Root), si = g.attributes.skinIndex, sw = g.attributes.skinWeight;
+  const main = i => { let b = 0, bw = -1; for (let c = 0; c < 4; c++) { const w = sw.getComponent(i, c); if (w > bw) { bw = w; b = si.getComponent(i, c); } } return b; };
+  const A = g.index.array, ec = new Map(), rep = new Map();
+  for (let t = 0; t < A.length; t += 3) for (const [x, y] of [[A[t], A[t + 1]], [A[t + 1], A[t + 2]], [A[t + 2], A[t]]]) {
+    const a = wid[x], b = wid[y], k = a < b ? a + '_' + b : b + '_' + a; ec.set(k, (ec.get(k) || 0) + 1); rep.set(a, x); rep.set(b, y);
+  }
+  const adj = new Map(); for (const [k, c] of ec) if (c === 1) { const [a, b] = k.split('_').map(Number); (adj.get(a) || adj.set(a, []).get(a)).push(b); (adj.get(b) || adj.set(b, []).get(b)).push(a); }
+  const seen = new Set(); let best = null;
+  for (const st of adj.keys()) {
+    if (seen.has(st)) continue;
+    const loop = [st]; seen.add(st); let prev = -1, cur = st;
+    for (;;) { const nx = (adj.get(cur) || []).find(x => x !== prev && !seen.has(x)); if (nx === undefined) break; loop.push(nx); seen.add(nx); prev = cur; cur = nx; }
+    const rootish = loop.filter(w => main(rep.get(w)) === ri).length / loop.length;
+    if (loop.length >= 6 && rootish > 0.6 && (!best || loop.length > best.length)) best = loop;
+  }
+  if (best && ri >= 0) {
+    const vs = best.map(w => rep.get(w)), P = i => new THREE.Vector3().fromBufferAttribute(pa, i);
+    const c = vs.reduce((s, i) => s.add(P(i)), new THREE.Vector3()).multiplyScalar(1 / vs.length);
+    let nrm = new THREE.Vector3(); for (let k = 0; k < vs.length; k++) nrm.add(new THREE.Vector3().crossVectors(P(vs[k]).sub(c), P(vs[(k + 1) % vs.length]).sub(c)));
+    nrm.normalize();
+    const all = new THREE.Vector3(); for (let i = 0; i < n; i++) all.add(P(i)); all.multiplyScalar(1 / n);
+    const outward = c.clone().sub(all).dot(nrm) > 0; if (!outward) nrm.negate();
+    // new vertices: the rim again (with the cap's normal) + the centre
+    const add = vs.length + 1, attrs = {};
+    for (const [name, at] of Object.entries(g.attributes)) {
+      const isz = at.itemSize, arr = new at.array.constructor((n + add) * isz); arr.set(at.array);
+      for (let k = 0; k <= vs.length; k++) {
+        const src = k < vs.length ? vs[k] : vs[0], o = (n + k) * isz;
+        for (let q = 0; q < isz; q++) arr[o + q] = at.array[src * isz + q];
+      }
+      attrs[name] = new THREE.BufferAttribute(arr, isz, at.normalized);
+    }
+    const o = (n + vs.length) * 3; attrs.position.array.set([c.x, c.y, c.z], o);
+    for (let k = 0; k <= vs.length; k++) attrs.normal.array.set([nrm.x, nrm.y, nrm.z], (n + k) * 3);
+    attrs.skinIndex.array.set([ri, 0, 0, 0], (n + vs.length) * 4); attrs.skinWeight.array.set([1, 0, 0, 0], (n + vs.length) * 4);
+    const tri = [], cen = n + vs.length;
+    for (let k = 0; k < vs.length; k++) {
+      const a = n + k, b = n + (k + 1) % vs.length;
+      const fn = new THREE.Vector3().crossVectors(P(vs[k]).sub(c), P(vs[(k + 1) % vs.length]).sub(c));
+      if (fn.dot(nrm) > 0) tri.push(cen, a, b); else tri.push(cen, b, a);
+    }
+    const ng = new THREE.BufferGeometry();
+    for (const [name, at] of Object.entries(attrs)) ng.setAttribute(name, at);
+    const IA = Array.from(A).concat(tri); ng.setIndex(IA);
+    ng.boundingSphere = g.boundingSphere; ng.boundingBox = g.boundingBox; ng.userData.vireFixed = true;
+    H.capTris = tri.length / 3;
+    return ng;
+  }
+  g.userData.vireFixed = true;
+  return null;
 }
-export function gloveHide(g, H) { g.hand(H, null, 1); if (H.cap) H.cap.visible = false; }   // #302
+export function gloveHide(g, H) { g.hand(H, null, 1); }   // #302
