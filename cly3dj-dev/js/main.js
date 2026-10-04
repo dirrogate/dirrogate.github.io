@@ -1725,7 +1725,12 @@ function localBoxes(obj) {
 function refreshSleeveColliders() {
   sleeveColliders = [];
   for (const o of [...deckGroups, mixer, ...Object.values(cases).map(c => c.group)]) {
-    for (const b of localBoxes(o)) sleeveColliders.push({ o, b });
+    for (const b of localBoxes(o)) {
+      // #281 (owner): no colliders on a turntable's two front feet, so a sleeve or record slides in under the deck
+      // (it may cut through those feet); the back feet still stop it. Feet = the low pieces (top under 3 cm), front = +z.
+      if (deckGroups.includes(o) && b.max.y < 0.03 && b.min.z > 0.05) continue;
+      sleeveColliders.push({ o, b });
+    }
   }
 }
 // an oriented box as centre, three unit axes and half sizes
