@@ -18,7 +18,7 @@ const APP = [
     'flightcase', 'id3', 'layout', 'ledwall', 'library', 'lookmatch', 'main', 'medialib', 'merge', 'mic-worklet', 'models', 'neon', 'net-link',
     'perfcap', 'phonelib', 'robot', 'robot2', 'skybox', 'spectator-client', 'spectator-host', 'spectator', 'storage', 'textures', 'tools', 'videovinyl', 'vset', 'xr'].map(n => `js/${n}.js`),
   ...['flight_case_kit', 'flight_case_kit_ktx', 'milk_crate', 'milk_crate_ktx', 'mixer_parts', 'neon_sign', 'neon_sign_glass', 'neon_sign_glass_ktx',
-    'neon_sign_ktx', 'record_crate', 'record_crate_ktx', 'turntable', 'avatar/robot', 'avatar/avatar_robot', 'avatar/dirroface'].map(n => `models/${n}.glb`),
+    'neon_sign_ktx', 'record_crate', 'record_crate_ktx', 'turntable', 'avatar/robot', 'avatar/avatar_robot', 'avatar/avatar_robot_v2', 'avatar/dirroface'].map(n => `models/${n}.glb`),
   'models/avatar/gemini_emboss.png', 'models/slipmat_left.jpg', 'models/slipmat_right.jpg', 'models/turntable_ao.json', 'models/turntable_ao.png',
   'vendor/three/three.module.js', 'vendor/three/OrbitControls.js', 'vendor/three/RoomEnvironment.js',
   'vendor/three/loaders/GLTFLoader.js', 'vendor/three/loaders/KTX2Loader.js', 'vendor/three/utils/BufferGeometryUtils.js', 'vendor/three/utils/WorkerPool.js',

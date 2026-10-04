@@ -25,7 +25,7 @@ export function makePhoneHands(rig) {
       import('./robot2.js').then(R => {
         const holder = new THREE.Group(); rig.add(holder);
         const a = new R.RobotAvatar2(holder);
-        return a.load('models/avatar/avatar_robot.glb').then(() => {
+        return a.load(R.ROBOT_GLB).then(() => {
           const keep = new Set(); for (const H of a.hands) { H.node.traverse(o => keep.add(o)); H.node.scale.multiplyScalar(1.1); }   // #287 sizes, #301 1.1
           a.root.traverse(o => { if (o.isMesh) { if (keep.has(o)) { o.layers.set(0); o.frustumCulled = false; o.material = o.material.clone(); o.material.side = THREE.DoubleSide; chromePads(o.material); } else o.visible = false; } });   // #302
           { const ng = gloveCap(a.hands[0]); if (ng) for (const H of a.hands) H.mesh.geometry = ng; }   // #303 smooth + capped (both gloves share the geometry)

@@ -817,7 +817,7 @@ export function setupXR(ctx) {
       import('./robot2.js').then(R => {
         const holder = new THREE.Group(); holder.name = 'gloves'; scene.add(holder);
         const a = new R.RobotAvatar2(holder);
-        return a.load('models/avatar/avatar_robot.glb').then(() => {
+        return a.load(R.ROBOT_GLB).then(() => {
           const keep = new Set(); for (const H of a.hands) { H.node.traverse(o => keep.add(o)); H.node.scale.multiplyScalar(GLOVE_SCALE); }
           a.root.traverse(o => { if (o.isMesh) { if (keep.has(o)) { o.layers.set(0); o.castShadow = false; o.frustumCulled = false; o.material = o.material.clone(); o.material.side = THREE.DoubleSide; chromePads(o.material); } else o.visible = false; } });   // #302 inside drawn too
           { const ng = gloveCap(a.hands[0]); if (ng) for (const H of a.hands) H.mesh.geometry = ng; }   // #303 smooth + capped (both gloves share the geometry)   // #302 the cuff closed

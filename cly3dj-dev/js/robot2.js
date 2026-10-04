@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
 import { AV_LAYER } from './director.js';
 import { synthJoints } from './robot.js';
+import { chromePads } from './ctlhands.js';   // #305
 
 const V = () => new THREE.Vector3();
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -101,11 +102,15 @@ function splitByBone(mesh, name) {
   g.setIndex(a.concat(b)); g.clearGroups(); g.addGroup(0, a.length, 0); g.addGroup(a.length, b.length, 1);
 }
 
+// #305 (owner) Cly3DJ's own robot, made from the licensed one in Blender (blender/robot_v2/robot_v2.blend): no headband,
+// the ear cups replaced by Gemini-logo headphones (chrome logo on a black cup), a chin ridge, a faceted bust, and gloves
+// subdivided once with a chrome dart on each finger (knuckle to the last joint) instead of the white pads.
+export const ROBOT_GLB = 'models/avatar/avatar_robot_v2.glb';
 export class RobotAvatar2 {
   constructor(rig) {
     this.rig = rig; this.root = new THREE.Group(); this.root.name = 'robot2'; rig.add(this.root);
     this.ready = false; this.status = 'loading'; this.yaw = null; this.talk = 0; this.scanX = 0; this.scanDir = 1;
-    this.scan = new Float32Array(COLS); this.bars = [0, 0, 0, 0, 0]; this.barT = 0;
+    this.scan = new Float32Array(COLS); this.bars = [0, 0, 0]; this.barT = 0;
   }
   async load(url) {
     const gltf = await new GLTFLoader().loadAsync(url);
@@ -148,7 +153,9 @@ export class RobotAvatar2 {
         splitByBone(o, 'Neck'); o.material = [chrome, o.material];
       }
     });
-    this.addCrests();
+    let gem = false; model.traverse(o => { if (o.material && /Gemini/.test(o.material.name || '')) gem = true; });
+    if (!gem) this.addCrests();   // #305 the v2 robot wears the Gemini logo as its headphones
+    model.traverse(o => { if (o.isSkinnedMesh && o.material && o.material.name === 'AvatarRobot_Hand') chromePads(o.material); });   // #305 chrome darts
     // hands: LeftHand / RightHand nodes; left is mirrored (scale x -1). Solved in each node's own space.
     this.hands = ['LeftHand', 'RightHand'].map((nm, i) => {
       let node = null; model.traverse(o => { if (!node && o.name === nm) node = o; });
@@ -299,9 +306,10 @@ export class RobotAvatar2 {
     if (this.barT <= 0) {
       this.barT = 0.07;
       const base = this.talk * (0.75 + 0.5 * Math.random());
-      this.bars = [0.35, 0.65, 1, 0.65, 0.35].map((k, i) => clamp(base * k * (i === 2 ? 1 : 0.8 + 0.4 * Math.random()) * 1.4, 0, 1));
+      // #306 (owner) three touching columns: a tall centre and two slightly shorter sides, no dark gaps (a talking look)
+      this.bars = [0.8, 1, 0.8].map((k, i) => clamp(base * k * (i === 1 ? 1 : 0.85 + 0.25 * Math.random()) * 1.4, 0, 1));
     }
-    const mid = (ROWS - 1) / 2, d = this.ledData, barCols = [COLS / 2 - 4, COLS / 2 - 2, COLS / 2, COLS / 2 + 2, COLS / 2 + 4]   /* one dark column between bars */.map(Math.floor);
+    const mid = (ROWS - 1) / 2, d = this.ledData, barCols = [COLS / 2 - 1, COLS / 2, COLS / 2 + 1].map(Math.floor);   // #306 adjacent, no gaps
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
       let b = 0;
       if (idle > 0 && Math.abs(r - mid) <= 1) b = this.scan[c] * (r === mid ? 1 : 0.55) * idle;
