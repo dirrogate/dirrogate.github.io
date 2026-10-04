@@ -287,7 +287,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       } else if (st.grip) {
         st.grip.matrixWorld.decompose(_rp, _rq, _rs); rig.worldToLocal(_rp); _rq.premultiply(_riq);
         // #288 + trigger / grip / thumb (as the Quest's hand pose eases them) and which hand, so the phone poses the same hand
-        const bt = st.source && st.source.gamepad ? st.source.gamepad.buttons : [], thumb = [3, 4, 5].some(k => bt[k] && (bt[k].touched || bt[k].pressed)) ? 1 : 0;
+        const bt = st.source && st.source.gamepad ? st.source.gamepad.buttons : [], thumb = 0;   // #296 the Quest's hand no longer lowers the thumb on a stick / A / B touch; the phone matches
         out.push([st.i, 'c', [r3(_rp.x), r3(_rp.y), r3(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), r3(st.tA || 0), r3(st.gA || 0), thumb], hdOf(st)]);
       }
     }
