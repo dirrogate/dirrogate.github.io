@@ -4057,7 +4057,7 @@ function drawToolsPage() {
     const sw = (x, y, w, h, label, k) => { const on = pieceOn(k); btn(x, y, w, h, `${label}: ${on ? 'ON' : 'OFF'}`, on, () => setPiece(k, !on), false, P ? 18 : 20); };
     if (P) {
       if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
-        ctlBtn(L, y0 + 176, R - L, 64);
+        ctlBtn(L, y0 + 176, (R - L - 8) * 0.62, 64); btn(L + (R - L - 8) * 0.62 + 8, y0 + 176, (R - L - 8) * 0.38, 64, 'HAND FIT', false, () => setTools('handfit'), false, 18);   // #291
         note('RECORD MAKER: press your own record. It goes into the crate, Unsorted. MILK CRATE: the first milk crate (extra ones come from the crate screen). CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 272); }
       else { btn(L, y0 + 8, R - L, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
         sw(L, y0 + 100, R - L, 64, 'LED WALL', 'ledwall'); sw(L, y0 + 176, R - L, 64, 'NEON SIGN', 'neon');
@@ -4065,7 +4065,7 @@ function drawToolsPage() {
     } else {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
       if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(x2, y0 + 8, w2, 80, 'MILK CRATE', 'milk');
-        ctlBtn(L, y0 + 96, R - L, 50);
+        ctlBtn(L, y0 + 96, (R - L - 8) * 0.66, 50); btn(L + (R - L - 8) * 0.66 + 8, y0 + 96, (R - L - 8) * 0.34, 50, 'HAND FIT', false, () => setTools('handfit'), false, 20);   // #291
         note('RECORD MAKER: press your own record (blank, a song or a clip, a picture label); it goes into the crate, Unsorted. MILK CRATE: the first milk crate; switched off it is hidden and costs nothing. CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 164); }
       else { btn(L, y0 + 8, bw, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
         const hw = (w2 - 8) / 2; sw(x2, y0 + 8, hw, 80, 'LED WALL', 'ledwall'); sw(x2 + hw + 8, y0 + 8, hw, 80, 'NEON', 'neon');
@@ -4120,6 +4120,26 @@ function drawToolsPage() {
     btn(x, by2, sw, kh, 'SPACE', false, () => kbdKey('SPACE'));
     btn(x + sw + gap, by2, dw, kh, '⌫', false, () => kbdKey('DEL'));
     btn(x + sw + dw + 2 * gap, by2, ew2, kh, kbd.emoji ? 'ENTER' : 'OK', true, () => kbdKey('ENTER'));
+    return;
+  }
+  if (page === 'handfit') {   // #291 (owner) move / turn the 3D hands and glove on the controllers; values to report back
+    const y0 = head('HAND FIT', 'dj');
+    let X = null; try { X = xr; } catch (e) {}
+    const A = X ? X.handFit : { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
+    const rows = [['x', 'MOVE OUT / IN', 'mm', 5], ['y', 'MOVE UP / DOWN', 'mm', 5], ['z', 'MOVE BACK / FORWARD', 'mm', 5],
+      ['rx', 'TILT FINGERS UP / DOWN', '°', 5], ['ry', 'SWING FINGERS OUT / IN', '°', 5], ['rz', 'ROLL', '°', 5]];
+    const rh = P ? 54 : 42, bw = P ? 64 : 56;
+    rows.forEach(([k, label, unit, step], i) => {
+      const y = y0 + 4 + i * (rh + 4);
+      g.fillStyle = '#dfe6f2'; g.font = `700 ${P ? 17 : 16}px system-ui`; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(label, L + 4, y + rh / 2);
+      const vx = R - bw * 2 - 120;
+      btn(vx, y, bw, rh, '−', false, () => { if (X) { X.setHandFit(k, (A[k] || 0) - step); drawMixScreen(); } });
+      g.fillStyle = '#fff'; g.font = '700 20px system-ui'; g.textAlign = 'center'; g.fillText(`${(A[k] || 0) > 0 ? '+' : ''}${A[k] || 0} ${unit}`, vx + bw + 60, y + rh / 2); g.textBaseline = 'alphabetic';
+      btn(vx + bw + 120, y, bw, rh, '+', false, () => { if (X) { X.setHandFit(k, (A[k] || 0) + step); drawMixScreen(); } });
+    });
+    const yb = y0 + 4 + rows.length * (rh + 4) + 6;
+    btn(L, yb, 160, 40, 'RESET', false, () => { if (X) { for (const [k] of rows) X.setHandFit(k, 0); drawMixScreen(); } });
+    note('Steps of 5 mm / 5°, both hands (the left mirrored). Line the 3D hand up with your real hand, then tell Claude the numbers.', yb + 56);
     return;
   }
   if (page === 'maker') {
@@ -4895,6 +4915,7 @@ async function applySpect() {
       getSpiders: spidersState,   // #262
       getAv: phoneRobotState,   // #278
       getLook: () => xr ? xr.getCtlLook() : '3dhands',   // #288
+      getHandFit: () => xr ? xr.handFit : undefined,   // #291
       getVV: () => ({ mode: ledMode, gains: deckGains(mixVal), decks: deckVid.map((dv, i) => dv.v ? [i, dv.key, engine.ctx ? engine.pos(i) : 0, engine.state.decks[i].rate || 0] : null).filter(Boolean) }),
       getSky: () => ({ h: settings.skyH, turn: settings.skyTurn, type: settings.skyType, key: settings.skyKey, file: settings.skyFile, media: settings.env === 'image' ? settings.skyMedia : '' }),
       onMedia: () => { refreshLibVV(); if (videoPage && vpFolder !== 'Sync') vpLoad(); },

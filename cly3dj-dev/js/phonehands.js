@@ -6,7 +6,7 @@
 // Later: realistic human hand textures.
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
-import { createControllerHand } from './ctlhands.js';
+import { createControllerHand, POSE } from './ctlhands.js';
 
 const SPEC = ['wrist', 'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
   ...['index-finger', 'middle-finger', 'ring-finger', 'pinky-finger'].flatMap(f => [`${f}-metacarpal`, `${f}-phalanx-proximal`, `${f}-phalanx-intermediate`, `${f}-phalanx-distal`, `${f}-tip`])];
@@ -119,5 +119,10 @@ export function makePhoneHands(rig) {
       if (S.gloveH && glove) { glove.hand(S.gloveH, null, 1); S.gloveH = null; }
     }
   }
-  return { update, frame, get look() { return look; } };
+  let fitKey = '';
+  function fit(a) {   // #291 the DJ's HAND FIT values: same offsets here, hands re-placed when they change
+    const k = JSON.stringify(a); if (k === fitKey) return; fitKey = k; Object.assign(POSE.adj, a);
+    for (const S of sides) for (const h of [S.ctl, S.trk]) if (h) { h.place(); h.cur = ''; }
+  }
+  return { update, frame, fit, get look() { return look; } };
 }

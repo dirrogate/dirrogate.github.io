@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { XRControllerModelFactory } from '../vendor/three/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from '../vendor/three/webxr/XRHandModelFactory.js';
-import { createControllerHand } from './ctlhands.js';   // #276
+import { createControllerHand, POSE as CTL_POSE } from './ctlhands.js';   // #276, #291
 const LIFT_OUT = 0.05;
 // #260 the record on a deck: 12" or 7" sizes (lift zone just past a 45's label, 1.2 cm)
 let REC12 = null; const RD = d => (d.record && d.record.dims) || REC12; const LO = D => (D.SIZE === 7 ? 0.012 : LIFT_OUT);   // #136: record lift-off zone reaches this far past the label edge (m)
@@ -28,7 +28,7 @@ export function setupXR(ctx) {
   const hmf = new XRHandModelFactory().setPath(PROF + '/generic-hand/');
 
   const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
-  const tipGeo = new THREE.SphereGeometry(0.006, 12, 8);
+  const tipGeo = new THREE.SphereGeometry(0.009, 12, 8);   // #291 (owner) 150 % (was 6 mm)
   // #140 (owner): the blue tip ball sits at the front centre of the controller's own model (the fixed grip-space
   // point was off to one side on Quest 3 Touch Plus). Measured once from the loaded model: the front-most 2.5 cm of
   // its vertices give the centre (x, y); the ball's centre sits 2 mm inside the front face. Fallback until the model loads.
@@ -78,11 +78,12 @@ export function setupXR(ctx) {
     // #104 (owner): on the turntables (tonearm, power dial, platter, record) only the TRIGGER acts; the grip
     // (middle finger) still grabs and moves everything else. A grab ends only when its own button is let go.
     const down = btn => {
+      st.held = st.held || {}; st.held[btn] = true;   // #291 button state as the events see it (the gamepad snapshot can lag a frame)
       if (ctx.crateMicSelect(st.isHand ? st.pinchPt : st.tip)) { buzz(st, 0.4, 20); return; }
       if (!st.isHand) { const hl = ctlTipLocal(st); if (hl) { st.grip.updateMatrixWorld(); st.grip.localToWorld(st.tip.copy(hl)); } }   // #283 / #284 grab from the closed O's fingertip, not last frame's
       if (!st.isHand && !st.direct && grabStart(st, st.tip, btn)) st.btn = btn;
     };
-    const up = btn => { if (!st.isHand && (!st.direct || st.btn === btn)) release(st); };
+    const up = btn => { if (st.held) st.held[btn] = false; if (!st.isHand && (!st.direct || st.btn === btn)) release(st); };
     ray.addEventListener('selectstart', () => down('trigger')); ray.addEventListener('selectend', () => up('trigger'));
     ray.addEventListener('squeezestart', () => down('grip')); ray.addEventListener('squeezeend', () => up('grip'));
     return st;
@@ -832,13 +833,19 @@ export function setupXR(ctx) {
     g.hand(H, { joints: J, tip: J.get('index-finger-tip').clone(), curlIndex: Math.max(st.tA || 0, st.gA || 0) }, dt);   // #289 glove index on the skin hand's index (the ball is on the thumb now)
     st.gloveH = H;
   }
+  // #291 HAND FIT: the owner's move / turn of the 3D hands (and glove) on the controllers, saved
+  try { const a = JSON.parse(localStorage.getItem('vire.handFit') || 'null'); if (a) Object.assign(CTL_POSE.adj, a); } catch (e) {}
+  function setHandFit(k, v) {
+    CTL_POSE.adj[k] = v; try { localStorage.setItem('vire.handFit', JSON.stringify(CTL_POSE.adj)); } catch (e) {}
+    for (const st of inputs) if (st.ctlHand) { st.ctlHand.place(); st.ctlHand.cur = ''; }
+  }
   function setCtlLook(v) { ctlLook = v; try { localStorage.setItem('vire.ctlLook', v); } catch (e) {} }
   // #284 the ball / touch point is the index fingertip: relaxed with no button, the fingertip of the closed O while the
   // trigger or grip is held (a fixed point, so a held knob, fader or record never slips as the pressure varies)
   function ctlTipLocal(st) {
     const h = st.ctlHand; if (ctlLook === 'controller' || !h || !h.root.visible || !h.tipLive) return null;
-    const gp = st.source && st.source.gamepad, b = gp ? gp.buttons : [];
-    return (b[0] && b[0].pressed) || (b[1] && b[1].pressed) ? (h.tipO || h.tipLive) : h.tipLive;
+    // #291 held = from the select / squeeze events, so the grab and every frame after it use the same fixed point
+    return st.held && (st.held.trigger || st.held.grip) ? (h.tipO || h.tipLive) : h.tipLive;
   }
   function ctlHandStep(st) {
     const want = st.connected && !st.isHand && ctlLook !== 'controller' && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
@@ -929,5 +936,5 @@ export function setupXR(ctx) {
   const fingers = () => inputs.filter(st => st.connected && st.isHand && st.finger && st.finger.ok).map(st => st.finger);
   const tips = () => inputs.filter(st => st.connected).map(st => ({ st, p: st.tip, anchor: st.anchor, hand: st.isHand }));
   const buzzAnchor = (anchor, v, ms) => { const st = inputs.find(o => o.anchor === anchor); if (st) buzz(st, v, ms); };   // #243
-  return { get glove() { return glove; }, update, end, inputs, setHandMode, setCtlLook, getCtlLook: () => ctlLook, fingers, tips, buzz, buzzAnchor, _t: { grabStart, grabMove, release, pokes, updateAnchor } };
+  return { get glove() { return glove; }, setHandFit, handFit: CTL_POSE.adj, update, end, inputs, setHandMode, setCtlLook, getCtlLook: () => ctlLook, fingers, tips, buzz, buzzAnchor, _t: { grabStart, grabMove, release, pokes, updateAnchor } };
 }

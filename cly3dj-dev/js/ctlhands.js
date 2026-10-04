@@ -21,6 +21,9 @@ export const POSE = {
   // where the hand sits in grip space (right hand; the left is the mirror in X; grip -Z runs along the handle toward
   // the face): back of the hand facing out (+X),
   // the knuckle line along the handle (index at the front by the trigger, pinky toward the back), the middle knuckle at `knuckle`
+  // #291 owner's live fit from the tablet (DJ TOOLS > HAND FIT): move (mm, grip space: x out, y up, z back) and turn
+  // (deg, about the middle knuckle: rx tips the fingers up / down, ry swings them in / out, rz rolls the hand); mirrored for the left
+  adj: { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 },
   handle: [0, -0.6, 1], knuckle: [0.056, 0, 0], twist: 0,   // #290 (owner: the 3D hand sat inside the real one) knuckle 3 cm further out (was 0.026); mirrored for the left hand
 };
 
@@ -55,6 +58,12 @@ function place(h, handed) {
   h.holder.quaternion.setFromRotationMatrix(R);
   const k = B['middle-finger-phalanx-proximal'].p.clone().applyQuaternion(h.holder.quaternion);
   h.holder.position.set(POSE.knuckle[0] * sx, POSE.knuckle[1], POSE.knuckle[2]).sub(k);
+  { // #291 the owner's fit: turn about the middle knuckle, then move
+    const A = POSE.adj || {}, K = new THREE.Vector3(POSE.knuckle[0] * sx, POSE.knuckle[1], POSE.knuckle[2]);
+    const qa = new THREE.Quaternion().setFromEuler(new THREE.Euler((A.rx || 0) * D, (A.ry || 0) * D * sx, (A.rz || 0) * D * sx, 'XYZ'));
+    h.holder.quaternion.premultiply(qa); h.holder.position.sub(K).applyQuaternion(qa).add(K);
+    h.holder.position.add(new THREE.Vector3((A.x || 0) * sx, A.y || 0, A.z || 0).multiplyScalar(0.001));
+  }
   // #283 the middle of the closed O (thumb tip and index tip at full grip), in root (grip) space: while the grip is
   // held this fixed point is the ball and the touch point, so a knob or fader never slips as the grip pressure varies
   pose(h, 0, 1, false); h.holder.updateMatrix();

@@ -515,6 +515,7 @@ export function startCamera(ctx) {
       if (m.g) for (const a of m.g) nodeSample(a, m.t);
       if (m.r) for (const a of m.r) recSample(a, m.t);
       // #288 (owner): no more depth-only cut-outs; the phone draws the DJ's hands as the Quest does (3D hands / glove / controllers)
+      if (m.ha) phoneHands.fit(m.ha);   // #291
       if (m.hd && !robo.on) phoneHands.update(m.hd, m.cl, Math.min(0.1, (performance.now() - (onMsg.lastHd || 0)) / 1000)), onMsg.lastHd = performance.now();
       if (m.av) onAvatar(m);
       if (m.vv) onVV(m.vv);
