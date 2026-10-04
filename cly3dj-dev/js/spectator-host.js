@@ -14,7 +14,7 @@ const CAL_TEXT = {
   x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
-export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getScroll, onLive, getVV, getSpiders, getAv, getSky, onMedia, onCam, onPreview, perf, coverFor }) {
+export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getScroll, onLive, getVV, getSpiders, getAv, getLook, getSky, onMedia, onCam, onPreview, perf, coverFor }) {
   // #209 PerfCap: every mirror message also goes to the PerfCap recorder while it records (phone or not)
   const out = { send(ch, m) { if (link.isOpen) link.send(ch, m); if (perf && perf.on) perf.write(ch, m); } };
   let perfMarks = false;   // #209 PerfCap MARKS mode: each trigger press records a floor mark
@@ -275,6 +275,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   }
 
   // ---- hands / controllers, so the phone can let the real hands show in front of the gear
+  const hdOf = st => (st.source && st.source.handedness || '')[0] || '';   // #288 'l' / 'r'
   function handsTick() {
     const out = [], inputs = getInputs() || [];
     for (const st of inputs) {
@@ -282,10 +283,12 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       if (st.isHand) {
         const h = renderer.xr.getHand(st.i), a = [];
         for (const j of Object.values(h.joints || {})) { if (!j.visible) continue; rig.worldToLocal(j.getWorldPosition(_rp)); a.push(r3(_rp.x), r3(_rp.y), r3(_rp.z)); }
-        if (a.length >= 30) out.push([st.i, 'h', a]);
+        if (a.length >= 30) out.push([st.i, 'h', a, hdOf(st)]);
       } else if (st.grip) {
         st.grip.matrixWorld.decompose(_rp, _rq, _rs); rig.worldToLocal(_rp); _rq.premultiply(_riq);
-        out.push([st.i, 'c', [r3(_rp.x), r3(_rp.y), r3(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w)]]);
+        // #288 + trigger / grip / thumb (as the Quest's hand pose eases them) and which hand, so the phone poses the same hand
+        const bt = st.source && st.source.gamepad ? st.source.gamepad.buttons : [], thumb = [3, 4, 5].some(k => bt[k] && (bt[k].touched || bt[k].pressed)) ? 1 : 0;
+        out.push([st.i, 'c', [r3(_rp.x), r3(_rp.y), r3(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), r3(st.tA || 0), r3(st.gA || 0), thumb], hdOf(st)]);
       }
     }
     return out;
@@ -452,7 +455,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     else if (now - settleT > 1000) { settleT = now; const n = settled(now); if (n.length) out.send('ctl', { k: 'full', t: Math.round(now), n }); }
     out.send('state', { k: 's', n: seq++, t: Math.round(now), xr: renderer.xr.isPresenting ? 1 : 0,
       h: [r3(_p.x), r3(_p.y), r3(_p.z), r4(_q.x), r4(_q.y), r4(_q.z), r4(_q.w)],
-      cs: caseSizes(false), g: nodeDiffs(false), r: recordsTick(), vv: vvTick(), sp: spTick(), hd: renderer.xr.isPresenting ? handsTick() : [], av: getAv ? getAv() : undefined });   // #278 av: robot on the phone
+      cs: caseSizes(false), g: nodeDiffs(false), r: recordsTick(), vv: vvTick(), sp: spTick(), hd: renderer.xr.isPresenting ? handsTick() : [], av: getAv ? getAv() : undefined, cl: getLook ? getLook() : undefined });   // #288 cl: how the DJ's controllers look   // #278 av: robot on the phone
   }
   // #167: one switch. ON = viewfinder outline here + helpers and menus on the phone; OFF = everything hidden
   // (the phone shows only camera + gear: start its screen recorder by hand)

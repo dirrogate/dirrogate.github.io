@@ -12,6 +12,7 @@ import { makeFixLook } from './fixlook.js';
 import { makePhoneLibrary } from './phonelib.js';
 import { makeFixedCam } from './fixedcam.js';
 import * as media from './medialib.js';
+import { makePhoneHands } from './phonehands.js';   // #288
 
 export function startCamera(ctx) {
   const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, scroller, skybox, envLight, key } = ctx;
@@ -445,6 +446,7 @@ export function startCamera(ctx) {
       }
     }
   }
+  const phoneHands = makePhoneHands(rig);   // #288
   // ---------------------------------------------------------------- #278 the robot DJ on the phone
   // The Quest sends (only while ROBOT ON PHONE is on) the mic level, which input is the left / right hand and each
   // controller's trigger, grip and tip ball; head and hands come in every state tick anyway (rig-local). The phone
@@ -512,7 +514,8 @@ export function startCamera(ctx) {
       if (m.cs) onCaseSizes(m.cs);
       if (m.g) for (const a of m.g) nodeSample(a, m.t);
       if (m.r) for (const a of m.r) recSample(a, m.t);
-      if (m.hd && !robo.on) onHands(m.hd);   // #278 the robot replaces the hand cut-outs while it is on
+      // #288 (owner): no more depth-only cut-outs; the phone draws the DJ's hands as the Quest does (3D hands / glove / controllers)
+      if (m.hd && !robo.on) phoneHands.update(m.hd, m.cl, Math.min(0.1, (performance.now() - (onMsg.lastHd || 0)) / 1000)), onMsg.lastHd = performance.now();
       if (m.av) onAvatar(m);
       if (m.vv) onVV(m.vv);
       if (m.sp && ctx.crateRemote && ctx.crateRemote.spiders) ctx.crateRemote.spiders(m.sp);   // #262 45 adapters
@@ -747,6 +750,7 @@ export function startCamera(ctx) {
     }
     handsTimeout();
     robotFrame(dt, now);   // #278
+    phoneHands.frame(now, robo.on);   // #288
     vvFrame(now);
     head.visible = showHead && now - stats.last < 1000;
     if (deckInst) deckInst.update();
@@ -783,5 +787,5 @@ export function startCamera(ctx) {
     } else lastXT = 0;
     fpsN++; if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; late = lateN; lateN = 0; sendCst(); }
   });
-  window.spect = { _robo: { robo, onAvatar, robotFrame } /* #278 test hook */, vs, look, renderPreview, fixed, flook, _live: { fixedFrame: liveFixed, get on() { return liveOn; }, get track() { return liveTrack; } } /* #238 test hook */, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
+  window.spect = { _robo: { robo, onAvatar, robotFrame } /* #278 test hook */, _ph: phoneHands /* #288 */, vs, look, renderPreview, fixed, flook, _live: { fixedFrame: liveFixed, get on() { return liveOn; }, get track() { return liveTrack; } } /* #238 test hook */, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
 }
