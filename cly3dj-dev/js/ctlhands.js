@@ -21,7 +21,7 @@ export const POSE = {
   // where the hand sits in grip space (right hand; the left is the mirror in X; grip -Z runs along the handle toward
   // the face): back of the hand facing out (+X),
   // the knuckle line along the handle (index at the front by the trigger, pinky toward the back), the middle knuckle at `knuckle`
-  handle: [0, -0.6, 1], knuckle: [0.026, 0, 0], twist: 0,
+  handle: [0, -0.6, 1], knuckle: [0.056, 0, 0], twist: 0,   // #290 (owner: the 3D hand sat inside the real one) knuckle 3 cm further out (was 0.026); mirrored for the left hand
 };
 
 export function createControllerHand(handed, url, material) {
