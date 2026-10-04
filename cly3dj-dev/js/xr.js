@@ -59,7 +59,7 @@ export function setupXR(ctx) {
     line.visible = false; // no pointing rays
     // #140 (owner): a solid, depth-tested ball, so it reads as a nub on the controller's nose (it used to be drawn
     // over the model and looked like a dot floating off to one side). Hands keep the same ball at the fingertip.
-    const tipDot = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0x7cc4ff, transparent: true, opacity: 0.3, depthWrite: false }));   // #279 semi-transparent; #282 40 % more (0.5 -> 0.3)
+    const tipDot = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0xd2d6dc, transparent: true, opacity: 0.225, depthWrite: false }));   // #295 light grey, 25 % more see-through   // #279 semi-transparent; #282 40 % more (0.5 -> 0.3)
     tipDot.visible = false; scene.add(tipDot);
     const hitDot = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
     hitDot.visible = false; scene.add(hitDot);

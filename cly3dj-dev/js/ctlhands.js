@@ -13,7 +13,7 @@ const D = Math.PI / 180;
 
 // Pose numbers (degrees), open = button released, shut = fully pressed. Tuned on the PC against the Touch Plus model.
 export const POSE = {
-  index: { open: [18, 22, 12], shut: [40, 55, 35] },      // on the trigger
+  index: { open: [18, 22, 12], shut: [40, 55, 35], rest: [60, 80, 45] },      // on the trigger; rest = curled when not pressed (#295)
   rest: { open: [55, 75, 40], shut: [75, 85, 45] },       // middle / ring / pinky round the handle
   thumb: { open: [8, 10, 10], down: [18, 22, 18], spread: 0 },
   // #280 grip = an O of thumb and index (tips meeting), blended from whatever the trigger / thumb were doing
@@ -79,7 +79,7 @@ function place(h, handed) {
   // way from the thumb's last joint to its tip, 8 mm toward the index fingertip). A press closes the O and slides the
   // drawn hand (h.oShift, eased with the press) so the middle of the O lands on that point: the fingers close round
   // whatever the ball was on, and the touch point itself never moves.
-  pose(h, 0, 0, false); h.holder.updateMatrix(); it.updateWorldMatrix(true, false); tt.updateWorldMatrix(true, false);
+  pose(h, 0, 0, false, true); h.holder.updateMatrix(); it.updateWorldMatrix(true, false); tt.updateWorldMatrix(true, false);   // #295 measured with the old straight index, so the ball stays where it was
   const tdj = h.bones['thumb-phalanx-distal']; tdj.updateWorldMatrix(true, false);
   const P = o => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).applyMatrix4(inv);
   const td = P(tdj), tp = P(tt), ip = P(it), pad = td.clone().lerp(tp, 0.6);
@@ -104,13 +104,14 @@ function curl(h, chain, k, deg, axis = 'x') {
 const lerp3 = (a, b, t) => a.map((x, i) => x + (b[i] - x) * t);
 const add3 = (a, b, k) => a.map((x, i) => x + b[i] * k);
 const _ta = new THREE.Vector3(), _tb = new THREE.Vector3();
-function pose(h, t, g, th) {
+function pose(h, t, g, th, openIndex = false) {
   for (const n in h.bind) { h.bones[n].position.copy(h.bind[n].p); h.bones[n].quaternion.copy(h.bind[n].q); }
   // #280 (owner): the grip closes thumb and index into an O (record grabs, the power dial, faders and knobs look like
   // real fingers on the casts); the trigger alone curls the index (scratching). Grip wins over the trigger.
   // #284 (owner): the trigger closes the O too (knobs, faders, scratching); the grip also curls the other three fingers
   const O = POSE.O, o = Math.max(t, g);
-  const idx = lerp3(POSE.index.open, O.index, o), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
+  // #295 (owner): the index rests curled into the palm and only comes up to close the O on a press
+  const idx = lerp3(openIndex ? POSE.index.open : POSE.index.rest, O.index, o), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
   for (const f of FINGERS) { const c = CH(f), a = f === 'index-finger' ? idx : rest; for (let j = 0; j < 3; j++) curl(h, c, j + 1, a[j]); }
   // #293 (owner): the thumb moves naturally again (#292 had it fixed in the O); the ball is back on the index tip
   const tp = lerp3(th ? POSE.thumb.down : POSE.thumb.open, O.thumb, o);
