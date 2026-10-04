@@ -12,6 +12,7 @@
 // the servo has caught up (~0.3 s), bigger loads pull the speed down, and anything past ~0.15 N m stalls it.
 // 'legacy' keeps the pre-#120 kinematic model (fixed ramps) for side-by-side comparison.
 
+const PAN_K = 1 - Math.exp(-1 / (0.012 * sampleRate));   // #254 pan smoothing per sample
 const REV_PER_SEC = (100 / 3) / 60;
 const W33 = 2 * Math.PI * REV_PER_SEC;   // rad/s at 33 1/3 rpm = rate 1
 const W45 = W33 * 1.35;
@@ -63,7 +64,7 @@ class Deck {
     this.touch = false; this.touchRate = 0; this.touchF = 0.35;
     this.nudgeE = 0; this.nudgeLeft = 0;
     this.needle = false; this.needleGain = 0;
-    this.pan = 0; this.split = false;
+    this.pan = 0; this.panS = 0; this.split = false;   // #254 panS: the pan eased toward pan (~12 ms), so a jump never clicks
     this.lastLevel = 0;
     // needle dragged across the vinyl (CLAUDE.md #61)
     this.drag = false; this.dragPending = 0; this.dragAcc = 0; this.gps = 0; this.click = 0; this.hp = 0; this.nz = 0;
@@ -352,7 +353,7 @@ class Decks extends AudioWorkletProcessor {
         } else if (d.len && d.needleGain > 1e-4) {
           l = d.sample(d.L, d.pos) * d.needleGain;
           rr = d.sample(d.R, d.pos) * d.needleGain;
-          const p = d.pan;
+          const p = d.panS += (d.pan - d.panS) * PAN_K;
           const gL = p > 0 ? 1 - p : 1, gR = p < 0 ? 1 + p : 1;
           if (d.split) { const m = l * gL + rr * gR; l = m; rr = m; }
           else { l *= gL; rr *= gR; }

@@ -4033,6 +4033,7 @@ function drawMixScreen() {
     }
     drawTopBtn(g, 20, H - 52, 92, 36, 'TOOLS', !!(scroller && scroller.on));   // #224
     SP_HIT.push({ x: 14, y: H - 60, w: 104, h: 52, act: () => setTools('home') });
+    drawResetMix(g, 124, H - 52, 130, 36);   // #254
     drawPin(g, W - 26 - 150, H - 50, 150, 34);   // #210 (#224: right of TOOLS)
     scr().commit(); return;
   }
@@ -4047,6 +4048,7 @@ function drawMixScreen() {
     const w = 108, h = 28, x = 14, y = H - 40;
     drawTopBtn(g, x, y, w, h, 'TOOLS', !!(scroller && scroller.on));
     SP_HIT.push({ x: x - 6, y: y - 8, w: w + 12, h: h + 14, act: () => setTools('home') });
+    drawResetMix(g, x + w + 12, y, 120, h);   // #254
   }
   if (sp) {   // #174: MR GUI toggle + phone icon on deck A's top row, right-aligned to its panel (the divider stays clear)
     const right = W / 2 - 14, pw = 14, ph = 24, w = 108, h = 28, y = 12;
@@ -4055,6 +4057,22 @@ function drawMixScreen() {
     SP_HIT.push({ x: x - 6, y: 4, w: w + 12, h: h + 16, act: () => spect.setMR(!sp.mr) });
   }
   mixScreen.commit();
+}
+// #254 RESET MIX (owner): PAN, EQ, FILTER and TRIM back to the middle, split cue off; gains ramp in ~50 ms (engine
+// _ramp, worklet pan easing) so nothing clicks. Playback, records, faders, crossfader and pitch are left alone.
+// Two taps within 3 s, like GEAR HERE, so a stray poke mid-mix can't flatten the EQ.
+let resetArm = 0;
+function resetMix() {
+  for (const ch of ['A', 'B']) for (const k of ['trim', 'hi', 'mid', 'low', 'filter', 'pan']) setMix(`${ch}.${k}`, 0.5);
+  if (splitCue) { splitCue = false; engine.setSplitCue(false); }
+  toast('Mix reset: PAN, EQ, FILTER, TRIM centred, split cue off', 2000);
+}
+function drawResetMix(g, x, y, w, h) {
+  const armed = performance.now() - resetArm < 3000;
+  g.fillStyle = armed ? '#c8202c' : '#2a3140'; g.fillRect(x, y, w, h);
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = armed ? '#fff' : '#c9ced8'; g.font = '700 15px system-ui';
+  g.fillText(armed ? 'TAP AGAIN' : 'RESET MIX', x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
+  SP_HIT.push({ x, y: y - 4, w, h: h + 8, act: () => { if (performance.now() - resetArm < 3000) { resetArm = 0; resetMix(); drawMixScreen(); } else { resetArm = performance.now(); drawMixScreen(); setTimeout(drawMixScreen, 3100); } } });
 }
 // #210 GEAR HERE (in XR): tap twice within 3 s; a small pin status beside it
 function drawPin(g, x, y, w, h) {
@@ -4233,7 +4251,7 @@ function frame() {
     const bl = blinkUntil[d.i] - performance.now() / 1000;   // #117: cleared = 4 quick blinks
     mc[d.name + '.beat1'].userData.set(bl > 0 ? (Math.floor(bl * 8) % 2 ? 1 : 0.02) : d.loaded && d.track && beat1Of(d.track) !== null && d.ledShown === 0 ? 1 : 0.06);   // #110: flashes on beat 1 once tapped
   }
-  mc.splitcue.userData.set(splitCue ? 1 : 0.06);
+  mc.splitcue.userData.set(splitCue ? (Math.floor(performance.now() / 350) % 2 ? 1 : 0.15) : 0.06);   // #254 flashes while split cue is on
   mc.mic.userData.set(micOn ? 0.75 + Math.min(0.6, micLevel() * 2) : 0.06);
   syncFlash.t = Math.max(0, syncFlash.t - dt);
   mc.sync.userData.setColor(syncFlash.color === 'red' && syncFlash.t > 0 ? 0xff3030 : 0x39a8ff);

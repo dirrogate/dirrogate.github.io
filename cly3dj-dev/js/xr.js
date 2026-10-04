@@ -458,7 +458,14 @@ export function setupXR(ctx) {
       // twist since the grab through wrap(), which jumped from -180 to +180 deg and flipped min <-> max.
       const y = yawOf(handQuat(st, q1));
       const dy = Math.max(-0.6, Math.min(0.6, wrap(y - g.yawL))); g.yawL = y;   // cap: ignore yaw flips when the hand points straight up/down
-      ctx.setMix(g.id, ctx.mixVal[g.id] - dy / (300 * Math.PI / 180) * 1.2);   // turn clockwise (seen from above) = up
+      let nv = ctx.mixVal[g.id] - dy / (300 * Math.PI / 180) * 1.2;   // turn clockwise (seen from above) = up
+      // #254 (owner) sticky PAN: centred, it holds until turned 8 % of its travel away (a brush can't swing it);
+      // turned back within 3 % of the middle it settles there again. The hold keeps the turn so far in g.panAcc.
+      if (g.id.endsWith('.pan')) {
+        if (ctx.mixVal[g.id] === 0.5) { g.panAcc = (g.panAcc || 0) + (nv - 0.5); nv = Math.abs(g.panAcc) > 0.08 ? 0.5 + g.panAcc : 0.5; if (nv !== 0.5) g.panAcc = 0; }
+        else if (Math.abs(nv - 0.5) < 0.03 && Math.abs(ctx.mixVal[g.id] - 0.5) >= 0.03) { nv = 0.5; g.panAcc = 0; buzz(st, 0.3, 12); }
+      }
+      ctx.setMix(g.id, nv);
     } else if (g.kind === 'slider') {
       const m = ctx.sliderFromLocal(g.id, ctx.mixer.worldToLocal(v2.copy(P)));
       if (g.m0 == null) { g.m0 = m; g.v0 = ctx.mixVal[g.id]; }
