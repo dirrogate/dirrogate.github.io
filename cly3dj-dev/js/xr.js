@@ -727,7 +727,12 @@ export function setupXR(ctx) {
       } else {
         // tip just protruding from the controller's front edge (grip space: -z forward)
         st.grip.updateMatrixWorld();
-        if (!st.tipLocal) st.tipLocal = measureTip(st.grip);
+        if (!st.tipLocal) {
+          st.tipLocal = measureTip(st.grip);
+          // #285 (owner, from the 1 mm crosshair views of the Touch Plus): the ball 3 mm toward the thumb side
+          // (mirrored on the left controller), 9 mm lower (side view -10, front view -8) and 5 mm further forward
+          if (st.tipLocal) st.tipLocal.add(new THREE.Vector3(st.source && st.source.handedness === 'left' ? 0.003 : -0.003, -0.009, -0.005));
+        }
         const hl = ctlTipLocal(st);   // #280 / #283 3D hands: index fingertip, or the middle of the O while the grip is held
         st.grip.localToWorld(st.tip.copy(hl || st.tipLocal || TIP_DEFAULT));
         st.pinchPt.copy(st.tip); hasTip = true;
