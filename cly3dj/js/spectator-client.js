@@ -12,6 +12,7 @@ import { makeFixLook } from './fixlook.js';
 import { makePhoneLibrary } from './phonelib.js';
 import { makeFixedCam } from './fixedcam.js';
 import * as media from './medialib.js';
+import { makePhoneHands } from './phonehands.js';   // #288
 
 export function startCamera(ctx) {
   const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, scroller, skybox, envLight, key } = ctx;
@@ -445,6 +446,53 @@ export function startCamera(ctx) {
       }
     }
   }
+  const phoneHands = makePhoneHands(rig);   // #288
+  // ---------------------------------------------------------------- #278 the robot DJ on the phone
+  // The Quest sends (only while ROBOT ON PHONE is on) the mic level, which input is the left / right hand and each
+  // controller's trigger, grip and tip ball; head and hands come in every state tick anyway (rig-local). The phone
+  // loads its own copy of the robot (robot2.js) and poses it here, so the Quest only sends numbers.
+  const SPEC = ['wrist', 'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
+    ...['index-finger', 'middle-finger', 'ring-finger', 'pinky-finger'].flatMap(f => [`${f}-metacarpal`, `${f}-phalanx-proximal`, `${f}-phalanx-intermediate`, `${f}-phalanx-distal`, `${f}-tip`])];
+  const robo = { a: null, loading: false, seen: 0, msg: null, on: false };
+  function onAvatar(m) {
+    robo.msg = m; robo.seen = performance.now();
+    if (!robo.a && !robo.loading) {
+      robo.loading = true;
+      Promise.all([import('./robot2.js'), import('./director.js')]).then(([R, D]) => {
+        const a = new R.RobotAvatar2(rig); robo.a = a; robo.layer = D.AV_LAYER; a.root.visible = false;
+        return a.load('models/avatar/avatar_robot.glb');
+      }).catch(e => { console.warn('phone robot', e); robo.err = e.message; });
+    }
+  }
+  const _rq = new THREE.Quaternion(), _hq = new THREE.Quaternion(), _hp = new THREE.Vector3();
+  const W = (x, y, z) => rig.localToWorld(new THREE.Vector3(x, y, z));
+  function robotFrame(dt, now) {
+    const a = robo.a, on = !!(a && a.ready && robo.msg && now - robo.seen < 1000);
+    if (on !== robo.on) {
+      robo.on = on; if (a) a.root.visible = on;
+      if (robo.layer != null) { if (on) camera.layers.enable(robo.layer); else camera.layers.disable(robo.layer); }
+      if (on) for (const H of hands) { for (const m of H.joints) m.visible = false; H.palm.visible = H.arm.visible = H.fist.visible = false; }
+    }
+    if (!on) return;
+    const m = robo.msg, av = m.av; rig.updateMatrixWorld(); rig.getWorldQuaternion(_rq);
+    const head = { p: W(m.h[0], m.h[1], m.h[2]), q: _rq.clone().multiply(_hq.set(m.h[3], m.h[4], m.h[5], m.h[6])) };
+    const out = [null, null];
+    for (const [i, kind, v] of m.hd || []) {
+      const side = av.hs[i] === 'l' ? 0 : av.hs[i] === 'r' ? 1 : -1; if (side < 0) continue;
+      if (kind === 'h') {
+        if (v.length < 75) continue;
+        const joints = new Map(); SPEC.forEach((n, j) => joints.set(n, W(v[j * 3], v[j * 3 + 1], v[j * 3 + 2])));
+        const w = joints.get('wrist'), mp = joints.get('middle-finger-phalanx-proximal'), ip = joints.get('index-finger-phalanx-proximal'), pp = joints.get('pinky-finger-phalanx-proximal');
+        out[side] = { p: w, f: mp.clone().sub(w), s: pp.clone().sub(ip), joints };
+      } else {   // controller: as director.js xrPose
+        const gp = W(v[0], v[1], v[2]), gq = _rq.clone().multiply(new THREE.Quaternion(v[3], v[4], v[5], v[6]));
+        const c = (av.c || []).find(x => x[0] === i) || [i, 0, 0];
+        out[side] = { p: gp.clone().add(new THREE.Vector3(0, 0, 0.07).applyQuaternion(gq)), f: new THREE.Vector3(0, -0.35, -1).applyQuaternion(gq), s: new THREE.Vector3(0, -1, 0.25).applyQuaternion(gq),
+          curl: 0.25 + 0.75 * c[2], curlIndex: 0.15 + 0.85 * c[1], tip: c.length >= 6 ? W(c[3], c[4], c[5]) : null };
+      }
+    }
+    try { a.update({ head, hands: out, floorY: rig.getWorldPosition(_hp).y, mic: av.m || 0, dt }); } catch (e) { if (!robo.warned) { robo.warned = true; console.warn(e); } }
+  }
   function handsTimeout() { const now = performance.now(); for (const H of hands) if (now - H.seen > 400) { for (const m of H.joints) m.visible = false; H.palm.visible = H.arm.visible = H.fist.visible = false; } }
   function setHandsDebug(on) { showHands = on; for (const H of hands) for (const m of [...H.joints, H.palm, H.arm, H.fist]) { m.material = on ? dbgMat : occMat; m.renderOrder = on ? 10 : -10; } }
 
@@ -466,7 +514,10 @@ export function startCamera(ctx) {
       if (m.cs) onCaseSizes(m.cs);
       if (m.g) for (const a of m.g) nodeSample(a, m.t);
       if (m.r) for (const a of m.r) recSample(a, m.t);
-      if (m.hd) onHands(m.hd);
+      // #288 (owner): no more depth-only cut-outs; the phone draws the DJ's hands as the Quest does (3D hands / glove / controllers)
+      if (m.ha) phoneHands.fit(m.ha);   // #291
+      if (m.hd && !robo.on) phoneHands.update(m.hd, m.cl, Math.min(0.1, (performance.now() - (onMsg.lastHd || 0)) / 1000)), onMsg.lastHd = performance.now();
+      if (m.av) onAvatar(m);
       if (m.vv) onVV(m.vv);
       if (m.sp && ctx.crateRemote && ctx.crateRemote.spiders) ctx.crateRemote.spiders(m.sp);   // #262 45 adapters
     } else if (m.k === 'full') { onCaseSizes(m.cs); applyCaseSizes(performance.now(), true); for (const a of m.n) nodeSample(a, m.t); }
@@ -699,6 +750,8 @@ export function startCamera(ctx) {
       R.r.disc.position.x = R.discX || 0;   // #262 a 45 off-centre on the bare spindle
     }
     handsTimeout();
+    robotFrame(dt, now);   // #278
+    phoneHands.frame(now, robo.on);   // #288
     vvFrame(now);
     head.visible = showHead && now - stats.last < 1000;
     if (deckInst) deckInst.update();
@@ -735,5 +788,5 @@ export function startCamera(ctx) {
     } else lastXT = 0;
     fpsN++; if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; late = lateN; lateN = 0; sendCst(); }
   });
-  window.spect = { vs, look, renderPreview, fixed, flook, _live: { fixedFrame: liveFixed, get on() { return liveOn; }, get track() { return liveTrack; } } /* #238 test hook */, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
+  window.spect = { _robo: { robo, onAvatar, robotFrame } /* #278 test hook */, _ph: phoneHands /* #288 */, vs, look, renderPreview, fixed, flook, _live: { fixedFrame: liveFixed, get on() { return liveOn; }, get track() { return liveTrack; } } /* #238 test hook */, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
 }

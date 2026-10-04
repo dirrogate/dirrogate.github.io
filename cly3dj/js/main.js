@@ -33,7 +33,7 @@ const $ = s => document.querySelector(s);
 const params = new URLSearchParams(location.search);
 const CAMERA_ROLE = params.get('role') === 'camera';   // #161: this page is the spectator phone (spectator.html sends it here)
 // start-screen settings, remembered per browser
-const SETTINGS_DEFAULT = { source: 'pc', xml: 'rekordbox.xml', hands: 'real', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
+const SETTINGS_DEFAULT = { source: 'pc', xml: 'rekordbox.xml', hands: '3d', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
   deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off', arRefl: 60,
   skyH: 1.5, skyTurn: 0, skyType: 'auto', skyKey: 'on', skyFile: '', skyMedia: '' };   // turntable physics (#120)
 const settings = (() => { try { return { ...SETTINGS_DEFAULT, ...JSON.parse(localStorage.getItem('vire.settings') || '{}') }; } catch { return { ...SETTINGS_DEFAULT }; } })();
@@ -1543,7 +1543,10 @@ function sleeveGrabTest(P) {
   const r = currentList()[crateState.sel]; if (!r || r.missing || sleeveOf(r)) return null;
   const pose = selectedSlotPose(); if (!pose) return null;
   const cl = crate.worldToLocal(P.clone());
-  return Math.abs(cl.x) < sleeveDims(r).H / 2 + 0.02 && Math.abs(cl.z - pose.p.z) < 0.03 && cl.y > -0.01 && cl.y < Math.min(CRATE.H - 0.07, 0.013 + sleeveDims(r).H - 0.04) ? { crate: true } : null;   // #242 edges and lower corners too
+  // #274 (owner): grab the selected sleeve anywhere up to 1.5 cm above its top edge and the sleeve comes out with the
+  // record inside; only the part of the record riding out above that is the record on its own (step 4 in xr.js)
+  const top = pose.p.y + sleeveDims(r).H / 2;
+  return Math.abs(cl.x) < sleeveDims(r).H / 2 + 0.02 && Math.abs(cl.z - pose.p.z) < 0.035 && cl.y > -0.01 && cl.y < top + 0.015 ? { crate: true } : null;   // #242 edges and lower corners too
 }
 function sleeveGrab(anchor, P) {
   const hit = P ? sleeveGrabTest(P) : { crate: true }; if (!hit) return false;
@@ -1722,7 +1725,12 @@ function localBoxes(obj) {
 function refreshSleeveColliders() {
   sleeveColliders = [];
   for (const o of [...deckGroups, mixer, ...Object.values(cases).map(c => c.group)]) {
-    for (const b of localBoxes(o)) sleeveColliders.push({ o, b });
+    for (const b of localBoxes(o)) {
+      // #281 (owner): no colliders on a turntable's two front feet, so a sleeve or record slides in under the deck
+      // (it may cut through those feet); the back feet still stop it. Feet = the low pieces (top under 3 cm), front = +z.
+      if (deckGroups.includes(o) && b.max.y < 0.03 && b.min.z > 0.05) continue;
+      sleeveColliders.push({ o, b });
+    }
   }
 }
 // an oriented box as centre, three unit axes and half sizes
@@ -2778,9 +2786,13 @@ async function deleteStamped(r) {
   crateSay(`Deleted "${r.title}"`, true);
 }
 function pitchFromLocalZ(d, z) { const t = d.g.userData.pitchTravel; return ((z - (t.z0 + t.z1) / 2) / ((t.z1 - t.z0) / 2)) * d.range; }
-function sliderFromLocal(id, l) {
-  if (id === 'xfader') { const t = mixer.userData.xTravel; return clamp((l.x - t.x0) / (t.x1 - t.x0) * 2 - 1, -1, 1); }
-  const t = mixer.userData.faderTravel; return clamp((t.z1 - l.z) / (t.z1 - t.z0), 0, 1);
+// #293 raw (for a held fader, which moves by how far the hand moves): no clamp here, the value is clamped when set.
+// Clamped, a fader grabbed a little off its cap could never reach one end (the owner had to push the hand an inch
+// into the mixer to get the full travel).
+function sliderFromLocal(id, l, raw = false) {
+  const c = raw ? (v => v) : null;
+  if (id === 'xfader') { const t = mixer.userData.xTravel, v = (l.x - t.x0) / (t.x1 - t.x0) * 2 - 1; return c ? v : clamp(v, -1, 1); }
+  const t = mixer.userData.faderTravel, v = (t.z1 - l.z) / (t.z1 - t.z0); return c ? v : clamp(v, 0, 1);
 }
 
 // Hand on the record. Angles are around the spindle in deck-local XZ; +angle = forward (clockwise from above).
@@ -3057,8 +3069,8 @@ canvas.addEventListener('wheel', e => {
     const d = deckGroupOf(obj), l = d && d.g.worldToLocal(hit.point.clone());
     if (d && Math.hypot(l.x - DECK.spindle.x, l.z - DECK.spindle.z) < 0.006) {   // #106: the spindle only
       e.preventDefault(); e.stopImmediatePropagation();
-      spindleTwist(d, (e.shiftKey ? 0.0000625 : 0.0003125) * -Math.sign(e.deltaY));   // #109: half of #108
-      showTip(`Spindle twist ${e.deltaY < 0 ? 'forward' : 'back'} ${e.shiftKey ? 0.06 : 0.31} ms`, e.clientX, e.clientY); return;
+      spindleTwist(d, (e.shiftKey ? 0.000015625 : 0.000078125) * -Math.sign(e.deltaY));   // #109: half of #108; #270, #272 halved again
+      showTip(`Spindle twist ${e.deltaY < 0 ? 'forward' : 'back'} ${e.shiftKey ? 0.016 : 0.08} ms`, e.clientX, e.clientY); return;
     }
   }
   const c = u.control;
@@ -3435,6 +3447,20 @@ async function lightPhone(folder, name) {
 function setDjPreset(k) { djSet.preset = k; if (djcam) djcam.preset = k; saveDjSet(); drawMixScreen(); }
 function setDjMirror(on) { djSet.mirror = on; saveDjSet(); if (ledMode === 'cam') ledwall.userData.setCam(djcam.rt.texture, on); drawMixScreen(); }
 function setDjAvatar(on) { djSet.avatar = on; saveDjSet(); if (avatar) avatar.root.visible = on; drawMixScreen(); }
+// #278 (avatar-stage-plan.md step 1): the robot DJ on the spectator phone. The phone already gets the head and the
+// hands / controllers every state tick (rig-local); this adds the mic level, which hand is which and the controllers'
+// trigger / grip values and tip balls, so the phone poses its own copy of the robot (the Quest only sends numbers).
+function phoneRobotState() {
+  if (!djSet.phoneRobot || !renderer.xr.isPresenting || !xr) return undefined;
+  const r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000, c = [];
+  for (const st of xr.inputs) {
+    if (!st.connected || st.isHand || !st.source || !st.source.gamepad) continue;
+    const b = st.source.gamepad.buttons, t = rig.worldToLocal(st.tip.clone());
+    c.push([st.i, r2(b[0] ? b[0].value : 0), r2(b[1] ? b[1].value : 0), r3(t.x), r3(t.y), r3(t.z)]);
+  }
+  return { m: r3(micLevel()), hs: xr.inputs.map(st => st.connected && st.source ? (st.source.handedness || '')[0] || '' : ''), c };
+}
+function setPhoneRobot(on) { djSet.phoneRobot = on; saveDjSet(); drawMixScreen(); toast(on ? 'Robot on the phone: on (shows while the headset is in VR)' : 'Robot on the phone: off', 2500); }
 function setDjStyle(st) { djSet.style = st; saveDjSet(); useAvatarStyle(st); drawMixScreen(); }
 function drawDjCamTab(btn, y0) {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
@@ -3444,8 +3470,9 @@ function drawDjCamTab(btn, y0) {
     ['MIRROR', djSet.mirror, () => setDjMirror(!djSet.mirror)],
     ['AVATAR', djSet.avatar, () => setDjAvatar(!djSet.avatar)],
     [djSet.style === 'human' ? 'STYLE: HUMAN' : 'STYLE: ROBOT', false, () => setDjStyle(djSet.style === 'human' ? 'robot' : 'human')],
+    ['ROBOT ON PHONE', !!djSet.phoneRobot, () => setPhoneRobot(!djSet.phoneRobot)],   // #278
   ];
-  const per = 4, bw = (W - 16 - (per - 1) * 6) / per;
+  const per = top.length, bw = (W - 16 - (per - 1) * 6) / per;   // #278: five across
   top.forEach(([label, o, act], i) => btn(8 + i * (bw + 6), y0, bw, 36, label, !!o, act));
   const keys = Object.keys(CAM_PRESETS), pp = P ? 2 : 4, pw = (W - 16 - (pp - 1) * 6) / pp;
   keys.forEach((k, i) => btn(8 + (i % pp) * (pw + 6), y0 + 50 + Math.floor(i / pp) * 42, pw, 36, CAM_PRESETS[k].label, djSet.preset === k, () => setDjPreset(k)));
@@ -4027,17 +4054,23 @@ function drawToolsPage() {
   if (page === 'dj' || page === 'vj') {
     const y0 = head(page === 'dj' ? 'DJ TOOLS' : 'VJ TOOLS', 'home');
     // #235 switches for stage pieces (off = hidden and no per-frame work), green = on
+    // #276 controllers seen as 3D hands holding them, or bare controllers
+    const ctlBtn = (x, y, w, h) => { let X = null; try { X = xr; } catch (e) {}   // xr is set up further down the file
+      const cur = X ? X.getCtlLook() : '3dhands', NEXT = { '3dhands': 'glove', glove: 'controller', controller: '3dhands' };   // #287 three looks, tap to cycle
+      btn(x, y, w, h, `CONTROLLERS: ${{ '3dhands': '3D HANDS', glove: 'GLOVE', controller: 'CONTROLLER' }[cur]}`, cur !== 'controller', () => { if (X) X.setCtlLook(NEXT[cur]); const el = document.getElementById('sHands'); if (el && X) el.value = X.getCtlLook(); drawMixScreen(); }, false, P ? 18 : 20); };
     const sw = (x, y, w, h, label, k) => { const on = pieceOn(k); btn(x, y, w, h, `${label}: ${on ? 'ON' : 'OFF'}`, on, () => setPiece(k, !on), false, P ? 18 : 20); };
     if (P) {
       if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
-        note('RECORD MAKER: press your own record. It goes into the crate, Unsorted. MILK CRATE: the first milk crate (extra ones come from the crate screen).', y0 + 196); }
+        ctlBtn(L, y0 + 176, (R - L - 8) * 0.62, 64); btn(L + (R - L - 8) * 0.62 + 8, y0 + 176, (R - L - 8) * 0.38, 64, 'HAND FIT', false, () => setTools('handfit'), false, 18);   // #291
+        note('RECORD MAKER: press your own record. It goes into the crate, Unsorted. MILK CRATE: the first milk crate (extra ones come from the crate screen). CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 272); }
       else { btn(L, y0 + 8, R - L, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
         sw(L, y0 + 100, R - L, 64, 'LED WALL', 'ledwall'); sw(L, y0 + 176, R - L, 64, 'NEON SIGN', 'neon');
         note('Switched off, the LED wall or the sign is hidden and costs nothing; it keeps its place for when it comes back.', y0 + 272); }
     } else {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
       if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(x2, y0 + 8, w2, 80, 'MILK CRATE', 'milk');
-        note('RECORD MAKER: press your own record (blank, a song or a clip, a picture label); it goes into the crate, Unsorted. MILK CRATE: the first milk crate; switched off it is hidden and costs nothing.', y0 + 116); }
+        ctlBtn(L, y0 + 96, (R - L - 8) * 0.66, 50); btn(L + (R - L - 8) * 0.66 + 8, y0 + 96, (R - L - 8) * 0.34, 50, 'HAND FIT', false, () => setTools('handfit'), false, 20);   // #291
+        note('RECORD MAKER: press your own record (blank, a song or a clip, a picture label); it goes into the crate, Unsorted. MILK CRATE: the first milk crate; switched off it is hidden and costs nothing. CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 164); }
       else { btn(L, y0 + 8, bw, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
         const hw = (w2 - 8) / 2; sw(x2, y0 + 8, hw, 80, 'LED WALL', 'ledwall'); sw(x2 + hw + 8, y0 + 8, hw, 80, 'NEON', 'neon');
         note('SCROLLER: a sine-wave text scroller across the bottom of the LED wall. LED WALL / NEON: switched off they are hidden and cost nothing; they keep their place for when they come back.', y0 + 116); }
@@ -4091,6 +4124,26 @@ function drawToolsPage() {
     btn(x, by2, sw, kh, 'SPACE', false, () => kbdKey('SPACE'));
     btn(x + sw + gap, by2, dw, kh, '⌫', false, () => kbdKey('DEL'));
     btn(x + sw + dw + 2 * gap, by2, ew2, kh, kbd.emoji ? 'ENTER' : 'OK', true, () => kbdKey('ENTER'));
+    return;
+  }
+  if (page === 'handfit') {   // #291 (owner) move / turn the 3D hands and glove on the controllers; values to report back
+    const y0 = head('HAND FIT', 'dj');
+    let X = null; try { X = xr; } catch (e) {}
+    const A = X ? X.handFit : { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
+    const rows = [['x', 'MOVE OUT / IN', 'mm', 5], ['y', 'MOVE UP / DOWN', 'mm', 5], ['z', 'MOVE BACK / FORWARD', 'mm', 5],
+      ['rx', 'TILT FINGERS UP / DOWN', '°', 5], ['ry', 'SWING FINGERS OUT / IN', '°', 5], ['rz', 'ROLL', '°', 5]];
+    const rh = P ? 54 : 42, bw = P ? 64 : 56;
+    rows.forEach(([k, label, unit, step], i) => {
+      const y = y0 + 4 + i * (rh + 4);
+      g.fillStyle = '#dfe6f2'; g.font = `700 ${P ? 17 : 16}px system-ui`; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(label, L + 4, y + rh / 2);
+      const vx = R - bw * 2 - 120;
+      btn(vx, y, bw, rh, '−', false, () => { if (X) { X.setHandFit(k, (A[k] || 0) - step); drawMixScreen(); } });
+      g.fillStyle = '#fff'; g.font = '700 20px system-ui'; g.textAlign = 'center'; g.fillText(`${(A[k] || 0) > 0 ? '+' : ''}${A[k] || 0} ${unit}`, vx + bw + 60, y + rh / 2); g.textBaseline = 'alphabetic';
+      btn(vx + bw + 120, y, bw, rh, '+', false, () => { if (X) { X.setHandFit(k, (A[k] || 0) + step); drawMixScreen(); } });
+    });
+    const yb = y0 + 4 + rows.length * (rh + 4) + 6;
+    btn(L, yb, 160, 40, 'RESET', false, () => { if (X) { for (const [k] of rows) X.setHandFit(k, 0); drawMixScreen(); } });
+    note('Steps of 5 mm / 5°, both hands (the left mirrored). Line the 3D hand up with your real hand, then tell Claude the numbers.', yb + 56);
     return;
   }
   if (page === 'maker') {
@@ -4394,6 +4447,15 @@ function frame() {
       else d.recAngle += err * Math.min(1, dt * (sc || performance.now() - (d.twistT || 0) < 250 ? 12 : 2.5));   // twist: follow fast
     }
     u.platter.rotation.y = -d.platterAngle;
+    // #275 (owner): the slipmat travels with the record, not the platter, so holding a 45 stops the mat showing
+    // round it while the platter spins on underneath. Its own pivot inside the platter turns by how far the record
+    // has slipped against the platter since it landed (accumulated, so no jump when a record goes on or off).
+    if (u.slipmat && u.slipmat.length) {
+      if (!u.matPivot) { u.matPivot = new THREE.Group(); u.platter.add(u.matPivot); u.platter.updateMatrixWorld(true); for (const m of u.slipmat) u.matPivot.attach(m); d.matSlip = 0; }
+      if (d.record && d.prevRecA != null && !d.record.loose) { const sl = (d.recAngle - d.prevRecA) - (d.platterAngle - d.prevPlatA); if (Math.abs(sl) < 0.3) d.matSlip += sl; }   // a cue jump snaps the record, not the mat
+      d.prevRecA = d.recAngle; d.prevPlatA = d.platterAngle;
+      u.matPivot.rotation.y = -d.matSlip;
+    }
     if (d.record) { d.record.group.rotation.y = -d.recAngle; d.record.updateFlip(dt); }
     const pw = d.power !== false ? 1 : 0;
     if (u.strobe) {
@@ -4521,7 +4583,8 @@ function djPrep() {   // what the camera must not see: the LED wall itself, XR h
   const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
   hide(ledwall);
   if (DJ_HIDE_NEON.has(djSet.preset)) hide(neon);   // the sign stands between these angles and the DJ (its back faces them)
-  if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); }
+  if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand) hide(st.ctlHand.root); }
+  if (xr && xr.glove) hide(xr.glove.root);   // #287 the DJ CAM robot has its own gloves
   const bg = scene.background, roomV = room.visible;
   if (!bg && !skybox.group.visible) { scene.background = BG; room.visible = true; }   // passthrough: studio floor + dark backdrop for the camera
   return () => { for (const o of undo) o.visible = true; scene.background = bg; room.visible = roomV; };
@@ -4578,12 +4641,13 @@ async function begin(mode) {
     renderer.xr.setFoveation(0.5);
     await renderer.xr.setSession(session);
     if (session.updateTargetFrameRate && session.supportedFrameRates) {
-      const want = 90; const rates = [...session.supportedFrameRates];
+      const want = 72;   // #267 (owner): 72 Hz, 90 dropped ~13 frames per 10 s on the Quest 3
+      const rates = [...session.supportedFrameRates];
       if (rates.includes(want)) session.updateTargetFrameRate(want).catch(() => {});
     }
     rig.position.set(-0.05, 0, -0.62); rig.rotation.set(0, 0, 0);
     anchorSetup(session);   // #210 pin the gear to the room (restores the saved pin in a known room)
-    xr.setHandMode(mode === 'immersive-ar' && settings.hands === 'real' ? 'real' : '3d');
+    xr.setHandMode('3d');   // #268 (owner): no passthrough cut-out for tracked hands; always the 3D hands
     // passthrough rooms are much dimmer than the studio environment: tone reflections down so metal isn't self-lit
     arMode = mode === 'immersive-ar';
     if (mode === 'immersive-ar') { scene.background = null; room.visible = false; skybox.group.visible = skyShadow.visible = false; scene.environmentIntensity = settings.arRefl / 100; }
@@ -4730,7 +4794,7 @@ $('#sEnvMix').oninput = e => { settings.envMix = +e.target.value; saveSettings()
 
 // ---- settings UI
 function syncSettingsUI() {
-  $('#sSource').value = settings.source; $('#sXml').value = settings.xml; $('#sHands').value = settings.hands;
+  $('#sSource').value = settings.source; $('#sXml').value = settings.xml; $('#sHands').value = xr ? xr.getCtlLook() : '3dhands';   // #286 same switch as DJ TOOLS > CONTROLLERS
   $('#sGlow').value = settings.glow; $('#sShadows').value = settings.shadows; $('#sMicRoute').value = settings.micRoute; showMicRoute();
   $('#sEnv').value = settings.env; $('#sEnvMix').value = settings.envMix; $('#envMixVal').textContent = settings.envMix + '%';
   $('#sSpect').value = settings.spect; $('#rowSpect').hidden = settings.spect !== 'on'; $('#spectCode').textContent = spectCode();
@@ -4775,7 +4839,8 @@ async function showStorage() {
   $('#impStatus').textContent = `${idx.filter(f => !/\.xml$/i.test(f.path) && !VIDEO_EXT.test(f.path)).length} songs, ${idx.filter(f => VIDEO_EXT.test(f.path)).length} VideoVinyl videos, ${idx.filter(f => /\.xml$/i.test(f.path)).length} XML stored` +
     (est ? ` · using ${mb(est.usage || 0)} of ${mb(est.quota || 0)} available to this site` : '');
 }
-for (const [id, k] of [['#sSource', 'source'], ['#sXml', 'xml'], ['#sHands', 'hands'], ['#sEnv', 'env'], ['#sGlow', 'glow'], ['#sShadows', 'shadows'], ['#sMicRoute', 'micRoute'],
+$('#sHands').addEventListener('change', e => { if (xr) { xr.setCtlLook(e.target.value); drawMixScreen(); } });   // #286 (owner) 3D hands / controllers from the start page
+for (const [id, k] of [['#sSource', 'source'], ['#sXml', 'xml'], ['#sEnv', 'env'], ['#sGlow', 'glow'], ['#sShadows', 'shadows'], ['#sMicRoute', 'micRoute'],
   ['#sDeckModel', 'deckModel'], ['#sRecWeight', 'recWeight'], ['#sSlipmat', 'slipmat'], ['#sSpect', 'spect'], ['#sSky', 'sky']]) {
   $(id).onchange = e => {
     settings[k] = e.target.value; saveSettings(); syncSettingsUI();
@@ -4852,6 +4917,9 @@ async function applySpect() {
     if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, perf, getInputs: () => xr && xr.inputs,
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(), getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
       getSpiders: spidersState,   // #262
+      getAv: phoneRobotState,   // #278
+      getLook: () => xr ? xr.getCtlLook() : '3dhands',   // #288
+      getHandFit: () => xr ? xr.handFit : undefined,   // #291
       getVV: () => ({ mode: ledMode, gains: deckGains(mixVal), decks: deckVid.map((dv, i) => dv.v ? [i, dv.key, engine.ctx ? engine.pos(i) : 0, engine.state.decks[i].rate || 0] : null).filter(Boolean) }),
       getSky: () => ({ h: settings.skyH, turn: settings.skyTurn, type: settings.skyType, key: settings.skyKey, file: settings.skyFile, media: settings.env === 'image' ? settings.skyMedia : '' }),
       onMedia: () => { refreshLibVV(); if (videoPage && vpFolder !== 'Sync') vpLoad(); },
