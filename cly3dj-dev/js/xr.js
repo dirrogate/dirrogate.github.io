@@ -15,7 +15,7 @@ const REACH = 0.03;        // metres, direct-grab radius for knobs/faders
 const ARM_REACH = 0.05;
 const PINCH_ON = 0.018, PINCH_OFF = 0.032;
 const PLATTER_R = 0.166;
-const PITCH_STEP = 0.0005;   // 0.05 % per thumbstick flick
+const PITCH_STEP = 0.0001;   // #270 (owner): 0.01 % per thumbstick flick (was 0.05 %)
 
 export function setupXR(ctx) {
   REC12 = ctx.REC;   // #260
@@ -155,12 +155,13 @@ export function setupXR(ctx) {
     return u.arm.userData.pitch.localToWorld(u.stylusLocal ? out.copy(u.stylusLocal) : out.set(-0.008, -0.016, ctx.ARM.L - 0.006));
   }
 
-  const SPINDLE_GEAR = 0.0625; // #107-#109 (owner): 1:1 was far too much; now 1/16 of a real spindle's travel
+  const SPINDLE_GEAR = 0.03125; // #107-#109, #270 (owner): 1/32 of a real spindle's travel (10 deg of wrist = 1.6 ms)
   // #120: how hard a finger presses on the platter rim (N), for the worklet's friction model. Tracking can't
   // measure force, so: controllers = the analogue trigger (0.35 N at the click point .. 2 N squeezed); fingertip =
   // how far the tracked tip sits inside the platter's edge (0.35 N just touching .. 2 N at 12 mm); pinch = 0.6 N.
   // For scale: ~0.9 N of still finger stalls a Classic (MK2) platter; under ~0.5 N the servo wins it back.
-  function rimForce(st, r) {
+  function rimForce(st, r) { return 0.5 * rimForce0(st, r); }   // #270 (owner): rim nudges half as strong
+  function rimForce0(st, r) {
     if (!st.isHand) {
       const b = st.source && st.source.gamepad && st.source.gamepad.buttons && st.source.gamepad.buttons[0];
       const v = b ? b.value : 0.5;
@@ -492,7 +493,7 @@ export function setupXR(ctx) {
       // #105: twist about the vertical, 1:1 like a real spindle; clockwise from above = forward. A tick every 5 ms.
       const y = yawOf(handQuat(st, q1)), dy = Math.max(-0.6, Math.min(0.6, wrap(y - g.yawL))); g.yawL = y;
       const sec = -dy / (2 * Math.PI) * 1.8 * SPINDLE_GEAR;   // #109: 10 deg = 3.1 ms
-      if (Math.abs(sec) > 1e-5) { ctx.spindleTwist(g.d, sec); g.acc += Math.abs(sec); if (g.acc >= 0.0025) { g.acc -= 0.0025; buzz(st, 0.2, 8); } }   // tick every 2.5 ms (#109)
+      if (Math.abs(sec) > 1e-5) { ctx.spindleTwist(g.d, sec); g.acc += Math.abs(sec); if (g.acc >= 0.00125) { g.acc -= 0.00125; buzz(st, 0.2, 8); } }   // tick every 2.5 ms (#109)
     } else if (g.kind === 'lift') {
       if (P.y - g.y0 > 0.03) { updateAnchor(st); ctx.pickUpFromDeck(g.d, st.anchor); st.direct = { kind: 'held' }; buzz(st); }
     } else if (g.kind === 'scratch') {

@@ -3057,8 +3057,8 @@ canvas.addEventListener('wheel', e => {
     const d = deckGroupOf(obj), l = d && d.g.worldToLocal(hit.point.clone());
     if (d && Math.hypot(l.x - DECK.spindle.x, l.z - DECK.spindle.z) < 0.006) {   // #106: the spindle only
       e.preventDefault(); e.stopImmediatePropagation();
-      spindleTwist(d, (e.shiftKey ? 0.0000625 : 0.0003125) * -Math.sign(e.deltaY));   // #109: half of #108
-      showTip(`Spindle twist ${e.deltaY < 0 ? 'forward' : 'back'} ${e.shiftKey ? 0.06 : 0.31} ms`, e.clientX, e.clientY); return;
+      spindleTwist(d, (e.shiftKey ? 0.00003125 : 0.00015625) * -Math.sign(e.deltaY));   // #109: half of #108; #270 halved again
+      showTip(`Spindle twist ${e.deltaY < 0 ? 'forward' : 'back'} ${e.shiftKey ? 0.03 : 0.16} ms`, e.clientX, e.clientY); return;
     }
   }
   const c = u.control;

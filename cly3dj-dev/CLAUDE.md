@@ -307,6 +307,7 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 267. (4 Oct) Headset frame rate 72 Hz instead of 90 (owner): at 90 the FPS readout showed about 13 dropped frames per 10 s; 72 gives 13.9 ms a frame instead of 11.1. One line in main.js (want = 72). Copied to cly3dj-dev.
 268. (4 Oct) Passthrough hand cut-out removed (owner): tracked hands always show the 3D hands, in passthrough too (setHandMode('3d')); 'My real hands (camera)' dropped from the settings list, default hands '3d'. The occluder code in xr.js stays but is never switched on. Copied to cly3dj-dev.
 269. (4 Oct) 3D hands' skin 5% darker (owner): 0xc8906f -> 0xbe8969 (xr.js SKIN). Copied to cly3dj-dev.
+270. (4 Oct) Finer controls (owner: nudges move too much). Thumb flick 0.01 % of pitch (was 0.05 %, hold repeats every 80 ms). Spindle twist 1/32 of a real spindle (was 1/16): 10 deg of wrist = 1.6 ms, a full wrist turn = 56 ms, haptic tick every 1.25 ms; desktop wheel 0.16 ms a notch (Shift 0.03). Platter rim nudge: friction force halved (controller trigger 0.18 to 1.0, hand 0.18 to 1.0, pinch 0.3). Copied to cly3dj-dev.
 
 ## Findings
 - (26 Sep, tooling) Committing files from the cloud workspace: re-committing from the same staged path can silently write the previous upload. Stage each round under a fresh folder name and check md5 on the device after every commit. PNGs arrive with an extra caBX (content credentials) chunk, so compare their decoded pixels, not the file md5.
