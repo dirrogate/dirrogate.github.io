@@ -44,6 +44,7 @@ const MATS = { slick: { muS: 0.24, muK: 0.18 }, felt: { muS: 0.45, muK: 0.35 }, 
 const MAT_MASS = 0.025, REC_R = 0.1508, HOLE_R = 0.0036;
 const R_EFF = 2 / 3 * REC_R;       // mean friction radius of a full-disc contact
 const R_PLATTER = 0.166;
+const RIM_NUDGE_GAIN = 0.5;        // #272 rim nudge strength (1 = finger speed fully)
 const STYLUS_DRAG = 0.0012;        // N m: ~4 g tracking force, groove friction ~0.3, ~0.1 m radius
 const MU_FINGER = 0.6;             // skin on the platter's dotted rim
 const HAND_DOWN = 2.0;             // N: a DJ's hand pressing on the record while holding / scratching
@@ -138,7 +139,10 @@ class Deck {
     const tCog = -P.cog * Math.sin(P.cogN * this.thp);
     let tp = tm + tCog - P.bearing * Math.tanh(this.wp / 0.02) - P.visc * this.wp;
     if (this.touch) {   // finger on the rim: friction pulls the platter edge toward the finger's speed
-      const vrel = (this.touchRate * W33 - this.wp) * R_PLATTER;
+      // #272 (owner: a nudge moved the record twice as far as wanted): the finger counts for half its speed
+      // difference from the motor's speed, so a push or a drag shifts the beat half as much
+      const ref = on ? this.refCur : this.wp, fw = ref + RIM_NUDGE_GAIN * (this.touchRate * W33 - ref);
+      const vrel = (fw - this.wp) * R_PLATTER;
       tp += MU_FINGER * this.touchF * Math.tanh(vrel / 0.02) * R_PLATTER;
     }
     let disturbed = this.touch;
