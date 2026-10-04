@@ -59,7 +59,7 @@ export function setupXR(ctx) {
     line.visible = false; // no pointing rays
     // #140 (owner): a solid, depth-tested ball, so it reads as a nub on the controller's nose (it used to be drawn
     // over the model and looked like a dot floating off to one side). Hands keep the same ball at the fingertip.
-    const tipDot = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0x7cc4ff, transparent: true, opacity: 0.5, depthWrite: false }));   // #279 semi-transparent
+    const tipDot = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0x7cc4ff, transparent: true, opacity: 0.3, depthWrite: false }));   // #279 semi-transparent; #282 40 % more (0.5 -> 0.3)
     tipDot.visible = false; scene.add(tipDot);
     const hitDot = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
     hitDot.visible = false; scene.add(hitDot);
@@ -192,6 +192,7 @@ export function setupXR(ctx) {
   }
   function grabStart(st, P, btn) {
     if (st.direct) return true;
+    if (!st.isHand && st.scratch) { ctx.scratchEnd(st.scratch); st.scratch = null; }   // #282 a touch-nudge gives way to a button grab
     const deckOk = st.isHand || btn !== 'grip';   // #104: turntable actions = trigger (or hand pinch)
     if (ctx.getHeld() && ctx.getHeld().attach === st.anchor) return true; // already holding a record
     // #229 the other hand on the record peeking out of a sleeve in your hand: slide it out
@@ -272,9 +273,10 @@ export function setupXR(ctx) {
       if (sp) { updateAnchor(st); ctx.spiderGrab(sp, st.anchor); st.direct = { kind: 'spider' }; buzz(st, 0.3, 20); return true; }
     }
     // 2. faders, pitch, knobs
-    // #195 (owner): knobs, faders and pitch faders take the trigger only (hands: pinch); the grip never turns or slides them
+    // #195 knobs, faders and pitch faders took the trigger only; #282 (owner): now the GRIP (hands: pinch), so the 3D hand's
+    // thumb-and-index O closes on the cap like real fingers. The trigger no longer turns or slides them.
     let best = null, bestD = REACH;
-    if (deckOk) for (const k of knobList()) {
+    if (gripOk) for (const k of knobList()) {
       k.g.getWorldPosition(v2); v2.y += 0.012;
       const dd = v2.distanceTo(P); if (dd < bestD) { bestD = dd; best = k; }
     }
@@ -490,7 +492,7 @@ export function setupXR(ctx) {
       // switching in or out re-anchors here, so the pitch never jumps
       // #265 (owner DJs with one controller): squeezing the grip on the SAME controller that holds the fader is fine mode;
       // the other hand's trigger / pinch still works too (bare hands: only that way)
-      const gpS = !st.isHand && st.source && st.source.gamepad, ownGrip = !!(gpS && gpS.buttons[1] && gpS.buttons[1].pressed);
+      const gpS = !st.isHand && st.source && st.source.gamepad, ob = st.btn === 'grip' ? 0 : 1, ownGrip = !!(gpS && gpS.buttons[ob] && gpS.buttons[ob].pressed);   // #282 the fader is held with the grip: fine = the same controller's trigger
       const fine = ownGrip || inputs.some(o => o !== st && o.connected && (o.isHand ? !!o.pinching : !!(o.source && o.source.gamepad && o.source.gamepad.buttons[0] && o.source.gamepad.buttons[0].pressed)));
       if (g.m0 == null || fine !== !!g.fine) { g.m0 = m; g.v0 = g.d.pitch; if (fine !== !!g.fine) { g.fine = fine; buzz(st, fine ? 0.35 : 0.2, 15); } }
       ctx.setPitch(g.d, g.v0 + (m - g.m0) * (fine ? 0.25 : 1));
@@ -615,10 +617,12 @@ export function setupXR(ctx) {
 
   function pokes(st, T) {
     buttons = buttons || buttonList();
+    let lift = 0;   // #282 how far the fingertip has sunk below a button cap (the 3D hand is drawn that much higher)
     for (const b of buttons) {
       if ((b.c.id === 'target' || b.c.id === 'rpm33' || b.c.id === 'rpm45' || b.c.id === 'x2' || b.c.id === 'start') && !st.isHand) continue;   // controllers: trigger (START / STOP: grip, #252) only, see grabStart
       b.g.getWorldPosition(v2); v2.y += b.top ? b.top() + 0.006 : 0.006;
       const h = T.y - v2.y, dxz = Math.hypot(T.x - v2.x, T.z - v2.z);
+      if (dxz < b.r * 1.2 && h < -0.004 && h > -0.03) lift = Math.max(lift, -0.004 - h);   // cap top = 4 mm under the press line (tip on the cap, pressed in)
       const key = b;
       const armed = st.poke.get(key) !== false;
       if (dxz < b.r && h < 0.006 && h > -0.02) {
@@ -627,6 +631,7 @@ export function setupXR(ctx) {
       }
       else if (h > 0.02 || dxz > b.r * 2) { if (!armed && b.c.id && b.c.id.endsWith('.beat1')) ctx.releaseBeat1(st); st.poke.set(key, true); }
     }
+    st.pokeLift = (st.pokeLift || 0) + (Math.min(0.03, lift) - (st.pokeLift || 0)) * 0.5;
     // mixer readout (#116): poke the tempo number to cycle ORIG BPM / BPM / KEY
     {
       const ms = ctx.mixer.userData.screen, l = ms.worldToLocal(v2.copy(T));
@@ -645,7 +650,10 @@ export function setupXR(ctx) {
       if (armed) { ctx.crateScreenPress({ x: l.x / sw + 0.5, y: l.y / sh + 0.5 }); st.poke.set(scr, false); buzz(st, 0.4, 20); }
     } else if (!inside || l.z > 0.02) { if (!armed && ctx.crateScreenRelease) ctx.crateScreenRelease(); st.poke.set(scr, true); }   // #226 fingertip off = end of a long press
     // fingertip on the vinyl (hands): touch = hold, move = scratch, lift = let go
-    if (st.isHand && !st.direct) {
+    // #282 (owner) controllers: the blue ball on the platter's edge nudges with no button (forward / back with the ball);
+    // the record itself still needs the trigger
+    if (!st.direct) {
+      const ctl = !st.isHand;
       let touching = null, local = null;
       for (const d of ctx.decks) {
           const ll = d.g.worldToLocal(v2.copy(T));
@@ -654,13 +662,13 @@ export function setupXR(ctx) {
         const cur = st.scratch && st.scratch.deck === d;
         let on = false, rim = false;
         if (cur && st.scratch.nudge) on = rim = r > RD(d).R - 0.01 && r < PLATTER_R + 0.02 && h < 0.02 && h > -0.03;
-        else if (cur) on = h < 0.02 && r < RD(d).R + 0.01;
+        else if (cur) on = !ctl && h < 0.02 && r < RD(d).R + 0.01;
         else if (r > RD(d).R + 0.002 && r < PLATTER_R + 0.01 && h < 0.004 && h > -0.022) on = rim = true;   // side of the platter
-        else if (d.record) on = h < 0.008 && h > -0.015 && r > RD(d).LABEL + LO(RD(d)) && r < RD(d).R + 0.002;   // on the grooves (#104), to the very edge (#273)
+        else if (d.record && !ctl) on = h < 0.008 && h > -0.015 && r > RD(d).LABEL + LO(RD(d)) && r < RD(d).R + 0.002;   // on the grooves (#104), to the very edge (#273)
         if (on) { touching = d; local = ll.clone(); local.rim = rim; break; }
       }
       if (touching) {
-        const F = local.rim ? rimForce(st, rimR(touching, local)) : undefined;
+        const F = local.rim ? (ctl ? 0.35 + 1.65 * Math.max(0, Math.min(1, (PLATTER_R + 0.008 - rimR(touching, local)) / 0.012)) : rimForce(st, rimR(touching, local))) : undefined;   // #282 ball depth on the rim
         if (!st.scratch || st.scratch.deck !== touching) { if (st.scratch) ctx.scratchEnd(st.scratch); st.scratch = ctx.scratchBegin(touching, local, local.rim, F); buzz(st, 0.2, 15); }
         else ctx.scratchMove(st.scratch, local, F);
       } else if (st.scratch) { ctx.scratchEnd(st.scratch); st.scratch = null; }
@@ -796,7 +804,10 @@ export function setupXR(ctx) {
       st.ctlHand.root.matrixAutoUpdate = false; scene.add(st.ctlHand.root);
     }
     const h = st.ctlHand; h.root.visible = true;
-    st.grip.updateMatrixWorld(); h.root.matrix.copy(st.grip.matrixWorld); h.root.matrixWorldNeedsUpdate = true;
+    st.grip.updateMatrixWorld(); h.root.matrix.copy(st.grip.matrixWorld);
+    if (st.direct) st.pokeLift = 0;
+    if (st.pokeLift > 0.0005) { h.root.matrix.elements[13] += st.pokeLift; st.tipDot.position.y += st.pokeLift; }   // #282 finger rests on the cap, not through it
+    h.root.matrixWorldNeedsUpdate = true;
     const gp = st.source.gamepad, b = gp ? gp.buttons : [];
     const val = i => (b[i] ? (b[i].value || (b[i].pressed ? 1 : 0)) : 0);
     const thumb = [3, 4, 5].some(i => b[i] && (b[i].touched || b[i].pressed));
