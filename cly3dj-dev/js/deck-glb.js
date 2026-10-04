@@ -146,8 +146,44 @@ async function applyBakedAO(root) {
     const uv1 = new Float32Array(arr.length); for (let i = 0; i < arr.length; i++) uv1[i] = arr[i] * k;
     gg.setAttribute('uv1', new THREE.BufferAttribute(uv1, 2)); o.geometry = gg; mats.add(o.material);
   });
+  try { clearSpiderAO(root, tex.image.data, tex.image.width, tex.image.height); tex.needsUpdate = true; } catch (e) { console.warn('spider AO patch', e); }   // #263
   for (const m of mats) { m.aoMap = tex; m.aoMapIntensity = 1; m.needsUpdate = true; }
   aoInfo = { tex, white: data.white, mats };
+}
+// #263 (owner: lift the 45 adapter out and there's a black disc in its recess). The AO bake was made with the
+// adapter in place, so the plate under it is baked dark. Here the plate's AO inside the adapter's footprint is
+// refilled with the AO just round it (a soft-edged patch), so the recess reads as plain metal: no Blender rebake.
+// The plate's lightmap UVs near the adapter are fitted as an affine map from model x/z, so any texel can be
+// placed in model space.
+function clearSpiderAO(root, r8, W, H) {
+  const sp = root.getObjectByName('pPipe1_metal_mat_0') || root.getObjectByName('pPipe1'), plate = root.getObjectByName('polySurface6_body_top_mat_0');
+  if (!sp || !plate || !plate.geometry.attributes.uv1) return;
+  root.updateMatrixWorld(true);
+  const bb = new THREE.Box3().setFromObject(sp), C = bb.getCenter(new THREE.Vector3()), R = (bb.max.x - bb.min.x) / 2;
+  const pos = plate.geometry.attributes.position, uv = plate.geometry.attributes.uv1, n = pos.count;   // un-indexed: 3 corners a triangle
+  const P = [], v = new THREE.Vector3();
+  for (let i = 0; i < n; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(plate.matrixWorld); P.push([v.x - C.x, v.z - C.z, uv.getX(i) * W, uv.getY(i) * H]); }
+  // each triangle near the adapter, rasterised in the AO atlas: every texel gets its spot in model x/z
+  const ring = [], inside = [];
+  for (let t = 0; t + 2 < n; t += 3) {
+    const a = P[t], b = P[t + 1], c = P[t + 2];
+    // skip triangles wholly away from the footprint (closest corner / edge test via the bounding box in model space)
+    const mnx = Math.min(a[0], b[0], c[0]), mxx = Math.max(a[0], b[0], c[0]), mnz = Math.min(a[1], b[1], c[1]), mxz = Math.max(a[1], b[1], c[1]);
+    if (mnx > 1.5 * R || mxx < -1.5 * R || mnz > 1.5 * R || mxz < -1.5 * R) continue;
+    const x0 = Math.max(0, Math.floor(Math.min(a[2], b[2], c[2]))), x1 = Math.min(W - 1, Math.ceil(Math.max(a[2], b[2], c[2])));
+    const y0 = Math.max(0, Math.floor(Math.min(a[3], b[3], c[3]))), y1 = Math.min(H - 1, Math.ceil(Math.max(a[3], b[3], c[3])));
+    const den = (b[3] - c[3]) * (a[2] - c[2]) + (c[2] - b[2]) * (a[3] - c[3]); if (Math.abs(den) < 1e-9) continue;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const px = x + 0.5, py = y + 0.5;
+      const l1 = ((b[3] - c[3]) * (px - c[2]) + (c[2] - b[2]) * (py - c[3])) / den, l2 = ((c[3] - a[3]) * (px - c[2]) + (a[2] - c[2]) * (py - c[3])) / den, l3 = 1 - l1 - l2;
+      if (l1 < -0.01 || l2 < -0.01 || l3 < -0.01) continue;
+      const mx = l1 * a[0] + l2 * b[0] + l3 * c[0], mz = l1 * a[1] + l2 * b[1] + l3 * c[1], d = Math.hypot(mx, mz) / R;
+      if (d < 1.12) inside.push([y * W + x, d]); else if (d < 1.5) ring.push(r8[y * W + x]);
+    }
+  }
+  if (!ring.length || !inside.length) { console.warn('spider AO patch: nothing found'); return; }
+  ring.sort((p, q) => p - q); const fill = ring[ring.length >> 1];
+  for (const [i, d] of inside) { const t = d < 1.0 ? 1 : 1 - (d - 1.0) / 0.12; r8[i] = Math.round(r8[i] * (1 - t) + fill * t); }
 }
 // any mesh sharing a baked material but without its own bake gets a constant white-texel UV1
 function ensureUV1(root) {
