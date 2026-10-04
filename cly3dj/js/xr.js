@@ -59,7 +59,7 @@ export function setupXR(ctx) {
     line.visible = false; // no pointing rays
     // #140 (owner): a solid, depth-tested ball, so it reads as a nub on the controller's nose (it used to be drawn
     // over the model and looked like a dot floating off to one side). Hands keep the same ball at the fingertip.
-    const tipDot = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0x7cc4ff, transparent: true, opacity: 0.3, depthWrite: false }));   // #279 semi-transparent; #282 40 % more (0.5 -> 0.3)
+    const tipDot = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0xd2d6dc, transparent: true, opacity: 0.225, depthWrite: false }));   // #295 light grey, 25 % more see-through   // #279 semi-transparent; #282 40 % more (0.5 -> 0.3)
     tipDot.visible = false; scene.add(tipDot);
     const hitDot = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
     hitDot.visible = false; scene.add(hitDot);
@@ -876,7 +876,11 @@ export function setupXR(ctx) {
     const thumb = [3, 4, 5].some(i => b[i] && (b[i].touched || b[i].pressed));
     // #284 buttons drive the pose as pressed / released, eased over ~80 ms (the analog value made the touch point wander)
     const ease = (k, on) => (st[k] = (st[k] || 0) + Math.max(-1, Math.min(1, ((on ? 1 : 0) - (st[k] || 0)))) * Math.min(1, 1 / 60 / 0.08 * 1.5));
-    h.update(Math.round(ease('tA', b[0] && b[0].pressed) * 20) / 20, Math.round(ease('gA', b[1] && b[1].pressed) * 20) / 20, thumb);
+    // #296 (owner: on the trigger the ball sometimes sat on the back of the thumb): the pose follows the select / squeeze
+    // events (st.held, with the system's own hysteresis) instead of gamepad.pressed, which flickers on a light trigger
+    // and left the O half closed. The thumb-stick touch no longer changes the thumb either (it moved the thumb off the ball).
+    const hd = st.held || {};
+    h.update(Math.round(ease('tA', hd.trigger) * 20) / 20, Math.round(ease('gA', hd.grip) * 20) / 20, false);
     h.holder.visible = ctlLook !== 'glove';   // #287 the skin hand stays posed (it drives the glove) but is not drawn
     if (ctlLook === 'glove') gloveStep(st, h, 1 / 60);
   }
