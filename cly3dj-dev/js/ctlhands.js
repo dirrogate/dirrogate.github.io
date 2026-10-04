@@ -16,10 +16,8 @@ export const POSE = {
   index: { open: [18, 22, 12], shut: [40, 55, 35] },      // on the trigger
   rest: { open: [55, 75, 40], shut: [75, 85, 45] },       // middle / ring / pinky round the handle
   thumb: { open: [8, 10, 10], down: [18, 22, 18], spread: 0 },
-  // #277 grip: extra curl (deg at full grip) bringing index and thumb together, never closer than `gap`
-  // #279 (owner, headset test: hardly moved): the thumb also swings across (about its metacarpal's Z) toward the index,
-  // and the gap is 2 cm of skin = 3 cm between the tip joints; PC: 5.2 cm released, a clear C shape at 3 cm pressed
-  pinch: { index: [20, 30, 20], thumb: [12, 30, 30], swing: 20, swingAxis: 'z', gap: 0.03 },
+  // #280 grip = an O of thumb and index (tips meeting), blended from whatever the trigger / thumb were doing
+  O: { index: [25, 70, 50], thumb: [5, 30, 15], swing: 45, swingAxis: 'z', roll: 20 },   // PC: tips 1.6 cm apart (touching), a round opening ~4 cm
   // where the hand sits in grip space (right hand; the left is the mirror in X; grip -Z runs along the handle toward
   // the face): back of the hand facing out (+X),
   // the knuckle line along the handle (index at the front by the trigger, pinky toward the back), the middle knuckle at `knuckle`
@@ -36,7 +34,7 @@ export function createControllerHand(handed, url, material) {
       if (o.isBone) { h.bones[o.name] = o; h.bind[o.name] = { p: o.position.clone(), q: o.quaternion.clone() }; }
       if (o.isMesh) { o.material = material; o.castShadow = false; o.frustumCulled = false; }
     });
-    h.ready = true; h.cur = ''; place(h, handed); update(h, 0, 0, 0);
+    h.ready = true; h.cur = ''; place(h, handed); update(h, 0, 0, false);
   }).catch(e => console.warn('controller hand', e));
   h.update = (t, g, th) => update(h, t, g, th);
   h.place = () => place(h, handed);
@@ -57,13 +55,6 @@ function place(h, handed) {
   h.holder.quaternion.setFromRotationMatrix(R);
   const k = B['middle-finger-phalanx-proximal'].p.clone().applyQuaternion(h.holder.quaternion);
   h.holder.position.set(POSE.knuckle[0] * sx, POSE.knuckle[1], POSE.knuckle[2]).sub(k);
-  // #279 the blue tip ball sits on the index fingertip of the relaxed hand (fixed in grip space, so a trigger curl
-  // never moves the point that scratches or presses)
-  pose(h, 0, 0, false, 0); h.holder.updateMatrix();
-  const tb = h.bones['index-finger-tip'], db = h.bones['index-finger-phalanx-distal']; tb.updateWorldMatrix(true, false); db.updateWorldMatrix(true, false);
-  const inv = new THREE.Matrix4().copy(h.root.matrixWorld).invert();
-  const t = new THREE.Vector3().setFromMatrixPosition(tb.matrixWorld).applyMatrix4(inv), d = new THREE.Vector3().setFromMatrixPosition(db.matrixWorld).applyMatrix4(inv);
-  h.tipLocal = t.clone().addScaledVector(t.clone().sub(d).normalize(), 0.006);   // just past the fingertip (the joint is inside the skin)
   h.cur = '';
 }
 
@@ -82,24 +73,28 @@ function curl(h, chain, k, deg, axis = 'x') {
 const lerp3 = (a, b, t) => a.map((x, i) => x + (b[i] - x) * t);
 const add3 = (a, b, k) => a.map((x, i) => x + b[i] * k);
 const _ta = new THREE.Vector3(), _tb = new THREE.Vector3();
-function pose(h, t, g, th, k) {   // k = how far the grip has brought thumb and index together (0..1)
+function pose(h, t, g, th) {
   for (const n in h.bind) { h.bones[n].position.copy(h.bind[n].p); h.bones[n].quaternion.copy(h.bind[n].q); }
-  const idx = add3(lerp3(POSE.index.open, POSE.index.shut, t), POSE.pinch.index, k), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
+  // #280 (owner): the grip closes thumb and index into an O (record grabs, the power dial, faders and knobs look like
+  // real fingers on the casts); the trigger alone curls the index (scratching). Grip wins over the trigger.
+  const O = POSE.O;
+  const idx = lerp3(lerp3(POSE.index.open, POSE.index.shut, t), O.index, g), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
   for (const f of FINGERS) { const c = CH(f), a = f === 'index-finger' ? idx : rest; for (let j = 0; j < 3; j++) curl(h, c, j + 1, a[j]); }
-  const tp = add3(th ? POSE.thumb.down : POSE.thumb.open, POSE.pinch.thumb, k);
-  if (POSE.pinch.swing) curl(h, THUMB, 0, POSE.pinch.swing * k * (h.handed === 'left' ? -1 : 1), POSE.pinch.swingAxis || 'y');   // #279 thumb swings across toward the index
+  const tp = lerp3(th ? POSE.thumb.down : POSE.thumb.open, O.thumb, g);
+  if (O.swing) curl(h, THUMB, 0, O.swing * g * (h.handed === 'left' ? -1 : 1), O.swingAxis || 'z');   // thumb across toward the index
+  if (O.roll) curl(h, THUMB, 0, O.roll * g * (h.handed === 'left' ? -1 : 1), 'y');
   for (let j = 0; j < 3; j++) curl(h, THUMB, j, tp[j]);
-  return h.bones['index-finger-tip'].position.distanceTo(h.bones['thumb-tip'].position);
 }
+const _t = new THREE.Vector3(), _d = new THREE.Vector3(), _inv = new THREE.Matrix4();
 function update(h, t, g, th) {
   if (!h.ready) return;
   const key = `${t.toFixed(2)}|${g.toFixed(2)}|${th ? 1 : 0}`; if (key === h.cur) return; h.cur = key;
-  // #277 (owner): the grip also brings thumb and index toward each other, stopping 2 cm short of touching
-  // (tip centres POSE.pinch.gap apart). Search how far they may go so the gap is never under that.
-  let k = g;
-  if (k > 0 && pose(h, t, g, th, k) < POSE.pinch.gap) {
-    let lo = 0, hi = k; for (let i = 0; i < 8; i++) { const m = (lo + hi) / 2; if (pose(h, t, g, th, m) < POSE.pinch.gap) hi = m; else lo = m; }
-    k = lo;
-  }
-  pose(h, t, g, th, k);
+  pose(h, t, g, th);
+  // #280 the blue ball and the touch point follow the index fingertip (6 mm past the tip joint, which is inside the
+  // skin), in the hand root's space (= grip space)
+  h.holder.updateMatrix();
+  const tb = h.bones['index-finger-tip'], db = h.bones['index-finger-phalanx-distal'];
+  tb.updateWorldMatrix(true, false); db.updateWorldMatrix(true, false); _inv.copy(h.root.matrixWorld).invert();
+  _t.setFromMatrixPosition(tb.matrixWorld).applyMatrix4(_inv); _d.setFromMatrixPosition(db.matrixWorld).applyMatrix4(_inv);
+  (h.tipLive || (h.tipLive = new THREE.Vector3())).copy(_t).addScaledVector(_d.subVectors(_t, _d).normalize(), 0.006);
 }

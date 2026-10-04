@@ -719,7 +719,7 @@ export function setupXR(ctx) {
         // tip just protruding from the controller's front edge (grip space: -z forward)
         st.grip.updateMatrixWorld();
         if (!st.tipLocal) st.tipLocal = measureTip(st.grip);
-        const hl = ctlLook === '3dhands' && st.ctlHand && st.ctlHand.tipLocal;   // #279 3D hands: the ball on the index fingertip
+        const hl = ctlLook === '3dhands' && st.ctlHand && st.ctlHand.root.visible && st.ctlHand.tipLive;   // #280 3D hands: ball + touch point = the index fingertip
         st.grip.localToWorld(st.tip.copy(hl || st.tipLocal || TIP_DEFAULT));
         st.pinchPt.copy(st.tip); hasTip = true;
       }
