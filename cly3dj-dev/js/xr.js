@@ -7,7 +7,9 @@
 import * as THREE from 'three';
 import { XRControllerModelFactory } from '../vendor/three/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from '../vendor/three/webxr/XRHandModelFactory.js';
-const LIFT_OUT = 0.05;   // #136: record lift-off zone reaches this far past the label edge (m)
+const LIFT_OUT = 0.05;
+// #260 the record on a deck: 12" or 7" sizes (lift zone just past a 45's label, 1.2 cm)
+let REC12 = null; const RD = d => (d.record && d.record.dims) || REC12; const LO = D => (D.SIZE === 7 ? 0.012 : LIFT_OUT);   // #136: record lift-off zone reaches this far past the label edge (m)
 
 const REACH = 0.03;        // metres, direct-grab radius for knobs/faders
 const ARM_REACH = 0.05;
@@ -16,6 +18,7 @@ const PLATTER_R = 0.166;
 const PITCH_STEP = 0.0005;   // 0.05 % per thumbstick flick
 
 export function setupXR(ctx) {
+  REC12 = ctx.REC;   // #260
   const { renderer, scene } = ctx;
   // #215 controller and hand models ship with the app (vendor/webxr-input-profiles), so nothing is fetched from
   // cdn.jsdelivr.net: works offline and can't break if the CDN changes. Quest 3/3S, Quest Pro, Quest 2 + hands.
@@ -290,31 +293,31 @@ export function setupXR(ctx) {
     if (!deckOk) for (const d of ctx.decks) {
       if (!d.record) continue;
       const l = d.g.worldToLocal(v2.copy(P));
-      const r = Math.hypot(l.x - ctx.DECK.spindle.x, l.z - ctx.DECK.spindle.z), h = l.y - (d.g.userData.platterSurface + ctx.REC.THICK);
-      if (h > -0.035 && h < 0.05 && r < ctx.REC.LABEL + LIFT_OUT) { st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true; }
+      const r = Math.hypot(l.x - ctx.DECK.spindle.x, l.z - ctx.DECK.spindle.z), h = l.y - (d.g.userData.platterSurface + RD(d).THICK);
+      if (h > -0.035 && h < 0.05 && r < RD(d).LABEL + LO(RD(d))) { st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true; }
     }
     if (deckOk) for (const d of ctx.decks) {
       const l = d.g.worldToLocal(v2.copy(P));
       const r = Math.hypot(l.x - ctx.DECK.spindle.x, l.z - ctx.DECK.spindle.z);
-      const h = l.y - (d.g.userData.platterSurface + ctx.REC.THICK);
+      const h = l.y - (d.g.userData.platterSurface + RD(d).THICK);
       if (h < -0.035 || h > 0.05 || r > PLATTER_R + 0.015) continue;
       // #106 (owner): twist only on the spindle itself (3.5 mm pin + 4.5 mm reach, from the record surface to
       // 2 cm above it); the rest of the label does nothing, so a hand resting there never twists by accident
       if (d.record && r < 0.008 && h > -0.005 && h < 0.02) { st.direct = { kind: 'spindle', d, yawL: yawOf(handQuat(st, q1)), acc: 0 }; buzz(st, 0.3, 15); return true; }   // #105
       // #107: lift zone widened 5 mm into the label (45-70 mm radius); inside that the label does nothing
-      if (d.record && r < ctx.REC.LABEL - 0.005) { st.direct = { kind: 'tap' }; return true; }
+      if (d.record && r < RD(d).LABEL - 0.005) { st.direct = { kind: 'tap' }; return true; }
       // #136 (owner): lift zone 3 cm wider (label edge + 5 cm, was + 2 cm); lifting a record off was too fiddly
       // #249 (owner): with a controller the record only comes off with the grip (block above); the trigger there scratches,
       // so a rough scratch that pulls up can never take it off. Bare hands still lift with a pinch.
-      if (st.isHand && d.record && r < ctx.REC.LABEL + LIFT_OUT) { st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true; }
-      if (d.record && r < ctx.REC.R - 0.004) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l) }; buzz(st); return true; }
-      if (r > ctx.REC.R - 0.004) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l, true, st.isHand ? 0.6 : rimForce(st, r)) }; buzz(st, 0.2, 15); return true; }
+      if (st.isHand && d.record && r < RD(d).LABEL + LO(RD(d))) { st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true; }
+      if (d.record && r < RD(d).R - 0.004) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l) }; buzz(st); return true; }
+      if (r > RD(d).R - 0.004) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l, true, st.isHand ? 0.6 : rimForce(st, r)) }; buzz(st, 0.2, 15); return true; }
     }
     // 3b. a record lying around (thrown or dropped): grab it anywhere on the disc
     for (const L of ctx.loose) {
       const c = L.rec.group.getWorldPosition(v1), n = v2.set(0, 1, 0).applyQuaternion(L.rec.mesh.getWorldQuaternion(q1));
       const rel = P.clone().sub(c), h = rel.dot(n), radial = rel.addScaledVector(n, -h).length();
-      if (Math.abs(h) < 0.04 && radial < ctx.REC.R + 0.02) { updateAnchor(st); ctx.pickUpLoose(L.rec, st.anchor); st.direct = { kind: 'held' }; buzz(st); return true; }
+      if (Math.abs(h) < 0.04 && radial < (L.rec.dims || ctx.REC).R + 0.02) { updateAnchor(st); ctx.pickUpLoose(L.rec, st.anchor); st.direct = { kind: 'held' }; buzz(st); return true; }
     }
     // 3c. crate lid: grab the handle or the lid's free edge and swing it on its hinges; let go and it
     //     falls shut or back open depending on which side of upright it is (main.js stepLid)
@@ -638,13 +641,13 @@ export function setupXR(ctx) {
       for (const d of ctx.decks) {
           const ll = d.g.worldToLocal(v2.copy(T));
         const r = Math.hypot(ll.x - ctx.DECK.spindle.x, ll.z - ctx.DECK.spindle.z);
-        const h = ll.y - (d.g.userData.platterSurface + ctx.REC.THICK);
+        const h = ll.y - (d.g.userData.platterSurface + RD(d).THICK);
         const cur = st.scratch && st.scratch.deck === d;
         let on = false, rim = false;
-        if (cur && st.scratch.nudge) on = rim = r > ctx.REC.R - 0.01 && r < PLATTER_R + 0.02 && h < 0.02 && h > -0.03;
-        else if (cur) on = h < 0.02 && r < ctx.REC.R + 0.01;
-        else if (r > ctx.REC.R + 0.002 && r < PLATTER_R + 0.01 && h < 0.004 && h > -0.022) on = rim = true;   // side of the platter
-        else if (d.record) on = h < 0.008 && h > -0.015 && r > ctx.REC.LABEL + LIFT_OUT && r < ctx.REC.R - 0.004;   // on the grooves (#104)
+        if (cur && st.scratch.nudge) on = rim = r > RD(d).R - 0.01 && r < PLATTER_R + 0.02 && h < 0.02 && h > -0.03;
+        else if (cur) on = h < 0.02 && r < RD(d).R + 0.01;
+        else if (r > RD(d).R + 0.002 && r < PLATTER_R + 0.01 && h < 0.004 && h > -0.022) on = rim = true;   // side of the platter
+        else if (d.record) on = h < 0.008 && h > -0.015 && r > RD(d).LABEL + LO(RD(d)) && r < RD(d).R - 0.004;   // on the grooves (#104)
         if (on) { touching = d; local = ll.clone(); local.rim = rim; break; }
       }
       if (touching) {

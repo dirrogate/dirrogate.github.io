@@ -64,7 +64,8 @@ class Deck {
     this.touch = false; this.touchRate = 0; this.touchF = 0.35;
     this.nudgeE = 0; this.nudgeLeft = 0;
     this.needle = false; this.needleGain = 0;
-    this.pan = 0; this.panS = 0; this.split = false;   // #254 panS: the pan eased toward pan (~12 ms), so a jump never clicks
+    this.pan = 0; this.panS = 0; this.split = false;
+    this.wobble = 0; this.wobPh = 0;   // #260 a 45 off-centre on the bare spindle: rate x (1 + wobble cos(record angle - wobPh))   // #254 panS: the pan eased toward pan (~12 ms), so a jump never clicks
     this.lastLevel = 0;
     // needle dragged across the vinyl (CLAUDE.md #61)
     this.drag = false; this.dragPending = 0; this.dragAcc = 0; this.gps = 0; this.click = 0; this.hp = 0; this.nz = 0;
@@ -363,7 +364,7 @@ class Decks extends AudioWorkletProcessor {
         const a = Math.abs(l) > Math.abs(rr) ? Math.abs(l) : Math.abs(rr);
         if (a > peak) peak = a;
         if (d.len) {
-          d.pos += r * d.srcRate * dt;
+          d.pos += r * d.srcRate * dt * (d.wobble ? 1 + d.wobble * Math.cos(d.thr - d.wobPh) : 1);   // #260 wow
           if (d.pos < 0) d.pos = 0;
           // past the last sample the stylus is in the locked run-out groove: the record keeps turning
           if (d.pos > d.len + d.srcRate * 36000) d.pos = d.len;

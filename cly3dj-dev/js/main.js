@@ -1763,7 +1763,7 @@ const _spv = new THREE.Vector3(), _sps = new THREE.Vector3(), _spm = new THREE.M
 const spiders = decks.map(d => d.g.userData.spider ? { d, g: d.g.userData.spider, h: d.g.userData.spiderH || 0.003, anchor: null, off: null, on: null, home: d } : null).filter(Boolean);
 for (const s of spiders) s.d.recess = s;
 function spiderGrabTest(P) {
-  for (const s of spiders) { if (s.anchor) continue; s.g.getWorldPosition(_spv); if (_spv.distanceTo(P) < 0.035) return s; }
+  for (const s of spiders) { if (s.anchor || (s.on && s.on.record)) continue; s.g.getWorldPosition(_spv); if (_spv.distanceTo(P) < 0.035) return s; }   // #260 not from under a record
   return null;
 }
 function spiderGrab(s, anchor) {
@@ -1780,7 +1780,7 @@ function stepSpiders() {
 }
 function spiderOnSpindle(s, d) {
   const u = d.g.userData; u.platter.add(s.g);
-  s.g.position.set(0, (u.platterSurface - u.platter.position.y) + (d.record ? REC.THICK : 0) + s.h / 2, 0); s.g.quaternion.identity();
+  s.g.position.set(0, (u.platterSurface - u.platter.position.y) + s.h / 2, 0); s.g.quaternion.identity();   // #260 on the mat (a 45 goes round it)
   s.on = d; d.spiderOn = s;
 }
 function spiderToRecess(s, d) {
@@ -1857,6 +1857,7 @@ function pickUpFromDeck(d, attach) {
   if (held) returnHeld();
   liftNeedle(d, true); d.loadToken++; engine.unload(d.i);
   const r = d.record; d.record = null; d.loaded = false; d.track = null; d.side = null;
+  r.disc.position.x = 0; d.wob = 0;   // #260 off the spindle: centred in the hand again
   engine.post({ type: 'record', deck: d.i, on: false });
   d.g.remove(r.group); scene.add(r.group);
   for (const m of d.g.userData.slipmat || []) m.visible = true;
@@ -2171,7 +2172,7 @@ function surfaceUnder(p) {
     const l = d.g.worldToLocal(_su.copy(p));
     const onPlatter = Math.hypot(l.x - DECK.spindle.x, l.z - DECK.spindle.z) < 0.12;
     let ly = -Infinity;
-    if (onPlatter) ly = d.g.userData.platterSurface + (d.record ? REC.THICK + 0.001 : 0);
+    if (onPlatter) ly = d.g.userData.platterSurface + (d.record ? recD(d).THICK + 0.001 : 0);
     else if (Math.hypot(l.x - DECK.spindle.x, l.z - DECK.spindle.z) < 0.168) ly = d.g.userData.platterSurface;
     ly = Math.max(ly, deckHF(l.x, l.z));
     if (ly === -Infinity) continue;
@@ -2325,10 +2326,17 @@ async function placeOnDeck(d, rec3d) {
   }
   d.record = rec3d;
   scene.remove(rec3d.group);
-  rec3d.group.position.set(DECK.spindle.x, d.g.userData.platterSurface + REC.THICK / 2, DECK.spindle.z);
+  const D = rec3d.dims || REC;
+  if (D === REC && d.spiderOn) { const s = d.spiderOn; d.spiderOn = null; s.on = null; for (const dd of decks) if (!dd.recess) { spiderToRecess(s, dd); break; } toast('45 adapter back in its recess (a 12" needs the bare spindle)', 2200); }   // #260
+  rec3d.group.position.set(DECK.spindle.x, d.g.userData.platterSurface + D.THICK / 2, DECK.spindle.z);
   rec3d.group.quaternion.identity(); rec3d.group.scale.setScalar(1);
   d.g.add(rec3d.group);
-  for (const m of d.g.userData.slipmat || []) m.visible = false; // the record covers the mat; hiding it avoids depth fighting
+  for (const m of d.g.userData.slipmat || []) m.visible = D !== REC; // a 12" covers the mat (hidden: no depth fighting); a 7" leaves it showing
+  // #260 a 45 needs the adapter on the spindle; without it the big hole sits off-centre on the bare pin: it wobbles
+  // (and the tonearm with it) and the music has wow, like the real thing
+  d.wob = D === REC7 && !d.spiderOn ? WOB_E : 0; rec3d.disc.position.x = d.wob;
+  engine.deck(d.i, 'wobble', 0);
+  if (d.wob) toast(`Deck ${d.name}: no 45 adapter on the spindle, the record wobbles`, 2500);
   engine.post({ type: 'record', deck: d.i, on: true });   // #120: it lands still; the slipmat pulls it up to platter speed
   d.recAngle = d.platterAngle;
   layoutSleeves();
@@ -2409,6 +2417,10 @@ function setPitchRange(d, r) {
   toast(`Deck ${d.name}: pitch range \u00b1${Math.round(r * 100)} %`, 1500);
 }
 
+// #260 per-record sizes on a deck (12" or 7"), the off-centre 45
+const WOB_E = 0.010;   // how far a 45's 38 mm hole sits off the 7 mm spindle (it can't do more than 15 mm)
+const recD = d => (d.record && d.record.dims) || REC;
+function stylusAngle(d) { const u = d.g.userData, y = d.arm.yaw; return Math.atan2(u.pivot.z + ARM.L * Math.cos(y) - DECK.spindle.z, u.pivot.x + ARM.L * Math.sin(y) - DECK.spindle.x); }
 // tonearm
 function restYaw(d) { return d.g.userData.restYaw || 0; }
 function armTilt(u, lift) { return (u.armDown || 0) - (u.armLift || 0.075) * lift; }
@@ -2423,7 +2435,7 @@ function dropNeedleAt(d, time) {
   d.arm.parking = false;
   d.arm.targetLift = 1;
   d.arm.cueTime = time;
-  d.arm.targetYaw = armYawForRadius(d.g.userData.pivot, DECK.spindle, timeToRadius(time, d.duration));
+  d.arm.targetYaw = armYawForRadius(d.g.userData.pivot, DECK.spindle, timeToRadius(time, d.duration, recD(d)));
   d.arm.onLand = () => { engine.post({ type: 'seek', deck: d.i, time: d.arm.cueTime }); engine.deck(d.i, 'needle', true); };
   d.arm.wantDown = true;
 }
@@ -2435,7 +2447,7 @@ function armGrab(d) {
   const a = d.arm, st = engine.state.decks[d.i];
   a.manual = true; a.manualYaw = a.yaw; a.onLand = null; a.wantDown = false; a.auto = false; a.pendingR = null; a.prevR = armRadius(d, a.yaw);
   if (st.needle && d.loaded) {
-    a.dragDown = true; a.lastDragT = radiusToTime(armRadius(d, a.yaw), d.duration);
+    a.dragDown = true; a.lastDragT = radiusToTime(armRadius(d, a.yaw), d.duration, recD(d));
     engine.post({ type: 'needleDrag', deck: d.i, active: true });
   } else { a.dragDown = false; liftNeedle(d, false); }
 }
@@ -2444,24 +2456,24 @@ function endNeedleDrag(d) { if (d.arm.dragDown) { d.arm.dragDown = false; engine
 // #104 (owner): carrying the raised arm in over the record, the needle finds it by itself: once the stylus
 // crosses into the lead-in (from outside the disc edge inwards, up to the first music groove) the arm leaves
 // the hand, settles on the first groove and lowers gently onto it, so the record plays from its start.
-const DROP_OUT = REC.EDGE + 0.003, DROP_IN = REC.OUT;
 function armDrag(d, yaw, lift = 0) {
   const a = d.arm; if (a.auto) return 'dropped';
+  const D = recD(d), DROP_OUT = D.EDGE + 0.003, DROP_IN = D.OUT;   // #260 per record
   a.manualYaw = clamp(yaw, -1.2, 0.25);
   if (!a.dragDown) {
     const r = armRadius(d, a.manualYaw), was = a.prevR; a.prevR = r;
     if (d.loaded && d.record && was > DROP_OUT && r <= DROP_OUT && r >= DROP_IN - 0.004) {
       a.auto = true; a.manual = false;
-      a.yaw = a.targetYaw = armYawForRadius(d.g.userData.pivot, DECK.spindle, REC.OUT);
-      a.parking = false; a.wantDown = true; a.cueTime = radiusToTime(REC.OUT, d.duration);
+      a.yaw = a.targetYaw = armYawForRadius(d.g.userData.pivot, DECK.spindle, D.OUT);
+      a.parking = false; a.wantDown = true; a.cueTime = radiusToTime(D.OUT, d.duration, D);
       a.onLand = () => { engine.post({ type: 'seek', deck: d.i, time: a.cueTime }); engine.deck(d.i, 'needle', true); };
       return 'drop';
     }
     return;
   }
   const r = armRadius(d, a.manualYaw);
-  if (lift > 0.07 || r > REC.EDGE + 0.002 || r < REC.IN - 0.006) { endNeedleDrag(d); liftNeedle(d, false); return; }   // 7 cm up lifts (owner)
-  const T = radiusToTime(Math.min(REC.EDGE, Math.max(REC.IN, r)), d.duration), dT = T - a.lastDragT;
+  if (lift > 0.07 || r > D.EDGE + 0.002 || r < D.IN - 0.006) { endNeedleDrag(d); liftNeedle(d, false); return; }   // 7 cm up lifts (owner)
+  const T = radiusToTime(Math.min(D.EDGE, Math.max(D.IN, r)), d.duration, D), dT = T - a.lastDragT;
   if (Math.abs(dT) > 1e-4) { a.lastDragT = T; engine.post({ type: 'needleDrag', deck: d.i, delta: dT }); }
 }
 // let go without dropping anywhere new (desktop click on the arm)
@@ -2472,14 +2484,14 @@ function armRelease(d) {
   a.manual = false; a.yaw = a.manualYaw;
   const u = d.g.userData;
   const nx = u.pivot.x + ARM.L * Math.sin(a.yaw), nz = u.pivot.z + ARM.L * Math.cos(a.yaw);
-  const r = Math.hypot(nx - DECK.spindle.x, nz - DECK.spindle.z);
-  if (d.loaded && r < REC.EDGE && r > REC.IN - 0.004) {
-    a.cueTime = radiusToTime(r, d.duration); a.targetYaw = a.yaw; a.parking = false; a.wantDown = true;
+  const r = Math.hypot(nx - DECK.spindle.x, nz - DECK.spindle.z), D = recD(d);
+  if (d.loaded && r < D.EDGE && r > D.IN - 0.004) {
+    a.cueTime = radiusToTime(r, d.duration, D); a.targetYaw = a.yaw; a.parking = false; a.wantDown = true;
     a.onLand = () => { engine.post({ type: 'seek', deck: d.i, time: a.cueTime }); engine.deck(d.i, 'needle', true); };
-  } else if (d.record && d.track && !d.loaded && r < REC.EDGE && r > REC.IN - 0.004) {
+  } else if (d.record && d.track && !d.loaded && r < D.EDGE && r > D.IN - 0.004) {
     // #181 (owner): let go over a record whose grooves are still loading: hover there and drop by itself once it's ready
     a.targetYaw = a.yaw; a.parking = false; a.pendingR = r;
-  } else { a.targetYaw = a.yaw; a.parking = r > REC.R; }
+  } else { a.targetYaw = a.yaw; a.parking = r > D.R; }
 }
 function updateArm(d, dt) {
   const a = d.arm, u = d.g.userData;
@@ -2487,7 +2499,7 @@ function updateArm(d, dt) {
   if (a.pendingR != null) {   // #181: arm waiting over a loading record
     if (a.manual || !d.record || !d.track) a.pendingR = null;
     else if (d.loaded) {
-      a.cueTime = radiusToTime(a.pendingR, d.duration); a.pendingR = null; a.targetYaw = a.yaw; a.wantDown = true;
+      a.cueTime = radiusToTime(a.pendingR, d.duration, recD(d)); a.pendingR = null; a.targetYaw = a.yaw; a.wantDown = true;
       a.onLand = () => { engine.post({ type: 'seek', deck: d.i, time: a.cueTime }); engine.deck(d.i, 'needle', true); };
     }
   }
@@ -2497,7 +2509,12 @@ function updateArm(d, dt) {
   }
   if (st.needle && d.loaded) {
     // stylus rides the groove
-    const r = timeToRadius(engine.pos(d.i), d.duration);
+    let r = timeToRadius(engine.pos(d.i), d.duration, recD(d));
+    if (d.wob) {   // #260 the off-centre 45 swings the arm in and out once a turn, and the music wows with it
+      const ph = stylusAngle(d); r += d.wob * Math.cos(d.recAngle - ph);
+      const depth = Math.round(d.wob / Math.max(0.03, r) * 1000) / 1000;
+      if (depth !== d.wobSent) { d.wobSent = depth; engine.deck(d.i, 'wobble', depth); engine.deck(d.i, 'wobPh', ph); }
+    } else if (d.wobSent) { d.wobSent = 0; engine.deck(d.i, 'wobble', 0); }
     a.yaw = a.targetYaw = armYawForRadius(u.pivot, DECK.spindle, r);
     a.lift = a.targetLift = 0;
   } else {
@@ -2917,7 +2934,7 @@ function pointerUp(p) {
     const s = dr.scratch, d = dr.deck;
     if (!s.holding && performance.now() - p.start.t < 350) { // click on the grooves = needle drop there
       const r = Math.hypot(dr.local.x - DECK.spindle.x, dr.local.z - DECK.spindle.z);
-      if (d.loaded && r > REC.IN - 0.002 && r < REC.EDGE) dropNeedleAt(d, radiusToTime(r, d.duration));
+      if (d.loaded && r > recD(d).IN - 0.002 && r < recD(d).EDGE) dropNeedleAt(d, radiusToTime(r, d.duration, recD(d)));
     }
     scratchEnd(s);
   }
