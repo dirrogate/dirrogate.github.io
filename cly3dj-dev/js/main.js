@@ -108,7 +108,7 @@ const deckGroups = deckModel === 'glb' ? [makeGlbDeck('A'), makeGlbDeck('B')] : 
 // #253 (owner, like the SL-1210MK7): an X2 button past the far (-) end of the pitch fader switches the range between
 // +-8 % and +-16 %; its blue LED is on at +-16 %
 deckGroups.forEach((g, gi) => {
-  const u = g.userData, t = u.pitchTravel;
+  const u = g.userData, t = u.pitchTravel; if (u.x2) return;   // the GLB deck builds its own (a 33-style cap)
   const b = makeButton(0.016, 0.01, 0x3aa0ff, 'X2'); b.position.set(t.x, u.zeroLED.position.y - 0.001, t.z0 - 0.032); g.add(b);
   b.userData.mesh.userData.control = { deck: gi ? 'B' : 'A', id: 'x2' }; u.x2 = b;
 });
@@ -4217,7 +4217,7 @@ function frame() {
     u.b33.userData.set(pw * (d.speed < 1.1 ? 0.9 : 0.05)); u.b45.userData.set(pw * (d.speed > 1.1 ? 0.9 : 0.05));
     if (u.b33.userData.led) { u.b33.userData.led(pw * (d.speed < 1.1 ? 1 : 0)); u.b45.userData.led(pw * (d.speed > 1.1 ? 1 : 0)); }
     u.zeroLED.userData.set(pw * (Math.abs(d.pitch) < 0.0005 ? 1 : 0.05));
-    if (u.x2) u.x2.userData.set(pw * (d.range > 0.1 ? 1 : 0.06));   // #253
+    if (u.x2) { u.x2.userData.set(pw * (d.range > 0.1 ? 1 : 0.06)); if (u.x2.userData.led) u.x2.userData.led(pw * (d.range > 0.1 ? 1 : 0)); }   // #253
     updateArm(d, dt);
   }
 

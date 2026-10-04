@@ -352,8 +352,8 @@ export function makeGlbDeck(name) {
   // ---- buttons
   // Buttons keep the deck's own matte brushed-metal caps (CLAUDE.md #58): no coloured emissive tint and no
   // glow sprite. Feedback is physical: the cap dips 1.5 mm when pressed and springs back.
-  const btn = (partName, id) => {
-    const part = byName(model, partName); const box = new THREE.Box3().setFromObject(part);
+  const btn = (partName, id, partObj = null) => {
+    const part = partObj || byName(model, partName); const box = new THREE.Box3().setFromObject(part);
     const c = g.worldToLocal(box.getCenter(new THREE.Vector3()));
     const grp = pivotGroup(g, c, [part]);
     const meshes = []; part.traverse(o => { if (o.isMesh) { meshes.push(o); o.userData.control = { deck: name, id }; } });
@@ -370,7 +370,7 @@ export function makeGlbDeck(name) {
     const cb = new THREE.Box3().setFromObject(capMesh), cw = cb.max.x - cb.min.x, cd = cb.max.z - cb.min.z;
     const topY = cb.max.y - (box.getCenter(new THREE.Vector3()).y) + 0.00025;
     const cx = (cb.min.x + cb.max.x) / 2 - box.getCenter(new THREE.Vector3()).x, cz = (cb.min.z + cb.max.z) / 2 - box.getCenter(new THREE.Vector3()).z;
-    const label = id === 'start' ? 'START \u00b7 STOP' : id === 'rpm33' ? '33' : '45';
+    const label = id === 'start' ? 'START \u00b7 STOP' : id === 'rpm33' ? '33' : id === 'x2' ? 'X2' : '45';
     const speed = id !== 'start';
     const decal = new THREE.Mesh(new THREE.PlaneGeometry(cw * 0.92, cd * 0.86), legendMat(label, cw / cd, speed));
     decal.rotation.x = -Math.PI / 2; decal.position.set(cx, topY, cz); decal.userData = meshes[0].userData; grp.add(decal);
@@ -378,11 +378,13 @@ export function makeGlbDeck(name) {
       const ledMat = new THREE.MeshBasicMaterial({ color: 0x2a2a2c, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
       const led = new THREE.Mesh(new THREE.PlaneGeometry(cw * 0.26, cd * 0.2), ledMat);
       led.rotation.x = -Math.PI / 2; led.position.set(cx + cw * 0.22, topY + 0.00005, cz); grp.add(led);
-      const on = new THREE.Color(0xff2418), off = new THREE.Color(0x262628);
+      const on = new THREE.Color(id === 'x2' ? 0x2a8cff : 0xff2418), off = new THREE.Color(0x262628);   // #253 X2: blue like the MK7
       grp.userData.led = (v) => ledMat.color.copy(off).lerp(on, Math.max(0, Math.min(1, v)));
     }
     return grp;
   };
+  // #253 X2 (pitch range): a copy of the 33 button's cap, moved past the far end of the pitch fader below
+  const p33 = byName(model, 'polySurface13'), x2part = p33.clone(true); p33.parent.add(x2part);
   u.start = btn('polySurface14', 'start');
   u.b33 = btn('polySurface13', 'rpm33');
   u.b45 = btn('polySurface12', 'rpm45');
@@ -394,6 +396,8 @@ export function makeGlbDeck(name) {
   cap.traverse(o => { if (o.isMesh) o.userData.control = { deck: name, id: 'pitch' }; });
   const half = 7.3 * S;
   u.pitchTravel = { z0: capC.z - half, z1: capC.z + half, x: capC.x };
+  u.x2 = btn(null, 'x2', x2part);
+  u.x2.position.set(u.pitchTravel.x, u.x2.position.y, u.pitchTravel.z0 - 0.032);   // set() only moves y (the press dip)
   u.zeroLED = makeLED(0x40ff60, 0.0022, 0.018); u.zeroLED.position.copy(m2l(24.9, 15.1, 9.86)); g.add(u.zeroLED);
   // #123 (owner): no glow sprite over the pitch zero LED (looked fake); the LED itself still lights
   for (const c of [...u.zeroLED.children]) if (c.isSprite) { u.zeroLED.remove(c); c.material.dispose(); }
