@@ -528,7 +528,7 @@ export function makeMixer() {
     addKnob(ch + '.pan', x, 0.030, 0xffb040, 0.009);
     addButton(ch + '.cue', 0.022, 0.012, 0xffc030, 'CUE', x, 0.056);
     // tap-to-set beat 1 (owner, #110): press on a kick; beside CUE, towards the mixer's outer edge
-    addButton(ch + '.beat1', 0.02, 0.012, 0x40ff70, 'BEAT 1', x + (x < 0 ? -0.033 : 0.033), 0.056);
+    addButton(ch + '.beat1', 0.02, 0.012, 0x40ff70, 'BEAT 1', x + (x < 0 ? -0.033 : 0.033), 0.030);   // #253 (owner): in line with PAN (was beside CUE)
     layout.slots.push({ x, z: 0.104, w: 0.0035, d: 0.066 });
     layout.faderScales.push({ x: x + (x < 0 ? 0.013 : -0.013), z0: 0.076, z1: 0.132 });
     const slot = box(0.0033, 0.004, 0.064, MAT.black); slot.position.set(x, top - 0.0021, 0.104); g.add(slot);

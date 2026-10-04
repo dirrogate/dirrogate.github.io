@@ -20,7 +20,7 @@ export async function loadDeckTemplate(url) {
   const gltf = await new GLTFLoader().loadAsync(url);
   const root = gltf.scene;
   root.updateMatrixWorld(true);
-  // Paint out the parody wordmark and relabel the pitch scale for +-16 % (licence allows adaptation).
+  // Paint out the parody wordmark and relabel the pitch scale (+-8 %, #253) (licence allows adaptation).
   root.traverse(o => {
     if (!o.isMesh) return;
     const m = o.material;
@@ -32,7 +32,7 @@ export async function loadDeckTemplate(url) {
       g.fillStyle = '#000'; g.fillRect(1340 * k / 2, 20 * k, 480 * k / 2 * 1.02, 60 * k); // "Techno.ics Hartz" + subtitle
       g.fillRect(900 * k, 104 * k, 26 * k, 262 * k);                                   // old +-8 numbers
       g.save(); g.scale(1, -1); g.fillStyle = '#e8e8e8'; g.font = `bold ${10 * k}px sans-serif`; g.textAlign = 'right';
-      [16, 12, 8, 4, 0, 4, 8, 12, 16].forEach((n, i) => g.fillText(String(n), 925 * k, -(119 + i * 30) * k));
+      [8, 6, 4, 2, 0, 2, 4, 6, 8].forEach((n, i) => g.fillText(String(n), 925 * k, -(119 + i * 30) * k));   // #253 printed for +-8 % like the MK7 (X2 doubles it)
       g.restore();
       // #122 (owner): silver MK2 look. The top plate is die-cast aluminium, so it becomes metal: satin silver where
       // the model's texture is black, dark ink where it has white print (legends, pitch scale, dial markings).

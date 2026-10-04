@@ -237,7 +237,7 @@ export function setupXR(ctx) {
     // 0b. 33 / 45, controllers only: trigger (or grip) at the button, never by hovering (owner, #64)
     if (!st.isHand) {
       let best = null, bd = 0.016;
-      for (const d of ctx.decks) for (const [key, id] of [['b33', 'rpm33'], ['b45', 'rpm45']]) {
+      for (const d of ctx.decks) for (const [key, id] of [['b33', 'rpm33'], ['b45', 'rpm45'], ['x2', 'x2']]) {   // #253 + X2
         const b = d.g.userData[key]; if (!b) continue; b.getWorldPosition(v2);
         const dd = Math.hypot(P.x - v2.x, P.z - v2.z); if (dd < bd && P.y - v2.y < 0.03 && P.y - v2.y > -0.015) { bd = dd; best = { deck: d.name, id }; }
       }
@@ -315,7 +315,7 @@ export function setupXR(ctx) {
     //     falls shut or back open depending on which side of upright it is (main.js stepLid)
     //     Lid shut: its carry handle picks up the whole crate instead (owner, #86).
     const lg = ctx.lidGrabTest(P);
-    if (lg === 'handle' && ctx.lidShut()) {
+    if (lg === 'handle' && ctx.lidShut() && gripOk) {   // #253 carrying the crate = grip
       const g = ctx.MOVABLE.crate;
       st.direct = { kind: 'move', target: 'crate', stMove: ctx.stage.beginMove('crate'), p0: P.clone(), pos0: g.position.clone(), yaw0: g.rotation.y, hyaw0: yawOf(handQuat(st, q1)) };
       buzz(st); return true;
@@ -338,7 +338,9 @@ export function setupXR(ctx) {
       st.direct = { kind: 'dig', y0: cl.y }; digTo(cl.z); buzz(st); return true;
     }
     // 6. gear bodies, flight-case bottom handles (resize), flight-case bodies (move)
-    const hit = hitMovable(P);
+    // #253 (owner): moving, turning, tilting and resizing stage items (decks, mixer, crates, milk crates, LED wall,
+    // neon, flight cases) = the grip on controllers; the trigger never moves them. Bare hands: pinch, as before.
+    const hit = gripOk ? hitMovable(P) : null;
     // neon sign: a second hand on the other centre bar resizes it (pull apart = bigger); anywhere else is ignored
     if (hit && hit.key === 'neon') {
       const other = inputs.find(o => o !== st && o.direct && o.direct.kind === 'move' && o.direct.target === 'neon');
@@ -463,8 +465,11 @@ export function setupXR(ctx) {
       ctx.setMix(g.id, g.v0 + (m - g.m0));
     } else if (g.kind === 'pitch') {
       const m = ctx.pitchFromLocalZ(g.d, g.d.g.worldToLocal(v2.copy(P)).z);
-      if (g.m0 == null) { g.m0 = m; g.v0 = g.d.pitch; }
-      if (ctx.setPitch(g.d, g.v0 + (m - g.m0), true) === 'detent') buzz(st, 0.5, 18);   // #230 the click at zero
+      // #253 fine pitch: while the other hand pulls its trigger (or pinches), the fader moves at quarter speed;
+      // switching in or out re-anchors here, so the pitch never jumps
+      const fine = inputs.some(o => o !== st && o.connected && (o.isHand ? !!o.pinching : !!(o.source && o.source.gamepad && o.source.gamepad.buttons[0] && o.source.gamepad.buttons[0].pressed)));
+      if (g.m0 == null || fine !== !!g.fine) { g.m0 = m; g.v0 = g.d.pitch; if (fine !== !!g.fine) { g.fine = fine; buzz(st, fine ? 0.35 : 0.2, 15); } }
+      ctx.setPitch(g.d, g.v0 + (m - g.m0) * (fine ? 0.25 : 1));
     } else if (g.kind === 'spindle') {
       // #105: twist about the vertical, 1:1 like a real spindle; clockwise from above = forward. A tick every 5 ms.
       const y = yawOf(handQuat(st, q1)), dy = Math.max(-0.6, Math.min(0.6, wrap(y - g.yawL))); g.yawL = y;
@@ -576,6 +581,7 @@ export function setupXR(ctx) {
       out.push({ g: u.start, c: { deck: d.name, id: 'start' }, r: 0.022 });
       out.push({ g: u.b33, c: { deck: d.name, id: 'rpm33' }, r: 0.012 });
       out.push({ g: u.b45, c: { deck: d.name, id: 'rpm45' }, r: 0.012 });
+      if (u.x2) out.push({ g: u.x2, c: { deck: d.name, id: 'x2' }, r: 0.01 });   // #253
       if (u.target) out.push({ g: u.target.grp, c: { deck: d.name, id: 'target' }, r: 0.016, top: () => u.target.headY - 0.006 });
     }
     return out;
@@ -585,7 +591,7 @@ export function setupXR(ctx) {
   function pokes(st, T) {
     buttons = buttons || buttonList();
     for (const b of buttons) {
-      if ((b.c.id === 'target' || b.c.id === 'rpm33' || b.c.id === 'rpm45' || b.c.id === 'start') && !st.isHand) continue;   // controllers: trigger (START / STOP: grip, #252) only, see grabStart
+      if ((b.c.id === 'target' || b.c.id === 'rpm33' || b.c.id === 'rpm45' || b.c.id === 'x2' || b.c.id === 'start') && !st.isHand) continue;   // controllers: trigger (START / STOP: grip, #252) only, see grabStart
       b.g.getWorldPosition(v2); v2.y += b.top ? b.top() + 0.006 : 0.006;
       const h = T.y - v2.y, dxz = Math.hypot(T.x - v2.x, T.z - v2.z);
       const key = b;

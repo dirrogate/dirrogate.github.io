@@ -25,7 +25,7 @@ import { Stage, FlightCase } from './layout.js';
 import { loadCaseKit } from './flightcase.js';
 import { setRecordTexSize } from './textures.js';
 import {
-  initMaterials, MAT, tabletBodyMat, TABLET_T, makeDeck, makeMixer, makeCrate, makeMilkCrate, loadMilkCrate, loadMilkCrateBaked, upgradeMilkCrate, loadRecordCrateBaked, upgradeRecordCrate, loadMixerParts, initKTX2, loadBaked, MILK_CREDIT, Record3D, armYawForRadius,
+  initMaterials, MAT, tabletBodyMat, TABLET_T, makeDeck, makeButton, makeMixer, makeCrate, makeMilkCrate, loadMilkCrate, loadMilkCrateBaked, upgradeMilkCrate, loadRecordCrateBaked, upgradeRecordCrate, loadMixerParts, initKTX2, loadBaked, MILK_CREDIT, Record3D, armYawForRadius,
   DECK, MIX, CRATE, MILK, W33, ARM, LID,
 } from './models.js';
 
@@ -105,6 +105,13 @@ let deckModel = 'procedural';
 window.__vireStage = 'modules loaded; loading turntable GLB';
 try { await loadDeckTemplate('models/turntable.glb'); deckModel = 'glb'; } catch (e) { console.warn('Deck GLB not loaded, using procedural decks', e); }
 const deckGroups = deckModel === 'glb' ? [makeGlbDeck('A'), makeGlbDeck('B')] : [makeDeck('A'), makeDeck('B')];
+// #253 (owner, like the SL-1210MK7): an X2 button past the far (-) end of the pitch fader switches the range between
+// +-8 % and +-16 %; its blue LED is on at +-16 %
+deckGroups.forEach((g, gi) => {
+  const u = g.userData, t = u.pitchTravel;
+  const b = makeButton(0.016, 0.01, 0x3aa0ff, 'X2'); b.position.set(t.x, u.zeroLED.position.y - 0.001, t.z0 - 0.032); g.add(b);
+  b.userData.mesh.userData.control = { deck: gi ? 'B' : 'A', id: 'x2' }; u.x2 = b;
+});
 deckGroups.forEach((d, i) => {
   rig.add(d);
   const k = i ? 'deckB' : 'deckA';
@@ -729,7 +736,7 @@ const engine = new AudioEngine();
 let lib = null;
 const decks = [0, 1].map(i => ({
   i, name: DECK_NAMES[i], g: deckGroups[i], record: null, side: null, track: null, duration: 0,
-  loaded: false, loading: false, motorOn: false, power: true, speed: 1, pitch: 0, platterAngle: 0, recAngle: 0, angleOffset: 0,
+  loaded: false, loading: false, motorOn: false, power: true, speed: 1, pitch: 0, range: (settings.pitchRange && settings.pitchRange[i]) || 0.08, platterAngle: 0, recAngle: 0, angleOffset: 0,
   arm: { yaw: deckGroups[i].userData.restYaw || 0, lift: 1, targetYaw: deckGroups[i].userData.restYaw || 0, targetLift: 1, onLand: null, parking: false },
   loadToken: 0,
 }));
@@ -2198,6 +2205,12 @@ function leanIfAgainstSide(L) {
     if (best) break;   // nearest ring with a rise wins
   }
   if (!best) return;
+  // #253 (owner): a turntable stands on feet with a gap under its body: a record put down against one slides
+  // under it and stays flat (no 45 deg lean against the deck)
+  for (const dg of deckGroups) {
+    const l = dg.worldToLocal(probe.set(c.x + best.dx * best.w, best.h - 0.01, c.z + best.dz * best.w));
+    if (Math.abs(l.x) < 0.24 && Math.abs(l.z) < 0.19) return;
+  }
   const lean = Math.PI / 4, dh = best.h - base.y, R2 = 2 * R_DISC;
   const b = Math.min(dh / Math.tan(lean), R2 * Math.cos(lean));     // bottom edge distance from the obstacle
   const d = new THREE.Vector3(best.dx, 0, best.dz);
@@ -2297,21 +2310,20 @@ function setPower(d, on) {
   if (on) d.motorWasOn = false;
 }
 function setSpeed(d, s) { d.speed = s; engine.deck(d.i, 'speed', s); }
-// #230 centre click like an SL1200: from the hand, within 0.5% of zero it clicks to exactly 0 and holds there until
-// the fader is pushed 1.2% away (about 4 mm of travel), then lets go with a small jump, the feel of a detent.
-// Returns 'detent' on the frame it clicks in (the hand code buzzes the controller).
-const PITCH_IN = 0.005, PITCH_OUT = 0.012;
-function setPitch(d, p, fromUser = false) {
-  p = clamp(p, -PITCH_RANGE, PITCH_RANGE);
-  let ev = null;
-  if (fromUser) {
-    if (d.pitchLock) { if (Math.abs(p) < PITCH_OUT) p = 0; else d.pitchLock = false; }
-    else if (Math.abs(p) < PITCH_IN) { p = 0; d.pitchLock = true; ev = 'detent'; }
-  } else d.pitchLock = p === 0;
+// #253 (owner): no centre click any more (#230's snap made +-0.5 % unreachable, so matched records drifted); the
+// green LED at the fader shows zero (within 0.05 %). The fader covers +-d.range (X2 button: 8 or 16 %).
+function setPitch(d, p) {
+  p = clamp(p, -d.range, d.range);
   d.pitch = p; engine.deck(d.i, 'pitch', p);
   const t = d.g.userData.pitchTravel;
-  d.g.userData.pitchCap.position.z = (t.z0 + t.z1) / 2 + (p / PITCH_RANGE) * (t.z1 - t.z0) / 2;
-  return ev;
+  d.g.userData.pitchCap.position.z = (t.z0 + t.z1) / 2 + (p / d.range) * (t.z1 - t.z0) / 2;
+  return null;
+}
+// X2: the fader stays where it is, so the pitch scales with the range (as on the MK7)
+function setPitchRange(d, r) {
+  const f = d.pitch / d.range; d.range = r; setPitch(d, f * r);
+  settings.pitchRange = { ...(settings.pitchRange || {}), [d.i]: r }; saveSettings();
+  toast(`Deck ${d.name}: pitch range \u00b1${Math.round(r * 100)} %`, 1500);
 }
 
 // tonearm
@@ -2437,8 +2449,8 @@ function doSync() {
   if (!ba || !bb) { flashSync('red'); toast(`LOCK needs a BPM on both decks (no BPM on deck ${!ba && !bb ? 'A or B' : !ba ? 'A' : 'B'}: tap BEAT 1 on the beat)`, 2600); return; }
   const target = (effBpm(a) + effBpm(b)) / 2;
   const pa = target / (ba * a.speed) - 1, pb = target / (bb * b.speed) - 1;
-  if (Math.abs(pa) > PITCH_RANGE + 1e-6 || Math.abs(pb) > PITCH_RANGE + 1e-6) {
-    flashSync('red'); toast(`Meeting point ${target.toFixed(1)} BPM is outside ±16% for one deck`); return;
+  if (Math.abs(pa) > a.range + 1e-6 || Math.abs(pb) > b.range + 1e-6) {
+    flashSync('red'); toast(`Meeting point ${target.toFixed(1)} BPM is outside the pitch range of one deck (X2 for \u00b116 %)`); return;
   }
   syncAnim = { t: 0, dur: 0.4, from: [a.pitch, b.pitch], to: [pa, pb], target };
   flashSync('blue');
@@ -2505,7 +2517,8 @@ function setMix(id, v) {
 function pressControl(c, src) { // buttons; returns true if handled (src: who pressed, for BEAT 1 long press)
   if (c.deck) {
     const d = deckOf(c.deck);
-    { const bu = d.g.userData, b = c.id === 'start' ? bu.start : c.id === 'rpm33' ? bu.b33 : c.id === 'rpm45' ? bu.b45 : null; if (b && b.userData.press) b.userData.press(); }
+    { const bu = d.g.userData, b = c.id === 'start' ? bu.start : c.id === 'rpm33' ? bu.b33 : c.id === 'rpm45' ? bu.b45 : c.id === 'x2' ? bu.x2 : null; if (b && b.userData.press) b.userData.press(); }
+    if (c.id === 'x2') { setPitchRange(d, d.range > 0.1 ? 0.08 : 0.16); return true; }
     if (c.id === 'start') { setMotor(d, !d.motorOn); return true; }
     if (c.id === 'power') { setPower(d, d.power === false); return true; }
     if (c.id === 'target') { const t = d.g.userData.target; if (t) t.raised = !t.raised; return true; }
@@ -2617,7 +2630,7 @@ async function deleteStamped(r) {
   layoutSleeves();
   crateSay(`Deleted "${r.title}"`, true);
 }
-function pitchFromLocalZ(d, z) { const t = d.g.userData.pitchTravel; return ((z - (t.z0 + t.z1) / 2) / ((t.z1 - t.z0) / 2)) * PITCH_RANGE; }
+function pitchFromLocalZ(d, z) { const t = d.g.userData.pitchTravel; return ((z - (t.z0 + t.z1) / 2) / ((t.z1 - t.z0) / 2)) * d.range; }
 function sliderFromLocal(id, l) {
   if (id === 'xfader') { const t = mixer.userData.xTravel; return clamp((l.x - t.x0) / (t.x1 - t.x0) * 2 - 1, -1, 1); }
   const t = mixer.userData.faderTravel; return clamp((t.z1 - l.z) / (t.z1 - t.z0), 0, 1);
@@ -4204,6 +4217,7 @@ function frame() {
     u.b33.userData.set(pw * (d.speed < 1.1 ? 0.9 : 0.05)); u.b45.userData.set(pw * (d.speed > 1.1 ? 0.9 : 0.05));
     if (u.b33.userData.led) { u.b33.userData.led(pw * (d.speed < 1.1 ? 1 : 0)); u.b45.userData.led(pw * (d.speed > 1.1 ? 1 : 0)); }
     u.zeroLED.userData.set(pw * (Math.abs(d.pitch) < 0.0005 ? 1 : 0.05));
+    if (u.x2) u.x2.userData.set(pw * (d.range > 0.1 ? 1 : 0.06));   // #253
     updateArm(d, dt);
   }
 
