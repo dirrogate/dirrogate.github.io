@@ -103,7 +103,7 @@ function splitByBone(mesh, name) {
 }
 
 // #305 (owner) Cly3DJ's own robot, made from the licensed one in Blender (blender/robot_v2/robot_v2.blend): no headband,
-// the ear cups replaced by Gemini-logo headphones (chrome logo on a black cup), a chin ridge, a faceted bust, and gloves
+// the ear cups replaced by Gemini-logo headphones (red logo painted on a black cup, #308), a chin ridge, a faceted bust, and gloves
 // subdivided once with a chrome dart on each finger (knuckle to the last joint) instead of the white pads.
 export const ROBOT_GLB = 'models/avatar/avatar_robot_v2.glb';
 export class RobotAvatar2 {
