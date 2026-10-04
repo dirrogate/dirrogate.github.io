@@ -4052,8 +4052,8 @@ function drawToolsPage() {
     // #235 switches for stage pieces (off = hidden and no per-frame work), green = on
     // #276 controllers seen as 3D hands holding them, or bare controllers
     const ctlBtn = (x, y, w, h) => { let X = null; try { X = xr; } catch (e) {}   // xr is set up further down the file
-      const hands = !X || X.getCtlLook() === '3dhands';
-      btn(x, y, w, h, `CONTROLLERS: ${hands ? '3D HANDS' : 'CONTROLLER'}`, hands, () => { if (X) X.setCtlLook(hands ? 'controller' : '3dhands'); const el = document.getElementById('sHands'); if (el && X) el.value = X.getCtlLook(); drawMixScreen(); }, false, P ? 18 : 20); };
+      const cur = X ? X.getCtlLook() : '3dhands', NEXT = { '3dhands': 'glove', glove: 'controller', controller: '3dhands' };   // #287 three looks, tap to cycle
+      btn(x, y, w, h, `CONTROLLERS: ${{ '3dhands': '3D HANDS', glove: 'GLOVE', controller: 'CONTROLLER' }[cur]}`, cur !== 'controller', () => { if (X) X.setCtlLook(NEXT[cur]); const el = document.getElementById('sHands'); if (el && X) el.value = X.getCtlLook(); drawMixScreen(); }, false, P ? 18 : 20); };
     const sw = (x, y, w, h, label, k) => { const on = pieceOn(k); btn(x, y, w, h, `${label}: ${on ? 'ON' : 'OFF'}`, on, () => setPiece(k, !on), false, P ? 18 : 20); };
     if (P) {
       if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
@@ -4560,6 +4560,7 @@ function djPrep() {   // what the camera must not see: the LED wall itself, XR h
   hide(ledwall);
   if (DJ_HIDE_NEON.has(djSet.preset)) hide(neon);   // the sign stands between these angles and the DJ (its back faces them)
   if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand) hide(st.ctlHand.root); }
+  if (xr && xr.glove) hide(xr.glove.root);   // #287 the DJ CAM robot has its own gloves
   const bg = scene.background, roomV = room.visible;
   if (!bg && !skybox.group.visible) { scene.background = BG; room.visible = true; }   // passthrough: studio floor + dark backdrop for the camera
   return () => { for (const o of undo) o.visible = true; scene.background = bg; room.visible = roomV; };

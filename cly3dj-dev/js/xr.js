@@ -796,17 +796,53 @@ export function setupXR(ctx) {
   // #276 (owner) controller mode: a 3D hand holding each controller (DJ TOOLS > CONTROLLERS: 3D HANDS / CONTROLLER).
   // It is not a child of the grip (measureTip reads the grip's meshes), it copies the grip's pose each frame.
   let ctlLook = '3dhands';
-  try { const v = localStorage.getItem('vire.ctlLook'); if (v === 'controller' || v === '3dhands') ctlLook = v; } catch (e) {}
+  try { const v = localStorage.getItem('vire.ctlLook'); if (v === 'controller' || v === '3dhands' || v === 'glove') ctlLook = v; } catch (e) {}
+  // #287 (owner) GLOVE: the robot DJ's glove (avatar_robot.glb, #245) on each controller instead of the skin hand. The
+  // skin hand is still posed (hidden) and its 25 joints drive the glove through robot2.js's own hand solver, which also
+  // puts the glove's index fingertip on the blue ball (#247). Measured: the glove's knuckle width 6.4 cm and middle finger
+  // 9.9 cm against the generic hand's 6.0 / 8.6 cm, so it is drawn at 94 %; its palm (wrist to knuckles 14.1 cm, a hand's
+  // ~9 cm) is long because it carries a cuff, which then sits back over the wrist.
+  const GLOVE_SCALE = 0.94;
+  let glove = null, gloveLoading = false;
+  function gloveFor(st) {
+    if (glove && glove.ready) return glove;
+    if (!gloveLoading) {
+      gloveLoading = true;
+      import('./robot2.js').then(R => {
+        const holder = new THREE.Group(); holder.name = 'gloves'; scene.add(holder);
+        const a = new R.RobotAvatar2(holder);
+        return a.load('models/avatar/avatar_robot.glb').then(() => {
+          const keep = new Set(); for (const H of a.hands) { H.node.traverse(o => keep.add(o)); H.node.scale.multiplyScalar(GLOVE_SCALE); }
+          a.root.traverse(o => { if (o.isMesh) { if (keep.has(o)) { o.layers.set(0); o.castShadow = false; o.frustumCulled = false; } else o.visible = false; } });
+          if (a.headBone) a.headBone.visible = false;   // the cup crests hang off it
+          for (const H of a.hands) { H.vis = 0; if (H.mesh) H.mesh.visible = false; }
+          glove = a;
+        });
+      }).catch(e => { console.warn('glove', e); });
+    }
+    return null;
+  }
+  const _gJ = new Map(), _gV = new THREE.Vector3();
+  function gloveStep(st, h, dt) {
+    const g = gloveFor(st); if (!g) return;
+    const H = g.hands[st.source.handedness === 'left' ? 0 : 1];
+    h.root.updateMatrixWorld(true);
+    const J = new Map(); for (const n in h.bones) J.set(n, h.bones[n].getWorldPosition(new THREE.Vector3()));
+    if (J.size < 25) return;
+    g.hand(H, { joints: J, tip: st.tip.clone(), curlIndex: Math.max(st.tA || 0, st.gA || 0) }, dt);
+    st.gloveH = H;
+  }
   function setCtlLook(v) { ctlLook = v; try { localStorage.setItem('vire.ctlLook', v); } catch (e) {} }
   // #284 the ball / touch point is the index fingertip: relaxed with no button, the fingertip of the closed O while the
   // trigger or grip is held (a fixed point, so a held knob, fader or record never slips as the pressure varies)
   function ctlTipLocal(st) {
-    const h = st.ctlHand; if (ctlLook !== '3dhands' || !h || !h.root.visible || !h.tipLive) return null;
+    const h = st.ctlHand; if (ctlLook === 'controller' || !h || !h.root.visible || !h.tipLive) return null;
     const gp = st.source && st.source.gamepad, b = gp ? gp.buttons : [];
     return (b[0] && b[0].pressed) || (b[1] && b[1].pressed) ? (h.tipO || h.tipLive) : h.tipLive;
   }
   function ctlHandStep(st) {
-    const want = st.connected && !st.isHand && ctlLook === '3dhands' && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
+    const want = st.connected && !st.isHand && ctlLook !== 'controller' && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
+    if (st.gloveH && (!want || ctlLook !== 'glove')) { glove.hand(st.gloveH, null, 1); st.gloveH = null; }   // #287 glove off: hide it
     // #279 (owner): 3D hands mode shows just the hand, no controller inside it
     const ctlModel = st.grip.children[0]; if (ctlModel) ctlModel.visible = !want;
     if (!want) { if (st.ctlHand) st.ctlHand.root.visible = false; return; }
@@ -827,6 +863,8 @@ export function setupXR(ctx) {
     // #284 buttons drive the pose as pressed / released, eased over ~80 ms (the analog value made the touch point wander)
     const ease = (k, on) => (st[k] = (st[k] || 0) + Math.max(-1, Math.min(1, ((on ? 1 : 0) - (st[k] || 0)))) * Math.min(1, 1 / 60 / 0.08 * 1.5));
     h.update(Math.round(ease('tA', b[0] && b[0].pressed) * 20) / 20, Math.round(ease('gA', b[1] && b[1].pressed) * 20) / 20, thumb);
+    h.holder.visible = ctlLook !== 'glove';   // #287 the skin hand stays posed (it drives the glove) but is not drawn
+    if (ctlLook === 'glove') gloveStep(st, h, 1 / 60);
   }
 
   // Passthrough cut-out built straight from the tracked joints (CLAUDE.md #44): a sphere on every joint
@@ -891,5 +929,5 @@ export function setupXR(ctx) {
   const fingers = () => inputs.filter(st => st.connected && st.isHand && st.finger && st.finger.ok).map(st => st.finger);
   const tips = () => inputs.filter(st => st.connected).map(st => ({ st, p: st.tip, anchor: st.anchor, hand: st.isHand }));
   const buzzAnchor = (anchor, v, ms) => { const st = inputs.find(o => o.anchor === anchor); if (st) buzz(st, v, ms); };   // #243
-  return { update, end, inputs, setHandMode, setCtlLook, getCtlLook: () => ctlLook, fingers, tips, buzz, buzzAnchor, _t: { grabStart, grabMove, release, pokes, updateAnchor } };
+  return { get glove() { return glove; }, update, end, inputs, setHandMode, setCtlLook, getCtlLook: () => ctlLook, fingers, tips, buzz, buzzAnchor, _t: { grabStart, grabMove, release, pokes, updateAnchor } };
 }
