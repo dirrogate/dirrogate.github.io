@@ -4030,17 +4030,23 @@ function drawToolsPage() {
   if (page === 'dj' || page === 'vj') {
     const y0 = head(page === 'dj' ? 'DJ TOOLS' : 'VJ TOOLS', 'home');
     // #235 switches for stage pieces (off = hidden and no per-frame work), green = on
+    // #276 controllers seen as 3D hands holding them, or bare controllers
+    const ctlBtn = (x, y, w, h) => { let X = null; try { X = xr; } catch (e) {}   // xr is set up further down the file
+      const hands = !X || X.getCtlLook() === '3dhands';
+      btn(x, y, w, h, `CONTROLLERS: ${hands ? '3D HANDS' : 'CONTROLLER'}`, hands, () => { if (X) X.setCtlLook(hands ? 'controller' : '3dhands'); drawMixScreen(); }, false, P ? 18 : 20); };
     const sw = (x, y, w, h, label, k) => { const on = pieceOn(k); btn(x, y, w, h, `${label}: ${on ? 'ON' : 'OFF'}`, on, () => setPiece(k, !on), false, P ? 18 : 20); };
     if (P) {
       if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
-        note('RECORD MAKER: press your own record. It goes into the crate, Unsorted. MILK CRATE: the first milk crate (extra ones come from the crate screen).', y0 + 196); }
+        ctlBtn(L, y0 + 176, R - L, 64);
+        note('RECORD MAKER: press your own record. It goes into the crate, Unsorted. MILK CRATE: the first milk crate (extra ones come from the crate screen). CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 272); }
       else { btn(L, y0 + 8, R - L, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
         sw(L, y0 + 100, R - L, 64, 'LED WALL', 'ledwall'); sw(L, y0 + 176, R - L, 64, 'NEON SIGN', 'neon');
         note('Switched off, the LED wall or the sign is hidden and costs nothing; it keeps its place for when it comes back.', y0 + 272); }
     } else {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
       if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(x2, y0 + 8, w2, 80, 'MILK CRATE', 'milk');
-        note('RECORD MAKER: press your own record (blank, a song or a clip, a picture label); it goes into the crate, Unsorted. MILK CRATE: the first milk crate; switched off it is hidden and costs nothing.', y0 + 116); }
+        ctlBtn(L, y0 + 96, R - L, 50);
+        note('RECORD MAKER: press your own record (blank, a song or a clip, a picture label); it goes into the crate, Unsorted. MILK CRATE: the first milk crate; switched off it is hidden and costs nothing. CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 164); }
       else { btn(L, y0 + 8, bw, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
         const hw = (w2 - 8) / 2; sw(x2, y0 + 8, hw, 80, 'LED WALL', 'ledwall'); sw(x2 + hw + 8, y0 + 8, hw, 80, 'NEON', 'neon');
         note('SCROLLER: a sine-wave text scroller across the bottom of the LED wall. LED WALL / NEON: switched off they are hidden and cost nothing; they keep their place for when they come back.', y0 + 116); }
@@ -4397,6 +4403,15 @@ function frame() {
       else d.recAngle += err * Math.min(1, dt * (sc || performance.now() - (d.twistT || 0) < 250 ? 12 : 2.5));   // twist: follow fast
     }
     u.platter.rotation.y = -d.platterAngle;
+    // #275 (owner): the slipmat travels with the record, not the platter, so holding a 45 stops the mat showing
+    // round it while the platter spins on underneath. Its own pivot inside the platter turns by how far the record
+    // has slipped against the platter since it landed (accumulated, so no jump when a record goes on or off).
+    if (u.slipmat && u.slipmat.length) {
+      if (!u.matPivot) { u.matPivot = new THREE.Group(); u.platter.add(u.matPivot); u.platter.updateMatrixWorld(true); for (const m of u.slipmat) u.matPivot.attach(m); d.matSlip = 0; }
+      if (d.record && d.prevRecA != null && !d.record.loose) { const sl = (d.recAngle - d.prevRecA) - (d.platterAngle - d.prevPlatA); if (Math.abs(sl) < 0.3) d.matSlip += sl; }   // a cue jump snaps the record, not the mat
+      d.prevRecA = d.recAngle; d.prevPlatA = d.platterAngle;
+      u.matPivot.rotation.y = -d.matSlip;
+    }
     if (d.record) { d.record.group.rotation.y = -d.recAngle; d.record.updateFlip(dt); }
     const pw = d.power !== false ? 1 : 0;
     if (u.strobe) {

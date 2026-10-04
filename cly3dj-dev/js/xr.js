@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { XRControllerModelFactory } from '../vendor/three/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from '../vendor/three/webxr/XRHandModelFactory.js';
+import { createControllerHand } from './ctlhands.js';   // #276
 const LIFT_OUT = 0.05;
 // #260 the record on a deck: 12" or 7" sizes (lift zone just past a 45's label, 1.2 cm)
 let REC12 = null; const RD = d => (d.record && d.record.dims) || REC12; const LO = D => (D.SIZE === 7 ? 0.012 : LIFT_OUT);   // #136: record lift-off zone reaches this far past the label edge (m)
@@ -723,6 +724,7 @@ export function setupXR(ctx) {
       }
       st.tipDot.visible = hasTip && !(st.isHand && handMode === 'real'); if (hasTip) st.tipDot.position.copy(st.tip);
       if (st.isHand) applyHandLook(st);
+      ctlHandStep(st);   // #276
       updateOccluder(st);
       updateAnchor(st);
 
@@ -774,6 +776,28 @@ export function setupXR(ctx) {
     });
     st.handModel.visible = handMode !== 'real';   // real hands use the joint capsules below instead
     if (found) st.handMatFor = handMode; // the mesh arrives asynchronously; retry until it has
+  }
+
+  // #276 (owner) controller mode: a 3D hand holding each controller (DJ TOOLS > CONTROLLERS: 3D HANDS / CONTROLLER).
+  // It is not a child of the grip (measureTip reads the grip's meshes), it copies the grip's pose each frame.
+  let ctlLook = '3dhands';
+  try { const v = localStorage.getItem('vire.ctlLook'); if (v === 'controller' || v === '3dhands') ctlLook = v; } catch (e) {}
+  function setCtlLook(v) { ctlLook = v; try { localStorage.setItem('vire.ctlLook', v); } catch (e) {} }
+  function ctlHandStep(st) {
+    const want = st.connected && !st.isHand && ctlLook === '3dhands' && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
+    if (!want) { if (st.ctlHand) st.ctlHand.root.visible = false; return; }
+    const hd = st.source.handedness;
+    if (!st.ctlHand || st.ctlHand.handed !== hd) {
+      if (st.ctlHand) scene.remove(st.ctlHand.root);
+      st.ctlHand = createControllerHand(hd, PROF + '/generic-hand/' + hd + '.glb', SKIN); st.ctlHand.handed = hd;
+      st.ctlHand.root.matrixAutoUpdate = false; scene.add(st.ctlHand.root);
+    }
+    const h = st.ctlHand; h.root.visible = true;
+    st.grip.updateMatrixWorld(); h.root.matrix.copy(st.grip.matrixWorld); h.root.matrixWorldNeedsUpdate = true;
+    const gp = st.source.gamepad, b = gp ? gp.buttons : [];
+    const val = i => (b[i] ? (b[i].value || (b[i].pressed ? 1 : 0)) : 0);
+    const thumb = [3, 4, 5].some(i => b[i] && (b[i].touched || b[i].pressed));
+    h.update(Math.round(val(0) * 20) / 20, Math.round(val(1) * 20) / 20, thumb);
   }
 
   // Passthrough cut-out built straight from the tracked joints (CLAUDE.md #44): a sphere on every joint
@@ -838,5 +862,5 @@ export function setupXR(ctx) {
   const fingers = () => inputs.filter(st => st.connected && st.isHand && st.finger && st.finger.ok).map(st => st.finger);
   const tips = () => inputs.filter(st => st.connected).map(st => ({ st, p: st.tip, anchor: st.anchor, hand: st.isHand }));
   const buzzAnchor = (anchor, v, ms) => { const st = inputs.find(o => o.anchor === anchor); if (st) buzz(st, v, ms); };   // #243
-  return { update, end, inputs, setHandMode, fingers, tips, buzz, buzzAnchor, _t: { grabStart, grabMove, release, pokes, updateAnchor } };
+  return { update, end, inputs, setHandMode, setCtlLook, getCtlLook: () => ctlLook, fingers, tips, buzz, buzzAnchor, _t: { grabStart, grabMove, release, pokes, updateAnchor } };
 }
