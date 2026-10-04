@@ -311,8 +311,11 @@ export function setupXR(ctx) {
       // #249 (owner): with a controller the record only comes off with the grip (block above); the trigger there scratches,
       // so a rough scratch that pulls up can never take it off. Bare hands still lift with a pinch.
       if (st.isHand && d.record && r < RD(d).LABEL + LO(RD(d))) { st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true; }
-      if (d.record && r < RD(d).R - 0.004) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l) }; buzz(st); return true; }
-      if (r > RD(d).R - 0.004) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l, true, st.isHand ? 0.6 : rimForce(st, r)) }; buzz(st, 0.2, 15); return true; }
+      // #273 (owner): the trigger on the record's edge holds the record (and the mat under it) still while the
+      // platter keeps spinning underneath, as on an SL-1200; it never lifts. Only the platter rim beyond the
+      // record (the strobe dots) nudges.
+      if (d.record && r < RD(d).R + 0.003) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l) }; buzz(st); return true; }
+      if (r > RD(d).R + 0.003) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l, true, st.isHand ? 0.6 : rimForce(st, r)) }; buzz(st, 0.2, 15); return true; }
     }
     // 3b. a record lying around (thrown or dropped): grab it anywhere on the disc
     for (const L of ctx.loose) {
@@ -651,7 +654,7 @@ export function setupXR(ctx) {
         if (cur && st.scratch.nudge) on = rim = r > RD(d).R - 0.01 && r < PLATTER_R + 0.02 && h < 0.02 && h > -0.03;
         else if (cur) on = h < 0.02 && r < RD(d).R + 0.01;
         else if (r > RD(d).R + 0.002 && r < PLATTER_R + 0.01 && h < 0.004 && h > -0.022) on = rim = true;   // side of the platter
-        else if (d.record) on = h < 0.008 && h > -0.015 && r > RD(d).LABEL + LO(RD(d)) && r < RD(d).R - 0.004;   // on the grooves (#104)
+        else if (d.record) on = h < 0.008 && h > -0.015 && r > RD(d).LABEL + LO(RD(d)) && r < RD(d).R + 0.002;   // on the grooves (#104), to the very edge (#273)
         if (on) { touching = d; local = ll.clone(); local.rim = rim; break; }
       }
       if (touching) {
