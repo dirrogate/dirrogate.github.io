@@ -33,7 +33,7 @@ const $ = s => document.querySelector(s);
 const params = new URLSearchParams(location.search);
 const CAMERA_ROLE = params.get('role') === 'camera';   // #161: this page is the spectator phone (spectator.html sends it here)
 // start-screen settings, remembered per browser
-const SETTINGS_DEFAULT = { source: 'pc', xml: 'rekordbox.xml', hands: 'real', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
+const SETTINGS_DEFAULT = { source: 'pc', xml: 'rekordbox.xml', hands: '3d', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
   deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off', arRefl: 60,
   skyH: 1.5, skyTurn: 0, skyType: 'auto', skyKey: 'on', skyFile: '', skyMedia: '' };   // turntable physics (#120)
 const settings = (() => { try { return { ...SETTINGS_DEFAULT, ...JSON.parse(localStorage.getItem('vire.settings') || '{}') }; } catch { return { ...SETTINGS_DEFAULT }; } })();
@@ -4584,7 +4584,7 @@ async function begin(mode) {
     }
     rig.position.set(-0.05, 0, -0.62); rig.rotation.set(0, 0, 0);
     anchorSetup(session);   // #210 pin the gear to the room (restores the saved pin in a known room)
-    xr.setHandMode(mode === 'immersive-ar' && settings.hands === 'real' ? 'real' : '3d');
+    xr.setHandMode('3d');   // #268 (owner): no passthrough cut-out for tracked hands; always the 3D hands
     // passthrough rooms are much dimmer than the studio environment: tone reflections down so metal isn't self-lit
     arMode = mode === 'immersive-ar';
     if (mode === 'immersive-ar') { scene.background = null; room.visible = false; skybox.group.visible = skyShadow.visible = false; scene.environmentIntensity = settings.arRefl / 100; }
@@ -4731,7 +4731,7 @@ $('#sEnvMix').oninput = e => { settings.envMix = +e.target.value; saveSettings()
 
 // ---- settings UI
 function syncSettingsUI() {
-  $('#sSource').value = settings.source; $('#sXml').value = settings.xml; $('#sHands').value = settings.hands;
+  $('#sSource').value = settings.source; $('#sXml').value = settings.xml; $('#sHands').value = '3d';
   $('#sGlow').value = settings.glow; $('#sShadows').value = settings.shadows; $('#sMicRoute').value = settings.micRoute; showMicRoute();
   $('#sEnv').value = settings.env; $('#sEnvMix').value = settings.envMix; $('#envMixVal').textContent = settings.envMix + '%';
   $('#sSpect').value = settings.spect; $('#rowSpect').hidden = settings.spect !== 'on'; $('#spectCode').textContent = spectCode();
