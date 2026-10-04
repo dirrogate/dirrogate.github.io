@@ -639,6 +639,40 @@ diffuseColor.rgb = diffuseColor.rgb * vireHs * 1.5 + vec3(0.45) * smoothstep(0.7
     color: 0x000000, metalness: 0, roughness: 0, specularIntensity: 0.2, specularF90: 0.45,
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
   glass.position.z = REC_D - 0.0003 - 0.0001; glass.renderOrder = 2; glass.raycast = () => {}; scr.add(glass); u.screenGlass = glass;
+  // #259 (owner) real glass is never spotless: a roughness map with a few fingerprint whorls and soft smears. Clean
+  // glass stays a sharp mirror; the smudges spread the reflection into a faint greasy haze, so they only show where
+  // a light or a bright part of the room catches them. Plus a thin bevel round the edge: four 1.2 mm strips turned
+  // 45 deg outward, so they flash at different angles than the face as the tablet tilts. Both additive like the
+  // glass (they only add light, never dim the readout); no extra passes, a few triangles.
+  {
+    const S = 256, c = document.createElement('canvas'); c.width = c.height = S; const x = c.getContext('2d');
+    let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    x.fillStyle = 'rgb(0,10,0)'; x.fillRect(0, 0, S, S);   // clean: roughness ~0.04
+    x.globalCompositeOperation = 'lighter';
+    for (let k = 0; k < 7; k++) {   // soft smears
+      const cx = rnd() * S, cy = rnd() * S, r = 18 + rnd() * 40, gr = x.createRadialGradient(cx, cy, 0, cx, cy, r);
+      gr.addColorStop(0, 'rgba(0,40,0,0.9)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = gr;
+      x.save(); x.translate(cx, cy); x.rotate(rnd() * Math.PI); x.scale(1.8, 0.7); x.translate(-cx, -cy); x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.fill(); x.restore();
+    }
+    for (let k = 0; k < 5; k++) {   // fingerprints: concentric ridges in an oval, faded at the rim
+      const cx = 20 + rnd() * (S - 40), cy = 20 + rnd() * (S - 40), a = rnd() * Math.PI, rx = 9 + rnd() * 6, ry = rx * 1.35;
+      x.save(); x.translate(cx, cy); x.rotate(a);
+      for (let i = 1; i < 9; i++) { x.strokeStyle = `rgba(0,${Math.round(70 * (1 - i / 10))},0,0.8)`; x.lineWidth = 0.9; x.beginPath(); x.ellipse(0, 0, rx * i / 8, ry * i / 8, 0, 0.2 + rnd() * 0.5, Math.PI * 2 - 0.3 * rnd()); x.stroke(); }
+      x.restore();
+    }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.NoColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(0.19 / 0.1, 0.075 / 0.1);   // one 10 cm tile of smudges, so prints stay finger-sized
+    glass.material.roughness = 1; glass.material.roughnessMap = t; glass.material.needsUpdate = true;   // roughness = 1 x map (G)
+    const bevelMat = new THREE.MeshPhysicalMaterial({ color: 0x000000, metalness: 0, roughness: 0.04, specularIntensity: 0.6, specularF90: 1,
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+    const W = 0.19, Hh = 0.075, bw = 0.0012;
+    for (const [len, px, py, rz] of [[W, 0, Hh / 2, 0], [W, 0, -Hh / 2, Math.PI], [Hh, W / 2, 0, -Math.PI / 2], [Hh, -W / 2, 0, Math.PI / 2]]) {
+      const strip = new THREE.Mesh(new THREE.PlaneGeometry(len, bw), bevelMat);
+      const holder = new THREE.Group(); holder.position.set(px, py, 0); holder.rotation.z = rz; glass.add(holder);   // children of the glass: GLASS TEST hides them too
+      strip.position.y = -bw / 2 * Math.cos(Math.PI / 4); strip.rotation.x = -Math.PI / 4;   // leans outward, its outer edge on the glass rim
+      strip.renderOrder = 2; strip.raycast = () => {}; holder.add(strip);
+    }
+  }
   // knobs, drawn as instances: skirt, body (side + top), pointer = 4 draw calls for all 15 (was 75)
   {
     const m = knobMats(), R0 = 0.0105, n = knobs.length;
