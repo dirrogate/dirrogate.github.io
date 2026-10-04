@@ -2,6 +2,7 @@
 App name since 27 Sep (#114): Cly3DJ. Folder and code names stay ViRe/vire.
 
 Owner: Clyde DeSouza (c3souza). Brainstorm started in claude.ai chat on 26 Sep 2026 and moved here.
+START HERE (new session, e.g. Claude cloud): read PROJECT.md (overview, file map, release flow, working rules, status, next steps; updated 5 Oct with the log up to #296), then the newest numbered entries below. The same overview is the project doc claude/cly3dj-project.md.
 Keep this file updated as the decision log. Add to the "Decisions" and "Open questions" sections as we go; don't rewrite history, append.
 
 ## RULE: test on the owner's PC, and say when that isn't possible (owner, 1 Oct)
@@ -334,6 +335,7 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 294. (5 Oct) Owner's grab feel: you aim the ball, which sits on the inner side of the thumb pad; on a press the thumb and index close into an O AROUND the ball. Touch point / ball = fixed grip-space point (ctlhands h.tipRest: 60 % along the relaxed thumb's last segment, 8 mm toward the index tip). The press slides the drawn hand by h.oShift (ball minus O centre, ~2.8 cm) eased with the press, so the O's centre lands exactly on the ball (PC: both at (6.8, 15, -50.1) mm). The grab point never moves; the glove and the phone hands follow the same slide. Copied to cly3dj-dev.
 295. (5 Oct) Owner: the index rests curled into the palm (POSE.index.rest 60/80/45) and only comes up to close the O on a press; the ball is still measured with the old straight index, so it stays at (6.8, 15, -50.1) mm. Tip ball light grey (0xd2d6dc), opacity 0.225 (25 % more see-through). Released after #294 (ba6c916, owner pushes). Copied to cly3dj-dev.
 296. (5 Oct) Owner: with the trigger the ball sometimes sat on the back of the thumb (grip fixed it). The hand pose now follows the select / squeeze events (st.held, system hysteresis) instead of gamepad.pressed, which flickers on a light trigger and left the O (and the hand's slide onto the ball) half done; the thumb-stick / A / B touch no longer lowers the thumb. Copied to cly3dj-dev.
+297. (5 Oct) Released #295-#296 to cly3dj (99635b6; with ba6c916 for #267-#294, both waiting for the owner's push). PROJECT.md and the project doc cly3dj-project.md rewritten as a hand-off (file map, controllers and hands, frozen numbers, release flow, PC testing hooks, status, next steps). Phone hands keep the thumb up too (#296b).
 
 ## Findings
 - (26 Sep, tooling) Committing files from the cloud workspace: re-committing from the same staged path can silently write the previous upload. Stage each round under a fresh folder name and check md5 on the device after every commit. PNGs arrive with an extra caBX (content credentials) chunk, so compare their decoded pixels, not the file md5.
