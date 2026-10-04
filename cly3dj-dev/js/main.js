@@ -3438,6 +3438,20 @@ async function lightPhone(folder, name) {
 function setDjPreset(k) { djSet.preset = k; if (djcam) djcam.preset = k; saveDjSet(); drawMixScreen(); }
 function setDjMirror(on) { djSet.mirror = on; saveDjSet(); if (ledMode === 'cam') ledwall.userData.setCam(djcam.rt.texture, on); drawMixScreen(); }
 function setDjAvatar(on) { djSet.avatar = on; saveDjSet(); if (avatar) avatar.root.visible = on; drawMixScreen(); }
+// #278 (avatar-stage-plan.md step 1): the robot DJ on the spectator phone. The phone already gets the head and the
+// hands / controllers every state tick (rig-local); this adds the mic level, which hand is which and the controllers'
+// trigger / grip values and tip balls, so the phone poses its own copy of the robot (the Quest only sends numbers).
+function phoneRobotState() {
+  if (!djSet.phoneRobot || !renderer.xr.isPresenting || !xr) return undefined;
+  const r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000, c = [];
+  for (const st of xr.inputs) {
+    if (!st.connected || st.isHand || !st.source || !st.source.gamepad) continue;
+    const b = st.source.gamepad.buttons, t = rig.worldToLocal(st.tip.clone());
+    c.push([st.i, r2(b[0] ? b[0].value : 0), r2(b[1] ? b[1].value : 0), r3(t.x), r3(t.y), r3(t.z)]);
+  }
+  return { m: r3(micLevel()), hs: xr.inputs.map(st => st.connected && st.source ? (st.source.handedness || '')[0] || '' : ''), c };
+}
+function setPhoneRobot(on) { djSet.phoneRobot = on; saveDjSet(); drawMixScreen(); toast(on ? 'Robot on the phone: on (shows while the headset is in VR)' : 'Robot on the phone: off', 2500); }
 function setDjStyle(st) { djSet.style = st; saveDjSet(); useAvatarStyle(st); drawMixScreen(); }
 function drawDjCamTab(btn, y0) {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
@@ -3447,8 +3461,9 @@ function drawDjCamTab(btn, y0) {
     ['MIRROR', djSet.mirror, () => setDjMirror(!djSet.mirror)],
     ['AVATAR', djSet.avatar, () => setDjAvatar(!djSet.avatar)],
     [djSet.style === 'human' ? 'STYLE: HUMAN' : 'STYLE: ROBOT', false, () => setDjStyle(djSet.style === 'human' ? 'robot' : 'human')],
+    ['ROBOT ON PHONE', !!djSet.phoneRobot, () => setPhoneRobot(!djSet.phoneRobot)],   // #278
   ];
-  const per = 4, bw = (W - 16 - (per - 1) * 6) / per;
+  const per = top.length, bw = (W - 16 - (per - 1) * 6) / per;   // #278: five across
   top.forEach(([label, o, act], i) => btn(8 + i * (bw + 6), y0, bw, 36, label, !!o, act));
   const keys = Object.keys(CAM_PRESETS), pp = P ? 2 : 4, pw = (W - 16 - (pp - 1) * 6) / pp;
   keys.forEach((k, i) => btn(8 + (i % pp) * (pw + 6), y0 + 50 + Math.floor(i / pp) * 42, pw, 36, CAM_PRESETS[k].label, djSet.preset === k, () => setDjPreset(k)));
@@ -4871,6 +4886,7 @@ async function applySpect() {
     if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, perf, getInputs: () => xr && xr.inputs,
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(), getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
       getSpiders: spidersState,   // #262
+      getAv: phoneRobotState,   // #278
       getVV: () => ({ mode: ledMode, gains: deckGains(mixVal), decks: deckVid.map((dv, i) => dv.v ? [i, dv.key, engine.ctx ? engine.pos(i) : 0, engine.state.decks[i].rate || 0] : null).filter(Boolean) }),
       getSky: () => ({ h: settings.skyH, turn: settings.skyTurn, type: settings.skyType, key: settings.skyKey, file: settings.skyFile, media: settings.env === 'image' ? settings.skyMedia : '' }),
       onMedia: () => { refreshLibVV(); if (videoPage && vpFolder !== 'Sync') vpLoad(); },

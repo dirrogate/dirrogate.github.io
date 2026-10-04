@@ -14,7 +14,7 @@ const CAL_TEXT = {
   x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
-export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getScroll, onLive, getVV, getSpiders, getSky, onMedia, onCam, onPreview, perf, coverFor }) {
+export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getScroll, onLive, getVV, getSpiders, getAv, getSky, onMedia, onCam, onPreview, perf, coverFor }) {
   // #209 PerfCap: every mirror message also goes to the PerfCap recorder while it records (phone or not)
   const out = { send(ch, m) { if (link.isOpen) link.send(ch, m); if (perf && perf.on) perf.write(ch, m); } };
   let perfMarks = false;   // #209 PerfCap MARKS mode: each trigger press records a floor mark
@@ -452,7 +452,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     else if (now - settleT > 1000) { settleT = now; const n = settled(now); if (n.length) out.send('ctl', { k: 'full', t: Math.round(now), n }); }
     out.send('state', { k: 's', n: seq++, t: Math.round(now), xr: renderer.xr.isPresenting ? 1 : 0,
       h: [r3(_p.x), r3(_p.y), r3(_p.z), r4(_q.x), r4(_q.y), r4(_q.z), r4(_q.w)],
-      cs: caseSizes(false), g: nodeDiffs(false), r: recordsTick(), vv: vvTick(), sp: spTick(), hd: renderer.xr.isPresenting ? handsTick() : [] });
+      cs: caseSizes(false), g: nodeDiffs(false), r: recordsTick(), vv: vvTick(), sp: spTick(), hd: renderer.xr.isPresenting ? handsTick() : [], av: getAv ? getAv() : undefined });   // #278 av: robot on the phone
   }
   // #167: one switch. ON = viewfinder outline here + helpers and menus on the phone; OFF = everything hidden
   // (the phone shows only camera + gear: start its screen recorder by hand)
