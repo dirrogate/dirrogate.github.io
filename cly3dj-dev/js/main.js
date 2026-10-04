@@ -1184,7 +1184,8 @@ function drawCrateScreen() {
   // search bar: field | keyboard | mic | clear
   const by = SB.y + 8, bh = SB.h - 14;
   search.btns = [
-    { id: 'field', x: 12, y: by, w: W - 12 - 4 * 78 - 16, h: bh },
+    { id: 'field', x: 12, y: by, w: W - 12 - 5 * 78 - 16, h: bh },
+    { id: 's45', x: W - 5 * 78 - 4, y: by, w: 70, h: bh },   // #255 the 45s list
     { id: 'milk', x: W - 4 * 78 - 4, y: by, w: 70, h: bh },
     { id: 'kb', x: W - 3 * 78 - 4, y: by, w: 70, h: bh },
     { id: 'mic', x: W - 2 * 78 - 4, y: by, w: 70, h: bh },
@@ -1202,6 +1203,7 @@ function drawCrateScreen() {
     g.fillStyle = on ? '#23527c' : '#1b2128'; g.fillRect(b.x, b.y, b.w, b.h);
     g.textAlign = 'center'; g.font = `34px ${EMOJI}`; g.fillStyle = b.id === 'clear' ? (search.q ? '#e6e9ec' : '#3d454e') : '#e6e9ec';
     if (b.id === 'milk') { drawMilkIcon(g, b.x + b.w / 2, b.y + bh / 2, Object.keys(extraMilk).length + 1 < MILK_MAX); continue; }
+    if (b.id === 's45') { const pl = lib && lib.playlists[crateState.pl]; draw45Icon(g, b.x + b.w / 2, b.y + bh / 2, !!(pl && pl.name === '45s' && !search.results)); continue; }
     g.fillText(b.id === 'kb' ? '⌨' : b.id === 'mic' ? '🎤' : '✕', b.x + b.w / 2, b.y + bh / 2 + 2);
   }
   // keyboard layout (bottom, above the footer) decides how many rows fit
@@ -1272,6 +1274,31 @@ function drawCrateScreen() {
   crateScreen.rows = { start, ROWS, RH, y0, kbY: search.kb ? kbY : Infinity };
 }
 // little green milk crate with a plus: spawns another crate (#88)
+// #255 crate screen: a small 7" record with '45' on its label; lit while the 45s list is showing
+function draw45Icon(g, cx, cy, on) {
+  g.save();
+  g.fillStyle = '#0c0d10'; g.beginPath(); g.arc(cx, cy, 17, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = on ? '#4aa8f0' : '#5a636e'; g.lineWidth = 2; g.stroke();
+  g.strokeStyle = '#262a31'; g.lineWidth = 1; for (const r of [13, 10]) { g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke(); }
+  g.fillStyle = on ? '#f1b650' : '#b8862e'; g.beginPath(); g.arc(cx, cy, 7.5, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#0c0d10'; g.beginPath(); g.arc(cx, cy, 3.4, 0, Math.PI * 2); g.fill();   // the big 45 hole
+  g.fillStyle = on ? '#ffffff' : '#c9ced8'; g.font = '800 13px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('45', cx + 21, cy + 13);
+  g.restore();
+}
+// #255 jump to the 45s list (made empty if there is none yet); pressed again it goes back to where you were
+let crateBack45 = null;
+function crate45s() {
+  if (!lib) lib = emptyLibrary();
+  if (search.results) exitSearch();
+  let i = lib.playlists.findIndex(pl => pl.name === '45s');
+  if (i >= 0 && crateState.pl === i) { if (crateBack45 && lib.playlists[crateBack45.pl]) { crateState.pl = crateBack45.pl; crateState.sel = crateBack45.sel; } crateBack45 = null; }
+  else {
+    if (i < 0) { lib.playlists.push({ name: '45s', path: '45s (7" singles on this headset)', records: [] }); i = lib.playlists.length - 1; }
+    crateBack45 = { pl: crateState.pl, sel: crateState.sel }; crateState.pl = i; crateState.sel = 0;
+  }
+  drawCrateScreen(); layoutSleeves();
+}
 function drawMilkIcon(g, cx, cy, can) {
   g.save(); g.strokeStyle = can ? '#3fbf6a' : '#3d454e'; g.lineWidth = 3;
   g.strokeRect(cx - 20, cy - 10, 32, 22);
@@ -2572,6 +2599,7 @@ function crateScreenPress(uv) {
     const b = search.btns.find(inR); if (!b) return;
     if (b.id === 'mic') openNativeKeyboard();
     else if (b.id === 'milk') { spawnMilk(); drawCrateScreen(); }
+    else if (b.id === 's45') crate45s();
     else if (b.id === 'clear') exitSearch();
     else if (b.id === 'kb') { search.kb = !search.kb; drawCrateScreen(); }
     else { search.kb = true; drawCrateScreen(); }
