@@ -80,10 +80,10 @@ class Deck {
     this.quietPhi = 0; this.wasDisturbed = false; this.load = 0; this.matT = 0;
     this.setRecord(0.18);
   }
-  setRecord(mass) {
+  setRecord(mass, R = REC_R, holeR = HOLE_R) {   // #261 R / holeR: a 7" single is smaller, with a big hole
     this.recMass = mass;
     const m = mass + MAT_MASS;
-    this.Ir = 0.5 * mass * (REC_R * REC_R + HOLE_R * HOLE_R) + 0.5 * MAT_MASS * 0.15 * 0.15;
+    this.Ir = 0.5 * mass * (R * R + holeR * holeR) + 0.5 * MAT_MASS * 0.15 * 0.15;
     this.mTot = m;
     const k = this.Ir * Math.pow(2 * Math.PI * HAND_HZ, 2);
     this.kHand = k; this.cHand = 2 * Math.sqrt(k * this.Ir);
@@ -237,6 +237,7 @@ class Decks extends AudioWorkletProcessor {
         break;
       case 'record':   // a record put on / taken off the platter (#120). It lands still; the mat pulls it up to speed.
         d.hasRec = !!m.on; d.handOn = false; d.holding = false;
+        if (d.hasRec) { d.is7 = m.size === 7; d.setRecord(d.is7 ? 0.040 : (d.massSetting || 0.18), d.is7 ? 0.0873 : REC_R, d.is7 ? 0.0191 : HOLE_R); }   // #261 a 45 weighs ~40 g
         if (d.hasRec) { d.wr = m.w != null ? m.w * W33 : 0; d.thr = d.thp; d.stuck = Math.abs(d.wr - d.wp) < 1e-6; }
         else { d.wr = d.wp; d.stuck = false; }
         break;
@@ -287,7 +288,7 @@ class Decks extends AudioWorkletProcessor {
       if (m.model === 'legacy') d.rate = d.wr / W33;
     }
     if (m.mat && MATS[m.mat]) d.mat = MATS[m.mat];
-    if (m.recMass) d.setRecord(m.recMass);
+    if (m.recMass) { d.massSetting = m.recMass; if (!d.is7) d.setRecord(m.recMass); }   // #261 a 45 keeps its own weight
     if (m.pll != null) d.pll = !!m.pll;
   }
 

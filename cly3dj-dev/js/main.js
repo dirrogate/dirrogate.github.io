@@ -2337,7 +2337,7 @@ async function placeOnDeck(d, rec3d) {
   d.wob = D === REC7 && !d.spiderOn ? WOB_E : 0; rec3d.disc.position.x = d.wob;
   engine.deck(d.i, 'wobble', 0);
   if (d.wob) toast(`Deck ${d.name}: no 45 adapter on the spindle, the record wobbles`, 2500);
-  engine.post({ type: 'record', deck: d.i, on: true });   // #120: it lands still; the slipmat pulls it up to platter speed
+  engine.post({ type: 'record', deck: d.i, on: true, size: D === REC7 ? 7 : 12 });   // #120: it lands still; the slipmat pulls it up to platter speed (#261: a 45 is light)
   d.recAngle = d.platterAngle;
   layoutSleeves();
   await loadSide(d);
@@ -3798,7 +3798,7 @@ function drawPhoneIcon(g, px, py, pw, ph, on) {   // small phone icon; its LED i
 // ---- #224 TOOLS page on the mixer tablet (TOOLS button, bottom-left of the main HUD): DJ TOOLS (Record Maker) and
 // VJ TOOLS (Scroller). Pages: home, dj, vj, maker, pickSong, pickVideo, pickImage, kbd, scroller.
 let pickItems = [], pickPg = 0;   // toolsPage is declared with videoPage (drawMixScreen reads it early)
-const maker = { kind: 'blank', song: null, video: null, image: null, name: '', busy: false, msg: '', msgOk: true };
+const maker = { kind: 'blank', song: null, video: null, image: null, name: '', busy: false, msg: '', msgOk: true, size: 12 };   // #261 size: 12 or 7 (inches)
 // #225 the Record Maker's answers show on the tablet (toast() is a desktop-only overlay, invisible in the headset)
 let makerMsgT = 0;
 function makerSay(text, ok, ms = 5000) {
@@ -3830,7 +3830,7 @@ addEventListener('keydown', e => {   // desktop: type straight into the tablet k
   e.preventDefault(); e.stopImmediatePropagation();
 }, true);
 // a record seen from above: grooves (with track bands), the label picture or a plain red label, the spindle
-function drawDisc(g, cx, cy, R, bmp, title) {
+function drawDisc(g, cx, cy, R, bmp, title, s7 = false) {
   g.save();
   g.fillStyle = '#0a0a0c'; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill();
   for (let r = R * 0.37; r < R * 0.97; r += 2) {
@@ -3839,7 +3839,7 @@ function drawDisc(g, cx, cy, R, bmp, title) {
     g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
   }
   g.strokeStyle = 'rgba(255,255,255,0.10)'; g.lineWidth = R * 0.18; g.beginPath(); g.arc(cx, cy, R * 0.68, -2.3, -1.6); g.stroke();   // sheen
-  const lr = R * 0.34;
+  const lr = R * (s7 ? 0.51 : 0.34);   // #261 a 7" label is half the disc
   g.beginPath(); g.arc(cx, cy, lr, 0, Math.PI * 2); g.clip();
   if (bmp && bmp !== 'loading') { const s = Math.max(2 * lr / bmp.width, 2 * lr / bmp.height); g.drawImage(bmp, cx - bmp.width * s / 2, cy - bmp.height * s / 2, bmp.width * s, bmp.height * s); }
   else {
@@ -3848,7 +3848,8 @@ function drawDisc(g, cx, cy, R, bmp, title) {
     fitText2Center(g, title || 'BLANK', cx, cy - lr * 0.35, lr * 1.6); g.textBaseline = 'alphabetic';
   }
   g.restore();
-  g.fillStyle = '#d8dce4'; g.beginPath(); g.arc(cx, cy, Math.max(2, R * 0.025), 0, Math.PI * 2); g.fill();
+  if (s7) { g.fillStyle = '#05070c'; g.beginPath(); g.arc(cx, cy, R * 0.219, 0, Math.PI * 2); g.fill(); }   // the 38 mm hole
+  else { g.fillStyle = '#d8dce4'; g.beginPath(); g.arc(cx, cy, Math.max(2, R * 0.025), 0, Math.PI * 2); g.fill(); }
 }
 function fitText2Center(g, s, x, y, w) { let t = s; while (t.length > 3 && g.measureText(t).width > w) t = t.slice(0, -2); if (t !== s) t = t.slice(0, -1) + '…'; g.fillText(t, x, y); }
 function makerSourceText() {
@@ -3860,6 +3861,7 @@ async function pressRecord() {
   if (maker.busy) return;
   if (maker.kind === 'song' && !maker.song) { makerSay('Pick a song first (SONG…)', false, 3000); return; }
   if (maker.kind === 'clip' && !maker.video) { makerSay('Pick a clip first (CLIP…)', false, 3000); return; }
+  if (maker.size === 7 && maker.kind === 'song' && maker.song.duration > 6.5 * 60) { makerSay(`Too long for a 7" side (${fmt(maker.song.duration)}; up to about 6:30 at 45 rpm)`, false, 5000); return; }   // #261
   const title = maker.name.trim() || `DUBPLATE ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`;
   maker.busy = true; drawMixScreen();
   try {
@@ -3867,15 +3869,15 @@ async function pressRecord() {
     if (maker.image) { const f = await media.getFile('Images', maker.image); if (f) label = await labelFrom(f); }
     const s = maker.song, src = maker.kind === 'blank' ? { kind: 'blank' } : maker.kind === 'clip' ? { kind: 'video', video: maker.video }
       : { kind: 'song', opfs: s.opfs || null, url: s.url || null, bpm: s.bpm || 0, artist: s.artist || '', from: s.title };
-    const p = await savePressing({ id: 'p' + Date.now().toString(36), title, src, made: Date.now() }, label);
+    const p = await savePressing({ id: 'p' + Date.now().toString(36), title, src, made: Date.now(), size: maker.size === 7 ? 7 : 12 }, label);
     if (!lib) lib = emptyLibrary();
     const r = addPressings(lib, [p]);
-    const pi = lib.playlists.findIndex(pl => pl.name === 'Unsorted');
+    const where = p.size === 7 ? '45s' : 'Unsorted', pi = lib.playlists.findIndex(pl => pl.name === where);   // #261
     search.q = ''; search.results = null; searchInput.value = '';
     crateState.pl = pi; crateState.sel = Math.max(0, lib.playlists[pi].records.indexOf(r));
     drawCrateScreen(); layoutSleeves();
     maker.busy = false; maker.name = '';
-    makerSay(`✓ STAMPED "${title}": in the crate, Unsorted`, true, 6000);
+    makerSay(`✓ STAMPED "${title}"${p.size === 7 ? ' (7")' : ''}: in the crate, ${where}`, true, 6000);
   } catch (e) { maker.busy = false; makerSay('Not stamped: ' + e.message, false, 6000); }
   maker.busy = false; drawMixScreen();
 }
@@ -3919,11 +3921,14 @@ function addPressings(L, list) {
     const t = { id, name: p.title, title: p.title, side: null, split: false, artist: s.kind === 'song' ? (s.artist || 'Pressed') : 'Pressed on Cly3DJ', album: '', genre: '', key: '', bpm: s.bpm || 0, duration: 0,
       location: 'press:' + p.id, url: s.url || null, opfs: s.opfs || null, missing: false, cues: [], unsorted: true, press: p };
     if (s.kind === 'video') t.pressVideo = s.video;
-    const r = { id: 'r' + id, title: p.title, artist: t.artist, sides: { A: t, B: null }, bpm: t.bpm, key: '', genre: '', duration: 0, missing: false, paired: false, unsorted: true, pressed: true };
-    t.record = r; L.tracks.set(id, t); L.records.push(r); un.records.push(r); L.playlists[0].records.push(r); last = r;
+    const r = { id: 'r' + id, title: p.title, artist: t.artist, sides: { A: t, B: null }, bpm: t.bpm, key: '', genre: '', duration: 0, missing: false, paired: false, unsorted: true, pressed: true, size: p.size === 7 ? 7 : 12 };
+    let dest = un;   // #261 pressed 45s go to the 45s list
+    if (r.size === 7) { dest = L.playlists.find(q => q.name === '45s'); if (!dest) { dest = { name: '45s', path: '45s (7" singles on this headset)', records: [] }; L.playlists.push(dest); } }
+    t.record = r; L.tracks.set(id, t); L.records.push(r); dest.records.push(r); L.playlists[0].records.push(r); last = r;
   }
   const byT = (a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title);
   un.records.sort(byT); L.playlists[0].records.sort(byT);
+  const p45 = L.playlists.find(q => q.name === '45s'); if (p45) p45.records.sort(byT);
   return last;
 }
 async function pressArt(track) {
@@ -4046,8 +4051,9 @@ function drawToolsPage() {
     const y0 = head('RECORD MAKER', 'dj');
     const bmp = maker.image ? vpThumb('Images', maker.image) : null;
     let x0, cy0, rad;
-    if (P) { rad = 92; drawDisc(g, W / 2, y0 + rad + 4, rad, bmp, maker.name || 'BLANK'); x0 = L; cy0 = y0 + 2 * rad + 20; }
-    else { rad = 106; drawDisc(g, L + rad + 4, y0 + rad + 18, rad, bmp, maker.name || 'BLANK'); x0 = L + 2 * rad + 24; cy0 = y0; }
+    const k7 = maker.size === 7 ? 0.573 : 1;   // #261 the preview shrinks to 7" (175 / 305 mm)
+    if (P) { rad = 92; drawDisc(g, W / 2, y0 + rad + 4, rad * k7, bmp, maker.name || 'BLANK', k7 < 1); x0 = L; cy0 = y0 + 2 * rad + 20; }
+    else { rad = 106; drawDisc(g, L + rad + 4, y0 + rad + 18, rad * k7, bmp, maker.name || 'BLANK', k7 < 1); x0 = L + 2 * rad + 24; cy0 = y0; }
     const lw = 70, bw = Math.min(118, (R - x0 - lw - 12) / 3), row = (y, label) => { g.fillStyle = '#dfe6f2'; g.font = '700 15px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(label, x0, y + 17); g.textBaseline = 'alphabetic'; };
     const sub = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, s, x0 + lw, y, R - x0 - lw); };
     let y = cy0;
@@ -4059,7 +4065,8 @@ function drawToolsPage() {
     row(y, 'LABEL');
     btn(x0 + lw, y, bw, 34, 'PICTURE…', !!maker.image, () => setTools('pickImage'));
     btn(x0 + lw + bw + 6, y, bw, 34, 'NONE', !maker.image, () => { maker.image = null; });
-    sub(maker.image ? 'Picture: ' + maker.image.replace(/\.[^.]+$/, '') : 'Plain red label with the name', y + 52); y += 64;
+    btn(x0 + lw + 2 * (bw + 6), y, bw, 34, maker.size === 7 ? 'SIZE: 7"  45' : 'SIZE: 12"', maker.size === 7, () => { maker.size = maker.size === 7 ? 12 : 7; });   // #261
+    sub((maker.image ? 'Picture: ' + maker.image.replace(/\.[^.]+$/, '') : 'Plain red label with the name') + (maker.size === 7 ? '  ·  7" single, 45 rpm, needs the adapter, into the 45s list' : ''), y + 52); y += 64;
     row(y, 'NAME');
     btn(x0 + lw, y, bw, 34, 'NAME…', false, () => openKbd('RECORD NAME', maker.name, false, 32, t => { maker.name = t.trim(); }, 'maker'));
     g.fillStyle = maker.name ? '#ffffff' : '#56627a'; g.font = '600 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
@@ -4084,7 +4091,7 @@ function drawToolsPage() {
       g.fillStyle = '#0d1422'; g.fillRect(L, y, R - L, RH - 6);
       g.fillStyle = ok ? '#dfe6f2' : '#56627a'; g.font = '600 16px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
       fitText2(g, `${r.title}${r.artist ? '  ·  ' + r.artist : ''}${r.bpm ? '  ·  ' + (+r.bpm).toFixed(0) + ' BPM' : ''}`, L + 10, y + (RH - 6) / 2, R - L - 20); g.textBaseline = 'alphabetic';
-      if (ok) VP_HIT.push({ x: L, y, w: R - L, h: RH - 6, act: () => { maker.kind = 'song'; maker.song = { title: r.title, artist: r.artist || '', opfs: t.opfs || null, url: t.url || null, bpm: r.bpm || t.bpm || 0 }; if (!maker.name) maker.name = cleanText(r.title, 32); setTools('maker'); } });
+      if (ok) VP_HIT.push({ x: L, y, w: R - L, h: RH - 6, act: () => { maker.kind = 'song'; maker.song = { title: r.title, artist: r.artist || '', opfs: t.opfs || null, url: t.url || null, bpm: r.bpm || t.bpm || 0, duration: t.duration || r.duration || 0 }; if (!maker.name) maker.name = cleanText(r.title, 32); setTools('maker'); } });
     });
     const by = P ? H - 62 : H - 44;
     btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
