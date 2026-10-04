@@ -16,6 +16,9 @@ export const POSE = {
   index: { open: [18, 22, 12], shut: [40, 55, 35] },      // on the trigger
   rest: { open: [55, 75, 40], shut: [75, 85, 45] },       // middle / ring / pinky round the handle
   thumb: { open: [8, 10, 10], down: [18, 22, 18], spread: 0 },
+  // #277 grip: extra curl (deg at full grip) bringing index and thumb together, never closer than `gap` (2 cm of skin
+  // between them; the tip joints sit ~8 mm inside the skin, so centre to centre 3.6 cm)
+  pinch: { index: [20, 30, 20], thumb: [12, 30, 30], gap: 0.036 },
   // where the hand sits in grip space (right hand; the left is the mirror in X; grip -Z runs along the handle toward
   // the face): back of the hand facing out (+X),
   // the knuckle line along the handle (index at the front by the trigger, pinky toward the back), the middle knuckle at `knuckle`
@@ -68,11 +71,24 @@ function curl(h, chain, k, deg) {
   }
 }
 const lerp3 = (a, b, t) => a.map((x, i) => x + (b[i] - x) * t);
+const add3 = (a, b, k) => a.map((x, i) => x + b[i] * k);
+const _ta = new THREE.Vector3(), _tb = new THREE.Vector3();
+function pose(h, t, g, th, k) {   // k = how far the grip has brought thumb and index together (0..1)
+  for (const n in h.bind) { h.bones[n].position.copy(h.bind[n].p); h.bones[n].quaternion.copy(h.bind[n].q); }
+  const idx = add3(lerp3(POSE.index.open, POSE.index.shut, t), POSE.pinch.index, k), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
+  for (const f of FINGERS) { const c = CH(f), a = f === 'index-finger' ? idx : rest; for (let j = 0; j < 3; j++) curl(h, c, j + 1, a[j]); }
+  const tp = add3(th ? POSE.thumb.down : POSE.thumb.open, POSE.pinch.thumb, k); for (let j = 0; j < 3; j++) curl(h, THUMB, j, tp[j]);
+  return h.bones['index-finger-tip'].position.distanceTo(h.bones['thumb-tip'].position);
+}
 function update(h, t, g, th) {
   if (!h.ready) return;
   const key = `${t.toFixed(2)}|${g.toFixed(2)}|${th ? 1 : 0}`; if (key === h.cur) return; h.cur = key;
-  for (const n in h.bind) { h.bones[n].position.copy(h.bind[n].p); h.bones[n].quaternion.copy(h.bind[n].q); }
-  const idx = lerp3(POSE.index.open, POSE.index.shut, t), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
-  for (const f of FINGERS) { const c = CH(f), a = f === 'index-finger' ? idx : rest; for (let k = 0; k < 3; k++) curl(h, c, k + 1, a[k]); }
-  const tp = th ? POSE.thumb.down : POSE.thumb.open; for (let k = 0; k < 3; k++) curl(h, THUMB, k, tp[k]);
+  // #277 (owner): the grip also brings thumb and index toward each other, stopping 2 cm short of touching
+  // (tip centres POSE.pinch.gap apart). Search how far they may go so the gap is never under that.
+  let k = g;
+  if (k > 0 && pose(h, t, g, th, k) < POSE.pinch.gap) {
+    let lo = 0, hi = k; for (let i = 0; i < 8; i++) { const m = (lo + hi) / 2; if (pose(h, t, g, th, m) < POSE.pinch.gap) hi = m; else lo = m; }
+    k = lo;
+  }
+  pose(h, t, g, th, k);
 }
