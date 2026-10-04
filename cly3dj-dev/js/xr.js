@@ -79,6 +79,7 @@ export function setupXR(ctx) {
     // (middle finger) still grabs and moves everything else. A grab ends only when its own button is let go.
     const down = btn => {
       if (ctx.crateMicSelect(st.isHand ? st.pinchPt : st.tip)) { buzz(st, 0.4, 20); return; }
+      if (!st.isHand && btn === 'grip') { const hl = ctlTipLocal(st); if (hl) { st.grip.updateMatrixWorld(); st.grip.localToWorld(st.tip.copy(hl)); } }   // #283 grab from the O, not last frame's fingertip
       if (!st.isHand && !st.direct && grabStart(st, st.tip, btn)) st.btn = btn;
     };
     const up = btn => { if (!st.isHand && (!st.direct || st.btn === btn)) release(st); };
@@ -727,7 +728,7 @@ export function setupXR(ctx) {
         // tip just protruding from the controller's front edge (grip space: -z forward)
         st.grip.updateMatrixWorld();
         if (!st.tipLocal) st.tipLocal = measureTip(st.grip);
-        const hl = ctlLook === '3dhands' && st.ctlHand && st.ctlHand.root.visible && st.ctlHand.tipLive;   // #280 3D hands: ball + touch point = the index fingertip
+        const hl = ctlTipLocal(st);   // #280 / #283 3D hands: index fingertip, or the middle of the O while the grip is held
         st.grip.localToWorld(st.tip.copy(hl || st.tipLocal || TIP_DEFAULT));
         st.pinchPt.copy(st.tip); hasTip = true;
       }
@@ -792,6 +793,11 @@ export function setupXR(ctx) {
   let ctlLook = '3dhands';
   try { const v = localStorage.getItem('vire.ctlLook'); if (v === 'controller' || v === '3dhands') ctlLook = v; } catch (e) {}
   function setCtlLook(v) { ctlLook = v; try { localStorage.setItem('vire.ctlLook', v); } catch (e) {} }
+  function ctlTipLocal(st) {
+    const h = st.ctlHand; if (ctlLook !== '3dhands' || !h || !h.root.visible || !h.tipLive) return null;
+    const gp = st.source && st.source.gamepad, gr = gp && gp.buttons[1] && gp.buttons[1].pressed;
+    return gr && h.oLocal ? h.oLocal : h.tipLive;
+  }
   function ctlHandStep(st) {
     const want = st.connected && !st.isHand && ctlLook === '3dhands' && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
     // #279 (owner): 3D hands mode shows just the hand, no controller inside it

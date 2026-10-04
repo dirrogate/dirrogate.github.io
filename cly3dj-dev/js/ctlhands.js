@@ -55,6 +55,12 @@ function place(h, handed) {
   h.holder.quaternion.setFromRotationMatrix(R);
   const k = B['middle-finger-phalanx-proximal'].p.clone().applyQuaternion(h.holder.quaternion);
   h.holder.position.set(POSE.knuckle[0] * sx, POSE.knuckle[1], POSE.knuckle[2]).sub(k);
+  // #283 the middle of the closed O (thumb tip and index tip at full grip), in root (grip) space: while the grip is
+  // held this fixed point is the ball and the touch point, so a knob or fader never slips as the grip pressure varies
+  pose(h, 0, 1, false); h.holder.updateMatrix();
+  const it = h.bones['index-finger-tip'], tt = h.bones['thumb-tip']; it.updateWorldMatrix(true, false); tt.updateWorldMatrix(true, false);
+  const inv = new THREE.Matrix4().copy(h.root.matrixWorld).invert();
+  h.oLocal = new THREE.Vector3().setFromMatrixPosition(it.matrixWorld).add(new THREE.Vector3().setFromMatrixPosition(tt.matrixWorld)).multiplyScalar(0.5).applyMatrix4(inv);
   h.cur = '';
 }
 
