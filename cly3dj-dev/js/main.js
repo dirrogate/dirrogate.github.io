@@ -4053,7 +4053,7 @@ function drawToolsPage() {
     // #276 controllers seen as 3D hands holding them, or bare controllers
     const ctlBtn = (x, y, w, h) => { let X = null; try { X = xr; } catch (e) {}   // xr is set up further down the file
       const hands = !X || X.getCtlLook() === '3dhands';
-      btn(x, y, w, h, `CONTROLLERS: ${hands ? '3D HANDS' : 'CONTROLLER'}`, hands, () => { if (X) X.setCtlLook(hands ? 'controller' : '3dhands'); drawMixScreen(); }, false, P ? 18 : 20); };
+      btn(x, y, w, h, `CONTROLLERS: ${hands ? '3D HANDS' : 'CONTROLLER'}`, hands, () => { if (X) X.setCtlLook(hands ? 'controller' : '3dhands'); const el = document.getElementById('sHands'); if (el && X) el.value = X.getCtlLook(); drawMixScreen(); }, false, P ? 18 : 20); };
     const sw = (x, y, w, h, label, k) => { const on = pieceOn(k); btn(x, y, w, h, `${label}: ${on ? 'ON' : 'OFF'}`, on, () => setPiece(k, !on), false, P ? 18 : 20); };
     if (P) {
       if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
@@ -4769,7 +4769,7 @@ $('#sEnvMix').oninput = e => { settings.envMix = +e.target.value; saveSettings()
 
 // ---- settings UI
 function syncSettingsUI() {
-  $('#sSource').value = settings.source; $('#sXml').value = settings.xml; $('#sHands').value = '3d';
+  $('#sSource').value = settings.source; $('#sXml').value = settings.xml; $('#sHands').value = xr ? xr.getCtlLook() : '3dhands';   // #286 same switch as DJ TOOLS > CONTROLLERS
   $('#sGlow').value = settings.glow; $('#sShadows').value = settings.shadows; $('#sMicRoute').value = settings.micRoute; showMicRoute();
   $('#sEnv').value = settings.env; $('#sEnvMix').value = settings.envMix; $('#envMixVal').textContent = settings.envMix + '%';
   $('#sSpect').value = settings.spect; $('#rowSpect').hidden = settings.spect !== 'on'; $('#spectCode').textContent = spectCode();
@@ -4814,7 +4814,8 @@ async function showStorage() {
   $('#impStatus').textContent = `${idx.filter(f => !/\.xml$/i.test(f.path) && !VIDEO_EXT.test(f.path)).length} songs, ${idx.filter(f => VIDEO_EXT.test(f.path)).length} VideoVinyl videos, ${idx.filter(f => /\.xml$/i.test(f.path)).length} XML stored` +
     (est ? ` · using ${mb(est.usage || 0)} of ${mb(est.quota || 0)} available to this site` : '');
 }
-for (const [id, k] of [['#sSource', 'source'], ['#sXml', 'xml'], ['#sHands', 'hands'], ['#sEnv', 'env'], ['#sGlow', 'glow'], ['#sShadows', 'shadows'], ['#sMicRoute', 'micRoute'],
+$('#sHands').addEventListener('change', e => { if (xr) { xr.setCtlLook(e.target.value); drawMixScreen(); } });   // #286 (owner) 3D hands / controllers from the start page
+for (const [id, k] of [['#sSource', 'source'], ['#sXml', 'xml'], ['#sEnv', 'env'], ['#sGlow', 'glow'], ['#sShadows', 'shadows'], ['#sMicRoute', 'micRoute'],
   ['#sDeckModel', 'deckModel'], ['#sRecWeight', 'recWeight'], ['#sSlipmat', 'slipmat'], ['#sSpect', 'spect'], ['#sSky', 'sky']]) {
   $(id).onchange = e => {
     settings[k] = e.target.value; saveSettings(); syncSettingsUI();
