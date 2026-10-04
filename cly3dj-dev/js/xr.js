@@ -79,7 +79,7 @@ export function setupXR(ctx) {
     // (middle finger) still grabs and moves everything else. A grab ends only when its own button is let go.
     const down = btn => {
       if (ctx.crateMicSelect(st.isHand ? st.pinchPt : st.tip)) { buzz(st, 0.4, 20); return; }
-      if (!st.isHand && btn === 'grip') { const hl = ctlTipLocal(st); if (hl) { st.grip.updateMatrixWorld(); st.grip.localToWorld(st.tip.copy(hl)); } }   // #283 grab from the O, not last frame's fingertip
+      if (!st.isHand) { const hl = ctlTipLocal(st); if (hl) { st.grip.updateMatrixWorld(); st.grip.localToWorld(st.tip.copy(hl)); } }   // #283 / #284 grab from the closed O's fingertip, not last frame's
       if (!st.isHand && !st.direct && grabStart(st, st.tip, btn)) st.btn = btn;
     };
     const up = btn => { if (!st.isHand && (!st.direct || st.btn === btn)) release(st); };
@@ -274,10 +274,10 @@ export function setupXR(ctx) {
       if (sp) { updateAnchor(st); ctx.spiderGrab(sp, st.anchor); st.direct = { kind: 'spider' }; buzz(st, 0.3, 20); return true; }
     }
     // 2. faders, pitch, knobs
-    // #195 knobs, faders and pitch faders took the trigger only; #282 (owner): now the GRIP (hands: pinch), so the 3D hand's
-    // thumb-and-index O closes on the cap like real fingers. The trigger no longer turns or slides them.
+    // #195 knobs, faders and pitch faders take the trigger (hands: pinch). (#282 tried the grip; #284 owner: back to the
+    // trigger, the 3D hand closes its thumb-and-index O on the trigger now)
     let best = null, bestD = REACH;
-    if (gripOk) for (const k of knobList()) {
+    if (deckOk) for (const k of knobList()) {
       k.g.getWorldPosition(v2); v2.y += 0.012;
       const dd = v2.distanceTo(P); if (dd < bestD) { bestD = dd; best = k; }
     }
@@ -793,10 +793,12 @@ export function setupXR(ctx) {
   let ctlLook = '3dhands';
   try { const v = localStorage.getItem('vire.ctlLook'); if (v === 'controller' || v === '3dhands') ctlLook = v; } catch (e) {}
   function setCtlLook(v) { ctlLook = v; try { localStorage.setItem('vire.ctlLook', v); } catch (e) {} }
+  // #284 the ball / touch point is the index fingertip: relaxed with no button, the fingertip of the closed O while the
+  // trigger or grip is held (a fixed point, so a held knob, fader or record never slips as the pressure varies)
   function ctlTipLocal(st) {
     const h = st.ctlHand; if (ctlLook !== '3dhands' || !h || !h.root.visible || !h.tipLive) return null;
-    const gp = st.source && st.source.gamepad, gr = gp && gp.buttons[1] && gp.buttons[1].pressed;
-    return gr && h.oLocal ? h.oLocal : h.tipLive;
+    const gp = st.source && st.source.gamepad, b = gp ? gp.buttons : [];
+    return (b[0] && b[0].pressed) || (b[1] && b[1].pressed) ? (h.tipO || h.tipLive) : h.tipLive;
   }
   function ctlHandStep(st) {
     const want = st.connected && !st.isHand && ctlLook === '3dhands' && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
@@ -817,7 +819,9 @@ export function setupXR(ctx) {
     const gp = st.source.gamepad, b = gp ? gp.buttons : [];
     const val = i => (b[i] ? (b[i].value || (b[i].pressed ? 1 : 0)) : 0);
     const thumb = [3, 4, 5].some(i => b[i] && (b[i].touched || b[i].pressed));
-    h.update(Math.round(val(0) * 20) / 20, Math.round(val(1) * 20) / 20, thumb);
+    // #284 buttons drive the pose as pressed / released, eased over ~80 ms (the analog value made the touch point wander)
+    const ease = (k, on) => (st[k] = (st[k] || 0) + Math.max(-1, Math.min(1, ((on ? 1 : 0) - (st[k] || 0)))) * Math.min(1, 1 / 60 / 0.08 * 1.5));
+    h.update(Math.round(ease('tA', b[0] && b[0].pressed) * 20) / 20, Math.round(ease('gA', b[1] && b[1].pressed) * 20) / 20, thumb);
   }
 
   // Passthrough cut-out built straight from the tracked joints (CLAUDE.md #44): a sphere on every joint
