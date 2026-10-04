@@ -385,6 +385,14 @@ export function makeGlbDeck(name) {
   };
   // #253 X2 (pitch range): a copy of the 33 button's cap, moved past the far end of the pitch fader below
   const p33 = byName(model, 'polySurface13'), x2part = p33.clone(true); p33.parent.add(x2part);
+  // #256 the 45 adapter ('spider', pPipe1: a metal ring in the top-left recess) is its own object, so it can be lifted
+  // out and put on the spindle (main.js spiders). Home = this pose in the recess.
+  { const sp = model.getObjectByName('pPipe1') || model.getObjectByName('pPipe1_metal_mat_0'); if (sp) {
+      const bx = new THREE.Box3().setFromObject(sp), c = g.worldToLocal(bx.getCenter(new THREE.Vector3()));
+      u.spider = pivotGroup(g, c, [sp]); u.spiderHome = { p: u.spider.position.clone(), q: u.spider.quaternion.clone() };
+      u.spiderH = bx.max.y - bx.min.y;
+      sp.traverse(o => { if (o.isMesh) o.userData.spider = name; });
+  } }
   u.start = btn('polySurface14', 'start');
   u.b33 = btn('polySurface13', 'rpm33');
   u.b45 = btn('polySurface12', 'rpm45');

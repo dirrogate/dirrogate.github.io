@@ -1596,7 +1596,7 @@ function sleeveCrateDist(sl) {
 // in hands, on the floor, on cases, spinning on a finger and in the milk crates go back into the crate; a record stays
 // on a deck only while that deck's motor runs (a playing set is never interrupted).
 function tidyRecords() {
-  sleevesHome();
+  sleevesHome(); spidersHome();   // #256
   if (held) returnHeld();
   for (const L of [...loose]) { const g = L.rec.group; if (g.parent) g.parent.remove(g); L.rec.dispose(); }
   loose.length = 0;
@@ -1745,6 +1745,52 @@ function sleeveFollow(sl) {   // the held sleeve toward the hand, stopped by the
   sl.g.position.copy(p); sl.g.quaternion.copy(q);
   if (hit && !sl.touch && xr && xr.buzzAnchor) xr.buzzAnchor(sl.anchor, 0.3, 20);
   sl.touch = hit;
+}
+// #256 45 adapters ('spiders'): each deck's lives in its top-left recess. Grab it (grip / pinch), let go over a
+// spindle and it sits on it (riding the platter), over an empty recess and it drops in, anywhere else and it stays
+// where it is (no physics, like the sleeves). Tidy-up at VR start puts them home.
+const _spv = new THREE.Vector3(), _sps = new THREE.Vector3(), _spm = new THREE.Matrix4();
+const spiders = decks.map(d => d.g.userData.spider ? { d, g: d.g.userData.spider, h: d.g.userData.spiderH || 0.003, anchor: null, off: null, on: null, home: d } : null).filter(Boolean);
+for (const s of spiders) s.d.recess = s;
+function spiderGrabTest(P) {
+  for (const s of spiders) { if (s.anchor) continue; s.g.getWorldPosition(_spv); if (_spv.distanceTo(P) < 0.035) return s; }
+  return null;
+}
+function spiderGrab(s, anchor) {
+  if (s.on) { s.on.spiderOn = null; s.on = null; }
+  for (const d of decks) if (d.recess === s) d.recess = null;
+  rig.attach(s.g); anchor.updateMatrixWorld(); s.g.updateMatrixWorld();
+  s.anchor = anchor; s.off = new THREE.Matrix4().copy(anchor.matrixWorld).invert().multiply(s.g.matrixWorld);
+}
+function stepSpiders() {
+  for (const s of spiders) if (s.anchor) {
+    s.anchor.updateMatrixWorld(); _spm.multiplyMatrices(s.anchor.matrixWorld, s.off);
+    s.g.parent.updateMatrixWorld(); _spm.premultiply(new THREE.Matrix4().copy(s.g.parent.matrixWorld).invert()); _spm.decompose(s.g.position, s.g.quaternion, _sps);
+  }
+}
+function spiderOnSpindle(s, d) {
+  const u = d.g.userData; u.platter.add(s.g);
+  s.g.position.set(0, (u.platterSurface - u.platter.position.y) + (d.record ? REC.THICK : 0) + s.h / 2, 0); s.g.quaternion.identity();
+  s.on = d; d.spiderOn = s;
+}
+function spiderToRecess(s, d) {
+  const u = d.g.userData; d.g.add(s.g); s.g.position.copy(u.spiderHome.p); s.g.quaternion.copy(u.spiderHome.q); d.recess = s;
+}
+function spiderRelease(anchor) {
+  const s = spiders.find(x => x.anchor === anchor); if (!s) return;
+  s.anchor = null; const p = s.g.getWorldPosition(new THREE.Vector3());
+  for (const d of decks) {
+    const u = d.g.userData, l = d.g.worldToLocal(p.clone());
+    if (!d.spiderOn && Math.hypot(l.x - DECK.spindle.x, l.z - DECK.spindle.z) < 0.03 && l.y > u.platterSurface - 0.03 && l.y < u.platterSurface + 0.08) { spiderOnSpindle(s, d); return; }
+    if (!d.recess && u.spiderHome && l.distanceTo(u.spiderHome.p) < 0.045) { spiderToRecess(s, d); return; }
+  }
+  // anywhere else: it stays put (already in rig space), turned level
+  const e = new THREE.Euler().setFromQuaternion(s.g.quaternion, 'YXZ'); s.g.quaternion.setFromEuler(e.set(0, e.y, 0, 'YXZ'));
+}
+function spidersHome() {
+  for (const s of spiders) { s.anchor = null; if (s.on) { s.on.spiderOn = null; s.on = null; } }
+  for (const d of decks) d.recess = null;
+  for (const s of spiders) spiderToRecess(s, s.home);
 }
 function sleevesHome() { for (const sl of [...sleeves]) disposeSleeve(sl); layoutSleeves(); }   // #242 tidy-up: all back at once
 function crateSelect(delta) {
@@ -4207,6 +4253,7 @@ function frame() {
   }
   if (xr && renderer.xr.isPresenting) xr.update(dt);
   stepSleeves(dt);   // #229 / #242
+  stepSpiders();   // #256
 
   for (const d of decks) {
     const u = d.g.userData, st = engine.state.decks[d.i];
@@ -4383,7 +4430,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
   armGrab, armDrag, armRelease,
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
-  sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease,
+  sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease, spiderGrabTest, spiderGrab, spiderRelease,
   crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, drawCrateScreen, layoutSleeves, crateDisc,
   neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, ledTilted, toast, mixScreenRelease,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
@@ -4694,7 +4741,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {

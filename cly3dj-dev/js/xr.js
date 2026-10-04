@@ -261,6 +261,11 @@ export function setupXR(ctx) {
       sb.getWorldPosition(v2);
       if (Math.hypot(P.x - v2.x, P.z - v2.z) < 0.03 && P.y - v2.y < 0.04 && P.y - v2.y > -0.02) { ctx.pressControl({ deck: d.name, id: 'start' }, st); st.direct = { kind: 'tap' }; buzz(st, 0.5, 30); return true; }
     }
+    // #256 the 45 adapter (in its recess, on a spindle or lying about): grip (controllers) or pinch (hands)
+    if (gripOk && ctx.spiderGrabTest) {
+      const sp = ctx.spiderGrabTest(P);
+      if (sp) { updateAnchor(st); ctx.spiderGrab(sp, st.anchor); st.direct = { kind: 'spider' }; buzz(st, 0.3, 20); return true; }
+    }
     // 2. faders, pitch, knobs
     // #195 (owner): knobs, faders and pitch faders take the trigger only (hands: pinch); the grip never turns or slides them
     let best = null, bestD = REACH;
@@ -546,6 +551,7 @@ export function setupXR(ctx) {
     else if (g.kind === 'held') { const h = ctx.getHeld(); if (h && h.attach === st.anchor) ctx.releaseHeld(); }
     else if (g.kind === 'move') { ctx.stage.endMove(g.stMove); if (g.target.startsWith('milk')) ctx.releaseMilk(g.target, g.vel); else ctx.settleStack(g.target); }   // #200 milk: releaseMilk drops / throws / settles it
     else if (g.kind === 'lid') ctx.lidRelease();
+    else if (g.kind === 'spider') { ctx.spiderRelease(st.anchor); buzz(st, 0.3, 20); }   // #256
     else if (g.kind === 'sleeve') ctx.sleeveRelease(st.anchor);   // #242 let go: it stays there (over the record crate: back in)
     else if (g.kind === 'tablet') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'tabletStretch') o.direct = null; if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
     else if (g.kind === 'tabletScale' || g.kind === 'tabletStretch') ctx.saveTablet();
