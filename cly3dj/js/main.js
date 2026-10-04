@@ -4,7 +4,7 @@ import { RoomEnvironment } from '../vendor/three/RoomEnvironment.js';
 import { parseLibrary, addUnsorted, emptyLibrary } from './library.js';
 import { readID3 } from './id3.js';
 import { AudioEngine, PITCH_RANGE } from './audio.js';
-import { REC, timeToRadius, radiusToTime, Screen, fitText, drawRecordSide, recordMaterial, setRecordSide, grooveAnisoMap } from './textures.js';
+import { REC, REC7, dimsOf, timeToRadius, radiusToTime, Screen, fitText, drawRecordSide, recordMaterial, setRecordSide, grooveAnisoMap } from './textures.js';
 import { setupXR } from './xr.js';
 import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeNeon } from './neon.js';
 import { makeLedWall, LedPlayer, LED } from './ledwall.js';
@@ -25,7 +25,7 @@ import { Stage, FlightCase } from './layout.js';
 import { loadCaseKit } from './flightcase.js';
 import { setRecordTexSize } from './textures.js';
 import {
-  initMaterials, MAT, tabletBodyMat, TABLET_T, makeDeck, makeMixer, makeCrate, makeMilkCrate, loadMilkCrate, loadMilkCrateBaked, upgradeMilkCrate, loadRecordCrateBaked, upgradeRecordCrate, loadMixerParts, initKTX2, loadBaked, MILK_CREDIT, Record3D, armYawForRadius,
+  initMaterials, MAT, tabletBodyMat, TABLET_T, makeDeck, makeButton, makeMixer, makeCrate, makeMilkCrate, loadMilkCrate, loadMilkCrateBaked, upgradeMilkCrate, loadRecordCrateBaked, upgradeRecordCrate, loadMixerParts, initKTX2, loadBaked, MILK_CREDIT, Record3D, armYawForRadius,
   DECK, MIX, CRATE, MILK, W33, ARM, LID,
 } from './models.js';
 
@@ -105,6 +105,13 @@ let deckModel = 'procedural';
 window.__vireStage = 'modules loaded; loading turntable GLB';
 try { await loadDeckTemplate('models/turntable.glb'); deckModel = 'glb'; } catch (e) { console.warn('Deck GLB not loaded, using procedural decks', e); }
 const deckGroups = deckModel === 'glb' ? [makeGlbDeck('A'), makeGlbDeck('B')] : [makeDeck('A'), makeDeck('B')];
+// #253 (owner, like the SL-1210MK7): an X2 button past the far (-) end of the pitch fader switches the range between
+// +-8 % and +-16 %; its blue LED is on at +-16 %
+deckGroups.forEach((g, gi) => {
+  const u = g.userData, t = u.pitchTravel; if (u.x2) return;   // the GLB deck builds its own (a 33-style cap)
+  const b = makeButton(0.016, 0.01, 0x3aa0ff, 'X2'); b.position.set(t.x, u.zeroLED.position.y - 0.001, t.z0 - 0.032); g.add(b);
+  b.userData.mesh.userData.control = { deck: gi ? 'B' : 'A', id: 'x2' }; u.x2 = b;
+});
 deckGroups.forEach((d, i) => {
   rig.add(d);
   const k = i ? 'deckB' : 'deckA';
@@ -208,7 +215,7 @@ const extraMilk = {};
 function newMilk(key) { const m = makeMilkCrate(); m.userData.key = key; rig.add(m); m.traverse(o => { if (o.isMesh) o.userData.move = key; }); extraMilk[key] = m; return m; }
 try { for (const k of JSON.parse(localStorage.getItem('vire.milkKeys') || '[]')) if (/^milk[2-6]$/.test(k)) newMilk(k); } catch (e) {}
 milk.userData.key = 'milk';
-function milks() { return [milk, ...Object.values(extraMilk)]; }
+function milks() { return [milk, ...Object.values(extraMilk)].filter(m => m.parent); }   // #248 a switched-off first crate is out of the scene
 // #235 stage pieces the DJ can switch off to save work (TOOLS: LED wall and neon sign in VJ TOOLS, the first milk
 // crate in DJ TOOLS). Off = hidden, not hit by rays or hands, no shadow blob, nothing lands on it, and its per-frame
 // work stops (LED videos / camera / scroller, neon flicker). It keeps its place in the saved layout.
@@ -224,6 +231,12 @@ function applyPiece(k) {
   });
   // #236 LED wall off: clips keep running silently (not decoded) and the scroller keeps its text, both for the phone;
   // DECKS and CAM only ever show on the Quest, so those stop
+  // #248 (owner): a switched-off milk crate leaves the scene altogether, so nothing at all can bump into it, land in
+  // it or carry it along (it was only hidden); it comes back to the same spot when switched on
+  if (k === 'milk') {
+    if (!on && o.parent) { o.userData.homeParent = o.parent; o.parent.remove(o); }
+    else if (on && !o.parent && o.userData.homeParent) o.userData.homeParent.add(o);
+  }
   if (k === 'ledwall') { led.setSilent(!on); if (!on && (ledMode === 'decks' || ledMode === 'cam' || isLive(ledMode))) setLedMode('off'); }
 }
 function setPiece(k, on) { settings.pieces = { ...(settings.pieces || {}), [k]: on }; saveSettings(); applyPiece(k); drawMixScreen(); }
@@ -375,6 +388,7 @@ function ledTurned() {   // #222 let go after a twist: settle on portrait / land
   toast(Math.abs(Math.round(t / (Math.PI / 2))) % 2 ? 'LED wall: portrait' : 'LED wall: landscape', 1500);
   setTimeout(() => stage.save(), 500);
 }
+function ledTilted() { toast('LED wall: tilted ' + Math.round(ledwall.rotation.x * 180 / Math.PI) + ' deg', 1500); setTimeout(() => stage.save(), 300); }   // #248
 function toggleLedPortrait() { ledwall.userData.turnTo(ledwall.userData.portrait() ? 0 : Math.PI / 2); setTimeout(ledTurned, 450); }
 function setLedScale(s) { s = clamp(s, 0.4, 4); ledwall.scale.setScalar(s); if (stage) stage.items.ledwall.base = ledBase(); return s; }
 function saveLedScale() { try { localStorage.setItem('vire.ledScale', String(ledwall.scale.x)); } catch (e) {} }
@@ -722,7 +736,7 @@ const engine = new AudioEngine();
 let lib = null;
 const decks = [0, 1].map(i => ({
   i, name: DECK_NAMES[i], g: deckGroups[i], record: null, side: null, track: null, duration: 0,
-  loaded: false, loading: false, motorOn: false, power: true, speed: 1, pitch: 0, platterAngle: 0, recAngle: 0, angleOffset: 0,
+  loaded: false, loading: false, motorOn: false, power: true, speed: 1, pitch: 0, range: (settings.pitchRange && settings.pitchRange[i]) || 0.08, platterAngle: 0, recAngle: 0, angleOffset: 0,
   arm: { yaw: deckGroups[i].userData.restYaw || 0, lift: 1, targetYaw: deckGroups[i].userData.restYaw || 0, targetLift: 1, onLand: null, parking: false },
   loadToken: 0,
 }));
@@ -826,7 +840,7 @@ function crateView(list, start, n, shut) {   // Quest: what the phone needs to l
     const r = list[start + k]; if (!r) continue;
     const t = r.sides.A || r.sides.B, key = t ? coverKey(t) : '';
     if (t && key) coverTracks.set(key, t);
-    items.push([start + k, key, r.title || '', r.artist || '', r.bpm ? +(+r.bpm).toFixed(1) : 0, r.missing ? 1 : 0]);
+    items.push([start + k, key, r.title || '', r.artist || '', r.bpm ? +(+r.bpm).toFixed(1) : 0, r.missing ? 1 : 0, r.size === 7 ? 7 : 12]);   // #262 size
   }
   return { k: 'crate', n: list.length, sel: crateState.sel, shut: shut ? 1 : 0, items };
 }
@@ -856,9 +870,10 @@ function phoneArt(track) {   // camera role: fetchArt from the phone's cover sto
 }
 const crateRemote = {   // handed to spectator-client.js (camera role)
   setAsk(fn) { phoneCovers.ask = fn; },
+  spiders(a) { spidersApply(a); },   // #262
   onCrate(m) {
     const list = new Array(m.n);
-    for (const [i, key, title, artist, bpm, missing] of m.items) list[i] = { title, artist, bpm, missing: !!missing, sides: { A: { id: key || 'none', missing: !key }, B: null } };
+    for (const [i, key, title, artist, bpm, missing, size] of m.items) list[i] = { title, artist, bpm, missing: !!missing, size: size === 7 ? 7 : 12, sides: { A: { id: key || 'none', missing: !key }, B: null } };
     remoteCrate = { list, shut: !!m.shut }; crateState.sel = Math.min(m.sel, Math.max(0, m.n - 1));
     layoutSleeves();
   },
@@ -1170,7 +1185,8 @@ function drawCrateScreen() {
   // search bar: field | keyboard | mic | clear
   const by = SB.y + 8, bh = SB.h - 14;
   search.btns = [
-    { id: 'field', x: 12, y: by, w: W - 12 - 4 * 78 - 16, h: bh },
+    { id: 'field', x: 12, y: by, w: W - 12 - 5 * 78 - 16, h: bh },
+    { id: 's45', x: W - 5 * 78 - 4, y: by, w: 70, h: bh },   // #255 the 45s list
     { id: 'milk', x: W - 4 * 78 - 4, y: by, w: 70, h: bh },
     { id: 'kb', x: W - 3 * 78 - 4, y: by, w: 70, h: bh },
     { id: 'mic', x: W - 2 * 78 - 4, y: by, w: 70, h: bh },
@@ -1188,6 +1204,7 @@ function drawCrateScreen() {
     g.fillStyle = on ? '#23527c' : '#1b2128'; g.fillRect(b.x, b.y, b.w, b.h);
     g.textAlign = 'center'; g.font = `34px ${EMOJI}`; g.fillStyle = b.id === 'clear' ? (search.q ? '#e6e9ec' : '#3d454e') : '#e6e9ec';
     if (b.id === 'milk') { drawMilkIcon(g, b.x + b.w / 2, b.y + bh / 2, Object.keys(extraMilk).length + 1 < MILK_MAX); continue; }
+    if (b.id === 's45') { const pl = lib && lib.playlists[crateState.pl]; draw45Icon(g, b.x + b.w / 2, b.y + bh / 2, !!(pl && pl.name === '45s' && !search.results)); continue; }
     g.fillText(b.id === 'kb' ? '⌨' : b.id === 'mic' ? '🎤' : '✕', b.x + b.w / 2, b.y + bh / 2 + 2);
   }
   // keyboard layout (bottom, above the footer) decides how many rows fit
@@ -1258,6 +1275,31 @@ function drawCrateScreen() {
   crateScreen.rows = { start, ROWS, RH, y0, kbY: search.kb ? kbY : Infinity };
 }
 // little green milk crate with a plus: spawns another crate (#88)
+// #255 crate screen: a small 7" record with '45' on its label; lit while the 45s list is showing
+function draw45Icon(g, cx, cy, on) {
+  g.save();
+  g.fillStyle = '#0c0d10'; g.beginPath(); g.arc(cx, cy, 17, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = on ? '#4aa8f0' : '#5a636e'; g.lineWidth = 2; g.stroke();
+  g.strokeStyle = '#262a31'; g.lineWidth = 1; for (const r of [13, 10]) { g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke(); }
+  g.fillStyle = on ? '#f1b650' : '#b8862e'; g.beginPath(); g.arc(cx, cy, 7.5, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#0c0d10'; g.beginPath(); g.arc(cx, cy, 3.4, 0, Math.PI * 2); g.fill();   // the big 45 hole
+  g.fillStyle = on ? '#ffffff' : '#c9ced8'; g.font = '800 13px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('45', cx + 21, cy + 13);
+  g.restore();
+}
+// #255 jump to the 45s list (made empty if there is none yet); pressed again it goes back to where you were
+let crateBack45 = null;
+function crate45s() {
+  if (!lib) lib = emptyLibrary();
+  if (search.results) exitSearch();
+  let i = lib.playlists.findIndex(pl => pl.name === '45s');
+  if (i >= 0 && crateState.pl === i) { if (crateBack45 && lib.playlists[crateBack45.pl]) { crateState.pl = crateBack45.pl; crateState.sel = crateBack45.sel; } crateBack45 = null; }
+  else {
+    if (i < 0) { lib.playlists.push({ name: '45s', path: '45s (7" singles on this headset)', records: [] }); i = lib.playlists.length - 1; }
+    crateBack45 = { pl: crateState.pl, sel: crateState.sel }; crateState.pl = i; crateState.sel = 0;
+  }
+  drawCrateScreen(); layoutSleeves();
+}
 function drawMilkIcon(g, cx, cy, can) {
   g.save(); g.strokeStyle = can ? '#3fbf6a' : '#3d454e'; g.lineWidth = 3;
   g.strokeRect(cx - 20, cy - 10, 32, 22);
@@ -1284,6 +1326,11 @@ const crateDisc = (() => {
   for (const zz of [1, -1]) { const l = new THREE.Mesh(new THREE.CircleGeometry(REC.LABEL, 48), lmat); l.position.z = zz * (REC.THICK / 2 + 0.0002); if (zz < 0) l.rotation.y = Math.PI; grp.add(l); }
   grp.traverse(o => { if (o.isMesh) o.userData.crateDisc = true; });
   grp.userData = { canvas: lc, tex: ltex, target: new THREE.Vector3(), tilt: 0 };
+  grp.userData.size = r => {   // #257 7" or 12": the disc shrinks, its label to the 7" label size
+    const D = dimsOf(r), k = D.R / REC.R; disc.scale.set(k, D.THICK / REC.THICK, k);
+    grp.children.forEach(o => { if (o !== disc) { o.scale.setScalar(D.LABEL / REC.LABEL); o.position.z = Math.sign(o.position.z) * (D.THICK / 2 + 0.0002); } });
+    mat.userData.rec.uHoleN.value = D === REC7 ? D.HOLE / D.R : 0; grp.userData.hole = D === REC7 ? D.HOLE / D.LABEL : 6 / 128;
+  };
   return grp;
 })();
 // Album jackets on the sleeves nearest the selection only (the rest are plain): ~10 small textures,
@@ -1301,6 +1348,7 @@ function drawJacket(mesh, r) {
   const t = r.sides.A || r.sides.B; const art = t && artCache.get(t.id);
   u.hasArt = !!art;
   if (art) { const s = Math.max(256 / art.width, 256 / art.height); g.drawImage(art, 128 - art.width * s / 2, 128 - art.height * s / 2, art.width * s, art.height * s); }
+  else if (r.size === 7) { drawPlain7(g, 256, r); }   // #262 a plain paper 45 sleeve, label showing through its hole
   else {
     let h = 0; for (const ch of r.title) h = (h * 31 + ch.charCodeAt(0)) >>> 0; h %= 360;
     const gr = g.createLinearGradient(0, 0, 256, 256); gr.addColorStop(0, `hsl(${h},45%,40%)`); gr.addColorStop(1, `hsl(${(h + 40) % 360},50%,18%)`);
@@ -1312,12 +1360,29 @@ function drawJacket(mesh, r) {
   }
   u.tex.needsUpdate = true;
 }
+// #262 a plain 7" sleeve: kraft paper, the record's label seen through the 89 mm centre hole, the title on top
+function drawPlain7(g, S, r, holeOnly = false) {
+  const k = S / 256;
+  g.fillStyle = '#c9b48f'; g.fillRect(0, 0, S, S);
+  g.fillStyle = 'rgba(90,70,40,0.10)'; for (let i = 0; i < 40; i++) g.fillRect(0, (i * 37 % 256) * k, S, 1.5 * k);   // paper grain
+  g.fillStyle = 'rgba(60,45,25,0.18)'; g.fillRect(0, 0, S, 6 * k); g.fillRect(0, S - 6 * k, S, 6 * k);   // folded edges
+  if (!holeOnly) {
+    const t = r.sides.A || r.sides.B, la = t && labelOf(t), cr = 62 * k;
+    g.save(); g.beginPath(); g.arc(S / 2, S / 2, cr, 0, Math.PI * 2); g.clip();
+    if (la) { const s = Math.max(2 * cr / la.width, 2 * cr / la.height); g.drawImage(la, S / 2 - la.width * s / 2, S / 2 - la.height * s / 2, la.width * s, la.height * s); }
+    else { g.fillStyle = '#c8202c'; g.fillRect(S / 2 - cr, S / 2 - cr, 2 * cr, 2 * cr); }
+    g.fillStyle = '#0b0b0c'; g.beginPath(); g.arc(S / 2, S / 2, cr * 0.43, 0, Math.PI * 2); g.fill();   // the 45's own big hole
+    g.restore();
+  }
+  g.fillStyle = '#3a2c18'; g.textAlign = 'center'; g.font = `700 ${18 * k}px system-ui`; fitText2Center(g, r.title || '', S / 2, 34 * k, 220 * k);
+  g.font = `400 ${14 * k}px system-ui`; fitText2Center(g, r.artist || '', S / 2, 54 * k, 220 * k);
+}
 function assignCovers(list, slots) { // slots: [{ idx, p, q }] nearest first
   const want = slots.slice(0, COVER_N);
   coverPool.forEach((m, i) => {
     const s = want[i]; if (!s) { m.visible = false; return; }
     const r = list[s.idx];
-    m.position.copy(s.p).add(new THREE.Vector3(0, 0, 0.0009).applyQuaternion(s.q)); m.quaternion.copy(s.q); m.scale.set(1, s.sy ?? 1, 1); m.visible = true;   // #153: lid shut = squashed like the jacket (was poking through the floor)
+    m.position.copy(s.p).add(new THREE.Vector3(0, 0, 0.0009).applyQuaternion(s.q)); m.quaternion.copy(s.q); m.scale.set(s.sx ?? 1, s.sy ?? 1, 1); m.visible = true;   // #153: lid shut = squashed like the jacket (was poking through the floor)
     if (m.userData.rec !== r || (!m.userData.hasArt && artCache.get((r.sides.A || r.sides.B).id))) { m.userData.rec = r; drawJacket(m, r); }
     const t = r.sides.A || r.sides.B;
     if (t && !t.missing && !artCache.has(t.id)) fetchArt(t).then(a => { if (a && m.userData.rec === r) drawJacket(m, r); });
@@ -1336,7 +1401,7 @@ function drawCrateDiscLabel(r) {
     g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '600 22px system-ui'; fitText2(g, r ? r.title : '', 128, 170, 200);
     g.font = '700 18px system-ui'; g.fillText(r && r.bpm ? `${r.bpm.toFixed(r.bpm % 1 ? 1 : 0)} BPM` : '', 128, 200);
   }
-  g.fillStyle = '#000'; g.beginPath(); g.arc(128, 128, 6, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#000'; g.beginPath(); g.arc(128, 128, 128 * (crateDisc.userData.hole || 6 / 128), 0, Math.PI * 2); g.fill();
   g.restore(); tex.needsUpdate = true;
 }
 function layoutSleeves() {
@@ -1355,23 +1420,23 @@ function layoutSleeves() {
     const idx = start + k; sleeveMap[k] = idx < list.length ? idx : -1;
     if (k >= n) { m.makeScale(0, 0, 0); S.setMatrixAt(k, m); continue; }
     const rel = idx - crateState.sel;
-    let z = front - k * pitch, y = FLOOR + 0.001 + SH * hy / 2, tilt = -0.08;
-    const yDisc = 0.012 + 0.315 / 2 - 0.04;               // the record riding out keeps its old height
+    const r = list[idx], sh = sleeveDims(r).H, ks = sh / SH, hyr = shut ? Math.min(1, (CRATE.H - FLOOR - 0.006) / sh) : 1;   // #257 7" sleeves: smaller, standing lower
+    let z = front - k * pitch, y = FLOOR + 0.001 + sh * hyr / 2, tilt = -0.08;
+    const yDisc = 0.012 + sh / 2 - 0.04 * ks;              // the record riding out keeps its old height
     if (rel < 0) { tilt = 0.32; z += 0.012; }              // flipped past: lean toward the DJ
     if (rel === 0 && shut) tilt = 0.05;                   // lid shut: selection stays down in its sleeve
     else if (rel === 0) { tilt = 0.05; y += 0.012; }       // selected: sleeve nudged up, record pops out (below)
-    if (rel !== 0 || shut) y = Math.max(y, FLOOR + 0.001 + SH * hy / 2 * Math.cos(tilt) + 0.0007 * Math.abs(Math.sin(tilt)));
+    if (rel !== 0 || shut) y = Math.max(y, FLOOR + 0.001 + sh * hyr / 2 * Math.cos(tilt) + 0.0007 * Math.abs(Math.sin(tilt)));
     if (rel > 0) z -= 0.02;                                 // gap behind the selection
     e.set(tilt, 0, 0); q.setFromEuler(e); p.set(0, y, z);
-    const r = list[idx];
-    s.set(1, hy, r && r.missing ? 0.001 : 1);
+    s.set(ks, hyr * ks, r && r.missing ? 0.001 : 1);
     { const so = r && sleeveOf(r); if (so) { so.slotM = new THREE.Matrix4().compose(p, q, s); if (!so.back || so.back.t < 1) s.set(0, 0, 0); } }   // #229 / #242 that sleeve is out of the crate
     m.compose(p, q, s); S.setMatrixAt(k, m);
     if (rel === 0 && r && !r.missing && !shut) {
-      crateDisc.userData.target.set(0, yDisc + 0.012 + 0.315 / 2 - 0.005, z); crateDisc.userData.tilt = tilt;
+      crateDisc.userData.target.set(0, yDisc + 0.012 + sh / 2 - 0.005, z); crateDisc.userData.tilt = tilt;
       if (!crateDisc.visible) { crateDisc.position.set(0, yDisc + 0.012, z); crateDisc.visible = true; }
       if (crateDisc.userData.rec !== r) {
-        crateDisc.userData.rec = r; crateDisc.position.y = yDisc + 0.012; drawCrateDiscLabel(r);
+        crateDisc.userData.rec = r; crateDisc.position.y = yDisc + 0.012; crateDisc.userData.size(r); drawCrateDiscLabel(r);
         const t = r.sides.A || r.sides.B; // fetch cover art in the background for the label
         if (t && !t.missing && !artCache.has(t.id)) fetchArt(t).then(() => { if (crateDisc.userData.rec === r) drawCrateDiscLabel(r); });
       }
@@ -1383,7 +1448,7 @@ function layoutSleeves() {
     const idx = start + k, rel = idx - crateState.sel, r = list[idx];
     if (!r || r.missing || rel < -4 || rel > 5 || sleeveOf(r)) continue;
     S.getMatrixAt(k, m); m.decompose(p, q, s);
-    near.push({ idx, rel, p: p.clone(), q: q.clone(), sy: s.y });   // #153: covers squash with their jackets
+    near.push({ idx, rel, p: p.clone(), q: q.clone(), sx: s.x, sy: s.y });   // #153: covers squash with their jackets
   }
   near.sort((a, b) => (Math.abs(a.rel) + (a.rel > 0 ? 0.5 : 0)) - (Math.abs(b.rel) + (b.rel > 0 ? 0.5 : 0)));
   assignCovers(list, near);
@@ -1400,37 +1465,53 @@ function layoutSleeves() {
 // crate, on a real table in passthrough); let go over the record crate and it goes back in. Up to 3 can lie about:
 // a 4th sends the oldest back into the crate. Grab a lying sleeve anywhere on it to pick it up again, or slide its
 // record out. Each sleeve: a card box, a 1024 px front and back, a disc with the record's own label.
-const SLEEVE = { H: 0.315, PEEK: 0.05, OUT: 0.31, MAX_OUT: 3 };
+const SLEEVE = { H: 0.315, PEEK: 0.05, OUT: 0.31, MAX_OUT: 3, HOME_NEAR: 0.10, ARM_CLEAR: 0.25, ARM_MS: 5000 };   // #247 auto-return: 10 cm, armed 25 cm clear or after 5 s
+// #257 7" single sleeves: 184 mm (7.25") square
+const SLEEVE7 = { ...SLEEVE, H: 0.184, PEEK: 0.03, OUT: 0.18 };
+const sleeveDims = r => (r && r.size === 7 ? SLEEVE7 : SLEEVE);
 const sleeves = [];   // { rec, g, mesh, disc, tex: [front, back], anchor, off, s, hasRec, slotM, back, placedT }
 let sleeveOut = null;   // kept for older checks: the most recent sleeve (or null)
 const sleeveCard = new THREE.MeshStandardMaterial({ color: 0xd9d2c3, roughness: 0.85 });
 const sleeveVinyl = new THREE.MeshStandardMaterial({ color: 0x0b0b0c, roughness: 0.35, metalness: 0.1 });
 const sleeveDiscGeo = new THREE.CylinderGeometry(REC.R, REC.R, REC.THICK, 64), sleeveLabelGeo = new THREE.CircleGeometry(REC.LABEL, 40);
+const sleeveDiscGeo7 = new THREE.CylinderGeometry(REC7.R, REC7.R, REC7.THICK, 48), sleeveLabelGeo7 = new THREE.RingGeometry(REC7.HOLE, REC7.LABEL, 40);   // #257
 function sleeveOf(r) { return sleeves.find(x => x.rec === r && !x.gone) || null; }
 function canvasTex(size) { const c = document.createElement('canvas'); c.width = c.height = size; const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
 function makeSleeve(r) {
   const fT = canvasTex(1024), bT = canvasTex(1024), lT = canvasTex(256);
   const front = new THREE.MeshStandardMaterial({ map: fT, roughness: 0.7 }), back = new THREE.MeshStandardMaterial({ map: bT, roughness: 0.8 });
   // box faces: +x, -x, +y (the opening edge), -y, +z (front cover, toward you in the crate), -z (back)
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(SLEEVE.H, SLEEVE.H, 0.003), [sleeveCard, sleeveCard, sleeveCard, sleeveCard, front, back]);
+  const sz = sleeveDims(r), D = dimsOf(r), s7 = D === REC7;   // #257
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(sz.H, sz.H, 0.003), [sleeveCard, sleeveCard, sleeveCard, sleeveCard, front, back]);
   mesh.castShadow = true; mesh.userData.sleeveBody = true;
-  const disc = new THREE.Group(), dm = new THREE.Mesh(sleeveDiscGeo, sleeveVinyl); dm.rotation.x = Math.PI / 2; disc.add(dm);
+  const disc = new THREE.Group(), dm = new THREE.Mesh(s7 ? sleeveDiscGeo7 : sleeveDiscGeo, sleeveVinyl); dm.rotation.x = Math.PI / 2; disc.add(dm);
   const lm = new THREE.MeshStandardMaterial({ map: lT, roughness: 0.8 });
-  for (const zz of [1, -1]) { const l = new THREE.Mesh(sleeveLabelGeo, lm); l.position.z = zz * (REC.THICK / 2 + 0.0002); if (zz < 0) l.rotation.y = Math.PI; disc.add(l); }
+  for (const zz of [1, -1]) { const l = new THREE.Mesh(s7 ? sleeveLabelGeo7 : sleeveLabelGeo, lm); l.position.z = zz * (D.THICK / 2 + 0.0002); if (zz < 0) l.rotation.y = Math.PI; disc.add(l); }
   const g = new THREE.Group(); g.add(mesh, disc); scene.add(g);
-  const sl = { rec: r, g, mesh, disc, tex: [fT, bT, lT], mats: [front, back, lm], anchor: null, off: null, s: SLEEVE.PEEK, hasRec: true, slotM: null, back: null, placedT: 0 };
-  disc.position.set(0, SLEEVE.PEEK, 0);
+  const sl = { rec: r, sz, D, g, mesh, disc, tex: [fT, bT, lT], mats: [front, back, lm], anchor: null, off: null, s: sz.PEEK, hasRec: true, slotM: null, back: null, placedT: 0 };
+  disc.position.set(0, sz.PEEK, 0);
   drawSleeveArt(sl); return sl;
 }
 function drawSleeveArt(sl) {
   const r = sl.rec, t = r.sides.A || r.sides.B, art = t && artCache.get(t.id);
   const g = sl.tex[0].image.getContext('2d');
   if (art) { const k = Math.max(1024 / art.width, 1024 / art.height); g.drawImage(art, 512 - art.width * k / 2, 512 - art.height * k / 2, art.width * k, art.height * k); }
+  else if (r.size === 7) {   // #262 plain paper 45 sleeve with a real centre hole (the record inside shows through)
+    drawPlain7(g, 1024, r, true);
+    if (!sl.holeMap) {
+      const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+      x.fillStyle = '#fff'; x.fillRect(0, 0, 256, 256); x.fillStyle = '#000'; x.beginPath(); x.arc(128, 128, 62, 0, Math.PI * 2); x.fill();
+      sl.holeMap = new THREE.CanvasTexture(c); sl.tex.push(sl.holeMap);
+      for (const m of [sl.mats[0], sl.mats[1]]) { m.alphaMap = sl.holeMap; m.alphaTest = 0.5; m.needsUpdate = true; }
+      sl.mesh.material = [sleeveCard, sleeveCard, sleeveCard, sleeveCard, sl.mats[0], sl.mats[1]];
+    }
+  }
   else { const pm = coverPool.find(m => m.userData.rec === r); if (pm) g.drawImage(pm.userData.canvas, 0, 0, 1024, 1024); else { g.fillStyle = '#333'; g.fillRect(0, 0, 1024, 1024); } }
   sl.tex[0].needsUpdate = true;
   const b = sl.tex[1].image.getContext('2d');   // back: plain card with title and artist, unless the file has a Back cover (#231)
   b.fillStyle = '#d9d2c3'; b.fillRect(0, 0, 1024, 1024); b.fillStyle = '#2b2b2b'; b.textAlign = 'center';
   b.font = '700 60px system-ui'; fitText2Center(b, r.title || '', 512, 480, 880); b.font = '400 52px system-ui'; fitText2Center(b, r.artist || '', 512, 568, 880);
+  if (r.size === 7 && !art) drawPlain7(b, 1024, r, true);   // #262 both sides of a paper sleeve
   sl.tex[1].needsUpdate = true;
   const bb = t && backBlobs.get(t.id);
   if (bb) createImageBitmap(bb).then(im => { if (sl.gone) return; const k = Math.max(1024 / im.width, 1024 / im.height); b.drawImage(im, 512 - im.width * k / 2, 512 - im.height * k / 2, im.width * k, im.height * k); im.close && im.close(); sl.tex[1].needsUpdate = true; }).catch(() => {});
@@ -1456,13 +1537,13 @@ function sleeveGrabTest(P) {
   for (const sl of sleeves) {
     if (sl.anchor || sl.back) continue;
     sl.g.updateMatrixWorld(); const l = sl.g.worldToLocal(P.clone());
-    if (Math.abs(l.x) < SLEEVE.H / 2 + 0.02 && Math.abs(l.y) < SLEEVE.H / 2 + 0.02 && Math.abs(l.z) < 0.04) return { sl };
+    if (Math.abs(l.x) < sl.sz.H / 2 + 0.02 && Math.abs(l.y) < sl.sz.H / 2 + 0.02 && Math.abs(l.z) < 0.04) return { sl };
   }
   if (!crateLidOpen() || !crateDisc.visible) return null;
   const r = currentList()[crateState.sel]; if (!r || r.missing || sleeveOf(r)) return null;
   const pose = selectedSlotPose(); if (!pose) return null;
   const cl = crate.worldToLocal(P.clone());
-  return Math.abs(cl.x) < SLEEVE.H / 2 + 0.02 && Math.abs(cl.z - pose.p.z) < 0.03 && cl.y > -0.01 && cl.y < CRATE.H - 0.07 ? { crate: true } : null;   // #242 edges and lower corners too
+  return Math.abs(cl.x) < sleeveDims(r).H / 2 + 0.02 && Math.abs(cl.z - pose.p.z) < 0.03 && cl.y > -0.01 && cl.y < Math.min(CRATE.H - 0.07, 0.013 + sleeveDims(r).H - 0.04) ? { crate: true } : null;   // #242 edges and lower corners too
 }
 function sleeveGrab(anchor, P) {
   const hit = P ? sleeveGrabTest(P) : { crate: true }; if (!hit) return false;
@@ -1475,6 +1556,7 @@ function sleeveGrab(anchor, P) {
   }
   sl.g.updateMatrixWorld(); anchor.updateMatrixWorld();
   sl.anchor = anchor; sl.off = new THREE.Matrix4().copy(anchor.matrixWorld).invert().multiply(sl.g.matrixWorld);
+  sl.grabT = performance.now(); sl.armed = false;   // #247 auto-return near the crate arms once it has clearly left
   refreshSleeveColliders();   // #243 the gear as it stands now
   sleeveOut = sl; layoutSleeves(); return true;
 }
@@ -1484,8 +1566,8 @@ function sleeveSlideTest(P, anchor = null) {
   for (const sl of sleeves) {
     if (sl.back || !sl.hasRec || (anchor && sl.anchor === anchor)) continue;
     sl.g.updateMatrixWorld(); const l = sl.g.worldToLocal(P.clone());
-    const top = SLEEVE.H / 2, discTop = sl.s + REC.R;
-    if (Math.abs(l.x) < REC.R && Math.abs(l.z) < 0.05 && l.y > top - 0.03 && l.y < discTop + 0.04) return { sl, y0: l.y, s0: sl.s };
+    const top = sl.sz.H / 2, discTop = sl.s + sl.D.R;
+    if (Math.abs(l.x) < sl.D.R && Math.abs(l.z) < 0.05 && l.y > top - 0.03 && l.y < discTop + 0.04) return { sl, y0: l.y, s0: sl.s };
   }
   return null;
 }
@@ -1493,9 +1575,9 @@ function sleeveSlideTest(P, anchor = null) {
 function sleeveSlideTo(P, g) {
   const sl = g.sl; if (!sl || sl.gone || sl.back || !sl.hasRec) return null;
   const l = sl.g.worldToLocal(P.clone());
-  sl.s = Math.max(0, Math.min(SLEEVE.OUT + 0.02, g.s0 + (l.y - g.y0)));
+  sl.s = Math.max(0, Math.min(sl.sz.OUT + 0.02, g.s0 + (l.y - g.y0)));
   sl.disc.position.y = sl.s;
-  return sl.s >= SLEEVE.OUT ? 'out' : 'in';
+  return sl.s >= sl.sz.OUT ? 'out' : 'in';
 }
 // the record left its sleeve into a hand (not through the crate's selection: the sleeve may come from any list)
 function sleevePulled(g, attach) {
@@ -1529,20 +1611,39 @@ function stepSleeves(dt) {
       if (b.t >= 1) { disposeSleeve(sl); layoutSleeves(); }
       continue;
     }
-    if (sl.anchor) { sl.anchor.updateMatrixWorld(); sleeveFollow(sl); }   // #243 kinematic: stopped by the gear
+    if (sl.anchor) {
+      sl.anchor.updateMatrixWorld(); sleeveFollow(sl);   // #243 kinematic: stopped by the gear
+      // #247 (owner): a held sleeve brought within 10 cm (4 in) of the record crate goes back in by itself. Armed only
+      // once it has clearly left: 25 cm clear of the crate, or 5 s after the grab, so pulling one out never sends it
+      // straight back.
+      const d = sleeveCrateDist(sl);
+      if (!sl.armed && (d > SLEEVE.ARM_CLEAR || performance.now() - (sl.grabT || 0) > SLEEVE.ARM_MS)) sl.armed = true;
+      if (sl.armed && d < SLEEVE.HOME_NEAR && crateLidOpen()) { const a = sl.anchor; sleeveReturn(sl); if (xr && xr.buzzAnchor) xr.buzzAnchor(a, 0.4, 30); }
+    }
   }
+}
+// #247 nearest gap between the sleeve (its 4 corners and centre) and the record crate's box (crate space)
+function sleeveCrateDist(sl) {
+  sl.g.updateMatrixWorld(); let best = Infinity; const h = sl.sz.H / 2, v = _sc.v2 || (_sc.v2 = new THREE.Vector3());
+  for (const [x, y] of [[0, 0], [-h, -h], [h, -h], [-h, h], [h, h]]) {
+    crate.worldToLocal(sl.g.localToWorld(v.set(x, y, 0)));
+    const dx = Math.max(0, Math.abs(v.x) - CRATE.W / 2), dz = Math.max(0, Math.abs(v.z) - CRATE.D / 2), dy = Math.max(0, -v.y, v.y - CRATE.H);
+    best = Math.min(best, Math.hypot(dx, dy, dz));
+  }
+  return best;
 }
 // #242 tidy-up (each VR / passthrough start, as the Quest may keep the page alive between sessions): sleeves, records
 // in hands, on the floor, on cases, spinning on a finger and in the milk crates go back into the crate; a record stays
 // on a deck only while that deck's motor runs (a playing set is never interrupted).
 function tidyRecords() {
-  sleevesHome();
+  sleevesHome(); spidersHome();   // #256
   if (held) returnHeld();
   for (const L of [...loose]) { const g = L.rec.group; if (g.parent) g.parent.remove(g); L.rec.dispose(); }
   loose.length = 0;
   for (const mc of milks()) if (mc.userData.records) mc.userData.records.length = 0;
   for (const d of decks) if (d.record && !d.motorOn) { pickUpFromDeck(d, null); returnHeld(); }
   layoutSleeves(); drawCrateScreen();
+  refreshSleeveColliders();   // #250 works out the gear's pieces now (once), not on the first sleeve grab
 }
 // #243 sleeves are kinematic (owner): no gravity, the hand moves them, but they can't go into the gear. The decks, the
 // mixer and the flight case are oriented boxes measured from their own meshes when a sleeve is grabbed (records on
@@ -1565,9 +1666,64 @@ function localBox(obj) {   // obj-space box of its visible meshes, skipping reco
   };
   walk(obj); return box.isEmpty() ? null : box;
 }
+// #247 (owner: hug the gear tighter): one box per visible part instead of one around everything. Parts under 5 cm
+// (knobs, buttons, screws) are left out; a box that wraps another one holding 80 %+ of its volume (the flight case's
+// alu edge trim around the panels) gives way to the inner one; boxes inside another are dropped. So a sleeve can
+// lie on the plinth next to the tonearm and go right up to the case's panels.
+// #250 the connected pieces of a geometry (vertices welded at 0.1 mm), as boxes in the geometry's own space,
+// worked out once per geometry. A piece is 'round' when its outline in plan is about as far from its centre at
+// 45 deg as along the axes (a disc / cylinder, not a square block).
+function partBoxes(geo) {
+  if (geo.userData.__parts) return geo.userData.__parts;
+  const pos = geo.attributes.position, n = pos.count, idx = geo.index, par = new Int32Array(n);
+  for (let i = 0; i < n; i++) par[i] = i;
+  const find = x => { while (par[x] !== x) { par[x] = par[par[x]]; x = par[x]; } return x; };
+  const join = (a, b) => { a = find(a); b = find(b); if (a !== b) par[a] = b; };
+  const seen = new Map();
+  for (let i = 0; i < n; i++) { const k = Math.round(pos.getX(i) * 1e4) + ',' + Math.round(pos.getY(i) * 1e4) + ',' + Math.round(pos.getZ(i) * 1e4); const j = seen.get(k); if (j !== undefined) join(i, j); else seen.set(k, i); }
+  if (idx) for (let t = 0; t < idx.count; t += 3) { join(idx.getX(t), idx.getX(t + 1)); join(idx.getX(t), idx.getX(t + 2)); }
+  else for (let t = 0; t + 2 < n; t += 3) { join(t, t + 1); join(t, t + 2); }
+  const boxes = new Map(), v = new THREE.Vector3();
+  for (let i = 0; i < n; i++) { const c = find(i); let b = boxes.get(c); if (!b) boxes.set(c, b = new THREE.Box3()); b.expandByPoint(v.fromBufferAttribute(pos, i)); }
+  const out = [...boxes.values()];
+  // roundness: farthest vertex along the 45 deg diagonal vs the half-width (a disc ~0.71, a square 1.0)
+  const diag = new Map(); for (let i = 0; i < n; i++) { const c = find(i), b = boxes.get(c), cx = (b.min.x + b.max.x) / 2, cz = (b.min.z + b.max.z) / 2; const d = Math.abs((pos.getX(i) - cx) + (pos.getZ(i) - cz)) / Math.SQRT2; if (!(diag.get(c) > d)) diag.set(c, d); }
+  for (const [c, b] of boxes) { const hw = (b.max.x - b.min.x) / 2; b.userData_round = hw > 0 && diag.get(c) < 0.85 * hw * Math.SQRT2; }
+  return (geo.userData.__parts = out);
+}
+function localBoxes(obj) {
+  obj.updateMatrixWorld(true); _sc.inv.copy(obj.matrixWorld).invert();
+  const out = [], skip = new Set([mixer.userData.tablet].filter(Boolean)), sz = new THREE.Vector3();
+  const walk = o => {
+    if (!o.visible || skip.has(o) || o.userData.record || o.userData.loose) return;
+    if (o.isMesh && o.geometry && !o.isInstancedMesh) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      if (!mats.every(x => x && x.visible === false)) {
+        _sc.m.multiplyMatrices(_sc.inv, o.matrixWorld);
+        for (const pb of partBoxes(o.geometry)) {   // #250 each separate piece of a merged mesh (four feet, not one slab)
+          const b = pb.clone().applyMatrix4(_sc.m); b.getSize(sz);
+          const big = Math.max(sz.x, sz.y, sz.z); if (big < 0.03 || big >= 3) continue;
+          // round pieces (feet, platter: width = depth, not taller than wide) get a box 10 % narrower, about the
+          // area of the disc, so the corners poke out only a few mm past the rim
+          if (Math.abs(sz.x - sz.z) < 0.1 * Math.max(sz.x, sz.z) && sz.y < 1.2 * sz.x && pb.userData_round) {
+            const c = b.getCenter(_sc.v); b.min.x = c.x - sz.x * 0.45; b.max.x = c.x + sz.x * 0.45; b.min.z = c.z - sz.z * 0.45; b.max.z = c.z + sz.z * 0.45;
+          }
+          out.push(b);
+        }
+      }
+    }
+    for (const c of o.children) walk(c);
+  };
+  walk(obj);
+  const vol = b => { b.getSize(sz); return Math.max(sz.x, 1e-3) * Math.max(sz.y, 1e-3) * Math.max(sz.z, 1e-3); };
+  const keep = out.filter(a => !out.some(b => b !== a && a.containsBox(b) && vol(b) >= 0.8 * vol(a)));   // shells give way to what they wrap
+  return keep.filter((a, i) => !keep.some((b, j) => j !== i && b.containsBox(a) && !(a.equals(b) && j > i)));
+}
 function refreshSleeveColliders() {
   sleeveColliders = [];
-  for (const o of [...deckGroups, mixer, ...Object.values(cases).map(c => c.group)]) { const b = localBox(o); if (b) sleeveColliders.push({ o, b }); }
+  for (const o of [...deckGroups, mixer, ...Object.values(cases).map(c => c.group)]) {
+    for (const b of localBoxes(o)) sleeveColliders.push({ o, b });
+  }
 }
 // an oriented box as centre, three unit axes and half sizes
 function obbOf(matrixWorld, box, out) {
@@ -1593,16 +1749,19 @@ function obbPush(A, B) {
   return best === Infinity ? null : new THREE.Vector3(bx, by, bz).multiplyScalar(best + 0.001);
 }
 function sleeveBox(sl) {   // the sleeve plus the record peeking out of it, sleeve-local
-  const top = sl.hasRec ? Math.max(SLEEVE.H / 2, sl.s + REC.R) : SLEEVE.H / 2;
-  return new THREE.Box3(new THREE.Vector3(-SLEEVE.H / 2, -SLEEVE.H / 2, -0.004), new THREE.Vector3(SLEEVE.H / 2, top, 0.004));
+  const H = sl.sz.H, top = sl.hasRec ? Math.max(H / 2, sl.s + sl.D.R) : H / 2;
+  return new THREE.Box3(new THREE.Vector3(-H / 2, -H / 2, -0.004), new THREE.Vector3(H / 2, top, 0.004));
 }
 function sleeveDepen(sl, pos, q, sb) {   // push pos out of every collider (a few passes); true if it touched one
   let hit = false;
   for (let pass = 0; pass < 4; pass++) {
     let moved = false;
     _sc.m.compose(pos, q, _sc.s.set(1, 1, 1)); obbOf(_sc.m, sb, _oA);
+    const rA = Math.hypot(_oA.h[0], _oA.h[1], _oA.h[2]);
     for (const C of sleeveColliders) {
-      obbOf(C.o.matrixWorld, C.b, _oB); const push = obbPush(_oA, _oB);
+      obbOf(C.o.matrixWorld, C.b, _oB);
+      if (_oB.c.distanceTo(_oA.c) > rA + Math.hypot(_oB.h[0], _oB.h[1], _oB.h[2]) + 0.01) continue;   // far apart: skip the full test
+      const push = obbPush(_oA, _oB);
       if (push) { pos.add(push); _oA.c.add(push); hit = moved = true; }
     }
     if (!moved) break;
@@ -1626,6 +1785,68 @@ function sleeveFollow(sl) {   // the held sleeve toward the hand, stopped by the
   sl.g.position.copy(p); sl.g.quaternion.copy(q);
   if (hit && !sl.touch && xr && xr.buzzAnchor) xr.buzzAnchor(sl.anchor, 0.3, 20);
   sl.touch = hit;
+}
+// #256 45 adapters ('spiders'): each deck's lives in its top-left recess. Grab it (grip / pinch), let go over a
+// spindle and it sits on it (riding the platter), over an empty recess and it drops in, anywhere else and it stays
+// where it is (no physics, like the sleeves). Tidy-up at VR start puts them home.
+const _spv = new THREE.Vector3(), _sps = new THREE.Vector3(), _spm = new THREE.Matrix4();
+const spiders = decks.map(d => d.g.userData.spider ? { d, g: d.g.userData.spider, h: d.g.userData.spiderH || 0.003, anchor: null, off: null, on: null, home: d } : null).filter(Boolean);
+for (const s of spiders) s.d.recess = s;
+function spiderGrabTest(P) {
+  for (const s of spiders) { if (s.anchor || (s.on && s.on.record)) continue; s.g.getWorldPosition(_spv); if (_spv.distanceTo(P) < 0.035) return s; }   // #260 not from under a record
+  return null;
+}
+function spiderGrab(s, anchor) {
+  if (s.on) { s.on.spiderOn = null; s.on = null; }
+  for (const d of decks) if (d.recess === s) d.recess = null;
+  rig.attach(s.g); anchor.updateMatrixWorld(); s.g.updateMatrixWorld();
+  s.anchor = anchor; s.off = new THREE.Matrix4().copy(anchor.matrixWorld).invert().multiply(s.g.matrixWorld);
+}
+function stepSpiders() {
+  for (const s of spiders) if (s.anchor) {
+    s.anchor.updateMatrixWorld(); _spm.multiplyMatrices(s.anchor.matrixWorld, s.off);
+    s.g.parent.updateMatrixWorld(); _spm.premultiply(new THREE.Matrix4().copy(s.g.parent.matrixWorld).invert()); _spm.decompose(s.g.position, s.g.quaternion, _sps);
+  }
+}
+function spiderOnSpindle(s, d) {
+  const u = d.g.userData; u.platter.add(s.g);
+  s.g.position.set(0, (u.platterSurface - u.platter.position.y) + s.h / 2, 0); s.g.quaternion.identity();   // #260 on the mat (a 45 goes round it)
+  s.on = d; d.spiderOn = s;
+}
+function spiderToRecess(s, d) {
+  const u = d.g.userData; d.g.add(s.g); s.g.position.copy(u.spiderHome.p); s.g.quaternion.copy(u.spiderHome.q); d.recess = s;
+}
+function spiderRelease(anchor) {
+  const s = spiders.find(x => x.anchor === anchor); if (!s) return;
+  s.anchor = null; const p = s.g.getWorldPosition(new THREE.Vector3());
+  for (const d of decks) {
+    const u = d.g.userData, l = d.g.worldToLocal(p.clone());
+    if (!d.spiderOn && Math.hypot(l.x - DECK.spindle.x, l.z - DECK.spindle.z) < 0.03 && l.y > u.platterSurface - 0.03 && l.y < u.platterSurface + 0.08) { spiderOnSpindle(s, d); return; }
+    if (!d.recess && u.spiderHome && l.distanceTo(u.spiderHome.p) < 0.045) { spiderToRecess(s, d); return; }
+  }
+  // anywhere else: it stays put (already in rig space), turned level
+  const e = new THREE.Euler().setFromQuaternion(s.g.quaternion, 'YXZ'); s.g.quaternion.setFromEuler(e.set(0, e.y, 0, 'YXZ'));
+}
+// #262 the phone mirrors the adapters: where each one is (recess / spindle of deck i / free in rig space)
+function spidersState() {
+  const r4 = v => Math.round(v * 1e4) / 1e4;
+  return spiders.map(s => s.on ? ['s', decks.indexOf(s.on)] : decks.find(d => d.recess === s) ? ['r', decks.findIndex(d => d.recess === s)]
+    : ['f', ...s.g.position.toArray().map(r4), ...s.g.quaternion.toArray().map(r4)]);
+}
+function spidersApply(a) {
+  if (!Array.isArray(a)) return;
+  for (const d of decks) { d.recess = null; d.spiderOn = null; }
+  spiders.forEach((s, i) => {
+    const e = a[i]; if (!e) return; s.on = null; s.anchor = null;
+    if (e[0] === 's' && decks[e[1]]) spiderOnSpindle(s, decks[e[1]]);
+    else if (e[0] === 'r' && decks[e[1]]) spiderToRecess(s, decks[e[1]]);
+    else if (e[0] === 'f') { rig.add(s.g); s.g.position.set(e[1], e[2], e[3]); s.g.quaternion.set(e[4], e[5], e[6], e[7]); }
+  });
+}
+function spidersHome() {
+  for (const s of spiders) { s.anchor = null; if (s.on) { s.on.spiderOn = null; s.on = null; } }
+  for (const d of decks) d.recess = null;
+  for (const s of spiders) spiderToRecess(s, s.home);
 }
 function sleevesHome() { for (const sl of [...sleeves]) disposeSleeve(sl); layoutSleeves(); }   // #242 tidy-up: all back at once
 function crateSelect(delta) {
@@ -1682,6 +1903,7 @@ function pickUpFromDeck(d, attach) {
   if (held) returnHeld();
   liftNeedle(d, true); d.loadToken++; engine.unload(d.i);
   const r = d.record; d.record = null; d.loaded = false; d.track = null; d.side = null;
+  r.disc.position.x = 0; d.wob = 0;   // #260 off the spindle: centred in the hand again
   engine.post({ type: 'record', deck: d.i, on: false });
   d.g.remove(r.group); scene.add(r.group);
   for (const m of d.g.userData.slipmat || []) m.visible = true;
@@ -1996,7 +2218,7 @@ function surfaceUnder(p) {
     const l = d.g.worldToLocal(_su.copy(p));
     const onPlatter = Math.hypot(l.x - DECK.spindle.x, l.z - DECK.spindle.z) < 0.12;
     let ly = -Infinity;
-    if (onPlatter) ly = d.g.userData.platterSurface + (d.record ? REC.THICK + 0.001 : 0);
+    if (onPlatter) ly = d.g.userData.platterSurface + (d.record ? recD(d).THICK + 0.001 : 0);
     else if (Math.hypot(l.x - DECK.spindle.x, l.z - DECK.spindle.z) < 0.168) ly = d.g.userData.platterSurface;
     ly = Math.max(ly, deckHF(l.x, l.z));
     if (ly === -Infinity) continue;
@@ -2113,6 +2335,12 @@ function leanIfAgainstSide(L) {
     if (best) break;   // nearest ring with a rise wins
   }
   if (!best) return;
+  // #253 (owner): a turntable stands on feet with a gap under its body: a record put down against one slides
+  // under it and stays flat (no 45 deg lean against the deck)
+  for (const dg of deckGroups) {
+    const l = dg.worldToLocal(probe.set(c.x + best.dx * best.w, best.h - 0.01, c.z + best.dz * best.w));
+    if (Math.abs(l.x) < 0.24 && Math.abs(l.z) < 0.19) return;
+  }
   const lean = Math.PI / 4, dh = best.h - base.y, R2 = 2 * R_DISC;
   const b = Math.min(dh / Math.tan(lean), R2 * Math.cos(lean));     // bottom edge distance from the obstacle
   const d = new THREE.Vector3(best.dx, 0, best.dz);
@@ -2144,11 +2372,18 @@ async function placeOnDeck(d, rec3d) {
   }
   d.record = rec3d;
   scene.remove(rec3d.group);
-  rec3d.group.position.set(DECK.spindle.x, d.g.userData.platterSurface + REC.THICK / 2, DECK.spindle.z);
+  const D = rec3d.dims || REC;
+  if (D === REC && d.spiderOn) { const s = d.spiderOn; d.spiderOn = null; s.on = null; for (const dd of decks) if (!dd.recess) { spiderToRecess(s, dd); break; } toast('45 adapter back in its recess (a 12" needs the bare spindle)', 2200); }   // #260
+  rec3d.group.position.set(DECK.spindle.x, d.g.userData.platterSurface + D.THICK / 2, DECK.spindle.z);
   rec3d.group.quaternion.identity(); rec3d.group.scale.setScalar(1);
   d.g.add(rec3d.group);
-  for (const m of d.g.userData.slipmat || []) m.visible = false; // the record covers the mat; hiding it avoids depth fighting
-  engine.post({ type: 'record', deck: d.i, on: true });   // #120: it lands still; the slipmat pulls it up to platter speed
+  for (const m of d.g.userData.slipmat || []) m.visible = D !== REC; // a 12" covers the mat (hidden: no depth fighting); a 7" leaves it showing
+  // #260 a 45 needs the adapter on the spindle; without it the big hole sits off-centre on the bare pin: it wobbles
+  // (and the tonearm with it) and the music has wow, like the real thing
+  d.wob = D === REC7 && !d.spiderOn ? WOB_E : 0; rec3d.disc.position.x = d.wob;
+  engine.deck(d.i, 'wobble', 0);
+  if (d.wob) toast(`Deck ${d.name}: no 45 adapter on the spindle, the record wobbles`, 2500);
+  engine.post({ type: 'record', deck: d.i, on: true, size: D === REC7 ? 7 : 12 });   // #120: it lands still; the slipmat pulls it up to platter speed (#261: a 45 is light)
   d.recAngle = d.platterAngle;
   layoutSleeves();
   await loadSide(d);
@@ -2212,23 +2447,26 @@ function setPower(d, on) {
   if (on) d.motorWasOn = false;
 }
 function setSpeed(d, s) { d.speed = s; engine.deck(d.i, 'speed', s); }
-// #230 centre click like an SL1200: from the hand, within 0.5% of zero it clicks to exactly 0 and holds there until
-// the fader is pushed 1.2% away (about 4 mm of travel), then lets go with a small jump, the feel of a detent.
-// Returns 'detent' on the frame it clicks in (the hand code buzzes the controller).
-const PITCH_IN = 0.005, PITCH_OUT = 0.012;
-function setPitch(d, p, fromUser = false) {
-  p = clamp(p, -PITCH_RANGE, PITCH_RANGE);
-  let ev = null;
-  if (fromUser) {
-    if (d.pitchLock) { if (Math.abs(p) < PITCH_OUT) p = 0; else d.pitchLock = false; }
-    else if (Math.abs(p) < PITCH_IN) { p = 0; d.pitchLock = true; ev = 'detent'; }
-  } else d.pitchLock = p === 0;
+// #253 (owner): no centre click any more (#230's snap made +-0.5 % unreachable, so matched records drifted); the
+// green LED at the fader shows zero (within 0.05 %). The fader covers +-d.range (X2 button: 8 or 16 %).
+function setPitch(d, p) {
+  p = clamp(p, -d.range, d.range);
   d.pitch = p; engine.deck(d.i, 'pitch', p);
   const t = d.g.userData.pitchTravel;
-  d.g.userData.pitchCap.position.z = (t.z0 + t.z1) / 2 + (p / PITCH_RANGE) * (t.z1 - t.z0) / 2;
-  return ev;
+  d.g.userData.pitchCap.position.z = (t.z0 + t.z1) / 2 + (p / d.range) * (t.z1 - t.z0) / 2;
+  return null;
+}
+// X2: the fader stays where it is, so the pitch scales with the range (as on the MK7)
+function setPitchRange(d, r) {
+  const f = d.pitch / d.range; d.range = r; setPitch(d, f * r);
+  settings.pitchRange = { ...(settings.pitchRange || {}), [d.i]: r }; saveSettings();
+  toast(`Deck ${d.name}: pitch range \u00b1${Math.round(r * 100)} %`, 1500);
 }
 
+// #260 per-record sizes on a deck (12" or 7"), the off-centre 45
+const WOB_E = 0.010;   // how far a 45's 38 mm hole sits off the 7 mm spindle (it can't do more than 15 mm)
+const recD = d => (d.record && d.record.dims) || REC;
+function stylusAngle(d) { const u = d.g.userData, y = d.arm.yaw; return Math.atan2(u.pivot.z + ARM.L * Math.cos(y) - DECK.spindle.z, u.pivot.x + ARM.L * Math.sin(y) - DECK.spindle.x); }
 // tonearm
 function restYaw(d) { return d.g.userData.restYaw || 0; }
 function armTilt(u, lift) { return (u.armDown || 0) - (u.armLift || 0.075) * lift; }
@@ -2243,7 +2481,7 @@ function dropNeedleAt(d, time) {
   d.arm.parking = false;
   d.arm.targetLift = 1;
   d.arm.cueTime = time;
-  d.arm.targetYaw = armYawForRadius(d.g.userData.pivot, DECK.spindle, timeToRadius(time, d.duration));
+  d.arm.targetYaw = armYawForRadius(d.g.userData.pivot, DECK.spindle, timeToRadius(time, d.duration, recD(d)));
   d.arm.onLand = () => { engine.post({ type: 'seek', deck: d.i, time: d.arm.cueTime }); engine.deck(d.i, 'needle', true); };
   d.arm.wantDown = true;
 }
@@ -2255,7 +2493,7 @@ function armGrab(d) {
   const a = d.arm, st = engine.state.decks[d.i];
   a.manual = true; a.manualYaw = a.yaw; a.onLand = null; a.wantDown = false; a.auto = false; a.pendingR = null; a.prevR = armRadius(d, a.yaw);
   if (st.needle && d.loaded) {
-    a.dragDown = true; a.lastDragT = radiusToTime(armRadius(d, a.yaw), d.duration);
+    a.dragDown = true; a.lastDragT = radiusToTime(armRadius(d, a.yaw), d.duration, recD(d));
     engine.post({ type: 'needleDrag', deck: d.i, active: true });
   } else { a.dragDown = false; liftNeedle(d, false); }
 }
@@ -2264,24 +2502,24 @@ function endNeedleDrag(d) { if (d.arm.dragDown) { d.arm.dragDown = false; engine
 // #104 (owner): carrying the raised arm in over the record, the needle finds it by itself: once the stylus
 // crosses into the lead-in (from outside the disc edge inwards, up to the first music groove) the arm leaves
 // the hand, settles on the first groove and lowers gently onto it, so the record plays from its start.
-const DROP_OUT = REC.EDGE + 0.003, DROP_IN = REC.OUT;
 function armDrag(d, yaw, lift = 0) {
   const a = d.arm; if (a.auto) return 'dropped';
+  const D = recD(d), DROP_OUT = D.EDGE + 0.003, DROP_IN = D.OUT;   // #260 per record
   a.manualYaw = clamp(yaw, -1.2, 0.25);
   if (!a.dragDown) {
     const r = armRadius(d, a.manualYaw), was = a.prevR; a.prevR = r;
     if (d.loaded && d.record && was > DROP_OUT && r <= DROP_OUT && r >= DROP_IN - 0.004) {
       a.auto = true; a.manual = false;
-      a.yaw = a.targetYaw = armYawForRadius(d.g.userData.pivot, DECK.spindle, REC.OUT);
-      a.parking = false; a.wantDown = true; a.cueTime = radiusToTime(REC.OUT, d.duration);
+      a.yaw = a.targetYaw = armYawForRadius(d.g.userData.pivot, DECK.spindle, D.OUT);
+      a.parking = false; a.wantDown = true; a.cueTime = radiusToTime(D.OUT, d.duration, D);
       a.onLand = () => { engine.post({ type: 'seek', deck: d.i, time: a.cueTime }); engine.deck(d.i, 'needle', true); };
       return 'drop';
     }
     return;
   }
   const r = armRadius(d, a.manualYaw);
-  if (lift > 0.07 || r > REC.EDGE + 0.002 || r < REC.IN - 0.006) { endNeedleDrag(d); liftNeedle(d, false); return; }   // 7 cm up lifts (owner)
-  const T = radiusToTime(Math.min(REC.EDGE, Math.max(REC.IN, r)), d.duration), dT = T - a.lastDragT;
+  if (lift > 0.07 || r > D.EDGE + 0.002 || r < D.IN - 0.006) { endNeedleDrag(d); liftNeedle(d, false); return; }   // 7 cm up lifts (owner)
+  const T = radiusToTime(Math.min(D.EDGE, Math.max(D.IN, r)), d.duration, D), dT = T - a.lastDragT;
   if (Math.abs(dT) > 1e-4) { a.lastDragT = T; engine.post({ type: 'needleDrag', deck: d.i, delta: dT }); }
 }
 // let go without dropping anywhere new (desktop click on the arm)
@@ -2292,14 +2530,14 @@ function armRelease(d) {
   a.manual = false; a.yaw = a.manualYaw;
   const u = d.g.userData;
   const nx = u.pivot.x + ARM.L * Math.sin(a.yaw), nz = u.pivot.z + ARM.L * Math.cos(a.yaw);
-  const r = Math.hypot(nx - DECK.spindle.x, nz - DECK.spindle.z);
-  if (d.loaded && r < REC.EDGE && r > REC.IN - 0.004) {
-    a.cueTime = radiusToTime(r, d.duration); a.targetYaw = a.yaw; a.parking = false; a.wantDown = true;
+  const r = Math.hypot(nx - DECK.spindle.x, nz - DECK.spindle.z), D = recD(d);
+  if (d.loaded && r < D.EDGE && r > D.IN - 0.004) {
+    a.cueTime = radiusToTime(r, d.duration, D); a.targetYaw = a.yaw; a.parking = false; a.wantDown = true;
     a.onLand = () => { engine.post({ type: 'seek', deck: d.i, time: a.cueTime }); engine.deck(d.i, 'needle', true); };
-  } else if (d.record && d.track && !d.loaded && r < REC.EDGE && r > REC.IN - 0.004) {
+  } else if (d.record && d.track && !d.loaded && r < D.EDGE && r > D.IN - 0.004) {
     // #181 (owner): let go over a record whose grooves are still loading: hover there and drop by itself once it's ready
     a.targetYaw = a.yaw; a.parking = false; a.pendingR = r;
-  } else { a.targetYaw = a.yaw; a.parking = r > REC.R; }
+  } else { a.targetYaw = a.yaw; a.parking = r > D.R; }
 }
 function updateArm(d, dt) {
   const a = d.arm, u = d.g.userData;
@@ -2307,7 +2545,7 @@ function updateArm(d, dt) {
   if (a.pendingR != null) {   // #181: arm waiting over a loading record
     if (a.manual || !d.record || !d.track) a.pendingR = null;
     else if (d.loaded) {
-      a.cueTime = radiusToTime(a.pendingR, d.duration); a.pendingR = null; a.targetYaw = a.yaw; a.wantDown = true;
+      a.cueTime = radiusToTime(a.pendingR, d.duration, recD(d)); a.pendingR = null; a.targetYaw = a.yaw; a.wantDown = true;
       a.onLand = () => { engine.post({ type: 'seek', deck: d.i, time: a.cueTime }); engine.deck(d.i, 'needle', true); };
     }
   }
@@ -2317,7 +2555,12 @@ function updateArm(d, dt) {
   }
   if (st.needle && d.loaded) {
     // stylus rides the groove
-    const r = timeToRadius(engine.pos(d.i), d.duration);
+    let r = timeToRadius(engine.pos(d.i), d.duration, recD(d));
+    if (d.wob) {   // #260 the off-centre 45 swings the arm in and out once a turn, and the music wows with it
+      const ph = stylusAngle(d); r += d.wob * Math.cos(d.recAngle - ph);
+      const depth = Math.round(d.wob / Math.max(0.03, r) * 1000) / 1000;
+      if (depth !== d.wobSent) { d.wobSent = depth; engine.deck(d.i, 'wobble', depth); engine.deck(d.i, 'wobPh', ph); }
+    } else if (d.wobSent) { d.wobSent = 0; engine.deck(d.i, 'wobble', 0); }
     a.yaw = a.targetYaw = armYawForRadius(u.pivot, DECK.spindle, r);
     a.lift = a.targetLift = 0;
   } else {
@@ -2352,8 +2595,8 @@ function doSync() {
   if (!ba || !bb) { flashSync('red'); toast(`LOCK needs a BPM on both decks (no BPM on deck ${!ba && !bb ? 'A or B' : !ba ? 'A' : 'B'}: tap BEAT 1 on the beat)`, 2600); return; }
   const target = (effBpm(a) + effBpm(b)) / 2;
   const pa = target / (ba * a.speed) - 1, pb = target / (bb * b.speed) - 1;
-  if (Math.abs(pa) > PITCH_RANGE + 1e-6 || Math.abs(pb) > PITCH_RANGE + 1e-6) {
-    flashSync('red'); toast(`Meeting point ${target.toFixed(1)} BPM is outside ±16% for one deck`); return;
+  if (Math.abs(pa) > a.range + 1e-6 || Math.abs(pb) > b.range + 1e-6) {
+    flashSync('red'); toast(`Meeting point ${target.toFixed(1)} BPM is outside the pitch range of one deck (X2 for \u00b116 %)`); return;
   }
   syncAnim = { t: 0, dur: 0.4, from: [a.pitch, b.pitch], to: [pa, pb], target };
   flashSync('blue');
@@ -2420,7 +2663,8 @@ function setMix(id, v) {
 function pressControl(c, src) { // buttons; returns true if handled (src: who pressed, for BEAT 1 long press)
   if (c.deck) {
     const d = deckOf(c.deck);
-    { const bu = d.g.userData, b = c.id === 'start' ? bu.start : c.id === 'rpm33' ? bu.b33 : c.id === 'rpm45' ? bu.b45 : null; if (b && b.userData.press) b.userData.press(); }
+    { const bu = d.g.userData, b = c.id === 'start' ? bu.start : c.id === 'rpm33' ? bu.b33 : c.id === 'rpm45' ? bu.b45 : c.id === 'x2' ? bu.x2 : null; if (b && b.userData.press) b.userData.press(); }
+    if (c.id === 'x2') { setPitchRange(d, d.range > 0.1 ? 0.08 : 0.16); return true; }
     if (c.id === 'start') { setMotor(d, !d.motorOn); return true; }
     if (c.id === 'power') { setPower(d, d.power === false); return true; }
     if (c.id === 'target') { const t = d.g.userData.target; if (t) t.raised = !t.raised; return true; }
@@ -2474,6 +2718,7 @@ function crateScreenPress(uv) {
     const b = search.btns.find(inR); if (!b) return;
     if (b.id === 'mic') openNativeKeyboard();
     else if (b.id === 'milk') { spawnMilk(); drawCrateScreen(); }
+    else if (b.id === 's45') crate45s();
     else if (b.id === 'clear') exitSearch();
     else if (b.id === 'kb') { search.kb = !search.kb; drawCrateScreen(); }
     else { search.kb = true; drawCrateScreen(); }
@@ -2532,7 +2777,7 @@ async function deleteStamped(r) {
   layoutSleeves();
   crateSay(`Deleted "${r.title}"`, true);
 }
-function pitchFromLocalZ(d, z) { const t = d.g.userData.pitchTravel; return ((z - (t.z0 + t.z1) / 2) / ((t.z1 - t.z0) / 2)) * PITCH_RANGE; }
+function pitchFromLocalZ(d, z) { const t = d.g.userData.pitchTravel; return ((z - (t.z0 + t.z1) / 2) / ((t.z1 - t.z0) / 2)) * d.range; }
 function sliderFromLocal(id, l) {
   if (id === 'xfader') { const t = mixer.userData.xTravel; return clamp((l.x - t.x0) / (t.x1 - t.x0) * 2 - 1, -1, 1); }
   const t = mixer.userData.faderTravel; return clamp((t.z1 - l.z) / (t.z1 - t.z0), 0, 1);
@@ -2735,7 +2980,7 @@ function pointerUp(p) {
     const s = dr.scratch, d = dr.deck;
     if (!s.holding && performance.now() - p.start.t < 350) { // click on the grooves = needle drop there
       const r = Math.hypot(dr.local.x - DECK.spindle.x, dr.local.z - DECK.spindle.z);
-      if (d.loaded && r > REC.IN - 0.002 && r < REC.EDGE) dropNeedleAt(d, radiusToTime(r, d.duration));
+      if (d.loaded && r > recD(d).IN - 0.002 && r < recD(d).EDGE) dropNeedleAt(d, radiusToTime(r, d.duration, recD(d)));
     }
     scratchEnd(s);
   }
@@ -3599,7 +3844,7 @@ function drawPhoneIcon(g, px, py, pw, ph, on) {   // small phone icon; its LED i
 // ---- #224 TOOLS page on the mixer tablet (TOOLS button, bottom-left of the main HUD): DJ TOOLS (Record Maker) and
 // VJ TOOLS (Scroller). Pages: home, dj, vj, maker, pickSong, pickVideo, pickImage, kbd, scroller.
 let pickItems = [], pickPg = 0;   // toolsPage is declared with videoPage (drawMixScreen reads it early)
-const maker = { kind: 'blank', song: null, video: null, image: null, name: '', busy: false, msg: '', msgOk: true };
+const maker = { kind: 'blank', song: null, video: null, image: null, name: '', busy: false, msg: '', msgOk: true, size: 12 };   // #261 size: 12 or 7 (inches)
 // #225 the Record Maker's answers show on the tablet (toast() is a desktop-only overlay, invisible in the headset)
 let makerMsgT = 0;
 function makerSay(text, ok, ms = 5000) {
@@ -3631,7 +3876,7 @@ addEventListener('keydown', e => {   // desktop: type straight into the tablet k
   e.preventDefault(); e.stopImmediatePropagation();
 }, true);
 // a record seen from above: grooves (with track bands), the label picture or a plain red label, the spindle
-function drawDisc(g, cx, cy, R, bmp, title) {
+function drawDisc(g, cx, cy, R, bmp, title, s7 = false) {
   g.save();
   g.fillStyle = '#0a0a0c'; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill();
   for (let r = R * 0.37; r < R * 0.97; r += 2) {
@@ -3640,7 +3885,7 @@ function drawDisc(g, cx, cy, R, bmp, title) {
     g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
   }
   g.strokeStyle = 'rgba(255,255,255,0.10)'; g.lineWidth = R * 0.18; g.beginPath(); g.arc(cx, cy, R * 0.68, -2.3, -1.6); g.stroke();   // sheen
-  const lr = R * 0.34;
+  const lr = R * (s7 ? 0.51 : 0.34);   // #261 a 7" label is half the disc
   g.beginPath(); g.arc(cx, cy, lr, 0, Math.PI * 2); g.clip();
   if (bmp && bmp !== 'loading') { const s = Math.max(2 * lr / bmp.width, 2 * lr / bmp.height); g.drawImage(bmp, cx - bmp.width * s / 2, cy - bmp.height * s / 2, bmp.width * s, bmp.height * s); }
   else {
@@ -3649,7 +3894,8 @@ function drawDisc(g, cx, cy, R, bmp, title) {
     fitText2Center(g, title || 'BLANK', cx, cy - lr * 0.35, lr * 1.6); g.textBaseline = 'alphabetic';
   }
   g.restore();
-  g.fillStyle = '#d8dce4'; g.beginPath(); g.arc(cx, cy, Math.max(2, R * 0.025), 0, Math.PI * 2); g.fill();
+  if (s7) { g.fillStyle = '#05070c'; g.beginPath(); g.arc(cx, cy, R * 0.219, 0, Math.PI * 2); g.fill(); }   // the 38 mm hole
+  else { g.fillStyle = '#d8dce4'; g.beginPath(); g.arc(cx, cy, Math.max(2, R * 0.025), 0, Math.PI * 2); g.fill(); }
 }
 function fitText2Center(g, s, x, y, w) { let t = s; while (t.length > 3 && g.measureText(t).width > w) t = t.slice(0, -2); if (t !== s) t = t.slice(0, -1) + '…'; g.fillText(t, x, y); }
 function makerSourceText() {
@@ -3661,6 +3907,7 @@ async function pressRecord() {
   if (maker.busy) return;
   if (maker.kind === 'song' && !maker.song) { makerSay('Pick a song first (SONG…)', false, 3000); return; }
   if (maker.kind === 'clip' && !maker.video) { makerSay('Pick a clip first (CLIP…)', false, 3000); return; }
+  if (maker.size === 7 && maker.kind === 'song' && maker.song.duration > 6.5 * 60) { makerSay(`Too long for a 7" side (${fmt(maker.song.duration)}; up to about 6:30 at 45 rpm)`, false, 5000); return; }   // #261
   const title = maker.name.trim() || `DUBPLATE ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`;
   maker.busy = true; drawMixScreen();
   try {
@@ -3668,15 +3915,15 @@ async function pressRecord() {
     if (maker.image) { const f = await media.getFile('Images', maker.image); if (f) label = await labelFrom(f); }
     const s = maker.song, src = maker.kind === 'blank' ? { kind: 'blank' } : maker.kind === 'clip' ? { kind: 'video', video: maker.video }
       : { kind: 'song', opfs: s.opfs || null, url: s.url || null, bpm: s.bpm || 0, artist: s.artist || '', from: s.title };
-    const p = await savePressing({ id: 'p' + Date.now().toString(36), title, src, made: Date.now() }, label);
+    const p = await savePressing({ id: 'p' + Date.now().toString(36), title, src, made: Date.now(), size: maker.size === 7 ? 7 : 12 }, label);
     if (!lib) lib = emptyLibrary();
     const r = addPressings(lib, [p]);
-    const pi = lib.playlists.findIndex(pl => pl.name === 'Unsorted');
+    const where = p.size === 7 ? '45s' : 'Unsorted', pi = lib.playlists.findIndex(pl => pl.name === where);   // #261
     search.q = ''; search.results = null; searchInput.value = '';
     crateState.pl = pi; crateState.sel = Math.max(0, lib.playlists[pi].records.indexOf(r));
     drawCrateScreen(); layoutSleeves();
     maker.busy = false; maker.name = '';
-    makerSay(`✓ STAMPED "${title}": in the crate, Unsorted`, true, 6000);
+    makerSay(`✓ STAMPED "${title}"${p.size === 7 ? ' (7")' : ''}: in the crate, ${where}`, true, 6000);
   } catch (e) { maker.busy = false; makerSay('Not stamped: ' + e.message, false, 6000); }
   maker.busy = false; drawMixScreen();
 }
@@ -3685,22 +3932,26 @@ async function pressRecord() {
 // DELETE hides one for good on this device (vire.hiddenExamples).
 const EXAMPLES = [{ id: 'sleeve', title: 'Sleeve Art Demo', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3' },
   // #232 the same pictures in one file: front cover, back cover, and an 'Other' picture described 'Label B'
-  { id: 'sleeve1', title: 'Sleeve Art Demo (One File)', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo (One File).mp3', b: null }];
+  { id: 'sleeve1', title: 'Sleeve Art Demo (One File)', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo (One File).mp3', b: null },
+  // #257 a test 7" single (45s list) until 45s can be pressed
+  { id: 'single45', title: 'Test 45 (Sleeve Art Demo)', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3', size: 7 }];
 function hiddenExamples() { try { return JSON.parse(localStorage.getItem('vire.hiddenExamples') || '[]'); } catch { return []; } }
 function addExamples(L) {
   const hide = hiddenExamples();
   let un = L.playlists.find(p => p.name === 'Unsorted');
   for (const ex of EXAMPLES) {
     if (hide.includes(ex.id) || L.tracks.has('ex_' + ex.id + '_A')) continue;
-    if (!un) { un = { name: 'Unsorted', path: 'Unsorted (on this headset)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, un); }
-    const r = { id: 'rex_' + ex.id, title: ex.title, artist: ex.artist, sides: { A: null, B: null }, bpm: ex.bpm, key: ex.key, genre: 'Example', duration: 0, missing: false, paired: !!ex.b, unsorted: true, example: ex.id };
+    let dest = un;
+    if (ex.size === 7) { dest = L.playlists.find(p => p.name === '45s'); if (!dest) { dest = { name: '45s', path: '45s (7" singles on this headset)', records: [] }; L.playlists.push(dest); } }
+    else if (!un) { un = dest = { name: 'Unsorted', path: 'Unsorted (on this headset)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, un); }
+    const r = { id: 'rex_' + ex.id, size: ex.size || 12, title: ex.title, artist: ex.artist, sides: { A: null, B: null }, bpm: ex.bpm, key: ex.key, genre: 'Example', duration: 0, missing: false, paired: !!ex.b, unsorted: true, example: ex.id };
     for (const side of ex.b ? ['A', 'B'] : ['A']) {
       const id = 'ex_' + ex.id + '_' + side, url = encodeURI(side === 'A' ? ex.a : ex.b);
       const t = { id, name: ex.title + '_' + side.toLowerCase(), title: ex.title, side, split: false, artist: ex.artist, album: ex.title, genre: 'Example', key: ex.key, bpm: ex.bpm, duration: 0,
         location: url, url, opfs: null, missing: false, cues: [], unsorted: true, record: r };
       r.sides[side] = t; L.tracks.set(id, t);
     }
-    L.records.push(r); un.records.push(r); L.playlists[0].records.push(r);
+    L.records.push(r); dest.records.push(r); L.playlists[0].records.push(r);
   }
   const byT = (a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title);
   if (un) un.records.sort(byT); L.playlists[0].records.sort(byT);
@@ -3716,11 +3967,14 @@ function addPressings(L, list) {
     const t = { id, name: p.title, title: p.title, side: null, split: false, artist: s.kind === 'song' ? (s.artist || 'Pressed') : 'Pressed on Cly3DJ', album: '', genre: '', key: '', bpm: s.bpm || 0, duration: 0,
       location: 'press:' + p.id, url: s.url || null, opfs: s.opfs || null, missing: false, cues: [], unsorted: true, press: p };
     if (s.kind === 'video') t.pressVideo = s.video;
-    const r = { id: 'r' + id, title: p.title, artist: t.artist, sides: { A: t, B: null }, bpm: t.bpm, key: '', genre: '', duration: 0, missing: false, paired: false, unsorted: true, pressed: true };
-    t.record = r; L.tracks.set(id, t); L.records.push(r); un.records.push(r); L.playlists[0].records.push(r); last = r;
+    const r = { id: 'r' + id, title: p.title, artist: t.artist, sides: { A: t, B: null }, bpm: t.bpm, key: '', genre: '', duration: 0, missing: false, paired: false, unsorted: true, pressed: true, size: p.size === 7 ? 7 : 12 };
+    let dest = un;   // #261 pressed 45s go to the 45s list
+    if (r.size === 7) { dest = L.playlists.find(q => q.name === '45s'); if (!dest) { dest = { name: '45s', path: '45s (7" singles on this headset)', records: [] }; L.playlists.push(dest); } }
+    t.record = r; L.tracks.set(id, t); L.records.push(r); dest.records.push(r); L.playlists[0].records.push(r); last = r;
   }
   const byT = (a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title);
   un.records.sort(byT); L.playlists[0].records.sort(byT);
+  const p45 = L.playlists.find(q => q.name === '45s'); if (p45) p45.records.sort(byT);
   return last;
 }
 async function pressArt(track) {
@@ -3761,7 +4015,13 @@ function drawToolsPage() {
   if (page === 'home') {
     const y0 = head('TOOLS', 'mixer');
     if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26); note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off.', y0 + 240); }
-    else { const bw = (R - L - 12) / 2; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); note('DJ TOOLS: Record Maker, milk crate on / off.   VJ TOOLS: Scroller, LED wall and neon sign on / off.', y0 + 166); }
+    else { const bw = (R - L - 12) / 2; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); note('DJ TOOLS: Record Maker, milk crate on / off.   VJ TOOLS: Scroller, LED wall and neon sign on / off.', y0 + 160); }
+    { // #258 flicker tests
+      const ty = H - (P ? 60 : 46), tw = (R - L - 16) / 3;
+      btn(L, ty, tw, 36, testState.glass ? 'GLASS TEST: GLASS OFF' : 'GLASS TEST', testState.glass, () => setTest('glass'), false, 15);
+      btn(L + tw + 8, ty, tw, 36, 'CAM 2ND FRAME', testState.cam2, () => setTest('cam2'), false, 15);
+      btn(L + 2 * (tw + 8), ty, tw, 36, 'FPS', testState.fps, () => setTest('fps'), false, 15);
+    }
     return;
   }
   if (page === 'dj' || page === 'vj') {
@@ -3837,8 +4097,9 @@ function drawToolsPage() {
     const y0 = head('RECORD MAKER', 'dj');
     const bmp = maker.image ? vpThumb('Images', maker.image) : null;
     let x0, cy0, rad;
-    if (P) { rad = 92; drawDisc(g, W / 2, y0 + rad + 4, rad, bmp, maker.name || 'BLANK'); x0 = L; cy0 = y0 + 2 * rad + 20; }
-    else { rad = 106; drawDisc(g, L + rad + 4, y0 + rad + 18, rad, bmp, maker.name || 'BLANK'); x0 = L + 2 * rad + 24; cy0 = y0; }
+    const k7 = maker.size === 7 ? 0.573 : 1;   // #261 the preview shrinks to 7" (175 / 305 mm)
+    if (P) { rad = 92; drawDisc(g, W / 2, y0 + rad + 4, rad * k7, bmp, maker.name || 'BLANK', k7 < 1); x0 = L; cy0 = y0 + 2 * rad + 20; }
+    else { rad = 106; drawDisc(g, L + rad + 4, y0 + rad + 18, rad * k7, bmp, maker.name || 'BLANK', k7 < 1); x0 = L + 2 * rad + 24; cy0 = y0; }
     const lw = 70, bw = Math.min(118, (R - x0 - lw - 12) / 3), row = (y, label) => { g.fillStyle = '#dfe6f2'; g.font = '700 15px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(label, x0, y + 17); g.textBaseline = 'alphabetic'; };
     const sub = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, s, x0 + lw, y, R - x0 - lw); };
     let y = cy0;
@@ -3850,7 +4111,8 @@ function drawToolsPage() {
     row(y, 'LABEL');
     btn(x0 + lw, y, bw, 34, 'PICTURE…', !!maker.image, () => setTools('pickImage'));
     btn(x0 + lw + bw + 6, y, bw, 34, 'NONE', !maker.image, () => { maker.image = null; });
-    sub(maker.image ? 'Picture: ' + maker.image.replace(/\.[^.]+$/, '') : 'Plain red label with the name', y + 52); y += 64;
+    btn(x0 + lw + 2 * (bw + 6), y, bw, 34, maker.size === 7 ? 'SIZE: 7"  45' : 'SIZE: 12"', maker.size === 7, () => { maker.size = maker.size === 7 ? 12 : 7; });   // #261
+    sub((maker.image ? 'Picture: ' + maker.image.replace(/\.[^.]+$/, '') : 'Plain red label with the name') + (maker.size === 7 ? '  ·  7" single, 45 rpm, needs the adapter, into the 45s list' : ''), y + 52); y += 64;
     row(y, 'NAME');
     btn(x0 + lw, y, bw, 34, 'NAME…', false, () => openKbd('RECORD NAME', maker.name, false, 32, t => { maker.name = t.trim(); }, 'maker'));
     g.fillStyle = maker.name ? '#ffffff' : '#56627a'; g.font = '600 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
@@ -3875,7 +4137,7 @@ function drawToolsPage() {
       g.fillStyle = '#0d1422'; g.fillRect(L, y, R - L, RH - 6);
       g.fillStyle = ok ? '#dfe6f2' : '#56627a'; g.font = '600 16px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
       fitText2(g, `${r.title}${r.artist ? '  ·  ' + r.artist : ''}${r.bpm ? '  ·  ' + (+r.bpm).toFixed(0) + ' BPM' : ''}`, L + 10, y + (RH - 6) / 2, R - L - 20); g.textBaseline = 'alphabetic';
-      if (ok) VP_HIT.push({ x: L, y, w: R - L, h: RH - 6, act: () => { maker.kind = 'song'; maker.song = { title: r.title, artist: r.artist || '', opfs: t.opfs || null, url: t.url || null, bpm: r.bpm || t.bpm || 0 }; if (!maker.name) maker.name = cleanText(r.title, 32); setTools('maker'); } });
+      if (ok) VP_HIT.push({ x: L, y, w: R - L, h: RH - 6, act: () => { maker.kind = 'song'; maker.song = { title: r.title, artist: r.artist || '', opfs: t.opfs || null, url: t.url || null, bpm: r.bpm || t.bpm || 0, duration: t.duration || r.duration || 0 }; if (!maker.name) maker.name = cleanText(r.title, 32); setTools('maker'); } });
     });
     const by = P ? H - 62 : H - 44;
     btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
@@ -3935,6 +4197,7 @@ function drawMixScreen() {
     }
     drawTopBtn(g, 20, H - 52, 92, 36, 'TOOLS', !!(scroller && scroller.on));   // #224
     SP_HIT.push({ x: 14, y: H - 60, w: 104, h: 52, act: () => setTools('home') });
+    drawResetMix(g, 124, H - 52, 130, 36);   // #254
     drawPin(g, W - 26 - 150, H - 50, 150, 34);   // #210 (#224: right of TOOLS)
     scr().commit(); return;
   }
@@ -3949,6 +4212,12 @@ function drawMixScreen() {
     const w = 108, h = 28, x = 14, y = H - 40;
     drawTopBtn(g, x, y, w, h, 'TOOLS', !!(scroller && scroller.on));
     SP_HIT.push({ x: x - 6, y: y - 8, w: w + 12, h: h + 14, act: () => setTools('home') });
+    drawResetMix(g, x + w + 12, y, 120, h);   // #254
+    if (testState.fps) {   // #258 live frame rate (TOOLS > FPS)
+      const st = fpsStats(); g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '700 16px system-ui';
+      g.fillStyle = !st ? '#8c96a8' : st.drops > 3 ? '#ff5050' : st.drops ? '#f1b650' : '#40d080';
+      g.font = '700 15px system-ui'; fitText2(g, st ? `${st.fps} fps · ${st.drops} dropped / 10 s · worst ${st.worst.toFixed(0)} ms` : 'measuring…', x + w + 144, y + h / 2, W - 180 - (x + w + 144)); g.textBaseline = 'alphabetic';
+    }
   }
   if (sp) {   // #174: MR GUI toggle + phone icon on deck A's top row, right-aligned to its panel (the divider stays clear)
     const right = W / 2 - 14, pw = 14, ph = 24, w = 108, h = 28, y = 12;
@@ -3957,6 +4226,22 @@ function drawMixScreen() {
     SP_HIT.push({ x: x - 6, y: 4, w: w + 12, h: h + 16, act: () => spect.setMR(!sp.mr) });
   }
   mixScreen.commit();
+}
+// #254 RESET MIX (owner): PAN, EQ, FILTER and TRIM back to the middle, split cue off; gains ramp in ~50 ms (engine
+// _ramp, worklet pan easing) so nothing clicks. Playback, records, faders, crossfader and pitch are left alone.
+// Two taps within 3 s, like GEAR HERE, so a stray poke mid-mix can't flatten the EQ.
+let resetArm = 0;
+function resetMix() {
+  for (const ch of ['A', 'B']) for (const k of ['trim', 'hi', 'mid', 'low', 'filter', 'pan']) setMix(`${ch}.${k}`, 0.5);
+  if (splitCue) { splitCue = false; engine.setSplitCue(false); }
+  toast('Mix reset: PAN, EQ, FILTER, TRIM centred, split cue off', 2000);
+}
+function drawResetMix(g, x, y, w, h) {
+  const armed = performance.now() - resetArm < 3000;
+  g.fillStyle = armed ? '#c8202c' : '#2a3140'; g.fillRect(x, y, w, h);
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = armed ? '#fff' : '#c9ced8'; g.font = '700 15px system-ui';
+  g.fillText(armed ? 'TAP AGAIN' : 'RESET MIX', x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
+  SP_HIT.push({ x, y: y - 4, w, h: h + 8, act: () => { if (performance.now() - resetArm < 3000) { resetArm = 0; resetMix(); drawMixScreen(); } else { resetArm = performance.now(); drawMixScreen(); setTimeout(drawMixScreen, 3100); } } });
 }
 // #210 GEAR HERE (in XR): tap twice within 3 s; a small pin status beside it
 function drawPin(g, x, y, w, h) {
@@ -4040,7 +4325,27 @@ const qHoldXR = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -Math.
 const _holdOff = new THREE.Vector3();
 
 function wrapPi(a) { a %= 2 * Math.PI; return a > Math.PI ? a - 2 * Math.PI : a < -Math.PI ? a + 2 * Math.PI : a; }
+// #258 flicker hunt (owner): temporary test switches on the TOOLS page. GLASS TEST hides the tablet's glass plate;
+// CAM 2ND FRAME draws AVACAM every 2nd headset frame (45 fps at 90 Hz) instead of every 3rd; FPS shows the real frame
+// rate and the frames that took over 1.5x the usual time (dropped) in the last 10 s, on the tablet's main page.
+const testState = { glass: false, cam2: false, fps: false };
+const fpsLog = [];   // frame start times (ms), last 10 s
+function fpsStats() {
+  const now = performance.now(); while (fpsLog.length && now - fpsLog[0] > 10000) fpsLog.shift();
+  if (fpsLog.length < 10) return null;
+  const d = []; for (let i = 1; i < fpsLog.length; i++) d.push(fpsLog[i] - fpsLog[i - 1]);
+  const srt = [...d].sort((a, b) => a - b), med = srt[srt.length >> 1];
+  const last1 = fpsLog.filter(t => now - t < 1000).length;
+  return { fps: last1, med, drops: d.filter(x => x > med * 1.5).length, worst: srt[srt.length - 1] };
+}
+function setTest(k) {
+  testState[k] = !testState[k];
+  if (k === 'glass' && mixer.userData.screenGlass) mixer.userData.screenGlass.visible = !testState.glass;
+  if (k === 'fps') { clearInterval(setTest.iv); if (testState.fps) setTest.iv = setInterval(drawMixScreen, 1000); }
+  drawMixScreen();
+}
 function frame() {
+  if (testState.fps) fpsLog.push(performance.now());   // #258
   const dt = Math.min(0.05, clock.getDelta());
   if (renderer.xr.isPresenting) anchorFollow();   // #210
   if (camTween) {
@@ -4063,6 +4368,7 @@ function frame() {
   }
   if (xr && renderer.xr.isPresenting) xr.update(dt);
   stepSleeves(dt);   // #229 / #242
+  stepSpiders();   // #256
 
   for (const d of decks) {
     const u = d.g.userData, st = engine.state.decks[d.i];
@@ -4094,12 +4400,21 @@ function frame() {
       const S = u.strobe, w = prate * W33;                       // rad/s (#120: the platter's dots)
       d.frameDt = (d.frameDt || 1 / 72) * 0.9 + Math.min(1 / 30, Math.max(1 / 120, dt)) * 0.1;
       S.uni.uBlur.value = Math.min(0.75, Math.abs(w) * d.frameDt * S.kU);
+      // #266: the stud bumps fade out as the dots smear (the normal map isn't blurred, so at speed it drew
+      // sharp bumps beside the smeared dots, a second image)
+      if (S.mat && S.mat.normalMap) { const b = S.uni.uBlur.value, f = 1 - Math.min(1, Math.max(0, (b - 0.02) / 0.12)); S.mat.normalScale.set(f, f); }
       // strobe lamp: 100 flashes/s; per flash the dots advance a fraction `a` of their pitch (wrapped), so a
       // row stands still when the speed matches its calibration and drifts slowly either side of it
       const nom = W33 * d.speed, off = [0, 0, 0, 0];
       S.rows.forEach((r, k) => {
         const sR = w / (nom * (1 + r.p)); const a = sR - Math.round(sR);
-        r.phi += a * S.F * (S.P / S.kU) * dt;                    // apparent angle, rad (texture dot pitch)
+        if (Math.abs(sR) < 0.5) {
+          // #266 (owner: red dots beside the silver ones, a double image). Slow or stopped, a strobe just shows
+          // the real dots, so the lamp's sample eases back onto them (it used to keep the offset it had when the
+          // platter stopped, and the red copy sat between the dots).
+          let o = r.phi - d.platterAngle; const pr = S.P / S.kU; o -= Math.round(o / pr) * pr;
+          r.phi = d.platterAngle + o * Math.max(0, 1 - dt * 6);
+        } else r.phi += a * S.F * (S.P / S.kU) * dt;           // apparent angle, rad (texture dot pitch)
         const o = S.kU * (r.phi - d.platterAngle); off[k] = o - Math.floor(o / S.P) * S.P;
       });
       S.uni.uStrobe.value.set(off[0], off[1], off[2], off[3]);
@@ -4119,6 +4434,7 @@ function frame() {
     u.b33.userData.set(pw * (d.speed < 1.1 ? 0.9 : 0.05)); u.b45.userData.set(pw * (d.speed > 1.1 ? 0.9 : 0.05));
     if (u.b33.userData.led) { u.b33.userData.led(pw * (d.speed < 1.1 ? 1 : 0)); u.b45.userData.led(pw * (d.speed > 1.1 ? 1 : 0)); }
     u.zeroLED.userData.set(pw * (Math.abs(d.pitch) < 0.0005 ? 1 : 0.05));
+    if (u.x2) { u.x2.userData.set(pw * (d.range > 0.1 ? 1 : 0.06)); if (u.x2.userData.led) u.x2.userData.led(pw * (d.range > 0.1 ? 1 : 0)); }   // #253
     updateArm(d, dt);
   }
 
@@ -4134,7 +4450,7 @@ function frame() {
     const bl = blinkUntil[d.i] - performance.now() / 1000;   // #117: cleared = 4 quick blinks
     mc[d.name + '.beat1'].userData.set(bl > 0 ? (Math.floor(bl * 8) % 2 ? 1 : 0.02) : d.loaded && d.track && beat1Of(d.track) !== null && d.ledShown === 0 ? 1 : 0.06);   // #110: flashes on beat 1 once tapped
   }
-  mc.splitcue.userData.set(splitCue ? 1 : 0.06);
+  mc.splitcue.userData.set(splitCue ? (Math.floor(performance.now() / 350) % 2 ? 1 : 0.15) : 0.06);   // #254 flashes while split cue is on
   mc.mic.userData.set(micOn ? 0.75 + Math.min(0.6, micLevel() * 2) : 0.06);
   syncFlash.t = Math.max(0, syncFlash.t - dt);
   mc.sync.userData.setColor(syncFlash.color === 'red' && syncFlash.t > 0 ? 0xff3030 : 0x39a8ff);
@@ -4157,7 +4473,7 @@ function frame() {
     // in a hand: hold it by the edge, disc face pointing out of the side of the hand
     held.attach.updateMatrixWorld();
     const prevP = held.group.position.clone(), prevQ = held.group.quaternion.clone();
-    held.group.position.copy(held.attach.localToWorld(_holdOff.set(0, 0, -0.135)));
+    held.group.position.copy(held.attach.localToWorld(_holdOff.set(0, 0, -((held.dims || REC).R - 0.0174))));   // #257 held by its edge, 12" or 7"
     held.group.quaternion.copy(held.attach.getWorldQuaternion(_wq)).multiply(qHoldXR);
     // track the hand's momentum so a release can throw the record
     if (dt > 0 && held.prevOk) {
@@ -4219,7 +4535,7 @@ function stepDjCam(dt) {
   }
   const dj = rig.worldToLocal(pose.head.p.clone());
   djcam.aimAt(gear, dj);
-  djcam.render(scene, dt, xrOn ? 3 : 2, djPrep);
+  djcam.render(scene, dt, xrOn ? (testState.cam2 ? 2 : 3) : 2, djPrep);   // #258 CAM 2ND FRAME test
 }
 const _djFloor = new THREE.Vector3();
 
@@ -4238,9 +4554,9 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
   armGrab, armDrag, armRelease,
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
-  sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease,
+  sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease, spiderGrabTest, spiderGrab, spiderRelease,
   crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, drawCrateScreen, layoutSleeves, crateDisc,
-  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, toast, mixScreenRelease,
+  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, ledTilted, toast, mixScreenRelease,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
 });
@@ -4535,6 +4851,7 @@ async function applySpect() {
     const m = await import('./spectator-host.js');
     if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, perf, getInputs: () => xr && xr.inputs,
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(), getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
+      getSpiders: spidersState,   // #262
       getVV: () => ({ mode: ledMode, gains: deckGains(mixVal), decks: deckVid.map((dv, i) => dv.v ? [i, dv.key, engine.ctx ? engine.pos(i) : 0, engine.state.decks[i].rate || 0] : null).filter(Boolean) }),
       getSky: () => ({ h: settings.skyH, turn: settings.skyTurn, type: settings.skyType, key: settings.skyKey, file: settings.skyFile, media: settings.env === 'image' ? settings.skyMedia : '' }),
       onMedia: () => { refreshLibVV(); if (videoPage && vpFolder !== 'Sync') vpLoad(); },
@@ -4549,7 +4866,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {

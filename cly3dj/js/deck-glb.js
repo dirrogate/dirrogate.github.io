@@ -20,7 +20,7 @@ export async function loadDeckTemplate(url) {
   const gltf = await new GLTFLoader().loadAsync(url);
   const root = gltf.scene;
   root.updateMatrixWorld(true);
-  // Paint out the parody wordmark and relabel the pitch scale for +-16 % (licence allows adaptation).
+  // Paint out the parody wordmark and relabel the pitch scale (+-8 %, #253) (licence allows adaptation).
   root.traverse(o => {
     if (!o.isMesh) return;
     const m = o.material;
@@ -32,7 +32,7 @@ export async function loadDeckTemplate(url) {
       g.fillStyle = '#000'; g.fillRect(1340 * k / 2, 20 * k, 480 * k / 2 * 1.02, 60 * k); // "Techno.ics Hartz" + subtitle
       g.fillRect(900 * k, 104 * k, 26 * k, 262 * k);                                   // old +-8 numbers
       g.save(); g.scale(1, -1); g.fillStyle = '#e8e8e8'; g.font = `bold ${10 * k}px sans-serif`; g.textAlign = 'right';
-      [16, 12, 8, 4, 0, 4, 8, 12, 16].forEach((n, i) => g.fillText(String(n), 925 * k, -(119 + i * 30) * k));
+      [8, 6, 4, 2, 0, 2, 4, 6, 8].forEach((n, i) => g.fillText(String(n), 925 * k, -(119 + i * 30) * k));   // #253 printed for +-8 % like the MK7 (X2 doubles it)
       g.restore();
       // #122 (owner): silver MK2 look. The top plate is die-cast aluminium, so it becomes metal: satin silver where
       // the model's texture is black, dark ink where it has white print (legends, pitch scale, dial markings).
@@ -146,8 +146,44 @@ async function applyBakedAO(root) {
     const uv1 = new Float32Array(arr.length); for (let i = 0; i < arr.length; i++) uv1[i] = arr[i] * k;
     gg.setAttribute('uv1', new THREE.BufferAttribute(uv1, 2)); o.geometry = gg; mats.add(o.material);
   });
+  try { clearSpiderAO(root, tex.image.data, tex.image.width, tex.image.height); tex.needsUpdate = true; } catch (e) { console.warn('spider AO patch', e); }   // #263
   for (const m of mats) { m.aoMap = tex; m.aoMapIntensity = 1; m.needsUpdate = true; }
   aoInfo = { tex, white: data.white, mats };
+}
+// #263 (owner: lift the 45 adapter out and there's a black disc in its recess). The AO bake was made with the
+// adapter in place, so the plate under it is baked dark. Here the plate's AO inside the adapter's footprint is
+// refilled with the AO just round it (a soft-edged patch), so the recess reads as plain metal: no Blender rebake.
+// The plate's lightmap UVs near the adapter are fitted as an affine map from model x/z, so any texel can be
+// placed in model space.
+function clearSpiderAO(root, r8, W, H) {
+  const sp = root.getObjectByName('pPipe1_metal_mat_0') || root.getObjectByName('pPipe1'), plate = root.getObjectByName('polySurface6_body_top_mat_0');
+  if (!sp || !plate || !plate.geometry.attributes.uv1) return;
+  root.updateMatrixWorld(true);
+  const bb = new THREE.Box3().setFromObject(sp), C = bb.getCenter(new THREE.Vector3()), R = (bb.max.x - bb.min.x) / 2;
+  const pos = plate.geometry.attributes.position, uv = plate.geometry.attributes.uv1, n = pos.count;   // un-indexed: 3 corners a triangle
+  const P = [], v = new THREE.Vector3();
+  for (let i = 0; i < n; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(plate.matrixWorld); P.push([v.x - C.x, v.z - C.z, uv.getX(i) * W, uv.getY(i) * H]); }
+  // each triangle near the adapter, rasterised in the AO atlas: every texel gets its spot in model x/z
+  const ring = [], inside = [];
+  for (let t = 0; t + 2 < n; t += 3) {
+    const a = P[t], b = P[t + 1], c = P[t + 2];
+    // skip triangles wholly away from the footprint (closest corner / edge test via the bounding box in model space)
+    const mnx = Math.min(a[0], b[0], c[0]), mxx = Math.max(a[0], b[0], c[0]), mnz = Math.min(a[1], b[1], c[1]), mxz = Math.max(a[1], b[1], c[1]);
+    if (mnx > 1.5 * R || mxx < -1.5 * R || mnz > 1.5 * R || mxz < -1.5 * R) continue;
+    const x0 = Math.max(0, Math.floor(Math.min(a[2], b[2], c[2]))), x1 = Math.min(W - 1, Math.ceil(Math.max(a[2], b[2], c[2])));
+    const y0 = Math.max(0, Math.floor(Math.min(a[3], b[3], c[3]))), y1 = Math.min(H - 1, Math.ceil(Math.max(a[3], b[3], c[3])));
+    const den = (b[3] - c[3]) * (a[2] - c[2]) + (c[2] - b[2]) * (a[3] - c[3]); if (Math.abs(den) < 1e-9) continue;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const px = x + 0.5, py = y + 0.5;
+      const l1 = ((b[3] - c[3]) * (px - c[2]) + (c[2] - b[2]) * (py - c[3])) / den, l2 = ((c[3] - a[3]) * (px - c[2]) + (a[2] - c[2]) * (py - c[3])) / den, l3 = 1 - l1 - l2;
+      if (l1 < -0.01 || l2 < -0.01 || l3 < -0.01) continue;
+      const mx = l1 * a[0] + l2 * b[0] + l3 * c[0], mz = l1 * a[1] + l2 * b[1] + l3 * c[1], d = Math.hypot(mx, mz) / R;
+      if (d < 1.12) inside.push([y * W + x, d]); else if (d < 1.5) ring.push(r8[y * W + x]);
+    }
+  }
+  if (!ring.length || !inside.length) { console.warn('spider AO patch: nothing found'); return; }
+  ring.sort((p, q) => p - q); const fill = ring[ring.length >> 1];
+  for (const [i, d] of inside) { const t = d < 1.0 ? 1 : 1 - (d - 1.0) / 0.12; r8[i] = Math.round(r8[i] * (1 - t) + fill * t); }
 }
 // any mesh sharing a baked material but without its own bake gets a constant white-texel UV1
 function ensureUV1(root) {
@@ -219,6 +255,75 @@ function legendMat(text, aspect, withLed) {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
   const m = new THREE.MeshStandardMaterial({ map: t, transparent: true, depthWrite: false, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   legendCache.set(key, m); return m;
+}
+
+// #264 (owner: the strobe dot ring looked smudgy). The model's rim texture is 128 px with the dots' lighting painted
+// in, blurred by the time it reaches the headset. Redrawn at 512 px in the same layout (silver chamfers top and
+// bottom, 4 dots a tile, rows top to bottom: small, big, medium, medium; the strobe shader's row bands unchanged),
+// each dot a raised satin-metal stud with a crisp anti-aliased edge and a soft dome shade.
+// #266 (owner: dots looked doubled, "overlaid over the original"). The model's own 128 px normal map still put
+// its bumps where the model has them, and each row there sits at its own x phase (measured from that map:
+// 19.4 / 15.9 / 17.5 / 12.8 px, rows at y 28.7 / 56.2 / 83.9 / 108.1), so the redrawn dots (all at x 15) and the
+// bumps were side by side. Now the albedo and a new 512 px normal map are both drawn from the one list below.
+const DOT_ROWS = [   // x phase, centre y (128 px layout), dot radius, plateau radius of the stud
+  { x: 19.4, y: 28.7, r: 6.2, top: 2.0 },
+  { x: 15.9, y: 56.2, r: 13.4, top: 7.0 },
+  { x: 17.5, y: 83.9, r: 8.6, top: 3.5 },
+  { x: 12.8, y: 108.1, r: 9.6, top: 3.8 },
+];
+let dotsTex = null;
+function crispDots(orig) {
+  if (dotsTex) return dotsTex;
+  const S = 512, k = S / 128, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0, 0, S, S);
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, S, 11.5 * k); g.fillRect(0, 122 * k, S, S - 122 * k);   // the rim's chamfers
+  for (const row of DOT_ROWS) for (let i = -1; i <= 4; i++) {
+    const cx = (row.x + 32 * i) * k, y = row.y * k, R = row.r * k;
+    g.fillStyle = 'rgba(0,0,0,0.9)'; g.beginPath(); g.arc(cx + R * 0.08, y + R * 0.1, R * 1.05, 0, Math.PI * 2); g.fill();   // contact shadow
+    const gr = g.createRadialGradient(cx - R * 0.25, y - R * 0.3, R * 0.1, cx, y, R);
+    gr.addColorStop(0, '#e6e6e8'); gr.addColorStop(0.6, '#c4c4c7'); gr.addColorStop(1, '#9a9a9e');
+    g.fillStyle = gr; g.beginPath(); g.arc(cx, y, R, 0, Math.PI * 2); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  if (orig) { t.colorSpace = orig.colorSpace; t.flipY = orig.flipY; t.channel = orig.channel; }
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter;
+  return (dotsTex = t);
+}
+// Matching normal map (#266): height field of the same studs (flat top, rounded bevel down to the dot edge) and
+// the chamfer steps, turned into normals with the original map's convention (R = 128 - dh/dx, G = 128 - dh/dy).
+let dotsNrm = null;
+function crispDotsNormal(orig) {
+  if (dotsNrm) return dotsNrm;
+  const S = 512, k = S / 128, H = new Float32Array(S * S);
+  for (let j = 0; j < S; j++) {
+    const yy = (j + 0.5) / k;
+    const band = yy < 12 || yy > 121.5 ? 1 : 0;
+    for (let i = 0; i < S; i++) H[j * S + i] = band;
+  }
+  for (const row of DOT_ROWS) for (let i = -1; i <= 4; i++) {
+    const cx = row.x + 32 * i, R = row.r + 0.6, T = row.top;
+    for (let j = Math.floor((row.y - R - 1) * k); j <= Math.ceil((row.y + R + 1) * k); j++) {
+      if (j < 0 || j >= S) continue;
+      for (let ii = Math.floor((cx - R - 1) * k); ii <= Math.ceil((cx + R + 1) * k); ii++) {
+        const d = Math.hypot((ii + 0.5) / k - cx, (j + 0.5) / k - row.y);
+        if (d >= R) continue;
+        const e = d <= T ? 1 : Math.cos((d - T) / (R - T) * Math.PI / 2);   // rounded shoulder
+        const x = ((ii % S) + S) % S, idx = j * S + x; H[idx] = Math.max(H[idx], 0.55 * e);
+      }
+    }
+  }
+  const data = new Uint8Array(S * S * 4), str = 2.2;   // height units per texel -> normal strength
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
+    const h = (x, y) => H[Math.min(S - 1, Math.max(0, y)) * S + ((x % S) + S) % S];
+    const dx = (h(i + 1, j) - h(i - 1, j)) * 0.5 * str, dy = (h(i, j + 1) - h(i, j - 1)) * 0.5 * str;
+    const l = Math.hypot(dx, dy, 1), o = (j * S + i) * 4;
+    data[o] = Math.round(128 - 127 * dx / l); data[o + 1] = Math.round(128 - 127 * dy / l); data[o + 2] = Math.round(128 + 127 / l); data[o + 3] = 255;
+  }
+  const t = new THREE.DataTexture(data, S, S);
+  if (orig) { t.flipY = orig.flipY; t.channel = orig.channel; }
+  t.colorSpace = THREE.NoColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+  t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.needsUpdate = true;
+  return (dotsNrm = t);
 }
 
 export function makeGlbDeck(name) {
@@ -308,6 +413,8 @@ export function makeGlbDeck(name) {
     const mesh = g.getObjectByName('table_sm_tt_sp_mat_0');
     const uni = { uBlur: { value: 0 }, uStrobe: { value: new THREE.Vector4() }, uLampPos: { value: new THREE.Vector3() }, uLampCol: { value: new THREE.Color(0, 0, 0) } };
     const mat = mesh.material.clone();
+    mat.map = crispDots(mesh.material.map);   // #264 sharp dots (the model's 128 px texture went soft in the headset)
+    if (mesh.material.normalMap) mat.normalMap = crispDotsNormal(mesh.material.normalMap);   // #266 bumps where the dots are
     mat.onBeforeCompile = sh => {
       Object.assign(sh.uniforms, uni);
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vStWP; varying vec3 vStWN;')
@@ -337,7 +444,7 @@ export function makeGlbDeck(name) {
     const lens = new THREE.MeshStandardMaterial({ color: 0x220404, emissive: 0xff1a08, emissiveIntensity: 0, roughness: 0.25, toneMapped: false });
     if (win) win.material = lens;
     const lampPt = new THREE.Object3D(); lampPt.position.copy(KNOB_LAMP_RAW); if (win) win.add(lampPt);
-    u.strobe = { uni, lens, lampPt, kU: 7.7209,       /* texture u per radian of rim, measured from the mesh */ P: 0.25, F: 100,
+    u.strobe = { uni, lens, lampPt, mat, kU: 7.7209,       /* texture u per radian of rim, measured from the mesh */ P: 0.25, F: 100,
       // rows by texture v (bottom to top of the rim): -3.3 %, 0 % (big dots), +3.3 %, +6 %, like the printed legend
       rows: [-0.033, 0, 0.033, 0.06].map(p => ({ p, phi: 0 })) };
   }
@@ -352,8 +459,8 @@ export function makeGlbDeck(name) {
   // ---- buttons
   // Buttons keep the deck's own matte brushed-metal caps (CLAUDE.md #58): no coloured emissive tint and no
   // glow sprite. Feedback is physical: the cap dips 1.5 mm when pressed and springs back.
-  const btn = (partName, id) => {
-    const part = byName(model, partName); const box = new THREE.Box3().setFromObject(part);
+  const btn = (partName, id, partObj = null) => {
+    const part = partObj || byName(model, partName); const box = new THREE.Box3().setFromObject(part);
     const c = g.worldToLocal(box.getCenter(new THREE.Vector3()));
     const grp = pivotGroup(g, c, [part]);
     const meshes = []; part.traverse(o => { if (o.isMesh) { meshes.push(o); o.userData.control = { deck: name, id }; } });
@@ -370,7 +477,7 @@ export function makeGlbDeck(name) {
     const cb = new THREE.Box3().setFromObject(capMesh), cw = cb.max.x - cb.min.x, cd = cb.max.z - cb.min.z;
     const topY = cb.max.y - (box.getCenter(new THREE.Vector3()).y) + 0.00025;
     const cx = (cb.min.x + cb.max.x) / 2 - box.getCenter(new THREE.Vector3()).x, cz = (cb.min.z + cb.max.z) / 2 - box.getCenter(new THREE.Vector3()).z;
-    const label = id === 'start' ? 'START \u00b7 STOP' : id === 'rpm33' ? '33' : '45';
+    const label = id === 'start' ? 'START \u00b7 STOP' : id === 'rpm33' ? '33' : id === 'x2' ? 'X2' : '45';
     const speed = id !== 'start';
     const decal = new THREE.Mesh(new THREE.PlaneGeometry(cw * 0.92, cd * 0.86), legendMat(label, cw / cd, speed));
     decal.rotation.x = -Math.PI / 2; decal.position.set(cx, topY, cz); decal.userData = meshes[0].userData; grp.add(decal);
@@ -378,11 +485,21 @@ export function makeGlbDeck(name) {
       const ledMat = new THREE.MeshBasicMaterial({ color: 0x2a2a2c, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
       const led = new THREE.Mesh(new THREE.PlaneGeometry(cw * 0.26, cd * 0.2), ledMat);
       led.rotation.x = -Math.PI / 2; led.position.set(cx + cw * 0.22, topY + 0.00005, cz); grp.add(led);
-      const on = new THREE.Color(0xff2418), off = new THREE.Color(0x262628);
+      const on = new THREE.Color(id === 'x2' ? 0x2a8cff : 0xff2418), off = new THREE.Color(0x262628);   // #253 X2: blue like the MK7
       grp.userData.led = (v) => ledMat.color.copy(off).lerp(on, Math.max(0, Math.min(1, v)));
     }
     return grp;
   };
+  // #253 X2 (pitch range): a copy of the 33 button's cap, moved past the far end of the pitch fader below
+  const p33 = byName(model, 'polySurface13'), x2part = p33.clone(true); p33.parent.add(x2part);
+  // #256 the 45 adapter ('spider', pPipe1: a metal ring in the top-left recess) is its own object, so it can be lifted
+  // out and put on the spindle (main.js spiders). Home = this pose in the recess.
+  { const sp = model.getObjectByName('pPipe1') || model.getObjectByName('pPipe1_metal_mat_0'); if (sp) {
+      const bx = new THREE.Box3().setFromObject(sp), c = g.worldToLocal(bx.getCenter(new THREE.Vector3()));
+      u.spider = pivotGroup(g, c, [sp]); u.spiderHome = { p: u.spider.position.clone(), q: u.spider.quaternion.clone() };
+      u.spiderH = bx.max.y - bx.min.y;
+      sp.traverse(o => { if (o.isMesh) o.userData.spider = name; });
+  } }
   u.start = btn('polySurface14', 'start');
   u.b33 = btn('polySurface13', 'rpm33');
   u.b45 = btn('polySurface12', 'rpm45');
@@ -394,6 +511,8 @@ export function makeGlbDeck(name) {
   cap.traverse(o => { if (o.isMesh) o.userData.control = { deck: name, id: 'pitch' }; });
   const half = 7.3 * S;
   u.pitchTravel = { z0: capC.z - half, z1: capC.z + half, x: capC.x };
+  u.x2 = btn(null, 'x2', x2part);
+  u.x2.position.set(u.pitchTravel.x, u.x2.position.y, u.pitchTravel.z0 - 0.032);   // set() only moves y (the press dip)
   u.zeroLED = makeLED(0x40ff60, 0.0022, 0.018); u.zeroLED.position.copy(m2l(24.9, 15.1, 9.86)); g.add(u.zeroLED);
   // #123 (owner): no glow sprite over the pitch zero LED (looked fake); the LED itself still lights
   for (const c of [...u.zeroLED.children]) if (c.isSprite) { u.zeroLED.remove(c); c.material.dispose(); }

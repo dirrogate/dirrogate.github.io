@@ -38,7 +38,8 @@ export class Stage {
   settleAll() { for (const k in this.items) this.settle(k); }
   ridersOf(caseKey) {
     return Object.keys(this.items).filter(k => {
-      const it = this.items[k]; const p = it.obj.position; const s = this.caseTopAt(p.x, p.z);
+      const it = this.items[k]; if (!it.obj.parent || !it.obj.visible) return false;   // #248 switched-off pieces don't ride along
+      const p = it.obj.position; const s = this.caseTopAt(p.x, p.z);
       return s.key === caseKey && Math.abs(p.y - (s.y + it.base)) < 0.02;
     });
   }
@@ -76,7 +77,7 @@ export class Stage {
   // ---------- persistence
   snapshot() {
     const L = { items: {}, cases: {} };
-    for (const k in this.items) { const o = this.items[k].obj; L.items[k] = [o.position.x, o.position.y, o.position.z, o.rotation.y]; if (Math.abs(o.rotation.z) > 0.01) L.items[k].push(o.rotation.z); }   // #222 the LED wall's portrait turn
+    for (const k in this.items) { const o = this.items[k].obj; L.items[k] = [o.position.x, o.position.y, o.position.z, o.rotation.y]; if (Math.abs(o.rotation.z) > 0.01 || Math.abs(o.rotation.x) > 0.01) L.items[k].push(o.rotation.z); if (Math.abs(o.rotation.x) > 0.01) L.items[k].push(o.rotation.x); }   // #222 the LED wall's portrait turn, #248 its tilt
     for (const k in this.cases) { const c = this.cases[k], g = c.group; L.cases[k] = [g.position.x, g.position.y, g.position.z, g.rotation.y, c.W, c.D, c.H]; }
     return L;
   }
@@ -87,7 +88,7 @@ export class Stage {
     }
     for (const k in this.items) {
       const v = (L.items || {})[k] || this.defaults.items[k]; const o = this.items[k].obj;
-      o.position.set(v[0], v[1], v[2]); o.rotation.set(0, v[3], v[4] || 0);
+      o.position.set(v[0], v[1], v[2]); o.rotation.set(v[5] || 0, v[3], v[4] || 0);
     }
     this.rig.updateMatrixWorld(true);
     this.settleAll();

@@ -10,14 +10,19 @@ export const REC = {
   LABEL: 0.0500,
   HOLE: 0.0036,
   THICK: 0.0019,
+  SIZE: 12,
 };
+// #257 7" single (45 rpm; close to the RIAA / IEC figures): 175 mm disc, 38.2 mm open centre hole (the deck's
+// 45 adapter fills it), grooves from r 84 mm in to r 54.5 mm, label 89 mm, 1.5 mm thick
+export const REC7 = { R: 0.0873, EDGE: 0.0858, OUT: 0.0842, IN: 0.0545, RUNOUT: 0.0485, LABEL: 0.0445, HOLE: 0.0191, THICK: 0.0015, SIZE: 7 };
+export const dimsOf = rec => (rec && rec.size === 7 ? REC7 : REC);
 // After the music ends the stylus runs down the lead-out spiral (3 s) into the locked run-out groove.
-export const timeToRadius = (t, dur) => {
+export const timeToRadius = (t, dur, D = REC) => {
   dur = Math.max(1, dur);
-  if (t > dur) return REC.IN - (REC.IN - REC.RUNOUT - 0.0015) * Math.min(1, (t - dur) / 3);
-  return REC.OUT - (REC.OUT - REC.IN) * Math.max(0, t / dur);
+  if (t > dur) return D.IN - (D.IN - D.RUNOUT - 0.0015) * Math.min(1, (t - dur) / 3);
+  return D.OUT - (D.OUT - D.IN) * Math.max(0, t / dur);
 };
-export const radiusToTime = (r, dur) => Math.min(dur, Math.max(0, (REC.OUT - r) / (REC.OUT - REC.IN) * dur));
+export const radiusToTime = (r, dur, D = REC) => Math.min(dur, Math.max(0, (D.OUT - r) / (D.OUT - D.IN) * dur));
 
 const texCache = {};
 
@@ -64,25 +69,26 @@ function hslRgb(h, s, l) {   // CSS hsl() -> sRGB bytes
   c.getRGB(o, THREE.SRGBColorSpace); return [o.r * 255, o.g * 255, o.b * 255];
 }
 const hexRgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-export function drawRecordSide({ env, duration, cues, labelImg, title, artist, bpm, side, showText, blank, split, vinyl = '#0b0b0c', size, low }) {
+export function drawRecordSide({ env, duration, cues, labelImg, title, artist, bpm, side, showText, blank, split, vinyl = '#0b0b0c', size, low, dims }) {
+  const D = dims || REC, LBR = D.LABEL * 1.12;   // #257 per-record size; LBR = the label canvas's radius
   // ---- ring strip
-  const N = STRIP_N, px = N / REC.R, data = new Uint8Array(N * 4);
+  const N = STRIP_N, px = N / D.R, data = new Uint8Array(N * 4);
   const G = rough => Math.round(Math.min(255, rough / 0.86 * 255));
   const A_DULL = 0.076;   // #99
   const rc = i => (i + 0.5) / px;   // texel centre radius
   const set = (i, rgb, a) => { const o = i * 4; if (rgb) { data[o] = rgb[0]; data[o + 1] = rgb[1]; data[o + 2] = rgb[2]; } if (a !== undefined) data[o + 3] = a; };
   const band = (r0, r1, rgb, a) => { for (let i = 0; i < N; i++) { const r = rc(i); if (r <= r0 && r > r1) set(i, rgb, a); } };   // r0 > r1
-  band(REC.R, 0, hexRgb(vinyl), 0);
-  band(REC.R, REC.EDGE, hexRgb('#151516'));
+  band(D.R, 0, hexRgb(vinyl), 0);
+  band(D.R, D.EDGE, hexRgb('#151516'));
   let lo = 0, hi = 1;
   if (env) { const srt = Array.from(env).sort((x, y) => x - y); lo = srt[Math.floor(srt.length * 0.03)]; hi = srt[Math.floor(srt.length * 0.995)] || 1; }
   const span = Math.max(1e-6, hi - lo);
   if (!blank) {
-    band(REC.EDGE, REC.OUT, hexRgb('#101012'));
-    const steps = Math.round((REC.OUT - REC.IN) * px);
+    band(D.EDGE, D.OUT, hexRgb('#101012'));
+    const steps = Math.round((D.OUT - D.IN) * px);
     for (let i = 0; i < N; i++) {
-      const r = rc(i); if (r > REC.OUT || r <= REC.IN) continue;
-      const k = Math.min(steps - 1, Math.max(0, Math.floor((REC.OUT - r) * px)));
+      const r = rc(i); if (r > D.OUT || r <= D.IN) continue;
+      const k = Math.min(steps - 1, Math.max(0, Math.floor((D.OUT - r) * px)));
       let e = 0.5;
       if (env) {   // average of the envelope bins inside this ring (as the old canvas did per pixel ring)
         const b0 = Math.floor(k / steps * env.length), b1 = Math.max(b0 + 1, Math.floor((k + 1) / steps * env.length));
@@ -91,23 +97,23 @@ export function drawRecordSide({ env, duration, cues, labelImg, title, artist, b
       }
       set(i, hslRgb(225, 0.06, (5 + 30 * Math.pow(e, 0.8)) / 100), G(0.03 + A_DULL + 0.04 * e));
     }
-    band(REC.IN, REC.RUNOUT, hexRgb('#0d0d0f'));
-    band(REC.RUNOUT + 0.0012 + 1 / px, REC.RUNOUT + 0.0012 - 1 / px, hexRgb('#2a2a2e'));   // run-out line, 2 px
-    band(REC.R, REC.EDGE, null, G(0.06 + A_DULL)); band(REC.EDGE, REC.OUT, null, G(0.04 + A_DULL)); band(REC.IN, REC.LABEL, null, G(0.04 + A_DULL));
+    band(D.IN, D.RUNOUT, hexRgb('#0d0d0f'));
+    band(D.RUNOUT + 0.0012 + 1 / px, D.RUNOUT + 0.0012 - 1 / px, hexRgb('#2a2a2e'));   // run-out line, 2 px
+    band(D.R, D.EDGE, null, G(0.06 + A_DULL)); band(D.EDGE, D.OUT, null, G(0.04 + A_DULL)); band(D.IN, D.LABEL, null, G(0.04 + A_DULL));
   } else {
-    band(REC.EDGE, REC.RUNOUT, hexRgb('#0e0e10'));
-    band(REC.R, REC.EDGE, null, 235); band(REC.EDGE, REC.OUT, null, 230); band(REC.OUT, REC.IN, null, 0); band(REC.IN, REC.LABEL, null, 230);
+    band(D.EDGE, D.RUNOUT, hexRgb('#0e0e10'));
+    band(D.R, D.EDGE, null, 235); band(D.EDGE, D.OUT, null, 230); band(D.OUT, D.IN, null, 0); band(D.IN, D.LABEL, null, 230);
   }
-  band(REC.LABEL, -1, null, 200);   // label: matte paper
+  band(D.LABEL, -1, null, 200);   // label: matte paper
   const strip = new THREE.DataTexture(data, N, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
   strip.colorSpace = THREE.SRGBColorSpace; strip.generateMipmaps = true; strip.minFilter = THREE.LinearMipmapLinearFilter; strip.magFilter = THREE.LinearFilter;
   strip.wrapS = strip.wrapT = THREE.ClampToEdgeWrapping; strip.needsUpdate = true;
   // ---- hot cue marks: 5 px arcs, 0.18 rad wide, at 12 o'clock of the canvas
   const cueList = [];
-  if (!blank && cues && duration) for (const q of cues) if (cueList.length < 16) cueList.push({ rn: timeToRadius(q.time, duration) / REC.R, color: new THREE.Color(q.color) });
+  if (!blank && cues && duration) for (const q of cues) if (cueList.length < 16) cueList.push({ rn: timeToRadius(q.time, duration, D) / D.R, color: new THREE.Color(q.color) });
   // ---- label canvas (covers LABEL_BUMP_R, read through uv1)
-  const S = size || (low ? 128 : 512), c = document.createElement('canvas'); c.width = c.height = S; c.vireLabelR = LABEL_BUMP_R;
-  const g = c.getContext('2d'); const C = S / 2, lpx = S / (2 * LABEL_BUMP_R), lr = REC.LABEL * lpx;
+  const S = size || (low ? 128 : 512), c = document.createElement('canvas'); c.width = c.height = S; c.vireLabelR = LBR; c.vireHoleFrac = D.HOLE / LBR;
+  const g = c.getContext('2d'); const C = S / 2, lpx = S / (2 * LBR), lr = D.LABEL * lpx;
   g.fillStyle = vinyl; g.fillRect(0, 0, S, S);
   g.save(); g.beginPath(); g.arc(C, C, lr, 0, Math.PI * 2); g.clip();
   const hue = hash(title || 'blank') % 360;
@@ -136,24 +142,25 @@ export function drawRecordSide({ env, duration, cues, labelImg, title, artist, b
   g.fillText(side || '', C - lr * 0.62, C - lr * 0.18);
   if (split) { g.font = `700 ${Math.round(lr * 0.09)}px system-ui, sans-serif`; g.fillText('VOX | INST', C + lr * 0.5, C - lr * 0.18); }
   g.restore();
-  g.beginPath(); g.arc(C, C, REC.HOLE * lpx, 0, Math.PI * 2); g.fillStyle = '#000'; g.fill();
+  g.beginPath(); g.arc(C, C, D.HOLE * lpx, 0, Math.PI * 2); g.fillStyle = '#000'; g.fill();
   const map = new THREE.CanvasTexture(c); map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4; map.channel = 1;
   map.wrapS = map.wrapT = THREE.ClampToEdgeWrapping;
-  return { map, strip, cues: cueList, labelCanvas: c };
+  return { map, strip, cues: cueList, labelCanvas: c, labelN: D.LABEL / D.R, holeN: D.SIZE === 7 ? D.HOLE / D.R : 0 };
 }
 // The record side material (#137): MeshPhysical as before (#58 / #93 gloss settings), colour and roughness from the
 // ring strip outside the label, the label canvas inside it. Works without a label map (the crate's riding disc).
 export function recordMaterial(extra = {}) {
-  const u = { uStrip: { value: null }, uLabelN: { value: REC.LABEL / REC.R }, uCueN: { value: 0 },
+  const u = { uStrip: { value: null }, uLabelN: { value: REC.LABEL / REC.R }, uHoleN: { value: 0 }, uCueN: { value: 0 },
     uCue: { value: Array.from({ length: 16 }, () => new THREE.Vector2()) }, uCueC: { value: Array.from({ length: 16 }, () => new THREE.Color()) } };
   const m = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: 0.86, clearcoat: 0, anisotropy: 0, specularIntensity: 0.15, envMapIntensity: 0.14, ...extra });
   m.userData.rec = u;
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, u);
     sh.vertexShader = sh.vertexShader.replace('void main() {', 'varying vec2 vDiscUv;\nvoid main() {').replace('#include <uv_vertex>', '#include <uv_vertex>\nvDiscUv = uv;');
-    sh.fragmentShader = sh.fragmentShader.replace('void main() {', `uniform sampler2D uStrip; uniform float uLabelN; uniform int uCueN; uniform vec2 uCue[16]; uniform vec3 uCueC[16];
+    sh.fragmentShader = sh.fragmentShader.replace('void main() {', `uniform sampler2D uStrip; uniform float uLabelN; uniform float uHoleN; uniform int uCueN; uniform vec2 uCue[16]; uniform vec3 uCueC[16];
 varying vec2 vDiscUv;
 void main() {`).replace('#include <map_fragment>', `vec2 vdp = vDiscUv - 0.5; float vrn = length(vdp) * 2.0;
+if (vrn < uHoleN) discard;   // #257 a 45's open centre
 vec4 vireStrip = texture2D(uStrip, vec2(vrn, 0.5));
 vec3 vireCol = vireStrip.rgb;
 #ifdef USE_MAP
@@ -174,6 +181,7 @@ export function setRecordSide(mat, s, withLabel = true) {
   if (mat.map && mat.map !== s.map) mat.map.dispose();
   mat.map = withLabel ? s.map : null;
   if (!withLabel) s.map.dispose();
+  if (s.labelN !== undefined) { u.uLabelN.value = s.labelN; u.uHoleN.value = s.holeN || 0; }   // #257
   u.uCueN.value = s.cues.length;
   s.cues.forEach((q, i) => { u.uCue.value[i].set(q.rn, 0); u.uCueC.value[i].copy(q.color); });
   mat.needsUpdate = true;
@@ -247,11 +255,11 @@ export function labelBumpMapAsync(canvas, seedStr = '') {
       t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.needsUpdate = true;
       res(t);
     });
-    bumpWorker.postMessage({ id, bmp, seed: seedStr, N, labelFrac: REC.LABEL / LABEL_BUMP_R, ringFrac: 0.82 * REC.LABEL / LABEL_BUMP_R, holeFrac: REC.HOLE / LABEL_BUMP_R }, [bmp]);
+    bumpWorker.postMessage({ id, bmp, seed: seedStr, N, labelFrac: REC.LABEL / LABEL_BUMP_R, ringFrac: 0.82 * REC.LABEL / LABEL_BUMP_R, holeFrac: canvas.vireHoleFrac ?? REC.HOLE / LABEL_BUMP_R }, [bmp]);
   }));
 }
 export function labelBumpMap(mapCanvas, seedStr = '') {
-  const N = 256, S = mapCanvas.width, C = S / 2, pxS = S / (2 * (mapCanvas.vireLabelR || REC.R)), cropR = LABEL_BUMP_R * pxS;   // #137: label-only canvases
+  const N = 256, S = mapCanvas.width, C = S / 2, pxS = S / (2 * (mapCanvas.vireLabelR || REC.R)), LBR = mapCanvas.vireLabelR || LABEL_BUMP_R, cropR = LBR * pxS;   // #137: label-only canvases (#257: its own radius)
   const a = document.createElement('canvas'); a.width = a.height = N;
   const b = document.createElement('canvas'); b.width = b.height = N;
   const ga = a.getContext('2d'), gb = b.getContext('2d');
@@ -260,7 +268,7 @@ export function labelBumpMap(mapCanvas, seedStr = '') {
   const c2 = document.createElement('canvas'); c2.width = c2.height = N; const gc = c2.getContext('2d');
   gc.filter = 'blur(7px)'; gc.drawImage(a, 0, 0); gc.filter = 'none';
   const A = ga.getImageData(0, 0, N, N), B = gb.getImageData(0, 0, N, N), W = gc.getImageData(0, 0, N, N), out = ga.createImageData(N, N);
-  const px = N / (2 * LABEL_BUMP_R), lr = REC.LABEL * px, ring = REC.LABEL * 0.82 * px, hole = REC.HOLE * px;
+  const LAB = LBR / 1.12, px = N / (2 * LBR), lr = LAB * px, ring = LAB * 0.82 * px, hole = (mapCanvas.vireHoleFrac ? mapCanvas.vireHoleFrac * LBR : REC.HOLE) * px;
   let seed = (hash(seedStr) % 2147483646) + 1; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   const lum = (d, i) => 0.3 * d[i] + 0.59 * d[i + 1] + 0.11 * d[i + 2];
   const H = new Float32Array(N * N);

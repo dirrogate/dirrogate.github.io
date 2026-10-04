@@ -7,7 +7,9 @@
 import * as THREE from 'three';
 import { XRControllerModelFactory } from '../vendor/three/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from '../vendor/three/webxr/XRHandModelFactory.js';
-const LIFT_OUT = 0.05;   // #136: record lift-off zone reaches this far past the label edge (m)
+const LIFT_OUT = 0.05;
+// #260 the record on a deck: 12" or 7" sizes (lift zone just past a 45's label, 1.2 cm)
+let REC12 = null; const RD = d => (d.record && d.record.dims) || REC12; const LO = D => (D.SIZE === 7 ? 0.012 : LIFT_OUT);   // #136: record lift-off zone reaches this far past the label edge (m)
 
 const REACH = 0.03;        // metres, direct-grab radius for knobs/faders
 const ARM_REACH = 0.05;
@@ -16,6 +18,7 @@ const PLATTER_R = 0.166;
 const PITCH_STEP = 0.0005;   // 0.05 % per thumbstick flick
 
 export function setupXR(ctx) {
+  REC12 = ctx.REC;   // #260
   const { renderer, scene } = ctx;
   // #215 controller and hand models ship with the app (vendor/webxr-input-profiles), so nothing is fetched from
   // cdn.jsdelivr.net: works offline and can't break if the CDN changes. Quest 3/3S, Quest Pro, Quest 2 + hands.
@@ -102,6 +105,12 @@ export function setupXR(ctx) {
     const w = ctx.ledwall; w.parent.getWorldQuaternion(_wq); _wq.multiply(q1.setFromEuler(_we.set(0, w.rotation.y, 0))).invert();
     const x = v1.set(1, 0, 0).applyQuaternion(handQuat(st, q1)).applyQuaternion(_wq);
     return Math.atan2(x.y, x.x);
+  }
+  // #248 the hand's tilt toward / away from you, in the same un-turned wall frame (pitch of its pointing direction)
+  function wallPitch(st) {
+    const w = ctx.ledwall; w.parent.getWorldQuaternion(_wq); _wq.multiply(q1.setFromEuler(_we.set(0, w.rotation.y, 0))).invert();
+    const f = v1.set(0, 0, -1).applyQuaternion(handQuat(st, q1)).applyQuaternion(_wq);
+    return Math.atan2(f.y, Math.hypot(f.x, f.z));
   }
   function rayDown(st) {
     const p = st.pointer; syncRay(st);
@@ -231,7 +240,7 @@ export function setupXR(ctx) {
     // 0b. 33 / 45, controllers only: trigger (or grip) at the button, never by hovering (owner, #64)
     if (!st.isHand) {
       let best = null, bd = 0.016;
-      for (const d of ctx.decks) for (const [key, id] of [['b33', 'rpm33'], ['b45', 'rpm45']]) {
+      for (const d of ctx.decks) for (const [key, id] of [['b33', 'rpm33'], ['b45', 'rpm45'], ['x2', 'x2']]) {   // #253 + X2
         const b = d.g.userData[key]; if (!b) continue; b.getWorldPosition(v2);
         const dd = Math.hypot(P.x - v2.x, P.z - v2.z); if (dd < bd && P.y - v2.y < 0.03 && P.y - v2.y > -0.015) { bd = dd; best = { deck: d.name, id }; }
       }
@@ -243,9 +252,22 @@ export function setupXR(ctx) {
       if (headshellDist(d, P) < ARM_REACH) { ctx.armGrab(d); st.direct = { kind: 'arm', d, y0: P.y }; buzz(st); return true; }
     }
     // 1b. power dial: twist it (about a quarter turn) to switch the deck on or off
-    if (deckOk) for (const d of ctx.decks) {
+    // #252 (owner): with controllers the power dial and START / STOP answer the grip only (a trigger or a brushing tip
+    // never switches a deck off or stops it); bare hands as before (pinch the dial, poke the button)
+    const gripOk = st.isHand || btn === 'grip';
+    if (gripOk) for (const d of ctx.decks) {
       const pk = d.g.userData.powerKnob;
       if (pk && pk.getWorldPosition(v2).distanceTo(P) < 0.035) { st.direct = { kind: 'power', d, yaw0: yawOf(handQuat(st, q1)), done: false }; buzz(st); return true; }
+    }
+    if (!st.isHand && btn === 'grip') for (const d of ctx.decks) {
+      const sb = d.g.userData.start; if (!sb) continue;
+      sb.getWorldPosition(v2);
+      if (Math.hypot(P.x - v2.x, P.z - v2.z) < 0.03 && P.y - v2.y < 0.04 && P.y - v2.y > -0.02) { ctx.pressControl({ deck: d.name, id: 'start' }, st); st.direct = { kind: 'tap' }; buzz(st, 0.5, 30); return true; }
+    }
+    // #256 the 45 adapter (in its recess, on a spindle or lying about): grip (controllers) or pinch (hands)
+    if (gripOk && ctx.spiderGrabTest) {
+      const sp = ctx.spiderGrabTest(P);
+      if (sp) { updateAnchor(st); ctx.spiderGrab(sp, st.anchor); st.direct = { kind: 'spider' }; buzz(st, 0.3, 20); return true; }
     }
     // 2. faders, pitch, knobs
     // #195 (owner): knobs, faders and pitch faders take the trigger only (hands: pinch); the grip never turns or slides them
@@ -271,35 +293,37 @@ export function setupXR(ctx) {
     if (!deckOk) for (const d of ctx.decks) {
       if (!d.record) continue;
       const l = d.g.worldToLocal(v2.copy(P));
-      const r = Math.hypot(l.x - ctx.DECK.spindle.x, l.z - ctx.DECK.spindle.z), h = l.y - (d.g.userData.platterSurface + ctx.REC.THICK);
-      if (h > -0.035 && h < 0.05 && r < ctx.REC.LABEL + LIFT_OUT) { st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true; }
+      const r = Math.hypot(l.x - ctx.DECK.spindle.x, l.z - ctx.DECK.spindle.z), h = l.y - (d.g.userData.platterSurface + RD(d).THICK);
+      if (h > -0.035 && h < 0.05 && r < RD(d).LABEL + LO(RD(d))) { st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true; }
     }
     if (deckOk) for (const d of ctx.decks) {
       const l = d.g.worldToLocal(v2.copy(P));
       const r = Math.hypot(l.x - ctx.DECK.spindle.x, l.z - ctx.DECK.spindle.z);
-      const h = l.y - (d.g.userData.platterSurface + ctx.REC.THICK);
+      const h = l.y - (d.g.userData.platterSurface + RD(d).THICK);
       if (h < -0.035 || h > 0.05 || r > PLATTER_R + 0.015) continue;
       // #106 (owner): twist only on the spindle itself (3.5 mm pin + 4.5 mm reach, from the record surface to
       // 2 cm above it); the rest of the label does nothing, so a hand resting there never twists by accident
       if (d.record && r < 0.008 && h > -0.005 && h < 0.02) { st.direct = { kind: 'spindle', d, yawL: yawOf(handQuat(st, q1)), acc: 0 }; buzz(st, 0.3, 15); return true; }   // #105
       // #107: lift zone widened 5 mm into the label (45-70 mm radius); inside that the label does nothing
-      if (d.record && r < ctx.REC.LABEL - 0.005) { st.direct = { kind: 'tap' }; return true; }
+      if (d.record && r < RD(d).LABEL - 0.005) { st.direct = { kind: 'tap' }; return true; }
       // #136 (owner): lift zone 3 cm wider (label edge + 5 cm, was + 2 cm); lifting a record off was too fiddly
-      if (d.record && r < ctx.REC.LABEL + LIFT_OUT) { st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true; }
-      if (d.record && r < ctx.REC.R - 0.004) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l) }; buzz(st); return true; }
-      if (r > ctx.REC.R - 0.004) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l, true, st.isHand ? 0.6 : rimForce(st, r)) }; buzz(st, 0.2, 15); return true; }
+      // #249 (owner): with a controller the record only comes off with the grip (block above); the trigger there scratches,
+      // so a rough scratch that pulls up can never take it off. Bare hands still lift with a pinch.
+      if (st.isHand && d.record && r < RD(d).LABEL + LO(RD(d))) { st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true; }
+      if (d.record && r < RD(d).R - 0.004) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l) }; buzz(st); return true; }
+      if (r > RD(d).R - 0.004) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l, true, st.isHand ? 0.6 : rimForce(st, r)) }; buzz(st, 0.2, 15); return true; }
     }
     // 3b. a record lying around (thrown or dropped): grab it anywhere on the disc
     for (const L of ctx.loose) {
       const c = L.rec.group.getWorldPosition(v1), n = v2.set(0, 1, 0).applyQuaternion(L.rec.mesh.getWorldQuaternion(q1));
       const rel = P.clone().sub(c), h = rel.dot(n), radial = rel.addScaledVector(n, -h).length();
-      if (Math.abs(h) < 0.04 && radial < ctx.REC.R + 0.02) { updateAnchor(st); ctx.pickUpLoose(L.rec, st.anchor); st.direct = { kind: 'held' }; buzz(st); return true; }
+      if (Math.abs(h) < 0.04 && radial < (L.rec.dims || ctx.REC).R + 0.02) { updateAnchor(st); ctx.pickUpLoose(L.rec, st.anchor); st.direct = { kind: 'held' }; buzz(st); return true; }
     }
     // 3c. crate lid: grab the handle or the lid's free edge and swing it on its hinges; let go and it
     //     falls shut or back open depending on which side of upright it is (main.js stepLid)
     //     Lid shut: its carry handle picks up the whole crate instead (owner, #86).
     const lg = ctx.lidGrabTest(P);
-    if (lg === 'handle' && ctx.lidShut()) {
+    if (lg === 'handle' && ctx.lidShut() && gripOk) {   // #253 carrying the crate = grip
       const g = ctx.MOVABLE.crate;
       st.direct = { kind: 'move', target: 'crate', stMove: ctx.stage.beginMove('crate'), p0: P.clone(), pos0: g.position.clone(), yaw0: g.rotation.y, hyaw0: yawOf(handQuat(st, q1)) };
       buzz(st); return true;
@@ -322,7 +346,9 @@ export function setupXR(ctx) {
       st.direct = { kind: 'dig', y0: cl.y }; digTo(cl.z); buzz(st); return true;
     }
     // 6. gear bodies, flight-case bottom handles (resize), flight-case bodies (move)
-    const hit = hitMovable(P);
+    // #253 (owner): moving, turning, tilting and resizing stage items (decks, mixer, crates, milk crates, LED wall,
+    // neon, flight cases) = the grip on controllers; the trigger never moves them. Bare hands: pinch, as before.
+    const hit = gripOk ? hitMovable(P) : null;
     // neon sign: a second hand on the other centre bar resizes it (pull apart = bigger); anywhere else is ignored
     if (hit && hit.key === 'neon') {
       const other = inputs.find(o => o !== st && o.direct && o.direct.kind === 'move' && o.direct.target === 'neon');
@@ -342,8 +368,8 @@ export function setupXR(ctx) {
     if (hit && hit.key === 'ledwall' && !inputs.some(o => o !== st && o.direct && o.direct.target === 'ledwall')) {
       const l = ctx.ledwall.worldToLocal(v2.copy(P));
       if (Math.abs(l.x) < ctx.LED.W * 0.22 && Math.abs(l.y) < ctx.LED.H * 0.3) {
-        st.direct = { kind: 'ledTurn', target: 'ledwall', roll0: ctx.ledwall.rotation.z, h0: wallRoll(st) };
-        buzz(st, 0.4, 30); ctx.toast && ctx.toast('Twist your wrist to turn the LED wall (portrait / landscape)', 2500); return true;
+        st.direct = { kind: 'ledTurn', target: 'ledwall', roll0: ctx.ledwall.rotation.z, h0: wallRoll(st), tilt0: ctx.ledwall.rotation.x, p0: wallPitch(st), axis: null };
+        buzz(st, 0.4, 30); ctx.toast && ctx.toast('Twist your wrist to turn the LED wall, or tip your hand toward / away from you to tilt it', 2500); return true;
       }
     }
     // #176 LED wall: a second hand anywhere on it while the other hand holds it = resize (pull apart = bigger)
@@ -440,15 +466,28 @@ export function setupXR(ctx) {
       // twist since the grab through wrap(), which jumped from -180 to +180 deg and flipped min <-> max.
       const y = yawOf(handQuat(st, q1));
       const dy = Math.max(-0.6, Math.min(0.6, wrap(y - g.yawL))); g.yawL = y;   // cap: ignore yaw flips when the hand points straight up/down
-      ctx.setMix(g.id, ctx.mixVal[g.id] - dy / (300 * Math.PI / 180) * 1.2);   // turn clockwise (seen from above) = up
+      let nv = ctx.mixVal[g.id] - dy / (300 * Math.PI / 180) * 1.2;   // turn clockwise (seen from above) = up
+      // #254 (owner) sticky PAN: centred, it holds until turned 8 % of its travel away (a brush can't swing it);
+      // turned back within 3 % of the middle it settles there again. The hold keeps the turn so far in g.panAcc.
+      if (g.id.endsWith('.pan')) {
+        if (ctx.mixVal[g.id] === 0.5) { g.panAcc = (g.panAcc || 0) + (nv - 0.5); nv = Math.abs(g.panAcc) > 0.08 ? 0.5 + g.panAcc : 0.5; if (nv !== 0.5) g.panAcc = 0; }
+        else if (Math.abs(nv - 0.5) < 0.03 && Math.abs(ctx.mixVal[g.id] - 0.5) >= 0.03) { nv = 0.5; g.panAcc = 0; buzz(st, 0.3, 12); }
+      }
+      ctx.setMix(g.id, nv);
     } else if (g.kind === 'slider') {
       const m = ctx.sliderFromLocal(g.id, ctx.mixer.worldToLocal(v2.copy(P)));
       if (g.m0 == null) { g.m0 = m; g.v0 = ctx.mixVal[g.id]; }
       ctx.setMix(g.id, g.v0 + (m - g.m0));
     } else if (g.kind === 'pitch') {
       const m = ctx.pitchFromLocalZ(g.d, g.d.g.worldToLocal(v2.copy(P)).z);
-      if (g.m0 == null) { g.m0 = m; g.v0 = g.d.pitch; }
-      if (ctx.setPitch(g.d, g.v0 + (m - g.m0), true) === 'detent') buzz(st, 0.5, 18);   // #230 the click at zero
+      // #253 fine pitch: while the other hand pulls its trigger (or pinches), the fader moves at quarter speed;
+      // switching in or out re-anchors here, so the pitch never jumps
+      // #265 (owner DJs with one controller): squeezing the grip on the SAME controller that holds the fader is fine mode;
+      // the other hand's trigger / pinch still works too (bare hands: only that way)
+      const gpS = !st.isHand && st.source && st.source.gamepad, ownGrip = !!(gpS && gpS.buttons[1] && gpS.buttons[1].pressed);
+      const fine = ownGrip || inputs.some(o => o !== st && o.connected && (o.isHand ? !!o.pinching : !!(o.source && o.source.gamepad && o.source.gamepad.buttons[0] && o.source.gamepad.buttons[0].pressed)));
+      if (g.m0 == null || fine !== !!g.fine) { g.m0 = m; g.v0 = g.d.pitch; if (fine !== !!g.fine) { g.fine = fine; buzz(st, fine ? 0.35 : 0.2, 15); } }
+      ctx.setPitch(g.d, g.v0 + (m - g.m0) * (fine ? 0.25 : 1));
     } else if (g.kind === 'spindle') {
       // #105: twist about the vertical, 1:1 like a real spindle; clockwise from above = forward. A tick every 5 ms.
       const y = yawOf(handQuat(st, q1)), dy = Math.max(-0.6, Math.min(0.6, wrap(y - g.yawL))); g.yawL = y;
@@ -496,8 +535,11 @@ export function setupXR(ctx) {
       if (!g.done && Math.abs(dy) > 0.35) { ctx.setPower(g.d, g.d.power === false); g.done = true; buzz(st, 0.6, 40); }
     } else if (g.kind === 'neonScale') {
       if (g.R.a === st) ctx.setNeonScale(g.R.s0 * pinchOf(g.R.a).distanceTo(pinchOf(g.R.b)) / g.R.d0);
-    } else if (g.kind === 'ledTurn') {   // #222
-      ctx.ledwall.rotation.z = g.roll0 + wrap(wallRoll(st) - g.h0);
+    } else if (g.kind === 'ledTurn') {   // #222 twist = portrait / landscape; #248 tip toward / away = tilt
+      const dr = wrap(wallRoll(st) - g.h0), dp = wallPitch(st) - g.p0;
+      if (!g.axis && Math.max(Math.abs(dr), Math.abs(dp)) > 0.17) { g.axis = Math.abs(dr) >= Math.abs(dp) ? 'roll' : 'tilt'; buzz(st, 0.3, 20); }   // the first 10 deg decide which, then it stays on that one
+      if (g.axis === 'roll') ctx.ledwall.rotation.z = g.roll0 + dr;
+      else if (g.axis === 'tilt') ctx.ledwall.rotation.x = Math.max(-0.8, Math.min(0.8, g.tilt0 + dp));   // up to ~45 deg either way
     } else if (g.kind === 'ledScale') {
       if (g.R.a === st) ctx.setLedScale(g.R.s0 * pinchOf(g.R.a).distanceTo(pinchOf(g.R.b)) / g.R.d0);
     } else if (g.kind === 'twoHand') {
@@ -515,10 +557,11 @@ export function setupXR(ctx) {
     else if (g.kind === 'held') { const h = ctx.getHeld(); if (h && h.attach === st.anchor) ctx.releaseHeld(); }
     else if (g.kind === 'move') { ctx.stage.endMove(g.stMove); if (g.target.startsWith('milk')) ctx.releaseMilk(g.target, g.vel); else ctx.settleStack(g.target); }   // #200 milk: releaseMilk drops / throws / settles it
     else if (g.kind === 'lid') ctx.lidRelease();
+    else if (g.kind === 'spider') { ctx.spiderRelease(st.anchor); buzz(st, 0.3, 20); }   // #256
     else if (g.kind === 'sleeve') ctx.sleeveRelease(st.anchor);   // #242 let go: it stays there (over the record crate: back in)
     else if (g.kind === 'tablet') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'tabletStretch') o.direct = null; if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
     else if (g.kind === 'tabletScale' || g.kind === 'tabletStretch') ctx.saveTablet();
-    else if (g.kind === 'ledTurn') { ctx.ledTurned(); buzz(st, 0.5, 30); }   // #222 settle on portrait / landscape
+    else if (g.kind === 'ledTurn') { if (g.axis === 'tilt') ctx.ledTilted && ctx.ledTilted(); else ctx.ledTurned(); buzz(st, 0.5, 30); }   // #222 settle on portrait / landscape; #248 a tilt just stays
     else if (g.kind === 'ledScale') {
       const o = g.R.a === st ? g.R.b : g.R.a;
       if (o.direct && o.direct.kind === 'ledScale') o.direct = null;
@@ -557,6 +600,7 @@ export function setupXR(ctx) {
       out.push({ g: u.start, c: { deck: d.name, id: 'start' }, r: 0.022 });
       out.push({ g: u.b33, c: { deck: d.name, id: 'rpm33' }, r: 0.012 });
       out.push({ g: u.b45, c: { deck: d.name, id: 'rpm45' }, r: 0.012 });
+      if (u.x2) out.push({ g: u.x2, c: { deck: d.name, id: 'x2' }, r: 0.01 });   // #253
       if (u.target) out.push({ g: u.target.grp, c: { deck: d.name, id: 'target' }, r: 0.016, top: () => u.target.headY - 0.006 });
     }
     return out;
@@ -566,7 +610,7 @@ export function setupXR(ctx) {
   function pokes(st, T) {
     buttons = buttons || buttonList();
     for (const b of buttons) {
-      if ((b.c.id === 'target' || b.c.id === 'rpm33' || b.c.id === 'rpm45') && !st.isHand) continue;   // controllers: trigger only, see grabStart
+      if ((b.c.id === 'target' || b.c.id === 'rpm33' || b.c.id === 'rpm45' || b.c.id === 'x2' || b.c.id === 'start') && !st.isHand) continue;   // controllers: trigger (START / STOP: grip, #252) only, see grabStart
       b.g.getWorldPosition(v2); v2.y += b.top ? b.top() + 0.006 : 0.006;
       const h = T.y - v2.y, dxz = Math.hypot(T.x - v2.x, T.z - v2.z);
       const key = b;
@@ -600,13 +644,13 @@ export function setupXR(ctx) {
       for (const d of ctx.decks) {
           const ll = d.g.worldToLocal(v2.copy(T));
         const r = Math.hypot(ll.x - ctx.DECK.spindle.x, ll.z - ctx.DECK.spindle.z);
-        const h = ll.y - (d.g.userData.platterSurface + ctx.REC.THICK);
+        const h = ll.y - (d.g.userData.platterSurface + RD(d).THICK);
         const cur = st.scratch && st.scratch.deck === d;
         let on = false, rim = false;
-        if (cur && st.scratch.nudge) on = rim = r > ctx.REC.R - 0.01 && r < PLATTER_R + 0.02 && h < 0.02 && h > -0.03;
-        else if (cur) on = h < 0.02 && r < ctx.REC.R + 0.01;
-        else if (r > ctx.REC.R + 0.002 && r < PLATTER_R + 0.01 && h < 0.004 && h > -0.022) on = rim = true;   // side of the platter
-        else if (d.record) on = h < 0.008 && h > -0.015 && r > ctx.REC.LABEL + LIFT_OUT && r < ctx.REC.R - 0.004;   // on the grooves (#104)
+        if (cur && st.scratch.nudge) on = rim = r > RD(d).R - 0.01 && r < PLATTER_R + 0.02 && h < 0.02 && h > -0.03;
+        else if (cur) on = h < 0.02 && r < RD(d).R + 0.01;
+        else if (r > RD(d).R + 0.002 && r < PLATTER_R + 0.01 && h < 0.004 && h > -0.022) on = rim = true;   // side of the platter
+        else if (d.record) on = h < 0.008 && h > -0.015 && r > RD(d).LABEL + LO(RD(d)) && r < RD(d).R - 0.004;   // on the grooves (#104)
         if (on) { touching = d; local = ll.clone(); local.rim = rim; break; }
       }
       if (touching) {

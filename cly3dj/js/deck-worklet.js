@@ -12,6 +12,7 @@
 // the servo has caught up (~0.3 s), bigger loads pull the speed down, and anything past ~0.15 N m stalls it.
 // 'legacy' keeps the pre-#120 kinematic model (fixed ramps) for side-by-side comparison.
 
+const PAN_K = 1 - Math.exp(-1 / (0.012 * sampleRate));   // #254 pan smoothing per sample
 const REV_PER_SEC = (100 / 3) / 60;
 const W33 = 2 * Math.PI * REV_PER_SEC;   // rad/s at 33 1/3 rpm = rate 1
 const W45 = W33 * 1.35;
@@ -63,7 +64,8 @@ class Deck {
     this.touch = false; this.touchRate = 0; this.touchF = 0.35;
     this.nudgeE = 0; this.nudgeLeft = 0;
     this.needle = false; this.needleGain = 0;
-    this.pan = 0; this.split = false;
+    this.pan = 0; this.panS = 0; this.split = false;
+    this.wobble = 0; this.wobPh = 0;   // #260 a 45 off-centre on the bare spindle: rate x (1 + wobble cos(record angle - wobPh))   // #254 panS: the pan eased toward pan (~12 ms), so a jump never clicks
     this.lastLevel = 0;
     // needle dragged across the vinyl (CLAUDE.md #61)
     this.drag = false; this.dragPending = 0; this.dragAcc = 0; this.gps = 0; this.click = 0; this.hp = 0; this.nz = 0;
@@ -78,10 +80,10 @@ class Deck {
     this.quietPhi = 0; this.wasDisturbed = false; this.load = 0; this.matT = 0;
     this.setRecord(0.18);
   }
-  setRecord(mass) {
+  setRecord(mass, R = REC_R, holeR = HOLE_R) {   // #261 R / holeR: a 7" single is smaller, with a big hole
     this.recMass = mass;
     const m = mass + MAT_MASS;
-    this.Ir = 0.5 * mass * (REC_R * REC_R + HOLE_R * HOLE_R) + 0.5 * MAT_MASS * 0.15 * 0.15;
+    this.Ir = 0.5 * mass * (R * R + holeR * holeR) + 0.5 * MAT_MASS * 0.15 * 0.15;
     this.mTot = m;
     const k = this.Ir * Math.pow(2 * Math.PI * HAND_HZ, 2);
     this.kHand = k; this.cHand = 2 * Math.sqrt(k * this.Ir);
@@ -235,6 +237,7 @@ class Decks extends AudioWorkletProcessor {
         break;
       case 'record':   // a record put on / taken off the platter (#120). It lands still; the mat pulls it up to speed.
         d.hasRec = !!m.on; d.handOn = false; d.holding = false;
+        if (d.hasRec) { d.is7 = m.size === 7; d.setRecord(d.is7 ? 0.040 : (d.massSetting || 0.18), d.is7 ? 0.0873 : REC_R, d.is7 ? 0.0191 : HOLE_R); }   // #261 a 45 weighs ~40 g
         if (d.hasRec) { d.wr = m.w != null ? m.w * W33 : 0; d.thr = d.thp; d.stuck = Math.abs(d.wr - d.wp) < 1e-6; }
         else { d.wr = d.wp; d.stuck = false; }
         break;
@@ -285,7 +288,7 @@ class Decks extends AudioWorkletProcessor {
       if (m.model === 'legacy') d.rate = d.wr / W33;
     }
     if (m.mat && MATS[m.mat]) d.mat = MATS[m.mat];
-    if (m.recMass) d.setRecord(m.recMass);
+    if (m.recMass) { d.massSetting = m.recMass; if (!d.is7) d.setRecord(m.recMass); }   // #261 a 45 keeps its own weight
     if (m.pll != null) d.pll = !!m.pll;
   }
 
@@ -352,7 +355,7 @@ class Decks extends AudioWorkletProcessor {
         } else if (d.len && d.needleGain > 1e-4) {
           l = d.sample(d.L, d.pos) * d.needleGain;
           rr = d.sample(d.R, d.pos) * d.needleGain;
-          const p = d.pan;
+          const p = d.panS += (d.pan - d.panS) * PAN_K;
           const gL = p > 0 ? 1 - p : 1, gR = p < 0 ? 1 + p : 1;
           if (d.split) { const m = l * gL + rr * gR; l = m; rr = m; }
           else { l *= gL; rr *= gR; }
@@ -362,7 +365,7 @@ class Decks extends AudioWorkletProcessor {
         const a = Math.abs(l) > Math.abs(rr) ? Math.abs(l) : Math.abs(rr);
         if (a > peak) peak = a;
         if (d.len) {
-          d.pos += r * d.srcRate * dt;
+          d.pos += r * d.srcRate * dt * (d.wobble ? 1 + d.wobble * Math.cos(d.thr - d.wobPh) : 1);   // #260 wow
           if (d.pos < 0) d.pos = 0;
           // past the last sample the stylus is in the locked run-out groove: the record keeps turning
           if (d.pos > d.len + d.srcRate * 36000) d.pos = d.len;

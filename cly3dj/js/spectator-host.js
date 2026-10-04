@@ -14,7 +14,7 @@ const CAL_TEXT = {
   x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
-export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getScroll, onLive, getVV, getSky, onMedia, onCam, onPreview, perf, coverFor }) {
+export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getScroll, onLive, getVV, getSpiders, getSky, onMedia, onCam, onPreview, perf, coverFor }) {
   // #209 PerfCap: every mirror message also goes to the PerfCap recorder while it records (phone or not)
   const out = { send(ch, m) { if (link.isOpen) link.send(ch, m); if (perf && perf.on) perf.write(ch, m); } };
   let perfMarks = false;   // #209 PerfCap MARKS mode: each trigger press records a floor mark
@@ -183,6 +183,9 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     const V = getVV();
     return { mode: V.mode, gains: V.gains.map(r4), decks: V.decks.map(([i, key, pos, rate]) => [i, key, r3(pos), r4(rate)]) };
   }
+  // #262 the 45 adapters: sent when anything about them changes (every frame only while one is being carried)
+  let spKey = '';
+  function spTick() { if (!getSpiders) return undefined; const S = getSpiders(), k = JSON.stringify(S); if (k === spKey) return undefined; spKey = k; return S; }
   // ---- records: sent once (track info, groove envelope, label image), then followed by their transform
   const uidOf = new WeakMap(); let nextUid = 1; const live = new Map();   // uid -> { r, env: {A,B}, art: {A,B} }
   const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
@@ -195,7 +198,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       let uid = uidOf.get(r); if (!uid) { uid = nextUid++; uidOf.set(r, uid); }
       seen.add(uid);
       let L = live.get(uid);
-      if (!L) { L = { r, env: {}, art: {} }; live.set(uid, L); out.send('ctl', { k: 'rec', uid, rec: { id: r.rec.id, sides: { A: meta(r.rec.sides.A), B: meta(r.rec.sides.B) } }, sideUp: r.sideUp }); }
+      if (!L) { L = { r, env: {}, art: {} }; live.set(uid, L); out.send('ctl', { k: 'rec', uid, rec: { id: r.rec.id, size: r.rec.size === 7 ? 7 : 12, sides: { A: meta(r.rec.sides.A), B: meta(r.rec.sides.B) } }, sideUp: r.sideUp }); }
       for (const side of ['A', 'B']) {
         const env = r.envs[side];
         if (env && L.env[side] !== env) {   // 8192 bins 0..1 -> 16 bit, ~22 KB once per side
@@ -209,7 +212,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
         }
       }
       r.group.updateMatrixWorld(); _rm.multiplyMatrices(_ri, r.group.matrixWorld); _rm.decompose(_rp, _rq, _rs);
-      rows.push([uid, r4(_rp.x), r4(_rp.y), r4(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), r4(r.mesh.rotation.x), r4(r.mesh.position.y), r.sideUp]);
+      rows.push([uid, r4(_rp.x), r4(_rp.y), r4(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), r4(r.mesh.rotation.x), r4(r.mesh.position.y), r.sideUp, r4(r.disc.position.x)]);   // #262 + the off-centre 45
     }
     for (const uid of [...live.keys()]) if (!seen.has(uid)) { live.delete(uid); out.send('ctl', { k: 'recdel', uid }); }
     return rows;
@@ -387,7 +390,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     onTrack: t => { onLive && onLive(t); },   // #238 LIVE CAM
     onBinary: onBin,
     onState: s => status(s),
-    onOpen: () => { crateSent = ''; if (lastScr) scrDirty = true; link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; scrollKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
+    onOpen: () => { crateSent = ''; if (lastScr) scrDirty = true; link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; scrollKey = ''; spKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
     onClose: () => { onLive && onLive(null); if (rx) { rx.abort(); rx = null; } camState = null; onCam && onCam(null); status('disconnected'); calStep = null; ghost(false); panel.visible = false; frustum.visible = false; },
     onMessage: m => {
       if (m.k === 'qgo' || m.k === 'qok') { resolveWait(m.f, m.n, m.k, m); return; }   // #206 media sync, Quest to phone
@@ -449,7 +452,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     else if (now - settleT > 1000) { settleT = now; const n = settled(now); if (n.length) out.send('ctl', { k: 'full', t: Math.round(now), n }); }
     out.send('state', { k: 's', n: seq++, t: Math.round(now), xr: renderer.xr.isPresenting ? 1 : 0,
       h: [r3(_p.x), r3(_p.y), r3(_p.z), r4(_q.x), r4(_q.y), r4(_q.z), r4(_q.w)],
-      cs: caseSizes(false), g: nodeDiffs(false), r: recordsTick(), vv: vvTick(), hd: renderer.xr.isPresenting ? handsTick() : [] });
+      cs: caseSizes(false), g: nodeDiffs(false), r: recordsTick(), vv: vvTick(), sp: spTick(), hd: renderer.xr.isPresenting ? handsTick() : [] });
   }
   // #167: one switch. ON = viewfinder outline here + helpers and menus on the phone; OFF = everything hidden
   // (the phone shows only camera + gear: start its screen recorder by hand)
@@ -466,6 +469,6 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     syncList, syncCopy, get sync() { return sync; },
     // #209 PerfCap: a take starts with a full snapshot (layout, every part, every record with its grooves / labels)
     crate, crateScreen, prepCovers,   // #218
-    perfBegin() { full = true; live.clear(); ledKey = ''; skyKey = ''; scrollKey = ''; crateSent = ''; scrDirty = !!scrCanvas; perfCov.clear(); if (crateMsg) crate(crateMsg); if (perf && perf.on) { perf.write('ctl', layout()); perf.write('ctl', { k: 'mr', on: mr }); } },
+    perfBegin() { full = true; spKey = ''; live.clear(); ledKey = ''; skyKey = ''; scrollKey = ''; crateSent = ''; scrDirty = !!scrCanvas; perfCov.clear(); if (crateMsg) crate(crateMsg); if (perf && perf.on) { perf.write('ctl', layout()); perf.write('ctl', { k: 'mr', on: mr }); } },
     get perfMarks() { return perfMarks; }, set perfMarks(v) { perfMarks = !!v; } };
 }

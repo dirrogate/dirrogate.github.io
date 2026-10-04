@@ -235,6 +235,7 @@ export function xrPose(renderer, inputs) {
         p: gp.clone().add(new THREE.Vector3(0, 0, 0.07).applyQuaternion(gq)),   // wrist sits a little behind the grip centre
         f: new THREE.Vector3(0, -0.35, -1).applyQuaternion(gq), s: new THREE.Vector3(0, -1, 0.25).applyQuaternion(gq),
         curl: bt && bt[1] ? 0.25 + 0.75 * bt[1].value : 0.3, curlIndex: bt && bt[0] ? 0.15 + 0.85 * bt[0].value : 0.2,
+        tip: st.tip ? st.tip.clone() : null,   // #247: the blue tip ball; the robot's index fingertip is put on it
       };
     }
   }
@@ -252,8 +253,9 @@ export function demoPose(rig, gear, t) {
     q: rq.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.55 + 0.05 * bob, 0.15 * Math.sin(t * 0.4), 0, 'YXZ'))),
   };
   const sc = Math.sin(t * 3.1);   // scratch back and forth on deck A's record edge
-  const lp = L(a.x + 0.06 + 0.04 * sc, top + 0.07, a.z + 0.13 + 0.02 * Math.cos(t * 3.1));
-  const rp = L(mx + 0.02 + 0.05 * Math.sin(t * 0.9), top + 0.06, mz + 0.14);
+  // #248: wrists 4 cm higher (the demo's fingertips sat 2 to 4 cm under the plinth and mixer tops)
+  const lp = L(a.x + 0.06 + 0.04 * sc, top + 0.11, a.z + 0.13 + 0.02 * Math.cos(t * 3.1));
+  const rp = L(mx + 0.02 + 0.05 * Math.sin(t * 0.9), top + 0.10, mz + 0.14);
   const d = (x, y, z) => new THREE.Vector3(x, y, z).applyQuaternion(rq);
   return { head, hands: [
     { p: lp, f: d(0.15, -0.45, -1), s: d(-1, 0, 0.1), curl: 0.3, curlIndex: 0.25 },
@@ -273,10 +275,19 @@ export class DjCam {
     const half = renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float');
     this.rt = new THREE.WebGLRenderTarget(1024, 576, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 });
     this.rt.texture.name = 'djcam';
+    // #250 (owner: AVACAM flickers most, wall above and tilted down): the sharp rendered picture shown smaller than
+    // its 1024 px on the wall, at an angle, sparkled and crawled with every head movement (no mipmaps). Mipmaps
+    // (made after each render, every 3rd frame) + anisotropic filtering smooth it like a real screen seen from afar.
+    this.rt.texture.generateMipmaps = true; this.rt.texture.minFilter = THREE.LinearMipmapLinearFilter;
+    this.rt.texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
     this.preset = 'front'; this.n = 0; this.t = 0; this.lastMs = 0; this.ms = 0;
   }
   aimAt(gear, dj) {   // rig-local positions
-    const m = gear.mixer, A = gear.deckA, Bk = gear.deckB, c = gear.crate, top = gear.top, z = dj.z;
+    // #252 (owner: AVACAM still erratic when the head moves): the aim followed the DJ's head depth raw, so every lean
+    // swung the whole picture. Now it follows a slow average of it (~2 s), like an operator reframing, not shaking.
+    const now = performance.now(), k = this.zT ? Math.min(1, (now - this.zT) / 2000) : 1; this.zT = now;
+    this.zs = this.zs == null ? dj.z : this.zs + (dj.z - this.zs) * k;
+    const m = gear.mixer, A = gear.deckA, Bk = gear.deckB, c = gear.crate, top = gear.top, z = this.zs;
     const P = {
       front: [[m.x, 1.55, m.z - 1.65], [m.x, 1.22, (m.z + z) / 2]],
       wide: [[m.x + 1.5, 1.95, m.z - 1.8], [m.x, 1.1, (m.z + z) / 2]],

@@ -414,7 +414,7 @@ export function startCamera(ctx) {
   function recSample(a, t) {
     const R = recs.get(a[0]); if (!R) return;
     addSample(R.s, t, { p: new THREE.Vector3(a[1], a[2], a[3]), q: new THREE.Quaternion(a[4], a[5], a[6], a[7]) });
-    R.meshX = a[8]; R.meshY = a[9]; R.r.sideUp = a[10]; R.seen = performance.now();
+    R.meshX = a[8]; R.meshY = a[9]; R.r.sideUp = a[10]; R.discX = a[11] || 0; R.seen = performance.now();
   }
 
   // ---------------------------------------------------------------- hands: depth-only shapes (the camera image shows through)
@@ -468,6 +468,7 @@ export function startCamera(ctx) {
       if (m.r) for (const a of m.r) recSample(a, m.t);
       if (m.hd) onHands(m.hd);
       if (m.vv) onVV(m.vv);
+      if (m.sp && ctx.crateRemote && ctx.crateRemote.spiders) ctx.crateRemote.spiders(m.sp);   // #262 45 adapters
     } else if (m.k === 'full') { onCaseSizes(m.cs); applyCaseSizes(performance.now(), true); for (const a of m.n) nodeSample(a, m.t); }
     else if (m.k === 'layout') { const cs = {}; for (const [k, v] of Object.entries(m.layout.cases || {})) cs[k] = [v[4], v[5], v[6]]; onCaseSizes(cs); }
     else if (m.k === 'rec') onRec(m);
@@ -695,6 +696,7 @@ export function startCamera(ctx) {
     for (const R of recs.values()) {
       blendTo(R.s, rt, R.r.group, false); R.r.group.visible = R.s.length > 0 && now - (R.seen || 0) < 1500;
       if (R.meshX !== undefined) { R.r.mesh.rotation.x = R.meshX; R.r.mesh.position.y = R.meshY; }
+      R.r.disc.position.x = R.discX || 0;   // #262 a 45 off-centre on the bare spindle
     }
     handsTimeout();
     vvFrame(now);

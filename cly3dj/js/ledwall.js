@@ -8,6 +8,7 @@ export const LED = { W: 1.6, H: 0.9, D: 0.05, BEZ: 0.025 };   // screen size (m)
 
 export function makeLedWall() {
   const g = new THREE.Group(); g.name = 'ledwall';
+  g.rotation.order = 'YXZ';   // #248 yaw, then tilt (x, about its own horizontal axis), then the portrait turn (z)
   const frame = new THREE.Mesh(new THREE.BoxGeometry(LED.W + 2 * LED.BEZ, LED.H + 2 * LED.BEZ, LED.D),
     new THREE.MeshStandardMaterial({ color: 0x121317, metalness: 0.6, roughness: 0.45 }));
   g.add(frame);
