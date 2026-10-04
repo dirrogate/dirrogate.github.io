@@ -101,9 +101,11 @@ function pose(h, t, g, th) {
   const O = POSE.O, o = Math.max(t, g);
   const idx = lerp3(POSE.index.open, O.index, o), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
   for (const f of FINGERS) { const c = CH(f), a = f === 'index-finger' ? idx : rest; for (let j = 0; j < 3; j++) curl(h, c, j + 1, a[j]); }
-  const tp = lerp3(th ? POSE.thumb.down : POSE.thumb.open, O.thumb, o);
-  if (O.swing) curl(h, THUMB, 0, O.swing * o * (h.handed === 'left' ? -1 : 1), O.swingAxis || 'z');   // thumb across toward the index
-  if (O.roll) curl(h, THUMB, 0, O.roll * o * (h.handed === 'left' ? -1 : 1), 'y');
+  // #292 (owner: the ball wandered as the thumb moved): the thumb never moves. It always sits where it is in the closed
+  // O, and only the index curls over to meet it, so the ball on the thumb tip (the touch point) stays put on every press
+  const tp = O.thumb;
+  if (O.swing) curl(h, THUMB, 0, O.swing * (h.handed === 'left' ? -1 : 1), O.swingAxis || 'z');   // thumb across toward the index
+  if (O.roll) curl(h, THUMB, 0, O.roll * (h.handed === 'left' ? -1 : 1), 'y');
   for (let j = 0; j < 3; j++) curl(h, THUMB, j, tp[j]);
 }
 const _t = new THREE.Vector3(), _d = new THREE.Vector3(), _inv = new THREE.Matrix4();
