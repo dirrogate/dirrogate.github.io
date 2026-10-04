@@ -71,10 +71,15 @@ function place(h, handed) {
   const inv = new THREE.Matrix4().copy(h.root.matrixWorld).invert();
   h.oLocal = new THREE.Vector3().setFromMatrixPosition(it.matrixWorld).add(new THREE.Vector3().setFromMatrixPosition(tt.matrixWorld)).multiplyScalar(0.5).applyMatrix4(inv);
   // #284 the closed O's index fingertip (6 mm past the tip joint): the touch point while a button is held
-  // #289 (owner): the THUMB tip instead (its pad lines up with knob and fader caps in the O)
-  const dj = h.bones['thumb-phalanx-distal']; dj.updateWorldMatrix(true, false);
-  const ti = new THREE.Vector3().setFromMatrixPosition(tt.matrixWorld).applyMatrix4(inv), di = new THREE.Vector3().setFromMatrixPosition(dj.matrixWorld).applyMatrix4(inv);
+  // #293 (owner) back on the INDEX tip (#289 had moved it to the thumb)
+  const dj = h.bones['index-finger-phalanx-distal']; dj.updateWorldMatrix(true, false);
+  const ti = new THREE.Vector3().setFromMatrixPosition(it.matrixWorld).applyMatrix4(inv), di = new THREE.Vector3().setFromMatrixPosition(dj.matrixWorld).applyMatrix4(inv);
   h.tipO = ti.clone().addScaledVector(ti.clone().sub(di).normalize(), 0.006);
+  // #293 the relaxed hand's index fingertip (6 mm past the tip joint): THE touch point and ball, fixed in grip space
+  // (as #279, the last setup where dials and faders behaved: a press never moves it)
+  pose(h, 0, 0, false); h.holder.updateMatrix(); it.updateWorldMatrix(true, false); dj.updateWorldMatrix(true, false);
+  const tr = new THREE.Vector3().setFromMatrixPosition(it.matrixWorld).applyMatrix4(inv), dr = new THREE.Vector3().setFromMatrixPosition(dj.matrixWorld).applyMatrix4(inv);
+  h.tipRest = tr.clone().addScaledVector(tr.clone().sub(dr).normalize(), 0.006);
   h.cur = '';
 }
 
@@ -101,11 +106,10 @@ function pose(h, t, g, th) {
   const O = POSE.O, o = Math.max(t, g);
   const idx = lerp3(POSE.index.open, O.index, o), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
   for (const f of FINGERS) { const c = CH(f), a = f === 'index-finger' ? idx : rest; for (let j = 0; j < 3; j++) curl(h, c, j + 1, a[j]); }
-  // #292 (owner: the ball wandered as the thumb moved): the thumb never moves. It always sits where it is in the closed
-  // O, and only the index curls over to meet it, so the ball on the thumb tip (the touch point) stays put on every press
-  const tp = O.thumb;
-  if (O.swing) curl(h, THUMB, 0, O.swing * (h.handed === 'left' ? -1 : 1), O.swingAxis || 'z');   // thumb across toward the index
-  if (O.roll) curl(h, THUMB, 0, O.roll * (h.handed === 'left' ? -1 : 1), 'y');
+  // #293 (owner): the thumb moves naturally again (#292 had it fixed in the O); the ball is back on the index tip
+  const tp = lerp3(th ? POSE.thumb.down : POSE.thumb.open, O.thumb, o);
+  if (O.swing) curl(h, THUMB, 0, O.swing * o * (h.handed === 'left' ? -1 : 1), O.swingAxis || 'z');   // thumb across toward the index
+  if (O.roll) curl(h, THUMB, 0, O.roll * o * (h.handed === 'left' ? -1 : 1), 'y');
   for (let j = 0; j < 3; j++) curl(h, THUMB, j, tp[j]);
 }
 const _t = new THREE.Vector3(), _d = new THREE.Vector3(), _inv = new THREE.Matrix4();
@@ -116,7 +120,7 @@ function update(h, t, g, th) {
   // #280 / #289 the blue ball and the touch point follow the thumb tip (6 mm past the tip joint, which is inside the
   // skin), in the hand root's space (= grip space)
   h.holder.updateMatrix();
-  const tb = h.bones['thumb-tip'], db = h.bones['thumb-phalanx-distal'];   // #289 the thumb tip, not the index
+  const tb = h.bones['index-finger-tip'], db = h.bones['index-finger-phalanx-distal'];   // #293 the index tip again
   tb.updateWorldMatrix(true, false); db.updateWorldMatrix(true, false); _inv.copy(h.root.matrixWorld).invert();
   _t.setFromMatrixPosition(tb.matrixWorld).applyMatrix4(_inv); _d.setFromMatrixPosition(db.matrixWorld).applyMatrix4(_inv);
   (h.tipLive || (h.tipLive = new THREE.Vector3())).copy(_t).addScaledVector(_d.subVectors(_t, _d).normalize(), 0.006);

@@ -12,7 +12,7 @@ const LIFT_OUT = 0.05;
 // #260 the record on a deck: 12" or 7" sizes (lift zone just past a 45's label, 1.2 cm)
 let REC12 = null; const RD = d => (d.record && d.record.dims) || REC12; const LO = D => (D.SIZE === 7 ? 0.012 : LIFT_OUT);   // #136: record lift-off zone reaches this far past the label edge (m)
 
-const REACH = 0.03;        // metres, direct-grab radius for knobs/faders
+const REACH = 0.04;        // metres, direct-grab radius for knobs/faders (#293: 3 -> 4 cm, the ball is 13.5 mm now)
 const ARM_REACH = 0.05;
 const PINCH_ON = 0.018, PINCH_OFF = 0.032;
 const PLATTER_R = 0.166;
@@ -28,7 +28,7 @@ export function setupXR(ctx) {
   const hmf = new XRHandModelFactory().setPath(PROF + '/generic-hand/');
 
   const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
-  const tipGeo = new THREE.SphereGeometry(0.009, 12, 8);   // #291 (owner) 150 % (was 6 mm)
+  const tipGeo = new THREE.SphereGeometry(0.0135, 12, 8);   // #291 / #293 (owner) 150 % twice (6 -> 9 -> 13.5 mm)
   // #140 (owner): the blue tip ball sits at the front centre of the controller's own model (the fixed grip-space
   // point was off to one side on Quest 3 Touch Plus). Measured once from the loaded model: the front-most 2.5 cm of
   // its vertices give the centre (x, y); the ball's centre sits 2 mm inside the front face. Fallback until the model loads.
@@ -485,9 +485,12 @@ export function setupXR(ctx) {
       }
       ctx.setMix(g.id, nv);
     } else if (g.kind === 'slider') {
-      const m = ctx.sliderFromLocal(g.id, ctx.mixer.worldToLocal(v2.copy(P)));
+      const m = ctx.sliderFromLocal(g.id, ctx.mixer.worldToLocal(v2.copy(P)), true);   // #293 unclamped: grabbed off the cap, the ends are still reachable
       if (g.m0 == null) { g.m0 = m; g.v0 = ctx.mixVal[g.id]; }
-      ctx.setMix(g.id, g.v0 + (m - g.m0));
+      // #293 past an end the cap stays there and the grab re-anchors, so coming back moves it at once (no dead travel)
+      let nv = g.v0 + (m - g.m0); const lo = g.id === 'xfader' ? -1 : 0;
+      if (nv > 1) { g.m0 += nv - 1; nv = 1; } else if (nv < lo) { g.m0 += nv - lo; nv = lo; }
+      ctx.setMix(g.id, nv);
     } else if (g.kind === 'pitch') {
       const m = ctx.pitchFromLocalZ(g.d, g.d.g.worldToLocal(v2.copy(P)).z);
       // #253 fine pitch: while the other hand pulls its trigger (or pinches), the fader moves at quarter speed;
@@ -497,7 +500,9 @@ export function setupXR(ctx) {
       const gpS = !st.isHand && st.source && st.source.gamepad, ob = st.btn === 'grip' ? 0 : 1, ownGrip = !!(gpS && gpS.buttons[ob] && gpS.buttons[ob].pressed);   // #282 the fader is held with the grip: fine = the same controller's trigger
       const fine = ownGrip || inputs.some(o => o !== st && o.connected && (o.isHand ? !!o.pinching : !!(o.source && o.source.gamepad && o.source.gamepad.buttons[0] && o.source.gamepad.buttons[0].pressed)));
       if (g.m0 == null || fine !== !!g.fine) { g.m0 = m; g.v0 = g.d.pitch; if (fine !== !!g.fine) { g.fine = fine; buzz(st, fine ? 0.35 : 0.2, 15); } }
-      ctx.setPitch(g.d, g.v0 + (m - g.m0) * (fine ? 0.25 : 1));
+      const k = fine ? 0.25 : 1, want = g.v0 + (m - g.m0) * k;
+      ctx.setPitch(g.d, want);
+      if (Math.abs(g.d.pitch - want) > 1e-6) g.m0 = m - (g.d.pitch - g.v0) / k;   // #293 clamped at an end: re-anchor (no dead travel)
     } else if (g.kind === 'spindle') {
       // #105: twist about the vertical, 1:1 like a real spindle; clockwise from above = forward. A tick every 5 ms.
       const y = yawOf(handQuat(st, q1)), dy = Math.max(-0.6, Math.min(0.6, wrap(y - g.yawL))); g.yawL = y;
@@ -844,8 +849,10 @@ export function setupXR(ctx) {
   // trigger or grip is held (a fixed point, so a held knob, fader or record never slips as the pressure varies)
   function ctlTipLocal(st) {
     const h = st.ctlHand; if (ctlLook === 'controller' || !h || !h.root.visible || !h.tipLive) return null;
-    // #291 held = from the select / squeeze events, so the grab and every frame after it use the same fixed point
-    return st.held && (st.held.trigger || st.held.grip) ? (h.tipO || h.tipLive) : h.tipLive;
+    // #293 (owner): one fixed point, the relaxed hand's index fingertip. #284-#292 moved it to the closed O's fingertip on a
+    // press: 4.8 cm up and back from where the ball was aimed, so knobs and faders were only caught with the hand an inch
+    // into the mixer. The finger still curls into the O; the ball and the touch point stay where you aimed.
+    return h.tipRest || h.tipLive;
   }
   function ctlHandStep(st) {
     const want = st.connected && !st.isHand && ctlLook !== 'controller' && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');

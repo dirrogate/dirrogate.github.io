@@ -2786,9 +2786,13 @@ async function deleteStamped(r) {
   crateSay(`Deleted "${r.title}"`, true);
 }
 function pitchFromLocalZ(d, z) { const t = d.g.userData.pitchTravel; return ((z - (t.z0 + t.z1) / 2) / ((t.z1 - t.z0) / 2)) * d.range; }
-function sliderFromLocal(id, l) {
-  if (id === 'xfader') { const t = mixer.userData.xTravel; return clamp((l.x - t.x0) / (t.x1 - t.x0) * 2 - 1, -1, 1); }
-  const t = mixer.userData.faderTravel; return clamp((t.z1 - l.z) / (t.z1 - t.z0), 0, 1);
+// #293 raw (for a held fader, which moves by how far the hand moves): no clamp here, the value is clamped when set.
+// Clamped, a fader grabbed a little off its cap could never reach one end (the owner had to push the hand an inch
+// into the mixer to get the full travel).
+function sliderFromLocal(id, l, raw = false) {
+  const c = raw ? (v => v) : null;
+  if (id === 'xfader') { const t = mixer.userData.xTravel, v = (l.x - t.x0) / (t.x1 - t.x0) * 2 - 1; return c ? v : clamp(v, -1, 1); }
+  const t = mixer.userData.faderTravel, v = (t.z1 - l.z) / (t.z1 - t.z0); return c ? v : clamp(v, 0, 1);
 }
 
 // Hand on the record. Angles are around the spindle in deck-local XZ; +angle = forward (clockwise from above).
