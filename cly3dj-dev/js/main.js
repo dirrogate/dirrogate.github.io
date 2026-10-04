@@ -4578,7 +4578,8 @@ async function begin(mode) {
     renderer.xr.setFoveation(0.5);
     await renderer.xr.setSession(session);
     if (session.updateTargetFrameRate && session.supportedFrameRates) {
-      const want = 90; const rates = [...session.supportedFrameRates];
+      const want = 72;   // #267 (owner): 72 Hz, 90 dropped ~13 frames per 10 s on the Quest 3
+      const rates = [...session.supportedFrameRates];
       if (rates.includes(want)) session.updateTargetFrameRate(want).catch(() => {});
     }
     rig.position.set(-0.05, 0, -0.62); rig.rotation.set(0, 0, 0);
