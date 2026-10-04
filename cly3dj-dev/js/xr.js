@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { XRControllerModelFactory } from '../vendor/three/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from '../vendor/three/webxr/XRHandModelFactory.js';
-import { createControllerHand, driveGloveHand, POSE as CTL_POSE } from './ctlhands.js';   // #276, #291
+import { createControllerHand, driveGloveHand, gloveCap, gloveHide, POSE as CTL_POSE } from './ctlhands.js';   // #276, #291
 const LIFT_OUT = 0.05;
 // #260 the record on a deck: 12" or 7" sizes (lift zone just past a 45's label, 1.2 cm)
 let REC12 = null; const RD = d => (d.record && d.record.dims) || REC12; const LO = D => (D.SIZE === 7 ? 0.012 : LIFT_OUT);   // #136: record lift-off zone reaches this far past the label edge (m)
@@ -819,7 +819,8 @@ export function setupXR(ctx) {
         const a = new R.RobotAvatar2(holder);
         return a.load('models/avatar/avatar_robot.glb').then(() => {
           const keep = new Set(); for (const H of a.hands) { H.node.traverse(o => keep.add(o)); H.node.scale.multiplyScalar(GLOVE_SCALE); }
-          a.root.traverse(o => { if (o.isMesh) { if (keep.has(o)) { o.layers.set(0); o.castShadow = false; o.frustumCulled = false; } else o.visible = false; } });
+          a.root.traverse(o => { if (o.isMesh) { if (keep.has(o)) { o.layers.set(0); o.castShadow = false; o.frustumCulled = false; o.material = o.material.clone(); o.material.side = THREE.DoubleSide; } else o.visible = false; } });   // #302 inside drawn too
+          for (const H of a.hands) gloveCap(H);   // #302 the cuff closed
           if (a.headBone) a.headBone.visible = false;   // the cup crests hang off it
           for (const H of a.hands) { H.vis = 0; if (H.mesh) H.mesh.visible = false; }
           glove = a;
@@ -856,7 +857,7 @@ export function setupXR(ctx) {
   }
   function ctlHandStep(st) {
     const want = st.connected && !st.isHand && ctlLook !== 'controller' && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
-    if (st.gloveH && (!want || ctlLook !== 'glove')) { glove.hand(st.gloveH, null, 1); st.gloveH = null; }   // #287 glove off: hide it
+    if (st.gloveH && (!want || ctlLook !== 'glove')) { gloveHide(glove, st.gloveH); st.gloveH = null; }   // #287 glove off: hide it
     // #279 (owner): 3D hands mode shows just the hand, no controller inside it
     const ctlModel = st.grip.children[0]; if (ctlModel) ctlModel.visible = !want;
     if (!want) { if (st.ctlHand) st.ctlHand.root.visible = false; return; }

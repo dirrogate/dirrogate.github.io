@@ -14,7 +14,8 @@ const D = Math.PI / 180;
 // Pose numbers (degrees), open = button released, shut = fully pressed. Tuned on the PC against the Touch Plus model.
 export const POSE = {
   index: { open: [18, 22, 12], shut: [40, 55, 35], rest: [60, 80, 45] },
-  gloveSoft: 0.45,   // #301 glove mode: relaxed curls at 45 % (pressing the grip still closes the fist fully)      // on the trigger; rest = curled when not pressed (#295)
+  gloveSoft: 0.45,
+  gloveO: { thumb: 1, swing: 0.2, roll: 0.2, index: 0.8 },   // #302 glove O: thumb turn 20 %, index curl 80 % (PC: glove tips 11 mm apart, was 33 mm with the thumb under the index)   // #301 glove mode: relaxed curls at 45 % (pressing the grip still closes the fist fully)      // on the trigger; rest = curled when not pressed (#295)
   rest: { open: [55, 75, 40], shut: [75, 85, 45] },       // middle / ring / pinky round the handle
   thumb: { open: [8, 10, 10], down: [18, 22, 18], spread: 0 },
   // #280 grip = an O of thumb and index (tips meeting), blended from whatever the trigger / thumb were doing
@@ -112,14 +113,16 @@ function pose(h, t, g, th, openIndex = false) {
   // #284 (owner): the trigger closes the O too (knobs, faders, scratching); the grip also curls the other three fingers
   const O = POSE.O, o = Math.max(t, g);
   // #295 (owner): the index rests curled into the palm and only comes up to close the O on a press
-  const idx = lerp3(openIndex ? POSE.index.open : POSE.index.rest, O.index, o), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
+  const idx = lerp3(openIndex ? POSE.index.open : POSE.index.rest, h.soft ? O.index.map(v => v * POSE.gloveO.index) : O.index, o), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
   // #301 GLOVE mode: a looser relaxed hand (the robot's thick fingers crushed into each other in the full fist)
-  if (h.soft) { const k = POSE.gloveSoft; for (let j = 0; j < 3; j++) { rest[j] *= k + (1 - k) * g; if (!openIndex) idx[j] = lerp3(POSE.index.rest.map(v => v * k), O.index, o)[j]; } }
+  if (h.soft) { const k = POSE.gloveSoft; for (let j = 0; j < 3; j++) { rest[j] *= k + (1 - k) * g; if (!openIndex) idx[j] = lerp3(POSE.index.rest.map(v => v * k), O.index.map(v => v * POSE.gloveO.index), o)[j]; } }
   for (const f of FINGERS) { const c = CH(f), a = f === 'index-finger' ? idx : rest; for (let j = 0; j < 3; j++) curl(h, c, j + 1, a[j]); }
   // #293 (owner): the thumb moves naturally again (#292 had it fixed in the O); the ball is back on the index tip
-  const tp = lerp3(th ? POSE.thumb.down : POSE.thumb.open, O.thumb, o);
-  if (O.swing) curl(h, THUMB, 0, O.swing * o * (h.handed === 'left' ? -1 : 1), O.swingAxis || 'z');   // thumb across toward the index
-  if (O.roll) curl(h, THUMB, 0, O.roll * o * (h.handed === 'left' ? -1 : 1), 'y');
+  // #302 glove: its thumb is longer than the skin hand's, so its O uses a smaller thumb turn (POSE.gloveO) or it slid under the index
+  const GO = h.soft ? POSE.gloveO : { thumb: 1, swing: 1, roll: 1, index: 1 };
+  const tp = lerp3(th ? POSE.thumb.down : POSE.thumb.open, O.thumb.map(v => v * GO.thumb), o);
+  if (O.swing) curl(h, THUMB, 0, O.swing * GO.swing * o * (h.handed === 'left' ? -1 : 1), O.swingAxis || 'z');   // thumb across toward the index
+  if (O.roll) curl(h, THUMB, 0, O.roll * GO.roll * o * (h.handed === 'left' ? -1 : 1), 'y');
   for (let j = 0; j < 3; j++) curl(h, THUMB, j, tp[j]);
 }
 const _t = new THREE.Vector3(), _d = new THREE.Vector3(), _inv = new THREE.Matrix4();
@@ -147,8 +150,36 @@ export function driveGloveHand(g, H, J, dt) {
   if (!H.node0) H.node0 = H.node.position.clone();
   H.node.position.copy(H.node0); H.node.updateMatrixWorld(true); H.off = null;
   g.hand(H, { joints: J, tip: J.get('index-finger-tip'), curlIndex: 1 }, dt);   // tip + curl 1 = robot2 skips its fingertip shift
+  if (H.cap) H.cap.visible = !!(H.mesh && H.mesh.visible);
   const want = J.get('middle-finger-phalanx-proximal'); if (!want || !H.B.Middle_Proximal) return;
   H.B.Middle_Proximal.getWorldPosition(_gv);
   H.node.getWorldPosition(_gw).add(want).sub(_gv);
   H.node.parent.updateWorldMatrix(true, false); H.node.position.copy(H.node.parent.worldToLocal(_gw)); H.node.updateMatrixWorld(true);
 }
+
+// #302 (owner: you could see into the glove through its cuff): a black disc closes the cuff's open end. Found from the
+// mesh: the vertices skinned mainly to the Root bone (the cuff), measured in Root space along the knuckle direction;
+// the ring of the farthest ones gives the disc's centre, size and facing. The disc rides on the Root bone.
+export function gloveCap(H) {
+  const mesh = H.mesh, sk = mesh && mesh.skeleton; if (!sk || !H.B.Root || !H.B.Middle_Proximal) return;
+  const ri = sk.bones.indexOf(H.B.Root); if (ri < 0) return;
+  const Mx = sk.boneInverses[ri].clone().multiply(mesh.bindMatrix);   // bind space -> Root bone space
+  const g = mesh.geometry, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, pa = g.attributes.position, v = new THREE.Vector3();
+  // knuckle direction in Root space (rest)
+  const mi = sk.bones.indexOf(H.B.Middle_Proximal);
+  const kn = new THREE.Vector3().setFromMatrixPosition(sk.boneInverses[mi].clone().invert()).applyMatrix4(sk.boneInverses[ri]).normalize();
+  const pts = [];
+  for (let k = 0; k < pa.count; k++) {
+    let b = 0, bw = -1; for (let c = 0; c < 4; c++) { const w = sw.getComponent(k, c); if (w > bw) { bw = w; b = si.getComponent(k, c); } }
+    if (b !== ri) continue; pts.push(v.fromBufferAttribute(pa, k).applyMatrix4(Mx).clone());
+  }
+  if (pts.length < 8) return;
+  let lo = Infinity; for (const p of pts) lo = Math.min(lo, p.dot(kn));
+  const ring = pts.filter(p => p.dot(kn) < lo + 0.006); if (ring.length < 4) return;
+  const c = ring.reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(1 / ring.length);
+  let r = 0; for (const p of ring) r = Math.max(r, p.clone().sub(c).addScaledVector(kn, -p.clone().sub(c).dot(kn)).length());
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(r * 1.02, 24), new THREE.MeshStandardMaterial({ color: 0x0b0b0d, roughness: 0.7, side: THREE.DoubleSide }));
+  disc.position.copy(c).addScaledVector(kn, 0.002); disc.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), kn);
+  disc.frustumCulled = false; disc.visible = false; H.B.Root.add(disc); H.cap = disc;
+}
+export function gloveHide(g, H) { g.hand(H, null, 1); if (H.cap) H.cap.visible = false; }   // #302

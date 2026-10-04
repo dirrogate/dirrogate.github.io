@@ -6,7 +6,7 @@
 // Later: realistic human hand textures.
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
-import { createControllerHand, driveGloveHand, POSE } from './ctlhands.js';
+import { createControllerHand, driveGloveHand, gloveCap, gloveHide, POSE } from './ctlhands.js';
 
 const SPEC = ['wrist', 'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
   ...['index-finger', 'middle-finger', 'ring-finger', 'pinky-finger'].flatMap(f => [`${f}-metacarpal`, `${f}-phalanx-proximal`, `${f}-phalanx-intermediate`, `${f}-phalanx-distal`, `${f}-tip`])];
@@ -27,7 +27,8 @@ export function makePhoneHands(rig) {
         const a = new R.RobotAvatar2(holder);
         return a.load('models/avatar/avatar_robot.glb').then(() => {
           const keep = new Set(); for (const H of a.hands) { H.node.traverse(o => keep.add(o)); H.node.scale.multiplyScalar(1.1); }   // #287 sizes, #301 1.1
-          a.root.traverse(o => { if (o.isMesh) { if (keep.has(o)) { o.layers.set(0); o.frustumCulled = false; } else o.visible = false; } });
+          a.root.traverse(o => { if (o.isMesh) { if (keep.has(o)) { o.layers.set(0); o.frustumCulled = false; o.material = o.material.clone(); o.material.side = THREE.DoubleSide; } else o.visible = false; } });   // #302
+          for (const H of a.hands) gloveCap(H);
           if (a.headBone) a.headBone.visible = false;
           for (const H of a.hands) { H.vis = 0; if (H.mesh) H.mesh.visible = false; }
           glove = a;
@@ -107,7 +108,7 @@ export function makePhoneHands(rig) {
         const h = hand(S, hd, 'trk'); h.root.visible = true;
         if (setTracked(h, a, hd)) { h.holder.visible = look !== 'glove'; if (look === 'glove') driveGlove(S, h, hd, dt, 0); }
       }
-      if (look !== 'glove' && S.gloveH && glove) { glove.hand(S.gloveH, null, 1); S.gloveH = null; }
+      if (look !== 'glove' && S.gloveH && glove) { gloveHide(glove, S.gloveH); S.gloveH = null; }
     }
   }
   function frame(now, hidden) {   // gone 400 ms without data, or the robot is on: hide
@@ -115,7 +116,7 @@ export function makePhoneHands(rig) {
       const off = hidden || now - S.seen > 400;
       if (!off) continue;
       if (S.ctl) S.ctl.root.visible = false; if (S.trk) S.trk.root.visible = false; if (S.model) S.model.visible = false;
-      if (S.gloveH && glove) { glove.hand(S.gloveH, null, 1); S.gloveH = null; }
+      if (S.gloveH && glove) { gloveHide(glove, S.gloveH); S.gloveH = null; }
     }
   }
   let fitKey = '';
