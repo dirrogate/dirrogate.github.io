@@ -1543,7 +1543,10 @@ function sleeveGrabTest(P) {
   const r = currentList()[crateState.sel]; if (!r || r.missing || sleeveOf(r)) return null;
   const pose = selectedSlotPose(); if (!pose) return null;
   const cl = crate.worldToLocal(P.clone());
-  return Math.abs(cl.x) < sleeveDims(r).H / 2 + 0.02 && Math.abs(cl.z - pose.p.z) < 0.03 && cl.y > -0.01 && cl.y < Math.min(CRATE.H - 0.07, 0.013 + sleeveDims(r).H - 0.04) ? { crate: true } : null;   // #242 edges and lower corners too
+  // #274 (owner): grab the selected sleeve anywhere up to 1.5 cm above its top edge and the sleeve comes out with the
+  // record inside; only the part of the record riding out above that is the record on its own (step 4 in xr.js)
+  const top = pose.p.y + sleeveDims(r).H / 2;
+  return Math.abs(cl.x) < sleeveDims(r).H / 2 + 0.02 && Math.abs(cl.z - pose.p.z) < 0.035 && cl.y > -0.01 && cl.y < top + 0.015 ? { crate: true } : null;   // #242 edges and lower corners too
 }
 function sleeveGrab(anchor, P) {
   const hit = P ? sleeveGrabTest(P) : { crate: true }; if (!hit) return false;

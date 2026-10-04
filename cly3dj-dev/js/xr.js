@@ -338,12 +338,13 @@ export function setupXR(ctx) {
     const C = ctx.CRATE;
     const cd = ctx.crateDisc;
     const lidOpen = ctx.crateLidOpen();
-    if (lidOpen && cd.visible && Math.abs(cl.z - cd.position.z) < 0.05 && cl.y > cd.position.y - 0.03 && Math.hypot(cl.x - cd.position.x, cl.y - cd.position.y) < ctx.REC.R + 0.02) {
-      updateAnchor(st); if (ctx.pullSelected(st.anchor)) { st.direct = { kind: 'held' }; buzz(st); return true; }
-    }
-    // 4b. #229 a hand down in the middle of the selected sleeve lifts the whole sleeve out
+    // 4a. #229 / #274 (checked first) a hand on the selected sleeve, up to its top edge: the sleeve comes out with the record
     if (lidOpen && ctx.sleeveGrabTest && ctx.sleeveGrabTest(P)) {
       updateAnchor(st); if (ctx.sleeveGrab(st.anchor, P)) { st.direct = { kind: 'sleeve' }; buzz(st, 0.4, 30); return true; }
+    }
+    // 4b. the record riding out above the sleeve: only the record comes out
+    if (lidOpen && cd.visible && Math.abs(cl.z - cd.position.z) < 0.05 && cl.y > cd.position.y - 0.03 && Math.hypot(cl.x - cd.position.x, cl.y - cd.position.y) < ctx.REC.R + 0.02) {
+      updateAnchor(st); if (ctx.pullSelected(st.anchor)) { st.direct = { kind: 'held' }; buzz(st); return true; }
     }
     // 5. digging: pinch inside the crate and move along the rack to flip, lift out to pull
     if (lidOpen && Math.abs(cl.x) < C.W / 2 && Math.abs(cl.z) < C.D / 2 && cl.y > 0.05 && cl.y < C.H + 0.15) {
