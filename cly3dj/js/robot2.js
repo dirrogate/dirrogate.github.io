@@ -1,8 +1,11 @@
-// Robot DJ avatar, licensed (CLAUDE.md #245): the AvatarRobot model by EntroPi Games (Vinyl Reality), given to the
-// owner with permission to use. models/avatar/avatar_robot.glb, exported from Unity: one skinned helmet + bust (bones
-// Head, Neck), a "Screen" visor, and one right-hand glove used for both hands (the left one mirrored), each with a
-// 20-bone finger rig. Our additions: the scanner light on the visor (MIC level, as #221) and the owner's Gemini crest
-// embossed on both ear cups. Same interface as Avatar / RobotAvatar: ready, status, root, update(pose).
+// Robot DJ avatar: Cly3DJ's own robot (#305 to #308), an original look made in Blender (blender/robot_v2/robot_v2.blend)
+// on the base mesh and rig of the AvatarRobot model by EntroPi Games (Vinyl Reality), used with permission (#245).
+// models/avatar/avatar_robot_v2.glb (ROBOT_GLB): one skinned helmet + faceted bust (bones Head, Neck), a "Screen" visor,
+// Gemini-logo headphones (red logo painted on black cups), and one right-hand glove with chrome finger darts and a
+// chrome back plate, used for both hands (the left one mirrored), each with a 20-bone finger rig. Code additions: the
+// KITT voice bars on the visor (MIC level, as #221). The older avatar_robot.glb (licensed model as delivered, with the
+// embossed Gemini crests added by addCrests) still loads if ROBOT_GLB points at it.
+// Same interface as Avatar / RobotAvatar: ready, status, root, update(pose).
 //
 // Driving it: pose.head = the eyes (world), pose.hands[i].joints = WebXR joint positions (or a synthetic hand from a
 // controller / the desktop demo, synthJoints). The model never moves; only its bones do, each set from a world
@@ -13,6 +16,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
 import { AV_LAYER } from './director.js';
 import { synthJoints } from './robot.js';
+import { chromePads } from './ctlhands.js';   // #305
 
 const V = () => new THREE.Vector3();
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -101,11 +105,15 @@ function splitByBone(mesh, name) {
   g.setIndex(a.concat(b)); g.clearGroups(); g.addGroup(0, a.length, 0); g.addGroup(a.length, b.length, 1);
 }
 
+// #305 to #308 (owner) the Cly3DJ robot: no headband, Gemini-logo headphones (red logo painted on black cups), a chin
+// ridge, a 3-facet bust and collar (custom normals), and gloves with a chrome dart centred on each finger (base knuckle
+// to the base of the nail) and a chrome back plate instead of the white pads. 12.9k triangles in all.
+export const ROBOT_GLB = 'models/avatar/avatar_robot_v2.glb';
 export class RobotAvatar2 {
   constructor(rig) {
     this.rig = rig; this.root = new THREE.Group(); this.root.name = 'robot2'; rig.add(this.root);
     this.ready = false; this.status = 'loading'; this.yaw = null; this.talk = 0; this.scanX = 0; this.scanDir = 1;
-    this.scan = new Float32Array(COLS); this.bars = [0, 0, 0, 0, 0]; this.barT = 0;
+    this.scan = new Float32Array(COLS); this.bars = [0, 0, 0]; this.barT = 0;
   }
   async load(url) {
     const gltf = await new GLTFLoader().loadAsync(url);
@@ -148,7 +156,9 @@ export class RobotAvatar2 {
         splitByBone(o, 'Neck'); o.material = [chrome, o.material];
       }
     });
-    this.addCrests();
+    let gem = false; model.traverse(o => { if (o.material && /Gemini/.test(o.material.name || '')) gem = true; });
+    if (!gem) this.addCrests();   // #305 the v2 robot wears the Gemini logo as its headphones
+    model.traverse(o => { if (o.isSkinnedMesh && o.material && o.material.name === 'AvatarRobot_Hand') chromePads(o.material); });   // #305 chrome darts
     // hands: LeftHand / RightHand nodes; left is mirrored (scale x -1). Solved in each node's own space.
     this.hands = ['LeftHand', 'RightHand'].map((nm, i) => {
       let node = null; model.traverse(o => { if (!node && o.name === nm) node = o; });
@@ -299,9 +309,10 @@ export class RobotAvatar2 {
     if (this.barT <= 0) {
       this.barT = 0.07;
       const base = this.talk * (0.75 + 0.5 * Math.random());
-      this.bars = [0.35, 0.65, 1, 0.65, 0.35].map((k, i) => clamp(base * k * (i === 2 ? 1 : 0.8 + 0.4 * Math.random()) * 1.4, 0, 1));
+      // #306 (owner) three touching columns: a tall centre and two slightly shorter sides, no dark gaps (a talking look)
+      this.bars = [0.8, 1, 0.8].map((k, i) => clamp(base * k * (i === 1 ? 1 : 0.85 + 0.25 * Math.random()) * 1.4, 0, 1));
     }
-    const mid = (ROWS - 1) / 2, d = this.ledData, barCols = [COLS / 2 - 4, COLS / 2 - 2, COLS / 2, COLS / 2 + 2, COLS / 2 + 4]   /* one dark column between bars */.map(Math.floor);
+    const mid = (ROWS - 1) / 2, d = this.ledData, barCols = [COLS / 2 - 1, COLS / 2, COLS / 2 + 1].map(Math.floor);   // #306 adjacent, no gaps
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
       let b = 0;
       if (idle > 0 && Math.abs(r - mid) <= 1) b = this.scan[c] * (r === mid ? 1 : 0.55) * idle;

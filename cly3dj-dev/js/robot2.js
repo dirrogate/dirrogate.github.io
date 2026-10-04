@@ -1,8 +1,11 @@
-// Robot DJ avatar, licensed (CLAUDE.md #245): the AvatarRobot model by EntroPi Games (Vinyl Reality), given to the
-// owner with permission to use. models/avatar/avatar_robot.glb, exported from Unity: one skinned helmet + bust (bones
-// Head, Neck), a "Screen" visor, and one right-hand glove used for both hands (the left one mirrored), each with a
-// 20-bone finger rig. Our additions: the scanner light on the visor (MIC level, as #221) and the owner's Gemini crest
-// embossed on both ear cups. Same interface as Avatar / RobotAvatar: ready, status, root, update(pose).
+// Robot DJ avatar: Cly3DJ's own robot (#305 to #308), an original look made in Blender (blender/robot_v2/robot_v2.blend)
+// on the base mesh and rig of the AvatarRobot model by EntroPi Games (Vinyl Reality), used with permission (#245).
+// models/avatar/avatar_robot_v2.glb (ROBOT_GLB): one skinned helmet + faceted bust (bones Head, Neck), a "Screen" visor,
+// Gemini-logo headphones (red logo painted on black cups), and one right-hand glove with chrome finger darts and a
+// chrome back plate, used for both hands (the left one mirrored), each with a 20-bone finger rig. Code additions: the
+// KITT voice bars on the visor (MIC level, as #221). The older avatar_robot.glb (licensed model as delivered, with the
+// embossed Gemini crests added by addCrests) still loads if ROBOT_GLB points at it.
+// Same interface as Avatar / RobotAvatar: ready, status, root, update(pose).
 //
 // Driving it: pose.head = the eyes (world), pose.hands[i].joints = WebXR joint positions (or a synthetic hand from a
 // controller / the desktop demo, synthJoints). The model never moves; only its bones do, each set from a world
@@ -102,9 +105,9 @@ function splitByBone(mesh, name) {
   g.setIndex(a.concat(b)); g.clearGroups(); g.addGroup(0, a.length, 0); g.addGroup(a.length, b.length, 1);
 }
 
-// #305 (owner) Cly3DJ's own robot, made from the licensed one in Blender (blender/robot_v2/robot_v2.blend): no headband,
-// the ear cups replaced by Gemini-logo headphones (red logo painted on a black cup, #308), a chin ridge, a faceted bust, and gloves
-// subdivided once with a chrome dart on each finger (knuckle to the last joint) instead of the white pads.
+// #305 to #308 (owner) the Cly3DJ robot: no headband, Gemini-logo headphones (red logo painted on black cups), a chin
+// ridge, a 3-facet bust and collar (custom normals), and gloves with a chrome dart centred on each finger (base knuckle
+// to the base of the nail) and a chrome back plate instead of the white pads. 12.9k triangles in all.
 export const ROBOT_GLB = 'models/avatar/avatar_robot_v2.glb';
 export class RobotAvatar2 {
   constructor(rig) {

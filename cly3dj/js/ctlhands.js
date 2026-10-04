@@ -13,7 +13,9 @@ const D = Math.PI / 180;
 
 // Pose numbers (degrees), open = button released, shut = fully pressed. Tuned on the PC against the Touch Plus model.
 export const POSE = {
-  index: { open: [18, 22, 12], shut: [40, 55, 35], rest: [60, 80, 45] },      // on the trigger; rest = curled when not pressed (#295)
+  index: { open: [18, 22, 12], shut: [40, 55, 35], rest: [60, 80, 45] },
+  gloveSoft: 0.45,
+  gloveO: { thumb: 1, swing: 0.2, roll: 0.2, index: 0.8 },   // #302 glove O: thumb turn 20 %, index curl 80 % (PC: glove tips 11 mm apart, was 33 mm with the thumb under the index)   // #301 glove mode: relaxed curls at 45 % (pressing the grip still closes the fist fully)      // on the trigger; rest = curled when not pressed (#295)
   rest: { open: [55, 75, 40], shut: [75, 85, 45] },       // middle / ring / pinky round the handle
   thumb: { open: [8, 10, 10], down: [18, 22, 18], spread: 0 },
   // #280 grip = an O of thumb and index (tips meeting), blended from whatever the trigger / thumb were doing
@@ -111,12 +113,16 @@ function pose(h, t, g, th, openIndex = false) {
   // #284 (owner): the trigger closes the O too (knobs, faders, scratching); the grip also curls the other three fingers
   const O = POSE.O, o = Math.max(t, g);
   // #295 (owner): the index rests curled into the palm and only comes up to close the O on a press
-  const idx = lerp3(openIndex ? POSE.index.open : POSE.index.rest, O.index, o), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
+  const idx = lerp3(openIndex ? POSE.index.open : POSE.index.rest, h.soft ? O.index.map(v => v * POSE.gloveO.index) : O.index, o), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
+  // #301 GLOVE mode: a looser relaxed hand (the robot's thick fingers crushed into each other in the full fist)
+  if (h.soft) { const k = POSE.gloveSoft; for (let j = 0; j < 3; j++) { rest[j] *= k + (1 - k) * g; if (!openIndex) idx[j] = lerp3(POSE.index.rest.map(v => v * k), O.index.map(v => v * POSE.gloveO.index), o)[j]; } }
   for (const f of FINGERS) { const c = CH(f), a = f === 'index-finger' ? idx : rest; for (let j = 0; j < 3; j++) curl(h, c, j + 1, a[j]); }
   // #293 (owner): the thumb moves naturally again (#292 had it fixed in the O); the ball is back on the index tip
-  const tp = lerp3(th ? POSE.thumb.down : POSE.thumb.open, O.thumb, o);
-  if (O.swing) curl(h, THUMB, 0, O.swing * o * (h.handed === 'left' ? -1 : 1), O.swingAxis || 'z');   // thumb across toward the index
-  if (O.roll) curl(h, THUMB, 0, O.roll * o * (h.handed === 'left' ? -1 : 1), 'y');
+  // #302 glove: its thumb is longer than the skin hand's, so its O uses a smaller thumb turn (POSE.gloveO) or it slid under the index
+  const GO = h.soft ? POSE.gloveO : { thumb: 1, swing: 1, roll: 1, index: 1 };
+  const tp = lerp3(th ? POSE.thumb.down : POSE.thumb.open, O.thumb.map(v => v * GO.thumb), o);
+  if (O.swing) curl(h, THUMB, 0, O.swing * GO.swing * o * (h.handed === 'left' ? -1 : 1), O.swingAxis || 'z');   // thumb across toward the index
+  if (O.roll) curl(h, THUMB, 0, O.roll * GO.roll * o * (h.handed === 'left' ? -1 : 1), 'y');
   for (let j = 0; j < 3; j++) curl(h, THUMB, j, tp[j]);
 }
 const _t = new THREE.Vector3(), _d = new THREE.Vector3(), _inv = new THREE.Matrix4();
@@ -132,4 +138,111 @@ function update(h, t, g, th) {
   tb.updateWorldMatrix(true, false); db.updateWorldMatrix(true, false); _inv.copy(h.root.matrixWorld).invert();
   _t.setFromMatrixPosition(tb.matrixWorld).applyMatrix4(_inv); _d.setFromMatrixPosition(db.matrixWorld).applyMatrix4(_inv);
   (h.tipLive || (h.tipLive = new THREE.Vector3())).copy(_t).addScaledVector(_d.subVectors(_t, _d).normalize(), 0.006);
+}
+
+// #300 (owner: the glove looked mangled / squashed). The glove follows the skin hand's 25 joints through robot2.js's
+// solver, which also shifted it so its index fingertip sat on the tracked one (#247). Since the index rests curled
+// (#295) that shift chased a fingertip inside the fist and dragged the glove's hand through itself. Now no fingertip
+// shift: the glove's middle knuckle is put on the skin hand's middle knuckle each frame (its long cuff then sits back
+// over the wrist, as measured in #287).
+const _gv = new THREE.Vector3(), _gw = new THREE.Vector3();
+export function driveGloveHand(g, H, J, dt) {
+  if (!H.node0) H.node0 = H.node.position.clone();
+  H.node.position.copy(H.node0); H.node.updateMatrixWorld(true); H.off = null;
+  g.hand(H, { joints: J, tip: J.get('index-finger-tip'), curlIndex: 1 }, dt);   // tip + curl 1 = robot2 skips its fingertip shift
+  const want = J.get('middle-finger-phalanx-proximal'); if (!want || !H.B.Middle_Proximal) return;
+  H.B.Middle_Proximal.getWorldPosition(_gv);
+  H.node.getWorldPosition(_gw).add(want).sub(_gv);
+  H.node.parent.updateWorldMatrix(true, false); H.node.position.copy(H.node.parent.worldToLocal(_gw)); H.node.updateMatrixWorld(true);
+}
+
+// #303 (owner: cap it properly, and smoother without more triangles). Done once on the glove's own geometry (both
+// gloves share it), nothing in the licensed GLB is changed:
+//  - smooth shading: vertices at the same spot share an averaged normal when their faces are within 50 deg of each
+//    other (sharp creases between the plates and the glove stay sharp); the triangle count is unchanged;
+//  - the cuff's open end is closed with a fan from its own rim (16 triangles or so), skinned like the rim, so it moves
+//    with the glove exactly (replaces #302's black disc).
+export function gloveCap(H) {
+  const mesh = H.mesh; if (!mesh || !mesh.geometry || mesh.geometry.userData.vireFixed) return;
+  const g = mesh.geometry, pa = g.attributes.position, na = g.attributes.normal, n = pa.count;
+  // weld by position
+  const key = i => `${pa.getX(i).toFixed(5)},${pa.getY(i).toFixed(5)},${pa.getZ(i).toFixed(5)}`;
+  const wid = new Int32Array(n), ids = new Map();
+  for (let i = 0; i < n; i++) { const k = key(i); let w = ids.get(k); if (w === undefined) ids.set(k, w = ids.size); wid[i] = w; }
+  // 1. smooth normals within 50 deg
+  if (na) {
+    const groups = new Map(); for (let i = 0; i < n; i++) { let a = groups.get(wid[i]); if (!a) groups.set(wid[i], a = []); a.push(i); }
+    const out = new Float32Array(n * 3), v = new THREE.Vector3(), u = new THREE.Vector3(), cs = Math.cos(50 * Math.PI / 180);
+    for (const a of groups.values()) for (const i of a) {
+      v.fromBufferAttribute(na, i); const sum = new THREE.Vector3();
+      for (const j of a) { u.fromBufferAttribute(na, j); if (u.dot(v) > cs) sum.add(u); }
+      sum.normalize(); out.set([sum.x, sum.y, sum.z], i * 3);
+    }
+    na.array.set(out); na.needsUpdate = true;
+  }
+  // 2. cap the cuff: boundary edges (welded) of the Root-skinned part, the biggest loop
+  const sk = mesh.skeleton, ri = sk.bones.indexOf(H.B.Root), si = g.attributes.skinIndex, sw = g.attributes.skinWeight;
+  const main = i => { let b = 0, bw = -1; for (let c = 0; c < 4; c++) { const w = sw.getComponent(i, c); if (w > bw) { bw = w; b = si.getComponent(i, c); } } return b; };
+  const A = g.index.array, ec = new Map(), rep = new Map();
+  for (let t = 0; t < A.length; t += 3) for (const [x, y] of [[A[t], A[t + 1]], [A[t + 1], A[t + 2]], [A[t + 2], A[t]]]) {
+    const a = wid[x], b = wid[y], k = a < b ? a + '_' + b : b + '_' + a; ec.set(k, (ec.get(k) || 0) + 1); rep.set(a, x); rep.set(b, y);
+  }
+  const adj = new Map(); for (const [k, c] of ec) if (c === 1) { const [a, b] = k.split('_').map(Number); (adj.get(a) || adj.set(a, []).get(a)).push(b); (adj.get(b) || adj.set(b, []).get(b)).push(a); }
+  const seen = new Set(); let best = null;
+  for (const st of adj.keys()) {
+    if (seen.has(st)) continue;
+    const loop = [st]; seen.add(st); let prev = -1, cur = st;
+    for (;;) { const nx = (adj.get(cur) || []).find(x => x !== prev && !seen.has(x)); if (nx === undefined) break; loop.push(nx); seen.add(nx); prev = cur; cur = nx; }
+    const rootish = loop.filter(w => main(rep.get(w)) === ri).length / loop.length;
+    if (loop.length >= 6 && rootish > 0.6 && (!best || loop.length > best.length)) best = loop;
+  }
+  if (best && ri >= 0) {
+    const vs = best.map(w => rep.get(w)), P = i => new THREE.Vector3().fromBufferAttribute(pa, i);
+    const c = vs.reduce((s, i) => s.add(P(i)), new THREE.Vector3()).multiplyScalar(1 / vs.length);
+    let nrm = new THREE.Vector3(); for (let k = 0; k < vs.length; k++) nrm.add(new THREE.Vector3().crossVectors(P(vs[k]).sub(c), P(vs[(k + 1) % vs.length]).sub(c)));
+    nrm.normalize();
+    const all = new THREE.Vector3(); for (let i = 0; i < n; i++) all.add(P(i)); all.multiplyScalar(1 / n);
+    const outward = c.clone().sub(all).dot(nrm) > 0; if (!outward) nrm.negate();
+    // new vertices: the rim again (with the cap's normal) + the centre
+    const add = vs.length + 1, attrs = {};
+    for (const [name, at] of Object.entries(g.attributes)) {
+      const isz = at.itemSize, arr = new at.array.constructor((n + add) * isz); arr.set(at.array);
+      for (let k = 0; k <= vs.length; k++) {
+        const src = k < vs.length ? vs[k] : vs[0], o = (n + k) * isz;
+        for (let q = 0; q < isz; q++) arr[o + q] = at.array[src * isz + q];
+      }
+      attrs[name] = new THREE.BufferAttribute(arr, isz, at.normalized);
+    }
+    const o = (n + vs.length) * 3; attrs.position.array.set([c.x, c.y, c.z], o);
+    for (let k = 0; k <= vs.length; k++) attrs.normal.array.set([nrm.x, nrm.y, nrm.z], (n + k) * 3);
+    attrs.skinIndex.array.set([ri, 0, 0, 0], (n + vs.length) * 4); attrs.skinWeight.array.set([1, 0, 0, 0], (n + vs.length) * 4);
+    const tri = [], cen = n + vs.length;
+    for (let k = 0; k < vs.length; k++) {
+      const a = n + k, b = n + (k + 1) % vs.length;
+      const fn = new THREE.Vector3().crossVectors(P(vs[k]).sub(c), P(vs[(k + 1) % vs.length]).sub(c));
+      if (fn.dot(nrm) > 0) tri.push(cen, a, b); else tri.push(cen, b, a);
+    }
+    const ng = new THREE.BufferGeometry();
+    for (const [name, at] of Object.entries(attrs)) ng.setAttribute(name, at);
+    const IA = Array.from(A).concat(tri); ng.setIndex(IA);
+    ng.boundingSphere = g.boundingSphere; ng.boundingBox = g.boundingBox; ng.userData.vireFixed = true;
+    H.capTris = tri.length / 3;
+    return ng;
+  }
+  g.userData.vireFixed = true;
+  return null;
+}
+export function gloveHide(g, H) { g.hand(H, null, 1); }   // #302
+
+// #304 (owner): the glove's white pads in the same chrome as the robot's helmet (metalness 1, roughness 0.14, #245).
+// The glove has one painted texture, so the pads are found per pixel: the brighter the painted colour, the more chrome.
+export function chromePads(mat) {
+  mat.onBeforeCompile = sh => {
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <map_fragment>', '#include <map_fragment>\n  float vireChrome = smoothstep(0.45, 0.7, dot(diffuseColor.rgb, vec3(0.3333)));')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = mix(metalnessFactor, 1.0, vireChrome);')
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix(roughnessFactor, 0.14, vireChrome);');
+  };
+  mat.customProgramCacheKey = () => 'vire-glove-chrome';
+  mat.needsUpdate = true;
 }

@@ -460,7 +460,7 @@ export function startCamera(ctx) {
       robo.loading = true;
       Promise.all([import('./robot2.js'), import('./director.js')]).then(([R, D]) => {
         const a = new R.RobotAvatar2(rig); robo.a = a; robo.layer = D.AV_LAYER; a.root.visible = false;
-        return a.load('models/avatar/avatar_robot.glb');
+        return a.load(R.ROBOT_GLB);
       }).catch(e => { console.warn('phone robot', e); robo.err = e.message; });
     }
   }

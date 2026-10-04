@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { XRControllerModelFactory } from '../vendor/three/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from '../vendor/three/webxr/XRHandModelFactory.js';
-import { createControllerHand, POSE as CTL_POSE } from './ctlhands.js';   // #276, #291
+import { createControllerHand, driveGloveHand, gloveCap, gloveHide, chromePads, POSE as CTL_POSE } from './ctlhands.js';   // #276, #291
 const LIFT_OUT = 0.05;
 // #260 the record on a deck: 12" or 7" sizes (lift zone just past a 45's label, 1.2 cm)
 let REC12 = null; const RD = d => (d.record && d.record.dims) || REC12; const LO = D => (D.SIZE === 7 ? 0.012 : LIFT_OUT);   // #136: record lift-off zone reaches this far past the label edge (m)
@@ -808,7 +808,7 @@ export function setupXR(ctx) {
   // puts the glove's index fingertip on the blue ball (#247). Measured: the glove's knuckle width 6.4 cm and middle finger
   // 9.9 cm against the generic hand's 6.0 / 8.6 cm, so it is drawn at 94 %; its palm (wrist to knuckles 14.1 cm, a hand's
   // ~9 cm) is long because it carries a cuff, which then sits back over the wrist.
-  const GLOVE_SCALE = 0.94;
+  const GLOVE_SCALE = 1.1;   // #301 (owner: smaller than my real hands) was 0.94
   let glove = null, gloveLoading = false;
   function gloveFor(st) {
     if (glove && glove.ready) return glove;
@@ -817,9 +817,10 @@ export function setupXR(ctx) {
       import('./robot2.js').then(R => {
         const holder = new THREE.Group(); holder.name = 'gloves'; scene.add(holder);
         const a = new R.RobotAvatar2(holder);
-        return a.load('models/avatar/avatar_robot.glb').then(() => {
+        return a.load(R.ROBOT_GLB).then(() => {
           const keep = new Set(); for (const H of a.hands) { H.node.traverse(o => keep.add(o)); H.node.scale.multiplyScalar(GLOVE_SCALE); }
-          a.root.traverse(o => { if (o.isMesh) { if (keep.has(o)) { o.layers.set(0); o.castShadow = false; o.frustumCulled = false; } else o.visible = false; } });
+          a.root.traverse(o => { if (o.isMesh) { if (keep.has(o)) { o.layers.set(0); o.castShadow = false; o.frustumCulled = false; o.material = o.material.clone(); o.material.side = THREE.DoubleSide; chromePads(o.material); } else o.visible = false; } });   // #302 inside drawn too
+          { const ng = gloveCap(a.hands[0]); if (ng) for (const H of a.hands) H.mesh.geometry = ng; }   // #303 smooth + capped (both gloves share the geometry)   // #302 the cuff closed
           if (a.headBone) a.headBone.visible = false;   // the cup crests hang off it
           for (const H of a.hands) { H.vis = 0; if (H.mesh) H.mesh.visible = false; }
           glove = a;
@@ -835,7 +836,7 @@ export function setupXR(ctx) {
     h.root.updateMatrixWorld(true);
     const J = new Map(); for (const n in h.bones) J.set(n, h.bones[n].getWorldPosition(new THREE.Vector3()));
     if (J.size < 25) return;
-    g.hand(H, { joints: J, tip: J.get('index-finger-tip').clone(), curlIndex: Math.max(st.tA || 0, st.gA || 0) }, dt);   // #289 glove index on the skin hand's index (the ball is on the thumb now)
+    driveGloveHand(g, H, J, dt);   // #300 knuckles on the skin hand's knuckles, no fingertip shift
     st.gloveH = H;
   }
   // #291 HAND FIT: the owner's move / turn of the 3D hands (and glove) on the controllers, saved
@@ -856,7 +857,7 @@ export function setupXR(ctx) {
   }
   function ctlHandStep(st) {
     const want = st.connected && !st.isHand && ctlLook !== 'controller' && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
-    if (st.gloveH && (!want || ctlLook !== 'glove')) { glove.hand(st.gloveH, null, 1); st.gloveH = null; }   // #287 glove off: hide it
+    if (st.gloveH && (!want || ctlLook !== 'glove')) { gloveHide(glove, st.gloveH); st.gloveH = null; }   // #287 glove off: hide it
     // #279 (owner): 3D hands mode shows just the hand, no controller inside it
     const ctlModel = st.grip.children[0]; if (ctlModel) ctlModel.visible = !want;
     if (!want) { if (st.ctlHand) st.ctlHand.root.visible = false; return; }
@@ -881,6 +882,7 @@ export function setupXR(ctx) {
     // and left the O half closed. The thumb-stick touch no longer changes the thumb either (it moved the thumb off the ball).
     const hb = st.held || {};   // (#298: was "hd", which clashed with the handedness above)
     h.update(Math.round(ease('tA', hb.trigger) * 20) / 20, Math.round(ease('gA', hb.grip) * 20) / 20, false);
+    if (h.soft !== (ctlLook === 'glove')) { h.soft = ctlLook === 'glove'; h.cur = ''; }   // #301 looser relaxed hand for the glove
     h.holder.visible = ctlLook !== 'glove';   // #287 the skin hand stays posed (it drives the glove) but is not drawn
     if (ctlLook === 'glove') gloveStep(st, h, 1 / 60);
   }
