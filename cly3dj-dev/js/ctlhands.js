@@ -62,8 +62,9 @@ function place(h, handed) {
   const inv = new THREE.Matrix4().copy(h.root.matrixWorld).invert();
   h.oLocal = new THREE.Vector3().setFromMatrixPosition(it.matrixWorld).add(new THREE.Vector3().setFromMatrixPosition(tt.matrixWorld)).multiplyScalar(0.5).applyMatrix4(inv);
   // #284 the closed O's index fingertip (6 mm past the tip joint): the touch point while a button is held
-  const dj = h.bones['index-finger-phalanx-distal']; dj.updateWorldMatrix(true, false);
-  const ti = new THREE.Vector3().setFromMatrixPosition(it.matrixWorld).applyMatrix4(inv), di = new THREE.Vector3().setFromMatrixPosition(dj.matrixWorld).applyMatrix4(inv);
+  // #289 (owner): the THUMB tip instead (its pad lines up with knob and fader caps in the O)
+  const dj = h.bones['thumb-phalanx-distal']; dj.updateWorldMatrix(true, false);
+  const ti = new THREE.Vector3().setFromMatrixPosition(tt.matrixWorld).applyMatrix4(inv), di = new THREE.Vector3().setFromMatrixPosition(dj.matrixWorld).applyMatrix4(inv);
   h.tipO = ti.clone().addScaledVector(ti.clone().sub(di).normalize(), 0.006);
   h.cur = '';
 }
@@ -101,10 +102,10 @@ function update(h, t, g, th) {
   if (!h.ready) return;
   const key = `${t.toFixed(2)}|${g.toFixed(2)}|${th ? 1 : 0}`; if (key === h.cur) return; h.cur = key;
   pose(h, t, g, th);
-  // #280 the blue ball and the touch point follow the index fingertip (6 mm past the tip joint, which is inside the
+  // #280 / #289 the blue ball and the touch point follow the thumb tip (6 mm past the tip joint, which is inside the
   // skin), in the hand root's space (= grip space)
   h.holder.updateMatrix();
-  const tb = h.bones['index-finger-tip'], db = h.bones['index-finger-phalanx-distal'];
+  const tb = h.bones['thumb-tip'], db = h.bones['thumb-phalanx-distal'];   // #289 the thumb tip, not the index
   tb.updateWorldMatrix(true, false); db.updateWorldMatrix(true, false); _inv.copy(h.root.matrixWorld).invert();
   _t.setFromMatrixPosition(tb.matrixWorld).applyMatrix4(_inv); _d.setFromMatrixPosition(db.matrixWorld).applyMatrix4(_inv);
   (h.tipLive || (h.tipLive = new THREE.Vector3())).copy(_t).addScaledVector(_d.subVectors(_t, _d).normalize(), 0.006);

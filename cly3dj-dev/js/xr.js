@@ -829,7 +829,7 @@ export function setupXR(ctx) {
     h.root.updateMatrixWorld(true);
     const J = new Map(); for (const n in h.bones) J.set(n, h.bones[n].getWorldPosition(new THREE.Vector3()));
     if (J.size < 25) return;
-    g.hand(H, { joints: J, tip: st.tip.clone(), curlIndex: Math.max(st.tA || 0, st.gA || 0) }, dt);
+    g.hand(H, { joints: J, tip: J.get('index-finger-tip').clone(), curlIndex: Math.max(st.tA || 0, st.gA || 0) }, dt);   // #289 glove index on the skin hand's index (the ball is on the thumb now)
     st.gloveH = H;
   }
   function setCtlLook(v) { ctlLook = v; try { localStorage.setItem('vire.ctlLook', v); } catch (e) {} }
