@@ -6,7 +6,7 @@
 // Later: realistic human hand textures.
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
-import { createControllerHand, driveGloveHand, gloveCap, gloveHide, POSE } from './ctlhands.js';
+import { createControllerHand, driveGloveHand, gloveCap, gloveHide, chromePads, POSE } from './ctlhands.js';
 
 const SPEC = ['wrist', 'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
   ...['index-finger', 'middle-finger', 'ring-finger', 'pinky-finger'].flatMap(f => [`${f}-metacarpal`, `${f}-phalanx-proximal`, `${f}-phalanx-intermediate`, `${f}-phalanx-distal`, `${f}-tip`])];
@@ -27,7 +27,7 @@ export function makePhoneHands(rig) {
         const a = new R.RobotAvatar2(holder);
         return a.load('models/avatar/avatar_robot.glb').then(() => {
           const keep = new Set(); for (const H of a.hands) { H.node.traverse(o => keep.add(o)); H.node.scale.multiplyScalar(1.1); }   // #287 sizes, #301 1.1
-          a.root.traverse(o => { if (o.isMesh) { if (keep.has(o)) { o.layers.set(0); o.frustumCulled = false; o.material = o.material.clone(); o.material.side = THREE.DoubleSide; } else o.visible = false; } });   // #302
+          a.root.traverse(o => { if (o.isMesh) { if (keep.has(o)) { o.layers.set(0); o.frustumCulled = false; o.material = o.material.clone(); o.material.side = THREE.DoubleSide; chromePads(o.material); } else o.visible = false; } });   // #302
           { const ng = gloveCap(a.hands[0]); if (ng) for (const H of a.hands) H.mesh.geometry = ng; }   // #303 smooth + capped (both gloves share the geometry)
           if (a.headBone) a.headBone.visible = false;
           for (const H of a.hands) { H.vis = 0; if (H.mesh) H.mesh.visible = false; }

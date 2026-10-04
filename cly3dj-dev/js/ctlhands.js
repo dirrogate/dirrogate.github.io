@@ -233,3 +233,16 @@ export function gloveCap(H) {
   return null;
 }
 export function gloveHide(g, H) { g.hand(H, null, 1); }   // #302
+
+// #304 (owner): the glove's white pads in the same chrome as the robot's helmet (metalness 1, roughness 0.14, #245).
+// The glove has one painted texture, so the pads are found per pixel: the brighter the painted colour, the more chrome.
+export function chromePads(mat) {
+  mat.onBeforeCompile = sh => {
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <map_fragment>', '#include <map_fragment>\n  float vireChrome = smoothstep(0.45, 0.7, dot(diffuseColor.rgb, vec3(0.3333)));')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = mix(metalnessFactor, 1.0, vireChrome);')
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix(roughnessFactor, 0.14, vireChrome);');
+  };
+  mat.customProgramCacheKey = () => 'vire-glove-chrome';
+  mat.needsUpdate = true;
+}
