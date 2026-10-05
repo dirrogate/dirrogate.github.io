@@ -214,13 +214,16 @@ export function setupXR(ctx) {
       if (sl) { st.direct = { kind: 'sleeveSlide', sl: sl.sl, y0: sl.y0, s0: sl.s0 }; buzz(st, 0.3, 20); return true; }
     }
     // #242 a sleeve lying about: grab it anywhere to pick it up again
-    if (ctx.sleeveGrabTest) { const h = ctx.sleeveGrabTest(P); if (h && h.sl) { updateAnchor(st); if (ctx.sleeveGrab(st.anchor, P)) { st.direct = { kind: 'sleeve' }; buzz(st, 0.4, 30); return true; } } }
+    if (ctx.sleeveGrabTest && (st.isHand || btn === 'grip')) { const h = ctx.sleeveGrabTest(P); if (h && h.sl) {   // #324 grip only (missed in #316)
+      updateAnchor(st); if (ctx.sleeveGrab(st.anchor, P)) { st.direct = { kind: 'sleeve' }; buzz(st, 0.4, 30); return true; } } }
     // 0. target lamp, controllers only: the trigger (or grip) at the lamp head toggles it (CLAUDE.md #58).
     //    Controllers never toggle it by hovering; bare hands still press it with a fingertip poke.
-    if (!st.isHand) for (const d of ctx.decks) {
+    for (const d of ctx.decks) {
       const t = d.g.userData.target; if (!t) continue;
       t.grp.getWorldPosition(v2); v2.y += t.headY;
       if (Math.hypot(P.x - v2.x, P.z - v2.z) < 0.02 && P.y - v2.y < 0.025 && P.y - v2.y > -0.03) {
+        // #324 (owner) bare hands: pinch and HOLD 1.5 s to raise / sink it (grabMove), never by touch
+        if (st.isHand) { st.direct = { kind: 'lampHold', d, t0: performance.now(), done: false }; return true; }
         ctx.pressControl({ deck: d.name, id: 'target' }); st.direct = { kind: 'tap' }; buzz(st, 0.5, 30); return true;
       }
     }
@@ -252,8 +255,8 @@ export function setupXR(ctx) {
         }
       }
     }
-    // 0b. 33 / 45, controllers only: trigger (or grip) at the button, never by hovering (owner, #64)
-    if (!st.isHand) {
+    // 0b. 33 / 45: trigger (or grip) at the button, never by hovering (owner, #64); #324 bare hands: a pinch, not a tap
+    {
       let best = null, bd = 0.016;
       for (const d of ctx.decks) for (const [key, id] of [['b33', 'rpm33'], ['b45', 'rpm45'], ['x2', 'x2']]) {   // #253 + X2
         const b = d.g.userData[key]; if (!b) continue; b.getWorldPosition(v2);
@@ -274,7 +277,7 @@ export function setupXR(ctx) {
       const pk = d.g.userData.powerKnob;
       if (pk && pk.getWorldPosition(v2).distanceTo(P) < 0.035) { st.direct = { kind: 'power', d, yaw0: yawOf(handQuat(st, q1)), done: false }; buzz(st); return true; }
     }
-    if (!st.isHand && btn === 'grip') for (const d of ctx.decks) {
+    if (st.isHand || btn === 'grip') for (const d of ctx.decks) {   // #324 bare hands: a deliberate pinch (no tap)
       const sb = d.g.userData.start; if (!sb) continue;
       sb.getWorldPosition(v2);
       if (Math.hypot(P.x - v2.x, P.z - v2.z) < 0.03 && P.y - v2.y < 0.04 && P.y - v2.y > -0.02) { ctx.pressControl({ deck: d.name, id: 'start' }, st); st.direct = { kind: 'tap' }; buzz(st, 0.5, 30); return true; }
@@ -333,7 +336,8 @@ export function setupXR(ctx) {
       // platter keeps spinning underneath, as on an SL-1200; it never lifts. Only the platter rim beyond the
       // record (the strobe dots) nudges.
       if (d.record && r < RD(d).R + 0.003) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l) }; buzz(st); return true; }
-      if (r > RD(d).R + 0.003) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l, true, st.isHand ? 0.6 : rimForce(st, r)) }; buzz(st, 0.2, 15); return true; }
+      // #324 (owner) bare hands don't pinch the platter: the fingertip on its side nudges (pokes / touch, either way)
+      if (r > RD(d).R + 0.003) { if (st.isHand) { st.direct = { kind: 'tap' }; return true; } st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l, true, rimForce(st, r)) }; buzz(st, 0.2, 15); return true; }
     }
     // 3b. a record lying around (thrown or dropped): grab it anywhere on the disc
     // #316 (owner): with controllers, records and sleeves are picked up with the grip only (the trigger never takes them)
@@ -482,6 +486,8 @@ export function setupXR(ctx) {
       const l = g.d.g.worldToLocal(v2.copy(P)); const pv = g.d.g.userData.pivot;
       if (ctx.armDrag(g.d, Math.atan2(l.x - pv.x, l.z - pv.z), P.y - g.y0) === 'drop') buzz(st, 0.6, 35);   // #104: needle found the lead-in
       if (g.d.arm.dragDown && (g.buzzT = (g.buzzT || 0) + 1) % 3 === 0) buzz(st, 0.15, 12);   // feel the grooves
+    } else if (g.kind === 'lampHold') {   // #324 pinch held 1.5 s at the lamp head
+      if (!g.done && performance.now() - g.t0 > 1500) { g.done = true; ctx.pressControl({ deck: g.d.name, id: 'target' }); }
     } else if (g.frozen) {   // #230 fingers opening: the control stays put
       if (g.kind === 'knob') g.yawL = yawOf(handQuat(st, q1));
     } else if (g.kind === 'knob') {
@@ -644,7 +650,7 @@ export function setupXR(ctx) {
     buttons = buttons || buttonList();
     let lift = 0;   // #282 how far the fingertip has sunk below a button cap (the 3D hand is drawn that much higher)
     for (const b of buttons) {
-      if ((b.c.id === 'target' || b.c.id === 'rpm33' || b.c.id === 'rpm45' || b.c.id === 'x2' || b.c.id === 'start') && !st.isHand) continue;   // controllers: trigger (START / STOP: grip, #252) only, see grabStart
+      if (b.c.id === 'target' || b.c.id === 'rpm33' || b.c.id === 'rpm45' || b.c.id === 'x2' || b.c.id === 'start') continue;   // never by touch: controllers trigger (START / STOP: grip, #252), #324 hands a pinch (lamp: pinch and hold), see grabStart
       b.g.getWorldPosition(v2); v2.y += b.top ? b.top() + 0.006 : 0.006;
       const h = T.y - v2.y, dxz = Math.hypot(T.x - v2.x, T.z - v2.z);
       if (dxz < b.r * 1.2 && h < -0.004 && h > -0.03) lift = Math.max(lift, -0.004 - h);   // cap top = 4 mm under the press line (tip on the cap, pressed in)
@@ -761,7 +767,7 @@ export function setupXR(ctx) {
         st.grip.localToWorld(st.tip.copy(hl || st.tipLocal || TIP_DEFAULT));
         st.pinchPt.copy(st.tip); hasTip = true;
       }
-      st.tipDot.visible = hasTip && !(st.isHand && handMode === 'real'); if (hasTip) st.tipDot.position.copy(st.isHand ? st.pinchPt : st.tip);   // #323 hands: the ball where the pinch closes (the O), as with controllers
+      st.tipDot.visible = hasTip && !(st.isHand && handMode === 'real'); if (hasTip) { st.tipDot.position.copy(st.tip); st.tipDot.scale.setScalar(st.isHand ? 0.5 : 1); }   // #324 (owner) hands: back on the index fingertip, half size (#323 had it at the pinch)
       if (st.isHand) applyHandLook(st);
       ctlHandStep(st);   // #276
       updateOccluder(st);
