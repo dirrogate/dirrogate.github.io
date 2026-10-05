@@ -22,8 +22,8 @@
 //   trajectories [{ points [[x,y,z]...] (stage space), t0, t1 (drawn from 0 to 100 % over [t0, t1]),
 //              width (m), color }]
 //
-// SpatialED #8 placement: a lesson starts as a diorama on its deck, floating DECK_LIFT above the record and turning
-// with it. Grip inside its volume (an invisible cylinder round the plinth, outlined while a hand is in it) to carry
+// SpatialED #8 placement: a lesson starts as a diorama on its deck, floating DECK_LIFT above the record (#12: facing
+// the DJ, not turning with it). Grip inside its volume (an invisible cylinder round the plinth, outlined while a hand is in it) to carry
 // it; a second grip stretches it (hands apart = bigger, the line between the hands turns it, never tilts it); with
 // one hand the thumbstick scales (up / down) and turns (left / right). Let go near 1:1 and it snaps to life size on
 // the floor; let go small over a deck and it settles back onto that record. A new record always starts on its deck.
@@ -98,14 +98,16 @@ export class LessonPlayer {
   }
 
   // ---------------------------------------------------------------- placement
-  // the diorama on a deck: centred on the record, DECK_LIFT above it, turning with it
+  // the diorama on a deck: centred on the record, DECK_LIFT above it, facing the DJ as the deck does (#12 owner: it
+  // no longer turns with the record)
   seatPose(L, i) {
     const seat = this.seats[i]; if (!seat) return;
+    const face = seat.parent || seat;   // the deck group: the record spins inside it
     this.root.updateWorldMatrix(true, false); seat.updateWorldMatrix(true, false);
     this.pose.pos.copy(this.root.worldToLocal(seat.getWorldPosition(_v)));
     this.pose.pos.y += DECK_LIFT / this.rootScale();
     this.root.getWorldQuaternion(_q2).invert();
-    this.pose.yaw = yawOfQ(_q.multiplyQuaternions(_q2, seat.getWorldQuaternion(_q)));
+    this.pose.yaw = yawOfQ(_q.multiplyQuaternions(_q2, face.getWorldQuaternion(_q)));
     this.pose.scale = DECK_R / L.radius;
   }
   rootScale() { return this.root.getWorldScale(_v2).x || 1; }
@@ -295,7 +297,8 @@ async function makeMotion(m, base, obj) {
   const mixer = new THREE.AnimationMixer(stand), action = mixer.clipAction(clip);
   action.setLoop(THREE.LoopOnce, Infinity); action.clampWhenFinished = true; action.play();
   const bones = {}; obj.traverse(b => { if (b.isBone) bones[boneKey(b.name)] = b; });
-  const pairs = Object.entries(map).map(([k, name]) => ({ pivot: pivots[k], bone: bones[boneKey(name)] })).filter(p => p.bone);
+  const pairs = Object.entries(map).map(([k, name]) => ({ pivot: pivots[k], bone: bones[boneKey(name)] })).filter(p => p.bone)
+    .map(p => ({ ...p, base: p.bone.quaternion.clone(), written: null }));   // #12 base = the bone's own clip pose
   return { stand, mixer, action, dur: src.duration || 1e-3, t0: m.t0 != null ? +m.t0 : null, pairs };
 }
 const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _qc = new THREE.Quaternion();
@@ -306,11 +309,19 @@ function applyMotion(a, t) {
   if (!M.pairs.length) return;
   a.wrap.updateMatrixWorld(true);
   a.wrap.getWorldQuaternion(_qa).invert();
-  for (const { pivot, bone } of M.pairs) {
+  // #12 three's mixer writes a bone only when its clip value changed. With the record stopped or held, t stands still,
+  // the actor's own clip writes nothing, and the turn was added again on top of last frame's (the head kept twisting,
+  // the limbs kept swinging). So: if the bone still holds what we wrote last frame, put its own clip pose back first.
+  for (const p of M.pairs) {
+    if (p.written && p.bone.quaternion.equals(p.written)) p.bone.quaternion.copy(p.base);
+    p.base.copy(p.bone.quaternion);
+  }
+  for (const p of M.pairs) {
     // the pivot's turn is in the figure's frame; seen from the bone it is R^-1 d R, R = the bone's turn in the figure
-    const R = _qb.multiplyQuaternions(_qa, bone.getWorldQuaternion(_qb));
-    _qc.copy(R).invert().multiply(pivot.quaternion).multiply(R);
-    bone.quaternion.multiply(_qc);
+    const R = _qb.multiplyQuaternions(_qa, p.bone.getWorldQuaternion(_qb));
+    _qc.copy(R).invert().multiply(p.pivot.quaternion).multiply(R);
+    p.bone.quaternion.multiply(_qc);
+    (p.written || (p.written = new THREE.Quaternion())).copy(p.bone.quaternion);
   }
 }
 
