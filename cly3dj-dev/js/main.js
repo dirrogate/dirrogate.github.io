@@ -3838,8 +3838,14 @@ function drawDeckPanel(g, d, x0, y0, w, h, P) {
   g.fillStyle = '#fff'; g.font = '700 46px system-ui'; g.fillText(rd.big, x0 + 12, 150 + dy);
   g.fillStyle = '#8c96a8'; g.font = '500 17px system-ui'; fitText2(g, rd.label, x0 + 14, 172 + dy, w * 0.62);
   MS_HIT[d.i] = { x: x0 + 6, y: 100 + dy, w: w * 0.62, h: 84 };
-  g.textAlign = 'right'; g.fillStyle = Math.abs(d.pitch) < 0.0005 ? '#40ff70' : '#f2b640'; g.font = '600 24px system-ui';
-  g.fillText(`${d.pitch >= 0 ? '+' : ''}${(d.pitch * 100).toFixed(2)}%`, x0 + w - 12, 128 + dy);
+  // #319 (owner): the +/- readout is the platter's live speed, so a spindle twist or a rim nudge shows as it happens
+  // (eased ~150 ms like a real speed display; within 0.015 % of the fader it reads the fader, so it doesn't flicker)
+  let pl = d.pitch;
+  if (d.motorOn && st.prate != null) { const live = Math.abs(st.prate) / d.speed - 1; if (Math.abs(live - d.pitch) < 0.25) pl = live; }
+  d.pDisp = d.pDisp == null ? pl : d.pDisp + (pl - d.pDisp) * 0.35;
+  const shown = Math.abs(d.pDisp - d.pitch) < 0.00015 ? d.pitch : d.pDisp;
+  g.textAlign = 'right'; g.fillStyle = Math.abs(shown) < 0.0005 ? '#40ff70' : '#f2b640'; g.font = '600 24px system-ui';
+  g.fillText(`${shown >= 0 ? '+' : ''}${(shown * 100).toFixed(2)}%`, x0 + w - 12, 128 + dy);
   g.fillStyle = '#8c96a8'; g.font = '500 17px system-ui'; g.fillText(d.speed > 1.1 ? '45 RPM' : '33 RPM', x0 + w - 12, 152 + dy);
   if (d.loaded) {
     const pos = engine.pos(d.i), rem = Math.max(0, d.duration - pos);

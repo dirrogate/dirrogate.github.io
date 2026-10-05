@@ -70,7 +70,7 @@ class Deck {
     this.lastLevel = 0;
     // needle dragged across the vinyl (CLAUDE.md #61)
     this.drag = false; this.dragPending = 0; this.dragAcc = 0; this.gps = 0; this.click = 0; this.hp = 0; this.nz = 0;
-    this.shiftPending = 0;
+    this.shiftPending = 0; this.spinPend = 0; this.spinW = 0;   // #319 spindle twist: platter angle still to turn (rad), the speed it is adding now
     // physics state
     this.model = 'classic'; this.P = PROFILES.classic; this.mat = MATS.slick; this.pll = false;
     this.recMass = 0.18;
@@ -102,6 +102,14 @@ class Deck {
   step(dt, handK, touchK) {
     if (this.model === 'legacy') return this.stepLegacy(dt, handK, touchK);
     const P = this.P, Ip = P.I;
+    // #319 spindle twist: the fingers carry the platter (and a record gripping the mat) round by the twisted angle,
+    // spread over ~20 ms, as an extra speed on top of whatever the platter is doing. The servo sees the platter run
+    // fast (or slow) and pushes back; with PLL memory off the lost / won phase stays, as on a real deck.
+    if (this.spinW) { this.wp -= this.spinW; if (this.spinRec) this.wr -= this.spinW; this.spinW = 0; }
+    if (this.spinPend) {
+      const take = this.spinPend * DRAG_K; this.spinPend -= take; if (Math.abs(this.spinPend) < 1e-6) this.spinPend = 0;
+      this.spinW = take / dt; this.spinRec = this.hasRec && this.stuck; this.wp += this.spinW; if (this.spinRec) this.wr += this.spinW;
+    }
     // motor servo
     const on = this.motorOn && this.power;
     const lim = P.tau0 * (1 - P.taper * Math.min(1, Math.abs(this.wp) / W45));
@@ -182,7 +190,7 @@ class Deck {
     // Off: once the hands are off and the record grips again, the angle term returns to its quiet value, like a
     // PLL that has slipped cycles; the speed still recovers either way.
     if (on && !this.pll) {
-      if (disturbed || this.shiftPending) this.wasDisturbed = true;
+      if (disturbed || this.shiftPending || this.spinW) this.wasDisturbed = true;
       else {
         if (this.wasDisturbed) { this.phi = this.quietPhi; this.wasDisturbed = false; }
         this.quietPhi += (this.phi - this.quietPhi) * 2e-4;
@@ -190,7 +198,7 @@ class Deck {
     } else if (!on) { this.quietPhi = 0; this.wasDisturbed = false; }
     // static friction: a nearly stopped, untouched platter comes to rest instead of creeping, unless the cogging
     // detent pulls harder than the bearing holds (then it rocks into the detent and stops there, as KAB describes)
-    if (!tm && !this.touch && !this.handOn && (!this.hasRec || this.stuck) && Math.abs(this.wp) < 0.004 && Math.abs(tCog) <= P.bearing) {
+    if (!tm && !this.touch && !this.handOn && !this.spinW && (!this.hasRec || this.stuck) && Math.abs(this.wp) < 0.004 && Math.abs(tCog) <= P.bearing) {
       this.wp = 0; this.wr = 0;
     }
     this.thp += this.wp * dt; this.thr += this.wr * dt;
@@ -233,7 +241,7 @@ class Decks extends AudioWorkletProcessor {
       case 'load':
         d.L = m.L; d.R = m.R; d.len = m.L.length; d.srcRate = m.rate;
         d.split = !!m.split; d.pos = m.startFrame || 0; d.needle = false; d.needleGain = 0;
-        d.nudgeE = 0; d.nudgeLeft = 0; d.shiftPending = 0;
+        d.nudgeE = 0; d.nudgeLeft = 0; d.shiftPending = 0; d.spinPend = 0;
         d.hasRec = true;
         break;
       case 'unload':
@@ -274,7 +282,11 @@ class Decks extends AudioWorkletProcessor {
         break;
       case 'phase': this.phase(m, m.maxE || 0.08); break;
       case 'shift':   // spindle twist (#105): move the record by m.delta seconds over the mat; the motor keeps running
-        if (d.len) d.shiftPending = (d.shiftPending || 0) + m.delta * d.srcRate;
+        // #319 (owner: a real spindle is part of the platter): the twist turns the PLATTER, so the strobe dots, the
+        // record (through the mat), the heard speed and the readouts all move with it, and the servo fights it.
+        // The legacy model keeps the old record-only shift.
+        if (d.model === 'legacy') { if (d.len) d.shiftPending = (d.shiftPending || 0) + m.delta * d.srcRate; }
+        else d.spinPend += m.delta * W33;
         break;
       case 'needleDrag':
         if (m.active === true) { d.drag = true; d.dragPending = 0; d.dragAcc = 0; }
