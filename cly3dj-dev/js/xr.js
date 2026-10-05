@@ -158,7 +158,7 @@ export function setupXR(ctx) {
     return u.arm.userData.pitch.localToWorld(u.stylusLocal ? out.copy(u.stylusLocal) : out.set(-0.008, -0.016, ctx.ARM.L - 0.006));
   }
 
-  const SPINDLE_GEAR = 0.015625; // #107-#109, #270, #272 (owner): 1/64 of a real spindle's travel (10 deg of wrist = 0.8 ms)
+  const SPINDLE_GEAR = 0.0625;   // #107-#109, #270, #272: was 1/64; #317 (owner) x4 = 1/16 of a real spindle's travel (10 deg of wrist = 3.1 ms)
   // #120: how hard a finger presses on the platter rim (N), for the worklet's friction model. Tracking can't
   // measure force, so: controllers = the analogue trigger (0.35 N at the click point .. 2 N squeezed); fingertip =
   // how far the tracked tip sits inside the platter's edge (0.35 N just touching .. 2 N at 12 mm); pinch = 0.6 N.
