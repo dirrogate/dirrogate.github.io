@@ -317,7 +317,7 @@ export class RobotAvatar2 {
       // #306 (owner) three touching columns: a tall centre and two slightly shorter sides, no dark gaps (a talking look)
       // #313 (owner, KITT voice box): the two outer bars always follow the centre one at ~60 % of its height
       const cen = clamp(base * 2.0, 0, 1), loud = clamp((this.talk - 0.55) / 0.45, 0, 1);   // #313 a medium voice already fills the centre bar
-      this.bars = [cen * 0.36 * loud, cen * 0.62, cen, cen * 0.62, cen * 0.36 * loud];   // #313 loud: a short fourth and fifth bar outside
+      this.bars = [cen * 0.5 * loud, cen * 0.62, cen, cen * 0.62, cen * 0.5 * loud];   // #313 loud: a short fourth and fifth bar outside
     }
     const mid = (ROWS - 1) / 2, d = this.ledData, barCols = [COLS / 2 - 2, COLS / 2 - 1, COLS / 2, COLS / 2 + 1, COLS / 2 + 2].map(Math.floor);   // #306 adjacent, no gaps; #313 five when loud
     const heat = clamp((this.talk - 0.55) / 0.45, 0, 1);   // #313 loud: the bars burn brighter and go pink-white in the middle
@@ -331,7 +331,7 @@ export class RobotAvatar2 {
         const h = Math.round(this.bars[bi] * (mid + 0.5)), dr = Math.abs(r - mid);
         if (dr < h || (h > 0 && r === mid)) {
           const t = h > 1 ? dr / (h - 1) : 0, ring = Math.abs(bi - 2);   // 0 centre, 1 inner pair, 2 outer pair
-          const lvl = [1, 0.78 + 0.17 * heat, 0.7][ring], fade = [0.45, 0.6, 0.7][ring] * (1 - 0.4 * heat);
+          const lvl = [1, 0.78 + 0.17 * heat, 0.75][ring], fade = ring === 2 ? 0.85 : [0.45, 0.6][ring] * (1 - 0.4 * heat);   // #314 the outer pair keeps a strong fade
           b = Math.max(b, voice * lvl * (1 - fade * t) * (1 + 0.9 * heat));
         }
       }
