@@ -820,7 +820,7 @@ export function setupXR(ctx) {
         return a.load(R.ROBOT_GLB).then(() => {
           const keep = new Set(); for (const H of a.hands) { H.node.traverse(o => keep.add(o)); H.node.scale.multiplyScalar(GLOVE_SCALE); }
           a.root.traverse(o => { if (o.isMesh) { if (keep.has(o)) { o.layers.set(0); o.castShadow = false; o.frustumCulled = false; o.material = o.material.clone(); o.material.side = THREE.DoubleSide; chromePads(o.material); } else o.visible = false; } });   // #302 inside drawn too
-          { const ng = gloveCap(a.hands[0]); if (ng) for (const H of a.hands) H.mesh.geometry = ng; }   // #303 smooth + capped (both gloves share the geometry)   // #302 the cuff closed
+          for (const H of a.hands) { const ng = gloveCap(H); if (ng) H.mesh.geometry = ng; }   // #303 smooth + capped; #312 each glove its own (since the Blender export the two meshes differ: sharing the left's stretched the right's fingers)   // #302 the cuff closed
           if (a.headBone) a.headBone.visible = false;   // the cup crests hang off it
           for (const H of a.hands) { H.vis = 0; if (H.mesh) H.mesh.visible = false; }
           glove = a;
