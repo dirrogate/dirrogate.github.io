@@ -3905,6 +3905,24 @@ function makerSay(text, ok, ms = 5000) {
   drawMixScreen();
 }
 const kbd = { title: '', text: '', emoji: false, max: 40, done: null, back: 'home' };
+// SpatialED #11 classroom (classroom.js): a 4-digit code kept per device, START / STOP from the CLASS page
+let klass = null;
+function classCode() {
+  let c = null; try { c = localStorage.getItem('sed.classCode'); } catch {}
+  if (!/^\d{4}$/.test(c || '')) { c = String(1000 + Math.floor(Math.random() * 9000)); try { localStorage.setItem('sed.classCode', c); } catch {} }
+  return c;
+}
+async function setClass(on) {
+  if (!on) { if (klass) { klass.close(); klass = null; toast('Class stopped'); } drawMixScreen(); return; }
+  if (klass) return;
+  try {
+    const m = await import('./classroom.js');
+    klass = m.startClass({ code: classCode(), lesson, onChange: () => { if (toolsPage === 'class' || toolsPage === 'home') drawMixScreen(); } });
+    toast(`Class ${classCode()} open: students join on student.html`, 3500);
+  } catch (e) { toast('Class could not start: ' + e.message, 4000); }
+  drawMixScreen();
+}
+function newClassCode() { const was = !!klass; if (klass) { klass.close(); klass = null; } try { localStorage.removeItem('sed.classCode'); } catch {} if (was) setClass(true); else drawMixScreen(); }
 function setTools(p) {
   toolsPage = p; pickPg = 0;
   if (p === 'pickVideo' || p === 'pickImage') { pickItems = []; loadPick(p === 'pickVideo' ? 'Video' : 'Images'); }
@@ -4072,8 +4090,9 @@ function drawToolsPage() {
   const page = toolsPage;
   if (page === 'home') {
     const y0 = head('TOOLS', 'mixer');
-    if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26); note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off.', y0 + 240); }
-    else { const bw = (R - L - 12) / 2; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); note('DJ TOOLS: Record Maker, milk crate on / off.   VJ TOOLS: Scroller, LED wall and neon sign on / off.', y0 + 160); }
+    const clsLabel = klass ? `CLASS (${klass.state.peers.length})` : 'CLASS';   // SpatialED #11
+    if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26); btn(L, y0 + 224, R - L, 96, clsLabel, !!klass, () => setTools('class'), false, 26); note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off. CLASS: students follow the lesson on their phones.', y0 + 348); }
+    else { const bw = (R - L - 24) / 3; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); btn(L + 2 * (bw + 12), y0 + 8, bw, 130, clsLabel, !!klass, () => setTools('class'), false, 28); note('DJ TOOLS: Record Maker, milk crate on / off.   VJ TOOLS: Scroller, LED wall and neon sign on / off.   CLASS: students follow the lesson on their phones.', y0 + 160); }
     { // #258 flicker tests
       const ty = H - (P ? 60 : 46), tw = (R - L - 16) / 3;
       btn(L, ty, tw, 36, testState.glass ? 'GLASS TEST: GLASS OFF' : 'GLASS TEST', testState.glass, () => setTest('glass'), false, 15);
@@ -4155,6 +4174,22 @@ function drawToolsPage() {
     btn(x, by2, sw, kh, 'SPACE', false, () => kbdKey('SPACE'));
     btn(x + sw + gap, by2, dw, kh, '⌫', false, () => kbdKey('DEL'));
     btn(x + sw + dw + 2 * gap, by2, ew2, kh, kbd.emoji ? 'ENTER' : 'OK', true, () => kbdKey('ENTER'));
+    return;
+  }
+  if (page === 'class') {   // SpatialED #11 classroom: the code students type, START / STOP, who is in
+    const y0 = head('CLASS', 'home'), on = !!klass, st = on ? klass.state : null, code = classCode();
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+    g.fillStyle = '#8c96a8'; g.font = '600 16px system-ui'; g.fillText('CLASS CODE', L + 4, y0 + 22);
+    g.fillStyle = on ? '#39d0ff' : '#56627a'; g.font = '800 72px system-ui'; g.fillText(code.split('').join(' '), L + 4, y0 + 96);
+    const bx = R - 210;
+    btn(bx, y0 + 8, 210, 70, on ? 'STOP CLASS' : 'START CLASS', on, () => setClass(!on), false, 22);
+    btn(bx, y0 + 86, 210, 38, 'NEW CODE', false, newClassCode, false, 15);
+    g.textAlign = 'left'; g.fillStyle = '#dfe6f2'; g.font = '700 18px system-ui';
+    g.fillText(on ? `${st.peers.length} of 10 students${st.status === 'open' ? '' : '  ·  ' + st.status}` : 'Class is off', L + 4, y0 + 140);
+    let y = y0 + 162;
+    if (on && st.peers.length) { g.fillStyle = '#9fe6ff'; g.font = '500 16px system-ui'; y += wrapText(g, st.peers.join(',  '), L + 4, y, R - L - 8, 20, 3) * 20 + 8; }
+    const page = location.host + location.pathname.replace(/[^/]*$/, '') + 'student.html';
+    note(`Students open ${page.includes('localhost') ? 'dirrogate.github.io/spatialed-dev/student.html' : page}, type the code and their name. Same Wi-Fi as this headset or PC. They see the lesson on the deck or in the room, at your size and turn; no sound goes to them.`, Math.max(y, y0 + 176));
     return;
   }
   if (page === 'handfit') {   // #291 (owner) move / turn the 3D hands and glove on the controllers; values to report back

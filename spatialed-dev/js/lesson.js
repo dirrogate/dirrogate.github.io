@@ -61,12 +61,8 @@ export class LessonPlayer {
     decks.forEach((d, i) => { if (d.track && d.track.lesson && (!best || d.gain > best.gain)) { best = d; bi = i; } });
     const url = best ? new URL(best.track.lesson, location.href).href : null;
     const s = url ? this.want(url) : null;
-    const L = s && s.status === 'ready' ? s.L : null;
-    if (L !== this.cur) {
-      if (this.cur) this.root.remove(this.cur.group);
-      this.cur = L; if (L) { this.root.add(L.group); L.chapter = -2; }
-      this.root.visible = !!L;
-    }
+    const L = this.show(s && s.status === 'ready' ? s.L : null);
+    this.live = L ? { rel: best.track.lesson, t: best.pos, rate: best.rate } : null;   // #11 for the class packet
     if (!L) { this.lastRec = null; this.grab = null; this.cage.visible = false; return null; }
     if (best.rec !== this.lastRec) { this.lastRec = best.rec; this.place = { deck: bi }; this.grab = null; }   // a record just went on
     if (this.place.deck != null && !this.seats[this.place.deck]) this.place = { deck: bi };   // its record moved decks
@@ -77,6 +73,29 @@ export class LessonPlayer {
     return L;
   }
   isFree() { return !!(this.cur && this.place && this.place.free); }
+  show(L) {
+    if (L !== this.cur) {
+      if (this.cur) this.root.remove(this.cur.group);
+      this.cur = L; if (L) { this.root.add(L.group); L.chapter = -2; }
+      this.root.visible = !!L;
+    }
+    return L;
+  }
+
+  // ---------------------------------------------------------------- SpatialED #11 classroom
+  // professor: what the students need, about 15 times a second (u = the side.json as the record names it, relative to
+  // the page, so a student page in the same folder finds it on any host)
+  packet() {
+    const v = this.live, L = this.cur; if (!v || !L) return { k: 'les', u: null };
+    return { k: 'les', u: v.rel, t: +v.t.toFixed(3), r: +v.rate.toFixed(4), s: +this.pose.scale.toFixed(4), y: +this.pose.yaw.toFixed(4), d: this.place && this.place.deck != null ? 1 : 0 };
+  }
+  // student: draw the side the professor plays at t, at the professor's size and turn, centred on this root
+  remote(rel, t, scale, yaw) {
+    const s = rel ? this.want(new URL(rel, location.href).href) : null;
+    const L = this.show(s && s.status === 'ready' ? s.L : null); if (!L) return null;
+    L.group.position.set(0, 0, 0); L.group.rotation.set(0, yaw || 0, 0); L.group.scale.setScalar(scale || 1);
+    this.apply(L, t); return L;
+  }
 
   // ---------------------------------------------------------------- placement
   // the diorama on a deck: centred on the record, DECK_LIFT above it, turning with it

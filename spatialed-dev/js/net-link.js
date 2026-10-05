@@ -67,9 +67,10 @@ class Pipe {
     c.onmessage = e => { if (typeof e.data !== 'string') { this.h.onBinary && this.h.onBinary(e.data, c.label); return; } let m; try { m = JSON.parse(e.data); } catch { return; } this.h.onMessage && this.h.onMessage(m, c.label); };
     c.onclose = () => { if (c.label !== 'file' && c.label !== 'prev') this.h.onClose && this.h.onClose(); };
   }
-  async call() { // spectator side: make the channels and the offer
+  async call(lite) { // spectator side: make the channels and the offer (SpatialED #11 lite = a student: state + ctl only)
     this.wire(this.pc.createDataChannel('state', { ordered: false, maxRetransmits: 0, priority: 'high' }));   // #238 the gear data before LIVE CAM video
     this.wire(this.pc.createDataChannel('ctl', { priority: 'high' }));
+    if (lite) { await this.pc.setLocalDescription(await this.pc.createOffer()); await this.gathered(); this.relay.send('OFFER', this.remote, { sdp: this.pc.localDescription.toJSON() }); return; }
     this.wire(this.pc.createDataChannel('file'));   // #185
     this.wire(this.pc.createDataChannel('prev', { ordered: false, maxRetransmits: 0 }));   // #188
     this.vtx = this.pc.addTransceiver('video', { direction: 'sendonly' });   // #238 LIVE CAM slot, empty until asked for
@@ -139,4 +140,49 @@ export function spectatorLink(code, handlers) {
     sendPrev: buf => !!pipe && pipe.sendPrev(buf),
     setVideo: t => pipe ? pipe.setVideo(t) : Promise.resolve(false),   // #238
     close() { relay.close(); if (pipe) pipe.close(); } };
+}
+
+// ---------------------------------------------------------------- SpatialED #11 classroom
+// The professor's app listens as cly3dj-sed-class-v1-<code> and keeps one pipe per student (up to CLASS_MAX); each
+// student calls in with a lite pipe (state + ctl). Same ntfy.sh handshake as the spectator camera, then direct WebRTC
+// on the local network. A separate name, so the spectator camera keeps its own link.
+export const CLASS_PREFIX = 'cly3dj-sed-class-v1-', CLASS_MAX = 10;
+export function classHostLink(code, h) {
+  const pipes = new Map();   // remote id -> { pipe, name }
+  const changed = () => h.onPeers && h.onPeers([...pipes.values()].filter(p => p.pipe.isOpen).map(p => p.name || 'student'));
+  const relay = new Relay(CLASS_PREFIX + code, async m => {
+    let e = pipes.get(m.src);
+    if (m.type === 'OFFER') {
+      if (e) { e.pipe.close(); pipes.delete(m.src); e = null; }
+      if (pipes.size >= CLASS_MAX) { h.onStatus && h.onStatus('full'); return; }
+      const ent = { name: '', pipe: null };
+      ent.pipe = new Pipe(relay, m.src, {
+        onOpen: () => { changed(); h.onJoin && h.onJoin(ent); },
+        onMessage: (msg, label) => { if (msg && msg.k === 'hello') { ent.name = String(msg.name || '').slice(0, 24); changed(); } },
+        onClose: () => { if (pipes.get(m.src) === ent) { pipes.delete(m.src); changed(); } },
+      });
+      pipes.set(m.src, ent); e = ent;
+    }
+    if (e) { try { await e.pipe.signal(m); } catch (err) { h.onStatus && h.onStatus('error: ' + err.message); } }
+  }, h.onStatus);
+  return {
+    broadcast(label, obj) { let n = 0; for (const e of pipes.values()) if (e.pipe.send(label, obj)) n++; return n; },
+    sendTo(ent, label, obj) { return ent.pipe.send(label, obj); },
+    get count() { let n = 0; for (const e of pipes.values()) if (e.pipe.isOpen) n++; return n; },
+    close() { relay.close(); for (const e of pipes.values()) e.pipe.close(); pipes.clear(); },
+  };
+}
+export function studentLink(code, h) {
+  const me = CLASS_PREFIX + code + '-st-' + token().slice(0, 8);
+  let pipe = null;
+  const relay = new Relay(me, async m => { if (pipe && m.src === pipe.remote) { try { await pipe.signal(m); } catch (e) { h.onStatus && h.onStatus('error: ' + e.message); } } },
+    s => {
+      h.onStatus && h.onStatus(s);
+      if (s === 'relay' && !pipe) {
+        pipe = new Pipe(relay, CLASS_PREFIX + code, h);
+        pipe.call(true).catch(e => h.onStatus && h.onStatus('error: ' + e.message));
+        const p0 = pipe; setTimeout(() => { if (pipe === p0 && !p0.isOpen) h.onStatus && h.onStatus('no-class'); }, 15000);
+      }
+    });
+  return { send: (l, o) => !!pipe && pipe.send(l, o), get isOpen() { return !!pipe && pipe.isOpen; }, close() { relay.close(); if (pipe) pipe.close(); } };
 }
