@@ -207,6 +207,9 @@ export function setupXR(ctx) {
     if (st.scratch) { ctx.scratchEnd(st.scratch); st.scratch = null; }   // #282 a touch-nudge gives way to a button grab (#325 hands too: a pinch ends the fingertip scratch)
     const deckOk = st.isHand || btn !== 'grip';   // #104: turntable actions = trigger (or hand pinch)
     if (ctx.getHeld() && ctx.getHeld().attach === st.anchor) return true; // already holding a record
+    // SpatialED #8 the lesson diorama: grip (hands: pinch) inside its volume. Diorama-sized it comes before the gear
+    // (its volume starts 6 cm above the record, above the record's own 5 cm zones); room-sized it comes last (below)
+    if ((st.isHand || btn === 'grip') && lessonGrab(st, P, 'small')) return true;
     // #229 the other hand on the record peeking out of a sleeve in your hand: slide it out
     // #242 also a sleeve lying about (any hand but the one holding that sleeve)
     if (ctx.sleeveSlideTest && (st.isHand || btn === 'grip')) {   // #316 grip only with controllers
@@ -427,7 +430,19 @@ export function setupXR(ctx) {
       st.direct = { kind: 'move', target: hit.key, stMove: ctx.stage.beginMove(hit.key), p0: P.clone(), pos0: g.position.clone(), yaw0: g.rotation.y, hyaw0: yawOf(handQuat(st, q1)) };
       buzz(st); return true;
     }
+    if ((st.isHand || btn === 'grip') && lessonGrab(st, P, 'big')) return true;   // SpatialED #8
     return false;
+  }
+  // SpatialED #8: one hand carries the lesson; a second hand on it = both hands hold it (stretch / turn)
+  function lessonGrab(st, P, want) {
+    const Ls = ctx.lesson; if (!Ls) return false;
+    const h = Ls.hitTest(P); if (!h || (want === 'small' && h !== 'small')) return false;
+    const other = inputs.find(o => o !== st && o.direct && o.direct.kind === 'lesson' && !o.direct.two);
+    if (other) {
+      Ls.grab2(pinchOf(other), P); other.direct = { kind: 'lesson', two: st }; st.direct = { kind: 'lesson', two: other, second: true };
+      buzz(st, 0.5, 40); buzz(other, 0.5, 40); return true;
+    }
+    Ls.grab1(P); st.direct = { kind: 'lesson' }; buzz(st, 0.4, 30); return true;
   }
   // Where on the stage is P? Gear sides first (not their tops, where the controls are), then the
   // bottom resize handles of the flight cases, then the cases themselves.
@@ -601,6 +616,8 @@ export function setupXR(ctx) {
       if (g.R.a === st) ctx.setLedScale(g.R.s0 * pinchOf(g.R.a).distanceTo(pinchOf(g.R.b)) / g.R.d0);
     } else if (g.kind === 'twoHand') {
       if (g.R.a === st) twoHandStep(g.R);            // computed once per frame, by the first hand
+    } else if (g.kind === 'lesson') {   // SpatialED #8 (two hands: computed once per frame, by the first hand)
+      if (g.two) { if (!g.second) ctx.lesson.move2(P, pinchOf(g.two)); } else ctx.lesson.move1(P);
     }
   }
 
@@ -616,6 +633,11 @@ export function setupXR(ctx) {
     else if (g.kind === 'held') { const h = ctx.getHeld(); if (h && h.attach === st.anchor) ctx.releaseHeld(); }
     else if (g.kind === 'move') { ctx.stage.endMove(g.stMove); if (g.target.startsWith('milk')) ctx.releaseMilk(g.target, g.vel); else ctx.settleStack(g.target); }   // #200 milk: releaseMilk drops / throws / settles it
     else if (g.kind === 'lid') ctx.lidRelease();
+    else if (g.kind === 'lesson') {   // SpatialED #8: one of two hands lets go = the other carries on alone
+      const o = g.two;
+      if (o && o.direct && o.direct.kind === 'lesson') { o.direct = { kind: 'lesson' }; ctx.lesson.grab1(pinchOf(o)); }
+      else { const r = ctx.lesson.release(); if (r) { buzz(st, 0.6, 40); ctx.toast && ctx.toast(r === 'life' ? 'Lesson at life size, on the floor' : 'Lesson back on the deck', 2000); } }
+    }
     else if (g.kind === 'spider') { ctx.spiderRelease(st.anchor); buzz(st, 0.3, 20); }   // #256
     else if (g.kind === 'sleeve') ctx.sleeveRelease(st.anchor);   // #242 let go: it stays there (over the record crate: back in)
     else if (g.kind === 'tablet') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'tabletStretch') o.direct = null; if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
@@ -792,6 +814,7 @@ export function setupXR(ctx) {
       ctlHandStep(st);   // #276
       updateOccluder(st);
       updateAnchor(st);
+      if (ctx.lesson) ctx.lesson.hover(st.i, hasTip ? pinchOf(st) : null);   // SpatialED #8 the volume's outline
 
       if (st.direct) grabMove(st, st.isHand ? st.pinchPt : st.tip);
       else if (hasTip) pokes(st, st.tip);
@@ -803,7 +826,9 @@ export function setupXR(ctx) {
         const ax = gp.axes[2], ay = gp.axes[3];
         const mv = (st.direct && st.direct.kind === 'move') ? st.direct : null;
         const pd = !mv && !st.isHand ? pitchFaderNear(st.tip) : null;
-        if (pd) {
+        const lg = st.direct && st.direct.kind === 'lesson' && !st.direct.two;   // SpatialED #8 one hand: stick scales / turns
+        if (lg) ctx.lesson.stick(pinchOf(st), ax, ay, dt);
+        else if (pd) {
           // flick forward = -0.05 %, back = +0.05 % (flipped by the owner, 26 Sep: matches the fader, whose + end is
           // toward the DJ); hold to repeat
           const dir = ay < -0.7 ? -1 : ay > 0.7 ? 1 : 0;

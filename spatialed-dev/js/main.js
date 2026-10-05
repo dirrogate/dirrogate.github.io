@@ -564,7 +564,8 @@ const MOVABLE = new Proxy({}, { get: (_, k) => stage.object(k) });
 const lesson = new LessonPlayer(rig); lesson.onStatus = t => toast(t, 3500);
 function lessonStep() {
   const g = deckGains(mixVal);
-  lessonOn = !!lesson.step(decks.map(d => ({ track: d.record ? d.track : null, pos: engine.ctx ? heardPos(d) : 0, rate: engine.state.decks[d.i].rate || 0, gain: g[d.i] })));
+  lessonOn = !!lesson.step(decks.map(d => ({ track: d.record ? d.track : null, pos: engine.ctx ? heardPos(d) : 0, rate: engine.state.decks[d.i].rate || 0, gain: g[d.i],
+    seat: d.record ? d.record.group : null, rec: d.record }))) && lesson.isFree();   // #8 on a deck it needs no room: the wall stays
 }
 function saveLayout() { stage.save(); }
 // #84 migration: layouts saved with the second flight case had the record crate standing on it; with that case
@@ -3108,6 +3109,8 @@ addEventListener('keydown', e => {
   const k = e.key;
   if (k === '/') { e.preventDefault(); openNativeKeyboard(); return; }
   if (k === '1') setCam('dj'); else if (k === '2') setCam('top'); else if (k === '3') setCam('crate'); else if (k === '4') setCam('lesson');
+  else if (k === '-' || k === '=') lesson.nudgeScale(k === '=' ? 1.15 : 1 / 1.15);   // SpatialED #8 desktop: lesson smaller / bigger
+  else if (k === 'g' || k === 'G') { const r = lesson.toggleDeckRoom(); if (r) toast(r === 'life' ? 'Lesson at life size in the room' : 'Lesson back on the deck', 2000); }
   else if (k === 'h' || k === 'H') $('#helpBtn').click();
   else if (k === 'z' || k === 'Z') setMotor(decks[0], !decks[0].motorOn);
   else if (k === 'm' || k === 'M') setMotor(decks[1], !decks[1].motorOn);
@@ -4659,6 +4662,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, ledTilted, toast, mixScreenRelease,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
+  lesson,   // SpatialED #8 the diorama grab
 });
 
 // ------------------------------------------------------------------ start screen / XR
