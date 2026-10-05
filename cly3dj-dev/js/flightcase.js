@@ -7,7 +7,7 @@ import { satinSteel } from './textures.js';
 import { mergeStatic } from './merge.js';
 import { mergeGeometries } from '../vendor/three/utils/BufferGeometryUtils.js';
 
-export const CASE_LIMITS = { W: [0.3, 2.2], D: [0.28, 0.9], H: [0.08, 0.98] };
+export const CASE_LIMITS = { W: [0.3, 2.2], D: [0.28, 0.9], H: [0.08, 1.524] };   // #329 (owner) tallest 5 ft (was 0.98 m)
 const E = 0.022;      // extrusion size
 const tex = {};
 
