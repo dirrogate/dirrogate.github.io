@@ -505,7 +505,7 @@ export function setupXR(ctx) {
       // twist since the grab through wrap(), which jumped from -180 to +180 deg and flipped min <-> max.
       const y = yawOf(handQuat(st, q1));
       const dy = Math.max(-0.6, Math.min(0.6, wrap(y - g.yawL))); g.yawL = y;   // cap: ignore yaw flips when the hand points straight up/down
-      let nv = ctx.mixVal[g.id] - dy / (300 * Math.PI / 180) * 1.2;   // turn clockwise (seen from above) = up
+      let nv = ctx.mixVal[g.id] - dy / (300 * Math.PI / 180) * 1.2 * (st.isHand ? 2 : 1);   // turn clockwise (seen from above) = up; full travel = 250 deg of wrist (#327 bare hands: 125 deg)
       // #254 (owner) sticky PAN: centred, it holds until turned 8 % of its travel away (a brush can't swing it);
       // turned back within 3 % of the middle it settles there again. The hold keeps the turn so far in g.panAcc.
       if (g.id.endsWith('.pan')) {
