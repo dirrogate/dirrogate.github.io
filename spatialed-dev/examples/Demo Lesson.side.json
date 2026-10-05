@@ -8,7 +8,10 @@
     { "t": 46.0, "title": "Arms up" }
   ],
   "actors": [
-    { "glb": "demo_lesson_actor.glb", "clip": "Demo", "t0": 1.0, "loop": false, "position": [0, 0, 0], "rotationY": 0, "scale": 1 }
+    { "glb": "max_caulfield.glb", "clip": "idle", "loop": true, "t0": 1.0, "position": [0, 0, 0], "rotationY": 0, "scale": 1,
+      "motion": { "glb": "demo_lesson_actor.glb", "clip": "Demo", "t0": 1.0, "root": "Figure",
+                  "bones": { "Head": "Head", "ArmL": "RightArm", "ArmR": "LeftArm", "LegL": "RightUpLeg", "LegR": "LeftUpLeg" } },
+      "fallback": { "glb": "demo_lesson_actor.glb", "clip": "Demo", "t0": 1.0, "loop": false } }
   ],
   "trajectories": [
     { "points": [[0, 0.01, 0.6], [1, 0.01, 0.6], [1, 0.01, -1.0], [-1, 0.01, -1.0], [-1, 0.01, 0.6], [0, 0.01, 0.6]],

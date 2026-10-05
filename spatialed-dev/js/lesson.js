@@ -10,7 +10,14 @@
 //              plinth (radius m, 0 = none) }
 //   chapters [{ t, title }]      chapter starts (the 2 to 3 s silences the grooves show as dark bands)
 //   actors   [{ glb (relative to side.json), clip (name, default the first), t0 (audio time of clip time 0),
-//              loop (false = hold the first / last pose outside the clip), position, rotationY, scale }]
+//              loop (false = hold the first / last pose outside the clip), position, rotationY, scale,
+//              motion (SpatialED #9, optional): { glb, clip, t0, root, bones } borrows movement from another clip:
+//                the `root` node's moves carry the actor round the stage, and each source pivot in `bones`
+//                (name -> the actor's bone name, Mixamo prefix and _NN suffix ignored) adds its turn to that bone on
+//                top of the actor's own clip (e.g. a looping idle). Lets a rigged character walk a route authored
+//                on a simple figure.
+//              fallback (optional): { glb, clip, t0, loop } used instead when glb can't be loaded (a model kept
+//                only on the PC, not published) }]
 //   trajectories [{ points [[x,y,z]...] (stage space), t0, t1 (drawn from 0 to 100 % over [t0, t1]),
 //              width (m), color }]
 //
@@ -176,10 +183,13 @@ export class LessonPlayer {
   // t -> the whole scene. Called every frame; cheap (one mixer evaluation per actor, one draw-range per trajectory).
   apply(L, t) {
     for (const a of L.actors) {
-      let ct = t - a.t0;
-      if (a.loop) ct = ((ct % a.dur) + a.dur) % a.dur;
-      else ct = Math.min(Math.max(ct, 0), a.dur - 1e-4);
-      a.action.time = ct; a.action.paused = false; a.mixer.update(0);
+      if (a.mixer) {
+        let ct = t - a.t0;
+        if (a.loop) ct = ((ct % a.dur) + a.dur) % a.dur;
+        else ct = Math.min(Math.max(ct, 0), a.dur - 1e-4);
+        a.action.time = ct; a.action.paused = false; a.mixer.update(0);
+      }
+      if (a.motion) applyMotion(a, t);
     }
     for (const tr of L.trajs) {
       const r = Math.min(1, Math.max(0, (t - tr.t0) / Math.max(1e-3, tr.t1 - tr.t0)));
@@ -212,16 +222,27 @@ async function load(url) {
   }
 
   const actors = [];
-  for (const a of side.actors || []) {
-    const gltf = await loader.loadAsync(new URL(a.glb, base).href);
+  for (const a0 of side.actors || []) {
+    let a = a0, gltf;
+    try { gltf = await loader.loadAsync(new URL(a.glb, base).href); }   // its own copy (a skinned scene can't be shared)
+    catch (e) {
+      if (!a0.fallback) throw e;
+      console.warn('lesson actor', a0.glb, 'not loaded, using the fallback', e);
+      a = { ...a0, motion: null, ...a0.fallback }; gltf = await loader.loadAsync(new URL(a.glb, base).href);
+    }
     const obj = gltf.scene;
     obj.position.fromArray(a.position || [0, 0, 0]); obj.rotation.y = (a.rotationY || 0) * DEG; obj.scale.setScalar(a.scale || 1);
-    group.add(obj);
+    obj.traverse(m => { if (m.isSkinnedMesh) m.frustumCulled = false; });   // skinned bounds are the bind pose: never cull
+    const wrap = new THREE.Group(); wrap.add(obj); group.add(wrap);   // the motion's root moves the wrap
+    const act = { wrap, t0: a.t0 || 0, loop: !!a.loop };
     const clip = (a.clip && gltf.animations.find(k => k.name === a.clip)) || gltf.animations[0];
-    if (!clip) { actors.push(null); continue; }   // a still prop: placed, nothing to drive
-    const mixer = new THREE.AnimationMixer(obj), action = mixer.clipAction(clip);
-    action.setLoop(a.loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity); action.clampWhenFinished = true; action.play();
-    actors.push({ mixer, action, dur: clip.duration || 1e-3, t0: a.t0 || 0, loop: !!a.loop });
+    if (clip) {
+      act.mixer = new THREE.AnimationMixer(obj); act.action = act.mixer.clipAction(clip);
+      act.action.setLoop(a.loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity); act.action.clampWhenFinished = true; act.action.play();
+      act.dur = clip.duration || 1e-3;
+    }
+    if (a.motion) act.motion = await makeMotion(a.motion, base, obj);
+    if (act.mixer || act.motion) actors.push(act);   // else a still prop: placed, nothing to drive
   }
 
   const trajs = (side.trajectories || []).map(tr => makeTrail(tr)).filter(Boolean);
@@ -233,6 +254,44 @@ async function load(url) {
     home, radius: plinthR > 0 ? plinthR : 1.7, height: 2.7 };
   drawBoard(L, -1);
   return L;
+}
+
+// ---------------------------------------------------------------- actors
+const gltfCache = new Map();   // motion sources only (never added to the scene)
+function loadGltf(url) { if (!gltfCache.has(url)) gltfCache.set(url, loader.loadAsync(url).catch(e => { gltfCache.delete(url); throw e; })); return gltfCache.get(url); }
+const boneKey = n => String(n).replace(/^mixamorig:?/i, '').replace(/_\d+$/, '').toLowerCase();
+
+// SpatialED #9 borrowed motion: a stand-in tree with the source clip's node names is driven by the source clip; its
+// root's pose moves the actor's wrap, its pivots' turns are added onto the matching bones
+async function makeMotion(m, base, obj) {
+  const g = await loadGltf(new URL(m.glb, base).href);
+  const src = (m.clip && g.animations.find(k => k.name === m.clip)) || g.animations[0];
+  if (!src) throw new Error(`motion ${m.glb}: no animation`);
+  const rootName = m.root || 'Figure', map = m.bones || {};
+  const stand = new THREE.Object3D(); stand.name = rootName; const pivots = {};
+  for (const k of Object.keys(map)) { const o = new THREE.Object3D(); o.name = k; stand.add(o); pivots[k] = o; }
+  const keep = new Set([rootName, ...Object.keys(map)]);
+  const clip = new THREE.AnimationClip(src.name, src.duration, src.tracks.filter(tr => keep.has(tr.name.split('.')[0])).map(tr => tr.clone()));
+  const mixer = new THREE.AnimationMixer(stand), action = mixer.clipAction(clip);
+  action.setLoop(THREE.LoopOnce, Infinity); action.clampWhenFinished = true; action.play();
+  const bones = {}; obj.traverse(b => { if (b.isBone) bones[boneKey(b.name)] = b; });
+  const pairs = Object.entries(map).map(([k, name]) => ({ pivot: pivots[k], bone: bones[boneKey(name)] })).filter(p => p.bone);
+  return { stand, mixer, action, dur: src.duration || 1e-3, t0: m.t0 != null ? +m.t0 : null, pairs };
+}
+const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _qc = new THREE.Quaternion();
+function applyMotion(a, t) {
+  const M = a.motion, mt = Math.min(Math.max(t - (M.t0 != null ? M.t0 : a.t0), 0), M.dur - 1e-4);
+  M.action.time = mt; M.action.paused = false; M.mixer.update(0);
+  a.wrap.position.copy(M.stand.position); a.wrap.quaternion.copy(M.stand.quaternion);
+  if (!M.pairs.length) return;
+  a.wrap.updateMatrixWorld(true);
+  a.wrap.getWorldQuaternion(_qa).invert();
+  for (const { pivot, bone } of M.pairs) {
+    // the pivot's turn is in the figure's frame; seen from the bone it is R^-1 d R, R = the bone's turn in the figure
+    const R = _qb.multiplyQuaternions(_qa, bone.getWorldQuaternion(_qb));
+    _qc.copy(R).invert().multiply(pivot.quaternion).multiply(R);
+    bone.quaternion.multiply(_qc);
+  }
 }
 
 // unit cylinder outline (radius 1, height 1): two rings and four posts, scaled to the volume
