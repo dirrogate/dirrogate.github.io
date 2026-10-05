@@ -397,7 +397,7 @@ export function makeGlbDeck(name) {
         this.t += Math.sign((this.raised ? 1 : 0) - this.t) * Math.min(Math.abs((this.raised ? 1 : 0) - this.t), dt / 0.9); // ~1 s travel
         const e = this.t * this.t * (3 - 2 * this.t);
         this.grp.position.y = this.y0 + this.down + (this.up - this.down) * e;
-        const on = power && this.t > 0.6 ? (this.t - 0.6) / 0.4 : 0;
+        const on = power && this.raised && this.t > 0.6 ? (this.t - 0.6) / 0.4 : 0;   // #324 (owner): pushed down = dark at once, fully off while it sinks and when in
         this.bulb.material.emissiveIntensity = on * 9; this.glow.material.opacity = on * 0.7; this.spot.intensity = on * 7;
         const out = this.t > 0.001; if (this.spot.visible !== out) this.spot.visible = out;   // #148
       } };

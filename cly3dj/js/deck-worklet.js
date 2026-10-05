@@ -19,6 +19,15 @@ const W45 = W33 * 1.35;
 const GRAV = 9.81;
 const NEEDLE_TAU = 0.006;
 const DRAG_K = 1 / (0.02 * sampleRate);   // spread a hand move over ~20 ms
+// #320 the stylus + phono stage. A moving-magnet cartridge puts out a voltage proportional to the groove's VELOCITY,
+// and the groove was cut with the RIAA pre-emphasis (lows cut ~20 dB, highs boosted) that the preamp's RIAA
+// de-emphasis undoes, exactly, only at the speed it was cut at. Move the record at another speed (back-cueing, a
+// scratch, a nudge, a start / stop) and every frequency lands somewhere else on the RIAA curve: the output is
+// rate x E(f) x D(rate f). So a slowly rocked kick comes out as the fat, boomy thump of real vinyl, not the thin,
+// level-constant sound of plain resampling. Built as three first-order sections at the output rate whose time
+// constants slide with the rate; at the speed the deck is set to (incl. the pitch fader) they cancel exactly.
+const RIAA_T = [3180e-6, 75e-6, 318e-6];   // the two de-emphasis poles and its zero (s)
+const BIL_K = 2 * sampleRate;
 
 // ---- legacy (pre-#120) constants
 const ACCEL = 6.0, BRAKE = 2.2, WINDUP = 1.2, COAST = 0.14;
@@ -45,6 +54,13 @@ const MAT_MASS = 0.025, REC_R = 0.1508, HOLE_R = 0.0036;
 const R_EFF = 2 / 3 * REC_R;       // mean friction radius of a full-disc contact
 const R_PLATTER = 0.166;
 const RIM_NUDGE_GAIN = 0.5;        // #272 rim nudge strength (1 = finger speed fully)
+// #322 spindle twist, as on an SL-1200: the 7.2 mm spindle is pressed into the platter, so fingers pinching it
+// act on the platter through friction on a tiny polished pin. Two fingers at ~6 N, skin on steel mu ~0.5, radius
+// 3.6 mm: at most ~0.022 N m, under a quarter of the quartz servo's 0.09 N m that it holds with NO speed change.
+// So a twist or a pinch barely changes the speed (the servo's angle term absorbs it); what it moves is the phase,
+// a couple of ms at most, and the fingers simply slide on the pin beyond that.
+const SPIN_T = 0.022;              // N m: the most a pinch on the spindle passes to the platter
+const SPIN_SLIP = 0.3;             // rad/s of finger-vs-platter slip for the friction to build up fully
 const STYLUS_DRAG = 0.0012;        // N m: ~4 g tracking force, groove friction ~0.3, ~0.1 m radius
 const MU_FINGER = 0.6;             // skin on the platter's dotted rim
 const HAND_DOWN = 2.0;             // N: a DJ's hand pressing on the record while holding / scratching
@@ -70,7 +86,8 @@ class Deck {
     this.lastLevel = 0;
     // needle dragged across the vinyl (CLAUDE.md #61)
     this.drag = false; this.dragPending = 0; this.dragAcc = 0; this.gps = 0; this.click = 0; this.hp = 0; this.nz = 0;
-    this.shiftPending = 0;
+    this.rz = new Float64Array(12);   // #320 cartridge / RIAA sections: per channel 3 x (x1, y1)
+    this.shiftPending = 0; this.spinPend = 0; this.spinW = 0; this.spinOn = false; this.spinRate = 0;   // #322 fingers on the spindle, their turning speed (x W33)   // #319 spindle twist: platter angle still to turn (rad), the speed it is adding now
     // physics state
     this.model = 'classic'; this.P = PROFILES.classic; this.mat = MATS.slick; this.pll = false;
     this.recMass = 0.18;
@@ -102,6 +119,14 @@ class Deck {
   step(dt, handK, touchK) {
     if (this.model === 'legacy') return this.stepLegacy(dt, handK, touchK);
     const P = this.P, Ip = P.I;
+    // #319 spindle twist: the fingers carry the platter (and a record gripping the mat) round by the twisted angle,
+    // spread over ~20 ms, as an extra speed on top of whatever the platter is doing. The servo sees the platter run
+    // fast (or slow) and pushes back; with PLL memory off the lost / won phase stays, as on a real deck.
+    if (this.spinW) { this.wp -= this.spinW; if (this.spinRec) this.wr -= this.spinW; this.spinW = 0; }
+    if (this.spinPend) {
+      const take = this.spinPend * DRAG_K; this.spinPend -= take; if (Math.abs(this.spinPend) < 1e-6) this.spinPend = 0;
+      this.spinW = take / dt; this.spinRec = this.hasRec && this.stuck; this.wp += this.spinW; if (this.spinRec) this.wr += this.spinW;
+    }
     // motor servo
     const on = this.motorOn && this.power;
     const lim = P.tau0 * (1 - P.taper * Math.min(1, Math.abs(this.wp) / W45));
@@ -145,7 +170,8 @@ class Deck {
       const vrel = (fw - this.wp) * R_PLATTER;
       tp += MU_FINGER * this.touchF * Math.tanh(vrel / 0.02) * R_PLATTER;
     }
-    let disturbed = this.touch;
+    if (this.spinOn) tp += SPIN_T * Math.tanh((this.spinRate * W33 - this.wp) / SPIN_SLIP);   // #322 pinch on the spindle
+    let disturbed = this.touch || this.spinOn;
     if (!this.hasRec) {
       this.wp += tp / Ip * dt; this.wr = this.wp; this.matT = 0;
     } else {
@@ -182,7 +208,7 @@ class Deck {
     // Off: once the hands are off and the record grips again, the angle term returns to its quiet value, like a
     // PLL that has slipped cycles; the speed still recovers either way.
     if (on && !this.pll) {
-      if (disturbed || this.shiftPending) this.wasDisturbed = true;
+      if (disturbed || this.shiftPending || this.spinW) this.wasDisturbed = true;
       else {
         if (this.wasDisturbed) { this.phi = this.quietPhi; this.wasDisturbed = false; }
         this.quietPhi += (this.phi - this.quietPhi) * 2e-4;
@@ -190,7 +216,7 @@ class Deck {
     } else if (!on) { this.quietPhi = 0; this.wasDisturbed = false; }
     // static friction: a nearly stopped, untouched platter comes to rest instead of creeping, unless the cogging
     // detent pulls harder than the bearing holds (then it rocks into the detent and stops there, as KAB describes)
-    if (!tm && !this.touch && !this.handOn && (!this.hasRec || this.stuck) && Math.abs(this.wp) < 0.004 && Math.abs(tCog) <= P.bearing) {
+    if (!tm && !this.touch && !this.handOn && !this.spinW && (!this.hasRec || this.stuck) && Math.abs(this.wp) < 0.004 && Math.abs(tCog) <= P.bearing) {
       this.wp = 0; this.wr = 0;
     }
     this.thp += this.wp * dt; this.thr += this.wr * dt;
@@ -233,7 +259,7 @@ class Decks extends AudioWorkletProcessor {
       case 'load':
         d.L = m.L; d.R = m.R; d.len = m.L.length; d.srcRate = m.rate;
         d.split = !!m.split; d.pos = m.startFrame || 0; d.needle = false; d.needleGain = 0;
-        d.nudgeE = 0; d.nudgeLeft = 0; d.shiftPending = 0;
+        d.nudgeE = 0; d.nudgeLeft = 0; d.shiftPending = 0; d.spinPend = 0;
         d.hasRec = true;
         break;
       case 'unload':
@@ -274,7 +300,14 @@ class Decks extends AudioWorkletProcessor {
         break;
       case 'phase': this.phase(m, m.maxE || 0.08); break;
       case 'shift':   // spindle twist (#105): move the record by m.delta seconds over the mat; the motor keeps running
-        if (d.len) d.shiftPending = (d.shiftPending || 0) + m.delta * d.srcRate;
+        // #319 (owner: a real spindle is part of the platter): the twist turns the PLATTER, so the strobe dots, the
+        // record (through the mat), the heard speed and the readouts all move with it, and the servo fights it.
+        // The legacy model keeps the old record-only shift.
+        if (d.model === 'legacy') { if (d.len) d.shiftPending = (d.shiftPending || 0) + m.delta * d.srcRate; }
+        else d.spinPend += m.delta * W33;
+        break;
+      case 'spin':   // #322 fingers pinching the spindle: active, and how fast they turn (1 = 33 1/3 rpm)
+        d.spinOn = !!m.active; d.spinRate = m.rate || 0;
         break;
       case 'needleDrag':
         if (m.active === true) { d.drag = true; d.dragPending = 0; d.dragAcc = 0; }
@@ -359,6 +392,24 @@ class Decks extends AudioWorkletProcessor {
         } else if (d.len && d.needleGain > 1e-4) {
           l = d.sample(d.L, d.pos) * d.needleGain;
           rr = d.sample(d.R, d.pos) * d.needleGain;
+          {   // #320 velocity cartridge + RIAA at the record's real speed relative to the deck's set speed (no allocations)
+            const nom = d.speed * (1 + d.pitch) || 1, rn = r / nom, ar = Math.max(0.01, Math.abs(rn)), g = rn < 0 ? -ar : ar;
+            // sections (1 + s a)/(1 + s b), bilinear: y = b0 x + b1 x1 - a1 y1
+            const a0 = RIAA_T[0] / ar * BIL_K, c0 = RIAA_T[0] * BIL_K, n0 = 1 / (1 + c0);
+            const a1_ = RIAA_T[1] / ar * BIL_K, c1 = RIAA_T[1] * BIL_K, n1 = 1 / (1 + c1);
+            const a2 = RIAA_T[2] * BIL_K, c2 = RIAA_T[2] / ar * BIL_K, n2 = 1 / (1 + c2);
+            const p0 = (1 + a0) * n0, q0 = (1 - a0) * n0, f0 = (1 - c0) * n0;
+            const p1 = (1 + a1_) * n1, q1 = (1 - a1_) * n1, f1 = (1 - c1) * n1;
+            const p2 = (1 + a2) * n2, q2 = (1 - a2) * n2, f2 = (1 - c2) * n2;
+            const z = d.rz;
+            for (let ch = 0; ch < 2; ch++) {
+              const o = ch * 6; let x = ch ? rr : l, y;
+              y = p0 * x + q0 * z[o] - f0 * z[o + 1]; z[o] = x; z[o + 1] = y; x = y;
+              y = p1 * x + q1 * z[o + 2] - f1 * z[o + 3]; z[o + 2] = x; z[o + 3] = y; x = y;
+              y = p2 * x + q2 * z[o + 4] - f2 * z[o + 5]; z[o + 4] = x; z[o + 5] = y;
+              if (ch) rr = y * g; else l = y * g;
+            }
+          }
           const p = d.panS += (d.pan - d.panS) * PAN_K;
           const gL = p > 0 ? 1 - p : 1, gR = p < 0 ? 1 + p : 1;
           if (d.split) { const m = l * gL + rr * gR; l = m; rr = m; }
