@@ -204,7 +204,7 @@ export function setupXR(ctx) {
   }
   function grabStart(st, P, btn) {
     if (st.direct) return true;
-    if (!st.isHand && st.scratch) { ctx.scratchEnd(st.scratch); st.scratch = null; }   // #282 a touch-nudge gives way to a button grab
+    if (st.scratch) { ctx.scratchEnd(st.scratch); st.scratch = null; }   // #282 a touch-nudge gives way to a button grab (#325 hands too: a pinch ends the fingertip scratch)
     const deckOk = st.isHand || btn !== 'grip';   // #104: turntable actions = trigger (or hand pinch)
     if (ctx.getHeld() && ctx.getHeld().attach === st.anchor) return true; // already holding a record
     // #229 the other hand on the record peeking out of a sleeve in your hand: slide it out
@@ -327,6 +327,12 @@ export function setupXR(ctx) {
       const sp = st.isHand ? 0 : 0.0135;
       if (d.record && r < 0.008 + sp && h > -0.005 && h < 0.02 + sp) { st.direct = { kind: 'spindle', d, yawL: yawOf(handQuat(st, q1)), tL: performance.now(), w: 0, acc: 0 }; ctx.spindleHold(d, 0); buzz(st, 0.3, 15); return true; }   // #105, #322
       // #107: lift zone widened 5 mm into the label (45-70 mm radius); inside that the label does nothing
+      // #325 (owner) bare hands: a pinch anywhere on the record (label to rim) HOLDS it still while the platter spins
+      // under the mat (cueing the first kick); pinch and lift 3 cm takes it off. Scratching is the fingertip only.
+      if (st.isHand && d.record && r < RD(d).R + 0.003) {
+        const s = ctx.scratchBegin(d, l); ctx.scratchMove(s, l);
+        st.direct = { kind: 'pinchHold', d, s, y0: P.y }; return true;
+      }
       if (d.record && r < RD(d).LABEL - 0.005) { st.direct = { kind: 'tap' }; return true; }
       // #136 (owner): lift zone 3 cm wider (label edge + 5 cm, was + 2 cm); lifting a record off was too fiddly
       // #249 (owner): with a controller the record only comes off with the grip (block above); the trigger there scratches,
@@ -486,6 +492,8 @@ export function setupXR(ctx) {
       const l = g.d.g.worldToLocal(v2.copy(P)); const pv = g.d.g.userData.pivot;
       if (ctx.armDrag(g.d, Math.atan2(l.x - pv.x, l.z - pv.z), P.y - g.y0) === 'drop') buzz(st, 0.6, 35);   // #104: needle found the lead-in
       if (g.d.arm.dragDown && (g.buzzT = (g.buzzT || 0) + 1) % 3 === 0) buzz(st, 0.15, 12);   // feel the grooves
+    } else if (g.kind === 'pinchHold') {   // #325 held still; lifted 3 cm = the record comes off
+      if (P.y - g.y0 > 0.03) { ctx.scratchEnd(g.s); updateAnchor(st); ctx.pickUpFromDeck(g.d, st.anchor); st.direct = { kind: 'held' }; }
     } else if (g.kind === 'lampHold') {   // #324 pinch held 1.5 s at the lamp head
       if (!g.done && performance.now() - g.t0 > 1500) { g.done = true; ctx.pressControl({ deck: g.d.name, id: 'target' }); }
     } else if (g.frozen) {   // #230 fingers opening: the control stays put
@@ -593,6 +601,7 @@ export function setupXR(ctx) {
     else if (g.kind === 'pitch') ctx.heldPitch.delete(g.d.i);
     else if (g.kind === 'scratch') ctx.scratchEnd(g.s);
     else if (g.kind === 'spindle') ctx.spindleRelease(g.d);   // #322
+    else if (g.kind === 'pinchHold') ctx.scratchEnd(g.s);   // #325
     else if (g.kind === 'held') { const h = ctx.getHeld(); if (h && h.attach === st.anchor) ctx.releaseHeld(); }
     else if (g.kind === 'move') { ctx.stage.endMove(g.stMove); if (g.target.startsWith('milk')) ctx.releaseMilk(g.target, g.vel); else ctx.settleStack(g.target); }   // #200 milk: releaseMilk drops / throws / settles it
     else if (g.kind === 'lid') ctx.lidRelease();
