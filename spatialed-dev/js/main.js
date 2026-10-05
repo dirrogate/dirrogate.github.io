@@ -4933,7 +4933,8 @@ $('#bImpFiles').onclick = () => $('#fFiles').click();
 $('#fFolder').onchange = e => runImport(e.target.files);
 $('#fFiles').onchange = e => runImport(e.target.files);
 $('#bImpClear').onclick = async () => { if (!confirm('Remove all songs imported into this browser?')) return; await store.clearLibrary(); await showStorage(); loadLibrary(); };
-$('#credit').textContent = [deckModel === 'glb' ? 'Turntable: ' + GLB_CREDIT : '', milk.userData.glb ? 'Record crate: ' + MILK_CREDIT : ''].filter(Boolean).join(' · ');
+$('#credit').textContent = [deckModel === 'glb' ? 'Turntable: ' + GLB_CREDIT : '', milk.userData.glb ? 'Record crate: ' + MILK_CREDIT : '',
+  'Demo Lesson character: Max Caulfield by Q.SARDOR on Sketchfab (Sketchfab Standard licence)'].filter(Boolean).join(' · ');   // SpatialED #10
 syncSettingsUI();
 $('#bDesktop').onclick = () => begin('desktop');
 $('#bVR').onclick = () => begin('immersive-vr');

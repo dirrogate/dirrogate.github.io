@@ -1,6 +1,7 @@
 {
   "version": 1,
   "title": "Demo Lesson",
+  "credits": "Max Caulfield model: Q.SARDOR on Sketchfab (Sketchfab Standard licence)",
   "stage": { "position": [0, 0, -2.4], "rotationY": 0, "scale": 1, "plinth": 1.7 },
   "chapters": [
     { "t": 1.0, "title": "Look around" },

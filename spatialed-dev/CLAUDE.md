@@ -43,3 +43,7 @@ Numbered, append only. One line per change: what, why, numbers, where in the cod
    - Skinned meshes get frustumCulled = false (bind-pose bounds). Actor GLBs load uncached (own copy); motion sources are cached.
    - Demo Lesson.side.json: actor = Max, idle looping, motion from demo_lesson_actor.glb "Demo" (Figure root; Head, and the box figure's ArmL/ArmR/LegL/LegR -> her RightArm/LeftArm/RightUpLeg/LeftUpLeg, since the box figure's "L" side is on her right). Fallback = the box figure, so the online build shows the box figure.
    - Tested here: chapters 1 to 3 with Max (looks around, walks the square with legs stepping, both arms out and up), and the fallback with her file removed. Not yet on the Quest (20k triangles + 4 textures inside the diorama: check fps).
+10. (6 Oct 2026) Owner decision, supersedes #9's "PC only" note: `max_caulfield.glb` is published to `spatialed-dev` with credit (source https://sketchfab.com/3d-models/max-caulfield-life-is-strange-7d3c3f2971f24ba9828a4e334e6b3618, author Q.SARDOR, Sketchfab Standard licence). Credit shown in two places:
+   - side.json gets an optional `credits` line, drawn small under the title on the chapter board before the first chapter (lesson.js drawBoard; board canvas 1024 x 232, plane 1.6 x 0.3625 m). Demo Lesson: "Max Caulfield model: Q.SARDOR on Sketchfab (Sketchfab Standard licence)".
+   - Start page credit line (main.js `#credit`, next to the turntable and crate credits).
+   - The box-figure fallback stays in the side.json for any build without the file.

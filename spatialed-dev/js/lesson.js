@@ -6,6 +6,7 @@
 //
 // side.json (version 1, times in seconds of the audio, positions in metres):
 //   title                       shown on the chapter board before the first chapter
+//   credits                     (optional) one line under the title on the board, e.g. model authors and licences
 //   stage    { position [x,y,z] in rig space (the gear's space; the DJ stands at +z), rotationY (deg), scale,
 //              plinth (radius m, 0 = none) }
 //   chapters [{ t, title }]      chapter starts (the 2 to 3 s silences the grooves show as dark bands)
@@ -250,7 +251,7 @@ async function load(url) {
 
   const chapters = (side.chapters || []).map(c => ({ t: +c.t || 0, title: String(c.title || '') })).sort((p, q) => p.t - q.t);
   const board = makeBoard(); board.position.set(0, 2.45, -0.2); group.add(board);
-  const L = { url, title: side.title || 'Lesson', group, actors: actors.filter(Boolean), trajs, chapters, board, chapter: -2,
+  const L = { url, title: side.title || 'Lesson', credits: String(side.credits || ''), group, actors: actors.filter(Boolean), trajs, chapters, board, chapter: -2,
     home, radius: plinthR > 0 ? plinthR : 1.7, height: 2.7 };
   drawBoard(L, -1);
   return L;
@@ -334,9 +335,9 @@ function makeTrail(tr) {
 
 // the chapter board: a small floating sign above the stage
 function makeBoard() {
-  const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 192;
+  const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 232;
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.3), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.3625), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
   m.userData.cv = cv; m.userData.tex = tex; m.renderOrder = 3;
   return m;
 }
@@ -350,6 +351,7 @@ function drawBoard(L, c) {
   g.textAlign = 'center'; g.textBaseline = 'middle';
   g.fillStyle = '#39d0ff'; g.font = 'bold 40px system-ui, sans-serif'; g.fillText(top, W / 2, 58);
   g.fillStyle = '#eef3f7'; g.font = 'bold 64px system-ui, sans-serif'; g.fillText(fit(g, main, W - 80), W / 2, 128);
+  if (L.credits) { g.fillStyle = '#9fb3c4'; g.font = '26px system-ui, sans-serif'; g.fillText(fit(g, L.credits, W - 60), W / 2, 190); }   // SpatialED #10
   L.board.userData.tex.needsUpdate = true;
 }
 function fit(g, s, w) { let t = s; while (t.length > 3 && g.measureText(t).width > w) t = t.slice(0, -2); return t === s ? s : t.slice(0, -1) + '…'; }
