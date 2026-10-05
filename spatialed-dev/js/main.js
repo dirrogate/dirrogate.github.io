@@ -13,6 +13,7 @@ import { RobotAvatar } from './robot.js';
 import { RobotAvatar2, ROBOT_GLB } from './robot2.js';   // #245 the licensed AvatarRobot (EntroPi Games)
 import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, labelFrom, blankWav } from './tools.js';
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
+import { LessonPlayer } from './lesson.js';   // SpatialED #7 Spatial Vinyl lessons
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
@@ -258,6 +259,7 @@ upgradeNeon(neon, loadBaked).then(() => { if (!renderer.xr.isPresenting) bakeNeo
 
 // ---- fake light (owner, #96; fakelight.js): the neon's glow on the wall behind it and blob shadows, instead of
 // real lights and shadow maps. Both are switched on the start screen (Neon wall glow, Shadows).
+let lessonOn = false;   // SpatialED #7: a lesson stage is showing (it stands behind the studio wall, so the wall goes)
 const WALL_Z = -0.6;   // studio back wall (rig z) for full VR and desktop; in passthrough your real wall is used
 const studioWall = new THREE.Mesh(new THREE.PlaneGeometry(9, 3.4), new THREE.MeshStandardMaterial({ color: 0x17171b, roughness: 0.95, metalness: 0 }));
 studioWall.position.set(0, 1.7, WALL_Z); studioWall.receiveShadow = true; studioWall.raycast = () => {}; room.add(studioWall);
@@ -268,8 +270,8 @@ let arMode = false;
 const GLOW_BACK = 0.05;   // passthrough: the glow lands 5 cm behind the tubes, so hang the sign ~5 cm off your real wall
 function stepWallGlow() {
   ledwall.userData.tick();   // #222 LED wall turn + picture fit (Quest and phone)
-  studioWall.visible = settings.glow !== 'off';
-  if (settings.glow === 'off') { wallGlow.visible = false; return; }
+  studioWall.visible = settings.glow !== 'off' && !lessonOn;
+  if (settings.glow === 'off' || lessonOn) { wallGlow.visible = false; return; }
   const s = neon.scale.x; let d;   // tubes-to-wall distance, metres
   if (arMode) d = GLOW_BACK;
   else {   // full VR / desktop: the glow lands on the studio wall when the sign faces it from up to 60 cm away
@@ -558,6 +560,12 @@ const stage = new Stage(rig, {
   cases: { caseA: [0, 0, 0, 0, 1.3, 0.52, 0.88] },
 });
 const MOVABLE = new Proxy({}, { get: (_, k) => stage.object(k) });
+// SpatialED #7: the lesson stage lives in the rig (it moves with GEAR HERE); lesson.js draws it from the playhead
+const lesson = new LessonPlayer(rig); lesson.onStatus = t => toast(t, 3500);
+function lessonStep() {
+  const g = deckGains(mixVal);
+  lessonOn = !!lesson.step(decks.map(d => ({ track: d.record ? d.track : null, pos: engine.ctx ? heardPos(d) : 0, rate: engine.state.decks[d.i].rate || 0, gain: g[d.i] })));
+}
 function saveLayout() { stage.save(); }
 // #84 migration: layouts saved with the second flight case had the record crate standing on it; with that case
 // gone, put the crate on the floor (once) instead of leaving it floating
@@ -695,6 +703,7 @@ const CAMS = {
   dj: { pos: [0.16, 0.7, 0.98], tgt: [0.2, 0.04, -0.04], of: () => mixer },
   top: { pos: [0.1, 1.15, 0.08], tgt: [0.1, 0.08, 0.0], of: () => mixer },
   crate: { pos: [-0.065, 0.83, 0.67], tgt: [-0.01, 0.24, -0.02], of: () => crateRig },
+  lesson: { pos: [0, 2.3, 2.6], tgt: [0, 0.9, -2.4], of: () => rig },   // SpatialED #7: the default lesson stage
 };
 let camTween = null;
 function setCam(name, instant = false) {
@@ -3098,7 +3107,7 @@ addEventListener('keydown', e => {
   if ($('#start').style.display !== 'none' || e.target === searchInput || toolsPage === 'kbd') return;   // #224 typing on the tablet keyboard
   const k = e.key;
   if (k === '/') { e.preventDefault(); openNativeKeyboard(); return; }
-  if (k === '1') setCam('dj'); else if (k === '2') setCam('top'); else if (k === '3') setCam('crate');
+  if (k === '1') setCam('dj'); else if (k === '2') setCam('top'); else if (k === '3') setCam('crate'); else if (k === '4') setCam('lesson');
   else if (k === 'h' || k === 'H') $('#helpBtn').click();
   else if (k === 'z' || k === 'Z') setMotor(decks[0], !decks[0].motorOn);
   else if (k === 'm' || k === 'M') setMotor(decks[1], !decks[1].motorOn);
@@ -3973,7 +3982,7 @@ async function pressRecord() {
 // SpatialED #5: the club's test records stay in the list but are hidden (club: true) unless SHOW_CLUB_EXAMPLES;
 // lesson examples go to their own 'Lessons' list (list: 'Lessons'). Chapters in Demo Lesson start at 1.0, 23.5, 46.0 s.
 const SHOW_CLUB_EXAMPLES = false;
-const EXAMPLES = [{ id: 'lesson_demo', title: 'Demo Lesson', artist: 'SpatialED', bpm: 120, key: 'Am', genre: 'Lesson', list: 'Lessons', a: 'examples/Demo Lesson.mp3', b: null },
+const EXAMPLES = [{ id: 'lesson_demo', title: 'Demo Lesson', artist: 'SpatialED', bpm: 120, key: 'Am', genre: 'Lesson', list: 'Lessons', a: 'examples/Demo Lesson.mp3', b: null, lesson: 'examples/Demo Lesson.side.json' },
   { club: true, id: 'sleeve', title: 'Sleeve Art Demo', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3' },
   // #232 the same pictures in one file: front cover, back cover, and an 'Other' picture described 'Label B'
   { club: true, id: 'sleeve1', title: 'Sleeve Art Demo (One File)', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo (One File).mp3', b: null },
@@ -3993,7 +4002,8 @@ function addExamples(L) {
     for (const side of ex.b ? ['A', 'B'] : ['A']) {
       const id = 'ex_' + ex.id + '_' + side, url = encodeURI(side === 'A' ? ex.a : ex.b);
       const t = { id, name: ex.title + '_' + side.toLowerCase(), title: ex.title, side, split: false, artist: ex.artist, album: ex.title, genre: ex.genre || 'Example', key: ex.key, bpm: ex.bpm, duration: 0,
-        location: url, url, opfs: null, missing: false, cues: [], unsorted: true, record: r };
+        location: url, url, opfs: null, missing: false, cues: [], unsorted: true, record: r,
+        lesson: ex.lesson && side === 'A' ? encodeURI(ex.lesson) : null };   // SpatialED #7
       r.sides[side] = t; L.tracks.set(id, t);
     }
     L.records.push(r); dest.records.push(r); L.playlists[0].records.push(r);
@@ -4588,6 +4598,7 @@ function frame() {
   if (beatChanged || screenTimer > 1 / 15) { screenTimer = 0; drawMixScreen(); }
   if (deckInst) deckInst.update();   // #154
   for (const d of decks) vvStep(d);   // #177 VideoVinyl
+  lessonStep();   // SpatialED #7
   stepPvLid(dt);   // #196 preview lid
   stepScrDir();    // #198 portrait menu
   if (ledMode === 'decks') ledwall.userData.setDecks(deckVid[0].tex, deckVid[1].tex, ...deckGains(mixVal));

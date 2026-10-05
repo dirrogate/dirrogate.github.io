@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "title": "Demo Lesson",
+  "stage": { "position": [0, 0, -2.4], "rotationY": 0, "scale": 1, "plinth": 1.7 },
+  "chapters": [
+    { "t": 1.0, "title": "Look around" },
+    { "t": 23.5, "title": "Walk the room" },
+    { "t": 46.0, "title": "Arms up" }
+  ],
+  "actors": [
+    { "glb": "demo_lesson_actor.glb", "clip": "Demo", "t0": 1.0, "loop": false, "position": [0, 0, 0], "rotationY": 0, "scale": 1 }
+  ],
+  "trajectories": [
+    { "points": [[0, 0.01, 0.6], [1, 0.01, 0.6], [1, 0.01, -1.0], [-1, 0.01, -1.0], [-1, 0.01, 0.6], [0, 0.01, 0.6]],
+      "t0": 23.5, "t1": 43.5, "width": 0.06, "color": "#39d0ff" }
+  ]
+}
