@@ -297,7 +297,7 @@ export function setupXR(ctx) {
     }
     if (best) {
       // #230 faders and pitch move relative to where they were grabbed (the cap no longer jumps to the pinch)
-      if (best.kind === 'knob') st.direct = { kind: 'knob', id: best.id, yawL: yawOf(handQuat(st, q1)) };
+      if (best.kind === 'knob') st.direct = { kind: 'knob', id: best.id, yawL: yawOf(handQuat(st, q1)), qL: handQuat(st, new THREE.Quaternion()) };
       else if (best.kind === 'slider') st.direct = { kind: 'slider', id: best.id, v0: ctx.mixVal[best.id], m0: ctx.sliderFromLocal(best.id, ctx.mixer.worldToLocal(v2.copy(P))) };
       else { st.direct = { kind: 'pitch', d: best.deck, v0: best.deck.pitch, m0: ctx.pitchFromLocalZ(best.deck, best.deck.g.worldToLocal(v2.copy(P)).z) }; ctx.setLastTouched(best.deck.i); ctx.heldPitch.add(best.deck.i); }
       st.direct.hist = []; st.direct.dmin = Infinity;
@@ -486,6 +486,7 @@ export function setupXR(ctx) {
     if (idx >= 0 && idx !== ctx.crateState.sel) { ctx.crateState.sel = idx; ctx.drawCrateScreen(); ctx.layoutSleeves(); }
   }
 
+  const _kq = new THREE.Quaternion(), _kq2 = new THREE.Quaternion(), _kv = new THREE.Vector3();   // #328
   function grabMove(st, P) {
     const g = st.direct; if (!g) return;
     if (g.kind === 'arm') {
@@ -498,13 +499,22 @@ export function setupXR(ctx) {
     } else if (g.kind === 'lampHold') {   // #324 pinch held 1.5 s at the lamp head
       if (!g.done && performance.now() - g.t0 > 1500) { g.done = true; ctx.pressControl({ deck: g.d.name, id: 'target' }); }
     } else if (g.frozen) {   // #230 fingers opening: the control stays put
-      if (g.kind === 'knob') g.yawL = yawOf(handQuat(st, q1));
+      if (g.kind === 'knob') { g.yawL = yawOf(handQuat(st, q1)); if (g.qL) handQuat(st, g.qL); }
     } else if (g.kind === 'knob') {
       // Hard stops (owner, 26 Sep): the value moves by each frame's twist and is clamped at 0 / 1, so turning
       // past an end does nothing and turning back leaves the stop at once. The old version mapped the total
       // twist since the grab through wrap(), which jumped from -180 to +180 deg and flipped min <-> max.
       const y = yawOf(handQuat(st, q1));
-      const dy = Math.max(-0.6, Math.min(0.6, wrap(y - g.yawL))); g.yawL = y;   // cap: ignore yaw flips when the hand points straight up/down
+      let dy = Math.max(-0.6, Math.min(0.6, wrap(y - g.yawL))); g.yawL = y;   // cap: ignore yaw flips when the hand points straight up/down
+      // #328 (owner) 3D HANDS / GLOVE looks: the O grip holds the controller level or nose-up, where the turn seen from
+      // above is weak or even reversed. There the knob follows the twist about the controller's own long axis (grip -Z),
+      // like turning a key: clockwise seen from behind the hand = clockwise. The CONTROLLER look keeps the old reading.
+      if (!st.isHand && ctlLook !== 'controller' && g.qL) {
+        const q = handQuat(st, q1), d = _kq.copy(q).multiply(_kq2.copy(g.qL).invert()); g.qL.copy(q);
+        const h = _kv.set(0, 0, -1).applyQuaternion(q);
+        let tw = 2 * Math.atan2(d.x * h.x + d.y * h.y + d.z * h.z, d.w); tw = wrap(tw);
+        dy = -Math.max(-0.6, Math.min(0.6, tw));   // same sign convention as the yaw: clockwise = dy < 0 = up
+      }
       let nv = ctx.mixVal[g.id] - dy / (300 * Math.PI / 180) * 1.2 * (st.isHand ? 2 : 1);   // turn clockwise (seen from above) = up; full travel = 250 deg of wrist (#327 bare hands: 125 deg)
       // #254 (owner) sticky PAN: centred, it holds until turned 8 % of its travel away (a brush can't swing it);
       // turned back within 3 % of the middle it settles there again. The hold keeps the turn so far in g.panAcc.
