@@ -158,7 +158,7 @@ export function setupXR(ctx) {
     return u.arm.userData.pitch.localToWorld(u.stylusLocal ? out.copy(u.stylusLocal) : out.set(-0.008, -0.016, ctx.ARM.L - 0.006));
   }
 
-  const SPINDLE_GEAR = 0.03125;  // #107-#109, #270, #272: was 1/64; #317 x4; #318 (owner) halved: 1/32 of a real spindle's travel (10 deg of wrist = 1.6 ms)
+  const SPINDLE_GEAR = 1;        // #321 (owner): no gearing now the twist turns the platter (#319): wrist angle = platter angle, 1:1 like a real spindle (10 deg = 50 ms at 33); the servo fights it. Was 1/64 (#270-#274), 1/16 (#317), 1/32 (#318)
   // #120: how hard a finger presses on the platter rim (N), for the worklet's friction model. Tracking can't
   // measure force, so: controllers = the analogue trigger (0.35 N at the click point .. 2 N squeezed); fingertip =
   // how far the tracked tip sits inside the platter's edge (0.35 N just touching .. 2 N at 12 mm); pinch = 0.6 N.
@@ -510,8 +510,8 @@ export function setupXR(ctx) {
     } else if (g.kind === 'spindle') {
       // #105: twist about the vertical, 1:1 like a real spindle; clockwise from above = forward. A tick every 5 ms.
       const y = yawOf(handQuat(st, q1)), dy = Math.max(-0.6, Math.min(0.6, wrap(y - g.yawL))); g.yawL = y;
-      const sec = -dy / (2 * Math.PI) * 1.8 * SPINDLE_GEAR;   // #109: 10 deg = 3.1 ms
-      if (Math.abs(sec) > 1e-5) { ctx.spindleTwist(g.d, sec); g.acc += Math.abs(sec); if (g.acc >= 0.001) { g.acc -= 0.001; buzz(st, 0.2, 8); } }   // tick every 2.5 ms (#109)
+      const sec = -dy / (2 * Math.PI) * 1.8 * SPINDLE_GEAR;   // one turn = 1.8 s of a 33 (#321: 1:1)
+      if (Math.abs(sec) > 1e-5) { ctx.spindleTwist(g.d, sec); g.acc += Math.abs(sec); if (g.acc >= 0.01) { g.acc -= 0.01; buzz(st, 0.2, 8); } }   // #321 a tick every 10 ms of audio (2 deg of wrist)
     } else if (g.kind === 'lift') {
       if (P.y - g.y0 > 0.03) { updateAnchor(st); ctx.pickUpFromDeck(g.d, st.anchor); st.direct = { kind: 'held' }; buzz(st); }
     } else if (g.kind === 'scratch') {
