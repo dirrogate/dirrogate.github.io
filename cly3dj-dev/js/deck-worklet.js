@@ -19,6 +19,15 @@ const W45 = W33 * 1.35;
 const GRAV = 9.81;
 const NEEDLE_TAU = 0.006;
 const DRAG_K = 1 / (0.02 * sampleRate);   // spread a hand move over ~20 ms
+// #320 the stylus + phono stage. A moving-magnet cartridge puts out a voltage proportional to the groove's VELOCITY,
+// and the groove was cut with the RIAA pre-emphasis (lows cut ~20 dB, highs boosted) that the preamp's RIAA
+// de-emphasis undoes, exactly, only at the speed it was cut at. Move the record at another speed (back-cueing, a
+// scratch, a nudge, a start / stop) and every frequency lands somewhere else on the RIAA curve: the output is
+// rate x E(f) x D(rate f). So a slowly rocked kick comes out as the fat, boomy thump of real vinyl, not the thin,
+// level-constant sound of plain resampling. Built as three first-order sections at the output rate whose time
+// constants slide with the rate; at the speed the deck is set to (incl. the pitch fader) they cancel exactly.
+const RIAA_T = [3180e-6, 75e-6, 318e-6];   // the two de-emphasis poles and its zero (s)
+const BIL_K = 2 * sampleRate;
 
 // ---- legacy (pre-#120) constants
 const ACCEL = 6.0, BRAKE = 2.2, WINDUP = 1.2, COAST = 0.14;
@@ -70,6 +79,7 @@ class Deck {
     this.lastLevel = 0;
     // needle dragged across the vinyl (CLAUDE.md #61)
     this.drag = false; this.dragPending = 0; this.dragAcc = 0; this.gps = 0; this.click = 0; this.hp = 0; this.nz = 0;
+    this.rz = new Float64Array(12);   // #320 cartridge / RIAA sections: per channel 3 x (x1, y1)
     this.shiftPending = 0; this.spinPend = 0; this.spinW = 0;   // #319 spindle twist: platter angle still to turn (rad), the speed it is adding now
     // physics state
     this.model = 'classic'; this.P = PROFILES.classic; this.mat = MATS.slick; this.pll = false;
@@ -371,6 +381,24 @@ class Decks extends AudioWorkletProcessor {
         } else if (d.len && d.needleGain > 1e-4) {
           l = d.sample(d.L, d.pos) * d.needleGain;
           rr = d.sample(d.R, d.pos) * d.needleGain;
+          {   // #320 velocity cartridge + RIAA at the record's real speed relative to the deck's set speed (no allocations)
+            const nom = d.speed * (1 + d.pitch) || 1, rn = r / nom, ar = Math.max(0.01, Math.abs(rn)), g = rn < 0 ? -ar : ar;
+            // sections (1 + s a)/(1 + s b), bilinear: y = b0 x + b1 x1 - a1 y1
+            const a0 = RIAA_T[0] / ar * BIL_K, c0 = RIAA_T[0] * BIL_K, n0 = 1 / (1 + c0);
+            const a1_ = RIAA_T[1] / ar * BIL_K, c1 = RIAA_T[1] * BIL_K, n1 = 1 / (1 + c1);
+            const a2 = RIAA_T[2] * BIL_K, c2 = RIAA_T[2] / ar * BIL_K, n2 = 1 / (1 + c2);
+            const p0 = (1 + a0) * n0, q0 = (1 - a0) * n0, f0 = (1 - c0) * n0;
+            const p1 = (1 + a1_) * n1, q1 = (1 - a1_) * n1, f1 = (1 - c1) * n1;
+            const p2 = (1 + a2) * n2, q2 = (1 - a2) * n2, f2 = (1 - c2) * n2;
+            const z = d.rz;
+            for (let ch = 0; ch < 2; ch++) {
+              const o = ch * 6; let x = ch ? rr : l, y;
+              y = p0 * x + q0 * z[o] - f0 * z[o + 1]; z[o] = x; z[o + 1] = y; x = y;
+              y = p1 * x + q1 * z[o + 2] - f1 * z[o + 3]; z[o + 2] = x; z[o + 3] = y; x = y;
+              y = p2 * x + q2 * z[o + 4] - f2 * z[o + 5]; z[o + 4] = x; z[o + 5] = y;
+              if (ch) rr = y * g; else l = y * g;
+            }
+          }
           const p = d.panS += (d.pan - d.panS) * PAN_K;
           const gL = p > 0 ? 1 - p : 1, gR = p < 0 ? 1 + p : 1;
           if (d.split) { const m = l * gL + rr * gR; l = m; rr = m; }
