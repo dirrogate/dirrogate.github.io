@@ -55,6 +55,16 @@ export function setupXR(ctx) {
     try { grip.add(cmf.createControllerModel(grip)); } catch (e) { console.warn(e); }
     let handModel = null;
     try { handModel = hmf.createHandModel(hand, 'mesh'); hand.add(handModel); } catch (e) { console.warn(e); }
+    // #323 (owner: hands sometimes drawn mangled but working): three's hand model loads its mesh ONCE, for whichever
+    // hand first connects in this slot; when the slot later carries the other hand (Quest swaps them), a left mesh
+    // was driven by right-hand joints. Rebuild it when the handedness changes.
+    hand.addEventListener('connected', e => {
+      const src = e.data, st = inputs && inputs[i]; if (!src || !src.hand || !st || !st.handModel) return;
+      const was = st.handModel.xrInputSource && st.handModel.xrInputSource.handedness;
+      if (!was || was === src.handedness) return;
+      hand.remove(st.handModel);
+      try { st.handModel = hmf.createHandModel(hand, 'mesh'); hand.add(st.handModel); st.handMatFor = null; hand.dispatchEvent({ type: 'connected', data: src }); } catch (err) { console.warn(err); }
+    });
     const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0x7cc4ff, transparent: true, opacity: 0.7 }));
     line.visible = false; // no pointing rays
     // #140 (owner): a solid, depth-tested ball, so it reads as a nub on the controller's nose (it used to be drawn
@@ -751,7 +761,7 @@ export function setupXR(ctx) {
         st.grip.localToWorld(st.tip.copy(hl || st.tipLocal || TIP_DEFAULT));
         st.pinchPt.copy(st.tip); hasTip = true;
       }
-      st.tipDot.visible = hasTip && !(st.isHand && handMode === 'real'); if (hasTip) st.tipDot.position.copy(st.tip);
+      st.tipDot.visible = hasTip && !(st.isHand && handMode === 'real'); if (hasTip) st.tipDot.position.copy(st.isHand ? st.pinchPt : st.tip);   // #323 hands: the ball where the pinch closes (the O), as with controllers
       if (st.isHand) applyHandLook(st);
       ctlHandStep(st);   // #276
       updateOccluder(st);

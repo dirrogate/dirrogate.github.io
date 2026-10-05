@@ -33,7 +33,7 @@ const $ = s => document.querySelector(s);
 const params = new URLSearchParams(location.search);
 const CAMERA_ROLE = params.get('role') === 'camera';   // #161: this page is the spectator phone (spectator.html sends it here)
 // start-screen settings, remembered per browser
-const SETTINGS_DEFAULT = { source: 'pc', xml: 'rekordbox.xml', hands: '3d', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
+const SETTINGS_DEFAULT = { needleLift: 7, source: 'pc', xml: 'rekordbox.xml', hands: '3d', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
   deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off', arRefl: 60,
   skyH: 1.5, skyTurn: 0, skyType: 'auto', skyKey: 'on', skyFile: '', skyMedia: '' };   // turntable physics (#120)
 const settings = (() => { try { return { ...SETTINGS_DEFAULT, ...JSON.parse(localStorage.getItem('vire.settings') || '{}') }; } catch { return { ...SETTINGS_DEFAULT }; } })();
@@ -2516,7 +2516,9 @@ function armDrag(d, yaw, lift = 0) {
   a.manualYaw = clamp(yaw, -1.2, 0.25);
   if (!a.dragDown) {
     const r = armRadius(d, a.manualYaw), was = a.prevR; a.prevR = r;
-    if (d.loaded && d.record && was > DROP_OUT && r <= DROP_OUT && r >= DROP_IN - 0.004) {
+    // #323 (owner): the arm carried by its finger lift goes anywhere over the record; it lands where it is let go
+    // (armRelease). The #104 auto-drop at the lead-in is off.
+    if (false && d.loaded && d.record && was > DROP_OUT && r <= DROP_OUT && r >= DROP_IN - 0.004) {
       a.auto = true; a.manual = false;
       a.yaw = a.targetYaw = armYawForRadius(d.g.userData.pivot, DECK.spindle, D.OUT);
       a.parking = false; a.wantDown = true; a.cueTime = radiusToTime(D.OUT, d.duration, D);
@@ -2526,7 +2528,7 @@ function armDrag(d, yaw, lift = 0) {
     return;
   }
   const r = armRadius(d, a.manualYaw);
-  if (lift > 0.07 || r > D.EDGE + 0.002 || r < D.IN - 0.006) { endNeedleDrag(d); liftNeedle(d, false); return; }   // 7 cm up lifts (owner)
+  if (lift > (settings.needleLift || 7) / 100 || r > D.EDGE + 0.002 || r < D.IN - 0.006) { endNeedleDrag(d); liftNeedle(d, false); return; }   // #323 lift height = DJ TOOLS > HAND FIT > NEEDLE LIFT (was a fixed 7 cm)
   const T = radiusToTime(Math.min(D.EDGE, Math.max(D.IN, r)), d.duration, D), dT = T - a.lastDragT;
   if (Math.abs(dT) > 1e-4) { a.lastDragT = T; engine.post({ type: 'needleDrag', deck: d.i, delta: dT }); }
 }
@@ -2540,7 +2542,9 @@ function armRelease(d) {
   const nx = u.pivot.x + ARM.L * Math.sin(a.yaw), nz = u.pivot.z + ARM.L * Math.cos(a.yaw);
   const r = Math.hypot(nx - DECK.spindle.x, nz - DECK.spindle.z), D = recD(d);
   if (d.loaded && r < D.EDGE && r > D.IN - 0.004) {
-    a.cueTime = radiusToTime(r, d.duration, D); a.targetYaw = a.yaw; a.parking = false; a.wantDown = true;
+    // #323 let go over the lead-in: the stylus runs into the first groove (lands there, plays from the start)
+    if (r > D.OUT) a.yaw = armYawForRadius(u.pivot, DECK.spindle, D.OUT);
+    a.cueTime = radiusToTime(Math.min(r, D.OUT), d.duration, D); a.targetYaw = a.yaw; a.parking = false; a.wantDown = true;
     a.onLand = () => { engine.post({ type: 'seek', deck: d.i, time: a.cueTime }); engine.deck(d.i, 'needle', true); };
   } else if (d.record && d.track && !d.loaded && r < D.EDGE && r > D.IN - 0.004) {
     // #181 (owner): let go over a record whose grooves are still loading: hover there and drop by itself once it's ready
@@ -4150,9 +4154,17 @@ function drawToolsPage() {
       g.fillStyle = '#fff'; g.font = '700 20px system-ui'; g.textAlign = 'center'; g.fillText(`${(A[k] || 0) > 0 ? '+' : ''}${A[k] || 0} ${unit}`, vx + bw + 60, y + rh / 2); g.textBaseline = 'alphabetic';
       btn(vx + bw + 120, y, bw, rh, '+', false, () => { if (X) { X.setHandFit(k, (A[k] || 0) + step); drawMixScreen(); } });
     });
-    const yb = y0 + 4 + rows.length * (rh + 4) + 6;
+    {   // #323 (owner) how high the hand lifts off a playing record before the needle comes up
+      const y = y0 + 4 + rows.length * (rh + 4), v = settings.needleLift || 7, vx = R - bw * 2 - 120;
+      g.fillStyle = '#7cc4ff'; g.font = `700 ${P ? 17 : 16}px system-ui`; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('NEEDLE LIFT (tonearm)', L + 4, y + rh / 2);
+      const setL = n => { settings.needleLift = Math.max(1, Math.min(10, Math.round(n * 2) / 2)); saveSettings(); drawMixScreen(); };
+      btn(vx, y, bw, rh, '−', false, () => setL(v - 0.5));
+      g.fillStyle = '#fff'; g.font = '700 20px system-ui'; g.textAlign = 'center'; g.fillText(`${v} cm`, vx + bw + 60, y + rh / 2); g.textBaseline = 'alphabetic';
+      btn(vx + bw + 120, y, bw, rh, '+', false, () => setL(v + 0.5));
+    }
+    const yb = y0 + 4 + (rows.length + 1) * (rh + 4) + 6;
     btn(L, yb, 160, 40, 'RESET', false, () => { if (X) { for (const [k] of rows) X.setHandFit(k, 0); drawMixScreen(); } });
-    note('Steps of 5 mm / 5°, both hands (the left mirrored). Line the 3D hand up with your real hand, then tell Claude the numbers.', yb + 56);
+    note('Steps of 5 mm / 5°, both hands (the left mirrored). Line the 3D hand up with your real hand, then tell Claude the numbers. NEEDLE LIFT: how far up a hand holding the arm on a playing record must lift before the needle comes off (0.5 cm steps, 1 to 10 cm).', yb + 56);
     return;
   }
   if (page === 'maker') {
