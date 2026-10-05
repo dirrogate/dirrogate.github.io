@@ -991,6 +991,7 @@ function crateMicSelect(P) {
 }
 
 async function loadLibrary() {
+  let noXml = false;   // SpatialED #14: the status line is written after the built-in lessons are in
   sideCache.clear();
   try {
     let text, resolve, from, index = null;
@@ -1008,7 +1009,7 @@ async function loadLibrary() {
     } else {
       const tryXml = [settings.xml, ...['rekordbox.xml', 'ViRE_rekordbox.xml'].filter(x => x !== settings.xml)];
       for (const x of tryXml) { const r = await fetch(x); if (r.ok) { text = await r.text(); from = x; break; } }
-      if (!text) from = 'Lesson crate (no library XML on the PC)';   // SpatialED #5: no XML is normal, not an error
+      if (!text) { from = 'Lesson crate (no library XML on the PC)'; noXml = true; }   // SpatialED #5: no XML is normal, not an error
       resolve = store.pcResolver;
     }
     lib = text ? parseLibrary(text, resolve) : emptyLibrary();
@@ -1017,13 +1018,17 @@ async function loadLibrary() {
     const pairs = lib.records.filter(r => r.paired).length;
     const splits = [...lib.tracks.values()].filter(t => t.split).length;
     const missing = [...lib.tracks.values()].filter(t => t.missing).length;
-    $('#libstatus').textContent = `${from}: ${lib.tracks.size} tracks${unsorted ? ` (${unsorted} records in Unsorted)` : ''}${missing ? ` (${missing} not found)` : ''}, ${lib.records.length} records, ${pairs} with A/B sides, ${splits} split sides, ${lib.playlists.length - 1} playlists`;
+    if (!noXml) $('#libstatus').textContent = `${from}: ${lib.tracks.size} tracks${unsorted ? ` (${unsorted} records in Unsorted)` : ''}${missing ? ` (${missing} not found)` : ''}, ${lib.records.length} records, ${pairs} with A/B sides, ${splits} split sides, ${lib.playlists.length - 1} playlists`;
   } catch (e) {
     lib = null;
     $('#libstatus').textContent = `No library: ${e.message}`;
   }
   try { const pr = await listPressings(); if (pr.length) { if (!lib) lib = emptyLibrary(); addPressings(lib, pr); } } catch (e) { console.warn('pressings', e); }   // #224
   if (!CAMERA_ROLE) { if (!lib) lib = emptyLibrary(); addExamples(lib); }   // #231
+  if (noXml && lib) {   // SpatialED #14: count the crate as it really is (it said 0 records before the Demo Lesson went in)
+    const n = lib.records.length, les = lib.records.filter(r => r.example).length, pr = lib.records.filter(r => r.pressed).length;
+    $('#libstatus').textContent = `Lesson crate: ${n} record${n === 1 ? '' : 's'} (${les} built-in lesson${les === 1 ? '' : 's'}${pr ? `, ${pr} pressed on this device` : ''}). No Rekordbox XML on the PC.`;
+  }
   crateState.pl = 0; crateState.sel = 0; search.q = ''; search.results = null; searchInput.value = '';
   drawCrateScreen(); layoutSleeves();
 }
