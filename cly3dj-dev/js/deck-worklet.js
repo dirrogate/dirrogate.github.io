@@ -54,6 +54,13 @@ const MAT_MASS = 0.025, REC_R = 0.1508, HOLE_R = 0.0036;
 const R_EFF = 2 / 3 * REC_R;       // mean friction radius of a full-disc contact
 const R_PLATTER = 0.166;
 const RIM_NUDGE_GAIN = 0.5;        // #272 rim nudge strength (1 = finger speed fully)
+// #322 spindle twist, as on an SL-1200: the 7.2 mm spindle is pressed into the platter, so fingers pinching it
+// act on the platter through friction on a tiny polished pin. Two fingers at ~6 N, skin on steel mu ~0.5, radius
+// 3.6 mm: at most ~0.022 N m, under a quarter of the quartz servo's 0.09 N m that it holds with NO speed change.
+// So a twist or a pinch barely changes the speed (the servo's angle term absorbs it); what it moves is the phase,
+// a couple of ms at most, and the fingers simply slide on the pin beyond that.
+const SPIN_T = 0.022;              // N m: the most a pinch on the spindle passes to the platter
+const SPIN_SLIP = 0.3;             // rad/s of finger-vs-platter slip for the friction to build up fully
 const STYLUS_DRAG = 0.0012;        // N m: ~4 g tracking force, groove friction ~0.3, ~0.1 m radius
 const MU_FINGER = 0.6;             // skin on the platter's dotted rim
 const HAND_DOWN = 2.0;             // N: a DJ's hand pressing on the record while holding / scratching
@@ -80,7 +87,7 @@ class Deck {
     // needle dragged across the vinyl (CLAUDE.md #61)
     this.drag = false; this.dragPending = 0; this.dragAcc = 0; this.gps = 0; this.click = 0; this.hp = 0; this.nz = 0;
     this.rz = new Float64Array(12);   // #320 cartridge / RIAA sections: per channel 3 x (x1, y1)
-    this.shiftPending = 0; this.spinPend = 0; this.spinW = 0;   // #319 spindle twist: platter angle still to turn (rad), the speed it is adding now
+    this.shiftPending = 0; this.spinPend = 0; this.spinW = 0; this.spinOn = false; this.spinRate = 0;   // #322 fingers on the spindle, their turning speed (x W33)   // #319 spindle twist: platter angle still to turn (rad), the speed it is adding now
     // physics state
     this.model = 'classic'; this.P = PROFILES.classic; this.mat = MATS.slick; this.pll = false;
     this.recMass = 0.18;
@@ -163,7 +170,8 @@ class Deck {
       const vrel = (fw - this.wp) * R_PLATTER;
       tp += MU_FINGER * this.touchF * Math.tanh(vrel / 0.02) * R_PLATTER;
     }
-    let disturbed = this.touch;
+    if (this.spinOn) tp += SPIN_T * Math.tanh((this.spinRate * W33 - this.wp) / SPIN_SLIP);   // #322 pinch on the spindle
+    let disturbed = this.touch || this.spinOn;
     if (!this.hasRec) {
       this.wp += tp / Ip * dt; this.wr = this.wp; this.matT = 0;
     } else {
@@ -297,6 +305,9 @@ class Decks extends AudioWorkletProcessor {
         // The legacy model keeps the old record-only shift.
         if (d.model === 'legacy') { if (d.len) d.shiftPending = (d.shiftPending || 0) + m.delta * d.srcRate; }
         else d.spinPend += m.delta * W33;
+        break;
+      case 'spin':   // #322 fingers pinching the spindle: active, and how fast they turn (1 = 33 1/3 rpm)
+        d.spinOn = !!m.active; d.spinRate = m.rate || 0;
         break;
       case 'needleDrag':
         if (m.active === true) { d.drag = true; d.dragPending = 0; d.dragAcc = 0; }

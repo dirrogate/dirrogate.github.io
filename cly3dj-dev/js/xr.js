@@ -158,7 +158,7 @@ export function setupXR(ctx) {
     return u.arm.userData.pitch.localToWorld(u.stylusLocal ? out.copy(u.stylusLocal) : out.set(-0.008, -0.016, ctx.ARM.L - 0.006));
   }
 
-  const SPINDLE_GEAR = 1;        // #321 (owner): no gearing now the twist turns the platter (#319): wrist angle = platter angle, 1:1 like a real spindle (10 deg = 50 ms at 33); the servo fights it. Was 1/64 (#270-#274), 1/16 (#317), 1/32 (#318)
+  const W33_XR = 2 * Math.PI * (100 / 3) / 60;   // rad/s at 33 1/3 rpm. #322: SPINDLE_GEAR (1/64 ... 1) is gone, the spindle is a torque now
   // #120: how hard a finger presses on the platter rim (N), for the worklet's friction model. Tracking can't
   // measure force, so: controllers = the analogue trigger (0.35 N at the click point .. 2 N squeezed); fingertip =
   // how far the tracked tip sits inside the platter's edge (0.35 N just touching .. 2 N at 12 mm); pinch = 0.6 N.
@@ -312,7 +312,7 @@ export function setupXR(ctx) {
       // #316 (owner: the spindle did nothing): with a controller the touch point is the 13.5 mm ball's centre (#294), not a
       // fingertip, so the zone grows by the ball's radius (else the ball sits on the pin and the label's dead zone answers)
       const sp = st.isHand ? 0 : 0.0135;
-      if (d.record && r < 0.008 + sp && h > -0.005 && h < 0.02 + sp) { st.direct = { kind: 'spindle', d, yawL: yawOf(handQuat(st, q1)), acc: 0 }; buzz(st, 0.3, 15); return true; }   // #105
+      if (d.record && r < 0.008 + sp && h > -0.005 && h < 0.02 + sp) { st.direct = { kind: 'spindle', d, yawL: yawOf(handQuat(st, q1)), tL: performance.now(), w: 0, acc: 0 }; ctx.spindleHold(d, 0); buzz(st, 0.3, 15); return true; }   // #105, #322
       // #107: lift zone widened 5 mm into the label (45-70 mm radius); inside that the label does nothing
       if (d.record && r < RD(d).LABEL - 0.005) { st.direct = { kind: 'tap' }; return true; }
       // #136 (owner): lift zone 3 cm wider (label edge + 5 cm, was + 2 cm); lifting a record off was too fiddly
@@ -508,10 +508,13 @@ export function setupXR(ctx) {
       ctx.setPitch(g.d, want);
       if (Math.abs(g.d.pitch - want) > 1e-6) g.m0 = m - (g.d.pitch - g.v0) / k;   // #293 clamped at an end: re-anchor (no dead travel)
     } else if (g.kind === 'spindle') {
-      // #105: twist about the vertical, 1:1 like a real spindle; clockwise from above = forward. A tick every 5 ms.
-      const y = yawOf(handQuat(st, q1)), dy = Math.max(-0.6, Math.min(0.6, wrap(y - g.yawL))); g.yawL = y;
-      const sec = -dy / (2 * Math.PI) * 1.8 * SPINDLE_GEAR;   // one turn = 1.8 s of a 33 (#321: 1:1)
-      if (Math.abs(sec) > 1e-5) { ctx.spindleTwist(g.d, sec); g.acc += Math.abs(sec); if (g.acc >= 0.01) { g.acc -= 0.01; buzz(st, 0.2, 8); } }   // #321 a tick every 10 ms of audio (2 deg of wrist)
+      // #322 the fingers' turning speed about the vertical (clockwise from above = forward), smoothed over a couple of
+      // frames; the worklet turns it into friction on the pin against the servo (no gearing: physics decides)
+      const now = performance.now(), dts = Math.max(0.004, (now - g.tL) / 1000); g.tL = now;
+      const y = yawOf(handQuat(st, q1)), dy = wrap(y - g.yawL); g.yawL = y;
+      g.w += (-dy / dts - g.w) * 0.5;
+      ctx.spindleHold(g.d, g.w / W33_XR);
+      g.acc += Math.abs(dy); if (g.acc >= 0.035) { g.acc -= 0.035; buzz(st, 0.15, 8); }   // a tick every 2 deg of twist
     } else if (g.kind === 'lift') {
       if (P.y - g.y0 > 0.03) { updateAnchor(st); ctx.pickUpFromDeck(g.d, st.anchor); st.direct = { kind: 'held' }; buzz(st); }
     } else if (g.kind === 'scratch') {
@@ -573,6 +576,7 @@ export function setupXR(ctx) {
     if (g.kind === 'arm') ctx.armRelease(g.d);
     else if (g.kind === 'pitch') ctx.heldPitch.delete(g.d.i);
     else if (g.kind === 'scratch') ctx.scratchEnd(g.s);
+    else if (g.kind === 'spindle') ctx.spindleRelease(g.d);   // #322
     else if (g.kind === 'held') { const h = ctx.getHeld(); if (h && h.attach === st.anchor) ctx.releaseHeld(); }
     else if (g.kind === 'move') { ctx.stage.endMove(g.stMove); if (g.target.startsWith('milk')) ctx.releaseMilk(g.target, g.vel); else ctx.settleStack(g.target); }   // #200 milk: releaseMilk drops / throws / settles it
     else if (g.kind === 'lid') ctx.lidRelease();

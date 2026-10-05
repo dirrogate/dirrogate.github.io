@@ -2828,6 +2828,9 @@ function spindleTwist(d, seconds) {
   if (!d.loaded || !seconds) return;
   engine.post({ type: 'shift', deck: d.i, delta: seconds }); d.twistT = performance.now();
 }
+// #322 VR: fingers pinching the spindle (a friction torque on the platter, see the worklet); rate = their turning speed
+function spindleHold(d, rate) { engine.post({ type: 'spin', deck: d.i, active: true, rate }); d.twistT = performance.now(); }
+function spindleRelease(d) { engine.post({ type: 'spin', deck: d.i, active: false }); }
 function scratchEnd(s) { if (s.holding) postHand(s, false); scratches.delete(s); }
 function scratchIdle() { // a still hand holds the record still
   const now = performance.now();
@@ -4619,7 +4622,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   REC, DECK, CRATE, ARM,
   castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet,
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
-  scratchBegin, scratchMove, scratchEnd, spindleTwist,
+  scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
   armGrab, armDrag, armRelease,
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
