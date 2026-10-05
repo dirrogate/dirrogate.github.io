@@ -998,7 +998,7 @@ async function loadLibrary() {
     } else {
       const tryXml = [settings.xml, ...['rekordbox.xml', 'ViRE_rekordbox.xml'].filter(x => x !== settings.xml)];
       for (const x of tryXml) { const r = await fetch(x); if (r.ok) { text = await r.text(); from = x; break; } }
-      if (!text) throw new Error('no library XML found on the PC');
+      if (!text) from = 'Lesson crate (no library XML on the PC)';   // SpatialED #5: no XML is normal, not an error
       resolve = store.pcResolver;
     }
     lib = text ? parseLibrary(text, resolve) : emptyLibrary();
@@ -3970,24 +3970,29 @@ async function pressRecord() {
 // #231 built-in example records (web/examples/, streamed like songs from the PC), in Unsorted and the Collection.
 // "Sleeve Art Demo": every ID3 picture type the app reads (tools/make_sleeve_demo.py builds it). Long press +
 // DELETE hides one for good on this device (sed.hiddenExamples).
-const EXAMPLES = [{ id: 'sleeve', title: 'Sleeve Art Demo', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3' },
+// SpatialED #5: the club's test records stay in the list but are hidden (club: true) unless SHOW_CLUB_EXAMPLES;
+// lesson examples go to their own 'Lessons' list (list: 'Lessons'). Chapters in Demo Lesson start at 1.0, 23.5, 46.0 s.
+const SHOW_CLUB_EXAMPLES = false;
+const EXAMPLES = [{ id: 'lesson_demo', title: 'Demo Lesson', artist: 'SpatialED', bpm: 120, key: 'Am', genre: 'Lesson', list: 'Lessons', a: 'examples/Demo Lesson.mp3', b: null },
+  { club: true, id: 'sleeve', title: 'Sleeve Art Demo', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3' },
   // #232 the same pictures in one file: front cover, back cover, and an 'Other' picture described 'Label B'
-  { id: 'sleeve1', title: 'Sleeve Art Demo (One File)', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo (One File).mp3', b: null },
+  { club: true, id: 'sleeve1', title: 'Sleeve Art Demo (One File)', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo (One File).mp3', b: null },
   // #257 a test 7" single (45s list) until 45s can be pressed
-  { id: 'single45', title: 'Test 45 (Sleeve Art Demo)', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3', size: 7 }];
+  { club: true, id: 'single45', title: 'Test 45 (Sleeve Art Demo)', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3', size: 7 }];
 function hiddenExamples() { try { return JSON.parse(localStorage.getItem('sed.hiddenExamples') || '[]'); } catch { return []; } }
 function addExamples(L) {
   const hide = hiddenExamples();
   let un = L.playlists.find(p => p.name === 'Unsorted');
   for (const ex of EXAMPLES) {
-    if (hide.includes(ex.id) || L.tracks.has('ex_' + ex.id + '_A')) continue;
+    if ((ex.club && !SHOW_CLUB_EXAMPLES) || hide.includes(ex.id) || L.tracks.has('ex_' + ex.id + '_A')) continue;
     let dest = un;
-    if (ex.size === 7) { dest = L.playlists.find(p => p.name === '45s'); if (!dest) { dest = { name: '45s', path: '45s (7" singles on this headset)', records: [] }; L.playlists.push(dest); } }
+    if (ex.list) { dest = L.playlists.find(p => p.name === ex.list); if (!dest) { dest = { name: ex.list, path: ex.list, records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, dest); } }
+    else if (ex.size === 7) { dest = L.playlists.find(p => p.name === '45s'); if (!dest) { dest = { name: '45s', path: '45s (7" singles on this headset)', records: [] }; L.playlists.push(dest); } }
     else if (!un) { un = dest = { name: 'Unsorted', path: 'Unsorted (on this headset)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, un); }
-    const r = { id: 'rex_' + ex.id, size: ex.size || 12, title: ex.title, artist: ex.artist, sides: { A: null, B: null }, bpm: ex.bpm, key: ex.key, genre: 'Example', duration: 0, missing: false, paired: !!ex.b, unsorted: true, example: ex.id };
+    const r = { id: 'rex_' + ex.id, size: ex.size || 12, title: ex.title, artist: ex.artist, sides: { A: null, B: null }, bpm: ex.bpm, key: ex.key, genre: ex.genre || 'Example', duration: 0, missing: false, paired: !!ex.b, unsorted: true, example: ex.id };
     for (const side of ex.b ? ['A', 'B'] : ['A']) {
       const id = 'ex_' + ex.id + '_' + side, url = encodeURI(side === 'A' ? ex.a : ex.b);
-      const t = { id, name: ex.title + '_' + side.toLowerCase(), title: ex.title, side, split: false, artist: ex.artist, album: ex.title, genre: 'Example', key: ex.key, bpm: ex.bpm, duration: 0,
+      const t = { id, name: ex.title + '_' + side.toLowerCase(), title: ex.title, side, split: false, artist: ex.artist, album: ex.title, genre: ex.genre || 'Example', key: ex.key, bpm: ex.bpm, duration: 0,
         location: url, url, opfs: null, missing: false, cues: [], unsorted: true, record: r };
       r.sides[side] = t; L.tracks.set(id, t);
     }
