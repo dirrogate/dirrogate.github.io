@@ -327,8 +327,8 @@ export function setupXR(ctx) {
       const sp = st.isHand ? 0 : 0.0135;
       if (d.record && r < 0.008 + sp && h > -0.005 && h < 0.02 + sp) { st.direct = { kind: 'spindle', d, yawL: yawOf(handQuat(st, q1)), tL: performance.now(), w: 0, acc: 0 }; ctx.spindleHold(d, 0); buzz(st, 0.3, 15); return true; }   // #105, #322
       // #107: lift zone widened 5 mm into the label (45-70 mm radius); inside that the label does nothing
-      // #325 (owner) bare hands: a pinch anywhere on the record (label to rim) HOLDS it still while the platter spins
-      // under the mat (cueing the first kick); pinch and lift 3 cm takes it off. Scratching is the fingertip only.
+      // #325 (owner) bare hands: a pinch anywhere on the record (label to rim) holds it while the platter spins under the
+      // mat; #326 it moves with the pinch (rock it back and forth on the kick); pinch and lift 3 cm takes it off.
       if (st.isHand && d.record && r < RD(d).R + 0.003) {
         const s = ctx.scratchBegin(d, l); ctx.scratchMove(s, l);
         st.direct = { kind: 'pinchHold', d, s, y0: P.y }; return true;
@@ -492,8 +492,9 @@ export function setupXR(ctx) {
       const l = g.d.g.worldToLocal(v2.copy(P)); const pv = g.d.g.userData.pivot;
       if (ctx.armDrag(g.d, Math.atan2(l.x - pv.x, l.z - pv.z), P.y - g.y0) === 'drop') buzz(st, 0.6, 35);   // #104: needle found the lead-in
       if (g.d.arm.dragDown && (g.buzzT = (g.buzzT || 0) + 1) % 3 === 0) buzz(st, 0.15, 12);   // feel the grooves
-    } else if (g.kind === 'pinchHold') {   // #325 held still; lifted 3 cm = the record comes off
+    } else if (g.kind === 'pinchHold') {   // #325 held; lifted 3 cm = the record comes off
       if (P.y - g.y0 > 0.03) { ctx.scratchEnd(g.s); updateAnchor(st); ctx.pickUpFromDeck(g.d, st.anchor); st.direct = { kind: 'held' }; }
+      else ctx.scratchMove(g.s, g.d.g.worldToLocal(v2.copy(P)));   // #326 (owner) the pinched record follows the hand: rock it to hear the kick
     } else if (g.kind === 'lampHold') {   // #324 pinch held 1.5 s at the lamp head
       if (!g.done && performance.now() - g.t0 > 1500) { g.done = true; ctx.pressControl({ deck: g.d.name, id: 'target' }); }
     } else if (g.frozen) {   // #230 fingers opening: the control stays put
