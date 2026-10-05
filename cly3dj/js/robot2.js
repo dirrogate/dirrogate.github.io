@@ -113,7 +113,7 @@ export class RobotAvatar2 {
   constructor(rig) {
     this.rig = rig; this.root = new THREE.Group(); this.root.name = 'robot2'; rig.add(this.root);
     this.ready = false; this.status = 'loading'; this.yaw = null; this.talk = 0; this.scanX = 0; this.scanDir = 1;
-    this.scan = new Float32Array(COLS); this.bars = [0, 0, 0]; this.barT = 0;
+    this.scan = new Float32Array(COLS); this.bars = [0, 0, 0, 0, 0]; this.barT = 0;
   }
   async load(url) {
     const gltf = await new GLTFLoader().loadAsync(url);
@@ -135,6 +135,11 @@ export class RobotAvatar2 {
       if (!o.isMesh) return;
       o.layers.set(AV_LAYER); o.frustumCulled = false; o.castShadow = o.receiveShadow = false;
       if (o.material && o.material.name === 'AvatarRobot_Screen') {
+        // #313 the LED grid is laid out from this visor's own vertices: the Blender re-export (#305) moved the mesh to
+        // model space (y ~1.6), the delivered GLB had it head-relative (y ~0), so the fixed VIS numbers missed the visor
+        o.geometry.computeBoundingBox(); const vb = o.geometry.boundingBox, pa = o.geometry.attributes.position;
+        let amax = 0; for (let i = 0; i < pa.count; i++) amax = Math.max(amax, Math.abs(Math.atan2(pa.getX(i), pa.getZ(i) + 0.02)));
+        const VIS = { a: amax || 1.44, z0: 0.02, y0: vb.min.y, h: (vb.max.y - vb.min.y) || 0.0629 };
         const m = new THREE.MeshBasicMaterial({ color: 0x050507, toneMapped: false });
         m.onBeforeCompile = sh => {
           sh.uniforms.ledTex = { value: ledTex };
@@ -310,15 +315,27 @@ export class RobotAvatar2 {
       this.barT = 0.07;
       const base = this.talk * (0.75 + 0.5 * Math.random());
       // #306 (owner) three touching columns: a tall centre and two slightly shorter sides, no dark gaps (a talking look)
-      this.bars = [0.8, 1, 0.8].map((k, i) => clamp(base * k * (i === 1 ? 1 : 0.85 + 0.25 * Math.random()) * 1.4, 0, 1));
+      // #313 (owner, KITT voice box): the two outer bars always follow the centre one at ~60 % of its height
+      const cen = clamp(base * 2.0, 0, 1), loud = clamp((this.talk - 0.55) / 0.45, 0, 1);   // #313 a medium voice already fills the centre bar
+      this.bars = [cen * 0.5 * loud, cen * 0.62, cen, cen * 0.62, cen * 0.5 * loud];   // #313 loud: a short fourth and fifth bar outside
     }
-    const mid = (ROWS - 1) / 2, d = this.ledData, barCols = [COLS / 2 - 1, COLS / 2, COLS / 2 + 1].map(Math.floor);   // #306 adjacent, no gaps
+    const mid = (ROWS - 1) / 2, d = this.ledData, barCols = [COLS / 2 - 2, COLS / 2 - 1, COLS / 2, COLS / 2 + 1, COLS / 2 + 2].map(Math.floor);   // #306 adjacent, no gaps; #313 five when loud
+    const heat = clamp((this.talk - 0.55) / 0.45, 0, 1);   // #313 loud: the bars burn brighter and go pink-white in the middle
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
       let b = 0;
       if (idle > 0 && Math.abs(r - mid) <= 1) b = this.scan[c] * (r === mid ? 1 : 0.55) * idle;
       const bi = barCols.indexOf(c);
-      if (bi >= 0 && voice > 0) { const h = Math.round(this.bars[bi] * (mid + 0.5)); if (Math.abs(r - mid) < h || (h > 0 && r === mid)) b = Math.max(b, voice * (1 - Math.abs(r - mid) / (ROWS * 0.9))); }
-      const i = (r * COLS + c) * 4, core = b > 0.85 ? (b - 0.85) * 4 : 0;   // the hottest cells go a little pink
+      if (bi >= 0 && voice > 0) {
+        // #313 each bar grows up and down from the centre line; its segments fade from bright at the centre to dim red
+        // at its own ends, and the outer bars are a step dimmer and fade harder (KITT)
+        const h = Math.round(this.bars[bi] * (mid + 0.5)), dr = Math.abs(r - mid);
+        if (dr < h || (h > 0 && r === mid)) {
+          const t = h > 1 ? dr / (h - 1) : 0, ring = Math.abs(bi - 2);   // 0 centre, 1 inner pair, 2 outer pair
+          const lvl = [1, 0.78 + 0.17 * heat, 0.75][ring], fade = ring === 2 ? 0.85 : [0.45, 0.6][ring] * (1 - 0.4 * heat);   // #314 the outer pair keeps a strong fade
+          b = Math.max(b, voice * lvl * (1 - fade * t) * (1 + 0.9 * heat));
+        }
+      }
+      const i = (r * COLS + c) * 4, core = clamp((b - 0.85) * 1.2, 0, 1);   // the hottest cells go pink (#313: pink-white when loud)
       d[i] = 255 * Math.min(1, b); d[i + 1] = 255 * Math.min(1, b * 0.06 + core * 0.35); d[i + 2] = 255 * Math.min(1, b * 0.04 + core * 0.4); d[i + 3] = 255;
     }
     this.ledTex.needsUpdate = true;
