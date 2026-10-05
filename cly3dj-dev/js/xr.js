@@ -199,7 +199,7 @@ export function setupXR(ctx) {
     if (ctx.getHeld() && ctx.getHeld().attach === st.anchor) return true; // already holding a record
     // #229 the other hand on the record peeking out of a sleeve in your hand: slide it out
     // #242 also a sleeve lying about (any hand but the one holding that sleeve)
-    if (ctx.sleeveSlideTest) {
+    if (ctx.sleeveSlideTest && (st.isHand || btn === 'grip')) {   // #316 grip only with controllers
       const sl = ctx.sleeveSlideTest(P, st.anchor);
       if (sl) { st.direct = { kind: 'sleeveSlide', sl: sl.sl, y0: sl.y0, s0: sl.s0 }; buzz(st, 0.3, 20); return true; }
     }
@@ -309,7 +309,10 @@ export function setupXR(ctx) {
       if (h < -0.035 || h > 0.05 || r > PLATTER_R + 0.015) continue;
       // #106 (owner): twist only on the spindle itself (3.5 mm pin + 4.5 mm reach, from the record surface to
       // 2 cm above it); the rest of the label does nothing, so a hand resting there never twists by accident
-      if (d.record && r < 0.008 && h > -0.005 && h < 0.02) { st.direct = { kind: 'spindle', d, yawL: yawOf(handQuat(st, q1)), acc: 0 }; buzz(st, 0.3, 15); return true; }   // #105
+      // #316 (owner: the spindle did nothing): with a controller the touch point is the 13.5 mm ball's centre (#294), not a
+      // fingertip, so the zone grows by the ball's radius (else the ball sits on the pin and the label's dead zone answers)
+      const sp = st.isHand ? 0 : 0.0135;
+      if (d.record && r < 0.008 + sp && h > -0.005 && h < 0.02 + sp) { st.direct = { kind: 'spindle', d, yawL: yawOf(handQuat(st, q1)), acc: 0 }; buzz(st, 0.3, 15); return true; }   // #105
       // #107: lift zone widened 5 mm into the label (45-70 mm radius); inside that the label does nothing
       if (d.record && r < RD(d).LABEL - 0.005) { st.direct = { kind: 'tap' }; return true; }
       // #136 (owner): lift zone 3 cm wider (label edge + 5 cm, was + 2 cm); lifting a record off was too fiddly
@@ -323,7 +326,8 @@ export function setupXR(ctx) {
       if (r > RD(d).R + 0.003) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l, true, st.isHand ? 0.6 : rimForce(st, r)) }; buzz(st, 0.2, 15); return true; }
     }
     // 3b. a record lying around (thrown or dropped): grab it anywhere on the disc
-    for (const L of ctx.loose) {
+    // #316 (owner): with controllers, records and sleeves are picked up with the grip only (the trigger never takes them)
+    if (gripOk) for (const L of ctx.loose) {
       const c = L.rec.group.getWorldPosition(v1), n = v2.set(0, 1, 0).applyQuaternion(L.rec.mesh.getWorldQuaternion(q1));
       const rel = P.clone().sub(c), h = rel.dot(n), radial = rel.addScaledVector(n, -h).length();
       if (Math.abs(h) < 0.04 && radial < (L.rec.dims || ctx.REC).R + 0.02) { updateAnchor(st); ctx.pickUpLoose(L.rec, st.anchor); st.direct = { kind: 'held' }; buzz(st); return true; }
@@ -344,11 +348,11 @@ export function setupXR(ctx) {
     const cd = ctx.crateDisc;
     const lidOpen = ctx.crateLidOpen();
     // 4a. #229 / #274 (checked first) a hand on the selected sleeve, up to its top edge: the sleeve comes out with the record
-    if (lidOpen && ctx.sleeveGrabTest && ctx.sleeveGrabTest(P)) {
+    if (gripOk && lidOpen && ctx.sleeveGrabTest && ctx.sleeveGrabTest(P)) {
       updateAnchor(st); if (ctx.sleeveGrab(st.anchor, P)) { st.direct = { kind: 'sleeve' }; buzz(st, 0.4, 30); return true; }
     }
     // 4b. the record riding out above the sleeve: only the record comes out
-    if (lidOpen && cd.visible && Math.abs(cl.z - cd.position.z) < 0.05 && cl.y > cd.position.y - 0.03 && Math.hypot(cl.x - cd.position.x, cl.y - cd.position.y) < ctx.REC.R + 0.02) {
+    if (gripOk && lidOpen && cd.visible && Math.abs(cl.z - cd.position.z) < 0.05 && cl.y > cd.position.y - 0.03 && Math.hypot(cl.x - cd.position.x, cl.y - cd.position.y) < ctx.REC.R + 0.02) {
       updateAnchor(st); if (ctx.pullSelected(st.anchor)) { st.direct = { kind: 'held' }; buzz(st); return true; }
     }
     // 5. digging: pinch inside the crate and move along the rack to flip, lift out to pull
