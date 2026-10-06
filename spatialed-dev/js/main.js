@@ -4098,8 +4098,18 @@ async function pressBytes(track) {
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
 }
+// SpatialED #22 tools pages scroll when their content is taller than the tablet (HAND FIT in landscape): the title bar
+// and BACK stay put, the content below scrolls; a strip on the right has ▲ / ▼ and a thumb (tap above / below it =
+// a page up / down). Taps only, so it works with one controller. Pages that fit look exactly as before.
+const toolsScroll = new Map(), toolsContentH = new Map();   // per page: scroll (px); content bottom from the last draw
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
+  const page0 = toolsPage, need = (toolsContentH.get(page0) || 0) > H + 2, SW = 44;
+  let sc = need ? toolsScroll.get(page0) || 0 : 0, top = 0, inContent = false, hitBase = 0, maxY = 0;
+  const ft = g.fillText, fr = g.fillRect;   // measure the content's bottom while it is drawn
+  g.fillText = function (t, x, y, ...a) { if (inContent) maxY = Math.max(maxY, y + 10); return ft.call(this, t, x, y, ...a); };
+  g.fillRect = function (x, y, w, h) { if (inContent) maxY = Math.max(maxY, y + h); return fr.call(this, x, y, w, h); };
+  try {
   VP_HIT.length = 0;
   g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H);
   const btn = (x, y, w, h, label, on, act, dim, fs0 = 17) => {
@@ -4110,12 +4120,15 @@ function drawToolsPage() {
     g.fillText(label, x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
     if (act) VP_HIT.push({ x, y, w, h, act });
   };
-  const L = P ? 24 : 8, R = W - (P ? 26 : 8);   // portrait keeps clear of the silver corner L
+  const L = P ? 24 : 8, R = W - (P ? 26 : 8) - (need ? SW + 6 : 0);   // portrait keeps clear of the silver corner L; #22 room for the scroll strip
   const head = (title, back) => {
     const y = P ? 28 : 8;
     g.fillStyle = '#dfe6f2'; g.font = '700 20px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
     fitText2(g, title, L + 4, y + 17, R - L - 136); g.textBaseline = 'alphabetic';
     btn(R - 120, y, 120, 34, back === 'mixer' ? 'DJ MIXER' : '◀ BACK', false, () => setTools(back === 'mixer' ? null : back));
+    // #22 everything after the title bar is content: clipped below the bar and shifted by the scroll
+    top = y + 42; hitBase = VP_HIT.length; inContent = true;
+    g.save(); g.beginPath(); g.rect(0, top, W, H - top); g.clip(); g.translate(0, -sc);
     return y + 46;
   };
   const note = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; return wrapText(g, s, L + 4, y, R - L - 8, 20, 5); };
@@ -4329,6 +4342,40 @@ function drawToolsPage() {
     const by = P ? H - 62 : H - 44;
     btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
     btn(L + 48, by, 44, 36, '›', false, () => { pickPg = Math.min(pages - 1, pickPg + 1); }, pickPg >= pages - 1);
+  }
+  } finally {
+    g.fillText = ft; g.fillRect = fr;
+    if (inContent) {
+      g.restore(); inContent = false;
+      const cH = maxY + 12; toolsContentH.set(page0, cH);
+      for (let i = VP_HIT.length - 1; i >= hitBase; i--) {   // tap areas follow the scroll; hidden ones go
+        const h = VP_HIT[i]; h.y -= sc;
+        if (h.y + h.h <= top || h.y >= H) VP_HIT.splice(i, 1);
+        else if (h.y < top) { h.h -= top - h.y; h.y = top; }
+      }
+      const nowNeed = cH > H + 2;
+      if (nowNeed !== need) queueMicrotask(drawMixScreen);   // first sight of this page: lay it out again with the strip
+      else if (need) {
+        const maxSc = Math.max(0, cH - H), x = W - (P ? 26 : 8) - SW, view = H - top, total = cH - top;
+        const setSc = v => { toolsScroll.set(page0, Math.max(0, Math.min(maxSc, Math.round(v)))); drawMixScreen(); };
+        if (sc > maxSc) { toolsScroll.set(page0, maxSc); queueMicrotask(drawMixScreen); }
+        const ty0 = top + SW + 4, ty1 = H - SW - 4, tr = ty1 - ty0, th = Math.max(24, tr * view / total), tp = ty0 + (tr - th) * (maxSc ? sc / maxSc : 0);
+        g.fillStyle = '#121722'; g.fillRect(x, top, SW, H - top);
+        g.fillStyle = '#3a4560'; g.fillRect(x + 8, tp, SW - 16, th);
+        const arrow = (y, up, act) => {
+          g.fillStyle = act ? '#c9ced8' : '#2a3140'; g.fillRect(x, y, SW, SW);
+          g.fillStyle = act ? '#3a4252' : '#56627a'; g.beginPath();
+          if (up) { g.moveTo(x + SW / 2, y + 12); g.lineTo(x + SW - 12, y + SW - 14); g.lineTo(x + 12, y + SW - 14); }
+          else { g.moveTo(x + SW / 2, y + SW - 12); g.lineTo(x + SW - 12, y + 14); g.lineTo(x + 12, y + 14); }
+          g.closePath(); g.fill();
+          if (act) VP_HIT.push({ x, y, w: SW, h: SW, act });
+        };
+        arrow(top, true, sc > 0 ? () => setSc(sc - 80) : null);
+        arrow(H - SW, false, sc < maxSc ? () => setSc(sc + 80) : null);
+        if (tp > ty0) VP_HIT.push({ x, y: ty0, w: SW, h: tp - ty0, act: () => setSc(sc - view * 0.9) });
+        if (tp + th < ty1) VP_HIT.push({ x, y: tp + th, w: SW, h: ty1 - tp - th, act: () => setSc(sc + view * 0.9) });
+      }
+    }
   }
 }
 // #224 a tiny type badge for thumbnails (lower right): a camcorder for videos, a picture for images
