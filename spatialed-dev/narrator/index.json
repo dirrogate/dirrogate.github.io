@@ -1,0 +1,19 @@
+{
+ "v": 1,
+ "note": "static copy of /api/narrator for hosts without the PC server",
+ "records": [
+  {
+   "file": "Dirro_fourscore_1.mp3",
+   "lips": true,
+   "txt": true
+  },
+  {
+   "file": "Dirro_fourscore_2.mp3",
+   "lips": true,
+   "txt": true
+  }
+ ],
+ "series": [
+  "Dirro_fourscore"
+ ]
+}

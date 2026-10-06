@@ -35,12 +35,12 @@ const reticle = new THREE.Mesh(new THREE.RingGeometry(0.07, 0.09, 40).rotateX(-M
 reticle.matrixAutoUpdate = false; reticle.visible = false; scene.add(reticle);
 
 // ---------------------------------------------------------------- the professor's lesson, with our own clock
-const last = { u: null, t: 0, r: 0, s: 1, y: 0, at: 0, hs: -1, msg: '' };
+const last = { u: null, t: 0, r: 0, s: 1, y: 0, l: null, at: 0, hs: -1, msg: '' };
 let tShown = 0, framed = 0, link = null, joined = false;
 function onPacket(m) {
   if (!m || m.k !== 'les') return;
   if (m.hs != null && m.hs < last.hs && m.u === last.u) return;   // an older packet arriving late
-  Object.assign(last, { u: m.u, t: m.t || 0, r: m.r || 0, s: m.s || 1, y: m.y || 0, at: performance.now(), hs: m.hs != null ? m.hs : last.hs });
+  Object.assign(last, { u: m.u, t: m.t || 0, r: m.r || 0, s: m.s || 1, y: m.y || 0, l: m.l || null, at: performance.now(), hs: m.hs != null ? m.hs : last.hs });
 }
 function tNow() { return last.t + last.r * Math.min(1.5, (performance.now() - last.at) / 1000); }   // coast at most 1.5 s
 
@@ -113,7 +113,7 @@ renderer.setAnimationLoop((ts, frame) => {
   // our clock: follow the estimate, snap on jumps (needle drop, scratch), glide on small drift
   const te = tNow(), d = te - tShown;
   tShown = Math.abs(d) > 0.25 ? te : tShown + d * 0.3;
-  const L = last.u ? lesson.remote(last.u, tShown, last.s, last.y) : lesson.show(null);
+  const L = last.u ? lesson.remote(last.u, tShown, last.s, last.y, last.l) : lesson.show(null);
   if (L && !renderer.xr.isPresenting) frame3(L);
   if (joined) {
     const stale = performance.now() - last.at > 2500;

@@ -565,7 +565,7 @@ const lesson = new LessonPlayer(rig); lesson.onStatus = t => toast(t, 3500);
 function lessonStep() {
   const g = deckGains(mixVal);
   lessonOn = !!lesson.step(decks.map(d => ({ track: d.record ? d.track : null, pos: engine.ctx ? heardPos(d) : 0, rate: engine.state.decks[d.i].rate || 0, gain: g[d.i],
-    seat: d.record ? d.record.group : null, rec: d.record }))) && lesson.isFree();   // #8 on a deck it needs no room: the wall stays
+    seat: d.record ? d.record.group : null, rec: d.record, env: d.record && d.record.envs ? d.record.envs[d.side] : null, dur: d.duration }))) && lesson.isFree();   // #8 on a deck it needs no room: the wall stays
 }
 function saveLayout() { stage.save(); }
 // #84 migration: layouts saved with the second flight case had the record crate standing on it; with that case
@@ -1025,9 +1025,10 @@ async function loadLibrary() {
   }
   try { const pr = await listPressings(); if (pr.length) { if (!lib) lib = emptyLibrary(); addPressings(lib, pr); } } catch (e) { console.warn('pressings', e); }   // #224
   if (!CAMERA_ROLE) { if (!lib) lib = emptyLibrary(); addExamples(lib); }   // #231
+  if (!CAMERA_ROLE) await addNarrator(lib).catch(e => console.warn('narrator list', e));   // SpatialED #20
   if (noXml && lib) {   // SpatialED #14: count the crate as it really is (it said 0 records before the Demo Lesson went in)
-    const n = lib.records.length, les = lib.records.filter(r => r.example).length, pr = lib.records.filter(r => r.pressed).length;
-    $('#libstatus').textContent = `Lesson crate: ${n} record${n === 1 ? '' : 's'} (${les} built-in lesson${les === 1 ? '' : 's'}${pr ? `, ${pr} pressed on this device` : ''}). No Rekordbox XML on the PC.`;
+    const n = lib.records.length, les = lib.records.filter(r => r.example).length, pr = lib.records.filter(r => r.pressed).length, nr = lib.records.filter(r => r.narrator).length;
+    $('#libstatus').textContent = `Lesson crate: ${n} record${n === 1 ? '' : 's'} (${les} built-in lesson${les === 1 ? '' : 's'}${nr ? `, ${nr} narrator` : ''}${pr ? `, ${pr} pressed on this device` : ''}). No Rekordbox XML on the PC.`;
   }
   crateState.pl = 0; crateState.sel = 0; search.q = ''; search.results = null; searchInput.value = '';
   drawCrateScreen(); layoutSleeves();
@@ -4037,6 +4038,31 @@ function addExamples(L) {
   const byT = (a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title);
   if (un) un.records.sort(byT); L.playlists[0].records.sort(byT);
 }
+// SpatialED #20 narrator records: web/narrator/*.mp3, listed by the PC server (api/narrator, which also makes missing
+// lip files with Rhubarb) or, on a static host, by narrator/index.json. Names <series>_<n>: a record whose series has
+// a <series>.vinyl.json brings that narrator in and drives it; its lips are <series>_<n>.lips.json.
+async function addNarrator(L) {
+  let j = null;
+  for (const u of ['api/narrator', 'narrator/index.json']) {
+    try { const r = await fetch(u, { cache: 'no-store' }); if (r.ok && /json/.test(r.headers.get('content-type') || '')) { j = await r.json(); break; } } catch {}
+  }
+  if (!j || !Array.isArray(j.records) || !j.records.length) return;
+  const series = new Map((j.series || []).map(x => [String(x).toLowerCase(), x]));
+  let dest = L.playlists.find(p => p.name === 'Narrator');
+  if (!dest) { dest = { name: 'Narrator', path: 'Narrator', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, dest); }
+  for (const it of j.records) {
+    const file = String(it.file || ''), base = file.replace(/\.[^.]+$/, ''), id = 'nr_' + base;
+    if (!base || L.tracks.has(id)) continue;
+    const m = base.match(/^(.*)_(\d+)$/), ser = m && series.get(m[1].toLowerCase());
+    const url = encodeURI('narrator/' + file);
+    const r = { id: 'r' + id, size: 12, title: base, artist: 'Narrator', sides: { A: null, B: null }, bpm: 0, key: '', genre: 'Narrator', duration: 0, missing: false, paired: false, unsorted: true, narrator: true };
+    const t = { id, name: base, title: base, side: 'A', split: false, artist: 'Narrator', album: ser || base, genre: 'Narrator', key: '', bpm: 0, duration: 0,
+      location: url, url, opfs: null, missing: false, cues: [], unsorted: true, record: r,
+      lesson: ser ? encodeURI('narrator/' + ser + '.vinyl.json') : null, lips: encodeURI('narrator/' + base + '.lips.json') };
+    r.sides.A = t; L.tracks.set(id, t); L.records.push(r); dest.records.push(r); L.playlists[0].records.push(r);
+  }
+  dest.records.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
+}
 // pressed records join the 'Unsorted (on this headset)' list (made if there is none) and the Collection
 function addPressings(L, list) {
   let un = L.playlists.find(p => p.name === 'Unsorted');
@@ -4099,7 +4125,8 @@ function drawToolsPage() {
     if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26); btn(L, y0 + 224, R - L, 96, clsLabel, !!klass, () => setTools('class'), false, 26); note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off. CLASS: students follow the lesson on their phones.', y0 + 348); }
     else { const bw = (R - L - 24) / 3; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); btn(L + 2 * (bw + 12), y0 + 8, bw, 130, clsLabel, !!klass, () => setTools('class'), false, 28); note('DJ TOOLS: Record Maker, milk crate on / off.   VJ TOOLS: Scroller, LED wall and neon sign on / off.   CLASS: students follow the lesson on their phones.', y0 + 160); }
     { // #258 flicker tests
-      const ty = H - (P ? 60 : 46), tw = (R - L - 16) / 3;
+      const ty = H - (P ? 60 : 46), tw = (R - L - 24) / 4;
+      btn(L + 3 * (tw + 8), ty, tw, 36, 'CLEAR LESSON', false, lesson.cur ? () => { lesson.clear(); drawMixScreen(); toast('Lesson cleared (it comes back when its record goes on)', 2500); } : null, !lesson.cur, 15);   // SpatialED #20
       btn(L, ty, tw, 36, testState.glass ? 'GLASS TEST: GLASS OFF' : 'GLASS TEST', testState.glass, () => setTest('glass'), false, 15);
       btn(L + tw + 8, ty, tw, 36, 'CAM 2ND FRAME', testState.cam2, () => setTest('cam2'), false, 15);
       btn(L + 2 * (tw + 8), ty, tw, 36, 'FPS', testState.fps, () => setTest('fps'), false, 15);

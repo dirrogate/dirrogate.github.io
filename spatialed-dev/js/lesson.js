@@ -6,6 +6,9 @@
 //
 // side.json (version 1, times in seconds of the audio, positions in metres):
 //   title                       shown on the chapter board before the first chapter
+//   persist                     (#20) true = stays when its record comes off (a narrator): frozen on its last frame,
+//                               blinking; any record naming this side drives it again, keeping where it was put
+//   board                       (#20) false = no chapter board
 //   credits                     (optional) one line under the title on the board, e.g. model authors and licences
 //   stage    { position [x,y,z] in rig space (the gear's space; the DJ stands at +z), rotationY (deg), scale,
 //              plinth (radius m, 0 = none) }
@@ -18,7 +21,12 @@
 //                top of the actor's own clip (e.g. a looping idle). Lets a rigged character walk a route authored
 //                on a simple figure.
 //              fallback (optional): { glb, clip, t0, loop } used instead when glb can't be loaded (a model kept
-//                only on the PC, not published) }]
+//                only on the PC, not published),
+//              face (#20): true = the face follows the driving record's lips (`lips` on its track: a Rhubarb
+//                .lips.json, mouth cues against t) on the model's viseme_* morph targets, with ~70 ms crossfades
+//                and blinks from t; without lips yet, the jaw follows the record's loudness,
+//              pose (#20): 'relaxed' = arms down from a T-pose (Ready Player Me), plus breathing and small head
+//                moves from t }]
 //   trajectories [{ points [[x,y,z]...] (stage space), t0, t1 (drawn from 0 to 100 % over [t0, t1]),
 //              width (m), color }]
 //
@@ -46,6 +54,8 @@ export class LessonPlayer {
     this.place = null;        // { deck: i } = diorama on that deck's record; { free: true } = put somewhere by hand
     this.pose = { pos: new THREE.Vector3(), yaw: 0, scale: 1 };   // the stage group's transform in rig space
     this.seats = [];          // per deck: the record's Object3D (or null), from step()
+    this.lips = new Map();    // #20 .lips.json url -> { status, cues }
+    this.suppress = null;     // #20 a persistent side the professor cleared
     this.lastRec = null;      // the record (object) the lesson came in on: a new one starts on its deck again
     this.hand = [null, null]; // hand points (world) for the outline
     this.grab = null;         // { one: {...} } or { two: {...} }
@@ -61,16 +71,54 @@ export class LessonPlayer {
     decks.forEach((d, i) => { if (d.track && d.track.lesson && (!best || d.gain > best.gain)) { best = d; bi = i; } });
     const url = best ? new URL(best.track.lesson, location.href).href : null;
     const s = url ? this.want(url) : null;
-    const L = this.show(s && s.status === 'ready' ? s.L : null);
-    this.live = L ? { rel: best.track.lesson, t: best.pos, rate: best.rate } : null;   // #11 for the class packet
-    if (!L) { this.lastRec = null; this.grab = null; this.cage.visible = false; return null; }
-    if (best.rec !== this.lastRec) { this.lastRec = best.rec; this.place = { deck: bi }; this.grab = null; }   // a record just went on
-    if (this.place.deck != null && !this.seats[this.place.deck]) this.place = { deck: bi };   // its record moved decks
+    let L = s && s.status === 'ready' ? s.L : null;
+    // #20 a persistent side (a narrator) stays while no record drives it (or while the next one is still loading)
+    if (!L && this.cur && this.cur.persist && this.suppress !== this.cur) L = this.cur;
+    if (best && L && L === this.suppress && s && s.L === L) this.suppress = null;   // its record went on again
+    if (L === this.suppress) L = null;
+    this.show(L);
+    if (!L) { this.live = null; this.lastRec = null; this.grab = null; this.cage.visible = false; return null; }
+    const drv = best && s && s.L === L ? best : null;   // the record driving L now (null = frozen on its last frame)
+    if (drv) { L.rel = drv.track.lesson; L.frame = { t: drv.pos, rate: drv.rate, track: drv.track, env: drv.env, dur: drv.dur }; }
+    const F = L.frame || { t: 0, rate: 0 };
+    this.live = { rel: L.rel, t: F.t, rate: drv ? F.rate : 0, lips: F.track && F.track.lips || null };   // #11 class packet
+    if (drv && drv.rec !== this.lastRec) {   // a record just went on
+      this.lastRec = drv.rec; this.grab = null;
+      // #20 a persistent side keeps where it was put when the next record of its series goes on
+      if (!L.persist || this.placedFor !== L) { this.place = { deck: bi }; this.placedFor = L; }
+    }
+    if (!drv) this.lastRec = null;
+    if (!this.place) this.place = { free: true };
+    if (this.place.deck != null && !this.seats[this.place.deck]) this.place = L.persist || bi < 0 ? { free: true } : { deck: bi };   // its record left that deck
     if (this.place.deck != null) this.seatPose(L, this.place.deck);
     const g = L.group; g.position.copy(this.pose.pos); g.rotation.set(0, this.pose.yaw, 0); g.scale.setScalar(this.pose.scale);
-    this.apply(L, best.pos);
+    this.apply(L, F.t, { lips: F.track && F.track.lips ? this.lipsFor(F.track.lips, F.track.url) : null, env: F.env, dur: F.dur, frozen: !drv });
     this.drawCage(L);
     return L;
+  }
+  // #20 the professor clears a persistent side (tablet); it comes back when one of its records goes on a deck again
+  clear() { if (this.cur) { this.suppress = this.cur; this.show(null); this.live = null; this.cage.visible = false; } }
+
+  // #20 lips for a record: its .lips.json; when there is none yet, ask the PC's server to make one (Rhubarb), and
+  // look again every few seconds while it works. null meanwhile (the jaw follows the loudness).
+  lipsFor(rel, audioRel) {
+    const url = new URL(rel, location.href).href; let e = this.lips.get(url);
+    if (!e) { e = { status: 'new', cues: null, next: 0, tries: 0 }; this.lips.set(url, e); }
+    if (e.status === 'ready') return e.cues;
+    if (e.status === 'busy' || e.status === 'failed' || performance.now() < e.next) return null;
+    e.status = 'busy';
+    (async () => {
+      let r = await fetch(url, { cache: 'no-cache' }).catch(() => null);
+      if ((!r || !r.ok) && audioRel) {   // not made yet: the server makes it (404 on a static host = no server)
+        const src = decodeURI(new URL(audioRel, location.href).pathname.slice(new URL('.', location.href).pathname.length));
+        r = await fetch('api/lips?src=' + encodeURIComponent(src), { cache: 'no-store' }).catch(() => null);
+        if (r && r.status === 202) { e.status = 'wait'; e.next = performance.now() + 3000; if (++e.tries === 1) this.say('Making the lip sync (Rhubarb)…'); return; }
+      }
+      const j = r && r.ok && /json/.test(r.headers.get('content-type') || '') ? await r.json().catch(() => null) : null;
+      if (j && j.cues) { e.cues = j.cues; e.status = 'ready'; if (e.tries) this.say('Lip sync ready'); }
+      else { e.status = 'failed'; }
+    })().catch(() => { e.status = 'failed'; });
+    return null;
   }
   isFree() { return !!(this.cur && this.place && this.place.free); }
   show(L) {
@@ -87,14 +135,14 @@ export class LessonPlayer {
   // the page, so a student page in the same folder finds it on any host)
   packet() {
     const v = this.live, L = this.cur; if (!v || !L) return { k: 'les', u: null };
-    return { k: 'les', u: v.rel, t: +v.t.toFixed(3), r: +v.rate.toFixed(4), s: +this.pose.scale.toFixed(4), y: +this.pose.yaw.toFixed(4), d: this.place && this.place.deck != null ? 1 : 0 };
+    return { k: 'les', u: v.rel, t: +v.t.toFixed(3), r: +v.rate.toFixed(4), s: +this.pose.scale.toFixed(4), y: +this.pose.yaw.toFixed(4), d: this.place && this.place.deck != null ? 1 : 0, l: v.lips || undefined };
   }
   // student: draw the side the professor plays at t, at the professor's size and turn, centred on this root
-  remote(rel, t, scale, yaw) {
+  remote(rel, t, scale, yaw, lips) {
     const s = rel ? this.want(new URL(rel, location.href).href) : null;
     const L = this.show(s && s.status === 'ready' ? s.L : null); if (!L) return null;
     L.group.position.set(0, 0, 0); L.group.rotation.set(0, yaw || 0, 0); L.group.scale.setScalar(scale || 1);
-    this.apply(L, t); return L;
+    this.apply(L, t, { lips: lips ? this.lipsFor(lips, null) : null }); return L;
   }
 
   // ---------------------------------------------------------------- placement
@@ -203,8 +251,10 @@ export class LessonPlayer {
   say(t) { if (this.onStatus) try { this.onStatus(t); } catch {} }
 
   // t -> the whole scene. Called every frame; cheap (one mixer evaluation per actor, one draw-range per trajectory).
-  apply(L, t) {
+  apply(L, t, F = null) {
     for (const a of L.actors) {
+      if (a.face) applyFace(a, t, F);
+      if (a.idle) applyIdle(a, t);
       if (a.mixer) {
         let ct = t - a.t0;
         if (a.loop) ct = ((ct % a.dur) + a.dur) % a.dur;
@@ -253,7 +303,7 @@ async function load(url) {
       a = { ...a0, motion: null, ...a0.fallback }; gltf = await loader.loadAsync(new URL(a.glb, base).href);
     }
     const obj = gltf.scene;
-    obj.position.fromArray(a.position || [0, 0, 0]); obj.rotation.y = (a.rotationY || 0) * DEG; obj.scale.setScalar(a.scale || 1);
+    if (a.pose === 'relaxed') relaxArms(obj);   // #20 before any transform: the model's own frame obj.rotation.y = (a.rotationY || 0) * DEG; obj.scale.setScalar(a.scale || 1);
     obj.traverse(m => { if (m.isSkinnedMesh) m.frustumCulled = false; });   // skinned bounds are the bind pose: never cull
     const wrap = new THREE.Group(); wrap.add(obj); group.add(wrap);   // the motion's root moves the wrap
     const act = { wrap, t0: a.t0 || 0, loop: !!a.loop };
@@ -263,16 +313,19 @@ async function load(url) {
       act.action.setLoop(a.loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity); act.action.clampWhenFinished = true; act.action.play();
       act.dur = clip.duration || 1e-3;
     }
+    obj.position.fromArray(a.position || [0, 0, 0]);
     if (a.motion) act.motion = await makeMotion(a.motion, base, obj);
-    if (act.mixer || act.motion) actors.push(act);   // else a still prop: placed, nothing to drive
+    if (a.face) act.face = faceRig(obj);   // #20
+    if (a.pose === 'relaxed') act.idle = idleRig(obj);   // #20
+    if (act.mixer || act.motion || act.face || act.idle) actors.push(act);   // else a still prop: placed, nothing to drive
   }
 
   const trajs = (side.trajectories || []).map(tr => makeTrail(tr)).filter(Boolean);
   for (const tr of trajs) group.add(tr.mesh);
 
   const chapters = (side.chapters || []).map(c => ({ t: +c.t || 0, title: String(c.title || '') })).sort((p, q) => p.t - q.t);
-  const board = makeBoard(); board.position.set(0, 2.45, -0.2); group.add(board);
-  const L = { url, title: side.title || 'Lesson', credits: String(side.credits || ''), group, actors: actors.filter(Boolean), trajs, chapters, board, chapter: -2,
+  const board = makeBoard(); board.position.set(0, 2.45, -0.2); if (side.board !== false) group.add(board);
+  const L = { url, persist: !!side.persist, title: side.title || 'Lesson', credits: String(side.credits || ''), group, actors: actors.filter(Boolean), trajs, chapters, board, chapter: -2,
     home, radius: plinthR > 0 ? plinthR : 1.7, height: 2.7 };
   drawBoard(L, -1);
   return L;
@@ -323,6 +376,69 @@ function applyMotion(a, t) {
     p.bone.quaternion.multiply(_qc);
     (p.written || (p.written = new THREE.Quaternion())).copy(p.bone.quaternion);
   }
+}
+
+// ---------------------------------------------------------------- #20 face and idle
+// Rhubarb's shapes -> the Oculus visemes on Ready Player Me heads
+const VIS = { A: 'viseme_PP', B: 'viseme_kk', C: 'viseme_E', D: 'viseme_aa', E: 'viseme_O', F: 'viseme_U', G: 'viseme_FF', H: 'viseme_nn', X: 'viseme_sil' };
+const FACE_KEYS = [...new Set(Object.values(VIS))].concat(['eyeBlinkLeft', 'eyeBlinkRight', 'viseme_aa']);
+const XFADE = 0.07;
+function faceRig(obj) {
+  const slots = {}; let n = 0;
+  obj.traverse(m => { if (!m.morphTargetDictionary) return; for (const k of FACE_KEYS) { const i = m.morphTargetDictionary[k]; if (i != null) { (slots[k] = slots[k] || []).push([m, i]); n++; } } });
+  return n ? { slots } : null;
+}
+const hash = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+function applyFace(a, t, F) {
+  const S = a.face.slots, w = {};
+  const cues = F && F.lips;
+  if (cues && cues.length) {   // binary search for the cue holding t, crossfade from the one before
+    let lo = 0, hi = cues.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (cues[mid][0] <= t) lo = mid; else hi = mid - 1; }
+    const c = cues[lo], inside = t >= c[0] && t < c[1];
+    if (inside) {
+      const k = Math.min(1, Math.max(0, (t - c[0]) / XFADE)), cur = VIS[c[2]] || 'viseme_sil', prev = lo ? VIS[cues[lo - 1][2]] || 'viseme_sil' : 'viseme_sil';
+      w[cur] = (w[cur] || 0) + k; w[prev] = (w[prev] || 0) + 1 - k;
+    }
+  } else if (F && F.env && F.dur > 0 && t >= 0 && t < F.dur) {   // no lips yet: the jaw follows the loudness
+    const e = F.env[Math.min(F.env.length - 1, Math.floor(t / F.dur * F.env.length))] || 0;
+    w.viseme_aa = Math.min(0.85, Math.max(0, (e - 0.12) * 1.5));
+  }
+  // blinks: one in each ~4.3 s block at a hashed moment, 0.16 s long; from t, or the wall clock while frozen
+  const bt = F && F.frozen ? performance.now() / 1000 : t, blk = Math.floor(bt / 4.3), at = blk * 4.3 + 0.3 + hash(blk) * 3.4, d = Math.abs(bt - at - 0.08);
+  const blink = d < 0.08 ? 1 - d / 0.08 : 0; w.eyeBlinkLeft = w.eyeBlinkRight = blink;
+  for (const k of FACE_KEYS) { const v = w[k] || 0, sl = S[k]; if (sl) for (const [m, i] of sl) m.morphTargetInfluences[i] = v; }
+}
+// arms down from a T-pose: aim each upper arm and forearm along a world direction (the model's own frame, +z = front)
+function relaxArms(obj) {
+  obj.updateMatrixWorld(true); const B = {};
+  obj.traverse(b => { if (b.isBone) B[boneKey(b.name)] = b; });
+  for (const [s, sx] of [['left', 1], ['right', -1]]) {
+    const up = B[s + 'arm'], fore = B[s + 'forearm'], hand = B[s + 'hand'];
+    if (!up || !fore || !hand) continue;
+    aimBone(up, fore, new THREE.Vector3(0.16 * sx, -1, 0.02));
+    aimBone(fore, hand, new THREE.Vector3(0.06 * sx, -1, 0.3));
+  }
+}
+function aimBone(bone, child, dir) {
+  bone.updateMatrixWorld(true);
+  const a = bone.getWorldPosition(new THREE.Vector3()), b = child.getWorldPosition(new THREE.Vector3());
+  const dq = new THREE.Quaternion().setFromUnitVectors(b.sub(a).normalize(), dir.normalize());
+  const wq = bone.getWorldQuaternion(new THREE.Quaternion()), pq = bone.parent.getWorldQuaternion(new THREE.Quaternion());
+  bone.quaternion.copy(pq.invert().multiply(dq.multiply(wq))); bone.updateMatrixWorld(true);
+}
+// breathing and small head moves, from t (so they scratch with the record)
+function idleRig(obj) {
+  const B = {}; obj.traverse(b => { if (b.isBone) B[boneKey(b.name)] = b; });
+  const pick = n => B[n] ? { bone: B[n], rest: B[n].quaternion.clone() } : null;
+  return { spine: pick('spine2') || pick('spine1'), neck: pick('neck'), head: pick('head') };
+}
+const _ie = new THREE.Euler(), _iq = new THREE.Quaternion();
+function applyIdle(a, t) {
+  const I = a.idle, set = (p, x, y, z) => { if (p) p.bone.quaternion.copy(p.rest).multiply(_iq.setFromEuler(_ie.set(x, y, z))); };
+  set(I.spine, 0.018 * Math.sin(t * 2 * Math.PI / 4.2), 0, 0.006 * Math.sin(t * 0.9));
+  set(I.neck, 0.02 * Math.sin(t * 0.7 + 1), 0.05 * Math.sin(t * 0.31), 0);
+  set(I.head, 0.025 * Math.sin(t * 1.3), 0.07 * Math.sin(t * 0.43 + 2) + 0.03 * Math.sin(t * 1.7), 0.02 * Math.sin(t * 0.6));
 }
 
 // unit cylinder outline (radius 1, height 1): two rings and four posts, scaled to the volume
