@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Cly3DJ SpatialED</title>
+<title>Cly3DJ : SpatialED™</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0b0d12">
 <link rel="icon" href="icon-192.png">
@@ -15,6 +15,10 @@
   #start .box { text-align:center; max-width:520px; padding:24px; margin:auto; }   /* centred when it fits, scrolls when the window is short (#96) */
   #start h1 { font-size:44px; margin:0 0 4px; letter-spacing:.06em; font-weight:800; }
   #start h1 span { color:#e0202a; letter-spacing:-.01em; }   /* #176: Cly white, 3DJ red; #191 3DJ kerned tighter */
+  #start h1 .sed { color:var(--fg); letter-spacing:.02em; white-space:nowrap; }   /* SpatialED #26 title: Cly3DJ : SpatialED(TM) */
+  #start h1 sup { font-size:.4em; vertical-align:super; letter-spacing:0; }
+  #start p.sub sup { font-size:.6em; vertical-align:super; letter-spacing:0; }
+  #start p.sub { color:var(--fg); font-size:18px; font-weight:600; letter-spacing:.03em; margin:0 0 22px; }
   #start p { color:var(--dim); margin:0 0 22px; }
   #start .btns { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
   button.big { font:600 16px system-ui,sans-serif; color:var(--fg); background:#1c2230; border:1px solid #2e3850; border-radius:10px; padding:14px 22px; cursor:pointer; min-width:150px; }
@@ -52,8 +56,8 @@
 <body>
 <div id="start">
   <div class="box">
-    <h1>Cly<span>3DJ</span></h1>
-    <p>Two decks, one mixer, your crate.</p>
+    <h1>Cly<span>3DJ</span> <span class="sed">: SpatialED<sup>™</sup></span></h1>
+    <p class="sub">Learning with SpatialVinyl<sup>™</sup></p>
     <div class="btns">
       <button class="big" id="bDesktop">Desktop</button>
       <button class="big" id="bVR" hidden>Full VR</button>
