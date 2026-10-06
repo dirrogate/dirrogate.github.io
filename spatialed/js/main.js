@@ -14,7 +14,7 @@ import { RobotAvatar2, ROBOT_GLB } from './robot2.js';   // #245 the licensed Av
 import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, updatePressing, squareJpeg, readLabel, labelFrom, blankWav } from './tools.js';
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { LessonPlayer } from './lesson.js';   // SpatialED #7 Spatial Vinyl lessons
-import { TakeStudio, saveTakeFile, readTakeFile, svRead, svWrite, svList, svVinyl, removeTakeFile, hasTakeFile, PIC_SLOTS } from './take.js';   // SpatialED #24 TAKE, #29 Spatial Records
+import { TakeStudio, saveTakeFile, readTakeFile, svRead, svWrite, svList, svVinyl, removeTakeFile, hasTakeFile, PIC_SLOTS, seriesOf, svReadOld, hasOldFile, encodeMp3, id3Tag, retag, lessonGlb } from './take.js';   // SpatialED #24 TAKE, #29 Spatial Records
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
@@ -4062,32 +4062,48 @@ async function pressRecord() {
 }
 // SpatialED #24 stamp a TAKE: voice (webm) + motion + transcript kept on this device (sed-takes) and sent to the PC's
 // narrator folder (api/take), where Rhubarb makes the lips; the pressing streams the PC copy, or plays the device copy
-async function pressTake() {   // #29 a Spatial Record: <name>.webm + <name>.sv.json on this headset; lips from the PC
+// SpatialED #41 STAMP a take: the record is an MP3 (the mix, or the voice) with its title and pictures in ID3 tags; a
+// mix keeps the voice alone as <name>.voice.mp3 for Rhubarb; <name>.sv.json holds motion, lips, transcript and the
+// narrator. All in SpatialVinyl/<series>/ on this headset (take.js), and sent to the PC's web\SpatialVinyl\<series>\.
+async function pressTake() {
   const R0 = studio && studio.result(); if (!R0) { makerSay('Record a take first (TAKE…)', false, 3000); return; }
-  const name = takeName(), ser = name.replace(/_\d+$/, '');
+  const name = takeName(), ser = seriesOf(name);
   maker.busy = true; drawMixScreen();
   try {
-    let label = null;
-    if (maker.image) { const f = await media.getFile('Images', maker.image); if (f) label = await labelFrom(f); }
-    const sv = { v: 1, kind: 'spatial-record', name, series: ser, made: Date.now(), duration: Math.round(R0.duration * 1000) / 1000, audio: name + '.webm',
-      vinyl: svVinyl(ser), motion: R0.motion, lips: null, transcript: maker.txt || '', pc: null };
-    await saveTakeFile(name + '.webm', R0.blob); await svWrite(name, sv);
-    const src = { kind: 'take', v: 2, file: name, series: ser, duration: sv.duration };
-    const p = await savePressing({ id: 'p' + Date.now().toString(36), title: name, src, made: Date.now(), size: maker.size === 7 ? 7 : 12 }, label);
-    if (!lib) lib = emptyLibrary();
-    const r = addPressings(lib, [p]);
-    const where = p.size === 7 ? '45s' : 'Unsorted', pi = lib.playlists.findIndex(pl => pl.name === where);
+    let front = null;
+    if (maker.image) { const f = await media.getFile('Images', maker.image); if (f) front = await squareJpeg(f, 1024); }
+    makerSay('Encoding the MP3…', true, 60000);
+    const P = R0.pcm, mix = R0.source === 'mix';
+    const audio = mix ? await encodeMp3(P.mix, 2, P.rate, 160) : await encodeMp3(P.voice, 1, P.rate, 128);
+    await saveTakeFile(name + '.mp3', new Blob([await id3Tag({ title: name, artist: 'Spatial Vinyl', album: ser, front }), audio], { type: 'audio/mpeg' }));
+    if (mix) await saveTakeFile(name + '.voice.mp3', new Blob([await encodeMp3(P.voice, 1, P.rate, 96)], { type: 'audio/mpeg' }));
+    else await removeTakeFile(name + '.voice.mp3');
+    const sv = { v: 2, kind: 'spatial-record', name, series: ser, made: Date.now(), duration: Math.round(R0.duration * 1000) / 1000, audio: name + '.mp3',
+      voice: mix ? name + '.voice.mp3' : null, source: R0.source, vinyl: svVinyl(ser), motion: R0.motion, lips: null, transcript: maker.txt || '', pc: null };
+    await svWrite(name, sv);
+    const r = await svPress(name, name, sv);
+    const pi = lib.playlists.findIndex(pl => pl.records.includes(r) && pl !== lib.playlists[0]);
     search.q = ''; search.results = null; searchInput.value = '';
-    crateState.pl = pi; crateState.sel = Math.max(0, lib.playlists[pi].records.indexOf(r));
+    if (pi > 0) { crateState.pl = pi; crateState.sel = Math.max(0, lib.playlists[pi].records.indexOf(r)); }
     drawCrateScreen(); layoutSleeves();
     maker.name = ''; maker.txt = ''; maker.kind = 'blank'; if (studio) { studio.close(); studio = null; }
-    makerSay(`✓ STAMPED "${name}": ${where}. Sending to the PC for lips…`, true, 6000);
+    makerSay(`✓ STAMPED "${name}" (MP3${mix ? ', mix' : ''}): crate list ${ser}. Sending to the PC for lips…`, true, 6000);
     svLips(name).then(x => makerSay(x && x.cues ? `✓ "${name}": lips ready` : x === 'wait' ? `✓ "${name}" is on the PC: lips are being made` : `"${name}" kept on this headset; PC not reached (lips later: SPATIAL RECORDS)`, !!x, 6000));
-  } catch (e) { makerSay('Not stamped: ' + e.message, false, 6000); }
+  } catch (e) { console.error(e); makerSay('Not stamped: ' + e.message, false, 6000); }
   maker.busy = false; drawMixScreen();
 }
+// the crate entry of a Spatial Record (a pressing, src kind 'take' v 3), in its lesson's list; made once per record
+async function svPress(name, title, sv) {
+  const old = (await listPressings()).find(p => p.src && p.src.kind === 'take' && p.src.file === name);
+  if (old) { if (old.title !== title || old.src.v !== 3) await updatePressing(old.id, { title, src: { ...old.src, v: 3, series: sv.series } }); svRefresh(name, title); return lib && [...lib.records].find(r => r.sides.A && r.sides.A.press && r.sides.A.press.id === old.id); }
+  const p = await savePressing({ id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), title, src: { kind: 'take', v: 3, file: name, series: sv.series, duration: sv.duration || 0 }, made: Date.now(), size: maker.size === 7 ? 7 : 12 }, null);
+  if (!lib) lib = emptyLibrary();
+  const sid = 'sv_' + sv.series + '_' + name, st = lib.tracks.get(sid);   // the PC-streamed copy of it goes (this headset's copy plays)
+  if (st) { lib.tracks.delete(sid); lib.records = lib.records.filter(x => x !== st.record); for (const pl of lib.playlists) pl.records = pl.records.filter(x => x !== st.record); }
+  return addPressings(lib, [p]);
+}
 // SpatialED #29 the PC (Node server, Rhubarb): this app's own server when it was opened from it, else settings.pcUrl
-// (the pinggy address; TAKE page: PC…). The server allows calls from any address (CORS).
+// (the pinggy address; TAKE page: PC…, start page). The server allows calls from any address (CORS).
 const PC_DEFAULT = 'https://univdemo.a.pinggy.link/spatialed/';
 let narrApi = false;   // set by addNarrator when api/narrator answered: this page came from the PC's server
 function pcBase() {
@@ -4097,13 +4113,13 @@ function pcBase() {
   return u.endsWith('/') ? u : u + '/';
 }
 const svSeries = new Map(), svMeta = new Map();   // series (lower case) -> newest record name; name -> { pc }
+const svPath = (name, ext) => 'SpatialVinyl/' + encodeURIComponent(seriesOf(name)) + '/' + encodeURIComponent(name) + ext;
 async function svUpload(name, sv, base) {
   const up = (kind, body) => fetch(`${base}api/take?name=${encodeURIComponent(name)}&kind=${kind}`, { method: 'POST', body }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); });
   if (sv.transcript) await up('txt', sv.transcript.toLowerCase());   // the tablet types capitals; Rhubarb's dictionary is lower case
-  await up('motion', JSON.stringify(sv.motion));
-  await up('sv', JSON.stringify({ ...sv, pc: null }));
-  for (const k of PIC_SLOTS) await up(k, (await hasTakeFile(name + '.' + k + '.jpg')) ? await readTakeFile(name + '.' + k + '.jpg') : '');   // #38 (empty = none)   // #30 the PC keeps the combined file too (Rhubarb adds its lips there)
-  await up('audio', await readTakeFile(name + '.webm'));
+  await up('sv', JSON.stringify({ ...sv, pc: null }));   // #30 the PC keeps the combined file too (Rhubarb adds its lips there)
+  await up('voice', sv.voice ? await readTakeFile(sv.voice) : '');
+  await up('audio', await readTakeFile(name + '.mp3'));
   const cur = (await svRead(name)) || sv; cur.pc = sv.pc = base; await svWrite(name, cur); svMeta.set(name, { pc: base });   // #31 fresh read: an EDIT may have saved meanwhile
 }
 // lips for a Spatial Record: stored ones, else send it to the PC (once) and ask Rhubarb; 'wait' while it works
@@ -4123,7 +4139,7 @@ async function svLips1(name) {
   if (has) return sv.lips;
   if (!base) return null;
   try {
-    const r = await fetch(base + 'api/lips?src=' + encodeURIComponent('narrator/' + name + '.webm'), { cache: 'no-store' });
+    const r = await fetch(base + 'api/lips?src=' + encodeURIComponent(decodeURIComponent(svPath(name, sv.voice ? '.voice.mp3' : '.mp3'))), { cache: 'no-store' });
     if (r.status === 202) return 'wait';
     if (r.status === 404) { const cur = (await svRead(name)) || sv; cur.pc = null; await svWrite(name, cur); return null; }   // gone from the PC: sent again next time
     if (!r.ok) return null;
@@ -4131,17 +4147,34 @@ async function svLips1(name) {
     const cur = (await svRead(name)) || sv; cur.lips = j; await svWrite(name, cur); return j;
   } catch (e) { console.warn('spatial record lips', name, e); return null; }
 }
-// #31 a take from before #29: <name>.webm / .motion.json / .txt in sed-takes -> a Spatial Record (.sv.json, Dirro)
+// #41 records made before the lesson folders: #29 "Spatial Records" (.webm + .sv.json + .jpg pictures) or #24
+// "sed-takes" (.webm + .motion.json + .txt) become SpatialVinyl/<series>/<name>.mp3 + .sv.json, once, on this headset
 const svMig = new Map();
-function svMigrate(s) {
+async function webmToMp3(blob) {
+  const ac = new OfflineAudioContext(1, 1, 48000), buf = await ac.decodeAudioData(await blob.arrayBuffer());
+  const f = buf.getChannelData(0), pcm = new Int16Array(f.length);
+  for (let i = 0; i < f.length; i++) pcm[i] = Math.max(-32768, Math.min(32767, f[i] * 32767));
+  return { mp3: await encodeMp3(pcm, 1, buf.sampleRate, 128), duration: buf.duration };
+}
+function svMigrate(s, title) {
   if (!svMig.has(s.file)) svMig.set(s.file, (async () => {
-    if (await svRead(s.file)) return;
-    const motion = JSON.parse(await (await readTakeFile(s.file + '.motion.json')).text());
-    let txt = ''; try { txt = await (await readTakeFile(s.file + '.txt')).text(); } catch {}
-    await saveTakeFile(s.file + '.webm', await readTakeFile(s.file + '.webm'));
-    await svWrite(s.file, { v: 1, kind: 'spatial-record', name: s.file, series: s.series, made: Date.now(), duration: s.duration || motion.duration || 0, audio: s.file + '.webm',
-      vinyl: svVinyl(s.series), motion, lips: null, transcript: txt, pc: null });
-  })().catch(e => console.warn('spatial record from an old take', s.file, e)));
+    const name = s.file, ser = s.series || seriesOf(name);
+    if (await svRead(name)) return;
+    let sv = await svReadOld(name);
+    if (!sv) {
+      const motion = JSON.parse(await (await readTakeFile(name + '.motion.json')).text());
+      let txt = ''; try { txt = await (await readTakeFile(name + '.txt')).text(); } catch {}
+      sv = { kind: 'spatial-record', name, series: ser, made: Date.now(), duration: s.duration || motion.duration || 0, vinyl: svVinyl(ser), motion, lips: null, transcript: txt };
+    }
+    const pics = {};
+    for (const k of PIC_SLOTS) if (await hasOldFile(name + '.' + k + '.jpg')) pics[k] = await readTakeFile(name + '.' + k + '.jpg');
+    const { mp3, duration } = await webmToMp3(await readTakeFile(name + '.webm'));
+    await saveTakeFile(name + '.mp3', new Blob([await id3Tag({ title: title || sv.title || name, artist: 'Spatial Vinyl', album: ser, ...pics }), mp3], { type: 'audio/mpeg' }));
+    const a = (sv.vinyl && sv.vinyl.actors) || [];
+    await svWrite(name, { ...sv, v: 2, series: ser, duration: sv.duration || duration, audio: name + '.mp3', voice: null, source: 'voice',
+      vinyl: { ...(sv.vinyl || svVinyl(ser)), actors: a.length ? a.map(x => ({ ...x, glb: lessonGlb(x.glb) })) : svVinyl(ser).actors }, pc: null, title: undefined, art: undefined });
+    console.log('Spatial Vinyl: moved', name, 'into SpatialVinyl/' + ser);
+  })().catch(e => console.warn('spatial record from an older layout', s.file, e)));
   return svMig.get(s.file);
 }
 lesson.store = {   // #35 renamed from `local` (it hid LessonPlayer.local(), the grab maths: no grabs, hands froze)
@@ -4151,32 +4184,36 @@ lesson.store = {   // #35 renamed from `local` (it hid LessonPlayer.local(), the
   pub: (rel, kind) => {   // the PC copy students can fetch
     const id = decodeURIComponent(rel.slice(3)), name = kind === 'side' ? svSeries.get(id.toLowerCase()) : id, m = name && svMeta.get(name);
     if (!m || !m.pc) return null;
-    return m.pc + 'narrator/' + encodeURIComponent(kind === 'side' ? id : name) + (kind === 'side' ? '.vinyl.json' : kind === 'lips' ? '.lips.json' : '.motion.json');
+    return kind === 'side' ? m.pc + 'SpatialVinyl/' + encodeURIComponent(id) + '/' + encodeURIComponent(id) + '.vinyl.json' : m.pc + svPath(name, kind === 'lips' ? '.lips.json' : '.sv.json');
   },
 };
-// SpatialED #30 copy Spatial Records onto this headset (start page): from the PC's narrator folder, or picked files
-// (<name>.webm + <name>.sv.json). Each becomes a record in the crate (Unsorted) unless it is there already.
-async function svImport(name, sv, audio, pics = {}) {   // pics: { front, back, label } picture files (#38)
+// the ID3 of a Spatial Record's MP3: { title, picture (front), back, media (label) }
+async function svTags(name) { try { return readID3(await (await readTakeFile(name + '.mp3')).slice(0, 4 << 20).arrayBuffer()); } catch { return {}; } }
+// SpatialED #30 / #41 copy Spatial Records onto this headset (start page): from the PC's lesson folders, or picked
+// files (<name>.mp3 [+ <name>.voice.mp3] + <name>.sv.json [+ loose pictures]). The MP3's tags win for the title and
+// pictures; loose pictures only fill empty slots. Each lands in its lesson's crate list.
+async function svImport(name, sv, mp3, voice = null, pics = {}) {
   if (!sv || sv.kind !== 'spatial-record' || !sv.motion) throw new Error(name + '.sv.json is not a Spatial Record');
-  sv.name = name; sv.series = sv.series || name.replace(/_\d+$/, '');
-  await saveTakeFile(name + '.webm', audio);
-  sv.art = {};
-  for (const k of PIC_SLOTS) {
-    if (pics[k]) { await saveTakeFile(name + '.' + k + '.jpg', await squareJpeg(pics[k], k === 'label' ? 512 : 1024)); sv.art[k] = true; }
-    else await removeTakeFile(name + '.' + k + '.jpg');
+  const ser = sv.series || seriesOf(name);
+  let tags = {}; try { tags = readID3(await mp3.slice(0, 4 << 20).arrayBuffer()); } catch {}
+  const fill = { front: !tags.front && pics.front, back: !tags.back && pics.back, label: !tags.media && pics.label };
+  if (fill.front || fill.back || fill.label) {
+    const sq = async (b, S) => b ? squareJpeg(b, S) : null;
+    mp3 = await retag(mp3, { title: tags.title || name, artist: tags.artist || 'Spatial Vinyl', album: ser,
+      front: tags.front || await sq(fill.front, 1024), back: tags.back || await sq(fill.back, 1024), label: tags.media || await sq(fill.label, 512) });
   }
-  await svWrite(name, sv);
-  const title = (sv.title || name).slice(0, 40), old = (await listPressings()).find(p => p.src && p.src.kind === 'take' && p.src.file === name);
-  if (old) { if (old.title !== title) await updatePressing(old.id, { title }); svRefresh(name, title); return 'updated'; }
-  const p = await savePressing({ id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), title, src: { kind: 'take', v: 2, file: name, series: sv.series, duration: sv.duration || 0 }, made: Date.now(), size: 12 }, null);
-  if (lib) { addPressings(lib, [p]); try { drawCrateScreen(); layoutSleeves(); } catch {} }
-  return 'added';
+  await saveTakeFile(name + '.mp3', mp3);
+  if (voice) await saveTakeFile(name + '.voice.mp3', voice); else await removeTakeFile(name + '.voice.mp3');
+  await svWrite(name, { ...sv, v: 2, name, series: ser, audio: name + '.mp3', voice: voice ? name + '.voice.mp3' : null,
+    vinyl: sv.vinyl ? { ...sv.vinyl, actors: (sv.vinyl.actors || []).map(x => ({ ...x, glb: lessonGlb(x.glb) })) } : svVinyl(ser) });
+  await svPress(name, (tags.title || name).slice(0, 40), { ...sv, series: ser });
+  return 'ok';
 }
 // #38 after a Spatial Record's title or pictures change: its crate entry, sleeve and label are drawn again
 function svRefresh(name, title) {
   if (!lib) return;
   const t = [...lib.tracks.values()].find(x => x.press && x.press.src && x.press.src.kind === 'take' && x.press.src.file === name); if (!t) return;
-  if (title) { t.title = t.name = title; t.press.title = title; if (t.record) t.record.title = title; for (const pl of lib.playlists) if (pl.name === 'Unsorted' || pl.name === '45s' || pl === lib.playlists[0]) pl.records.sort((a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title)); }
+  if (title) { t.title = t.name = title; t.press.title = title; if (t.record) t.record.title = title; for (const pl of lib.playlists) pl.records.sort((a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title, undefined, { numeric: true })); }
   artCache.delete(t.id); artBlobs.delete(t.id); labelArt.delete(t.id); backBlobs.delete(t.id); sideCache.delete(t.id);
   try { fetchArt(t).then(() => { drawCrateScreen(); layoutSleeves(); }); } catch {}
 }
@@ -4188,24 +4225,23 @@ $('#bSrPc').onclick = async () => {
   srSay('Asking the PC…'); box.hidden = true;
   try {
     const j = await (await fetch(base + 'api/narrator', { cache: 'no-store' })).json();
-    const names = (j.records || []).filter(r => r.sv).map(r => r.file.replace(/\.[^.]+$/, ''));
-    if (!names.length) { srSay('The PC has no Spatial Records yet (they appear after a TAKE is stamped and sent).'); return; }
-    box.innerHTML = names.map(n => `<label style="display:flex;gap:8px;align-items:center;grid-template-columns:none"><input type="checkbox" value="${n.replace(/"/g, '&quot;')}" checked> ${n.replace(/</g, '&lt;')}</label>`).join('')
+    const recs = (j.lessons || []).filter(r => r.sv);
+    if (!recs.length) { srSay('The PC has no Spatial Records yet (web\\SpatialVinyl: they appear after a TAKE is stamped and sent).'); return; }
+    box.innerHTML = recs.map((r, i) => `<label style="display:flex;gap:8px;align-items:center;grid-template-columns:none"><input type="checkbox" value="${i}" checked> ${r.series.replace(/</g, '&lt;')} / ${r.name.replace(/</g, '&lt;')}</label>`).join('')
       + '<button class="small" id="bSrGet" style="margin-top:6px">Copy to this headset</button>';
-    box.hidden = false; srSay(`${names.length} on the PC. Tick the ones for this class.`);
+    box.hidden = false; srSay(`${recs.length} on the PC. Tick the ones for this class.`);
     $('#bSrGet').onclick = async () => {
-      const pick = [...box.querySelectorAll('input:checked')].map(i => i.value); let n = 0;
-      for (const name of pick) {
-        srSay(`Copying ${name}… (${n + 1} of ${pick.length})`);
+      const pick = [...box.querySelectorAll('input:checked')].map(i => recs[+i.value]); let n = 0;
+      const get = async p => { const r = await fetch(base + p.split('/').map(encodeURIComponent).join('/'), { cache: 'no-store' }); if (!r.ok) throw new Error(p.split('/').pop() + ': HTTP ' + r.status); return r.blob(); };
+      for (const rec of pick) {
+        srSay(`Copying ${rec.name}… (${n + 1} of ${pick.length})`);
         try {
-          const sv = await (await fetch(base + 'narrator/' + encodeURIComponent(name) + '.sv.json', { cache: 'no-store' })).json();
-          const a = await fetch(base + 'narrator/' + encodeURIComponent(name) + '.webm', { cache: 'no-store' }); if (!a.ok) throw new Error('voice HTTP ' + a.status);
-          const pics = {}, rec = (j.records || []).find(r => r.file.replace(/\.[^.]+$/, '') === name) || {};
-          for (const [k, f] of Object.entries(rec.art || {})) { const q = await fetch(base + 'narrator/' + encodeURIComponent(f), { cache: 'no-store' }); if (q.ok) pics[k] = await q.blob(); }   // #38
-          sv.pc = base; await svImport(name, sv, await a.blob(), pics); svMeta.set(name, { pc: base }); n++;
-        } catch (e) { srSay(`${name}: ${e.message}`); await new Promise(r => setTimeout(r, 1500)); }
+          const sv = JSON.parse(await (await get(rec.path.replace(/\.[^.]+$/, '.sv.json'))).text());
+          const pics = {}; for (const [k, p] of Object.entries(rec.art || {})) try { pics[k] = await get(p); } catch {}
+          sv.pc = base; await svImport(rec.name, sv, await get(rec.path), rec.voice ? await get(rec.voice) : null, pics); svMeta.set(rec.name, { pc: base }); n++;
+        } catch (e) { srSay(`${rec.name}: ${e.message}`); await new Promise(r => setTimeout(r, 1500)); }
       }
-      srSay(`✓ ${n} of ${pick.length} Spatial Records on this headset (crate: Unsorted).`);
+      srSay(`✓ ${n} of ${pick.length} Spatial Records on this headset (crate: one list per lesson).`);
     };
   } catch (e) { srSay('PC not reached at ' + base + ' (' + e.message + '). Is Node running and pinggy up?'); }
 };
@@ -4213,20 +4249,22 @@ $('#bSrFiles').onclick = () => $('#fSr').click();
 $('#fSr').onchange = async e => {
   const files = [...e.target.files], by = new Map(); e.target.value = '';
   for (const f of files) {
-    const m = f.name.match(/^(.*?)(\.sv\.json|\.webm|\.(front|back|label)\.(jpe?g|png))$/i); if (!m) continue;
-    const o = by.get(m[1]) || { pics: {} }; if (m[3]) o.pics[m[3].toLowerCase()] = f; else if (/json/i.test(m[2])) o.sv = f; else o.audio = f; by.set(m[1], o);
+    const m = f.name.match(/^(.*?)(\.sv\.json|\.voice\.mp3|\.mp3|\.(front|back|label)\.(jpe?g|png))$/i); if (!m) continue;
+    const o = by.get(m[1]) || { pics: {} }, x = m[2].toLowerCase();
+    if (m[3]) o.pics[m[3].toLowerCase()] = f; else if (x === '.sv.json') o.sv = f; else if (x === '.voice.mp3') o.voice = f; else o.mp3 = f;
+    by.set(m[1], o);
   }
   let n = 0; const miss = [];
   for (const [name, o] of by) {
-    if (!o.sv || !o.audio) { miss.push(name); continue; }
-    try { await svImport(name, JSON.parse(await o.sv.text()), o.audio, o.pics); n++; } catch (err) { miss.push(name + ' (' + err.message + ')'); }
+    if (!o.sv || !o.mp3) { miss.push(name); continue; }
+    try { await svImport(name, JSON.parse(await o.sv.text()), o.mp3, o.voice || null, o.pics); n++; } catch (err) { miss.push(name + ' (' + err.message + ')'); }
   }
   srSay(`✓ ${n} Spatial Record${n === 1 ? '' : 's'} copied to this headset${miss.length ? '. Missing a file or not valid: ' + miss.join(', ') : ''}.`);
 };
-// export one Spatial Record as two downloads (the Quest's Downloads folder): voice and the collated .sv.json
+// export one Spatial Record as downloads (the Quest's Downloads folder): the MP3 (tags and pictures inside), the voice
+// when it is a mix, and the .sv.json
 async function svExport(name) {
-  const files = [name + '.webm', name + '.sv.json'];
-  for (const k of PIC_SLOTS) if (await hasTakeFile(name + '.' + k + '.jpg')) files.push(name + '.' + k + '.jpg');   // #38
+  const sv = await svRead(name), files = [name + '.mp3', ...(sv && sv.voice ? [sv.voice] : []), name + '.sv.json'];
   for (const f of files) {
     const b = await readTakeFile(f), a = document.createElement('a'), u = URL.createObjectURL(b);
     a.href = u; a.download = f; document.body.appendChild(a); a.click(); a.remove();
@@ -4235,40 +4273,40 @@ async function svExport(name) {
 }
 const srec = { list: [], info: new Map(), pg: 0, busy: '' };
 let imgPick = null;   // #38 { back: page, done(name) }: the IMAGES picker answers the EDIT page instead of Record Maker
-// #31 EDIT a Spatial Record: its narrator (narrator/narrators.json; the whole series on this headset), its transcript,
-// lips made again. SAVE sends it to the PC again (the PC's .sv.json and <series>.vinyl.json follow) and asks for lips.
+// #31 / #38 / #41 EDIT a Spatial Record: narrator (narrator/narrators.json; the whole lesson on this headset), title and
+// pictures (written into the MP3's ID3 tags), transcript, lips again. SAVE sends it to the PC again.
 let NARRATORS = [{ name: 'Dirro', glb: '../models/avatar/DirrogateAvatar_face.glb', face: true, pose: 'relaxed', puppet: true }];
 fetch('narrator/narrators.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(j => { if (j && Array.isArray(j.narrators) && j.narrators.length) NARRATORS = j.narrators; }).catch(() => {});
 async function sredOpen(name) {
+  if (svMig.has(name)) await svMig.get(name);
   const sv = await svRead(name); if (!sv) { toast('Not found: ' + name); return; }
-  const a = (sv.vinyl && sv.vinyl.actors && sv.vinyl.actors[0]) || {};
-  const pic = {}; for (const k of PIC_SLOTS) pic[k] = (await hasTakeFile(name + '.' + k + '.jpg')) ? 'keep' : null;
-  srec.ed = { name, sv, glb: a.glb, txt: sv.transcript || '', redo: false, dirty: false, title: sv.title || name, pic };   // #38 pic: 'keep' | null | IMAGES file name
+  const a = (sv.vinyl && sv.vinyl.actors && sv.vinyl.actors[0]) || {}, tags = await svTags(name);
+  const pic = { front: tags.front ? 'keep' : null, back: tags.back ? 'keep' : null, label: tags.media ? 'keep' : null };
+  srec.ed = { name, sv, glb: a.glb, txt: sv.transcript || '', redo: false, dirty: false, title: tags.title || name, pic, tags };   // pic: 'keep' | null | IMAGES file name
   setTools('sredit');
 }
-function narratorOf(glb) { return NARRATORS.find(n => n.glb === glb) || { name: (glb || '?').split('/').pop().replace(/\.glb$/i, ''), glb }; }
+function narratorOf(glb) { return NARRATORS.find(n => lessonGlb(n.glb) === glb || n.glb === glb) || { name: (glb || '?').split('/').pop().replace(/\.glb$/i, ''), glb }; }
 async function sredSave() {
   const E = srec.ed; if (!E) return;
   if (svBusy.has(E.name)) await svBusy.get(E.name).catch(() => {});   // let a send / lips request in flight finish first
   E.sv = (await svRead(E.name)) || E.sv;
-  const sv = E.sv, nar = narratorOf(E.glb), ser = sv.series || E.name.replace(/_\d+$/, '');
-  const actor = { glb: nar.glb, face: nar.face !== false, pose: nar.pose || 'relaxed', puppet: nar.puppet !== false };
+  const sv = E.sv, nar = narratorOf(E.glb), ser = sv.series || seriesOf(E.name);
+  const actor = { glb: lessonGlb(nar.glb), face: nar.face !== false, pose: nar.pose || 'relaxed', puppet: nar.puppet !== false };
   const txtChanged = (sv.transcript || '') !== E.txt;
-  for (const k of PIC_SLOTS) {   // #38 pictures picked from IMAGES (null = none)
-    if (E.pic[k] === 'keep') continue;
-    if (E.pic[k]) { const f = await media.getFile('Images', E.pic[k]); if (f) await saveTakeFile(E.name + '.' + k + '.jpg', await squareJpeg(f, k === 'label' ? 512 : 1024)); E.pic[k] = 'keep'; }
-    else await removeTakeFile(E.name + '.' + k + '.jpg');
-  }
-  sv.art = {}; for (const k of PIC_SLOTS) if (E.pic[k] === 'keep') sv.art[k] = true;
-  const newTitle = (E.title || E.name).trim().slice(0, 40); sv.title = newTitle;
+  // title and pictures go into the MP3's tags (kept, new from IMAGES, or none)
+  const T = E.tags || {}, slot = async (k, cur, S) => E.pic[k] === 'keep' ? cur : E.pic[k] ? squareJpeg(await media.getFile('Images', E.pic[k]), S) : null;
+  const newTitle = (E.title || E.name).trim().slice(0, 40);
+  const front = await slot('front', T.front, 1024), back = await slot('back', T.back, 1024), label = await slot('label', T.media, 512);
+  await saveTakeFile(E.name + '.mp3', await retag(await readTakeFile(E.name + '.mp3'), { title: newTitle, artist: T.artist || 'Spatial Vinyl', album: ser, front, back, label }));
+  E.tags = await svTags(E.name); for (const k of PIC_SLOTS) if (E.pic[k]) E.pic[k] = 'keep';
   const pr = (await listPressings()).find(p => p.src && p.src.kind === 'take' && p.src.file === E.name); if (pr && pr.title !== newTitle) await updatePressing(pr.id, { title: newTitle });
   svRefresh(E.name, newTitle);
   sv.transcript = E.txt; sv.vinyl = { ...(sv.vinyl || svVinyl(ser)), title: nar.name + ': ' + ser, actors: [actor] };
   if (txtChanged || E.redo) sv.lips = null;
   sv.pc = null; await svWrite(E.name, sv);
-  for (const n of await svList()) {   // the narrator belongs to the series: the other records of it on this headset too
+  for (const n of await svList()) {   // the narrator belongs to the lesson: the other records of it on this headset too
     if (n === E.name) continue; const o = await svRead(n);
-    if (o && (o.series || n.replace(/_\d+$/, '')).toLowerCase() === ser.toLowerCase()) { o.vinyl = sv.vinyl; o.pc = null; await svWrite(n, o); }
+    if (o && (o.series || seriesOf(n)).toLowerCase() === ser.toLowerCase()) { o.vinyl = sv.vinyl; o.pc = null; await svWrite(n, o); }
   }
   lesson.sides.delete(new URL('sv:' + encodeURIComponent(ser), location.href).href);   // reload the narrator next frame
   if (lesson.cur && /^sv:/.test(lesson.cur.url || '')) lesson.show(null);
@@ -4326,6 +4364,10 @@ async function addNarrator(L) {
   for (const u of ['api/narrator', 'narrator/index.json']) {
     try { const r = await fetch(u, { cache: 'no-store' }); if (r.ok && /json/.test(r.headers.get('content-type') || '')) { j = await r.json(); if (u === 'api/narrator') narrApi = true; break; } } catch {}
   }
+  // #41 the lesson folders (web\SpatialVinyl\<lesson>\): from api/narrator, or SpatialVinyl/index.json on GitHub
+  let lessons = j && j.lessons;
+  if (!lessons) try { const r = await fetch('SpatialVinyl/index.json', { cache: 'no-store' }); if (r.ok) lessons = (await r.json()).records; } catch {}
+  addLessonFolders(L, lessons || []);
   if (!j || !Array.isArray(j.records) || !j.records.length) return;
   const series = new Map((j.series || []).map(x => [String(x).toLowerCase(), x]));
   let dest = L.playlists.find(p => p.name === 'Narrator');
@@ -4344,10 +4386,28 @@ async function addNarrator(L) {
   }
   dest.records.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
 }
+// SpatialED #41 records streamed from the PC's lesson folders: one crate list per folder (the same list as that lesson's
+// records stored on this headset); a record already on this headset (a Spatial Record pressing) is not listed twice
+function addLessonFolders(L, recs) {
+  const enc = p => p.split('/').map(encodeURIComponent).join('/');
+  for (const it of recs) {
+    const id = 'sv_' + it.series + '_' + it.name; if (!it.path || L.tracks.has(id)) continue;
+    if ([...L.tracks.values()].some(x => x.press && x.press.src && x.press.src.kind === 'take' && x.press.src.file.toLowerCase() === it.name.toLowerCase())) continue;
+    let dest = L.playlists.find(q => q.name === it.series);
+    if (!dest) { dest = { name: it.series, path: it.series + ' (Spatial Vinyl lesson)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, dest); }
+    const base = it.path.replace(/\.[^.]+$/, ''), url = enc(it.path);
+    const r = { id: 'r' + id, size: 12, title: it.name, artist: 'Spatial Vinyl', sides: { A: null, B: null }, bpm: 0, key: '', genre: 'Lesson', duration: 0, missing: false, paired: false, unsorted: true, narrator: true };
+    const t = { id, name: it.name, title: it.name, side: 'A', split: false, artist: 'Spatial Vinyl', album: it.series, genre: 'Lesson', key: '', bpm: 0, duration: 0,
+      location: url, url, opfs: null, missing: false, cues: [], unsorted: true, record: r,
+      lesson: it.lesson ? enc(it.lesson) : null, lips: enc(base + '.lips.json'), motion: it.sv ? enc(base + '.sv.json') : null };
+    r.sides.A = t; L.tracks.set(id, t); L.records.push(r); dest.records.push(r); L.playlists[0].records.push(r);
+    dest.records.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
+  }
+}
 // pressed records join the 'Unsorted (on this headset)' list (made if there is none) and the Collection
 function addPressings(L, list) {
   let un = L.playlists.find(p => p.name === 'Unsorted');
-  if (!un) { un = { name: 'Unsorted', path: 'Unsorted (on this headset)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, un); }
+  const needUn = () => { if (!un) { un = { name: 'Unsorted', path: 'Unsorted (on this headset)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, un); } return un; };   // #41 only when a record goes there
   let last = null;
   for (const p of list) {
     const id = 'pr_' + p.id, s = p.src || {};
@@ -4355,38 +4415,37 @@ function addPressings(L, list) {
     const t = { id, name: p.title, title: p.title, side: null, split: false, artist: s.kind === 'song' ? (s.artist || 'Pressed') : 'Pressed on Cly3DJ', album: '', genre: '', key: '', bpm: s.bpm || 0, duration: 0,
       location: 'press:' + p.id, url: s.url || null, opfs: s.opfs || null, missing: false, cues: [], unsorted: true, press: p };
     if (s.kind === 'video') t.pressVideo = s.video;
-    if (s.kind === 'take' && s.v === 2) {   // SpatialED #29 a Spatial Record on this headset (two files, take.js)
-      t.artist = 'Narrator'; t.genre = 'Narrator'; t.url = null;
+    if (s.kind === 'take') {   // SpatialED #41 a Spatial Record on this headset (SpatialVinyl/<series>/, take.js); older ones are moved there once
+      t.artist = 'Narrator'; t.genre = 'Narrator'; t.url = null; s.series = s.series || seriesOf(s.file);
       t.lesson = 'sv:' + encodeURIComponent(s.series); t.lips = 'sv:' + encodeURIComponent(s.file); t.motion = 'sv:' + encodeURIComponent(s.file);
       const k = s.series.toLowerCase(), was = svSeries.get(k); if (!was || was.localeCompare(s.file, undefined, { numeric: true }) < 0) svSeries.set(k, s.file);
+      if (s.v !== 3) svMigrate(s, p.title).then(() => updatePressing(p.id, { src: { ...s, v: 3 } })).catch(() => {});
       svRead(s.file).then(sv => { if (sv) svMeta.set(s.file, { pc: sv.pc }); });
-    } else if (s.kind === 'take') {   // #31 a take stamped before #29 (#24 / #28): made into a Spatial Record from its sed-takes files
-      t.artist = 'Narrator'; t.genre = 'Narrator'; t.url = null;
-      t.lesson = 'sv:' + encodeURIComponent(s.series); t.lips = 'sv:' + encodeURIComponent(s.file); t.motion = 'sv:' + encodeURIComponent(s.file);
-      const k = s.series.toLowerCase(), was = svSeries.get(k); if (!was || was.localeCompare(s.file, undefined, { numeric: true }) < 0) svSeries.set(k, s.file);
-      svMigrate(s).then(() => svRead(s.file)).then(sv => { if (sv) svMeta.set(s.file, { pc: sv.pc }); });
     }
     const r = { id: 'r' + id, title: p.title, artist: t.artist, sides: { A: t, B: null }, bpm: t.bpm, key: '', genre: '', duration: 0, missing: false, paired: false, unsorted: true, pressed: true, size: p.size === 7 ? 7 : 12 };
-    let dest = un;   // #261 pressed 45s go to the 45s list
-    if (r.size === 7) { dest = L.playlists.find(q => q.name === '45s'); if (!dest) { dest = { name: '45s', path: '45s (7" singles on this headset)', records: [] }; L.playlists.push(dest); } }
+    let dest = null;   // #261 pressed 45s go to the 45s list
+    if (s.kind === 'take') { const nm = s.series || seriesOf(s.file); dest = L.playlists.find(q => q.name === nm); if (!dest) { dest = { name: nm, path: nm + ' (Spatial Vinyl lesson)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, dest); } }   // #41 one crate list per lesson
+    if (r.size === 7 && s.kind !== 'take') { dest = L.playlists.find(q => q.name === '45s'); if (!dest) { dest = { name: '45s', path: '45s (7" singles on this headset)', records: [] }; L.playlists.push(dest); } }
+    if (!dest) dest = needUn();
     t.record = r; L.tracks.set(id, t); L.records.push(r); dest.records.push(r); L.playlists[0].records.push(r); last = r;
   }
   const byT = (a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title);
-  un.records.sort(byT); L.playlists[0].records.sort(byT);
+  if (un) un.records.sort(byT); L.playlists[0].records.sort(byT);
   const p45 = L.playlists.find(q => q.name === '45s'); if (p45) p45.records.sort(byT);
+  for (const pl of L.playlists) if (/\(Spatial Vinyl lesson\)$/.test(pl.path)) pl.records.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));   // #41
   return last;
 }
 async function pressArt(track) {
   if (artCache.has(track.id)) return artCache.get(track.id);
   let art = null;
   const s = track.press.src || {};
-  if (s.kind === 'take' && s.v === 2) {   // SpatialED #38 a Spatial Record's own pictures: front (sleeve front, and label unless it has one), back, label
-    const get = async k => (await hasTakeFile(s.file + '.' + k + '.jpg')) ? readTakeFile(s.file + '.' + k + '.jpg') : null;
+  if (s.kind === 'take') {   // SpatialED #41 a Spatial Record: the pictures in its MP3's tags (front 3, back 4, label = Media 6)
+    if (svMig.has(s.file)) await svMig.get(s.file);
+    const tag = await svTags(s.file);
     try {
-      const f = await get('front'), b = await get('back'), l = await get('label');
-      if (f) { art = await createImageBitmap(f); artBlobs.set(track.id, f); }
-      if (b) backBlobs.set(track.id, b); else backBlobs.delete(track.id);
-      if (l) labelArt.set(track.id, await createImageBitmap(l)); else labelArt.delete(track.id);
+      if (tag.front) { art = await createImageBitmap(tag.front); artBlobs.set(track.id, tag.front); }
+      if (tag.back) backBlobs.set(track.id, tag.back); else backBlobs.delete(track.id);
+      if (tag.media) labelArt.set(track.id, await createImageBitmap(tag.media)); else labelArt.delete(track.id);
     } catch (e) { console.warn('spatial record pictures', e); }
     if (art) { artCache.set(track.id, art); return art; }
   }
@@ -4396,7 +4455,7 @@ async function pressArt(track) {
 async function pressBytes(track) {
   const s = track.press.src || {};
   if (s.kind === 'blank') return blankWav();
-  if (s.kind === 'take') return (await readTakeFile(s.file + '.webm')).arrayBuffer();   // #24 / #29 / #31 always this headset's copy
+  if (s.kind === 'take') { if (svMig.has(s.file)) await svMig.get(s.file); return (await readTakeFile(s.file + '.mp3').catch(() => readTakeFile(s.file + '.webm'))).arrayBuffer(); }   // #41 the MP3 on this headset
   if (s.kind === 'video') { const f = await media.getFile('Video', s.video); if (!f) throw new Error(`the clip ${s.video} is no longer on this headset`); return f.arrayBuffer(); }
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
@@ -4595,10 +4654,11 @@ function drawToolsPage() {
     const y1 = y0 + bh + 54;
     btn(L, y1, bw * 2 + 6, 40, 'NAME…  ' + takeName(), false, () => openKbd('SERIES_N (e.g. DIRRO_INTRO_1)', maker.name, false, 40, t => { maker.name = t.trim(); }, 'take'), false, 15);
     btn(L + 2 * (bw + 6), y1, bw * 2 + 6, 40, maker.txt ? 'TRANSCRIPT ✓' : 'TRANSCRIPT…', !!maker.txt, () => openKbd('TRANSCRIPT (optional)', maker.txt, false, 600, t => { maker.txt = t.trim(); }, 'take'), false, 15);
-    btn(L, y1 + 48, bw * 2 + 6, 40, 'PC…  ' + (pcBase() || 'none').replace(/^https?:\/\//, ''), false, () => openKbd('PC ADDRESS (EMPTY = NONE)', (settings.pcUrl == null ? PC_DEFAULT : settings.pcUrl).toUpperCase(), 'url', 90, t => { settings.pcUrl = t.trim().toLowerCase(); saveSettings(); }, 'take'), false, 14);   // #29
-    btn(L + 2 * (bw + 6), y1 + 48, bw * 2 + 6, 40, 'SPATIAL RECORDS…', false, () => { srec.pg = 0; setTools('srec'); srecLoad(); }, false, 15);
+    btn(L, y1 + 48, bw, 40, S.source === 'mix' ? 'REC: MIX' : 'REC: VOICE', S.source === 'mix', () => { if (S.state !== 'rec') { S.source = S.source === 'mix' ? 'voice' : 'mix'; drawMixScreen(); } }, false, 15);   // #41 voice only, or the mix as heard (music + voice)
+    btn(L + bw + 6, y1 + 48, bw * 1.5 + 3, 40, 'PC…  ' + (pcBase() || 'none').replace(/^https?:\/\//, ''), false, () => openKbd('PC ADDRESS (EMPTY = NONE)', (settings.pcUrl == null ? PC_DEFAULT : settings.pcUrl).toUpperCase(), 'url', 90, t => { settings.pcUrl = t.trim().toLowerCase(); saveSettings(); }, 'take'), false, 14);   // #29
+    btn(L + 2.5 * (bw + 6), y1 + 48, bw * 1.5 + 3, 40, 'SPATIAL RECORDS…', false, () => { srec.pg = 0; setTools('srec'); srecLoad(); }, false, 15);
     btn(L, y1 + 96, R - L, 46, has ? 'DONE: BACK TO STAMP' : 'CLOSE', has, () => { S.stopAll(); if (!has) { S.close(); maker.kind = 'blank'; } else { S.close(); } setTools('maker'); }, false, 19);
-    note('Controllers down, hands tracked. CALIBRATE: stand naturally 1 s. REC: voice (through the mixer) + head + hands. Records are named <series>_<n>. STAMP keeps it on this headset (Spatial Records) and sends it to the PC for Rhubarb lips.' + (narrApi ? '' : ' PC: the pinggy address of your PC (this page came from elsewhere).'), y1 + 158);
+    note('Controllers down, hands tracked. CALIBRATE: stand naturally 1 s. REC: voice (through the mixer) + head + hands. Records are named <series>_<n> (the lesson). REC: VOICE records your voice; REC: MIX records what you hear (music + voice; the voice is kept apart for the lips). STAMP makes an MP3 on this headset (SpatialVinyl/<lesson>) and sends it to the PC for Rhubarb lips.' + (narrApi ? '' : ' PC: the pinggy address of your PC (this page came from elsewhere).'), y1 + 158);
     return;
   }
   if (page === 'class') {   // SpatialED #11 classroom: the code students type, START / STOP, who is in
@@ -5475,7 +5535,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { sv: { sredOpen, sredSave, get NARRATORS() { return NARRATORS; }, svLips, svExport, pcBase, srecLoad, srec, svSeries, svMeta, addPressings, get lesson() { return lesson; } }, THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { sv: { svImport, svExport, svMigrate, sredOpen, sredSave, get NARRATORS() { return NARRATORS; }, svLips, svExport, pcBase, srecLoad, srec, svSeries, svMeta, addPressings, get lesson() { return lesson; } }, THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {

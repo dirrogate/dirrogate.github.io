@@ -1,0 +1,27 @@
+{
+ "v": 1,
+ "records": [
+  {
+   "path": "SpatialVinyl/Dirro_fourscore/Dirro_fourscore_1.mp3",
+   "name": "Dirro_fourscore_1",
+   "series": "Dirro_fourscore",
+   "lesson": "SpatialVinyl/Dirro_fourscore/Dirro_fourscore.vinyl.json",
+   "voice": null,
+   "art": {},
+   "lips": true,
+   "txt": true,
+   "sv": false
+  },
+  {
+   "path": "SpatialVinyl/Dirro_fourscore/Dirro_fourscore_2.mp3",
+   "name": "Dirro_fourscore_2",
+   "series": "Dirro_fourscore",
+   "lesson": "SpatialVinyl/Dirro_fourscore/Dirro_fourscore.vinyl.json",
+   "voice": null,
+   "art": {},
+   "lips": true,
+   "txt": true,
+   "sv": false
+  }
+ ]
+}

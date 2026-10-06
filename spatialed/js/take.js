@@ -6,43 +6,96 @@
 //    +z, the narrator's front) and your eye height.
 //  - Motion is stored in that take frame, ~30 frames a second: head (position, turn), each hand (wrist, fingers
 //    direction, index -> pinky direction, the 21 hand-tracking joints when hands are tracked).
-//  - Audio: MediaRecorder on the mic's output (webm / opus). Kept in this device's storage, folder sed-takes.
+//  - Audio (#41): raw samples from the graph (rec-worklet.js): the voice, and the mix as heard; MP3 at STAMP (main.js).
 import * as THREE from 'three';
 import { Avatar, xrPose, HANDS_J } from './director.js';
 
-const ROOT = 'Spatial Records', OLD_ROOT = 'sed-takes', MIRROR_DIST = 1.3, FPS = 30, MODEL = 'models/avatar/DirrogateAvatar_face.glb';
+const ROOT = 'SpatialVinyl', V1_ROOT = 'Spatial Records', OLD_ROOT = 'sed-takes', MIRROR_DIST = 1.3, FPS = 30, MODEL = 'models/avatar/DirrogateAvatar_face.glb';
 const R3 = v => Math.round(v * 1000) / 1000;
 
-// #29 a Spatial Record on this headset = two files in the browser's own storage, folder "Spatial Records":
-//   <name>.webm     the voice
-//   <name>.sv.json  { v: 1, kind: 'spatial-record', name, series, made, duration, audio, vinyl (the narrator side),
-//                     motion (head + hands), lips (Rhubarb cues, null until the PC made them), transcript, pc }
-async function dir(root = ROOT) { return (await navigator.storage.getDirectory()).getDirectoryHandle(root, { create: true }); }
+// #41 Spatial Vinyl on this headset (and the same on the PC, web\SpatialVinyl): one folder per lesson (the series),
+//   SpatialVinyl/<series>/<name>.mp3        the record: mix or voice, with ID3 title and pictures (front 3, back 4,
+//                                            label = Media 6), so MP3Tag can edit it and any player can play it
+//   SpatialVinyl/<series>/<name>.voice.mp3  the voice alone when the record is a mix (Rhubarb's input)
+//   SpatialVinyl/<series>/<name>.sv.json    { v: 2, kind: 'spatial-record', name, series, made, duration, audio, voice,
+//                                            source, vinyl (the narrator side, GLB paths relative to the lesson
+//                                            folder), motion, lips, transcript, pc }
+// Read-only fallbacks: #29 "Spatial Records" (flat, .webm + .sv.json + .jpg pictures), #24 "sed-takes".
+export const seriesOf = f => f.replace(/\..*$/, '').replace(/_\d+$/, '');
+async function root(name, create = true) { return (await navigator.storage.getDirectory()).getDirectoryHandle(name, { create }); }
+async function folder(file, create = true) { return (await root(ROOT, create)).getDirectoryHandle(seriesOf(file), { create }); }
 export async function saveTakeFile(name, data) {
-  const fh = await (await dir()).getFileHandle(name, { create: true }), w = await fh.createWritable();
+  const fh = await (await folder(name)).getFileHandle(name, { create: true }), w = await fh.createWritable();
   await w.write(data); await w.close();
 }
 export async function readTakeFile(name) {
-  try { return await (await (await dir()).getFileHandle(name)).getFile(); }
-  catch (e) { return (await (await dir(OLD_ROOT)).getFileHandle(name)).getFile(); }   // #24 takes made before #29
+  try { return await (await (await folder(name, false)).getFileHandle(name)).getFile(); } catch {}
+  for (const r of [V1_ROOT, OLD_ROOT]) try { return await (await (await root(r, false)).getFileHandle(name)).getFile(); } catch {}
+  throw new Error(name + ' is not on this headset');
 }
-export async function removeTakeFile(name) { try { await (await dir()).removeEntry(name); } catch {} }   // #38
-export async function hasTakeFile(name) { try { await (await dir()).getFileHandle(name); return true; } catch { return false; } }
-export const PIC_SLOTS = ['front', 'back', 'label'];   // #38 <name>.front.jpg (sleeve front), .back.jpg, .label.jpg (else the front)
-export async function svRead(name) { try { return JSON.parse(await (await readTakeFile(name + '.sv.json')).text()); } catch { return null; } }
+export async function removeTakeFile(name) { try { await (await folder(name, false)).removeEntry(name); } catch {} }
+export async function hasTakeFile(name) { try { await (await folder(name, false)).getFileHandle(name); return true; } catch { return false; } }
+export async function hasOldFile(name) { for (const r of [V1_ROOT, OLD_ROOT]) try { await (await root(r, false)).getFileHandle(name); return true; } catch {} return false; }
+export const PIC_SLOTS = ['front', 'back', 'label'];
+export async function svRead(name) {   // v2 only (SpatialVinyl); the caller migrates older ones
+  try { return JSON.parse(await (await (await (await folder(name, false)).getFileHandle(name + '.sv.json')).getFile()).text()); } catch { return null; }
+}
+export async function svReadOld(name) { try { return JSON.parse(await (await (await (await root(V1_ROOT, false)).getFileHandle(name + '.sv.json')).getFile()).text()); } catch { return null; } }
 export async function svWrite(name, sv) { await saveTakeFile(name + '.sv.json', JSON.stringify(sv)); }
 export async function svList() {
-  const out = []; for await (const [n] of (await dir()).entries()) if (/\.sv\.json$/.test(n)) out.push(n.replace(/\.sv\.json$/, ''));
+  const out = [];
+  try { for await (const [d, h] of (await root(ROOT)).entries()) if (h.kind === 'directory') for await (const [n] of h.entries()) if (/\.sv\.json$/.test(n)) out.push(n.replace(/\.sv\.json$/, '')); } catch {}
   return out.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
+export const lessonGlb = g => g && /^\.\.\//.test(g) && !/^\.\.\/\.\.\//.test(g) ? '../' + g : g;   // narrator/-relative -> SpatialVinyl/<series>/-relative
 export const svVinyl = series => ({ version: 1, title: 'Dirro: ' + series, persist: true, board: false, credits: '',
   stage: { position: [0, 0, -2.0], rotationY: 0, scale: 1, plinth: 0.6 },
-  actors: [{ glb: '../models/avatar/DirrogateAvatar_face.glb', face: true, pose: 'relaxed', puppet: true }] });   // glb relative to narrator/
+  actors: [{ glb: '../../models/avatar/DirrogateAvatar_face.glb', face: true, pose: 'relaxed', puppet: true }] });   // glb relative to the lesson folder
+
+// ---------------------------------------------------------------- WAV, MP3, ID3 (#41)
+export function wavBlob(pcm, ch, rate) {
+  const h = new DataView(new ArrayBuffer(44)), n = pcm.length * 2, w = (o, s) => { for (let i = 0; i < 4; i++) h.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); h.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); h.setUint32(16, 16, true); h.setUint16(20, 1, true); h.setUint16(22, ch, true);
+  h.setUint32(24, rate, true); h.setUint32(28, rate * ch * 2, true); h.setUint16(32, ch * 2, true); h.setUint16(34, 16, true); w(36, 'data'); h.setUint32(40, n, true);
+  return new Blob([h.buffer, pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + n)], { type: 'audio/wav' });
+}
+let mp3w = null, mp3id = 0; const mp3wait = new Map();
+export function encodeMp3(pcm, ch, rate, kbps) {
+  if (!mp3w) { mp3w = new Worker(new URL('./mp3-worker.js', import.meta.url)); mp3w.onmessage = e => { const r = mp3wait.get(e.data.id); mp3wait.delete(e.data.id); if (r) e.data.error ? r[1](new Error(e.data.error)) : r[0](e.data.mp3); }; }
+  return new Promise((res, rej) => { const id = ++mp3id; mp3wait.set(id, [res, rej]); const c = pcm.slice(); mp3w.postMessage({ id, pcm: c, ch, rate, kbps }, [c.buffer]); });
+}
+// an ID3v2.3 tag: title, artist, album, and pictures (front = Cover (front) 3, back = Cover (back) 4, label = Media 6)
+export async function id3Tag({ title = '', artist = '', album = '', front = null, back = null, label = null }) {
+  const enc = new TextEncoder(), frames = [];
+  const frame = (id, body) => { const h = new Uint8Array(10); h.set(enc.encode(id)); const n = body.length; h[4] = n >>> 24; h[5] = (n >>> 16) & 255; h[6] = (n >>> 8) & 255; h[7] = n & 255; frames.push(h, body); };
+  const text = s => { const u = new Uint8Array(1 + 2 + s.length * 2); u[0] = 1; u[1] = 0xFF; u[2] = 0xFE; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); u[3 + 2 * i] = c & 255; u[4 + 2 * i] = c >> 8; } return u; };   // UTF-16 with BOM
+  if (title) frame('TIT2', text(title)); if (artist) frame('TPE1', text(artist)); if (album) frame('TALB', text(album));
+  for (const [blob, type, desc] of [[front, 3, 'Cover (front)'], [back, 4, 'Cover (back)'], [label, 6, 'Label A']]) {
+    if (!blob) continue;
+    const img = new Uint8Array(await blob.arrayBuffer()), mime = enc.encode(blob.type || 'image/jpeg'), d = enc.encode(desc);
+    const body = new Uint8Array(1 + mime.length + 1 + 1 + d.length + 1 + img.length); let o = 0;
+    body[o++] = 0; body.set(mime, o); o += mime.length; body[o++] = 0; body[o++] = type; body.set(d, o); o += d.length; body[o++] = 0; body.set(img, o);
+    frame('APIC', body);
+  }
+  let size = 0; for (const f of frames) size += f.length;
+  const tag = new Uint8Array(10 + size); tag.set(enc.encode('ID3')); tag[3] = 3; tag[4] = 0; tag[5] = 0;
+  tag[6] = (size >>> 21) & 127; tag[7] = (size >>> 14) & 127; tag[8] = (size >>> 7) & 127; tag[9] = size & 127;
+  let o = 10; for (const f of frames) { tag.set(f, o); o += f.length; }
+  return tag;
+}
+export function stripId3(u8) {   // the audio after any leading ID3v2 tag(s)
+  let o = 0;
+  while (u8.length - o > 10 && u8[o] === 0x49 && u8[o + 1] === 0x44 && u8[o + 2] === 0x33) {
+    const sz = (u8[o + 6] << 21) | (u8[o + 7] << 14) | (u8[o + 8] << 7) | u8[o + 9]; o += 10 + sz + ((u8[o + 5] & 0x10) ? 10 : 0);
+  }
+  return u8.subarray(o);
+}
+export async function retag(mp3Blob, tags) { const a = stripId3(new Uint8Array(await mp3Blob.arrayBuffer())); return new Blob([await id3Tag(tags), a], { type: 'audio/mpeg' }); }
 
 export class TakeStudio {
   constructor({ renderer, scene, rig, engine, getInputs, toast, ensureMic, onChange }) {
     Object.assign(this, { renderer, scene, rig, engine, getInputs, toast, ensureMic, onChange });
-    this.state = 'closed'; this.msg = ''; this.skeleton = false; this.frames = []; this.blob = null; this.duration = 0; this.calib = null;
+    this.state = 'closed'; this.msg = ''; this.skeleton = false; this.frames = []; this.pcm = null; this.duration = 0; this.calib = null; this.source = 'voice';
   }
   say(m) { this.msg = m; this.onChange && this.onChange(); }
 
@@ -71,38 +124,55 @@ export class TakeStudio {
     this.state = 'calib'; this.cal = { t0: performance.now(), n: 0, p: new THREE.Vector3(), f: new THREE.Vector3(), eye: 0 };
     this.say('Calibrating: stand naturally, look ahead…');
   }
+  // #41 REC: raw samples from the graph (rec-worklet.js): the voice (mixer MIC after pitch / effects) and the mix as
+  // heard (master after the limiter). source 'voice' or 'mix' chooses which becomes the record; the voice is always
+  // kept for the lips. Head and hands are stamped on the same AudioContext clock as the first recorded sample.
   async record() {
     if (!this.calib) { this.say('CALIBRATE first.'); return; }
     if (this.state === 'rec') return;
     try { await this.ensureMic(); } catch (e) { this.say('No microphone: ' + e.message); return; }
-    const m = this.engine.mic; if (!m) { this.say('The MIC is not open (Settings: Mic route "Through the mixer").'); return; }
-    this.dest = this.dest || this.engine.ctx.createMediaStreamDestination(); m.on.connect(this.dest);
-    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-    this.chunks = []; this.frames = []; this.blob = null;
-    const rec = this.rec = new MediaRecorder(this.dest.stream, { mimeType: mime, audioBitsPerSecond: 96000 });
-    rec.ondataavailable = e => { if (e.data && e.data.size) this.chunks.push(e.data); };
-    rec.onstop = () => {
-      this.blob = new Blob(this.chunks, { type: mime }); this.duration = (performance.now() - this.t0) / 1000;
-      try { m.on.disconnect(this.dest); } catch {}
-      this.state = 'review'; this.say(`Take: ${this.duration.toFixed(1)} s. PLAY to check, REC again to retake, or DONE.`);
-    };
-    rec.onstart = () => { this.t0 = performance.now(); this.lastF = -1; this.state = 'rec'; this.say('● Recording: speak and gesture. STOP when done.'); };
-    rec.start(250);
+    const E = this.engine, m = E.mic, ctx = E.ctx; if (!m) { this.say('The MIC is not open (Settings: Mic route "Through the mixer").'); return; }
+    if (!this.node) {
+      await ctx.audioWorklet.addModule(new URL('./rec-worklet.js', import.meta.url));
+      this.node = new AudioWorkletNode(ctx, 'sed-rec', { numberOfInputs: 2, numberOfOutputs: 1, outputChannelCount: [1] });
+      this.sink = ctx.createGain(); this.sink.gain.value = 0; this.node.connect(this.sink).connect(ctx.destination);   // pulled by the graph, silent
+      this.node.port.onmessage = e => this.onRec(e.data);
+    }
+    try { m.on.connect(this.node, 0, 0); } catch {}
+    try { E.limiter.connect(this.node, 0, 1); } catch {}
+    this.vParts = []; this.mParts = []; this.frames = []; this.pcm = null; this.t0 = null; this.lastF = -1; this.rate = ctx.sampleRate;
+    this.state = 'rec'; this.say('● Recording' + (this.source === 'mix' ? ' the mix (music + voice)' : ' your voice') + ': speak and gesture. STOP when done.');
+    this.node.port.postMessage('start');
   }
-  stop() { if (this.state === 'rec' && this.rec && this.rec.state !== 'inactive') this.rec.stop(); }
+  onRec(d) {
+    if (d.t0 != null) this.t0 = d.t0;
+    if (d.v) { this.vParts.push(d.v); this.mParts.push(d.m); }
+    if (d.done) {
+      const cat = parts => { let n = 0; for (const p of parts) n += p.length; const o = new Int16Array(n); let k = 0; for (const p of parts) { o.set(p, k); k += p.length; } return o; };
+      const voice = cat(this.vParts), mix = cat(this.mParts); this.vParts = this.mParts = [];
+      try { this.engine.mic && this.engine.mic.on.disconnect(this.node); } catch {}
+      try { this.engine.limiter.disconnect(this.node); } catch {}
+      this.pcm = { rate: this.rate, voice, mix: this.source === 'mix' ? mix : null };
+      this.duration = voice.length / this.rate;
+      this.state = 'review'; this.say(`Take: ${this.duration.toFixed(1)} s${this.source === 'mix' ? ' (mix)' : ''}. PLAY to check, REC again to retake, or DONE.`);
+    }
+  }
+  stop() { if (this.state === 'rec' && this.node) this.node.port.postMessage('stop'); }
+  audioNow() { return this.state === 'rec' && this.t0 != null ? this.engine.ctx.currentTime - this.t0 : null; }
   play() {
-    if (!this.blob) return;
+    if (!this.pcm) return;
     this.stopPlay();
-    const a = this.audio = new Audio(URL.createObjectURL(this.blob));
+    const P = this.pcm, b = P.mix ? wavBlob(P.mix, 2, P.rate) : wavBlob(P.voice, 1, P.rate);
+    const a = this.audio = new Audio(URL.createObjectURL(b));
     a.onended = () => { this.state = 'review'; this.say('PLAY again, REC to retake, or DONE.'); };
     a.play().then(() => { this.state = 'play'; this.say('▶ Playing back the take on the mirror'); }).catch(e => this.say('Playback failed: ' + e.message));
   }
   stopPlay() { if (this.audio) { try { this.audio.pause(); URL.revokeObjectURL(this.audio.src); } catch {} this.audio = null; } }
   stopAll() { this.stop(); this.stopPlay(); }
-  // the finished take: audio blob and the motion JSON (null until a take is recorded)
+  // the finished take: the PCM (voice, and the mix when recorded) and the motion (null until a take is recorded)
   result() {
-    if (!this.blob) return null;
-    return { blob: this.blob, ext: 'webm', duration: this.duration,
+    if (!this.pcm) return null;
+    return { pcm: this.pcm, source: this.pcm.mix ? 'mix' : 'voice', duration: this.duration,
       motion: { v: 1, rate: FPS, eye: R3(this.calib.eye), joints: HANDS_J, duration: R3(this.duration), frames: this.frames } };
   }
 
@@ -121,10 +191,8 @@ export class TakeStudio {
         this.state = 'idle'; this.say(`Calibrated: eye height ${(this.calib.eye * 100).toFixed(0)} cm. REC to record.`);
       }
     }
-    if (this.state === 'rec' && now - this.t0 >= (this.lastF + 1) * (1000 / FPS)) {
-      this.lastF = Math.floor((now - this.t0) / (1000 / FPS));
-      this.frames.push(this.toTake(live, (now - this.t0) / 1000));
-    }
+    const ta = this.audioNow();   // #41 seconds since the first recorded sample (audio clock)
+    if (ta != null && ta >= (this.lastF + 1) / FPS) { this.lastF = Math.floor(ta * FPS); this.frames.push(this.toTake(live, ta)); }
     // the mirror: live, or the recording while it plays back
     let pose = live;
     if (this.state === 'play' && this.audio && this.calib) pose = this.fromTake(sampleMotion({ frames: this.frames, joints: HANDS_J }, this.audio.currentTime));

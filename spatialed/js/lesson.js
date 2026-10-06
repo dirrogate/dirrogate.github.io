@@ -159,7 +159,8 @@ export class LessonPlayer {
         const j = /^sv:/.test(rel) ? (this.store ? await this.store.motion(rel) : null)
           : /^opfs-take:/.test(rel) ? JSON.parse(await (await readTakeFile(rel.slice(10) + '.motion.json')).text())
           : await fetch(new URL(rel, location.href).href, { cache: 'no-cache' }).then(r => r.ok ? r.json() : null);
-        if (j && j.frames && j.frames.length) { e.M = j; e.status = 'ready'; } else e.status = 'failed';
+        const M = j && !j.frames && j.motion ? j.motion : j;   // #41 a whole .sv.json: its motion
+        if (M && M.frames && M.frames.length) { e.M = M; e.status = 'ready'; } else e.status = 'failed';
       })().catch(() => { e.status = 'failed'; });
     }
     return e.M;
@@ -330,7 +331,7 @@ async function load(url, local) {
   let side, base;
   if (/^sv:/.test(url)) {   // #29 a Spatial Record's narrator, from this headset's storage; its GLB paths are relative to narrator/
     if (!local) throw new Error('no Spatial Records here');
-    side = await local.side(url); base = new URL('narrator/', location.href);
+    side = await local.side(url); base = new URL('SpatialVinyl/' + url.slice(3) + '/', location.href);   // #41 GLB paths relative to the lesson folder
   } else {
     const r = await fetch(url, { cache: 'no-cache' });
     if (!r.ok) throw new Error(`${url.split('/').pop()}: HTTP ${r.status}`);
