@@ -4071,6 +4071,7 @@ async function svUpload(name, sv, base) {
   const up = (kind, body) => fetch(`${base}api/take?name=${encodeURIComponent(name)}&kind=${kind}`, { method: 'POST', body }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); });
   if (sv.transcript) await up('txt', sv.transcript);
   await up('motion', JSON.stringify(sv.motion));
+  await up('sv', JSON.stringify({ ...sv, pc: null }));   // #30 the PC keeps the combined file too (Rhubarb adds its lips there)
   await up('audio', await readTakeFile(name + '.webm'));
   sv.pc = base; await svWrite(name, sv); svMeta.set(name, { pc: base });
 }
@@ -4091,7 +4092,7 @@ async function svLips1(name) {
     if (r.status === 404) { sv.pc = null; await svWrite(name, sv); return null; }   // gone from the PC: sent again next time
     if (!r.ok) return null;
     const j = await r.json(); if (!j || !j.cues) return null;
-    sv.lips = j; await svWrite(name, sv); return j;
+    sv.lips = j; await svWrite(name, sv); return j;   // (the PC's copy got the lips from Rhubarb itself, #30)
   } catch (e) { console.warn('spatial record lips', name, e); return null; }
 }
 lesson.local = {
@@ -4103,6 +4104,59 @@ lesson.local = {
     if (!m || !m.pc) return null;
     return m.pc + 'narrator/' + encodeURIComponent(kind === 'side' ? id : name) + (kind === 'side' ? '.vinyl.json' : kind === 'lips' ? '.lips.json' : '.motion.json');
   },
+};
+// SpatialED #30 copy Spatial Records onto this headset (start page): from the PC's narrator folder, or picked files
+// (<name>.webm + <name>.sv.json). Each becomes a record in the crate (Unsorted) unless it is there already.
+async function svImport(name, sv, audio) {
+  if (!sv || sv.kind !== 'spatial-record' || !sv.motion) throw new Error(name + '.sv.json is not a Spatial Record');
+  sv.name = name; sv.series = sv.series || name.replace(/_\d+$/, '');
+  await saveTakeFile(name + '.webm', audio); await svWrite(name, sv);
+  const have = (await listPressings()).some(p => p.src && p.src.kind === 'take' && p.src.file === name);
+  if (have) return 'updated';
+  const p = await savePressing({ id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), title: name, src: { kind: 'take', v: 2, file: name, series: sv.series, duration: sv.duration || 0 }, made: Date.now(), size: 12 }, null);
+  if (lib) { addPressings(lib, [p]); try { drawCrateScreen(); layoutSleeves(); } catch {} }
+  return 'added';
+}
+function srSay(t) { $('#srStatus').textContent = t; }
+$('#sPcUrl').value = settings.pcUrl == null ? PC_DEFAULT : settings.pcUrl;
+$('#sPcUrl').onchange = e => { settings.pcUrl = e.target.value.trim(); saveSettings(); };
+$('#bSrPc').onclick = async () => {
+  const base = pcBase(), box = $('#srPcList'); if (!base) { srSay('Type the PC address first.'); return; }
+  srSay('Asking the PC…'); box.hidden = true;
+  try {
+    const j = await (await fetch(base + 'api/narrator', { cache: 'no-store' })).json();
+    const names = (j.records || []).filter(r => r.sv).map(r => r.file.replace(/\.[^.]+$/, ''));
+    if (!names.length) { srSay('The PC has no Spatial Records yet (they appear after a TAKE is stamped and sent).'); return; }
+    box.innerHTML = names.map(n => `<label style="display:flex;gap:8px;align-items:center;grid-template-columns:none"><input type="checkbox" value="${n.replace(/"/g, '&quot;')}" checked> ${n.replace(/</g, '&lt;')}</label>`).join('')
+      + '<button class="small" id="bSrGet" style="margin-top:6px">Copy to this headset</button>';
+    box.hidden = false; srSay(`${names.length} on the PC. Tick the ones for this class.`);
+    $('#bSrGet').onclick = async () => {
+      const pick = [...box.querySelectorAll('input:checked')].map(i => i.value); let n = 0;
+      for (const name of pick) {
+        srSay(`Copying ${name}… (${n + 1} of ${pick.length})`);
+        try {
+          const sv = await (await fetch(base + 'narrator/' + encodeURIComponent(name) + '.sv.json', { cache: 'no-store' })).json();
+          const a = await fetch(base + 'narrator/' + encodeURIComponent(name) + '.webm', { cache: 'no-store' }); if (!a.ok) throw new Error('voice HTTP ' + a.status);
+          sv.pc = base; await svImport(name, sv, await a.blob()); svMeta.set(name, { pc: base }); n++;
+        } catch (e) { srSay(`${name}: ${e.message}`); await new Promise(r => setTimeout(r, 1500)); }
+      }
+      srSay(`✓ ${n} of ${pick.length} Spatial Records on this headset (crate: Unsorted).`);
+    };
+  } catch (e) { srSay('PC not reached at ' + base + ' (' + e.message + '). Is Node running and pinggy up?'); }
+};
+$('#bSrFiles').onclick = () => $('#fSr').click();
+$('#fSr').onchange = async e => {
+  const files = [...e.target.files], by = new Map(); e.target.value = '';
+  for (const f of files) {
+    const m = f.name.match(/^(.*?)(\.sv\.json|\.webm)$/i); if (!m) continue;
+    const o = by.get(m[1]) || {}; if (/json/i.test(m[2])) o.sv = f; else o.audio = f; by.set(m[1], o);
+  }
+  let n = 0; const miss = [];
+  for (const [name, o] of by) {
+    if (!o.sv || !o.audio) { miss.push(name); continue; }
+    try { await svImport(name, JSON.parse(await o.sv.text()), o.audio); n++; } catch (err) { miss.push(name + ' (' + err.message + ')'); }
+  }
+  srSay(`✓ ${n} Spatial Record${n === 1 ? '' : 's'} copied to this headset${miss.length ? '. Missing a file or not valid: ' + miss.join(', ') : ''}.`);
 };
 // export one Spatial Record as two downloads (the Quest's Downloads folder): voice and the collated .sv.json
 async function svExport(name) {

@@ -65,6 +65,19 @@
     </div>
     <div id="libstatus">Loading library…</div>
     <div class="cols">
+    <section class="settings" id="srSection">
+      <h2>Spatial Records</h2>
+      <label>PC address
+        <input id="sPcUrl" type="url" spellcheck="false" placeholder="https://univdemo.a.pinggy.link/spatialed/" style="font:14px system-ui,sans-serif;color:var(--fg);background:#1c2230;border:1px solid #2e3850;border-radius:8px;padding:8px;min-width:0">
+      </label>
+      <div class="imp">
+        <button class="small" id="bSrPc">From the PC…</button>
+        <button class="small" id="bSrFiles">From files…</button>
+      </div>
+      <div id="srPcList" class="note" hidden></div>
+      <div id="srStatus" class="note">Copies Spatial Records (voice + .sv.json) into this headset's storage, so they play in class without the PC.</div>
+      <input type="file" id="fSr" multiple accept=".webm,.json,audio/webm,application/json" hidden>
+    </section>
     <section class="settings">
       <h2>Music library</h2>
       <label>Songs
