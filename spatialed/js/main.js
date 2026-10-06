@@ -4143,7 +4143,7 @@ function svMigrate(s) {
   })().catch(e => console.warn('spatial record from an old take', s.file, e)));
   return svMig.get(s.file);
 }
-lesson.local = {
+lesson.store = {   // #35 renamed from `local` (it hid LessonPlayer.local(), the grab maths: no grabs, hands froze)
   side: async url => { const ser = decodeURIComponent(url.slice(3)), n = svSeries.get(ser.toLowerCase()); if (n && svMig.has(n)) await svMig.get(n); const sv = n && await svRead(n); if (!sv) throw new Error(`Spatial Record ${ser} is not on this headset`); return sv.vinyl; },
   motion: async rel => { const n = decodeURIComponent(rel.slice(3)); if (svMig.has(n)) await svMig.get(n); const sv = await svRead(n); return sv && sv.motion; },
   lips: rel => svLips(decodeURIComponent(rel.slice(3))),
@@ -5049,7 +5049,8 @@ function frame() {
   if (beatChanged || screenTimer > 1 / 15) { screenTimer = 0; drawMixScreen(); }
   if (deckInst) deckInst.update();   // #154
   for (const d of decks) vvStep(d);   // #177 VideoVinyl
-  lessonStep();   // SpatialED #7
+  try { lessonStep(); }   // SpatialED #7; #35 a lesson error must never stop the headset's frame
+  catch (e) { if (!lessonStep.err) { lessonStep.err = true; console.error(e); toast('Lesson error (headset keeps running): ' + e.message, 5000); } }
   if (studio) { try { studio.tick(); } catch (e) { if (!studio.err) { studio.err = true; console.error(e); toast('TAKE error: ' + e.message, 4000); } } }   // #24
   stepPvLid(dt);   // #196 preview lid
   stepScrDir();    // #198 portrait menu
