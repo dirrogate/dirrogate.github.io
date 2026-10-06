@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "note": "Narrators the TAKE EDIT page offers. glb is relative to this folder (narrator/). puppet needs a Ready Player Me rig; face needs viseme_* shapes.",
+  "narrators": [
+    {
+      "name": "Dirro",
+      "glb": "../models/avatar/DirrogateAvatar_face.glb",
+      "face": true,
+      "pose": "relaxed",
+      "puppet": true
+    },
+    {
+      "name": "Max",
+      "glb": "../examples/max_caulfield.glb",
+      "face": true,
+      "pose": "relaxed",
+      "puppet": true
+    }
+  ]
+}
