@@ -187,7 +187,7 @@ export class LessonPlayer {
     const s = rel ? this.want(new URL(rel, location.href).href) : null;
     const L = this.show(s && s.status === 'ready' ? s.L : null); if (!L) return null;
     L.group.position.set(0, 0, 0); L.group.rotation.set(0, yaw || 0, 0); L.group.scale.setScalar(scale || 1);
-    this.apply(L, t, { lips: lips ? this.lipsFor(lips, null) : null, motion: motion ? this.motionFor(motion) : null, needle, gain }); return L;
+    this.apply(L, t, { lips: lips ? this.lipsFor(lips, null) : null, motion: motion ? this.motionFor(motion) : null, needle, gain, frozen: !needle }); return L;
   }
 
   // ---------------------------------------------------------------- placement
@@ -297,12 +297,16 @@ export class LessonPlayer {
 
   // t -> the whole scene. Called every frame; cheap (one mixer evaluation per actor, one draw-range per trajectory).
   apply(L, t, F = null) {
+    // #33 resting (needle up, record not started, or no record): the narrator idles on the wall clock (breathing,
+    // looking about, a little arm sway; a GLB with its own looping clip plays that) and blends into the take's motion
+    // over half a second when the needle drops; and back when it lifts
+    const rest = !!(F && F.frozen), wall = performance.now() / 1000;
     for (const a of L.actors) {
-      const moved = a.puppet && F && F.motion ? applyPuppet(a, F.motion, t) : false;   // #25 first: it resets the bones
+      if (a.puppet) applyPuppetIdle(a, F && F.motion, t, rest, wall);
+      else if (a.idle) applyIdle(a, rest ? wall : t);
       if (a.face) applyFace(a, t, F);
-      if (a.idle && !moved) applyIdle(a, t);
       if (a.mixer) {
-        let ct = t - a.t0;
+        let ct = a.loop && (rest || L.persist) ? wall - a.t0 : t - a.t0;   // #33 a narrator's looping clip never stops
         if (a.loop) ct = ((ct % a.dur) + a.dur) % a.dur;
         else ct = Math.min(Math.max(ct, 0), a.dur - 1e-4);
         a.action.time = ct; a.action.paused = false; a.mixer.update(0);
@@ -357,7 +361,7 @@ async function load(url, local) {
     if (a.pose === 'relaxed') relaxArms(obj);   // #20 before any transform: the model's own frame obj.rotation.y = (a.rotationY || 0) * DEG; obj.scale.setScalar(a.scale || 1);
     obj.traverse(m => { if (m.isSkinnedMesh) m.frustumCulled = false; });   // skinned bounds are the bind pose: never cull
     const wrap = new THREE.Group(); wrap.add(obj); group.add(wrap);   // the motion's root moves the wrap
-    const act = { wrap, t0: a.t0 || 0, loop: !!a.loop };
+    const act = { wrap, t0: a.t0 || 0, loop: a.loop != null ? !!a.loop : !!side.persist };   // #33 a narrator's own clip loops
     const clip = (a.clip && gltf.animations.find(k => k.name === a.clip)) || gltf.animations[0];
     if (clip) {
       act.mixer = new THREE.AnimationMixer(obj); act.action = act.mixer.clipAction(clip);
@@ -480,6 +484,30 @@ function applyPuppet(a, M, t) {
   finally { par.add(pr); }
   return true;
 }
+// #33 the puppet between its idle (w = 1) and the take (w = 0): both poses are made on the same bones and slerped
+const _sq = new THREE.Quaternion();
+function applyPuppetIdle(a, M, t, rest, wall) {
+  const goal = rest || !M ? 1 : 0, dt = Math.min(0.1, Math.max(0, wall - (a.lastWall || wall))); a.lastWall = wall;
+  a.w = a.w == null ? goal : a.w + Math.sign(goal - a.w) * Math.min(Math.abs(goal - a.w), dt / 0.5);
+  const av = a.puppet, bones = av._bl || (av._bl = [...av.bind.keys()]);
+  let A = null;
+  if (a.w < 1 && M) {
+    applyPuppet(a, M, t);
+    if (a.w <= 0) return;
+    A = { q: bones.map(b => b.quaternion.clone()), p: av.root.position.clone(), r: av.root.quaternion.clone(), s: av.root.scale.x };
+  }
+  // the idle: the rest pose (arms relaxed), at the take's size, plus the idle moves
+  for (const [b, q] of av.bind) b.quaternion.copy(q);
+  const s = M && M.eye ? Math.min(1.3, Math.max(0.8, M.eye / av.restEyeY)) : 1;
+  av.root.position.set(0, 0, 0); av.root.quaternion.identity(); av.root.scale.setScalar(s);
+  if (a.idle) applyIdle(a, wall);
+  if (A) {   // blend: take -> idle by w
+    const w = a.w;
+    bones.forEach((b, i) => b.quaternion.copy(_sq.copy(A.q[i]).slerp(b.quaternion, w)));
+    av.root.position.lerpVectors(A.p, av.root.position, w); av.root.quaternion.copy(_sq.copy(A.r).slerp(av.root.quaternion, w));
+    av.root.scale.setScalar(A.s + (s - A.s) * w);
+  }
+}
 function relaxArms(obj) {
   obj.updateMatrixWorld(true); const B = {};
   obj.traverse(b => { if (b.isBone) B[boneKey(b.name)] = b; });
@@ -501,7 +529,7 @@ function aimBone(bone, child, dir) {
 function idleRig(obj) {
   const B = {}; obj.traverse(b => { if (b.isBone) B[boneKey(b.name)] = b; });
   const pick = n => B[n] ? { bone: B[n], rest: B[n].quaternion.clone() } : null;
-  return { spine: pick('spine2') || pick('spine1'), neck: pick('neck'), head: pick('head') };
+  return { spine: pick('spine2') || pick('spine1'), neck: pick('neck'), head: pick('head'), larm: pick('leftarm'), rarm: pick('rightarm') };
 }
 const _ie = new THREE.Euler(), _iq = new THREE.Quaternion();
 function applyIdle(a, t) {
@@ -509,6 +537,8 @@ function applyIdle(a, t) {
   set(I.spine, 0.018 * Math.sin(t * 2 * Math.PI / 4.2), 0, 0.006 * Math.sin(t * 0.9));
   set(I.neck, 0.02 * Math.sin(t * 0.7 + 1), 0.05 * Math.sin(t * 0.31), 0);
   set(I.head, 0.025 * Math.sin(t * 1.3), 0.07 * Math.sin(t * 0.43 + 2) + 0.03 * Math.sin(t * 1.7), 0.02 * Math.sin(t * 0.6));
+  set(I.larm, 0.03 * Math.sin(t * 0.8 + 0.5), 0, 0.02 * Math.sin(t * 2 * Math.PI / 4.2));   // #33 a little arm sway with the breath
+  set(I.rarm, 0.03 * Math.sin(t * 0.75 + 2), 0, -0.02 * Math.sin(t * 2 * Math.PI / 4.2));
 }
 
 // unit cylinder outline (radius 1, height 1): two rings and four posts, scaled to the volume
