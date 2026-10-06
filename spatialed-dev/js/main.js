@@ -1033,6 +1033,7 @@ async function loadLibrary() {
   try { const pr = await listPressings(); if (pr.length) { if (!lib) lib = emptyLibrary(); addPressings(lib, pr); } } catch (e) { console.warn('pressings', e); }   // #224
   if (!CAMERA_ROLE) { if (!lib) lib = emptyLibrary(); addExamples(lib); }   // #231
   if (!CAMERA_ROLE) await addNarrator(lib).catch(e => console.warn('narrator list', e));   // SpatialED #20
+  if (!CAMERA_ROLE) applyCrateMoves(lib);   // SpatialED #32
   if (noXml && lib) {   // SpatialED #14: count the crate as it really is (it said 0 records before the Demo Lesson went in)
     const n = lib.records.length, les = lib.records.filter(r => r.example).length, pr = lib.records.filter(r => r.pressed).length, nr = lib.records.filter(r => r.narrator).length;
     $('#libstatus').textContent = `Lesson crate: ${n} record${n === 1 ? '' : 's'} (${les} built-in lesson${les === 1 ? '' : 's'}${nr ? `, ${nr} narrator` : ''}${pr ? `, ${pr} pressed on this device` : ''}). No Rekordbox XML on the PC.`;
@@ -1576,7 +1577,7 @@ function sleeveGrab(anchor, P) {
   let sl = hit.sl;
   if (!sl) {
     const r = currentList()[crateState.sel], pose = selectedSlotPose(); if (!r || !pose) return false;
-    sl = makeSleeve(r); sleeves.push(sl);
+    sl = makeSleeve(r); sleeves.push(sl); sl.fromPl = search.results ? null : crateState.pl;   // SpatialED #32 the list it came out of
     sl.g.position.copy(pose.p); sl.g.quaternion.copy(pose.q);
     crate.updateMatrixWorld(); sl.g.applyMatrix4(crate.matrixWorld);   // crate-local -> world
   }
@@ -1615,9 +1616,38 @@ function sleeveRelease(anchor) {   // let go: stays where it is; over the record
   const sl = sleeves.find(x => x.anchor === anchor); if (!sl) return;
   sl.anchor = null; sl.placedT = performance.now();
   const c = crate.worldToLocal(sl.g.getWorldPosition(new THREE.Vector3()));
-  if (crateLidOpen() && Math.abs(c.x) < CRATE.W / 2 && Math.abs(c.z) < CRATE.D / 2 && c.y > 0 && c.y < CRATE.H + 0.12) { sleeveReturn(sl); return; }
+  if (crateLidOpen() && Math.abs(c.x) < CRATE.W / 2 && Math.abs(c.z) < CRATE.D / 2 && c.y > 0 && c.y < CRATE.H + 0.12) { sleeveIntoList(sl); sleeveReturn(sl); return; }
   const lying = sleeves.filter(x => !x.anchor && !x.back).sort((a, b) => a.placedT - b.placedT);
   while (lying.length > SLEEVE.MAX_OUT) sleeveReturn(lying.shift());
+}
+// SpatialED #32 (owner) a sleeve taken out of one list and put back while the crate shows another list moves its record
+// there for good (this headset): out of the list it came from, into the one shown (not the Collection, not a search).
+// Kept in localStorage 'sed.crateMoves' { recordKey: { from, to } } and applied each time the crate is loaded.
+const MOVES_KEY = 'sed.crateMoves';
+function recKey(r) { const t = r.sides.A || r.sides.B; return (r.pressed || r.example || r.narrator || !t || !t.location) ? 'id:' + r.id : 'loc:' + t.location; }
+function loadMoves() { try { return JSON.parse(localStorage.getItem(MOVES_KEY) || '{}') || {}; } catch { return {}; } }
+function moveBetween(L, r, from, to) {
+  if (from && from !== L.playlists[0]) { const i = from.records.indexOf(r); if (i >= 0) from.records.splice(i, 1); }
+  if (!to.records.includes(r)) to.records.push(r);
+}
+function applyCrateMoves(L) {
+  if (!L) return; const M = loadMoves(), byKey = new Map(L.records.map(r => [recKey(r), r]));
+  for (const [k, mv] of Object.entries(M)) {
+    const r = byKey.get(k), to = L.playlists.find(p => p.name === mv.to); if (!r || !to) continue;
+    moveBetween(L, r, L.playlists.find(p => p.name === mv.from), to);
+  }
+}
+function sleeveIntoList(sl) {
+  const pi = crateState.pl, r = sl.rec;
+  if (!lib || search.results || sl.fromPl == null || pi === sl.fromPl || pi === 0) return;
+  const from = lib.playlists[sl.fromPl], to = lib.playlists[pi]; if (!to || to.records.includes(r)) return;
+  moveBetween(lib, r, from, to);
+  const M = loadMoves(), k = recKey(r), was = M[k];
+  M[k] = { from: was && was.from && was.from !== to.name ? was.from : (from ? from.name : null), to: to.name };
+  if (M[k].from === M[k].to) delete M[k];
+  try { localStorage.setItem(MOVES_KEY, JSON.stringify(M)); } catch {}
+  sl.fromPl = pi; crateState.sel = Math.max(0, to.records.indexOf(r));
+  toast(`"${r.title}" moved to ${to.name}`, 2500); drawCrateScreen(); layoutSleeves();
 }
 function sleeveReturn(sl) {   // fly back into its slot (shrinks away if its record isn't in the crate's list now)
   if (!sl || sl.back) return;
@@ -1644,7 +1674,7 @@ function stepSleeves(dt) {
       // straight back.
       const d = sleeveCrateDist(sl);
       if (!sl.armed && (d > SLEEVE.ARM_CLEAR || performance.now() - (sl.grabT || 0) > SLEEVE.ARM_MS)) sl.armed = true;
-      if (sl.armed && d < SLEEVE.HOME_NEAR && crateLidOpen()) { const a = sl.anchor; sleeveReturn(sl); if (xr && xr.buzzAnchor) xr.buzzAnchor(a, 0.4, 30); }
+      if (sl.armed && d < SLEEVE.HOME_NEAR && crateLidOpen()) { const a = sl.anchor; sleeveIntoList(sl); sleeveReturn(sl); if (xr && xr.buzzAnchor) xr.buzzAnchor(a, 0.4, 30); }
     }
   }
 }
