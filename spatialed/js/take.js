@@ -26,6 +26,9 @@ export async function readTakeFile(name) {
   try { return await (await (await dir()).getFileHandle(name)).getFile(); }
   catch (e) { return (await (await dir(OLD_ROOT)).getFileHandle(name)).getFile(); }   // #24 takes made before #29
 }
+export async function removeTakeFile(name) { try { await (await dir()).removeEntry(name); } catch {} }   // #38
+export async function hasTakeFile(name) { try { await (await dir()).getFileHandle(name); return true; } catch { return false; } }
+export const PIC_SLOTS = ['front', 'back', 'label'];   // #38 <name>.front.jpg (sleeve front), .back.jpg, .label.jpg (else the front)
 export async function svRead(name) { try { return JSON.parse(await (await readTakeFile(name + '.sv.json')).text()); } catch { return null; } }
 export async function svWrite(name, sv) { await saveTakeFile(name + '.sv.json', JSON.stringify(sv)); }
 export async function svList() {

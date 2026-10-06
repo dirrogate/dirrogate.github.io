@@ -11,10 +11,10 @@ import { makeLedWall, LedPlayer, LED } from './ledwall.js';
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose } from './director.js';
 import { RobotAvatar } from './robot.js';
 import { RobotAvatar2, ROBOT_GLB } from './robot2.js';   // #245 the licensed AvatarRobot (EntroPi Games)
-import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, labelFrom, blankWav } from './tools.js';
+import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, updatePressing, squareJpeg, readLabel, labelFrom, blankWav } from './tools.js';
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { LessonPlayer } from './lesson.js';   // SpatialED #7 Spatial Vinyl lessons
-import { TakeStudio, saveTakeFile, readTakeFile, svRead, svWrite, svList, svVinyl } from './take.js';   // SpatialED #24 TAKE, #29 Spatial Records
+import { TakeStudio, saveTakeFile, readTakeFile, svRead, svWrite, svList, svVinyl, removeTakeFile, hasTakeFile, PIC_SLOTS } from './take.js';   // SpatialED #24 TAKE, #29 Spatial Records
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
@@ -1117,7 +1117,7 @@ function fetchSide(track) {
   if (!track || track.missing) return Promise.resolve(null);
   if (sideCache.has(track.id)) return sideCache.get(track.id);
   const p = (async () => {
-    if (track.press) return { bytes: await pressBytes(track), art: await pressArt(track) };   // #224
+    if (track.press) { const art = await pressArt(track); return { bytes: await pressBytes(track), art: labelArt.get(track.id) || art }; }   // #224; #38 a label picture of its own
     let bytes;
     if (track.opfs) bytes = await (await store.readFile(track.opfs)).arrayBuffer();
     else {
@@ -4101,7 +4101,8 @@ async function svUpload(name, sv, base) {
   const up = (kind, body) => fetch(`${base}api/take?name=${encodeURIComponent(name)}&kind=${kind}`, { method: 'POST', body }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); });
   if (sv.transcript) await up('txt', sv.transcript.toLowerCase());   // the tablet types capitals; Rhubarb's dictionary is lower case
   await up('motion', JSON.stringify(sv.motion));
-  await up('sv', JSON.stringify({ ...sv, pc: null }));   // #30 the PC keeps the combined file too (Rhubarb adds its lips there)
+  await up('sv', JSON.stringify({ ...sv, pc: null }));
+  for (const k of PIC_SLOTS) await up(k, (await hasTakeFile(name + '.' + k + '.jpg')) ? await readTakeFile(name + '.' + k + '.jpg') : '');   // #38 (empty = none)   // #30 the PC keeps the combined file too (Rhubarb adds its lips there)
   await up('audio', await readTakeFile(name + '.webm'));
   const cur = (await svRead(name)) || sv; cur.pc = sv.pc = base; await svWrite(name, cur); svMeta.set(name, { pc: base });   // #31 fresh read: an EDIT may have saved meanwhile
 }
@@ -4155,15 +4156,29 @@ lesson.store = {   // #35 renamed from `local` (it hid LessonPlayer.local(), the
 };
 // SpatialED #30 copy Spatial Records onto this headset (start page): from the PC's narrator folder, or picked files
 // (<name>.webm + <name>.sv.json). Each becomes a record in the crate (Unsorted) unless it is there already.
-async function svImport(name, sv, audio) {
+async function svImport(name, sv, audio, pics = {}) {   // pics: { front, back, label } picture files (#38)
   if (!sv || sv.kind !== 'spatial-record' || !sv.motion) throw new Error(name + '.sv.json is not a Spatial Record');
   sv.name = name; sv.series = sv.series || name.replace(/_\d+$/, '');
-  await saveTakeFile(name + '.webm', audio); await svWrite(name, sv);
-  const have = (await listPressings()).some(p => p.src && p.src.kind === 'take' && p.src.file === name);
-  if (have) return 'updated';
-  const p = await savePressing({ id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), title: name, src: { kind: 'take', v: 2, file: name, series: sv.series, duration: sv.duration || 0 }, made: Date.now(), size: 12 }, null);
+  await saveTakeFile(name + '.webm', audio);
+  sv.art = {};
+  for (const k of PIC_SLOTS) {
+    if (pics[k]) { await saveTakeFile(name + '.' + k + '.jpg', await squareJpeg(pics[k], k === 'label' ? 512 : 1024)); sv.art[k] = true; }
+    else await removeTakeFile(name + '.' + k + '.jpg');
+  }
+  await svWrite(name, sv);
+  const title = (sv.title || name).slice(0, 40), old = (await listPressings()).find(p => p.src && p.src.kind === 'take' && p.src.file === name);
+  if (old) { if (old.title !== title) await updatePressing(old.id, { title }); svRefresh(name, title); return 'updated'; }
+  const p = await savePressing({ id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), title, src: { kind: 'take', v: 2, file: name, series: sv.series, duration: sv.duration || 0 }, made: Date.now(), size: 12 }, null);
   if (lib) { addPressings(lib, [p]); try { drawCrateScreen(); layoutSleeves(); } catch {} }
   return 'added';
+}
+// #38 after a Spatial Record's title or pictures change: its crate entry, sleeve and label are drawn again
+function svRefresh(name, title) {
+  if (!lib) return;
+  const t = [...lib.tracks.values()].find(x => x.press && x.press.src && x.press.src.kind === 'take' && x.press.src.file === name); if (!t) return;
+  if (title) { t.title = t.name = title; t.press.title = title; if (t.record) t.record.title = title; for (const pl of lib.playlists) if (pl.name === 'Unsorted' || pl.name === '45s' || pl === lib.playlists[0]) pl.records.sort((a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title)); }
+  artCache.delete(t.id); artBlobs.delete(t.id); labelArt.delete(t.id); backBlobs.delete(t.id); sideCache.delete(t.id);
+  try { fetchArt(t).then(() => { drawCrateScreen(); layoutSleeves(); }); } catch {}
 }
 function srSay(t) { $('#srStatus').textContent = t; }
 $('#sPcUrl').value = settings.pcUrl == null ? PC_DEFAULT : settings.pcUrl;
@@ -4185,7 +4200,9 @@ $('#bSrPc').onclick = async () => {
         try {
           const sv = await (await fetch(base + 'narrator/' + encodeURIComponent(name) + '.sv.json', { cache: 'no-store' })).json();
           const a = await fetch(base + 'narrator/' + encodeURIComponent(name) + '.webm', { cache: 'no-store' }); if (!a.ok) throw new Error('voice HTTP ' + a.status);
-          sv.pc = base; await svImport(name, sv, await a.blob()); svMeta.set(name, { pc: base }); n++;
+          const pics = {}, rec = (j.records || []).find(r => r.file.replace(/\.[^.]+$/, '') === name) || {};
+          for (const [k, f] of Object.entries(rec.art || {})) { const q = await fetch(base + 'narrator/' + encodeURIComponent(f), { cache: 'no-store' }); if (q.ok) pics[k] = await q.blob(); }   // #38
+          sv.pc = base; await svImport(name, sv, await a.blob(), pics); svMeta.set(name, { pc: base }); n++;
         } catch (e) { srSay(`${name}: ${e.message}`); await new Promise(r => setTimeout(r, 1500)); }
       }
       srSay(`✓ ${n} of ${pick.length} Spatial Records on this headset (crate: Unsorted).`);
@@ -4196,25 +4213,28 @@ $('#bSrFiles').onclick = () => $('#fSr').click();
 $('#fSr').onchange = async e => {
   const files = [...e.target.files], by = new Map(); e.target.value = '';
   for (const f of files) {
-    const m = f.name.match(/^(.*?)(\.sv\.json|\.webm)$/i); if (!m) continue;
-    const o = by.get(m[1]) || {}; if (/json/i.test(m[2])) o.sv = f; else o.audio = f; by.set(m[1], o);
+    const m = f.name.match(/^(.*?)(\.sv\.json|\.webm|\.(front|back|label)\.(jpe?g|png))$/i); if (!m) continue;
+    const o = by.get(m[1]) || { pics: {} }; if (m[3]) o.pics[m[3].toLowerCase()] = f; else if (/json/i.test(m[2])) o.sv = f; else o.audio = f; by.set(m[1], o);
   }
   let n = 0; const miss = [];
   for (const [name, o] of by) {
     if (!o.sv || !o.audio) { miss.push(name); continue; }
-    try { await svImport(name, JSON.parse(await o.sv.text()), o.audio); n++; } catch (err) { miss.push(name + ' (' + err.message + ')'); }
+    try { await svImport(name, JSON.parse(await o.sv.text()), o.audio, o.pics); n++; } catch (err) { miss.push(name + ' (' + err.message + ')'); }
   }
   srSay(`✓ ${n} Spatial Record${n === 1 ? '' : 's'} copied to this headset${miss.length ? '. Missing a file or not valid: ' + miss.join(', ') : ''}.`);
 };
 // export one Spatial Record as two downloads (the Quest's Downloads folder): voice and the collated .sv.json
 async function svExport(name) {
-  for (const f of [name + '.webm', name + '.sv.json']) {
+  const files = [name + '.webm', name + '.sv.json'];
+  for (const k of PIC_SLOTS) if (await hasTakeFile(name + '.' + k + '.jpg')) files.push(name + '.' + k + '.jpg');   // #38
+  for (const f of files) {
     const b = await readTakeFile(f), a = document.createElement('a'), u = URL.createObjectURL(b);
     a.href = u; a.download = f; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(u), 60000); await new Promise(r => setTimeout(r, 600));
   }
 }
 const srec = { list: [], info: new Map(), pg: 0, busy: '' };
+let imgPick = null;   // #38 { back: page, done(name) }: the IMAGES picker answers the EDIT page instead of Record Maker
 // #31 EDIT a Spatial Record: its narrator (narrator/narrators.json; the whole series on this headset), its transcript,
 // lips made again. SAVE sends it to the PC again (the PC's .sv.json and <series>.vinyl.json follow) and asks for lips.
 let NARRATORS = [{ name: 'Dirro', glb: '../models/avatar/DirrogateAvatar_face.glb', face: true, pose: 'relaxed', puppet: true }];
@@ -4222,7 +4242,8 @@ fetch('narrator/narrators.json', { cache: 'no-cache' }).then(r => r.ok ? r.json(
 async function sredOpen(name) {
   const sv = await svRead(name); if (!sv) { toast('Not found: ' + name); return; }
   const a = (sv.vinyl && sv.vinyl.actors && sv.vinyl.actors[0]) || {};
-  srec.ed = { name, sv, glb: a.glb, txt: sv.transcript || '', redo: false, dirty: false };
+  const pic = {}; for (const k of PIC_SLOTS) pic[k] = (await hasTakeFile(name + '.' + k + '.jpg')) ? 'keep' : null;
+  srec.ed = { name, sv, glb: a.glb, txt: sv.transcript || '', redo: false, dirty: false, title: sv.title || name, pic };   // #38 pic: 'keep' | null | IMAGES file name
   setTools('sredit');
 }
 function narratorOf(glb) { return NARRATORS.find(n => n.glb === glb) || { name: (glb || '?').split('/').pop().replace(/\.glb$/i, ''), glb }; }
@@ -4233,6 +4254,15 @@ async function sredSave() {
   const sv = E.sv, nar = narratorOf(E.glb), ser = sv.series || E.name.replace(/_\d+$/, '');
   const actor = { glb: nar.glb, face: nar.face !== false, pose: nar.pose || 'relaxed', puppet: nar.puppet !== false };
   const txtChanged = (sv.transcript || '') !== E.txt;
+  for (const k of PIC_SLOTS) {   // #38 pictures picked from IMAGES (null = none)
+    if (E.pic[k] === 'keep') continue;
+    if (E.pic[k]) { const f = await media.getFile('Images', E.pic[k]); if (f) await saveTakeFile(E.name + '.' + k + '.jpg', await squareJpeg(f, k === 'label' ? 512 : 1024)); E.pic[k] = 'keep'; }
+    else await removeTakeFile(E.name + '.' + k + '.jpg');
+  }
+  sv.art = {}; for (const k of PIC_SLOTS) if (E.pic[k] === 'keep') sv.art[k] = true;
+  const newTitle = (E.title || E.name).trim().slice(0, 40); sv.title = newTitle;
+  const pr = (await listPressings()).find(p => p.src && p.src.kind === 'take' && p.src.file === E.name); if (pr && pr.title !== newTitle) await updatePressing(pr.id, { title: newTitle });
+  svRefresh(E.name, newTitle);
   sv.transcript = E.txt; sv.vinyl = { ...(sv.vinyl || svVinyl(ser)), title: nar.name + ': ' + ser, actors: [actor] };
   if (txtChanged || E.redo) sv.lips = null;
   sv.pc = null; await svWrite(E.name, sv);
@@ -4349,6 +4379,17 @@ function addPressings(L, list) {
 async function pressArt(track) {
   if (artCache.has(track.id)) return artCache.get(track.id);
   let art = null;
+  const s = track.press.src || {};
+  if (s.kind === 'take' && s.v === 2) {   // SpatialED #38 a Spatial Record's own pictures: front (sleeve front, and label unless it has one), back, label
+    const get = async k => (await hasTakeFile(s.file + '.' + k + '.jpg')) ? readTakeFile(s.file + '.' + k + '.jpg') : null;
+    try {
+      const f = await get('front'), b = await get('back'), l = await get('label');
+      if (f) { art = await createImageBitmap(f); artBlobs.set(track.id, f); }
+      if (b) backBlobs.set(track.id, b); else backBlobs.delete(track.id);
+      if (l) labelArt.set(track.id, await createImageBitmap(l)); else labelArt.delete(track.id);
+    } catch (e) { console.warn('spatial record pictures', e); }
+    if (art) { artCache.set(track.id, art); return art; }
+  }
   try { const f = await readLabel(track.press); if (f) { art = await createImageBitmap(f); artBlobs.set(track.id, f); } } catch {}
   artCache.set(track.id, art); return art;
 }
@@ -4503,6 +4544,13 @@ function drawToolsPage() {
     btn(L + 120, y, R - L - 120, 40, '◀  ' + nar.name.toUpperCase() + '  ▶', true, () => {
       const i = NARRATORS.findIndex(n => n.glb === E.glb); E.glb = NARRATORS[(i + 1) % NARRATORS.length].glb; E.dirty = true; drawMixScreen(); }, false, 17);
     y += 48;
+    btn(L, y, R - L, 40, 'TITLE…  ' + E.title, false, () => openKbd('TITLE (CRATE AND LABEL)', E.title.toUpperCase(), false, 40, t => { E.title = t.trim() || E.name; E.dirty = true; }, 'sredit'), false, 15);   // #38
+    y += 48;
+    { const b3 = (R - L - 12) / 3, lab = k => E.pic[k] === 'keep' ? '✓' : E.pic[k] ? '✓ ' + E.pic[k].replace(/\.[^.]+$/, '').slice(0, 10) : k === 'label' ? '= FRONT' : 'NONE';
+      PIC_SLOTS.forEach((k, i) => btn(L + i * (b3 + 6), y, b3, 40, `${k.toUpperCase()}…  ${lab(k)}`, !!E.pic[k], () => { imgPick = { back: 'sredit', done: n => { E.pic[k] = n; E.dirty = true; } }; setTools('pickImage'); }, false, 14));
+      y += 44;
+      btn(L, y, R - L, 32, 'CLEAR PICTURES (BACK: TITLE CARD, LABEL: FRONT)', false, () => { E.pic.back = null; E.pic.label = null; E.dirty = true; drawMixScreen(); }, false, 13);
+      y += 40; }
     btn(L, y, bw, 40, E.txt ? 'TRANSCRIPT ✓ (EDIT)' : 'TRANSCRIPT…', !!E.txt, () => openKbd('TRANSCRIPT', E.txt.toUpperCase(), false, 600, t => { E.txt = t.trim(); E.dirty = true; }, 'sredit'), false, 15);
     btn(L + bw + 6, y, bw, 40, E.redo ? 'LIPS AGAIN ✓' : 'MAKE LIPS AGAIN', E.redo, () => { E.redo = !E.redo; E.dirty = true; drawMixScreen(); }, false, 15);
     y += 48;
@@ -4652,7 +4700,7 @@ function drawToolsPage() {
   }
   if (page === 'pickVideo' || page === 'pickImage') {
     const folder = page === 'pickVideo' ? 'Video' : 'Images';
-    const y0 = head(page === 'pickVideo' ? 'PICK A CLIP' : 'PICK A LABEL PICTURE', 'maker');
+    const y0 = head(page === 'pickVideo' ? 'PICK A CLIP' : imgPick ? 'PICK A PICTURE' : 'PICK A LABEL PICTURE', imgPick ? imgPick.back : 'maker');
     const COLS = P ? 2 : 4, PER = P ? 10 : 8, CW = (R - L - (COLS - 1) * 8) / COLS, TH = P ? 64 : 76, CH = TH + 20;
     const pages = Math.max(1, Math.ceil(pickItems.length / PER)); pickPg = Math.min(pickPg, pages - 1);
     if (!pickItems.length) note(`Nothing in ${folder === 'Video' ? 'VIDEO' : 'IMAGES'} on this headset yet. On the phone: Library, Import, then Push to Quest.`, y0 + 24);
@@ -4662,7 +4710,7 @@ function drawToolsPage() {
       if (t && t !== 'loading') { const s = Math.max(CW / t.width, TH / t.height), sw = CW / s, sh = TH / s; g.drawImage(t, (t.width - sw) / 2, (t.height - sh) / 2, sw, sh, cx, cy, CW, TH); }
       drawTypeBadge(g, cx + CW - 30, cy + TH - 22, folder === 'Video');
       g.fillStyle = '#b8c0cf'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, it.name.replace(/\.[^.]+$/, ''), cx + 2, cy + TH + 15, CW - 4);
-      VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, act: () => { if (folder === 'Video') { maker.video = it.name; maker.kind = 'clip'; if (!maker.name) maker.name = cleanText(it.name.replace(/\.[^.]+$/, ''), 32); } else maker.image = it.name; setTools('maker'); } });
+      VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, act: () => { if (imgPick && folder === 'Images') { const P2 = imgPick; imgPick = null; P2.done(it.name); setTools(P2.back); return; } if (folder === 'Video') { maker.video = it.name; maker.kind = 'clip'; if (!maker.name) maker.name = cleanText(it.name.replace(/\.[^.]+$/, ''), 32); } else maker.image = it.name; setTools('maker'); } });
     });
     const by = P ? H - 62 : H - 44;
     btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);

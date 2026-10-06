@@ -133,6 +133,17 @@ export async function savePressing(p, labelBlob) {
   }
   const list = await listPressings(); list.push(p); await writeIndex(list); return p;
 }
+export async function updatePressing(id, patch) {   // SpatialED #38 (a Spatial Record's title)
+  const list = await listPressings(), p = list.find(x => x.id === id); if (!p) return null;
+  Object.assign(p, patch); await writeIndex(list); return p;
+}
+// SpatialED #38 a square JPEG of any picture (centre crop), S px: sleeve front / back 1024, label 512
+export async function squareJpeg(file, S = 1024) {
+  const bm = await createImageBitmap(file); const c = new OffscreenCanvas(S, S), g = c.getContext('2d');
+  const s = Math.max(S / bm.width, S / bm.height), w = bm.width * s, h = bm.height * s;
+  g.drawImage(bm, (S - w) / 2, (S - h) / 2, w, h); bm.close && bm.close();
+  return c.convertToBlob({ type: 'image/jpeg', quality: 0.88 });
+}
 export async function deletePressing(id) {
   const list = (await listPressings()).filter(p => p.id !== id); await writeIndex(list);
   try { await (await pressDir()).removeEntry(id + '.jpg'); } catch {}
