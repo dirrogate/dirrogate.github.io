@@ -61,6 +61,8 @@ export class LessonPlayer {
     this.seats = [];          // per deck: the record's Object3D (or null), from step()
     this.lips = new Map();    // #20 .lips.json url -> { status, cues }
     this.motions = new Map(); // #25 .motion.json url (or opfs-take:<name>) -> { status, M }
+    this.local = null;        // #29 Spatial Records on this headset (sv:<series> sides, sv:<name> lips / motion):
+                              //   { side(url), lips(rel) -> lips | 'wait' | null, motion(rel), pub(rel, kind) -> url for students | null }
     this.suppress = null;     // #20 a persistent side the professor cleared
     this.lipGain = 0.75;      // #21 lip strength (tablet LIPS - / +): 1 = Rhubarb's full shapes
     this.lastRec = null;      // the record (object) the lesson came in on: a new one starts on its deck again
@@ -115,6 +117,7 @@ export class LessonPlayer {
   // #20 lips for a record: its .lips.json; when there is none yet, ask the PC's server to make one (Rhubarb), and
   // look again every few seconds while it works. null meanwhile (the jaw follows the loudness).
   lipsFor(rel, audioRel) {
+    if (/^sv:/.test(rel)) return this.localLips(rel);
     const url = new URL(rel, location.href).href; let e = this.lips.get(url);
     if (!e) { e = { status: 'new', cues: null, next: 0, tries: 0 }; this.lips.set(url, e); }
     if (e.status === 'ready') return e.cues;
@@ -133,13 +136,28 @@ export class LessonPlayer {
     })().catch(() => { e.status = 'failed'; });
     return null;
   }
+  // #29 a Spatial Record's lips: from its .sv.json; when it has none, main.js asks the PC (Rhubarb) and stores them
+  localLips(rel) {
+    let e = this.lips.get(rel);
+    if (!e) { e = { status: 'new', cues: null, next: 0, tries: 0 }; this.lips.set(rel, e); }
+    if (e.status === 'ready') return e.cues;
+    if (e.status === 'busy' || !this.local || performance.now() < e.next) return null;
+    e.status = 'busy';
+    Promise.resolve(this.local.lips(rel)).then(x => {
+      if (x && x.cues) { e.cues = x.cues; e.status = 'ready'; if (e.tries) this.say('Lip sync ready'); }
+      else if (x === 'wait') { e.status = 'wait'; e.next = performance.now() + 3000; if (++e.tries === 1) this.say('Making the lip sync on the PC (Rhubarb)…'); }
+      else { e.status = 'wait'; e.next = performance.now() + 30000; }   // PC not reached: the loudness jaw; try again later
+    }).catch(() => { e.status = 'wait'; e.next = performance.now() + 30000; });
+    return null;
+  }
   // #25 a take's motion: fetched once (or read from this device's sed-takes for a take the PC never got)
   motionFor(rel) {
     let e = this.motions.get(rel);
     if (!e) {
       e = { status: 'busy', M: null }; this.motions.set(rel, e);
       (async () => {
-        const j = /^opfs-take:/.test(rel) ? JSON.parse(await (await readTakeFile(rel.slice(10) + '.motion.json')).text())
+        const j = /^sv:/.test(rel) ? (this.local ? await this.local.motion(rel) : null)
+          : /^opfs-take:/.test(rel) ? JSON.parse(await (await readTakeFile(rel.slice(10) + '.motion.json')).text())
           : await fetch(new URL(rel, location.href).href, { cache: 'no-cache' }).then(r => r.ok ? r.json() : null);
         if (j && j.frames && j.frames.length) { e.M = j; e.status = 'ready'; } else e.status = 'failed';
       })().catch(() => { e.status = 'failed'; });
@@ -161,7 +179,8 @@ export class LessonPlayer {
   // the page, so a student page in the same folder finds it on any host)
   packet() {
     const v = this.live, L = this.cur; if (!v || !L) return { k: 'les', u: null };
-    return { k: 'les', u: v.rel, t: +v.t.toFixed(3), r: +v.rate.toFixed(4), s: +this.pose.scale.toFixed(4), y: +this.pose.yaw.toFixed(4), d: this.place && this.place.deck != null ? 1 : 0, l: v.lips || undefined, mo: v.motion || undefined, nd: v.needle ? 1 : 0, h: +this.lipGain.toFixed(2) };
+    const pub = (r, k) => r && /^sv:/.test(r) ? (this.local && this.local.pub ? this.local.pub(r, k) : null) : r;   // #29 students fetch the PC copy
+    return { k: 'les', u: pub(v.rel, 'side'), t: +v.t.toFixed(3), r: +v.rate.toFixed(4), s: +this.pose.scale.toFixed(4), y: +this.pose.yaw.toFixed(4), d: this.place && this.place.deck != null ? 1 : 0, l: pub(v.lips, 'lips') || undefined, mo: pub(v.motion, 'motion') || undefined, nd: v.needle ? 1 : 0, h: +this.lipGain.toFixed(2) };
   }
   // student: draw the side the professor plays at t, at the professor's size and turn, centred on this root
   remote(rel, t, scale, yaw, lips, needle = true, gain = 1, motion = null) {
@@ -269,7 +288,7 @@ export class LessonPlayer {
     let s = this.sides.get(url);
     if (!s) {
       s = { status: 'loading' }; this.sides.set(url, s);
-      load(url).then(L => { s.status = 'ready'; s.L = L; this.say(`Lesson ready: ${L.title}`); })
+      load(url, this.local).then(L => { s.status = 'ready'; s.L = L; this.say(`Lesson ready: ${L.title}`); })
         .catch(e => { s.status = 'failed'; s.error = e; console.warn('lesson', url, e); this.say(`Lesson not loaded: ${e.message}`); });
     }
     return s;
@@ -303,11 +322,16 @@ export class LessonPlayer {
   chapters() { return this.cur ? this.cur.chapters.slice() : []; }
 }
 
-async function load(url) {
-  const r = await fetch(url, { cache: 'no-cache' });
-  if (!r.ok) throw new Error(`${url.split('/').pop()}: HTTP ${r.status}`);
-  const side = await r.json();
-  const base = new URL(url, location.href);
+async function load(url, local) {
+  let side, base;
+  if (/^sv:/.test(url)) {   // #29 a Spatial Record's narrator, from this headset's storage; its GLB paths are relative to narrator/
+    if (!local) throw new Error('no Spatial Records here');
+    side = await local.side(url); base = new URL('narrator/', location.href);
+  } else {
+    const r = await fetch(url, { cache: 'no-cache' });
+    if (!r.ok) throw new Error(`${url.split('/').pop()}: HTTP ${r.status}`);
+    side = await r.json(); base = new URL(url, location.href);
+  }
   const st = side.stage || {};
   const group = new THREE.Group(); group.name = 'lesson:' + (side.title || '');
   const home = { pos: new THREE.Vector3().fromArray(st.position || [0, 0, -2.4]), yaw: (st.rotationY || 0) * DEG, scale: st.scale || 1 };   // life size spot (desktop L key)

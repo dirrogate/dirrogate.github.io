@@ -10,15 +10,31 @@
 import * as THREE from 'three';
 import { Avatar, xrPose, HANDS_J } from './director.js';
 
-const ROOT = 'sed-takes', MIRROR_DIST = 1.3, FPS = 30, MODEL = 'models/avatar/DirrogateAvatar_face.glb';
+const ROOT = 'Spatial Records', OLD_ROOT = 'sed-takes', MIRROR_DIST = 1.3, FPS = 30, MODEL = 'models/avatar/DirrogateAvatar_face.glb';
 const R3 = v => Math.round(v * 1000) / 1000;
 
-async function dir() { return (await navigator.storage.getDirectory()).getDirectoryHandle(ROOT, { create: true }); }
+// #29 a Spatial Record on this headset = two files in the browser's own storage, folder "Spatial Records":
+//   <name>.webm     the voice
+//   <name>.sv.json  { v: 1, kind: 'spatial-record', name, series, made, duration, audio, vinyl (the narrator side),
+//                     motion (head + hands), lips (Rhubarb cues, null until the PC made them), transcript, pc }
+async function dir(root = ROOT) { return (await navigator.storage.getDirectory()).getDirectoryHandle(root, { create: true }); }
 export async function saveTakeFile(name, data) {
   const fh = await (await dir()).getFileHandle(name, { create: true }), w = await fh.createWritable();
   await w.write(data); await w.close();
 }
-export async function readTakeFile(name) { return (await (await dir()).getFileHandle(name)).getFile(); }
+export async function readTakeFile(name) {
+  try { return await (await (await dir()).getFileHandle(name)).getFile(); }
+  catch (e) { return (await (await dir(OLD_ROOT)).getFileHandle(name)).getFile(); }   // #24 takes made before #29
+}
+export async function svRead(name) { try { return JSON.parse(await (await readTakeFile(name + '.sv.json')).text()); } catch { return null; } }
+export async function svWrite(name, sv) { await saveTakeFile(name + '.sv.json', JSON.stringify(sv)); }
+export async function svList() {
+  const out = []; for await (const [n] of (await dir()).entries()) if (/\.sv\.json$/.test(n)) out.push(n.replace(/\.sv\.json$/, ''));
+  return out.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+export const svVinyl = series => ({ version: 1, title: 'Dirro: ' + series, persist: true, board: false, credits: '',
+  stage: { position: [0, 0, -2.0], rotationY: 0, scale: 1, plinth: 0.6 },
+  actors: [{ glb: '../models/avatar/DirrogateAvatar_face.glb', face: true, pose: 'relaxed', puppet: true }] });   // glb relative to narrator/
 
 export class TakeStudio {
   constructor({ renderer, scene, rig, engine, getInputs, toast, ensureMic, onChange }) {

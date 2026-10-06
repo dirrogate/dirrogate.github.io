@@ -14,7 +14,7 @@ import { RobotAvatar2, ROBOT_GLB } from './robot2.js';   // #245 the licensed Av
 import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, labelFrom, blankWav } from './tools.js';
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { LessonPlayer } from './lesson.js';   // SpatialED #7 Spatial Vinyl lessons
-import { TakeStudio, saveTakeFile, readTakeFile } from './take.js';   // SpatialED #24 TAKE
+import { TakeStudio, saveTakeFile, readTakeFile, svRead, svWrite, svList, svVinyl } from './take.js';   // SpatialED #24 TAKE, #29 Spatial Records
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
@@ -4032,24 +4032,17 @@ async function pressRecord() {
 }
 // SpatialED #24 stamp a TAKE: voice (webm) + motion + transcript kept on this device (sed-takes) and sent to the PC's
 // narrator folder (api/take), where Rhubarb makes the lips; the pressing streams the PC copy, or plays the device copy
-async function pressTake() {
+async function pressTake() {   // #29 a Spatial Record: <name>.webm + <name>.sv.json on this headset; lips from the PC
   const R0 = studio && studio.result(); if (!R0) { makerSay('Record a take first (TAKE…)', false, 3000); return; }
   const name = takeName(), ser = name.replace(/_\d+$/, '');
   maker.busy = true; drawMixScreen();
   try {
     let label = null;
     if (maker.image) { const f = await media.getFile('Images', maker.image); if (f) label = await labelFrom(f); }
-    const motion = JSON.stringify(R0.motion);
-    await saveTakeFile(name + '.webm', R0.blob); await saveTakeFile(name + '.motion.json', motion);
-    if (maker.txt) await saveTakeFile(name + '.txt', maker.txt);
-    let onPc = false;
-    try {
-      const up = (kind, body) => fetch(`api/take?name=${encodeURIComponent(name)}&kind=${kind}`, { method: 'POST', body }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); });
-      if (maker.txt) await up('txt', maker.txt);
-      await up('motion', motion); await up('audio', R0.blob);
-      onPc = true; fetch('api/lips?src=' + encodeURIComponent('narrator/' + name + '.webm'), { cache: 'no-store' }).catch(() => {});
-    } catch (e) { console.warn('take upload', e); }
-    const src = { kind: 'take', file: name, series: ser, url: onPc ? encodeURI('narrator/' + name + '.webm') : null, duration: R0.duration };
+    const sv = { v: 1, kind: 'spatial-record', name, series: ser, made: Date.now(), duration: Math.round(R0.duration * 1000) / 1000, audio: name + '.webm',
+      vinyl: svVinyl(ser), motion: R0.motion, lips: null, transcript: maker.txt || '', pc: null };
+    await saveTakeFile(name + '.webm', R0.blob); await svWrite(name, sv);
+    const src = { kind: 'take', v: 2, file: name, series: ser, duration: sv.duration };
     const p = await savePressing({ id: 'p' + Date.now().toString(36), title: name, src, made: Date.now(), size: maker.size === 7 ? 7 : 12 }, label);
     if (!lib) lib = emptyLibrary();
     const r = addPressings(lib, [p]);
@@ -4058,9 +4051,72 @@ async function pressTake() {
     crateState.pl = pi; crateState.sel = Math.max(0, lib.playlists[pi].records.indexOf(r));
     drawCrateScreen(); layoutSleeves();
     maker.name = ''; maker.txt = ''; maker.kind = 'blank'; if (studio) { studio.close(); studio = null; }
-    makerSay(`✓ STAMPED "${name}": ${where}${onPc ? ', lips being made on the PC' : ' (PC not reached: no lips yet)'}`, true, 6000);
+    makerSay(`✓ STAMPED "${name}": ${where}. Sending to the PC for lips…`, true, 6000);
+    svLips(name).then(x => makerSay(x && x.cues ? `✓ "${name}": lips ready` : x === 'wait' ? `✓ "${name}" is on the PC: lips are being made` : `"${name}" kept on this headset; PC not reached (lips later: SPATIAL RECORDS)`, !!x, 6000));
   } catch (e) { makerSay('Not stamped: ' + e.message, false, 6000); }
   maker.busy = false; drawMixScreen();
+}
+// SpatialED #29 the PC (Node server, Rhubarb): this app's own server when it was opened from it, else settings.pcUrl
+// (the pinggy address; TAKE page: PC…). The server allows calls from any address (CORS).
+const PC_DEFAULT = 'https://univdemo.a.pinggy.link/spatialed/';
+let narrApi = false;   // set by addNarrator when api/narrator answered: this page came from the PC's server
+function pcBase() {
+  if (narrApi) return new URL('.', location.href).href;
+  let u = (settings.pcUrl == null ? PC_DEFAULT : settings.pcUrl).trim(); if (!u) return null;
+  if (!/^https?:\/\//.test(u)) u = 'https://' + u;
+  return u.endsWith('/') ? u : u + '/';
+}
+const svSeries = new Map(), svMeta = new Map();   // series (lower case) -> newest record name; name -> { pc }
+async function svUpload(name, sv, base) {
+  const up = (kind, body) => fetch(`${base}api/take?name=${encodeURIComponent(name)}&kind=${kind}`, { method: 'POST', body }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); });
+  if (sv.transcript) await up('txt', sv.transcript);
+  await up('motion', JSON.stringify(sv.motion));
+  await up('audio', await readTakeFile(name + '.webm'));
+  sv.pc = base; await svWrite(name, sv); svMeta.set(name, { pc: base });
+}
+// lips for a Spatial Record: stored ones, else send it to the PC (once) and ask Rhubarb; 'wait' while it works
+const svBusy = new Map();   // name -> the lips request in flight (one at a time per record)
+function svLips(name) {
+  if (!svBusy.has(name)) svBusy.set(name, svLips1(name).finally(() => svBusy.delete(name)));
+  return svBusy.get(name);
+}
+async function svLips1(name) {
+  const sv = await svRead(name); if (!sv) return null;
+  if (sv.lips && sv.lips.cues) return sv.lips;
+  const base = pcBase(); if (!base) return null;
+  try {
+    if (sv.pc !== base) await svUpload(name, sv, base);
+    const r = await fetch(base + 'api/lips?src=' + encodeURIComponent('narrator/' + name + '.webm'), { cache: 'no-store' });
+    if (r.status === 202) return 'wait';
+    if (r.status === 404) { sv.pc = null; await svWrite(name, sv); return null; }   // gone from the PC: sent again next time
+    if (!r.ok) return null;
+    const j = await r.json(); if (!j || !j.cues) return null;
+    sv.lips = j; await svWrite(name, sv); return j;
+  } catch (e) { console.warn('spatial record lips', name, e); return null; }
+}
+lesson.local = {
+  side: async url => { const ser = decodeURIComponent(url.slice(3)), n = svSeries.get(ser.toLowerCase()), sv = n && await svRead(n); if (!sv) throw new Error(`Spatial Record ${ser} is not on this headset`); return sv.vinyl; },
+  motion: async rel => { const sv = await svRead(decodeURIComponent(rel.slice(3))); return sv && sv.motion; },
+  lips: rel => svLips(decodeURIComponent(rel.slice(3))),
+  pub: (rel, kind) => {   // the PC copy students can fetch
+    const id = decodeURIComponent(rel.slice(3)), name = kind === 'side' ? svSeries.get(id.toLowerCase()) : id, m = name && svMeta.get(name);
+    if (!m || !m.pc) return null;
+    return m.pc + 'narrator/' + encodeURIComponent(kind === 'side' ? id : name) + (kind === 'side' ? '.vinyl.json' : kind === 'lips' ? '.lips.json' : '.motion.json');
+  },
+};
+// export one Spatial Record as two downloads (the Quest's Downloads folder): voice and the collated .sv.json
+async function svExport(name) {
+  for (const f of [name + '.webm', name + '.sv.json']) {
+    const b = await readTakeFile(f), a = document.createElement('a'), u = URL.createObjectURL(b);
+    a.href = u; a.download = f; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 60000); await new Promise(r => setTimeout(r, 600));
+  }
+}
+const srec = { list: [], info: new Map(), pg: 0, busy: '' };
+async function srecLoad() {
+  srec.list = await svList().catch(() => []);
+  for (const n of srec.list) { const sv = await svRead(n); if (sv) srec.info.set(n, { dur: sv.duration || 0, lips: !!(sv.lips && sv.lips.cues), pc: sv.pc }); }
+  drawMixScreen();
 }
 // #231 built-in example records (web/examples/, streamed like songs from the PC), in Unsorted and the Collection.
 // "Sleeve Art Demo": every ID3 picture type the app reads (tools/make_sleeve_demo.py builds it). Long press +
@@ -4103,7 +4159,7 @@ function addExamples(L) {
 async function addNarrator(L) {
   let j = null;
   for (const u of ['api/narrator', 'narrator/index.json']) {
-    try { const r = await fetch(u, { cache: 'no-store' }); if (r.ok && /json/.test(r.headers.get('content-type') || '')) { j = await r.json(); break; } } catch {}
+    try { const r = await fetch(u, { cache: 'no-store' }); if (r.ok && /json/.test(r.headers.get('content-type') || '')) { j = await r.json(); if (u === 'api/narrator') narrApi = true; break; } } catch {}
   }
   if (!j || !Array.isArray(j.records) || !j.records.length) return;
   const series = new Map((j.series || []).map(x => [String(x).toLowerCase(), x]));
@@ -4134,7 +4190,12 @@ function addPressings(L, list) {
     const t = { id, name: p.title, title: p.title, side: null, split: false, artist: s.kind === 'song' ? (s.artist || 'Pressed') : 'Pressed on Cly3DJ', album: '', genre: '', key: '', bpm: s.bpm || 0, duration: 0,
       location: 'press:' + p.id, url: s.url || null, opfs: s.opfs || null, missing: false, cues: [], unsorted: true, press: p };
     if (s.kind === 'video') t.pressVideo = s.video;
-    if (s.kind === 'take') {   // SpatialED #24 a narrator take: the series' narrator, lips from the PC, motion
+    if (s.kind === 'take' && s.v === 2) {   // SpatialED #29 a Spatial Record on this headset (two files, take.js)
+      t.artist = 'Narrator'; t.genre = 'Narrator'; t.url = null;
+      t.lesson = 'sv:' + encodeURIComponent(s.series); t.lips = 'sv:' + encodeURIComponent(s.file); t.motion = 'sv:' + encodeURIComponent(s.file);
+      const k = s.series.toLowerCase(), was = svSeries.get(k); if (!was || was.localeCompare(s.file, undefined, { numeric: true }) < 0) svSeries.set(k, s.file);
+      svRead(s.file).then(sv => { if (sv) svMeta.set(s.file, { pc: sv.pc }); });
+    } else if (s.kind === 'take') {   // SpatialED #24 a narrator take: the series' narrator, lips from the PC, motion
       t.artist = 'Narrator'; t.genre = 'Narrator';
       if (s.url) { t.lesson = encodeURI('narrator/' + s.series + '.vinyl.json'); t.lips = encodeURI('narrator/' + s.file + '.lips.json'); t.motion = encodeURI('narrator/' + s.file + '.motion.json'); }
       else { t.lesson = 'narrator/_take.vinyl.json'; t.motion = 'opfs-take:' + s.file; }   // #28 PC not reached: the built-in Dirro narrator
@@ -4158,7 +4219,7 @@ async function pressArt(track) {
 async function pressBytes(track) {
   const s = track.press.src || {};
   if (s.kind === 'blank') return blankWav();
-  if (s.kind === 'take' && !track.url) return (await readTakeFile(s.file + '.webm')).arrayBuffer();   // #24
+  if (s.kind === 'take' && (s.v === 2 || !track.url)) return (await readTakeFile(s.file + '.webm')).arrayBuffer();   // #24 / #29
   if (s.kind === 'video') { const f = await media.getFile('Video', s.video); if (!f) throw new Error(`the clip ${s.video} is no longer on this headset`); return f.arrayBuffer(); }
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
@@ -4276,13 +4337,14 @@ function drawToolsPage() {
     g.fillStyle = '#39a8ff'; g.fillRect(tx + bitWidth(kbd.text, 4), y0 + 9, 16, 28);   // cursor
     g.restore();
     const gap = 4, kh = P ? 46 : 36, ky0 = y0 + 52;
-    KEY_ROWS.forEach((row, ri) => {
+    const ROWS = kbd.emoji === 'url' ? [...KEY_ROWS, ':/'] : KEY_ROWS;   // #29 web addresses
+    ROWS.forEach((row, ri) => {
       const keys = [...row], kw = (R - L - (keys.length - 1) * gap) / keys.length;
       keys.forEach((k, i) => btn(L + i * (kw + gap), ky0 + ri * (kh + gap), kw, kh, k, false, () => kbdKey(k), false, P ? 15 : 17));
     });
-    const by = ky0 + KEY_ROWS.length * (kh + gap);
+    const by = ky0 + ROWS.length * (kh + gap);
     let x = L, by2 = by; const ew = P ? (R - L - 2 * gap) / 3 : 56;
-    if (kbd.emoji) {
+    if (kbd.emoji === true) {
       for (const em of BIT_EMOJI) {
         g.fillStyle = '#1c2434'; g.fillRect(x, by, ew, kh);
         drawBitText(g, em, x + ew / 2 - 12, by + kh / 2 - 9, 3, '#fff');
@@ -4297,6 +4359,30 @@ function drawToolsPage() {
     btn(x + sw + dw + 2 * gap, by2, ew2, kh, kbd.emoji ? 'ENTER' : 'OK', true, () => kbdKey('ENTER'));
     return;
   }
+  if (page === 'srec') {   // SpatialED #29 Spatial Records on this headset: EXPORT (two downloads), LIPS (send to the PC)
+    const y0 = head('SPATIAL RECORDS', 'take'), rows = P ? 9 : 4, RH = 48, n = srec.list.length, pages = Math.max(1, Math.ceil(n / rows)); srec.pg = Math.min(srec.pg, pages - 1);
+    if (!n) note('None yet. TAKE… records one; STAMP keeps it here.', y0 + 20);
+    srec.list.slice(srec.pg * rows, srec.pg * rows + rows).forEach((name, k) => {
+      const y = y0 + 8 + k * RH, inf = srec.info.get(name) || {}, bw2 = 118;
+      g.fillStyle = '#0d1422'; g.fillRect(L, y, R - L, RH - 6);
+      g.fillStyle = '#dfe6f2'; g.font = '600 16px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+      fitText2(g, `${name}  ·  ${(inf.dur || 0).toFixed(1)} s  ·  ${inf.lips ? 'lips ✓' : 'no lips'}${inf.pc ? '  ·  on PC' : ''}`, L + 10, y + (RH - 6) / 2, R - L - 2 * bw2 - 30); g.textBaseline = 'alphabetic';
+      btn(R - 2 * bw2 - 8, y + 3, bw2, RH - 12, srec.busy === name + 'L' ? 'WAIT…' : 'LIPS', inf.lips, inf.lips ? null : async () => {
+        srec.busy = name + 'L'; drawMixScreen(); const x = await svLips(name); srec.busy = '';
+        toast(x && x.cues ? 'Lips ready: ' + name : x === 'wait' ? 'On the PC: Rhubarb is working. Tap LIPS again in a moment' : 'PC not reached (' + (pcBase() || 'no address') + ')', 4000);
+        lesson.lips.delete('sv:' + encodeURIComponent(name)); srecLoad(); }, false, 15);
+      btn(R - bw2, y + 3, bw2, RH - 12, srec.busy === name + 'E' ? 'WAIT…' : 'EXPORT', false, async () => {
+        srec.busy = name + 'E'; drawMixScreen();
+        try { await svExport(name); toast('Saved to Downloads: ' + name + '.webm + .sv.json', 4000); } catch (e) { toast('Export failed: ' + e.message, 4000); }
+        srec.busy = ''; drawMixScreen(); }, false, 15);
+    });
+    if (pages > 1) {
+      const y = y0 + 8 + rows * RH;
+      btn(L, y, 120, 36, '◀ PREV', false, () => { srec.pg = Math.max(0, srec.pg - 1); drawMixScreen(); });
+      btn(R - 120, y, 120, 36, 'NEXT ▶', false, () => { srec.pg = Math.min(pages - 1, srec.pg + 1); drawMixScreen(); });
+    }
+    return;
+  }
   if (page === 'take') {   // SpatialED #24 TAKE: voice + head + hands, a virtual mirror, then back to STAMP
     const y0 = head('TAKE', 'maker'), S = takeStudio(), st = S.state, has = !!S.result();
     const bw = (R - L - 18) / 4, bh = 56;
@@ -4309,8 +4395,10 @@ function drawToolsPage() {
     const y1 = y0 + bh + 54;
     btn(L, y1, bw * 2 + 6, 40, 'NAME…  ' + takeName(), false, () => openKbd('SERIES_N (e.g. DIRRO_INTRO_1)', maker.name, false, 40, t => { maker.name = t.trim(); }, 'take'), false, 15);
     btn(L + 2 * (bw + 6), y1, bw * 2 + 6, 40, maker.txt ? 'TRANSCRIPT ✓' : 'TRANSCRIPT…', !!maker.txt, () => openKbd('TRANSCRIPT (optional)', maker.txt, false, 600, t => { maker.txt = t.trim(); }, 'take'), false, 15);
-    btn(L, y1 + 48, R - L, 46, has ? 'DONE: BACK TO STAMP' : 'CLOSE', has, () => { S.stopAll(); if (!has) { S.close(); maker.kind = 'blank'; } else { S.close(); } setTools('maker'); }, false, 19);
-    note('Controllers down, hands tracked. CALIBRATE: stand naturally 1 s. REC: voice (through the mixer) + head + hands. Records are named <series>_<n>; a new series gets Dirro. STAMP sends it to the PC (Rhubarb lips) and puts it in the crate.', y1 + 110);
+    btn(L, y1 + 48, bw * 2 + 6, 40, 'PC…  ' + (pcBase() || 'none').replace(/^https?:\/\//, ''), false, () => openKbd('PC ADDRESS (EMPTY = NONE)', (settings.pcUrl == null ? PC_DEFAULT : settings.pcUrl).toUpperCase(), 'url', 90, t => { settings.pcUrl = t.trim().toLowerCase(); saveSettings(); }, 'take'), false, 14);   // #29
+    btn(L + 2 * (bw + 6), y1 + 48, bw * 2 + 6, 40, 'SPATIAL RECORDS…', false, () => { srec.pg = 0; setTools('srec'); srecLoad(); }, false, 15);
+    btn(L, y1 + 96, R - L, 46, has ? 'DONE: BACK TO STAMP' : 'CLOSE', has, () => { S.stopAll(); if (!has) { S.close(); maker.kind = 'blank'; } else { S.close(); } setTools('maker'); }, false, 19);
+    note('Controllers down, hands tracked. CALIBRATE: stand naturally 1 s. REC: voice (through the mixer) + head + hands. Records are named <series>_<n>. STAMP keeps it on this headset (Spatial Records) and sends it to the PC for Rhubarb lips.' + (narrApi ? '' : ' PC: the pinggy address of your PC (this page came from elsewhere).'), y1 + 158);
     return;
   }
   if (page === 'class') {   // SpatialED #11 classroom: the code students type, START / STOP, who is in
@@ -5186,7 +5274,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { sv: { svLips, svExport, pcBase, srecLoad, srec, svSeries, svMeta, addPressings, get lesson() { return lesson; } }, THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
