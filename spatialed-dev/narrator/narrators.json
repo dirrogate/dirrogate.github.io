@@ -10,6 +10,14 @@
       "puppet": true
     },
     {
+      "name": "Mira",
+      "glb": "../models/avatar/Mira_face.glb",
+      "face": true,
+      "pose": "relaxed",
+      "puppet": true,
+      "credit": "Ready Player Me female character by Ready Player Me (sketchfab.com/readyplayerme), CC BY-NC-SA 4.0; face shapes transferred by SpatialED"
+    },
+    {
       "name": "Max",
       "glb": "../examples/max_caulfield.glb",
       "face": true,
