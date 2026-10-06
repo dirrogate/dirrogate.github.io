@@ -40,7 +40,7 @@ let tShown = 0, framed = 0, link = null, joined = false;
 function onPacket(m) {
   if (!m || m.k !== 'les') return;
   if (m.hs != null && m.hs < last.hs && m.u === last.u) return;   // an older packet arriving late
-  Object.assign(last, { u: m.u, t: m.t || 0, r: m.r || 0, s: m.s || 1, y: m.y || 0, l: m.l || null, nd: m.nd == null ? 1 : m.nd, h: m.h == null ? 1 : m.h, at: performance.now(), hs: m.hs != null ? m.hs : last.hs });
+  Object.assign(last, { u: m.u, t: m.t || 0, r: m.r || 0, s: m.s || 1, y: m.y || 0, l: m.l || null, mo: m.mo || null, nd: m.nd == null ? 1 : m.nd, h: m.h == null ? 1 : m.h, at: performance.now(), hs: m.hs != null ? m.hs : last.hs });
 }
 function tNow() { return last.t + last.r * Math.min(1.5, (performance.now() - last.at) / 1000); }   // coast at most 1.5 s
 
@@ -113,7 +113,7 @@ renderer.setAnimationLoop((ts, frame) => {
   // our clock: follow the estimate, snap on jumps (needle drop, scratch), glide on small drift
   const te = tNow(), d = te - tShown;
   tShown = Math.abs(d) > 0.25 ? te : tShown + d * 0.3;
-  const L = last.u ? lesson.remote(last.u, tShown, last.s, last.y, last.l, !!last.nd, last.h) : lesson.show(null);
+  const L = last.u ? lesson.remote(last.u, tShown, last.s, last.y, last.l, !!last.nd, last.h, last.mo) : lesson.show(null);
   if (L && !renderer.xr.isPresenting) frame3(L);
   if (joined) {
     const stale = performance.now() - last.at > 2500;

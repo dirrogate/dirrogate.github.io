@@ -26,7 +26,10 @@
 //                .lips.json, mouth cues against t) on the model's viseme_* morph targets, with ~70 ms crossfades
 //                and blinks from t; without lips yet, the jaw follows the record's loudness,
 //              pose (#20): 'relaxed' = arms down from a T-pose (Ready Player Me), plus breathing and small head
-//                moves from t }]
+//                moves from t,
+//              puppet (#25): true = an RPM rig driven by the driving record's TAKE motion (`motion` on its track:
+//                .motion.json, head and hands against t) through director.js's Avatar (two-bone IK arms, fingers,
+//                spine, planted feet); each frame starts from rest, so it scratches exactly. No motion = the idle }]
 //   trajectories [{ points [[x,y,z]...] (stage space), t0, t1 (drawn from 0 to 100 % over [t0, t1]),
 //              width (m), color }]
 //
@@ -37,6 +40,8 @@
 // the floor; let go small over a deck and it settles back onto that record. A new record always starts on its deck.
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
+import { Avatar } from './director.js';   // #25 puppet narrator
+import { sampleMotion, readTakeFile } from './take.js';
 
 const DEG = Math.PI / 180;
 const loader = new GLTFLoader();
@@ -55,6 +60,7 @@ export class LessonPlayer {
     this.pose = { pos: new THREE.Vector3(), yaw: 0, scale: 1 };   // the stage group's transform in rig space
     this.seats = [];          // per deck: the record's Object3D (or null), from step()
     this.lips = new Map();    // #20 .lips.json url -> { status, cues }
+    this.motions = new Map(); // #25 .motion.json url (or opfs-take:<name>) -> { status, M }
     this.suppress = null;     // #20 a persistent side the professor cleared
     this.lipGain = 0.75;      // #21 lip strength (tablet LIPS - / +): 1 = Rhubarb's full shapes
     this.lastRec = null;      // the record (object) the lesson came in on: a new one starts on its deck again
@@ -83,7 +89,7 @@ export class LessonPlayer {
     if (drv) { L.rel = drv.track.lesson; L.frame = { t: drv.pos, rate: drv.rate, track: drv.track, env: drv.env, dur: drv.dur }; }
     const F = L.frame || { t: 0, rate: 0 };
     if (drv) L.frame.needle = drv.needle !== false;
-    this.live = { rel: L.rel, t: F.t, rate: drv ? F.rate : 0, lips: F.track && F.track.lips || null, needle: !!F.needle };   // #11 class packet
+    this.live = { rel: L.rel, t: F.t, rate: drv ? F.rate : 0, lips: F.track && F.track.lips || null, motion: F.track && F.track.motion && !/^opfs/.test(F.track.motion) ? F.track.motion : null, needle: !!F.needle };   // #11 class packet
     if (drv && drv.rec !== this.lastRec) {   // a record just went on
       this.lastRec = drv.rec; this.grab = null;
       // #20 a persistent side keeps where it was put when the next record of its series goes on
@@ -94,7 +100,7 @@ export class LessonPlayer {
     if (this.place.deck != null && !this.seats[this.place.deck]) this.place = L.persist || bi < 0 ? { free: true } : { deck: bi };   // its record left that deck
     if (this.place.deck != null) this.seatPose(L, this.place.deck);
     const g = L.group; g.position.copy(this.pose.pos); g.rotation.set(0, this.pose.yaw, 0); g.scale.setScalar(this.pose.scale);
-    this.apply(L, F.t, { lips: F.track && F.track.lips ? this.lipsFor(F.track.lips, F.track.url) : null, env: F.env, dur: F.dur, frozen: !drv, needle: !!F.needle, gain: this.lipGain });
+    this.apply(L, F.t, { lips: F.track && F.track.lips ? this.lipsFor(F.track.lips, F.track.url) : null, motion: F.track && F.track.motion ? this.motionFor(F.track.motion) : null, env: F.env, dur: F.dur, frozen: !drv, needle: !!F.needle, gain: this.lipGain });
     this.drawCage(L);
     return L;
   }
@@ -122,6 +128,19 @@ export class LessonPlayer {
     })().catch(() => { e.status = 'failed'; });
     return null;
   }
+  // #25 a take's motion: fetched once (or read from this device's sed-takes for a take the PC never got)
+  motionFor(rel) {
+    let e = this.motions.get(rel);
+    if (!e) {
+      e = { status: 'busy', M: null }; this.motions.set(rel, e);
+      (async () => {
+        const j = /^opfs-take:/.test(rel) ? JSON.parse(await (await readTakeFile(rel.slice(10) + '.motion.json')).text())
+          : await fetch(new URL(rel, location.href).href, { cache: 'no-cache' }).then(r => r.ok ? r.json() : null);
+        if (j && j.frames && j.frames.length) { e.M = j; e.status = 'ready'; } else e.status = 'failed';
+      })().catch(() => { e.status = 'failed'; });
+    }
+    return e.M;
+  }
   isFree() { return !!(this.cur && this.place && this.place.free); }
   show(L) {
     if (L !== this.cur) {
@@ -137,14 +156,14 @@ export class LessonPlayer {
   // the page, so a student page in the same folder finds it on any host)
   packet() {
     const v = this.live, L = this.cur; if (!v || !L) return { k: 'les', u: null };
-    return { k: 'les', u: v.rel, t: +v.t.toFixed(3), r: +v.rate.toFixed(4), s: +this.pose.scale.toFixed(4), y: +this.pose.yaw.toFixed(4), d: this.place && this.place.deck != null ? 1 : 0, l: v.lips || undefined, nd: v.needle ? 1 : 0, h: +this.lipGain.toFixed(2) };
+    return { k: 'les', u: v.rel, t: +v.t.toFixed(3), r: +v.rate.toFixed(4), s: +this.pose.scale.toFixed(4), y: +this.pose.yaw.toFixed(4), d: this.place && this.place.deck != null ? 1 : 0, l: v.lips || undefined, mo: v.motion || undefined, nd: v.needle ? 1 : 0, h: +this.lipGain.toFixed(2) };
   }
   // student: draw the side the professor plays at t, at the professor's size and turn, centred on this root
-  remote(rel, t, scale, yaw, lips, needle = true, gain = 1) {
+  remote(rel, t, scale, yaw, lips, needle = true, gain = 1, motion = null) {
     const s = rel ? this.want(new URL(rel, location.href).href) : null;
     const L = this.show(s && s.status === 'ready' ? s.L : null); if (!L) return null;
     L.group.position.set(0, 0, 0); L.group.rotation.set(0, yaw || 0, 0); L.group.scale.setScalar(scale || 1);
-    this.apply(L, t, { lips: lips ? this.lipsFor(lips, null) : null, needle, gain }); return L;
+    this.apply(L, t, { lips: lips ? this.lipsFor(lips, null) : null, motion: motion ? this.motionFor(motion) : null, needle, gain }); return L;
   }
 
   // ---------------------------------------------------------------- placement
@@ -255,8 +274,9 @@ export class LessonPlayer {
   // t -> the whole scene. Called every frame; cheap (one mixer evaluation per actor, one draw-range per trajectory).
   apply(L, t, F = null) {
     for (const a of L.actors) {
+      const moved = a.puppet && F && F.motion ? applyPuppet(a, F.motion, t) : false;   // #25 first: it resets the bones
       if (a.face) applyFace(a, t, F);
-      if (a.idle) applyIdle(a, t);
+      if (a.idle && !moved) applyIdle(a, t);
       if (a.mixer) {
         let ct = t - a.t0;
         if (a.loop) ct = ((ct % a.dur) + a.dur) % a.dur;
@@ -319,7 +339,13 @@ async function load(url) {
     if (a.motion) act.motion = await makeMotion(a.motion, base, obj);
     if (a.face) act.face = faceRig(obj);   // #20
     if (a.pose === 'relaxed') act.idle = idleRig(obj);   // #20
-    if (act.mixer || act.motion || act.face || act.idle) actors.push(act);   // else a still prop: placed, nothing to drive
+    if (a.puppet && !act.mixer) {   // #25 the Avatar adopts the model inside a group of its own in the wrap
+      const pr = new THREE.Group(); pr.name = 'puppet'; wrap.add(pr);
+      try { act.puppet = new Avatar(pr).setup(obj, { eyes: true }); act.pr = pr; }
+      catch (e) { console.warn('lesson puppet', e); wrap.remove(pr); pr.remove(obj); wrap.add(obj); }
+      if (act.puppet) act.idle = idleRig(obj);   // the bones Avatar re-binds are the same objects
+    }
+    if (act.mixer || act.motion || act.face || act.idle || act.puppet) actors.push(act);   // else a still prop: placed, nothing to drive
   }
 
   const trajs = (side.trajectories || []).map(tr => makeTrail(tr)).filter(Boolean);
@@ -415,6 +441,16 @@ function applyFace(a, t, F) {
   for (const k of FACE_KEYS) { const v = w[k] || 0, sl = S[k]; if (sl) for (const [m, i] of sl) m.morphTargetInfluences[i] = v; }
 }
 // arms down from a T-pose: aim each upper arm and forearm along a world direction (the model's own frame, +z = front)
+// #25 the take's head and hands at t drive the narrator. Its group is taken out of the lesson for the update, so
+// Avatar works in the take's own frame (floor at 0, the professor's calibrated facing = +z = the narrator's front)
+function applyPuppet(a, M, t) {
+  const P = sampleMotion(M, Math.min(Math.max(t, 0), M.duration || t)); if (!P) return false;
+  const pr = a.pr, par = pr.parent; if (!par) return false;
+  par.remove(pr); pr.updateMatrixWorld(true);
+  try { a.puppet.resetState(M.eye); a.puppet.update({ head: P.head, hands: P.hands, floorY: 0, dt: 1 }); }
+  finally { par.add(pr); }
+  return true;
+}
 function relaxArms(obj) {
   obj.updateMatrixWorld(true); const B = {};
   obj.traverse(b => { if (b.isBone) B[boneKey(b.name)] = b; });

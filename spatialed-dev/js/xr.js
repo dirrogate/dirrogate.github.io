@@ -19,6 +19,7 @@ const PLATTER_R = 0.166;
 const PITCH_STEP = 0.0001;   // #270 (owner): 0.01 % per thumbstick flick (was 0.05 %)
 
 export function setupXR(ctx) {
+  const decksOn = () => ctx.decks.filter(d => !(ctx.deckOff && ctx.deckOff(d)));   // SpatialED #23 switched-off decks take no hands
   REC12 = ctx.REC;   // #260
   const { renderer, scene } = ctx;
   // #215 controller and hand models ship with the app (vendor/webxr-input-profiles), so nothing is fetched from
@@ -145,7 +146,7 @@ export function setupXR(ctx) {
       if (ctx.mixVal[id] === undefined) continue;
       out.push({ id, g, kind: id.endsWith('.fader') || id === 'xfader' ? 'slider' : 'knob' });
     }
-    for (const d of ctx.decks) out.push({ id: 'pitch', deck: d, g: d.g.userData.pitchCap, kind: 'pitch' });
+    for (const d of decksOn()) out.push({ id: 'pitch', deck: d, g: d.g.userData.pitchCap, kind: 'pitch' });
     return out;
   }
   function headshellDist(d, P) {
@@ -221,7 +222,7 @@ export function setupXR(ctx) {
       updateAnchor(st); if (ctx.sleeveGrab(st.anchor, P)) { st.direct = { kind: 'sleeve' }; buzz(st, 0.4, 30); return true; } } }
     // 0. target lamp, controllers only: the trigger (or grip) at the lamp head toggles it (CLAUDE.md #58).
     //    Controllers never toggle it by hovering; bare hands still press it with a fingertip poke.
-    for (const d of ctx.decks) {
+    for (const d of decksOn()) {
       const t = d.g.userData.target; if (!t) continue;
       t.grp.getWorldPosition(v2); v2.y += t.headY;
       if (Math.hypot(P.x - v2.x, P.z - v2.z) < 0.02 && P.y - v2.y < 0.025 && P.y - v2.y > -0.03) {
@@ -261,7 +262,7 @@ export function setupXR(ctx) {
     // 0b. 33 / 45: trigger (or grip) at the button, never by hovering (owner, #64); #324 bare hands: a pinch, not a tap
     {
       let best = null, bd = 0.016;
-      for (const d of ctx.decks) for (const [key, id] of [['b33', 'rpm33'], ['b45', 'rpm45'], ['x2', 'x2']]) {   // #253 + X2
+      for (const d of decksOn()) for (const [key, id] of [['b33', 'rpm33'], ['b45', 'rpm45'], ['x2', 'x2']]) {   // #253 + X2
         const b = d.g.userData[key]; if (!b) continue; b.getWorldPosition(v2);
         const dd = Math.hypot(P.x - v2.x, P.z - v2.z); if (dd < bd && P.y - v2.y < 0.03 && P.y - v2.y > -0.015) { bd = dd; best = { deck: d.name, id }; }
       }
@@ -269,18 +270,18 @@ export function setupXR(ctx) {
     }
     // 1. tonearm
     // grab zone covers the whole headshell and cartridge: points from the stylus 7 cm back along the arm
-    if (deckOk) for (const d of ctx.decks) {
+    if (deckOk) for (const d of decksOn()) {
       if (headshellDist(d, P) < ARM_REACH) { ctx.armGrab(d); st.direct = { kind: 'arm', d, y0: P.y }; buzz(st); return true; }
     }
     // 1b. power dial: twist it (about a quarter turn) to switch the deck on or off
     // #252 (owner): with controllers the power dial and START / STOP answer the grip only (a trigger or a brushing tip
     // never switches a deck off or stops it); bare hands as before (pinch the dial, poke the button)
     const gripOk = st.isHand || btn === 'grip';
-    if (gripOk) for (const d of ctx.decks) {
+    if (gripOk) for (const d of decksOn()) {
       const pk = d.g.userData.powerKnob;
       if (pk && pk.getWorldPosition(v2).distanceTo(P) < 0.035) { st.direct = { kind: 'power', d, yaw0: yawOf(handQuat(st, q1)), done: false }; buzz(st); return true; }
     }
-    if (st.isHand || btn === 'grip') for (const d of ctx.decks) {   // #324 bare hands: a deliberate pinch (no tap)
+    if (st.isHand || btn === 'grip') for (const d of decksOn()) {   // #324 bare hands: a deliberate pinch (no tap)
       const sb = d.g.userData.start; if (!sb) continue;
       sb.getWorldPosition(v2);
       if (Math.hypot(P.x - v2.x, P.z - v2.z) < 0.03 && P.y - v2.y < 0.04 && P.y - v2.y > -0.02) { ctx.pressControl({ deck: d.name, id: 'start' }, st); st.direct = { kind: 'tap' }; buzz(st, 0.5, 30); return true; }
@@ -312,13 +313,13 @@ export function setupXR(ctx) {
     //    edge; the label itself does nothing (kept free for the spindle); scratch = the grooves beyond that.
     // #181 (owner): the grip also lifts a record off the platter (label or the ring just outside it), like pulling one
     // from a sleeve; every other turntable action stays trigger-only (#104)
-    if (!deckOk) for (const d of ctx.decks) {
+    if (!deckOk) for (const d of decksOn()) {
       if (!d.record) continue;
       const l = d.g.worldToLocal(v2.copy(P));
       const r = Math.hypot(l.x - ctx.DECK.spindle.x, l.z - ctx.DECK.spindle.z), h = l.y - (d.g.userData.platterSurface + RD(d).THICK);
       if (h > -0.035 && h < 0.05 && r < RD(d).LABEL + LO(RD(d))) { st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true; }
     }
-    if (deckOk) for (const d of ctx.decks) {
+    if (deckOk) for (const d of decksOn()) {
       const l = d.g.worldToLocal(v2.copy(P));
       const r = Math.hypot(l.x - ctx.DECK.spindle.x, l.z - ctx.DECK.spindle.z);
       const h = l.y - (d.g.userData.platterSurface + RD(d).THICK);
@@ -676,7 +677,7 @@ export function setupXR(ctx) {
     const out = [];
     const mc = ctx.mixer.userData.controls;
     for (const id of ['sync', 'splitcue', 'mic', 'A.cue', 'B.cue', 'A.beat1', 'B.beat1']) out.push({ g: mc[id], c: { mixer: true, id }, r: 0.013 });   // all centre buttons the same size now (#89)
-    for (const d of ctx.decks) {
+    for (const d of decksOn()) {
       const u = d.g.userData;
       out.push({ g: u.start, c: { deck: d.name, id: 'start' }, r: 0.022 });
       out.push({ g: u.b33, c: { deck: d.name, id: 'rpm33' }, r: 0.012 });
@@ -728,7 +729,7 @@ export function setupXR(ctx) {
     if (!st.direct) {
       const ctl = !st.isHand;
       let touching = null, local = null;
-      for (const d of ctx.decks) {
+      for (const d of decksOn()) {
           const ll = d.g.worldToLocal(v2.copy(T));
         const r = Math.hypot(ll.x - ctx.DECK.spindle.x, ll.z - ctx.DECK.spindle.z);
         const h = ll.y - (d.g.userData.platterSurface + RD(d).THICK);
@@ -1002,7 +1003,7 @@ export function setupXR(ctx) {
   }
 
   function pitchFaderNear(P) {
-    for (const d of ctx.decks) {
+    for (const d of decksOn()) {
       const t = d.g.userData.pitchTravel; const l = d.g.worldToLocal(v2.copy(P));
       if (Math.abs(l.x - t.x) < 0.035 && l.z > t.z0 - 0.03 && l.z < t.z1 + 0.03 && l.y > 0.05 && l.y < 0.2) return d;
     }

@@ -14,6 +14,7 @@ import { RobotAvatar2, ROBOT_GLB } from './robot2.js';   // #245 the licensed Av
 import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, labelFrom, blankWav } from './tools.js';
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { LessonPlayer } from './lesson.js';   // SpatialED #7 Spatial Vinyl lessons
+import { TakeStudio, saveTakeFile, readTakeFile } from './take.js';   // SpatialED #24 TAKE
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
@@ -220,7 +221,8 @@ function milks() { return [milk, ...Object.values(extraMilk)].filter(m => m.pare
 // #235 stage pieces the DJ can switch off to save work (TOOLS: LED wall and neon sign in VJ TOOLS, the first milk
 // crate in DJ TOOLS). Off = hidden, not hit by rays or hands, no shadow blob, nothing lands on it, and its per-frame
 // work stops (LED videos / camera / scroller, neon flicker). It keeps its place in the saved layout.
-function pieceObj(k) { return k === 'ledwall' ? ledwall : k === 'neon' ? neon : milk; }
+function pieceObj(k) { return k === 'ledwall' ? ledwall : k === 'neon' ? neon : k === 'deckA' ? deckGroups[0] : k === 'deckB' ? deckGroups[1] : milk; }
+function deckOff(d) { return !pieceOn(d.i ? 'deckB' : 'deckA'); }   // SpatialED #23
 function pieceOn(k) { return !(settings.pieces && settings.pieces[k] === false); }
 function applyPiece(k) {
   const o = pieceObj(k), on = pieceOn(k);
@@ -237,6 +239,9 @@ function applyPiece(k) {
   if (k === 'milk') {
     if (!on && o.parent) { o.userData.homeParent = o.parent; o.parent.remove(o); }
     else if (on && !o.parent && o.userData.homeParent) o.userData.homeParent.add(o);
+  }
+  if ((k === 'deckA' || k === 'deckB') && !on) {   // SpatialED #23 a switched-off deck: motor off, needle up, nothing to draw
+    const d = decks[k === 'deckB' ? 1 : 0]; try { if (d.motorOn) setMotor(d, false); liftNeedle(d, true); } catch (e) {}
   }
   if (k === 'ledwall') { led.setSilent(!on); if (!on && (ledMode === 'decks' || ledMode === 'cam' || isLive(ledMode))) setLedMode('off'); }
 }
@@ -474,7 +479,8 @@ function setPreview(on) {
 led.onChange = () => drawMixScreen();
 // #177 VideoVinyl + LED wall modes. LED WALL cycles OFF -> CLIPS (if videos were picked) -> DECKS -> CAM (#220) -> OFF.
 let ledMode = 'off';
-if (!CAMERA_ROLE) for (const k of ['ledwall', 'neon', 'milk']) applyPiece(k);   // #235 pieces switched off last time stay off
+if (!CAMERA_ROLE) for (const k of ['ledwall', 'neon', 'milk']) applyPiece(k);
+if (!CAMERA_ROLE) queueMicrotask(() => { for (const k of ['deckA', 'deckB']) applyPiece(k); });   // SpatialED #23 (decks are built further down)   // #235 pieces switched off last time stay off
 const deckVid = [new DeckVideo(), new DeckVideo()];
 let vvIndex = new Map();          // headset: title key -> OPFS path of the video
 const vvPC = new Map();           // PC: title key -> Promise<url|null> (HEAD videos/<title>.mp4)
@@ -566,7 +572,7 @@ lesson.lipGain = settings.lipGain != null ? settings.lipGain : 0.75;   // Spatia
 function lessonStep() {
   const g = deckGains(mixVal);
   lessonOn = !!lesson.step(decks.map(d => ({ track: d.record ? d.track : null, pos: engine.ctx ? heardPos(d) : 0, rate: engine.state.decks[d.i].rate || 0, gain: g[d.i],
-    seat: d.record ? d.record.group : null, rec: d.record, env: d.record && d.record.envs ? d.record.envs[d.side] : null, dur: d.duration, needle: !!engine.state.decks[d.i].needle }))) && lesson.isFree();   // #21 needle: lips only in the groove   // #8 on a deck it needs no room: the wall stays
+    seat: d.record && !deckOff(d) ? d.record.group : null, rec: d.record, env: d.record && d.record.envs ? d.record.envs[d.side] : null, dur: d.duration, needle: !!engine.state.decks[d.i].needle }))) && lesson.isFree();   // #21 needle: lips only in the groove   // #8 on a deck it needs no room: the wall stays
 }
 function saveLayout() { stage.save(); }
 // #84 migration: layouts saved with the second flight case had the record crate standing on it; with that case
@@ -1940,6 +1946,7 @@ function releaseHeld() {
   if (!held) return;
   held.group.getWorldPosition(_rc);
   for (const d of decks) {
+    if (deckOff(d)) continue;   // SpatialED #23
     _sp.set(DECK.spindle.x, d.g.userData.platterSurface, DECK.spindle.z); d.g.localToWorld(_sp);
     const dy = _rc.y - _sp.y;
     if (Math.hypot(_rc.x - _sp.x, _rc.z - _sp.z) < 0.13 && dy > -0.06 && dy < 0.3) {
@@ -2248,6 +2255,7 @@ function surfaceUnder(p) {
     ly = Math.max(ly, deckHF(l.x, l.z));
     if (ly === -Infinity) continue;
     const top = d.g.localToWorld(_su2.set(l.x, ly, l.z)).y;
+    if (deckOff(d)) continue;   // SpatialED #23 a switched-off deck catches nothing
     if (top <= p.y + 0.05 && top > best.y) best = { y: top, kind: onPlatter && !d.record ? 'platter' : 'gear', d };
   }
   const ml = mixer.worldToLocal(_su.copy(p)), my = mixerHF(ml.x, ml.z);
@@ -3903,7 +3911,17 @@ function drawPhoneIcon(g, px, py, pw, ph, on) {   // small phone icon; its LED i
 // ---- #224 TOOLS page on the mixer tablet (TOOLS button, bottom-left of the main HUD): DJ TOOLS (Record Maker) and
 // VJ TOOLS (Scroller). Pages: home, dj, vj, maker, pickSong, pickVideo, pickImage, kbd, scroller.
 let pickItems = [], pickPg = 0;   // toolsPage is declared with videoPage (drawMixScreen reads it early)
-const maker = { kind: 'blank', song: null, video: null, image: null, name: '', busy: false, msg: '', msgOk: true, size: 12 };   // #261 size: 12 or 7 (inches)
+const maker = { kind: 'blank', song: null, video: null, image: null, name: '', busy: false, msg: '', msgOk: true, size: 12, txt: '' };   // #24 txt: TAKE transcript
+// SpatialED #24 TAKE: the studio (mirror, calibration, recording) lives while the TAKE page is open or a take waits
+let studio = null;
+function takeStudio() {
+  if (!studio) studio = new TakeStudio({ renderer, scene, rig, engine, toast,
+    getInputs: () => { try { return xr && xr.inputs; } catch { return null; } },
+    ensureMic: async () => { if (!engine.ctx) throw new Error('audio not started'); if (settings.micRoute !== 'app') { settings.micRoute = 'app'; saveSettings(); if (micOn) { micOn = false; engine.setMicOn(false); } } if (!micOn) await toggleMic(); if (!engine.mic) throw new Error('mic did not open'); },
+    onChange: () => drawMixScreen() });
+  return studio;
+}
+function takeName() { let n = (maker.name || '').trim().replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 40); if (!n) n = 'Take'; if (!/_\d{1,3}$/.test(n)) n += '_1'; return n; }   // #261 size: 12 or 7 (inches)
 // #225 the Record Maker's answers show on the tablet (toast() is a desktop-only overlay, invisible in the headset)
 let makerMsgT = 0;
 function makerSay(text, ok, ms = 5000) {
@@ -3978,12 +3996,14 @@ function fitText2Center(g, s, x, y, w) { let t = s; while (t.length > 3 && g.mea
 function makerSourceText() {
   if (maker.kind === 'song') return maker.song ? `Song: ${maker.song.title}${maker.song.artist ? '  ·  ' + maker.song.artist : ''}` : 'Song: pick one (SONG…)';
   if (maker.kind === 'clip') return maker.video ? `Clip: ${maker.video.replace(/\.[^.]+$/, '')} (its sound, and it plays on the record)` : 'Clip: pick one (CLIP…)';
+  if (maker.kind === 'take') { const r = studio && studio.result(); return r ? `Take: ${r.duration.toFixed(1)} s voice + motion → ${takeName()}${maker.txt ? ' (with transcript)' : ''}` : 'Take: record one (TAKE…)'; }
   return 'Blank: generic grooves (quiet vinyl crackle)';
 }
 async function pressRecord() {
   if (maker.busy) return;
   if (maker.kind === 'song' && !maker.song) { makerSay('Pick a song first (SONG…)', false, 3000); return; }
   if (maker.kind === 'clip' && !maker.video) { makerSay('Pick a clip first (CLIP…)', false, 3000); return; }
+  if (maker.kind === 'take') return pressTake();   // SpatialED #24
   if (maker.size === 7 && maker.kind === 'song' && maker.song.duration > 6.5 * 60) { makerSay(`Too long for a 7" side (${fmt(maker.song.duration)}; up to about 6:30 at 45 rpm)`, false, 5000); return; }   // #261
   const title = maker.name.trim() || `DUBPLATE ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`;
   maker.busy = true; drawMixScreen();
@@ -4002,6 +4022,38 @@ async function pressRecord() {
     maker.busy = false; maker.name = '';
     makerSay(`✓ STAMPED "${title}"${p.size === 7 ? ' (7")' : ''}: in the crate, ${where}`, true, 6000);
   } catch (e) { maker.busy = false; makerSay('Not stamped: ' + e.message, false, 6000); }
+  maker.busy = false; drawMixScreen();
+}
+// SpatialED #24 stamp a TAKE: voice (webm) + motion + transcript kept on this device (sed-takes) and sent to the PC's
+// narrator folder (api/take), where Rhubarb makes the lips; the pressing streams the PC copy, or plays the device copy
+async function pressTake() {
+  const R0 = studio && studio.result(); if (!R0) { makerSay('Record a take first (TAKE…)', false, 3000); return; }
+  const name = takeName(), ser = name.replace(/_\d+$/, '');
+  maker.busy = true; drawMixScreen();
+  try {
+    let label = null;
+    if (maker.image) { const f = await media.getFile('Images', maker.image); if (f) label = await labelFrom(f); }
+    const motion = JSON.stringify(R0.motion);
+    await saveTakeFile(name + '.webm', R0.blob); await saveTakeFile(name + '.motion.json', motion);
+    if (maker.txt) await saveTakeFile(name + '.txt', maker.txt);
+    let onPc = false;
+    try {
+      const up = (kind, body) => fetch(`api/take?name=${encodeURIComponent(name)}&kind=${kind}`, { method: 'POST', body }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); });
+      if (maker.txt) await up('txt', maker.txt);
+      await up('motion', motion); await up('audio', R0.blob);
+      onPc = true; fetch('api/lips?src=' + encodeURIComponent('narrator/' + name + '.webm'), { cache: 'no-store' }).catch(() => {});
+    } catch (e) { console.warn('take upload', e); }
+    const src = { kind: 'take', file: name, series: ser, url: onPc ? encodeURI('narrator/' + name + '.webm') : null, duration: R0.duration };
+    const p = await savePressing({ id: 'p' + Date.now().toString(36), title: name, src, made: Date.now(), size: maker.size === 7 ? 7 : 12 }, label);
+    if (!lib) lib = emptyLibrary();
+    const r = addPressings(lib, [p]);
+    const where = p.size === 7 ? '45s' : 'Unsorted', pi = lib.playlists.findIndex(pl => pl.name === where);
+    search.q = ''; search.results = null; searchInput.value = '';
+    crateState.pl = pi; crateState.sel = Math.max(0, lib.playlists[pi].records.indexOf(r));
+    drawCrateScreen(); layoutSleeves();
+    maker.name = ''; maker.txt = ''; maker.kind = 'blank'; if (studio) { studio.close(); studio = null; }
+    makerSay(`✓ STAMPED "${name}": ${where}${onPc ? ', lips being made on the PC' : ' (PC not reached: no lips yet)'}`, true, 6000);
+  } catch (e) { makerSay('Not stamped: ' + e.message, false, 6000); }
   maker.busy = false; drawMixScreen();
 }
 // #231 built-in example records (web/examples/, streamed like songs from the PC), in Unsorted and the Collection.
@@ -4054,12 +4106,13 @@ async function addNarrator(L) {
   for (const it of j.records) {
     const file = String(it.file || ''), base = file.replace(/\.[^.]+$/, ''), id = 'nr_' + base;
     if (!base || L.tracks.has(id)) continue;
+    if ([...L.tracks.values()].some(x => x.press && x.press.src && x.press.src.kind === 'take' && x.press.src.file.toLowerCase() === base.toLowerCase())) continue;   // #24 a stamped take: already in the crate
     const m = base.match(/^(.*)_(\d+)$/), ser = m && series.get(m[1].toLowerCase());
     const url = encodeURI('narrator/' + file);
     const r = { id: 'r' + id, size: 12, title: base, artist: 'Narrator', sides: { A: null, B: null }, bpm: 0, key: '', genre: 'Narrator', duration: 0, missing: false, paired: false, unsorted: true, narrator: true };
     const t = { id, name: base, title: base, side: 'A', split: false, artist: 'Narrator', album: ser || base, genre: 'Narrator', key: '', bpm: 0, duration: 0,
       location: url, url, opfs: null, missing: false, cues: [], unsorted: true, record: r,
-      lesson: ser ? encodeURI('narrator/' + ser + '.vinyl.json') : null, lips: encodeURI('narrator/' + base + '.lips.json') };
+      lesson: ser ? encodeURI('narrator/' + ser + '.vinyl.json') : null, lips: encodeURI('narrator/' + base + '.lips.json'), motion: it.motion ? encodeURI('narrator/' + base + '.motion.json') : null };   // #25
     r.sides.A = t; L.tracks.set(id, t); L.records.push(r); dest.records.push(r); L.playlists[0].records.push(r);
   }
   dest.records.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
@@ -4075,6 +4128,11 @@ function addPressings(L, list) {
     const t = { id, name: p.title, title: p.title, side: null, split: false, artist: s.kind === 'song' ? (s.artist || 'Pressed') : 'Pressed on Cly3DJ', album: '', genre: '', key: '', bpm: s.bpm || 0, duration: 0,
       location: 'press:' + p.id, url: s.url || null, opfs: s.opfs || null, missing: false, cues: [], unsorted: true, press: p };
     if (s.kind === 'video') t.pressVideo = s.video;
+    if (s.kind === 'take') {   // SpatialED #24 a narrator take: the series' narrator, lips from the PC, motion
+      t.artist = 'Narrator'; t.genre = 'Narrator';
+      if (s.url) { t.lesson = encodeURI('narrator/' + s.series + '.vinyl.json'); t.lips = encodeURI('narrator/' + s.file + '.lips.json'); t.motion = encodeURI('narrator/' + s.file + '.motion.json'); }
+      else { t.lesson = encodeURI('narrator/' + s.series + '.vinyl.json'); t.motion = 'opfs-take:' + s.file; }
+    }
     const r = { id: 'r' + id, title: p.title, artist: t.artist, sides: { A: t, B: null }, bpm: t.bpm, key: '', genre: '', duration: 0, missing: false, paired: false, unsorted: true, pressed: true, size: p.size === 7 ? 7 : 12 };
     let dest = un;   // #261 pressed 45s go to the 45s list
     if (r.size === 7) { dest = L.playlists.find(q => q.name === '45s'); if (!dest) { dest = { name: '45s', path: '45s (7" singles on this headset)', records: [] }; L.playlists.push(dest); } }
@@ -4094,6 +4152,7 @@ async function pressArt(track) {
 async function pressBytes(track) {
   const s = track.press.src || {};
   if (s.kind === 'blank') return blankWav();
+  if (s.kind === 'take' && !track.url) return (await readTakeFile(s.file + '.webm')).arrayBuffer();   // #24
   if (s.kind === 'video') { const f = await media.getFile('Video', s.video); if (!f) throw new Error(`the clip ${s.video} is no longer on this headset`); return f.arrayBuffer(); }
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
@@ -4166,7 +4225,8 @@ function drawToolsPage() {
     if (P) {
       if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
         ctlBtn(L, y0 + 176, (R - L - 8) * 0.62, 64); btn(L + (R - L - 8) * 0.62 + 8, y0 + 176, (R - L - 8) * 0.38, 64, 'HAND FIT', false, () => setTools('handfit'), false, 18);   // #291
-        note('RECORD MAKER: press your own record. It goes into the crate, Unsorted. MILK CRATE: the first milk crate (extra ones come from the crate screen). CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 272); }
+        { const hw = (R - L - 8) / 2; sw(L, y0 + 252, hw, 64, 'DECK A', 'deckA'); sw(L + hw + 8, y0 + 252, hw, 64, 'DECK B', 'deckB'); }   // SpatialED #23
+        note('RECORD MAKER: press your own record. It goes into the crate, Unsorted. MILK CRATE: the first milk crate (extra ones come from the crate screen). CONTROLLERS: 3D hands holding them, or the bare controllers. DECK A / B: a switched-off turntable is hidden, stopped and costs nothing.', y0 + 348); }
       else { btn(L, y0 + 8, R - L, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
         sw(L, y0 + 100, R - L, 64, 'LED WALL', 'ledwall'); sw(L, y0 + 176, R - L, 64, 'NEON SIGN', 'neon');
         note('Switched off, the LED wall or the sign is hidden and costs nothing; it keeps its place for when it comes back.', y0 + 272); }
@@ -4174,7 +4234,8 @@ function drawToolsPage() {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
       if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(x2, y0 + 8, w2, 80, 'MILK CRATE', 'milk');
         ctlBtn(L, y0 + 96, (R - L - 8) * 0.66, 50); btn(L + (R - L - 8) * 0.66 + 8, y0 + 96, (R - L - 8) * 0.34, 50, 'HAND FIT', false, () => setTools('handfit'), false, 20);   // #291
-        note('RECORD MAKER: press your own record (blank, a song or a clip, a picture label); it goes into the crate, Unsorted. MILK CRATE: the first milk crate; switched off it is hidden and costs nothing. CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 164); }
+        { const hw = (R - L - 8) / 2; sw(L, y0 + 154, hw, 50, 'DECK A', 'deckA'); sw(L + hw + 8, y0 + 154, hw, 50, 'DECK B', 'deckB'); }   // SpatialED #23
+        note('RECORD MAKER: press your own record (blank, a song or a clip, a picture label); it goes into the crate, Unsorted. MILK CRATE: the first milk crate; switched off it is hidden and costs nothing. CONTROLLERS: 3D hands holding them, or the bare controllers. DECK A / B: a switched-off turntable is hidden, stopped and costs nothing.', y0 + 222); }
       else { btn(L, y0 + 8, bw, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
         const hw = (w2 - 8) / 2; sw(x2, y0 + 8, hw, 80, 'LED WALL', 'ledwall'); sw(x2 + hw + 8, y0 + 8, hw, 80, 'NEON', 'neon');
         note('SCROLLER: a sine-wave text scroller across the bottom of the LED wall. LED WALL / NEON: switched off they are hidden and cost nothing; they keep their place for when they come back.', y0 + 116); }
@@ -4228,6 +4289,22 @@ function drawToolsPage() {
     btn(x, by2, sw, kh, 'SPACE', false, () => kbdKey('SPACE'));
     btn(x + sw + gap, by2, dw, kh, '⌫', false, () => kbdKey('DEL'));
     btn(x + sw + dw + 2 * gap, by2, ew2, kh, kbd.emoji ? 'ENTER' : 'OK', true, () => kbdKey('ENTER'));
+    return;
+  }
+  if (page === 'take') {   // SpatialED #24 TAKE: voice + head + hands, a virtual mirror, then back to STAMP
+    const y0 = head('TAKE', 'maker'), S = takeStudio(), st = S.state, has = !!S.result();
+    const bw = (R - L - 18) / 4, bh = 56;
+    btn(L, y0 + 6, bw, bh, 'CALIBRATE', st === 'calib', () => S.calibrate(), false, 17);
+    btn(L + (bw + 6), y0 + 6, bw, bh, st === 'rec' ? '■ STOP' : '● REC', st === 'rec', () => st === 'rec' ? S.stop() : S.record(), false, 19);
+    btn(L + 2 * (bw + 6), y0 + 6, bw, bh, st === 'play' ? '■ STOP' : '▶ PLAY', st === 'play', () => { if (st === 'play') { S.stopPlay(); S.state = 'review'; drawMixScreen(); } else S.play(); }, false, 19);
+    btn(L + 3 * (bw + 6), y0 + 6, bw, bh, 'SKELETON', S.skeleton, () => S.toggleSkeleton(), false, 17);
+    g.fillStyle = st === 'rec' ? '#ff6b6b' : '#dfe6f2'; g.font = '700 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    fitText2(g, S.msg || '', L + 4, y0 + bh + 30, R - L - 8); g.textBaseline = 'alphabetic';
+    const y1 = y0 + bh + 54;
+    btn(L, y1, bw * 2 + 6, 40, 'NAME…  ' + takeName(), false, () => openKbd('SERIES_N (e.g. DIRRO_INTRO_1)', maker.name, false, 40, t => { maker.name = t.trim(); }, 'take'), false, 15);
+    btn(L + 2 * (bw + 6), y1, bw * 2 + 6, 40, maker.txt ? 'TRANSCRIPT ✓' : 'TRANSCRIPT…', !!maker.txt, () => openKbd('TRANSCRIPT (optional)', maker.txt, false, 600, t => { maker.txt = t.trim(); }, 'take'), false, 15);
+    btn(L, y1 + 48, R - L, 46, has ? 'DONE: BACK TO STAMP' : 'CLOSE', has, () => { S.stopAll(); if (!has) { S.close(); maker.kind = 'blank'; } else { S.close(); } setTools('maker'); }, false, 19);
+    note('Controllers down, hands tracked. CALIBRATE: stand naturally 1 s. REC: voice (through the mixer) + head + hands. Records are named <series>_<n>; a new series gets Dirro. STAMP sends it to the PC (Rhubarb lips) and puts it in the crate.', y1 + 110);
     return;
   }
   if (page === 'class') {   // SpatialED #11 classroom: the code students type, START / STOP, who is in
@@ -4285,9 +4362,11 @@ function drawToolsPage() {
     const sub = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, s, x0 + lw, y, R - x0 - lw); };
     let y = cy0;
     row(y, 'SOUND');
-    btn(x0 + lw, y, bw, 34, 'BLANK', maker.kind === 'blank', () => { maker.kind = 'blank'; });
-    btn(x0 + lw + bw + 6, y, bw, 34, 'SONG…', maker.kind === 'song', () => setTools('pickSong'));
-    btn(x0 + lw + 2 * (bw + 6), y, bw, 34, 'CLIP…', maker.kind === 'clip', () => setTools('pickVideo'));
+    const b4 = (3 * bw - 6) / 4;   // #24 four sources
+    btn(x0 + lw, y, b4, 34, 'BLANK', maker.kind === 'blank', () => { maker.kind = 'blank'; });
+    btn(x0 + lw + b4 + 6, y, b4, 34, 'SONG…', maker.kind === 'song', () => setTools('pickSong'));
+    btn(x0 + lw + 2 * (b4 + 6), y, b4, 34, 'CLIP…', maker.kind === 'clip', () => setTools('pickVideo'));
+    btn(x0 + lw + 3 * (b4 + 6), y, b4, 34, 'TAKE…', maker.kind === 'take', () => { maker.kind = 'take'; setTools('take'); takeStudio().open(); });
     sub(makerSourceText(), y + 52); y += 64;
     row(y, 'LABEL');
     btn(x0 + lw, y, bw, 34, 'PICTURE…', !!maker.image, () => setTools('pickImage'));
@@ -4725,6 +4804,7 @@ function frame() {
   if (deckInst) deckInst.update();   // #154
   for (const d of decks) vvStep(d);   // #177 VideoVinyl
   lessonStep();   // SpatialED #7
+  if (studio) { try { studio.tick(); } catch (e) { if (!studio.err) { studio.err = true; console.error(e); toast('TAKE error: ' + e.message, 4000); } } }   // #24
   stepPvLid(dt);   // #196 preview lid
   stepScrDir();    // #198 portrait menu
   if (ledMode === 'decks') ledwall.userData.setDecks(deckVid[0].tex, deckVid[1].tex, ...deckGains(mixVal));
@@ -4786,6 +4866,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
   lesson,   // SpatialED #8 the diorama grab
+  deckOff,   // SpatialED #23
 });
 
 // ------------------------------------------------------------------ start screen / XR
