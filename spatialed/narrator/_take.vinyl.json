@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "title": "Dirro (take)",
+  "persist": true,
+  "board": false,
+  "credits": "",
+  "stage": {
+    "position": [
+      0,
+      0,
+      -2.0
+    ],
+    "rotationY": 0,
+    "scale": 1,
+    "plinth": 0.6
+  },
+  "actors": [
+    {
+      "glb": "../models/avatar/DirrogateAvatar_face.glb",
+      "face": true,
+      "pose": "relaxed",
+      "puppet": true,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotationY": 0,
+      "scale": 1
+    }
+  ]
+}

@@ -14,6 +14,7 @@ import { RobotAvatar2, ROBOT_GLB } from './robot2.js';   // #245 the licensed Av
 import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, labelFrom, blankWav } from './tools.js';
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { LessonPlayer } from './lesson.js';   // SpatialED #7 Spatial Vinyl lessons
+import { TakeStudio, saveTakeFile, readTakeFile, svRead, svWrite, svList, svVinyl } from './take.js';   // SpatialED #24 TAKE, #29 Spatial Records
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
@@ -220,7 +221,8 @@ function milks() { return [milk, ...Object.values(extraMilk)].filter(m => m.pare
 // #235 stage pieces the DJ can switch off to save work (TOOLS: LED wall and neon sign in VJ TOOLS, the first milk
 // crate in DJ TOOLS). Off = hidden, not hit by rays or hands, no shadow blob, nothing lands on it, and its per-frame
 // work stops (LED videos / camera / scroller, neon flicker). It keeps its place in the saved layout.
-function pieceObj(k) { return k === 'ledwall' ? ledwall : k === 'neon' ? neon : milk; }
+function pieceObj(k) { return k === 'ledwall' ? ledwall : k === 'neon' ? neon : k === 'deckA' ? deckGroups[0] : k === 'deckB' ? deckGroups[1] : milk; }
+function deckOff(d) { return !pieceOn(d.i ? 'deckB' : 'deckA'); }   // SpatialED #23
 function pieceOn(k) { return !(settings.pieces && settings.pieces[k] === false); }
 function applyPiece(k) {
   const o = pieceObj(k), on = pieceOn(k);
@@ -237,6 +239,9 @@ function applyPiece(k) {
   if (k === 'milk') {
     if (!on && o.parent) { o.userData.homeParent = o.parent; o.parent.remove(o); }
     else if (on && !o.parent && o.userData.homeParent) o.userData.homeParent.add(o);
+  }
+  if ((k === 'deckA' || k === 'deckB') && !on) {   // SpatialED #23 a switched-off deck: motor off, needle up, nothing to draw
+    const d = decks[k === 'deckB' ? 1 : 0]; try { if (d.motorOn) setMotor(d, false); liftNeedle(d, true); } catch (e) {}
   }
   if (k === 'ledwall') { led.setSilent(!on); if (!on && (ledMode === 'decks' || ledMode === 'cam' || isLive(ledMode))) setLedMode('off'); }
 }
@@ -474,7 +479,8 @@ function setPreview(on) {
 led.onChange = () => drawMixScreen();
 // #177 VideoVinyl + LED wall modes. LED WALL cycles OFF -> CLIPS (if videos were picked) -> DECKS -> CAM (#220) -> OFF.
 let ledMode = 'off';
-if (!CAMERA_ROLE) for (const k of ['ledwall', 'neon', 'milk']) applyPiece(k);   // #235 pieces switched off last time stay off
+if (!CAMERA_ROLE) for (const k of ['ledwall', 'neon', 'milk']) applyPiece(k);
+if (!CAMERA_ROLE) queueMicrotask(() => { for (const k of ['deckA', 'deckB']) applyPiece(k); });   // SpatialED #23 (decks are built further down)   // #235 pieces switched off last time stay off
 const deckVid = [new DeckVideo(), new DeckVideo()];
 let vvIndex = new Map();          // headset: title key -> OPFS path of the video
 const vvPC = new Map();           // PC: title key -> Promise<url|null> (HEAD videos/<title>.mp4)
@@ -562,10 +568,11 @@ const stage = new Stage(rig, {
 const MOVABLE = new Proxy({}, { get: (_, k) => stage.object(k) });
 // SpatialED #7: the lesson stage lives in the rig (it moves with GEAR HERE); lesson.js draws it from the playhead
 const lesson = new LessonPlayer(rig); lesson.onStatus = t => toast(t, 3500);
+lesson.lipGain = settings.lipGain != null ? settings.lipGain : 0.75;   // SpatialED #21 lip strength (TOOLS home, LIPS - / +)
 function lessonStep() {
   const g = deckGains(mixVal);
   lessonOn = !!lesson.step(decks.map(d => ({ track: d.record ? d.track : null, pos: engine.ctx ? heardPos(d) : 0, rate: engine.state.decks[d.i].rate || 0, gain: g[d.i],
-    seat: d.record ? d.record.group : null, rec: d.record }))) && lesson.isFree();   // #8 on a deck it needs no room: the wall stays
+    seat: d.record && !deckOff(d) ? d.record.group : null, rec: d.record, env: d.record && d.record.envs ? d.record.envs[d.side] : null, dur: d.duration, needle: !!engine.state.decks[d.i].needle }))) && lesson.isFree();   // #21 needle: lips only in the groove   // #8 on a deck it needs no room: the wall stays
 }
 function saveLayout() { stage.save(); }
 // #84 migration: layouts saved with the second flight case had the record crate standing on it; with that case
@@ -1025,9 +1032,11 @@ async function loadLibrary() {
   }
   try { const pr = await listPressings(); if (pr.length) { if (!lib) lib = emptyLibrary(); addPressings(lib, pr); } } catch (e) { console.warn('pressings', e); }   // #224
   if (!CAMERA_ROLE) { if (!lib) lib = emptyLibrary(); addExamples(lib); }   // #231
+  if (!CAMERA_ROLE) await addNarrator(lib).catch(e => console.warn('narrator list', e));   // SpatialED #20
+  if (!CAMERA_ROLE) applyCrateMoves(lib);   // SpatialED #32
   if (noXml && lib) {   // SpatialED #14: count the crate as it really is (it said 0 records before the Demo Lesson went in)
-    const n = lib.records.length, les = lib.records.filter(r => r.example).length, pr = lib.records.filter(r => r.pressed).length;
-    $('#libstatus').textContent = `Lesson crate: ${n} record${n === 1 ? '' : 's'} (${les} built-in lesson${les === 1 ? '' : 's'}${pr ? `, ${pr} pressed on this device` : ''}). No Rekordbox XML on the PC.`;
+    const n = lib.records.length, les = lib.records.filter(r => r.example).length, pr = lib.records.filter(r => r.pressed).length, nr = lib.records.filter(r => r.narrator).length;
+    $('#libstatus').textContent = `Lesson crate: ${n} record${n === 1 ? '' : 's'} (${les} built-in lesson${les === 1 ? '' : 's'}${nr ? `, ${nr} narrator` : ''}${pr ? `, ${pr} pressed on this device` : ''}). No Rekordbox XML on the PC.`;
   }
   crateState.pl = 0; crateState.sel = 0; search.q = ''; search.results = null; searchInput.value = '';
   drawCrateScreen(); layoutSleeves();
@@ -1568,7 +1577,7 @@ function sleeveGrab(anchor, P) {
   let sl = hit.sl;
   if (!sl) {
     const r = currentList()[crateState.sel], pose = selectedSlotPose(); if (!r || !pose) return false;
-    sl = makeSleeve(r); sleeves.push(sl);
+    sl = makeSleeve(r); sleeves.push(sl); sl.fromPl = search.results ? null : crateState.pl;   // SpatialED #32 the list it came out of
     sl.g.position.copy(pose.p); sl.g.quaternion.copy(pose.q);
     crate.updateMatrixWorld(); sl.g.applyMatrix4(crate.matrixWorld);   // crate-local -> world
   }
@@ -1607,9 +1616,38 @@ function sleeveRelease(anchor) {   // let go: stays where it is; over the record
   const sl = sleeves.find(x => x.anchor === anchor); if (!sl) return;
   sl.anchor = null; sl.placedT = performance.now();
   const c = crate.worldToLocal(sl.g.getWorldPosition(new THREE.Vector3()));
-  if (crateLidOpen() && Math.abs(c.x) < CRATE.W / 2 && Math.abs(c.z) < CRATE.D / 2 && c.y > 0 && c.y < CRATE.H + 0.12) { sleeveReturn(sl); return; }
+  if (crateLidOpen() && Math.abs(c.x) < CRATE.W / 2 && Math.abs(c.z) < CRATE.D / 2 && c.y > 0 && c.y < CRATE.H + 0.12) { sleeveIntoList(sl); sleeveReturn(sl); return; }
   const lying = sleeves.filter(x => !x.anchor && !x.back).sort((a, b) => a.placedT - b.placedT);
   while (lying.length > SLEEVE.MAX_OUT) sleeveReturn(lying.shift());
+}
+// SpatialED #32 (owner) a sleeve taken out of one list and put back while the crate shows another list moves its record
+// there for good (this headset): out of the list it came from, into the one shown (not the Collection, not a search).
+// Kept in localStorage 'sed.crateMoves' { recordKey: { from, to } } and applied each time the crate is loaded.
+const MOVES_KEY = 'sed.crateMoves';
+function recKey(r) { const t = r.sides.A || r.sides.B; return (r.pressed || r.example || r.narrator || !t || !t.location) ? 'id:' + r.id : 'loc:' + t.location; }
+function loadMoves() { try { return JSON.parse(localStorage.getItem(MOVES_KEY) || '{}') || {}; } catch { return {}; } }
+function moveBetween(L, r, from, to) {
+  if (from && from !== L.playlists[0]) { const i = from.records.indexOf(r); if (i >= 0) from.records.splice(i, 1); }
+  if (!to.records.includes(r)) to.records.push(r);
+}
+function applyCrateMoves(L) {
+  if (!L) return; const M = loadMoves(), byKey = new Map(L.records.map(r => [recKey(r), r]));
+  for (const [k, mv] of Object.entries(M)) {
+    const r = byKey.get(k), to = L.playlists.find(p => p.name === mv.to); if (!r || !to) continue;
+    moveBetween(L, r, L.playlists.find(p => p.name === mv.from), to);
+  }
+}
+function sleeveIntoList(sl) {
+  const pi = crateState.pl, r = sl.rec;
+  if (!lib || search.results || sl.fromPl == null || pi === sl.fromPl || pi === 0) return;
+  const from = lib.playlists[sl.fromPl], to = lib.playlists[pi]; if (!to || to.records.includes(r)) return;
+  moveBetween(lib, r, from, to);
+  const M = loadMoves(), k = recKey(r), was = M[k];
+  M[k] = { from: was && was.from && was.from !== to.name ? was.from : (from ? from.name : null), to: to.name };
+  if (M[k].from === M[k].to) delete M[k];
+  try { localStorage.setItem(MOVES_KEY, JSON.stringify(M)); } catch {}
+  sl.fromPl = pi; crateState.sel = Math.max(0, to.records.indexOf(r));
+  toast(`"${r.title}" moved to ${to.name}`, 2500); drawCrateScreen(); layoutSleeves();
 }
 function sleeveReturn(sl) {   // fly back into its slot (shrinks away if its record isn't in the crate's list now)
   if (!sl || sl.back) return;
@@ -1636,7 +1674,7 @@ function stepSleeves(dt) {
       // straight back.
       const d = sleeveCrateDist(sl);
       if (!sl.armed && (d > SLEEVE.ARM_CLEAR || performance.now() - (sl.grabT || 0) > SLEEVE.ARM_MS)) sl.armed = true;
-      if (sl.armed && d < SLEEVE.HOME_NEAR && crateLidOpen()) { const a = sl.anchor; sleeveReturn(sl); if (xr && xr.buzzAnchor) xr.buzzAnchor(a, 0.4, 30); }
+      if (sl.armed && d < SLEEVE.HOME_NEAR && crateLidOpen()) { const a = sl.anchor; sleeveIntoList(sl); sleeveReturn(sl); if (xr && xr.buzzAnchor) xr.buzzAnchor(a, 0.4, 30); }
     }
   }
 }
@@ -1938,6 +1976,7 @@ function releaseHeld() {
   if (!held) return;
   held.group.getWorldPosition(_rc);
   for (const d of decks) {
+    if (deckOff(d)) continue;   // SpatialED #23
     _sp.set(DECK.spindle.x, d.g.userData.platterSurface, DECK.spindle.z); d.g.localToWorld(_sp);
     const dy = _rc.y - _sp.y;
     if (Math.hypot(_rc.x - _sp.x, _rc.z - _sp.z) < 0.13 && dy > -0.06 && dy < 0.3) {
@@ -2246,6 +2285,7 @@ function surfaceUnder(p) {
     ly = Math.max(ly, deckHF(l.x, l.z));
     if (ly === -Infinity) continue;
     const top = d.g.localToWorld(_su2.set(l.x, ly, l.z)).y;
+    if (deckOff(d)) continue;   // SpatialED #23 a switched-off deck catches nothing
     if (top <= p.y + 0.05 && top > best.y) best = { y: top, kind: onPlatter && !d.record ? 'platter' : 'gear', d };
   }
   const ml = mixer.worldToLocal(_su.copy(p)), my = mixerHF(ml.x, ml.z);
@@ -3901,7 +3941,23 @@ function drawPhoneIcon(g, px, py, pw, ph, on) {   // small phone icon; its LED i
 // ---- #224 TOOLS page on the mixer tablet (TOOLS button, bottom-left of the main HUD): DJ TOOLS (Record Maker) and
 // VJ TOOLS (Scroller). Pages: home, dj, vj, maker, pickSong, pickVideo, pickImage, kbd, scroller.
 let pickItems = [], pickPg = 0;   // toolsPage is declared with videoPage (drawMixScreen reads it early)
-const maker = { kind: 'blank', song: null, video: null, image: null, name: '', busy: false, msg: '', msgOk: true, size: 12 };   // #261 size: 12 or 7 (inches)
+const maker = { kind: 'blank', song: null, video: null, image: null, name: '', busy: false, msg: '', msgOk: true, size: 12, txt: '' };   // #24 txt: TAKE transcript
+// SpatialED #24 TAKE: the studio (mirror, calibration, recording) lives while the TAKE page is open or a take waits
+let studio = null;
+function takeStudio() {
+  if (!studio) studio = new TakeStudio({ renderer, scene, rig, engine, toast,
+    getInputs: () => { try { return xr && xr.inputs; } catch { return null; } },
+    ensureMic: async () => { if (!engine.ctx) throw new Error('audio not started'); if (settings.micRoute !== 'app') { settings.micRoute = 'app'; saveSettings(); if (micOn) { micOn = false; engine.setMicOn(false); } } if (!micOn) await toggleMic(); if (!engine.mic) throw new Error('mic did not open'); },
+    onChange: () => drawMixScreen() });
+  return studio;
+}
+function takeName() {   // #28 <series>_<n>; without a number: the next free one for that series
+  let n = (maker.name || '').trim().replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 40); if (!n) n = 'TAKE';
+  if (/_\d{1,3}$/.test(n)) return n;
+  const used = new Set(lib ? [...lib.tracks.values()].map(t => String(t.title || '').toLowerCase()) : []);
+  let k = 1; while (used.has((n + '_' + k).toLowerCase())) k++;
+  return n + '_' + k;
+}   // #261 size: 12 or 7 (inches)
 // #225 the Record Maker's answers show on the tablet (toast() is a desktop-only overlay, invisible in the headset)
 let makerMsgT = 0;
 function makerSay(text, ok, ms = 5000) {
@@ -3976,12 +4032,14 @@ function fitText2Center(g, s, x, y, w) { let t = s; while (t.length > 3 && g.mea
 function makerSourceText() {
   if (maker.kind === 'song') return maker.song ? `Song: ${maker.song.title}${maker.song.artist ? '  ·  ' + maker.song.artist : ''}` : 'Song: pick one (SONG…)';
   if (maker.kind === 'clip') return maker.video ? `Clip: ${maker.video.replace(/\.[^.]+$/, '')} (its sound, and it plays on the record)` : 'Clip: pick one (CLIP…)';
+  if (maker.kind === 'take') { const r = studio && studio.result(); return r ? `Take: ${r.duration.toFixed(1)} s voice + motion → ${takeName()}${maker.txt ? ' (with transcript)' : ''}` : 'Take: record one (TAKE…)'; }
   return 'Blank: generic grooves (quiet vinyl crackle)';
 }
 async function pressRecord() {
   if (maker.busy) return;
   if (maker.kind === 'song' && !maker.song) { makerSay('Pick a song first (SONG…)', false, 3000); return; }
   if (maker.kind === 'clip' && !maker.video) { makerSay('Pick a clip first (CLIP…)', false, 3000); return; }
+  if (maker.kind === 'take') return pressTake();   // SpatialED #24
   if (maker.size === 7 && maker.kind === 'song' && maker.song.duration > 6.5 * 60) { makerSay(`Too long for a 7" side (${fmt(maker.song.duration)}; up to about 6:30 at 45 rpm)`, false, 5000); return; }   // #261
   const title = maker.name.trim() || `DUBPLATE ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`;
   maker.busy = true; drawMixScreen();
@@ -4001,6 +4059,199 @@ async function pressRecord() {
     makerSay(`✓ STAMPED "${title}"${p.size === 7 ? ' (7")' : ''}: in the crate, ${where}`, true, 6000);
   } catch (e) { maker.busy = false; makerSay('Not stamped: ' + e.message, false, 6000); }
   maker.busy = false; drawMixScreen();
+}
+// SpatialED #24 stamp a TAKE: voice (webm) + motion + transcript kept on this device (sed-takes) and sent to the PC's
+// narrator folder (api/take), where Rhubarb makes the lips; the pressing streams the PC copy, or plays the device copy
+async function pressTake() {   // #29 a Spatial Record: <name>.webm + <name>.sv.json on this headset; lips from the PC
+  const R0 = studio && studio.result(); if (!R0) { makerSay('Record a take first (TAKE…)', false, 3000); return; }
+  const name = takeName(), ser = name.replace(/_\d+$/, '');
+  maker.busy = true; drawMixScreen();
+  try {
+    let label = null;
+    if (maker.image) { const f = await media.getFile('Images', maker.image); if (f) label = await labelFrom(f); }
+    const sv = { v: 1, kind: 'spatial-record', name, series: ser, made: Date.now(), duration: Math.round(R0.duration * 1000) / 1000, audio: name + '.webm',
+      vinyl: svVinyl(ser), motion: R0.motion, lips: null, transcript: maker.txt || '', pc: null };
+    await saveTakeFile(name + '.webm', R0.blob); await svWrite(name, sv);
+    const src = { kind: 'take', v: 2, file: name, series: ser, duration: sv.duration };
+    const p = await savePressing({ id: 'p' + Date.now().toString(36), title: name, src, made: Date.now(), size: maker.size === 7 ? 7 : 12 }, label);
+    if (!lib) lib = emptyLibrary();
+    const r = addPressings(lib, [p]);
+    const where = p.size === 7 ? '45s' : 'Unsorted', pi = lib.playlists.findIndex(pl => pl.name === where);
+    search.q = ''; search.results = null; searchInput.value = '';
+    crateState.pl = pi; crateState.sel = Math.max(0, lib.playlists[pi].records.indexOf(r));
+    drawCrateScreen(); layoutSleeves();
+    maker.name = ''; maker.txt = ''; maker.kind = 'blank'; if (studio) { studio.close(); studio = null; }
+    makerSay(`✓ STAMPED "${name}": ${where}. Sending to the PC for lips…`, true, 6000);
+    svLips(name).then(x => makerSay(x && x.cues ? `✓ "${name}": lips ready` : x === 'wait' ? `✓ "${name}" is on the PC: lips are being made` : `"${name}" kept on this headset; PC not reached (lips later: SPATIAL RECORDS)`, !!x, 6000));
+  } catch (e) { makerSay('Not stamped: ' + e.message, false, 6000); }
+  maker.busy = false; drawMixScreen();
+}
+// SpatialED #29 the PC (Node server, Rhubarb): this app's own server when it was opened from it, else settings.pcUrl
+// (the pinggy address; TAKE page: PC…). The server allows calls from any address (CORS).
+const PC_DEFAULT = 'https://univdemo.a.pinggy.link/spatialed/';
+let narrApi = false;   // set by addNarrator when api/narrator answered: this page came from the PC's server
+function pcBase() {
+  if (narrApi) return new URL('.', location.href).href;
+  let u = (settings.pcUrl == null ? PC_DEFAULT : settings.pcUrl).trim(); if (!u) return null;
+  if (!/^https?:\/\//.test(u)) u = 'https://' + u;
+  return u.endsWith('/') ? u : u + '/';
+}
+const svSeries = new Map(), svMeta = new Map();   // series (lower case) -> newest record name; name -> { pc }
+async function svUpload(name, sv, base) {
+  const up = (kind, body) => fetch(`${base}api/take?name=${encodeURIComponent(name)}&kind=${kind}`, { method: 'POST', body }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); });
+  if (sv.transcript) await up('txt', sv.transcript.toLowerCase());   // the tablet types capitals; Rhubarb's dictionary is lower case
+  await up('motion', JSON.stringify(sv.motion));
+  await up('sv', JSON.stringify({ ...sv, pc: null }));   // #30 the PC keeps the combined file too (Rhubarb adds its lips there)
+  await up('audio', await readTakeFile(name + '.webm'));
+  const cur = (await svRead(name)) || sv; cur.pc = sv.pc = base; await svWrite(name, cur); svMeta.set(name, { pc: base });   // #31 fresh read: an EDIT may have saved meanwhile
+}
+// lips for a Spatial Record: stored ones, else send it to the PC (once) and ask Rhubarb; 'wait' while it works
+const svBusy = new Map();   // name -> the lips request in flight (one at a time per record)
+function svLips(name) {
+  if (!svBusy.has(name)) svBusy.set(name, svLips1(name).finally(() => svBusy.delete(name)));
+  return svBusy.get(name);
+}
+async function svLips1(name) {
+  if (svMig.has(name)) await svMig.get(name);
+  const sv = await svRead(name); if (!sv) return null;
+  const base = pcBase(), has = !!(sv.lips && sv.lips.cues);
+  if (base && sv.pc !== base) {   // not on that PC yet, or EDITed since: send it (the PC keeps a copy for other headsets)
+    try { await svUpload(name, sv, base); }
+    catch (e) { console.warn('spatial record to the PC', name, e); return has ? sv.lips : null; }
+  }
+  if (has) return sv.lips;
+  if (!base) return null;
+  try {
+    const r = await fetch(base + 'api/lips?src=' + encodeURIComponent('narrator/' + name + '.webm'), { cache: 'no-store' });
+    if (r.status === 202) return 'wait';
+    if (r.status === 404) { const cur = (await svRead(name)) || sv; cur.pc = null; await svWrite(name, cur); return null; }   // gone from the PC: sent again next time
+    if (!r.ok) return null;
+    const j = await r.json(); if (!j || !j.cues) return null;
+    const cur = (await svRead(name)) || sv; cur.lips = j; await svWrite(name, cur); return j;
+  } catch (e) { console.warn('spatial record lips', name, e); return null; }
+}
+// #31 a take from before #29: <name>.webm / .motion.json / .txt in sed-takes -> a Spatial Record (.sv.json, Dirro)
+const svMig = new Map();
+function svMigrate(s) {
+  if (!svMig.has(s.file)) svMig.set(s.file, (async () => {
+    if (await svRead(s.file)) return;
+    const motion = JSON.parse(await (await readTakeFile(s.file + '.motion.json')).text());
+    let txt = ''; try { txt = await (await readTakeFile(s.file + '.txt')).text(); } catch {}
+    await saveTakeFile(s.file + '.webm', await readTakeFile(s.file + '.webm'));
+    await svWrite(s.file, { v: 1, kind: 'spatial-record', name: s.file, series: s.series, made: Date.now(), duration: s.duration || motion.duration || 0, audio: s.file + '.webm',
+      vinyl: svVinyl(s.series), motion, lips: null, transcript: txt, pc: null });
+  })().catch(e => console.warn('spatial record from an old take', s.file, e)));
+  return svMig.get(s.file);
+}
+lesson.local = {
+  side: async url => { const ser = decodeURIComponent(url.slice(3)), n = svSeries.get(ser.toLowerCase()); if (n && svMig.has(n)) await svMig.get(n); const sv = n && await svRead(n); if (!sv) throw new Error(`Spatial Record ${ser} is not on this headset`); return sv.vinyl; },
+  motion: async rel => { const n = decodeURIComponent(rel.slice(3)); if (svMig.has(n)) await svMig.get(n); const sv = await svRead(n); return sv && sv.motion; },
+  lips: rel => svLips(decodeURIComponent(rel.slice(3))),
+  pub: (rel, kind) => {   // the PC copy students can fetch
+    const id = decodeURIComponent(rel.slice(3)), name = kind === 'side' ? svSeries.get(id.toLowerCase()) : id, m = name && svMeta.get(name);
+    if (!m || !m.pc) return null;
+    return m.pc + 'narrator/' + encodeURIComponent(kind === 'side' ? id : name) + (kind === 'side' ? '.vinyl.json' : kind === 'lips' ? '.lips.json' : '.motion.json');
+  },
+};
+// SpatialED #30 copy Spatial Records onto this headset (start page): from the PC's narrator folder, or picked files
+// (<name>.webm + <name>.sv.json). Each becomes a record in the crate (Unsorted) unless it is there already.
+async function svImport(name, sv, audio) {
+  if (!sv || sv.kind !== 'spatial-record' || !sv.motion) throw new Error(name + '.sv.json is not a Spatial Record');
+  sv.name = name; sv.series = sv.series || name.replace(/_\d+$/, '');
+  await saveTakeFile(name + '.webm', audio); await svWrite(name, sv);
+  const have = (await listPressings()).some(p => p.src && p.src.kind === 'take' && p.src.file === name);
+  if (have) return 'updated';
+  const p = await savePressing({ id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), title: name, src: { kind: 'take', v: 2, file: name, series: sv.series, duration: sv.duration || 0 }, made: Date.now(), size: 12 }, null);
+  if (lib) { addPressings(lib, [p]); try { drawCrateScreen(); layoutSleeves(); } catch {} }
+  return 'added';
+}
+function srSay(t) { $('#srStatus').textContent = t; }
+$('#sPcUrl').value = settings.pcUrl == null ? PC_DEFAULT : settings.pcUrl;
+$('#sPcUrl').onchange = e => { settings.pcUrl = e.target.value.trim(); saveSettings(); };
+$('#bSrPc').onclick = async () => {
+  const base = pcBase(), box = $('#srPcList'); if (!base) { srSay('Type the PC address first.'); return; }
+  srSay('Asking the PC…'); box.hidden = true;
+  try {
+    const j = await (await fetch(base + 'api/narrator', { cache: 'no-store' })).json();
+    const names = (j.records || []).filter(r => r.sv).map(r => r.file.replace(/\.[^.]+$/, ''));
+    if (!names.length) { srSay('The PC has no Spatial Records yet (they appear after a TAKE is stamped and sent).'); return; }
+    box.innerHTML = names.map(n => `<label style="display:flex;gap:8px;align-items:center;grid-template-columns:none"><input type="checkbox" value="${n.replace(/"/g, '&quot;')}" checked> ${n.replace(/</g, '&lt;')}</label>`).join('')
+      + '<button class="small" id="bSrGet" style="margin-top:6px">Copy to this headset</button>';
+    box.hidden = false; srSay(`${names.length} on the PC. Tick the ones for this class.`);
+    $('#bSrGet').onclick = async () => {
+      const pick = [...box.querySelectorAll('input:checked')].map(i => i.value); let n = 0;
+      for (const name of pick) {
+        srSay(`Copying ${name}… (${n + 1} of ${pick.length})`);
+        try {
+          const sv = await (await fetch(base + 'narrator/' + encodeURIComponent(name) + '.sv.json', { cache: 'no-store' })).json();
+          const a = await fetch(base + 'narrator/' + encodeURIComponent(name) + '.webm', { cache: 'no-store' }); if (!a.ok) throw new Error('voice HTTP ' + a.status);
+          sv.pc = base; await svImport(name, sv, await a.blob()); svMeta.set(name, { pc: base }); n++;
+        } catch (e) { srSay(`${name}: ${e.message}`); await new Promise(r => setTimeout(r, 1500)); }
+      }
+      srSay(`✓ ${n} of ${pick.length} Spatial Records on this headset (crate: Unsorted).`);
+    };
+  } catch (e) { srSay('PC not reached at ' + base + ' (' + e.message + '). Is Node running and pinggy up?'); }
+};
+$('#bSrFiles').onclick = () => $('#fSr').click();
+$('#fSr').onchange = async e => {
+  const files = [...e.target.files], by = new Map(); e.target.value = '';
+  for (const f of files) {
+    const m = f.name.match(/^(.*?)(\.sv\.json|\.webm)$/i); if (!m) continue;
+    const o = by.get(m[1]) || {}; if (/json/i.test(m[2])) o.sv = f; else o.audio = f; by.set(m[1], o);
+  }
+  let n = 0; const miss = [];
+  for (const [name, o] of by) {
+    if (!o.sv || !o.audio) { miss.push(name); continue; }
+    try { await svImport(name, JSON.parse(await o.sv.text()), o.audio); n++; } catch (err) { miss.push(name + ' (' + err.message + ')'); }
+  }
+  srSay(`✓ ${n} Spatial Record${n === 1 ? '' : 's'} copied to this headset${miss.length ? '. Missing a file or not valid: ' + miss.join(', ') : ''}.`);
+};
+// export one Spatial Record as two downloads (the Quest's Downloads folder): voice and the collated .sv.json
+async function svExport(name) {
+  for (const f of [name + '.webm', name + '.sv.json']) {
+    const b = await readTakeFile(f), a = document.createElement('a'), u = URL.createObjectURL(b);
+    a.href = u; a.download = f; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 60000); await new Promise(r => setTimeout(r, 600));
+  }
+}
+const srec = { list: [], info: new Map(), pg: 0, busy: '' };
+// #31 EDIT a Spatial Record: its narrator (narrator/narrators.json; the whole series on this headset), its transcript,
+// lips made again. SAVE sends it to the PC again (the PC's .sv.json and <series>.vinyl.json follow) and asks for lips.
+let NARRATORS = [{ name: 'Dirro', glb: '../models/avatar/DirrogateAvatar_face.glb', face: true, pose: 'relaxed', puppet: true }];
+fetch('narrator/narrators.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(j => { if (j && Array.isArray(j.narrators) && j.narrators.length) NARRATORS = j.narrators; }).catch(() => {});
+async function sredOpen(name) {
+  const sv = await svRead(name); if (!sv) { toast('Not found: ' + name); return; }
+  const a = (sv.vinyl && sv.vinyl.actors && sv.vinyl.actors[0]) || {};
+  srec.ed = { name, sv, glb: a.glb, txt: sv.transcript || '', redo: false, dirty: false };
+  setTools('sredit');
+}
+function narratorOf(glb) { return NARRATORS.find(n => n.glb === glb) || { name: (glb || '?').split('/').pop().replace(/\.glb$/i, ''), glb }; }
+async function sredSave() {
+  const E = srec.ed; if (!E) return;
+  if (svBusy.has(E.name)) await svBusy.get(E.name).catch(() => {});   // let a send / lips request in flight finish first
+  E.sv = (await svRead(E.name)) || E.sv;
+  const sv = E.sv, nar = narratorOf(E.glb), ser = sv.series || E.name.replace(/_\d+$/, '');
+  const actor = { glb: nar.glb, face: nar.face !== false, pose: nar.pose || 'relaxed', puppet: nar.puppet !== false };
+  const txtChanged = (sv.transcript || '') !== E.txt;
+  sv.transcript = E.txt; sv.vinyl = { ...(sv.vinyl || svVinyl(ser)), title: nar.name + ': ' + ser, actors: [actor] };
+  if (txtChanged || E.redo) sv.lips = null;
+  sv.pc = null; await svWrite(E.name, sv);
+  for (const n of await svList()) {   // the narrator belongs to the series: the other records of it on this headset too
+    if (n === E.name) continue; const o = await svRead(n);
+    if (o && (o.series || n.replace(/_\d+$/, '')).toLowerCase() === ser.toLowerCase()) { o.vinyl = sv.vinyl; o.pc = null; await svWrite(n, o); }
+  }
+  lesson.sides.delete(new URL('sv:' + encodeURIComponent(ser), location.href).href);   // reload the narrator next frame
+  if (lesson.cur && /^sv:/.test(lesson.cur.url || '')) lesson.show(null);
+  lesson.lips.delete('sv:' + encodeURIComponent(E.name));
+  E.dirty = false; toast(`Saved ${E.name}: ${nar.name}. Sending to the PC…`, 3000); drawMixScreen();
+  const x = await svLips(E.name);
+  toast(x && x.cues ? `${E.name}: on the PC, lips ready` : x === 'wait' ? `${E.name}: on the PC, Rhubarb is making the lips` : `${E.name}: saved here; PC not reached (${pcBase() || 'no address'})`, 5000);
+  srecLoad();
+}
+async function srecLoad() {
+  srec.list = await svList().catch(() => []);
+  for (const n of srec.list) { const sv = await svRead(n); if (sv) srec.info.set(n, { dur: sv.duration || 0, lips: !!(sv.lips && sv.lips.cues), pc: sv.pc }); }
+  drawMixScreen();
 }
 // #231 built-in example records (web/examples/, streamed like songs from the PC), in Unsorted and the Collection.
 // "Sleeve Art Demo": every ID3 picture type the app reads (tools/make_sleeve_demo.py builds it). Long press +
@@ -4037,6 +4288,32 @@ function addExamples(L) {
   const byT = (a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title);
   if (un) un.records.sort(byT); L.playlists[0].records.sort(byT);
 }
+// SpatialED #20 narrator records: web/narrator/*.mp3, listed by the PC server (api/narrator, which also makes missing
+// lip files with Rhubarb) or, on a static host, by narrator/index.json. Names <series>_<n>: a record whose series has
+// a <series>.vinyl.json brings that narrator in and drives it; its lips are <series>_<n>.lips.json.
+async function addNarrator(L) {
+  let j = null;
+  for (const u of ['api/narrator', 'narrator/index.json']) {
+    try { const r = await fetch(u, { cache: 'no-store' }); if (r.ok && /json/.test(r.headers.get('content-type') || '')) { j = await r.json(); if (u === 'api/narrator') narrApi = true; break; } } catch {}
+  }
+  if (!j || !Array.isArray(j.records) || !j.records.length) return;
+  const series = new Map((j.series || []).map(x => [String(x).toLowerCase(), x]));
+  let dest = L.playlists.find(p => p.name === 'Narrator');
+  if (!dest) { dest = { name: 'Narrator', path: 'Narrator', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, dest); }
+  for (const it of j.records) {
+    const file = String(it.file || ''), base = file.replace(/\.[^.]+$/, ''), id = 'nr_' + base;
+    if (!base || L.tracks.has(id)) continue;
+    if ([...L.tracks.values()].some(x => x.press && x.press.src && x.press.src.kind === 'take' && x.press.src.file.toLowerCase() === base.toLowerCase())) continue;   // #24 a stamped take: already in the crate
+    const m = base.match(/^(.*)_(\d+)$/), ser = m && series.get(m[1].toLowerCase());
+    const url = encodeURI('narrator/' + file);
+    const r = { id: 'r' + id, size: 12, title: base, artist: 'Narrator', sides: { A: null, B: null }, bpm: 0, key: '', genre: 'Narrator', duration: 0, missing: false, paired: false, unsorted: true, narrator: true };
+    const t = { id, name: base, title: base, side: 'A', split: false, artist: 'Narrator', album: ser || base, genre: 'Narrator', key: '', bpm: 0, duration: 0,
+      location: url, url, opfs: null, missing: false, cues: [], unsorted: true, record: r,
+      lesson: ser ? encodeURI('narrator/' + ser + '.vinyl.json') : null, lips: encodeURI('narrator/' + base + '.lips.json'), motion: it.motion ? encodeURI('narrator/' + base + '.motion.json') : null };   // #25
+    r.sides.A = t; L.tracks.set(id, t); L.records.push(r); dest.records.push(r); L.playlists[0].records.push(r);
+  }
+  dest.records.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
+}
 // pressed records join the 'Unsorted (on this headset)' list (made if there is none) and the Collection
 function addPressings(L, list) {
   let un = L.playlists.find(p => p.name === 'Unsorted');
@@ -4048,6 +4325,17 @@ function addPressings(L, list) {
     const t = { id, name: p.title, title: p.title, side: null, split: false, artist: s.kind === 'song' ? (s.artist || 'Pressed') : 'Pressed on Cly3DJ', album: '', genre: '', key: '', bpm: s.bpm || 0, duration: 0,
       location: 'press:' + p.id, url: s.url || null, opfs: s.opfs || null, missing: false, cues: [], unsorted: true, press: p };
     if (s.kind === 'video') t.pressVideo = s.video;
+    if (s.kind === 'take' && s.v === 2) {   // SpatialED #29 a Spatial Record on this headset (two files, take.js)
+      t.artist = 'Narrator'; t.genre = 'Narrator'; t.url = null;
+      t.lesson = 'sv:' + encodeURIComponent(s.series); t.lips = 'sv:' + encodeURIComponent(s.file); t.motion = 'sv:' + encodeURIComponent(s.file);
+      const k = s.series.toLowerCase(), was = svSeries.get(k); if (!was || was.localeCompare(s.file, undefined, { numeric: true }) < 0) svSeries.set(k, s.file);
+      svRead(s.file).then(sv => { if (sv) svMeta.set(s.file, { pc: sv.pc }); });
+    } else if (s.kind === 'take') {   // #31 a take stamped before #29 (#24 / #28): made into a Spatial Record from its sed-takes files
+      t.artist = 'Narrator'; t.genre = 'Narrator'; t.url = null;
+      t.lesson = 'sv:' + encodeURIComponent(s.series); t.lips = 'sv:' + encodeURIComponent(s.file); t.motion = 'sv:' + encodeURIComponent(s.file);
+      const k = s.series.toLowerCase(), was = svSeries.get(k); if (!was || was.localeCompare(s.file, undefined, { numeric: true }) < 0) svSeries.set(k, s.file);
+      svMigrate(s).then(() => svRead(s.file)).then(sv => { if (sv) svMeta.set(s.file, { pc: sv.pc }); });
+    }
     const r = { id: 'r' + id, title: p.title, artist: t.artist, sides: { A: t, B: null }, bpm: t.bpm, key: '', genre: '', duration: 0, missing: false, paired: false, unsorted: true, pressed: true, size: p.size === 7 ? 7 : 12 };
     let dest = un;   // #261 pressed 45s go to the 45s list
     if (r.size === 7) { dest = L.playlists.find(q => q.name === '45s'); if (!dest) { dest = { name: '45s', path: '45s (7" singles on this headset)', records: [] }; L.playlists.push(dest); } }
@@ -4067,12 +4355,23 @@ async function pressArt(track) {
 async function pressBytes(track) {
   const s = track.press.src || {};
   if (s.kind === 'blank') return blankWav();
+  if (s.kind === 'take') return (await readTakeFile(s.file + '.webm')).arrayBuffer();   // #24 / #29 / #31 always this headset's copy
   if (s.kind === 'video') { const f = await media.getFile('Video', s.video); if (!f) throw new Error(`the clip ${s.video} is no longer on this headset`); return f.arrayBuffer(); }
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
 }
+// SpatialED #22 tools pages scroll when their content is taller than the tablet (HAND FIT in landscape): the title bar
+// and BACK stay put, the content below scrolls; a strip on the right has ▲ / ▼ and a thumb (tap above / below it =
+// a page up / down). Taps only, so it works with one controller. Pages that fit look exactly as before.
+const toolsScroll = new Map(), toolsContentH = new Map();   // per page: scroll (px); content bottom from the last draw
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
+  const page0 = toolsPage, need = (toolsContentH.get(page0) || 0) > H + 2, SW = 44;
+  let sc = need ? toolsScroll.get(page0) || 0 : 0, top = 0, inContent = false, hitBase = 0, maxY = 0;
+  const ft = g.fillText, fr = g.fillRect;   // measure the content's bottom while it is drawn
+  g.fillText = function (t, x, y, ...a) { if (inContent) maxY = Math.max(maxY, y + 10); return ft.call(this, t, x, y, ...a); };
+  g.fillRect = function (x, y, w, h) { if (inContent) maxY = Math.max(maxY, y + h); return fr.call(this, x, y, w, h); };
+  try {
   VP_HIT.length = 0;
   g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H);
   const btn = (x, y, w, h, label, on, act, dim, fs0 = 17) => {
@@ -4083,12 +4382,15 @@ function drawToolsPage() {
     g.fillText(label, x + w / 2, y + h / 2 + 1); g.textBaseline = 'alphabetic';
     if (act) VP_HIT.push({ x, y, w, h, act });
   };
-  const L = P ? 24 : 8, R = W - (P ? 26 : 8);   // portrait keeps clear of the silver corner L
+  const L = P ? 24 : 8, R = W - (P ? 26 : 8) - (need ? SW + 6 : 0);   // portrait keeps clear of the silver corner L; #22 room for the scroll strip
   const head = (title, back) => {
     const y = P ? 28 : 8;
     g.fillStyle = '#dfe6f2'; g.font = '700 20px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
     fitText2(g, title, L + 4, y + 17, R - L - 136); g.textBaseline = 'alphabetic';
     btn(R - 120, y, 120, 34, back === 'mixer' ? 'DJ MIXER' : '◀ BACK', false, () => setTools(back === 'mixer' ? null : back));
+    // #22 everything after the title bar is content: clipped below the bar and shifted by the scroll
+    top = y + 42; hitBase = VP_HIT.length; inContent = true;
+    g.save(); g.beginPath(); g.rect(0, top, W, H - top); g.clip(); g.translate(0, -sc);
     return y + 46;
   };
   const note = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; return wrapText(g, s, L + 4, y, R - L - 8, 20, 5); };
@@ -4097,9 +4399,18 @@ function drawToolsPage() {
     const y0 = head('TOOLS', 'mixer');
     const clsLabel = klass ? `CLASS (${klass.state.peers.length})` : 'CLASS';   // SpatialED #11
     if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26); btn(L, y0 + 224, R - L, 96, clsLabel, !!klass, () => setTools('class'), false, 26); note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off. CLASS: students follow the lesson on their phones.', y0 + 348); }
-    else { const bw = (R - L - 24) / 3; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); btn(L + 2 * (bw + 12), y0 + 8, bw, 130, clsLabel, !!klass, () => setTools('class'), false, 28); note('DJ TOOLS: Record Maker, milk crate on / off.   VJ TOOLS: Scroller, LED wall and neon sign on / off.   CLASS: students follow the lesson on their phones.', y0 + 160); }
+    else { const bw = (R - L - 24) / 3; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); btn(L + 2 * (bw + 12), y0 + 8, bw, 130, clsLabel, !!klass, () => setTools('class'), false, 28); }   // #21 landscape: the note made way for LIP SYNC STRENGTH
     { // #258 flicker tests
-      const ty = H - (P ? 60 : 46), tw = (R - L - 16) / 3;
+      const ty = H - (P ? 60 : 46), tw = (R - L - 24) / 4;
+      {   // SpatialED #21 lip sync strength: tones the narrator's mouth shapes down (or up); saved on this device, sent to students
+        const ly = P ? ty - 58 : y0 + 158, v = Math.round((settings.lipGain != null ? settings.lipGain : 0.75) * 100);
+        const setG = n => { settings.lipGain = Math.max(0.2, Math.min(1.3, Math.round(n * 20) / 20)); lesson.lipGain = settings.lipGain; saveSettings(); drawMixScreen(); };
+        g.fillStyle = '#dfe6f2'; g.font = '700 16px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('LIP SYNC STRENGTH', L + 4, ly + 19);
+        btn(R - 210, ly, 60, 38, '−', false, () => setG(v / 100 - 0.05));
+        g.fillStyle = '#fff'; g.font = '700 20px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(`${v} %`, R - 105, ly + 19); g.textBaseline = 'alphabetic';
+        btn(R - 60, ly, 60, 38, '+', false, () => setG(v / 100 + 0.05));
+      }
+      btn(L + 3 * (tw + 8), ty, tw, 36, 'CLEAR LESSON', false, lesson.cur ? () => { lesson.clear(); drawMixScreen(); toast('Lesson cleared (it comes back when its record goes on)', 2500); } : null, !lesson.cur, 15);   // SpatialED #20
       btn(L, ty, tw, 36, testState.glass ? 'GLASS TEST: GLASS OFF' : 'GLASS TEST', testState.glass, () => setTest('glass'), false, 15);
       btn(L + tw + 8, ty, tw, 36, 'CAM 2ND FRAME', testState.cam2, () => setTest('cam2'), false, 15);
       btn(L + 2 * (tw + 8), ty, tw, 36, 'FPS', testState.fps, () => setTest('fps'), false, 15);
@@ -4117,7 +4428,8 @@ function drawToolsPage() {
     if (P) {
       if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
         ctlBtn(L, y0 + 176, (R - L - 8) * 0.62, 64); btn(L + (R - L - 8) * 0.62 + 8, y0 + 176, (R - L - 8) * 0.38, 64, 'HAND FIT', false, () => setTools('handfit'), false, 18);   // #291
-        note('RECORD MAKER: press your own record. It goes into the crate, Unsorted. MILK CRATE: the first milk crate (extra ones come from the crate screen). CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 272); }
+        { const hw = (R - L - 8) / 2; sw(L, y0 + 252, hw, 64, 'DECK A', 'deckA'); sw(L + hw + 8, y0 + 252, hw, 64, 'DECK B', 'deckB'); }   // SpatialED #23
+        note('RECORD MAKER: press your own record. It goes into the crate, Unsorted. MILK CRATE: the first milk crate (extra ones come from the crate screen). CONTROLLERS: 3D hands holding them, or the bare controllers. DECK A / B: a switched-off turntable is hidden, stopped and costs nothing.', y0 + 348); }
       else { btn(L, y0 + 8, R - L, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
         sw(L, y0 + 100, R - L, 64, 'LED WALL', 'ledwall'); sw(L, y0 + 176, R - L, 64, 'NEON SIGN', 'neon');
         note('Switched off, the LED wall or the sign is hidden and costs nothing; it keeps its place for when it comes back.', y0 + 272); }
@@ -4125,7 +4437,8 @@ function drawToolsPage() {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
       if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(x2, y0 + 8, w2, 80, 'MILK CRATE', 'milk');
         ctlBtn(L, y0 + 96, (R - L - 8) * 0.66, 50); btn(L + (R - L - 8) * 0.66 + 8, y0 + 96, (R - L - 8) * 0.34, 50, 'HAND FIT', false, () => setTools('handfit'), false, 20);   // #291
-        note('RECORD MAKER: press your own record (blank, a song or a clip, a picture label); it goes into the crate, Unsorted. MILK CRATE: the first milk crate; switched off it is hidden and costs nothing. CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 164); }
+        { const hw = (R - L - 8) / 2; sw(L, y0 + 154, hw, 50, 'DECK A', 'deckA'); sw(L + hw + 8, y0 + 154, hw, 50, 'DECK B', 'deckB'); }   // SpatialED #23
+        note('RECORD MAKER: press your own record (blank, a song or a clip, a picture label); it goes into the crate, Unsorted. MILK CRATE: the first milk crate; switched off it is hidden and costs nothing. CONTROLLERS: 3D hands holding them, or the bare controllers. DECK A / B: a switched-off turntable is hidden, stopped and costs nothing.', y0 + 222); }
       else { btn(L, y0 + 8, bw, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
         const hw = (w2 - 8) / 2; sw(x2, y0 + 8, hw, 80, 'LED WALL', 'ledwall'); sw(x2 + hw + 8, y0 + 8, hw, 80, 'NEON', 'neon');
         note('SCROLLER: a sine-wave text scroller across the bottom of the LED wall. LED WALL / NEON: switched off they are hidden and cost nothing; they keep their place for when they come back.', y0 + 116); }
@@ -4160,13 +4473,14 @@ function drawToolsPage() {
     g.fillStyle = '#39a8ff'; g.fillRect(tx + bitWidth(kbd.text, 4), y0 + 9, 16, 28);   // cursor
     g.restore();
     const gap = 4, kh = P ? 46 : 36, ky0 = y0 + 52;
-    KEY_ROWS.forEach((row, ri) => {
+    const ROWS = kbd.emoji === 'url' ? [...KEY_ROWS, ':/'] : KEY_ROWS;   // #29 web addresses
+    ROWS.forEach((row, ri) => {
       const keys = [...row], kw = (R - L - (keys.length - 1) * gap) / keys.length;
       keys.forEach((k, i) => btn(L + i * (kw + gap), ky0 + ri * (kh + gap), kw, kh, k, false, () => kbdKey(k), false, P ? 15 : 17));
     });
-    const by = ky0 + KEY_ROWS.length * (kh + gap);
+    const by = ky0 + ROWS.length * (kh + gap);
     let x = L, by2 = by; const ew = P ? (R - L - 2 * gap) / 3 : 56;
-    if (kbd.emoji) {
+    if (kbd.emoji === true) {
       for (const em of BIT_EMOJI) {
         g.fillStyle = '#1c2434'; g.fillRect(x, by, ew, kh);
         drawBitText(g, em, x + ew / 2 - 12, by + kh / 2 - 9, 3, '#fff');
@@ -4179,6 +4493,64 @@ function drawToolsPage() {
     btn(x, by2, sw, kh, 'SPACE', false, () => kbdKey('SPACE'));
     btn(x + sw + gap, by2, dw, kh, '⌫', false, () => kbdKey('DEL'));
     btn(x + sw + dw + 2 * gap, by2, ew2, kh, kbd.emoji ? 'ENTER' : 'OK', true, () => kbdKey('ENTER'));
+    return;
+  }
+  if (page === 'sredit') {   // SpatialED #31 edit one Spatial Record
+    const E = srec.ed; const y0 = head('EDIT ' + (E ? E.name : ''), 'srec'); if (!E) return;
+    const nar = narratorOf(E.glb), bw = (R - L - 6) / 2; let y = y0 + 8;
+    g.fillStyle = '#8c96a8'; g.font = '600 15px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    g.fillText('NARRATOR', L + 4, y + 20); g.textBaseline = 'alphabetic';
+    btn(L + 120, y, R - L - 120, 40, '◀  ' + nar.name.toUpperCase() + '  ▶', true, () => {
+      const i = NARRATORS.findIndex(n => n.glb === E.glb); E.glb = NARRATORS[(i + 1) % NARRATORS.length].glb; E.dirty = true; drawMixScreen(); }, false, 17);
+    y += 48;
+    btn(L, y, bw, 40, E.txt ? 'TRANSCRIPT ✓ (EDIT)' : 'TRANSCRIPT…', !!E.txt, () => openKbd('TRANSCRIPT', E.txt.toUpperCase(), false, 600, t => { E.txt = t.trim(); E.dirty = true; }, 'sredit'), false, 15);
+    btn(L + bw + 6, y, bw, 40, E.redo ? 'LIPS AGAIN ✓' : 'MAKE LIPS AGAIN', E.redo, () => { E.redo = !E.redo; E.dirty = true; drawMixScreen(); }, false, 15);
+    y += 48;
+    btn(L, y, R - L, 46, 'SAVE + SEND TO PC', E.dirty, sredSave, false, 19);
+    note(`Narrator for the whole ${E.sv.series || ''} series on this headset (list: narrator/narrators.json). A new transcript or LIPS AGAIN makes Rhubarb run again on the PC. After SAVE, the PC's copy can be copied to other headsets (start page: Spatial Records).`, y + 64);
+    return;
+  }
+  if (page === 'srec') {   // SpatialED #29 Spatial Records on this headset: EXPORT (two downloads), LIPS (send to the PC)
+    const y0 = head('SPATIAL RECORDS', 'take'), rows = P ? 9 : 4, RH = 48, n = srec.list.length, pages = Math.max(1, Math.ceil(n / rows)); srec.pg = Math.min(srec.pg, pages - 1);
+    if (!n) note('None yet. TAKE… records one; STAMP keeps it here.', y0 + 20);
+    srec.list.slice(srec.pg * rows, srec.pg * rows + rows).forEach((name, k) => {
+      const y = y0 + 8 + k * RH, inf = srec.info.get(name) || {}, bw2 = 118;
+      g.fillStyle = '#0d1422'; g.fillRect(L, y, R - L, RH - 6);
+      g.fillStyle = '#dfe6f2'; g.font = '600 16px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+      fitText2(g, `${name}  ·  ${(inf.dur || 0).toFixed(1)} s  ·  ${inf.lips ? 'lips ✓' : 'no lips'}${inf.pc ? '  ·  on PC' : ''}`, L + 10, y + (RH - 6) / 2, R - L - 3 * bw2 - 38); g.textBaseline = 'alphabetic';
+      btn(R - 3 * bw2 - 16, y + 3, bw2, RH - 12, 'EDIT', false, () => sredOpen(name), false, 15);   // #31
+      btn(R - 2 * bw2 - 8, y + 3, bw2, RH - 12, srec.busy === name + 'L' ? 'WAIT…' : 'LIPS', inf.lips, inf.lips ? null : async () => {
+        srec.busy = name + 'L'; drawMixScreen(); const x = await svLips(name); srec.busy = '';
+        toast(x && x.cues ? 'Lips ready: ' + name : x === 'wait' ? 'On the PC: Rhubarb is working. Tap LIPS again in a moment' : 'PC not reached (' + (pcBase() || 'no address') + ')', 4000);
+        lesson.lips.delete('sv:' + encodeURIComponent(name)); srecLoad(); }, false, 15);
+      btn(R - bw2, y + 3, bw2, RH - 12, srec.busy === name + 'E' ? 'WAIT…' : 'EXPORT', false, async () => {
+        srec.busy = name + 'E'; drawMixScreen();
+        try { await svExport(name); toast('Saved to Downloads: ' + name + '.webm + .sv.json', 4000); } catch (e) { toast('Export failed: ' + e.message, 4000); }
+        srec.busy = ''; drawMixScreen(); }, false, 15);
+    });
+    if (pages > 1) {
+      const y = y0 + 8 + rows * RH;
+      btn(L, y, 120, 36, '◀ PREV', false, () => { srec.pg = Math.max(0, srec.pg - 1); drawMixScreen(); });
+      btn(R - 120, y, 120, 36, 'NEXT ▶', false, () => { srec.pg = Math.min(pages - 1, srec.pg + 1); drawMixScreen(); });
+    }
+    return;
+  }
+  if (page === 'take') {   // SpatialED #24 TAKE: voice + head + hands, a virtual mirror, then back to STAMP
+    const y0 = head('TAKE', 'maker'), S = takeStudio(), st = S.state, has = !!S.result();
+    const bw = (R - L - 18) / 4, bh = 56;
+    btn(L, y0 + 6, bw, bh, 'CALIBRATE', st === 'calib', () => S.calibrate(), false, 17);
+    btn(L + (bw + 6), y0 + 6, bw, bh, st === 'rec' ? '■ STOP' : '● REC', st === 'rec', () => st === 'rec' ? S.stop() : S.record(), false, 19);
+    btn(L + 2 * (bw + 6), y0 + 6, bw, bh, st === 'play' ? '■ STOP' : '▶ PLAY', st === 'play', () => { if (st === 'play') { S.stopPlay(); S.state = 'review'; drawMixScreen(); } else S.play(); }, false, 19);
+    btn(L + 3 * (bw + 6), y0 + 6, bw, bh, 'SKELETON', S.skeleton, () => S.toggleSkeleton(), false, 17);
+    g.fillStyle = st === 'rec' ? '#ff6b6b' : '#dfe6f2'; g.font = '700 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    fitText2(g, S.msg || '', L + 4, y0 + bh + 30, R - L - 8); g.textBaseline = 'alphabetic';
+    const y1 = y0 + bh + 54;
+    btn(L, y1, bw * 2 + 6, 40, 'NAME…  ' + takeName(), false, () => openKbd('SERIES_N (e.g. DIRRO_INTRO_1)', maker.name, false, 40, t => { maker.name = t.trim(); }, 'take'), false, 15);
+    btn(L + 2 * (bw + 6), y1, bw * 2 + 6, 40, maker.txt ? 'TRANSCRIPT ✓' : 'TRANSCRIPT…', !!maker.txt, () => openKbd('TRANSCRIPT (optional)', maker.txt, false, 600, t => { maker.txt = t.trim(); }, 'take'), false, 15);
+    btn(L, y1 + 48, bw * 2 + 6, 40, 'PC…  ' + (pcBase() || 'none').replace(/^https?:\/\//, ''), false, () => openKbd('PC ADDRESS (EMPTY = NONE)', (settings.pcUrl == null ? PC_DEFAULT : settings.pcUrl).toUpperCase(), 'url', 90, t => { settings.pcUrl = t.trim().toLowerCase(); saveSettings(); }, 'take'), false, 14);   // #29
+    btn(L + 2 * (bw + 6), y1 + 48, bw * 2 + 6, 40, 'SPATIAL RECORDS…', false, () => { srec.pg = 0; setTools('srec'); srecLoad(); }, false, 15);
+    btn(L, y1 + 96, R - L, 46, has ? 'DONE: BACK TO STAMP' : 'CLOSE', has, () => { S.stopAll(); if (!has) { S.close(); maker.kind = 'blank'; } else { S.close(); } setTools('maker'); }, false, 19);
+    note('Controllers down, hands tracked. CALIBRATE: stand naturally 1 s. REC: voice (through the mixer) + head + hands. Records are named <series>_<n>. STAMP keeps it on this headset (Spatial Records) and sends it to the PC for Rhubarb lips.' + (narrApi ? '' : ' PC: the pinggy address of your PC (this page came from elsewhere).'), y1 + 158);
     return;
   }
   if (page === 'class') {   // SpatialED #11 classroom: the code students type, START / STOP, who is in
@@ -4236,9 +4608,11 @@ function drawToolsPage() {
     const sub = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, s, x0 + lw, y, R - x0 - lw); };
     let y = cy0;
     row(y, 'SOUND');
-    btn(x0 + lw, y, bw, 34, 'BLANK', maker.kind === 'blank', () => { maker.kind = 'blank'; });
-    btn(x0 + lw + bw + 6, y, bw, 34, 'SONG…', maker.kind === 'song', () => setTools('pickSong'));
-    btn(x0 + lw + 2 * (bw + 6), y, bw, 34, 'CLIP…', maker.kind === 'clip', () => setTools('pickVideo'));
+    const b4 = (3 * bw - 6) / 4;   // #24 four sources
+    btn(x0 + lw, y, b4, 34, 'BLANK', maker.kind === 'blank', () => { maker.kind = 'blank'; });
+    btn(x0 + lw + b4 + 6, y, b4, 34, 'SONG…', maker.kind === 'song', () => setTools('pickSong'));
+    btn(x0 + lw + 2 * (b4 + 6), y, b4, 34, 'CLIP…', maker.kind === 'clip', () => setTools('pickVideo'));
+    btn(x0 + lw + 3 * (b4 + 6), y, b4, 34, 'TAKE…', maker.kind === 'take', () => { maker.kind = 'take'; setTools('take'); takeStudio().open(); });
     sub(makerSourceText(), y + 52); y += 64;
     row(y, 'LABEL');
     btn(x0 + lw, y, bw, 34, 'PICTURE…', !!maker.image, () => setTools('pickImage'));
@@ -4293,6 +4667,40 @@ function drawToolsPage() {
     const by = P ? H - 62 : H - 44;
     btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
     btn(L + 48, by, 44, 36, '›', false, () => { pickPg = Math.min(pages - 1, pickPg + 1); }, pickPg >= pages - 1);
+  }
+  } finally {
+    g.fillText = ft; g.fillRect = fr;
+    if (inContent) {
+      g.restore(); inContent = false;
+      const cH = maxY + 12; toolsContentH.set(page0, cH);
+      for (let i = VP_HIT.length - 1; i >= hitBase; i--) {   // tap areas follow the scroll; hidden ones go
+        const h = VP_HIT[i]; h.y -= sc;
+        if (h.y + h.h <= top || h.y >= H) VP_HIT.splice(i, 1);
+        else if (h.y < top) { h.h -= top - h.y; h.y = top; }
+      }
+      const nowNeed = cH > H + 2;
+      if (nowNeed !== need) queueMicrotask(drawMixScreen);   // first sight of this page: lay it out again with the strip
+      else if (need) {
+        const maxSc = Math.max(0, cH - H), x = W - (P ? 26 : 8) - SW, view = H - top, total = cH - top;
+        const setSc = v => { toolsScroll.set(page0, Math.max(0, Math.min(maxSc, Math.round(v)))); drawMixScreen(); };
+        if (sc > maxSc) { toolsScroll.set(page0, maxSc); queueMicrotask(drawMixScreen); }
+        const ty0 = top + SW + 4, ty1 = H - SW - 4, tr = ty1 - ty0, th = Math.max(24, tr * view / total), tp = ty0 + (tr - th) * (maxSc ? sc / maxSc : 0);
+        g.fillStyle = '#121722'; g.fillRect(x, top, SW, H - top);
+        g.fillStyle = '#3a4560'; g.fillRect(x + 8, tp, SW - 16, th);
+        const arrow = (y, up, act) => {
+          g.fillStyle = act ? '#c9ced8' : '#2a3140'; g.fillRect(x, y, SW, SW);
+          g.fillStyle = act ? '#3a4252' : '#56627a'; g.beginPath();
+          if (up) { g.moveTo(x + SW / 2, y + 12); g.lineTo(x + SW - 12, y + SW - 14); g.lineTo(x + 12, y + SW - 14); }
+          else { g.moveTo(x + SW / 2, y + SW - 12); g.lineTo(x + SW - 12, y + 14); g.lineTo(x + 12, y + 14); }
+          g.closePath(); g.fill();
+          if (act) VP_HIT.push({ x, y, w: SW, h: SW, act });
+        };
+        arrow(top, true, sc > 0 ? () => setSc(sc - 80) : null);
+        arrow(H - SW, false, sc < maxSc ? () => setSc(sc + 80) : null);
+        if (tp > ty0) VP_HIT.push({ x, y: ty0, w: SW, h: tp - ty0, act: () => setSc(sc - view * 0.9) });
+        if (tp + th < ty1) VP_HIT.push({ x, y: tp + th, w: SW, h: ty1 - tp - th, act: () => setSc(sc + view * 0.9) });
+      }
+    }
   }
 }
 // #224 a tiny type badge for thumbnails (lower right): a camcorder for videos, a picture for images
@@ -4642,6 +5050,7 @@ function frame() {
   if (deckInst) deckInst.update();   // #154
   for (const d of decks) vvStep(d);   // #177 VideoVinyl
   lessonStep();   // SpatialED #7
+  if (studio) { try { studio.tick(); } catch (e) { if (!studio.err) { studio.err = true; console.error(e); toast('TAKE error: ' + e.message, 4000); } } }   // #24
   stepPvLid(dt);   // #196 preview lid
   stepScrDir();    // #198 portrait menu
   if (ledMode === 'decks') ledwall.userData.setDecks(deckVid[0].tex, deckVid[1].tex, ...deckGains(mixVal));
@@ -4703,6 +5112,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
   lesson,   // SpatialED #8 the diorama grab
+  deckOff,   // SpatialED #23
 });
 
 // ------------------------------------------------------------------ start screen / XR
@@ -5016,7 +5426,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { sv: { sredOpen, sredSave, get NARRATORS() { return NARRATORS; }, svLips, svExport, pcBase, srecLoad, srec, svSeries, svMeta, addPressings, get lesson() { return lesson; } }, THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {

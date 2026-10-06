@@ -58,14 +58,19 @@ export class Avatar {
     this.ready = false; this.standEye = null; this.yaw = null; this.hipsXZ = null; this.mouthV = 0;
     this.arm = [null, null]; this.foot = [null, null]; this.status = 'loading';
   }
-  async load(url) {
+  async load(url, opts = {}) {
     const gltf = await new GLTFLoader().loadAsync(url);
-    const m = gltf.scene; this.root.add(m);
+    return this.setup(gltf.scene, opts);
+  }
+  // SpatialED #24: drive a model that is already loaded (a lesson's narrator, the TAKE mirror). opts.eyes = true keeps
+  // it visible to the headset's own eyes (the DJ CAM avatar hides from them on AV_LAYER)
+  setup(m, opts = {}) {
+    this.root.add(m);
     const B = {}; this.mouth = [];
     m.traverse(o => {
       if (o.isBone) B[o.name] = o;
       if (o.isMesh) {
-        o.layers.set(AV_LAYER); o.frustumCulled = false; o.castShadow = o.receiveShadow = false;
+        if (!opts.eyes) o.layers.set(AV_LAYER); o.frustumCulled = false; o.castShadow = o.receiveShadow = false;
         const d = o.morphTargetDictionary; if (d && d.mouthOpen != null) this.mouth.push([o, d.mouthOpen]);
       }
     });
@@ -189,6 +194,8 @@ export class Avatar {
     this.mouthV += (mv - this.mouthV) * Math.min(1, dt * (mv > this.mouthV ? 25 : 10));
     for (const [o, k] of this.mouth) o.morphTargetInfluences[k] = this.mouthV * 0.8;
   }
+  // SpatialED #24 forget all smoothing, so update() gives a pose that depends only on its input (a record's t)
+  resetState(standEye) { this.standEye = standEye ?? null; this.yaw = null; this.hipsXZ = null; this.arm = [null, null]; this.foot = [null, null]; this.mouthV = 0; }
   fingers(side, i, h) {
     const B = this.B;
     if (h.joints) {   // hand tracking: each finger bone along the tracked bone
@@ -212,7 +219,7 @@ export class Avatar {
 }
 
 // Gather the DJ's pose from WebXR (head = XR camera, hands = joints or controller grips)
-const HANDS_J = ['wrist', ...FINGERS.flatMap(f => f[1])];
+export const HANDS_J = ['wrist', ...FINGERS.flatMap(f => f[1])];   // SpatialED #24 exported: the TAKE motion stores joints in this order
 export function xrPose(renderer, inputs) {
   const xc = renderer.xr.getCamera(); xc.updateMatrixWorld();
   const head = { p: new THREE.Vector3().setFromMatrixPosition(xc.matrixWorld), q: xc.getWorldQuaternion(new THREE.Quaternion()) };
