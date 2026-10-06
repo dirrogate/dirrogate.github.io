@@ -56,6 +56,7 @@ export class LessonPlayer {
     this.seats = [];          // per deck: the record's Object3D (or null), from step()
     this.lips = new Map();    // #20 .lips.json url -> { status, cues }
     this.suppress = null;     // #20 a persistent side the professor cleared
+    this.lipGain = 0.75;      // #21 lip strength (tablet LIPS - / +): 1 = Rhubarb's full shapes
     this.lastRec = null;      // the record (object) the lesson came in on: a new one starts on its deck again
     this.hand = [null, null]; // hand points (world) for the outline
     this.grab = null;         // { one: {...} } or { two: {...} }
@@ -81,7 +82,8 @@ export class LessonPlayer {
     const drv = best && s && s.L === L ? best : null;   // the record driving L now (null = frozen on its last frame)
     if (drv) { L.rel = drv.track.lesson; L.frame = { t: drv.pos, rate: drv.rate, track: drv.track, env: drv.env, dur: drv.dur }; }
     const F = L.frame || { t: 0, rate: 0 };
-    this.live = { rel: L.rel, t: F.t, rate: drv ? F.rate : 0, lips: F.track && F.track.lips || null };   // #11 class packet
+    if (drv) L.frame.needle = drv.needle !== false;
+    this.live = { rel: L.rel, t: F.t, rate: drv ? F.rate : 0, lips: F.track && F.track.lips || null, needle: !!F.needle };   // #11 class packet
     if (drv && drv.rec !== this.lastRec) {   // a record just went on
       this.lastRec = drv.rec; this.grab = null;
       // #20 a persistent side keeps where it was put when the next record of its series goes on
@@ -92,7 +94,7 @@ export class LessonPlayer {
     if (this.place.deck != null && !this.seats[this.place.deck]) this.place = L.persist || bi < 0 ? { free: true } : { deck: bi };   // its record left that deck
     if (this.place.deck != null) this.seatPose(L, this.place.deck);
     const g = L.group; g.position.copy(this.pose.pos); g.rotation.set(0, this.pose.yaw, 0); g.scale.setScalar(this.pose.scale);
-    this.apply(L, F.t, { lips: F.track && F.track.lips ? this.lipsFor(F.track.lips, F.track.url) : null, env: F.env, dur: F.dur, frozen: !drv });
+    this.apply(L, F.t, { lips: F.track && F.track.lips ? this.lipsFor(F.track.lips, F.track.url) : null, env: F.env, dur: F.dur, frozen: !drv, needle: !!F.needle, gain: this.lipGain });
     this.drawCage(L);
     return L;
   }
@@ -135,14 +137,14 @@ export class LessonPlayer {
   // the page, so a student page in the same folder finds it on any host)
   packet() {
     const v = this.live, L = this.cur; if (!v || !L) return { k: 'les', u: null };
-    return { k: 'les', u: v.rel, t: +v.t.toFixed(3), r: +v.rate.toFixed(4), s: +this.pose.scale.toFixed(4), y: +this.pose.yaw.toFixed(4), d: this.place && this.place.deck != null ? 1 : 0, l: v.lips || undefined };
+    return { k: 'les', u: v.rel, t: +v.t.toFixed(3), r: +v.rate.toFixed(4), s: +this.pose.scale.toFixed(4), y: +this.pose.yaw.toFixed(4), d: this.place && this.place.deck != null ? 1 : 0, l: v.lips || undefined, nd: v.needle ? 1 : 0, h: +this.lipGain.toFixed(2) };
   }
   // student: draw the side the professor plays at t, at the professor's size and turn, centred on this root
-  remote(rel, t, scale, yaw, lips) {
+  remote(rel, t, scale, yaw, lips, needle = true, gain = 1) {
     const s = rel ? this.want(new URL(rel, location.href).href) : null;
     const L = this.show(s && s.status === 'ready' ? s.L : null); if (!L) return null;
     L.group.position.set(0, 0, 0); L.group.rotation.set(0, yaw || 0, 0); L.group.scale.setScalar(scale || 1);
-    this.apply(L, t, { lips: lips ? this.lipsFor(lips, null) : null }); return L;
+    this.apply(L, t, { lips: lips ? this.lipsFor(lips, null) : null, needle, gain }); return L;
   }
 
   // ---------------------------------------------------------------- placement
@@ -286,7 +288,7 @@ async function load(url) {
   const home = { pos: new THREE.Vector3().fromArray(st.position || [0, 0, -2.4]), yaw: (st.rotationY || 0) * DEG, scale: st.scale || 1 };   // life size spot (desktop L key)
 
   const plinthR = st.plinth == null ? 1.7 : st.plinth;
-  if (plinthR > 0) {   // a dark floor disc so the lesson reads as a place, with a faint rim
+  if (plinthR > 0 && st.showPlinth) {   // #21 owner: no base plate under any lesson (only if a side asks for showPlinth)
     const disc = new THREE.Mesh(new THREE.CircleGeometry(plinthR, 64), new THREE.MeshStandardMaterial({ color: 0x151b26, roughness: 0.9 }));
     disc.rotation.x = -Math.PI / 2; disc.position.y = 0.002; group.add(disc);
     const rim = new THREE.Mesh(new THREE.RingGeometry(plinthR - 0.02, plinthR, 96), new THREE.MeshBasicMaterial({ color: 0x2a6f8a }));
@@ -391,8 +393,9 @@ function faceRig(obj) {
 const hash = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 function applyFace(a, t, F) {
   const S = a.face.slots, w = {};
-  const cues = F && F.lips;
-  if (cues && cues.length) {   // binary search for the cue holding t, crossfade from the one before
+  const cues = F && F.lips, talking = !F || F.needle !== false;   // #21 needle up: the record turns silently, the mouth rests
+  if (!talking) { /* rest */ }
+  else if (cues && cues.length) {   // binary search for the cue holding t, crossfade from the one before
     let lo = 0, hi = cues.length - 1;
     while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (cues[mid][0] <= t) lo = mid; else hi = mid - 1; }
     const c = cues[lo], inside = t >= c[0] && t < c[1];
@@ -404,6 +407,8 @@ function applyFace(a, t, F) {
     const e = F.env[Math.min(F.env.length - 1, Math.floor(t / F.dur * F.env.length))] || 0;
     w.viseme_aa = Math.min(0.85, Math.max(0, (e - 0.12) * 1.5));
   }
+  const g = F && F.gain != null ? F.gain : 1;   // #21 tone down (or push) the mouth shapes; silence stays silence
+  if (g !== 1) for (const k in w) if (k !== 'viseme_sil') w[k] *= g;
   // blinks: one in each ~4.3 s block at a hashed moment, 0.16 s long; from t, or the wall clock while frozen
   const bt = F && F.frozen ? performance.now() / 1000 : t, blk = Math.floor(bt / 4.3), at = blk * 4.3 + 0.3 + hash(blk) * 3.4, d = Math.abs(bt - at - 0.08);
   const blink = d < 0.08 ? 1 - d / 0.08 : 0; w.eyeBlinkLeft = w.eyeBlinkRight = blink;

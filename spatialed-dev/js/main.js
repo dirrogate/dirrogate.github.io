@@ -562,10 +562,11 @@ const stage = new Stage(rig, {
 const MOVABLE = new Proxy({}, { get: (_, k) => stage.object(k) });
 // SpatialED #7: the lesson stage lives in the rig (it moves with GEAR HERE); lesson.js draws it from the playhead
 const lesson = new LessonPlayer(rig); lesson.onStatus = t => toast(t, 3500);
+lesson.lipGain = settings.lipGain != null ? settings.lipGain : 0.75;   // SpatialED #21 lip strength (TOOLS home, LIPS - / +)
 function lessonStep() {
   const g = deckGains(mixVal);
   lessonOn = !!lesson.step(decks.map(d => ({ track: d.record ? d.track : null, pos: engine.ctx ? heardPos(d) : 0, rate: engine.state.decks[d.i].rate || 0, gain: g[d.i],
-    seat: d.record ? d.record.group : null, rec: d.record, env: d.record && d.record.envs ? d.record.envs[d.side] : null, dur: d.duration }))) && lesson.isFree();   // #8 on a deck it needs no room: the wall stays
+    seat: d.record ? d.record.group : null, rec: d.record, env: d.record && d.record.envs ? d.record.envs[d.side] : null, dur: d.duration, needle: !!engine.state.decks[d.i].needle }))) && lesson.isFree();   // #21 needle: lips only in the groove   // #8 on a deck it needs no room: the wall stays
 }
 function saveLayout() { stage.save(); }
 // #84 migration: layouts saved with the second flight case had the record crate standing on it; with that case
@@ -4123,9 +4124,17 @@ function drawToolsPage() {
     const y0 = head('TOOLS', 'mixer');
     const clsLabel = klass ? `CLASS (${klass.state.peers.length})` : 'CLASS';   // SpatialED #11
     if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26); btn(L, y0 + 224, R - L, 96, clsLabel, !!klass, () => setTools('class'), false, 26); note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off. CLASS: students follow the lesson on their phones.', y0 + 348); }
-    else { const bw = (R - L - 24) / 3; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); btn(L + 2 * (bw + 12), y0 + 8, bw, 130, clsLabel, !!klass, () => setTools('class'), false, 28); note('DJ TOOLS: Record Maker, milk crate on / off.   VJ TOOLS: Scroller, LED wall and neon sign on / off.   CLASS: students follow the lesson on their phones.', y0 + 160); }
+    else { const bw = (R - L - 24) / 3; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); btn(L + 2 * (bw + 12), y0 + 8, bw, 130, clsLabel, !!klass, () => setTools('class'), false, 28); }   // #21 landscape: the note made way for LIP SYNC STRENGTH
     { // #258 flicker tests
       const ty = H - (P ? 60 : 46), tw = (R - L - 24) / 4;
+      {   // SpatialED #21 lip sync strength: tones the narrator's mouth shapes down (or up); saved on this device, sent to students
+        const ly = P ? ty - 58 : y0 + 158, v = Math.round((settings.lipGain != null ? settings.lipGain : 0.75) * 100);
+        const setG = n => { settings.lipGain = Math.max(0.2, Math.min(1.3, Math.round(n * 20) / 20)); lesson.lipGain = settings.lipGain; saveSettings(); drawMixScreen(); };
+        g.fillStyle = '#dfe6f2'; g.font = '700 16px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('LIP SYNC STRENGTH', L + 4, ly + 19);
+        btn(R - 210, ly, 60, 38, '−', false, () => setG(v / 100 - 0.05));
+        g.fillStyle = '#fff'; g.font = '700 20px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(`${v} %`, R - 105, ly + 19); g.textBaseline = 'alphabetic';
+        btn(R - 60, ly, 60, 38, '+', false, () => setG(v / 100 + 0.05));
+      }
       btn(L + 3 * (tw + 8), ty, tw, 36, 'CLEAR LESSON', false, lesson.cur ? () => { lesson.clear(); drawMixScreen(); toast('Lesson cleared (it comes back when its record goes on)', 2500); } : null, !lesson.cur, 15);   // SpatialED #20
       btn(L, ty, tw, 36, testState.glass ? 'GLASS TEST: GLASS OFF' : 'GLASS TEST', testState.glass, () => setTest('glass'), false, 15);
       btn(L + tw + 8, ty, tw, 36, 'CAM 2ND FRAME', testState.cam2, () => setTest('cam2'), false, 15);
