@@ -28,7 +28,7 @@ function skipString(enc, b, o) {
 }
 
 export function readID3(arrayBuffer) {
-  const res = { title: '', artist: '', bpm: 0, key: '', picture: null, back: null, media: null, mediaB: null };
+  const res = { title: '', artist: '', bpm: 0, key: '', picture: null, front: null, back: null, media: null, mediaB: null };   // SpatialED #41 front: a real front cover only (picture falls back to any)
   const b = new Uint8Array(arrayBuffer);
   if (b.length < 10 || b[0] !== 0x49 || b[1] !== 0x44 || b[2] !== 0x33) return res;
   const ver = b[3], flags = b[5];
@@ -71,6 +71,7 @@ export function readID3(arrayBuffer) {
       if (!mime.includes('/')) mime = 'image/' + mime.toLowerCase().replace('jpg', 'jpeg');
       const blob = () => new Blob([data.slice(p)], { type: mime });
       if (type === 4 && !isA && !isB && !res.back) res.back = blob();
+      if ((type === 3 || type === 0) && !isA && !isB && !res.front) res.front = blob();
       if (isB && !res.mediaB) res.mediaB = blob();
       else if (isA && !res.media) res.media = blob();
       const score = isA || isB || type === 4 ? 0 : type === 3 ? 10 : type === 0 ? 5 : 1; // prefer front cover; back / labels only as a last resort

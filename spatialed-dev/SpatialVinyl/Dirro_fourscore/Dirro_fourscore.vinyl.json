@@ -16,7 +16,7 @@
   },
   "actors": [
     {
-      "glb": "../models/avatar/DirrogateAvatar_face.glb",
+      "glb": "../../models/avatar/DirrogateAvatar_face.glb",
       "face": true,
       "pose": "relaxed",
       "position": [
