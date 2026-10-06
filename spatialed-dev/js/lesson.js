@@ -86,9 +86,14 @@ export class LessonPlayer {
     this.show(L);
     if (!L) { this.live = null; this.lastRec = null; this.grab = null; this.cage.visible = false; return null; }
     const drv = best && s && s.L === L ? best : null;   // the record driving L now (null = frozen on its last frame)
-    if (drv) { L.rel = drv.track.lesson; L.frame = { t: drv.pos, rate: drv.rate, track: drv.track, env: drv.env, dur: drv.dur }; }
+    // #27 (owner) only the needle in the groove moves the lesson: turning the platter by hand with the needle up (or
+    // the arm on its rest) leaves it where it was; a needle drop jumps to that spot
+    if (drv) {
+      const nd = drv.needle !== false, same = L.frame && L.frame.track === drv.track && drv.rec === this.lastRec;
+      L.rel = drv.track.lesson;
+      L.frame = { t: nd || !same ? drv.pos : L.frame.t, rate: nd ? drv.rate : 0, track: drv.track, env: drv.env, dur: drv.dur, needle: nd };
+    }
     const F = L.frame || { t: 0, rate: 0 };
-    if (drv) L.frame.needle = drv.needle !== false;
     this.live = { rel: L.rel, t: F.t, rate: drv ? F.rate : 0, lips: F.track && F.track.lips || null, motion: F.track && F.track.motion && !/^opfs/.test(F.track.motion) ? F.track.motion : null, needle: !!F.needle };   // #11 class packet
     if (drv && drv.rec !== this.lastRec) {   // a record just went on
       this.lastRec = drv.rec; this.grab = null;
@@ -100,7 +105,7 @@ export class LessonPlayer {
     if (this.place.deck != null && !this.seats[this.place.deck]) this.place = L.persist || bi < 0 ? { free: true } : { deck: bi };   // its record left that deck
     if (this.place.deck != null) this.seatPose(L, this.place.deck);
     const g = L.group; g.position.copy(this.pose.pos); g.rotation.set(0, this.pose.yaw, 0); g.scale.setScalar(this.pose.scale);
-    this.apply(L, F.t, { lips: F.track && F.track.lips ? this.lipsFor(F.track.lips, F.track.url) : null, motion: F.track && F.track.motion ? this.motionFor(F.track.motion) : null, env: F.env, dur: F.dur, frozen: !drv, needle: !!F.needle, gain: this.lipGain });
+    this.apply(L, F.t, { lips: F.track && F.track.lips ? this.lipsFor(F.track.lips, F.track.url) : null, motion: F.track && F.track.motion ? this.motionFor(F.track.motion) : null, env: F.env, dur: F.dur, frozen: !drv || !F.needle, needle: !!F.needle, gain: this.lipGain });
     this.drawCage(L);
     return L;
   }

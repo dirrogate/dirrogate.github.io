@@ -3921,7 +3921,13 @@ function takeStudio() {
     onChange: () => drawMixScreen() });
   return studio;
 }
-function takeName() { let n = (maker.name || '').trim().replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 40); if (!n) n = 'Take'; if (!/_\d{1,3}$/.test(n)) n += '_1'; return n; }   // #261 size: 12 or 7 (inches)
+function takeName() {   // #28 <series>_<n>; without a number: the next free one for that series
+  let n = (maker.name || '').trim().replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 40); if (!n) n = 'TAKE';
+  if (/_\d{1,3}$/.test(n)) return n;
+  const used = new Set(lib ? [...lib.tracks.values()].map(t => String(t.title || '').toLowerCase()) : []);
+  let k = 1; while (used.has((n + '_' + k).toLowerCase())) k++;
+  return n + '_' + k;
+}   // #261 size: 12 or 7 (inches)
 // #225 the Record Maker's answers show on the tablet (toast() is a desktop-only overlay, invisible in the headset)
 let makerMsgT = 0;
 function makerSay(text, ok, ms = 5000) {
@@ -4131,7 +4137,7 @@ function addPressings(L, list) {
     if (s.kind === 'take') {   // SpatialED #24 a narrator take: the series' narrator, lips from the PC, motion
       t.artist = 'Narrator'; t.genre = 'Narrator';
       if (s.url) { t.lesson = encodeURI('narrator/' + s.series + '.vinyl.json'); t.lips = encodeURI('narrator/' + s.file + '.lips.json'); t.motion = encodeURI('narrator/' + s.file + '.motion.json'); }
-      else { t.lesson = encodeURI('narrator/' + s.series + '.vinyl.json'); t.motion = 'opfs-take:' + s.file; }
+      else { t.lesson = 'narrator/_take.vinyl.json'; t.motion = 'opfs-take:' + s.file; }   // #28 PC not reached: the built-in Dirro narrator
     }
     const r = { id: 'r' + id, title: p.title, artist: t.artist, sides: { A: t, B: null }, bpm: t.bpm, key: '', genre: '', duration: 0, missing: false, paired: false, unsorted: true, pressed: true, size: p.size === 7 ? 7 : 12 };
     let dest = un;   // #261 pressed 45s go to the 45s list
