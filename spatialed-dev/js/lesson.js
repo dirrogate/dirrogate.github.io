@@ -303,9 +303,17 @@ export class LessonPlayer {
     // over half a second when the needle drops; and back when it lifts
     const rest = !!(F && F.frozen), wall = performance.now() / 1000;
     for (const a of L.actors) {
-      if (a.puppet) applyPuppetIdle(a, F && F.motion, t, rest, wall);
+      // #46 Spatial Story: an actor with its own takes (lane): the take holding t drives it (its motion and lips, at
+      // the take's own time); between takes it idles on its mark
+      let M = F && F.motion, Fa = F, tl = t, idleNow = rest;
+      if (a.takes) {
+        const tk = a.takes.find(k => t >= k.t0 && t < k.t0 + k.dur) || null;
+        M = tk ? tk.motion : null; tl = tk ? t - tk.t0 : t; idleNow = rest || !tk;
+        Fa = { ...(F || {}), lips: tk && tk.lips && tk.lips.cues || null, tl, env: tk ? F && F.env : null };
+      }
+      if (a.puppet) applyPuppetIdle(a, M, tl, idleNow, wall);
       else if (a.idle) applyIdle(a, rest ? wall : t);
-      if (a.face) applyFace(a, t, F);
+      if (a.face) applyFace(a, t, Fa);
       if (a.mixer) {
         let ct = a.loop && (rest || L.persist) ? wall - a.t0 : t - a.t0;   // #33 a narrator's looping clip never stops
         if (a.loop) ct = ((ct % a.dur) + a.dur) % a.dur;
@@ -323,15 +331,18 @@ export class LessonPlayer {
     if (c !== L.chapter) { L.chapter = c; drawBoard(L, c); }
   }
 
+  // #46 hide one story lane's actor (it is being recorded: the performer's ghost stands in for it)
+  hideLane(lane, hidden) { const L = this.cur; if (!L) return; for (const a of L.actors) if (a.lane === lane) a.wrap.visible = !hidden; }
   // for later phases and the tablet: chapter starts of the side now drawn
   chapters() { return this.cur ? this.cur.chapters.slice() : []; }
 }
 
 async function load(url, local) {
   let side, base;
-  if (/^sv:/.test(url)) {   // #29 a Spatial Record's narrator, from this headset's storage; its GLB paths are relative to narrator/
+  if (/^(sv|st):/.test(url)) {   // #29 a Spatial Record's narrator / #46 a Spatial Story RP45, from this headset's storage
     if (!local) throw new Error('no Spatial Records here');
-    side = await local.side(url); base = new URL('SpatialVinyl/' + url.slice(3) + '/', location.href);   // #41 GLB paths relative to the lesson folder
+    const ser = /^st:/.test(url) ? url.slice(3).replace(/_\d+$/, '') : url.slice(3);
+    side = await local.side(url); base = new URL('SpatialVinyl/' + ser + '/', location.href);   // #41 GLB paths relative to the lesson folder
   } else {
     const r = await fetch(url, { cache: 'no-cache' });
     if (!r.ok) throw new Error(`${url.split('/').pop()}: HTTP ${r.status}`);
@@ -362,7 +373,8 @@ async function load(url, local) {
     if (a.pose === 'relaxed') relaxArms(obj);   // #20 before any transform: the model's own frame obj.rotation.y = (a.rotationY || 0) * DEG; obj.scale.setScalar(a.scale || 1);
     obj.traverse(m => { if (m.isSkinnedMesh) m.frustumCulled = false; });   // skinned bounds are the bind pose: never cull
     const wrap = new THREE.Group(); wrap.add(obj); group.add(wrap);   // the motion's root moves the wrap
-    const act = { wrap, t0: a.t0 || 0, loop: a.loop != null ? !!a.loop : !!side.persist };   // #33 a narrator's own clip loops
+    const act = { wrap, t0: a.t0 || 0, loop: a.loop != null ? !!a.loop : !!side.persist,   // #33 a narrator's own clip loops
+      lane: a.lane || null, takes: a.takes || null, mark: a.mark ? { x: a.mark[0], z: a.mark[1], yaw: a.mark[2] || 0 } : null };   // #46 story lanes
     const clip = (a.clip && gltf.animations.find(k => k.name === a.clip)) || gltf.animations[0];
     if (clip) {
       act.mixer = new THREE.AnimationMixer(obj); act.action = act.mixer.clipAction(clip);
@@ -454,13 +466,14 @@ const hash = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x
 function applyFace(a, t, F) {
   const S = a.face.slots, w = {};
   const cues = F && F.lips, talking = !F || F.needle !== false;   // #21 needle up: the record turns silently, the mouth rests
+  const tc = F && F.tl != null ? F.tl : t;   // #46 a story take's lips run on the take's own time
   if (!talking) { /* rest */ }
   else if (cues && cues.length) {   // binary search for the cue holding t, crossfade from the one before
     let lo = 0, hi = cues.length - 1;
-    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (cues[mid][0] <= t) lo = mid; else hi = mid - 1; }
-    const c = cues[lo], inside = t >= c[0] && t < c[1];
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (cues[mid][0] <= tc) lo = mid; else hi = mid - 1; }
+    const c = cues[lo], inside = tc >= c[0] && tc < c[1];
     if (inside) {
-      const k = Math.min(1, Math.max(0, (t - c[0]) / XFADE)), cur = VIS[c[2]] || 'viseme_sil', prev = lo ? VIS[cues[lo - 1][2]] || 'viseme_sil' : 'viseme_sil';
+      const k = Math.min(1, Math.max(0, (tc - c[0]) / XFADE)), cur = VIS[c[2]] || 'viseme_sil', prev = lo ? VIS[cues[lo - 1][2]] || 'viseme_sil' : 'viseme_sil';
       w[cur] = (w[cur] || 0) + k; w[prev] = (w[prev] || 0) + 1 - k;
     }
   } else if (F && F.env && F.dur > 0 && t >= 0 && t < F.dur) {   // no lips yet: the jaw follows the loudness
@@ -486,7 +499,7 @@ function applyPuppet(a, M, t) {
   return true;
 }
 // #33 the puppet between its idle (w = 1) and the take (w = 0): both poses are made on the same bones and slerped
-const _sq = new THREE.Quaternion();
+const _sq = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0);
 function applyPuppetIdle(a, M, t, rest, wall) {
   const goal = rest || !M ? 1 : 0, dt = Math.min(0.1, Math.max(0, wall - (a.lastWall || wall))); a.lastWall = wall;
   a.w = a.w == null ? goal : a.w + Math.sign(goal - a.w) * Math.min(Math.abs(goal - a.w), dt / 0.5);
@@ -501,6 +514,7 @@ function applyPuppetIdle(a, M, t, rest, wall) {
   for (const [b, q] of av.bind) b.quaternion.copy(q);
   const s = M && M.eye ? Math.min(1.3, Math.max(0.8, M.eye / av.restEyeY)) : 1;
   av.root.position.set(0, 0, 0); av.root.quaternion.identity(); av.root.scale.setScalar(s);
+  if (a.mark) { av.root.position.set(a.mark.x, 0, a.mark.z); av.root.quaternion.setFromAxisAngle(_up, a.mark.yaw || 0); }   // #46 a story actor idles on its mark
   if (a.idle) applyIdle(a, wall);
   if (A) {   // blend: take -> idle by w
     const w = a.w;

@@ -15,6 +15,7 @@ import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { LessonPlayer } from './lesson.js';   // SpatialED #7 Spatial Vinyl lessons
 import { TakeStudio, saveTakeFile, readTakeFile, svRead, svWrite, svList, svVinyl, removeTakeFile, hasTakeFile, PIC_SLOTS, seriesOf, svReadOld, hasOldFile, encodeMp3, id3Tag, retag, lessonGlb } from './take.js';   // SpatialED #24 TAKE, #29 Spatial Records
+import { storyRead, storyWrite, storyNew, storySide, rebuildMix, addTake, removeTake, storyList, decodeBlob, ACTORS, RP45_MIN, RP45_MAX } from './story.js';   // SpatialED #46 Spatial Story
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
@@ -4178,7 +4179,8 @@ function svMigrate(s, title) {
   return svMig.get(s.file);
 }
 lesson.store = {   // #35 renamed from `local` (it hid LessonPlayer.local(), the grab maths: no grabs, hands froze)
-  side: async url => { const ser = decodeURIComponent(url.slice(3)), n = svSeries.get(ser.toLowerCase()); if (n && svMig.has(n)) await svMig.get(n); const sv = n && await svRead(n); if (!sv) throw new Error(`Spatial Record ${ser} is not on this headset`); return sv.vinyl; },
+  side: async url => { if (/^st:/.test(url)) { const st = await storyLoad(decodeURIComponent(url.slice(3))); if (!st) throw new Error('RP45 not on this headset'); return storySide(st); }   // SpatialED #46
+    const ser = decodeURIComponent(url.slice(3)), n = svSeries.get(ser.toLowerCase()); if (n && svMig.has(n)) await svMig.get(n); const sv = n && await svRead(n); if (!sv) throw new Error(`Spatial Record ${ser} is not on this headset`); return sv.vinyl; },
   motion: async rel => { const n = decodeURIComponent(rel.slice(3)); if (svMig.has(n)) await svMig.get(n); const sv = await svRead(n); return sv && sv.motion; },
   lips: rel => svLips(decodeURIComponent(rel.slice(3))),
   pub: (rel, kind) => {   // the PC copy students can fetch
@@ -4321,6 +4323,150 @@ async function srecLoad() {
   for (const n of srec.list) { const sv = await svRead(n); if (sv) srec.info.set(n, { dur: sv.duration || 0, lips: !!(sv.lips && sv.lips.cues), pc: sv.pc }); }
   drawMixScreen();
 }
+// SpatialED #46 Spatial Story (spatial-story-plan.md step 1). TOOLS > SPATIAL STORY: NEW RP45, BED (a song from the
+// crate, 4 to 7 min), actor lanes (Dirro, Mira), STAGE HERE (the stage at life size where you stand), CALIBRATE,
+// REC into the armed lane while the RP45 plays (bed + earlier takes in your ears), GHOST or MIRROR view, UNDO TAKE.
+// Each take: voice MP3 + motion in the stage's space; the working mix is rebuilt; Rhubarb lips come from the PC.
+const story = { st: null, list: [], armed: null, view: 'ghost', busy: '', msg: '' };
+const storyCache = new Map();   // name -> the story object in use (the lesson's side shares its takes)
+let stStudio = null, songPick = null;
+async function storyLoad(name) { if (storyCache.has(name)) return storyCache.get(name); const st = await storyRead(name); if (st) storyCache.set(name, st); return st; }
+function storySay(m) { story.msg = m; drawMixScreen(); }
+async function storyRefreshList() { story.list = await storyList(); drawMixScreen(); }
+async function storyCreate(base) {
+  const ser = (base || '').trim().replace(/\s+/g, '_').replace(/[^A-Za-z0-9_-]/g, '').replace(/_\d+$/, '').slice(0, 30) || 'STORY';
+  const have = (await storyList()).filter(x => x.story.toLowerCase() === ser.toLowerCase()).map(x => +x.name.replace(/^.*_/, '') || 0);
+  const name = ser + '_' + (1 + Math.max(0, ...have));
+  const st = storyNew(name); await storyWrite(st); storyCache.set(name, st); story.st = st; story.armed = null;
+  storySay(`RP45 ${name} made. Next: BED… picks its soundtrack (4 to 7 min).`);
+}
+// the RP45 in the crate: a 7" pressing in the story's list
+async function storyPress(st) {
+  const old = (await listPressings()).find(p => p.src && p.src.kind === 'story' && p.src.file === st.name);
+  if (old) return;
+  const p = await savePressing({ id: 'p' + Date.now().toString(36), title: st.name, src: { kind: 'story', v: 1, file: st.name, story: st.story }, made: Date.now(), size: 7 }, null);
+  if (!lib) lib = emptyLibrary();
+  addPressings(lib, [p]); try { drawCrateScreen(); layoutSleeves(); } catch {}
+}
+async function storyBed(r, t) {
+  const st = story.st; if (!st) return;
+  storySay('Copying the bed…');
+  try {
+    const blob = t.opfs ? await store.readFile(t.opfs) : await (await fetch(t.url)).blob();
+    const buf = await decodeBlob(blob);
+    if (buf.duration > RP45_MAX + 0.5) { storySay(`Too long for an RP45: ${fmt(buf.duration)} (up to 7:00).`); return; }
+    const file = st.name + '.bed.' + ((t.url || t.opfs || '').match(/\.(mp3|m4a|wav|ogg|flac)(\?|$)/i) || [, 'mp3'])[1].toLowerCase();
+    await saveTakeFile(file, blob);
+    st.bed = { file, title: r.title || '', duration: Math.round(buf.duration * 1000) / 1000 }; st.mix = null;
+    if (st.lanes.some(l => l.takes.length)) await rebuildMix(st);
+    await storyWrite(st); await storyPress(st); storyRefresh(st);
+    storySay(`Bed: ${r.title} (${fmt(buf.duration)})${buf.duration < RP45_MIN ? ': shorter than 4:00, fine for a test' : ''}. The RP45 is in the crate (list ${st.story}): put it on a deck.`);
+  } catch (e) { storySay('Bed not copied: ' + e.message); }
+}
+function storyDeck(st) { return st && decks.find(d => d.track && d.track.lesson === 'st:' + st.name) || null; }
+function storyRefresh(st) {   // the lesson draws the story again (new lanes, takes, actors)
+  const u = new URL('st:' + st.name, location.href).href; lesson.sides.delete(u);
+  if (lesson.cur && lesson.cur.url === u) lesson.show(null);
+}
+function storyReloadDeck(st) {   // the deck plays the new working mix (from the start)
+  const d = storyDeck(st); if (!d) return;
+  sideCache.delete(d.track.id); const r = pickUpFromDeck(d, null); if (r) placeOnDeck(d, r);
+}
+function storyAddLane() {
+  const st = story.st; if (!st) return;
+  const n = 1 + st.lanes.reduce((m, l) => Math.max(m, +l.id.slice(1) || 0), 0), a = ACTORS[(n - 1) % ACTORS.length];
+  st.lanes.push({ id: 'L' + n, actor: a.name, glb: a.glb, mark: [(n - 1) * 0.9, 0, 0], muted: false, takes: [] });
+  storyWrite(st); storyRefresh(st); drawMixScreen();
+}
+function storyCycleActor(lane) {
+  const i = ACTORS.findIndex(a => a.name === lane.actor), a = ACTORS[(i + 1) % ACTORS.length];
+  lane.actor = a.name; lane.glb = a.glb; storyWrite(story.st); storyRefresh(story.st);
+  if (story.armed === lane.id) storyArm(lane);   // the ghost / mirror becomes the new actor
+  drawMixScreen();
+}
+async function storyArm(lane) {
+  if (stStudio && stStudio.state === 'rec') return;
+  if (story.armed && story.armed !== lane.id) lesson.hideLane(story.armed, false);
+  if (story.armed === lane.id && stStudio && stStudio.model === lane.glb) { story.armed = null; lesson.hideLane(lane.id, false); stStudio.close(); stStudio = null; drawMixScreen(); return; }   // R again: disarm
+  story.armed = lane.id;
+  const calib = stStudio && stStudio.calib, plane = stStudio && stStudio.plane;
+  if (stStudio) stStudio.close();
+  stStudio = new TakeStudio({ renderer, scene, rig, engine, toast, ensureMic: ensureTakeMic, onChange: () => { story.msg = stStudio ? stStudio.msg : story.msg; drawMixScreen(); },
+    getInputs: () => { try { return xr && xr.inputs; } catch { return null; } } });
+  stStudio.view = story.view; stStudio.model = lane.glb;
+  stStudio.space = () => { const L = lesson.cur; L.group.updateMatrixWorld(true); return L.group.matrixWorld.clone(); };
+  await stStudio.open(lane.glb.replace(/^\.\.\/\.\.\//, ''));
+  if (calib) { stStudio.calib = calib; stStudio.plane = plane; stStudio.state = 'idle'; stStudio.say('Armed: ' + lane.actor + '. Drop the needle, then REC.'); }
+  lesson.hideLane(lane.id, true);   // your ghost / reflection stands in for it
+  drawMixScreen();
+}
+async function ensureTakeMic() {
+  if (!engine.ctx) throw new Error('audio not started');
+  if (settings.micRoute !== 'app') { settings.micRoute = 'app'; saveSettings(); if (micOn) { micOn = false; engine.setMicOn(false); } }
+  if (!micOn) await toggleMic();
+  if (!engine.mic) throw new Error('mic did not open');
+}
+function storyStageHere() {   // the stage at life size, its origin at your feet, its +z the way you face
+  const L = lesson.cur; if (!L || !story.st || L.url !== new URL('st:' + story.st.name, location.href).href) { storySay('Put the RP45 on a deck first (its stage shows).'); return; }
+  const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera, p = cam.getWorldPosition(new THREE.Vector3());
+  const f = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion())); f.y = 0; f.normalize();
+  const rq = lesson.root.getWorldQuaternion(new THREE.Quaternion()).invert(), fl = f.clone().applyQuaternion(rq);
+  p.y = rig.getWorldPosition(new THREE.Vector3()).y;
+  lesson.place = { free: true }; lesson.grab = null;
+  lesson.pose.pos.copy(lesson.local(p)); lesson.pose.yaw = Math.atan2(fl.x, fl.z); lesson.pose.scale = 1;
+  storySay('Stage set where you stand, at life size. Arm a lane (R), CALIBRATE, then REC.');
+}
+async function storyRec() {
+  const st = story.st, S = stStudio, lane = st && st.lanes.find(l => l.id === story.armed);
+  if (!S || !lane) { storySay('Arm a lane first (R).'); return; }
+  if (S.state === 'rec') return storyStop();
+  const d = storyDeck(st); if (!d) { storySay('Put the RP45 on a deck first.'); return; }
+  if (!engine.state.decks[d.i].needle || !(engine.state.decks[d.i].rate > 0.5)) { storySay('Start the record (needle down, motor on): you record over it as it plays.'); return; }
+  if (Math.abs(lesson.pose.scale - 1) > 0.01) { storySay('STAGE HERE first: takes are recorded at life size.'); return; }
+  S.getT = ctxT => heardPos(d) - (engine.ctx.currentTime - ctxT) * (engine.state.decks[d.i].rate || 1);
+  await S.record();
+}
+async function storyStop() {
+  const st = story.st, S = stStudio, lane = st && st.lanes.find(l => l.id === story.armed); if (!S || !lane) return;
+  S.stop();
+  for (let i = 0; i < 60 && !S.pcm; i++) await new Promise(r => setTimeout(r, 50));
+  const R = S.result(); if (!R) { storySay('Nothing recorded.'); return; }
+  story.busy = 'take'; storySay('Saving the take…');
+  try {
+    const take = await addTake(st, lane, R, R.recT != null ? R.recT : 0);
+    lane.last = take.id; await storyWrite(st);
+    storySay('Mixing the bed with the voices…'); await rebuildMix(st); await storyWrite(st);
+    storyRefresh(st); storyReloadDeck(st);
+    storySay(`✓ ${lane.actor} take ${take.id}: ${take.dur.toFixed(1)} s at ${fmt(take.t0)}. Lips are being made on the PC…`);
+    storyLips(st, take);
+  } catch (e) { console.error(e); storySay('Take not saved: ' + e.message); }
+  story.busy = ''; drawMixScreen();
+}
+async function storyUndo() {
+  const st = story.st, lane = st && st.lanes.find(l => l.id === story.armed); if (!lane || !lane.takes.length) { storySay('Arm the lane whose last take goes.'); return; }
+  const take = lane.takes.find(k => k.id === lane.last) || lane.takes[lane.takes.length - 1];
+  await removeTake(st, lane, take); lane.last = null; await rebuildMix(st); await storyWrite(st); storyRefresh(st); storyReloadDeck(st);
+  storySay(`Take ${take.id} removed from ${lane.actor}.`);
+}
+async function storyMute(lane) { lane.muted = !lane.muted; await rebuildMix(story.st); await storyWrite(story.st); storyRefresh(story.st); storyReloadDeck(story.st); drawMixScreen(); }
+// lips for one take: its voice goes to the PC (SpatialVinyl\<story>\<name>.<lane><take>.mp3) and Rhubarb makes the cues
+async function storyLips(st, take) {
+  const base = pcBase(); if (!base) return;
+  const stem = take.voice.replace(st.name + '.', '').replace(/\.mp3$/, ''), src = 'SpatialVinyl/' + st.story + '/' + take.voice;
+  try {
+    if (take.pc !== base) {
+      const r = await fetch(`${base}api/take?name=${encodeURIComponent(st.name)}&kind=stem&stem=${stem}`, { method: 'POST', body: await readTakeFile(take.voice) });
+      if (!r.ok) throw new Error('upload HTTP ' + r.status); take.pc = base;
+    }
+    for (let i = 0; i < 60; i++) {
+      const r = await fetch(base + 'api/lips?src=' + encodeURIComponent(src), { cache: 'no-store' });
+      if (r.status === 202) { await new Promise(x => setTimeout(x, 3000)); continue; }
+      if (!r.ok) throw new Error('lips HTTP ' + r.status);
+      const j = await r.json(); if (j && j.cues) { take.lips = j; await storyWrite(st); toast(`Lips ready: ${take.id}`, 2500); }
+      return;
+    }
+  } catch (e) { console.warn('story lips', e); toast('Lips not made (PC not reached): ' + e.message, 4000); }
+}
 // #231 built-in example records (web/examples/, streamed like songs from the PC), in Unsorted and the Collection.
 // "Sleeve Art Demo": every ID3 picture type the app reads (tools/make_sleeve_demo.py builds it). Long press +
 // DELETE hides one for good on this device (sed.hiddenExamples).
@@ -4415,6 +4561,7 @@ function addPressings(L, list) {
     const t = { id, name: p.title, title: p.title, side: null, split: false, artist: s.kind === 'song' ? (s.artist || 'Pressed') : 'Pressed on Cly3DJ', album: '', genre: '', key: '', bpm: s.bpm || 0, duration: 0,
       location: 'press:' + p.id, url: s.url || null, opfs: s.opfs || null, missing: false, cues: [], unsorted: true, press: p };
     if (s.kind === 'video') t.pressVideo = s.video;
+    if (s.kind === 'story') { t.artist = 'Spatial Story'; t.genre = 'Spatial Story'; t.url = null; t.lesson = 'st:' + s.file; }   // SpatialED #46 an RP45
     if (s.kind === 'take') {   // SpatialED #41 a Spatial Record on this headset (SpatialVinyl/<series>/, take.js); older ones are moved there once
       t.artist = 'Narrator'; t.genre = 'Narrator'; t.url = null; s.series = s.series || seriesOf(s.file);
       t.lesson = 'sv:' + encodeURIComponent(s.series); t.lips = 'sv:' + encodeURIComponent(s.file); t.motion = 'sv:' + encodeURIComponent(s.file);
@@ -4425,7 +4572,8 @@ function addPressings(L, list) {
     const r = { id: 'r' + id, title: p.title, artist: t.artist, sides: { A: t, B: null }, bpm: t.bpm, key: '', genre: '', duration: 0, missing: false, paired: false, unsorted: true, pressed: true, size: p.size === 7 ? 7 : 12 };
     let dest = null;   // #261 pressed 45s go to the 45s list
     if (s.kind === 'take') { const nm = s.series || seriesOf(s.file); dest = L.playlists.find(q => q.name === nm); if (!dest) { dest = { name: nm, path: nm + ' (Spatial Vinyl lesson)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, dest); } }   // #41 one crate list per lesson
-    if (r.size === 7 && s.kind !== 'take') { dest = L.playlists.find(q => q.name === '45s'); if (!dest) { dest = { name: '45s', path: '45s (7" singles on this headset)', records: [] }; L.playlists.push(dest); } }
+    if (s.kind === 'story') { const nm = s.story || s.file; dest = L.playlists.find(q => q.name === nm); if (!dest) { dest = { name: nm, path: nm + ' (Spatial Story)', records: [] }; L.playlists.splice(Math.min(1, L.playlists.length), 0, dest); } }   // SpatialED #46 one crate list per story
+    if (r.size === 7 && s.kind !== 'take' && s.kind !== 'story') { dest = L.playlists.find(q => q.name === '45s'); if (!dest) { dest = { name: '45s', path: '45s (7" singles on this headset)', records: [] }; L.playlists.push(dest); } }
     if (!dest) dest = needUn();
     t.record = r; L.tracks.set(id, t); L.records.push(r); dest.records.push(r); L.playlists[0].records.push(r); last = r;
   }
@@ -4455,6 +4603,7 @@ async function pressArt(track) {
 async function pressBytes(track) {
   const s = track.press.src || {};
   if (s.kind === 'blank') return blankWav();
+  if (s.kind === 'story') { const st = await storyLoad(s.file); if (!st || !st.bed) return blankWav(); return (await readTakeFile(st.mix || st.bed.file).catch(() => readTakeFile(st.bed.file))).arrayBuffer(); }   // SpatialED #46 the RP45's working mix (or its bed)
   if (s.kind === 'take') { if (svMig.has(s.file)) await svMig.get(s.file); return (await readTakeFile(s.file + '.mp3').catch(() => readTakeFile(s.file + '.webm'))).arrayBuffer(); }   // #41 the MP3 on this headset
   if (s.kind === 'video') { const f = await media.getFile('Video', s.video); if (!f) throw new Error(`the clip ${s.video} is no longer on this headset`); return f.arrayBuffer(); }
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
@@ -4498,8 +4647,8 @@ function drawToolsPage() {
   if (page === 'home') {
     const y0 = head('TOOLS', 'mixer');
     const clsLabel = klass ? `CLASS (${klass.state.peers.length})` : 'CLASS';   // SpatialED #11
-    if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26); btn(L, y0 + 224, R - L, 96, clsLabel, !!klass, () => setTools('class'), false, 26); note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off. CLASS: students follow the lesson on their phones.', y0 + 348); }
-    else { const bw = (R - L - 24) / 3; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); btn(L + 2 * (bw + 12), y0 + 8, bw, 130, clsLabel, !!klass, () => setTools('class'), false, 28); }   // #21 landscape: the note made way for LIP SYNC STRENGTH
+    if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26); btn(L, y0 + 224, R - L, 96, clsLabel, !!klass, () => setTools('class'), false, 26); btn(L, y0 + 332, R - L, 96, 'SPATIAL STORY', !!story.st, () => { setTools('story'); storyRefreshList(); }, false, 26); note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off. CLASS: students follow the lesson on their phones. SPATIAL STORY: RP45s with actor lanes.', y0 + 456); }   // SpatialED #46
+    else { const bw = (R - L - 36) / 4; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); btn(L + 2 * (bw + 12), y0 + 8, bw, 130, clsLabel, !!klass, () => setTools('class'), false, 28); btn(L + 3 * (bw + 12), y0 + 8, bw, 130, 'SPATIAL STORY', !!story.st, () => { setTools('story'); storyRefreshList(); }, false, 24); }   // SpatialED #46   // #21 landscape: the note made way for LIP SYNC STRENGTH
     { // #258 flicker tests
       const ty = H - (P ? 60 : 46), tw = (R - L - 24) / 4;
       {   // SpatialED #21 lip sync strength: tones the narrator's mouth shapes down (or up); saved on this device, sent to students
@@ -4615,6 +4764,51 @@ function drawToolsPage() {
     y += 48;
     btn(L, y, R - L, 46, 'SAVE + SEND TO PC', E.dirty, sredSave, false, 19);
     note(`Narrator for the whole ${E.sv.series || ''} series on this headset (list: narrator/narrators.json). A new transcript or LIPS AGAIN makes Rhubarb run again on the PC. After SAVE, the PC's copy can be copied to other headsets (start page: Spatial Records).`, y + 64);
+    return;
+  }
+  if (page === 'story') {   // SpatialED #46 Spatial Story
+    const y0 = head('SPATIAL STORY', 'home'), st = story.st, S = stStudio;
+    if (!st) {
+      btn(L, y0 + 6, R - L, 52, 'NEW RP45…', false, () => openKbd('STORY NAME (A NEW RP45 OF IT)', '', false, 30, t => { storyCreate(t); }, 'story'), false, 20);
+      const RH = 44, rows = P ? 10 : 3;
+      story.list.slice(0, rows).forEach((x, k) => btn(L, y0 + 66 + k * RH, R - L, RH - 6, 'OPEN  ' + x.name, false, async () => { story.st = await storyLoad(x.name); story.armed = null; storySay(''); }, false, 16));
+      if (!story.list.length) note('No RP45s on this headset yet. NEW RP45 starts one: name, then a bed (soundtrack), then actor lanes and takes.', y0 + 76);
+      return;
+    }
+    const d = storyDeck(st), t = d ? heardPos(d) : 0, dur = Math.max(1, st.bed ? st.bed.duration : 60);
+    g.fillStyle = '#dfe6f2'; g.font = '700 16px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    fitText2(g, `RP45 ${st.name}  ·  ${st.bed ? st.bed.title + ' ' + fmt(st.bed.duration) : 'no bed yet'}  ·  t ${fmt(t)}${d ? '' : ' (not on a deck)'}`, L + 4, y0 + 14, R - L - 8); g.textBaseline = 'alphabetic';
+    const b5 = (R - L - 24) / 5; let y = y0 + 30;
+    btn(L, y, b5, 36, 'BED…', !!st.bed, () => { songPick = (r, tr) => storyBed(r, tr); setTools('pickSong'); }, false, 15);
+    btn(L + (b5 + 6), y, b5, 36, '+ ACTOR', false, storyAddLane, false, 15);
+    btn(L + 2 * (b5 + 6), y, b5, 36, 'STAGE HERE', false, storyStageHere, false, 15);
+    btn(L + 3 * (b5 + 6), y, b5, 36, 'VIEW: ' + story.view.toUpperCase(), story.view === 'ghost', () => { story.view = story.view === 'ghost' ? 'mirror' : 'ghost'; if (stStudio) stStudio.setView(story.view); drawMixScreen(); }, false, 15);
+    btn(L + 4 * (b5 + 6), y, b5, 36, 'CLOSE', false, () => { if (stStudio) { stStudio.close(); stStudio = null; } if (story.armed) lesson.hideLane(story.armed, false); story.st = null; story.armed = null; storyRefreshList(); }, false, 15);
+    y += 44;
+    // lanes: name (tap: Dirro / Mira), R arm, M mute, and the strip with the takes and the playhead
+    const nameW = P ? 96 : 110, sx = L + nameW + 2 * 40 + 12, sw = R - sx, LH = P ? 40 : 30;
+    const strip = (yy, h) => { g.fillStyle = '#0d1422'; g.fillRect(sx, yy, sw, h); if (d) { g.fillStyle = '#ff5050'; g.fillRect(sx + sw * Math.min(1, t / dur) - 1, yy, 2, h); } };
+    g.fillStyle = '#8c96a8'; g.font = '700 14px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('BED', L + 4, y + LH / 2); g.textBaseline = 'alphabetic';
+    strip(y, LH - 4); if (st.bed) { g.fillStyle = '#2a4a6a'; g.fillRect(sx, y + 4, sw, LH - 12); }
+    y += LH;
+    const lanes = st.lanes.slice(0, P ? 8 : 3);
+    for (const ln of lanes) {
+      btn(L, y, nameW, LH - 4, ln.actor, false, () => storyCycleActor(ln), false, 14);
+      btn(L + nameW + 6, y, 34, LH - 4, 'R', story.armed === ln.id, () => storyArm(ln), false, 14);
+      btn(L + nameW + 46, y, 34, LH - 4, 'M', ln.muted, () => storyMute(ln), false, 14);
+      strip(y, LH - 4);
+      for (const k of ln.takes) { g.fillStyle = ln.muted ? '#3a3f4a' : k.lips ? '#2f9e5a' : '#b08a2a'; g.fillRect(sx + sw * k.t0 / dur, y + 4, Math.max(2, sw * k.dur / dur), LH - 12); }
+      y += LH;
+    }
+    if (st.lanes.length > lanes.length) note(`+ ${st.lanes.length - lanes.length} more lane(s)`, y + 4);
+    const b4 = (R - L - 18) / 4, rec = S && S.state === 'rec';
+    y = Math.max(y + 4, P ? y : H - 92);
+    btn(L, y, b4, 40, 'CALIBRATE', S && S.state === 'calib', () => { if (stStudio) stStudio.calibrate(); else storySay('Arm a lane first (R).'); }, false, 15);
+    btn(L + (b4 + 6), y, b4, 40, rec ? '■ STOP' : '● REC', rec, storyRec, false, 17);
+    btn(L + 2 * (b4 + 6), y, b4, 40, 'UNDO TAKE', false, storyUndo, false, 15);
+    btn(L + 3 * (b4 + 6), y, b4, 40, story.busy ? 'WAIT…' : 'SKELETON', S && S.skeleton, () => { if (stStudio) stStudio.toggleSkeleton(); }, false, 15);
+    g.fillStyle = rec ? '#ff6b6b' : '#dfe6f2'; g.font = '600 15px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    fitText2(g, story.msg || 'Takes: green = lips ready, amber = lips coming, grey = muted.', L + 4, y + 56, R - L - 8); g.textBaseline = 'alphabetic';
     return;
   }
   if (page === 'srec') {   // SpatialED #29 Spatial Records on this headset: EXPORT (two downloads), LIPS (send to the PC)
@@ -4742,7 +4936,7 @@ function drawToolsPage() {
     return;
   }
   if (page === 'pickSong') {
-    const y0 = head('PICK A SONG', 'maker');
+    const y0 = head(songPick ? 'PICK THE BED' : 'PICK A SONG', songPick ? 'story' : 'maker');   // SpatialED #46
     const list = lib ? currentList() : [], rows = P ? 12 : 4, RH = 44, pages = Math.max(1, Math.ceil(list.length / rows)); pickPg = Math.min(pickPg, pages - 1);
     if (!list.length) note('No songs in the crate list. Load a library (start page) or pick a list on the crate first.', y0 + 20);
     else { g.fillStyle = '#56627a'; g.font = '500 13px system-ui'; g.textAlign = 'left'; fitText2(g, 'From the crate list: ' + (search.results ? 'search results' : lib.playlists[crateState.pl].path), L + 4, y0 + 6, R - L); }
@@ -4751,7 +4945,7 @@ function drawToolsPage() {
       g.fillStyle = '#0d1422'; g.fillRect(L, y, R - L, RH - 6);
       g.fillStyle = ok ? '#dfe6f2' : '#56627a'; g.font = '600 16px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
       fitText2(g, `${r.title}${r.artist ? '  ·  ' + r.artist : ''}${r.bpm ? '  ·  ' + (+r.bpm).toFixed(0) + ' BPM' : ''}`, L + 10, y + (RH - 6) / 2, R - L - 20); g.textBaseline = 'alphabetic';
-      if (ok) VP_HIT.push({ x: L, y, w: R - L, h: RH - 6, act: () => { maker.kind = 'song'; maker.song = { title: r.title, artist: r.artist || '', opfs: t.opfs || null, url: t.url || null, bpm: r.bpm || t.bpm || 0, duration: t.duration || r.duration || 0 }; if (!maker.name) maker.name = cleanText(r.title, 32); setTools('maker'); } });
+      if (ok) VP_HIT.push({ x: L, y, w: R - L, h: RH - 6, act: () => { if (songPick) { const f = songPick; songPick = null; f(r, t); setTools('story'); return; } maker.kind = 'song'; maker.song = { title: r.title, artist: r.artist || '', opfs: t.opfs || null, url: t.url || null, bpm: r.bpm || t.bpm || 0, duration: t.duration || r.duration || 0 }; if (!maker.name) maker.name = cleanText(r.title, 32); setTools('maker'); } });
     });
     const by = P ? H - 62 : H - 44;
     btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
@@ -5159,6 +5353,7 @@ function frame() {
   for (const d of decks) vvStep(d);   // #177 VideoVinyl
   try { lessonStep(); }   // SpatialED #7; #35 a lesson error must never stop the headset's frame
   catch (e) { if (!lessonStep.err) { lessonStep.err = true; console.error(e); toast('Lesson error (headset keeps running): ' + e.message, 5000); } }
+  if (stStudio) { try { stStudio.tick(); } catch (e) { if (!stStudio.err) { stStudio.err = true; console.error(e); toast('STORY take error: ' + e.message, 4000); } } }   // SpatialED #46
   if (studio) { try { studio.tick(); } catch (e) { if (!studio.err) { studio.err = true; console.error(e); toast('TAKE error: ' + e.message, 4000); } } }   // #24
   stepPvLid(dt);   // #196 preview lid
   stepScrDir();    // #198 portrait menu
@@ -5536,6 +5731,7 @@ if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
 window.vire = { sv: { svImport, svExport, svMigrate, sredOpen, sredSave, get NARRATORS() { return NARRATORS; }, svLips, svExport, pcBase, srecLoad, srec, svSeries, svMeta, addPressings, get lesson() { return lesson; } }, THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire.story = { story, storyLoad, storyCreate, storyBed, storyAddLane, storyPress, storyRefreshList, pullRecord, storyArm, storyStageHere, get stStudio() { return stStudio; }, setTools: p => setTools(p), lesson: () => lesson };   // SpatialED #46 debug
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {

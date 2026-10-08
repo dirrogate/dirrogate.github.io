@@ -100,15 +100,25 @@ export class TakeStudio {
   say(m) { this.msg = m; this.onChange && this.onChange(); }
 
   // ---------------------------------------------------------------- open / close
-  async open() {
+  // #46 model: the actor's GLB (app-relative); a story also sets this.space (() => the stage's world matrix, takes are
+  // recorded in the stage's space), this.getT (AudioContext time -> the record's t) and this.view ('mirror' | 'ghost')
+  async open(model = MODEL) {
     if (this.state !== 'closed') return;
     this.state = 'loading'; this.say('Loading the mirror…');
     this.mirrorRig = new THREE.Group(); this.mirrorRig.name = 'take-mirror'; this.scene.add(this.mirrorRig);
     this.av = new Avatar(this.mirrorRig);
-    try { await this.av.load(MODEL, { eyes: true }); }
+    try { await this.av.load(model, { eyes: true }); }
     catch (e) { this.state = 'closed'; this.say('Mirror model not loaded: ' + e.message); return; }
+    this.mats = []; this.av.root.traverse(o => { if (o.isMesh) for (const m of [].concat(o.material)) this.mats.push([m, m.transparent, m.opacity, m.depthWrite]); });
+    this.setView(this.view || 'mirror');
     this.skel = new THREE.SkeletonHelper(this.av.root); this.skel.visible = this.skeleton; this.scene.add(this.skel);
     this.state = 'idle'; this.say('Put the controllers down (hands tracked), stand naturally, then CALIBRATE.');
+  }
+  // #46 MIRROR: the actor faces you as your reflection; GHOST: the actor is drawn over your own body, see-through
+  setView(v) {
+    this.view = v;
+    for (const [m, tr, op, dw] of this.mats || []) { if (v === 'ghost') { m.transparent = true; m.opacity = 0.35; m.depthWrite = false; } else { m.transparent = tr; m.opacity = op; m.depthWrite = dw; } m.needsUpdate = true; }
+    this.onChange && this.onChange();
   }
   close() {
     this.stopAll();
@@ -145,7 +155,7 @@ export class TakeStudio {
     this.node.port.postMessage('start');
   }
   onRec(d) {
-    if (d.t0 != null) this.t0 = d.t0;
+    if (d.t0 != null) { this.t0 = d.t0; this.recT = this.getT ? this.getT(d.t0) : null; }   // #46 the record's t at the first sample
     if (d.v) { this.vParts.push(d.v); this.mParts.push(d.m); }
     if (d.done) {
       const cat = parts => { let n = 0; for (const p of parts) n += p.length; const o = new Int16Array(n); let k = 0; for (const p of parts) { o.set(p, k); k += p.length; } return o; };
@@ -172,7 +182,7 @@ export class TakeStudio {
   // the finished take: the PCM (voice, and the mix when recorded) and the motion (null until a take is recorded)
   result() {
     if (!this.pcm) return null;
-    return { pcm: this.pcm, source: this.pcm.mix ? 'mix' : 'voice', duration: this.duration,
+    return { pcm: this.pcm, source: this.pcm.mix ? 'mix' : 'voice', duration: this.duration, recT: this.recT,
       motion: { v: 1, rate: FPS, eye: R3(this.calib.eye), joints: HANDS_J, duration: R3(this.duration), frames: this.frames } };
   }
 
@@ -183,12 +193,23 @@ export class TakeStudio {
     const now = performance.now();
     if (this.state === 'calib') {
       const C = this.cal, fw = new THREE.Vector3(0, 0, -1).applyQuaternion(live.head.q); fw.y = 0;
-      C.p.add(live.head.p); if (fw.lengthSq() > 1e-4) C.f.add(fw.normalize()); C.n++;
-      if (now - C.t0 > 1000 && C.n > 5) {
-        const p = C.p.multiplyScalar(1 / C.n), f = C.f.lengthSq() > 1e-6 ? C.f.normalize() : new THREE.Vector3(0, 0, -1), floor = this.floorY();
-        this.calib = { o: new THREE.Vector3(p.x, floor, p.z), yaw: Math.atan2(f.x, f.z), fwd: f.clone(), eye: p.y - floor };
-        this.plane = { c: p.clone().addScaledVector(f, MIRROR_DIST).setY(floor), n: f.clone() };
-        this.state = 'idle'; this.say(`Calibrated: eye height ${(this.calib.eye * 100).toFixed(0)} cm. REC to record.`);
+      if (!C.done1) {   // 1 s standing naturally: eye height, facing
+        C.p.add(live.head.p); if (fw.lengthSq() > 1e-4) C.f.add(fw.normalize()); C.n++;
+        if (now - C.t0 > 1000 && C.n > 5) {
+          const p = C.p.multiplyScalar(1 / C.n), f = C.f.lengthSq() > 1e-6 ? C.f.normalize() : new THREE.Vector3(0, 0, -1), floor = this.floorY();
+          this.calib = { o: new THREE.Vector3(p.x, floor, p.z), yaw: Math.atan2(f.x, f.z), fwd: f.clone(), eye: p.y - floor, reach: 0.65 };
+          C.done1 = true; C.t1 = now; C.best = 0; C.hp = p;
+          this.say('Now stretch your LEFT arm straight out in front of you…');
+        }
+      } else {   // #46 then 1.5 s with the left arm out: the reach puts the mirror's surface at your fingertip
+        const h = live.hands[0], f = this.calib.fwd;
+        if (h) { const tip = h.joints && h.joints.get('index-finger-tip') || h.p, d = tip.clone().sub(C.hp).dot(f); if (d > C.best) C.best = d; }
+        if (now - C.t1 > 1500) {
+          if (C.best > 0.35) this.calib.reach = Math.min(0.95, C.best);
+          const p = C.hp, floor = this.floorY();
+          this.plane = { c: p.clone().addScaledVector(f, this.calib.reach).setY(floor), n: f.clone() };
+          this.state = 'idle'; this.say(`Calibrated: eye height ${(this.calib.eye * 100).toFixed(0)} cm, reach ${(this.calib.reach * 100).toFixed(0)} cm${C.best > 0.35 ? '' : ' (no hand seen: 65 cm)'}. REC to record.`);
+        }
       }
     }
     const ta = this.audioNow();   // #41 seconds since the first recorded sample (audio clock)
@@ -196,6 +217,7 @@ export class TakeStudio {
     // the mirror: live, or the recording while it plays back
     let pose = live;
     if (this.state === 'play' && this.audio && this.calib) pose = this.fromTake(sampleMotion({ frames: this.frames, joints: HANDS_J }, this.audio.currentTime));
+    if (this.view === 'ghost') { this.av.update({ ...pose, floorY: this.floorY(), dt: 1 / 60 }); return; }   // #46 over your own body
     const plane = this.plane || this.loosePlane(live);
     this.av.update(reflectPose(pose, plane, this.floorY()));
   }
@@ -205,9 +227,17 @@ export class TakeStudio {
     return { c: live.head.p.clone().addScaledVector(f, MIRROR_DIST).setY(this.floorY()), n: f };
   }
   // world pose -> take frame (origin on the floor under the calibrated head, calibrated facing = +z)
-  toTake(pose, t) {
+  // #46 with this.space (a story): the stage's own space instead (its world matrix at life size, floor y 0)
+  frame() {
+    if (this.space) {
+      const m = this.space(), inv = m.clone().invert(), qy = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().extractRotation(inv));
+      return { P: v => v.clone().applyMatrix4(inv), V: v => v.clone().applyQuaternion(qy), q: qy };
+    }
     const C = this.calib, qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -C.yaw);
-    const P = v => v.clone().sub(C.o).applyQuaternion(qy), V = v => v.clone().applyQuaternion(qy);
+    return { P: v => v.clone().sub(C.o).applyQuaternion(qy), V: v => v.clone().applyQuaternion(qy), q: qy };
+  }
+  toTake(pose, t) {
+    const { P, V, q: qy } = this.frame();
     const hq = qy.clone().multiply(pose.head.q), hp = P(pose.head.p);
     const f = { t: R3(t), h: [hp.x, hp.y, hp.z, hq.x, hq.y, hq.z, hq.w].map(R3) };
     ['l', 'r'].forEach((k, i) => {
@@ -219,8 +249,9 @@ export class TakeStudio {
     return f;
   }
   fromTake(tp) {   // take frame -> world (for the review on the mirror)
-    const C = this.calib, qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), C.yaw);
-    const P = v => v.clone().applyQuaternion(qy).add(C.o), V = v => v.clone().applyQuaternion(qy);
+    let P, V, qy;
+    if (this.space) { const m = this.space(); qy = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().extractRotation(m)); P = v => v.clone().applyMatrix4(m); V = v => v.clone().applyQuaternion(qy); }
+    else { const C = this.calib; qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), C.yaw); P = v => v.clone().applyQuaternion(qy).add(C.o); V = v => v.clone().applyQuaternion(qy); }
     return { head: { p: P(tp.head.p), q: qy.clone().multiply(tp.head.q) },
       hands: tp.hands.map(h => h && { p: P(h.p), f: V(h.f), s: V(h.s), joints: h.joints && new Map([...h.joints].map(([n, v]) => [n, P(v)])) }) };
   }
