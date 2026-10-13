@@ -8,7 +8,7 @@ import { REC, REC7, dimsOf, timeToRadius, radiusToTime, Screen, fitText, drawRec
 import { setupXR } from './xr.js';
 import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeNeon } from './neon.js';
 import { makeLedWall, LedPlayer, LED } from './ledwall.js';
-import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose } from './director.js';
+import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose, AV_LAYER } from './director.js';
 import { Streamer, SOURCES as STREAM_SRC, streamKey } from './stream.js';   // #331 LIVE STREAM (Twitch)
 import { RobotAvatar } from './robot.js';
 import { RobotAvatar2, ROBOT_GLB } from './robot2.js';   // #245 the licensed AvatarRobot (EntroPi Games)
@@ -740,6 +740,23 @@ const engine = new AudioEngine();
 // #331 LIVE STREAM: master bus (never CUE) + a picture source, straight to Twitch from the headset (stream.js)
 streamer = CAMERA_ROLE ? null : new Streamer({
   engine, renderer, djcam, scene, camera,   // #333 scene / camera for the MR headset picture
+  // #336 SHOW / VIDEOWALL
+  avLayer: AV_LAYER, showCam: () => djcam && djcam.cam, scroller: () => scroller,
+  showPrep: () => {   // the robot / gear layer: no LED wall (the visuals are the background), no XR hands, nothing behind
+    const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
+    hide(ledwall); hide(room); hide(skybox.group); hide(scroller.mesh);
+    if (DJ_HIDE_NEON.has(djSet.preset)) hide(neon);   // its back faces these angles, between the camera and the DJ
+    if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand) hide(st.ctlHand.root); }
+    if (xr && xr.glove) hide(xr.glove.root);
+    const bg = scene.background; scene.background = null;
+    return () => { for (const o of undo) o.visible = true; scene.background = bg; };
+  },
+  wallSource: () => {   // what the LED wall is showing, as 2D drawables (the stream draws them full frame)
+    if (ledMode === 'clips') return led.video ? [{ el: led.video }] : led.img && ledwall.userData.curImage ? [{ el: ledwall.userData.curImage, flip: true }] : [];
+    if (ledMode === 'decks') { const [gA, gB] = deckGains(mixVal); return [{ el: deckVid[0].v, gain: gA }, { el: deckVid[1].v, gain: gB, add: true }]; }
+    if (isLive(ledMode)) return [{ el: liveVideo }];
+    return [];
+  },
   phoneTrack: () => (livePossible() ? liveTrack : null),
   phoneLive: on => { if (!spect || !spect.liveCam) return; if (on) { if (!isLive(ledMode)) spect.liveCam(true, false); } else if (!isLive(ledMode)) spect.liveCam(false); },
   nowPlaying: () => {
@@ -4112,20 +4129,28 @@ function drawToolsPage() {
       if (S.live) { if (performance.now() - (streamEndArm || 0) < 2500) { streamEndArm = 0; S.stop(); } else { streamEndArm = performance.now(); setTimeout(drawMixScreen, 2600); } drawMixScreen(); }
       else S.start();
     };
-    const hint = `Sends the MASTER mix (and the MIC when it goes through the mixer); CUE never reaches the stream. Key ${S.keyHint()}${S.hasKey() ? '' : ': enter it on the start page'}. AVACAM costs the most; CARD almost nothing.`;
+    const hint = `Sends the MASTER mix (and the MIC when it goes through the mixer); CUE never reaches the stream. Key ${S.keyHint()}${S.hasKey() ? '' : ': enter it on the start page'}. SHOW and AVACAM cost the most (SHOW films from the AVACAM angle, BOOTH suits it); VIDEOWALL and CARD almost nothing.`;
+    // #336 SHOW / VIDEOWALL layer toggles (ROBOT and GEAR only matter for SHOW)
+    const O = S.showOpt, sw3 = S.source === 'show', swAny = sw3 || S.source === 'wall';
+    const opts = [['robot', 'ROBOT', sw3], ['gear', 'GEAR', sw3], ['scroll', 'SCROLLER', swAny], ['np', 'NOW PLAYING', swAny], ['logo', 'LOGO', swAny]];
+    const optBtn = ([k, label, ok], x, y, w, h) => btn(x, y, w, h, label, ok && O[k], ok ? () => S.setShowOpt(k, !O[k]) : null, !ok, P ? 17 : 15);
     if (P) {
       const bw = (R - L - 8) / 2;
-      keys.forEach((k, i) => srcBtn(k, L + (i % 2) * (bw + 8), y0 + 70 + Math.floor(i / 2) * 72, bw, 64));
-      btn(L, y0 + 228, R - L, 96, goLabel, live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, 28);
-      btn(L, y0 + 334, R - L, 56, 'CAM FIT (HEADSET CAM)', false, () => setTools('streamfit'), false, 20);   // #333
-      note(hint, y0 + 410);
+      keys.forEach((k, i) => srcBtn(k, L + (i % 2) * (bw + 8), y0 + 62 + Math.floor(i / 2) * 62, bw, 56));
+      const ow = (R - L - 16) / 3;
+      opts.forEach((o, i) => optBtn(o, L + (i % 3) * (ow + 8), y0 + 256 + Math.floor(i / 3) * 50, ow, 44));
+      btn(L, y0 + 362, R - L, 90, goLabel, live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, 28);
+      btn(L, y0 + 460, R - L, 50, 'CAM FIT (HEADSET CAM)', false, () => setTools('streamfit'), false, 20);   // #333
+      note(hint, y0 + 530);
     } else {
-      const bw = (R - L - 24) / 4;
-      keys.forEach((k, i) => srcBtn(k, L + i * (bw + 8), y0 + 40, bw, 48));
+      const bw = (R - L - 40) / 6;
+      keys.forEach((k, i) => srcBtn(k, L + i * (bw + 8), y0 + 38, bw, 44));
+      const ow = (R - L - 32) / 5;
+      opts.forEach((o, i) => optBtn(o, L + i * (ow + 8), y0 + 88, ow, 34));
       const gw = Math.round((R - L - 8) * 0.7);
-      btn(L, y0 + 98, gw, 64, goLabel, live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, 26);
-      btn(L + gw + 8, y0 + 98, R - L - gw - 8, 64, 'CAM FIT', false, () => setTools('streamfit'), false, 22);   // #333
-      note(hint, y0 + 186);
+      btn(L, y0 + 130, gw, 54, goLabel, live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, 26);
+      btn(L + gw + 8, y0 + 130, R - L - gw - 8, 54, 'CAM FIT', false, () => setTools('streamfit'), false, 22);   // #333
+      note(hint, y0 + 202);
     }
     return;
   }
@@ -4699,7 +4724,7 @@ function frame() {
 renderer.setAnimationLoop(frame);
 // #220 DJ CAM: pose the avatar (headset: head + hands; desktop: a demo DJ), then render the camera into the LED wall
 const _djT0 = performance.now();
-const DJ_HIDE_NEON = new Set(['front', 'low', 'faders']);
+const DJ_HIDE_NEON = new Set(['front', 'low', 'faders', 'booth']);   // #336 booth too
 function djGear() {
   return { deckA: deckGroups[0].position, deckB: deckGroups[1].position, mixer: mixer.position, crate: crateRig.position, top: deckGroups[0].position.y + DECK.H };
 }
@@ -4722,7 +4747,8 @@ function stepDjCam(dt) {
   }
   const dj = rig.worldToLocal(pose.head.p.clone());
   djcam.aimAt(gear, dj);
-  djcam.render(scene, dt, xrOn ? (testState.cam2 ? 2 : 3) : 2, djPrep);   // #258 CAM 2ND FRAME test
+  if (ledMode === 'cam' || !streamer || streamer.needsCamRT) djcam.render(scene, dt, xrOn ? (testState.cam2 ? 2 : 3) : 2, djPrep);   // #258 CAM 2ND FRAME test (#336: SHOW renders its own layer from this camera)
+  else djcam.t += dt;
 }
 const _djFloor = new THREE.Vector3();
 

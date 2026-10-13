@@ -266,7 +266,7 @@ export function demoPose(rig, gear, t) {
 // The DJ CAM: renders the stage (with the avatar) from a preset angle into a 16:9 texture for the LED wall
 export const CAM_PRESETS = {
   front: { label: 'FRONT', fov: 38 }, wide: { label: 'WIDE', fov: 50 }, low: { label: 'LOW', fov: 55 },
-  platters: { label: 'PLATTERS', fov: 45 }, faders: { label: 'FADERS', fov: 40 }, crate: { label: 'CRATE', fov: 48 }, top: { label: 'TOP', fov: 50 },
+  booth: { label: 'BOOTH', fov: 64 }, platters: { label: 'PLATTERS', fov: 45 }, faders: { label: 'FADERS', fov: 40 }, crate: { label: 'CRATE', fov: 48 }, top: { label: 'TOP', fov: 50 },
 };
 export class DjCam {
   constructor(renderer, rig) {
@@ -292,6 +292,7 @@ export class DjCam {
       front: [[m.x, 1.55, m.z - 1.65], [m.x, 1.22, (m.z + z) / 2]],
       wide: [[m.x + 1.5, 1.95, m.z - 1.8], [m.x, 1.1, (m.z + z) / 2]],
       low: [[m.x - 0.35, top - 0.05, m.z - 0.75], [m.x, 1.4, z]],
+      booth: [[m.x, top + 0.3, m.z - 0.55], [m.x, top + 0.36, z]],   // #336 audience side, just over the mixer's far edge, looking back at the DJ
       platters: [[A.x - 0.62, top + 0.1, A.z - 0.12], [Bk.x, top - 0.02, Bk.z + 0.05]],
       faders: [[m.x, top + 0.42, m.z - 0.42], [m.x, top - 0.02, m.z + 0.05]],
       crate: [[c.x - 0.35, 1.45, c.z - 0.75], [c.x, 0.55, c.z]],
