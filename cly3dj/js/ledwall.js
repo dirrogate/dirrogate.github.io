@@ -72,6 +72,7 @@ export function makeLedWall() {
   let tex = null;
   // #185: a still image (ImageBitmap made with imageOrientation 'flipY'), same 'cover' fit as a video
   g.userData.setImage = bmp => {
+    g.userData.curImage = bmp;   // #336 the stream's SHOW / VIDEOWALL background draws the same picture
     if (tex) { tex.dispose(); tex = null; }
     screenB.visible = false;
     if (!bmp) { screen.material = offMat; return; }

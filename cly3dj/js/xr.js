@@ -227,6 +227,24 @@ export function setupXR(ctx) {
         ctx.pressControl({ deck: d.name, id: 'target' }); st.direct = { kind: 'tap' }; buzz(st, 0.5, 30); return true;
       }
     }
+    // 0a0. #337 the GOPRO: grip (hands: pinch) on the little camera picks it up; it keeps its pose relative to the hand
+    // #340 the same for the floating chat panel: ctx.props = objects with hit / grab / hold / release / obj
+    for (const pr of (ctx.props || [ctx.gopro])) {
+      if (!pr) continue;
+      // #341 resizable props (the chalkboard): a second grip while the other hand holds it = stretch; trigger / pinch on its corner tab = drag to size
+      const holder = pr.scaleTo && inputs.find(o => o !== st && o.direct && o.direct.kind === 'gopro' && o.direct.prop === pr);
+      if (holder && (btn === 'grip' || st.isHand) && pr.hit(P)) {
+        st.direct = { kind: 'propStretch', prop: pr, other: holder, d0: Math.max(0.02, pinchOf(holder).distanceTo(P)), s0: pr.obj.scale.x }; buzz(st, 0.5, 40); buzz(holder, 0.5, 40); return true;
+      }
+      if (pr.scaleTo && pr.corner && (st.isHand || btn !== 'grip') && pr.corner(P)) {
+        const c = pr.obj.getWorldPosition(new THREE.Vector3());
+        st.direct = { kind: 'propScale', prop: pr, c0: c, d0: Math.max(0.02, c.distanceTo(P)), s0: pr.obj.scale.x }; buzz(st, 0.4, 25); return true;
+      }
+      if (!((btn === 'grip' || st.isHand) && pr.hit(P))) continue;
+      updateAnchor(st); const o = pr.obj; o.updateMatrixWorld();
+      st.direct = { kind: 'gopro', prop: pr, off: new THREE.Matrix4().copy(st.anchor.matrixWorld).invert().multiply(o.matrixWorld) };
+      pr.grab(); buzz(st, 0.4, 25); return true;
+    }
     // 0a. #189 the mixer's tablet: grip (controllers) or pinch (hands) on its frame picks it up; it keeps its pose
     //     relative to the hand while held (main.js places it; it stays a child of the mixer so the phone mirrors it)
     // #195 (owner): pick-up = grip only (hands: pinch); resize = trigger (or pinch) on the lower-right corner handle and
@@ -580,6 +598,13 @@ export function setupXR(ctx) {
       const now = performance.now();
       if (g.lastP) { const dtm = Math.max(0.004, (now - g.lastT) / 1000), v = v1.copy(P).sub(g.lastP).divideScalar(dtm); g.vel = g.vel ? g.vel.lerp(v, 0.4) : v.clone(); }
       g.lastP = (g.lastP || new THREE.Vector3()).copy(P); g.lastT = now;
+    } else if (g.kind === 'propStretch') {   // #341
+      if (!g.other.direct || g.other.direct.kind !== 'gopro') st.direct = null;
+      else g.prop.scaleTo(g.s0 * pinchOf(g.other).distanceTo(P) / g.d0);
+    } else if (g.kind === 'propScale') {   // #341 corner drag: size follows the distance from the centre
+      g.prop.scaleTo(g.s0 * g.c0.distanceTo(P) / g.d0);
+    } else if (g.kind === 'gopro') {   // #337
+      updateAnchor(st); g.prop.hold(new THREE.Matrix4().multiplyMatrices(st.anchor.matrixWorld, g.off));
     } else if (g.kind === 'tablet') {   // #189
       updateAnchor(st); ctx.tabletHold(new THREE.Matrix4().multiplyMatrices(st.anchor.matrixWorld, g.off));
     } else if (g.kind === 'tabletScale') {   // #195 corner drag: size follows the distance from the tablet's centre
@@ -618,6 +643,8 @@ export function setupXR(ctx) {
     else if (g.kind === 'lid') ctx.lidRelease();
     else if (g.kind === 'spider') { ctx.spiderRelease(st.anchor); buzz(st, 0.3, 20); }   // #256
     else if (g.kind === 'sleeve') ctx.sleeveRelease(st.anchor);   // #242 let go: it stays there (over the record crate: back in)
+    else if (g.kind === 'gopro') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'propStretch' && o.direct.prop === g.prop) o.direct = null; g.prop.release(); }   // #337 (#340 any prop)
+    else if (g.kind === 'propStretch' || g.kind === 'propScale') g.prop.save();   // #341
     else if (g.kind === 'tablet') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'tabletStretch') o.direct = null; if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
     else if (g.kind === 'tabletScale' || g.kind === 'tabletStretch') ctx.saveTablet();
     else if (g.kind === 'ledTurn') { if (g.axis === 'tilt') ctx.ledTilted && ctx.ledTilted(); else ctx.ledTurned(); buzz(st, 0.5, 30); }   // #222 settle on portrait / landscape; #248 a tilt just stays

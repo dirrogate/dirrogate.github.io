@@ -12,13 +12,18 @@
 // doesn't swim against the picture. GEAR OFF sends the raw camera as before.
 // The key is kept on this headset only (localStorage 'vire.twitchKey') and goes nowhere but the Twitch endpoint.
 import * as THREE from 'three';
+import { drawChat } from './chat.js';
 
 export const TWITCH_WHIP = 'https://g.webrtc.live-video.net:4443/v2/offer';
-export const SOURCES = { card: 'CARD', avacam: 'AVACAM', headset: 'HEADSET CAM', phone: 'PHONE' };
-const VBR = { card: 600, avacam: 2500, headset: 3000, phone: 2000 };   // video kbit/s caps per source
+export const SOURCES = { card: 'CARD', avacam: 'AVACAM', show: 'SHOWTIME!', headset: 'HEADSET CAM', phone: 'PHONE' };   // #338 VIDEOWALL gone: SHOWTIME! with ROBOT and GEAR off is the same
+const VBR = { card: 600, avacam: 2500, show: 3500, headset: 3000, phone: 2000 };
+// #336 SHOW = three layers: the LED wall's visuals full frame (clip / image / VidVinyl / phone LIVE), the robot DJ and
+// gear from the AVACAM camera (BOOTH angle) drawn on a see-through background, and flat overlays (scroller, now
+// playing, logo). VIDEOWALL = the visuals and overlays only (no 3D render). Toggles saved as 'vire.showOpts'.
+export const SHOW_DEF = { visuals: true, robot: true, gear: true, scroll: true, np: true, logo: true, chat: false };   // #340 CHAT: Twitch chat on the right   // #338 VISUALS: the background on / off   // video kbit/s caps per source
 const ABR = 160;   // Opus stereo kbit/s
 
-const KEY = 'vire.twitchKey', SRC = 'vire.streamSrc', FIT = 'vire.mrcam';
+const KEY = 'vire.twitchKey', SRC = 'vire.streamSrc', FIT = 'vire.mrcam', SHOWO = 'vire.showOpts';
 // Quest 3 RGB camera: in front of and a little below the centre eye; ~73 deg across at 4:3 (starting values, CAM FIT tunes)
 export const FIT_DEF = { x: -32, y: -19, z: -75, tilt: 0, turn: 0, roll: 0, hfov: 73, lag: 0, gear: true };
 const lsJ = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
@@ -52,6 +57,17 @@ void main() { vec2 uv = vec2(vUv.x, 1.0 - vUv.y); vec4 g = texture2D(map, uv); v
 
 const DEG = Math.PI / 180, _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _s1 = new THREE.Vector3(1, 1, 1), _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _e1 = new THREE.Euler(), _c1 = new THREE.Color();
 
+// SHOW layer: gear / robot on transparent black, tone-mapped, sRGB, flipped, with its alpha (un-premultiplied) for 2D drawing
+const SHOW_FS = `uniform sampler2D map; varying vec2 vUv;
+vec3 rrt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
+vec3 aces(vec3 c) {
+  const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
+  const mat3 O = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
+  c *= 1.0 / 0.6; return clamp(O * rrt(I * c), 0.0, 1.0); }
+vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
+void main() { vec4 g = texture2D(map, vec2(vUv.x, 1.0 - vUv.y)); float a = clamp(g.a, 0.0, 1.0);
+  gl_FragColor = vec4(srgb(aces(g.rgb / max(a, 0.001))), a); }`;
+
 export class Streamer {
   // env: { engine, renderer, djcam, phoneTrack() -> MediaStreamTrack|null, phoneLive(on), nowPlaying() -> {a, b, bpm}, onChange() }
   constructor(env) {
@@ -65,9 +81,21 @@ export class Streamer {
     this.canvasTrack = null; this.cardT = 0; this.frameT = 0; this.busy = false; this.camN = -1;
     this.fit = { ...FIT_DEF, ...(lsJ(FIT) || {}) };
     this.testing = false;   // CAM FIT TEST: the MR picture runs off air, for lining up
+    this.rehearse = false;
     this.hist = []; this.mr = null;
+    this.showOpt = { ...SHOW_DEF, ...(lsJ(SHOWO) || {}) }; this.ly = null; this.showT = 0; this.layerOk = false;
   }
+  setShowOpt(k, v) { if (k in SHOW_DEF) { this.showOpt[k] = v; ls.set(SHOWO, JSON.stringify(this.showOpt)); this.env.onChange && this.env.onChange(); } }
+  get show3d() { return this.source === 'show' && (this.showOpt.robot || this.showOpt.gear); }
   get running() { return this.live || this.testing; }
+  get active() { return this.live || this.rehearse; }   // #339 REHEARSAL: the chosen source is drawn for the tablet MONITOR without going live
+  setRehearse(on) {
+    on = !!on; if (on === this.rehearse) return; this.rehearse = on;
+    if (on && !this.live) { this._sizeFor(this.source); this.layerOk = false; }
+    if (this.source === 'headset' && !this.live) this.setTesting(on);
+    this.env.onChange && this.env.onChange();
+  }
+  _sizeFor(src) { if (src === 'avacam') this._sizeCanvas(960, 540); else if (src === 'headset') { if (this.camStream) this._mrSize(); } else this._sizeCanvas(1280, 720); }
   setFit(k, v) { if (k in FIT_DEF) { this.fit[k] = v; ls.set(FIT, JSON.stringify(this.fit)); if (k === 'gear') this._gearChanged(); this.env.onChange && this.env.onChange(); } }
   resetFit() { const g = this.fit.gear; this.fit = { ...FIT_DEF, gear: g }; ls.set(FIT, JSON.stringify(this.fit)); this.env.onChange && this.env.onChange(); }
   async _gearChanged() {   // HEADSET CAM on air: switch between the MR canvas and the raw camera
@@ -81,7 +109,8 @@ export class Streamer {
     this.env.onChange && this.env.onChange();
   }
   get live() { return this.state === 'live' || this.state === 'connecting'; }
-  get wantsCam() { return this.live && this.source === 'avacam'; }   // main.js keeps the DJ CAM running for us
+  get wantsCam() { return this.active && (this.source === 'avacam' || this.show3d); }   // main.js keeps the DJ CAM (pose, aim, robot) running for us
+  get needsCamRT() { return this.active && this.source === 'avacam'; }   // only AVACAM uses the DJ CAM's own picture
   hasKey() { return !!streamKey.get(); }
   keyHint() { const k = streamKey.get(); return k ? '••••' + k.slice(-4) : 'no key'; }
   elapsed() { if (!this.t0) return '00:00:00'; const s = Math.floor((performance.now() - this.t0) / 1000); return [s / 3600, s / 60 % 60, s % 60].map(v => String(Math.floor(v)).padStart(2, '0')).join(':'); }
@@ -102,7 +131,8 @@ export class Streamer {
       return t;
     }
     if (!this.canvasTrack || this.canvasTrack.readyState !== 'live') { this.canvasTrack = this.canvas.captureStream(0).getVideoTracks()[0]; this.canvasTrack.contentHint = 'motion'; }
-    if (src === 'avacam') this._sizeCanvas(960, 540); else this._sizeCanvas(1280, 720);
+    if (src === 'avacam') this._sizeCanvas(960, 540); else this._sizeCanvas(1280, 720);   // card, show, wall: 1280 x 720
+    this.layerOk = false;
     this.cardT = 0;
     return this.canvasTrack;
   }
@@ -128,6 +158,11 @@ export class Streamer {
   async setSource(src) {
     if (!SOURCES[src]) return;
     const prev = this.source; this.source = src; ls.set(SRC, src);
+    if (this.rehearse && !this.live) {   // #339 MONITOR off air: follow the new source
+      this._sizeFor(src); this.layerOk = false;
+      if (prev === 'headset' && src !== 'headset') this.setTesting(false); else if (src === 'headset') await this.setTesting(true);
+      if (src === 'phone') this.env.phoneLive && this.env.phoneLive(true); else if (prev === 'phone') this.env.phoneLive && this.env.phoneLive(false);
+    }
     if (!this.live || !this.vSender) { this.env.onChange && this.env.onChange(); return; }
     try {
       if (src === 'phone') this.env.phoneLive && this.env.phoneLive(true);
@@ -175,7 +210,7 @@ export class Streamer {
     r.xr.enabled = false; r.setRenderTarget(this.rt); r.render(this.cpScene, this.cpCam); r.setRenderTarget(prevRT); r.xr.enabled = prevXR;
     this.busy = true;
     r.readRenderTargetPixelsAsync(this.rt, 0, 0, W, H, this.buf).then(() => {
-      this.busy = false; if (!this.live || this.source !== 'avacam') return;
+      this.busy = false; if (!this.active || this.source !== 'avacam') return;
       this.g.putImageData(this.img, 0, 0); if (this.canvasTrack) this.canvasTrack.requestFrame();
     }).catch(() => { this.busy = false; });
   }
@@ -240,6 +275,99 @@ export class Streamer {
     }).catch(() => { this.busy = false; });
   }
 
+  // ---- SHOW / VIDEOWALL ----
+  _showTick(now) {
+    if (now - this.showT < 33) return;   // ~30 fps
+    if (this.source === 'show' && this.show3d) { if (!this.busy) { this.showT = now; this._layerFrame(); } }   // composed when the layer arrives
+    else { this.showT = now; this._compose(); }
+  }
+  _layerFrame() {
+    const r = this.env.renderer, src = this.env.showCam && this.env.showCam(); if (!src) return;
+    const W = 960, H = 540, O = this.showOpt;
+    if (!this.ly) {
+      const half = r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float');
+      const ly = this.ly = {};
+      ly.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 });
+      ly.out = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false });
+      ly.cam = new THREE.PerspectiveCamera(50, W / H, 0.05, 40); ly.cam.updateMatrixWorld = () => {};
+      ly.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: ly.rt.texture } }, vertexShader: COPY_VS, fragmentShader: SHOW_FS, depthTest: false, depthWrite: false });
+      ly.scene = new THREE.Scene(); const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), ly.mat); q.frustumCulled = false; ly.scene.add(q);
+      ly.oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+      ly.buf = new Uint8Array(W * H * 4); ly.img = new ImageData(new Uint8ClampedArray(ly.buf.buffer), W, H);
+      ly.canvas = document.createElement('canvas'); ly.canvas.width = W; ly.canvas.height = H; ly.g = ly.canvas.getContext('2d');
+    }
+    const ly = this.ly, cam = ly.cam;
+    cam.matrixWorld.copy(src.matrixWorld); cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
+    if (cam.fov !== src.fov) { cam.fov = src.fov; cam.updateProjectionMatrix(); }
+    cam.layers.mask = (O.gear ? 1 : 0) | (O.robot && this.env.avLayer != null ? 1 << this.env.avLayer : 0);
+    const sc = this.env.scene, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled, prevSh = r.shadowMap.autoUpdate, prevCol = r.getClearColor(_c1), prevA = r.getClearAlpha();
+    const undo = this.env.showPrep ? this.env.showPrep() : null;
+    try {
+      r.xr.enabled = false; r.shadowMap.autoUpdate = false; r.setClearColor(0x000000, 0);
+      r.setRenderTarget(ly.rt); r.clear(); r.render(sc, cam);
+      r.setRenderTarget(ly.out); r.render(ly.scene, ly.oc);
+    } finally {
+      r.setClearColor(prevCol, prevA); r.xr.enabled = prevXR; r.shadowMap.autoUpdate = prevSh; r.setRenderTarget(prevRT);
+      if (undo) undo();
+    }
+    this.busy = true;
+    r.readRenderTargetPixelsAsync(ly.out, 0, 0, W, H, ly.buf).then(() => {
+      this.busy = false; if (this.ly !== ly) return;
+      ly.g.putImageData(ly.img, 0, 0); this.layerOk = true;
+      if (this.source === 'show') this._compose();
+    }).catch(() => { this.busy = false; });
+  }
+  _cover(g, el, W, H, flip) {   // fill the frame, crop the long side
+    const w = el.videoWidth || el.width, h = el.videoHeight || el.height; if (!w || !h) return false;
+    const k = Math.max(W / w, H / h), dw = w * k, dh = h * k;
+    g.save(); if (flip) { g.translate(0, H); g.scale(1, -1); }
+    g.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh); g.restore(); return true;
+  }
+  _compose() {
+    const g = this.g, W = this.canvas.width, H = this.canvas.height, O = this.showOpt;
+    // 1. visuals
+    const bg = (O.visuals && this.env.wallSource && this.env.wallSource()) || [];
+    g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+    const gr = g.createRadialGradient(W / 2, H * 0.45, 40, W / 2, H / 2, W * 0.65); gr.addColorStop(0, '#141a28'); gr.addColorStop(1, '#030409');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    for (const L of bg) {
+      if (!L || !L.el || L.gain === 0) continue;
+      g.globalAlpha = L.gain == null ? 1 : Math.min(1, L.gain); g.globalCompositeOperation = L.add ? 'lighter' : 'source-over';
+      this._cover(g, L.el, W, H, L.flip);
+    }
+    g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+    // 2. robot + gear
+    if (this.source === 'show' && this.show3d && this.layerOk && this.ly) g.drawImage(this.ly.canvas, 0, 0, W, H);
+    // 3. overlays
+    const sc = this.env.scroller && this.env.scroller();
+    if (O.scroll && sc && sc.on && sc.canvas) { const bh = Math.round(W * sc.canvas.height / sc.canvas.width * 0.66); g.drawImage(sc.canvas, 0, H - bh - Math.round(H * 0.01), W, bh); /* a little wider than the wall's band: ~20 % of the frame */ }
+    if (O.np) {
+      const np = (this.env.nowPlaying && this.env.nowPlaying()) || {};
+      if (np.a) {
+        const t = '▶ ' + np.a + (np.bpm ? '   ' + np.bpm + ' BPM' : '');
+        g.font = '600 26px system-ui,sans-serif'; g.textBaseline = 'middle'; g.textAlign = 'left';
+        let s = t; while (s.length > 6 && g.measureText(s).width > W * 0.6) s = s.slice(0, -2);
+        const tw = g.measureText(s).width;
+        g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(24, 24, tw + 32, 44); g.fillStyle = '#ffffff'; g.fillText(s, 40, 47);
+      }
+    }
+    if (O.chat && this.env.chat) {   // #340 the newest messages on the right, each fading out 40 s after it arrived
+      const ch = this.env.chat(), now = performance.now(), recent = ch && ch.msgs.filter(m => !m.sys && now - m.t < 42000);
+      if (recent && recent.length) {
+        const sc2 = this.env.scroller && this.env.scroller(), bottom = H - (O.scroll && sc2 && sc2.on ? Math.round(W * 128 / 768 * 0.66) + 12 : 16);
+        drawChat(g, W - 452, 92, 432, bottom - 92, recent, { fs: 22, maxAge: 40, lineBg: 'rgba(0,0,0,0.45)' });
+      }
+    }
+    if (O.logo) {
+      g.font = '800 40px system-ui,sans-serif'; g.textBaseline = 'middle'; g.textAlign = 'right';
+      const x = W - 28, y = 48, w3 = g.measureText('3DJ').width;
+      g.fillStyle = '#e0202a'; g.fillText('3DJ', x, y); g.fillStyle = '#ffffff'; g.fillText('Cly', x - w3, y);
+    }
+    g.textBaseline = 'alphabetic';
+    if (this.canvasTrack && this.live) this.canvasTrack.requestFrame();
+    this.showFrames = (this.showFrames || 0) + 1;
+  }
+
   tick(now = performance.now()) {   // from the frame loop, after the DJ CAM render
     if (this.source === 'headset' && (this.testing || (this.live && this.fit.gear))) {
       this._headPose(now);
@@ -247,12 +375,13 @@ export class Streamer {
       if (now - (this.rvfcT || 0) > 300 && now - (this.pollT || 0) > 33) { this.pollT = now; this.camNew = true; this.camFrameT = now - 45; }
       this._mrFrame();
     }
-    if (!this.live) return;
-    if (this.source === 'card') {
+    if (!this.active) return;
+    if (this.source === 'show') this._showTick(now);
+    else if (this.source === 'card') {
       if (now - this.cardT > 1000) { this.cardT = now; this.drawCard(now); }
       if (now - this.frameT > 100 && this.canvasTrack) { this.frameT = now; this.canvasTrack.requestFrame(); }
     } else if (this.source === 'avacam') this._avacamFrame();
-    if (now - (this.statT || 0) > 2000) { this.statT = now; this._stats(); }
+    if (this.live && now - (this.statT || 0) > 2000) { this.statT = now; this._stats(); }
   }
 
   async _stats() {
