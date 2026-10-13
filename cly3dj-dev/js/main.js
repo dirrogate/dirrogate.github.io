@@ -402,7 +402,9 @@ function saveDjSet() { try { localStorage.setItem('vire.djcam', JSON.stringify(d
 const djcam = CAMERA_ROLE ? null : new DjCam(renderer, rig);
 let streamer = null;   // #331 set up once the audio engine exists (below)
 const streamPhone = () => !!(streamer && streamer.live && streamer.source === 'phone');   // the stream holds the phone's LIVE picture
-if (djcam) djcam.preset = CAM_PRESETS[djSet.preset] ? djSet.preset : 'front';
+if (djSet.preset === 'booth') djSet.preset = 'gopro';   // #338 BOOTH became the GOPRO angle
+if (!CAM_PRESETS[djSet.preset]) djSet.preset = 'front';   // #338 only FRONT, FADERS, GOPRO are left
+if (djcam) djcam.preset = djSet.preset;
 // #221 avatar styles: ROBOT (Blender model models/avatar/robot.glb, robot.js, default) or HUMAN (the Ready Player Me GLB, loaded when first picked)
 const avatars = {};
 let avatar = null;
@@ -566,12 +568,19 @@ const MOVABLE = new Proxy({}, { get: (_, k) => stage.object(k) });
 // #337 GOPRO: starts on the audience side of the mixer, just over its far edge, facing the DJ (the BOOTH angle)
 const gopro = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 0.3, mixer.position.z - 0.55), yaw: Math.PI }));
 let goproTapT = 0, goproTapWas = false;
-function goproTap() {   // tap = on / off; double-tap (within 0.35 s) = back to the start, on (the first tap is undone)
+// #338 GOPRO is an AVACAM angle: picking it brings the GoPro out (FRONT / FADERS put it away). STREAM page GOPRO button:
+// tap = GOPRO angle on / back to FRONT; double-tap (within 0.35 s) on either button = the GoPro back to its start spot, on.
+function goproTap() {
   if (!gopro) return; const now = performance.now();
-  if (now - goproTapT < 350) { goproTapT = 0; gopro.reset(); gopro.setOn(true); toast('GoPro back at the start', 1500); }
-  else { goproTapT = now; goproTapWas = gopro.on; gopro.setOn(!gopro.on); }
-  drawMixScreen();
+  if (now - goproTapT < 350) { goproTapT = 0; gopro.reset(); setDjPreset('gopro'); toast('GoPro back at the start', 1500); return; }
+  goproTapT = now; goproTapWas = gopro.on; setDjPreset(gopro.on ? 'front' : 'gopro');
 }
+function goproAngleTap() {   // the AVACAM tab's GOPRO angle button: select it; double-tap = back to the start
+  if (!gopro) return setDjPreset('gopro'); const now = performance.now();
+  if (now - goproTapT < 350 && djSet.preset === 'gopro') { goproTapT = 0; gopro.reset(); setDjPreset('gopro'); toast('GoPro back at the start', 1500); return; }
+  goproTapT = now; setDjPreset('gopro');
+}
+if (gopro) gopro.setOn(djSet.preset === 'gopro', false);   // #338 one switch
 function goproToDjcam() {   // the DJ CAM camera (a rig child) takes the GoPro's smoothed pose and zoom
   rig.updateMatrixWorld(); _gpM.copy(rig.matrixWorld).invert().multiply(gopro.cam.matrixWorld);
   _gpM.decompose(djcam.cam.position, djcam.cam.quaternion, _gpS);
@@ -770,10 +779,12 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     return () => { for (const o of undo) o.visible = true; scene.background = bg; };
   },
   wallSource: () => {   // what the LED wall is showing, as 2D drawables (the stream draws them full frame)
-    if (ledMode === 'clips') return led.video ? [{ el: led.video }] : led.img && ledwall.userData.curImage && !led.silent ? [{ el: ledwall.userData.curImage, flip: true }] : streamClip();   // #337 wall switched off: the stream decodes the clip itself
+    // #338 what the VISUALS pages are playing, whatever the LED wall itself shows (AVACAM, off, switched off)
     if (ledMode === 'decks') { const [gA, gB] = deckGains(mixVal); return [{ el: deckVid[0].v, gain: gA }, { el: deckVid[1].v, gain: gB, add: true }]; }
     if (isLive(ledMode)) return [{ el: liveVideo }];
-    return [];
+    if (ledMode === 'clips' && led.video) return [{ el: led.video }];
+    if (ledMode === 'clips' && led.img && ledwall.userData.curImage && !led.silent) return [{ el: ledwall.userData.curImage, flip: true }];
+    return streamClip();   // #337 the stream decodes the clip itself (follows the playlist, or runs the LED LIST on its own)
   },
   phoneTrack: () => (livePossible() ? liveTrack : null),
   phoneLive: on => { if (!spect || !spect.liveCam) return; if (on) { if (!isLive(ledMode)) spect.liveCam(true, false); } else if (!isLive(ledMode)) spect.liveCam(false); },
@@ -793,7 +804,12 @@ let streamOnChangeLast = 'off';
 const sclip = { name: null, el: null, url: null, img: false, used: 0 };
 function streamClip() {
   sclip.used = performance.now();
-  const name = led.on ? led.name : null; if (!name) return [];
+  // the LED playlist running (wall on CLIPS, or switched off): follow it; else (wall on AVACAM / OFF) run the LED LIST itself
+  const follow = !!(led.on && led.name);
+  if (!follow && !led.files.length) return [];
+  if (!follow && (!sclip.own || !led.files.some(f => f.name === sclip.ownName))) { sclip.own = true; sclip.ownI = 0; sclip.ownName = led.files[0].name; sclip.ownT = performance.now(); }
+  if (follow) sclip.own = false;
+  const name = follow ? led.name : sclip.ownName;
   if (sclip.name !== name) {
     closeStreamClip(); const f = led.fileNamed(name); if (!f) return [];
     sclip.name = name; sclip.img = !!led.img;
@@ -801,12 +817,19 @@ function streamClip() {
     else {
       const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.loop = true; v.preload = 'auto';
       sclip.url = URL.createObjectURL(f); v.src = sclip.url; sclip.el = v;
-      v.addEventListener('loadedmetadata', () => { try { v.currentTime = led.state().t || 0; } catch (e) {} v.play().catch(() => {}); }, { once: true });
+      v.loop = follow || led.files.length < 2;   // running the list itself: next clip at the end (one clip: loop it)
+      v.addEventListener('loadedmetadata', () => { try { v.currentTime = follow ? led.state().t || 0 : 0; } catch (e) {} v.play().catch(() => {}); }, { once: true });
+      if (!follow) v.addEventListener('ended', streamClipNext);
     }
+    sclip.ownT = performance.now();
   }
   const v = sclip.el;
-  if (v && !sclip.img && v.readyState >= 1) { const t = led.state().t; if (t != null && Math.abs(v.currentTime - t) > 0.5) v.currentTime = t; if (v.paused) v.play().catch(() => {}); }
+  if (follow && v && !sclip.img && v.readyState >= 1) { const t = led.state().t; if (t != null && Math.abs(v.currentTime - t) > 0.5) v.currentTime = t; if (v.paused) v.play().catch(() => {}); }
+  if (!follow && sclip.img && performance.now() - sclip.ownT > 8000) streamClipNext();   // images 8 s each, like the playlist
   return v ? [{ el: v }] : [];
+}
+function streamClipNext() {   // own runner: the next item of the LED LIST
+  if (!led.files.length) return; sclip.ownI = (sclip.ownI + 1) % led.files.length; sclip.ownName = led.files[sclip.ownI].name; sclip.ownT = performance.now();
 }
 function closeStreamClip() {
   const e = sclip.el; if (e) { if (sclip.img) { try { e.close(); } catch (er) {} } else { e.pause(); e.removeAttribute('src'); e.load(); } }
@@ -3534,7 +3557,7 @@ async function lightPhone(folder, name) {
   vpFolder = 'Look'; vpLoad();
 }
 // #220 DJ CAM tab: the LED wall's virtual camera (angle, mirror) and the avatar
-function setDjPreset(k) { djSet.preset = k; if (djcam) djcam.preset = k; saveDjSet(); drawMixScreen(); }
+function setDjPreset(k) { djSet.preset = k; if (djcam) djcam.preset = k; if (gopro) gopro.setOn(k === 'gopro'); saveDjSet(); drawMixScreen(); }   // #338 the GOPRO angle = the GoPro object out
 function setDjMirror(on) { djSet.mirror = on; saveDjSet(); if (ledMode === 'cam') ledwall.userData.setCam(djcam.rt.texture, on); drawMixScreen(); }
 function setDjAvatar(on) { djSet.avatar = on; saveDjSet(); if (avatar) avatar.root.visible = on; drawMixScreen(); }
 // #278 (avatar-stage-plan.md step 1): the robot DJ on the spectator phone. The phone already gets the head and the
@@ -3565,7 +3588,7 @@ function drawDjCamTab(btn, y0) {
   const per = top.length, bw = (W - 16 - (per - 1) * 6) / per;   // #278: five across
   top.forEach(([label, o, act], i) => btn(8 + i * (bw + 6), y0, bw, 36, label, !!o, act));
   const keys = Object.keys(CAM_PRESETS), pp = P ? 2 : 4, pw = (W - 16 - (pp - 1) * 6) / pp;
-  keys.forEach((k, i) => btn(8 + (i % pp) * (pw + 6), y0 + 50 + Math.floor(i / pp) * 42, pw, 36, CAM_PRESETS[k].label, djSet.preset === k, () => setDjPreset(k)));
+  keys.forEach((k, i) => btn(8 + (i % pp) * (pw + 6), y0 + 50 + Math.floor(i / pp) * 42, pw, 36, CAM_PRESETS[k].label, djSet.preset === k, k === 'gopro' ? goproAngleTap : () => setDjPreset(k)));   // #338 GOPRO: double-tap = back to the start
   const ty = y0 + 50 + Math.ceil(keys.length / pp) * 42 + 18;
   g.fillStyle = '#8c96a8'; g.font = '500 16px system-ui'; g.textAlign = 'left';
   const av = !avatar ? 'no avatar' : avatar.status === 'ready' ? 'avatar ready' : 'avatar ' + avatar.status;
@@ -4164,8 +4187,9 @@ function drawToolsPage() {
     g.fillStyle = live ? '#ff3b3b' : st === 'connecting' ? '#f1b650' : st === 'error' ? '#f1b650' : '#8c96a8';
     if (P) wrapText(g, line, L + 4, y0 + 18, R - L - 8, 28, 2); else fitText2(g, line, L + 4, y0 + 18, R - L - 8);
     g.textBaseline = 'alphabetic';
-    const keys = Object.keys(STREAM_SRC), phoneOk = livePossible() || S.source === 'phone';
-    const srcBtn = (k, x, y, w, h) => { const ok = k !== 'phone' || phoneOk || !!(spect && spect.ui && spect.ui().phone);
+    const keys = ['card', 'avacam', 'show', 'vj', 'headset', 'phone'], phoneOk = livePossible() || S.source === 'phone';   // #338 VJ SETUP where VIDEOWALL was
+    const srcBtn = (k, x, y, w, h) => { if (k === 'vj') return btn(x, y, w, h, 'VJ SETUP', false, () => setVideoPage(true), false, P ? 20 : 17);   // #338 the VISUALS pages, as from the main mixer page
+      const ok = k !== 'phone' || phoneOk || !!(spect && spect.ui && spect.ui().phone);
       btn(x, y, w, h, STREAM_SRC[k], S.source === k, ok ? () => S.setSource(k) : null, !ok, P ? 20 : 18); };
     const ending = performance.now() - (streamEndArm || 0) < 2500;
     const goLabel = live || st === 'connecting' ? (ending ? 'TAP AGAIN TO END' : 'END STREAM') : 'GO LIVE';
@@ -4173,10 +4197,10 @@ function drawToolsPage() {
       if (S.live) { if (performance.now() - (streamEndArm || 0) < 2500) { streamEndArm = 0; S.stop(); } else { streamEndArm = performance.now(); setTimeout(drawMixScreen, 2600); } drawMixScreen(); }
       else S.start();
     };
-    const hint = `Sends the MASTER mix (and the MIC when it goes through the mixer); CUE never reaches the stream. Key ${S.keyHint()}${S.hasKey() ? '' : ': enter it on the start page'}. SHOW and AVACAM cost the most; they film from the GOPRO when it is out (grip it to move it, double-tap GOPRO = back to the start), else from the AVACAM angle. VIDEOWALL and CARD almost nothing.`;
-    // #336 SHOW / VIDEOWALL layer toggles (ROBOT and GEAR only matter for SHOW)
-    const O = S.showOpt, sw3 = S.source === 'show', swAny = sw3 || S.source === 'wall';
-    const opts = [['robot', 'ROBOT', sw3], ['gear', 'GEAR', sw3], ['scroll', 'SCROLLER', swAny], ['np', 'NOW PLAYING', swAny], ['logo', 'LOGO', swAny]];
+    const hint = `Sends the MASTER mix (and the MIC when it goes through the mixer); CUE never reaches the stream. Key ${S.keyHint()}${S.hasKey() ? '' : ': enter it on the start page'}. SHOWTIME! and AVACAM film from the AVACAM angle (GOPRO = the movable camera: grip it to move it, double-tap GOPRO = back to the start). VISUALS = whatever the VISUALS pages are playing (VJ SETUP). ROBOT and GEAR off = visuals only, nearly free.`;
+    // #336 / #338 SHOWTIME! layer toggles
+    const O = S.showOpt, sw3 = S.source === 'show';
+    const opts = [['visuals', 'VISUALS', sw3], ['robot', 'ROBOT', sw3], ['gear', 'GEAR', sw3], ['scroll', 'SCROLLER', sw3], ['np', 'NOW PLAYING', sw3], ['logo', 'LOGO', sw3]];
     const optBtn = ([k, label, ok], x, y, w, h) => btn(x, y, w, h, label, ok && O[k], ok ? () => S.setShowOpt(k, !O[k]) : null, !ok, P ? 17 : 15);
     if (P) {
       const bw = (R - L - 8) / 2;
@@ -4192,7 +4216,7 @@ function drawToolsPage() {
     } else {
       const bw = (R - L - 40) / 6;
       keys.forEach((k, i) => srcBtn(k, L + i * (bw + 8), y0 + 38, bw, 44));
-      const ow = (R - L - 32) / 5;
+      const ow = (R - L - 40) / 6;
       opts.forEach((o, i) => optBtn(o, L + i * (ow + 8), y0 + 88, ow, 34));
       const gw = Math.round((R - L - 24) * 0.44), w2 = Math.round((R - L - 24) * 0.2), w3 = Math.round((R - L - 24) * 0.16), w4 = R - L - 24 - gw - w2 - w3;
       btn(L, y0 + 130, gw, 54, goLabel, live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, 26);
@@ -4719,7 +4743,7 @@ function frame() {
   stepLoose(dt);
   stepMilkCrates(dt);
   stepWallGlow(); stepBlobs();
-  if (ledwall.visible) scroller.tick(dt);   // #224 (#236 switched off: it keeps running for the phone, nothing drawn here)
+  if (ledwall.visible || (streamer && streamer.live && streamer.source === 'show')) scroller.tick(dt);   // #224 (#338 also for SHOWTIME! with the wall off) (#236 switched off: it keeps running for the phone, nothing drawn here)
   // label relief (#94): on within arm's length of your eyes (0.65 m), off again past 0.8 m
   camera.getWorldPosition(_eyeB);
   for (const r of [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)]) {
@@ -4779,7 +4803,7 @@ function frame() {
 renderer.setAnimationLoop(frame);
 // #220 DJ CAM: pose the avatar (headset: head + hands; desktop: a demo DJ), then render the camera into the LED wall
 const _djT0 = performance.now();
-const DJ_HIDE_NEON = new Set(['front', 'low', 'faders', 'booth']);   // #336 booth too
+const DJ_HIDE_NEON = new Set(['front', 'low', 'faders']);   // #338 the GOPRO sees what is in front of it
 function djGear() {
   return { deckA: deckGroups[0].position, deckB: deckGroups[1].position, mixer: mixer.position, crate: crateRig.position, top: deckGroups[0].position.y + DECK.H };
 }

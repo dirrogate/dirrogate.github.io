@@ -14,12 +14,12 @@
 import * as THREE from 'three';
 
 export const TWITCH_WHIP = 'https://g.webrtc.live-video.net:4443/v2/offer';
-export const SOURCES = { card: 'CARD', avacam: 'AVACAM', show: 'SHOW', wall: 'VIDEOWALL', headset: 'HEADSET CAM', phone: 'PHONE' };
-const VBR = { card: 600, avacam: 2500, show: 3500, wall: 3500, headset: 3000, phone: 2000 };
+export const SOURCES = { card: 'CARD', avacam: 'AVACAM', show: 'SHOWTIME!', headset: 'HEADSET CAM', phone: 'PHONE' };   // #338 VIDEOWALL gone: SHOWTIME! with ROBOT and GEAR off is the same
+const VBR = { card: 600, avacam: 2500, show: 3500, headset: 3000, phone: 2000 };
 // #336 SHOW = three layers: the LED wall's visuals full frame (clip / image / VidVinyl / phone LIVE), the robot DJ and
 // gear from the AVACAM camera (BOOTH angle) drawn on a see-through background, and flat overlays (scroller, now
 // playing, logo). VIDEOWALL = the visuals and overlays only (no 3D render). Toggles saved as 'vire.showOpts'.
-export const SHOW_DEF = { robot: true, gear: true, scroll: true, np: true, logo: true };   // video kbit/s caps per source
+export const SHOW_DEF = { visuals: true, robot: true, gear: true, scroll: true, np: true, logo: true };   // #338 VISUALS: the background on / off   // video kbit/s caps per source
 const ABR = 160;   // Opus stereo kbit/s
 
 const KEY = 'vire.twitchKey', SRC = 'vire.streamSrc', FIT = 'vire.mrcam', SHOWO = 'vire.showOpts';
@@ -311,7 +311,7 @@ export class Streamer {
   _compose() {
     const g = this.g, W = this.canvas.width, H = this.canvas.height, O = this.showOpt;
     // 1. visuals
-    const bg = (this.env.wallSource && this.env.wallSource()) || [];
+    const bg = (O.visuals && this.env.wallSource && this.env.wallSource()) || [];
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     const gr = g.createRadialGradient(W / 2, H * 0.45, 40, W / 2, H / 2, W * 0.65); gr.addColorStop(0, '#141a28'); gr.addColorStop(1, '#030409');
     g.fillStyle = gr; g.fillRect(0, 0, W, H);
@@ -354,7 +354,7 @@ export class Streamer {
       this._mrFrame();
     }
     if (!this.live) return;
-    if (this.source === 'show' || this.source === 'wall') this._showTick(now);
+    if (this.source === 'show') this._showTick(now);
     else if (this.source === 'card') {
       if (now - this.cardT > 1000) { this.cardT = now; this.drawCard(now); }
       if (now - this.frameT > 100 && this.canvasTrack) { this.frameT = now; this.canvasTrack.requestFrame(); }
