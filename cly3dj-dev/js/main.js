@@ -739,7 +739,7 @@ $('#helpBtn').onclick = () => { const h = $('#help'); h.style.display = h.style.
 const engine = new AudioEngine();
 // #331 LIVE STREAM: master bus (never CUE) + a picture source, straight to Twitch from the headset (stream.js)
 streamer = CAMERA_ROLE ? null : new Streamer({
-  engine, renderer, djcam,
+  engine, renderer, djcam, scene, camera,   // #333 scene / camera for the MR headset picture
   phoneTrack: () => (livePossible() ? liveTrack : null),
   phoneLive: on => { if (!spect || !spect.liveCam) return; if (on) { if (!isLive(ledMode)) spect.liveCam(true, false); } else if (!isLive(ledMode)) spect.liveCam(false); },
   nowPlaying: () => {
@@ -3915,6 +3915,8 @@ function makerSay(text, ok, ms = 5000) {
 }
 const kbd = { title: '', text: '', emoji: false, max: 40, done: null, back: 'home' };
 function setTools(p) {
+  if (toolsPage === 'streamfit' && p !== 'streamfit' && streamer) streamer.setTesting(false);   // #333 TEST ends with the page
+  clearInterval(setTools.fitIv); if (p === 'streamfit') setTools.fitIv = setInterval(() => { if (toolsPage === 'streamfit' && streamer && streamer.running) drawMixScreen(); }, 250);
   toolsPage = p; pickPg = 0;
   if (p === 'pickVideo' || p === 'pickImage') { pickItems = []; loadPick(p === 'pickVideo' ? 'Video' : 'Images'); }
   drawMixScreen();
@@ -4113,12 +4115,48 @@ function drawToolsPage() {
       const bw = (R - L - 8) / 2;
       keys.forEach((k, i) => srcBtn(k, L + (i % 2) * (bw + 8), y0 + 70 + Math.floor(i / 2) * 72, bw, 64));
       btn(L, y0 + 228, R - L, 96, goLabel, live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, 28);
-      note(hint, y0 + 356);
+      btn(L, y0 + 334, R - L, 56, 'CAM FIT (HEADSET CAM)', false, () => setTools('streamfit'), false, 20);   // #333
+      note(hint, y0 + 410);
     } else {
       const bw = (R - L - 24) / 4;
       keys.forEach((k, i) => srcBtn(k, L + i * (bw + 8), y0 + 40, bw, 48));
-      btn(L, y0 + 98, R - L, 64, goLabel, live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, 26);
+      const gw = Math.round((R - L - 8) * 0.7);
+      btn(L, y0 + 98, gw, 64, goLabel, live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, 26);
+      btn(L + gw + 8, y0 + 98, R - L - gw - 8, 64, 'CAM FIT', false, () => setTools('streamfit'), false, 22);   // #333
       note(hint, y0 + 186);
+    }
+    return;
+  }
+  if (page === 'streamfit') {   // #333 line the gear up with the headset camera picture (HEADSET CAM source)
+    const y0 = head('CAM FIT · HEADSET CAM', 'stream'), S = streamer; if (!S) return;
+    const F = S.fit, run = S.running && S.source === 'headset' && (S.testing || F.gear);
+    const pw = P ? R - L : 228, ph = Math.round(pw * (S.canvas.height / S.canvas.width || 0.75));
+    g.fillStyle = '#000'; g.fillRect(L, y0, pw, ph);
+    if (run && S.mrFrames) g.drawImage(S.canvas, L, y0, pw, ph);
+    else { g.fillStyle = '#8c96a8'; g.font = '600 15px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(S.source !== 'headset' ? 'Pick HEADSET CAM on STREAM' : !F.gear ? 'GEAR OFF: raw camera' : 'Press TEST to see it', L + pw / 2, y0 + ph / 2); g.textBaseline = 'alphabetic'; }
+    const rows = [['x', 'LEFT / RIGHT', 'mm', 5], ['y', 'DOWN / UP', 'mm', 5], ['z', 'FWD / BACK', 'mm', 5], ['hfov', 'ZOOM (FOV)', '°', 0.5],
+      ['tilt', 'TILT', '°', 0.5], ['turn', 'TURN', '°', 0.5], ['roll', 'ROLL', '°', 0.5], ['lag', 'LAG', 'ms', 5]];
+    const cell = (k, label, unit, step, x, y, w, h) => {
+      g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
+      const by = y + 15, bh = h - 15, bw = 40, v = F[k];
+      btn(x, by, bw, bh, '−', false, () => S.setFit(k, Math.round((v - step) * 10) / 10));
+      g.fillStyle = '#fff'; g.font = '700 17px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(`${v}${unit}`, x + w / 2, by + bh / 2); g.textBaseline = 'alphabetic';
+      btn(x + w - bw, by, bw, bh, '+', false, () => S.setFit(k, Math.round((v + step) * 10) / 10));
+    };
+    const tBtn = (x, y, w, h) => btn(x, y, w, h, S.testing ? 'TEST: ON' : 'TEST', S.testing, () => S.setTesting(!S.testing), false, 18);
+    const gBtn = (x, y, w, h) => btn(x, y, w, h, F.gear ? 'GEAR: ON' : 'GEAR: OFF', F.gear, () => S.setFit('gear', !F.gear), false, 18);
+    const rBtn = (x, y, w, h) => btn(x, y, w, h, 'RESET', false, () => S.resetFit(), false, 18);
+    if (P) {
+      const y1 = y0 + ph + 8, cw = (R - L - 8) / 2;
+      rows.forEach((r, i) => cell(...r, L + (i % 2) * (cw + 8), y1 + Math.floor(i / 2) * 58, cw, 54));
+      const yb = y1 + 4 * 58 + 6, bw = (R - L - 16) / 3; tBtn(L, yb, bw, 50); gBtn(L + bw + 8, yb, bw, 50); rBtn(L + 2 * (bw + 8), yb, bw, 50);
+      note('TEST shows the picture here off air. Line the decks and crate up with the real room: LEFT / RIGHT, DOWN / UP and ZOOM first, then TILT. LAG: turn your head; raise it if the gear trails the picture, lower it if it leads.', yb + 66);
+    } else {
+      const x1 = L + pw + 10, cw = (R - x1 - 8) / 2;
+      rows.forEach((r, i) => cell(...r, x1 + (i % 2) * (cw + 8), y0 + Math.floor(i / 2) * 46, cw, 42));
+      const yb = y0 + ph + 8, bw = (pw - 12) / 3; tBtn(L, yb, bw, 40); gBtn(L + bw + 6, yb, bw, 40); rBtn(L + 2 * (bw + 6), yb, bw, 40);
+      g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; wrapText(g, 'TEST = the picture here, off air. Match LEFT / RIGHT, DOWN / UP, ZOOM, then TILT. LAG: raise it if the gear trails a head turn.', x1, y0 + 4 * 46 + 14, R - x1, 18, 3);
     }
     return;
   }

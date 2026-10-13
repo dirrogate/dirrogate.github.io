@@ -6,6 +6,10 @@
 // Picture sources: CARD (a Cly3DJ card with what is playing, nearly free), AVACAM (the DJ CAM robot shot, copied to
 // 960 x 540 and read back without stalling the GPU), HEADSET (the Quest's own camera, sent as it comes, no
 // rendering) and PHONE (the spectator phone's LIVE composite, passed on).
+// #333 HEADSET CAM is mixed reality: the Quest camera picture with the gear drawn over it from that camera's point of
+// view (offset from the centre eye, field of view and lag set on TOOLS > STREAM > CAM FIT, saved as 'vire.mrcam').
+// Each camera frame's capture time (requestVideoFrameCallback) picks the head pose from a short history, so the gear
+// doesn't swim against the picture. GEAR OFF sends the raw camera as before.
 // The key is kept on this headset only (localStorage 'vire.twitchKey') and goes nowhere but the Twitch endpoint.
 import * as THREE from 'three';
 
@@ -14,7 +18,10 @@ export const SOURCES = { card: 'CARD', avacam: 'AVACAM', headset: 'HEADSET CAM',
 const VBR = { card: 600, avacam: 2500, headset: 3000, phone: 2000 };   // video kbit/s caps per source
 const ABR = 160;   // Opus stereo kbit/s
 
-const KEY = 'vire.twitchKey', SRC = 'vire.streamSrc';
+const KEY = 'vire.twitchKey', SRC = 'vire.streamSrc', FIT = 'vire.mrcam';
+// Quest 3 RGB camera: in front of and a little below the centre eye; ~73 deg across at 4:3 (starting values, CAM FIT tunes)
+export const FIT_DEF = { x: -32, y: -19, z: -75, tilt: 0, turn: 0, roll: 0, hfov: 73, lag: 0, gear: true };
+const lsJ = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
 const ls = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} } };
 export const streamKey = { get: () => ls.get(KEY) || '', set: v => ls.set(KEY, (v || '').trim() || null) };
 
@@ -30,6 +37,21 @@ vec3 aces(vec3 c) {
 vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
 void main() { vec3 c = texture2D(map, vec2(vUv.x, 1.0 - vUv.y)).rgb; gl_FragColor = vec4(srgb(aces(c)), 1.0); }`;
 
+// MR: gear rendered on transparent black (linear HDR, premultiplied by MSAA), tone-mapped like the scene and laid
+// over the raw camera picture (sRGB as it comes, not tone-mapped).
+const MR_FS = `uniform sampler2D map; uniform sampler2D cam; varying vec2 vUv;
+vec3 rrt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
+vec3 aces(vec3 c) {
+  const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
+  const mat3 O = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
+  c *= 1.0 / 0.6; return clamp(O * rrt(I * c), 0.0, 1.0); }
+vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
+void main() { vec2 uv = vec2(vUv.x, 1.0 - vUv.y); vec4 g = texture2D(map, uv); vec3 c = texture2D(cam, uv).rgb;
+  float a = clamp(g.a, 0.0, 1.0); vec3 gc = srgb(aces(g.rgb / max(a, 0.001)));
+  gl_FragColor = vec4(mix(c, gc, a), 1.0); }`;
+
+const DEG = Math.PI / 180, _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _s1 = new THREE.Vector3(1, 1, 1), _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _e1 = new THREE.Euler(), _c1 = new THREE.Color();
+
 export class Streamer {
   // env: { engine, renderer, djcam, phoneTrack() -> MediaStreamTrack|null, phoneLive(on), nowPlaying() -> {a, b, bpm}, onChange() }
   constructor(env) {
@@ -41,6 +63,22 @@ export class Streamer {
     this.canvas = document.createElement('canvas'); this.canvas.width = 1280; this.canvas.height = 720;
     this.g = this.canvas.getContext('2d');
     this.canvasTrack = null; this.cardT = 0; this.frameT = 0; this.busy = false; this.camN = -1;
+    this.fit = { ...FIT_DEF, ...(lsJ(FIT) || {}) };
+    this.testing = false;   // CAM FIT TEST: the MR picture runs off air, for lining up
+    this.hist = []; this.mr = null;
+  }
+  get running() { return this.live || this.testing; }
+  setFit(k, v) { if (k in FIT_DEF) { this.fit[k] = v; ls.set(FIT, JSON.stringify(this.fit)); if (k === 'gear') this._gearChanged(); this.env.onChange && this.env.onChange(); } }
+  resetFit() { const g = this.fit.gear; this.fit = { ...FIT_DEF, gear: g }; ls.set(FIT, JSON.stringify(this.fit)); this.env.onChange && this.env.onChange(); }
+  async _gearChanged() {   // HEADSET CAM on air: switch between the MR canvas and the raw camera
+    if (!this.live || this.source !== 'headset' || !this.vSender) return;
+    try { const t = await this._videoTrack('headset'); await this.vSender.replaceTrack(t); this.vTrack = t; } catch (e) { this.msg = 'Camera: ' + e.message; }
+  }
+  async setTesting(on) {
+    if (on === this.testing) return;
+    if (on) { try { await this._openCam(); this._mrSize(); this.testing = true; } catch (e) { this.msg = 'Camera: ' + e.message; } }
+    else { this.testing = false; if (!(this.live && this.source === 'headset')) this._stopCam(); }
+    this.env.onChange && this.env.onChange();
   }
   get live() { return this.state === 'live' || this.state === 'connecting'; }
   get wantsCam() { return this.live && this.source === 'avacam'; }   // main.js keeps the DJ CAM running for us
@@ -52,10 +90,11 @@ export class Streamer {
   // ---- picture ----
   async _videoTrack(src) {
     if (src === 'headset') {
-      if (!this.camStream || this.camStream.getVideoTracks()[0].readyState !== 'live') {
-        this.camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 }, frameRate: { ideal: 30 } }, audio: false });
-      }
-      const t = this.camStream.getVideoTracks()[0]; t.contentHint = 'motion'; return t;
+      await this._openCam();
+      if (!this.fit.gear) { const t = this.camStream.getVideoTracks()[0]; t.contentHint = 'motion'; return t; }
+      this._mrSize();
+      if (!this.canvasTrack || this.canvasTrack.readyState !== 'live') { this.canvasTrack = this.canvas.captureStream(0).getVideoTracks()[0]; this.canvasTrack.contentHint = 'motion'; }
+      return this.canvasTrack;
     }
     if (src === 'phone') {
       const t = this.env.phoneTrack && this.env.phoneTrack();
@@ -68,7 +107,23 @@ export class Streamer {
     return this.canvasTrack;
   }
   _sizeCanvas(w, h) { if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; } }
-  _stopCam() { if (this.camStream) { this.camStream.getTracks().forEach(t => t.stop()); this.camStream = null; } }
+  async _openCam() {
+    if (this.camStream && this.camStream.getVideoTracks()[0].readyState === 'live') return;
+    this.camStream = this.env.testCam ? this.env.testCam() : await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 }, frameRate: { ideal: 30 } }, audio: false });
+    const v = this.camVideo || (this.camVideo = Object.assign(document.createElement('video'), { muted: true, playsInline: true, autoplay: true }));
+    if (!v.isConnected) { Object.assign(v.style, { position: 'fixed', left: '0', top: '0', width: '2px', height: '2px', opacity: '0.01', pointerEvents: 'none' }); document.body.appendChild(v); }   // frame callbacks only run for a video on the page
+    v.srcObject = this.camStream; await v.play().catch(() => {});
+    this.camFrameT = 0; this.camNew = false; this.rvfcT = 0;
+    if (v.requestVideoFrameCallback) {
+      const cb = (now, md) => { if (v.srcObject !== this.camStream) return; this.camFrameT = md.captureTime || md.expectedDisplayTime - 45 || now - 45; this.camNew = true; this.rvfcT = performance.now(); v.requestVideoFrameCallback(cb); };
+      v.requestVideoFrameCallback(cb);
+    }
+  }
+  _mrSize() {   // the camera's own shape, 960 wide
+    const st = this.camStream ? this.camStream.getVideoTracks()[0].getSettings() : {}, a = st.width && st.height ? st.width / st.height : 4 / 3;
+    this._sizeCanvas(960, Math.round(960 / a / 2) * 2);
+  }
+  _stopCam() { if (this.camStream) { this.camStream.getTracks().forEach(t => t.stop()); this.camStream = null; } if (this.camVideo) this.camVideo.srcObject = null; }
 
   async setSource(src) {
     if (!SOURCES[src]) return;
@@ -79,7 +134,7 @@ export class Streamer {
       const t = await this._videoTrack(src);
       await this.vSender.replaceTrack(t); this.vTrack = t;
       await this._caps();
-      if (prev === 'headset' && src !== 'headset') this._stopCam();
+      if (prev === 'headset' && src !== 'headset' && !this.testing) this._stopCam();
       if (prev === 'phone' && src !== 'phone') this.env.phoneLive && this.env.phoneLive(false);
       this.msg = '';
     } catch (e) { this.source = prev; ls.set(SRC, prev); this.msg = 'Source: ' + e.message; }
@@ -125,7 +180,73 @@ export class Streamer {
     }).catch(() => { this.busy = false; });
   }
 
+  _headPose(now) {   // centre-eye pose history (~0.5 s), for matching each camera frame's capture time
+    const r = this.env.renderer, c = r.xr.isPresenting ? r.xr.getCamera() : this.env.camera; if (!c) return;
+    let e = this.hist.length > 40 ? this.hist.shift() : { t: 0, m: new THREE.Matrix4() };
+    e.t = now; e.m.copy(c.matrixWorld); this.hist.push(e);
+  }
+  _poseAt(t, out) {
+    const H = this.hist; if (!H.length) return false;
+    let b = H.length - 1; while (b > 0 && H[b - 1].t >= t) b--;
+    const B = H[b], A = H[Math.max(0, b - 1)];
+    if (B.t <= t || A === B) { out.copy(B.m); return true; }
+    const k = Math.min(1, Math.max(0, (t - A.t) / (B.t - A.t)));
+    const pa = _v1.setFromMatrixPosition(A.m), pb = _v2.setFromMatrixPosition(B.m), qa = _q1.setFromRotationMatrix(A.m), qb = _q2.setFromRotationMatrix(B.m);
+    out.compose(pa.lerp(pb, k), qa.slerp(qb, k), _s1); return true;
+  }
+  _mrFrame() {   // one camera frame -> gear from the camera's pose -> laid over the picture -> read back
+    const r = this.env.renderer, v = this.camVideo; if (!v || !this.camNew || this.busy || !v.videoWidth) return;
+    this.camNew = false;
+    const W = this.canvas.width, H = this.canvas.height, F = this.fit;
+    if (!this.mr || this.mr.W !== W || this.mr.H !== H) {
+      if (this.mr) { this.mr.rt.dispose(); this.mr.out.dispose(); }
+      const half = r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float');
+      const mr = this.mr = { W, H };
+      mr.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 });
+      mr.out = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false });
+      mr.cam = new THREE.PerspectiveCamera(50, W / H, 0.05, 40);
+      mr.tex = new THREE.VideoTexture(v); mr.tex.colorSpace = THREE.NoColorSpace;
+      mr.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: mr.rt.texture }, cam: { value: mr.tex } }, vertexShader: COPY_VS, fragmentShader: MR_FS, depthTest: false, depthWrite: false });
+      mr.scene = new THREE.Scene(); const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mr.mat); q.frustumCulled = false; mr.scene.add(q);
+      mr.oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+      mr.buf = new Uint8Array(W * H * 4); mr.img = new ImageData(new Uint8ClampedArray(mr.buf.buffer), W, H);
+    }
+    const mr = this.mr;
+    if (mr.tex.image !== v) { mr.tex.image = v; }
+    if (v.readyState >= 2) mr.tex.needsUpdate = true;   // three's VideoTexture waits for frame callbacks, which may not run (see above)
+    if (!this._poseAt(this.camFrameT - F.lag, _m1)) return;
+    // camera = head pose x lens offset (mm, head axes) x tilt / turn / roll
+    _m2.compose(_v1.set(F.x / 1000, F.y / 1000, F.z / 1000), _q1.setFromEuler(_e1.set(F.tilt * DEG, F.turn * DEG, F.roll * DEG, 'YXZ')), _s1);
+    mr.cam.matrixWorld.multiplyMatrices(_m1, _m2); mr.cam.matrixWorldInverse.copy(mr.cam.matrixWorld).invert();
+    mr.cam.matrixWorld.decompose(mr.cam.position, mr.cam.quaternion, mr.cam.scale);
+    const vf = 2 * Math.atan(Math.tan(F.hfov * DEG / 2) / (W / H)) / DEG;
+    if (mr.cam.fov !== vf || mr.cam.aspect !== W / H) { mr.cam.fov = vf; mr.cam.aspect = W / H; mr.cam.updateProjectionMatrix(); }
+    const sc = this.env.scene, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled, prevSh = r.shadowMap.autoUpdate, prevCol = r.getClearColor(_c1), prevA = r.getClearAlpha();
+    const undo = this.env.mrPrep ? this.env.mrPrep() : null;
+    try {
+      r.xr.enabled = false; r.shadowMap.autoUpdate = false; r.setClearColor(0x000000, 0);
+      mr.cam.updateMatrixWorld = () => {};   // keep the composed pose (three would rebuild it from position / quaternion)
+      r.setRenderTarget(mr.rt); r.clear(); r.render(sc, mr.cam);
+      r.setRenderTarget(mr.out); r.render(mr.scene, mr.oc);
+    } finally {
+      r.setClearColor(prevCol, prevA); r.xr.enabled = prevXR; r.shadowMap.autoUpdate = prevSh; r.setRenderTarget(prevRT);
+      if (undo) undo();
+    }
+    this.busy = true; const buf = mr.buf, img = mr.img;
+    r.readRenderTargetPixelsAsync(mr.out, 0, 0, W, H, buf).then(() => {
+      this.busy = false; if (!this.running || this.source !== 'headset' || this.mr !== mr) return;
+      this.g.putImageData(img, 0, 0); if (this.canvasTrack && this.live) this.canvasTrack.requestFrame();
+      this.mrFrames = (this.mrFrames || 0) + 1;
+    }).catch(() => { this.busy = false; });
+  }
+
   tick(now = performance.now()) {   // from the frame loop, after the DJ CAM render
+    if (this.source === 'headset' && (this.testing || (this.live && this.fit.gear))) {
+      this._headPose(now);
+      // no frame callbacks (immersive session, video not composited): take a new picture ~30 times a second, 45 ms old
+      if (now - (this.rvfcT || 0) > 300 && now - (this.pollT || 0) > 33) { this.pollT = now; this.camNew = true; this.camFrameT = now - 45; }
+      this._mrFrame();
+    }
     if (!this.live) return;
     if (this.source === 'card') {
       if (now - this.cardT > 1000) { this.cardT = now; this.drawCard(now); }
@@ -220,7 +341,7 @@ export class Streamer {
     if (this.pc) { try { this.pc.close(); } catch {} this.pc = null; }
     if (this.resource) { const u = new URL(this.resource, TWITCH_WHIP).href, k = streamKey.get(); fetch(u, { method: 'DELETE', headers: { Authorization: 'Bearer ' + k } }).catch(() => {}); this.resource = null; }
     if (this.source === 'phone') this.env.phoneLive && this.env.phoneLive(false);
-    this._stopCam();
+    if (!this.testing) this._stopCam();
     if (this.canvasTrack) { this.canvasTrack.stop(); this.canvasTrack = null; }
     this.env.engine.streamStop && this.env.engine.streamStop();
     this.aTrack = this.vTrack = this.vSender = this.aSender = null; this.t0 = 0; this.kbps = 0;
