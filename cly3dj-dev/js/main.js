@@ -621,7 +621,7 @@ const _gpM = new THREE.Matrix4(), _gpS = new THREE.Vector3();
 // #340 Twitch chat: read-only, anonymous, from the start (channel on the start page, default dirrogate). A floating panel
 // (default left of the mixer, turned toward the DJ; grip / pinch moves it) and the tablet CHAT page show it.
 const chatPanel = CAMERA_ROLE ? null : new ChatPanel(rig, () => ({ p: new THREE.Vector3(mixer.position.x - 0.75, deckGroups[0].position.y + DECK.H + 0.38, mixer.position.z + 0.05), yaw: 0.94 }));
-let chatDrawPend = false, chatPanelTapT = 0;
+let chatDrawPend = false, chatPanelTapT = 0, chalkWipeT = 0;
 function chatRedraw() {   // at most ~5 redraws a second
   if (chatDrawPend) return; chatDrawPend = true;
   setTimeout(() => { chatDrawPend = false; if (chatPanel && chatPanel.on) chatPanel.draw(chat, chatRedraw); if (toolsPage === 'chat') drawMixScreen(); }, 200);
@@ -819,7 +819,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
     hide(ledwall); hide(room); hide(skybox.group); hide(scroller.mesh);
     if (DJ_HIDE_NEON.has(djSet.preset) && !(gopro && gopro.on)) hide(neon);   // its back faces these angles, between the camera and the DJ (the GoPro sees what it sees)
-    if (gopro) hide(gopro.obj); if (chatPanel) hide(chatPanel.obj);   // #340 the chat panel is the DJ's, not the audience's
+    if (gopro) hide(gopro.obj); if (chatPanel && !chatPanel.board) hide(chatPanel.obj);   // #340 the chat panel is the DJ's, not the audience's (#341 the chalkboard is part of the scene)
     if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand) hide(st.ctlHand.root); }
     if (xr && xr.glove) hide(xr.glove.root);
     const bg = scene.background; scene.background = null;
@@ -4286,11 +4286,15 @@ function drawToolsPage() {
     btn(L, y0, bw, bh, chatPanel && chatPanel.on ? 'PANEL: ON' : 'PANEL', !!(chatPanel && chatPanel.on), chatPanelTap, !chatPanel, 16);
     btn(L + bw + 8, y0, bw, bh, 'ON STREAM', !!(S && S.showOpt.chat), S ? () => S.setShowOpt('chat', !S.showOpt.chat) : null, !S, 16);
     btn(L + 2 * (bw + 8), y0, bw, bh, 'RECONNECT', false, () => { chat.stop(); chat.tries = 0; chat.start(); drawMixScreen(); }, false, 16);
+    // #341 CHALKBOARD (the panel becomes a slate with chalks on its ledge) and WIPE (tap twice)
+    const yb2 = y0 + bh + (P ? 8 : 6), bw2 = P ? (R - L - 8) / 2 : 150, wipeArm = performance.now() - (chalkWipeT || 0) < 2500;
+    btn(L, yb2, bw2, bh, chatPanel && chatPanel.board ? 'CHALKBOARD: ON' : 'CHALKBOARD', !!(chatPanel && chatPanel.board), chatPanel ? () => { if (!chatPanel.on) chatPanel.setOn(true); chatPanel.setBoard(!chatPanel.board); chatPanel.save(); if (!chatPanel.board) chatPanel.draw(chat, chatRedraw); drawMixScreen(); } : null, !chatPanel, 15);
+    btn(L + bw2 + 8, yb2, bw2, bh, wipeArm ? 'TAP AGAIN TO WIPE' : 'WIPE', wipeArm, chatPanel && chatPanel.board ? () => { if (wipeArm) { chalkWipeT = 0; chatPanel.wipe(); } else { chalkWipeT = performance.now(); setTimeout(drawMixScreen, 2600); } drawMixScreen(); } : null, !(chatPanel && chatPanel.board), 15);
     const st = { joined: '● connected', connecting: 'connecting…', reconnecting: 'reconnecting…', off: 'off', error: 'error' }[chat.status] || chat.status;
     g.fillStyle = chat.status === 'joined' ? '#40d080' : '#f1b650'; g.font = '700 15px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
     if (P) g.fillText(st, L + 4, y0 + bh + 16); else g.fillText(st, L + 3 * (bw + 8) + 6, y0 + bh / 2);
     g.textBaseline = 'alphabetic';
-    const cy = y0 + bh + (P ? 32 : 8);
+    const cy = y0 + 2 * bh + (P ? 40 : 14);
     if (!chat.msgs.some(m => !m.sys)) note('No messages yet. Read-only: replies from the headset need a Twitch login (later). PANEL: a chat screen in the room, grip / pinch to move it, double-tap PANEL = back to its spot. ON STREAM: chat on the right of SHOWTIME!.', cy + 60);
     else drawChat(g, L, cy, R - L, H - cy - (P ? 28 : 6), chat.msgs, { fs: P ? 17 : 16, bg: '#0a0c12', onEmote: chatRedraw });
     return;
@@ -4853,6 +4857,14 @@ function frame() {
   for (const d of decks) vvStep(d);   // #177 VideoVinyl
   stepPvLid(dt);   // #196 preview lid
   stepMonitor(performance.now());   // #339
+  if (chatPanel && chatPanel.on && chatPanel.board) {   // #341 chalkboard: every fingertip / controller ball writes, picks a chalk or wipes
+    if (xr && renderer.xr.isPresenting) for (const t of xr.tips()) {
+      const r = chatPanel.touch(t.st.i, t.p);
+      if (r === 'pick') xr.buzz(t.st, 0.5, 30);
+      else if (r === 'write' && performance.now() - (t.st.chalkBuzz || 0) > 90) { t.st.chalkBuzz = performance.now(); xr.buzz(t.st, 0.12, 8); }   // the scratch of chalk
+    }
+    chatPanel.tickBoard();
+  }
   stepScrDir();    // #198 portrait menu
   if (ledMode === 'decks') ledwall.userData.setDecks(deckVid[0].tex, deckVid[1].tex, ...deckGains(mixVal));
   if (spect) {   // #158 spectator camera (nothing when off / no phone)
@@ -4883,7 +4895,7 @@ function djPrep() {   // what the camera must not see: the LED wall itself, XR h
   if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand) hide(st.ctlHand.root); }
   if (xr && xr.glove) hide(xr.glove.root);   // #287 the DJ CAM robot has its own gloves
   if (gopro) hide(gopro.obj);   // #337
-  if (chatPanel) hide(chatPanel.obj);   // #340
+  if (chatPanel && !chatPanel.board) hide(chatPanel.obj);   // #340 (#341 the chalkboard is filmed)
   const bg = scene.background, roomV = room.visible;
   if (!bg && !skybox.group.visible) { scene.background = BG; room.visible = true; }   // passthrough: studio floor + dark backdrop for the camera
   return () => { for (const o of undo) o.visible = true; scene.background = bg; room.visible = roomV; };

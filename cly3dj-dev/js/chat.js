@@ -117,17 +117,113 @@ export class ChatPanel {
     this.canvas = document.createElement('canvas'); this.canvas.width = 512; this.canvas.height = 640;
     this.g = this.canvas.getContext('2d'); this.tex = new THREE.CanvasTexture(this.canvas); this.tex.colorSpace = THREE.SRGBColorSpace;
     this.tex.anisotropy = 4;
-    const scr = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ map: this.tex, toneMapped: false })); scr.position.z = 0.0006; g.add(scr);
+    const scr = this.scr = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ map: this.tex, toneMapped: false })); scr.position.z = 0.0006; g.add(scr);
+    this._buildBoard();
+    // #341 resize like the tablet: a silver corner tab top-right (trigger / pinch and drag), or a second grip while held
+    { const c = document.createElement('canvas'); c.width = c.height = 64; const g2 = c.getContext('2d'); g2.fillStyle = '#d9dde3'; g2.beginPath(); g2.moveTo(64, 0); g2.lineTo(64, 64); g2.lineTo(0, 0); g2.closePath(); g2.fill();
+      g2.strokeStyle = '#555b66'; g2.lineWidth = 5; g2.beginPath(); g2.moveTo(30, 34); g2.lineTo(54, 10); g2.moveTo(40, 10); g2.lineTo(54, 10); g2.lineTo(54, 24); g2.stroke();
+      const tab = new THREE.Mesh(new THREE.PlaneGeometry(0.034, 0.034), new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(c), transparent: true, metalness: 0.6, roughness: 0.35 }));
+      tab.position.set(W / 2 - 0.009, H / 2 - 0.009, 0.0012); g.add(tab); }
     let s = null; try { s = JSON.parse(localStorage.getItem('vire.chatPanel') || 'null'); } catch {}
-    if (s && s.p) { g.position.fromArray(s.p); g.quaternion.fromArray(s.q); } else this.reset(false);
+    if (s && s.p) { g.position.fromArray(s.p); g.quaternion.fromArray(s.q); if (s.s) g.scale.setScalar(s.s); } else this.reset(false);
     this.setOn(!!(s && s.on), false);
+    if (s && s.board) this.setBoard(true);
   }
-  save() { try { localStorage.setItem('vire.chatPanel', JSON.stringify({ on: this.on, p: this.obj.position.toArray(), q: this.obj.quaternion.toArray() })); } catch {} }
-  reset(save = true) { const h = this.home(); this.obj.position.copy(h.p); this.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), h.yaw); if (save) this.save(); }
+  // ---- #341 CHALKBOARD: the panel turns into a greenish-black slate with a ledge holding three chalks (classic white,
+  // yellow, soft pink) and a duster. Touch a chalk (controller ball or fingertip) to pick its colour, touch the duster to
+  // wipe; then write by touching the board: pressing deeper = a thicker line, fast strokes skip like real chalk. The board
+  // is part of the scene in this mode, so the GoPro / AVACAM film it (the chat mode panel stays the DJ's own).
+  _buildBoard() {
+    const W = this.W, H = this.H;
+    this.board = false; this.chalk = 0; this.strokes = new Map(); this.bDirty = false; this.bT = 0;
+    const BW = 1024, BH = 1280; this.BW = BW; this.BH = BH;
+    const base = this.bBase = document.createElement('canvas'); base.width = BW; base.height = BH;
+    { const g = base.getContext('2d'); g.fillStyle = '#1d2a24'; g.fillRect(0, 0, BW, BH);
+      let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      for (let i = 0; i < 14; i++) { const x = rnd() * BW, y = rnd() * BH, r = 120 + rnd() * 320, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, `rgba(210,225,215,${0.025 + rnd() * 0.03})`); gr.addColorStop(1, 'rgba(210,225,215,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
+      for (let i = 0; i < 26; i++) { g.strokeStyle = `rgba(220,230,222,${0.015 + rnd() * 0.02})`; g.lineWidth = 30 + rnd() * 60; g.beginPath(); const y = rnd() * BH; g.moveTo(rnd() * 200, y); g.bezierCurveTo(BW * 0.3, y + (rnd() - 0.5) * 120, BW * 0.7, y + (rnd() - 0.5) * 120, BW - rnd() * 200, y + (rnd() - 0.5) * 80); g.stroke(); }   // old wipe marks
+      const id = g.getImageData(0, 0, BW, BH), d = id.data; for (let i = 0; i < d.length; i += 4) { const n = (rnd() - 0.5) * 14; d[i] += n; d[i + 1] += n; d[i + 2] += n; } g.putImageData(id, 0, 0); }
+    this.bInk = document.createElement('canvas'); this.bInk.width = BW; this.bInk.height = BH; this.bInkG = this.bInk.getContext('2d');
+    this.bCanvas = document.createElement('canvas'); this.bCanvas.width = BW; this.bCanvas.height = BH; this.bG = this.bCanvas.getContext('2d');
+    this.bTex = new THREE.CanvasTexture(this.bCanvas); this.bTex.colorSpace = THREE.SRGBColorSpace; this.bTex.anisotropy = 4;
+    this._compose();
+    // the ledge, three chalks and a duster (board mode only)
+    const ledge = this.ledge = new THREE.Group(); ledge.visible = false; this.obj.add(ledge);
+    const wood = new THREE.MeshStandardMaterial({ color: 0x5a3f28, roughness: 0.7 });
+    const shelf = new THREE.Mesh(new THREE.BoxGeometry(W + 0.016, 0.006, 0.045), wood); shelf.position.set(0, -H / 2 - 0.011, 0.016); ledge.add(shelf);
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(W + 0.016, 0.012, 0.004), wood); lip.position.set(0, -H / 2 - 0.005, 0.037); ledge.add(lip);
+    this.sticks = CHALKS.map((c, i) => {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(0.0045, 0.0045, 0.055, 12), new THREE.MeshStandardMaterial({ color: c.hex, roughness: 0.95 }));
+      m.rotation.z = Math.PI / 2; m.position.set(-0.13 + i * 0.065, -H / 2 - 0.0035, 0.018); ledge.add(m); return m;
+    });
+    const duster = this.duster = new THREE.Group(); duster.position.set(0.125, -H / 2 - 0.0, 0.018); ledge.add(duster);
+    { const top = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.016, 0.03), wood); top.position.y = 0.006; duster.add(top);
+      const felt = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.006, 0.03), new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: 1 })); felt.position.y = -0.005; duster.add(felt); }
+    this._pick(0);
+  }
+  _pick(k) {   // k = 0..2 chalk, 3 = duster
+    this.chalk = k;
+    this.sticks.forEach((m, i) => { m.position.y = -this.H / 2 - 0.0035 + (i === k ? 0.007 : 0); m.position.z = i === k ? 0.024 : 0.018; });
+    this.duster.position.y = -this.H / 2 + (k === 3 ? 0.008 : 0);
+  }
+  setBoard(on) {
+    this.board = !!on; this.ledge.visible = this.board; this.strokes.clear();
+    this.scr.material.map = this.board ? this.bTex : this.tex; this.scr.material.needsUpdate = true;
+  }
+  wipe() { this.bInkG.clearRect(0, 0, this.BW, this.BH); this._compose(); }
+  _compose() { const g = this.bG; g.drawImage(this.bBase, 0, 0); g.drawImage(this.bInk, 0, 0); this.bTex.needsUpdate = true; this.bDirty = false; this.bT = performance.now(); }
+  // a fingertip / controller ball at world point P (key = which hand). Returns 'pick', 'write' or null (for a buzz).
+  touch(key, P) {
+    if (!this.on || !this.board || this.held) { this.strokes.delete(key); return null; }
+    this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P)), sc = this.obj.scale.x, zw = l.z * sc;   // zw: metres in front of the board
+    // the ledge: chalks and duster
+    if (l.y < -this.H / 2 + 0.01 && l.y > -this.H / 2 - 0.04 && l.z > -0.005 && l.z < 0.05) {
+      this.strokes.delete(key);
+      for (let i = 0; i < 4; i++) {
+        const cx = i < 3 ? -0.13 + i * 0.065 : 0.125;
+        if (Math.abs(l.x - cx) < (i < 3 ? 0.03 : 0.045)) { if (this.chalk !== i) { this._pick(i); return 'pick'; } return null; }
+      }
+      return null;
+    }
+    if (Math.abs(l.x) > this.W / 2 || Math.abs(l.y) > this.H / 2 || zw > 0.004 || zw < -0.03) { this.strokes.delete(key); return null; }
+    const pr = Math.min(1, Math.max(0, (0.004 - zw) / 0.014)); this.sc = sc;
+    const x = (l.x / this.W + 0.5) * this.BW, y = (0.5 - l.y / this.H) * this.BH, now = performance.now();
+    const last = this.strokes.get(key);
+    this.strokes.set(key, { x, y, t: now });
+    if (!last) { this._seg(x, y, x, y, pr, 0); return 'write'; }
+    const dist = Math.hypot(x - last.x, y - last.y), sp = dist / Math.max(1, now - last.t);
+    if (dist > 200 / sc) return 'write';   // a jump (tracking): don't draw a line across the board
+    this._seg(last.x, last.y, x, y, pr, sp); return 'write';
+  }
+  _seg(x0, y0, x1, y1, pr, sp) {
+    const g = this.bInkG, d = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.ceil(d / 1.3));
+    if (this.chalk === 3) {   // duster: rubs out where it goes (a few passes for a clean board, like the real thing)
+      g.save(); g.globalCompositeOperation = 'destination-out';
+      const R = Math.max(8, 46 / (this.sc || 1));   // the duster's real size whatever the board's size
+      for (let i = 0; i <= n; i += 3) { const t = i / n, x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t; const gr = g.createRadialGradient(x, y, 0, x, y, R); gr.addColorStop(0, 'rgba(0,0,0,0.45)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - R, y - R, 2 * R, 2 * R); }
+      g.restore(); this.bDirty = true; return;
+    }
+    const c = CHALKS[this.chalk], r = Math.max(1.2, (3 + pr * 5) / (this.sc || 1)), skip = Math.min(0.55, Math.max(0, (sp - 0.9) * 0.35));
+    g.fillStyle = c.css;
+    for (let i = 0; i <= n; i++) {
+      if (Math.random() < skip) continue;
+      const t = i / n, x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
+      for (let k = 0; k < 5; k++) {
+        const a = Math.random() * 6.283, rr = Math.sqrt(Math.random()) * r, s = 0.7 + Math.random() * 1.4;
+        g.globalAlpha = 0.25 + Math.random() * 0.55; g.fillRect(x + Math.cos(a) * rr, y + Math.sin(a) * rr, s, s);
+      }
+    }
+    g.globalAlpha = 1; this.bDirty = true;
+  }
+  tickBoard() { if (this.board && this.bDirty && performance.now() - this.bT > 66) this._compose(); }   // up to ~15 uploads a second while writing
+  save() { try { localStorage.setItem('vire.chatPanel', JSON.stringify({ on: this.on, board: !!this.board, p: this.obj.position.toArray(), q: this.obj.quaternion.toArray(), s: this.obj.scale.x })); } catch {} }
+  reset(save = true) { const h = this.home(); this.obj.scale.setScalar(1); this.obj.position.copy(h.p); this.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), h.yaw); if (save) this.save(); }
   setOn(on, save = true) { this.on = !!on; this.obj.visible = this.on; if (save) this.save(); }
   hit(P) { if (!this.on) return false; this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P)); return Math.abs(l.x) < this.W / 2 + 0.03 && Math.abs(l.y) < this.H / 2 + 0.03 && Math.abs(l.z) < 0.05; }
   grab() { this.held = true; }
   hold(world) { this.rig.updateMatrixWorld(); _m.copy(this.rig.matrixWorld).invert().multiply(world); _m.decompose(this.obj.position, this.obj.quaternion, _s); }
+  scaleTo(s) { this.obj.scale.setScalar(Math.min(6, Math.max(0.5, s))); }   // half size .. 6x (2.2 x 2.7 m, for classes)
+  corner(P) { if (!this.on) return false; this.obj.updateMatrixWorld(); const c = this.obj.localToWorld(_v.set(this.W / 2 - 0.009, this.H / 2 - 0.009, 0)); return c.distanceTo(P) < 0.03 * Math.max(1, this.obj.scale.x * 0.7); }
   release() { this.held = false; this.save(); }
   draw(chat, onEmote) {
     const g = this.g, W = 512, H = 640;
@@ -140,3 +236,4 @@ export class ChatPanel {
   }
 }
 const _v = new THREE.Vector3(), _m = new THREE.Matrix4(), _s = new THREE.Vector3();
+const CHALKS = [{ name: 'WHITE', hex: 0xf2f0e8, css: '#f2f0e8' }, { name: 'YELLOW', hex: 0xf3dc6a, css: '#f3dc6a' }, { name: 'PINK', hex: 0xf2a7c3, css: '#f2a7c3' }];
