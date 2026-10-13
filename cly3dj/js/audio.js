@@ -110,6 +110,14 @@ export class AudioEngine {
     this._ramp(this.ch[1].xf.gain, Math.sin(a) * Math.SQRT2 > 1 ? 1 : Math.sin(a) * Math.SQRT2);
   }
   setMaster(v) { this._ramp(this.master.gain, v * v * 1.2); }   // with the 0.75 bus headroom (#111) the top is 0.9 overall
+  // #331 LIVE STREAM: the master after the limiter (music + MIC through the mixer), tapped before the headphone
+  // split, so CUE never reaches it. One stereo track, made on demand.
+  streamTrack() {
+    if (!this.streamDest) { this.streamDest = this.ctx.createMediaStreamDestination(); this.streamDest.channelCount = 2; this.limiter.connect(this.streamDest); }
+    const t = this.streamDest.stream.getAudioTracks()[0]; try { t.contentHint = 'music'; } catch {}
+    return t;
+  }
+  streamStop() { if (this.streamDest) { try { this.limiter.disconnect(this.streamDest); } catch {} this.streamDest = null; } }
   setSplitCue(on) { this._ramp(this.normalOut.gain, on ? 0 : 1); this._ramp(this.splitOut.gain, on ? 1 : 0); }
 
   // ---- microphone (CLAUDE.md #60): mic -> 90 Hz high-pass -> gain -> voice pitch -> on/off -> master.

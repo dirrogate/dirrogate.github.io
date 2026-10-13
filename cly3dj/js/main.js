@@ -9,6 +9,7 @@ import { setupXR } from './xr.js';
 import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeNeon } from './neon.js';
 import { makeLedWall, LedPlayer, LED } from './ledwall.js';
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose } from './director.js';
+import { Streamer, SOURCES as STREAM_SRC, streamKey } from './stream.js';   // #331 LIVE STREAM (Twitch)
 import { RobotAvatar } from './robot.js';
 import { RobotAvatar2, ROBOT_GLB } from './robot2.js';   // #245 the licensed AvatarRobot (EntroPi Games)
 import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, labelFrom, blankWav } from './tools.js';
@@ -398,6 +399,8 @@ const scroller = new Scroller(ledwall, LED);   // #224 VJ TOOLS scroller over th
 const djSet = (() => { try { return { preset: 'front', mirror: true, avatar: true, style: 'robot', ...JSON.parse(localStorage.getItem('vire.djcam') || '{}') }; } catch { return { preset: 'front', mirror: true, avatar: true, style: 'robot' }; } })();
 function saveDjSet() { try { localStorage.setItem('vire.djcam', JSON.stringify(djSet)); } catch {} }
 const djcam = CAMERA_ROLE ? null : new DjCam(renderer, rig);
+let streamer = null;   // #331 set up once the audio engine exists (below)
+const streamPhone = () => !!(streamer && streamer.live && streamer.source === 'phone');   // the stream holds the phone's LIVE picture
 if (djcam) djcam.preset = CAM_PRESETS[djSet.preset] ? djSet.preset : 'front';
 // #221 avatar styles: ROBOT (Blender model models/avatar/robot.glb, robot.js, default) or HUMAN (the Ready Player Me GLB, loaded when first picked)
 const avatars = {};
@@ -511,6 +514,7 @@ let liveTrack = null;
 function onLiveTrack(t) {
   liveTrack = t; liveVideo.srcObject = t ? new MediaStream([t]) : null;
   if (t) liveVideo.play().catch(() => {}); else if (isLive(ledMode)) setLedMode('off');
+  if (!t && streamPhone()) streamer.setSource('card');   // #331 phone gone: the stream falls back to the card
 }
 const livePossible = () => !!(liveTrack && spect && spect.ui && spect.ui().phone);
 function isLive(m) { return m === 'live' || m === 'solo'; }   // #239 SOLO = the phone's camera only, no gear
@@ -520,7 +524,7 @@ function nextLedMode(m) {   // OFF > CLIPS > VIDVINYL ('decks') > AVACAM ('cam',
   for (let k = 0; k < order.length; k++) { i = (i + 1) % order.length; if (!isLive(order[i]) || livePossible()) return order[i]; }
   return 'off';
 }
-function clipsMode() { if (isLive(ledMode) && spect && spect.liveCam) spect.liveCam(false); ledMode = 'clips'; }   // #238 a clip from the LED list ends LIVE
+function clipsMode() { if (isLive(ledMode) && spect && spect.liveCam && !streamPhone()) spect.liveCam(false); ledMode = 'clips'; }   // #238 a clip from the LED list ends LIVE
 const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED VIDVINYL', cam: 'LED AVACAM', live: 'LED LIVE', solo: 'LED SOLO' };
 function setLedMode(m) {
   if (m === 'clips' && !led.hasFiles) m = 'decks';
@@ -528,7 +532,7 @@ function setLedMode(m) {
   if (isLive(m) && !livePossible()) m = 'off';   // #238 needs the phone linked
   if (m !== 'clips' && led.on) led.stop();
   if (m === 'cam' && !djcam) m = 'off';
-  if (isLive(ledMode) && !isLive(m) && spect && spect.liveCam) spect.liveCam(false);
+  if (isLive(ledMode) && !isLive(m) && spect && spect.liveCam && !streamPhone()) spect.liveCam(false);   // #331 unless the stream uses it
   ledMode = m;
   if (m === 'clips') led.playRandom();
   else if (m === 'off') ledwall.userData.setVideo(null);
@@ -733,6 +737,22 @@ $('#helpBtn').onclick = () => { const h = $('#help'); h.style.display = h.style.
 
 // ------------------------------------------------------------------ state
 const engine = new AudioEngine();
+// #331 LIVE STREAM: master bus (never CUE) + a picture source, straight to Twitch from the headset (stream.js)
+streamer = CAMERA_ROLE ? null : new Streamer({
+  engine, renderer, djcam,
+  phoneTrack: () => (livePossible() ? liveTrack : null),
+  phoneLive: on => { if (!spect || !spect.liveCam) return; if (on) { if (!isLive(ledMode)) spect.liveCam(true, false); } else if (!isLive(ledMode)) spect.liveCam(false); },
+  nowPlaying: () => {
+    const on = decks.filter(d => d.track && engine.state.decks[d.i] && engine.state.decks[d.i].needle && Math.abs(engine.state.decks[d.i].rate) > 0.2);
+    const name = t => (t.artist ? t.artist + ' – ' : '') + (t.title || t.name || '');
+    const loud = d => (mixVal[(d.i ? 'B' : 'A') + '.fader'] || 0) * (d.i ? Math.min(1, 1 + mixVal.xfader) : Math.min(1, 1 - mixVal.xfader));   // fader x crossfader side
+    on.sort((a, b) => loud(a) - loud(b));
+    const top = on[on.length - 1]; let bpm = 0; try { bpm = top ? Math.round(bpmOf(top.track) * 10) / 10 : 0; } catch {}
+    return { a: top ? name(top.track) : '', b: on.length > 1 ? name(on[0].track) : '', bpm };
+  },
+  onChange: () => { if (toolsPage === 'stream' || !streamer || streamer.state !== streamOnChangeLast) { streamOnChangeLast = streamer && streamer.state; drawMixScreen(); } },
+});
+let streamOnChangeLast = 'off';
 let lib = null;
 const decks = [0, 1].map(i => ({
   i, name: DECK_NAMES[i], g: deckGroups[i], record: null, side: null, track: null, duration: 0,
@@ -3883,6 +3903,7 @@ function drawPhoneIcon(g, px, py, pw, ph, on) {   // small phone icon; its LED i
 }
 // ---- #224 TOOLS page on the mixer tablet (TOOLS button, bottom-left of the main HUD): DJ TOOLS (Record Maker) and
 // VJ TOOLS (Scroller). Pages: home, dj, vj, maker, pickSong, pickVideo, pickImage, kbd, scroller.
+let streamEndArm = 0;   // #331 END STREAM takes two taps
 let pickItems = [], pickPg = 0;   // toolsPage is declared with videoPage (drawMixScreen reads it early)
 const maker = { kind: 'blank', song: null, video: null, image: null, name: '', busy: false, msg: '', msgOk: true, size: 12 };   // #261 size: 12 or 7 (inches)
 // #225 the Record Maker's answers show on the tablet (toast() is a desktop-only overlay, invisible in the headset)
@@ -4054,13 +4075,50 @@ function drawToolsPage() {
   const page = toolsPage;
   if (page === 'home') {
     const y0 = head('TOOLS', 'mixer');
-    if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26); note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off.', y0 + 240); }
-    else { const bw = (R - L - 12) / 2; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28); note('DJ TOOLS: Record Maker, milk crate on / off.   VJ TOOLS: Scroller, LED wall and neon sign on / off.', y0 + 160); }
+    const stLbl = streamer && streamer.live ? '● LIVE ' + streamer.elapsed() : 'STREAM';   // #331
+    if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
+      btn(L, y0 + 224, R - L, 96, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
+      note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off. STREAM: go live on Twitch (master mix only, never the cue).', y0 + 348); }
+    else { const bw = (R - L - 24) / 3; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28);
+      btn(L + 2 * (bw + 12), y0 + 8, bw, 130, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 28);
+      note('DJ TOOLS: Record Maker, milk crate.   VJ TOOLS: Scroller, LED wall, neon.   STREAM: live on Twitch, master mix only.', y0 + 160); }
     { // #258 flicker tests
       const ty = H - (P ? 60 : 46), tw = (R - L - 16) / 3;
       btn(L, ty, tw, 36, testState.glass ? 'GLASS TEST: GLASS OFF' : 'GLASS TEST', testState.glass, () => setTest('glass'), false, 15);
       btn(L + tw + 8, ty, tw, 36, 'CAM 2ND FRAME', testState.cam2, () => setTest('cam2'), false, 15);
       btn(L + 2 * (tw + 8), ty, tw, 36, 'FPS', testState.fps, () => setTest('fps'), false, 15);
+    }
+    return;
+  }
+  if (page === 'stream') {   // #331 LIVE STREAM to Twitch
+    const y0 = head('LIVE STREAM · TWITCH', 'home'), S = streamer;
+    if (!S) { note('Streaming runs on the headset (not on the phone).', y0 + 20); return; }
+    const st = S.state, live = st === 'live';
+    const line = live ? `● LIVE  ${S.elapsed()}  ·  ${(S.kbps / 1000).toFixed(1)} Mb/s` : st === 'connecting' ? S.msg || 'Connecting…' : st === 'error' ? S.msg : 'OFF AIR';
+    g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '800 24px system-ui';
+    g.fillStyle = live ? '#ff3b3b' : st === 'connecting' ? '#f1b650' : st === 'error' ? '#f1b650' : '#8c96a8';
+    if (P) wrapText(g, line, L + 4, y0 + 18, R - L - 8, 28, 2); else fitText2(g, line, L + 4, y0 + 18, R - L - 8);
+    g.textBaseline = 'alphabetic';
+    const keys = Object.keys(STREAM_SRC), phoneOk = livePossible() || S.source === 'phone';
+    const srcBtn = (k, x, y, w, h) => { const ok = k !== 'phone' || phoneOk || !!(spect && spect.ui && spect.ui().phone);
+      btn(x, y, w, h, STREAM_SRC[k], S.source === k, ok ? () => S.setSource(k) : null, !ok, P ? 20 : 18); };
+    const ending = performance.now() - (streamEndArm || 0) < 2500;
+    const goLabel = live || st === 'connecting' ? (ending ? 'TAP AGAIN TO END' : 'END STREAM') : 'GO LIVE';
+    const goAct = () => {
+      if (S.live) { if (performance.now() - (streamEndArm || 0) < 2500) { streamEndArm = 0; S.stop(); } else { streamEndArm = performance.now(); setTimeout(drawMixScreen, 2600); } drawMixScreen(); }
+      else S.start();
+    };
+    const hint = `Sends the MASTER mix (and the MIC when it goes through the mixer); CUE never reaches the stream. Key ${S.keyHint()}${S.hasKey() ? '' : ': enter it on the start page'}. AVACAM costs the most; CARD almost nothing.`;
+    if (P) {
+      const bw = (R - L - 8) / 2;
+      keys.forEach((k, i) => srcBtn(k, L + (i % 2) * (bw + 8), y0 + 70 + Math.floor(i / 2) * 72, bw, 64));
+      btn(L, y0 + 228, R - L, 96, goLabel, live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, 28);
+      note(hint, y0 + 356);
+    } else {
+      const bw = (R - L - 24) / 4;
+      keys.forEach((k, i) => srcBtn(k, L + i * (bw + 8), y0 + 40, bw, 48));
+      btn(L, y0 + 98, R - L, 64, goLabel, live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, 26);
+      note(hint, y0 + 186);
     }
     return;
   }
@@ -4269,7 +4327,7 @@ function drawMixScreen() {
       drawTopBtn(g, 24, y, w, h, 'MR GUI', sp.mr); drawPhoneIcon(g, 24 + w + 8, y + (h - 24) / 2, 14, 24, sp.phone);
       SP_HIT.push({ x: 18, y: y - 8, w: w + 12, h: h + 16, act: () => spect.setMR(!sp.mr) });
     }
-    drawTopBtn(g, 20, H - 52, 92, 36, 'TOOLS', !!(scroller && scroller.on));   // #224
+    drawTopBtn(g, 20, H - 52, 92, 36, 'TOOLS', !!(scroller && scroller.on) || !!(streamer && streamer.live));   // #224
     SP_HIT.push({ x: 14, y: H - 60, w: 104, h: 52, act: () => setTools('home') });
     drawResetMix(g, 124, H - 52, 130, 36);   // #254
     drawPin(g, W - 26 - 150, H - 50, 150, 34);   // #210 (#224: right of TOOLS)
@@ -4284,9 +4342,13 @@ function drawMixScreen() {
   }
   { // #224 TOOLS: bottom-left of the main page (DJ TOOLS: Record Maker, VJ TOOLS: Scroller)
     const w = 108, h = 28, x = 14, y = H - 40;
-    drawTopBtn(g, x, y, w, h, 'TOOLS', !!(scroller && scroller.on));
+    drawTopBtn(g, x, y, w, h, 'TOOLS', !!(scroller && scroller.on) || !!(streamer && streamer.live));
     SP_HIT.push({ x: x - 6, y: y - 8, w: w + 12, h: h + 14, act: () => setTools('home') });
     drawResetMix(g, x + w + 12, y, 120, h);   // #254
+    if (streamer && streamer.live && !testState.fps) {   // #331 on air
+      g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '800 17px system-ui'; g.fillStyle = streamer.state === 'live' ? '#ff3b3b' : '#f1b650';
+      g.fillText(streamer.state === 'live' ? '● LIVE ON TWITCH' : '● CONNECTING…', x + w + 144, y + h / 2); g.textBaseline = 'alphabetic';
+    }
     if (testState.fps) {   // #258 live frame rate (TOOLS > FPS)
       const st = fpsStats(); g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '700 16px system-ui';
       g.fillStyle = !st ? '#8c96a8' : st.drops > 3 ? '#ff5050' : st.drops ? '#f1b650' : '#40d080';
@@ -4590,7 +4652,8 @@ function frame() {
     try { spect.tick(dt); }   // #217: a spectator error must never stop the headset's frame (it froze on a record pull)
     catch (e) { if (!spectErrShown) { spectErrShown = true; console.error(e); toast('Spectator link error (headset keeps running): ' + e.message, 5000); } }
   }
-  if (ledMode === 'cam' && djcam) stepDjCam(dt);   // #220
+  if ((ledMode === 'cam' || (streamer && streamer.wantsCam)) && djcam) stepDjCam(dt);   // #220 (#331 also while the stream shows AVACAM)
+  if (streamer) streamer.tick();   // #331
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(frame);
@@ -4860,6 +4923,7 @@ async function showStorage() {
   $('#impStatus').textContent = `${idx.filter(f => !/\.xml$/i.test(f.path) && !VIDEO_EXT.test(f.path)).length} songs, ${idx.filter(f => VIDEO_EXT.test(f.path)).length} VideoVinyl videos, ${idx.filter(f => /\.xml$/i.test(f.path)).length} XML stored` +
     (est ? ` · using ${mb(est.usage || 0)} of ${mb(est.quota || 0)} available to this site` : '');
 }
+{ const k = $('#sTwitchKey'); if (k) { k.value = streamKey.get(); k.addEventListener('change', () => { streamKey.set(k.value); drawMixScreen(); }); } }   // #331
 $('#sHands').addEventListener('change', e => { if (xr) { xr.setCtlLook(e.target.value); drawMixScreen(); } });   // #286 (owner) 3D hands / controllers from the start page
 for (const [id, k] of [['#sSource', 'source'], ['#sXml', 'xml'], ['#sEnv', 'env'], ['#sGlow', 'glow'], ['#sShadows', 'shadows'], ['#sMicRoute', 'micRoute'],
   ['#sDeckModel', 'deckModel'], ['#sRecWeight', 'recWeight'], ['#sSlipmat', 'slipmat'], ['#sSpect', 'spect'], ['#sSky', 'sky']]) {
@@ -4955,7 +5019,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, get streamer() { return streamer; }, setTools, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
