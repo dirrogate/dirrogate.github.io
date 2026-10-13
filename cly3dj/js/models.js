@@ -593,7 +593,11 @@ diffuseColor.rgb = diffuseColor.rgb * vireHs * 1.5 + vec3(0.45) * smoothstep(0.7
   const xslot = box(0.07, 0.004, 0.0033, MAT.black); xslot.position.set(0, top - 0.0021, 0.155); g.add(xslot);
   label('A', -0.046, 0.155, 0.0045, true); label('B', 0.046, 0.155, 0.0045, true);
   label('MASTER', 0, -0.126, 0.003);
-  label('LEVEL', 0, 0.113, 0.0028);
+  label('LEVEL', 0, 0.098, 0.0024);   // #334 (owner): between the front pair of meter LEDs (was under them at 0.113)
+  // #334 (owner) 🎧 MIX: headphone balance between cue and master, above the crossfader (private, never on the master)
+  addKnob('hpmix', 0, 0.123, 0xffd040, 0.0072);   // owner: a little higher (was 0.1335)
+  label('🎧 MIX', -0.0158, 0.1165, 0.0025, true, undefined, 'right');   // beside the knob: behind it the knob hides it, in front the crossfader cap does
+  label('CUE', -0.0148, 0.1315, 0.0022, false, undefined, 'right'); label('MST', 0.0148, 0.1315, 0.0022, false, undefined, 'left');
   const xcap = (MIXP ? mixFaderCap : makeFaderCap)(0.011, 0.018, 0xff5050); xcap.position.set(0, top, 0.155); xcap.scale.y = 1.02; g.add(xcap);   // 2% taller (owner, 26 Sep)
   xcap.traverse(o => { if (o.isMesh) o.userData.control = { mixer: true, id: 'xfader' }; });
   u.controls.xfader = xcap; u.xTravel = { x0: -0.03, x1: 0.03 };
