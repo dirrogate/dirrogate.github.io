@@ -12,6 +12,7 @@
 // doesn't swim against the picture. GEAR OFF sends the raw camera as before.
 // The key is kept on this headset only (localStorage 'vire.twitchKey') and goes nowhere but the Twitch endpoint.
 import * as THREE from 'three';
+import { drawChat } from './chat.js';
 
 export const TWITCH_WHIP = 'https://g.webrtc.live-video.net:4443/v2/offer';
 export const SOURCES = { card: 'CARD', avacam: 'AVACAM', show: 'SHOWTIME!', headset: 'HEADSET CAM', phone: 'PHONE' };   // #338 VIDEOWALL gone: SHOWTIME! with ROBOT and GEAR off is the same
@@ -19,7 +20,7 @@ const VBR = { card: 600, avacam: 2500, show: 3500, headset: 3000, phone: 2000 };
 // #336 SHOW = three layers: the LED wall's visuals full frame (clip / image / VidVinyl / phone LIVE), the robot DJ and
 // gear from the AVACAM camera (BOOTH angle) drawn on a see-through background, and flat overlays (scroller, now
 // playing, logo). VIDEOWALL = the visuals and overlays only (no 3D render). Toggles saved as 'vire.showOpts'.
-export const SHOW_DEF = { visuals: true, robot: true, gear: true, scroll: true, np: true, logo: true };   // #338 VISUALS: the background on / off   // video kbit/s caps per source
+export const SHOW_DEF = { visuals: true, robot: true, gear: true, scroll: true, np: true, logo: true, chat: false };   // #340 CHAT: Twitch chat on the right   // #338 VISUALS: the background on / off   // video kbit/s caps per source
 const ABR = 160;   // Opus stereo kbit/s
 
 const KEY = 'vire.twitchKey', SRC = 'vire.streamSrc', FIT = 'vire.mrcam', SHOWO = 'vire.showOpts';
@@ -348,6 +349,13 @@ export class Streamer {
         let s = t; while (s.length > 6 && g.measureText(s).width > W * 0.6) s = s.slice(0, -2);
         const tw = g.measureText(s).width;
         g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(24, 24, tw + 32, 44); g.fillStyle = '#ffffff'; g.fillText(s, 40, 47);
+      }
+    }
+    if (O.chat && this.env.chat) {   // #340 the newest messages on the right, each fading out 40 s after it arrived
+      const ch = this.env.chat(), now = performance.now(), recent = ch && ch.msgs.filter(m => !m.sys && now - m.t < 42000);
+      if (recent && recent.length) {
+        const sc2 = this.env.scroller && this.env.scroller(), bottom = H - (O.scroll && sc2 && sc2.on ? Math.round(W * 128 / 768 * 0.66) + 12 : 16);
+        drawChat(g, W - 452, 92, 432, bottom - 92, recent, { fs: 22, maxAge: 40, lineBg: 'rgba(0,0,0,0.45)' });
       }
     }
     if (O.logo) {
