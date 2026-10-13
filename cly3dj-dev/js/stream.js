@@ -80,12 +80,21 @@ export class Streamer {
     this.canvasTrack = null; this.cardT = 0; this.frameT = 0; this.busy = false; this.camN = -1;
     this.fit = { ...FIT_DEF, ...(lsJ(FIT) || {}) };
     this.testing = false;   // CAM FIT TEST: the MR picture runs off air, for lining up
+    this.rehearse = false;
     this.hist = []; this.mr = null;
     this.showOpt = { ...SHOW_DEF, ...(lsJ(SHOWO) || {}) }; this.ly = null; this.showT = 0; this.layerOk = false;
   }
   setShowOpt(k, v) { if (k in SHOW_DEF) { this.showOpt[k] = v; ls.set(SHOWO, JSON.stringify(this.showOpt)); this.env.onChange && this.env.onChange(); } }
   get show3d() { return this.source === 'show' && (this.showOpt.robot || this.showOpt.gear); }
   get running() { return this.live || this.testing; }
+  get active() { return this.live || this.rehearse; }   // #339 REHEARSAL: the chosen source is drawn for the tablet MONITOR without going live
+  setRehearse(on) {
+    on = !!on; if (on === this.rehearse) return; this.rehearse = on;
+    if (on && !this.live) { this._sizeFor(this.source); this.layerOk = false; }
+    if (this.source === 'headset' && !this.live) this.setTesting(on);
+    this.env.onChange && this.env.onChange();
+  }
+  _sizeFor(src) { if (src === 'avacam') this._sizeCanvas(960, 540); else if (src === 'headset') { if (this.camStream) this._mrSize(); } else this._sizeCanvas(1280, 720); }
   setFit(k, v) { if (k in FIT_DEF) { this.fit[k] = v; ls.set(FIT, JSON.stringify(this.fit)); if (k === 'gear') this._gearChanged(); this.env.onChange && this.env.onChange(); } }
   resetFit() { const g = this.fit.gear; this.fit = { ...FIT_DEF, gear: g }; ls.set(FIT, JSON.stringify(this.fit)); this.env.onChange && this.env.onChange(); }
   async _gearChanged() {   // HEADSET CAM on air: switch between the MR canvas and the raw camera
@@ -99,8 +108,8 @@ export class Streamer {
     this.env.onChange && this.env.onChange();
   }
   get live() { return this.state === 'live' || this.state === 'connecting'; }
-  get wantsCam() { return this.live && (this.source === 'avacam' || this.show3d); }   // main.js keeps the DJ CAM (pose, aim, robot) running for us
-  get needsCamRT() { return this.live && this.source === 'avacam'; }   // only AVACAM uses the DJ CAM's own picture
+  get wantsCam() { return this.active && (this.source === 'avacam' || this.show3d); }   // main.js keeps the DJ CAM (pose, aim, robot) running for us
+  get needsCamRT() { return this.active && this.source === 'avacam'; }   // only AVACAM uses the DJ CAM's own picture
   hasKey() { return !!streamKey.get(); }
   keyHint() { const k = streamKey.get(); return k ? '••••' + k.slice(-4) : 'no key'; }
   elapsed() { if (!this.t0) return '00:00:00'; const s = Math.floor((performance.now() - this.t0) / 1000); return [s / 3600, s / 60 % 60, s % 60].map(v => String(Math.floor(v)).padStart(2, '0')).join(':'); }
@@ -148,6 +157,11 @@ export class Streamer {
   async setSource(src) {
     if (!SOURCES[src]) return;
     const prev = this.source; this.source = src; ls.set(SRC, src);
+    if (this.rehearse && !this.live) {   // #339 MONITOR off air: follow the new source
+      this._sizeFor(src); this.layerOk = false;
+      if (prev === 'headset' && src !== 'headset') this.setTesting(false); else if (src === 'headset') await this.setTesting(true);
+      if (src === 'phone') this.env.phoneLive && this.env.phoneLive(true); else if (prev === 'phone') this.env.phoneLive && this.env.phoneLive(false);
+    }
     if (!this.live || !this.vSender) { this.env.onChange && this.env.onChange(); return; }
     try {
       if (src === 'phone') this.env.phoneLive && this.env.phoneLive(true);
@@ -195,7 +209,7 @@ export class Streamer {
     r.xr.enabled = false; r.setRenderTarget(this.rt); r.render(this.cpScene, this.cpCam); r.setRenderTarget(prevRT); r.xr.enabled = prevXR;
     this.busy = true;
     r.readRenderTargetPixelsAsync(this.rt, 0, 0, W, H, this.buf).then(() => {
-      this.busy = false; if (!this.live || this.source !== 'avacam') return;
+      this.busy = false; if (!this.active || this.source !== 'avacam') return;
       this.g.putImageData(this.img, 0, 0); if (this.canvasTrack) this.canvasTrack.requestFrame();
     }).catch(() => { this.busy = false; });
   }
@@ -353,13 +367,13 @@ export class Streamer {
       if (now - (this.rvfcT || 0) > 300 && now - (this.pollT || 0) > 33) { this.pollT = now; this.camNew = true; this.camFrameT = now - 45; }
       this._mrFrame();
     }
-    if (!this.live) return;
+    if (!this.active) return;
     if (this.source === 'show') this._showTick(now);
     else if (this.source === 'card') {
       if (now - this.cardT > 1000) { this.cardT = now; this.drawCard(now); }
       if (now - this.frameT > 100 && this.canvasTrack) { this.frameT = now; this.canvasTrack.requestFrame(); }
     } else if (this.source === 'avacam') this._avacamFrame();
-    if (now - (this.statT || 0) > 2000) { this.statT = now; this._stats(); }
+    if (this.live && now - (this.statT || 0) > 2000) { this.statT = now; this._stats(); }
   }
 
   async _stats() {
