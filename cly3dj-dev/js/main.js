@@ -628,6 +628,18 @@ function chatRedraw() {   // at most ~5 redraws a second
 }
 const chat = CAMERA_ROLE ? null : new TwitchChat(() => chatRedraw());
 if (chat && chatChannel.get()) chat.start();
+// #342 CHALKBOARD on the TOOLS home page: tap = board out / away (the panel goes back to chat mode, hidden); double-tap =
+// board back to its start spot and size
+let chalkTapT = 0;
+const chalkLbl = () => chatPanel && chatPanel.on && chatPanel.board ? 'CHALKBOARD: ON' : 'CHALKBOARD';
+function chalkTap() {
+  if (!chatPanel) return; const now = performance.now();
+  if (now - chalkTapT < 350) { chalkTapT = 0; chatPanel.reset(); chatPanel.setOn(true); chatPanel.setBoard(true); chatPanel.save(); drawMixScreen(); return; }
+  chalkTapT = now;
+  if (chatPanel.on && chatPanel.board) { chatPanel.setBoard(false); chatPanel.setOn(false); }
+  else { chatPanel.setOn(true); chatPanel.setBoard(true); }
+  chatPanel.save(); drawMixScreen();
+}
 function chatPanelTap() {   // tap = panel on / off; double-tap = back to its start spot, on
   if (!chatPanel) return; const now = performance.now();
   if (now - chatPanelTapT < 350) { chatPanelTapT = 0; chatPanel.reset(); chatPanel.setOn(true); }
@@ -3492,6 +3504,8 @@ function vpThumb(folder, name) {
   return 'loading';
 }
 function videoPageFolder() { return vpFolder === 'Pano' ? (vpSelFolder || 'Pano') : vpFolder; }
+let scrollFromVP = false;   // #342 the scroller editor opened from VISUALS: BACK goes back there
+function openScrollerFromVP() { scrollFromVP = true; videoPage = false; setTools('scroller'); }
 function setVideoPage(on) { videoPage = on; if (on) { toolsPage = null; vpLoad(); } drawMixScreen(); }
 async function vpAct(what) {
   const name = vpSel; if (!name) { toast('Pick a thumbnail first'); return; }
@@ -3808,11 +3822,13 @@ function drawVideoPage() {
   if (P) {   // #198 portrait: tabs in rows of 3 (#206: 3 rows, SYNC added, MIXER last); top and bottom keep clear of the corner L
     const tabs = [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam'], tw = (W - 30 - 12) / 3;   // #214 LOOK, #220 DJ CAM
     tabs.forEach((f, i) => btn(22 + (i % 3) * (tw + 6), 28 + Math.floor(i / 3) * 40, tw, 34, VP_TABS[f], f === vpFolder, pick(f)));
+    btn(22 + (tw + 6), 108, tw, 34, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
     btn(22 + 2 * (tw + 6), 108, tw, 34, 'DJ MIXER', false, () => setVideoPage(false));
   } else {
     let x = 8;   // #214 seven tabs fit left of MIXER; #220 eight (narrower)
-    for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam']) { const w = { Pano: 80, Video: 80, Images: 86, Camera: 96, Sync: 70, Look: 70, 'DJ Cam': 80 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
-    btn(W - 8 - 120, 8, 120, 32, 'DJ MIXER', false, () => setVideoPage(false));   // #225 was MIXER
+    for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam']) { const w = { Pano: 70, Video: 70, Images: 76, Camera: 82, Sync: 62, Look: 62, 'DJ Cam': 80 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
+    btn(x, 8, 92, 32, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
+    btn(W - 8 - 110, 8, 110, 32, 'DJ MIXER', false, () => setVideoPage(false));   // #225 was MIXER
   }
   const y0 = P ? 152 : 48;
   if (vpFolder === 'Camera') { drawCamTab(btn, y0); return; }
@@ -4203,7 +4219,7 @@ function drawToolsPage() {
     const y = P ? 28 : 8;
     g.fillStyle = '#dfe6f2'; g.font = '700 20px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
     fitText2(g, title, L + 4, y + 17, R - L - 136); g.textBaseline = 'alphabetic';
-    btn(R - 120, y, 120, 34, back === 'mixer' ? 'DJ MIXER' : '◀ BACK', false, () => setTools(back === 'mixer' ? null : back));
+    btn(R - 120, y, 120, 34, back === 'mixer' ? 'DJ MIXER' : '◀ BACK', false, () => { if (back === 'visuals') { scrollFromVP = false; setTools(null); setVideoPage(true); } else setTools(back === 'mixer' ? null : back); });
     return y + 46;
   };
   const note = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; return wrapText(g, s, L + 4, y, R - L - 8, 20, 5); };
@@ -4213,10 +4229,12 @@ function drawToolsPage() {
     const stLbl = streamer && streamer.live ? '● LIVE ' + streamer.elapsed() : 'STREAM';   // #331
     if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
       btn(L, y0 + 224, R - L, 96, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
+      btn(L, y0 + 332, R - L, 80, chalkLbl(), !!(chatPanel && chatPanel.on && chatPanel.board), chalkTap, !chatPanel, 24);   // #342
       note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off. STREAM: go live on Twitch (master mix only, never the cue).', y0 + 348); }
-    else { const bw = (R - L - 24) / 3; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 28); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 28);
-      btn(L + 2 * (bw + 12), y0 + 8, bw, 130, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 28);
-      note('DJ TOOLS: Record Maker, milk crate.   VJ TOOLS: Scroller, LED wall, neon.   STREAM: live on Twitch, master mix only.', y0 + 160); }
+    else { const bw = (R - L - 36) / 4; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
+      btn(L + 2 * (bw + 12), y0 + 8, bw, 130, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
+      btn(L + 3 * (bw + 12), y0 + 8, bw, 130, chalkLbl(), !!(chatPanel && chatPanel.on && chatPanel.board), chalkTap, !chatPanel, 22);   // #342
+      note('DJ TOOLS: Record Maker, milk crate.  VJ TOOLS: Scroller, LED wall, neon.  STREAM: Twitch.  CHALKBOARD: tap = out / away, double-tap = back to its spot.', y0 + 160); }
     { // #258 flicker tests
       const ty = H - (P ? 60 : 46), tw = (R - L - 16) / 3;
       btn(L, ty, tw, 36, testState.glass ? 'GLASS TEST: GLASS OFF' : 'GLASS TEST', testState.glass, () => setTest('glass'), false, 15);
@@ -4359,7 +4377,7 @@ function drawToolsPage() {
     return;
   }
   if (page === 'scroller') {
-    const y0 = head('SCROLLER', 'vj');
+    const y0 = head('SCROLLER', scrollFromVP ? 'visuals' : 'vj');
     g.fillStyle = '#0d1422'; g.fillRect(L, y0, R - L, 52);
     g.save(); g.beginPath(); g.rect(L, y0, R - L, 52); g.clip();
     drawBitText(g, scroller.text || ' ', L + 10, y0 + 13, 4, x => `hsl(${(x * 0.7) % 360},100%,62%)`); g.restore();
@@ -4815,7 +4833,7 @@ function frame() {
   stepLoose(dt);
   stepMilkCrates(dt);
   stepWallGlow(); stepBlobs();
-  if (ledwall.visible || (streamer && streamer.live && streamer.source === 'show')) scroller.tick(dt);   // #224 (#338 also for SHOWTIME! with the wall off) (#236 switched off: it keeps running for the phone, nothing drawn here)
+  if (ledwall.visible || (streamer && streamer.active && streamer.source === 'show')) scroller.tick(dt);   // #342 also during PREVIEW   // #224 (#338 also for SHOWTIME! with the wall off) (#236 switched off: it keeps running for the phone, nothing drawn here)
   // label relief (#94): on within arm's length of your eyes (0.65 m), off again past 0.8 m
   camera.getWorldPosition(_eyeB);
   for (const r of [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)]) {
