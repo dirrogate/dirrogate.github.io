@@ -227,6 +227,12 @@ export function setupXR(ctx) {
         ctx.pressControl({ deck: d.name, id: 'target' }); st.direct = { kind: 'tap' }; buzz(st, 0.5, 30); return true;
       }
     }
+    // 0a0. #337 the GOPRO: grip (hands: pinch) on the little camera picks it up; it keeps its pose relative to the hand
+    if ((btn === 'grip' || st.isHand) && ctx.gopro && ctx.gopro.hit(P)) {
+      updateAnchor(st); const o = ctx.gopro.obj; o.updateMatrixWorld();
+      st.direct = { kind: 'gopro', off: new THREE.Matrix4().copy(st.anchor.matrixWorld).invert().multiply(o.matrixWorld) };
+      ctx.gopro.grab(); buzz(st, 0.4, 25); return true;
+    }
     // 0a. #189 the mixer's tablet: grip (controllers) or pinch (hands) on its frame picks it up; it keeps its pose
     //     relative to the hand while held (main.js places it; it stays a child of the mixer so the phone mirrors it)
     // #195 (owner): pick-up = grip only (hands: pinch); resize = trigger (or pinch) on the lower-right corner handle and
@@ -580,6 +586,8 @@ export function setupXR(ctx) {
       const now = performance.now();
       if (g.lastP) { const dtm = Math.max(0.004, (now - g.lastT) / 1000), v = v1.copy(P).sub(g.lastP).divideScalar(dtm); g.vel = g.vel ? g.vel.lerp(v, 0.4) : v.clone(); }
       g.lastP = (g.lastP || new THREE.Vector3()).copy(P); g.lastT = now;
+    } else if (g.kind === 'gopro') {   // #337
+      updateAnchor(st); ctx.gopro.hold(new THREE.Matrix4().multiplyMatrices(st.anchor.matrixWorld, g.off));
     } else if (g.kind === 'tablet') {   // #189
       updateAnchor(st); ctx.tabletHold(new THREE.Matrix4().multiplyMatrices(st.anchor.matrixWorld, g.off));
     } else if (g.kind === 'tabletScale') {   // #195 corner drag: size follows the distance from the tablet's centre
@@ -618,6 +626,7 @@ export function setupXR(ctx) {
     else if (g.kind === 'lid') ctx.lidRelease();
     else if (g.kind === 'spider') { ctx.spiderRelease(st.anchor); buzz(st, 0.3, 20); }   // #256
     else if (g.kind === 'sleeve') ctx.sleeveRelease(st.anchor);   // #242 let go: it stays there (over the record crate: back in)
+    else if (g.kind === 'gopro') ctx.gopro.release();   // #337
     else if (g.kind === 'tablet') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'tabletStretch') o.direct = null; if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
     else if (g.kind === 'tabletScale' || g.kind === 'tabletStretch') ctx.saveTablet();
     else if (g.kind === 'ledTurn') { if (g.axis === 'tilt') ctx.ledTilted && ctx.ledTilted(); else ctx.ledTurned(); buzz(st, 0.5, 30); }   // #222 settle on portrait / landscape; #248 a tilt just stays

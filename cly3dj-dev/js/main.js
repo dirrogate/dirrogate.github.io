@@ -10,6 +10,7 @@ import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeN
 import { makeLedWall, LedPlayer, LED } from './ledwall.js';
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose, AV_LAYER } from './director.js';
 import { Streamer, SOURCES as STREAM_SRC, streamKey } from './stream.js';   // #331 LIVE STREAM (Twitch)
+import { GoPro, ZOOMS as GOPRO_ZOOMS } from './gopro.js';   // #337 movable camera for SHOW / AVACAM
 import { RobotAvatar } from './robot.js';
 import { RobotAvatar2, ROBOT_GLB } from './robot2.js';   // #245 the licensed AvatarRobot (EntroPi Games)
 import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, labelFrom, blankWav } from './tools.js';
@@ -562,6 +563,22 @@ const stage = new Stage(rig, {
   cases: { caseA: [0, 0, 0, 0, 1.3, 0.52, 0.88] },
 });
 const MOVABLE = new Proxy({}, { get: (_, k) => stage.object(k) });
+// #337 GOPRO: starts on the audience side of the mixer, just over its far edge, facing the DJ (the BOOTH angle)
+const gopro = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 0.3, mixer.position.z - 0.55), yaw: Math.PI }));
+let goproTapT = 0, goproTapWas = false;
+function goproTap() {   // tap = on / off; double-tap (within 0.35 s) = back to the start, on (the first tap is undone)
+  if (!gopro) return; const now = performance.now();
+  if (now - goproTapT < 350) { goproTapT = 0; gopro.reset(); gopro.setOn(true); toast('GoPro back at the start', 1500); }
+  else { goproTapT = now; goproTapWas = gopro.on; gopro.setOn(!gopro.on); }
+  drawMixScreen();
+}
+function goproToDjcam() {   // the DJ CAM camera (a rig child) takes the GoPro's smoothed pose and zoom
+  rig.updateMatrixWorld(); _gpM.copy(rig.matrixWorld).invert().multiply(gopro.cam.matrixWorld);
+  _gpM.decompose(djcam.cam.position, djcam.cam.quaternion, _gpS);
+  if (djcam.cam.fov !== gopro.cam.fov) { djcam.cam.fov = gopro.cam.fov; djcam.cam.updateProjectionMatrix(); }
+  djcam.cam.updateMatrixWorld(true);
+}
+const _gpM = new THREE.Matrix4(), _gpS = new THREE.Vector3();
 function saveLayout() { stage.save(); }
 // #84 migration: layouts saved with the second flight case had the record crate standing on it; with that case
 // gone, put the crate on the floor (once) instead of leaving it floating
@@ -745,14 +762,15 @@ streamer = CAMERA_ROLE ? null : new Streamer({
   showPrep: () => {   // the robot / gear layer: no LED wall (the visuals are the background), no XR hands, nothing behind
     const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
     hide(ledwall); hide(room); hide(skybox.group); hide(scroller.mesh);
-    if (DJ_HIDE_NEON.has(djSet.preset)) hide(neon);   // its back faces these angles, between the camera and the DJ
+    if (DJ_HIDE_NEON.has(djSet.preset) && !(gopro && gopro.on)) hide(neon);   // its back faces these angles, between the camera and the DJ (the GoPro sees what it sees)
+    if (gopro) hide(gopro.obj);
     if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand) hide(st.ctlHand.root); }
     if (xr && xr.glove) hide(xr.glove.root);
     const bg = scene.background; scene.background = null;
     return () => { for (const o of undo) o.visible = true; scene.background = bg; };
   },
   wallSource: () => {   // what the LED wall is showing, as 2D drawables (the stream draws them full frame)
-    if (ledMode === 'clips') return led.video ? [{ el: led.video }] : led.img && ledwall.userData.curImage ? [{ el: ledwall.userData.curImage, flip: true }] : [];
+    if (ledMode === 'clips') return led.video ? [{ el: led.video }] : led.img && ledwall.userData.curImage && !led.silent ? [{ el: ledwall.userData.curImage, flip: true }] : streamClip();   // #337 wall switched off: the stream decodes the clip itself
     if (ledMode === 'decks') { const [gA, gB] = deckGains(mixVal); return [{ el: deckVid[0].v, gain: gA }, { el: deckVid[1].v, gain: gB, add: true }]; }
     if (isLive(ledMode)) return [{ el: liveVideo }];
     return [];
@@ -770,6 +788,32 @@ streamer = CAMERA_ROLE ? null : new Streamer({
   onChange: () => { if (toolsPage === 'stream' || !streamer || streamer.state !== streamOnChangeLast) { streamOnChangeLast = streamer && streamer.state; drawMixScreen(); } },
 });
 let streamOnChangeLast = 'off';
+// #337 the stream's own copy of the LED playlist's current clip (used while the LED wall is switched off and so not
+// decoding): same file, kept within 0.5 s of the playlist clock; closed 3 s after the stream stops asking for it
+const sclip = { name: null, el: null, url: null, img: false, used: 0 };
+function streamClip() {
+  sclip.used = performance.now();
+  const name = led.on ? led.name : null; if (!name) return [];
+  if (sclip.name !== name) {
+    closeStreamClip(); const f = led.fileNamed(name); if (!f) return [];
+    sclip.name = name; sclip.img = !!led.img;
+    if (sclip.img) createImageBitmap(f).then(b => { if (sclip.name === name) sclip.el = b; else b.close(); }).catch(() => {});
+    else {
+      const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.loop = true; v.preload = 'auto';
+      sclip.url = URL.createObjectURL(f); v.src = sclip.url; sclip.el = v;
+      v.addEventListener('loadedmetadata', () => { try { v.currentTime = led.state().t || 0; } catch (e) {} v.play().catch(() => {}); }, { once: true });
+    }
+  }
+  const v = sclip.el;
+  if (v && !sclip.img && v.readyState >= 1) { const t = led.state().t; if (t != null && Math.abs(v.currentTime - t) > 0.5) v.currentTime = t; if (v.paused) v.play().catch(() => {}); }
+  return v ? [{ el: v }] : [];
+}
+function closeStreamClip() {
+  const e = sclip.el; if (e) { if (sclip.img) { try { e.close(); } catch (er) {} } else { e.pause(); e.removeAttribute('src'); e.load(); } }
+  if (sclip.url) URL.revokeObjectURL(sclip.url);
+  sclip.name = sclip.el = sclip.url = null; sclip.img = false;
+}
+setInterval(() => { if (sclip.name && performance.now() - sclip.used > 3000) closeStreamClip(); }, 1000);
 let lib = null;
 const decks = [0, 1].map(i => ({
   i, name: DECK_NAMES[i], g: deckGroups[i], record: null, side: null, track: null, duration: 0,
@@ -4129,7 +4173,7 @@ function drawToolsPage() {
       if (S.live) { if (performance.now() - (streamEndArm || 0) < 2500) { streamEndArm = 0; S.stop(); } else { streamEndArm = performance.now(); setTimeout(drawMixScreen, 2600); } drawMixScreen(); }
       else S.start();
     };
-    const hint = `Sends the MASTER mix (and the MIC when it goes through the mixer); CUE never reaches the stream. Key ${S.keyHint()}${S.hasKey() ? '' : ': enter it on the start page'}. SHOW and AVACAM cost the most (SHOW films from the AVACAM angle, BOOTH suits it); VIDEOWALL and CARD almost nothing.`;
+    const hint = `Sends the MASTER mix (and the MIC when it goes through the mixer); CUE never reaches the stream. Key ${S.keyHint()}${S.hasKey() ? '' : ': enter it on the start page'}. SHOW and AVACAM cost the most; they film from the GOPRO when it is out (grip it to move it, double-tap GOPRO = back to the start), else from the AVACAM angle. VIDEOWALL and CARD almost nothing.`;
     // #336 SHOW / VIDEOWALL layer toggles (ROBOT and GEAR only matter for SHOW)
     const O = S.showOpt, sw3 = S.source === 'show', swAny = sw3 || S.source === 'wall';
     const opts = [['robot', 'ROBOT', sw3], ['gear', 'GEAR', sw3], ['scroll', 'SCROLLER', swAny], ['np', 'NOW PLAYING', swAny], ['logo', 'LOGO', swAny]];
@@ -4140,16 +4184,21 @@ function drawToolsPage() {
       const ow = (R - L - 16) / 3;
       opts.forEach((o, i) => optBtn(o, L + (i % 3) * (ow + 8), y0 + 256 + Math.floor(i / 3) * 50, ow, 44));
       btn(L, y0 + 362, R - L, 90, goLabel, live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, 28);
-      btn(L, y0 + 460, R - L, 50, 'CAM FIT (HEADSET CAM)', false, () => setTools('streamfit'), false, 20);   // #333
+      const tw3 = (R - L - 16) / 3;   // #337 GOPRO (tap on / off, double-tap = back to the start), its zoom, CAM FIT
+      btn(L, y0 + 460, tw3, 50, gopro && gopro.on ? 'GOPRO: ON' : 'GOPRO', !!(gopro && gopro.on), goproTap, !gopro, 18);
+      btn(L + tw3 + 8, y0 + 460, tw3, 50, gopro ? GOPRO_ZOOMS[gopro.zoom].label : 'ZOOM', false, gopro && gopro.on ? () => { gopro.nextZoom(); drawMixScreen(); } : null, !(gopro && gopro.on), 18);
+      btn(L + 2 * (tw3 + 8), y0 + 460, tw3, 50, 'CAM FIT', false, () => setTools('streamfit'), false, 18);   // #333
       note(hint, y0 + 530);
     } else {
       const bw = (R - L - 40) / 6;
       keys.forEach((k, i) => srcBtn(k, L + i * (bw + 8), y0 + 38, bw, 44));
       const ow = (R - L - 32) / 5;
       opts.forEach((o, i) => optBtn(o, L + i * (ow + 8), y0 + 88, ow, 34));
-      const gw = Math.round((R - L - 8) * 0.7);
+      const gw = Math.round((R - L - 24) * 0.44), w2 = Math.round((R - L - 24) * 0.2), w3 = Math.round((R - L - 24) * 0.16), w4 = R - L - 24 - gw - w2 - w3;
       btn(L, y0 + 130, gw, 54, goLabel, live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, 26);
-      btn(L + gw + 8, y0 + 130, R - L - gw - 8, 54, 'CAM FIT', false, () => setTools('streamfit'), false, 22);   // #333
+      btn(L + gw + 8, y0 + 130, w2, 54, gopro && gopro.on ? 'GOPRO: ON' : 'GOPRO', !!(gopro && gopro.on), goproTap, !gopro, 18);   // #337 tap / double-tap
+      btn(L + gw + w2 + 16, y0 + 130, w3, 54, gopro ? GOPRO_ZOOMS[gopro.zoom].label : 'ZOOM', false, gopro && gopro.on ? () => { gopro.nextZoom(); drawMixScreen(); } : null, !(gopro && gopro.on), 15);
+      btn(L + gw + w2 + w3 + 24, y0 + 130, w4, 54, 'CAM FIT', false, () => setTools('streamfit'), false, 18);   // #333
       note(hint, y0 + 202);
     }
     return;
@@ -4717,7 +4766,13 @@ function frame() {
     try { spect.tick(dt); }   // #217: a spectator error must never stop the headset's frame (it froze on a record pull)
     catch (e) { if (!spectErrShown) { spectErrShown = true; console.error(e); toast('Spectator link error (headset keeps running): ' + e.message, 5000); } }
   }
-  if ((ledMode === 'cam' || (streamer && streamer.wantsCam)) && djcam) stepDjCam(dt);   // #220 (#331 also while the stream shows AVACAM)
+  if (gopro) {   // #337
+    gopro.tick(dt);
+    const showLive = streamer && streamer.live && streamer.source === 'show';
+    gopro.setTally(!!(streamer && streamer.state === 'live' && (streamer.source === 'show' || streamer.source === 'avacam')));
+    if (gopro.on) gopro.setView(showLive && streamer.ly && streamer.layerOk ? streamer.ly.out.texture : (ledMode === 'cam' || gopro.aiming || (streamer && streamer.needsCamRT)) && djcam ? djcam.rt.texture : null, !showLive, showLive);
+  }
+  if ((ledMode === 'cam' || (streamer && streamer.wantsCam) || (gopro && gopro.aiming)) && djcam) stepDjCam(dt);   // #220 (#331 also while the stream shows AVACAM)
   if (streamer) streamer.tick();   // #331
   renderer.render(scene, camera);
 }
@@ -4731,9 +4786,10 @@ function djGear() {
 function djPrep() {   // what the camera must not see: the LED wall itself, XR hand / controller models and occluders
   const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
   hide(ledwall);
-  if (DJ_HIDE_NEON.has(djSet.preset)) hide(neon);   // the sign stands between these angles and the DJ (its back faces them)
+  if (DJ_HIDE_NEON.has(djSet.preset) && !(gopro && gopro.on)) hide(neon);   // the sign stands between these angles and the DJ (its back faces them); #337 the GoPro sees what it sees
   if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand) hide(st.ctlHand.root); }
   if (xr && xr.glove) hide(xr.glove.root);   // #287 the DJ CAM robot has its own gloves
+  if (gopro) hide(gopro.obj);   // #337
   const bg = scene.background, roomV = room.visible;
   if (!bg && !skybox.group.visible) { scene.background = BG; room.visible = true; }   // passthrough: studio floor + dark backdrop for the camera
   return () => { for (const o of undo) o.visible = true; scene.background = bg; room.visible = roomV; };
@@ -4746,8 +4802,8 @@ function stepDjCam(dt) {
     catch (e) { if (!stepDjCam.err) { stepDjCam.err = true; console.error(e); toast('Avatar error (headset keeps running): ' + e.message, 5000); } }
   }
   const dj = rig.worldToLocal(pose.head.p.clone());
-  djcam.aimAt(gear, dj);
-  if (ledMode === 'cam' || !streamer || streamer.needsCamRT) djcam.render(scene, dt, xrOn ? (testState.cam2 ? 2 : 3) : 2, djPrep);   // #258 CAM 2ND FRAME test (#336: SHOW renders its own layer from this camera)
+  if (gopro && gopro.on) goproToDjcam(); else djcam.aimAt(gear, dj);   // #337 the GoPro, when it is out, is the camera
+  if (ledMode === 'cam' || !streamer || streamer.needsCamRT || (gopro && gopro.aiming && !(streamer.live && streamer.source === 'show'))) djcam.render(scene, dt, xrOn ? (testState.cam2 ? 2 : 3) : 2, djPrep);   // #258 CAM 2ND FRAME test (#336: SHOW renders its own layer from this camera)
   else djcam.t += dt;
 }
 const _djFloor = new THREE.Vector3();
@@ -4761,7 +4817,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack,
   REC, DECK, CRATE, ARM,
-  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet,
+  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro,   // #337
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
   scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
@@ -5085,7 +5141,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get streamer() { return streamer; }, setTools, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, get streamer() { return streamer; }, setTools, gopro, goproTap, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
