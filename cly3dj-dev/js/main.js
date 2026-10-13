@@ -831,7 +831,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
     hide(ledwall); hide(room); hide(skybox.group); hide(scroller.mesh);
     if (DJ_HIDE_NEON.has(djSet.preset) && !(gopro && gopro.on)) hide(neon);   // its back faces these angles, between the camera and the DJ (the GoPro sees what it sees)
-    if (gopro) hide(gopro.obj); if (chatPanel && !chatPanel.board) hide(chatPanel.obj);   // #340 the chat panel is the DJ's, not the audience's (#341 the chalkboard is part of the scene)
+    if (gopro) hide(gopro.obj);   // #343 (owner) the chat panel / chalkboard is filmed like any prop when it is in shot
     if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand) hide(st.ctlHand.root); }
     if (xr && xr.glove) hide(xr.glove.root);
     const bg = scene.background; scene.background = null;
@@ -4913,7 +4913,6 @@ function djPrep() {   // what the camera must not see: the LED wall itself, XR h
   if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand) hide(st.ctlHand.root); }
   if (xr && xr.glove) hide(xr.glove.root);   // #287 the DJ CAM robot has its own gloves
   if (gopro) hide(gopro.obj);   // #337
-  if (chatPanel && !chatPanel.board) hide(chatPanel.obj);   // #340 (#341 the chalkboard is filmed)
   const bg = scene.background, roomV = room.visible;
   if (!bg && !skybox.group.visible) { scene.background = BG; room.visible = true; }   // passthrough: studio floor + dark backdrop for the camera
   return () => { for (const o of undo) o.visible = true; scene.background = bg; room.visible = roomV; };
