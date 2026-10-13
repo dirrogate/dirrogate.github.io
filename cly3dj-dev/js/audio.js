@@ -2,6 +2,7 @@
 // Channel strip: trim > HI/MID/LOW > filter (LP left, HP right) > [meter, cue] > fader > crossfader > master.
 
 export const PITCH_RANGE = 0.16;
+export const MIC_MAX = 10;   // #334 +20 dB
 
 const dbToGain = db => Math.pow(10, db / 20);
 
@@ -39,9 +40,14 @@ export class AudioEngine {
     this.duck = ctx.createGain();
     this.masterBus.connect(this.duck).connect(this.master).connect(this.limiter);
 
-    // Normal output: stereo master.
+    // Normal output (#334): the headphones get master + cue through the 🎧 MIX knob, with their own limiter.
+    // This is the DJ's private mix only; the stream tap (streamTrack) stays on the master limiter.
     this.normalOut = ctx.createGain();
-    this.limiter.connect(this.normalOut).connect(ctx.destination);
+    this.hpMaster = ctx.createGain(); this.hpCue = ctx.createGain(); this.hpBus = ctx.createGain(); this.hpLimiter = lim();
+    this.limiter.connect(this.hpMaster).connect(this.hpBus);
+    this.cueBus.connect(this.hpCue).connect(this.hpBus);   // before the cue limiter: the phones limiter takes the sum
+    this.hpBus.connect(this.hpLimiter).connect(this.normalOut).connect(ctx.destination);
+    this.setHpMix(0.5);
     // Split cue: master (mono) left ear, cue (mono) right ear.
     const mono = () => { const g = ctx.createGain(); g.channelCount = 1; g.channelCountMode = 'explicit'; g.channelInterpretation = 'speakers'; return g; };
     this.masterMono = mono(); this.cueMono = mono();
@@ -118,6 +124,12 @@ export class AudioEngine {
     return t;
   }
   streamStop() { if (this.streamDest) { try { this.limiter.disconnect(this.streamDest); } catch {} this.streamDest = null; } }
+  // #334 🎧 MIX: 0 = cue only, 0.5 = both at full level, 1 = master only (headphones only; master / stream untouched)
+  setHpMix(v) {
+    this._hpMix = v; if (!this.hpCue) return;
+    this._ramp(this.hpCue.gain, Math.min(1, 2 * (1 - v)));
+    this._ramp(this.hpMaster.gain, Math.min(1, 2 * v));
+  }
   setSplitCue(on) { this._ramp(this.normalOut.gain, on ? 0 : 1); this._ramp(this.splitOut.gain, on ? 1 : 0); }
 
   // ---- microphone (CLAUDE.md #60): mic -> 90 Hz high-pass -> gain -> voice pitch -> on/off -> master.
@@ -145,11 +157,14 @@ export class AudioEngine {
     return m;
   }
   setMicOn(on) { this._micOn = on; if (this.mic) this._ramp(this.mic.on.gain, on ? 1 : 0); this._applyDuck(); }
-  // MIC GAIN knob (owner, #62): left half = mic level from off to full (+6 dB at centre);
-  // right half = mic stays full and the music ducks under it, down to -24 dB at full right (only while MIC is on)
+  // MIC GAIN knob (owner, #62): left half = mic level from off to full; right half = mic stays full and the music
+  // ducks under it, down to -24 dB at full right (only while MIC is on).
+  // #334 (owner: needs a bigger boost): full is now +20 dB (was +6). Audio taper over the left half: off below 2 %,
+  // then -40 dB rising evenly in dB to +20 dB at the centre (0 dB at a third of the way from the centre, 2/3 of the half).
+  micGainOf(v) { if (v >= 0.5) return MIC_MAX; const x = v / 0.5; return x < 0.02 ? 0 : Math.pow(10, (-40 + 60 * x) / 20); }
   setMicGain(v) {
     this._micKnob = v;
-    this._micGain = v < 0.5 ? Math.pow(v / 0.5, 2) * 2 : 2;
+    this._micGain = this.micGainOf(v);
     if (this.mic) this._ramp(this.mic.gain.gain, this._micGain);
     this._applyDuck();
   }

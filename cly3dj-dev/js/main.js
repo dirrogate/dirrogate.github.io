@@ -771,7 +771,7 @@ const cueOn = [false, false];
 const MIXDEF = {
   'A.trim': 0.5, 'A.hi': 0.5, 'A.mid': 0.5, 'A.low': 0.5, 'A.filter': 0.5, 'A.pan': 0.5, 'A.fader': 0.8,
   'B.trim': 0.5, 'B.hi': 0.5, 'B.mid': 0.5, 'B.low': 0.5, 'B.filter': 0.5, 'B.pan': 0.5, 'B.fader': 0.8,
-  master: 0.8, xfader: 0, 'mic.gain': 0.5, 'mic.pitch': 0.5,
+  master: 0.8, xfader: 0, 'mic.gain': 0.5, 'mic.pitch': 0.5, hpmix: 0.5,   // #334 🎧 MIX (centre = cue + master both full)
 };
 const mixVal = { ...MIXDEF };
 
@@ -782,6 +782,7 @@ function applyMix(id) {
   if (id === 'xfader') return engine.setCrossfader(v);
   if (id === 'mic.gain') return engine.setMicGain(v);
   if (id === 'mic.pitch') return engine.setMicPitch(v);
+  if (id === 'hpmix') return engine.setHpMix(v);   // #334
   const [ch, what] = id.split('.'); const i = ch === 'A' ? 0 : 1;
   if (what === 'trim') engine.setTrim(i, v);
   else if (what === 'hi' || what === 'mid' || what === 'low') engine.setEQ(i, what, v);
@@ -808,9 +809,10 @@ function mixLabel(id) {
     case 'fader': return `${pre}Fader ${Math.round(v * 100)}%`;
     case 'master': return `Master ${Math.round(v * 100)}%`;
     case 'gain': if (settings.micRoute !== 'app') return v <= 0.5 ? 'Talkover: no duck (voice comes from the Quest / BeamXR mic)' : `Music ducks ${engine.micDuckDb(v).toFixed(0)} dB while MIC is on`;
-      return v <= 0.5 ? `Mic level ${v < 0.01 ? 'off' : (20 * Math.log10(Math.pow(v / 0.5, 2) * 2)).toFixed(1) + ' dB'}` : `Mic full, music ducks ${engine.micDuckDb(v).toFixed(0)} dB while MIC is on`;
+      return v < 0.5 ? `Mic level ${engine.micGainOf(v) <= 0 ? 'off' : (20 * Math.log10(engine.micGainOf(v)) >= 0 ? '+' : '') + (20 * Math.log10(engine.micGainOf(v))).toFixed(1) + ' dB'}` : `Mic full (+20 dB), music ducks ${engine.micDuckDb(v).toFixed(0)} dB while MIC is on`;   // #334
     case 'pitch': if (settings.micRoute !== 'app') return 'Voice pitch: only with Mic route "Through the mixer"';
     { const st = engine.micSemitones(v); return `Mic pitch ${st === 0 ? '0' : (st > 0 ? '+' : '') + st.toFixed(1)} semitones`; }
+    case 'hpmix': return `Headphones ${v < 0.03 ? 'cue only' : v > 0.97 ? 'master only' : Math.abs(v - 0.5) < 0.03 ? 'cue + master' : v < 0.5 ? 'more cue' : 'more master'} (stream untouched)`;   // #334
     case 'xfader': return `Crossfader ${v < -0.02 ? 'A ' + Math.round(-v * 100) : v > 0.02 ? 'B ' + Math.round(v * 100) : 'centre'}`;
   }
   return id;
