@@ -5,6 +5,7 @@
 //  * An index fingertip (or the controller tip) pokes buttons and the crate screen.
 //  * A fingertip resting on the vinyl holds it; moving it scratches.
 import * as THREE from 'three';
+import { applyNeon } from './neonenv.js';   // #355
 import { XRControllerModelFactory } from '../vendor/three/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from '../vendor/three/webxr/XRHandModelFactory.js';
 import { createControllerHand, driveGloveHand, gloveCap, gloveHide, chromePads, POSE as CTL_POSE } from './ctlhands.js';   // #276, #291
@@ -897,7 +898,7 @@ export function setupXR(ctx) {
   // puts the glove's index fingertip on the blue ball (#247). Measured: the glove's knuckle width 6.4 cm and middle finger
   // 9.9 cm against the generic hand's 6.0 / 8.6 cm, so it is drawn at 94 %; its palm (wrist to knuckles 14.1 cm, a hand's
   // ~9 cm) is long because it carries a cuff, which then sits back over the wrist.
-  const GLOVE_SCALE = 1.1;   // #301 (owner: smaller than my real hands) was 0.94
+  const GLOVE_SCALE = 1.0;   // #301 1.1 (was 0.94); #355 the size is HAND FIT > GLOVE SIZE (adj.gs %, default 94 = the robot avatar's own, as in the carousel renders)
   let glove = null, gloveLoading = false;
   function gloveFor(st) {
     if (glove && glove.ready) return glove;
@@ -907,12 +908,12 @@ export function setupXR(ctx) {
         const holder = new THREE.Group(); holder.name = 'gloves'; scene.add(holder);
         const a = new R.RobotAvatar2(holder);
         return a.load(R.ROBOT_GLB).then(() => {
-          const keep = new Set(); for (const H of a.hands) { H.node.traverse(o => keep.add(o)); H.node.scale.multiplyScalar(GLOVE_SCALE); }
+          const keep = new Set(); for (const H of a.hands) { H.node.traverse(o => keep.add(o)); H.node.userData.s0 = H.node.scale.clone().multiplyScalar(GLOVE_SCALE); }
           a.root.traverse(o => { if (o.isMesh) { if (keep.has(o)) { o.layers.set(0); o.castShadow = false; o.frustumCulled = false; o.material = o.material.clone(); o.material.side = THREE.DoubleSide; chromePads(o.material); } else o.visible = false; } });   // #302 inside drawn too
           for (const H of a.hands) { const ng = gloveCap(H); if (ng) H.mesh.geometry = ng; }   // #303 smooth + capped; #312 each glove its own (since the Blender export the two meshes differ: sharing the left's stretched the right's fingers)   // #302 the cuff closed
           if (a.headBone) a.headBone.visible = false;   // the cup crests hang off it
           for (const H of a.hands) { H.vis = 0; if (H.mesh) H.mesh.visible = false; }
-          glove = a;
+          glove = a; gloveLook();
         });
       }).catch(e => { console.warn('glove', e); });
     }
@@ -930,8 +931,15 @@ export function setupXR(ctx) {
   }
   // #291 HAND FIT: the owner's move / turn of the 3D hands (and glove) on the controllers, saved
   try { const a = JSON.parse(localStorage.getItem('vire.handFit') || 'null'); if (a) Object.assign(CTL_POSE.adj, a); } catch (e) {}
+  // #355 GLOVE SIZE and NEON CHROME (kept with the HAND FIT values, so the phone gets them too)
+  function gloveLook() {
+    if (!glove) return; const A = CTL_POSE.adj, k = (A.gs || 94) / 100;
+    for (const H of glove.hands) if (H.node.userData.s0) H.node.scale.copy(H.node.userData.s0).multiplyScalar(k);
+    applyNeon(glove.root, renderer, A.neon !== 0);
+  }
   function setHandFit(k, v) {
     CTL_POSE.adj[k] = v; try { localStorage.setItem('vire.handFit', JSON.stringify(CTL_POSE.adj)); } catch (e) {}
+    if (k === 'gs' || k === 'neon') gloveLook();
     for (const st of inputs) if (st.ctlHand) { st.ctlHand.place(); st.ctlHand.cur = ''; }
   }
   function setCtlLook(v) { ctlLook = v; try { localStorage.setItem('vire.ctlLook', v); } catch (e) {} }

@@ -6,6 +6,7 @@
 // Later: realistic human hand textures.
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
+import { applyNeon } from './neonenv.js';   // #355
 import { createControllerHand, driveGloveHand, gloveCap, gloveHide, chromePads, POSE } from './ctlhands.js';
 
 const SPEC = ['wrist', 'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
@@ -14,7 +15,7 @@ const NEXT = {}; for (let i = 0; i < SPEC.length; i++) { const n = SPEC[i]; if (
 const PROF = new URL('../vendor/webxr-input-profiles', import.meta.url).href;
 const SKIN = new THREE.MeshStandardMaterial({ color: 0xbe8969, roughness: 0.55, metalness: 0 });   // as xr.js (#269)
 
-export function makePhoneHands(rig) {
+export function makePhoneHands(rig, renderer) {   // #355 renderer: for the NEON CHROME environment
   const sides = [0, 1].map(() => ({ ctl: null, trk: null, model: null, seen: 0, kind: '', hd: '' }));
   let look = '3dhands', glove = null, gloveLoading = false, loader = new GLTFLoader();
   const models = {};   // handedness -> controller model scene (loaded once)
@@ -26,12 +27,12 @@ export function makePhoneHands(rig) {
         const holder = new THREE.Group(); rig.add(holder);
         const a = new R.RobotAvatar2(holder);
         return a.load(R.ROBOT_GLB).then(() => {
-          const keep = new Set(); for (const H of a.hands) { H.node.traverse(o => keep.add(o)); H.node.scale.multiplyScalar(1.1); }   // #287 sizes, #301 1.1
+          const keep = new Set(); for (const H of a.hands) { H.node.traverse(o => keep.add(o)); H.node.userData.s0 = H.node.scale.clone(); }   // #287 sizes, #301 1.1; #355 size from HAND FIT (gs %)
           a.root.traverse(o => { if (o.isMesh) { if (keep.has(o)) { o.layers.set(0); o.frustumCulled = false; o.material = o.material.clone(); o.material.side = THREE.DoubleSide; chromePads(o.material); } else o.visible = false; } });   // #302
           for (const H of a.hands) { const ng = gloveCap(H); if (ng) H.mesh.geometry = ng; }   // #303 smooth + capped; #312 each glove its own (since the Blender export the two meshes differ: sharing the left's stretched the right's fingers)
           if (a.headBone) a.headBone.visible = false;
           for (const H of a.hands) { H.vis = 0; if (H.mesh) H.mesh.visible = false; }
-          glove = a;
+          glove = a; gloveLook();
         });
       }).catch(e => console.warn('phone glove', e));
     }
@@ -120,8 +121,13 @@ export function makePhoneHands(rig) {
     }
   }
   let fitKey = '';
+  function gloveLook() {   // #355 GLOVE SIZE + NEON CHROME, as on the Quest
+    if (!glove) return; const k = (POSE.adj.gs || 94) / 100;
+    for (const H of glove.hands) if (H.node.userData.s0) H.node.scale.copy(H.node.userData.s0).multiplyScalar(k);
+    applyNeon(glove.root, renderer, POSE.adj.neon !== 0);
+  }
   function fit(a) {   // #291 the DJ's HAND FIT values: same offsets here, hands re-placed when they change
-    const k = JSON.stringify(a); if (k === fitKey) return; fitKey = k; Object.assign(POSE.adj, a);
+    const k = JSON.stringify(a); if (k === fitKey) return; fitKey = k; Object.assign(POSE.adj, a); gloveLook();
     for (const S of sides) for (const h of [S.ctl, S.trk]) if (h) { h.place(); h.cur = ''; }
   }
   return { update, frame, fit, get look() { return look; } };
