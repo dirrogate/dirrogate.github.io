@@ -12,8 +12,9 @@ import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose, AV_LAYER } from './direct
 import { Streamer, SOURCES as STREAM_SRC, streamKey } from './stream.js';   // #331 LIVE STREAM (Twitch)
 import { GoPro, ZOOMS as GOPRO_ZOOMS } from './gopro.js';   // #337 movable camera for SHOW / AVACAM
 import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #340 Twitch chat
-import { Portal } from './portal.js';   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later)
-import { FacetWall } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
+import { Portals } from './portal.js';   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
+import { FacetWall, WALL_DEF } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
+import { Beat } from './beat.js';   // #346 bass onsets on the master for the wall's BEAT
 import { RobotAvatar } from './robot.js';
 import { RobotAvatar2, ROBOT_GLB } from './robot2.js';   // #245 the licensed AvatarRobot (EntroPi Games)
 import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, labelFrom, blankWav } from './tools.js';
@@ -94,6 +95,8 @@ const KEY_POS = key.position.clone();
 // because the rig is moved by (-0.05, 0, -0.62) in the headset. With real-time shadows a shadow-only floor
 // catches the gear's shadows on the panorama's floor (the studio floor is hidden then).
 const skybox = new Skybox(renderer); rig.add(skybox.group); skybox.group.position.x = 0.05; skybox.group.position.z = 0.62;
+// #346 DOME (PORTALS SETUP): the same grounded sky, shown even in passthrough and with any light setting, sized 3-20 m
+const dome = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.dome') || 'null'); } catch {} return { on: !!(s && s.on), r: Math.min(20, Math.max(3, (s && s.r) || 10)) }; })();
 const skyShadow = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.ShadowMaterial({ opacity: 0.4 }));
 skyShadow.rotation.x = -Math.PI / 2; skyShadow.position.y = 0.001; skyShadow.receiveShadow = true; skyShadow.visible = false; skyShadow.raycast = () => {};
 rig.add(skyShadow);
@@ -653,19 +656,40 @@ if (chatPanel && chatPanel.on) chatPanel.draw(chat, chatRedraw);
 // hiding the real room from the passthrough camera, with a real-world window (PORTAL) cut into it -- park that over
 // the owner's own floor mirror so the stream still shows him, through the backdrop. Forward-facing only: it does not
 // wrap behind the DJ, so turning around still shows the real wall/sofa beyond it (chalkboard / chat territory).
+// #346 (owner): PORTALS = up to 6 frames, each any rectangle; PORTALS SETUP (STREAM page) sets the wall (wrap up to 360
+// deg round the DJ, height, distance, fractal speed / colour cycle, BEAT), how many frames, and the sky DOME.
 const facetWall = CAMERA_ROLE ? null : new FacetWall(rig, renderer, () => ({ p: new THREE.Vector3(mixer.position.x, 0, mixer.position.z + 0.3), yaw: 0 }));   // arc centre by the DJ, panels out in front (the DJ faces -z)
-const portal = CAMERA_ROLE ? null : new Portal(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 0.1, mixer.position.z - 1.3), yaw: 0 }));   // just in front of the wall's centre panel
-if (facetWall && portal) portal.cutInto(facetWall.obj);   // the portal always punches through the backdrop; cutInto() can be called again on any future glb room
-let wallTapT = 0, portalTapT = 0;
+const portals = CAMERA_ROLE ? null : new Portals(rig, i => {   // frame i's start spot, 25 cm in front of the wall: the first in the middle (over the mirror), then 28 deg right, left, right...
+  const o = facetWall && facetWall.obj, rr = (facetWall ? facetWall.val('r') : 1.85) - 0.25, a = (i ? (i % 2 ? 1 : -1) * Math.ceil(i / 2) : 0) * 28 * Math.PI / 180;
+  const yaw0 = o ? new THREE.Euler().setFromQuaternion(o.quaternion, 'YXZ').y : 0, bx = o ? o.position.x : mixer.position.x, bz = o ? o.position.z : mixer.position.z + 0.3;
+  const p = new THREE.Vector3(Math.sin(a) * rr, deckGroups[0].position.y + DECK.H + 0.1, -Math.cos(a) * rr).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw0);
+  return { p: p.add(new THREE.Vector3(bx, 0, bz)), yaw: yaw0 - a };
+});
+if (portals) { if (facetWall) portals.cutInto(facetWall.obj); portals.cutInto(skybox.group); }   // the windows punch through the backdrop and the dome; cutInto() again for any future glb room
+let wallTapT = 0, portalTapT = 0, portalDefArm = 0, beat = null, domeBoot = true;
 function wallTap() {   // tap = backdrop on / off; double-tap = back to its start spot and mode
   if (!facetWall) return; const now = performance.now();
   if (now - wallTapT < 350) { wallTapT = 0; facetWall.reset(); facetWall.setOn(true); toast('Backdrop back at the start', 1500); drawMixScreen(); return; }
   wallTapT = now; facetWall.setOn(!facetWall.on); drawMixScreen();
 }
-function portalTap() {   // tap = window on / off; double-tap = back to its start spot over the mirror
-  if (!portal) return; const now = performance.now();
-  if (now - portalTapT < 350) { portalTapT = 0; portal.reset(); portal.setOn(true); toast('Portal back at the start', 1500); drawMixScreen(); return; }
-  portalTapT = now; portal.setOn(!portal.on); drawMixScreen();
+function portalsTap() {   // tap = every frame on / off; double-tap = every frame back to its start spot (and size), on
+  if (!portals) return; const now = performance.now();
+  if (now - portalTapT < 350) { portalTapT = 0; portals.reset(); portals.setOn(true); toast('Portals back at the start', 1500); drawMixScreen(); return; }
+  portalTapT = now; portals.setOn(!portals.on); drawMixScreen();
+}
+function saveDome() { try { localStorage.setItem('vire.dome', JSON.stringify(dome)); } catch {} }
+async function setDome(on) {   // the sky picked on VISUALS (PANO > SKY) as a dome round the booth; loads it if it isn't yet
+  dome.on = !!on; saveDome();
+  if (dome.on && !skybox.tex) { try { await ensureSky(true); } catch (e) { console.warn('dome sky', e); } }
+  applySky(); drawMixScreen();
+}
+function setDomeSize(r) { dome.r = Math.min(20, Math.max(3, Math.round(r))); saveDome(); applySky(); }
+function portalDefaults() {   // two taps: wall shape, fractal speed / colour cycle and dome size back to their defaults
+  if (performance.now() - portalDefArm < 3000) {
+    portalDefArm = 0; if (facetWall) for (const k of Object.keys(WALL_DEF)) facetWall.set(k, WALL_DEF[k]);
+    setDomeSize(10); toast('Wall and dome back to their default shape', 1500);
+  } else { portalDefArm = performance.now(); setTimeout(drawMixScreen, 3100); }
+  drawMixScreen();
 }
 function saveLayout() { stage.save(); }
 // #84 migration: layouts saved with the second flight case had the record crate standing on it; with that case
@@ -4283,7 +4307,7 @@ function drawToolsPage() {
       if (S.live) { if (performance.now() - (streamEndArm || 0) < 2500) { streamEndArm = 0; S.stop(); } else { streamEndArm = performance.now(); setTimeout(drawMixScreen, 2600); } drawMixScreen(); }
       else S.start();
     };
-    const hint = `Sends the MASTER mix (and the MIC when it goes through the mixer); CUE never reaches the stream. Key ${S.keyHint()}${S.hasKey() ? '' : ': enter it on the start page'}. SHOWTIME! and AVACAM film from the AVACAM angle (GOPRO = the movable camera: grip it to move it, double-tap GOPRO = back to the start). VISUALS = whatever the VISUALS pages are playing (VJ SETUP). ROBOT and GEAR off = visuals only, nearly free. WALL: a backdrop beyond the booth hiding the real room (FRACTAL or SCREEN = VIDEOWALL content), grip to reposition, double-tap = back to its spot. PORTAL: a real window cut into WALL -- park it over your own mirror so the stream still shows you.`;
+    const hint = `Sends the MASTER mix (and the MIC when it goes through the mixer); CUE never reaches the stream. Key ${S.keyHint()}${S.hasKey() ? '' : ': enter it on the start page'}. SHOWTIME! and AVACAM film from the AVACAM angle (GOPRO = the movable camera: grip it to move it, double-tap GOPRO = back to the start). VISUALS = whatever the VISUALS pages are playing (VJ SETUP). ROBOT and GEAR off = visuals only, nearly free. PORTALS: real windows cut through the backdrop wall and the sky dome -- park one over your own mirror so the stream still shows you; PORTALS SETUP = the wall, how many windows, the dome.`;
     // #336 / #338 SHOWTIME! layer toggles
     const O = S.showOpt, sw3 = S.source === 'show';
     const opts = [['visuals', 'VISUALS', sw3], ['robot', 'ROBOT', sw3], ['gear', 'GEAR', sw3], ['scroll', 'SCROLLER', sw3], ['np', 'NOW PLAYING', sw3], ['logo', 'LOGO', sw3], ['chat', 'CHAT', sw3]];
@@ -4300,10 +4324,9 @@ function drawToolsPage() {
       btn(L, y0 + 460, tw3, 50, gopro && gopro.on ? 'GOPRO: ON' : 'GOPRO', !!(gopro && gopro.on), goproTap, !gopro, 17);
       btn(L + tw3 + 8, y0 + 460, tw3, 50, gopro ? GOPRO_ZOOMS[gopro.zoom].label : 'ZOOM', false, gopro && gopro.on ? () => { gopro.nextZoom(); drawMixScreen(); } : null, !(gopro && gopro.on), 17);
       btn(L + 2 * (tw3 + 8), y0 + 460, tw3, 50, 'CAM FIT', false, () => setTools('streamfit'), false, 17);   // #333
-      // #345 WALL (the faceted backdrop): tap on/off, double-tap = back to its spot. MODE flips FRACTAL <-> SCREEN (VIDEOWALL). PORTAL: tap on/off, double-tap = back over the mirror.
-      btn(L, y0 + 520, tw3, 50, facetWall && facetWall.on ? 'WALL: ON' : 'WALL', !!(facetWall && facetWall.on), wallTap, !facetWall, 17);
-      btn(L + tw3 + 8, y0 + 520, tw3, 50, facetWall ? facetWall.mode.toUpperCase() : 'MODE', false, facetWall && facetWall.on ? () => { facetWall.toggleMode(); drawMixScreen(); } : null, !(facetWall && facetWall.on), 17);
-      btn(L + 2 * (tw3 + 8), y0 + 520, tw3, 50, portal && portal.on ? 'PORTAL: ON' : 'PORTAL', !!(portal && portal.on), portalTap, !portal, 17);
+      // #346 PORTALS: tap on / off, double-tap = back to their spots; PORTALS SETUP = the wall, the frames, the dome
+      btn(L, y0 + 520, tw3, 50, portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), portalsTap, !portals, 17);
+      btn(L + tw3 + 8, y0 + 520, 2 * tw3 + 8, 50, 'PORTALS SETUP', false, portals ? () => setTools('portals') : null, !portals, 17);
       note(hint, y0 + 590);
     } else {
       const bw = (R - L - 40) / 6;
@@ -4318,11 +4341,10 @@ function drawToolsPage() {
       btn(x2, y0 + 130, w2, 54, gopro && gopro.on ? 'GOPRO: ON' : 'GOPRO', !!(gopro && gopro.on), goproTap, !gopro, 17);   // #337 tap / double-tap
       btn(x2 + w2 + 8, y0 + 130, w3, 54, gopro ? GOPRO_ZOOMS[gopro.zoom].label : 'ZOOM', false, gopro && gopro.on ? () => { gopro.nextZoom(); drawMixScreen(); } : null, !(gopro && gopro.on), 15);
       btn(x2 + w2 + w3 + 16, y0 + 130, w4, 54, 'CAM FIT', false, () => setTools('streamfit'), false, 16);   // #333
-      // #345 WALL (faceted backdrop) / MODE (FRACTAL <-> SCREEN) / PORTAL (the real-world window cut into it)
+      // #346 PORTALS (tap on / off, double-tap = back to their spots) / PORTALS SETUP
       { const w6 = (R - L - 16) / 3;
-        btn(L, y0 + 192, w6, 48, facetWall && facetWall.on ? 'WALL: ON' : 'WALL', !!(facetWall && facetWall.on), wallTap, !facetWall, 16);
-        btn(L + w6 + 8, y0 + 192, w6, 48, facetWall ? facetWall.mode.toUpperCase() : 'MODE', false, facetWall && facetWall.on ? () => { facetWall.toggleMode(); drawMixScreen(); } : null, !(facetWall && facetWall.on), 16);
-        btn(L + 2 * (w6 + 8), y0 + 192, w6, 48, portal && portal.on ? 'PORTAL: ON' : 'PORTAL', !!(portal && portal.on), portalTap, !portal, 16); }
+        btn(L, y0 + 192, w6, 48, portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), portalsTap, !portals, 16);
+        btn(L + w6 + 8, y0 + 192, 2 * w6 + 8, 48, 'PORTALS SETUP', false, portals ? () => setTools('portals') : null, !portals, 16); }
       note(hint, y0 + 264);
     }
     return;
@@ -4344,6 +4366,57 @@ function drawToolsPage() {
     const cy = y0 + 2 * bh + (P ? 40 : 14);
     if (!chat.msgs.some(m => !m.sys)) note('No messages yet. Read-only: replies from the headset need a Twitch login (later). PANEL: a chat screen in the room, grip / pinch to move it, double-tap PANEL = back to its spot. ON STREAM: chat on the right of SHOWTIME!.', cy + 60);
     else drawChat(g, L, cy, R - L, H - cy - (P ? 28 : 6), chat.msgs, { fs: P ? 17 : 16, bg: '#0a0c12', onEmote: chatRedraw });
+    return;
+  }
+  if (page === 'portals') {   // #346 PORTALS SETUP: the real-world windows, the wall they cut, the sky dome behind it
+    const y0 = head(P ? 'PORTALS' : 'PORTALS SETUP', 'stream'), WL = facetWall, PS = portals;
+    if (!WL || !PS) { note('Portals run on the headset (not on the phone).', y0 + 20); return; }
+    const defArm = performance.now() - portalDefArm < 3000;
+    const toggles = [
+      [PS.on ? 'PORTALS: ON' : 'PORTALS', PS.on, portalsTap],
+      [WL.on ? 'WALL: ON' : 'WALL', WL.on, wallTap],
+      [WL.mode === 'screen' ? 'SCREEN' : 'FRACTAL', false, () => { WL.toggleMode(); drawMixScreen(); }],
+      [WL.beat ? 'BEAT: ON' : 'BEAT', WL.beat, () => { WL.setBeat(!WL.beat); drawMixScreen(); }],
+      [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)],
+      [defArm ? 'TAP AGAIN' : 'DEFAULTS', defArm, portalDefaults],
+    ];
+    const cells = [
+      ['PORTALS', `${PS.n}`, d => { PS.setCount(PS.n + d); if (!PS.on) PS.setOn(true); }],
+      ['WRAP', `${WL.val('arc')}°`, d => WL.step('arc', d)],
+      ['HEIGHT', `${WL.val('h').toFixed(2)} m`, d => WL.step('h', d)],
+      ['DISTANCE', `${WL.val('r').toFixed(2)} m`, d => WL.step('r', d)],
+      ['DOME SIZE', `${dome.r} m`, d => setDomeSize(dome.r + d)],
+      ['FRACTAL SPEED', `${WL.val('speed')}x`, d => WL.step('speed', d)],
+      ['COLOUR CYCLE', `${WL.val('cycle')}x`, d => WL.step('cycle', d)],
+    ];
+    const cell = ([label, val, act], x, y, w, h) => {
+      g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
+      const by = y + 15, bh = h - 15, bw = 40;
+      btn(x, by, bw, bh, '−', false, () => { act(-1); drawMixScreen(); });
+      let fs = 17; g.font = `700 ${fs}px system-ui`; while (fs > 11 && g.measureText(val).width > w - 2 * bw - 6) g.font = `700 ${--fs}px system-ui`;
+      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + w / 2, by + bh / 2); g.textBaseline = 'alphabetic';
+      btn(x + w - bw, by, bw, bh, '+', false, () => { act(1); drawMixScreen(); });
+    };
+    const warn = dome.on && !skybox.tex ? 'DOME: no sky picked yet. On VISUALS > PANO pick a panorama or video pano and tap SKY.' : '';
+    const help = 'Frames: grip to move; trigger / pinch the silver side handle = width, top handle = height, corner L = both. Double-tap PORTALS or WALL = back to the start. DOME = the VISUALS sky, also in passthrough; the portals cut through the wall and the dome.';
+    const text = (x, y, w, lh, max, fs) => {
+      g.textAlign = 'left'; g.font = `500 ${fs}px system-ui`; let n = 0;
+      if (warn) { g.fillStyle = '#f1b650'; n = wrapText(g, warn, x, y, w, lh, 2); }
+      g.fillStyle = '#8c96a8'; wrapText(g, help, x, y + n * lh, w, lh, max - n);
+    };
+    if (P) {
+      const tw = (R - L - 8) / 2;
+      toggles.forEach(([lb, on, act], i) => btn(L + (i % 2) * (tw + 8), y0 + Math.floor(i / 2) * 52, tw, 46, lb, on, act, false, 17));
+      const y1 = y0 + 3 * 52 + 6;
+      cells.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 60, tw, 56));
+      text(L + 4, y1 + 4 * 60 + 18, R - L - 8, 20, 9, 15);
+    } else {
+      const tw = (R - L - 30) / 6;
+      toggles.forEach(([lb, on, act], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, false, 15));
+      const cw = (R - L - 24) / 4, y1 = y0 + 48;
+      cells.forEach((c, i) => cell(c, L + (i % 4) * (cw + 8), y1 + Math.floor(i / 4) * 48, cw, 44));
+      text(L + 4, y1 + 2 * 48 + 14, R - L - 8, 17, 4, 13);
+    }
     return;
   }
   if (page === 'streamfit') {   // #333 line the gear up with the headset camera picture (HEADSET CAM source)
@@ -4924,8 +4997,13 @@ function frame() {
     gopro.setTally(!!(streamer && streamer.state === 'live' && (streamer.source === 'show' || streamer.source === 'avacam')));
     if (gopro.on) gopro.setView(showLive && streamer.ly && streamer.layerOk ? streamer.ly.out.texture : (ledMode === 'cam' || gopro.aiming || (streamer && streamer.needsCamRT)) && djcam ? djcam.rt.texture : null, !showLive, showLive);
   }
-  if (facetWall) facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource);   // #345
-  if (portal) portal.tick();   // #345
+  if (facetWall) {   // #345; #346 BEAT: bass onsets on the master, read only while the wall is on with BEAT
+    if (!beat) beat = new Beat(engine);
+    beat.want = facetWall.on && facetWall.beat;
+    facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource, beat.tick(dt));
+  }
+  if (portals) portals.tick();   // #345 #346
+  if (domeBoot) { domeBoot = false; if (dome.on && !CAMERA_ROLE) setDome(true); }   // #346 a dome left on last time: load its sky once everything is up
   if ((ledMode === 'cam' || (streamer && streamer.wantsCam) || (gopro && gopro.aiming)) && djcam) stepDjCam(dt);   // #220 (#331 also while the stream shows AVACAM)
   if (streamer) streamer.tick();   // #331
   renderer.render(scene, camera);
@@ -4971,7 +5049,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack,
   REC, DECK, CRATE, ARM,
-  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, props: [gopro, chatPanel, portal, facetWall].filter(Boolean),   // #337 #340 #345
+  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, chatPanel, ...(portals ? portals.active() : []), facetWall].filter(Boolean); },   // #337 #340 #345 #346 (every portal frame that is out)
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
   scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
@@ -5010,7 +5088,7 @@ async function begin(mode) {
     xr.setHandMode('3d');   // #268 (owner): no passthrough cut-out for tracked hands; always the 3D hands
     // passthrough rooms are much dimmer than the studio environment: tone reflections down so metal isn't self-lit
     arMode = mode === 'immersive-ar';
-    if (mode === 'immersive-ar') { scene.background = null; room.visible = false; skybox.group.visible = skyShadow.visible = false; scene.environmentIntensity = settings.arRefl / 100; }
+    if (mode === 'immersive-ar') { scene.background = null; room.visible = false; skybox.group.visible = skyShadow.visible = false; scene.environmentIntensity = settings.arRefl / 100; if (dome.on) applySky(); }   // #346 the dome shows in passthrough
     else applySky();   // #182: stereo panoramas split per eye while presenting   // #180: was a fixed 0.28, now Settings > Reflections in passthrough (default 60 %)
     tidyRecords();   // #242 every VR / passthrough start: records lying about go back into the crate
     session.addEventListener('end', () => { rigAnchor = null; anchorPending = false; rig.rotation.set(0, 0, 0); arMode = false; applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
@@ -5054,8 +5132,8 @@ async function useSkyFile(f, fresh) {
   else skybox.setImage(null);
   skyInfo(dims, L); applySky();
 }
-async function ensureSky() {   // full-size panorama from storage, loaded when first shown
-  if (skybox.tex || settings.env !== 'image') return;
+async function ensureSky(force) {   // full-size panorama from storage, loaded when first shown (#346 force: for the DOME, whatever the light setting)
+  if (skybox.tex || (settings.env !== 'image' && !force)) return;
   if (settings.skyMedia) {   // #185 chosen from the media library (mixer Video page)
     const i = settings.skyMedia.indexOf('/'), folder = settings.skyMedia.slice(0, i), f = await media.getFile(folder, settings.skyMedia.slice(i + 1));
     if (f) { if (folder === 'Video pano') await useSkyVideo(f); else await useSkyFile(f, false); return; }
@@ -5100,13 +5178,15 @@ const DEG = Math.PI / 180;
 function applySky() {
   const want = !arMode && settings.env === 'image' && settings.sky === 'on';
   const full = want && !!skybox.tex, bg = want && !full && envLight.skyTex;
+  const domeOn = !CAMERA_ROLE && dome.on && !!skybox.tex;   // #346 the DOME: this sky in any mode, passthrough too, at its own size
   scene.background = arMode ? null : bg ? envLight.skyTex : full ? null : BG;
-  skybox.group.visible = full; skyShadow.visible = full;
-  if (skyVid) { if (full) skyVid.play().catch(() => {}); else skyVid.pause(); }   // #185 video pano only decodes while shown
+  skybox.group.visible = full || domeOn; skyShadow.visible = full;
+  skybox.setRadius(domeOn ? dome.r : 20);
+  if (skyVid) { if (full || domeOn) skyVid.play().catch(() => {}); else skyVid.pause(); }   // #185 video pano only decodes while shown
   skybox.setStereo(renderer.xr.isPresenting);
-  room.visible = !arMode && !full && !bg;
+  room.visible = !arMode && !full && !bg && !domeOn;
   const turn = settings.env === 'image' ? settings.skyTurn * DEG : 0;
-  skybox.setTurn(turn); scene.environmentRotation.set(0, turn, 0); scene.backgroundRotation.set(0, turn, 0);
+  skybox.setTurn(domeOn ? settings.skyTurn * DEG : turn); scene.environmentRotation.set(0, turn, 0); scene.backgroundRotation.set(0, turn, 0);
   // key light from the picture's brightest area (windows, lamps), at least 35 deg up so shadows stay short
   if (full && settings.skyKey === 'on' && skyKeyLight) {
     const d = skyKeyLight.dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), turn);
@@ -5296,7 +5376,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chatPanelTap, facetWall, wallTap, portal, portalTap, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
