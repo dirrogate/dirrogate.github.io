@@ -49,12 +49,13 @@ class Pipe {
   // #238 LIVE CAM (phone side): the video slot made with the offer, so the picture starts and stops mid-set without
   // a new handshake. Capped at 2 Mbit/s and 30 fps, lowest priority (the gear data on 'state' goes first), and on a
   // weak link it keeps the frame rate and softens the picture instead.
-  async setVideo(track) {
+  // #347 kbps: PHONE CAM asks for more (3 Mbit/s plain, 4 Mbit/s for the packed green-screen frame)
+  async setVideo(track, kbps = 2000) {
     const tx = this.vtx; if (!tx) return false;
     await tx.sender.replaceTrack(track || null);
     if (track) try {
       const p = tx.sender.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}];
-      Object.assign(p.encodings[0], { maxBitrate: 2000000, maxFramerate: 30, priority: 'very-low', networkPriority: 'very-low' });
+      Object.assign(p.encodings[0], { maxBitrate: kbps * 1000, maxFramerate: 30, priority: 'very-low', networkPriority: 'very-low' });
       p.degradationPreference = 'maintain-framerate';
       await tx.sender.setParameters(p);
     } catch (e) { console.warn('live cam params', e); }
@@ -137,6 +138,6 @@ export function spectatorLink(code, handlers) {
   return { send: (l, o) => !!pipe && pipe.send(l, o), get isOpen() { return !!pipe && pipe.isOpen; }, get fileOpen() { return !!pipe && pipe.fileOpen; },
     sendBin: buf => pipe ? pipe.sendBin(buf) : Promise.reject(new Error('not connected')),
     sendPrev: buf => !!pipe && pipe.sendPrev(buf),
-    setVideo: t => pipe ? pipe.setVideo(t) : Promise.resolve(false),   // #238
+    setVideo: (t, kbps) => pipe ? pipe.setVideo(t, kbps) : Promise.resolve(false),   // #238
     close() { relay.close(); if (pipe) pipe.close(); } };
 }

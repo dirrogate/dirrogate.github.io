@@ -102,7 +102,9 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
   function camState() {
     if (!S.on || !S.crop || !S.pose) return null;
     const c = S.crop, fovV = 2 * Math.atan(Math.tan(S.pose.fov * DEG / 2) * c.h / S.vh);
-    return { p: S.pose.p, q: camera.quaternion.toArray().map(v => +v.toFixed(4)), fov: fovV, asp: c.w / c.h };
+    // #347 ff / vw / vh: the FULL video's vertical fov and size, so the Quest's PHONE CAM can draw the gear exactly over
+    // the whole frame the phone sends (the crop above only matches this phone's own screen)
+    return { p: S.pose.p, q: camera.quaternion.toArray().map(v => +v.toFixed(4)), fov: fovV, asp: c.w / c.h, ff: S.pose.fov, vw: S.vw, vh: S.vh };
   }
 
   // ---------------------------------------------------------------- start / stop

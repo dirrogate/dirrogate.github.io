@@ -8,7 +8,7 @@
 // eye the other (three.js XR layers 1 and 2); on the desktop and in recordings only the left eye is used.
 import * as THREE from 'three';
 
-const R = 20;               // sphere radius (m): inside the camera's 30 m far plane
+const R = 20;               // default sphere radius (m): inside the camera's 30 m far plane
 const MAX_PIX = 8192 * 4096; // biggest texture kept (about 180 MB with mipmaps); larger files are scaled down
 
 const VERT = /* glsl */`
@@ -88,7 +88,7 @@ export class Skybox {
   constructor(renderer) {
     this.maxTex = Math.min(16384, renderer.capabilities.maxTextureSize || 8192);
     this.group = new THREE.Group(); this.group.visible = false; this.group.name = 'skybox';
-    this.height = 1.5; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.tex = null;
+    this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.tex = null;
     this.mats = [0, 1].map(() => new THREE.ShaderMaterial({
       uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) } },
       vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthWrite: false, toneMapped: false,
@@ -103,7 +103,7 @@ export class Skybox {
   // Rebuild the flattened sphere for a new camera height (32k vertices, a few ms).
   setHeight(h) {
     this.height = h = Math.max(0.2, h);
-    const g = new THREE.SphereGeometry(R, 256, 128), pos = g.getAttribute('position'), v = new THREE.Vector3();
+    const g = new THREE.SphereGeometry(this.radius, 256, 128), pos = g.getAttribute('position'), v = new THREE.Vector3();
     const y1 = -h * 1.5;   // below this the sphere lies flat on the floor; between it and the horizon it curves down smoothly
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i); if (v.y >= 0) continue;
@@ -115,6 +115,9 @@ export class Skybox {
     this.geo = g; if (this.meshes) this.meshes.forEach(m => { m.geometry = g; });
     this.group.position.y = h;
   }
+  // #346 DOME SIZE (PORTALS SETUP): a smaller sphere brings the walls in (3 m = a room round the booth); the floor
+  // stays flat at the pano's camera height, so the gear still stands on it
+  setRadius(r) { r = Math.min(R, Math.max(3, r)); if (r === this.radius) return; this.radius = r; this.setHeight(this.height); }
   fit(w, h) {   // size the texture may have (GPU limit and memory cap)
     const k = Math.min(1, this.maxTex / w, this.maxTex / h, Math.sqrt(MAX_PIX / (w * h)));
     return [Math.round(w * k), Math.round(h * k)];

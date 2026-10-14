@@ -395,7 +395,7 @@ export function setupXR(ctx) {
     }
     // 5. digging: pinch inside the crate and move along the rack to flip, lift out to pull
     if (lidOpen && Math.abs(cl.x) < C.W / 2 && Math.abs(cl.z) < C.D / 2 && cl.y > 0.05 && cl.y < C.H + 0.15) {
-      st.direct = { kind: 'dig', y0: cl.y }; digTo(cl.z); buzz(st); return true;
+      st.direct = { kind: 'dig', y0: cl.y, zRef: cl.z, py: cl.y, pz: cl.z }; buzz(st); return true;   // #350 relative: no jump on the pinch
     }
     // 6. gear bodies, flight-case bottom handles (resize), flight-case bodies (move)
     // #253 (owner): moving, turning, tilting and resizing stage items (decks, mixer, crates, milk crates, LED wall,
@@ -497,12 +497,29 @@ export function setupXR(ctx) {
     ctx.stage.resize(R.key, R.axis === 'x' ? R.W0 + sep - R.sep0 : c.W, R.axis === 'z' ? R.D0 + sep - R.sep0 : c.D, R.H0 + dH, null);
   }
 
-  function digTo(localZ) {
-    const C = ctx.CRATE; const front = C.D / 2 - 0.03;
-    const k = Math.round((front - localZ) / C.pitch);
-    const idx = ctx.sleeveMap[Math.max(0, Math.min(C.slots - 1, k))];
-    if (idx >= 0 && idx !== ctx.crateState.sel) { ctx.crateState.sel = idx; ctx.drawCrateScreen(); ctx.layoutSleeves(); }
+  // #350 finger-walking (owner): records step one at a time as the hand travels along the rack, relative to where it
+  // started (no jump to the slot under the hand). Back (away from the DJ) = the next record, toward you = the previous.
+  // Mostly-vertical motion (reaching down to grab) doesn't count, so going for the current sleeve doesn't flip on.
+  const WALK_STEP = 0.011;
+  function walkSteps(w, cl) {
+    const dz = cl.z - w.pz, dy = cl.y - w.py; w.pz = cl.z; w.py = cl.y;
+    if (Math.abs(dy) > Math.abs(dz) * 1.5) w.zRef += dz;
+    const n = Math.trunc((w.zRef - cl.z) / WALK_STEP); if (!n) return false;
+    w.zRef -= n * WALK_STEP; let moved = false;
+    for (let i = 0; i < Math.abs(n); i++) moved = ctx.crateWalkStep(Math.sign(n)) || moved;
+    return moved;
   }
+  // Bare hands: walk the index fingertip over the tops of the jackets (no pinch). The pinch stays free for taking the
+  // current sleeve or the record riding out of it.
+  function crateTouchWalk(st) {
+    if (!st.isHand || st.pinching || st.direct || !ctx.crateLidOpen()) { st.walk = null; return; }
+    const C = ctx.CRATE, cl = ctx.crate.worldToLocal(v2.copy(st.tip));
+    const inZone = Math.abs(cl.x) < C.W / 2 - 0.005 && Math.abs(cl.z) < C.D / 2 && cl.y > 0.24 && cl.y < C.H + 0.06;
+    if (!inZone) { st.walk = null; return; }
+    if (!st.walk) { st.walk = { zRef: cl.z, pz: cl.z, py: cl.y }; return; }
+    walkSteps(st.walk, cl);
+  }
+
 
   const _kq = new THREE.Quaternion(), _kq2 = new THREE.Quaternion(), _kv = new THREE.Vector3();   // #328
   function grabMove(st, P) {
@@ -585,7 +602,7 @@ export function setupXR(ctx) {
     } else if (g.kind === 'dig') {
       const cl = ctx.crate.worldToLocal(v2.copy(P));
       if (cl.y > ctx.CRATE.H + 0.1) { updateAnchor(st); if (ctx.pullSelected(st.anchor)) { st.direct = { kind: 'held' }; buzz(st); } }
-      else digTo(cl.z);
+      else if (walkSteps(g, cl)) buzz(st, 0.15, 10);
     } else if (g.kind === 'move') {
       // gear lifts with the hand and settles onto whatever case is under it on release; cases stay on the floor
       const obj = ctx.MOVABLE[g.target];
@@ -822,6 +839,7 @@ export function setupXR(ctx) {
 
       if (st.direct) grabMove(st, st.isHand ? st.pinchPt : st.tip);
       else if (hasTip) pokes(st, st.tip);
+      if (st.isHand) crateTouchWalk(st);   // #350
       deckFeel(st, dt);
 
       // thumbstick: rotate / raise furniture while moving it, scroll the crate while the hand is at it

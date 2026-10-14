@@ -6,7 +6,8 @@
 // front of the virtual gear.
 import { spectatorLink } from './net-link.js';
 import { DeckVideo, vvKey, baseName, VIDEO_EXT } from './videovinyl.js';
-import { makeVirtualSet } from './vset.js';
+import { makeVirtualSet, analyseKey } from './vset.js';
+import { makePacker, PACK } from './pcampack.js';   // #347 PHONE CAM green screen
 import { makeLookMatch } from './lookmatch.js';
 import { makeFixLook } from './fixlook.js';
 import { makePhoneLibrary } from './phonelib.js';
@@ -96,7 +97,8 @@ export function startCamera(ctx) {
         <div id="lkSt" style="font-weight:500;font-size:12px;color:#8b909a"></div>
       </div>
       <div class="kp" id="spKey" hidden>
-        <label><button id="kAuto">Auto</button><span id="kAutoSt" style="width:auto;flex:1;text-align:left;font-weight:500;font-size:12px;color:#8b909a">Point at the EMPTY green screen first</span></label>
+        <label><button id="kAuto">Auto</button><span id="kAutoSt" style="width:auto;flex:1;text-align:left;font-weight:500;font-size:12px;color:#8b909a">Point at the EMPTY key screen first</span></label>
+        <label>Key colour <select id="kCol"><option value="0">Green screen</option><option value="1">Blue screen</option><option value="2">Magenta</option></select></label>
         <label>Strength <input type="range" id="kThr" min="0" max="0.8" step="0.005"><span id="kThrV"></span></label>
         <label>Softness <input type="range" id="kSoft" min="0.02" max="0.4" step="0.005"><span id="kSoftV"></span></label>
         <label>Spill <input type="range" id="kSpill" min="0" max="1" step="0.05"><span id="kSpillV"></span></label>
@@ -170,6 +172,8 @@ export function startCamera(ctx) {
     const el = $(id), v = $(id + 'V'); el.value = vs.K[k]; v.textContent = (+vs.K[k]).toFixed(2);
     el.oninput = () => { vs.setKey(k, +el.value); v.textContent = (+el.value).toFixed(2); sendCst(); };
   }
+  $('#kCol').value = String(vs.K.col || 0);   // #347 key colour
+  $('#kCol').onchange = e => { vs.setKey('col', +e.target.value); sendCst(); };
   let matteOn = false, autoMsg = '';
   $('#kMatte').onchange = e => { matteOn = e.target.checked; vs.setMatte(matteOn); };
   // #187 Look panel
@@ -180,14 +184,20 @@ export function startCamera(ctx) {
     const el = $(id), v = $(id + 'V'); el.value = look.L[k]; v.textContent = Math.round(look.L[k] * 100) + '%';
     el.oninput = () => { look.set(k, +el.value); v.textContent = Math.round(+el.value * 100) + '%'; sendCst(); };
   }
-  const syncKeyUI = () => { for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill'], ['#kWrap', 'wrap'], ['#kCm', 'cmatch']]) { $(id).value = vs.K[k]; $(id + 'V').textContent = (+vs.K[k]).toFixed(2); } };
+  const syncKeyUI = () => { $('#kCol').value = String(vs.K.col || 0); for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill'], ['#kWrap', 'wrap'], ['#kCm', 'cmatch']]) { $(id).value = vs.K[k]; $(id + 'V').textContent = (+vs.K[k]).toFixed(2); } };
   const syncLookUI = () => {
     $('#lkOn').checked = look.L.on; $('#lkRoom').checked = look.L.room;
     for (const [id, k] of [['#lkStr', 'strength'], ['#lkGrain', 'grain']]) { $(id).value = look.L[k]; $(id + 'V').textContent = Math.round(look.L[k] * 100) + '%'; }
   };
+  function fixedAutoKey() {   // #347 fixed camera mode: AUTO KEY reads the plain camera video (no XR camera there)
+    const v = fixed.video; if (!v || !v.videoWidth) throw new Error('start the camera first');
+    const w = 120, h = Math.max(2, Math.round(w * v.videoHeight / v.videoWidth)), c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(v, 0, 0, w, h);
+    const r = analyseKey(g.getImageData(0, 0, w, h).data, vs.K.col || 0); for (const k of ['thr', 'soft']) vs.setKey(k, r[k]); return r;
+  }
   async function runAuto() {
     $('#kAutoSt').textContent = autoMsg = 'Measuring…'; sendCst(true);
-    try { const r = await vs.autoKey(); syncKeyUI(); $('#kAutoSt').textContent = `Done: green fills ${r.cover} % of the view. Now step in; check with Show matte.`; autoMsg = `Auto done: green ${r.cover} % of the view`; }
+    try { const r = fixed.on ? fixedAutoKey() : await vs.autoKey(); syncKeyUI(); $('#kAutoSt').textContent = `Done: green fills ${r.cover} % of the view. Now step in; check with Show matte.`; autoMsg = `Auto done: green ${r.cover} % of the view`; }
     catch (e) { $('#kAutoSt').textContent = autoMsg = 'Auto: ' + e.message; }
     sendCst(true);
   }
@@ -199,7 +209,7 @@ export function startCamera(ctx) {
     const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession() || fixed.on, cal: cal.ok || !!(fixed.on && fixed.S.err != null), fixed: fixed.on, fcam: fixed.on ? fixed.S.facing : null, fpx: fixed.on && fixed.S.err != null ? +fixed.S.err.toFixed(1) : null, fcal: fixed.on && !!fixed.S.cal, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, late, auto: autoMsg, look: look.status(), FL: flook.state(), flErr, FX: fixed.on && fixed.S.pose ? { fov: +fixed.S.pose.fov.toFixed(1), coarse: fixed.coarse, cal: !!fixed.S.cal } : null };
     const j = JSON.stringify(m); if (force || j !== lastCst) { lastCst = j; link.send('ctl', m); }
   }
-  const LIM = { thr: [0, 0.8], soft: [0.02, 0.4], spill: [0, 1], wrap: [0, 1], cmatch: [0, 1], strength: [0, 1], grain: [0, 1] };
+  const LIM = { col: [0, 2], thr: [0, 0.8], soft: [0.02, 0.4], spill: [0, 1], wrap: [0, 1], cmatch: [0, 1], strength: [0, 1], grain: [0, 1] };
   const lim = (k, v) => Math.min(LIM[k][1], Math.max(LIM[k][0], +v));
   async function onCset(m) {
     if (m.what === 'set') await toggleSet(!!m.v);
@@ -276,7 +286,7 @@ export function startCamera(ctx) {
   // This phone's own LED wall shows a Cly3DJ LIVE card meanwhile (the scroller still runs over it): no video tunnel.
   // #239 SOLO: the camera picture only (no gear): fixed mode draws the camera video itself, AR mode renders only the
   // camera quad (layer 30), so it is cheaper than LIVE.
-  let liveOn = false, liveSolo = false, liveT = 0, liveBusy = false, liveTrack = null, liveBuf = null, liveCard = null;
+  let liveOn = false, liveSolo = false, livePcam = false, liveGreen = false, packer = null, liveT = 0, liveBusy = false, liveTrack = null, liveBuf = null, liveCard = null;
   vs.quad.layers.enable(30);
   const liveRT = new THREE.WebGLRenderTarget(4, 4); liveRT.texture.colorSpace = THREE.SRGBColorSpace;
   const liveRaw = document.createElement('canvas'), liveRawCtx = liveRaw.getContext('2d');
@@ -284,7 +294,7 @@ export function startCamera(ctx) {
   async function liveStart() {
     if (!link) return;
     if (!liveTrack) { liveTrack = liveOut.captureStream(0).getVideoTracks()[0]; liveTrack.contentHint = 'motion'; }
-    const ok = await link.setVideo(liveTrack).catch(() => false);
+    const ok = await link.setVideo(liveTrack, liveGreen ? 4000 : livePcam ? 3000 : 2000).catch(() => false);   // #347 kbps
     if (!ok) st('LIVE CAM: this link has no video slot (reconnect the phone)');
   }
   function liveStop() {
@@ -293,7 +303,20 @@ export function startCamera(ctx) {
   }
   function liveFrame() { if (liveTrack && liveTrack.requestFrame) liveTrack.requestFrame(); }
   function liveFixed(now) {   // the program picture just drawn (#239 SOLO: the camera video itself)
-    liveT = now; const v = fixed.video, c = liveSolo && v && v.videoWidth ? v : renderer.domElement;
+    liveT = now; const v = fixed.video;
+    if (livePcam && v && v.videoWidth) {   // #347 PHONE CAM: plain camera video (the Quest adds the gear), or packed colour + matte
+      if (liveGreen) {
+        if (!packer) { try { packer = makePacker(); } catch (e) { packer = null; st('Green screen packer failed: ' + e.message); } }
+        if (packer && packer.draw(v, vs.K)) {
+          if (liveOut.width !== PACK.W || liveOut.height !== PACK.H) { liveOut.width = PACK.W; liveOut.height = PACK.H; }
+          liveOutCtx.drawImage(packer.canvas, 0, 0); liveFrame(); return;
+        }
+      }
+      const k = 1280 / Math.max(v.videoWidth, v.videoHeight), W = Math.round(v.videoWidth * k / 2) * 2, H = Math.round(v.videoHeight * k / 2) * 2;
+      if (liveOut.width !== W || liveOut.height !== H) { liveOut.width = W; liveOut.height = H; }
+      liveOutCtx.drawImage(v, 0, 0, W, H); liveFrame(); return;
+    }
+    const c = liveSolo && v && v.videoWidth ? v : renderer.domElement;
     const cw = c.videoWidth || c.width, ch = c.videoHeight || c.height, k = 854 / Math.max(cw, ch);
     const W = Math.round(cw * k / 2) * 2, H = Math.round(ch * k / 2) * 2;
     if (liveOut.width !== W || liveOut.height !== H) { liveOut.width = W; liveOut.height = H; }
@@ -533,7 +556,7 @@ export function startCamera(ctx) {
     else if (m.k === 'calpt') { if (!(fixed.on && fixed.onCalPoint(m))) onCalPoint(m); }   // #208 fixed camera taps first
     else if (m.k === 'calskip') { if (fixed.on) fixed.calSkip(); }   // #211 the Quest's grip skips an auto point
     else if (m.k === 'led') { led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000); if (liveOn && !led.on) showLiveCard(true); }   // #176 (#238 the LIVE card stays up)
-    else if (m.k === 'live') { const was = liveOn; liveOn = !!m.on; liveSolo = !!m.solo; if (liveOn && !was) liveStart(); else if (!liveOn) liveStop(); showLiveCard(liveOn); }   // #238 LIVE CAM (#239 SOLO)
+    else if (m.k === 'live') { const was = liveOn, wasG = liveGreen, wasP = livePcam; liveOn = !!m.on; liveSolo = !!m.solo; livePcam = !!m.pcam; liveGreen = !!m.green; if (liveOn && (!was || wasG !== liveGreen || wasP !== livePcam)) liveStart(); else if (!liveOn) liveStop(); showLiveCard(liveOn); }   // #238 LIVE CAM (#239 SOLO, #347 PHONE CAM pcam / green)   // #238 LIVE CAM (#239 SOLO)
     else if (m.k === 'scroll' && scroller) {   // #236 the Quest's VJ scroller, drawn here from its text, wave and speed
       scroller.wave = m.wave; scroller.speed = m.speed;
       if (!m.on) { if (scroller.on) scroller.stop(); }
