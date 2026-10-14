@@ -14,7 +14,7 @@ const VS = `#version 300 es
 in vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }`;
 const FS = `#version 300 es
 precision highp float;
-uniform sampler2D cam; uniform float thr, soft, spill; uniform vec3 L;   // L = colour width, matte x, matte width
+uniform sampler2D cam; uniform float thr, soft, spill; uniform vec3 L; uniform vec4 crop;   // #353 garbage matte: left, right, top, bottom (share of the frame cut away)   // L = colour width, matte x, matte width
 out vec4 o;
 ${KEY_GLSL}
 void main() {
@@ -24,7 +24,9 @@ void main() {
     o = vec4(c, 1.0);
   } else if (f.x >= L.y) {
     vec3 c = texture(cam, vec2((f.x - L.y) / L.z, f.y / H)).rgb;
-    o = vec4(vec3(1.0 - smoothstep(thr, thr + soft, keyOf(c))), 1.0);
+    vec2 u = vec2((f.x - L.y) / L.z, f.y / H);
+    float inBox = step(crop.x, u.x) * step(u.x, 1.0 - crop.y) * step(crop.w, u.y) * step(u.y, 1.0 - crop.z);
+    o = vec4(vec3((1.0 - smoothstep(thr, thr + soft, keyOf(c))) * inBox), 1.0);
   } else o = vec4(0.0, 0.0, 0.0, 1.0);
 }`;
 
@@ -40,7 +42,7 @@ export function makePacker() {
   const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
   const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
   for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
-  const U = n => gl.getUniformLocation(prog, n), uThr = U('thr'), uSoft = U('soft'), uSpill = U('spill'), uCol = U('keyCol');
+  const U = n => gl.getUniformLocation(prog, n), uThr = U('thr'), uSoft = U('soft'), uSpill = U('spill'), uCol = U('keyCol'), uCrop = U('crop');
   gl.uniform1i(U('cam'), 0); gl.uniform3f(U('L'), PACK.CW, PACK.MX, PACK.MW);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);   // video row 0 at the bottom = GL's y up, so the canvas comes out upright
   gl.viewport(0, 0, PACK.W, PACK.H);
@@ -50,7 +52,7 @@ export function makePacker() {
       if (!video || !video.videoWidth || video.readyState < 2) return false;
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
-      gl.uniform1f(uThr, K.thr); gl.uniform1f(uSoft, K.soft); gl.uniform1f(uSpill, K.spill); gl.uniform1f(uCol, K.col || 0);
+      gl.uniform1f(uThr, K.thr); gl.uniform1f(uSoft, K.soft); gl.uniform1f(uSpill, K.spill); gl.uniform1f(uCol, K.col || 0); gl.uniform4f(uCrop, K.gl || 0, K.gr || 0, K.gt || 0, K.gb || 0);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       return true;
     },
