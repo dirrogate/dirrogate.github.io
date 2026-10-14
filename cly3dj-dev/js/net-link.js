@@ -13,6 +13,16 @@ const ICE = [{ urls: 'stun:stun.l.google.com:19302' }];
 export const ID_PREFIX = 'cly3dj-v1-';
 
 function token() { return Math.random().toString(36).slice(2, 12); }
+const PART = 3000;   // #360 chars per relay message (ntfy.sh limit 4096 bytes incl. our wrapper)
+async function zip(txt) {   // gzip + base64 (CompressionStream: Chrome 80+, Quest Browser)
+  const buf = new Uint8Array(await new Response(new Blob([txt]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+  let s = ''; for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+async function unzip(b64) {
+  const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  return new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+}
 
 // Signalling: listen on our topic, post to theirs. Reconnects by itself (EventSource does).
 class Relay {
@@ -24,12 +34,29 @@ class Relay {
     es.onmessage = e => {
       let n, m; try { n = JSON.parse(e.data); m = JSON.parse(n.message); } catch { return; }
       if (n.id && this.seen.has(n.id)) return; this.seen.add(n.id);
+      if (m && m.part) { this.part(m); return; }
       this.onMsg(m);
     };
+    this.parts = new Map();
   }
-  send(type, dst, payload) {
-    fetch(RELAY + encodeURIComponent(dst), { method: 'POST', body: JSON.stringify({ type, src: this.id, payload }) })
-      .catch(() => this.onStatus('relay-retry'));
+  // #360 ntfy.sh turns a message over 4096 bytes into a file attachment (its text never arrives). An offer / answer
+  // with the #238 video slot is ~3.3 KB on desktop Chrome and bigger on Android (more codecs + candidates), so every
+  // signalling message is gzipped, base64'd and sent in parts of at most PART chars, put back together here.
+  async part(m) {
+    const k = m.mid; let e = this.parts.get(k);
+    if (!e) { e = { got: new Array(m.n), have: 0, t: setTimeout(() => this.parts.delete(k), 30000) }; this.parts.set(k, e); }
+    if (e.got[m.i] == null) { e.got[m.i] = m.d; e.have++; }
+    if (e.have < m.n) return;
+    clearTimeout(e.t); this.parts.delete(k);
+    try { const txt = m.z ? await unzip(e.got.join('')) : e.got.join(''); this.onMsg(JSON.parse(txt)); } catch (err) { console.warn('relay message', err); }
+  }
+  async send(type, dst, payload) {
+    const txt = JSON.stringify({ type, src: this.id, payload });
+    let z = 0, body = txt; try { body = await zip(txt); z = 1; } catch {}
+    const n = Math.ceil(body.length / PART), mid = token();
+    for (let i = 0; i < n; i++)
+      fetch(RELAY + encodeURIComponent(dst), { method: 'POST', body: JSON.stringify({ part: 1, mid, i, n, z, d: body.slice(i * PART, (i + 1) * PART) }) })
+        .catch(() => this.onStatus('relay-retry'));
   }
   close() { this.closed = true; try { this.es.close(); } catch {} }
 }
