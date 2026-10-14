@@ -605,7 +605,9 @@ const stage = new Stage(rig, {
   neon: { obj: neon, base: NEON.R * neon.scale.x },
   ledwall: { obj: ledwall, base: ledBase() },
 }, cases, {
-  items: { deckA: [-DECK_X, 0.898, 0, 0], deckB: [DECK_X, 0.898, 0, 0], mixer: [0, 0.88, 0, 0], crate: [0.98, 0, 0.12, -0.5], milk: [-1.0, 0, 0.15, 0.35], milk2: [-1.0, 0, 0.68, 0.35], milk3: [-1.47, 0, 0.3, 0.2], milk4: [-1.47, 0, 0.83, 0.2], milk5: [-1.0, 0, 1.21, 0.35], milk6: [-1.47, 0, 1.36, 0.2], neon: [0, 1.45, -0.5, 0], ledwall: [-2.0, 1.6, -0.55, 0] },
+  // #348 (owner) reset: the blue milk crate just right of the DJ's feet (the DJ stands at rig (0.05, 0, 0.62)), long side
+  // along the case, and the record crate standing on it, its front turned to the DJ: everything within reach of the case
+  items: { deckA: [-DECK_X, 0.898, 0, 0], deckB: [DECK_X, 0.898, 0, 0], mixer: [0, 0.88, 0, 0], crate: [0.55, MILK.H, 0.62, -Math.PI / 2], milk: [0.55, 0, 0.62, 0], milk2: [-1.0, 0, 0.68, 0.35], milk3: [-1.47, 0, 0.3, 0.2], milk4: [-1.47, 0, 0.83, 0.2], milk5: [-1.0, 0, 1.21, 0.35], milk6: [-1.47, 0, 1.36, 0.2], neon: [0, 1.45, -0.5, 0], ledwall: [-2.0, 1.6, -0.55, 0] },
   cases: { caseA: [0, 0, 0, 0, 1.3, 0.52, 0.88] },
 });
 const MOVABLE = new Proxy({}, { get: (_, k) => stage.object(k) });
