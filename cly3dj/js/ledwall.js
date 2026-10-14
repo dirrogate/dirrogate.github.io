@@ -6,11 +6,24 @@ import * as THREE from 'three';
 
 export const LED = { W: 1.6, H: 0.9, D: 0.05, BEZ: 0.025 };   // screen size (m) at scale 1, depth, bezel
 
+// #358 CURVE (owner: a huge curved background screen): the panel and its frame bend onto a cylinder whose centre is in
+// front of the screen (the edges come toward you). curve = the panel's arc in radians at its own width (0 = flat);
+// the picture stays fitted whole on the arc. A wall turned to portrait stays flat.
+function bendGeometry(geo, R) {   // x along the arc; z toward the centre of the circle (radius R in front)
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), z = p.getZ(i), th = x / R, r = R - z;
+    p.setX(i, r * Math.sin(th)); p.setZ(i, R - r * Math.cos(th));
+  }
+  p.needsUpdate = true; geo.computeVertexNormals(); geo.computeBoundingSphere(); geo.computeBoundingBox(); return geo;
+}
+export const LED_CURVE_MAX = 150;   // degrees
 export function makeLedWall() {
   const g = new THREE.Group(); g.name = 'ledwall';
   g.rotation.order = 'YXZ';   // #248 yaw, then tilt (x, about its own horizontal axis), then the portrait turn (z)
   const frame = new THREE.Mesh(new THREE.BoxGeometry(LED.W + 2 * LED.BEZ, LED.H + 2 * LED.BEZ, LED.D),
     new THREE.MeshStandardMaterial({ color: 0x121317, metalness: 0.6, roughness: 0.45 }));
+  let curve = 0;   // #358 radians
   g.add(frame);
   const offMat = new THREE.MeshStandardMaterial({ color: 0x050608, metalness: 0.2, roughness: 0.18 });   // dark glossy panel when off
   const onMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
@@ -29,13 +42,32 @@ export function makeLedWall() {
   let aspectOf = () => LED.W / LED.H, snapGoal = null, lastKey = '';
   const snapOf = r => Math.round(r / (Math.PI / 2)) * (Math.PI / 2);
   g.userData.portrait = () => Math.abs(Math.round(g.rotation.z / (Math.PI / 2))) % 2 === 1;
+  const flatPlane = screen.geometry;
   function layoutScreen() {
     const snap = snapOf(g.rotation.z), side = Math.abs(Math.round(snap / (Math.PI / 2))) % 2 === 1;
     const aW = side ? LED.H : LED.W, aH = side ? LED.W : LED.H;   // the panel as the upright picture sees it
     let a = screen.material === offMat ? aW / aH : aspectOf(); if (!(a > 0)) a = 16 / 9;
     let w = aW, h = aW / a; if (h > aH) { h = aH; w = aH * a; }
-    for (const m of [screen, screenB]) { m.rotation.z = -snap; m.scale.set(w / LED.W, h / LED.H, 1); }
+    const bent = curve > 0.001 && !side;
+    // #358 the frame: a curved slab (rebuilt only when the curve changes)
+    const fk = bent ? curve.toFixed(4) : 'flat';
+    if (frame.userData.k !== fk) {
+      frame.userData.k = fk; frame.geometry.dispose();
+      const R = LED.W / Math.max(curve, 1e-4);
+      frame.geometry = bent ? bendGeometry(new THREE.BoxGeometry(LED.W + 2 * LED.BEZ, LED.H + 2 * LED.BEZ, LED.D, 96, 1, 1), R) : new THREE.BoxGeometry(LED.W + 2 * LED.BEZ, LED.H + 2 * LED.BEZ, LED.D);
+    }
+    if (!bent) {
+      for (const m of [screen, screenB]) { if (m.geometry !== flatPlane) { m.geometry.dispose(); m.geometry = flatPlane; } m.position.z = LED.D / 2 + (m === screen ? 0.001 : 0.002); m.rotation.z = -snap; m.scale.set(w / LED.W, h / LED.H, 1); }
+      return;
+    }
+    // bent: the picture's own rectangle (w x h) laid on the same circle as the frame, just in front of it
+    const R = LED.W / curve, geo = (zoff) => { const pg = new THREE.PlaneGeometry(w, h, Math.max(16, Math.round(curve * 60)), 1); pg.translate(0, 0, LED.D / 2 + zoff); return bendGeometry(pg, R); };
+    if (screen.geometry !== flatPlane) screen.geometry.dispose(); if (screenB.geometry !== flatPlane && screenB.geometry !== screen.geometry) screenB.geometry.dispose();
+    screen.geometry = geo(0.001); screenB.geometry = geo(0.002);
+    for (const m of [screen, screenB]) { m.position.z = 0; m.rotation.z = 0; m.scale.set(1, 1, 1); }
   }
+  g.userData.setCurve = deg => { const c = Math.max(0, Math.min(LED_CURVE_MAX, +deg || 0)) * Math.PI / 180; if (Math.abs(c - curve) < 1e-5) return; curve = c; lastKey = ''; };
+  g.userData.curveDeg = () => Math.round(curve * 180 / Math.PI);
   // per frame (Quest and phone): follow the turn, settle it after a twist, refit when the picture's shape is known
   let lastT = 0;
   g.userData.tick = () => {
@@ -44,7 +76,7 @@ export function makeLedWall() {
       const d = snapGoal - g.rotation.z;
       if (Math.abs(d) < 0.002) { g.rotation.z = snapGoal; snapGoal = null; } else g.rotation.z += d * Math.min(1, dt * 12);
     }
-    const k = snapOf(g.rotation.z).toFixed(3) + '|' + (screen.material === offMat ? 'off' : aspectOf().toFixed(3));
+    const k = snapOf(g.rotation.z).toFixed(3) + '|' + (screen.material === offMat ? 'off' : aspectOf().toFixed(3)) + '|' + curve.toFixed(4);
     if (k !== lastKey) { lastKey = k; layoutScreen(); }
   };
   g.userData.settle = () => { let t = snapOf(g.rotation.z); if (Math.abs(t) > Math.PI / 2 + 0.01) t = 0; snapGoal = t; return t; };   // upside-down counts as landscape
@@ -85,7 +117,7 @@ export function makeLedWall() {
     if (tex) { tex.dispose(); tex = null; }
     screenB.visible = false;
     if (!video) { screen.material = offMat; return; }
-    tex = new THREE.VideoTexture(video); tex.colorSpace = THREE.SRGBColorSpace;
+    tex = new THREE.VideoTexture(video); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;   // #358 sharper at the edges of a curved wall, seen at an angle
     aspectOf = () => (video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 16 / 9);   // #222 fitted whole (tick refits once the size is known)
     onMat.map = tex; onMat.needsUpdate = true; screen.material = onMat;
   };

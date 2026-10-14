@@ -254,7 +254,7 @@ function applyPiece(k) {
     if (!on && o.parent) { o.userData.homeParent = o.parent; o.parent.remove(o); }
     else if (on && !o.parent && o.userData.homeParent) o.userData.homeParent.add(o);
   }
-  if (k === 'ledwall') { led.setSilent(!on); if (!on && (ledMode === 'decks' || ledMode === 'cam' || isLive(ledMode))) setLedMode('off'); }
+  if (k === 'ledwall') { led.setSilent(!on); if (!on && (ledMode === 'decks' || ledMode === 'cam' || isLive(ledMode) || ledMode === 'screen')) setLedMode('off'); }
 }
 function setPiece(k, on) { settings.pieces = { ...(settings.pieces || {}), [k]: on }; saveSettings(); applyPiece(k); drawMixScreen(); }
 // #124: Blender-baked crate body; crates already in the scene switch over when it arrives, the procedural body stays
@@ -397,7 +397,8 @@ setGlowMode(glowMat, settings.glow);
 applyShadows(false);   // desktop default: per the Shadows setting (blob by default = no shadow map)
 // LED wall (#176): moves like the neon sign; wheel / two hands resize it; size kept in 'vire.ledScale'
 const ledwall = makeLedWall(); rig.add(ledwall);
-try { const s = parseFloat(localStorage.getItem('vire.ledScale')); if (s > 0) ledwall.scale.setScalar(clamp(s, 0.4, 4)); } catch (e) {}
+try { const s = parseFloat(localStorage.getItem('vire.ledScale')); if (s > 0) ledwall.scale.setScalar(clamp(s, 0.4, 8)); } catch (e) {}   // #358 up to 8x (12.8 m wide)
+try { const c = parseFloat(localStorage.getItem('vire.ledCurve')); if (c > 0) ledwall.userData.setCurve(c); } catch (e) {}   // #358 curved LED wall (degrees of arc)
 const ledBase = (r = ledwall.rotation.z) => ((Math.abs(Math.round(r / (Math.PI / 2))) % 2 ? LED.W : LED.H) / 2 + LED.BEZ) * ledwall.scale.x;   // #222 portrait: half the width is the half-height
 function ledTurned() {   // #222 let go after a twist: settle on portrait / landscape, keep it off the floor, save
   const t = ledwall.userData.settle(); stage.items.ledwall.base = ledBase(t);
@@ -407,7 +408,8 @@ function ledTurned() {   // #222 let go after a twist: settle on portrait / land
 }
 function ledTilted() { toast('LED wall: tilted ' + Math.round(ledwall.rotation.x * 180 / Math.PI) + ' deg', 1500); setTimeout(() => stage.save(), 300); }   // #248
 function toggleLedPortrait() { ledwall.userData.turnTo(ledwall.userData.portrait() ? 0 : Math.PI / 2); setTimeout(ledTurned, 450); }
-function setLedScale(s) { s = clamp(s, 0.4, 4); ledwall.scale.setScalar(s); if (stage) stage.items.ledwall.base = ledBase(); return s; }
+function setLedScale(s) { s = clamp(s, 0.4, 8); ledwall.scale.setScalar(s); if (stage) stage.items.ledwall.base = ledBase(); return s; }
+function setLedCurve(deg) { ledwall.userData.setCurve(deg); try { localStorage.setItem('vire.ledCurve', String(ledwall.userData.curveDeg())); } catch (e) {} }   // #358
 function saveLedScale() { try { localStorage.setItem('vire.ledScale', String(ledwall.scale.x)); } catch (e) {} }
 const led = new LedPlayer(ledwall);
 const scroller = new Scroller(ledwall, LED);   // #224 VJ TOOLS scroller over the LED wall (#236 the phone draws its own copy)
@@ -561,23 +563,31 @@ const liveVideo = document.createElement('video'); liveVideo.muted = true; liveV
 let liveTrack = null;
 function onLiveTrack(t) {
   liveTrack = t; liveVideo.srcObject = t ? new MediaStream([t]) : null;
-  if (t) liveVideo.play().catch(() => {}); else if (isLive(ledMode)) setLedMode('off');
+  if (t) liveVideo.play().catch(() => {}); else if (isLive(ledMode) || ledMode === 'screen') setLedMode('off');
   if (!t && streamer && streamer.active && streamer.source === 'phone') streamer.setSource('card');   // #331 phone gone: the stream falls back to the card (#347 PHONE CAM waits for it)
 }
 const livePossible = () => !!(liveTrack && spect && spect.ui && spect.ui().phone);
 function isLive(m) { return m === 'live' || m === 'solo'; }   // #239 SOLO = the phone's camera only, no gear
 function nextLedMode(m) {   // OFF > CLIPS > VIDVINYL ('decks') > AVACAM ('cam', #240 names) > LIVE > SOLO (the last two only with the phone linked) > OFF
-  const order = ['off', 'clips', 'decks', 'cam', 'live', 'solo'];
+  const order = ['off', 'clips', 'decks', 'cam', 'live', 'solo', 'screen'];   // #358 PHONE SCREEN only while the phone shares
   let i = order.indexOf(m);
-  for (let k = 0; k < order.length; k++) { i = (i + 1) % order.length; if (!isLive(order[i]) || livePossible()) return order[i]; }
+  for (let k = 0; k < order.length; k++) { i = (i + 1) % order.length; const o = order[i]; if (o === 'screen' ? phoneScreen && livePossible() : !isLive(o) || livePossible()) return o; }
   return 'off';
 }
 function clipsMode() { if (isLive(ledMode) && spect && spect.liveCam && !streamPhone()) spect.liveCam(false); ledMode = 'clips'; }   // #238 a clip from the LED list ends LIVE
-const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED VIDVINYL', cam: 'LED AVACAM', live: 'LED LIVE', solo: 'LED SOLO' };
+const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED VIDVINYL', cam: 'LED AVACAM', live: 'LED LIVE', solo: 'LED SOLO', screen: 'LED PHONE SCREEN' };
+let phoneScreen = false;   // #358 the spectator phone is sharing its screen (its video slot carries it)
+function onPhoneScreen(on) {
+  phoneScreen = on;
+  if (on) toast('Phone is sharing its screen: LED PHONE SCREEN on the VISUALS page', 3500);
+  else if (ledMode === 'screen') setLedMode('off');
+  drawMixScreen();
+}
 function setLedMode(m) {
   if (m === 'clips' && !led.hasFiles) m = 'decks';
   if (!pieceOn('ledwall') && (m === 'decks' || m === 'cam' || isLive(m))) m = 'off';   // #236 switched off: only clips run (for the phone)
   if (isLive(m) && !livePossible()) m = 'off';   // #238 needs the phone linked
+  if (m === 'screen' && !(phoneScreen && livePossible() && pieceOn('ledwall'))) m = 'off';   // #358
   if (m !== 'clips' && led.on) led.stop();
   if (m === 'cam' && !djcam) m = 'off';
   if (isLive(ledMode) && !isLive(m) && spect && spect.liveCam && !streamPhone()) spect.liveCam(false);   // #331 unless the stream uses it
@@ -585,7 +595,8 @@ function setLedMode(m) {
   if (m === 'clips') led.playRandom();
   else if (m === 'off') ledwall.userData.setVideo(null);
   else if (m === 'cam') ledwall.userData.setCam(djcam.rt.texture, djSet.mirror);   // #220
-  else if (isLive(m)) { spect.liveCam(true, m === 'solo', pcamOpts()); ledwall.userData.setVideo(liveVideo); }   // #238 (#239 SOLO: camera only)
+  else if (isLive(m)) { spect.liveCam(true, m === 'solo', pcamOpts()); ledwall.userData.setVideo(liveVideo); }
+  else if (m === 'screen') ledwall.userData.setVideo(liveVideo);   // #358 the phone's shared screen   // #238 (#239 SOLO: camera only)
   drawMixScreen();
 }
 function setNeonScale(s) { s = clamp(s, 0.3, 4); neon.scale.setScalar(s); neon.userData.setLodScale(s); if (stage) stage.items.neon.base = NEON.R * s; return s; }
@@ -896,7 +907,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
   wallSource: () => {   // what the LED wall is showing, as 2D drawables (the stream draws them full frame)
     // #338 what the VISUALS pages are playing, whatever the LED wall itself shows (AVACAM, off, switched off)
     if (ledMode === 'decks') { const [gA, gB] = deckGains(mixVal); return [{ el: deckVid[0].v, gain: gA }, { el: deckVid[1].v, gain: gB, add: true }]; }
-    if (isLive(ledMode)) return [{ el: liveVideo }];
+    if (isLive(ledMode) || ledMode === 'screen') return [{ el: liveVideo }];   // #358 the phone's screen too
     if (ledMode === 'clips' && led.video) return [{ el: led.video }];
     if (ledMode === 'clips' && led.img && ledwall.userData.curImage && !led.silent) return [{ el: ledwall.userData.curImage, flip: true }];
     return streamClip();   // #337 the stream decodes the clip itself (follows the playlist, or runs the LED LIST on its own)
@@ -4670,6 +4681,18 @@ function drawToolsPage() {
   }
   if (page === 'dj' || page === 'vj') {
     const y0 = head(page === 'dj' ? 'DJ TOOLS' : 'VJ TOOLS', 'home');
+    const ledCells = (x, y, w, stacked) => {   // #358 LED CURVE and LED SIZE steppers
+      const cells = [['LED CURVE', `${ledwall.userData.curveDeg()}°`, d => setLedCurve(ledwall.userData.curveDeg() + d * 10)],
+        ['LED SIZE', `${(LED.W * ledwall.scale.x).toFixed(1)} m wide`, d => { setLedScale(ledwall.scale.x * (d > 0 ? 1.15 : 1 / 1.15)); saveLedScale(); if (stage) stage.save(); }]];
+      const cw = stacked ? w : (w - 12) / 2, ch = stacked ? 56 : 52;
+      cells.forEach(([label, val, act], i) => {
+        const cx = stacked ? x : x + i * (cw + 12), cy = stacked ? y + i * (ch + 8) : y, bw = 52;
+        g.fillStyle = '#8c96a8'; g.font = '700 13px system-ui'; g.textAlign = 'left'; g.fillText(label, cx + 2, cy + 12);
+        btn(cx, cy + 16, bw, ch - 16, '−', false, () => { act(-1); drawMixScreen(); });
+        g.fillStyle = '#fff'; g.font = '700 18px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, cx + cw / 2, cy + 16 + (ch - 16) / 2); g.textBaseline = 'alphabetic';
+        btn(cx + cw - bw, cy + 16, bw, ch - 16, '+', false, () => { act(1); drawMixScreen(); });
+      });
+    };
     // #235 switches for stage pieces (off = hidden and no per-frame work), green = on
     // #276 controllers seen as 3D hands holding them, or bare controllers
     const ctlBtn = (x, y, w, h) => { let X = null; try { X = xr; } catch (e) {}   // xr is set up further down the file
@@ -4682,7 +4705,8 @@ function drawToolsPage() {
         note('RECORD MAKER: press your own record. It goes into the crate, Unsorted. MILK CRATE: the first milk crate (extra ones come from the crate screen). CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 272); }
       else { btn(L, y0 + 8, R - L, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
         sw(L, y0 + 100, R - L, 64, 'LED WALL', 'ledwall'); sw(L, y0 + 176, R - L, 64, 'NEON SIGN', 'neon');
-        note('Switched off, the LED wall or the sign is hidden and costs nothing; it keeps its place for when it comes back.', y0 + 272); }
+        ledCells(L, y0 + 252, R - L, true);
+        note('LED CURVE bends the wall toward you (0 = flat, up to 150°). LED SIZE: also two hands on the wall. Switched off, the LED wall or the sign is hidden and costs nothing.', y0 + 392); }
     } else {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
       if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(x2, y0 + 8, w2, 80, 'MILK CRATE', 'milk');
@@ -4690,7 +4714,8 @@ function drawToolsPage() {
         note('RECORD MAKER: press your own record (blank, a song or a clip, a picture label); it goes into the crate, Unsorted. MILK CRATE: the first milk crate; switched off it is hidden and costs nothing. CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 164); }
       else { btn(L, y0 + 8, bw, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
         const hw = (w2 - 8) / 2; sw(x2, y0 + 8, hw, 80, 'LED WALL', 'ledwall'); sw(x2 + hw + 8, y0 + 8, hw, 80, 'NEON', 'neon');
-        note('SCROLLER: a sine-wave text scroller across the bottom of the LED wall. LED WALL / NEON: switched off they are hidden and cost nothing; they keep their place for when they come back.', y0 + 116); }
+        ledCells(L, y0 + 98, R - L, false);
+        note('LED CURVE bends the wall toward you (0 = flat, up to 150°); a portrait wall stays flat. LED SIZE: also two hands on the wall. LED WALL / NEON off: hidden, no cost.', y0 + 166); }
     }
     return;
   }
@@ -5589,7 +5614,7 @@ async function applySpect() {
   try {
     const m = await import('./spectator-host.js');
     if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, perf, getInputs: () => xr && xr.inputs,
-      getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => led.state(), getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
+      getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => ({ ...led.state(), curve: ledwall.userData.curveDeg() }),   /* #358 */ onScreen: onPhoneScreen, getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
       getSpiders: spidersState,   // #262
       getAv: phoneRobotState,   // #278
       getLook: () => xr ? xr.getCtlLook() : '3dhands',   // #288
