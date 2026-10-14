@@ -82,6 +82,8 @@ export function startCamera(ctx) {
       <button id="spConnect">Connect</button><button id="spAR" disabled>Start camera (AR)</button><button id="spFix" disabled>Fixed camera: tripod, no AR</button>
       <label style="display:flex;gap:8px;align-items:center;margin-top:8px;color:#8b909a;font-size:14px">Fixed camera uses <select id="spFixCam" style="font:600 14px system-ui;background:#1c2230;color:#e6e8ec;border:1px solid #2e3850;border-radius:8px;padding:6px"><option value="environment">main camera</option><option value="user">selfie camera</option></select></label><button id="spCamTest">Camera access test (no Quest needed)</button>
       <button id="spLibBtn">Library: panoramas, videos, images (push to the Quest)…</button>
+      <button id="spShare" disabled>Share this phone's screen with the LED wall…</button>
+      <div id="spShareSt" style="color:#8b909a;font-size:13px;margin-top:6px">Connect first. Then pick an app (for example a VJ app) or the whole screen; on the Quest choose LED PHONE SCREEN.</div>
       <button id="spPano">Virtual set panorama (same picture as the Quest)…</button><input type="file" id="spPanoF" accept="image/*" hidden>
       <div id="spPanoSt" style="color:#8b909a;font-size:13px;margin-top:6px">For the green-screen virtual set: pick the same 360 picture the Quest shows. Kept on this phone.</div>
       <button id="spLed">Videos: LED wall clips + VideoVinyls (same files as the Quest)…</button><input type="file" id="spLedF" accept="video/*" multiple hidden>
@@ -134,8 +136,8 @@ export function startCamera(ctx) {
     link = spectatorLink(code, {
       onStatus: s => { linkState = s; st(STATUS[s] || s); },
       onState: s => { linkState = s; st(STATUS[s] || s); },
-      onOpen: () => { linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; $('#spFix').disabled = false; lib.onLinkOpen(); sendCst(true); },
-      onClose: () => { linkState = 'disconnected'; st(STATUS.disconnected); if (liveOn) { liveOn = false; liveStop(); showLiveCard(false); } },
+      onOpen: () => { linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; $('#spFix').disabled = false; $('#spShare').disabled = false; lib.onLinkOpen(); sendCst(true); },
+      onClose: () => { if (screenTrack) stopShare(); linkState = 'disconnected'; st(STATUS.disconnected); if (liveOn) { liveOn = false; liveStop(); showLiveCard(false); } },
       onMessage: onMsg,
       onBinary: onSyncBin,   // #206 media sync: files from the Quest
     });
@@ -297,15 +299,48 @@ export function startCamera(ctx) {
   const liveRaw = document.createElement('canvas'), liveRawCtx = liveRaw.getContext('2d');
   const liveOut = document.createElement('canvas'), liveOutCtx = liveOut.getContext('2d'); liveOut.width = 854; liveOut.height = 480;
   async function liveStart() {
-    if (!link) return;
+    if (!link || screenTrack) return;   // #358 while the screen is shared, the video slot carries the screen
     if (!liveTrack) { liveTrack = liveOut.captureStream(0).getVideoTracks()[0]; liveTrack.contentHint = 'motion'; }
     const ok = await link.setVideo(liveTrack, liveGreen ? 4000 : livePcam ? 3000 : 2000).catch(() => false);   // #347 kbps
     if (!ok) st('LIVE CAM: this link has no video slot (reconnect the phone)');
   }
   function liveStop() {
+    if (screenTrack) return;   // #358
     if (link && link.setVideo) link.setVideo(null).catch(() => {});
     if (liveTrack) { liveTrack.stop(); liveTrack = null; }
   }
+  // #358 SHARE SCREEN (owner: a VJ app on the phone onto the Quest's LED wall). The browser's screen capture (Android
+  // asks: a single app or the entire screen) goes out on the link's video slot instead of the camera picture; the Quest
+  // shows it in its LED PHONE SCREEN mode. Picture only. Stops with the button, Android's own Stop, or the link.
+  let screenTrack = null;
+  const shareSt = t => { const e = $('#spShareSt'); if (e) e.textContent = t; };
+  async function shareScreen() {
+    if (screenTrack) { stopShare(); return; }
+    if (!link || !link.isOpen) { shareSt('Connect to the Quest first.'); return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) { shareSt('Screen sharing is not available in this browser on this phone.'); return; }
+    try {
+      const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30 }, width: { ideal: 1280 }, height: { ideal: 1280 } }, audio: false });
+      const t = s.getVideoTracks()[0]; if (!t) throw new Error('no video');
+      t.contentHint = 'motion'; screenTrack = t; t.onended = () => stopShare();
+      const ok = await link.setVideo(t, 3000).catch(() => false);
+      if (!ok) { stopShare(); shareSt('This link has no video slot: reconnect the phone and try again.'); return; }
+      link.send('ctl', { k: 'screen', on: true });
+      const st2 = t.getSettings ? t.getSettings() : {};
+      shareSt(`Sharing${st2.width ? ` (${st2.width} x ${st2.height})` : ''}. Switch to your app now; on the Quest pick LED PHONE SCREEN.`);
+      $('#spShare').textContent = 'Stop sharing the screen';
+    } catch (e) {
+      screenTrack = null;
+      shareSt(e && e.name === 'NotAllowedError' ? 'Screen sharing was refused, or this phone\'s browser does not allow it for web pages.' : 'Screen sharing failed: ' + (e && e.message || e));
+    }
+  }
+  function stopShare() {
+    if (!screenTrack) return;
+    const t = screenTrack; screenTrack = null; try { t.stop(); } catch {}
+    if (link && link.isOpen) link.send('ctl', { k: 'screen', on: false });
+    if (liveOn) liveStart(); else if (link && link.setVideo) link.setVideo(null).catch(() => {});
+    $('#spShare').textContent = 'Share this phone\'s screen with the LED wall…'; shareSt('Stopped.');
+  }
+  $('#spShare').onclick = shareScreen;
   function liveFrame() { if (liveTrack && liveTrack.requestFrame) liveTrack.requestFrame(); }
   function liveFixed(now) {   // the program picture just drawn (#239 SOLO: the camera video itself)
     liveT = now; const v = fixed.video;
@@ -561,7 +596,7 @@ export function startCamera(ctx) {
     else if (m.k === 'recdel') onRecDel(m.uid);
     else if (m.k === 'calpt') { if (!(fixed.on && fixed.onCalPoint(m))) onCalPoint(m); }   // #208 fixed camera taps first
     else if (m.k === 'calskip') { if (fixed.on) fixed.calSkip(); }   // #211 the Quest's grip skips an auto point
-    else if (m.k === 'led') { led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000); if (liveOn && !led.on) showLiveCard(true); }   // #176 (#238 the LIVE card stays up)
+    else if (m.k === 'led') { if (m.curve != null) led.wall.userData.setCurve(m.curve);   /* #358 the Quest's LED curve */ led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000); if (liveOn && !led.on) showLiveCard(true); }   // #176 (#238 the LIVE card stays up)
     else if (m.k === 'live') { const was = liveOn, wasG = liveGreen, wasP = livePcam; liveOn = !!m.on; liveSolo = !!m.solo; livePcam = !!m.pcam; liveGreen = !!m.green; if (liveOn && (!was || wasG !== liveGreen || wasP !== livePcam)) liveStart(); else if (!liveOn) liveStop(); showLiveCard(liveOn); }   // #238 LIVE CAM (#239 SOLO, #347 PHONE CAM pcam / green)   // #238 LIVE CAM (#239 SOLO)
     else if (m.k === 'scroll' && scroller) {   // #236 the Quest's VJ scroller, drawn here from its text, wave and speed
       scroller.wave = m.wave; scroller.speed = m.speed;
