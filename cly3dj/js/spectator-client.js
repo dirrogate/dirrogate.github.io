@@ -13,6 +13,7 @@ import { makeFixLook } from './fixlook.js';
 import { makePhoneLibrary } from './phonelib.js';
 import { makeFixedCam } from './fixedcam.js';
 import * as media from './medialib.js';
+import { applyNeon } from './neonenv.js';   // #355
 import { makePhoneHands } from './phonehands.js';   // #288
 
 export function startCamera(ctx) {
@@ -473,7 +474,8 @@ export function startCamera(ctx) {
       }
     }
   }
-  const phoneHands = makePhoneHands(rig);   // #288
+  let roboNeon = true;   // #355
+  const phoneHands = makePhoneHands(rig, renderer);   // #288 (#355 renderer for NEON CHROME)
   // ---------------------------------------------------------------- #278 the robot DJ on the phone
   // The Quest sends (only while ROBOT ON PHONE is on) the mic level, which input is the left / right hand and each
   // controller's trigger, grip and tip ball; head and hands come in every state tick anyway (rig-local). The phone
@@ -487,7 +489,7 @@ export function startCamera(ctx) {
       robo.loading = true;
       Promise.all([import('./robot2.js'), import('./director.js')]).then(([R, D]) => {
         const a = new R.RobotAvatar2(rig); robo.a = a; robo.layer = D.AV_LAYER; a.root.visible = false;
-        return a.load(R.ROBOT_GLB);
+        return a.load(R.ROBOT_GLB).then(() => applyNeon(a.root, renderer, roboNeon));   // #355
       }).catch(e => { console.warn('phone robot', e); robo.err = e.message; });
     }
   }
@@ -542,7 +544,7 @@ export function startCamera(ctx) {
       if (m.g) for (const a of m.g) nodeSample(a, m.t);
       if (m.r) for (const a of m.r) recSample(a, m.t);
       // #288 (owner): no more depth-only cut-outs; the phone draws the DJ's hands as the Quest does (3D hands / glove / controllers)
-      if (m.ha) phoneHands.fit(m.ha);   // #291
+      if (m.ha) { phoneHands.fit(m.ha); const nn = m.ha.neon !== 0; if (nn !== roboNeon) { roboNeon = nn; if (robo.a) applyNeon(robo.a.root, renderer, nn); } }   // #291 (#355 NEON CHROME on the phone robot too)
       if (m.hd && !robo.on) phoneHands.update(m.hd, m.cl, Math.min(0.1, (performance.now() - (onMsg.lastHd || 0)) / 1000)), onMsg.lastHd = performance.now();
       if (m.av) onAvatar(m);
       if (m.vv) onVV(m.vv);

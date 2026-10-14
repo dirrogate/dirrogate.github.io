@@ -18,7 +18,8 @@ import { Portals } from './portal.js';   // #345 mirror portal: a real-world win
 import { FacetWall, WALL_DEF } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
 import { Beat } from './beat.js';   // #346 bass onsets on the master for the wall's BEAT
 import { RobotAvatar } from './robot.js';
-import { RobotAvatar2, ROBOT_GLB } from './robot2.js';   // #245 the licensed AvatarRobot (EntroPi Games)
+import { RobotAvatar2, ROBOT_GLB } from './robot2.js';
+import { applyNeon } from './neonenv.js';   // #355 NEON CHROME   // #245 the licensed AvatarRobot (EntroPi Games)
 import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, labelFrom, blankWav } from './tools.js';
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
@@ -427,7 +428,7 @@ function useAvatarStyle(st) {
   if (CAMERA_ROLE) return;
   if (!avatars[st]) {
     if (st === 'human') { const a = new Avatar(rig); avatars.human = a; a.load('models/avatar/dirroface.glb').catch(e => { a.status = 'failed: ' + e.message; console.warn('avatar not loaded', e); }); }
-    else { const a = new RobotAvatar2(rig); avatars.robot = a; a.load(ROBOT_GLB).catch(e => { a.status = 'failed: ' + e.message; console.warn('robot avatar not loaded', e); }); }
+    else { const a = new RobotAvatar2(rig); avatars.robot = a; a.load(ROBOT_GLB).then(() => robotNeon()).catch(e => { a.status = 'failed: ' + e.message; console.warn('robot avatar not loaded', e); }); }   // #355 NEON CHROME
   }
   for (const a of Object.values(avatars)) a.root.visible = false;
   avatar = avatars[st]; avatar.root.visible = djSet.avatar;
@@ -4748,26 +4749,36 @@ function drawToolsPage() {
     const A = X ? X.handFit : { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
     const rows = [['x', 'MOVE OUT / IN', 'mm', 5], ['y', 'MOVE UP / DOWN', 'mm', 5], ['z', 'MOVE BACK / FORWARD', 'mm', 5],
       ['rx', 'TILT FINGERS UP / DOWN', '°', 5], ['ry', 'SWING FINGERS OUT / IN', '°', 5], ['rz', 'ROLL', '°', 5]];
-    const rh = P ? 54 : 42, bw = P ? 64 : 56;
-    rows.forEach(([k, label, unit, step], i) => {
-      const y = y0 + 4 + i * (rh + 4);
-      g.fillStyle = '#dfe6f2'; g.font = `700 ${P ? 17 : 16}px system-ui`; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(label, L + 4, y + rh / 2);
-      const vx = R - bw * 2 - 120;
-      btn(vx, y, bw, rh, '−', false, () => { if (X) { X.setHandFit(k, (A[k] || 0) - step); drawMixScreen(); } });
-      g.fillStyle = '#fff'; g.font = '700 20px system-ui'; g.textAlign = 'center'; g.fillText(`${(A[k] || 0) > 0 ? '+' : ''}${A[k] || 0} ${unit}`, vx + bw + 60, y + rh / 2); g.textBaseline = 'alphabetic';
-      btn(vx + bw + 120, y, bw, rh, '+', false, () => { if (X) { X.setHandFit(k, (A[k] || 0) + step); drawMixScreen(); } });
-    });
-    {   // #323 (owner) how high the hand lifts off a playing record before the needle comes up
-      const y = y0 + 4 + rows.length * (rh + 4), v = settings.needleLift || 7, vx = R - bw * 2 - 120;
-      g.fillStyle = '#7cc4ff'; g.font = `700 ${P ? 17 : 16}px system-ui`; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('NEEDLE LIFT (tonearm)', L + 4, y + rh / 2);
-      const setL = n => { settings.needleLift = Math.max(1, Math.min(10, Math.round(n * 2) / 2)); saveSettings(); drawMixScreen(); };
-      btn(vx, y, bw, rh, '−', false, () => setL(v - 0.5));
-      g.fillStyle = '#fff'; g.font = '700 20px system-ui'; g.textAlign = 'center'; g.fillText(`${v} cm`, vx + bw + 60, y + rh / 2); g.textBaseline = 'alphabetic';
-      btn(vx + bw + 120, y, bw, rh, '+', false, () => setL(v + 0.5));
+    // #355 laid out as cells (landscape: two columns; portrait: the label above its − value +), so nothing overlaps
+    const cells = rows.map(([k, label, unit, step]) => [label, `${(A[k] || 0) > 0 ? '+' : ''}${A[k] || 0} ${unit}`, d => { if (X) { X.setHandFit(k, (A[k] || 0) + d * step); drawMixScreen(); } }, '#dfe6f2']);
+    { const v = settings.needleLift || 7; cells.push(['NEEDLE LIFT (tonearm)', `${v} cm`, d => { settings.needleLift = Math.max(1, Math.min(10, Math.round((v + d * 0.5) * 2) / 2)); saveSettings(); drawMixScreen(); }, '#7cc4ff']); }   // #323
+    { const v = A.gs || 94; cells.push(['GLOVE SIZE', `${v} %`, d => { if (X) { X.setHandFit('gs', Math.max(80, Math.min(120, v + d * 3))); drawMixScreen(); } }, '#c9a6ff']); }   // #355
+    const cell = ([label, val, act, col], x, y, w, h, stacked) => {
+      const bw = stacked ? 56 : 44, vw = stacked ? w - 2 * bw - 12 : 84, lw = stacked ? w : w - 2 * bw - vw - 12;
+      let fs = stacked ? 15 : 14; g.font = `700 ${fs}px system-ui`; while (fs > 10 && g.measureText(label).width > lw - 4) g.font = `700 ${--fs}px system-ui`;
+      g.fillStyle = col; g.textAlign = 'left'; g.textBaseline = 'middle';
+      const by = stacked ? y + 20 : y, bh = stacked ? h - 20 : h;
+      g.fillText(label, x + 2, stacked ? y + 9 : y + h / 2);
+      const bx = stacked ? x : x + lw + 4;
+      btn(bx, by, bw, bh, '−', false, () => act(-1));
+      g.fillStyle = '#fff'; g.font = '700 18px system-ui'; g.textAlign = 'center'; g.fillText(val, bx + bw + 6 + vw / 2, by + bh / 2); g.textBaseline = 'alphabetic';
+      btn(bx + bw + 12 + vw, by, bw, bh, '+', false, () => act(1));
+    };
+    const neonOn = A.neon !== 0;
+    const bottomBtns = (x, y, w, h) => {
+      const b2 = (w - 8) / 2;
+      btn(x, y, b2, h, 'RESET', false, () => { if (X) { for (const [k] of rows) X.setHandFit(k, 0); X.setHandFit('gs', 94); drawMixScreen(); } });
+      btn(x + b2 + 8, y, b2, h, neonOn ? 'NEON CHROME: ON' : 'NEON CHROME', neonOn, () => { if (X) X.setHandFit('neon', neonOn ? 0 : 1); robotNeon(); drawMixScreen(); });
+    };
+    if (P) {
+      cells.forEach((c, i) => cell(c, L, y0 + i * 62, R - L, 58, true));
+      const yb = y0 + cells.length * 62 + 4; bottomBtns(L, yb, R - L, 44);
+      note('5 mm / 5° steps, both hands (left mirrored). NEEDLE LIFT: how far a hand holding the arm lifts before the needle comes up. GLOVE SIZE: the robot glove look. NEON CHROME: helmet and gloves reflect neon.', yb + 62);
+    } else {
+      const cw = (R - L - 16) / 2, half = Math.ceil(cells.length / 2);
+      cells.forEach((c, i) => cell(c, L + (i < half ? 0 : cw + 16), y0 + (i % half) * 44, cw, 38, false));
+      bottomBtns(L, y0 + half * 44 + 4, R - L, 36);
     }
-    const yb = y0 + 4 + (rows.length + 1) * (rh + 4) + 6;
-    btn(L, yb, 160, 40, 'RESET', false, () => { if (X) { for (const [k] of rows) X.setHandFit(k, 0); drawMixScreen(); } });
-    note('Steps of 5 mm / 5°, both hands (the left mirrored). Line the 3D hand up with your real hand, then tell Claude the numbers. NEEDLE LIFT: how far up a hand holding the arm on a playing record must lift before the needle comes off (0.5 cm steps, 1 to 10 cm).', yb + 56);
     return;
   }
   if (page === 'maker') {
@@ -5256,6 +5267,10 @@ function stepDjCam(dt) {
   else djcam.t += dt;
 }
 const _djFloor = new THREE.Vector3();
+function robotNeon() {   // #355 the AVACAM robot's helmet and gloves reflect the neon room (HAND FIT > NEON CHROME, on by default)
+  let on = true; try { on = !xr || xr.handFit.neon !== 0; } catch (e) {}
+  if (avatars.robot && avatars.robot.root) applyNeon(avatars.robot.root, renderer, on);
+}
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight);
