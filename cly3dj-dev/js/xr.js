@@ -519,24 +519,6 @@ export function setupXR(ctx) {
     if (!st.walk) { st.walk = { zRef: cl.z, pz: cl.z, py: cl.y }; return; }
     walkSteps(st.walk, cl);
   }
-  // Thumb swipe (owner: like Meta's microgestures, which the Quest browser doesn't hand to web pages): with the hand
-  // over or near the crate, rest the thumb tip on the side of the index finger and slide it: toward the fingertip = next
-  // record, back toward the knuckle = previous, about 1.2 cm a record. Read from the tracked joints, so it works on any
-  // WebXR browser with hand tracking; controllers keep the thumbstick.
-  const SWIPE_STEP = 0.012;
-  function thumbSwipe(st) {
-    if (!st.isHand || st.pinching || st.direct || !ctx.crateLidOpen() || !nearCrate(st.tip)) { st.swipe = null; return; }
-    const A = jointPos(st, 'index-finger-phalanx-proximal', _sw1), D = jointPos(st, 'index-finger-phalanx-distal', _sw2), T = jointPos(st, 'thumb-tip', _sw3);
-    if (!A || !D || !T || T.distanceTo(st.tip) < 0.035) { st.swipe = null; return; }
-    const L = D.distanceTo(A), u = _sw4.copy(D).sub(A).divideScalar(L || 1), t = _sw5.copy(T).sub(A).dot(u);
-    const dist = _sw5.copy(T).sub(A).addScaledVector(u, -t).length();
-    if (dist > 0.02 || t < -0.005 || t > L + 0.005) { st.swipe = null; return; }
-    const w = st.swipe || (st.swipe = { n: 0, ref: t });
-    if (++w.n < 3) { w.ref = t; return; }   // a few frames of contact before it counts
-    const k = Math.trunc((t - w.ref) / SWIPE_STEP); if (!k) return;
-    w.ref += k * SWIPE_STEP; for (let i = 0; i < Math.abs(k); i++) ctx.crateWalkStep(Math.sign(k));
-  }
-  const _sw1 = new THREE.Vector3(), _sw2 = new THREE.Vector3(), _sw3 = new THREE.Vector3(), _sw4 = new THREE.Vector3(), _sw5 = new THREE.Vector3();
 
 
   const _kq = new THREE.Quaternion(), _kq2 = new THREE.Quaternion(), _kv = new THREE.Vector3();   // #328
@@ -857,7 +839,7 @@ export function setupXR(ctx) {
 
       if (st.direct) grabMove(st, st.isHand ? st.pinchPt : st.tip);
       else if (hasTip) pokes(st, st.tip);
-      if (st.isHand) { crateTouchWalk(st); thumbSwipe(st); }   // #350
+      if (st.isHand) crateTouchWalk(st);   // #350
       deckFeel(st, dt);
 
       // thumbstick: rotate / raise furniture while moving it, scroll the crate while the hand is at it
