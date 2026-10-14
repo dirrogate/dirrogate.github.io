@@ -1679,6 +1679,16 @@ function layoutSleeves() {
   const FLOOR = 0.012, SH = 0.315, backZ = -CRATE.D / 2 + 0.012 + 0.0015 + SH / 2 * Math.sin(0.08);
   const pitch = Math.min(CRATE.pitch, (front - 0.02 - backZ) / (CRATE.slots - 1));
   const hy = shut ? (CRATE.H - FLOOR - 0.006) / SH : 1;
+  // #350 (owner: bigger angle between the current sleeve and the ones either side, easier to pick up). Lid open, each
+  // jacket pivots on its bottom edge like a real one: the ones flipped past fan forward at 23 deg (parallel, a sleeve's
+  // width apart along the floor, the front-most top just inside the front wall), a 1.2 cm gap, the current one upright,
+  // a 3 cm gap, the next one leaning back 6 deg, the rest packed behind it to the back wall.
+  const AP = 0.40, dzP = 0.0067, gapF = 0.012, gapB = 0.03, zWallF = CRATE.D / 2 - 0.012 - 0.003, zBack = -CRATE.D / 2 + 0.012 + 0.006;
+  const kSel = crateState.sel - start, nPast = Math.max(0, Math.min(kSel, n)), nBack = Math.max(0, n - kSel - 1);
+  const zSelMin = zBack + (nBack ? gapB + (nBack - 1) * 0.0026 : 0);   // room for the ones behind (2.6 mm apart at least)
+  const zSel = Math.max(zSelMin, Math.min(front - 0.01, zWallF - (nPast ? gapF + (nPast - 1) * dzP + SH * Math.sin(AP) : 0)));
+  const dzF = nPast > 1 ? Math.max(0.0016, Math.min(dzP, (zWallF - SH * Math.sin(AP) - gapF - zSel) / (nPast - 1))) : dzP;   // near the end of a list: the fan packs tighter
+  const pB = nBack > 1 ? Math.min(CRATE.pitch, (zSel - gapB - zBack) / (nBack - 1)) : 0;
   for (let k = 0; k < CRATE.slots; k++) {
     const idx = start + k; sleeveMap[k] = idx < list.length ? idx : -1;
     if (k >= n) { m.makeScale(0, 0, 0); S.setMatrixAt(k, m); continue; }
@@ -1691,11 +1701,17 @@ function layoutSleeves() {
     else if (rel === 0) { tilt = 0.05; y += 0.012; }       // selected: sleeve nudged up, record pops out (below)
     if (rel !== 0 || shut) y = Math.max(y, FLOOR + 0.001 + sh * hyr / 2 * Math.cos(tilt) + 0.0007 * Math.abs(Math.sin(tilt)));
     if (rel > 0) z -= 0.02;                                 // gap behind the selection
+    if (!shut) {   // #350 bottom-pivot fan (see above)
+      const zb = rel < 0 ? zSel + gapF + (-rel - 1) * dzF : rel === 0 ? zSel : zSel - gapB - (rel - 1) * pB;
+      tilt = rel < 0 ? AP : rel === 0 ? 0.0 : rel === 1 ? -0.10 : -0.03;
+      const hh = sh * hyr / 2; z = zb + hh * Math.sin(tilt); y = FLOOR + 0.001 + hh * Math.cos(tilt) + (rel === 0 && !crateState.walking ? 0.012 : 0);
+    }
     e.set(tilt, 0, 0); q.setFromEuler(e); p.set(0, y, z);
     s.set(ks, hyr * ks, r && r.missing ? 0.001 : 1);
     { const so = r && sleeveOf(r); if (so) { so.slotM = new THREE.Matrix4().compose(p, q, s); if (!so.back || so.back.t < 1) s.set(0, 0, 0); } }   // #229 / #242 that sleeve is out of the crate
     m.compose(p, q, s); S.setMatrixAt(k, m);
-    if (rel === 0 && r && !r.missing && !shut) {
+    if (rel === 0 && crateState.walking) crateDisc.visible = false;   // #350 finger-walking: no record riding out until the hand pauses
+    else if (rel === 0 && r && !r.missing && !shut) {
       crateDisc.userData.target.set(0, yDisc + 0.012 + sh / 2 - 0.005, z); crateDisc.userData.tilt = tilt;
       if (!crateDisc.visible) { crateDisc.position.set(0, yDisc + 0.012, z); crateDisc.visible = true; }
       if (crateDisc.userData.rec !== r) {
@@ -2120,6 +2136,16 @@ function spidersHome() {
   for (const s of spiders) spiderToRecess(s, s.home);
 }
 function sleevesHome() { for (const sl of [...sleeves]) disposeSleeve(sl); layoutSleeves(); }   // #242 tidy-up: all back at once
+// #350 finger-walking through the crate (xr.js): one record per step; while the hand keeps walking the current record
+// stays down in its sleeve (nothing riding out to catch the fingers), and pops up 0.45 s after the hand pauses
+let walkT = 0;
+function crateWalkStep(delta) {
+  if (!crateLidOpen()) return false;
+  const list = currentList(); if (!list.length) return false;
+  const was = crateState.sel; crateState.walking = true; crateSelect(delta);
+  clearTimeout(walkT); walkT = setTimeout(() => { crateState.walking = false; layoutSleeves(); }, 450);
+  return crateState.sel !== was;
+}
 function crateSelect(delta) {
   const list = currentList(); if (!list.length) return;
   crateState.sel = clamp(crateState.sel + delta, 0, list.length - 1);
@@ -5195,7 +5221,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   armGrab, armDrag, armRelease,
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
   sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease, spiderGrabTest, spiderGrab, spiderRelease,
-  crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, drawCrateScreen, layoutSleeves, crateDisc,
+  crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, crateWalkStep, drawCrateScreen, layoutSleeves, crateDisc,
   neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, ledTilted, toast, mixScreenRelease,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
@@ -5515,7 +5541,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, _lblOver, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, crateWalkStep, _lblOver, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
