@@ -15,15 +15,15 @@ import * as THREE from 'three';
 import { drawChat } from './chat.js';
 
 export const TWITCH_WHIP = 'https://g.webrtc.live-video.net:4443/v2/offer';
-export const SOURCES = { card: 'CARD', avacam: 'AVACAM', show: 'SHOWTIME!', headset: 'HEADSET CAM', phone: 'PHONE' };   // #338 VIDEOWALL gone: SHOWTIME! with ROBOT and GEAR off is the same
-const VBR = { card: 600, avacam: 2500, show: 3500, headset: 3000, phone: 2000 };
+export const SOURCES = { card: 'CARD', avacam: 'AVACAM', show: 'SHOWTIME!', headset: 'HEADSET CAM', phone: 'PHONE', pcam: 'PHONE CAM' };   // #347 PHONE CAM   // #338 VIDEOWALL gone: SHOWTIME! with ROBOT and GEAR off is the same
+const VBR = { card: 600, avacam: 2500, show: 3500, headset: 3000, phone: 2000, pcam: 3500 };
 // #336 SHOW = three layers: the LED wall's visuals full frame (clip / image / VidVinyl / phone LIVE), the robot DJ and
 // gear from the AVACAM camera (BOOTH angle) drawn on a see-through background, and flat overlays (scroller, now
 // playing, logo). VIDEOWALL = the visuals and overlays only (no 3D render). Toggles saved as 'vire.showOpts'.
 export const SHOW_DEF = { visuals: true, robot: true, gear: true, scroll: true, np: true, logo: true, chat: false };   // #340 CHAT: Twitch chat on the right   // #338 VISUALS: the background on / off   // video kbit/s caps per source
 const ABR = 160;   // Opus stereo kbit/s
 
-const KEY = 'vire.twitchKey', SRC = 'vire.streamSrc', FIT = 'vire.mrcam', SHOWO = 'vire.showOpts';
+const KEY = 'vire.twitchKey', SRC = 'vire.streamSrc', FIT = 'vire.mrcam', SHOWO = 'vire.showOpts', PCAMK = 'vire.pcam';
 // Quest 3 RGB camera: in front of and a little below the centre eye; ~73 deg across at 4:3 (starting values, CAM FIT tunes)
 export const FIT_DEF = { x: -32, y: -19, z: -75, tilt: 0, turn: 0, roll: 0, hfov: 73, lag: 0, gear: true };
 const lsJ = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
@@ -68,6 +68,44 @@ vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.05
 void main() { vec4 g = texture2D(map, vec2(vUv.x, 1.0 - vUv.y)); float a = clamp(g.a, 0.0, 1.0);
   gl_FragColor = vec4(srgb(aces(g.rgb / max(a, 0.001))), a); }`;
 
+// #347 PHONE CAM (owner): the spectator phone on a tripod (fixed camera mode, calibrated) sends its plain camera video;
+// the Quest draws the gear, LED wall, chalkboard and the DJ's drawn hands (3D hands / glove / controllers, with black
+// forearm sleeves) from the phone's own pose over it. GREEN SCREEN on: the phone sends one packed 1920 x 720 frame
+// (pcampack.js: colour 1280 wide, matte 624 wide at x 1296); the person is cut out over a background (the VISUALS, or
+// the dome / pano drawn from the phone's view), graded toward the panorama (LIGHT MATCH: camera cast neutralised and
+// exposure levelled from the person only, re-tinted to the pano, light wrap, a glow on the side the key light comes
+// from). LATENCY MATCH: hands and gear drawn as they were when the frame was filmed, the stream sound delayed as much.
+// Layers back to front: background, person, gear + hands, overlays (scroller, now playing, logo, chat).
+export const PCAM_DEF = { green: false, bg: 'visuals', light: true, lightStr: 0.7, wrap: 0.5, glow: 0.4, expo: 0, lat: false, trim: 0, manual: 150, matte: false };
+const PCAM_FS = `uniform sampler2D map; uniform sampler2D cam; uniform sampler2D bg; varying vec2 vUv;
+uniform float green, bgLin, showMatte, wrap, glow; uniform vec4 pack; uniform vec3 gain, wrapCol, glowCol; uniform vec2 glowDir, texel;
+vec3 rrt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
+vec3 aces(vec3 c) {
+  const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
+  const mat3 O = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
+  c *= 1.0 / 0.6; return clamp(O * rrt(I * c), 0.0, 1.0); }
+vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
+float matteAt(vec2 uv) { uv = clamp(uv, vec2(0.0), vec2(1.0)); return texture2D(cam, vec2(pack.z + uv.x * pack.w, uv.y)).r; }
+void main() { vec2 uv = vec2(vUv.x, 1.0 - vUv.y); vec4 g = texture2D(map, uv);
+  float a = clamp(g.a, 0.0, 1.0); vec3 gc = srgb(aces(g.rgb / max(a, 0.001)));
+  vec3 c;
+  if (green > 0.5) {
+    vec3 col = texture2D(cam, vec2(uv.x * pack.x, uv.y)).rgb; float m = matteAt(uv);
+    vec3 b = texture2D(bg, uv).rgb; if (bgLin > 0.5) b = srgb(aces(b));
+    vec3 p = col * gain;
+    if (wrap > 0.0 && m > 0.01) {   // light wrap: how much background surrounds this kept pixel
+      float k = 0.0; for (int i = 0; i < 6; i++) { float t = float(i) * 1.0472; k += matteAt(uv + vec2(cos(t), sin(t)) * texel * 8.0); }
+      p += wrapCol * (1.0 - k / 6.0) * wrap * 0.9;
+    }
+    if (glow > 0.0 && m > 0.01) {   // key-side glow: the silhouette's edge that faces the light
+      float s = 0.5 * (matteAt(uv + glowDir * texel * 10.0) + matteAt(uv + glowDir * texel * 20.0));
+      p += glowCol * (1.0 - s) * glow;
+    }
+    c = showMatte > 0.5 ? vec3(m) : mix(b, clamp(p, 0.0, 1.0), m);
+  } else c = texture2D(cam, uv).rgb;
+  gl_FragColor = vec4(mix(c, gc, a), 1.0); }`;
+const _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3();
+
 export class Streamer {
   // env: { engine, renderer, djcam, phoneTrack() -> MediaStreamTrack|null, phoneLive(on), nowPlaying() -> {a, b, bpm}, onChange() }
   constructor(env) {
@@ -84,7 +122,17 @@ export class Streamer {
     this.rehearse = false;
     this.hist = []; this.mr = null;
     this.showOpt = { ...SHOW_DEF, ...(lsJ(SHOWO) || {}) }; this.ly = null; this.showT = 0; this.layerOk = false;
+    this.pc_ = { ...PCAM_DEF, ...(lsJ(PCAMK) || {}) }; this.pk = null; this.pkNew = false; this.pkMsg = ''; this.delay = null; this.grade = new THREE.Vector3(1, 1, 1); this.gradeT = 0;   // #347
   }
+  setPcam(k, v) {   // #347 PHONE CAM SETUP
+    if (!(k in PCAM_DEF)) return; this.pc_[k] = v; ls.set(PCAMK, JSON.stringify(this.pc_));
+    if (k === 'green' && this.active && this.source === 'pcam') this.env.phoneLive && this.env.phoneLive(true, this._pcamOpts());
+    if (k === 'lat' || k === 'trim' || k === 'manual') this._audioDelay();
+    this.env.onChange && this.env.onChange();
+  }
+  _pcamOpts() { return this.source === 'pcam' ? { pcam: true, green: !!this.pc_.green } : {}; }
+  get latMs() { return Math.max(0, (this.delay != null ? this.delay : this.pc_.manual) + this.pc_.trim); }   // the delay used by LATENCY MATCH
+  _audioDelay() { const e = this.env.engine; if (e && e.setStreamDelay) e.setStreamDelay(this.active && this.source === 'pcam' && this.pc_.lat ? this.latMs / 1000 : 0); }
   setShowOpt(k, v) { if (k in SHOW_DEF) { this.showOpt[k] = v; ls.set(SHOWO, JSON.stringify(this.showOpt)); this.env.onChange && this.env.onChange(); } }
   get show3d() { return this.source === 'show' && (this.showOpt.robot || this.showOpt.gear); }
   get running() { return this.live || this.testing; }
@@ -92,6 +140,7 @@ export class Streamer {
   setRehearse(on) {
     on = !!on; if (on === this.rehearse) return; this.rehearse = on;
     if (on && !this.live) { this._sizeFor(this.source); this.layerOk = false; }
+    if (this.source === 'pcam' && !this.live) { this.env.phoneLive && this.env.phoneLive(on, this._pcamOpts()); this._audioDelay(); }
     if (this.source === 'headset' && !this.live) this.setTesting(on);
     this.env.onChange && this.env.onChange();
   }
@@ -161,16 +210,18 @@ export class Streamer {
     if (this.rehearse && !this.live) {   // #339 MONITOR off air: follow the new source
       this._sizeFor(src); this.layerOk = false;
       if (prev === 'headset' && src !== 'headset') this.setTesting(false); else if (src === 'headset') await this.setTesting(true);
-      if (src === 'phone') this.env.phoneLive && this.env.phoneLive(true); else if (prev === 'phone') this.env.phoneLive && this.env.phoneLive(false);
+      if (src === 'phone' || src === 'pcam') this.env.phoneLive && this.env.phoneLive(true, this._pcamOpts()); else if (prev === 'phone' || prev === 'pcam') this.env.phoneLive && this.env.phoneLive(false);
+      this._audioDelay();
     }
     if (!this.live || !this.vSender) { this.env.onChange && this.env.onChange(); return; }
     try {
-      if (src === 'phone') this.env.phoneLive && this.env.phoneLive(true);
+      if (src === 'phone' || src === 'pcam') this.env.phoneLive && this.env.phoneLive(true, this._pcamOpts());
       const t = await this._videoTrack(src);
       await this.vSender.replaceTrack(t); this.vTrack = t;
       await this._caps();
       if (prev === 'headset' && src !== 'headset' && !this.testing) this._stopCam();
-      if (prev === 'phone' && src !== 'phone') this.env.phoneLive && this.env.phoneLive(false);
+      if ((prev === 'phone' || prev === 'pcam') && src !== 'phone' && src !== 'pcam') this.env.phoneLive && this.env.phoneLive(false);
+      this._audioDelay();
       this.msg = '';
     } catch (e) { this.source = prev; ls.set(SRC, prev); this.msg = 'Source: ' + e.message; }
     this.env.onChange && this.env.onChange();
@@ -275,6 +326,182 @@ export class Streamer {
     }).catch(() => { this.busy = false; });
   }
 
+  // ---- #347 PHONE CAM ----
+  _pcamTick(now) {
+    const v = this.env.phoneVideo && this.env.phoneVideo();
+    if (this.pc_.lat) this._record(now);
+    if (!v || !v.videoWidth) { this.pkMsg = 'waiting for the phone video (link the phone, fixed camera mode)'; if (now - this.frameT > 500) { this.frameT = now; this._pcamWaiting(); } return; }
+    if (v !== this.pkV) {   // new frame callbacks for this element (they also measure the delay)
+      this.pkV = v; this.pkRv = 0;
+      if (!v.isConnected) { Object.assign(v.style, { position: 'fixed', left: '0', top: '0', width: '2px', height: '2px', opacity: '0.01', pointerEvents: 'none' }); document.body.appendChild(v); }
+      if (v.requestVideoFrameCallback) {
+        const cb = (t, md) => {
+          if (this.pkV !== v) return; this.pkNew = true; this.pkRv = performance.now();
+          const d = md.captureTime ? t - md.captureTime : md.receiveTime ? t - md.receiveTime + 70 : null;   // +70: the phone's own camera + encoder, not measured
+          if (d != null && d > 0 && d < 2000) this.delay = this.delay == null ? d : this.delay * 0.95 + d * 0.05;
+          v.requestVideoFrameCallback(cb);
+        };
+        v.requestVideoFrameCallback(cb);
+      }
+    }
+    if (now - (this.pkRv || 0) > 300 && now - (this.pkPoll || 0) > 33) { this.pkPoll = now; this.pkNew = true; }   // no frame callbacks: ~30 a second
+    if (now - this.gradeT > 500) { this.gradeT = now; this._pcamGrade(v); this._audioDelay(); }
+    if (this.pkNew && !this.busy) { this.pkNew = false; this._pcamFrame(v, now); }
+  }
+  _pcamWaiting() {
+    const g = this.g, W = this.canvas.width, H = this.canvas.height;
+    g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H); g.fillStyle = '#8c96a8'; g.font = '600 30px system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('PHONE CAM: ' + this.pkMsg, W / 2, H / 2); g.textBaseline = 'alphabetic';
+    this._overlays(g, W, H); if (this.canvasTrack && this.live) this.canvasTrack.requestFrame();
+  }
+  // LATENCY MATCH: the fast movers (hands, controllers, glove, sleeves) keep ~1 s of their local poses; the PHONE CAM
+  // render puts them back where they were when the phone filmed the frame, then restores them.
+  _record(now) {
+    const nodes = this.env.movers ? this.env.movers() : []; if (!this.lh) this.lh = new Map();
+    for (const o of nodes) {
+      let h = this.lh.get(o); if (!h) this.lh.set(o, h = { t: new Float64Array(96), d: new Float32Array(96 * 10), i: 0, n: 0 });
+      const k = h.i * 10; h.t[h.i] = now;
+      o.position.toArray(h.d, k); o.quaternion.toArray(h.d, k + 3); o.scale.toArray(h.d, k + 7);
+      h.i = (h.i + 1) % 96; h.n = Math.min(96, h.n + 1); h.seen = now;
+    }
+    if (this.lh.size > nodes.length + 64) for (const [o, h] of this.lh) if (now - h.seen > 2000) this.lh.delete(o);
+  }
+  _rewind(T) {   // -> undo
+    if (!this.lh) return null; const undo = [];
+    for (const [o, h] of this.lh) {
+      if (performance.now() - h.seen > 200) continue;
+      let best = -1; for (let j = 0; j < h.n; j++) { const i = (h.i - 1 - j + 96) % 96; if (h.t[i] <= T) { best = i; break; } }
+      if (best < 0) best = (h.i - h.n + 96) % 96;   // older than the history: the oldest kept
+      undo.push([o, o.position.clone(), o.quaternion.clone(), o.scale.clone(), o.matrixAutoUpdate ? null : o.matrix.clone()]);
+      const k = best * 10; o.position.fromArray(h.d, k); o.quaternion.fromArray(h.d, k + 3); o.scale.fromArray(h.d, k + 7);
+      if (!o.matrixAutoUpdate) o.matrix.compose(o.position, o.quaternion, o.scale);
+    }
+    return () => { for (const [o, p, q, sc, m] of undo) { o.position.copy(p); o.quaternion.copy(q); o.scale.copy(sc); if (m) o.matrix.copy(m); } };
+  }
+  _pcamGrade(v) {   // LIGHT MATCH: average colour of the person (matte-weighted, packed frame) and of the background
+    const P = this.pc_, li = this.env.lightInfo ? this.env.lightInfo() : {}, pano = li.pano;
+    const c = this.gc || (this.gc = Object.assign(document.createElement('canvas'), { width: 96, height: 36 })), g = c.getContext('2d', { willReadFrequently: true });
+    const packed = Math.abs(v.videoWidth / v.videoHeight - 1920 / 720) < 0.06;
+    let gain = [1, 1, 1];
+    if (packed && P.light) {
+      g.drawImage(v, 0, 0, 96, 36); const px = g.getImageData(0, 0, 96, 36).data;
+      let r = 0, gg = 0, b = 0, w = 0;
+      for (let y = 0; y < 36; y++) for (let x = 0; x < 64; x++) {
+        const mx = Math.min(95, Math.round(64.8 + x * 31.2 / 64)), m = px[(y * 96 + mx) * 4] / 255; if (m < 0.5) continue;
+        const i = (y * 96 + x) * 4; r += px[i] * m; gg += px[i + 1] * m; b += px[i + 2] * m; w += m;
+      }
+      if (w > 20) {
+        r /= w * 255; gg /= w * 255; b /= w * 255;
+        const lum = Math.max(0.03, 0.2126 * r + 0.7152 * gg + 0.0722 * b), cl = (x, a, z) => Math.min(z, Math.max(a, x));
+        const pl = pano ? Math.max(0.03, 0.2126 * pano[0] + 0.7152 * pano[1] + 0.0722 * pano[2]) : 1;
+        const tint = pano ? pano.map(x => cl(x / pl, 0.8, 1.25)) : [1, 1, 1], ex = cl(Math.sqrt(0.42 / lum), 0.7, 1.35);
+        gain = [r, gg, b].map((m, i) => 1 + (cl(lum / Math.max(0.01, m), 0.8, 1.25) * tint[i] * ex - 1) * P.lightStr);
+      }
+    }
+    const e = Math.pow(2, P.expo); this.gradeTo = gain.map(x => x * e);
+    // what surrounds the person: the background's average (the wrap light)
+    let bgAvg = pano || [0.3, 0.3, 0.35];
+    if (P.bg === 'visuals' && this.bgC) { g.drawImage(this.bgC, 0, 0, 16, 9); const px = g.getImageData(0, 0, 16, 9).data; let r = 0, gg = 0, b = 0; for (let i = 0; i < px.length; i += 4) { r += px[i]; gg += px[i + 1]; b += px[i + 2]; } const n = px.length / 4 * 255; bgAvg = [r / n, gg / n, b / n]; }
+    this.wrapCol = bgAvg;
+  }
+  _pcamFrame(v, now) {
+    const r = this.env.renderer, P = this.pc_, cam6 = this.env.phoneCam && this.env.phoneCam(), rig = this.env.rig;
+    const packed = Math.abs(v.videoWidth / v.videoHeight - 1920 / 720) < 0.06;
+    const asp = cam6 && cam6.vw ? cam6.vw / cam6.vh : packed ? 16 / 9 : v.videoWidth / v.videoHeight;
+    const W = 1280, H = Math.round(W / asp / 2) * 2;
+    this._sizeCanvas(W, H);
+    this.pkMsg = !cam6 ? 'phone not calibrated in fixed camera mode: gear not drawn' : !cam6.ff ? 'phone in AR mode: switch it to fixed camera' : '';
+    if (!this.pk || this.pk.W !== W || this.pk.H !== H) {
+      if (this.pk) { this.pk.rt.dispose(); this.pk.out.dispose(); this.pk.bgRT.dispose(); }
+      const half = r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float');
+      const pk = this.pk = { W, H };
+      pk.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 });
+      pk.bgRT = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType });
+      pk.out = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false });
+      pk.cam = new THREE.PerspectiveCamera(50, W / H, 0.05, 40); pk.cam.updateMatrixWorld = () => {};
+      pk.tex = new THREE.VideoTexture(v); pk.tex.colorSpace = THREE.NoColorSpace; pk.tex.generateMipmaps = false;
+      this.bgC = this.bgC || Object.assign(document.createElement('canvas'), { width: W, height: H }); this.bgC.width = W; this.bgC.height = H;
+      pk.bgTex = new THREE.CanvasTexture(this.bgC); pk.bgTex.colorSpace = THREE.NoColorSpace;
+      pk.mat = new THREE.ShaderMaterial({ uniforms: {
+        map: { value: pk.rt.texture }, cam: { value: pk.tex }, bg: { value: pk.bgTex }, green: { value: 0 }, bgLin: { value: 0 }, showMatte: { value: 0 },
+        wrap: { value: 0 }, glow: { value: 0 }, pack: { value: new THREE.Vector4(1280 / 1920, 0, 1296 / 1920, 624 / 1920) },
+        gain: { value: new THREE.Vector3(1, 1, 1) }, wrapCol: { value: new THREE.Vector3() }, glowCol: { value: new THREE.Vector3() }, glowDir: { value: new THREE.Vector2(1, 0) }, texel: { value: new THREE.Vector2(1 / W, 1 / H) } },
+        vertexShader: COPY_VS, fragmentShader: PCAM_FS, depthTest: false, depthWrite: false });
+      pk.scene = new THREE.Scene(); const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), pk.mat); q.frustumCulled = false; pk.scene.add(q);
+      pk.oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+      pk.buf = new Uint8Array(W * H * 4); pk.img = new ImageData(new Uint8ClampedArray(pk.buf.buffer), W, H);
+    }
+    const pk = this.pk, U = pk.mat.uniforms, cam = pk.cam;
+    if (pk.tex.image !== v) pk.tex.image = v;
+    if (v.readyState >= 2) pk.tex.needsUpdate = true;
+    const green = packed, li = this.env.lightInfo ? this.env.lightInfo() : {};
+    // camera = rig x the phone's rig-space pose; the FULL video's vertical fov
+    const ok = !!(cam6 && cam6.ff && rig);
+    if (ok) {
+      _m2.compose(_v1.fromArray(cam6.p), _q1.fromArray(cam6.q), _s1); rig.updateMatrixWorld();
+      cam.matrixWorld.multiplyMatrices(rig.matrixWorld, _m2); cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
+      cam.matrixWorld.decompose(cam.position, cam.quaternion, cam.scale);
+      if (cam.fov !== cam6.ff || cam.aspect !== asp) { cam.fov = cam6.ff; cam.aspect = asp; cam.updateProjectionMatrix(); }
+    }
+    // background (green screen): the VISUALS full frame, or the dome / pano from the phone's view
+    let bgLin = 0;
+    if (green) {
+      const sky = this.env.skyGroup && this.env.skyGroup();
+      if (P.bg === 'dome' && ok && sky && li.skyReady) bgLin = 1;
+      else {
+        const g = this.bgC.getContext('2d'), L = (this.env.wallSource && this.env.wallSource()) || [];
+        const gr = g.createRadialGradient(W / 2, H * 0.45, 40, W / 2, H / 2, W * 0.65); gr.addColorStop(0, '#141a28'); gr.addColorStop(1, '#030409'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+        for (const l of L) { if (!l || !l.el || l.gain === 0) continue; g.globalAlpha = l.gain == null ? 1 : Math.min(1, l.gain); g.globalCompositeOperation = l.add ? 'lighter' : 'source-over'; this._cover(g, l.el, W, H, l.flip); }
+        g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; pk.bgTex.needsUpdate = true;
+      }
+    }
+    U.bg.value = bgLin ? pk.bgRT.texture : pk.bgTex; U.bgLin.value = bgLin; U.green.value = green ? 1 : 0; U.showMatte.value = P.matte ? 1 : 0;
+    // LIGHT MATCH
+    const gt = this.gradeTo || [1, 1, 1]; this.grade.lerp(_v3.set(gt[0], gt[1], gt[2]), 0.25); U.gain.value.copy(this.grade);
+    const lm = P.light && green; U.wrap.value = lm ? P.wrap : 0; U.glow.value = lm && ok && li.keyDir ? P.glow : 0;
+    if (this.wrapCol) U.wrapCol.value.fromArray(this.wrapCol);
+    if (lm && ok && li.keyDir) {
+      const d = _v4.copy(li.keyDir).transformDirection(cam.matrixWorldInverse), len = Math.hypot(d.x, d.y);
+      U.glowDir.value.set(d.x, d.y).divideScalar(len || 1); U.glow.value *= Math.min(1, len * 1.5);
+      const kc = li.keyCol || [1, 1, 1]; U.glowCol.value.set(kc[0], kc[1], kc[2]).multiplyScalar(0.55);
+    }
+    U.texel.value.set(1 / W, 1 / H);
+    const sc = this.env.scene, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled, prevSh = r.shadowMap.autoUpdate, prevCol = r.getClearColor(_c1), prevA = r.getClearAlpha();
+    const undo = ok && this.env.pcamPrep ? this.env.pcamPrep() : null;
+    const back = ok && P.lat ? this._rewind(now - this.latMs) : null;
+    try {
+      r.xr.enabled = false; r.shadowMap.autoUpdate = false; r.setClearColor(0x000000, 0);
+      if (bgLin) {
+        const sky = this.env.skyGroup(), sv = sky.visible; sky.visible = true; cam.layers.mask = 3;
+        r.setRenderTarget(pk.bgRT); r.clear(); r.render(sky, cam); sky.visible = sv;
+      }
+      cam.layers.mask = 1;   // layer 0: gear, hands, LED wall, chalkboard (not the robot)
+      r.setRenderTarget(pk.rt); r.clear(); if (ok) r.render(sc, cam);
+      r.setRenderTarget(pk.out); r.render(pk.scene, pk.oc);
+    } finally {
+      if (back) back();
+      r.setClearColor(prevCol, prevA); r.xr.enabled = prevXR; r.shadowMap.autoUpdate = prevSh; r.setRenderTarget(prevRT);
+      if (undo) undo();
+    }
+    this.busy = true; const buf = pk.buf, img = pk.img;
+    r.readRenderTargetPixelsAsync(pk.out, 0, 0, W, H, buf).then(() => {
+      this.busy = false; if (!this.active || this.source !== 'pcam' || this.pk !== pk) return;
+      this.g.putImageData(img, 0, 0); this._overlays(this.g, W, H);
+      if (this.canvasTrack && this.live) this.canvasTrack.requestFrame();
+      this.pkFrames = (this.pkFrames || 0) + 1;
+    }).catch(() => { this.busy = false; });
+  }
+  // the real lamp hint: where the panorama's light comes from, seen from the DJ facing the phone
+  lampHint() {
+    const li = this.env.lightInfo ? this.env.lightInfo() : {}, c6 = this.env.phoneCam && this.env.phoneCam(), rig = this.env.rig;
+    if (!li.keyDir || !c6 || !c6.q || !rig) return '';
+    _q2.fromArray(c6.q).premultiply(rig.getWorldQuaternion(_q1)).invert();
+    const d = _v4.copy(li.keyDir).applyQuaternion(_q2);   // phone camera space: +x camera right = the DJ's left, +z toward the phone = in front of the DJ
+    const side = d.x > 0.35 ? 'to your left' : d.x < -0.35 ? 'to your right' : '', fb = d.z > 0.35 ? 'in front of you' : d.z < -0.35 ? 'behind you' : '';
+    const ht = d.y > 0.6 ? 'high up' : d.y > 0.25 ? 'above head height' : 'at head height';
+    return 'Real lamp: ' + [fb, side].filter(Boolean).join(', ') + (fb || side ? ', ' : '') + ht + ' (where the panorama\'s light comes from)';
+  }
+
   // ---- SHOW / VIDEOWALL ----
   _showTick(now) {
     if (now - this.showT < 33) return;   // ~30 fps
@@ -338,7 +565,12 @@ export class Streamer {
     g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
     // 2. robot + gear
     if (this.source === 'show' && this.show3d && this.layerOk && this.ly) g.drawImage(this.ly.canvas, 0, 0, W, H);
-    // 3. overlays
+    this._overlays(g, W, H);
+    if (this.canvasTrack && this.live) this.canvasTrack.requestFrame();
+    this.showFrames = (this.showFrames || 0) + 1;
+  }
+  _overlays(g, W, H) {   // 3. overlays (#347 PHONE CAM uses them too)
+    const O = this.showOpt;
     const sc = this.env.scroller && this.env.scroller();
     if (O.scroll && sc && sc.on && sc.canvas) { const bh = Math.round(W * sc.canvas.height / sc.canvas.width * 0.66); g.drawImage(sc.canvas, 0, H - bh - Math.round(H * 0.01), W, bh); /* a little wider than the wall's band: ~20 % of the frame */ }
     if (O.np) {
@@ -364,8 +596,6 @@ export class Streamer {
       g.fillStyle = '#e0202a'; g.fillText('3DJ', x, y); g.fillStyle = '#ffffff'; g.fillText('Cly', x - w3, y);
     }
     g.textBaseline = 'alphabetic';
-    if (this.canvasTrack && this.live) this.canvasTrack.requestFrame();
-    this.showFrames = (this.showFrames || 0) + 1;
   }
 
   tick(now = performance.now()) {   // from the frame loop, after the DJ CAM render
@@ -377,6 +607,7 @@ export class Streamer {
     }
     if (!this.active) return;
     if (this.source === 'show') this._showTick(now);
+    else if (this.source === 'pcam') this._pcamTick(now);
     else if (this.source === 'card') {
       if (now - this.cardT > 1000) { this.cardT = now; this.drawCard(now); }
       if (now - this.frameT > 100 && this.canvasTrack) { this.frameT = now; this.canvasTrack.requestFrame(); }
@@ -404,8 +635,9 @@ export class Streamer {
     try {
       const eng = this.env.engine; if (!eng.ctx) await eng.init({ latencyHint: 'interactive' }); await eng.resume();
       this.aTrack = eng.streamTrack();
-      if (this.source === 'phone') this.env.phoneLive && this.env.phoneLive(true);
+      if (this.source === 'phone' || this.source === 'pcam') this.env.phoneLive && this.env.phoneLive(true, this._pcamOpts());
       this.vTrack = await this._videoTrack(this.source);
+      this._audioDelay();
       await this._connect(key);
       this.t0 = performance.now(); this.retries = 0; this._lb = null;
       this._set('live', '');
@@ -469,7 +701,8 @@ export class Streamer {
   _teardown() {
     if (this.pc) { try { this.pc.close(); } catch {} this.pc = null; }
     if (this.resource) { const u = new URL(this.resource, TWITCH_WHIP).href, k = streamKey.get(); fetch(u, { method: 'DELETE', headers: { Authorization: 'Bearer ' + k } }).catch(() => {}); this.resource = null; }
-    if (this.source === 'phone') this.env.phoneLive && this.env.phoneLive(false);
+    if (this.source === 'phone' || this.source === 'pcam') this.env.phoneLive && this.env.phoneLive(false);
+    this.env.engine.setStreamDelay && this.env.engine.setStreamDelay(0);
     if (!this.testing) this._stopCam();
     if (this.canvasTrack) { this.canvasTrack.stop(); this.canvasTrack = null; }
     this.env.engine.streamStop && this.env.engine.streamStop();

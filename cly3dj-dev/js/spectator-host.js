@@ -419,6 +419,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
         else if (m.step === 'done') { calStep = null; ghost(false); showImg(null); say(['Spectator camera calibrated', m.px != null ? 'Match: ' + m.px + ' px' : m.err != null ? 'Match: ' + m.err + ' cm' : '', 'The blue outline shows what it films.'], '#40d080'); doneT = 3; }
         else { calStep = null; ghost(false); panel.visible = false; showImg(null); }
       } else if (m.k === 'cam') {
+        pcam = m; pcamT = performance.now();   // #347 kept for the Quest's PHONE CAM source (pose, full-video fov / size)
         setFrustum(m.fov, m.asp); frustum.position.fromArray(m.p); frustum.quaternion.fromArray(m.q); frustum.visible = mr; camT = 0;
       }
     },
@@ -427,6 +428,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   const save = stage.save.bind(stage);
   stage.save = () => { save(); out.send('ctl', layout()); };   // #209 out: phone and PerfCap
 
+  let pcam = null, pcamT = 0;   // #347
   function tick(dt) {
     if (panel.visible) { placePanel(); if (doneT > 0 && (doneT -= dt) <= 0) panel.visible = false; }
     if (frustum.visible && (camT += dt) > 2) frustum.visible = false;   // phone stopped sending: hide it
@@ -465,7 +467,9 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   }
   return { tick, close: () => { link.close(); scene.remove(panel); rig.remove(frustum); },
     ui: () => ({ mr, phone: link.isOpen && performance.now() - lastPing < 3500 }), setMR,
-    liveCam: (on, solo = false) => link.send('ctl', { k: 'live', on: !!on, solo: !!solo }),   // #238 ask the phone to start / stop its LIVE CAM video (#239 solo: camera only)
+    liveCam: (on, solo = false, o = {}) => link.send('ctl', { k: 'live', on: !!on, solo: !!solo, pcam: !!o.pcam, green: !!o.green }),   // #347 o: PHONE CAM plain / green-screen packed
+    helpers: [frustum, panel],   // #347 hidden from the PHONE CAM render
+    get phoneCam() { return link.isOpen && pcam && performance.now() - pcamT < 3000 ? pcam : null; },   // #347 last fixed-camera pose (5x/s)   // #238 ask the phone to start / stop its LIVE CAM video (#239 solo: camera only)
     // #188 camera tab: the phone's last reported state, and remote changes to it
     get cam() { return link.isOpen && performance.now() - lastPing < 3500 ? camState : null; },
     camSet: o => link.isOpen && link.send('ctl', { k: 'cset', ...o }),

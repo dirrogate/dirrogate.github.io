@@ -118,12 +118,20 @@ export class AudioEngine {
   setMaster(v) { this._ramp(this.master.gain, v * v * 1.2); }   // with the 0.75 bus headroom (#111) the top is 0.9 overall
   // #331 LIVE STREAM: the master after the limiter (music + MIC through the mixer), tapped before the headphone
   // split, so CUE never reaches it. One stereo track, made on demand.
-  streamTrack() {
-    if (!this.streamDest) { this.streamDest = this.ctx.createMediaStreamDestination(); this.streamDest.channelCount = 2; this.limiter.connect(this.streamDest); }
+  streamTrack() {   // #347 limiter -> delay (LATENCY MATCH, 0 unless PHONE CAM asks) -> stream
+    if (!this.streamDest) {
+      this.streamDest = this.ctx.createMediaStreamDestination(); this.streamDest.channelCount = 2;
+      if (!this.streamDelay) { this.streamDelay = this.ctx.createDelay(2); this.streamDelay.delayTime.value = this._sDelay || 0; }
+      this.limiter.connect(this.streamDelay); this.streamDelay.connect(this.streamDest);
+    }
     const t = this.streamDest.stream.getAudioTracks()[0]; try { t.contentHint = 'music'; } catch {}
     return t;
   }
-  streamStop() { if (this.streamDest) { try { this.limiter.disconnect(this.streamDest); } catch {} this.streamDest = null; } }
+  streamStop() { if (this.streamDest) { try { this.limiter.disconnect(this.streamDelay); this.streamDelay.disconnect(this.streamDest); } catch {} this.streamDest = null; } }
+  setStreamDelay(sec) {   // #347 the stream sound held back to match a late picture (PHONE CAM LATENCY MATCH); glides, no click
+    sec = Math.min(1.5, Math.max(0, sec || 0)); if (Math.abs(sec - (this._sDelay || 0)) < 0.02) return;   // small drifts ignored: every change bends the pitch for a moment this._sDelay = sec;
+    if (this.streamDelay) this.streamDelay.delayTime.setTargetAtTime(sec, this.ctx.currentTime, 0.3);
+  }
   // #334 🎧 MIX: 0 = cue only, 0.5 = both at full level, 1 = master only (headphones only; master / stream untouched)
   setHpMix(v) {
     this._hpMix = v; if (!this.hpCue) return;

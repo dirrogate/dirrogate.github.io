@@ -7,6 +7,7 @@
 // if a frame arrives without a picture (about 1 in 100) the previous one is shown instead of a flash of the room.
 import { detectLayout, leftEyeCanvas, brightestDir, savePano, loadPano, openPanoVideo, closePanoVideo } from './skybox.js';
 import * as media from './medialib.js';
+import { KEY_GLSL, KEY_COLS, keyOf, keyColOf } from './keycol.js';   // #347
 
 const FRAG = /* glsl */`
 uniform sampler2D cam;
@@ -16,7 +17,7 @@ uniform float wrap, cmatch; uniform vec2 texel;
 varying vec2 vUv;
 // #186: how much greener than red / blue, divided by the green level (not below 0.15 so dark noise can't key), so a
 // shaded wrinkle keys like the lit part of the screen. Skin and grey give <= 0. Same formula as autoKey() in JS.
-float keyOf(vec3 c) { return (c.g - max(c.r, c.b)) / max(c.g, 0.15); }
+${KEY_GLSL}   // #347 keyOf / despill for the chosen key colour
 float keptAt(vec2 uv) { return 1.0 - smoothstep(thr, thr + soft, keyOf(texture2D(cam, uv).rgb)); }
 vec3 lin(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
 void main() {
@@ -28,8 +29,7 @@ void main() {
   }
   float g = keyOf(c);                                 // #186 greenness relative to brightness (see keyOf)
   float a = 1.0 - smoothstep(thr, thr + soft, g);     // 1 = keep (the DJ), 0 = green screen
-  float m = max(c.r, c.b);
-  if (c.g > m) c.g = mix(c.g, m, spill);              // spill: pull the green tint off skin, hair and clothes
+  c = despill(c, spill);                              // spill: pull the screen's tint off skin, hair and clothes (#347 any key colour)
   // #187 colour match: pull the DJ toward the pano's overall cast (warm desert, cool night)
   c *= mix(vec3(1.0), panoTint, cmatch);
   // #187 light wrap: how much keyed-out (pano) surrounds this kept pixel, from 6 samples 8 camera pixels away;
@@ -52,13 +52,13 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
   const gl = renderer.getContext();
   const KEY0 = key.position.clone(), DEG = Math.PI / 180;
   const S = { on: false, can: false, loaded: false, file: null, sky: { h: 1.5, turn: 0, type: 'auto', key: 'on', file: '' }, light: null, miss: 0, got: 0, err: '' };
-  const K = { v: 2, thr: 0.1, soft: 0.1, spill: 0.7, wrap: 0.5, cmatch: 0.4 };
+  const K = { v: 2, thr: 0.1, soft: 0.1, spill: 0.7, wrap: 0.5, cmatch: 0.4, col: 0 };   // #347 col: key colour (keycol.js)
   try { const k = JSON.parse(localStorage.getItem('vire.vsetKey') || '{}'); if (k.v === 2) Object.assign(K, k); } catch {}   // v1 used the old key formula
 
   const camTex = new THREE.Texture(); camTex.colorSpace = THREE.NoColorSpace;
   const camProps = renderer.properties.get(camTex);
   const mat = new THREE.ShaderMaterial({
-    uniforms: { cam: { value: camTex }, thr: { value: K.thr }, soft: { value: K.soft }, spill: { value: K.spill }, matte: { value: 0 }, raw: { value: 0 },
+    uniforms: { cam: { value: camTex }, thr: { value: K.thr }, soft: { value: K.soft }, spill: { value: K.spill }, matte: { value: 0 }, raw: { value: 0 }, keyCol: { value: K.col || 0 },
       wrap: { value: K.wrap }, cmatch: { value: K.cmatch }, panoCol: { value: new THREE.Vector3(0.5, 0.5, 0.5) }, panoTint: { value: new THREE.Vector3(1, 1, 1) }, texel: { value: new THREE.Vector2(1 / 861, 1 / 1920) } },
     vertexShader: VERT, fragmentShader: FRAG, depthTest: false, depthWrite: false, toneMapped: false,
     // stays in the opaque pass (so the gear draws after it) but blends by the key; alpha of the frame stays 1
@@ -160,7 +160,7 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
     if (!src) { S.miss++; return; }
     if (autoCb) {
       const cb = autoCb; autoCb = null;
-      try { const r = analyseKey(sample(src, view.camera.width, view.camera.height)); for (const k of ['thr', 'soft']) setKey(k, r[k]); cb.res(r); } catch (e) { renderer.resetState(); cb.rej(e); }
+      try { const r = analyseKey(sample(src, view.camera.width, view.camera.height), K.col); for (const k of ['thr', 'soft']) setKey(k, r[k]); cb.res(r); } catch (e) { renderer.resetState(); cb.rej(e); }
       if (!S.on) return;
     }
     if (lookCam) { try { sampleAsync(src, view.camera.width, view.camera.height, 32, px => look.onCamera(px)); } catch { renderer.resetState(); } }   // #203 in the background
@@ -240,7 +240,7 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
     } else if (typeChanged && S.file) loadFile(S.file).then(apply).catch(() => {});
     else apply();
   }
-  function setKey(k, v) { K[k] = v; mat.uniforms[k].value = v; try { localStorage.setItem('vire.vsetKey', JSON.stringify(K)); } catch {} }
+  function setKey(k, v) { if (k === 'col') v = keyColOf(v); K[k] = v; mat.uniforms[k === 'col' ? 'keyCol' : k].value = v; try { localStorage.setItem('vire.vsetKey', JSON.stringify(K)); } catch {} }
   function onSession(session) {   // after each AR start
     binding = null; blitOK = true; S.got = S.miss = 0; S.err = '';
     S.can = !!(session.enabledFeatures ? session.enabledFeatures.includes('camera-access') : typeof XRWebGLBinding !== 'undefined' && XRWebGLBinding.prototype.getCameraImage);
@@ -252,17 +252,18 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
 // #186 Auto key from the empty screen. px: RGBA bytes. The green pixels are those whose key value (same formula as
 // the shader's keyOf) is above 0.12; they must fill at least 30 % of the view. Fully keyed from the 3rd-lowest percent of
 // them with a 10 % margin, so wrinkles and shading still go; Softness 40 % of that (0.05 to 0.3), Strength the rest.
-export function analyseKey(px) {
+export function analyseKey(px, col = 0) {   // #347 col: the key colour (keycol.js)
   const ks = [];
   const n = px.length / 4;
   for (let i = 0; i < px.length; i += 4) {
-    const r = px[i] / 255, g = px[i + 1] / 255, b = px[i + 2] / 255, k = (g - Math.max(r, b)) / Math.max(g, 0.15);
+    const k = keyOf(px[i] / 255, px[i + 1] / 255, px[i + 2] / 255, col);
     if (k > 0.12) ks.push(k);
   }
   const cover = ks.length / n;
-  if (cover < 0.3) throw new Error(`only ${Math.round(cover * 100)} % of the view is green: fill the screen with the empty green screen`);
+  if (cover < 0.3) throw new Error(`only ${Math.round(cover * 100)} % of the view is ${KEY_COLS[col] || 'green'}: fill the screen with the empty ${KEY_COLS[col] || 'green'} screen`);
   ks.sort((a, b) => a - b);
   const low = ks[Math.floor(ks.length * 0.03)], full = low * 0.9;
   const soft = Math.min(0.3, Math.max(0.05, full * 0.4)), thr = Math.max(0.04, full - soft);
   return { thr: +thr.toFixed(3), soft: +(full - thr).toFixed(3), cover: Math.round(cover * 100), median: +ks[ks.length >> 1].toFixed(3) };
 }
+

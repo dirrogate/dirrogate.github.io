@@ -9,9 +9,11 @@ import { setupXR } from './xr.js';
 import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeNeon } from './neon.js';
 import { makeLedWall, LedPlayer, LED } from './ledwall.js';
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose, AV_LAYER } from './director.js';
-import { Streamer, SOURCES as STREAM_SRC, streamKey } from './stream.js';   // #331 LIVE STREAM (Twitch)
+import { Streamer, SOURCES as STREAM_SRC, streamKey } from './stream.js';
+import { KEY_LABEL } from './keycol.js';   // #347 key colour names   // #331 LIVE STREAM (Twitch)
 import { GoPro, ZOOMS as GOPRO_ZOOMS } from './gopro.js';   // #337 movable camera for SHOW / AVACAM
 import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #340 Twitch chat
+import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
 import { Portals } from './portal.js';   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
 import { Beat } from './beat.js';   // #346 bass onsets on the master for the wall's BEAT
@@ -101,6 +103,12 @@ const skyShadow = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.Shad
 skyShadow.rotation.x = -Math.PI / 2; skyShadow.position.y = 0.001; skyShadow.receiveShadow = true; skyShadow.visible = false; skyShadow.raycast = () => {};
 rig.add(skyShadow);
 let skyKeyLight = null;   // brightest direction + colour of the chosen image (for the key light)
+let skyAvg = null;   // #347 its average colour (display values 0..1): PHONE CAM LIGHT MATCH re-tints the DJ toward it
+function panoAvg(src) {
+  try { const c = document.createElement('canvas'); c.width = 32; c.height = 16; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(src, 0, 0, 32, 16);
+    const px = g.getImageData(0, 0, 32, 16).data; let r = 0, gg = 0, b = 0; for (let i = 0; i < px.length; i += 4) { r += px[i]; gg += px[i + 1]; b += px[i + 2]; }
+    const n = px.length / 4 * 255; return [r / n, gg / n, b / n]; } catch { return null; }
+}
 
 // floor
 const floor = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.MeshStandardMaterial({ color: 0x0d0f15, roughness: 0.85, metalness: 0.1 }));
@@ -407,7 +415,8 @@ const djSet = (() => { try { return { preset: 'front', mirror: true, avatar: tru
 function saveDjSet() { try { localStorage.setItem('vire.djcam', JSON.stringify(djSet)); } catch {} }
 const djcam = CAMERA_ROLE ? null : new DjCam(renderer, rig);
 let streamer = null;   // #331 set up once the audio engine exists (below)
-const streamPhone = () => !!(streamer && streamer.live && streamer.source === 'phone');   // the stream holds the phone's LIVE picture
+const streamPhone = () => !!(streamer && streamer.active && (streamer.source === 'phone' || streamer.source === 'pcam'));   // the stream holds the phone's LIVE picture (#347 or PHONE CAM)
+const pcamOpts = () => (streamer && streamer.active && streamer.source === 'pcam' ? streamer._pcamOpts() : {});   // #347 keep the PHONE CAM video when the LED wall asks for LIVE
 if (djSet.preset === 'booth') djSet.preset = 'gopro';   // #338 BOOTH became the GOPRO angle
 if (!CAM_PRESETS[djSet.preset]) djSet.preset = 'front';   // #338 only FRONT, FADERS, GOPRO are left
 if (djcam) djcam.preset = djSet.preset;
@@ -552,7 +561,7 @@ let liveTrack = null;
 function onLiveTrack(t) {
   liveTrack = t; liveVideo.srcObject = t ? new MediaStream([t]) : null;
   if (t) liveVideo.play().catch(() => {}); else if (isLive(ledMode)) setLedMode('off');
-  if (!t && streamPhone()) streamer.setSource('card');   // #331 phone gone: the stream falls back to the card
+  if (!t && streamer && streamer.active && streamer.source === 'phone') streamer.setSource('card');   // #331 phone gone: the stream falls back to the card (#347 PHONE CAM waits for it)
 }
 const livePossible = () => !!(liveTrack && spect && spect.ui && spect.ui().phone);
 function isLive(m) { return m === 'live' || m === 'solo'; }   // #239 SOLO = the phone's camera only, no gear
@@ -575,7 +584,7 @@ function setLedMode(m) {
   if (m === 'clips') led.playRandom();
   else if (m === 'off') ledwall.userData.setVideo(null);
   else if (m === 'cam') ledwall.userData.setCam(djcam.rt.texture, djSet.mirror);   // #220
-  else if (isLive(m)) { spect.liveCam(true, m === 'solo'); ledwall.userData.setVideo(liveVideo); }   // #238 (#239 SOLO: camera only)
+  else if (isLive(m)) { spect.liveCam(true, m === 'solo', pcamOpts()); ledwall.userData.setVideo(liveVideo); }   // #238 (#239 SOLO: camera only)
   drawMixScreen();
 }
 function setNeonScale(s) { s = clamp(s, 0.3, 4); neon.scale.setScalar(s); neon.userData.setLodScale(s); if (stage) stage.items.neon.base = NEON.R * s; return s; }
@@ -890,7 +899,21 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     return streamClip();   // #337 the stream decodes the clip itself (follows the playlist, or runs the LED LIST on its own)
   },
   phoneTrack: () => (livePossible() ? liveTrack : null),
-  phoneLive: on => { if (!spect || !spect.liveCam) return; if (on) { if (!isLive(ledMode)) spect.liveCam(true, false); } else if (!isLive(ledMode)) spect.liveCam(false); },
+  phoneLive: (on, o = {}) => {   // #347 o: PHONE CAM { pcam, green }
+    if (!spect || !spect.liveCam) return;
+    if (on) { if (o.pcam || !isLive(ledMode)) spect.liveCam(true, !o.pcam && ledMode === 'solo', o); }
+    else if (isLive(ledMode)) spect.liveCam(true, ledMode === 'solo'); else spect.liveCam(false);
+  },
+  // #347 PHONE CAM
+  rig, phoneVideo: () => (livePossible() ? liveVideo : null), phoneCam: () => (spect ? spect.phoneCam : null), skyGroup: () => skybox.group,
+  lightInfo: () => {
+    const kd = key.position.clone().sub(key.target.position).normalize().applyQuaternion(rig.getWorldQuaternion(new THREE.Quaternion()));
+    const sk = skyKeyLight && streamer && streamer.pc_.light ? skyKeyLight : null;
+    if (sk) kd.copy(sk.dir).applyAxisAngle(_yAxis, settings.skyTurn * DEG).applyQuaternion(rig.getWorldQuaternion(new THREE.Quaternion())).normalize();
+    return { keyDir: kd, keyCol: sk ? [sk.color.r, sk.color.g, sk.color.b] : [key.color.r, key.color.g, key.color.b], pano: skyAvg, skyReady: !!skybox.tex };
+  },
+  pcamPrep: () => pcamPrep(),
+  movers: () => pcamMovers(),
   nowPlaying: () => {
     const on = decks.filter(d => d.track && engine.state.decks[d.i] && engine.state.decks[d.i].needle && Math.abs(engine.state.decks[d.i].rate) > 0.2);
     const name = t => (t.artist ? t.artist + ' – ' : '') + (t.title || t.name || '');
@@ -902,6 +925,35 @@ streamer = CAMERA_ROLE ? null : new Streamer({
   onChange: () => { if (toolsPage === 'stream' || !streamer || streamer.state !== streamOnChangeLast) { streamOnChangeLast = streamer && streamer.state; drawMixScreen(); } },
 });
 let streamOnChangeLast = 'off';
+// #347 PHONE CAM render: what the phone's camera must not see (room, sky, helpers, the GoPro), plus the forearm sleeves
+// and, with LIGHT MATCH and a panorama, the key light from the panorama's brightest area (as Full VR does)
+const _yAxis = new THREE.Vector3(0, 1, 0);
+const armSleeves = CAMERA_ROLE ? null : makeSleeves(); if (armSleeves) scene.add(armSleeves.group);
+function pcamPrep() {
+  const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
+  hide(room); hide(skybox.group); hide(skyShadow); if (gopro) hide(gopro.obj);
+  if (spect && spect.helpers) spect.helpers.forEach(hide);
+  if (xr) for (const st of xr.inputs) { hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); }
+  const bg = scene.background; scene.background = null;
+  if (armSleeves) armSleeves.group.visible = true;
+  const kp = key.position.clone(), kc = key.color.clone();
+  if (streamer.pc_.light && skyKeyLight) {
+    const d = skyKeyLight.dir.clone().applyAxisAngle(_yAxis, settings.skyTurn * DEG), hz = Math.hypot(d.x, d.z) || 1, up = Math.max(d.y, Math.sin(35 * DEG)), k = Math.sqrt(1 - up * up) / hz;
+    key.position.set(d.x * k, up, d.z * k).multiplyScalar(2.7).add(key.target.position); key.color.setRGB(1, 1, 1).lerp(skyKeyLight.color, 0.5);
+  }
+  return () => { for (const o of undo) o.visible = true; scene.background = bg; if (armSleeves) armSleeves.group.visible = false; key.position.copy(kp); key.color.copy(kc); };
+}
+function pcamMovers() {   // LATENCY MATCH: everything that follows the hands (joints, grips, drawn hands / glove, sleeves)
+  const out = [], add = o => { if (o) o.traverse(n => out.push(n)); };
+  if (xr) { for (const st of xr.inputs) { add(st.grip); add(st.hand); if (st.ctlHand) add(st.ctlHand.root); } if (xr.glove) add(xr.glove.root); }
+  if (armSleeves) armSleeves.tubes.forEach(t => out.push(t));
+  return out;
+}
+function stepArmSleeves() {   // posed every frame while PHONE CAM runs (so LATENCY MATCH has their history), drawn only in its render
+  if (!armSleeves || !streamer || !streamer.active || streamer.source !== 'pcam') return;
+  const xrOn = renderer.xr.isPresenting;
+  armSleeves.update(xrOn ? xrPose(renderer, xr && xr.inputs) : demoPose(rig, djGear(), (performance.now() - _djT0) / 1000));
+}
 // #337 the stream's own copy of the LED playlist's current clip (used while the LED wall is switched off and so not
 // decoding): same file, kept within 0.5 s of the playlist clock; closed 3 s after the stream stops asking for it
 const sclip = { name: null, el: null, url: null, img: false, used: 0 };
@@ -3570,7 +3622,7 @@ async function vpAct(what) {
 // change and reports back (spect.cam), so this page always shows the phone's real values.
 const CAM_ROWS = [
   [['Strength', 'key', 'thr', 0.01], ['Softness', 'key', 'soft', 0.01], ['Spill', 'key', 'spill', 0.05], ['Light wrap', 'key', 'wrap', 0.05]],
-  [['Colour match', 'key', 'cmatch', 0.05], ['Look strength', 'look', 'strength', 0.05], ['Grain', 'look', 'grain', 0.05]],
+  [['Colour match', 'key', 'cmatch', 0.05], ['Look strength', 'look', 'strength', 0.05], ['Grain', 'look', 'grain', 0.05], ['Key colour', 'key', 'col', 1]],   // #347 green / blue / magenta
 ];
 function wrapText(g, s, x, y, w, lh, max) {   // #198 word-wrapped text (portrait pages); the last line is cut with …
   const words = s.split(' '); let line = '', n = 0;
@@ -3590,7 +3642,7 @@ function drawCamTab(btn, y0) {
   const send = o => { if (spect && spect.camSet) spect.camSet(o); };
   const top = [
     ['SET', cs && cs.set, () => send({ what: 'set', v: !cs.set })],
-    ['AUTO KEY', false, () => { send({ what: 'auto' }); toast('Auto key: point the phone at the empty green screen', 3000); }],
+    ['AUTO KEY', false, () => { send({ what: 'auto' }); toast('Auto key: point the phone at the empty key screen', 3000); }],
     ['MATTE', cs && cs.matte, () => send({ what: 'matte', v: !cs.matte })],
     ['PREVIEW', pvWanted, () => setPreview(!pvWanted)],
     ['LOOK', cs && cs.L && cs.L.on, () => send({ what: 'look', key: 'on', v: !cs.L.on })],
@@ -3613,9 +3665,9 @@ function drawCamTab(btn, y0) {
     g.fillText(label, cx + 10, cy + 19);
     const src = cs ? (what === 'key' ? cs.K : cs.L) : null, v = src ? src[key] : null;
     g.textAlign = 'right'; g.fillStyle = dim ? '#56627a' : '#fff'; g.font = '700 18px ui-monospace, monospace';
-    g.fillText(v == null ? '--' : what === 'look' ? Math.round(v * 100) + '%' : v.toFixed(2), cx + colW - 110, cy + 19);
+    g.fillText(key === 'col' ? (cs ? KEY_LABEL[v || 0] : '--') : v == null ? '--' : what === 'look' ? Math.round(v * 100) + '%' : v.toFixed(2), cx + colW - 110, cy + 19);
     g.textBaseline = 'alphabetic';
-    const bump = d => () => { const nv = Math.round((v + d) * 1000) / 1000; src[key] = nv; send({ what, key, v: nv }); drawMixScreen(); };
+    const bump = d => () => { const nv = key === 'col' ? ((v || 0) + d + 3) % 3 : Math.round((v + d) * 1000) / 1000; src[key] = nv; send({ what, key, v: nv }); drawMixScreen(); };   // #347 key colour cycles
     btn(cx + colW - 100, cy + 2, 44, 32, '−', false, dim ? null : bump(-step), dim);
     btn(cx + colW - 50, cy + 2, 44, 32, '+', false, dim ? null : bump(step), dim);
   }));
@@ -3624,7 +3676,7 @@ function drawCamTab(btn, y0) {
   const stTxt = pcTxt + (!cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone and start its camera.'
     : cs.fixed ? `Phone ${cs.fps} fps · fixed camera (${cs.fcam === 'user' ? 'selfie' : 'main'}) · ${cs.fcal ? 'calibrating' : cs.cal ? 'calibrated' + (cs.fpx != null ? ' ' + cs.fpx + ' px' : '') : 'not calibrated: Calibrate on the phone'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : '')   // #213
     : `Phone ${cs.fps} fps${cs.late ? ` (${cs.late} late/s)` : ''} · ${cs.ar ? 'camera on' : 'camera not started'} · ${cs.cal ? 'calibrated' : 'not calibrated'}${cs.can ? '' : ' · no camera access'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : ''));
-  const extra = cs ? (cs.fixed ? 'Fixed camera: look match / key are AR-only for now' : [cs.auto, cs.look].filter(Boolean).join(' · ')) : '';
+  const extra = cs ? (cs.fixed ? 'Fixed camera: the key settings drive the PHONE CAM green screen (STREAM > PHONE CAM SETUP)' : [cs.auto, cs.look].filter(Boolean).join(' · ')) : '';
   if (P) {   // portrait: the status lines wrap under the steppers
     let y = ry + CAM_ROWS.flat().length * 42 + 24;
     y += wrapText(g, stTxt, 12, y, W - 24, 20, 5) * 20 + 8;
@@ -4110,6 +4162,7 @@ const kbd = { title: '', text: '', emoji: false, max: 40, done: null, back: 'hom
 function setTools(p) {
   if (toolsPage === 'streamfit' && p !== 'streamfit' && streamer) streamer.setTesting(false);   // #333 TEST ends with the page
   clearInterval(setTools.fitIv); if (p === 'streamfit') setTools.fitIv = setInterval(() => { if (toolsPage === 'streamfit' && streamer && streamer.running) drawMixScreen(); }, 250);
+  if (p === 'pcam') setTools.fitIv = setInterval(() => { if (toolsPage === 'pcam') drawMixScreen(); }, 1000);   // #347 delay / phone status
   toolsPage = p; pickPg = 0;
   if (p === 'pickVideo' || p === 'pickImage') { pickItems = []; loadPick(p === 'pickVideo' ? 'Video' : 'Images'); }
   drawMixScreen();
@@ -4297,9 +4350,9 @@ function drawToolsPage() {
     g.fillStyle = live ? '#ff3b3b' : st === 'connecting' ? '#f1b650' : st === 'error' ? '#f1b650' : '#8c96a8';
     if (P) wrapText(g, line, L + 4, y0 + 18, R - L - 8, 28, 2); else fitText2(g, line, L + 4, y0 + 18, R - L - 8);
     g.textBaseline = 'alphabetic';
-    const keys = ['card', 'avacam', 'show', 'vj', 'headset', 'phone'], phoneOk = livePossible() || S.source === 'phone';   // #338 VJ SETUP where VIDEOWALL was
+    const keys = ['card', 'avacam', 'show', 'vj', 'headset', 'phone', 'pcam'], phoneOk = livePossible() || S.source === 'phone' || S.source === 'pcam';   // #347 PHONE CAM   // #338 VJ SETUP where VIDEOWALL was
     const srcBtn = (k, x, y, w, h) => { if (k === 'vj') return btn(x, y, w, h, 'VJ SETUP', false, () => setVideoPage(true), false, P ? 20 : 17);   // #338 the VISUALS pages, as from the main mixer page
-      const ok = k !== 'phone' || phoneOk || !!(spect && spect.ui && spect.ui().phone);
+      const ok = (k !== 'phone' && k !== 'pcam') || phoneOk || !!(spect && spect.ui && spect.ui().phone);
       btn(x, y, w, h, STREAM_SRC[k], S.source === k, ok ? () => S.setSource(k) : null, !ok, P ? 20 : 18); };
     const ending = performance.now() - (streamEndArm || 0) < 2500;
     const goLabel = live || st === 'connecting' ? (ending ? 'TAP AGAIN TO END' : 'END STREAM') : 'GO LIVE';
@@ -4313,8 +4366,9 @@ function drawToolsPage() {
     const opts = [['visuals', 'VISUALS', sw3], ['robot', 'ROBOT', sw3], ['gear', 'GEAR', sw3], ['scroll', 'SCROLLER', sw3], ['np', 'NOW PLAYING', sw3], ['logo', 'LOGO', sw3], ['chat', 'CHAT', sw3]];
     const optBtn = ([k, label, ok], x, y, w, h) => btn(x, y, w, h, label, ok && O[k], ok ? () => S.setShowOpt(k, !O[k]) : null, !ok, P ? 17 : 15);
     if (P) {
-      const bw = (R - L - 8) / 2;
-      keys.forEach((k, i) => srcBtn(k, L + (i % 2) * (bw + 8), y0 + 62 + Math.floor(i / 2) * 62, bw, 56));
+      const bw = (R - L - 16) / 3;   // #347 three columns: 7 sources + PHONE CAM SETUP
+      keys.forEach((k, i) => srcBtn(k, L + (i % 3) * (bw + 8), y0 + 62 + Math.floor(i / 3) * 62, bw, 56));
+      btn(L + (7 % 3) * (bw + 8), y0 + 62 + 2 * 62, 2 * bw + 8, 56, 'PHONE CAM SETUP', S.source === 'pcam', () => setTools('pcam'), false, 18);
       const ow = (R - L - 24) / 4;
       opts.forEach((o, i) => optBtn(o, L + (i % 4) * (ow + 8), y0 + 256 + Math.floor(i / 4) * 50, ow, 44));
       const gl = Math.round((R - L - 8) * 0.64);   // #339 (owner) GO LIVE split: its right part is the PREVIEW toggle
@@ -4329,7 +4383,7 @@ function drawToolsPage() {
       btn(L + tw3 + 8, y0 + 520, 2 * tw3 + 8, 50, 'PORTALS SETUP', false, portals ? () => setTools('portals') : null, !portals, 17);
       note(hint, y0 + 590);
     } else {
-      const bw = (R - L - 40) / 6;
+      const bw = (R - L - 48) / 7;
       keys.forEach((k, i) => srcBtn(k, L + i * (bw + 8), y0 + 38, bw, 44));
       const ow = (R - L - 48) / 7;
       opts.forEach((o, i) => optBtn(o, L + i * (ow + 8), y0 + 88, ow, 34));
@@ -4344,7 +4398,8 @@ function drawToolsPage() {
       // #346 PORTALS (tap on / off, double-tap = back to their spots) / PORTALS SETUP
       { const w6 = (R - L - 16) / 3;
         btn(L, y0 + 192, w6, 48, portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), portalsTap, !portals, 16);
-        btn(L + w6 + 8, y0 + 192, 2 * w6 + 8, 48, 'PORTALS SETUP', false, portals ? () => setTools('portals') : null, !portals, 16); }
+        btn(L + w6 + 8, y0 + 192, w6, 48, 'PORTALS SETUP', false, portals ? () => setTools('portals') : null, !portals, 16);
+        btn(L + 2 * (w6 + 8), y0 + 192, w6, 48, 'PHONE CAM SETUP', S.source === 'pcam', () => setTools('pcam'), false, 16); }   // #347
       note(hint, y0 + 264);
     }
     return;
@@ -4366,6 +4421,69 @@ function drawToolsPage() {
     const cy = y0 + 2 * bh + (P ? 40 : 14);
     if (!chat.msgs.some(m => !m.sys)) note('No messages yet. Read-only: replies from the headset need a Twitch login (later). PANEL: a chat screen in the room, grip / pinch to move it, double-tap PANEL = back to its spot. ON STREAM: chat on the right of SHOWTIME!.', cy + 60);
     else drawChat(g, L, cy, R - L, H - cy - (P ? 28 : 6), chat.msgs, { fs: P ? 17 : 16, bg: '#0a0c12', onEmote: chatRedraw });
+    return;
+  }
+  if (page === 'pcam') {   // #347 PHONE CAM SETUP: the tripod phone's video with the gear / hands drawn from its view
+    const y0 = head(P ? 'PHONE' : 'PHONE CAM SETUP', 'stream'), S = streamer; if (!S) { note('Streaming runs on the headset.', y0 + 20); return; }
+    const C = S.pc_, cs = spect && spect.cam, K = cs && cs.K, keySend = (key, v) => { if (spect && spect.camSet) { if (K) K[key] = v; spect.camSet({ what: 'key', key, v }); } };
+    const r2 = v => Math.round(v * 100) / 100;
+    const toggles = [
+      [P ? (C.green ? 'GREEN SCREEN: ON' : 'GREEN SCREEN') : (C.green ? 'GREEN SCR: ON' : 'GREEN SCR'), C.green, () => S.setPcam('green', !C.green)],
+      [C.bg === 'dome' ? 'BG: DOME' : 'BG: VISUALS', false, () => S.setPcam('bg', C.bg === 'dome' ? 'visuals' : 'dome')],
+      [P ? (C.light ? 'LIGHT MATCH: ON' : 'LIGHT MATCH') : (C.light ? 'LIGHT: ON' : 'LIGHT'), C.light, () => S.setPcam('light', !C.light)],
+      [P ? (C.lat ? 'LATENCY: ON' : 'LATENCY MATCH') : (C.lat ? 'LATENCY: ON' : 'LATENCY'), C.lat, () => S.setPcam('lat', !C.lat)],
+      [P ? 'KEY: ' + KEY_LABEL[(K && K.col) || 0] : 'KEY ' + ['GRN', 'BLUE', 'MAG'][(K && K.col) || 0], false, K ? () => { keySend('col', (((K.col || 0) + 1) % 3)); drawMixScreen(); } : null, !K],
+      ['AUTO KEY', false, K ? () => { spect.camSet({ what: 'auto' }); toast('Auto key: point the phone at the empty key screen', 3000); } : null, !K],
+      [C.matte ? 'MATTE: ON' : 'MATTE', C.matte, () => S.setPcam('matte', !C.matte)],
+      ['PREVIEW', monOn, () => setMonitor(!monOn)],
+    ];
+    const lat = S.delay != null ? Math.round(S.delay) : null;
+    const cells = [
+      ['STRENGTH', K ? r2(K.thr).toFixed(2) : '--', d => K && keySend('thr', Math.min(0.8, Math.max(0, r2(K.thr + d * 0.01))))],
+      ['SOFTNESS', K ? r2(K.soft).toFixed(2) : '--', d => K && keySend('soft', Math.min(0.4, Math.max(0.02, r2(K.soft + d * 0.01))))],
+      ['SPILL', K ? r2(K.spill).toFixed(2) : '--', d => K && keySend('spill', Math.min(1, Math.max(0, r2(K.spill + d * 0.05))))],
+      ['LIGHT', Math.round(C.lightStr * 100) + '%', d => S.setPcam('lightStr', Math.min(1, Math.max(0, r2(C.lightStr + d * 0.1))))],
+      ['WRAP', Math.round(C.wrap * 100) + '%', d => S.setPcam('wrap', Math.min(1, Math.max(0, r2(C.wrap + d * 0.1))))],
+      ['KEY GLOW', Math.round(C.glow * 100) + '%', d => S.setPcam('glow', Math.min(1, Math.max(0, r2(C.glow + d * 0.1))))],
+      ['EXPOSURE', (C.expo > 0 ? '+' : '') + C.expo.toFixed(1), d => S.setPcam('expo', Math.min(1, Math.max(-1, r2(C.expo + d * 0.1))))],
+      [lat != null ? 'DELAY TRIM' : 'DELAY', lat != null ? `${lat}${C.trim >= 0 ? '+' : ''}${C.trim} ms` : `${C.manual} ms`, d => lat != null ? S.setPcam('trim', C.trim + d * 10) : S.setPcam('manual', Math.max(0, C.manual + d * 10))],
+    ];
+    const cell = ([label, val, act], x, y, w, h) => {
+      g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
+      const by = y + 15, bh = h - 15, bw = 40;
+      btn(x, by, bw, bh, '−', false, () => { act(-1); drawMixScreen(); });
+      let fs = 17; g.font = `700 ${fs}px system-ui`; while (fs > 11 && g.measureText(val).width > w - 2 * bw - 6) g.font = `700 ${--fs}px system-ui`;
+      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + w / 2, by + bh / 2); g.textBaseline = 'alphabetic';
+      btn(x + w - bw, by, bw, bh, '+', false, () => { act(1); drawMixScreen(); });
+    };
+    const v = livePossible() ? liveVideo : null, packed = v && v.videoWidth && Math.abs(v.videoWidth / v.videoHeight - 1920 / 720) < 0.06;
+    const pc6 = spect && spect.phoneCam;
+    const st = [
+      !spect ? 'Spectator camera is off: Settings > Spectator camera On, connect the phone.' : !cs ? 'Phone not connected.' : !cs.fixed ? 'Phone is in AR mode: start it in Fixed camera (tripod) mode.' : !pc6 ? 'Phone not calibrated: Calibrate on the phone (or NUDGE > CALIBRATE).' : `Phone fixed camera, calibrated${cs.fpx != null ? ' ' + cs.fpx + ' px' : ''}.`,
+      S.source !== 'pcam' ? 'Pick PHONE CAM on the STREAM page to use it.' : v && v.videoWidth ? `Video ${v.videoWidth} x ${v.videoHeight}${packed ? ' (colour + matte)' : ''}${S.pkMsg ? ' · ' + S.pkMsg : ''}` : 'Waiting for the phone video (PREVIEW or GO LIVE starts it).',
+      lat != null ? `Video ${lat} ms late (measured)${C.lat ? ', gear, hands and stream sound held back ' + Math.round(S.latMs) + ' ms' : ''}.` : `Delay not measured: LATENCY MATCH uses ${C.manual} ms.`,
+    ];
+    if (C.green && C.light) { const h = S.lampHint(); if (h) st.push(h); }
+    if (C.green && C.bg === 'dome' && !skybox.tex) st.push('BG DOME: no sky picked yet (VISUALS > PANO > SKY).');
+    const help = 'GREEN SCREEN off: the phone video is the background and the gear, hands, chalkboard and LED wall are drawn over it. On: you are keyed over the VISUALS or the dome. LIGHT MATCH grades you toward the panorama (pick it with SKY) and lights the gear from it.';
+    const text = (x, y, w, lh, max, fs) => {
+      g.textAlign = 'left'; g.font = `500 ${fs}px system-ui`; let n = 0;
+      g.fillStyle = '#dfe6f2'; for (const t of st) { if (n >= max - 1) break; n += wrapText(g, t, x, y + n * lh, w, lh, 2); }
+      g.fillStyle = '#8c96a8'; if (n < max) wrapText(g, help, x, y + n * lh, w, lh, max - n);
+    };
+    if (P) {
+      const tw = (R - L - 8) / 2;
+      toggles.forEach(([lb, on, act, dim], i) => btn(L + (i % 2) * (tw + 8), y0 + Math.floor(i / 2) * 50, tw, 44, lb, on, act, !!dim, 16));
+      const y1 = y0 + 4 * 50 + 6;
+      cells.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 58, tw, 54));
+      text(L + 4, y1 + 4 * 58 + 16, R - L - 8, 19, 12, 14);
+    } else {
+      const tw = (R - L - 42) / 8;
+      toggles.forEach(([lb, on, act, dim], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, !!dim, 13));
+      const cw = (R - L - 24) / 4, y1 = y0 + 48;
+      cells.forEach((c, i) => cell(c, L + (i % 4) * (cw + 8), y1 + Math.floor(i / 4) * 48, cw, 44));
+      text(L + 4, y1 + 2 * 48 + 14, R - L - 8, 16, 5, 13);
+    }
     return;
   }
   if (page === 'portals') {   // #346 PORTALS SETUP: the real-world windows, the wall they cut, the sky dome behind it
@@ -5005,6 +5123,7 @@ function frame() {
   if (portals) portals.tick();   // #345 #346
   if (domeBoot) { domeBoot = false; if (dome.on && !CAMERA_ROLE) setDome(true); }   // #346 a dome left on last time: load its sky once everything is up
   if ((ledMode === 'cam' || (streamer && streamer.wantsCam) || (gopro && gopro.aiming)) && djcam) stepDjCam(dt);   // #220 (#331 also while the stream shows AVACAM)
+  stepArmSleeves();   // #347
   if (streamer) streamer.tick();   // #331
   renderer.render(scene, camera);
 }
@@ -5104,9 +5223,9 @@ async function applyEnv() {
     const url = envImageStored();
     if (!url) { envLight.setImage(null); skybox.setImage(null); applySky(); return; }
     const im = new Image(); im.src = url; await im.decode().catch(() => {}); envLight.setImage(im);
-    skyKeyLight = im.width ? brightestDir(im) : null;
+    skyKeyLight = im.width ? brightestDir(im) : null; skyAvg = im.width ? panoAvg(im) : null;
     if (settings.sky === 'on') await ensureSky();
-  } else { envLight.setImage(null); skyKeyLight = null; }
+  } else { envLight.setImage(null); skyKeyLight = null; skyAvg = null; }
   applySky();
 }
 // #182: layout of a picture (per Settings > Pano type): { layout: 'mono' | 'ou' | 'sbs', swap } or null = not a panorama
@@ -5127,7 +5246,7 @@ async function useSkyFile(f, fresh) {
   }
   const dims = [bmp.width, bmp.height]; bmp.close();
   try { localStorage.setItem('vire.envimage', c.toDataURL('image/jpeg', 0.85)); } catch { if (fresh) toast('Image too large to remember; it will be used this session only'); }
-  envLight.setImage(c); skyKeyLight = brightestDir(c);
+  envLight.setImage(c); skyKeyLight = brightestDir(c); skyAvg = panoAvg(c);
   if (L) { try { closeSkyVideo(); await skybox.load(f, L.layout, L.swap); skybox.setHeight(settings.skyH); } catch (e) { skybox.setImage(null); toast('Panorama too big for this device: ' + e.message, 4000); } }
   else skybox.setImage(null);
   skyInfo(dims, L); applySky();
@@ -5158,7 +5277,7 @@ async function useSkyVideo(f) {
   const L = skyLayoutFor(video.videoWidth, video.videoHeight) || { layout: 'mono', swap: false };
   const c = leftEyeCanvas(snap, L.layout, L.swap, 2048);
   try { localStorage.setItem('vire.envimage', c.toDataURL('image/jpeg', 0.85)); } catch {}
-  envLight.setImage(c); skyKeyLight = brightestDir(c);
+  envLight.setImage(c); skyKeyLight = brightestDir(c); skyAvg = panoAvg(c);
   skybox.setVideo(video, L.layout, L.swap); skybox.setHeight(settings.skyH);
   skyInfo([video.videoWidth, video.videoHeight], L); applySky();
 }
@@ -5376,7 +5495,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
