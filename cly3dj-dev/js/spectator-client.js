@@ -63,7 +63,7 @@ export function startCamera(ctx) {
     #spS input { font:600 28px system-ui,sans-serif; letter-spacing:.2em; width:100%; box-sizing:border-box; padding:12px; border-radius:10px; border:1px solid #2e3850; background:#1c2230; color:#e6e8ec; text-align:center; }
     #spS button, #spO button { font:600 15px system-ui,sans-serif; color:#e6e8ec; background:#1c2230; border:1px solid #2e3850; border-radius:10px; padding:12px 16px; }
     #spS button { width:100%; margin-top:12px; font-size:17px; padding:14px; } #spS button:disabled { opacity:.4; }
-    #spSt { margin-top:14px; color:#8b909a; min-height:1.4em; }
+    #spSt { margin:6px 0 10px; font-weight:600; color:#8b909a; min-height:1.4em; }
     #spO { position:fixed; inset:0; pointer-events:none; color:#e6e8ec; font:14px/1.4 system-ui,sans-serif; }
     #spO .bar { position:absolute; left:8px; right:8px; bottom:12px; display:flex; flex-wrap:wrap; gap:6px; justify-content:center; pointer-events:auto; }
     #spO .bar button { padding:10px 11px; background:rgba(14,16,22,.78); } #spO .bar button.on { border-color:#39a8ff; color:#fff; }
@@ -79,7 +79,7 @@ export function startCamera(ctx) {
       <h1>Cly<span>3DJ</span> camera</h1>
       <p>Films the DJ with the virtual gear. On the Quest: Settings, Spectator camera On, then read the code shown there.</p>
       <input id="spCode" inputmode="numeric" maxlength="5" placeholder="00000">
-      <button id="spConnect">Connect</button><button id="spAR" disabled>Start camera (AR)</button><button id="spFix" disabled>Fixed camera: tripod, no AR</button>
+      <button id="spConnect">Connect</button><div id="spSt"></div><button id="spAR" disabled>Start camera (AR)</button><button id="spFix" disabled>Fixed camera: tripod, no AR</button>
       <label style="display:flex;gap:8px;align-items:center;margin-top:8px;color:#8b909a;font-size:14px">Fixed camera uses <select id="spFixCam" style="font:600 14px system-ui;background:#1c2230;color:#e6e8ec;border:1px solid #2e3850;border-radius:8px;padding:6px"><option value="environment">main camera</option><option value="user">selfie camera</option></select></label><button id="spCamTest">Camera access test (no Quest needed)</button>
       <button id="spLibBtn">Library: panoramas, videos, images (push to the Quest)…</button>
       <button id="spShare" disabled>Share this phone's screen with the LED wall…</button>
@@ -88,7 +88,7 @@ export function startCamera(ctx) {
       <div id="spPanoSt" style="color:#8b909a;font-size:13px;margin-top:6px">For the green-screen virtual set: pick the same 360 picture the Quest shows. Kept on this phone.</div>
       <button id="spLed">Videos: LED wall clips + VideoVinyls (same files as the Quest)…</button><input type="file" id="spLedF" accept="video/*" multiple hidden>
       <div id="spLedList" style="color:#8b909a;font-size:13px;margin-top:6px">Optional: pick the same videos as on the Quest so the LED wall plays here too.</div>
-      <div id="spSt"></div></div></div>
+      </div></div>
     <div id="spO" hidden>
       <div class="info" id="spInfo">…</div>
       <div class="hint" id="spHint"></div>
