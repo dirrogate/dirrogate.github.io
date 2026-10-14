@@ -104,6 +104,10 @@ export function startCamera(ctx) {
         <label>Spill <input type="range" id="kSpill" min="0" max="1" step="0.05"><span id="kSpillV"></span></label>
         <label>Light wrap <input type="range" id="kWrap" min="0" max="1" step="0.05"><span id="kWrapV"></span></label>
         <label>Colour match <input type="range" id="kCm" min="0" max="1" step="0.05"><span id="kCmV"></span></label>
+        <label>Crop left <input type="range" id="kGl" min="0" max="0.45" step="0.01"><span id="kGlV"></span></label>
+        <label>Crop right <input type="range" id="kGr" min="0" max="0.45" step="0.01"><span id="kGrV"></span></label>
+        <label>Crop top <input type="range" id="kGt" min="0" max="0.45" step="0.01"><span id="kGtV"></span></label>
+        <label>Crop bottom <input type="range" id="kGb" min="0" max="0.45" step="0.01"><span id="kGbV"></span></label>
         <label><input type="checkbox" id="kMatte"> Show matte (white = kept, black = keyed)</label>
       </div>
       <div class="bar" id="spBar">
@@ -168,7 +172,7 @@ export function startCamera(ctx) {
     try { await vs.pick(f); $('#spPanoSt').textContent = f.name + (vs.sameAsQuest() ? '' : ' (not the Quest\'s current picture)') + ': ready for the virtual set.'; }
     catch (err) { $('#spPanoSt').textContent = 'Could not use it: ' + err.message; }
   };
-  for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill'], ['#kWrap', 'wrap'], ['#kCm', 'cmatch']]) {
+  for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill'], ['#kWrap', 'wrap'], ['#kCm', 'cmatch'], ['#kGl', 'gl'], ['#kGr', 'gr'], ['#kGt', 'gt'], ['#kGb', 'gb']]) {   // #353 crop = garbage matte (PHONE CAM green screen)
     const el = $(id), v = $(id + 'V'); el.value = vs.K[k]; v.textContent = (+vs.K[k]).toFixed(2);
     el.oninput = () => { vs.setKey(k, +el.value); v.textContent = (+el.value).toFixed(2); sendCst(); };
   }
@@ -184,7 +188,7 @@ export function startCamera(ctx) {
     const el = $(id), v = $(id + 'V'); el.value = look.L[k]; v.textContent = Math.round(look.L[k] * 100) + '%';
     el.oninput = () => { look.set(k, +el.value); v.textContent = Math.round(+el.value * 100) + '%'; sendCst(); };
   }
-  const syncKeyUI = () => { $('#kCol').value = String(vs.K.col || 0); for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill'], ['#kWrap', 'wrap'], ['#kCm', 'cmatch']]) { $(id).value = vs.K[k]; $(id + 'V').textContent = (+vs.K[k]).toFixed(2); } };
+  const syncKeyUI = () => { $('#kCol').value = String(vs.K.col || 0); for (const [id, k] of [['#kThr', 'thr'], ['#kSoft', 'soft'], ['#kSpill', 'spill'], ['#kWrap', 'wrap'], ['#kCm', 'cmatch'], ['#kGl', 'gl'], ['#kGr', 'gr'], ['#kGt', 'gt'], ['#kGb', 'gb']]) { $(id).value = vs.K[k]; $(id + 'V').textContent = (+vs.K[k]).toFixed(2); } };
   const syncLookUI = () => {
     $('#lkOn').checked = look.L.on; $('#lkRoom').checked = look.L.room;
     for (const [id, k] of [['#lkStr', 'strength'], ['#lkGrain', 'grain']]) { $(id).value = look.L[k]; $(id + 'V').textContent = Math.round(look.L[k] * 100) + '%'; }
@@ -209,7 +213,7 @@ export function startCamera(ctx) {
     const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession() || fixed.on, cal: cal.ok || !!(fixed.on && fixed.S.err != null), fixed: fixed.on, fcam: fixed.on ? fixed.S.facing : null, fpx: fixed.on && fixed.S.err != null ? +fixed.S.err.toFixed(1) : null, fcal: fixed.on && !!fixed.S.cal, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, late, auto: autoMsg, look: look.status(), FL: flook.state(), flErr, FX: fixed.on && fixed.S.pose ? { fov: +fixed.S.pose.fov.toFixed(1), coarse: fixed.coarse, cal: !!fixed.S.cal } : null };
     const j = JSON.stringify(m); if (force || j !== lastCst) { lastCst = j; link.send('ctl', m); }
   }
-  const LIM = { col: [0, 2], thr: [0, 0.8], soft: [0.02, 0.4], spill: [0, 1], wrap: [0, 1], cmatch: [0, 1], strength: [0, 1], grain: [0, 1] };
+  const LIM = { col: [0, 2], gl: [0, 0.45], gr: [0, 0.45], gt: [0, 0.45], gb: [0, 0.45], thr: [0, 0.8], soft: [0.02, 0.4], spill: [0, 1], wrap: [0, 1], cmatch: [0, 1], strength: [0, 1], grain: [0, 1] };
   const lim = (k, v) => Math.min(LIM[k][1], Math.max(LIM[k][0], +v));
   async function onCset(m) {
     if (m.what === 'set') await toggleSet(!!m.v);

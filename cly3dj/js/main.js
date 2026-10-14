@@ -4108,7 +4108,7 @@ function mixScreenPress(uv) {
   if (videoPage || toolsPage) {   // #224 the TOOLS pages use the same tap list
     const b = VP_HIT.find(h => px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h);
     if (vpDel && !(b && b.del)) vpDel = null;   // any other tap closes the delete offer
-    if (b) b.act(); drawMixScreen(); return true;
+    if (b) b.act(px, py); drawMixScreen(); return true;   // #353 the tap point, for the CROP picture
   }   // #185
   // #164 spectator strip: MR GUI (helpers on/off) and CELL REC (phone goes clean for recording)
   for (const b of SP_HIT) if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) { b.act(); drawMixScreen(); return true; }
@@ -4190,6 +4190,7 @@ function setTools(p) {
   if (toolsPage === 'streamfit' && p !== 'streamfit' && streamer) streamer.setTesting(false);   // #333 TEST ends with the page
   clearInterval(setTools.fitIv); if (p === 'streamfit') setTools.fitIv = setInterval(() => { if (toolsPage === 'streamfit' && streamer && streamer.running) drawMixScreen(); }, 250);
   if (p === 'pcam') setTools.fitIv = setInterval(() => { if (toolsPage === 'pcam') drawMixScreen(); }, 1000);   // #347 delay / phone status
+  if (p === 'pcamcrop') setTools.fitIv = setInterval(() => { if (toolsPage === 'pcamcrop') drawMixScreen(); }, 200);   // #353 the CROP picture, ~5 a second
   toolsPage = p; pickPg = 0;
   if (p === 'pickVideo' || p === 'pickImage') { pickItems = []; loadPick(p === 'pickVideo' ? 'Video' : 'Images'); }
   drawMixScreen();
@@ -4468,6 +4469,57 @@ function drawToolsPage() {
     else drawChat(g, L, cy, R - L, H - cy - (P ? 28 : 6), chat.msgs, { fs: P ? 17 : 16, bg: '#0a0c12', onEmote: chatRedraw });
     return;
   }
+  if (page === 'pcamcrop') {   // #353 GARBAGE MATTE: crop the green-screen cut-out to a box (cuts stands, the room past the cloth)
+    const y0 = head(P ? 'CROP' : 'GARBAGE MATTE', 'pcam'), S = streamer; if (!S) return;
+    const cs = spect && spect.cam, K = cs && cs.K, C = S.pc_, keySend = (key, v) => { if (spect && spect.camSet && K) { K[key] = v; spect.camSet({ what: 'key', key, v }); } };
+    const v = livePossible() ? liveVideo : null, packed = v && v.videoWidth && Math.abs(v.videoWidth / v.videoHeight - 1920 / 720) < 0.06;
+    const pc6 = spect && spect.phoneCam, asp = pc6 && pc6.vw ? pc6.vw / pc6.vh : packed ? 16 / 9 : v && v.videoWidth ? v.videoWidth / v.videoHeight : 16 / 9;
+    const tw = P ? R - L : 400, th = Math.round(tw / asp), tx = L, ty = y0;
+    // the picture: MATTE on = what goes out (the cut-out in black and white), else the phone's own colour picture
+    g.fillStyle = '#000'; g.fillRect(tx, ty, tw, th);
+    let shown = false;
+    if (C.matte && S.active && S.source === 'pcam' && S.pkFrames) { g.drawImage(S.canvas, tx, ty, tw, th); shown = true; }
+    else if (v && v.videoWidth && v.readyState >= 2) { try { if (packed) g.drawImage(v, 0, 0, v.videoWidth * 1280 / 1920, v.videoHeight, tx, ty, tw, th); else g.drawImage(v, tx, ty, tw, th); shown = true; } catch {} }
+    if (!shown) { g.fillStyle = '#8c96a8'; g.font = '600 14px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(S.source !== 'pcam' ? 'Pick PHONE CAM on STREAM' : 'Turn PREVIEW on to see the phone', tx + tw / 2, ty + th / 2); g.textBaseline = 'alphabetic'; }
+    const gl = K ? K.gl || 0 : 0, gr = K ? K.gr || 0 : 0, gt = K ? K.gt || 0 : 0, gb = K ? K.gb || 0 : 0;
+    const bx = tx + gl * tw, by = ty + gt * th, bw = tw * (1 - gl - gr), bh = th * (1 - gt - gb);
+    g.fillStyle = 'rgba(0,0,0,0.62)';   // cut away = darkened
+    g.fillRect(tx, ty, tw, by - ty); g.fillRect(tx, by + bh, tw, ty + th - by - bh); g.fillRect(tx, by, bx - tx, bh); g.fillRect(bx + bw, by, tx + tw - bx - bw, bh);
+    g.strokeStyle = '#f2c230'; g.lineWidth = 2; g.strokeRect(bx, by, bw, bh);
+    g.fillStyle = '#f2c230'; for (const [hx, hy] of [[bx, by + bh / 2], [bx + bw, by + bh / 2], [bx + bw / 2, by], [bx + bw / 2, by + bh]]) g.fillRect(hx - 5, hy - 5, 10, 10);
+    // tap the picture: the nearest edge jumps to the tap
+    if (K) VP_HIT.push({ x: tx, y: ty, w: tw, h: th, act: (px, py) => {
+      const u = (px - tx) / tw, w = (py - ty) / th, d = [Math.abs(u - gl), Math.abs(u - (1 - gr)), Math.abs(w - gt), Math.abs(w - (1 - gb))], i = d.indexOf(Math.min(...d));
+      const cl = x => Math.min(0.45, Math.max(0, Math.round(x * 100) / 100));
+      if (i === 0) keySend('gl', cl(u)); else if (i === 1) keySend('gr', cl(1 - u)); else if (i === 2) keySend('gt', cl(w)); else keySend('gb', cl(1 - w));
+    } });
+    const r2 = x => Math.round(x * 100) / 100;
+    const cells = [['LEFT', 'gl'], ['RIGHT', 'gr'], ['TOP', 'gt'], ['BOTTOM', 'gb']].map(([lb, k]) => [lb, K ? Math.round((K[k] || 0) * 100) + '%' : '--', d => K && keySend(k, Math.min(0.45, Math.max(0, r2((K[k] || 0) + d * 0.01))))]);
+    const cell = ([label, val, act], x, y, w, h) => {
+      g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
+      const cy = y + 15, ch = h - 15, cw = 40;
+      btn(x, cy, cw, ch, '−', false, K ? () => { act(-1); drawMixScreen(); } : null, !K);
+      g.font = '700 17px system-ui'; g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + w / 2, cy + ch / 2); g.textBaseline = 'alphabetic';
+      btn(x + w - cw, cy, cw, ch, '+', false, K ? () => { act(1); drawMixScreen(); } : null, !K);
+    };
+    const tog = [[C.matte ? 'MATTE: ON' : 'MATTE', C.matte, () => S.setPcam('matte', !C.matte)], ['PREVIEW', monOn, () => setMonitor(!monOn)],
+      ['RESET', false, K ? () => { for (const k of ['gl', 'gr', 'gt', 'gb']) keySend(k, 0); drawMixScreen(); } : null, !K]];
+    const help = 'Tap the picture: the nearest edge moves there. − / + for 1 % steps. Everything outside the yellow box is cut away like the green. MATTE shows the result as it goes out (green screen on).';
+    if (P) {
+      const y1 = ty + th + 10, cw = (R - L - 8) / 2;
+      cells.forEach((c, i) => cell(c, L + (i % 2) * (cw + 8), y1 + Math.floor(i / 2) * 58, cw, 54));
+      const yb = y1 + 2 * 58 + 6, b3 = (R - L - 16) / 3;
+      tog.forEach(([lb, on, act, dim], i) => btn(L + i * (b3 + 8), yb, b3, 46, lb, on, act, !!dim, 16));
+      g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; wrapText(g, K ? help : 'Phone not connected (fixed camera mode).', L + 4, yb + 72, R - L - 8, 19, 8);
+    } else {
+      const x1 = tx + tw + 12, cw = R - x1;
+      cells.forEach((c, i) => cell(c, x1, ty + i * 44, cw, 40));
+      const b3 = (cw - 12) / 3;
+      tog.forEach(([lb, on, act, dim], i) => btn(x1 + i * (b3 + 6), ty + 4 * 44 + 2, b3, 34, lb, on, act, !!dim, 13));
+      g.fillStyle = '#8c96a8'; g.font = '500 12px system-ui'; g.textAlign = 'left'; wrapText(g, K ? help : 'Phone not connected (fixed camera mode).', x1, ty + 4 * 44 + 52, cw, 14, 2);
+    }
+    return;
+  }
   if (page === 'pcam') {   // #347 PHONE CAM SETUP: the tripod phone's video with the gear / hands drawn from its view
     const y0 = head(P ? 'PHONE' : 'PHONE CAM SETUP', 'stream'), S = streamer; if (!S) { note('Streaming runs on the headset.', y0 + 20); return; }
     const C = S.pc_, cs = spect && spect.cam, K = cs && cs.K, keySend = (key, v) => { if (spect && spect.camSet) { if (K) K[key] = v; spect.camSet({ what: 'key', key, v }); } };
@@ -4479,7 +4531,7 @@ function drawToolsPage() {
       [P ? (C.lat ? 'LATENCY: ON' : 'LATENCY MATCH') : (C.lat ? 'LATENCY: ON' : 'LATENCY'), C.lat, () => S.setPcam('lat', !C.lat)],
       [P ? 'KEY: ' + KEY_LABEL[(K && K.col) || 0] : 'KEY ' + ['GRN', 'BLUE', 'MAG'][(K && K.col) || 0], false, K ? () => { keySend('col', (((K.col || 0) + 1) % 3)); drawMixScreen(); } : null, !K],
       ['AUTO KEY', false, K ? () => { spect.camSet({ what: 'auto' }); toast('Auto key: point the phone at the empty key screen', 3000); } : null, !K],
-      [C.matte ? 'MATTE: ON' : 'MATTE', C.matte, () => S.setPcam('matte', !C.matte)],
+      [K && (K.gl || K.gr || K.gt || K.gb) ? 'CROP: ON' : 'CROP', !!(K && (K.gl || K.gr || K.gt || K.gb)), () => setTools('pcamcrop')],   // #353 garbage matte page
       ['PREVIEW', monOn, () => setMonitor(!monOn)],
     ];
     const lat = S.delay != null ? Math.round(S.delay) : null;
@@ -4510,7 +4562,7 @@ function drawToolsPage() {
     ];
     if (C.green && C.light) { const h = S.lampHint(); if (h) st.push(h); }
     if (C.green && C.bg === 'dome' && !skybox.tex) st.push('BG DOME: no sky picked yet (VISUALS > PANO > SKY).');
-    const help = 'GREEN SCREEN off: the phone video is the background and the gear, hands, chalkboard and LED wall are drawn over it. On: you are keyed over the VISUALS or the dome. LIGHT MATCH grades you toward the panorama (pick it with SKY) and lights the gear from it.';
+    const help = 'CROP: the garbage matte (cut away stands and the room past the cloth). GREEN SCREEN off: the phone video is the background and the gear, hands, chalkboard and LED wall are drawn over it. On: you are keyed over the VISUALS or the dome. LIGHT MATCH grades you toward the panorama (pick it with SKY) and lights the gear from it.';
     const text = (x, y, w, lh, max, fs) => {
       g.textAlign = 'left'; g.font = `500 ${fs}px system-ui`; let n = 0;
       g.fillStyle = '#dfe6f2'; for (const t of st) { if (n >= max - 1) break; n += wrapText(g, t, x, y + n * lh, w, lh, 2); }
