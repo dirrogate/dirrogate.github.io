@@ -68,6 +68,7 @@ export function makeLedWall() {
   }
   g.userData.setCurve = deg => { const c = Math.max(0, Math.min(LED_CURVE_MAX, +deg || 0)) * Math.PI / 180; if (Math.abs(c - curve) < 1e-5) return; curve = c; lastKey = ''; };
   g.userData.curveDeg = () => Math.round(curve * 180 / Math.PI);
+  g.userData.curveRad = () => curve;   // #370 exact value, for the scroller band that follows the curve
   // per frame (Quest and phone): follow the turn, settle it after a twist, refit when the picture's shape is known
   let lastT = 0;
   g.userData.tick = () => {

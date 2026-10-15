@@ -15,6 +15,12 @@ import * as THREE from 'three';
 import { drawChat } from './chat.js';
 
 export const TWITCH_WHIP = 'https://g.webrtc.live-video.net:4443/v2/offer';
+// #370 (owner): the CARD plate carries a QR code for the Twitch channel, top right, so people in the room (or on a club
+// screen) can scan it. Static: made offline (Python qrcode, version 3, error correction M, 29 x 29 modules) for the text
+// below and kept here as rows of 0 / 1, because the app has no QR library and no network dependencies. To change the
+// address, remake the rows (the text is what the code says; a phone opens it as a link).
+const QR_TEXT = 'https://www.twitch.tv/dirrogate', QR_SHOW = 'twitch.tv/dirrogate';
+const QR_ROWS = '11111110010100100011001111111|10000010001110001110101000001|10111010010100110111101011101|10111010010001001010001011101|10111010011000000110101011101|10000010110100011001101000001|11111110101010101010101111111|00000000001011011111100000000|10010110101100101000110100000|10001001011111011110101001001|11110111001101110111110001110|10011000101001001001010110110|11100011100100110100011001011|00000101111111111111100100000|00101111111111100010011001111|01101101011000010100101001010|11000110111001000100110100010|01010001000011111100111101001|10010110001110111100100100011|00000001010110100110001000011|10111110010100011001111110100|00000000111110110101100010111|11111110000000001100101010010|10000010110010111010100011101|10111010010110001100111110010|10111010111001000101101011101|10111010000011001110010011101|10000010001000011111100010010|11111110110001001100100110010'.split('|');
 export const SOURCES = { card: 'CARD', avacam: 'AVACAM', show: 'SHOWTIME!', headset: 'HEADSET CAM', phone: 'PHONE', pcam: 'PHONE CAM' };   // #347 PHONE CAM   // #338 VIDEOWALL gone: SHOWTIME! with ROBOT and GEAR off is the same
 const VBR = { card: 600, avacam: 2500, show: 3500, headset: 3000, phone: 2000, pcam: 3500 };
 // #336 SHOW = three layers: the LED wall's visuals full frame (clip / image / VidVinyl / phone LIVE), the robot DJ and
@@ -243,6 +249,21 @@ export class Streamer {
     if (np.a) fit('▶ ' + np.a, 520);
     if (np.b) fit(np.b, 580);
     if (np.bpm) { g.font = '600 28px system-ui,sans-serif'; g.fillStyle = '#8c96a8'; g.fillText(np.bpm + ' BPM', 640, 640); }
+    this._drawQr(g);
+  }
+  // #370 the Twitch QR: white plate with the 4-module quiet zone the scanners want, 7 px modules (≈ 260 px), top right,
+  // address under it. Drawn once into its own canvas, then copied (the card redraws every second).
+  _drawQr(g) {
+    if (!this._qrCv) {
+      const n = QR_ROWS.length, M = 7, Q = 4, S = (n + 2 * Q) * M, c = this._qrCv = document.createElement('canvas'); c.width = c.height = S;
+      const q = c.getContext('2d'); q.fillStyle = '#ffffff'; q.fillRect(0, 0, S, S); q.fillStyle = '#000000';
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (QR_ROWS[y][x] === '1') q.fillRect((x + Q) * M, (y + Q) * M, M, M);
+    }
+    const S = this._qrCv.width, x = 1280 - 24 - S, y = 24;
+    g.fillStyle = '#ffffff'; g.beginPath(); g.roundRect ? g.roundRect(x - 6, y - 6, S + 12, S + 12, 14) : g.rect(x - 6, y - 6, S + 12, S + 12); g.fill();
+    g.drawImage(this._qrCv, x, y);
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#b9a3ff'; g.font = '700 22px system-ui,sans-serif'; g.fillText('FOLLOW ON TWITCH', x + S / 2, y + S + 28);
+    g.fillStyle = '#ffffff'; g.font = '700 24px system-ui,sans-serif'; g.fillText(QR_SHOW, x + S / 2, y + S + 56);
   }
 
   _avacamFrame() {
