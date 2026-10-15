@@ -26,7 +26,23 @@ const VBR = { card: 600, avacam: 2500, show: 3500, headset: 3000, phone: 2000, p
 // #336 SHOW = three layers: the LED wall's visuals full frame (clip / image / VidVinyl / phone LIVE), the robot DJ and
 // gear from the AVACAM camera (BOOTH angle) drawn on a see-through background, and flat overlays (scroller, now
 // playing, logo). VIDEOWALL = the visuals and overlays only (no 3D render). Toggles saved as 'vire.showOpts'.
-export const SHOW_DEF = { visuals: true, robot: true, gear: true, scroll: true, np: true, logo: true, chat: false };   // #340 CHAT: Twitch chat on the right   // #338 VISUALS: the background on / off   // video kbit/s caps per source
+// #372 backdrop: 'none' | 'visuals' | 'dome' (one at a time); object toggles wall (3D LED wall), gopro (the prop), panel (chat panel), chalk (chalkboard), neon
+export const SHOW_DEF = { backdrop: 'visuals', robot: true, gear: true, wall: false, gopro: true, panel: true, chalk: true, neon: true, scroll: true, np: true, logo: true, chat: false };
+export const BACKDROPS = ['none', 'visuals', 'dome'];
+export const SHOW_PRESETS = {   // #372 FULL = everything on air, LEAN = visuals + robot only (cheap), FIRST PERSON = the DJ's own view (gear, no robot)
+  full: { backdrop: 'visuals', robot: true, gear: true, wall: true, gopro: true, panel: true, chalk: true, neon: true },
+  lean: { backdrop: 'visuals', robot: true, gear: false, wall: false, gopro: false, panel: false, chalk: false, neon: false },
+  first: { backdrop: 'visuals', robot: false, gear: true, wall: false, gopro: true, panel: true, chalk: true, neon: true },
+};
+// #372 migration of saved 'vire.showOpts': the old 'visuals' on / off becomes the backdrop; settings saved before the object
+// toggles existed keep what they did (wall, off; neon, GoPro, panel and chalkboard followed GEAR / ROBOT: with both off,
+// nothing 3D was drawn, so the new object toggles start off too)
+export function migrateShowOpts(s) {
+  s = { ...(s || {}) };
+  if ('visuals' in s) { if (!('backdrop' in s)) s.backdrop = s.visuals ? 'visuals' : 'none'; delete s.visuals; }
+  if (!('wall' in s) && s.gear === false && s.robot === false) Object.assign(s, { wall: false, gopro: false, panel: false, chalk: false, neon: false });
+  return s;
+}   // #340 CHAT: Twitch chat on the right   // #338 VISUALS: the background on / off   // video kbit/s caps per source
 const ABR = 160;   // Opus stereo kbit/s
 
 const KEY = 'vire.twitchKey', SRC = 'vire.streamSrc', FIT = 'vire.mrcam', SHOWO = 'vire.showOpts', PCAMK = 'vire.pcam';
@@ -127,7 +143,8 @@ export class Streamer {
     this.testing = false;   // CAM FIT TEST: the MR picture runs off air, for lining up
     this.rehearse = false;
     this.hist = []; this.mr = null;
-    this.showOpt = { ...SHOW_DEF, ...(lsJ(SHOWO) || {}) }; this.ly = null; this.showT = 0; this.layerOk = false;
+    { const raw = lsJ(SHOWO); this.showOpt = { ...SHOW_DEF, ...migrateShowOpts(raw) }; if (raw && 'visuals' in raw) ls.set(SHOWO, JSON.stringify(this.showOpt)); }
+    this._wallShot = false; this.ly = null; this.showT = 0; this.layerOk = false;
     this.pc_ = { ...PCAM_DEF, ...(lsJ(PCAMK) || {}) }; this.pk = null; this.pkNew = false; this.pkMsg = ''; this.delay = null; this.grade = new THREE.Vector3(1, 1, 1); this.gradeT = 0;   // #347
   }
   setPcam(k, v) {   // #347 PHONE CAM SETUP
@@ -140,7 +157,9 @@ export class Streamer {
   get latMs() { return Math.max(0, (this.delay != null ? this.delay : this.pc_.manual) + this.pc_.trim); }   // the delay used by LATENCY MATCH
   _audioDelay() { const e = this.env.engine; if (e && e.setStreamDelay) e.setStreamDelay(this.active && this.source === 'pcam' && this.pc_.lat ? this.latMs / 1000 : 0); }
   setShowOpt(k, v) { if (k in SHOW_DEF) { this.showOpt[k] = v; ls.set(SHOWO, JSON.stringify(this.showOpt)); this.env.onChange && this.env.onChange(); } }
-  get show3d() { return this.source === 'show' && (this.showOpt.robot || this.showOpt.gear); }
+  applyPreset(name) { const p = SHOW_PRESETS[name]; if (!p) return; Object.assign(this.showOpt, p); ls.set(SHOWO, JSON.stringify(this.showOpt)); this.env.onChange && this.env.onChange(); }
+  nextBackdrop() { this.setShowOpt('backdrop', BACKDROPS[(BACKDROPS.indexOf(this.showOpt.backdrop) + 1) % BACKDROPS.length]); }
+  get show3d() { const O = this.showOpt; return this.source === 'show' && !!(O.robot || O.gear || O.wall || O.gopro || O.panel || O.chalk || O.neon || O.backdrop === 'dome'); }
   get running() { return this.live || this.testing; }
   get active() { return this.live || this.rehearse; }   // #339 REHEARSAL: the chosen source is drawn for the tablet MONITOR without going live
   setRehearse(on) {
@@ -487,6 +506,7 @@ export class Streamer {
       const kc = li.keyCol || [1, 1, 1]; U.glowCol.value.set(kc[0], kc[1], kc[2]).multiplyScalar(0.55);
     }
     U.texel.value.set(1 / W, 1 / H);
+    this._wallShot = !!(ok && this.showOpt.wall && this.env.wallInShot && this.env.wallInShot(cam));   // #372
     const sc = this.env.scene, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled, prevSh = r.shadowMap.autoUpdate, prevCol = r.getClearColor(_c1), prevA = r.getClearAlpha();
     const undo = ok && this.env.pcamPrep ? this.env.pcamPrep() : null;
     const back = ok && P.lat ? this._rewind(now - this.latMs) : null;
@@ -547,7 +567,9 @@ export class Streamer {
     const ly = this.ly, cam = ly.cam;
     cam.matrixWorld.copy(src.matrixWorld); cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
     if (cam.fov !== src.fov) { cam.fov = src.fov; cam.updateProjectionMatrix(); }
-    cam.layers.mask = (O.gear ? 1 : 0) | (O.robot && this.env.avLayer != null ? 1 << this.env.avLayer : 0);
+    // layer 0 holds every prop (gear, wall, neon, ...): showPrep hides the ones that are switched off; the robot has its own layer
+    cam.layers.mask = ((O.gear || O.wall || O.gopro || O.panel || O.chalk || O.neon || O.backdrop === 'dome') ? 1 : 0) | (O.robot && this.env.avLayer != null ? 1 << this.env.avLayer : 0);
+    this._wallShot = !!(O.wall && this.env.wallInShot && this.env.wallInShot(cam));   // #372 scroller: on the 3D wall when it is in shot, else flat
     const sc = this.env.scene, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled, prevSh = r.shadowMap.autoUpdate, prevCol = r.getClearColor(_c1), prevA = r.getClearAlpha();
     const undo = this.env.showPrep ? this.env.showPrep() : null;
     try {
@@ -574,7 +596,7 @@ export class Streamer {
   _compose() {
     const g = this.g, W = this.canvas.width, H = this.canvas.height, O = this.showOpt;
     // 1. visuals
-    const bg = (O.visuals && this.env.wallSource && this.env.wallSource()) || [];
+    const bg = (O.backdrop === 'visuals' && this.env.wallSource && this.env.wallSource()) || [];
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     const gr = g.createRadialGradient(W / 2, H * 0.45, 40, W / 2, H / 2, W * 0.65); gr.addColorStop(0, '#141a28'); gr.addColorStop(1, '#030409');
     g.fillStyle = gr; g.fillRect(0, 0, W, H);
@@ -593,7 +615,7 @@ export class Streamer {
   _overlays(g, W, H) {   // 3. overlays (#347 PHONE CAM uses them too)
     const O = this.showOpt;
     const sc = this.env.scroller && this.env.scroller();
-    if (O.scroll && sc && sc.on && sc.canvas) { const bh = Math.round(W * sc.canvas.height / sc.canvas.width * 0.66); g.drawImage(sc.canvas, 0, H - bh - Math.round(H * 0.01), W, bh); /* a little wider than the wall's band: ~20 % of the frame */ }
+    if (O.scroll && sc && sc.on && sc.canvas && !this._wallShot) { const bh = Math.round(W * sc.canvas.height / sc.canvas.width * 0.66); g.drawImage(sc.canvas, 0, H - bh - Math.round(H * 0.01), W, bh); /* a little wider than the wall's band: ~20 % of the frame */ }
     if (O.np) {
       const np = (this.env.nowPlaying && this.env.nowPlaying()) || {};
       if (np.a) {
@@ -607,7 +629,7 @@ export class Streamer {
     if (O.chat && this.env.chat) {   // #340 the newest messages on the right, each fading out 40 s after it arrived
       const ch = this.env.chat(), now = performance.now(), recent = ch && ch.msgs.filter(m => !m.sys && now - m.t < 42000);
       if (recent && recent.length) {
-        const sc2 = this.env.scroller && this.env.scroller(), bottom = H - (O.scroll && sc2 && sc2.on ? Math.round(W * 128 / 768 * 0.66) + 12 : 16);
+        const sc2 = this.env.scroller && this.env.scroller(), bottom = H - (O.scroll && sc2 && sc2.on && !this._wallShot ? Math.round(W * 128 / 768 * 0.66) + 12 : 16);
         drawChat(g, W - 452, 92, 432, bottom - 92, recent, { fs: 22, maxAge: 40, lineBg: 'rgba(0,0,0,0.45)' });
       }
     }
