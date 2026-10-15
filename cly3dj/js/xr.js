@@ -348,9 +348,9 @@ export function setupXR(ctx) {
       // #107: lift zone widened 5 mm into the label (45-70 mm radius); inside that the label does nothing
       // #325 (owner) bare hands: a pinch anywhere on the record (label to rim) holds it while the platter spins under the
       // mat; #326 it moves with the pinch (rock it back and forth on the kick); pinch and lift 3 cm takes it off.
-      if (st.isHand && d.record && r < RD(d).R + 0.003) {
+      if (st.isHand && r < RD(d).R + 0.003) {   // #364 no record: the pinch holds the bare slipmat (never lifts it)
         const s = ctx.scratchBegin(d, l); ctx.scratchMove(s, l);
-        st.direct = { kind: 'pinchHold', d, s, y0: P.y }; return true;
+        st.direct = { kind: 'pinchHold', d, s, y0: P.y, mat: !d.record }; return true;
       }
       if (d.record && r < RD(d).LABEL - 0.005) { st.direct = { kind: 'tap' }; return true; }
       // #136 (owner): lift zone 3 cm wider (label edge + 5 cm, was + 2 cm); lifting a record off was too fiddly
@@ -360,7 +360,7 @@ export function setupXR(ctx) {
       // #273 (owner): the trigger on the record's edge holds the record (and the mat under it) still while the
       // platter keeps spinning underneath, as on an SL-1200; it never lifts. Only the platter rim beyond the
       // record (the strobe dots) nudges.
-      if (d.record && r < RD(d).R + 0.003) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l) }; buzz(st); return true; }
+      if (r < RD(d).R + 0.003) { st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l) }; buzz(st); return true; }   // #364 also the bare slipmat (holds the mat)
       // #324 (owner) bare hands don't pinch the platter: the fingertip on its side nudges (pokes / touch, either way)
       if (r > RD(d).R + 0.003) { if (st.isHand) { st.direct = { kind: 'tap' }; return true; } st.direct = { kind: 'scratch', d, s: ctx.scratchBegin(d, l, true, rimForce(st, r)) }; buzz(st, 0.2, 15); return true; }
     }
@@ -530,7 +530,7 @@ export function setupXR(ctx) {
       if (ctx.armDrag(g.d, Math.atan2(l.x - pv.x, l.z - pv.z), P.y - g.y0) === 'drop') buzz(st, 0.6, 35);   // #104: needle found the lead-in
       if (g.d.arm.dragDown && (g.buzzT = (g.buzzT || 0) + 1) % 3 === 0) buzz(st, 0.15, 12);   // feel the grooves
     } else if (g.kind === 'pinchHold') {   // #325 held; lifted 3 cm = the record comes off
-      if (P.y - g.y0 > 0.03) { ctx.scratchEnd(g.s); updateAnchor(st); ctx.pickUpFromDeck(g.d, st.anchor); st.direct = { kind: 'held' }; }
+      if (!g.mat && P.y - g.y0 > 0.03) { ctx.scratchEnd(g.s); updateAnchor(st); ctx.pickUpFromDeck(g.d, st.anchor); st.direct = { kind: 'held' }; }
       else ctx.scratchMove(g.s, g.d.g.worldToLocal(v2.copy(P)));   // #326 (owner) the pinched record follows the hand: rock it to hear the kick
     } else if (g.kind === 'lampHold') {   // #324 pinch held 1.5 s at the lamp head
       if (!g.done && performance.now() - g.t0 > 1500) { g.done = true; ctx.pressControl({ deck: g.d.name, id: 'target' }); }
@@ -761,6 +761,7 @@ export function setupXR(ctx) {
         else if (cur) on = !ctl && h < 0.02 && r < RD(d).R + 0.01;
         else if (r > RD(d).R + 0.002 && r < PLATTER_R + 0.01 && h < 0.004 && h > -0.022) on = rim = true;   // side of the platter
         else if (d.record && !ctl) on = h < 0.008 && h > -0.015 && r > RD(d).LABEL + LO(RD(d)) && r < RD(d).R + 0.002;   // on the grooves (#104), to the very edge (#273)
+        else if (!d.record && !ctl) on = h < 0.006 && h > -0.015 && r > 0.03 && r < RD(d).R + 0.002;   // #364 the bare slipmat: a fingertip holds it
         if (on) { touching = d; local = ll.clone(); local.rim = rim; break; }
       }
       if (touching) {

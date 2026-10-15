@@ -1602,8 +1602,10 @@ const crateDisc = (() => {
   grp.traverse(o => { if (o.isMesh) o.userData.crateDisc = true; });
   grp.userData = { canvas: lc, tex: ltex, target: new THREE.Vector3(), tilt: 0 };
   grp.userData.size = r => {   // #257 7" or 12": the disc shrinks, its label to the 7" label size
-    const D = dimsOf(r), k = D.R / REC.R; disc.scale.set(k, D.THICK / REC.THICK, k);
-    grp.children.forEach(o => { if (o !== disc) { o.scale.setScalar(D.LABEL / REC.LABEL); o.position.z = Math.sign(o.position.z) * (D.THICK / 2 + 0.0002); } });
+    // #363 the riding disc is drawn 0.6 mm thick so it stays INSIDE the 1.4 mm jacket (a real 1.9 mm disc poked through
+    // both faces and its label sat in front of the cover, so the whole record showed in front of its sleeve)
+    const D = dimsOf(r), k = D.R / REC.R, CT = 0.0006; disc.scale.set(k, CT / REC.THICK, k);
+    grp.children.forEach(o => { if (o !== disc) { o.scale.setScalar(D.LABEL / REC.LABEL); o.position.z = Math.sign(o.position.z) * (CT / 2 + 0.0001); } });
     mat.userData.rec.uHoleN.value = D === REC7 ? D.HOLE / D.R : 0; grp.userData.hole = D === REC7 ? D.HOLE / D.LABEL : 6 / 128;
   };
   return grp;
@@ -1724,10 +1726,12 @@ function layoutSleeves() {
     m.compose(p, q, s); S.setMatrixAt(k, m);
     if (rel === 0 && crateState.walking) crateDisc.visible = false;   // #350 finger-walking: no record riding out until the hand pauses
     else if (rel === 0 && r && !r.missing && !shut) {
-      crateDisc.userData.target.set(0, yDisc + 0.012 + sh / 2 - 0.005, z); crateDisc.userData.tilt = tilt;
+      // #363 owner: pops out 15 % less, then a further 15 % (0.85 x 0.85 = 72 %: ~7.5 cm above a 12" jacket's top, was ~10.4)
+      let yT = yDisc + 0.012 + sh / 2 - 0.005; const pop = yT + dimsOf(r).R - (y + sh * hyr / 2); if (pop > 0) yT -= (1 - 0.85 * 0.85) * pop;
+      crateDisc.userData.target.set(0, yT, z); crateDisc.userData.tilt = tilt;
       if (!crateDisc.visible) { crateDisc.position.set(0, yDisc + 0.012, z); crateDisc.visible = true; }
       if (crateDisc.userData.rec !== r) {
-        crateDisc.userData.rec = r; crateDisc.position.y = yDisc + 0.012; crateDisc.userData.size(r); drawCrateDiscLabel(r);
+        crateDisc.userData.rec = r; crateDisc.position.set(0, yDisc + 0.012, z); crateDisc.userData.size(r); drawCrateDiscLabel(r);   // #365 starts inside the new sleeve (z too: it used to glide across from the old one)
         const t = r.sides.A || r.sides.B; // fetch cover art in the background for the label
         if (t && !t.missing && !artCache.has(t.id)) fetchArt(t).then(() => { if (crateDisc.userData.rec === r) drawCrateDiscLabel(r); });
       }
@@ -3956,16 +3960,20 @@ function drawVideoPage() {
   const pick = f => () => { vpFolder = f; vpSel = null; vpSelFolder = null; vpPg = 0; vpLoad(); };
   if (P) {   // #198 portrait: tabs in rows of 3 (#206: 3 rows, SYNC added, MIXER last); top and bottom keep clear of the corner L
     const tabs = [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam'], tw = (W - 30 - 12) / 3;   // #214 LOOK, #220 DJ CAM
-    tabs.forEach((f, i) => btn(22 + (i % 3) * (tw + 6), 28 + Math.floor(i / 3) * 40, tw, 34, VP_TABS[f], f === vpFolder, pick(f)));
-    btn(22 + (tw + 6), 108, tw, 34, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
-    btn(22 + 2 * (tw + 6), 108, tw, 34, 'DJ MIXER', false, () => setVideoPage(false));
+    // #363 a top row of its own: title, then DJ MIXER and BACK at the top right; the tabs move down a row
+    g.fillStyle = '#dfe6f2'; g.font = '700 18px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('VISUALS', 24, 45); g.textBaseline = 'alphabetic';
+    btn(22 + (tw + 6), 28, tw, 34, 'DJ MIXER', false, () => setVideoPage(false));
+    btn(22 + 2 * (tw + 6), 28, tw, 34, '◀ BACK', false, navCan() ? navBack : null, !navCan());
+    tabs.forEach((f, i) => btn(22 + (i % 3) * (tw + 6), 68 + Math.floor(i / 3) * 40, tw, 34, VP_TABS[f], f === vpFolder, pick(f)));
+    btn(22 + (tw + 6), 148, tw, 34, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
   } else {
-    let x = 8;   // #214 seven tabs fit left of MIXER; #220 eight (narrower)
-    for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam']) { const w = { Pano: 70, Video: 70, Images: 76, Camera: 82, Sync: 62, Look: 62, 'DJ Cam': 80 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 6; }
-    btn(x, 8, 92, 32, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
-    btn(W - 8 - 110, 8, 110, 32, 'DJ MIXER', false, () => setVideoPage(false));   // #225 was MIXER
+    let x = 8;   // #214 seven tabs fit left of MIXER; #220 eight (narrower); #363 narrower again for BACK
+    for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam']) { const w = { Pano: 58, Video: 58, Images: 66, Camera: 70, Sync: 52, Look: 52, 'DJ Cam': 76 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 5; }
+    btn(x, 8, 86, 32, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
+    btn(W - 8 - 80 - 6 - 100, 8, 100, 32, 'DJ MIXER', false, () => setVideoPage(false));   // #225 was MIXER
+    btn(W - 8 - 80, 8, 80, 32, '◀ BACK', false, navCan() ? navBack : null, !navCan());   // #363
   }
-  const y0 = P ? 152 : 48;
+  const y0 = P ? 192 : 48;   // #363 portrait: one more header row
   if (vpFolder === 'Camera') { drawCamTab(btn, y0); return; }
   if (vpFolder === 'Sync') { drawSyncTab(btn, y0); return; }   // #206
   if (vpFolder === 'Look') { drawLookTab(btn, y0); return; }   // #214
@@ -4055,7 +4063,7 @@ function drawLedList(btn, y0) {
   btn(bx, by, 44, bh, '‹', false, () => { ledPg = Math.max(0, ledPg - 1); }, ledPg === 0);
   btn(bx + 48, by, 44, bh, '›', false, () => { ledPg = Math.min(pages - 1, ledPg + 1); }, ledPg >= pages - 1);
   const row2 = P ? H - 106 : by, x2 = P ? 8 : 108, w2 = P ? (W - 16 - 12) / 3 : 120;
-  btn(x2, row2, w2, bh, '◀ BACK', false, () => { vpFolder = vpBack; vpLoad(); });
+  btn(x2, row2, w2, bh, '◀ ' + (VP_TABS[vpBack] || 'BACK'), false, () => { vpFolder = vpBack; vpLoad(); });   // #363 named, so it isn't mistaken for the top-right BACK
   btn(x2 + w2 + 6, row2, w2, bh, led.order === 'list' ? 'IN ORDER' : 'RANDOM', led.order === 'list', () => { led.order = led.order === 'list' ? 'random' : 'list'; saveLedList(); });
   btn(x2 + 2 * (w2 + 6), row2, w2, bh, 'NEXT ▶▶', false, files.length ? () => { clipsMode(); led.next(); } : null, !files.length);
   btn(W - (P ? 26 : 8) - 140, by, 140, bh, LED_LABEL[ledMode], ledMode !== 'off', () => setLedMode(nextLedMode(ledMode)));   // #238 + LIVE
@@ -4175,10 +4183,10 @@ function drawDeckPanel(g, d, x0, y0, w, h, P) {
     g.fillText(st.needle ? 'NEEDLE DOWN' : 'NEEDLE UP', x0 + 140, TXT);
   }
 }
-function drawTopBtn(g, x, y, w, h, label, on) {
-  g.fillStyle = on ? '#c8202c' : '#c9ced8'; g.fillRect(x, y, w, h);
-  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : '#5a6272';
-  btnLabel(g, label, x, y, w, h, 22); g.textBaseline = 'alphabetic';   // #349
+function drawTopBtn(g, x, y, w, h, label, on, dim, fs = 22) {
+  g.fillStyle = on ? '#c8202c' : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : dim ? '#56627a' : '#5a6272';
+  btnLabel(g, label, x, y, w, h, fs); g.textBaseline = 'alphabetic';   // #349
 }
 function drawPhoneIcon(g, px, py, pw, ph, on) {   // small phone icon; its LED is green while the spectator phone is connected (#169)
   g.strokeStyle = '#8c96a8'; g.lineWidth = 2; g.beginPath(); g.roundRect(px, py, pw, ph, 3); g.stroke();
@@ -4198,6 +4206,25 @@ function makerSay(text, ok, ms = 5000) {
   drawMixScreen();
 }
 const kbd = { title: '', text: '', emoji: false, max: 40, done: null, back: 'home' };
+// #363 BACK (owner): top-right of every tablet page, goes to the page the user was on before (any page: main,
+// VISUALS tabs, TOOLS pages). drawMixScreen records each change of page; BACK restores the last one.
+const navHist = []; let navKey = null, navRestoring = false;
+const navState = () => ({ t: toolsPage, v: videoPage, f: vpFolder, l: lookPage, s: scrollFromVP });
+function navTrack() {
+  const k = JSON.stringify(navState());
+  if (navKey && k !== navKey && !navRestoring) { navHist.push(JSON.parse(navKey)); if (navHist.length > 40) navHist.shift(); }
+  navKey = k;
+}
+function navBack() {
+  const st = navHist.pop(); if (!st) return;
+  navRestoring = true;
+  try {
+    vpFolder = st.f; lookPage = st.l; scrollFromVP = st.s;
+    if (st.t) { videoPage = st.v; setTools(st.t); }
+    else { toolsPage = null; setVideoPage(st.v); }
+  } finally { navRestoring = false; navKey = JSON.stringify(navState()); drawMixScreen(); }
+}
+const navCan = () => navHist.length > 0;
 function setTools(p) {
   if (toolsPage === 'streamfit' && p !== 'streamfit' && streamer) streamer.setTesting(false);   // #333 TEST ends with the page
   clearInterval(setTools.fitIv); if (p === 'streamfit') setTools.fitIv = setInterval(() => { if (toolsPage === 'streamfit' && streamer && streamer.running) drawMixScreen(); }, 250);
@@ -4358,6 +4385,7 @@ async function pressBytes(track) {
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
 }
+const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', pcam: 'PHONE CAM', portals: 'PORTALS' };   // #363 up-button names
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -4369,12 +4397,21 @@ function drawToolsPage() {
     if (act) VP_HIT.push({ x, y, w, h, act });
   };
   const L = P ? 24 : 8, R = W - (P ? 26 : 8);   // portrait keeps clear of the silver corner L
-  const head = (title, back) => {
-    const y = P ? 28 : 8;
-    g.fillStyle = '#dfe6f2'; g.textAlign = 'left'; g.textBaseline = 'middle';
-    { let n = 20; g.font = `700 ${n}px system-ui`; while (n > 14 && g.measureText(title).width > R - L - 136) g.font = `700 ${--n}px system-ui`; }   // #349 shrink before cutting
-    fitText2(g, title, L + 4, y + 17, R - L - 136); g.textBaseline = 'alphabetic';
-    btn(R - 120, y, 120, 34, back === 'mixer' ? 'DJ MIXER' : '◀ BACK', false, () => { if (back === 'visuals') { scrollFromVP = false; setTools(null); setVideoPage(true); } else setTools(back === 'mixer' ? null : back); });
+  const head = (title, back, extra) => {   // #365 extra: { label, on, act } a button left of the parent one (STREAM's CHAT)
+    const y = P ? 28 : 8, bw = P ? 66 : 80, pw = P ? 92 : 110;   // #363 BACK right, the page's own button left of it
+    const upLbl = back === 'mixer' ? 'DJ MIXER' : back === 'visuals' ? 'VISUALS' : '▲ ' + (TOOLS_NAME[back] || 'UP');
+    btn(R - bw, y, bw, 34, '◀ BACK', false, navCan() ? navBack : null, !navCan());
+    btn(R - bw - 6 - pw, y, pw, 34, upLbl, false, () => { if (back === 'visuals') { scrollFromVP = false; setTools(null); setVideoPage(true); } else setTools(back === 'mixer' ? null : back); }, false, 15);
+    let tw = R - L - bw - pw - 16;
+    if (extra) {   // portrait: no room for a title as well, the button takes its place
+      const ew = P ? Math.min(110, tw) : 96; btn(R - bw - pw - 12 - ew, y, ew, 34, extra.label, extra.on, extra.act, false, 17);
+      tw -= ew + 6; if (P) { g.textBaseline = 'alphabetic'; return y + 46; }
+    }
+    g.fillStyle = '#dfe6f2'; g.textBaseline = 'middle';
+    { let n = 20; g.font = `700 ${n}px system-ui`; while (n > 13 && g.measureText(title).width > tw) g.font = `700 ${--n}px system-ui`; }   // #349 shrink before cutting
+    if (g.measureText(title).width <= tw) { g.textAlign = 'left'; g.fillText(title, L + 4, y + 17); }
+    else { g.textAlign = 'center'; btnLabel(g, title, L, y, tw, 34, 16, 700); }   // #363 two lines in portrait when needed
+    g.textBaseline = 'alphabetic';
     return y + 46;
   };
   const note = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; return wrapText(g, s, L + 4, y, R - L - 8, 20, 5); };
@@ -4385,7 +4422,7 @@ function drawToolsPage() {
     if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
       btn(L, y0 + 224, R - L, 96, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
       btn(L, y0 + 332, R - L, 80, chalkLbl(), !!(chatPanel && chatPanel.on && chatPanel.board), chalkTap, !chatPanel, 24);   // #342
-      note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off. STREAM: go live on Twitch (master mix only, never the cue).', y0 + 348); }
+      note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off. STREAM: go live on Twitch (master mix only, never the cue).', y0 + 436); }   // #363 was under the CHALKBOARD button
     else { const bw = (R - L - 36) / 4; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
       btn(L + 2 * (bw + 12), y0 + 8, bw, 130, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
       btn(L + 3 * (bw + 12), y0 + 8, bw, 130, chalkLbl(), !!(chatPanel && chatPanel.on && chatPanel.board), chalkTap, !chatPanel, 22);   // #342
@@ -4399,8 +4436,7 @@ function drawToolsPage() {
     return;
   }
   if (page === 'stream') {   // #331 LIVE STREAM to Twitch
-    const y0 = head('LIVE STREAM · TWITCH', 'home'), S = streamer;
-    if (chat) btn(R - 250, P ? 28 : 8, 120, 34, chat.msgs.some(m => !m.sys && performance.now() - m.t < 60000) ? 'CHAT ●' : 'CHAT', false, () => setTools('chat'), false, 17);   // #340
+    const y0 = head('LIVE STREAM · TWITCH', 'home', chat ? { label: chat.msgs.some(m => !m.sys && performance.now() - m.t < 60000) ? 'CHAT ●' : 'CHAT', act: () => setTools('chat') } : null), S = streamer;   // #340; #365 CHAT in the header row, clear of ▲ TOOLS / BACK
     if (!S) { note('Streaming runs on the headset (not on the phone).', y0 + 20); return; }
     const st = S.state, live = st === 'live';
     const line = live ? `● LIVE  ${S.elapsed()}  ·  ${(S.kbps / 1000).toFixed(1)} Mb/s` : st === 'connecting' ? S.msg || 'Connecting…' : st === 'error' ? S.msg : 'OFF AIR';
@@ -4647,7 +4683,7 @@ function drawToolsPage() {
     return;
   }
   if (page === 'streamfit') {   // #333 line the gear up with the headset camera picture (HEADSET CAM source)
-    const y0 = head('CAM FIT · HEADSET CAM', 'stream'), S = streamer; if (!S) return;
+    const y0 = head(P ? 'CAM FIT' : 'CAM FIT · HEADSET CAM', 'stream'), S = streamer; if (!S) return;
     const F = S.fit, run = S.running && S.source === 'headset' && (S.testing || F.gear);
     const pw = P ? R - L : 228, ph = Math.round(pw * (S.canvas.height / S.canvas.width || 0.75));
     g.fillStyle = '#000'; g.fillRect(L, y0, pw, ph);
@@ -4698,13 +4734,14 @@ function drawToolsPage() {
     const ctlBtn = (x, y, w, h) => { let X = null; try { X = xr; } catch (e) {}   // xr is set up further down the file
       const cur = X ? X.getCtlLook() : '3dhands', NEXT = { '3dhands': 'glove', glove: 'controller', controller: '3dhands' };   // #287 three looks, tap to cycle
       btn(x, y, w, h, `CONTROLLERS: ${{ '3dhands': '3D HANDS', glove: 'GLOVE', controller: 'CONTROLLER' }[cur]}`, cur !== 'controller', () => { if (X) X.setCtlLook(NEXT[cur]); const el = document.getElementById('sHands'); if (el && X) el.value = X.getCtlLook(); drawMixScreen(); }, false, P ? 18 : 20); };
+    const avBtn = (x, y, w, h) => btn(x, y, w, h, `AVATAR: ${djSet.avatar ? 'ON' : 'OFF'}`, djSet.avatar, () => setDjAvatar(!djSet.avatar), false, P ? 18 : 20);   // #363 the robot DJ (AVACAM / SHOWTIME!) on / off
     const sw = (x, y, w, h, label, k) => { const on = pieceOn(k); btn(x, y, w, h, `${label}: ${on ? 'ON' : 'OFF'}`, on, () => setPiece(k, !on), false, P ? 18 : 20); };
     if (P) {
       if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
         ctlBtn(L, y0 + 176, (R - L - 8) * 0.62, 64); btn(L + (R - L - 8) * 0.62 + 8, y0 + 176, (R - L - 8) * 0.38, 64, 'HAND FIT', false, () => setTools('handfit'), false, 18);   // #291
         note('RECORD MAKER: press your own record. It goes into the crate, Unsorted. MILK CRATE: the first milk crate (extra ones come from the crate screen). CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 272); }
       else { btn(L, y0 + 8, R - L, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
-        sw(L, y0 + 100, R - L, 64, 'LED WALL', 'ledwall'); sw(L, y0 + 176, R - L, 64, 'NEON SIGN', 'neon');
+        const hw = (R - L - 8) / 2; sw(L, y0 + 100, hw, 64, 'LED WALL', 'ledwall'); sw(L + hw + 8, y0 + 100, hw, 64, 'NEON', 'neon'); avBtn(L, y0 + 176, R - L, 64);   // #363
         ledCells(L, y0 + 252, R - L, true);
         note('LED CURVE bends the wall toward you (0 = flat, up to 150°). LED SIZE: also two hands on the wall. Switched off, the LED wall or the sign is hidden and costs nothing.', y0 + 392); }
     } else {
@@ -4713,7 +4750,7 @@ function drawToolsPage() {
         ctlBtn(L, y0 + 96, (R - L - 8) * 0.66, 50); btn(L + (R - L - 8) * 0.66 + 8, y0 + 96, (R - L - 8) * 0.34, 50, 'HAND FIT', false, () => setTools('handfit'), false, 20);   // #291
         note('RECORD MAKER: press your own record (blank, a song or a clip, a picture label); it goes into the crate, Unsorted. MILK CRATE: the first milk crate; switched off it is hidden and costs nothing. CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 164); }
       else { btn(L, y0 + 8, bw, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
-        const hw = (w2 - 8) / 2; sw(x2, y0 + 8, hw, 80, 'LED WALL', 'ledwall'); sw(x2 + hw + 8, y0 + 8, hw, 80, 'NEON', 'neon');
+        const hw = (w2 - 16) / 3; sw(x2, y0 + 8, hw, 80, 'LED WALL', 'ledwall'); sw(x2 + hw + 8, y0 + 8, hw, 80, 'NEON', 'neon'); avBtn(x2 + 2 * (hw + 8), y0 + 8, hw, 80);   // #363
         ledCells(L, y0 + 98, R - L, false);
         note('LED CURVE bends the wall toward you (0 = flat, up to 150°); a portrait wall stays flat. LED SIZE: also two hands on the wall. LED WALL / NEON off: hidden, no cost.', y0 + 166); }
     }
@@ -4892,6 +4929,7 @@ function drawTypeBadge(g, x, y, video) {
 }
 
 function drawMixScreen() {
+  navTrack();   // #363
   if (toolsPage) { drawToolsPage(); scr().commit(); return; }   // #224
   if (videoPage) { drawVideoPage(); scr().commit(); return; }   // #185
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
@@ -4903,11 +4941,15 @@ function drawMixScreen() {
     // (keep clear of the silver corner L: #202 it is top-left when held +x edge up, bottom-right the other way)
     const TOP = 76, ph = (H - TOP - 12) / 2, w = 120, h = 40, y = 28;
     for (const d of decks) drawDeckPanel(g, d, 6, TOP + d.i * (ph + 6), W - 12, ph, true);
-    drawTopBtn(g, W - 14 - w, y, w, h, 'VISUALS', on);
-    SP_HIT.push({ x: W - 20 - w, y: y - 8, w: w + 12, h: h + 16, act: () => setVideoPage(true) });
+    const bw = 80, vw = 84, vx = W - 14 - bw - 6 - vw;   // #363 BACK top right, VISUALS left of it
+    drawTopBtn(g, W - 14 - bw, y, bw, h, '◀ BACK', false, !navCan(), 18);
+    if (navCan()) SP_HIT.push({ x: W - 14 - bw - 3, y: y - 8, w: bw + 9, h: h + 16, act: navBack });
+    drawTopBtn(g, vx, y, vw, h, 'VISUALS', on);
+    SP_HIT.push({ x: vx - 3, y: y - 8, w: vw + 6, h: h + 16, act: () => setVideoPage(true) });
     if (sp) {
-      drawTopBtn(g, 24, y, w, h, 'MR GUI', sp.mr); drawPhoneIcon(g, 24 + w + 8, y + (h - 24) / 2, 14, 24, sp.phone);
-      SP_HIT.push({ x: 18, y: y - 8, w: w + 12, h: h + 16, act: () => spect.setMR(!sp.mr) });
+      const mw = 76;
+      drawTopBtn(g, 24, y, mw, h, 'MR GUI', sp.mr); drawPhoneIcon(g, 24 + mw + 5, y + (h - 24) / 2, 14, 24, sp.phone);
+      SP_HIT.push({ x: 18, y: y - 8, w: mw + 9, h: h + 16, act: () => spect.setMR(!sp.mr) });
     }
     drawTopBtn(g, 20, H - 52, 92, 36, 'TOOLS', !!(scroller && scroller.on) || !!(streamer && streamer.live));   // #224
     SP_HIT.push({ x: 14, y: H - 60, w: 104, h: 52, act: () => setTools('home') });
@@ -4918,9 +4960,11 @@ function drawMixScreen() {
   for (const d of decks) drawDeckPanel(g, d, d.i ? W / 2 + 6 : 6, 6, W / 2 - 12, H - 12, false);
   drawPin(g, W - 14 - 150, H - 46, 150, 30);   // #210
   { // #185 VIDEO: deck B's top row (was the #176 LED WALL switch, which is on the Video page now)
-    const w = 108, h = 28, y = 12, x = W - 36 - w;   // #202 moved in, clear of the corner L (now top-right)
+    const w = 108, h = 28, y = 12, bw = 96, bx = W - 14 - bw, x = bx - 8 - w;   // #202 clear of the corner L; #363 BACK at the right, VISUALS left of it
+    drawTopBtn(g, bx, y, bw, h, '◀ BACK', false, !navCan(), 18);
+    if (navCan()) SP_HIT.push({ x: bx - 4, y: 4, w: bw + 8, h: h + 16, act: navBack });
     drawTopBtn(g, x, y, w, h, 'VISUALS', on);
-    SP_HIT.push({ x: x - 6, y: 4, w: w + 12, h: h + 16, act: () => setVideoPage(true) });
+    SP_HIT.push({ x: x - 6, y: 4, w: w + 10, h: h + 16, act: () => setVideoPage(true) });
   }
   { // #224 TOOLS: bottom-left of the main page (DJ TOOLS: Record Maker, VJ TOOLS: Scroller)
     const w = 108, h = 28, x = 14, y = H - 40;
@@ -5040,6 +5084,8 @@ const clock = new THREE.Clock();
 const camFwd = new THREE.Vector3(), camDown = new THREE.Vector3(), camRight = new THREE.Vector3();
 const qFace = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2 - 0.35, 0, 0));
 const qHoldXR = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -Math.PI / 2)); // disc +Y -> hand +X
+const qHoldXR2 = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2)); // #363 disc +Y -> hand -X
+const _hx = new THREE.Vector3(), _hh = new THREE.Vector3();
 const _holdOff = new THREE.Vector3();
 
 function wrapPi(a) { a %= 2 * Math.PI; return a > Math.PI ? a - 2 * Math.PI : a < -Math.PI ? a + 2 * Math.PI : a; }
@@ -5117,7 +5163,8 @@ function frame() {
     // has slipped against the platter since it landed (accumulated, so no jump when a record goes on or off).
     if (u.slipmat && u.slipmat.length) {
       if (!u.matPivot) { u.matPivot = new THREE.Group(); u.platter.add(u.matPivot); u.platter.updateMatrixWorld(true); for (const m of u.slipmat) u.matPivot.attach(m); d.matSlip = 0; }
-      if (d.record && d.prevRecA != null && !d.record.loose) { const sl = (d.recAngle - d.prevRecA) - (d.platterAngle - d.prevPlatA); if (Math.abs(sl) < 0.3) d.matSlip += sl; }   // a cue jump snaps the record, not the mat
+      if (d.prevRecA != null && (!d.record || !d.record.loose)) {   // #364 a bare mat held by hand slips too (the worklet's record angle is the mat's then)
+        const sl = (d.recAngle - d.prevRecA) - (d.platterAngle - d.prevPlatA); if (Math.abs(sl) < 0.3) d.matSlip += sl; }   // a cue jump snaps the record, not the mat
       d.prevRecA = d.recAngle; d.prevPlatA = d.platterAngle;
       u.matPivot.rotation.y = -d.matSlip;
     }
@@ -5201,7 +5248,15 @@ function frame() {
     held.attach.updateMatrixWorld();
     const prevP = held.group.position.clone(), prevQ = held.group.quaternion.clone();
     held.group.position.copy(held.attach.localToWorld(_holdOff.set(0, 0, -((held.dims || REC).R - 0.0174))));   // #257 held by its edge, 12" or 7"
-    held.group.quaternion.copy(held.attach.getWorldQuaternion(_wq)).multiply(qHoldXR);
+    // #363 the face up (side A when the record has one) turns toward the eyes when the record is taken: the hand's +X
+    // points right for both hands, so a fixed +X face showed the B side whenever it was held in the right hand
+    if (held.holdFor !== held.attach) {
+      held.holdFor = held.attach;
+      _hx.set(1, 0, 0).applyQuaternion(held.attach.getWorldQuaternion(_wq));
+      camera.getWorldPosition(_hh).sub(held.attach.getWorldPosition(_sp));
+      held.qHold = _hx.dot(_hh) >= 0 ? qHoldXR : qHoldXR2;
+    }
+    held.group.quaternion.copy(held.attach.getWorldQuaternion(_wq)).multiply(held.qHold);
     // track the hand's momentum so a release can throw the record
     if (dt > 0 && held.prevOk) {
       const v = held.group.position.clone().sub(prevP).multiplyScalar(1 / dt);
@@ -5633,7 +5688,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, crateWalkStep, _lblOver, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
