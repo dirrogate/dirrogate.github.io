@@ -5160,7 +5160,8 @@ function frame() {
     // has slipped against the platter since it landed (accumulated, so no jump when a record goes on or off).
     if (u.slipmat && u.slipmat.length) {
       if (!u.matPivot) { u.matPivot = new THREE.Group(); u.platter.add(u.matPivot); u.platter.updateMatrixWorld(true); for (const m of u.slipmat) u.matPivot.attach(m); d.matSlip = 0; }
-      if (d.record && d.prevRecA != null && !d.record.loose) { const sl = (d.recAngle - d.prevRecA) - (d.platterAngle - d.prevPlatA); if (Math.abs(sl) < 0.3) d.matSlip += sl; }   // a cue jump snaps the record, not the mat
+      if (d.prevRecA != null && (!d.record || !d.record.loose)) {   // #364 a bare mat held by hand slips too (the worklet's record angle is the mat's then)
+        const sl = (d.recAngle - d.prevRecA) - (d.platterAngle - d.prevPlatA); if (Math.abs(sl) < 0.3) d.matSlip += sl; }   // a cue jump snaps the record, not the mat
       d.prevRecA = d.recAngle; d.prevPlatA = d.platterAngle;
       u.matPivot.rotation.y = -d.matSlip;
     }

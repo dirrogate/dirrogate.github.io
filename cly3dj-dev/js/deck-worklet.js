@@ -51,6 +51,7 @@ const PROFILES = {
 // the aluminium drags, a rubber mat grips (scratching then drags the platter against the motor).
 const MATS = { slick: { muS: 0.24, muK: 0.18 }, felt: { muS: 0.45, muK: 0.35 }, rubber: { muS: 1.5, muK: 1.2 } };
 const MAT_MASS = 0.025, REC_R = 0.1508, HOLE_R = 0.0036;
+const IR_MAT = 0.5 * 0.025 * 0.15 * 0.15;   // #364 the slipmat alone (25 g felt disc, R 15 cm)
 const R_EFF = 2 / 3 * REC_R;       // mean friction radius of a full-disc contact
 const R_PLATTER = 0.166;
 const RIM_NUDGE_GAIN = 0.5;        // #272 rim nudge strength (1 = finger speed fully)
@@ -172,20 +173,23 @@ class Deck {
     }
     if (this.spinOn) tp += SPIN_T * Math.tanh((this.spinRate * W33 - this.wp) / SPIN_SLIP);   // #322 pinch on the spindle
     let disturbed = this.touch || this.spinOn;
-    if (!this.hasRec) {
-      this.wp += tp / Ip * dt; this.wr = this.wp; this.matT = 0;
+    // #364 (owner) no record: a hand on the bare slipmat holds the MAT (25 g felt) while the platter spins under it,
+    // the same slip friction as with a record but with only the mat's weight + the hand pressing it down
+    if (!this.hasRec && !this.handOn) {
+      this.wp += tp / Ip * dt; this.wr = this.wp; this.matT = 0; this.stuck = true;
     } else {
-      const Ir = this.Ir;
-      let tr = -STYLUS_DRAG * this.needleGain * Math.tanh(this.wr / 0.05);
+      const mat = !this.hasRec, Ir = mat ? IR_MAT : this.Ir;
+      const kH = mat ? IR_MAT * Math.pow(2 * Math.PI * HAND_HZ, 2) : this.kHand, cH = mat ? 2 * Math.sqrt(kH * IR_MAT) : this.cHand;
+      let tr = mat ? 0 : -STYLUS_DRAG * this.needleGain * Math.tanh(this.wr / 0.05);
       if (this.handOn) {   // the hand holds / moves the record through a stiff spring, limited by grip
         const tgt = this.handAng + this.handOff + this.handW * Math.min(this.handAge, HAND_LOOKAHEAD);
         this.handAge += dt;
-        let th = this.kHand * (tgt - this.thr) + this.cHand * (this.handW - this.wr);
-        if (th > this.grip) { this.handOff -= (th - this.grip) / this.kHand; th = this.grip; }        // the record slides under the fingers
-        else if (th < -this.grip) { this.handOff -= (th + this.grip) / this.kHand; th = -this.grip; }
+        let th = kH * (tgt - this.thr) + cH * (this.handW - this.wr);
+        if (th > this.grip) { this.handOff -= (th - this.grip) / kH; th = this.grip; }        // the record slides under the fingers
+        else if (th < -this.grip) { this.handOff -= (th + this.grip) / kH; th = -this.grip; }
         tr += th; disturbed = true;
       }
-      const N = this.mTot * GRAV + (this.handOn ? HAND_DOWN : 0);
+      const N = (mat ? MAT_MASS : this.mTot) * GRAV + (this.handOn ? HAND_DOWN : 0);
       const Ts = this.mat.muS * N * R_EFF, Tk = this.mat.muK * N * R_EFF;
       if (this.stuck) {
         const a = (tp + tr) / (Ip + Ir), need = Ir * a - tr;   // torque the mat must pass to the record
