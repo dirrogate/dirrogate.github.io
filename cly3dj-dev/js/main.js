@@ -1731,7 +1731,7 @@ function layoutSleeves() {
       crateDisc.userData.target.set(0, yT, z); crateDisc.userData.tilt = tilt;
       if (!crateDisc.visible) { crateDisc.position.set(0, yDisc + 0.012, z); crateDisc.visible = true; }
       if (crateDisc.userData.rec !== r) {
-        crateDisc.userData.rec = r; crateDisc.position.y = yDisc + 0.012; crateDisc.userData.size(r); drawCrateDiscLabel(r);
+        crateDisc.userData.rec = r; crateDisc.position.set(0, yDisc + 0.012, z); crateDisc.userData.size(r); drawCrateDiscLabel(r);   // #365 starts inside the new sleeve (z too: it used to glide across from the old one)
         const t = r.sides.A || r.sides.B; // fetch cover art in the background for the label
         if (t && !t.missing && !artCache.has(t.id)) fetchArt(t).then(() => { if (crateDisc.userData.rec === r) drawCrateDiscLabel(r); });
       }
@@ -4397,12 +4397,16 @@ function drawToolsPage() {
     if (act) VP_HIT.push({ x, y, w, h, act });
   };
   const L = P ? 24 : 8, R = W - (P ? 26 : 8);   // portrait keeps clear of the silver corner L
-  const head = (title, back) => {
+  const head = (title, back, extra) => {   // #365 extra: { label, on, act } a button left of the parent one (STREAM's CHAT)
     const y = P ? 28 : 8, bw = P ? 66 : 80, pw = P ? 92 : 110;   // #363 BACK right, the page's own button left of it
     const upLbl = back === 'mixer' ? 'DJ MIXER' : back === 'visuals' ? 'VISUALS' : '▲ ' + (TOOLS_NAME[back] || 'UP');
     btn(R - bw, y, bw, 34, '◀ BACK', false, navCan() ? navBack : null, !navCan());
     btn(R - bw - 6 - pw, y, pw, 34, upLbl, false, () => { if (back === 'visuals') { scrollFromVP = false; setTools(null); setVideoPage(true); } else setTools(back === 'mixer' ? null : back); }, false, 15);
-    const tw = R - L - bw - pw - 16;
+    let tw = R - L - bw - pw - 16;
+    if (extra) {   // portrait: no room for a title as well, the button takes its place
+      const ew = P ? Math.min(110, tw) : 96; btn(R - bw - pw - 12 - ew, y, ew, 34, extra.label, extra.on, extra.act, false, 17);
+      tw -= ew + 6; if (P) { g.textBaseline = 'alphabetic'; return y + 46; }
+    }
     g.fillStyle = '#dfe6f2'; g.textBaseline = 'middle';
     { let n = 20; g.font = `700 ${n}px system-ui`; while (n > 13 && g.measureText(title).width > tw) g.font = `700 ${--n}px system-ui`; }   // #349 shrink before cutting
     if (g.measureText(title).width <= tw) { g.textAlign = 'left'; g.fillText(title, L + 4, y + 17); }
@@ -4432,8 +4436,7 @@ function drawToolsPage() {
     return;
   }
   if (page === 'stream') {   // #331 LIVE STREAM to Twitch
-    const y0 = head('LIVE STREAM · TWITCH', 'home'), S = streamer;
-    if (chat) btn(R - 250, P ? 28 : 8, 120, 34, chat.msgs.some(m => !m.sys && performance.now() - m.t < 60000) ? 'CHAT ●' : 'CHAT', false, () => setTools('chat'), false, 17);   // #340
+    const y0 = head('LIVE STREAM · TWITCH', 'home', chat ? { label: chat.msgs.some(m => !m.sys && performance.now() - m.t < 60000) ? 'CHAT ●' : 'CHAT', act: () => setTools('chat') } : null), S = streamer;   // #340; #365 CHAT in the header row, clear of ▲ TOOLS / BACK
     if (!S) { note('Streaming runs on the headset (not on the phone).', y0 + 20); return; }
     const st = S.state, live = st === 'live';
     const line = live ? `● LIVE  ${S.elapsed()}  ·  ${(S.kbps / 1000).toFixed(1)} Mb/s` : st === 'connecting' ? S.msg || 'Connecting…' : st === 'error' ? S.msg : 'OFF AIR';

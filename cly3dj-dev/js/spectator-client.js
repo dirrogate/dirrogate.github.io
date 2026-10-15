@@ -282,7 +282,18 @@ export function startCamera(ctx) {
     const c = renderer.domElement, k = 480 / Math.max(c.width, c.height), W = Math.round(c.width * k / 2) * 2, H = Math.round(c.height * k / 2) * 2;
     if (pvCanvas.width !== W || pvCanvas.height !== H) { pvCanvas.width = W; pvCanvas.height = H; }
     pvCtx.drawImage(c, 0, 0, W, H); pvBusy = true;
-    pvCanvas.toBlob(b => { if (!b) { pvBusy = false; return; } b.arrayBuffer().then(buf => { if (link) link.sendPrev(buf); pvBusy = false; }); }, 'image/jpeg', 0.6);
+    // #365 a phone on its side with auto-rotate off keeps a portrait page, so the picture came out sideways on the
+    // tablet: turn it upright by the calibrated camera's own roll (same rule and dead zone as the AR preview, #205)
+    const m = camera.matrixWorld.elements, a = Math.atan2(m[1], m[5]) * 180 / Math.PI;
+    rotDir = rotDir === 0 ? (a > 55 ? 1 : a < -55 ? -1 : 0) : rotDir === 1 ? (a < 35 ? (a < -55 ? -1 : 0) : 1) : (a > -35 ? (a > 55 ? 1 : 0) : -1);
+    let out = pvCanvas;
+    if (rotDir) {
+      if (pvTurn.width !== H || pvTurn.height !== W) { pvTurn.width = H; pvTurn.height = W; }
+      const g = pvTurnCtx; g.setTransform(1, 0, 0, 1, 0, 0);
+      if (rotDir === 1) { g.translate(0, W); g.rotate(-Math.PI / 2); } else { g.translate(H, 0); g.rotate(Math.PI / 2); }
+      g.drawImage(pvCanvas, 0, 0); g.setTransform(1, 0, 0, 1, 0, 0); out = pvTurn;
+    }
+    out.toBlob(b => { if (!b) { pvBusy = false; return; } b.arrayBuffer().then(buf => { if (link) link.sendPrev(buf); pvBusy = false; }); }, 'image/jpeg', 0.6);
   }
   // ---- #238 LIVE CAM: this phone's composite (camera + gear) as live video to the Quest's LED wall. The Quest asks
   // ({k:'live'}); the picture goes on the link's video slot (2 Mbit/s cap, lowest priority, net-link.js). Fixed mode:
