@@ -125,7 +125,7 @@ export class ChatPanel {
       const tab = new THREE.Mesh(new THREE.PlaneGeometry(0.034, 0.034), new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(c), transparent: true, metalness: 0.6, roughness: 0.35 }));
       tab.position.set(W / 2 - 0.009, H / 2 - 0.009, 0.0012); g.add(tab); }
     let s = null; try { s = JSON.parse(localStorage.getItem('vire.chatPanel') || 'null'); } catch {}
-    if (s && s.p) { g.position.fromArray(s.p); g.quaternion.fromArray(s.q); if (s.s) g.scale.setScalar(s.s); } else this.reset(false);
+    if (s && s.p) { g.position.fromArray(s.p); g.quaternion.fromArray(s.q); if (s.s) g.scale.setScalar(s.s); this._ledgeFit(); } else this.reset(false);   // #368 saved size: ledge back to real size
     this.setOn(!!(s && s.on), false);
     if (s && s.board) this.setBoard(true);
   }
@@ -138,33 +138,36 @@ export class ChatPanel {
     this.board = false; this.chalk = 0; this.strokes = new Map(); this.bDirty = false; this.bT = 0;
     const BW = 1024, BH = 1280; this.BW = BW; this.BH = BH;
     const base = this.bBase = document.createElement('canvas'); base.width = BW; base.height = BH;
-    { const g = base.getContext('2d'); g.fillStyle = '#1d2a24'; g.fillRect(0, 0, BW, BH);
+    { const g = base.getContext('2d'); g.fillStyle = '#17191b'; g.fillRect(0, 0, BW, BH);   // #368 slate black (was greenish #1d2a24)
       let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-      for (let i = 0; i < 14; i++) { const x = rnd() * BW, y = rnd() * BH, r = 120 + rnd() * 320, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, `rgba(210,225,215,${0.025 + rnd() * 0.03})`); gr.addColorStop(1, 'rgba(210,225,215,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
-      for (let i = 0; i < 26; i++) { g.strokeStyle = `rgba(220,230,222,${0.015 + rnd() * 0.02})`; g.lineWidth = 30 + rnd() * 60; g.beginPath(); const y = rnd() * BH; g.moveTo(rnd() * 200, y); g.bezierCurveTo(BW * 0.3, y + (rnd() - 0.5) * 120, BW * 0.7, y + (rnd() - 0.5) * 120, BW - rnd() * 200, y + (rnd() - 0.5) * 80); g.stroke(); }   // old wipe marks
+      for (let i = 0; i < 14; i++) { const x = rnd() * BW, y = rnd() * BH, r = 120 + rnd() * 320, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, `rgba(215,218,222,${0.025 + rnd() * 0.03})`); gr.addColorStop(1, 'rgba(215,218,222,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
+      for (let i = 0; i < 26; i++) { g.strokeStyle = `rgba(220,222,226,${0.015 + rnd() * 0.02})`; g.lineWidth = 30 + rnd() * 60; g.beginPath(); const y = rnd() * BH; g.moveTo(rnd() * 200, y); g.bezierCurveTo(BW * 0.3, y + (rnd() - 0.5) * 120, BW * 0.7, y + (rnd() - 0.5) * 120, BW - rnd() * 200, y + (rnd() - 0.5) * 80); g.stroke(); }   // old wipe marks
       const id = g.getImageData(0, 0, BW, BH), d = id.data; for (let i = 0; i < d.length; i += 4) { const n = (rnd() - 0.5) * 14; d[i] += n; d[i + 1] += n; d[i + 2] += n; } g.putImageData(id, 0, 0); }
     this.bInk = document.createElement('canvas'); this.bInk.width = BW; this.bInk.height = BH; this.bInkG = this.bInk.getContext('2d');
     this.bCanvas = document.createElement('canvas'); this.bCanvas.width = BW; this.bCanvas.height = BH; this.bG = this.bCanvas.getContext('2d');
     this.bTex = new THREE.CanvasTexture(this.bCanvas); this.bTex.colorSpace = THREE.SRGBColorSpace; this.bTex.anisotropy = 4;
     this._compose();
     // the ledge, three chalks and a duster (board mode only)
-    const ledge = this.ledge = new THREE.Group(); ledge.visible = false; this.obj.add(ledge);
+    // #368 (owner): the ledge lives in a real-size frame at the board's bottom edge (counter-scaled in scaleTo), so the
+    // chalks and duster stay real-life size on a 6x board; only the shelf and lip stretch to the board's width
+    const ledge = this.ledge = new THREE.Group(); ledge.visible = false; ledge.position.y = -H / 2; this.obj.add(ledge);
     const wood = new THREE.MeshStandardMaterial({ color: 0x5a3f28, roughness: 0.7 });
-    const shelf = new THREE.Mesh(new THREE.BoxGeometry(W + 0.016, 0.006, 0.045), wood); shelf.position.set(0, -H / 2 - 0.011, 0.016); ledge.add(shelf);
-    const lip = new THREE.Mesh(new THREE.BoxGeometry(W + 0.016, 0.012, 0.004), wood); lip.position.set(0, -H / 2 - 0.005, 0.037); ledge.add(lip);
+    const shelf = this.shelf = new THREE.Mesh(new THREE.BoxGeometry(W + 0.016, 0.006, 0.045), wood); shelf.position.set(0, -0.011, 0.016); ledge.add(shelf);
+    const lip = this.lip = new THREE.Mesh(new THREE.BoxGeometry(W + 0.016, 0.012, 0.004), wood); lip.position.set(0, -0.005, 0.037); ledge.add(lip);
     this.sticks = CHALKS.map((c, i) => {
       const m = new THREE.Mesh(new THREE.CylinderGeometry(0.0045, 0.0045, 0.055, 12), new THREE.MeshStandardMaterial({ color: c.hex, roughness: 0.95 }));
-      m.rotation.z = Math.PI / 2; m.position.set(-0.13 + i * 0.065, -H / 2 - 0.0035, 0.018); ledge.add(m); return m;
+      m.rotation.z = Math.PI / 2; m.position.set(-0.13 + i * 0.065, -0.0035, 0.018); ledge.add(m); return m;
     });
-    const duster = this.duster = new THREE.Group(); duster.position.set(0.125, -H / 2 - 0.0, 0.018); ledge.add(duster);
+    const duster = this.duster = new THREE.Group(); duster.position.set(0.125, 0, 0.018); ledge.add(duster);
     { const top = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.016, 0.03), wood); top.position.y = 0.006; duster.add(top);
       const felt = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.006, 0.03), new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: 1 })); felt.position.y = -0.005; duster.add(felt); }
-    this._pick(0);
+    this._pick(0); this._ledgeFit();
   }
+  _ledgeFit() { const s = this.obj.scale.x; this.ledge.scale.setScalar(1 / s); this.shelf.scale.x = this.lip.scale.x = s; }   // #368
   _pick(k) {   // k = 0..2 chalk, 3 = duster
     this.chalk = k;
-    this.sticks.forEach((m, i) => { m.position.y = -this.H / 2 - 0.0035 + (i === k ? 0.007 : 0); m.position.z = i === k ? 0.024 : 0.018; });
-    this.duster.position.y = -this.H / 2 + (k === 3 ? 0.008 : 0);
+    this.sticks.forEach((m, i) => { m.position.y = -0.0035 + (i === k ? 0.007 : 0); m.position.z = i === k ? 0.024 : 0.018; });
+    this.duster.position.y = k === 3 ? 0.008 : 0;
   }
   setBoard(on) {
     this.board = !!on; this.ledge.visible = this.board; this.strokes.clear();
@@ -177,11 +180,12 @@ export class ChatPanel {
     if (!this.on || !this.board || this.held) { this.strokes.delete(key); return null; }
     this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P)), sc = this.obj.scale.x, zw = l.z * sc;   // zw: metres in front of the board
     // the ledge: chalks and duster
-    if (l.y < -this.H / 2 + 0.01 && l.y > -this.H / 2 - 0.04 && l.z > -0.005 && l.z < 0.05) {
+    const ly = (l.y + this.H / 2) * sc, lx = l.x * sc, lz = l.z * sc;   // #368 ledge coordinates are real metres
+    if (ly < 0.01 && ly > -0.04 && lz > -0.005 && lz < 0.05) {
       this.strokes.delete(key);
       for (let i = 0; i < 4; i++) {
         const cx = i < 3 ? -0.13 + i * 0.065 : 0.125;
-        if (Math.abs(l.x - cx) < (i < 3 ? 0.03 : 0.045)) { if (this.chalk !== i) { this._pick(i); return 'pick'; } return null; }
+        if (Math.abs(lx - cx) < (i < 3 ? 0.03 : 0.045)) { if (this.chalk !== i) { this._pick(i); return 'pick'; } return null; }
       }
       return null;
     }
@@ -217,12 +221,12 @@ export class ChatPanel {
   }
   tickBoard() { if (this.board && this.bDirty && performance.now() - this.bT > 66) this._compose(); }   // up to ~15 uploads a second while writing
   save() { try { localStorage.setItem('vire.chatPanel', JSON.stringify({ on: this.on, board: !!this.board, p: this.obj.position.toArray(), q: this.obj.quaternion.toArray(), s: this.obj.scale.x })); } catch {} }
-  reset(save = true) { const h = this.home(); this.obj.scale.setScalar(1); this.obj.position.copy(h.p); this.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), h.yaw); if (save) this.save(); }
+  reset(save = true) { const h = this.home(); this.obj.scale.setScalar(1); if (this.ledge) this._ledgeFit(); this.obj.position.copy(h.p); this.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), h.yaw); if (save) this.save(); }
   setOn(on, save = true) { this.on = !!on; this.obj.visible = this.on; if (save) this.save(); }
   hit(P) { if (!this.on) return false; this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P)); return Math.abs(l.x) < this.W / 2 + 0.03 && Math.abs(l.y) < this.H / 2 + 0.03 && Math.abs(l.z) < 0.05; }
   grab() { this.held = true; }
   hold(world) { this.rig.updateMatrixWorld(); _m.copy(this.rig.matrixWorld).invert().multiply(world); _m.decompose(this.obj.position, this.obj.quaternion, _s); }
-  scaleTo(s) { this.obj.scale.setScalar(Math.min(6, Math.max(0.5, s))); }   // half size .. 6x (2.2 x 2.7 m, for classes)
+  scaleTo(s) { this.obj.scale.setScalar(Math.min(6, Math.max(0.5, s))); if (this.ledge) this._ledgeFit(); }   // half size .. 6x (2.2 x 2.7 m, for classes)
   corner(P) { if (!this.on) return false; this.obj.updateMatrixWorld(); const c = this.obj.localToWorld(_v.set(this.W / 2 - 0.009, this.H / 2 - 0.009, 0)); return c.distanceTo(P) < 0.03 * Math.max(1, this.obj.scale.x * 0.7); }
   release() { this.held = false; this.save(); }
   draw(chat, onEmote) {
