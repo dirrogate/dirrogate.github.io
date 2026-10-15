@@ -3648,11 +3648,13 @@ let scrollFromVP = false;   // #342 the scroller editor opened from VISUALS: BAC
 function openScrollerFromVP() { scrollFromVP = true; videoPage = false; setTools('scroller'); }
 function setVideoPage(on) { videoPage = on; if (on) { toolsPage = null; vpLoad(); } drawMixScreen(); }
 async function vpAct(what) {
+  // #367 SKY OFF works without a thumbnail picked (it was behind this check: a desktop-only toast and nothing else), and
+  // turns the whole panorama off: the sky setting, the DOME (#346, which kept it showing in passthrough); a video pano pauses
+  if (what === 'skyoff') { settings.sky = 'off'; saveSettings(); syncSettingsUI(); if (dome.on) { dome.on = false; saveDome(); } applySky(); drawMixScreen(); return; }   // applySky pauses a video pano while hidden
   const name = vpSel; if (!name) { toast('Pick a thumbnail first'); return; }
   const vpFolder = videoPageFolder();   // #224 the Pano tab holds two library folders (local, shadows the tab name)
   if (what === 'sky') return useSkyMedia(vpFolder, name).catch(e => toast('Sky: ' + e.message, 4000));
   if (what === 'light') return lightPhone(vpFolder, name);   // #214
-  if (what === 'skyoff') { settings.sky = 'off'; saveSettings(); syncSettingsUI(); applySky(); drawMixScreen(); return; }
   const f = await media.getFile(vpFolder, name); if (!f) return;
   if (what === 'deckA' || what === 'deckB') {
     const d = decks[what === 'deckA' ? 0 : 1];
