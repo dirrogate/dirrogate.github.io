@@ -908,7 +908,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
   mrPrep: () => {   // #372 HEADSET CAM: you are the robot and the real room is the picture, so the robot and the 3D LED wall are out of this render only; the OBJECTS toggles decide the rest (and keep their values)
     const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
     hide(ledwall); if (avatar && avatar.root) hide(avatar.root);
-    propHides(hide, streamer.showOpt, false);
+    propHides(hide, streamer.showOpt, false); handsHides(hide, streamer.showOpt);   // #375
     return () => { for (const o of undo) o.visible = true; };
   },
   wallInShot: cam => {   // #372 is the 3D LED wall switched on, in front of this camera and facing it (its picture, and the scroller on it, are then drawn by the 3D layer)
@@ -1000,19 +1000,27 @@ function pcamStatus(S) {   // #374 shared by the PHONE CAM page and the SHOWTIME
     lat != null ? `Video ${lat} ms late (measured)${C.lat ? ', gear, hands and stream sound held back ' + Math.round(S.latMs) + ' ms' : ''}.` : `Delay not measured: LATENCY MATCH uses ${C.manual} ms.`,
   ];
 }
+// #375 HANDS on the HEADSET CAM / PHONE CAM shots: REAL HANDS leaves your own hands bare in that picture (the drawn 3D hands, the robot glove
+// and the forearm sleeves are left out of that render only; the headset keeps its look). 3D HANDS / ROBOT GLOVE are the controller look
+// (xr.setCtlLook), shared with the headset. Same hide list as the DJ camera uses for the same objects.
+function handsHides(hide, O) {
+  if (!O || !O.handsReal || !xr) return;
+  for (const st of xr.inputs) { hide(st.hand); hide(st.grip); if (st.ctlHand) hide(st.ctlHand.root); }
+  if (xr.glove) hide(xr.glove.root);
+}
 let pcamAutoReh = false;   // #374 the PHONE CAM page started the off-air shot for its preview (so leaving the page stops it again)
 function pcamPrep(cam) {
   const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
   hide(room); hide(skybox.group); hide(skyShadow);
   hide(ledwall);   // #374 never in this shot: it would paint over the DJ (its picture is the VISUALS backdrop anyway)
   if (streamer) {   // #372 PHONE CAM: the phone's picture with the objects chosen on OBJECTS drawn over it
-    propHides(hide, streamer.showOpt, false);
+    propHides(hide, streamer.showOpt, false); handsHides(hide, streamer.showOpt);
     for (const o of [neon, chatPanel && chatPanel.obj, gopro && gopro.obj]) if (behindDj(o, cam)) hide(o);   // #374 props behind the DJ are left out
   }
   if (spect && spect.helpers) spect.helpers.forEach(hide);
   if (xr) for (const st of xr.inputs) { hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); }
   const bg = scene.background; scene.background = null;
-  if (armSleeves) armSleeves.group.visible = true;
+  if (armSleeves) armSleeves.group.visible = !(streamer && streamer.showOpt.handsReal);   // #375 no sleeves on REAL HANDS
   const kp = key.position.clone(), kc = key.color.clone();
   if (streamer.pc_.light && skyKeyLight) {
     const d = skyKeyLight.dir.clone().applyAxisAngle(_yAxis, settings.skyTurn * DEG), hz = Math.hypot(d.x, d.z) || 1, up = Math.max(d.y, Math.sin(35 * DEG)), k = Math.sqrt(1 - up * up) / hz;
@@ -4523,10 +4531,10 @@ function drawToolsPage() {
       if (S.live) { if (performance.now() - (streamEndArm || 0) < 2500) { streamEndArm = 0; S.stop(); } else { streamEndArm = performance.now(); setTimeout(drawMixScreen, 2600); } drawMixScreen(); }
       else S.start();
     };
-    const hint = `Sends the MASTER mix (and the MIC when it goes through the mixer); CUE never reaches the stream. Key ${S.keyHint()}${S.hasKey() ? '' : ': enter it on the start page'}. SHOWTIME! and AVACAM film from the AVACAM angle (GOPRO = the movable camera: grip it to move it, double-tap GOPRO = back to the start). VISUALS = whatever the VISUALS pages are playing (VJ SETUP). ROBOT and GEAR off = visuals only, nearly free. PORTALS: real windows cut through the backdrop wall and the sky dome -- park one over your own mirror so the stream still shows you; PORTALS SETUP = the wall, how many windows, the dome.`;
+    const hint = `Sends the MASTER mix (and the MIC when it goes through the mixer); CUE never reaches the stream. Key ${S.keyHint()}${S.hasKey() ? '' : ': enter it on the start page'}. SHOWTIME! and AVACAM film from the AVACAM angle (GOPRO = the movable camera: grip it to move it, double-tap GOPRO = back to the start). VISUALS = whatever the VISUALS pages are playing (VJ SETUP). ROBO-BODY and GEAR off = visuals only, nearly free. PORTALS: real windows cut through the backdrop wall and the sky dome -- park one over your own mirror so the stream still shows you; PORTALS SETUP = the wall, how many windows, the dome.`;
     // #336 / #338 SHOWTIME! layer toggles
     const O = S.showOpt, sw3 = S.source === 'show' || S.source === 'headset' || S.source === 'pcam';
-    const opts = [['backdrop', 'BACKDROP', sw3], ['robot', 'ROBOT', S.source === 'show'], ['gear', 'GEAR', sw3], ['scroll', P ? 'SCROLL' : 'SCROLLER', sw3], ['np', 'NOW PLAYING', sw3], ['logo', 'LOGO', sw3], ['chat', 'CHAT', sw3], ['objects', 'OBJECTS', true]];   // #372 BACKDROP: NONE / VISUALS / DOME
+    const opts = [['backdrop', 'BACKDROP', sw3], ['robot', 'ROBO-BODY', S.source === 'show'], ['gear', 'GEAR', sw3], ['scroll', P ? 'SCROLL' : 'SCROLLER', sw3], ['np', 'NOW PLAYING', sw3], ['logo', 'LOGO', sw3], ['chat', 'CHAT', sw3], ['objects', 'OBJECTS', true]];   // #372 BACKDROP: NONE / VISUALS / DOME
     const optBtn = ([k, label, ok], x, y, w, h) => {
       if (k === 'objects') return btn(x, y, w, h, 'OBJECTS ▸', false, () => setTools('showobj'), false, P ? 17 : 15);
       if (k === 'backdrop') return btn(x, y, w, h, 'BACK: ' + O.backdrop.toUpperCase(), ok && O.backdrop !== 'none', ok ? () => S.nextBackdrop() : null, !ok, P ? 16 : 13);
@@ -4593,7 +4601,7 @@ function drawToolsPage() {
     cams.forEach(([k, label, off], i) => btn(L + (i % cols) * (bw + gap), y0 + 14 + Math.floor(i / cols) * (bh + gap), bw, bh, label, camOn(k), (off && k !== 'pcam') ? null : () => camPick(k), off, P ? 16 : 15));   // PHONE CAM stays tappable when greyed: it says why
     const cy2 = y0 + 14 + Math.ceil(cams.length / cols) * (bh + gap) + 6;
     g.fillStyle = '#8c96a8'; g.fillText('OBJECTS', L + 2, cy2 + 8);
-    const items = [['wall', 'LED WALL', S.source === 'headset' || S.source === 'pcam'], ['gopro', gOn ? 'GOPRO (CAM)' : 'GOPRO', gOn && S.source !== 'headset' && S.source !== 'pcam'], ['neon', 'NEON', false], ['panel', 'CHAT PANEL', false], ['chalk', 'CHALKBOARD', false], ['gear', 'GEAR', false], ['robot', 'ROBOT', S.source === 'headset' || S.source === 'pcam']];
+    const items = [['wall', 'LED WALL', S.source === 'headset' || S.source === 'pcam'], ['gopro', gOn ? 'GOPRO (CAM)' : 'GOPRO', gOn && S.source !== 'headset' && S.source !== 'pcam'], ['neon', 'NEON', false], ['panel', 'CHAT PANEL', false], ['chalk', 'CHALKBOARD', false], ['gear', 'GEAR', false], ['robot', 'ROBO-BODY', S.source === 'headset' || S.source === 'pcam']];
     items.forEach(([k, label, off], i) => btn(L + (i % cols) * (bw + gap), cy2 + 14 + Math.floor(i / cols) * (bh + gap), bw, bh, label, !off && !!O[k], off ? null : () => S.setShowOpt(k, !O[k]), off, P ? 16 : 15));   // greyed: the GoPro prop while it is the camera; the wall and robot under HEADSET CAM
     const ry = cy2 + 14 + Math.ceil(items.length / cols) * (bh + gap) + 6, pw = (R - L - 2 * gap) / 3;
     [['full', 'FULL'], ['lean', 'LEAN'], ['first', 'FIRST PERSON']].forEach(([k, label], i) => btn(L + i * (pw + gap), ry, pw, bh, label, false, () => S.applyPreset(k), false, P ? 16 : 15));
@@ -4601,16 +4609,27 @@ function drawToolsPage() {
     g.fillStyle = '#8c96a8'; g.font = '600 15px system-ui'; g.textAlign = 'left';
     const line = `Render time of the DJ camera: ${ms.toFixed(1)} ms${S.source === 'show' && !S.show3d ? '  (nothing 3D on: nearly free)' : ''}`;
     g.fillText(line, L + 2, ry + bh + 28);
+    // #375 HANDS on the shot (HEADSET CAM and PHONE CAM): REAL HANDS = nothing drawn on your hands; 3D HANDS / ROBOT GLOVE = the controller look (also what you see in the headset)
+    const handsRow = yy => {
+      const look = xr ? xr.getCtlLook() : null, real = !!O.handsReal, hw = (R - L - 2 * gap) / 3;
+      g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText('HANDS ON THE SHOT', L + 2, yy);
+      const setLook = m => () => { S.setShowOpt('handsReal', false); if (xr) { xr.setCtlLook(m); const el = document.getElementById('sHands'); if (el) el.value = xr.getCtlLook(); } drawMixScreen(); };
+      [['REAL HANDS', real, () => { S.setShowOpt('handsReal', true); drawMixScreen(); }, false], ['3D HANDS', !real && look === '3dhands', setLook('3dhands'), !xr], ['ROBOT GLOVE', !real && look === 'glove', setLook('glove'), !xr]]
+        .forEach(([lb, on, act, off], i) => btn(L + i * (hw + gap), yy + 6, hw, bh, lb, on, off ? null : act, off, P ? 15 : 14));
+      return yy + 6 + bh;
+    };
     if (S.source === 'pcam') {   // #374 PHONE CAM block: where it stands, its main switches, and its settings page
       const C = S.pc_, st = pcamStatus(S), yb = ry + bh + 44;
       g.fillStyle = '#dfe6f2'; g.font = '500 14px system-ui'; g.textAlign = 'left';
       const nl = wrapText(g, st[0] + ' ' + st[1], L + 2, yb, R - L - 4, 18, 2), by = yb + nl * 18 + 2, bw4 = (R - L - 3 * gap) / 4;
       [['GREEN SCREEN', C.green, () => S.setPcam('green', !C.green)], ['LATENCY MATCH', C.lat, () => S.setPcam('lat', !C.lat)], ['LIGHT MATCH', C.light, () => S.setPcam('light', !C.light)], ['SETUP ▸', false, () => setTools('pcam')]]
         .forEach(([lb, on, act], i) => btn(L + i * (bw4 + gap), by, bw4, bh, lb, on, act, false, P ? 14 : 13));
-      note('PHONE CAM: the LED wall is off and props behind you (neon, chalkboard, GoPro) are left out, because the phone picture is flat and they would paint over your head. BACKDROP shows only with GREEN SCREEN on.', by + bh + 22);
+      const hy = handsRow(by + bh + 22);
+      note('PHONE CAM: the LED wall and ROBO-BODY are off and props behind you (neon, chalkboard, GoPro) are left out, because the phone picture is flat and they would paint over your head. BACKDROP shows only with GREEN SCREEN on.', hy + 22);
       return;
     }
-    note('BACKDROP (on the stream page) is NONE, VISUALS or DOME, one at a time. The LED wall shows the scroller when it is in shot; when it is not, the scroller is a flat band. HEADSET CAM turns the robot and the LED wall off while it is the camera. GoPro: a prop other cameras film, hidden from its own camera. NEON is the heaviest object. FULL / LEAN / FIRST PERSON set several toggles at once.', ry + bh + 48);
+    let ny = ry + bh + 48; if (S.source === 'headset') ny = handsRow(ry + bh + 48) + 22;   // #375
+    note('BACKDROP (on the stream page) is NONE, VISUALS or DOME, one at a time. The LED wall shows the scroller when it is in shot; when it is not, the scroller is a flat band. HEADSET CAM turns ROBO-BODY (the full robot avatar) and the LED wall off while it is the camera. GoPro: a prop other cameras film, hidden from its own camera. NEON is the heaviest object. FULL / LEAN / FIRST PERSON set several toggles at once.', ny);
     return;
   }
   if (page === 'chat') {   // #340 Twitch chat (read-only)
