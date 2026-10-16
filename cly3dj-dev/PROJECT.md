@@ -1,6 +1,6 @@
 # Cly3DJ: project overview
 
-Updated 14 Oct 2026 (decision log up to #346 in `ViRe_Custom/CLAUDE.md`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 16 Oct 2026 (decision log up to #377 in `ViRe_Custom/CLAUDE.md`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 Cly3DJ is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -21,7 +21,7 @@ Owner: Clyde DeSouza (c3souza).
   - **Reading the Drive copy from the cloud:** the Drive connector's `search_files` with maximum snippets returns a file's text (Markdown-escaped, indents collapsed, the end of very large files cut off). It is good for reading and for checking a rebuild (compare with whitespace collapsed, then match the exact byte size), not for copying files back verbatim.
 - **Git lock files:** commits from Claude's shell leave `.git/*.lock` and `tmp_obj_*` files; delete them after every commit (needs the owner's delete permission for the repo folder, asked once per session), or the owner's next push fails.
 - **Backups:** `ViRe_Custom/backups/`, per-change folders (`pre-…`) plus full zips. Files Claude can't delete go to `ViRe_Custom/_to_delete/`.
-- **Blender sources:** `ViRe_Custom/blender/`. **Renders:** `ViRe_Custom/renders/`. **Tools:** `ViRe_Custom/tools/` (`make_sleeve_demo.py` builds `web/examples/`). **Test panoramas:** `ViRe_Custom/test_panos/`.
+- **Blender sources:** `ViRe_Custom/blender/`. **Renders:** `ViRe_Custom/renders/`. **Tools:** `ViRe_Custom/tools/` (`make_sleeve_demo.py` builds `web/examples/`; `backsleeve/` is the standalone back sleeve generator and embedder). **Test panoramas:** `ViRe_Custom/test_panos/`.
 - **Models:** decks `web/models/` (GLB turntable, AO bake `turntable_ao.png/json`); avatars `web/models/avatar/avatar_robot_v2.glb` (the Cly3DJ robot, see Video and avatar), the older `avatar_robot.glb` (licensed model as delivered, #245) and `gemini_emboss.png` (its cup crest), `dirroface.glb` (owner's Ready Player Me avatar). Controller and hand models are vendored in `web/vendor/webxr-input-profiles/` (`meta-quest-touch-plus`, `generic-hand`).
 
 ## Tech
@@ -123,6 +123,7 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
   - Scroller curve fix matching curved LED wall (#370c).
   - SHOWTIME! modular rebuild (#372, #373): AVACAM wall feedback fix, per-object hide list, Neon always-visible rule when toggled on, scroller on 3D wall vs flat overlay, camera pick row (GOPRO, FRONT, FADERS, HEADSET CAM, PHONE CAM), OBJECTS page (toggles, presets, djcam.ms readout), settings migration (`migrateShowOpts`), and deckInst turntable shell gear toggle cure.
 - Built 16 Oct (#374, #375): PHONE CAM folded into SHOWTIME!, HANDS row, ROBO-BODY rename (see the SHOWTIME! bullet); not yet tried on the phone or the Quest.
+- Built 16 Oct (#376, #377, #378): Back Sleeve Maker standalone tool (`tools/backsleeve/backsleeve.py`, bundled `dist/backsleeve.exe`). Generates 600x600 back covers from Rekordbox XML or direct folder scan + Discogs/MusicBrainz metadata and embeds them into MP3s as APIC type 4 pictures in batches with undo; hybrid real packaging scan mode (#377); Center A label preservation matching main cover art (APIC type 6 `Label A`), non-blocking background folder scan with live progress logging, and Redo / overwrite mode (#378); Cly3DJ codebase untouched. Brainstormed Cly3DTV (`venue.html`) for club TV screen display & crowd WebXR interaction.
 - Parked / waiting: Step (f) club screen (`screen.html` via WebRTC + code), and #371 items (depth test, laser prop, SHOUTS, crowd contours).
 
 ## Next steps
