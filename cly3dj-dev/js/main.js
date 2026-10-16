@@ -942,7 +942,8 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     if (sk) kd.copy(sk.dir).applyAxisAngle(_yAxis, settings.skyTurn * DEG).applyQuaternion(rig.getWorldQuaternion(new THREE.Quaternion())).normalize();
     return { keyDir: kd, keyCol: sk ? [sk.color.r, sk.color.g, sk.color.b] : [key.color.r, key.color.g, key.color.b], pano: skyAvg, skyReady: !!skybox.tex };
   },
-  pcamPrep: cam => pcamPrep(cam),   // #374 the phone camera, for the 'behind the DJ' rule
+  pcamPrep: cam => pcamPrep(cam),
+  monitorOn: () => monOn,   // #376 the venue screen keeps the shot running unless PREVIEW wants it   // #374 the phone camera, for the 'behind the DJ' rule
   movers: () => pcamMovers(),
   nowPlaying: () => {
     const on = decks.filter(d => d.track && engine.state.decks[d.i] && engine.state.decks[d.i].needle && Math.abs(engine.state.decks[d.i].rate) > 0.2);
@@ -1008,6 +1009,7 @@ function handsHides(hide, O) {
   for (const st of xr.inputs) { hide(st.hand); hide(st.grip); if (st.ctlHand) hide(st.ctlHand.root); }
   if (xr.glove) hide(xr.glove.root);
 }
+let tvDigits = '', tvForgetArm = 0;   // #376 the code being typed on the tablet; double-tap guard for FORGET TV
 let pcamAutoReh = false;   // #374 the PHONE CAM page started the off-air shot for its preview (so leaving the page stops it again)
 function pcamPrep(cam) {
   const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
@@ -4301,6 +4303,7 @@ const navCan = () => navHist.length > 0;
 function setTools(p) {
   if (toolsPage === 'streamfit' && p !== 'streamfit' && streamer) streamer.setTesting(false);   // #333 TEST ends with the page
   clearInterval(setTools.fitIv); if (p === 'streamfit') setTools.fitIv = setInterval(() => { if (toolsPage === 'streamfit' && streamer && streamer.running) drawMixScreen(); }, 250);
+  if (p === 'tv') setTools.fitIv = setInterval(() => { if (toolsPage === 'tv') drawMixScreen(); }, 1000);   // #376 status numbers
   if (p === 'pcam') setTools.fitIv = setInterval(() => { if (toolsPage === 'pcam') drawMixScreen(); }, 200);   // #347 delay / phone status; #374 about 5 pictures a second for the preview
   if (streamer) {   // #374 the PHONE CAM pages run the shot off air so the preview moves; leaving stops it again unless it is live / PREVIEW
     if (p === 'pcam' || p === 'pcamcrop') { if (streamer.source === 'pcam' && !streamer.active) { streamer.setRehearse(true); pcamAutoReh = true; } }
@@ -4462,7 +4465,7 @@ async function pressBytes(track) {
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
 }
-const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', pcam: 'PHONE CAM', portals: 'PORTALS' };   // #363 up-button names
+const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV' };   // #363 up-button names; #376
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -4554,7 +4557,8 @@ function drawToolsPage() {
       btn(L + 2 * (tw3 + 8), y0 + 460, tw3, 50, 'CAM FIT', false, () => setTools('streamfit'), false, 17);   // #333
       // #346 PORTALS: tap on / off, double-tap = back to their spots; PORTALS SETUP = the wall, the frames, the dome
       btn(L, y0 + 520, tw3, 50, portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), portalsTap, !portals, 17);
-      btn(L + tw3 + 8, y0 + 520, 2 * tw3 + 8, 50, 'PORTALS SETUP', false, portals ? () => setTools('portals') : null, !portals, 17);
+      btn(L + tw3 + 8, y0 + 520, tw3, 50, 'PORTALS SETUP', false, portals ? () => setTools('portals') : null, !portals, 15);
+      btn(L + 2 * (tw3 + 8), y0 + 520, tw3, 50, S.tvUp ? 'CLY3DTV: ON' : 'CLY3DTV', S.tvUp, () => setTools('tv'), false, 16);   // #376 the venue screen
       note(hint, y0 + 590);
     } else {
       const bw = (R - L - 24) / 4;
@@ -4570,9 +4574,10 @@ function drawToolsPage() {
       btn(x2 + w2 + 8, y0 + 130, w3, 54, gopro ? GOPRO_ZOOMS[gopro.zoom].label : 'ZOOM', false, gopro && gopro.on ? () => { gopro.nextZoom(); drawMixScreen(); } : null, !(gopro && gopro.on), 15);
       btn(x2 + w2 + w3 + 16, y0 + 130, w4, 54, 'CAM FIT', false, () => setTools('streamfit'), false, 16);   // #333
       // #346 PORTALS (tap on / off, double-tap = back to their spots) / PORTALS SETUP
-      { const w6 = (R - L - 8) / 2;
+      { const w6 = (R - L - 16) / 3;
         btn(L, y0 + 192, w6, 48, portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), portalsTap, !portals, 16);
         btn(L + w6 + 8, y0 + 192, w6, 48, 'PORTALS SETUP', false, portals ? () => setTools('portals') : null, !portals, 16);
+        btn(L + 2 * (w6 + 8), y0 + 192, w6, 48, S.tvUp ? 'CLY3DTV: ON' : 'CLY3DTV', S.tvUp, () => setTools('tv'), false, 16);   // #376 the venue screen
       }
       note(hint, y0 + 264);
     }
@@ -4768,6 +4773,41 @@ function drawToolsPage() {
       const pw = Math.min(210, Math.round((R - L) * 0.34)); pcamPrev(R - pw, y1 + 2 * 48 + 8, pw);
       text(L + 4, y1 + 2 * 48 + 14, R - L - 8 - pw - 10, 16, 8, 13);
     }
+    return;
+  }
+  if (page === 'tv') {   // #376 CLY3DTV: the venue screen (venue.html). The TV shows a 6-digit code, it is typed here; then switches, sound, status
+    const y0 = head('CLY3DTV', 'stream'), S = streamer;
+    if (!S) { note('CLY3DTV runs on the headset (not on the phone).', y0 + 20); return; }
+    const st = S.tvState(), gap = 8, bh = P ? 56 : 40, T = S.tvSet;
+    const title = { unpaired: 'No TV paired yet', pairing: 'Looking for the TV...', waiting: 'Paired, waiting for the TV', up: 'TV connected', off: 'TV is switched off' }[st];
+    g.textAlign = 'left'; g.font = `700 ${P ? 22 : 20}px system-ui`; g.fillStyle = st === 'up' ? '#7dff9a' : '#dfe6f2'; g.fillText(title, L + 2, y0 + 22);
+    g.font = '500 14px system-ui'; g.fillStyle = '#8c96a8';
+    const sub = st === 'up' ? `${S.tvKbps ? (S.tvKbps / 1000).toFixed(1) + ' Mbit/s' : 'starting'}${S.tvFps ? ' · ' + S.tvFps + ' fps' : ''} · sound ${T.audio ? 'on' : 'off'}${S.live ? '' : ' · the shot runs off air for the screen'}` : (S.tvMsg || '');
+    const nl = sub ? wrapText(g, sub, L + 2, y0 + 44, R - L - 4, 18, 2) : 0, yb = y0 + 48 + Math.max(1, nl) * 18 + 4;
+    if (st === 'unpaired' || st === 'pairing') {
+      g.fillStyle = '#dfe6f2'; g.font = '500 14px system-ui';
+      const n2 = wrapText(g, 'On the TV open venue.html (Cly3DTV). It shows a 6-digit code: type it here.', L + 2, yb + 14, R - L - 4, 18, 2), yk = yb + n2 * 18 + 12;
+      const bwd = Math.min(54, (R - L - 30) / 6), bx = L + ((R - L) - (6 * bwd + 30)) / 2;
+      for (let i = 0; i < 6; i++) {
+        const x = bx + i * (bwd + 6); g.fillStyle = '#10151f'; g.fillRect(x, yk, bwd, 44); g.strokeStyle = tvDigits[i] ? '#39a8ff' : '#2a3142'; g.lineWidth = 2; g.strokeRect(x + 1, yk + 1, bwd - 2, 42);
+        if (tvDigits[i]) { g.fillStyle = '#ffffff'; g.font = '700 26px system-ui'; g.textAlign = 'center'; g.fillText(tvDigits[i], x + bwd / 2, yk + 31); }
+      }
+      g.textAlign = 'left';
+      const keys = P ? ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'CLEAR', '0', 'DEL'] : ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'DEL', 'CLEAR'], cols = P ? 3 : 6, kw = (R - L - (cols - 1) * gap) / cols, kh = P ? 54 : 36, ky = yk + 44 + 10;
+      keys.forEach((k, i) => btn(L + (i % cols) * (kw + gap), ky + Math.floor(i / cols) * (kh + gap), kw, kh, k, false,
+        () => { if (k === 'DEL') tvDigits = tvDigits.slice(0, -1); else if (k === 'CLEAR') tvDigits = ''; else if (tvDigits.length < 6) tvDigits += k; drawMixScreen(); }, st === 'pairing', P ? 20 : 16));
+      const py = ky + Math.ceil(keys.length / cols) * (kh + gap);
+      btn(L, py, R - L, P ? 56 : 40, st === 'pairing' ? 'LOOKING FOR THE TV...' : 'PAIR', tvDigits.length === 6 && st !== 'pairing',
+        tvDigits.length === 6 && st !== 'pairing' ? async () => { const ok = await S.tvPair(tvDigits); if (ok) tvDigits = ''; drawMixScreen(); } : null, tvDigits.length !== 6 || st === 'pairing', P ? 20 : 17);
+      return;
+    }
+    // paired: the switches
+    const armed = performance.now() - tvForgetArm < 3000, n3 = P ? 1 : 3, bw3 = (R - L - (n3 - 1) * gap) / n3, row = i => ({ x: L + (P ? 0 : i) * (bw3 + gap), y: yb + 6 + (P ? i : 0) * (bh + gap) });
+    [[T.on ? 'TV: ON' : 'TV: OFF', T.on, () => S.setTv('on', !T.on)],
+     [T.audio ? 'SOUND TO TV: ON' : 'SOUND TO TV: OFF', T.audio, () => S.setTv('audio', !T.audio)],
+     [armed ? 'TAP AGAIN TO FORGET' : 'FORGET TV', armed, () => { if (armed) { tvForgetArm = 0; S.tvForget(); } else tvForgetArm = performance.now(); drawMixScreen(); }]]
+      .forEach(([lb, on, act], i) => { const p = row(i); btn(p.x, p.y, bw3, bh, lb, on, act, false, P ? 18 : 15); });
+    note('The TV shows what goes to Twitch (SHOWTIME!, CARD...), or the same picture off air. It shows a small SOUND button only while SOUND TO TV is on: press OK on its remote once to unmute. If the TV is in the same room as the PA, switch the sound off (it would echo). TV OFF closes the link; the TV keeps waiting.', row(0).y + (P ? 3 * (bh + gap) : bh + gap) + 14);
     return;
   }
   if (page === 'portals') {   // #346 PORTALS SETUP: the real-world windows, the wall they cut, the sky dome behind it

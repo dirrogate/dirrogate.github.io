@@ -168,3 +168,108 @@ export function spectatorLink(code, handlers) {
     setVideo: (t, kbps) => pipe ? pipe.setVideo(t, kbps) : Promise.resolve(false),   // #238
     close() { relay.close(); if (pipe) pipe.close(); } };
 }
+
+// ---------------------------------------------------------------- Cly3DTV (CLAUDE.md #376)
+// A venue screen: the page venue.html (title Cly3DTV) on a Fire Stick / phone with HDMI / smart TV. Pairing, once: the TV shows a
+// 6-digit code and listens on a relay topic named after it; the tablet types the code and the Quest posts a long random KEY to that
+// topic; the TV keeps the key. From then on the TV calls the Quest under that key (the TV makes the offer, wanting to receive video and
+// audio; the Quest answers with the stream picture and, if the tablet allows it, the master sound). One TV at a time. 'ctl' is a small
+// reliable data channel for status messages both ways ({t:'audio', on}, {t:'forget'}).
+const TV_PAIR = code => ID_PREFIX + 'tvpair-' + code;
+const TV_HOST = key => ID_PREFIX + 'tvhost-' + key;
+export function tvRandom(n, alphabet) { const a = new Uint32Array(n); crypto.getRandomValues(a); return [...a].map(x => alphabet[x % alphabet.length]).join(''); }
+export const tvNewCode = () => tvRandom(6, '0123456789');
+export const tvNewKey = () => tvRandom(24, 'abcdefghijklmnopqrstuvwxyz0123456789');
+const KEY_OK = /^[a-z0-9]{24}$/;
+function gather(pc) {   // all candidates in the description (at most 2.5 s)
+  if (pc.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise(res => { const t = setTimeout(res, 2500); pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } }); });
+}
+function preferH264(tx) {   // hardware encoders / decoders speak H.264 (Twitch gets it too)
+  try {
+    const kind = tx.receiver.track.kind; if (kind !== 'video') return;
+    const caps = RTCRtpSender.getCapabilities('video').codecs, h264 = caps.filter(c => /h264/i.test(c.mimeType)).sort((a, b) => (/42e01f/.test(b.sdpFmtpLine) ? 1 : 0) - (/42e01f/.test(a.sdpFmtpLine) ? 1 : 0));
+    const rest = caps.filter(c => !/h264/i.test(c.mimeType)); if (h264.length) tx.setCodecPreferences([...h264, ...rest]);
+  } catch {}
+}
+
+// Quest, pairing: hand the key to whichever TV shows this code
+export async function tvPairSend(code, key) {
+  const r = await fetch(RELAY + encodeURIComponent(TV_PAIR(code)), { method: 'POST', body: JSON.stringify({ type: 'PAIR', key }) });
+  if (!r.ok) throw new Error('relay ' + r.status);
+}
+// TV, pairing: wait for the key (only a well-formed key from a PAIR message counts)
+export function tvPairListen(code, onKey, onStatus) {
+  const relay = new Relay(TV_PAIR(code), m => { if (m && m.type === 'PAIR' && typeof m.key === 'string' && KEY_OK.test(m.key)) onKey(m.key); }, onStatus);
+  return { close: () => relay.close() };
+}
+
+// TV side: call the Quest under the key. h.onTrack(track), h.onState(connectionState), h.onMsg(obj over ctl), h.onStatus(relay status).
+// Returns { close(), ctl(obj), pc }. The caller retries with a fresh tvConnect when it does not get through.
+export function tvConnect(key, h) {
+  let pc = null, ctl = null, closed = false;
+  const relay = new Relay(ID_PREFIX + 'tv-' + key + '-' + token().slice(0, 6), async m => {
+    if (m.type === 'ANSWER' && pc) { try { await pc.setRemoteDescription(m.payload.sdp); } catch (e) { h.onStatus && h.onStatus('error: ' + e.message); } }
+  }, async s => {
+    h.onStatus && h.onStatus(s);
+    if (s !== 'relay' || pc || closed) return;
+    try {
+      pc = new RTCPeerConnection({ iceServers: ICE });
+      preferH264(pc.addTransceiver('video', { direction: 'recvonly' })); pc.addTransceiver('audio', { direction: 'recvonly' });
+      ctl = pc.createDataChannel('ctl'); ctl.onmessage = e => { try { h.onMsg && h.onMsg(JSON.parse(e.data)); } catch {} };
+      ctl.onclose = () => { if (!closed) h.onState && h.onState('closed'); };   // the Quest closed the link or went away: noticed at once
+      pc.ontrack = e => h.onTrack && h.onTrack(e.track);
+      pc.onconnectionstatechange = () => h.onState && h.onState(pc.connectionState);
+      await pc.setLocalDescription(await pc.createOffer()); await gather(pc);
+      if (!closed) relay.send('OFFER', TV_HOST(key), { sdp: pc.localDescription.toJSON() });
+    } catch (e) { h.onStatus && h.onStatus('error: ' + e.message); }
+  });
+  return {
+    get pc() { return pc; },
+    ctl: o => { if (ctl && ctl.readyState === 'open') { ctl.send(JSON.stringify(o)); return true; } return false; },
+    close() { closed = true; relay.close(); try { pc && pc.close(); } catch {} },
+  };
+}
+
+// Quest side: listen under the key; each OFFER from the TV replaces the previous link. h.video() / h.audio() give the tracks to send
+// (promises; audio may be null), h.onOffer(), h.onUp(), h.onDown(why), h.onCtlOpen(), h.onMsg(obj), h.onStatus(s).
+// Returns { ready, pc, setVideo(track), setAudio(track|null), ctl(obj), isUp, close() }.
+export function tvHost(key, h) {
+  let pc = null, ctl = null, vtx = null, atx = null, onReady; const ready = new Promise(res => { onReady = res; setTimeout(res, 3000); });
+  const rate = async (sender, bps, fps) => {
+    try { const p = sender.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}]; Object.assign(p.encodings[0], fps ? { maxBitrate: bps, maxFramerate: fps } : { maxBitrate: bps }); await sender.setParameters(p); } catch {}
+  };
+  const relay = new Relay(TV_HOST(key), async m => {
+    if (m.type !== 'OFFER' || !m.src) return;
+    try {
+      h.onOffer && h.onOffer();
+      if (pc) { const old = pc; pc = null; try { old.close(); } catch {} }
+      const p = pc = new RTCPeerConnection({ iceServers: ICE }); vtx = atx = ctl = null;
+      p.ondatachannel = e => { if (e.channel.label !== 'ctl') return; ctl = e.channel; ctl.onopen = () => h.onCtlOpen && h.onCtlOpen(); ctl.onclose = () => { if (p === pc) h.onDown && h.onDown('ctl closed'); };   // a closed page is noticed at once, not after the connection times out
+      ctl.onmessage = ev => { try { h.onMsg && h.onMsg(JSON.parse(ev.data)); } catch {} }; };
+      p.onconnectionstatechange = () => {
+        if (p !== pc) return; const s = p.connectionState;
+        if (s === 'connected') h.onUp && h.onUp(); else if (s === 'failed' || s === 'closed' || s === 'disconnected') h.onDown && h.onDown(s);
+      };
+      await p.setRemoteDescription(m.payload.sdp);
+      const stream = new MediaStream();
+      for (const tx of p.getTransceivers()) {
+        const kind = tx.receiver.track.kind; tx.direction = 'sendonly';
+        try { tx.sender.setStreams(stream); } catch {}   // one stream: the browser keeps picture and sound in step
+        if (kind === 'video') { vtx = tx; preferH264(tx); const t = await h.video(); if (t) await tx.sender.replaceTrack(t); await rate(tx.sender, 6000000, 30); }
+        else if (kind === 'audio') { atx = tx; const t = h.audio ? await h.audio() : null; if (t) await tx.sender.replaceTrack(t); await rate(tx.sender, 160000); }
+      }
+      if (p !== pc) return;
+      await p.setLocalDescription(await p.createAnswer()); await gather(p);
+      if (p === pc) relay.send('ANSWER', m.src, { sdp: p.localDescription.toJSON() });
+    } catch (e) { h.onStatus && h.onStatus('error: ' + e.message); }
+  }, s => { h.onStatus && h.onStatus(s); if (s === 'relay') onReady(); });
+  const link = {
+    ready, get pc() { return pc; }, get isUp() { return !!pc && pc.connectionState === 'connected'; },
+    ctl: o => { if (ctl && ctl.readyState === 'open') { ctl.send(JSON.stringify(o)); return true; } return false; },
+    async setVideo(t) { if (vtx) await vtx.sender.replaceTrack(t || null); },
+    async setAudio(t) { if (atx) await atx.sender.replaceTrack(t || null); link.ctl({ t: 'audio', on: !!t }); },
+    close() { relay.close(); const old = pc; pc = null; try { old && old.close(); } catch {} },
+  };
+  return link;
+}

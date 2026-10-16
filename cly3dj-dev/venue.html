@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cly3DTV</title>
+<!-- #376 Cly3DTV: the venue screen. Open this page on a Fire Stick / phone with HDMI / smart TV browser. It shows a 6-digit code once (type it on the Cly3DJ tablet:
+     TOOLS > STREAM > CLY3DTV); after that it finds the Quest by itself and shows what goes to Twitch. The logic is in js/venue.js. -->
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #e6e8ec; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; overflow: hidden; cursor: none; }
+  video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #stand { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 4vh 6vw; box-sizing: border-box;
+    background: radial-gradient(ellipse at 50% 40%, #1b2233 0%, #05070c 75%); }
+  #stand[hidden], #snd[hidden], #again[hidden], #code[hidden] { display: none; }
+  h1 { margin: 0 0 3vh; font-size: min(14vw, 22vh); font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
+  h1 b { color: #e0202e; font-weight: 800; }
+  #code { font-size: min(15vw, 24vh); font-weight: 800; letter-spacing: 0.12em; font-variant-numeric: tabular-nums; color: #fff; margin: 1vh 0 2vh; }
+  #msg { font-size: min(3.6vw, 5.4vh); line-height: 1.35; color: #b7c0d0; max-width: 80vw; }
+  #sub { margin-top: 2vh; font-size: min(2.4vw, 3.6vh); color: #6f7a8c; }
+  button { font: inherit; color: #e6e8ec; background: rgba(20, 26, 38, 0.82); border: 2px solid #3a4560; border-radius: 999px; cursor: pointer; }
+  button:focus { outline: none; border-color: #39a8ff; box-shadow: 0 0 0 3px rgba(57, 168, 255, 0.35); }
+  #snd { position: fixed; left: 50%; bottom: 2.2vh; transform: translateX(-50%); padding: 0.7vh 2.4vw; font-size: min(2.4vw, 3.6vh); opacity: 0.88; }
+  #again { margin-top: 4vh; padding: 0.8vh 2.6vw; font-size: min(2.2vw, 3.3vh); opacity: 0.8; }
+</style>
+</head>
+<body>
+<video id="v" autoplay muted playsinline></video>
+<div id="stand">
+  <h1>Cly<b>3D</b>TV</h1>
+  <div id="code" hidden></div>
+  <div id="msg">Starting…</div>
+  <div id="sub"></div>
+  <button id="again" hidden>NEW CODE</button>
+</div>
+<button id="snd" hidden>SOUND</button>
+<script type="module" src="./js/venue.js"></script>
+</body>
+</html>
