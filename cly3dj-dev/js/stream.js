@@ -98,7 +98,7 @@ void main() { vec4 g = texture2D(map, vec2(vUv.x, 1.0 - vUv.y)); float a = clamp
 // exposure levelled from the person only, re-tinted to the pano, light wrap, a glow on the side the key light comes
 // from). LATENCY MATCH: hands and gear drawn as they were when the frame was filmed, the stream sound delayed as much.
 // Layers back to front: background, person, gear + hands, overlays (scroller, now playing, logo, chat).
-export const PCAM_DEF = { green: false, bg: 'visuals', light: true, lightStr: 0.7, wrap: 0.5, glow: 0.4, expo: 0, lat: false, trim: 0, manual: 150, matte: false };
+export const PCAM_DEF = { green: false, light: true, lightStr: 0.7, wrap: 0.5, glow: 0.4, expo: 0, lat: false, trim: 0, manual: 150, matte: false };
 const PCAM_FS = `uniform sampler2D map; uniform sampler2D cam; uniform sampler2D bg; varying vec2 vUv;
 uniform float green, bgLin, showMatte, wrap, glow; uniform vec4 pack; uniform vec3 gain, wrapCol, glowCol; uniform vec2 glowDir, texel;
 vec3 rrt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
@@ -145,7 +145,11 @@ export class Streamer {
     this.hist = []; this.mr = null;
     { const raw = lsJ(SHOWO); this.showOpt = { ...SHOW_DEF, ...migrateShowOpts(raw) }; if (raw && 'visuals' in raw) ls.set(SHOWO, JSON.stringify(this.showOpt)); }
     this._wallShot = false; this.ly = null; this.showT = 0; this.layerOk = false;
-    this.pc_ = { ...PCAM_DEF, ...(lsJ(PCAMK) || {}) }; this.pk = null; this.pkNew = false; this.pkMsg = ''; this.delay = null; this.grade = new THREE.Vector3(1, 1, 1); this.gradeT = 0;   // #347
+    this.pc_ = { ...PCAM_DEF, ...(lsJ(PCAMK) || {}) };
+    // #374 PHONE CAM follows the SHOWTIME! backdrop (NONE / VISUALS / DOME); its own BG setting is dropped, a saved DOME carries over once if no SHOWTIME! settings were saved
+    if ('bg' in this.pc_) { if (this.pc_.bg === 'dome' && !lsJ(SHOWO)) { this.showOpt.backdrop = 'dome'; ls.set(SHOWO, JSON.stringify(this.showOpt)); } delete this.pc_.bg; ls.set(PCAMK, JSON.stringify(this.pc_)); }
+    if (this.source === 'phone') { this.source = 'show'; ls.set(SRC, 'show'); }   // #374 the plain PHONE source has no button any more
+    this.pk = null; this.pkNew = false; this.pkMsg = ''; this.delay = null; this.grade = new THREE.Vector3(1, 1, 1); this.gradeT = 0;   // #347
   }
   setPcam(k, v) {   // #347 PHONE CAM SETUP
     if (!(k in PCAM_DEF)) return; this.pc_[k] = v; ls.set(PCAMK, JSON.stringify(this.pc_));
@@ -441,7 +445,7 @@ export class Streamer {
     const e = Math.pow(2, P.expo); this.gradeTo = gain.map(x => x * e);
     // what surrounds the person: the background's average (the wrap light)
     let bgAvg = pano || [0.3, 0.3, 0.35];
-    if (P.bg === 'visuals' && this.bgC) { g.drawImage(this.bgC, 0, 0, 16, 9); const px = g.getImageData(0, 0, 16, 9).data; let r = 0, gg = 0, b = 0; for (let i = 0; i < px.length; i += 4) { r += px[i]; gg += px[i + 1]; b += px[i + 2]; } const n = px.length / 4 * 255; bgAvg = [r / n, gg / n, b / n]; }
+    if (this.showOpt.backdrop !== 'dome' && this.bgC) { g.drawImage(this.bgC, 0, 0, 16, 9); const px = g.getImageData(0, 0, 16, 9).data; let r = 0, gg = 0, b = 0; for (let i = 0; i < px.length; i += 4) { r += px[i]; gg += px[i + 1]; b += px[i + 2]; } const n = px.length / 4 * 255; bgAvg = [r / n, gg / n, b / n]; }
     this.wrapCol = bgAvg;
   }
   _pcamFrame(v, now) {
@@ -486,12 +490,12 @@ export class Streamer {
     // background (green screen): the VISUALS full frame, or the dome / pano from the phone's view
     let bgLin = 0;
     if (green) {
-      const sky = this.env.skyGroup && this.env.skyGroup();
-      if (P.bg === 'dome' && ok && sky && li.skyReady) bgLin = 1;
+      const sky = this.env.skyGroup && this.env.skyGroup(), bd = this.showOpt.backdrop;   // #374 the shared backdrop: dome, the VISUALS frame, or just the dark gradient (NONE)
+      if (bd === 'dome' && ok && sky && li.skyReady) bgLin = 1;
       else {
         const g = this.bgC.getContext('2d'), L = (this.env.wallSource && this.env.wallSource()) || [];
         const gr = g.createRadialGradient(W / 2, H * 0.45, 40, W / 2, H / 2, W * 0.65); gr.addColorStop(0, '#141a28'); gr.addColorStop(1, '#030409'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
-        for (const l of L) { if (!l || !l.el || l.gain === 0) continue; g.globalAlpha = l.gain == null ? 1 : Math.min(1, l.gain); g.globalCompositeOperation = l.add ? 'lighter' : 'source-over'; this._cover(g, l.el, W, H, l.flip); }
+        if (bd === 'visuals') for (const l of L) { if (!l || !l.el || l.gain === 0) continue; g.globalAlpha = l.gain == null ? 1 : Math.min(1, l.gain); g.globalCompositeOperation = l.add ? 'lighter' : 'source-over'; this._cover(g, l.el, W, H, l.flip); }
         g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; pk.bgTex.needsUpdate = true;
       }
     }
@@ -506,9 +510,9 @@ export class Streamer {
       const kc = li.keyCol || [1, 1, 1]; U.glowCol.value.set(kc[0], kc[1], kc[2]).multiplyScalar(0.55);
     }
     U.texel.value.set(1 / W, 1 / H);
-    this._wallShot = !!(ok && this.showOpt.wall && this.env.wallInShot && this.env.wallInShot(cam));   // #372
+    this._wallShot = false;   // #374 no 3D LED wall in the phone shot (it would paint over you), so the scroller is the flat band
     const sc = this.env.scene, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled, prevSh = r.shadowMap.autoUpdate, prevCol = r.getClearColor(_c1), prevA = r.getClearAlpha();
-    const undo = ok && this.env.pcamPrep ? this.env.pcamPrep() : null;
+    const undo = ok && this.env.pcamPrep ? this.env.pcamPrep(cam) : null;   // #374 cam: props farther from it than the DJ are left out
     const back = ok && P.lat ? this._rewind(now - this.latMs) : null;
     try {
       r.xr.enabled = false; r.shadowMap.autoUpdate = false; r.setClearColor(0x000000, 0);
