@@ -27,7 +27,7 @@ const VBR = { card: 600, avacam: 2500, show: 3500, headset: 3000, phone: 2000, p
 // gear from the AVACAM camera (BOOTH angle) drawn on a see-through background, and flat overlays (scroller, now
 // playing, logo). VIDEOWALL = the visuals and overlays only (no 3D render). Toggles saved as 'vire.showOpts'.
 // #372 backdrop: 'none' | 'visuals' | 'dome' (one at a time); object toggles wall (3D LED wall), gopro (the prop), panel (chat panel), chalk (chalkboard), neon
-export const SHOW_DEF = { backdrop: 'visuals', robot: true, gear: true, wall: false, gopro: true, panel: true, chalk: true, neon: true, scroll: true, np: true, logo: true, chat: false };
+export const SHOW_DEF = { backdrop: 'visuals', robot: true, gear: true, wall: false, gopro: true, panel: true, chalk: true, neon: true, scroll: true, np: true, logo: true, chat: false, handsReal: false };   // #375 handsReal: HEADSET CAM / PHONE CAM leave your hands bare (no drawn hands, glove or sleeves)
 export const BACKDROPS = ['none', 'visuals', 'dome'];
 export const SHOW_PRESETS = {   // #372 FULL = everything on air, LEAN = visuals + robot only (cheap), FIRST PERSON = the DJ's own view (gear, no robot)
   full: { backdrop: 'visuals', robot: true, gear: true, wall: true, gopro: true, panel: true, chalk: true, neon: true },
