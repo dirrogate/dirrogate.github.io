@@ -648,6 +648,11 @@ function goproToDjcam() {   // the DJ CAM camera (a rig child) takes the GoPro's
 const _gpM = new THREE.Matrix4(), _gpS = new THREE.Vector3();
 // #340 Twitch chat: read-only, anonymous, from the start (channel on the start page, default dirrogate). A floating panel
 // (default left of the mixer, turned toward the DJ; grip / pinch moves it) and the tablet CHAT page show it.
+// #377 the CHAT PANEL and the CHALKBOARD are two separate objects (they used to be one panel that flipped into a slate, so they shared a spot and
+// could not be out together). The panel starts left of the mixer, the chalkboard right of it (mirrored). A chalkboard saved by the old single
+// panel moves over to the chalkboard, so it stays where it was; the panel then starts from its own spot.
+try { const raw = localStorage.getItem('vire.chatPanel'), o = raw && JSON.parse(raw); if (o && o.board && !localStorage.getItem('vire.chalkboard')) { localStorage.setItem('vire.chalkboard', raw); localStorage.removeItem('vire.chatPanel'); } } catch {}
+const chalkboard = CAMERA_ROLE ? null : new ChatPanel(rig, () => ({ p: new THREE.Vector3(mixer.position.x + 0.75, deckGroups[0].position.y + DECK.H + 0.38, mixer.position.z + 0.05), yaw: -0.94 }), { key: 'vire.chalkboard', boardOnly: true, name: 'chalkboard' });
 const chatPanel = CAMERA_ROLE ? null : new ChatPanel(rig, () => ({ p: new THREE.Vector3(mixer.position.x - 0.75, deckGroups[0].position.y + DECK.H + 0.38, mixer.position.z + 0.05), yaw: 0.94 }));
 let chatDrawPend = false, chatPanelTapT = 0, chalkWipeT = 0;
 function chatRedraw() {   // at most ~5 redraws a second
@@ -659,14 +664,12 @@ if (chat && chatChannel.get()) chat.start();
 // #342 CHALKBOARD on the TOOLS home page: tap = board out / away (the panel goes back to chat mode, hidden); double-tap =
 // board back to its start spot and size
 let chalkTapT = 0;
-const chalkLbl = () => chatPanel && chatPanel.on && chatPanel.board ? 'CHALKBOARD: ON' : 'CHALKBOARD';
-function chalkTap() {
-  if (!chatPanel) return; const now = performance.now();
-  if (now - chalkTapT < 350) { chalkTapT = 0; chatPanel.reset(); chatPanel.setOn(true); chatPanel.setBoard(true); chatPanel.save(); drawMixScreen(); return; }
-  chalkTapT = now;
-  if (chatPanel.on && chatPanel.board) { chatPanel.setBoard(false); chatPanel.setOn(false); }
-  else { chatPanel.setOn(true); chatPanel.setBoard(true); }
-  chatPanel.save(); drawMixScreen();
+const chalkLbl = () => chalkboard && chalkboard.on ? 'CHALKBOARD: ON' : 'CHALKBOARD';
+function chalkTap() {   // #377 the chalkboard object: tap = out / away; double-tap = back to its start spot and size, out
+  if (!chalkboard) return; const now = performance.now();
+  if (now - chalkTapT < 350) { chalkTapT = 0; chalkboard.reset(); chalkboard.setOn(true); chalkboard.save(); drawMixScreen(); return; }
+  chalkTapT = now; chalkboard.setOn(!chalkboard.on);
+  chalkboard.save(); drawMixScreen();
 }
 function chatPanelTap() {   // tap = panel on / off; double-tap = back to its start spot, on
   if (!chatPanel) return; const now = performance.now();
@@ -964,7 +967,8 @@ const armSleeves = CAMERA_ROLE ? null : makeSleeves(); if (armSleeves) scene.add
 function propHides(hide, O, ownCam) {   // #372 the object toggles (OBJECTS page), one list for every camera: gear, neon, GoPro prop, chat panel / chalkboard, scroller
   if (!O.neon) hide(neon);   // on = seen from every angle, the back of the sign too
   if (gopro && (!O.gopro || (ownCam && gopro.on))) hide(gopro.obj);   // a prop other cameras film; hidden only from its own camera
-  if (chatPanel && !(chatPanel.board ? O.chalk : O.panel)) hide(chatPanel.obj);
+  if (chatPanel && !O.panel) hide(chatPanel.obj);   // #377 two objects, two toggles
+  if (chalkboard && !O.chalk) hide(chalkboard.obj);
   if (!O.scroll) hide(scroller.mesh);
   if (!O.gear) {
     hide(deckGroups[0]); hide(deckGroups[1]);
@@ -1004,8 +1008,8 @@ function pcamStatus(S) {   // #374 shared by the PHONE CAM page and the SHOWTIME
 // #375 HANDS on the HEADSET CAM / PHONE CAM shots: REAL HANDS leaves your own hands bare in that picture (the drawn 3D hands, the robot glove
 // and the forearm sleeves are left out of that render only; the headset keeps its look). 3D HANDS / ROBOT GLOVE are the controller look
 // (xr.setCtlLook), shared with the headset. Same hide list as the DJ camera uses for the same objects.
-function handsHides(hide, O) {
-  if (!O || !O.handsReal || !xr) return;
+function handsHides(hide, O, force) {   // force: PHONE CAM always shows your own hands (#377)
+  if (!(force || (O && O.handsReal)) || !xr) return;
   for (const st of xr.inputs) { hide(st.hand); hide(st.grip); if (st.ctlHand) hide(st.ctlHand.root); }
   if (xr.glove) hide(xr.glove.root);
 }
@@ -1016,13 +1020,13 @@ function pcamPrep(cam) {
   hide(room); hide(skybox.group); hide(skyShadow);
   hide(ledwall);   // #374 never in this shot: it would paint over the DJ (its picture is the VISUALS backdrop anyway)
   if (streamer) {   // #372 PHONE CAM: the phone's picture with the objects chosen on OBJECTS drawn over it
-    propHides(hide, streamer.showOpt, false); handsHides(hide, streamer.showOpt);
-    for (const o of [neon, chatPanel && chatPanel.obj, gopro && gopro.obj]) if (behindDj(o, cam)) hide(o);   // #374 props behind the DJ are left out
+    propHides(hide, streamer.showOpt, false); handsHides(hide, streamer.showOpt, true);   // #377 PHONE CAM: natural hands, nothing drawn on them (3D / robot hands were too hard to line up)
+    for (const o of [neon, chatPanel && chatPanel.obj, chalkboard && chalkboard.obj, gopro && gopro.obj]) if (behindDj(o, cam)) hide(o);   // #374 props behind the DJ are left out
   }
   if (spect && spect.helpers) spect.helpers.forEach(hide);
   if (xr) for (const st of xr.inputs) { hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); }
   const bg = scene.background; scene.background = null;
-  if (armSleeves) armSleeves.group.visible = !(streamer && streamer.showOpt.handsReal);   // #375 no sleeves on REAL HANDS
+  if (armSleeves) armSleeves.group.visible = false;   // #377 natural hands: no sleeves either
   const kp = key.position.clone(), kc = key.color.clone();
   if (streamer.pc_.light && skyKeyLight) {
     const d = skyKeyLight.dir.clone().applyAxisAngle(_yAxis, settings.skyTurn * DEG), hz = Math.hypot(d.x, d.z) || 1, up = Math.max(d.y, Math.sin(35 * DEG)), k = Math.sqrt(1 - up * up) / hz;
@@ -4501,11 +4505,11 @@ function drawToolsPage() {
     const stLbl = streamer && streamer.live ? '● LIVE ' + streamer.elapsed() : 'STREAM';   // #331
     if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
       btn(L, y0 + 224, R - L, 96, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
-      btn(L, y0 + 332, R - L, 80, chalkLbl(), !!(chatPanel && chatPanel.on && chatPanel.board), chalkTap, !chatPanel, 24);   // #342
+      btn(L, y0 + 332, R - L, 80, chalkLbl(), !!(chalkboard && chalkboard.on), chalkTap, !chalkboard, 24);   // #342
       note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall and neon sign on / off. STREAM: go live on Twitch (master mix only, never the cue).', y0 + 436); }   // #363 was under the CHALKBOARD button
     else { const bw = (R - L - 36) / 4; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
       btn(L + 2 * (bw + 12), y0 + 8, bw, 130, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
-      btn(L + 3 * (bw + 12), y0 + 8, bw, 130, chalkLbl(), !!(chatPanel && chatPanel.on && chatPanel.board), chalkTap, !chatPanel, 22);   // #342
+      btn(L + 3 * (bw + 12), y0 + 8, bw, 130, chalkLbl(), !!(chalkboard && chalkboard.on), chalkTap, !chalkboard, 22);   // #342
       note('DJ TOOLS: Record Maker, milk crate.  VJ TOOLS: Scroller, LED wall, neon.  STREAM: Twitch.  CHALKBOARD: tap = out / away, double-tap = back to its spot.', y0 + 160); }
     { // #258 flicker tests
       const ty = H - (P ? 60 : 46), tw = (R - L - 16) / 3;
@@ -4606,8 +4610,11 @@ function drawToolsPage() {
     cams.forEach(([k, label, off], i) => btn(L + (i % cols) * (bw + gap), y0 + 14 + Math.floor(i / cols) * (bh + gap), bw, bh, label, camOn(k), (off && k !== 'pcam') ? null : () => camPick(k), off, P ? 16 : 15));   // PHONE CAM stays tappable when greyed: it says why
     const cy2 = y0 + 14 + Math.ceil(cams.length / cols) * (bh + gap) + 6;
     g.fillStyle = '#8c96a8'; g.fillText('OBJECTS', L + 2, cy2 + 8);
-    const items = [['wall', 'LED WALL', S.source === 'headset' || S.source === 'pcam'], ['gopro', gOn ? 'GOPRO (CAM)' : 'GOPRO', gOn && S.source !== 'headset' && S.source !== 'pcam'], ['neon', 'NEON', false], ['panel', 'CHAT PANEL', false], ['chalk', 'CHALKBOARD', false], ['gear', 'GEAR', false], ['robot', 'ROBO-BODY', S.source === 'headset' || S.source === 'pcam']];
-    items.forEach(([k, label, off], i) => btn(L + (i % cols) * (bw + gap), cy2 + 14 + Math.floor(i / cols) * (bh + gap), bw, bh, label, !off && !!O[k], off ? null : () => S.setShowOpt(k, !O[k]), off, P ? 16 : 15));   // greyed: the GoPro prop while it is the camera; the wall and robot under HEADSET CAM
+    const items = [['wall', 'LED WALL', S.source === 'headset' || S.source === 'pcam'], ['gopro', gOn ? 'GOPRO (CAM)' : 'GOPRO', gOn && S.source !== 'headset' && S.source !== 'pcam'], ['neon', 'NEON', false], ['panel', 'CHAT PANEL', false], ['chalk', 'CHALKBOARD', false], ['gear', 'GEAR', false], ['robot', 'ROBO-BODY', S.source === 'headset' || S.source === 'pcam'], ['dome', 'DOME', S.source === 'headset']];
+    // #377 DOME is an object here (the sky dome from VISUALS > PANO > SKY). It is the backdrop's 'dome' choice: on = DOME, off = the VISUALS picture behind (they
+    // are one at a time, the dome would hide it); on the PHONE CAM shot it is what you are keyed over, so it needs GREEN SCREEN. NONE stays on the STREAM page's BACK button.
+    const domeTap = () => { if (O.backdrop === 'dome') S.setShowOpt('backdrop', 'visuals'); else { S.setShowOpt('backdrop', 'dome'); if (!skybox.tex) toast('DOME needs a sky: VISUALS > PANO > SKY', 3200); } drawMixScreen(); };
+    items.forEach(([k, label, off], i) => { const on = k === 'dome' ? O.backdrop === 'dome' : !!O[k]; btn(L + (i % cols) * (bw + gap), cy2 + 14 + Math.floor(i / cols) * (bh + gap), bw, bh, label, !off && on, off ? null : k === 'dome' ? domeTap : () => S.setShowOpt(k, !O[k]), off, P ? 16 : 15); });   // greyed: the GoPro prop while it is the camera; the wall and robot under HEADSET CAM
     const ry = cy2 + 14 + Math.ceil(items.length / cols) * (bh + gap) + 6, pw = (R - L - 2 * gap) / 3;
     [['full', 'FULL'], ['lean', 'LEAN'], ['first', 'FIRST PERSON']].forEach(([k, label], i) => btn(L + i * (pw + gap), ry, pw, bh, label, false, () => S.applyPreset(k), false, P ? 16 : 15));
     const ms = djcam ? djcam.ms : 0;
@@ -4629,12 +4636,11 @@ function drawToolsPage() {
       const nl = wrapText(g, st[0] + ' ' + st[1], L + 2, yb, R - L - 4, 18, 2), by = yb + nl * 18 + 2, bw4 = (R - L - 3 * gap) / 4;
       [['GREEN SCREEN', C.green, () => S.setPcam('green', !C.green)], ['LATENCY MATCH', C.lat, () => S.setPcam('lat', !C.lat)], ['LIGHT MATCH', C.light, () => S.setPcam('light', !C.light)], ['SETUP ▸', false, () => setTools('pcam')]]
         .forEach(([lb, on, act], i) => btn(L + i * (bw4 + gap), by, bw4, bh, lb, on, act, false, P ? 14 : 13));
-      const hy = handsRow(by + bh + 22);
-      note('PHONE CAM: the LED wall and ROBO-BODY are off and props behind you (neon, chalkboard, GoPro) are left out, because the phone picture is flat and they would paint over your head. BACKDROP shows only with GREEN SCREEN on.', hy + 22);
+      note('PHONE CAM: your own hands show (no 3D or robot hands: they were too hard to line up). The LED wall and ROBO-BODY are off and props behind you (neon, chalkboard, GoPro) are left out, because the phone picture is flat and they would paint over your head. BACKDROP shows only with GREEN SCREEN on.', by + bh + 22);
       return;
     }
     let ny = ry + bh + 48; if (S.source === 'headset') ny = handsRow(ry + bh + 48) + 22;   // #375
-    note('BACKDROP (on the stream page) is NONE, VISUALS or DOME, one at a time. The LED wall shows the scroller when it is in shot; when it is not, the scroller is a flat band. HEADSET CAM turns ROBO-BODY (the full robot avatar) and the LED wall off while it is the camera. GoPro: a prop other cameras film, hidden from its own camera. NEON is the heaviest object. FULL / LEAN / FIRST PERSON set several toggles at once.', ny);
+    note('DOME is the sky dome (VISUALS > PANO > SKY); it and the VISUALS picture behind are one at a time, and NONE is the BACK button on the STREAM page. The LED wall shows the scroller when it is in shot; when it is not, the scroller is a flat band. HEADSET CAM turns ROBO-BODY (the full robot avatar) and the LED wall off while it is the camera. GoPro: a prop other cameras film, hidden from its own camera. NEON is the heaviest object. FULL / LEAN / FIRST PERSON set several toggles at once.', ny);
     return;
   }
   if (page === 'chat') {   // #340 Twitch chat (read-only)
@@ -4643,10 +4649,10 @@ function drawToolsPage() {
     btn(L, y0, bw, bh, chatPanel && chatPanel.on ? 'PANEL: ON' : 'PANEL', !!(chatPanel && chatPanel.on), chatPanelTap, !chatPanel, 16);
     btn(L + bw + 8, y0, bw, bh, 'ON STREAM', !!(S && S.showOpt.chat), S ? () => S.setShowOpt('chat', !S.showOpt.chat) : null, !S, 16);
     btn(L + 2 * (bw + 8), y0, bw, bh, 'RECONNECT', false, () => { chat.stop(); chat.tries = 0; chat.start(); drawMixScreen(); }, false, 16);
-    // #341 CHALKBOARD (the panel becomes a slate with chalks on its ledge) and WIPE (tap twice)
+    // #341 CHALKBOARD (a slate with chalks on its ledge; #377 its own object, not the chat panel) and WIPE (tap twice)
     const yb2 = y0 + bh + (P ? 8 : 6), bw2 = P ? (R - L - 8) / 2 : 150, wipeArm = performance.now() - (chalkWipeT || 0) < 2500;
-    btn(L, yb2, bw2, bh, chatPanel && chatPanel.board ? 'CHALKBOARD: ON' : 'CHALKBOARD', !!(chatPanel && chatPanel.board), chatPanel ? () => { if (!chatPanel.on) chatPanel.setOn(true); chatPanel.setBoard(!chatPanel.board); chatPanel.save(); if (!chatPanel.board) chatPanel.draw(chat, chatRedraw); drawMixScreen(); } : null, !chatPanel, 15);
-    btn(L + bw2 + 8, yb2, bw2, bh, wipeArm ? 'TAP AGAIN TO WIPE' : 'WIPE', wipeArm, chatPanel && chatPanel.board ? () => { if (wipeArm) { chalkWipeT = 0; chatPanel.wipe(); } else { chalkWipeT = performance.now(); setTimeout(drawMixScreen, 2600); } drawMixScreen(); } : null, !(chatPanel && chatPanel.board), 15);
+    btn(L, yb2, bw2, bh, chalkLbl(), !!(chalkboard && chalkboard.on), chalkboard ? () => { chalkboard.setOn(!chalkboard.on); chalkboard.save(); drawMixScreen(); } : null, !chalkboard, 15);   // #377 its own object
+    btn(L + bw2 + 8, yb2, bw2, bh, wipeArm ? 'TAP AGAIN TO WIPE' : 'WIPE', wipeArm, chalkboard && chalkboard.on ? () => { if (wipeArm) { chalkWipeT = 0; chalkboard.wipe(); } else { chalkWipeT = performance.now(); setTimeout(drawMixScreen, 2600); } drawMixScreen(); } : null, !(chalkboard && chalkboard.on), 15);
     const st = { joined: '● connected', connecting: 'connecting…', reconnecting: 'reconnecting…', off: 'off', error: 'error' }[chat.status] || chat.status;
     g.fillStyle = chat.status === 'joined' ? '#40d080' : '#f1b650'; g.font = '700 15px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
     if (P) g.fillText(st, L + 4, y0 + bh + 16); else g.fillText(st, L + 3 * (bw + 8) + 6, y0 + bh / 2);
@@ -4744,7 +4750,7 @@ function drawToolsPage() {
     const st = pcamStatus(S);   // #374 shared with the OBJECTS page
     if (C.green && C.light) { const h = S.lampHint(); if (h) st.push(h); }
     if (C.green && S.showOpt.backdrop === 'dome' && !skybox.tex) st.push('BACK DOME: no sky picked yet (VISUALS > PANO > SKY).');
-    const help = 'CROP: the garbage matte (cut away stands and the room past the cloth). GREEN SCREEN off: the phone video is the background and the gear, hands and chalkboard are drawn over it. On: you are keyed over the BACK setting (VISUALS, DOME or none). The LED wall is off in this shot, and props behind you are left out so they never cut your head. LIGHT MATCH grades you toward the panorama (pick it with SKY) and lights the gear from it.';
+    const help = 'CROP: the garbage matte (cut away stands and the room past the cloth). GREEN SCREEN off: the phone video is the background and the gear and chalkboard are drawn over it (your hands are your own, nothing is drawn on them). On: you are keyed over the BACK setting (VISUALS, DOME or none). The LED wall is off in this shot, and props behind you are left out so they never cut your head. LIGHT MATCH grades you toward the panorama (pick it with SKY) and lights the gear from it.';
     // #374 a small live preview of what goes out (the stream picture, redrawn about 5 times a second by the page's timer)
     const pcamPrev = (x, y, w) => {
       const asp = S.canvas.width / S.canvas.height || 16 / 9, h = Math.round(w / asp), live2 = S.source === 'pcam' && S.active && S.pkFrames;
@@ -4919,19 +4925,19 @@ function drawToolsPage() {
       if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
         ctlBtn(L, y0 + 176, (R - L - 8) * 0.62, 64); btn(L + (R - L - 8) * 0.62 + 8, y0 + 176, (R - L - 8) * 0.38, 64, 'HAND FIT', false, () => setTools('handfit'), false, 18);   // #291
         note('RECORD MAKER: press your own record. It goes into the crate, Unsorted. MILK CRATE: the first milk crate (extra ones come from the crate screen). CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 272); }
-      else { btn(L, y0 + 8, R - L, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
+      else { const hw0 = (R - L - 8) / 2; btn(L, y0 + 8, hw0, 80, scroller.on ? 'SCROLLER (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 22); btn(L + hw0 + 8, y0 + 8, hw0, 80, 'VISUALS', false, () => setVideoPage(true), false, 22);   // #377 the VISUALS pages from here too
         const hw = (R - L - 8) / 2; sw(L, y0 + 100, hw, 64, 'LED WALL', 'ledwall'); sw(L + hw + 8, y0 + 100, hw, 64, 'NEON', 'neon'); avBtn(L, y0 + 176, R - L, 64);   // #363
         ledCells(L, y0 + 252, R - L, true);
-        note('LED CURVE bends the wall toward you (0 = flat, up to 150°). LED SIZE: also two hands on the wall. Switched off, the LED wall or the sign is hidden and costs nothing.', y0 + 392); }
+        note('VISUALS opens the VISUALS pages (clips, panorama, sky, LED list). LED CURVE bends the wall toward you (0 = flat, up to 150°). LED SIZE: also two hands on the wall. Switched off, the LED wall or the sign is hidden and costs nothing.', y0 + 392); }
     } else {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
       if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(x2, y0 + 8, w2, 80, 'MILK CRATE', 'milk');
         ctlBtn(L, y0 + 96, (R - L - 8) * 0.66, 50); btn(L + (R - L - 8) * 0.66 + 8, y0 + 96, (R - L - 8) * 0.34, 50, 'HAND FIT', false, () => setTools('handfit'), false, 20);   // #291
         note('RECORD MAKER: press your own record (blank, a song or a clip, a picture label); it goes into the crate, Unsorted. MILK CRATE: the first milk crate; switched off it is hidden and costs nothing. CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 164); }
-      else { btn(L, y0 + 8, bw, 80, scroller.on ? 'SCROLLER  (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 24);
+      else { const bw0 = (bw - 8) / 2; btn(L, y0 + 8, bw0, 80, scroller.on ? 'SCROLLER (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 20); btn(L + bw0 + 8, y0 + 8, bw0, 80, 'VISUALS', false, () => setVideoPage(true), false, 20);   // #377 the VISUALS pages from here too
         const hw = (w2 - 16) / 3; sw(x2, y0 + 8, hw, 80, 'LED WALL', 'ledwall'); sw(x2 + hw + 8, y0 + 8, hw, 80, 'NEON', 'neon'); avBtn(x2 + 2 * (hw + 8), y0 + 8, hw, 80);   // #363
         ledCells(L, y0 + 98, R - L, false);
-        note('LED CURVE bends the wall toward you (0 = flat, up to 150°); a portrait wall stays flat. LED SIZE: also two hands on the wall. LED WALL / NEON off: hidden, no cost.', y0 + 166); }
+        note('VISUALS: the VISUALS pages. LED CURVE bends the wall toward you (0 = flat, up to 150°); a portrait wall stays flat. LED SIZE: also two hands on the wall. LED WALL / NEON off: hidden, no cost.', y0 + 166); }
     }
     return;
   }
@@ -5463,13 +5469,13 @@ function frame() {
   for (const d of decks) vvStep(d);   // #177 VideoVinyl
   stepPvLid(dt);   // #196 preview lid
   stepMonitor(performance.now());   // #339
-  if (chatPanel && chatPanel.on && chatPanel.board) {   // #341 chalkboard: every fingertip / controller ball writes, picks a chalk or wipes
+  if (chalkboard && chalkboard.on) {   // #341 chalkboard (#377 its own object): every fingertip / controller ball writes, picks a chalk or wipes
     if (xr && renderer.xr.isPresenting) for (const t of xr.tips()) {
-      const r = chatPanel.touch(t.st.i, t.p);
+      const r = chalkboard.touch(t.st.i, t.p);
       if (r === 'pick') xr.buzz(t.st, 0.5, 30);
       else if (r === 'write' && performance.now() - (t.st.chalkBuzz || 0) > 90) { t.st.chalkBuzz = performance.now(); xr.buzz(t.st, 0.12, 8); }   // the scratch of chalk
     }
-    chatPanel.tickBoard();
+    chalkboard.tickBoard();
   }
   stepScrDir();    // #198 portrait menu
   if (ledMode === 'decks') ledwall.userData.setDecks(deckVid[0].tex, deckVid[1].tex, ...deckGains(mixVal));
@@ -5540,7 +5546,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack,
   REC, DECK, CRATE, ARM,
-  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, chatPanel, ...(portals ? portals.active() : []), facetWall].filter(Boolean); },   // #337 #340 #345 #346 (every portal frame that is out)
+  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall].filter(Boolean); },   // #337 #340 #345 #346 (every portal frame that is out)
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
   scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
@@ -5867,7 +5873,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {

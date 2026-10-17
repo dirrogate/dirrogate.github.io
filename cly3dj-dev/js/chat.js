@@ -108,26 +108,28 @@ export function drawChat(g, x, y, w, h, msgs, opts = {}) {
 
 // A floating chat screen in the room: grip (hands: pinch) moves it like the GoPro; no gravity; pose saved.
 export class ChatPanel {
-  constructor(rig, home) {
-    this.rig = rig; this.home = home; this.on = false; this.held = false;
+  // #377 two separate objects from one class: the CHAT PANEL (chat mode only) and the CHALKBOARD (opts.boardOnly: always the slate), each with its own
+  // saved place (opts.key) and start spot (home), so they no longer share one spot or flip into each other.
+  constructor(rig, home, opts = {}) {
+    this.rig = rig; this.home = home; this.on = false; this.held = false; this.key = opts.key || 'vire.chatPanel'; this.boardOnly = !!opts.boardOnly;
     const W = 0.36, H = 0.45; this.W = W; this.H = H;
-    const g = this.obj = new THREE.Group(); g.name = 'chatPanel'; g.visible = false; g.userData.noMirror = true; rig.add(g);
+    const g = this.obj = new THREE.Group(); g.name = opts.name || 'chatPanel'; g.visible = false; g.userData.noMirror = true; rig.add(g);
     const back = new THREE.Mesh(new THREE.BoxGeometry(W + 0.016, H + 0.016, 0.012), new THREE.MeshStandardMaterial({ color: 0x14161b, roughness: 0.6, metalness: 0.3 }));
     back.position.z = -0.0065; g.add(back);
     this.canvas = document.createElement('canvas'); this.canvas.width = 512; this.canvas.height = 640;
     this.g = this.canvas.getContext('2d'); this.tex = new THREE.CanvasTexture(this.canvas); this.tex.colorSpace = THREE.SRGBColorSpace;
     this.tex.anisotropy = 4;
     const scr = this.scr = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ map: this.tex, toneMapped: false })); scr.position.z = 0.0006; g.add(scr);
-    this._buildBoard();
+    if (this.boardOnly) this._buildBoard(); else { this.board = false; this.strokes = new Map(); }   // #377 the chat panel never builds the slate (saves its canvases)
     // #341 resize like the tablet: a silver corner tab top-right (trigger / pinch and drag), or a second grip while held
     { const c = document.createElement('canvas'); c.width = c.height = 64; const g2 = c.getContext('2d'); g2.fillStyle = '#d9dde3'; g2.beginPath(); g2.moveTo(64, 0); g2.lineTo(64, 64); g2.lineTo(0, 0); g2.closePath(); g2.fill();
       g2.strokeStyle = '#555b66'; g2.lineWidth = 5; g2.beginPath(); g2.moveTo(30, 34); g2.lineTo(54, 10); g2.moveTo(40, 10); g2.lineTo(54, 10); g2.lineTo(54, 24); g2.stroke();
       const tab = new THREE.Mesh(new THREE.PlaneGeometry(0.034, 0.034), new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(c), transparent: true, metalness: 0.6, roughness: 0.35 }));
       tab.position.set(W / 2 - 0.009, H / 2 - 0.009, 0.0012); g.add(tab); }
-    let s = null; try { s = JSON.parse(localStorage.getItem('vire.chatPanel') || 'null'); } catch {}
-    if (s && s.p) { g.position.fromArray(s.p); g.quaternion.fromArray(s.q); if (s.s) g.scale.setScalar(s.s); this._ledgeFit(); } else this.reset(false);   // #368 saved size: ledge back to real size
+    let s = null; try { s = JSON.parse(localStorage.getItem(this.key) || 'null'); } catch {}
+    if (s && s.p) { g.position.fromArray(s.p); g.quaternion.fromArray(s.q); if (s.s) g.scale.setScalar(s.s); if (this.ledge) this._ledgeFit(); } else this.reset(false);   // #368 saved size: ledge back to real size
     this.setOn(!!(s && s.on), false);
-    if (s && s.board) this.setBoard(true);
+    if (this.boardOnly) this.setBoard(true);
   }
   // ---- #341 CHALKBOARD: the panel turns into a greenish-black slate with a ledge holding three chalks (classic white,
   // yellow, soft pink) and a duster. Touch a chalk (controller ball or fingertip) to pick its colour, touch the duster to
@@ -240,7 +242,7 @@ export class ChatPanel {
     g.globalAlpha = 1; this.bDirty = true;
   }
   tickBoard() { if (this.board) { const e = this._lowestEdge(); if (e !== this.edge || this.obj.scale.x !== this._es) this._edgeSet(e); } if (this.board && this.bDirty && performance.now() - this.bT > 66) this._compose(); }   // up to ~15 uploads a second while writing
-  save() { try { localStorage.setItem('vire.chatPanel', JSON.stringify({ on: this.on, board: !!this.board, p: this.obj.position.toArray(), q: this.obj.quaternion.toArray(), s: this.obj.scale.x })); } catch {} }
+  save() { try { localStorage.setItem(this.key, JSON.stringify({ on: this.on, board: !!this.board, p: this.obj.position.toArray(), q: this.obj.quaternion.toArray(), s: this.obj.scale.x })); } catch {} }
   reset(save = true) { const h = this.home(); this.obj.scale.setScalar(1); if (this.ledge) this._ledgeFit(); this.obj.position.copy(h.p); this.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), h.yaw); if (save) this.save(); }
   setOn(on, save = true) { this.on = !!on; this.obj.visible = this.on; if (save) this.save(); }
   hit(P) { if (!this.on) return false; this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P)); return Math.abs(l.x) < this.W / 2 + 0.03 && Math.abs(l.y) < this.H / 2 + 0.03 && Math.abs(l.z) < 0.05; }
