@@ -623,6 +623,15 @@ const stage = new Stage(rig, {
   cases: { caseA: [0, 0, 0, 0, 1.3, 0.52, 0.88] },
 });
 const MOVABLE = new Proxy({}, { get: (_, k) => stage.object(k) });
+// #378 GEAR LOCKDOWN: the decks and the mixer can't be picked up or turned (hand, controller or mouse) while it is on. It is ON every time the app starts (not
+// saved), so a stray grab can't push them off the flight case top; the button is on DJ TOOLS. The flight cases, the crate, the LED wall and the rest are not locked.
+let gearLock = true, gearLockToastT = 0;
+const GEAR_LOCK_KEYS = new Set(['deckA', 'deckB', 'mixer']);
+const gearLocked = key => gearLock && GEAR_LOCK_KEYS.has(key);
+function gearLockMsg() { const t = performance.now(); if (t - gearLockToastT > 2500) { gearLockToastT = t; toast('GEAR LOCKDOWN is on: decks and mixer stay put (DJ TOOLS to unlock)', 2800); } }
+// #378 the turntables turn in 45 degree steps (hand twist, thumbstick, mouse wheel / Shift-drag), so battle mode (decks turned 90) is two clean steps, not fiddly
+const DECK_STEP = Math.PI / 4, isDeckKey = k => k === 'deckA' || k === 'deckB';
+const snapDeck = (k, y) => isDeckKey(k) ? Math.round(y / DECK_STEP) * DECK_STEP : y;
 // #337 GOPRO: starts on the audience side of the mixer, just over its far edge, facing the DJ (the BOOTH angle)
 const gopro = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 0.3, mixer.position.z - 0.55), yaw: Math.PI }));
 let goproTapT = 0, goproTapWas = false;
@@ -3287,6 +3296,7 @@ function pointerDown(p) {
     activePointers.add(p); return true;
   }
   if (u.move) {
+    if (gearLocked(u.move)) { gearLockMsg(); return true; }   // #378
     const g = MOVABLE[u.move];
     p.drag = { kind: 'move', target: u.move, st: stage.beginMove(u.move), y: hit.point.y, grab: hit.point.clone(), pos0: g.position.clone(), yaw0: g.rotation.y, x0: p.x };
     activePointers.add(p); return true;
@@ -3357,7 +3367,7 @@ function pointerMove(p) {
     scratchMove(dr.scratch, dr.deck.g.worldToLocal(hp));
   } else if (dr.kind === 'move') {
     const g = MOVABLE[dr.target];
-    if (p.mouse && p.shift) { g.rotation.y = dr.yaw0 - (p.x - dr.x0) * 0.006; return; }
+    if (p.mouse && p.shift) { g.rotation.y = snapDeck(dr.target, dr.yaw0 - (p.x - dr.x0) * 0.006); return; }   // #378 decks: 45 degree steps
     const hp = rayPlaneY(p.ray, dr.y); if (!hp) return;
     const delta = hp.sub(dr.grab); const par = g.parent; // rig space delta
     const q = par.getWorldQuaternion(_q).invert(); delta.applyQuaternion(q);
@@ -3443,6 +3453,7 @@ canvas.addEventListener('wheel', e => {
     e.preventDefault(); e.stopImmediatePropagation();
     const o = MOVABLE[mouse.drag.target];
     if (e.shiftKey && !cases[mouse.drag.target]) { o.position.y = Math.max(0, o.position.y - Math.sign(e.deltaY) * 0.02); clampStack(mouse.drag.target); }
+    else if (isDeckKey(mouse.drag.target)) o.rotation.y = snapDeck(mouse.drag.target, o.rotation.y) + Math.sign(e.deltaY) * DECK_STEP;   // #378 one wheel notch = one 45 degree step
     else o.rotation.y += Math.sign(e.deltaY) * 0.05;
     return;
   }
@@ -4499,6 +4510,7 @@ function drawToolsPage() {
     return y + 46;
   };
   const note = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; return wrapText(g, s, L + 4, y, R - L - 8, 20, 5); };
+  const lockBtn = (x, y, w, h) => btn(x, y, w, h, gearLock ? 'GEAR LOCKDOWN: ON' : 'GEAR LOCKDOWN: OFF', gearLock, () => { gearLock = !gearLock; toast(gearLock ? 'Gear locked' : 'Gear unlocked: decks and mixer can be moved and turned', 2400); drawMixScreen(); }, false, 18);   // #378 DJ TOOLS
   const page = toolsPage;
   if (page === 'home') {
     const y0 = head('TOOLS', 'mixer');
@@ -4590,11 +4602,12 @@ function drawToolsPage() {
   if (page === 'showobj') {   // #372 SHOWTIME! objects: what the 3D layer films, presets, and what it costs
     const y0 = head(P ? 'OBJECTS' : 'SHOWTIME! OBJECTS', 'stream'), S = streamer;
     if (!S) { note('Streaming runs on the headset (not on the phone).', y0 + 20); return; }
-    const O = S.showOpt, gOn = !!(gopro && gopro.on), bh = P ? 52 : 40, gap = 8, cols = P ? 3 : 5, bw = (R - L - gap * (cols - 1)) / cols;
+    const O = S.showOpt, gOn = !!(gopro && gopro.on), bh = P ? 52 : 30, gap = P ? 8 : 5, cols = P ? 3 : 5,   // #378 landscape is 768 x 304: compact rows, no captions
+       bw = (R - L - gap * (cols - 1)) / cols;
     // camera pick: GOPRO / FRONT / FADERS are the DJ camera angles, HEADSET CAM and PHONE CAM their own pictures (#372)
     const cams = [['gopro', 'GOPRO', !gopro], ['front', 'FRONT', false], ['faders', 'FADERS', false], ['headset', P ? 'HEADSET' : 'HEADSET CAM', false], ['pcam', P ? 'PHONE' : 'PHONE CAM', !!pcamReady()]];
     const camOn = k => (k === 'headset' || k === 'pcam') ? S.source === k : (S.source === 'show' || S.source === 'avacam') && djSet.preset === k;
-    g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText('CAMERA', L + 2, y0 + 8);
+    g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; if (P) g.fillText('CAMERA', L + 2, y0 + 8);
     const camPick = k => {
       if (k === 'pcam') {   // #374 PHONE CAM: pick it and open its settings page (with the preview); tell why when the phone isn't there
         const why = pcamReady(); if (why) { toast(why, 3500); return; }
@@ -4607,40 +4620,40 @@ function drawToolsPage() {
       }
       drawMixScreen();
     };
-    cams.forEach(([k, label, off], i) => btn(L + (i % cols) * (bw + gap), y0 + 14 + Math.floor(i / cols) * (bh + gap), bw, bh, label, camOn(k), (off && k !== 'pcam') ? null : () => camPick(k), off, P ? 16 : 15));   // PHONE CAM stays tappable when greyed: it says why
-    const cy2 = y0 + 14 + Math.ceil(cams.length / cols) * (bh + gap) + 6;
-    g.fillStyle = '#8c96a8'; g.fillText('OBJECTS', L + 2, cy2 + 8);
+    cams.forEach(([k, label, off], i) => btn(L + (i % cols) * (bw + gap), y0 + (P ? 14 : 6) + Math.floor(i / cols) * (bh + gap), bw, bh, label, camOn(k), (off && k !== 'pcam') ? null : () => camPick(k), off, P ? 16 : 15));   // PHONE CAM stays tappable when greyed: it says why
+    const cy2 = y0 + (P ? 14 : 6) + Math.ceil(cams.length / cols) * (bh + gap) + (P ? 6 : 0);
+    g.fillStyle = '#8c96a8'; if (P) g.fillText('OBJECTS', L + 2, cy2 + 8);
     const items = [['wall', 'LED WALL', S.source === 'headset' || S.source === 'pcam'], ['gopro', gOn ? 'GOPRO (CAM)' : 'GOPRO', gOn && S.source !== 'headset' && S.source !== 'pcam'], ['neon', 'NEON', false], ['panel', 'CHAT PANEL', false], ['chalk', 'CHALKBOARD', false], ['gear', 'GEAR', false], ['robot', 'ROBO-BODY', S.source === 'headset' || S.source === 'pcam'], ['dome', 'DOME', S.source === 'headset']];
     // #377 DOME is an object here (the sky dome from VISUALS > PANO > SKY). It is the backdrop's 'dome' choice: on = DOME, off = the VISUALS picture behind (they
     // are one at a time, the dome would hide it); on the PHONE CAM shot it is what you are keyed over, so it needs GREEN SCREEN. NONE stays on the STREAM page's BACK button.
     const domeTap = () => { if (O.backdrop === 'dome') S.setShowOpt('backdrop', 'visuals'); else { S.setShowOpt('backdrop', 'dome'); if (!skybox.tex) toast('DOME needs a sky: VISUALS > PANO > SKY', 3200); } drawMixScreen(); };
-    items.forEach(([k, label, off], i) => { const on = k === 'dome' ? O.backdrop === 'dome' : !!O[k]; btn(L + (i % cols) * (bw + gap), cy2 + 14 + Math.floor(i / cols) * (bh + gap), bw, bh, label, !off && on, off ? null : k === 'dome' ? domeTap : () => S.setShowOpt(k, !O[k]), off, P ? 16 : 15); });   // greyed: the GoPro prop while it is the camera; the wall and robot under HEADSET CAM
-    const ry = cy2 + 14 + Math.ceil(items.length / cols) * (bh + gap) + 6, pw = (R - L - 2 * gap) / 3;
+    items.forEach(([k, label, off], i) => { const on = k === 'dome' ? O.backdrop === 'dome' : !!O[k]; btn(L + (i % cols) * (bw + gap), cy2 + (P ? 14 : 0) + Math.floor(i / cols) * (bh + gap), bw, bh, label, !off && on, off ? null : k === 'dome' ? domeTap : () => S.setShowOpt(k, !O[k]), off, P ? 16 : 15); });   // greyed: the GoPro prop while it is the camera; the wall and robot under HEADSET CAM
+    const ry = cy2 + (P ? 14 : 0) + Math.ceil(items.length / cols) * (bh + gap) + (P ? 6 : 4), pw = ((P ? R - L : (R - L) * 0.6) - 2 * gap) / 3;
     [['full', 'FULL'], ['lean', 'LEAN'], ['first', 'FIRST PERSON']].forEach(([k, label], i) => btn(L + i * (pw + gap), ry, pw, bh, label, false, () => S.applyPreset(k), false, P ? 16 : 15));
     const ms = djcam ? djcam.ms : 0;
     g.fillStyle = '#8c96a8'; g.font = '600 15px system-ui'; g.textAlign = 'left';
     const line = `Render time of the DJ camera: ${ms.toFixed(1)} ms${S.source === 'show' && !S.show3d ? '  (nothing 3D on: nearly free)' : ''}`;
-    g.fillText(line, L + 2, ry + bh + 28);
+    if (P) g.fillText(line, L + 2, ry + bh + 28); else { g.font = '600 14px system-ui'; g.fillText(`DJ camera ${ms.toFixed(1)} ms`, L + (R - L) * 0.6 + 8, ry + bh / 2 + 5); }   // landscape: on the presets' row
     // #375 HANDS on the shot (HEADSET CAM and PHONE CAM): REAL HANDS = nothing drawn on your hands; 3D HANDS / ROBOT GLOVE = the controller look (also what you see in the headset)
     const handsRow = yy => {
       const look = xr ? xr.getCtlLook() : null, real = !!O.handsReal, hw = (R - L - 2 * gap) / 3;
-      g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText('HANDS ON THE SHOT', L + 2, yy);
+      g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; if (P) g.fillText('HANDS ON THE SHOT', L + 2, yy);
       const setLook = m => () => { S.setShowOpt('handsReal', false); if (xr) { xr.setCtlLook(m); const el = document.getElementById('sHands'); if (el) el.value = xr.getCtlLook(); } drawMixScreen(); };
       [['REAL HANDS', real, () => { S.setShowOpt('handsReal', true); drawMixScreen(); }, false], ['3D HANDS', !real && look === '3dhands', setLook('3dhands'), !xr], ['ROBOT GLOVE', !real && look === 'glove', setLook('glove'), !xr]]
-        .forEach(([lb, on, act, off], i) => btn(L + i * (hw + gap), yy + 6, hw, bh, lb, on, off ? null : act, off, P ? 15 : 14));
-      return yy + 6 + bh;
+        .forEach(([lb, on, act, off], i) => btn(L + i * (hw + gap), yy + (P ? 6 : 0), hw, bh, lb, on, off ? null : act, off, P ? 15 : 14));
+      return yy + (P ? 6 : 0) + bh;
     };
     if (S.source === 'pcam') {   // #374 PHONE CAM block: where it stands, its main switches, and its settings page
-      const C = S.pc_, st = pcamStatus(S), yb = ry + bh + 44;
+      const C = S.pc_, st = pcamStatus(S), yb = ry + bh + (P ? 44 : 20);
       g.fillStyle = '#dfe6f2'; g.font = '500 14px system-ui'; g.textAlign = 'left';
-      const nl = wrapText(g, st[0] + ' ' + st[1], L + 2, yb, R - L - 4, 18, 2), by = yb + nl * 18 + 2, bw4 = (R - L - 3 * gap) / 4;
+      const nl = wrapText(g, st[0] + ' ' + st[1], L + 2, yb, R - L - 4, 18, P ? 2 : 1), by = yb + nl * 18 + 2, bw4 = (R - L - 3 * gap) / 4;
       [['GREEN SCREEN', C.green, () => S.setPcam('green', !C.green)], ['LATENCY MATCH', C.lat, () => S.setPcam('lat', !C.lat)], ['LIGHT MATCH', C.light, () => S.setPcam('light', !C.light)], ['SETUP ▸', false, () => setTools('pcam')]]
         .forEach(([lb, on, act], i) => btn(L + i * (bw4 + gap), by, bw4, bh, lb, on, act, false, P ? 14 : 13));
-      note('PHONE CAM: your own hands show (no 3D or robot hands: they were too hard to line up). The LED wall and ROBO-BODY are off and props behind you (neon, chalkboard, GoPro) are left out, because the phone picture is flat and they would paint over your head. BACKDROP shows only with GREEN SCREEN on.', by + bh + 22);
+      note(P ? 'PHONE CAM: your own hands show (no 3D or robot hands: they were too hard to line up). The LED wall and ROBO-BODY are off and props behind you (neon, chalkboard, GoPro) are left out, because the phone picture is flat and they would paint over your head. BACKDROP shows only with GREEN SCREEN on.' : 'PHONE CAM: your own hands; no LED wall or ROBO-BODY; props behind you are left out.', by + bh + (P ? 22 : 18));
       return;
     }
-    let ny = ry + bh + 48; if (S.source === 'headset') ny = handsRow(ry + bh + 48) + 22;   // #375
-    note('DOME is the sky dome (VISUALS > PANO > SKY); it and the VISUALS picture behind are one at a time, and NONE is the BACK button on the STREAM page. The LED wall shows the scroller when it is in shot; when it is not, the scroller is a flat band. HEADSET CAM turns ROBO-BODY (the full robot avatar) and the LED wall off while it is the camera. GoPro: a prop other cameras film, hidden from its own camera. NEON is the heaviest object. FULL / LEAN / FIRST PERSON set several toggles at once.', ny);
+    let ny = ry + bh + (P ? 48 : 16); if (S.source === 'headset') ny = handsRow(ry + bh + (P ? 48 : 8)) + (P ? 22 : 18);   // #375
+    note(P ? 'DOME is the sky dome (VISUALS > PANO > SKY); it and the VISUALS picture behind are one at a time, and NONE is the BACK button on the STREAM page. The LED wall shows the scroller when it is in shot; when it is not, the scroller is a flat band. HEADSET CAM turns ROBO-BODY (the full robot avatar) and the LED wall off while it is the camera. GoPro: a prop other cameras film, hidden from its own camera. NEON is the heaviest object. FULL / LEAN / FIRST PERSON set several toggles at once.' : (S.source === 'headset' ? 'HEADSET CAM: ROBO-BODY and the LED wall are off. HANDS: REAL = nothing drawn on your hands. DOME: VISUALS > PANO > SKY.' : 'DOME: VISUALS > PANO > SKY, one at a time with the VISUALS picture (NONE = BACK on STREAM). The scroller rides the LED wall when it is in shot.'), ny);
     return;
   }
   if (page === 'chat') {   // #340 Twitch chat (read-only)
@@ -4770,14 +4783,14 @@ function drawToolsPage() {
       const y1 = y0 + 4 * 50 + 6;
       cells.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 58, tw, 54));
       const pw = Math.round((R - L) * 0.42); pcamPrev(R - pw, y1 + 4 * 58 + 12, pw);
-      text(L + 4, y1 + 4 * 58 + 16, R - L - 8 - pw - 8, 19, 14, 14);
+      text(L + 4, y1 + 4 * 58 + 16, R - L - 8 - pw - 8, 19, Math.max(3, Math.floor((H - 10 - (y1 + 4 * 58 + 16)) / 19) + 1), 14);   // #378 never past the bottom edge
     } else {
       const tw = (R - L - 42) / 8;
       toggles.forEach(([lb, on, act, dim], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, !!dim, 13));
       const cw = (R - L - 24) / 4, y1 = y0 + 48;
       cells.forEach((c, i) => cell(c, L + (i % 4) * (cw + 8), y1 + Math.floor(i / 4) * 48, cw, 44));
       const pw = Math.min(210, Math.round((R - L) * 0.34)); pcamPrev(R - pw, y1 + 2 * 48 + 8, pw);
-      text(L + 4, y1 + 2 * 48 + 14, R - L - 8 - pw - 10, 16, 8, 13);
+      text(L + 4, y1 + 2 * 48 + 14, R - L - 8 - pw - 10, 16, Math.max(3, Math.floor((H - 10 - (y1 + 2 * 48 + 14)) / 16) + 1), 13);   // #378 never past the bottom edge
     }
     return;
   }
@@ -4790,6 +4803,22 @@ function drawToolsPage() {
     g.font = '500 14px system-ui'; g.fillStyle = '#8c96a8';
     const sub = st === 'up' ? `${S.tvKbps ? (S.tvKbps / 1000).toFixed(1) + ' Mbit/s' : 'starting'}${S.tvFps ? ' · ' + S.tvFps + ' fps' : ''} · sound ${T.audio ? 'on' : 'off'}${S.live ? '' : ' · the shot runs off air for the screen'}` : (S.tvMsg || '');
     const nl = sub ? wrapText(g, sub, L + 2, y0 + 44, R - L - 4, 18, 2) : 0, yb = y0 + 48 + Math.max(1, nl) * 18 + 4;
+    if (!P && (st === 'unpaired' || st === 'pairing')) {   // #378 landscape is 768 x 304: the keypad goes to the right, so PAIR is not pushed off the bottom
+      const wl = 330, kx = L + wl + 16, kwid = R - kx, ready = tvDigits.length === 6 && st !== 'pairing';
+      g.fillStyle = '#dfe6f2'; g.font = '500 14px system-ui';
+      const n2 = wrapText(g, 'On the TV open venue.html (Cly3DTV). It shows a 6-digit code: type it on the keypad.', L + 2, yb + 14, wl - 4, 18, 2), yk = yb + n2 * 18 + 10, bwd = (wl - 30) / 6;
+      for (let i = 0; i < 6; i++) {
+        const x = L + i * (bwd + 6); g.fillStyle = '#10151f'; g.fillRect(x, yk, bwd, 38); g.strokeStyle = tvDigits[i] ? '#39a8ff' : '#2a3142'; g.lineWidth = 2; g.strokeRect(x + 1, yk + 1, bwd - 2, 36);
+        if (tvDigits[i]) { g.fillStyle = '#ffffff'; g.font = '700 24px system-ui'; g.textAlign = 'center'; g.fillText(tvDigits[i], x + bwd / 2, yk + 27); }
+      }
+      g.textAlign = 'left';
+      btn(L, yk + 38 + 8, wl, 44, st === 'pairing' ? 'LOOKING FOR THE TV...' : 'PAIR', ready,
+        ready ? async () => { const ok = await S.tvPair(tvDigits); if (ok) tvDigits = ''; drawMixScreen(); } : null, !ready, 18);
+      const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'CLEAR', '0', 'DEL'], kw = (kwid - 2 * gap) / 3, kh = Math.min(46, (H - 8 - (y0 + 4) - 3 * gap) / 4);
+      keys.forEach((k, i) => btn(kx + (i % 3) * (kw + gap), y0 + 4 + Math.floor(i / 3) * (kh + gap), kw, kh, k, false,
+        () => { if (k === 'DEL') tvDigits = tvDigits.slice(0, -1); else if (k === 'CLEAR') tvDigits = ''; else if (tvDigits.length < 6) tvDigits += k; drawMixScreen(); }, st === 'pairing', 17));
+      return;
+    }
     if (st === 'unpaired' || st === 'pairing') {
       g.fillStyle = '#dfe6f2'; g.font = '500 14px system-ui';
       const n2 = wrapText(g, 'On the TV open venue.html (Cly3DTV). It shows a 6-digit code: type it here.', L + 2, yb + 14, R - L - 4, 18, 2), yk = yb + n2 * 18 + 12;
@@ -4808,7 +4837,7 @@ function drawToolsPage() {
       return;
     }
     // paired: the switches
-    const armed = performance.now() - tvForgetArm < 3000, n3 = P ? 1 : 3, bw3 = (R - L - (n3 - 1) * gap) / n3, row = i => ({ x: L + (P ? 0 : i) * (bw3 + gap), y: yb + 6 + (P ? i : 0) * (bh + gap) });
+    const armed = tvForgetArm > 0 && performance.now() - tvForgetArm < 3000, n3 = P ? 1 : 3, bw3 = (R - L - (n3 - 1) * gap) / n3, row = i => ({ x: L + (P ? 0 : i) * (bw3 + gap), y: yb + 6 + (P ? i : 0) * (bh + gap) });
     [[T.on ? 'TV: ON' : 'TV: OFF', T.on, () => S.setTv('on', !T.on)],
      [T.audio ? 'SOUND TO TV: ON' : 'SOUND TO TV: OFF', T.audio, () => S.setTv('audio', !T.audio)],
      [armed ? 'TAP AGAIN TO FORGET' : 'FORGET TV', armed, () => { if (armed) { tvForgetArm = 0; S.tvForget(); } else tvForgetArm = performance.now(); drawMixScreen(); }]]
@@ -4924,7 +4953,8 @@ function drawToolsPage() {
     if (P) {
       if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
         ctlBtn(L, y0 + 176, (R - L - 8) * 0.62, 64); btn(L + (R - L - 8) * 0.62 + 8, y0 + 176, (R - L - 8) * 0.38, 64, 'HAND FIT', false, () => setTools('handfit'), false, 18);   // #291
-        note('RECORD MAKER: press your own record. It goes into the crate, Unsorted. MILK CRATE: the first milk crate (extra ones come from the crate screen). CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 272); }
+        lockBtn(L, y0 + 252, R - L, 64);   // #378
+        note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until you switch it off (then decks turn in 45 degree steps). RECORD MAKER: press your own record. MILK CRATE: the first milk crate. CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 332); }
       else { const hw0 = (R - L - 8) / 2; btn(L, y0 + 8, hw0, 80, scroller.on ? 'SCROLLER (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 22); btn(L + hw0 + 8, y0 + 8, hw0, 80, 'VISUALS', false, () => setVideoPage(true), false, 22);   // #377 the VISUALS pages from here too
         const hw = (R - L - 8) / 2; sw(L, y0 + 100, hw, 64, 'LED WALL', 'ledwall'); sw(L + hw + 8, y0 + 100, hw, 64, 'NEON', 'neon'); avBtn(L, y0 + 176, R - L, 64);   // #363
         ledCells(L, y0 + 252, R - L, true);
@@ -4933,7 +4963,8 @@ function drawToolsPage() {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
       if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(x2, y0 + 8, w2, 80, 'MILK CRATE', 'milk');
         ctlBtn(L, y0 + 96, (R - L - 8) * 0.66, 50); btn(L + (R - L - 8) * 0.66 + 8, y0 + 96, (R - L - 8) * 0.34, 50, 'HAND FIT', false, () => setTools('handfit'), false, 20);   // #291
-        note('RECORD MAKER: press your own record (blank, a song or a clip, a picture label); it goes into the crate, Unsorted. MILK CRATE: the first milk crate; switched off it is hidden and costs nothing. CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 164); }
+        lockBtn(L, y0 + 154, R - L, 46);   // #378
+        note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until it is switched off. RECORD MAKER: press your own record. CONTROLLERS: 3D hands or bare controllers.', y0 + 218); }
       else { const bw0 = (bw - 8) / 2; btn(L, y0 + 8, bw0, 80, scroller.on ? 'SCROLLER (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 20); btn(L + bw0 + 8, y0 + 8, bw0, 80, 'VISUALS', false, () => setVideoPage(true), false, 20);   // #377 the VISUALS pages from here too
         const hw = (w2 - 16) / 3; sw(x2, y0 + 8, hw, 80, 'LED WALL', 'ledwall'); sw(x2 + hw + 8, y0 + 8, hw, 80, 'NEON', 'neon'); avBtn(x2 + 2 * (hw + 8), y0 + 8, hw, 80);   // #363
         ledCells(L, y0 + 98, R - L, false);
@@ -5544,7 +5575,7 @@ addEventListener('resize', () => {
 // ------------------------------------------------------------------ XR input (hands + controllers)
 const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or controllers to drive
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
-  stage, cases, resizeCase, deckGroups, clampStack, settleStack,
+  stage, cases, resizeCase, deckGroups, clampStack, settleStack, gearLocked, gearLockMsg, snapYaw: isDeckKey,   // #378
   REC, DECK, CRATE, ARM,
   castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall].filter(Boolean); },   // #337 #340 #345 #346 (every portal frame that is out)
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },

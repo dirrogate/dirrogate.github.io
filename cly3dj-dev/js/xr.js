@@ -19,6 +19,15 @@ const PINCH_ON = 0.018, PINCH_OFF = 0.032;
 const PLATTER_R = 0.166;
 const PITCH_STEP = 0.0001;   // #270 (owner): 0.01 % per thumbstick flick (was 0.05 %)
 
+// #378 the turntables turn in 45 degree steps. g.snap is the step the deck is on; a twist of more than 30 degrees (22.5 plus a 7.5 degree detent) moves it to the next
+// step, with a buzz, so it ratchets instead of wobbling at the halfway point. battle mode (both decks turned 90) is then two clean clicks.
+const SNAP_STEP = Math.PI / 4, SNAP_HOLD = 0.52;
+function snapStep(g, raw, onStep) {
+  const two = Math.PI * 2, wrapTo = a => a - two * Math.round(a / two);
+  if (g.snap === undefined) { g.snap = Math.round(raw / SNAP_STEP) * SNAP_STEP; return g.snap; }
+  if (Math.abs(wrapTo(raw - g.snap)) > SNAP_HOLD) { const n = Math.round(raw / SNAP_STEP) * SNAP_STEP; if (Math.abs(n - g.snap) > 1e-6) { g.snap = n; onStep && onStep(); } }
+  return g.snap;
+}
 export function setupXR(ctx) {
   REC12 = ctx.REC;   // #260
   const { renderer, scene } = ctx;
@@ -441,6 +450,7 @@ export function setupXR(ctx) {
       if (other) { startTwoHand(other, st, hit.key); buzz(st, 0.5, 40); buzz(other, 0.5, 40); return true; }
     }
     if (hit) {
+      if (ctx.gearLocked && ctx.gearLocked(hit.key)) { ctx.gearLockMsg && ctx.gearLockMsg(); buzz(st, 0.6, 60); return true; }   // #378 GEAR LOCKDOWN: decks and mixer can't be picked up
       const g = ctx.MOVABLE[hit.key];
       if (ctx.flyingMilk && ctx.flyingMilk.has(g)) { ctx.flyingMilk.delete(g); g.rotation.x = 0; g.rotation.z = 0; }   // #200 caught mid-bounce
       st.direct = { kind: 'move', target: hit.key, stMove: ctx.stage.beginMove(hit.key), p0: P.clone(), pos0: g.position.clone(), yaw0: g.rotation.y, hyaw0: yawOf(handQuat(st, q1)) };
@@ -611,6 +621,7 @@ export function setupXR(ctx) {
       const isCase = !!ctx.cases[g.target];
       obj.position.set(g.pos0.x + delta.x, isCase ? g.pos0.y : Math.max(0, g.pos0.y + delta.y), g.pos0.z + delta.z);
       obj.rotation.y = g.yaw0 + wrap(yawOf(handQuat(st, q1)) - g.hyaw0);
+      if (ctx.snapYaw && ctx.snapYaw(g.target)) obj.rotation.y = snapStep(g, obj.rotation.y, () => buzz(st, 0.5, 25));   // #378 turntables: 45 degree steps
       if (!isCase) ctx.clampStack(g.target);   // #142: crates can't sink into what is under them
       // hand velocity (world), so a milk crate can be tossed (#88)
       const now = performance.now();
