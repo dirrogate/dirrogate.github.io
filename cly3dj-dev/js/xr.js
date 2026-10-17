@@ -246,6 +246,8 @@ export function setupXR(ctx) {
       if (holder && (btn === 'grip' || st.isHand) && pr.hit(P)) {
         st.direct = { kind: 'propStretch', prop: pr, other: holder, d0: Math.max(0.02, pinchOf(holder).distanceTo(P)), s0: pr.obj.scale.x }; buzz(st, 0.5, 40); buzz(holder, 0.5, 40); return true;
       }
+      // #379 props with a slider or handle of their own (FLOAT slider, WATER corner): trigger / pinch on it, then drag
+      if (pr.knob && (st.isHand || btn !== 'grip') && pr.knob(P)) { st.direct = { kind: 'propKnob', prop: pr }; pr.knobMove(P); buzz(st, 0.3, 20); return true; }
       if (pr.scaleTo && pr.corner && (st.isHand || btn !== 'grip') && pr.corner(P)) {
         const c = pr.obj.getWorldPosition(new THREE.Vector3());
         st.direct = { kind: 'propScale', prop: pr, c0: c, d0: Math.max(0.02, c.distanceTo(P)), s0: pr.obj.scale.x }; buzz(st, 0.4, 25); return true;
@@ -630,6 +632,8 @@ export function setupXR(ctx) {
     } else if (g.kind === 'propStretch') {   // #341
       if (!g.other.direct || g.other.direct.kind !== 'gopro') st.direct = null;
       else g.prop.scaleTo(g.s0 * pinchOf(g.other).distanceTo(P) / g.d0);
+    } else if (g.kind === 'propKnob') {   // #379
+      g.prop.knobMove(P);
     } else if (g.kind === 'propScale') {   // #341 corner drag: size follows the distance from the centre
       g.prop.scaleTo(g.s0 * g.c0.distanceTo(P) / g.d0);
     } else if (g.kind === 'gopro') {   // #337
@@ -674,6 +678,7 @@ export function setupXR(ctx) {
     else if (g.kind === 'sleeve') ctx.sleeveRelease(st.anchor);   // #242 let go: it stays there (over the record crate: back in)
     else if (g.kind === 'gopro') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'propStretch' && o.direct.prop === g.prop) o.direct = null; g.prop.release(); }   // #337 (#340 any prop)
     else if (g.kind === 'propStretch' || g.kind === 'propScale') g.prop.save();   // #341
+    else if (g.kind === 'propKnob') { if (g.prop.knobEnd) g.prop.knobEnd(); }   // #379
     else if (g.kind === 'tablet') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'tabletStretch') o.direct = null; if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
     else if (g.kind === 'tabletScale' || g.kind === 'tabletStretch') ctx.saveTablet();
     else if (g.kind === 'ledTurn') { if (g.axis === 'tilt') ctx.ledTilted && ctx.ledTilted(); else ctx.ledTurned(); buzz(st, 0.5, 30); }   // #222 settle on portrait / landscape; #248 a tilt just stays

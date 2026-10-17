@@ -25,6 +25,7 @@ import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.j
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
+import { FX, USER_LAYER } from './fx.js';   // #379 VISUALS > FX: FLOAT and WATER
 import * as store from './storage.js';
 import { EnvLight } from './env.js';
 import { Skybox, detectLayout, leftEyeCanvas, brightestDir, savePano, loadPano, openPanoVideo, closePanoVideo } from './skybox.js';
@@ -54,6 +55,7 @@ if (!settings.mig114) { delete settings.perf; settings.micRoute = 'app'; setting
 let spect = null, spectErrShown = false;   // #158 spectator host (declared early: drawMixScreen reads it, #164)
 function saveSettings() { try { localStorage.setItem('vire.settings', JSON.stringify(settings)); } catch {} }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+let fx = null;   // #379 FLOAT / WATER (made next to the XR setup, once everything it looks at exists)
 const DECK_NAMES = ['A', 'B'];
 
 // ------------------------------------------------------------------ renderer / scene
@@ -791,7 +793,7 @@ const mixScreen = new Screen(768, 304);
 const mixScreenP = new Screen(304, 768); mixScreenP.texture.center.set(0.5, 0.5);
 let scrDir = 'up';
 const scr = () => (scrDir === 'up' ? mixScreen : mixScreenP), portrait = () => scrDir !== 'up';
-const vpPer = () => (scrDir === 'up' ? 8 : 10);   // thumbnails a page on the Video page (#206 portrait: 5 rows, a third tab row)
+const vpPer = () => (scrDir === 'up' ? 8 : vpFolder === 'Pano' ? 8 : 10);   // #379 portrait PANO: 4 rows, the PANO SPIN slider under them   // thumbnails a page on the Video page (#206 portrait: 5 rows, a third tab row)
 function stepScrDir() {
   const dir = tabletDir(scrDir); if (dir === scrDir) return;
   scrDir = dir;
@@ -951,7 +953,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
   lightInfo: () => {
     const kd = key.position.clone().sub(key.target.position).normalize().applyQuaternion(rig.getWorldQuaternion(new THREE.Quaternion()));
     const sk = skyKeyLight && streamer && streamer.pc_.light ? skyKeyLight : null;
-    if (sk) kd.copy(sk.dir).applyAxisAngle(_yAxis, settings.skyTurn * DEG).applyQuaternion(rig.getWorldQuaternion(new THREE.Quaternion())).normalize();
+    if (sk) kd.copy(sk.dir).applyAxisAngle(_yAxis, settings.skyTurn * DEG + skySpin.ang).applyQuaternion(rig.getWorldQuaternion(new THREE.Quaternion())).normalize();
     return { keyDir: kd, keyCol: sk ? [sk.color.r, sk.color.g, sk.color.b] : [key.color.r, key.color.g, key.color.b], pano: skyAvg, skyReady: !!skybox.tex };
   },
   pcamPrep: cam => pcamPrep(cam),
@@ -1038,7 +1040,7 @@ function pcamPrep(cam) {
   if (armSleeves) armSleeves.group.visible = false;   // #377 natural hands: no sleeves either
   const kp = key.position.clone(), kc = key.color.clone();
   if (streamer.pc_.light && skyKeyLight) {
-    const d = skyKeyLight.dir.clone().applyAxisAngle(_yAxis, settings.skyTurn * DEG), hz = Math.hypot(d.x, d.z) || 1, up = Math.max(d.y, Math.sin(35 * DEG)), k = Math.sqrt(1 - up * up) / hz;
+    const d = skyKeyLight.dir.clone().applyAxisAngle(_yAxis, settings.skyTurn * DEG + skySpin.ang), hz = Math.hypot(d.x, d.z) || 1, up = Math.max(d.y, Math.sin(35 * DEG)), k = Math.sqrt(1 - up * up) / hz;
     key.position.set(d.x * k, up, d.z * k).multiplyScalar(2.7).add(key.target.position); key.color.setRGB(1, 1, 1).lerp(skyKeyLight.color, 0.5);
   }
   return () => { for (const o of undo) o.visible = true; scene.background = bg; if (armSleeves) armSleeves.group.visible = false; key.position.copy(kp); key.color.copy(kc); };
@@ -3686,7 +3688,7 @@ const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set whil
 let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null, vpSelFolder = null, toolsPage = null;   // #224 vpSelFolder: Pano tab mixes Pano + Video pano
 const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
 const VP_LIB = ['Pano', 'Video', 'Images'];   // #224 one PANO tab for still and video panoramas
-const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA', Sync: 'SYNC', Look: 'LOOK', 'DJ Cam': 'AVACAM' };   // #241 the DJ CAM tab is AVACAM (owner)
+const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'CAMERA', Sync: 'SYNC', Look: 'LOOK', 'DJ Cam': 'AVACAM', Fx: 'FX' };   // #379 FX   // #241 the DJ CAM tab is AVACAM (owner)
 // #234 add pictures and videos from the Quest's own files (Downloads, Pictures, Movies) to the media library, from
 // the start page ('Add pictures / videos…'). Folder by shape: 2:1 (or a big square, over-under stereo) = 360.
 // (#235: the in-VR + IMPORT tile was removed: the Quest did not open its file picker from inside a VR session.)
@@ -3718,7 +3720,7 @@ async function importMedia(files, tab = null, say = null) {
   return (parts.length ? 'Added ' + parts.join(', ') : 'Nothing added') + (skipped ? ` (${skipped} skipped)` : '');
 }
 async function vpLoad() {
-  if (vpFolder === 'Camera' || vpFolder === 'Look' || vpFolder === 'DJ Cam' || vpFolder === 'LedList') { vpItems = []; drawMixScreen(); return; }
+  if (vpFolder === 'Camera' || vpFolder === 'Look' || vpFolder === 'DJ Cam' || vpFolder === 'LedList' || vpFolder === 'Fx') { vpItems = []; drawMixScreen(); return; }
   if (vpFolder === 'Sync') { vpItems = []; syncLoad(); return; }   // #206
   vpItems = vpFolder === 'Pano' ? [...await media.list('Pano'), ...await media.list('Video pano')].sort((a, b) => a.name.localeCompare(b.name)) : await media.list(vpFolder);
   if (vpSel && !vpItems.some(i => i.name === vpSel)) vpSel = null;
@@ -4049,17 +4051,17 @@ function drawVideoPage() {
   };
   const pick = f => () => { vpFolder = f; vpSel = null; vpSelFolder = null; vpPg = 0; vpLoad(); };
   if (P) {   // #198 portrait: tabs in rows of 3 (#206: 3 rows, SYNC added, MIXER last); top and bottom keep clear of the corner L
-    const tabs = [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam'], tw = (W - 30 - 12) / 3;   // #214 LOOK, #220 DJ CAM
+    const tabs = [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam', 'Fx'], tw = (W - 30 - 12) / 3;   // #379 + FX   // #214 LOOK, #220 DJ CAM
     // #363 a top row of its own: title, then DJ MIXER and BACK at the top right; the tabs move down a row
     g.fillStyle = '#dfe6f2'; g.font = '700 18px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('VISUALS', 24, 45); g.textBaseline = 'alphabetic';
     btn(22 + (tw + 6), 28, tw, 34, 'DJ MIXER', false, () => setVideoPage(false));
     btn(22 + 2 * (tw + 6), 28, tw, 34, '◀ BACK', false, navCan() ? navBack : null, !navCan());
     tabs.forEach((f, i) => btn(22 + (i % 3) * (tw + 6), 68 + Math.floor(i / 3) * 40, tw, 34, VP_TABS[f], f === vpFolder, pick(f)));
-    btn(22 + (tw + 6), 148, tw, 34, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
+    btn(22 + 2 * (tw + 6), 148, tw, 34, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #379 moved one over for FX   // #342 the scroller editor
   } else {
     let x = 8;   // #214 seven tabs fit left of MIXER; #220 eight (narrower); #363 narrower again for BACK
-    for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam']) { const w = { Pano: 58, Video: 58, Images: 66, Camera: 70, Sync: 52, Look: 52, 'DJ Cam': 76 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 5; }
-    btn(x, 8, 86, 32, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
+    for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam', 'Fx']) { const w = { Pano: 54, Video: 54, Images: 62, Camera: 66, Sync: 48, Look: 48, 'DJ Cam': 68, Fx: 40 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 5; }   // #379 narrower again for FX
+    btn(x, 8, 80, 32, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
     btn(W - 8 - 80 - 6 - 100, 8, 100, 32, 'DJ MIXER', false, () => setVideoPage(false));   // #225 was MIXER
     btn(W - 8 - 80, 8, 80, 32, '◀ BACK', false, navCan() ? navBack : null, !navCan());   // #363
   }
@@ -4069,6 +4071,7 @@ function drawVideoPage() {
   if (vpFolder === 'Look') { drawLookTab(btn, y0); return; }   // #214
   if (vpFolder === 'DJ Cam') { drawDjCamTab(btn, y0); return; }   // #220
   if (vpFolder === 'LedList') { drawLedList(btn, y0); return; }   // #222
+  if (vpFolder === 'Fx') { drawFxTab(btn, y0); return; }   // #379
   // thumbnails: 4 x 2 (portrait 2 x 6)
   const COLS = P ? 2 : 4, CW = (W - 16 - (COLS - 1) * 8) / COLS, TH = P ? 64 : 76, CH = TH + 20;
   const pages = Math.max(1, Math.ceil(vpItems.length / PER)); vpPg = Math.min(vpPg, pages - 1);
@@ -4114,10 +4117,68 @@ function drawVideoPage() {
   const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : 98, ty = P ? H - 106 : by;
   let x = P ? 8 : 108;
   for (const [label, what] of T) { const dim = (!vpSel && what !== 'skyoff') || (what === 'light' && vpSelFolder === 'Video pano'); btn(x, ty, tw, bh, label, false, dim ? null : () => vpAct(what), dim); x += tw + 6; }
+  if (vpFolder === 'Pano') {   // #379 PANO SPIN 0 to 5 (degrees a second); landscape: between the SKY buttons and the LED button, portrait: a row of its own
+    const sx = P ? 26 : x, sw = P ? W - 52 : W - 8 - 140 - 6 - x;
+    tSlider(g, sx, P ? H - 150 : by, sw, bh, 'SPIN', skySpin.speed / 5, skySpin.speed ? `${+skySpin.speed.toFixed(2)}°/s` : 'OFF', v => setSkySpin(v * 5));
+  }
   const hasList = vpFolder === 'Video' || vpFolder === 'Images';   // #222 the LED playlist, one tap away
   if (hasList) btn(P ? 124 : 522, by, P ? 70 : 92, bh, `LED LIST ${led.files.length}`, false, () => { vpBack = vpFolder; vpFolder = 'LedList'; vpLoad(); });
   const mw = P && hasList ? 78 : 140;
   btn(W - (P ? 26 : 8) - mw, by, mw, bh, LED_LABEL[ledMode], ledMode !== 'off', () => setLedMode(nextLedMode(ledMode)));   // #238 + LIVE
+}
+// #379 tablet slider: tap (or keep tapping) anywhere along it to set the value
+function tSlider(g, x, y, w, h, label, v, txt, set, dim) {
+  v = clamp(v, 0, 1);
+  g.fillStyle = '#0d1422'; g.fillRect(x, y, w, h);
+  const lw = Math.round(Math.min(110, w * 0.36)), vw = 58, tx = x + lw, tw = Math.max(20, w - lw - vw - 6), ty = y + h / 2;
+  g.textBaseline = 'middle'; g.textAlign = 'left'; g.font = '700 13px system-ui'; g.fillStyle = dim ? '#56627a' : '#dfe6f2';
+  fitText2(g, label, x + 8, ty + 1, lw - 12);
+  g.fillStyle = '#1e2a3d'; g.fillRect(tx, ty - 3, tw, 6);
+  g.fillStyle = dim ? '#3a4660' : '#c8202c'; g.fillRect(tx, ty - 3, tw * v, 6);
+  g.fillStyle = dim ? '#56627a' : '#dfe6f2'; g.beginPath(); g.arc(tx + tw * v, ty, 8, 0, 2 * Math.PI); g.fill();
+  g.textAlign = 'right'; g.font = '600 13px system-ui'; g.fillText(txt, x + w - 6, ty + 1);
+  g.textBaseline = 'alphabetic';
+  VP_HIT.push({ x: tx - 10, y, w: tw + 20, h, act: px => set(clamp((px - tx) / tw, 0, 1)) });
+}
+// #379 VISUALS > FX: FLOAT balls (the DJ drops them on gear in the headset; here the list with each one's float amount) and WATER
+let fxClearT = 0;
+function drawFxTab(btn, y0) {
+  const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
+  g.textAlign = 'left';
+  if (!fx) { g.fillStyle = '#8c96a8'; g.font = '500 17px system-ui'; wrapText(g, 'FX is made on the headset / desktop page.', 16, y0 + 30, W - 32, 24, 2); return; }
+  const wt = fx.water, clearArm = performance.now() - fxClearT < 3000, nb = fx.balls.length;
+  const top = [
+    ['FLOAT +', false, () => { if (fx.spawnBall()) toast('FLOAT: a blue ball in front of you (only you see it). Grip it and drop it on gear; slide the bar over it; grip it twice quickly to remove it.', 5000); }, false],
+    [wt.on ? 'WATER: ON' : 'WATER', wt.on, () => wt.tap(), false],
+    ['WATER HERE', false, () => { wt.here(); if (!wt.on) wt.tap(); }, false],
+    [clearArm ? 'TAP AGAIN' : 'CLEAR FLOATS', clearArm, nb ? () => { if (performance.now() - fxClearT < 3000) { fxClearT = 0; fx.clearFloats(); toast('Floats cleared', 1500); } else fxClearT = performance.now(); } : null, !nb],
+  ];
+  const per = P ? 2 : 4, bw = (W - 16 - (per - 1) * 6) / per;
+  top.forEach(([l, on, act, dim], i) => btn(8 + (i % per) * (bw + 6), y0 + Math.floor(i / per) * 40, bw, 34, l, on, act, dim));
+  const RH = P ? 34 : 29, ly = y0 + (P ? 84 : 44), colW = P ? W - 16 : (W - 24) / 2, lx = 8, rowsF = P ? 5 : Math.floor((H - 8 - ly) / RH);
+  if (!nb) {
+    g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui';
+    wrapText(g, 'FLOAT + puts a see-through blue ball in front of you (only you see it, never the stream). Grip it and drop it on a deck, the mixer, a crate, the flight case, a sleeve or a record: it floats as if on water, and whatever sits on it rides along. Slide the bar over the ball to set how much. Grip the ball twice quickly to remove it.', lx + 4, ly + 12, colW - 8, 20, P ? 8 : 10);
+  }
+  fx.balls.slice(0, rowsF).forEach((b, i) => {
+    const y = ly + i * RH, sw = colW - 42;
+    if (b.target) tSlider(g, lx, y, sw, RH - 4, b.target.label, b.v, Math.round(b.v * 100) + '%', v => { b.setV(v); fx.save(); });
+    else { g.fillStyle = '#0d1422'; g.fillRect(lx, y, sw, RH - 4); g.fillStyle = '#8c96a8'; g.font = '600 13px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; fitText2(g, b.held ? 'FLOAT (in your hand)' : 'FLOAT (not on gear yet)', lx + 8, y + (RH - 4) / 2 + 1, sw - 16); g.textBaseline = 'alphabetic'; }
+    btn(lx + sw + 6, y, 36, RH - 4, '✕', false, () => fx.removeBall(b));
+  });
+  if (nb > rowsF) { g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; g.fillText(`+${nb - rowsF} more`, lx + 4, ly + rowsF * RH + 12); }
+  // WATER (the corner cube in the headset sets width and depth separately; SIZE here keeps their ratio)
+  const wx = P ? 8 : 16 + colW, wy = P ? ly + 5 * RH + 12 : ly, dim = !wt.on, pc = v => Math.round(v * 100) + '%';
+  const rows = [
+    ['WATER LEVEL', (wt.obj.position.y + 0.3) / 1.5, Math.round(wt.obj.position.y * 100) + ' cm', v => wt.set('level', -0.3 + v * 1.5)],
+    ['SIZE', (Math.max(wt.w, wt.d) - 0.5) / 9.5, `${wt.w.toFixed(1)}x${wt.d.toFixed(1)}`, v => { const m = Math.max(wt.w, wt.d), k = (0.5 + v * 9.5) / m; wt.setSize(wt.w * k, wt.d * k); wt.save(); }],
+    ['RIPPLE', wt.rip / 2, pc(wt.rip / 2), v => wt.set('rip', v * 2)],
+    ['MURK', wt.murk, pc(wt.murk), v => wt.set('murk', v)],
+    ['REFRACT', wt.refr, pc(wt.refr), v => wt.set('refr', v)],
+    ['CAUSTICS', wt.caus, pc(wt.caus), v => wt.set('caus', v)],
+    ['CLEAR', wt.clar, pc(wt.clar), v => wt.set('clar', v)],
+  ];
+  rows.forEach(([l, v, t, set], i) => tSlider(g, wx, wy + i * RH, colW, RH - 4, l, v, t, set, dim));
 }
 // ---- #222 LED LIST: the LED wall's playlist (what LED NOW / + LED added), in order: play one now, move it up or
 // down, take it off the list; IN ORDER / RANDOM. Kept between sessions (names + library folder).
@@ -5527,10 +5588,13 @@ function frame() {
   }
   if (portals) portals.tick();   // #345 #346
   if (domeBoot) { domeBoot = false; if (dome.on && !CAMERA_ROLE) setDome(true); }   // #346 a dome left on last time: load its sky once everything is up
+  if (skySpin.speed > 0 && skybox.group.visible) { skySpin.ang = (skySpin.ang + skySpin.speed * DEG * dt) % (2 * Math.PI); applySkyTurn(); }   // #379 PANO SPIN
+  if (fx) fx.preRender(dt);   // #379 FLOAT goes on here (every camera below sees it) and comes off after the frame; WATER uniforms
   if ((ledMode === 'cam' || (streamer && streamer.wantsCam) || (gopro && gopro.aiming)) && djcam) stepDjCam(dt);   // #220 (#331 also while the stream shows AVACAM)
   stepArmSleeves();   // #347
   if (streamer) streamer.tick();   // #331
   renderer.render(scene, camera);
+  if (fx) fx.postRender();   // #379 the floated gear back in its real place for hands, grabs and saving
 }
 renderer.setAnimationLoop(frame);
 // #220 DJ CAM: pose the avatar (headset: head + hands; desktop: a demo DJ), then render the camera into the LED wall
@@ -5572,12 +5636,35 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight);
 });
 
+// ------------------------------------------------------------------ #379 VISUALS > FX: FLOAT and WATER (fx.js)
+const FX_LABEL = { deckA: 'DECK A', deckB: 'DECK B', mixer: 'MIXER', crate: 'RECORD CASE', milk: 'MILK CRATE', neon: 'NEON SIGN', ledwall: 'LED WALL' };
+const _fxT = new THREE.Vector3();
+function fxCandidates() {   // what a FLOAT ball can sit on (and what can ride on floated gear)
+  const out = [];
+  for (const k in stage.items) { const o = stage.items[k].obj; if (o.parent && o.visible) out.push({ key: k, obj: o, label: FX_LABEL[k] || (k.startsWith('milk') ? 'MILK CRATE ' + k.slice(4) : k.toUpperCase()) }); }
+  for (const k in cases) { const c = cases[k], g = c.group; out.push({ key: k, obj: g, label: 'FLIGHT CASE', top: () => rig.localToWorld(_fxT.set(g.position.x, g.position.y + c.H, g.position.z)).y }); }
+  for (const d of decks) if (d.record && d.record.group && d.record.group.parent) out.push({ obj: d.record.group, label: 'RECORD ON ' + d.name });
+  for (const sl of sleeves) if (!sl.anchor && !sl.back && sl.g.parent) out.push({ obj: sl.g, label: 'SLEEVE' });
+  for (const l of loose) if (l.rec && l.rec.group.parent) out.push({ obj: l.rec.group, label: 'RECORD' });
+  return out;
+}
+if (!CAMERA_ROLE) {
+  camera.layers.enable(USER_LAYER);   // the desktop camera draws the DJ-only helpers; the headset's eye cameras get it from fx.preRender
+  fx = new FX({
+    rig, renderer, camera, toast, candidates: fxCandidates,
+    gearRoots: () => [...deckGroups, mixer, crateRig, ...milks(), ...Object.values(cases).map(c => c.group), ...sleeves.map(s => s.g)],
+    skipRoots: () => [crateDisc, held && held.group, ...decks.map(d => d.record && d.record.group), ...loose.map(l => l.rec && l.rec.group), ...sleeves.map(s => s.disc)],   // records keep their own groove shader (DO NOT BREAK)
+    sky: () => skybox.group.visible && skybox.tex ? { tex: skybox.tex, so: skybox.mats[0].uniforms.so.value, group: skybox.group } : null,
+    waterHome: () => { const g = cases.caseA.group; return { p: new THREE.Vector3(g.position.x, 0.12, g.position.z), yaw: g.rotation.y }; },
+    isDeck: o => o === deckGroups[0] || o === deckGroups[1], afterFloat: () => { if (deckInst) deckInst.update(); },
+  });
+}
 // ------------------------------------------------------------------ XR input (hands + controllers)
 const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or controllers to drive
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack, gearLocked, gearLockMsg, snapYaw: isDeckKey,   // #378
   REC, DECK, CRATE, ARM,
-  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall].filter(Boolean); },   // #337 #340 #345 #346 (every portal frame that is out)
+  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
   scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
@@ -5703,6 +5790,25 @@ function skyInfo(dims, L) {
 // Full VR. A 360 panorama becomes the grounded skybox; other pictures stay a plain background. Passthrough always
 // shows the real room.
 const DEG = Math.PI / 180;
+// #379 PANO SPIN (VISUALS > PANO, 0 to 5 = degrees a second): the panorama (and the light and reflections taken from it) turns slowly
+// round the booth. Stopping leaves it where it got to; the saved per-picture TURN is not changed.
+const skySpin = { speed: 0, ang: 0 };
+try { const v = parseFloat(localStorage.getItem('vire.skySpin')); if (v > 0 && v <= 5) skySpin.speed = v; } catch {}
+function setSkySpin(v) { skySpin.speed = clamp(Math.round(v * 4) / 4, 0, 5); try { localStorage.setItem('vire.skySpin', String(skySpin.speed)); } catch {} }
+function applySkyTurn() {
+  const full = !arMode && settings.env === 'image' && settings.sky === 'on' && !!skybox.tex;
+  const domeOn = !CAMERA_ROLE && dome.on && !!skybox.tex;
+  const turn = (settings.env === 'image' ? settings.skyTurn * DEG : 0) + skySpin.ang;
+  skybox.setTurn(domeOn ? settings.skyTurn * DEG + skySpin.ang : turn); scene.environmentRotation.set(0, turn, 0); scene.backgroundRotation.set(0, turn, 0);
+  // key light from the picture's brightest area (windows, lamps), at least 35 deg up so shadows stay short
+  if (full && settings.skyKey === 'on' && skyKeyLight) {
+    const d = _skyD.copy(skyKeyLight.dir).applyAxisAngle(_yAxis, turn);
+    const hz = Math.hypot(d.x, d.z) || 1, up = Math.max(d.y, Math.sin(35 * DEG)), k = Math.sqrt(1 - up * up) / hz;
+    key.position.set(d.x * k, up, d.z * k).multiplyScalar(2.7).add(key.target.position);
+    key.color.setRGB(1, 1, 1).lerp(skyKeyLight.color, 0.5);
+  } else { key.position.copy(KEY_POS); key.color.setRGB(1, 1, 1); }
+}
+const _skyD = new THREE.Vector3();
 function applySky() {
   const want = !arMode && settings.env === 'image' && settings.sky === 'on';
   const full = want && !!skybox.tex, bg = want && !full && envLight.skyTex;
@@ -5713,15 +5819,7 @@ function applySky() {
   if (skyVid) { if (full || domeOn) skyVid.play().catch(() => {}); else skyVid.pause(); }   // #185 video pano only decodes while shown
   skybox.setStereo(renderer.xr.isPresenting);
   room.visible = !arMode && !full && !bg && !domeOn;
-  const turn = settings.env === 'image' ? settings.skyTurn * DEG : 0;
-  skybox.setTurn(domeOn ? settings.skyTurn * DEG : turn); scene.environmentRotation.set(0, turn, 0); scene.backgroundRotation.set(0, turn, 0);
-  // key light from the picture's brightest area (windows, lamps), at least 35 deg up so shadows stay short
-  if (full && settings.skyKey === 'on' && skyKeyLight) {
-    const d = skyKeyLight.dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), turn);
-    const hz = Math.hypot(d.x, d.z) || 1, up = Math.max(d.y, Math.sin(35 * DEG)), k = Math.sqrt(1 - up * up) / hz;
-    key.position.set(d.x * k, up, d.z * k).multiplyScalar(2.7).add(key.target.position);
-    key.color.setRGB(1, 1, 1).lerp(skyKeyLight.color, 0.5);
-  } else { key.position.copy(KEY_POS); key.color.setRGB(1, 1, 1); }
+  applySkyTurn();   // #379 turn + key light, also called every frame while PANO SPIN runs
 }
 // per-image pano settings (height, turn, type, key light), keyed by file name + size
 function skyPrefs() { try { return JSON.parse(localStorage.getItem('vire.skyPrefs') || '{}'); } catch { return {}; } }
@@ -5904,7 +6002,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, get fx() { return fx; }, skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
