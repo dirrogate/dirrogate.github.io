@@ -889,7 +889,7 @@ document.querySelectorAll('#hud [data-cam]').forEach(b => b.onclick = () => setC
 let toastTimer;
 // #209 PerfCap recorder (the spectator host feeds it the mirror messages)
 const perf = makePerfCap({ toast: (m, ms) => toast(m, ms) });
-setInterval(() => { if (perf.on && videoPage && vpFolder === 'Camera') drawMixScreen(); }, 1000);
+setInterval(() => { if (perf.on && toolsPage === 'perfcap') drawMixScreen(); }, 1000);
 async function perfToggle() {
   if (!spect) { toast('PerfCap needs Settings > Spectator camera On (it records what the phone would mirror)', 4000); return; }
   if (perf.on) await perf.stop(); else { await perf.start(); spect.perfBegin && spect.perfBegin(); }
@@ -3792,17 +3792,13 @@ function drawCamTab(btn, y0) {
     ['PREVIEW', pvWanted, () => setPreview(!pvWanted)],
     ['LOOK', cs && cs.L && cs.L.on, () => send({ what: 'look', key: 'on', v: !cs.L.on })],
     ['ROOM LIGHT', cs && cs.L && cs.L.room, () => send({ what: 'look', key: 'room', v: !cs.L.room })],
-    // #209 PerfCap (Quest only, works without the phone): record / stop, floor-mark mode, save the last take
-    [perf.on ? `■ ${fmt((Date.now() - perf.P.wall) / 1000)}` : '● PERFCAP', perf.on, () => perfToggle()],
-    [`MARKS ${perf.P.marks.length}`, !!(spect && spect.perfMarks), () => { if (!spect) { perfToggle(); return; } spect.perfMarks = !spect.perfMarks; toast(spect.perfMarks ? 'PerfCap marks: touch each floor mark with the controller tip, pull the trigger' : 'PerfCap marks off', 3500); drawMixScreen(); }],
-    ['SAVE TAKE', false, () => perf.download()],
   ];
-  const per = P ? 3 : 9, bw = (W - 16 - (per - 1) * 6) / per;   // portrait: 3 rows of 3 (#209: was 2)
+  const per = P ? 3 : 6, bw = (W - 16 - (per - 1) * 6) / per;   // portrait: 3 rows of 3 (#209: was 2)
   top.forEach(([label, on, act], i) => {
-    const off = dim && label !== 'PREVIEW' && i < 6;   // #209 the PerfCap buttons work without the phone
+    const off = dim && label !== 'PREVIEW';   // #387 PerfCap moved to its own page (VJ TOOLS > PERFCAP)
     btn(8 + (i % per) * (bw + 6), y0 + Math.floor(i / per) * 42, bw, 36, label, !!on, off ? null : act, off);
   });
-  const cols = P ? [CAM_ROWS.flat()] : CAM_ROWS, colW = P ? W - 16 : (W - 24) / 2, ry = y0 + (P ? 134 : 46);
+  const cols = P ? [CAM_ROWS.flat()] : CAM_ROWS, colW = P ? W - 16 : (W - 24) / 2, ry = y0 + (P ? 92 : 46);
   cols.forEach((col, ci) => col.forEach(([label, what, key, step], ri) => {
     const cx = 8 + ci * (colW + 8), cy = ry + ri * 42;
     g.fillStyle = '#0d1422'; g.fillRect(cx, cy, colW, 36);
@@ -3817,7 +3813,7 @@ function drawCamTab(btn, y0) {
     btn(cx + colW - 50, cy + 2, 44, 32, '+', false, dim ? null : bump(step), dim);
   }));
   g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = cs ? '#8c96a8' : '#c9a040';
-  const pcTxt = perf.on ? `PERFCAP ${fmt((Date.now() - perf.P.wall) / 1000)} · ${perf.P.bytes < 1048576 ? Math.round(perf.P.bytes / 1024) + ' KB' : (perf.P.bytes / 1048576).toFixed(1) + ' MB'} · ` : '';   // #209
+  const pcTxt = '';   // #387 PerfCap's time and size are on its own page
   const stTxt = pcTxt + (!cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone and start its camera.'
     : cs.fixed ? `Phone ${cs.fps} fps · fixed camera (${cs.fcam === 'user' ? 'selfie' : 'main'}) · ${cs.fcal ? 'calibrating' : cs.cal ? 'calibrated' + (cs.fpx != null ? ' ' + cs.fpx + ' px' : '') : 'not calibrated: Calibrate on the phone'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : '')   // #213
     : `Phone ${cs.fps} fps${cs.late ? ` (${cs.late} late/s)` : ''} · ${cs.ar ? 'camera on' : 'camera not started'} · ${cs.cal ? 'calibrated' : 'not calibrated'}${cs.can ? '' : ' · no camera access'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : ''));
@@ -4397,6 +4393,7 @@ function setTools(p) {
     else if (pcamAutoReh) { pcamAutoReh = false; if (!streamer.live && !monOn) streamer.setRehearse(false); }
   }
   if (p === 'pcamcrop') setTools.fitIv = setInterval(() => { if (toolsPage === 'pcamcrop') drawMixScreen(); }, 200);
+  if (p === 'perfcap') setTools.fitIv = setInterval(() => { if (toolsPage === 'perfcap') drawMixScreen(); }, 1000);   // #387 the clock and size
   if (p === 'studiokey') setTools.fitIv = setInterval(() => { if (toolsPage === 'studiokey') drawMixScreen(); }, 400);   // #385 the S8 KEY numbers and preview   // #353 the CROP picture, ~5 a second
   toolsPage = p; pickPg = 0;
   if (p === 'pickVideo' || p === 'pickImage') { pickItems = []; loadPick(p === 'pickVideo' ? 'Video' : 'Images'); }
@@ -4553,7 +4550,7 @@ async function pressBytes(track) {
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
 }
-const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY' };   // #363 up-button names; #376
+const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP' };   // #363 up-button names; #376
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -5122,8 +5119,8 @@ function drawToolsPage() {
         note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until you switch it off (then decks turn in 45 degree steps). RECORD MAKER: press your own record. MILK CRATE: the first milk crate. CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 332); }
       else { const hw0 = (R - L - 8) / 2; btn(L, y0 + 8, hw0, 80, scroller.on ? 'SCROLLER (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 22); btn(L + hw0 + 8, y0 + 8, hw0, 80, 'VISUALS', false, () => setVideoPage(true), false, 22);   // #377 the VISUALS pages from here too
         const hw = (R - L - 8) / 2; sw(L, y0 + 100, hw, 64, 'LED WALL', 'ledwall'); sw(L + hw + 8, y0 + 100, hw, 64, 'NEON', 'neon'); avBtn(L, y0 + 176, R - L, 64);   // #363
-        ledCells(L, y0 + 252, R - L, true);
-        note('VISUALS opens the VISUALS pages (clips, panorama, sky, LED list). LED CURVE bends the wall toward you (0 = flat, up to 150°). LED SIZE: also two hands on the wall. Switched off, the LED wall or the sign is hidden and costs nothing.', y0 + 392); }
+        ledCells(L, y0 + 252, R - L, true); btn(L, y0 + 388, R - L, 64, perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false, 22);   // #387
+        note('VISUALS opens the VISUALS pages (clips, panorama, sky, LED list). LED CURVE bends the wall toward you (0 = flat, up to 150°). LED SIZE: also two hands on the wall. PERFCAP: record the set for an offline third-person video. Switched off, the LED wall or the sign is hidden and costs nothing.', y0 + 468); }
     } else {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
       if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(x2, y0 + 8, w2, 80, 'MILK CRATE', 'milk');
@@ -5132,9 +5129,25 @@ function drawToolsPage() {
         note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until it is switched off. RECORD MAKER: press your own record. CONTROLLERS: 3D hands or bare controllers.', y0 + 218); }
       else { const bw0 = (bw - 8) / 2; btn(L, y0 + 8, bw0, 80, scroller.on ? 'SCROLLER (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, 20); btn(L + bw0 + 8, y0 + 8, bw0, 80, 'VISUALS', false, () => setVideoPage(true), false, 20);   // #377 the VISUALS pages from here too
         const hw = (w2 - 16) / 3; sw(x2, y0 + 8, hw, 80, 'LED WALL', 'ledwall'); sw(x2 + hw + 8, y0 + 8, hw, 80, 'NEON', 'neon'); avBtn(x2 + 2 * (hw + 8), y0 + 8, hw, 80);   // #363
-        ledCells(L, y0 + 98, R - L, false);
+        { const lw = (R - L) * 0.7; ledCells(L, y0 + 98, lw, false); btn(L + lw + 12, y0 + 114, R - L - lw - 12, 36, perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false, 18); }   // #387
         note('VISUALS: the VISUALS pages. LED CURVE bends the wall toward you (0 = flat, up to 150°); a portrait wall stays flat. LED SIZE: also two hands on the wall. LED WALL / NEON off: hidden, no cost.', y0 + 166); }
     }
+    return;
+  }
+  if (page === 'perfcap') {   // #387 PerfCap has its own page (was on the VISUALS > CAMERA tab); VJ TOOLS > PERFCAP
+    const y0 = head('PERFCAP', 'vj');
+    const marks = !!(spect && spect.perfMarks), n = perf.P.marks.length;
+    const recLbl = perf.on ? `■ STOP  ${fmt((Date.now() - perf.P.wall) / 1000)}` : '● PERFCAP';
+    const act = [[recLbl, perf.on, () => perfToggle()],
+      [`MARKS ${n}`, marks, () => { if (!spect) { perfToggle(); return; } spect.perfMarks = !spect.perfMarks; toast(spect.perfMarks ? 'PerfCap marks: touch each floor mark with the controller tip, pull the trigger' : 'PerfCap marks off', 3500); drawMixScreen(); }],
+      ['SAVE TAKE', false, () => perf.download()]];
+    if (P) act.forEach(([l, on, a], i) => btn(L, y0 + 8 + i * 92, R - L, 80, l, on, a, false, 24));
+    else { const w3 = (R - L - 16) / 3; act.forEach(([l, on, a], i) => btn(L + i * (w3 + 8), y0 + 8, w3, 90, l, on, a, false, 24)); }
+    const sy = y0 + (P ? 292 : 122);
+    g.fillStyle = perf.on ? '#fff' : '#8c96a8'; g.font = '600 17px system-ui'; g.textAlign = 'left';
+    const sz = perf.P.bytes < 1048576 ? Math.round(perf.P.bytes / 1024) + ' KB' : (perf.P.bytes / 1048576).toFixed(1) + ' MB';
+    g.fillText(perf.on ? `Recording ${fmt((Date.now() - perf.P.wall) / 1000)} · ${sz}` : spect ? 'Not recording' : 'Needs Settings > Spectator camera On', L + 4, sy);
+    note('Records what the gear does during the set, so a video you film on a tripod can be rendered later with the gear drawn in. No phone needs to be connected. 1: MARKS, touch each taped floor mark with a controller tip and pull the trigger. 2: start the camera, then ● PERFCAP, then knock the controller on the table twice. 3: play. 4: knock twice again, stop. 5: SAVE TAKE.', sy + 22);
     return;
   }
   if (page === 'scroller') {
