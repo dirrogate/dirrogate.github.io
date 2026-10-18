@@ -234,7 +234,8 @@ export function setupXR(ctx) {
       if (sl) { st.direct = { kind: 'sleeveSlide', sl: sl.sl, y0: sl.y0, s0: sl.s0 }; buzz(st, 0.3, 20); return true; }
     }
     // #242 a sleeve lying about: grab it anywhere to pick it up again
-    if (ctx.sleeveGrabTest && (st.isHand || btn === 'grip')) { const h = ctx.sleeveGrabTest(P); if (h && h.sl) {   // #324 grip only (missed in #316)
+    if (ctx.sleeveGrabTest && (st.isHand || btn === 'grip')) { const h = ctx.sleeveGrabTest(P); if (h && (h.sl || h.milk)) {   // #398 h.milk: a sleeve standing in a milk crate
+        // #324 grip only (missed in #316)
       updateAnchor(st); if (ctx.sleeveGrab(st.anchor, P)) { st.direct = { kind: 'sleeve' }; buzz(st, 0.4, 30); return true; } } }
     // 0. target lamp, controllers only: the trigger (or grip) at the lamp head toggles it (CLAUDE.md #58).
     //    Controllers never toggle it by hovering; bare hands still press it with a fingertip poke.

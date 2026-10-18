@@ -582,3 +582,13 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 
 ## #397 NOW SPINNING bar panel 40 % see-through (owner, 18 Oct) (cly3dj-dev)
 - stream.js _npDraw: the dark glass panel behind the title goes from 90 % to 60 % opaque. The red tab, record and text are unchanged.
+
+## #398 Playlist records jump into the milk crate IN THEIR SLEEVES, stacked like the record crate (owner, 18 Oct) (cly3dj-dev)
+- No more bare discs from the PLAYLIST jump. Each milk crate holds a row of sleeved records (`mc.userData.sleeved`, up to 40): one InstancedMesh of plain card jackets per crate (shared `sleeveCard` material, one draw call, frustumCulled off) leaning back against the far wall (tilt -0.10 rad, 6.2 mm pitch, 7" jackets scaled like the record crate), and album covers on the 10 front-most only (`COVER_N` planes per crate, 256 px canvases via `drawJacket`, made only once a crate has sleeves). Owner's reason: GPU cost, same rule as the record crate.
+- The jump (`launchSleeveToMilk`, `stepMilkFlyers`, called from `stepPlJump`): a sleeved record (one box, its cover on a 256 px canvas; pool of up to 6 reused flyers) rises out of the record crate, arcs over with one full flip, and drops into its reserved slot from 14 cm above; the slot stays hidden (`mc.userData.landing`) until it lands. 0.3 s apart; if no flyer is free it waits a frame.
+- Take one out: grip (hands: pinch) on a sleeve's top edge in a milk crate (`milkSleeveHit`, top 10 cm of the crate to 6 cm above it, nearest slot along the lean): it becomes an ordinary lying sleeve in the hand (`sleeveGrab` milk branch; xr.js now accepts `h.milk`). Let a sleeve that still holds its record go over any milk crate: it stands in at the front of that row (`sleeveRelease`).
+- A record standing in a milk crate counts as a copy out (`copiesOut`).
+- Rows are kept per crate: localStorage `vire.milkSleeves.<key>` (file + title|artist items, like the playlists), restored after every library load (`restoreMilkSleeves`); cleared for a freshly spawned crate and forgotten when a crate is tossed away (its cover textures disposed).
+- Fix during the test: covers sat inside the 3 mm jacket (offset 0.9 mm, copied from the record crate's thinner instances); now 2.1 mm in front.
+- Tested in the PC pane (loop stepped by hand): 6 and then 20 records jumped into two new crates, 10 covers on the 20-crate, rows came back after a reload, a sleeve taken from one crate and let go over the other joined that row. Test crates and playlist removed afterwards. Untested in the headset.
+- Backup: backups/pre-398/ (main.js, xr.js). No server restart (static files).

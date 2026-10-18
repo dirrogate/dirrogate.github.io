@@ -771,6 +771,7 @@ function spawnMilk(side = false) {   // #394 side: to one side of the record cra
   if (!free) { toast(`That's the lot: ${MILK_MAX} milk crates`); return null; }
   const m = newMilk(free); stage.items[free] = { obj: m, base: 0 };
   m.userData.label.clear();   // a fresh crate: a blank label (the key may have been used by a crate tossed away)
+  forgetMilkSleeves(free); m.userData.sleeved = [];   // #398 and an empty row
   placeMilk(m, side);   // on the floor near the record crate
   m.scale.setScalar(0.01); m.userData.pop = 0;   // grows in over ~0.25 s (stepMilkCrates)
   saveMilkKeys(); stage.save(); toast('Milk crate added. Toss it away to remove it');
@@ -780,6 +781,8 @@ function removeMilk(key) {
   const m = extraMilk[key]; if (!m) return;
   for (let i = loose.length - 1; i >= 0; i--) if (loose[i].milk === m) { loose[i].rec.dispose(); loose.splice(i, 1); }   // its records go back to the library
   if (m.userData.label) { m.userData.label.forget(); m.userData.label.dispose(); m.userData.label = null; }   // #394
+  forgetMilkSleeves(key); m.userData.sleeved = [];   // #398 its sleeves go back to the library
+  if (m.userData.coverPool) for (const cm of m.userData.coverPool) { cm.material.map.dispose(); cm.material.dispose(); }
   rig.remove(m); m.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
   delete extraMilk[key]; delete stage.items[key]; flyingMilk.delete(m);
   saveMilkKeys(); stage.save(); toast('Milk crate removed');
@@ -1429,6 +1432,7 @@ async function loadLibrary() {
   try { const pr = await listPressings(); if (pr.length) { if (!lib) lib = emptyLibrary(); addPressings(lib, pr); } } catch (e) { console.warn('pressings', e); }   // #224
   if (!CAMERA_ROLE) { if (!lib) lib = emptyLibrary(); addExamples(lib); }   // #231
   plAttach();   // #392
+  restoreMilkSleeves();   // #398
   crateState.pl = 0; crateState.sel = 0; search.q = ''; search.results = null; searchInput.value = '';
   drawCrateScreen(); layoutSleeves();
 }
@@ -1853,8 +1857,8 @@ function crateSearchRowPl(b) {   // a tap on the PLAYLIST view's search row
   else if (b.id === 'pl') plOpen();
 }
 // ---- #394 (owner) PLAYLIST > the curved arrow into a milk crate: a new milk crate pops up beside the record crate with the
-// playlist's name scrawled on its label, and every record in the playlist jumps out of the record crate, one after the
-// other, flips through the air and lands in it (the milk crate's own physics settles them). Records already out (all
+// playlist's name scrawled on its label, and every record in the playlist jumps out of the record crate in its sleeve, one after
+// the other, flips through the air and drops into the row (#398: sleeved, see layoutMilkSleeves). Records already out (all
 // 3 copies) or missing files stay behind; at most 40 per crate.
 let plJump = null;
 function plToMilk() {
@@ -1868,11 +1872,12 @@ function plToMilk() {
   crateSay(`${Math.min(40, recs.length)} record${recs.length === 1 ? '' : 's'} jumping into the "${name}" milk crate`, true, 3500);
 }
 function stepPlJump(dt) {
+  stepMilkFlyers(dt);   // #398 sleeves in the air
   const J = plJump; if (!J) return;
   if (!J.mc.parent || flyingMilk.has(J.mc)) { plJump = null; drawCrateScreen(); return; }
   J.t += dt;
-  while (J.i < J.recs.length && J.t >= J.i * 0.3) { try { launchToMilk(J.recs[J.i], J.mc); } catch (e) { console.warn('jump', e); } J.i++; }
-  if (J.i >= J.recs.length && J.t > J.i * 0.3 + 1.2) { plJump = null; drawCrateScreen(); }
+  while (J.i < J.recs.length && J.t >= J.i * 0.3) { try { if (!launchSleeveToMilk(J.recs[J.i], J.mc)) break; } catch (e) { console.warn('jump', e); } J.i++; }   // #398 in their sleeves (no flyer free: try again next frame)
+  if (J.i >= J.recs.length && !msFly.some(f => f.busy && f.mc === J.mc)) { plJump = null; drawCrateScreen(); }
 }
 function launchToMilk(r, mc) {
   const rec = new Record3D(r); rec.group.scale.setScalar(1); scene.add(rec.group); prepareArt(rec);
@@ -2173,6 +2178,7 @@ function sleeveGrabTest(P) {
     sl.g.updateMatrixWorld(); const l = sl.g.worldToLocal(P.clone());
     if (Math.abs(l.x) < sl.sz.H / 2 + 0.02 && Math.abs(l.y) < sl.sz.H / 2 + 0.02 && Math.abs(l.z) < 0.04) return { sl };
   }
+  { const mh = milkSleeveHit(P); if (mh) return mh; }   // #398 a sleeve standing in a milk crate (its top edge)
   if (!crateLidOpen() || !crateDisc.visible) return null;
   const r = currentList()[crateState.sel]; if (!r || r.missing || sleeveOf(r)) return null;
   const pose = selectedSlotPose(); if (!pose) return null;
@@ -2185,6 +2191,13 @@ function sleeveGrabTest(P) {
 function sleeveGrab(anchor, P) {
   const hit = P ? sleeveGrabTest(P) : { crate: true }; if (!hit) return false;
   let sl = hit.sl;
+  if (!sl && hit.milk) {   // #398 out of a milk crate: that sleeve comes up in the hand from its slot
+    const mc = hit.milk, r = mc.userData.sleeved[hit.k]; if (!r) return false;
+    const P0 = milkSlotPose(mc, hit.k, r); mc.userData.sleeved.splice(hit.k, 1);
+    sl = makeSleeve(r); sleeves.push(sl); sl.g.position.copy(P0.p); sl.g.quaternion.copy(P0.q);
+    mc.updateMatrixWorld(); sl.g.applyMatrix4(mc.matrixWorld);
+    layoutMilkSleeves(mc); saveMilkSleeves(mc);
+  }
   if (!sl) {
     const r = currentList()[crateState.sel], pose = selectedSlotPose(); if (!r || !pose) return false;
     sl = makeSleeve(r); sleeves.push(sl);
@@ -2227,8 +2240,125 @@ function sleeveRelease(anchor) {   // let go: stays where it is; over the record
   sl.anchor = null; sl.placedT = performance.now();
   const c = crate.worldToLocal(sl.g.getWorldPosition(new THREE.Vector3()));
   if (crateLidOpen() && Math.abs(c.x) < CRATE.W / 2 && Math.abs(c.z) < CRATE.D / 2 && c.y > 0 && c.y < CRATE.H + 0.12) { sleeveReturn(sl); return; }
+  if (sl.hasRec) for (const mc of milks()) {   // #398 let go over a milk crate: it stands in at the front of its row
+    const l = mc.worldToLocal(sl.g.getWorldPosition(new THREE.Vector3())), L = mc.userData.sleeved || (mc.userData.sleeved = []);
+    if (Math.abs(l.x) < MILK.W / 2 && Math.abs(l.z) < MILK.D / 2 && l.y > 0 && l.y < MILK.H + 0.2 && L.length < MS.MAX) {
+      L.push(sl.rec); disposeSleeve(sl); layoutMilkSleeves(mc); saveMilkSleeves(mc); layoutSleeves(); return;
+    }
+  }
   const lying = sleeves.filter(x => !x.anchor && !x.back).sort((a, b) => a.placedT - b.placedT);
   while (lying.length > SLEEVE.MAX_OUT) sleeveReturn(lying.shift());
+}
+// ---- #398 (owner) records in their sleeves in the milk crates, standing in a row like the record crate (no bare discs):
+// one instanced mesh of plain card jackets per crate (one draw call, up to 40), and album covers only on the 10 front-most
+// (10 small 256 px textures per crate, like the record crate's COVER_N), so a full crate costs about what the record crate
+// does. The row leans back against the far wall (6 mm pitch), tops 1.7 cm over the rim. Grip (hands: pinch) a sleeve by
+// its top edge to take it out (it becomes an ordinary lying sleeve: slide the record out, put it back...); let a sleeve go
+// over a milk crate and it stands in at the front of the row. The row is kept per crate ('vire.milkSleeves.<key>', by file
+// + title|artist like the playlists) and comes back after a reload.
+const MS = { MAX: 40, PITCH: 0.0062, TILT: -0.10, FLOOR: 0.008 };
+const msGeo = new THREE.BoxGeometry(SLEEVE.H, SLEEVE.H, 0.003), msCoverGeo = new THREE.PlaneGeometry(0.312, 0.312), _msX = new THREE.Vector3(1, 0, 0);
+function milkSleeveMesh(mc) {
+  if (mc.userData.sleeveIM) return mc.userData.sleeveIM;
+  const im = new THREE.InstancedMesh(msGeo, sleeveCard, MS.MAX); im.count = 0; im.frustumCulled = false; im.castShadow = true;
+  im.userData.move = mc.userData.key; im.userData.milkSleeves = true; mc.add(im); mc.userData.sleeveIM = im; return im;
+}
+function milkSlotPose(mc, k, r) {   // crate-local pose of slot k (back wall first)
+  const sh = sleeveDims(r).H, ks = sh / SLEEVE.H, I = mc.userData.inner, t = MS.TILT;
+  const z0 = -I.z + 0.0035 + sh / 2 * Math.sin(-t);
+  return { p: new THREE.Vector3(0, MS.FLOOR + sh / 2 * Math.cos(t), z0 + k * MS.PITCH), q: new THREE.Quaternion().setFromAxisAngle(_msX, t), ks };
+}
+function layoutMilkSleeves(mc) {
+  const list = mc.userData.sleeved || [], pend = mc.userData.landing;
+  const im = list.length ? milkSleeveMesh(mc) : mc.userData.sleeveIM; if (!im) return;
+  const m = new THREE.Matrix4(), sc = new THREE.Vector3();
+  im.count = list.length;
+  list.forEach((r, k) => { const P = milkSlotPose(mc, k, r); if (pend && pend.has(r)) sc.set(0, 0, 0); else sc.set(P.ks, P.ks, 1); m.compose(P.p, P.q, sc); im.setMatrixAt(k, m); });
+  im.instanceMatrix.needsUpdate = true;
+  let pool = mc.userData.coverPool;
+  if (!pool && list.length) pool = mc.userData.coverPool = Array.from({ length: COVER_N }, () => {
+    const c = document.createElement('canvas'); c.width = c.height = 256; const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    const cm = new THREE.Mesh(msCoverGeo, new THREE.MeshStandardMaterial({ map: t, roughness: 0.75 }));
+    cm.visible = false; cm.userData = { canvas: c, tex: t, rec: null, hasArt: false, move: mc.userData.key }; mc.add(cm); return cm;
+  });
+  if (!pool) return;
+  const shown = []; for (let k = list.length - 1; k >= 0 && shown.length < COVER_N; k--) if (!(pend && pend.has(list[k]))) shown.push(k);
+  pool.forEach((cm, i) => {
+    const k = shown[i]; if (k === undefined) { cm.visible = false; return; }
+    const r = list[k], P = milkSlotPose(mc, k, r), t = r.sides.A || r.sides.B;
+    cm.position.copy(P.p).add(new THREE.Vector3(0, 0, 0.0021).applyQuaternion(P.q)); cm.quaternion.copy(P.q); cm.scale.set(P.ks, P.ks, 1); cm.visible = true;   // just in front of the 3 mm jacket
+    if (cm.userData.rec !== r || (!cm.userData.hasArt && t && artCache.get(t.id))) { cm.userData.rec = r; drawJacket(cm, r); }
+    if (t && !t.missing && !artCache.has(t.id)) fetchArt(t).then(a => { if (a && cm.userData.rec === r) drawJacket(cm, r); });
+  });
+}
+function milkSleeveHit(P) {   // a grab at the top edge of a sleeve standing in a milk crate -> { milk, k }
+  for (const mc of milks()) {
+    const L = mc.userData.sleeved; if (!L || !L.length || flyingMilk.has(mc)) continue;
+    const l = mc.worldToLocal(P.clone());
+    if (Math.abs(l.x) > MILK.W / 2 + 0.02 || Math.abs(l.z) > MILK.D / 2 + 0.02 || l.y < MILK.H - 0.10 || l.y > MILK.H + 0.06) continue;
+    let best = -1, bd = 0.03;
+    L.forEach((r, k) => {
+      if (mc.userData.landing && mc.userData.landing.has(r)) return;
+      const Ps = milkSlotPose(mc, k, r), zAt = Ps.p.z + (l.y - Ps.p.y) * Math.tan(MS.TILT), d = Math.abs(l.z - zAt);
+      if (d <= bd) { bd = d; best = k; }   // ties: the front-most
+    });
+    if (best >= 0) return { milk: mc, k: best };
+  }
+  return null;
+}
+function saveMilkSleeves(mc) { if (CAMERA_ROLE) return; try { localStorage.setItem('vire.milkSleeves.' + mc.userData.key, JSON.stringify((mc.userData.sleeved || []).map(plItem))); } catch {} }
+function forgetMilkSleeves(key) { try { localStorage.removeItem('vire.milkSleeves.' + key); } catch {} }
+function restoreMilkSleeves() {
+  if (CAMERA_ROLE || !lib) return; const find = plMaps();
+  for (const mc of [milk, ...Object.values(extraMilk)]) {
+    let items = []; try { items = JSON.parse(localStorage.getItem('vire.milkSleeves.' + mc.userData.key) || '[]'); } catch {}
+    mc.userData.sleeved = plResolve(items, find).slice(0, MS.MAX); mc.userData.landing = null; layoutMilkSleeves(mc);
+  }
+}
+// the jump: a sleeved record (one box, its cover on a 256 px canvas) rises out of the record crate, arcs over with one
+// flip, and drops into its slot from 14 cm above. Up to 6 in the air, reused.
+const msFly = [];
+function msFlyer() {
+  let f = msFly.find(x => !x.busy); if (f) return f; if (msFly.length >= 6) return null;
+  const c = document.createElement('canvas'); c.width = c.height = 256; const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(msGeo, [sleeveCard, sleeveCard, sleeveCard, sleeveCard, new THREE.MeshStandardMaterial({ map: t, roughness: 0.75 }), sleeveCard]);
+  mesh.visible = false; mesh.castShadow = true; scene.add(mesh);
+  f = { mesh, jk: { userData: { canvas: c, tex: t, hasArt: false } }, busy: false }; msFly.push(f); return f;
+}
+function launchSleeveToMilk(r, mc) {
+  const L = mc.userData.sleeved || (mc.userData.sleeved = []); if (L.length >= MS.MAX) return false;
+  const f = msFlyer(); if (!f) return false;
+  L.push(r); (mc.userData.landing || (mc.userData.landing = new Set())).add(r); layoutMilkSleeves(mc);
+  f.r = r; drawJacket(f.jk, r);
+  const t = r.sides.A || r.sides.B; if (t && !t.missing && !artCache.has(t.id)) fetchArt(t).then(a => { if (a && f.r === r) drawJacket(f.jk, r); });
+  crate.updateMatrixWorld(true);
+  f.ps = crate.localToWorld(new THREE.Vector3(0, CRATE.H * 0.55, 0.02)); f.qs = crate.getWorldQuaternion(new THREE.Quaternion());
+  f.mc = mc; f.t = 0; f.busy = true; f.spin = Math.random() < 0.5 ? 1 : -1;
+  const P = milkSlotPose(mc, L.length - 1, r); mc.updateMatrixWorld(true);
+  const d = f.ps.distanceTo(mc.localToWorld(P.p.clone())); f.tf = 0.55 + Math.min(0.3, d * 0.22); f.arc = 0.28 + d * 0.18;
+  f.mesh.scale.setScalar(P.ks); f.mesh.position.copy(f.ps); f.mesh.quaternion.copy(f.qs); f.mesh.visible = true;
+  layoutSleeves(); return true;
+}
+const _msA = new THREE.Vector3(), _msQ = new THREE.Quaternion(), _msQ2 = new THREE.Quaternion();
+function stepMilkFlyers(dt) {
+  for (const f of msFly) {
+    if (!f.busy) continue;
+    const mc = f.mc, L = mc.userData.sleeved || [], k = L.indexOf(f.r);
+    if (!mc.parent || k < 0) { f.busy = false; f.mesh.visible = false; continue; }
+    f.t += dt;
+    const P = milkSlotPose(mc, k, f.r); mc.updateMatrixWorld();
+    const pe = mc.localToWorld(P.p.clone()), qe = mc.getWorldQuaternion(_msQ).multiply(P.q), above = _msA.copy(pe); above.y += 0.14;
+    const u = Math.min(1, f.t / f.tf);
+    if (u < 1) {
+      f.mesh.position.lerpVectors(f.ps, above, u); f.mesh.position.y += f.arc * 4 * u * (1 - u);
+      const sp = u * u * (3 - 2 * u);
+      f.mesh.quaternion.slerpQuaternions(f.qs, qe, sp).multiply(_msQ2.setFromAxisAngle(_msX, f.spin * Math.PI * 2 * sp));
+    } else {
+      const dd = Math.min(1, (f.t - f.tf) / 0.12);
+      f.mesh.position.lerpVectors(above, pe, dd * dd); f.mesh.quaternion.copy(qe);
+      if (dd >= 1) { f.busy = false; f.mesh.visible = false; if (mc.userData.landing) mc.userData.landing.delete(f.r); layoutMilkSleeves(mc); saveMilkSleeves(mc); }
+    }
+  }
 }
 function sleeveReturn(sl) {   // fly back into its slot (shrinks away if its record isn't in the crate's list now)
   if (!sl || sl.back) return;
@@ -2522,6 +2652,7 @@ function copiesOut(r) {
   for (const d of decks) if (d.record && d.record.rec === r) n++;
   let ls = []; try { ls = loose; } catch (e) {}   // start-up: layoutSleeves can run before `loose` exists
   for (const L of ls) if (L.rec && L.rec.rec === r) n++;
+  try { for (const mc of milks()) if (mc.userData.sleeved) for (const x of mc.userData.sleeved) if (x === r) n++; } catch (e) {}   // #398 standing in a milk crate
   return n;
 }
 // attach: optional Object3D (an XR hand/controller anchor) the record follows; none = desktop camera hold
@@ -6579,7 +6710,7 @@ drawMixScreen();
 // debugging handle
 window.vire = { THREE, get fx() { return fx; }, skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
-window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, get plJump() { return plJump; } };   // #394 / #395 test hooks   // #392 / #393 test hooks
+window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, milkSleeveHit, layoutMilkSleeves, get plJump() { return plJump; }, msFly };   // #394 / #395 test hooks   // #392 / #393 test hooks
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
