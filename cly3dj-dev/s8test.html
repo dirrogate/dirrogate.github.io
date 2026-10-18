@@ -134,7 +134,7 @@ var vQ = document.createElement('video'), vC = document.createElement('video');
 [vQ, vC].forEach(function (v) { v.muted = true; v.playsInline = true; v.autoplay = true; v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none'; document.body.appendChild(v); });
 var L1 = null, L2 = null, camTrack = null, t0 = 0, running = false, notes = [];
 var n = { comp: 0, q: 0, c: 0, src: 0 }, fps = { comp: 0, q: 0, c: 0, src: 0 }, hist = [], worst = 99, statLines = '', jank = 0, lastRaf = 0, maxGap = 0;
-var newQ = false, newC = false, lastCT = -1, rvfcQ = 0, realLoad = false, frames = [], fi = 0;
+var newQ = false, newC = false, lastPQ = -1, qEver = false, blind = false, sigT = 0, lastCT = -1, rvfcQ = 0, realLoad = false, frames = [], fi = 0;
 function log(s) { notes.push(s); if (notes.length > 6) notes.shift(); }
 function onFrames(v, key) {
   if (!v.requestVideoFrameCallback) return;
@@ -167,7 +167,12 @@ function frame(now) {
   if (realLoad && now - (frame.last || 0) < 30) { requestAnimationFrame(frame); return; }   // the studio draws at most ~30 a second
   frame.last = now;
   if (realLoad) { sg.drawImage(frames[fi = (fi + 1) % frames.length], 0, 0); } else drawScene(t); n.src++;
-  if (vQ.readyState >= 2 && performance.now() - rvfcQ > 400 && vQ.currentTime !== lastCT) { lastCT = vQ.currentTime; newQ = true; n.q++; }   // Chrome 101: no frame callbacks for WebRTC video
+  if (vQ.readyState >= 2 && performance.now() - rvfcQ > 400) {   // Chrome 101: no frame callbacks for WebRTC video, so two other clocks, then a blind copy
+    var pq = vQ.getVideoPlaybackQuality ? vQ.getVideoPlaybackQuality().totalVideoFrames : 0;
+    if (vQ.currentTime !== lastCT || pq !== lastPQ) { lastCT = vQ.currentTime; lastPQ = pq; newQ = true; n.q++; qEver = true; sigT = performance.now(); blind = false; }
+    else if (!qEver && vQ.videoWidth > 0 && performance.now() - t0 > 4000) { if (!blind) log('no frame counter works here: copying the Quest picture on every draw'); blind = true; }
+    if (blind) newQ = true;
+  }
   if (prog) {
     gl.useProgram(prog);
     var hq = vQ.readyState >= 2 && vQ.videoWidth > 0, hc = vC.readyState >= 2 && vC.videoWidth > 0;
