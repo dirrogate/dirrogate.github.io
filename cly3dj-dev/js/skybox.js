@@ -11,27 +11,42 @@ import * as THREE from 'three';
 const R = 20;               // default sphere radius (m): inside the camera's 30 m far plane
 const MAX_PIX = 8192 * 4096; // biggest texture kept (about 180 MB with mipmaps); larger files are scaled down
 
+// #403 (owner: dome flicker, passthrough showing when looking down) cheaper and steadier:
+//  - UVs come from the sphere's own vertices (SphereGeometry's equirect uv, mirrored to match), not atan / asin per
+//    pixel; flattening only moves vertices along their own direction, so the floor is still undistorted. The hardware
+//    gradients are then correct everywhere (the geometry has its own seam column), so the old textureGrad seam fix goes.
+//  - drawn LAST among the opaque objects, pinned just inside the far plane: the GPU skips every dome pixel the decks,
+//    mixer, tablet, hands and walls already cover (it used to shade the whole sphere first and paint over it).
+//  - video panos (no mipmaps): where one screen pixel spans more than ~1.2 texels (far floor, grazing angles) four
+//    rotated-grid taps are averaged instead of one, which stops the sparkle that read as flicker; where the video is
+//    magnified (most of the view: a 5.7K video is coarser than the Quest 3's pixels) it stays a single sharp tap.
+//  Still pictures keep full resolution, trilinear mipmaps and 4x anisotropy.
 const VERT = /* glsl */`
 varying vec3 vDir;
+varying vec2 vUv;
 void main() {
-  vDir = position;          // flattening only scales each vertex along its own direction
+  vDir = position;
+  vUv = vec2(1.0 - uv.x, uv.y);   // SphereGeometry's u runs the other way round from atan(z, x)
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  gl_Position.z = gl_Position.w * 0.99999;   // just inside the far plane: behind everything, drawn only where nothing else is
 }`;
 const FRAG = /* glsl */`
 uniform sampler2D map;
 uniform vec4 so;            // u = u * so.x + so.y, v = v * so.z + so.w (picks the eye's half)
+uniform vec2 texSize;       // texels (whole picture)
+uniform float aa;           // 1 = video (no mipmaps): footprint-adaptive 4-tap
 varying vec3 vDir;
+varying vec2 vUv;
 void main() {
-  vec3 d = normalize(vDir);
-  float u = atan(d.z, d.x) * 0.15915494 + 0.5;
-  float v = asin(clamp(d.y, -1.0, 1.0)) * 0.31830989 + 0.5;
-  // gradients from a seam-free copy of u, so the wrap-around column doesn't pick the smallest mip level (a seam line)
-  float u2 = fract(u + 0.5);
-  float dux = dFdx(u), duy = dFdy(u), dux2 = dFdx(u2), duy2 = dFdy(u2);
-  if (abs(dux2) < abs(dux)) dux = dux2;
-  if (abs(duy2) < abs(duy)) duy = duy2;
-  vec2 uv = vec2(fract(u) * so.x + so.y, v * so.z + so.w);
-  gl_FragColor = textureGrad(map, uv, vec2(dux * so.x, dFdx(v) * so.z), vec2(duy * so.x, dFdy(v) * so.z));
+  vec2 uv = vec2(vUv.x * so.x + so.y, vUv.y * so.z + so.w);
+  vec2 dx = dFdx(uv), dy = dFdy(uv);
+  vec4 c;
+  float fp = max(length(dx * texSize), length(dy * texSize));
+  if (aa > 0.5 && fp > 1.2) {
+    c = 0.25 * (texture2D(map, uv + dx * 0.125 + dy * 0.375) + texture2D(map, uv + dx * 0.375 - dy * 0.125)
+              + texture2D(map, uv - dx * 0.125 - dy * 0.375) + texture2D(map, uv - dx * 0.375 + dy * 0.125));
+  } else c = texture2D(map, uv);
+  gl_FragColor = c;
   #include <colorspace_fragment>
 }`;
 
@@ -90,12 +105,12 @@ export class Skybox {
     this.group = new THREE.Group(); this.group.visible = false; this.group.name = 'skybox';
     this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.tex = null;
     this.mats = [0, 1].map(() => new THREE.ShaderMaterial({
-      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) } },
+      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 } },
       vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthWrite: false, toneMapped: false,
     }));
     this.geo = null; this.setHeight(this.height);
     this.meshes = this.mats.map(m => {
-      const s = new THREE.Mesh(this.geo, m); s.frustumCulled = false; s.renderOrder = -1000; s.raycast = () => {};
+      const s = new THREE.Mesh(this.geo, m); s.frustumCulled = false; s.renderOrder = 1000; s.raycast = () => {};   // #403 last of the opaque objects (was -1000, first)
       this.group.add(s); return s;
     });
     this.setStereo(false);
@@ -138,7 +153,7 @@ export class Skybox {
     t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.anisotropy = 4; t.needsUpdate = true;
     t.onUpdate = () => { if (bmp.close) bmp.close(); };
     this.tex = t; this.size = [bmp.width, bmp.height];
-    this.mats.forEach(m => { m.uniforms.map.value = t; });
+    this.mats.forEach(m => { m.uniforms.map.value = t; m.uniforms.texSize.value.set(bmp.width, bmp.height); m.uniforms.aa.value = 0; });   // #403
     this.setLayout(layout, swap);
   }
   // #185 video panorama: a looping muted <video> (see openPanoVideo); no mipmaps, decoded every frame
@@ -148,7 +163,7 @@ export class Skybox {
     t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
     t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
     this.tex = t; this.size = [video.videoWidth, video.videoHeight];
-    this.mats.forEach(m => { m.uniforms.map.value = t; });
+    this.mats.forEach(m => { m.uniforms.map.value = t; m.uniforms.texSize.value.set(video.videoWidth, video.videoHeight); m.uniforms.aa.value = 1; });   // #403 4-tap where minified
     this.setLayout(layout, swap);
   }
   setLayout(layout, swap) {
