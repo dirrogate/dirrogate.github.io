@@ -15,7 +15,9 @@ const out = document.getElementById('out'), goB = document.getElementById('go'),
 const MODES = ['OCCLUSION', 'NO OCCLUSION', 'DEPTH COLOURS', 'ROOM PLANES + MESH'];
 const R = { when: new Date().toISOString(), ua: navigator.userAgent, ar: null, request: null, session: null, depth: null, depthChecks: 0, depthValid: 0, cpuCentre: null,
   planes: {}, planeCount: 0, meshes: {}, meshCount: 0, roomCapture: null, modes: {}, errors: [] };
-const err = (where, e) => { if (R.errors.length < 12) R.errors.push(`${where}: ${e && e.message || e}`); };
+const err = (where, e) => { const m = `${where}: ${e && e.message || e}${e && e.stack ? ' @ ' + String(e.stack).split('\n')[1]?.trim() : ''}`; if (!R.errors.includes(m) && R.errors.length < 12) R.errors.push(m); };
+addEventListener('error', e => err('page', e.error || e.message));
+addEventListener('unhandledrejection', e => err('promise', e.reason));
 
 function report() {
   const L = [];
@@ -112,8 +114,8 @@ const hudC = document.createElement('canvas'); hudC.width = 1024; hudC.height = 
 const hudTex = new THREE.CanvasTexture(hudC); hudTex.colorSpace = THREE.SRGBColorSpace;
 const hud = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.62 * 700 / 1024), new THREE.MeshBasicMaterial({ map: hudTex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
 hud.renderOrder = 1000; scene.add(hud);
-function placeHud() {
-  const c = renderer.xr.getCamera(); const p = new THREE.Vector3().setFromMatrixPosition(c.matrixWorld), q = new THREE.Quaternion().setFromRotationMatrix(c.matrixWorld);
+function placeHud() {   // #408b from the XR camera's pose as three sets it each frame (position / quaternion; matrixWorld lags a frame)
+  const c = renderer.xr.getCamera(); const p = c.position.clone(), q = c.quaternion.clone();
   const yaw = new THREE.Euler().setFromQuaternion(q, 'YXZ').y, f = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
   hud.position.copy(p).addScaledVector(f, 0.9).add(new THREE.Vector3(Math.cos(yaw) * -0.35, -0.22, Math.sin(yaw) * 0.35)); hud.lookAt(p.x, hud.position.y, p.z);
 }
@@ -130,7 +132,7 @@ function drawHud() {
   rows.push(['Planes', `${R.planeCount}  ${Object.entries(R.planes).map(([k, v]) => `${k} ${v}`).join(', ')}`]);
   rows.push(['Meshes', `${R.meshCount}  ${Object.entries(R.meshes).map(([k, v]) => `${k} ${v}`).join(', ')}`]);
   for (const [k, v] of Object.entries(R.modes)) rows.push([k, `${(v.n / v.t).toFixed(1)} fps, worst ${v.worst.toFixed(0)} ms, ${v.slow} slow`]);
-  if (R.errors.length) rows.push(['Error', R.errors[R.errors.length - 1]]);
+  if (R.errors.length) { g.fillStyle = '#ff5050'; g.font = '700 24px system-ui'; g.fillText(('ERROR ' + R.errors[R.errors.length - 1]).slice(0, 72), 28, 630); }
   let y = 150; for (const [k, v] of rows) { g.fillStyle = '#9aa4b6'; g.font = '600 26px system-ui'; g.fillText(k, 28, y); g.fillStyle = '#fff'; g.font = '500 26px system-ui'; g.fillText(String(v).slice(0, 60), 300, y); y += 40; }
   g.fillStyle = '#6a7488'; g.font = '500 22px system-ui';
   g.fillText(mode === 0 ? 'Hand / people in front of the pillars: they should cut them cleanly.' : mode === 1 ? 'Same scene, real world ignored: compare the frame rate.' : mode === 2 ? 'Colour = distance (red near, purple 5 m), white line every 0.5 m.' : 'Green walls, blue floor, pink ceiling, cyan room mesh.', 28, 672);
@@ -138,12 +140,13 @@ function drawHud() {
 }
 
 // ---------------------------------------------------------------- session
-let lastTex = null;
+let lastTex = null, frames = 0, keepT = 0, occFixed = false;
 let session = null, binding = null, mode = 0, hudT = 0, checkT = 0, lastT = 0, modeT0 = 0;
-async function start() {
+async function start(noDepth) {
   const want = { requiredFeatures: ['local-floor'], optionalFeatures: ['depth-sensing', 'plane-detection', 'mesh-detection', 'hand-tracking'],
     depthSensing: { usagePreference: ['gpu-optimized', 'cpu-optimized'], dataFormatPreference: ['luminance-alpha', 'float32'] } };
-  try { session = await navigator.xr.requestSession('immersive-ar', want); R.request = 'depth-sensing (gpu or cpu, luminance-alpha or float32), plane-detection, mesh-detection, hand-tracking'; }
+  if (noDepth) { want.optionalFeatures = want.optionalFeatures.filter(f => f !== 'depth-sensing'); delete want.depthSensing; }
+  try { session = await navigator.xr.requestSession('immersive-ar', want); if (noDepth) R.request = 'NO depth (second button), plane-detection, mesh-detection, hand-tracking'; else R.request = 'depth-sensing (gpu or cpu, luminance-alpha or float32), plane-detection, mesh-detection, hand-tracking'; }
   catch (e) {
     err('request with depth', e);
     session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['local-floor'], optionalFeatures: ['plane-detection', 'mesh-detection', 'hand-tracking'] });
@@ -151,16 +154,16 @@ async function start() {
   }
   R.session = { enabledFeatures: session.enabledFeatures ? [...session.enabledFeatures] : null, depthUsage: session.depthUsage, depthDataFormat: session.depthDataFormat, depthType: session.depthType,
     blend: session.environmentBlendMode, frameRate: session.frameRate, rates: session.supportedFrameRates ? [...session.supportedFrameRates].join(' ') : '' };
-  try { if (session.updateTargetFrameRate && session.supportedFrameRates && [...session.supportedFrameRates].includes(72)) await session.updateTargetFrameRate(72); R.session.frameRate = session.frameRate; } catch (e) { err('frame rate', e); }
-  await renderer.xr.setSession(session);
+  await renderer.xr.setSession(session);   // #408b BEFORE the frame rate: updateTargetFrameRate only settles once frames run, awaiting it first hung the session (black screen)
+  try { if (session.updateTargetFrameRate && session.supportedFrameRates && [...session.supportedFrameRates].includes(72)) session.updateTargetFrameRate(72).then(() => { R.session.frameRate = session.frameRate; }, e => err('frame rate', e)); } catch (e) { err('frame rate', e); }
   try { binding = new XRWebGLBinding(session, gl); } catch (e) { err('binding', e); }
   for (const i of [0, 1]) { const c = renderer.xr.getController(i); scene.add(c); c.addEventListener('select', () => setMode((mode + 1) % MODES.length)); }
   session.addEventListener('end', () => { session = null; keep(); show(); copyB.disabled = false; goB.disabled = false; });
-  setMode(0); hudT = -1; lastT = 0;
-  setTimeout(placeHud, 300);
+  setMode(1); hudT = -1; lastT = 0; frames = 0;   // #408b start WITHOUT occlusion (safe view), trigger goes on to the others
 }
 function setMode(m) { mode = m; modeT0 = performance.now(); drawHud(); }
-goB.onclick = () => { goB.disabled = true; start().catch(e => { err('start', e); show(); goB.disabled = false; }); };
+goB.onclick = () => { goB.disabled = true; start(false).catch(e => { err('start', e); show(); goB.disabled = false; }); };
+const go2 = document.getElementById('go2'); if (go2) go2.onclick = () => { goB.disabled = true; start(true).catch(e => { err('start', e); show(); goB.disabled = false; }); };
 
 const prevBtn = [{}, {}];
 function buttons() {
@@ -211,7 +214,13 @@ function depthCheck(frame, ref) {
 }
 
 renderer.setAnimationLoop((t, frame) => {
-  if (!frame || !session) { return; }
+  if (!frame || !session) return;
+  try { loop(t, frame); } catch (e) { err('frame', e); try { renderer.render(scene, camera); } catch (e2) { err('render', e2); } }
+});
+function loop(t, frame) {
+  frames++;
+  if (frames === 3) placeHud();   // the camera has a real pose by now
+  if (t - keepT > 2000) { keepT = t; keep(); }
   const ref = renderer.xr.getReferenceSpace();
   const dtMs = lastT ? t - lastT : 0; lastT = t;
   const st = R.modes[MODES[mode]] || (R.modes[MODES[mode]] = { n: 0, t: 0, worst: 0, slow: 0 });
@@ -221,6 +230,7 @@ renderer.setAnimationLoop((t, frame) => {
   if (t - checkT > 1000) { checkT = t; depthCheck(frame, ref); }
   // modes: occlusion on / off, depth colours, room lines
   const occ = renderer.xr.hasDepthSensing && renderer.xr.hasDepthSensing() ? renderer.xr.getDepthSensingMesh() : null;
+  if (occ && !occFixed) { occFixed = true; occ.material.colorWrite = false; R.occColorFix = true; }   // #408b three r169's occlusion mesh writes no colour of its own: on Quest that can paint the passthrough black
   if (occ) occ.visible = mode === 0 || mode === 2;
   roomGrp.visible = mode === 3;
   depthQuad.visible = mode === 2 && !!occ;
@@ -232,4 +242,4 @@ renderer.setAnimationLoop((t, frame) => {
   laser.tick(1 / 72, null, renderer.xr.getCamera().position);
   if (t - hudT > 250) { hudT = t; drawHud(); }
   renderer.render(scene, camera);
-});
+}

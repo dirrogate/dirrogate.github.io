@@ -20,8 +20,8 @@
 <body>
 <h1>Cly<b>3DJ</b> depth test</h1>
 <p>A probe for the Quest 3: what the browser gives a web page about the real room (depth map, walls / ceiling planes, room mesh), whether real things hide virtual ones in the right place, and what it costs in frame rate. Nothing here changes the app.</p>
-<p>In the headset: <b>trigger / pinch</b> = next mode, <b>A</b> = run room setup (if no planes were found), <b>B</b> = bring the panel back in front of you. Walk round, put your hand and other people in front of the coloured pillars, then exit (Meta button) and read the report below.</p>
-<button id="go" disabled>Start depth test (passthrough)</button><button id="copy" class="sec" disabled>Copy report</button>
+<p>In the headset: <b>trigger / pinch</b> = next mode, <b>A</b> = run room setup (if no planes were found), <b>B</b> = bring the panel back in front of you. Walk round, put your hand and other people in front of the coloured pillars, then exit (Meta button) and read the report below. It starts in NO OCCLUSION: if the screen stays black, exit and try the second button.</p>
+<button id="go" disabled>Start depth test (passthrough)</button><button id="go2" class="sec">Start without depth (room only)</button><button id="copy" class="sec" disabled>Copy report</button>
 <pre id="out">Checking…</pre>
 <script type="module" src="./js/depthtest.js"></script>
 </body>

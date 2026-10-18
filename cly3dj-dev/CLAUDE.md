@@ -675,3 +675,13 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - Test scene: 7 labelled pillars at 0.8 / 1.2 / 1.6 / 2 / 2.5 / 3 / 4 m on an arc ahead, a 7 x 4 cube grid at hand height 0.6 m ahead, the app's laser (fan, green, 12 beams; nothing saved over the app's vire.laser).
 - Report on the page after exiting (Copy report), also localStorage vire.depthtest: granted features, depth usage / format, depth size / near / far / own projection / own pose, % valid, texture changes, CPU centre depth if CPU, planes and meshes by label, fps per mode (worst frame, frames over 20 ms), errors.
 - Checked on the PC only that it loads without errors (no passthrough there). Not run on the Quest yet.
+
+## #409 Pushing (owner, 19 Oct)
+- Owner: Claude pushes cly3dj-dev itself after every change; a release to cly3dj still waits for the owner's go.
+- How: copy the changed files into the PC clone's cly3dj-dev as before, stage them from there (device_stage_files), copy into the cloud clone of dirrogate/dirrogate.github.io (add_repo with push access), commit (author Dirrogate) and push to main from the cloud session. The cloud clone can't reach dirrogate.github.io itself; check the live files from the PC browser pane (fetch with cache no-store).
+- After a cloud push the PC clone shows those files as local changes and is one commit behind: in GitHub Desktop, Fetch, then Pull (if it refuses because of local changes, discard them first: the same content is already pushed).
+- First push this way: 73771e9 (#407 Workbench LASER page, #408 depth test page).
+
+## #408b Depth test fix: black screen, no input (owner's first Quest run, 19 Oct)
+- Owner: only a black screen; A, B and trigger did nothing. Likely cause: start() awaited session.updateTargetFrameRate(72) BEFORE renderer.xr.setSession(); that promise only settles once frames run, so three never started the session (no frames = black, no input handled). Now setSession first, frame rate after (not awaited). Rule: never await updateTargetFrameRate before the render loop runs.
+- Also: three r169's depth-occlusion mesh (WebXRDepthSensing) writes no colour of its own; set its material.colorWrite = false (it could paint the passthrough black). The page starts in NO OCCLUSION; trigger steps on. Panel placed from the XR camera's position / quaternion on the 3rd frame (the old 300 ms timer read an identity matrix: panel under the floor). Whole frame wrapped in try / catch, page errors and promise rejections caught, errors shown in red on the panel and saved every 2 s (vire.depthtest) so the report survives a hang. Second page button: Start without depth (room only), to isolate depth trouble.
