@@ -592,3 +592,6 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - Fix during the test: covers sat inside the 3 mm jacket (offset 0.9 mm, copied from the record crate's thinner instances); now 2.1 mm in front.
 - Tested in the PC pane (loop stepped by hand): 6 and then 20 records jumped into two new crates, 10 covers on the 20-crate, rows came back after a reload, a sleeve taken from one crate and let go over the other joined that row. Test crates and playlist removed afterwards. Untested in the headset.
 - Backup: backups/pre-398/ (main.js, xr.js). No server restart (static files).
+
+## #399 Release (18 Oct)
+- cly3dj = cly3dj-dev (everything but CLAUDE.md / PROJECT.md): #387 to #398. Commit 370b906, waiting for the owner to push in GitHub Desktop. The Discogs token is in neither folder.
