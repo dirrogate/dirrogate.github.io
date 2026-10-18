@@ -745,3 +745,6 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - Same code drives the GLOVE (through the skin hand's joints), the phone's hands and the AVACAM robot, so all follow. The glove's fingers are longer than the skin hand's (#287), so its index tip may land a little past the ball: HAND FIT can pull it back.
 - Measured in Node on the PC (three r169 + generic-hand/right.glb). Not tried in the headset.
 - Backup: backups/pre-416/ctlhands.js. No server restart.
+
+## #417 Release: cly3dj = cly3dj-dev (owner, 19 Oct)
+- Owner: copy all of dev to release. #406 to #416 now in cly3dj (lasers, smoke, real occlusion, HEADSET CAM auto fit, depth test page, index-tip ball), commit f62243c, 11 files; CLAUDE.md and PROJECT.md left out. None of #406 to #416 tried on the Quest yet. Owner pushes in GitHub Desktop.
