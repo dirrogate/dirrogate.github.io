@@ -24,6 +24,18 @@ async function unzip(b64) {
   return new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
 }
 
+// #380 the mids of the m-lines an offer only wants to receive (the S8 studio's picture and sound slots)
+function recvMids(sdp) {
+  const out = new Set();
+  for (const sec of sdp.split(/\r?\nm=/).slice(1)) { const mid = (sec.match(/\r?\na=mid:(\S+)/) || [])[1]; if (mid != null && /\r?\na=recvonly/.test(sec)) out.add(mid); }
+  return out;
+}
+// #380 ask for full-band stereo Opus at 160 kbit/s (the receiver's description decides what the sender encodes)
+export function opusStereo(sdp) {
+  return sdp.replace(/a=fmtp:(\d+) (.*)\r?\n/g, (line, pt, p) => new RegExp(`a=rtpmap:${pt} opus/`, 'i').test(sdp)
+    ? `a=fmtp:${pt} ${p.replace(/;?(stereo|sprop-stereo|maxaveragebitrate)=[^;]*/g, '')};stereo=1;sprop-stereo=1;maxaveragebitrate=160000\r\n` : line);
+}
+
 // Signalling: listen on our topic, post to theirs. Reconnects by itself (EventSource does).
 class Relay {
   constructor(id, onMsg, onStatus) {
@@ -101,7 +113,13 @@ class Pipe {
     this.wire(this.pc.createDataChannel('file'));   // #185
     this.wire(this.pc.createDataChannel('prev', { ordered: false, maxRetransmits: 0 }));   // #188
     this.vtx = this.pc.addTransceiver('video', { direction: 'sendonly' });   // #238 LIVE CAM slot, empty until asked for
-    await this.pc.setLocalDescription(await this.pc.createOffer());
+    // #380 S8 STUDIO: two receive slots, the Quest's packed scene (H.264 preferred: hardware decoders) and its master sound.
+    // Empty until the tablet turns the studio on, so an ordinary camera phone pays nothing but a longer handshake.
+    preferH264(this.srx = this.pc.addTransceiver('video', { direction: 'recvonly' }));
+    this.sax = this.pc.addTransceiver('audio', { direction: 'recvonly' });
+    const offer = await this.pc.createOffer();
+    offer.sdp = opusStereo(offer.sdp);   // #380 the music arrives in stereo (Opus is mono unless the receiver asks)
+    await this.pc.setLocalDescription(offer);
     await this.gathered();
     this.relay.send('OFFER', this.remote, { sdp: this.pc.localDescription.toJSON() });
   }
@@ -113,6 +131,14 @@ class Pipe {
     const p = m.payload || {};
     if (m.type === 'OFFER') {
       await this.pc.setRemoteDescription(p.sdp);
+      // #380 S8 STUDIO (Quest side): the phone's receive slots (recvonly m-lines in its offer) become our send slots, both
+      // in one stream so the phone's browser keeps the picture and the sound in step. Older phone pages have none.
+      const rx = recvMids(p.sdp.sdp || ''), stream = new MediaStream();
+      for (const tx of this.pc.getTransceivers()) {
+        if (!rx.has(tx.mid)) continue;
+        tx.direction = 'sendonly'; try { tx.sender.setStreams(stream); } catch {}
+        if (tx.receiver.track.kind === 'video') { this.stv = tx; preferH264(tx); } else this.sta = tx;
+      }
       await this.pc.setLocalDescription(await this.pc.createAnswer());
       await this.gathered();
       this.relay.send('ANSWER', this.remote, { sdp: this.pc.localDescription.toJSON() });
@@ -133,6 +159,17 @@ class Pipe {
   }
   // #188: preview frame; dropped (false) when the previous one hasn't gone yet
   sendPrev(buf) { const c = this.ch.prev; if (!c || c.readyState !== 'open' || c.bufferedAmount > 65536) return false; c.send(buf); return true; }
+  // #380 S8 STUDIO (Quest side): put the studio picture / sound on the phone's receive slots (null = stop sending)
+  get studioOk() { return !!this.stv; }
+  async setStudio(v, a, kbps = 4500) {
+    if (!this.stv) return false;
+    await this.stv.sender.replaceTrack(v || null);
+    if (this.sta) await this.sta.sender.replaceTrack(a || null);
+    const set = async (s, o) => { try { const p = s.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}]; Object.assign(p.encodings[0], o); await s.setParameters(p); } catch (e) { console.warn('studio params', e); } };
+    if (v) await set(this.stv.sender, { maxBitrate: kbps * 1000, maxFramerate: 30, priority: 'medium', networkPriority: 'medium' });   // below 'state' / 'ctl' (high), so the gear data still goes first
+    if (a && this.sta) await set(this.sta.sender, { maxBitrate: 160000, priority: 'high', networkPriority: 'high' });
+    return true;
+  }
   get fileOpen() { return !!(this.ch.file && this.ch.file.readyState === 'open'); }
   get isOpen() { return !!(this.ch.state && this.ch.state.readyState === 'open' && this.ch.ctl && this.ch.ctl.readyState === 'open'); }
   close() { try { this.pc.close(); } catch {} }
@@ -151,6 +188,8 @@ export function hostLink(code, handlers) {
   }, handlers.onStatus);
   const link = { get pipe() { return pipe; }, set pipe(p) {}, send: (l, o) => !!pipe && pipe.send(l, o), get isOpen() { return !!pipe && pipe.isOpen; }, get fileOpen() { return !!pipe && pipe.fileOpen; },
     sendBin: buf => pipe ? pipe.sendBin(buf) : Promise.reject(new Error('not connected')),   // #206 media sync, Quest to phone
+    get studioOk() { return !!pipe && pipe.isOpen && pipe.studioOk; },   // #380 the phone page has the studio slots
+    setStudio: (v, a, kbps) => pipe ? pipe.setStudio(v, a, kbps) : Promise.resolve(false),
     close() { relay.close(); if (pipe) pipe.close(); } };
   return link;
 }

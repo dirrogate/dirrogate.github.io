@@ -52,13 +52,13 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
   const gl = renderer.getContext();
   const KEY0 = key.position.clone(), DEG = Math.PI / 180;
   const S = { on: false, can: false, loaded: false, file: null, sky: { h: 1.5, turn: 0, type: 'auto', key: 'on', file: '' }, light: null, miss: 0, got: 0, err: '' };
-  const K = { v: 2, thr: 0.1, soft: 0.1, spill: 0.7, wrap: 0.5, cmatch: 0.4, col: 0, gl: 0, gr: 0, gt: 0, gb: 0 };   // #353 gl/gr/gt/gb: garbage matte crop (PHONE CAM green screen)   // #347 col: key colour (keycol.js)
+  const K = { v: 2, thr: 0.1, soft: 0.1, spill: 0.7, wrap: 0.5, cmatch: 0.4, col: 0 };   // #347 col: key colour (keycol.js)
   try { const k = JSON.parse(localStorage.getItem('vire.vsetKey') || '{}'); if (k.v === 2) Object.assign(K, k); } catch {}   // v1 used the old key formula
 
   const camTex = new THREE.Texture(); camTex.colorSpace = THREE.NoColorSpace;
   const camProps = renderer.properties.get(camTex);
   const mat = new THREE.ShaderMaterial({
-    uniforms: { cam: { value: camTex }, thr: { value: K.thr }, soft: { value: K.soft }, spill: { value: K.spill }, matte: { value: 0 }, raw: { value: 0 }, keyCol: { value: K.col || 0 }, gl: { value: 0 }, gr: { value: 0 }, gt: { value: 0 }, gb: { value: 0 },
+    uniforms: { cam: { value: camTex }, thr: { value: K.thr }, soft: { value: K.soft }, spill: { value: K.spill }, matte: { value: 0 }, raw: { value: 0 }, keyCol: { value: K.col || 0 },
       wrap: { value: K.wrap }, cmatch: { value: K.cmatch }, panoCol: { value: new THREE.Vector3(0.5, 0.5, 0.5) }, panoTint: { value: new THREE.Vector3(1, 1, 1) }, texel: { value: new THREE.Vector2(1 / 861, 1 / 1920) } },
     vertexShader: VERT, fragmentShader: FRAG, depthTest: false, depthWrite: false, toneMapped: false,
     // stays in the opaque pass (so the gear draws after it) but blends by the key; alpha of the frame stays 1
@@ -246,7 +246,9 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
     S.can = !!(session.enabledFeatures ? session.enabledFeatures.includes('camera-access') : typeof XRWebGLBinding !== 'undefined' && XRWebGLBinding.prototype.getCameraImage);
   }
   function onEnd() { const was = S.on; S.on = false; binding = null; quad.visible = false; if (was) apply(); }
-  return { S, K, quad, mat, autoKey, setLook: l => { look = l; }, frame, pick, setOn, onSky, setKey, onSession, onEnd, apply, setMatte: v => { mat.uniforms.matte.value = v ? 1 : 0; }, sameAsQuest };
+  return { S, K, quad, mat, autoKey, setLook: l => { look = l; }, frame, pick, setOn, onSky, setKey, onSession, onEnd, apply,
+    ensure, playPano: on => { if (vid) { if (on) vid.play().catch(() => {}); else if (!S.on) vid.pause(); } },   // #380 the S8 studio's DOME (without the AR virtual set)
+    setMatte: v => { mat.uniforms.matte.value = v ? 1 : 0; }, sameAsQuest };
 }
 
 // #186 Auto key from the empty screen. px: RGBA bytes. The green pixels are those whose key value (same formula as

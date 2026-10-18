@@ -14,7 +14,7 @@ const CAL_TEXT = {
   x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
-export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getScroll, onLive, getVV, getSpiders, getAv, getLook, getHandFit, getSky, onMedia, onCam, onPreview, perf, coverFor, onScreen }) {   // #358 onScreen: the phone shares / stops sharing its screen
+export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getScroll, onLive, getVV, getSpiders, getAv, getLook, getHandFit, getSky, onMedia, onCam, onPreview, perf, coverFor, onScreen, onStudio }) {   // #380 onStudio(what, msg): the S8 studio's link / status   // #358 onScreen: the phone shares / stops sharing its screen
   // #209 PerfCap: every mirror message also goes to the PerfCap recorder while it records (phone or not)
   const out = { send(ch, m) { if (link.isOpen) link.send(ch, m); if (perf && perf.on) perf.write(ch, m); } };
   let perfMarks = false;   // #209 PerfCap MARKS mode: each trigger press records a floor mark
@@ -393,12 +393,13 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     onTrack: t => { onLive && onLive(t); },   // #238 LIVE CAM
     onBinary: onBin,
     onState: s => status(s),
-    onOpen: () => { crateSent = ''; if (lastScr) scrDirty = true; link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; scrollKey = ''; spKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); },
-    onClose: () => { onLive && onLive(null); onScreen && onScreen(false); if (rx) { rx.abort(); rx = null; } camState = null; onCam && onCam(null); status('disconnected'); calStep = null; ghost(false); panel.visible = false; frustum.visible = false; },
+    onOpen: () => { crateSent = ''; if (lastScr) scrDirty = true; link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; scrollKey = ''; spKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); onStudio && onStudio('open'); },
+    onClose: () => { onStudio && onStudio('close'); onLive && onLive(null); onScreen && onScreen(false); if (rx) { rx.abort(); rx = null; } camState = null; onCam && onCam(null); status('disconnected'); calStep = null; ghost(false); panel.visible = false; frustum.visible = false; },
     onMessage: m => {
       if (m.k === 'qgo' || m.k === 'qok') { resolveWait(m.f, m.n, m.k, m); return; }   // #206 media sync, Quest to phone
       if (m.k[0] === 'm' && m.k !== 'mr') { onMediaMsg(m); return; }   // #185 mls? / mput / mdel (#206 mls / mpullx)
       if (m.k === 'cst') { camState = m; onCam && onCam(m); return; }
+      if (m.k === 'sst') { onStudio && onStudio('sst', m); return; }   // #380 the S8 studio's status (once a second)
       if (m.k === 'screen') { onScreen && onScreen(!!m.on); return; }   // #358   // #188 the phone's camera / key / look state
       if (m.k === 'cover?') { onCoverAsk(m.key); return; }   // #218
       if (m.k === 'covhave') { if (haveWait) { const w = haveWait; haveWait = null; w(m.keys || []); } return; }
@@ -474,6 +475,9 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     // #188 camera tab: the phone's last reported state, and remote changes to it
     get cam() { return link.isOpen && performance.now() - lastPing < 3500 ? camState : null; },
     camSet: o => link.isOpen && link.send('ctl', { k: 'cset', ...o }),
+    // #380 S8 STUDIO: the packed scene + master sound on the phone's receive slots, its commands ('ctl') and the show camera's pose ('state')
+    studio: { get ok() { return link.studioOk; }, get open() { return link.isOpen; }, set: (v, a, kbps) => link.setStudio(v, a, kbps),
+      ctl: o => link.isOpen && link.send('ctl', o), state: o => link.isOpen && link.send('state', o) },
     syncList, syncCopy, get sync() { return sync; },
     // #209 PerfCap: a take starts with a full snapshot (layout, every part, every record with its grooves / labels)
     crate, crateScreen, prepCovers,   // #218

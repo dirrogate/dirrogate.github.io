@@ -9,7 +9,7 @@ import { setupXR } from './xr.js';
 import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeNeon } from './neon.js';
 import { makeLedWall, LedPlayer, LED } from './ledwall.js';
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose, AV_LAYER } from './director.js';
-import { Streamer, SOURCES as STREAM_SRC, streamKey } from './stream.js';
+import { Streamer, SOURCES as STREAM_SRC, streamKey, STUDIO_MODES } from './stream.js';   // #380 STUDIO_MODES
 import { KEY_LABEL } from './keycol.js';   // #347 key colour names   // #331 LIVE STREAM (Twitch)
 import { GoPro, ZOOMS as GOPRO_ZOOMS } from './gopro.js';   // #337 movable camera for SHOW / AVACAM
 import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #340 Twitch chat
@@ -482,9 +482,11 @@ function stepPvLid(dt) {
 }
 let pvWanted = false, pvLast = 0, pvDecoding = false, pvA = 0.45;
 function onPreviewFrame(buf) {
-  if (!pvWanted || monOn || pvDecoding) return; pvDecoding = true;
-  createImageBitmap(new Blob([buf], { type: 'image/jpeg' }), { imageOrientation: 'flipY' }).then(b => {
+  const stuMon = monOn && streamer && streamer.stuRun;   // #380 the PREVIEW monitor shows the S8 STUDIO's output
+  if ((!pvWanted && !stuMon) || (monOn && !stuMon) || pvDecoding) return; pvDecoding = true;
+  createImageBitmap(new Blob([buf], { type: 'image/jpeg' }), { imageOrientation: stuMon ? 'none' : 'flipY' }).then(b => {
     const old = pvTex.image; pvTex.image = b; pvTex.needsUpdate = true; if (old && old.close) old.close();
+    if (stuMon) { pvLast = performance.now(); return; }
     if (pvScreen.material.map !== pvTex) { pvScreen.material.map = pvTex; pvScreen.material.color.setScalar(1); pvScreen.material.needsUpdate = true; }
     const a = b.width / b.height; if (Math.abs(a - pvA) > 0.01) { pvA = a; pvAspect(a); }
     pvLast = performance.now();
@@ -506,7 +508,8 @@ function setMonitor(on) {
 function stepMonitor(now) {
   if (!monOn || !streamer || now - monT < 140) return; monT = now;
   const S = streamer, g = monG, W = 384, H = 216;
-  const src = S.source === 'phone' ? liveVideo : S.source === 'headset' && !S.fit.gear ? S.camVideo : S.canvas;
+  let src = S.source === 'phone' ? liveVideo : S.source === 'headset' && !S.fit.gear ? S.camVideo : S.canvas;
+  if (S.stuRun) src = pvTex.image || null;   // #380 S8 STUDIO: what the S8 puts out (its preview pictures, sent while PREVIEW is on)
   g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H);
   const w = src && (src.videoWidth || src.width), h = src && (src.videoHeight || src.height);
   if (w && h) { const k = Math.min(W / w, H / h), dw = w * k, dh = h * k; try { g.drawImage(src, (W - dw) / 2, (H - dh) / 2, dw, dh); } catch (e) {} }
@@ -957,6 +960,8 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     return { keyDir: kd, keyCol: sk ? [sk.color.r, sk.color.g, sk.color.b] : [key.color.r, key.color.g, key.color.b], pano: skyAvg, skyReady: !!skybox.tex };
   },
   pcamPrep: cam => pcamPrep(cam),
+  studio: () => (spect && spect.studio) || null,   // #380 S8 STUDIO: the spectator link's studio slots
+  ledClip: () => (ledMode === 'clips' && led.on && led.name && led.video ? led.name : ''),   // #380 the LED clip the S8 can play from its own copy
   monitorOn: () => monOn,   // #376 the venue screen keeps the shot running unless PREVIEW wants it   // #374 the phone camera, for the 'behind the DJ' rule
   movers: () => pcamMovers(),
   nowPlaying: () => {
@@ -1024,6 +1029,7 @@ function handsHides(hide, O, force) {   // force: PHONE CAM always shows your ow
   for (const st of xr.inputs) { hide(st.hand); hide(st.grip); if (st.ctlHand) hide(st.ctlHand.root); }
   if (xr.glove) hide(xr.glove.root);
 }
+const tvLbl = S => S.stu.on ? (S.stuRun ? 'S8 STUDIO: ON' : 'S8 STUDIO') : S.tvUp ? 'CLY3DTV: ON' : 'CLY3DTV';   // #380 the STREAM page's screen button
 let tvDigits = '', tvForgetArm = 0;   // #376 the code being typed on the tablet; double-tap guard for FORGET TV
 let pcamAutoReh = false;   // #374 the PHONE CAM page started the off-air shot for its preview (so leaving the page stops it again)
 function pcamPrep(cam) {
@@ -4380,6 +4386,7 @@ function setTools(p) {
   if (toolsPage === 'streamfit' && p !== 'streamfit' && streamer) streamer.setTesting(false);   // #333 TEST ends with the page
   clearInterval(setTools.fitIv); if (p === 'streamfit') setTools.fitIv = setInterval(() => { if (toolsPage === 'streamfit' && streamer && streamer.running) drawMixScreen(); }, 250);
   if (p === 'tv') setTools.fitIv = setInterval(() => { if (toolsPage === 'tv') drawMixScreen(); }, 1000);   // #376 status numbers
+  if (p === 'studio') setTools.fitIv = setInterval(() => { if (toolsPage === 'studio') drawMixScreen(); }, 1000);   // #380 the S8's numbers
   if (p === 'pcam') setTools.fitIv = setInterval(() => { if (toolsPage === 'pcam') drawMixScreen(); }, 200);   // #347 delay / phone status; #374 about 5 pictures a second for the preview
   if (streamer) {   // #374 the PHONE CAM pages run the shot off air so the preview moves; leaving stops it again unless it is live / PREVIEW
     if (p === 'pcam' || p === 'pcamcrop') { if (streamer.source === 'pcam' && !streamer.active) { streamer.setRehearse(true); pcamAutoReh = true; } }
@@ -4541,7 +4548,7 @@ async function pressBytes(track) {
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
 }
-const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV' };   // #363 up-button names; #376
+const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO' };   // #363 up-button names; #376
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -4596,7 +4603,7 @@ function drawToolsPage() {
     const y0 = head('LIVE STREAM · TWITCH', 'home', chat ? { label: chat.msgs.some(m => !m.sys && performance.now() - m.t < 60000) ? 'CHAT ●' : 'CHAT', act: () => setTools('chat') } : null), S = streamer;   // #340; #365 CHAT in the header row, clear of ▲ TOOLS / BACK
     if (!S) { note('Streaming runs on the headset (not on the phone).', y0 + 20); return; }
     const st = S.state, live = st === 'live';
-    const line = live ? `● LIVE  ${S.elapsed()}  ·  ${(S.kbps / 1000).toFixed(1)} Mb/s` : st === 'connecting' ? S.msg || 'Connecting…' : st === 'error' ? S.msg : 'OFF AIR';
+    const line = (live ? `● LIVE  ${S.elapsed()}  ·  ${(S.kbps / 1000).toFixed(1)} Mb/s` : st === 'connecting' ? S.msg || 'Connecting…' : st === 'error' ? S.msg : 'OFF AIR') + (S.stu.on ? '  ·  VIA S8 ' + STUDIO_MODES[S.stu.mode] : '');   // #380
     g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '800 24px system-ui';
     g.fillStyle = live ? '#ff3b3b' : st === 'connecting' ? '#f1b650' : st === 'error' ? '#f1b650' : '#8c96a8';
     if (P) wrapText(g, line, L + 4, y0 + 18, R - L - 8, 28, 2); else fitText2(g, line, L + 4, y0 + 18, R - L - 8);
@@ -4635,7 +4642,7 @@ function drawToolsPage() {
       // #346 PORTALS: tap on / off, double-tap = back to their spots; PORTALS SETUP = the wall, the frames, the dome
       btn(L, y0 + 520, tw3, 50, portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), portalsTap, !portals, 17);
       btn(L + tw3 + 8, y0 + 520, tw3, 50, 'PORTALS SETUP', false, portals ? () => setTools('portals') : null, !portals, 15);
-      btn(L + 2 * (tw3 + 8), y0 + 520, tw3, 50, S.tvUp ? 'CLY3DTV: ON' : 'CLY3DTV', S.tvUp, () => setTools('tv'), false, 16);   // #376 the venue screen
+      btn(L + 2 * (tw3 + 8), y0 + 520, tw3, 50, tvLbl(S), S.tvUp || S.stuRun, () => setTools(S.stu.on ? 'studio' : 'tv'), false, 16);   // #376 the venue screen (#380 or the S8 STUDIO)
       note(hint, y0 + 590);
     } else {
       const bw = (R - L - 24) / 4;
@@ -4654,7 +4661,7 @@ function drawToolsPage() {
       { const w6 = (R - L - 16) / 3;
         btn(L, y0 + 192, w6, 48, portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), portalsTap, !portals, 16);
         btn(L + w6 + 8, y0 + 192, w6, 48, 'PORTALS SETUP', false, portals ? () => setTools('portals') : null, !portals, 16);
-        btn(L + 2 * (w6 + 8), y0 + 192, w6, 48, S.tvUp ? 'CLY3DTV: ON' : 'CLY3DTV', S.tvUp, () => setTools('tv'), false, 16);   // #376 the venue screen
+        btn(L + 2 * (w6 + 8), y0 + 192, w6, 48, tvLbl(S), S.tvUp || S.stuRun, () => setTools(S.stu.on ? 'studio' : 'tv'), false, 16);   // #376 the venue screen (#380 or the S8 STUDIO)
       }
       note(hint, y0 + 264);
     }
@@ -4671,6 +4678,7 @@ function drawToolsPage() {
     g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; if (P) g.fillText('CAMERA', L + 2, y0 + 8);
     const camPick = k => {
       if (k === 'pcam') {   // #374 PHONE CAM: pick it and open its settings page (with the preview); tell why when the phone isn't there
+        if (S.stu.on) { toast('S8 STUDIO is on: use LIVE DJ! or LIVE KEY! on the S8 STUDIO page', 3500); return; }   // #380
         const why = pcamReady(); if (why) { toast(why, 3500); return; }
         S.setSource('pcam'); setTools('pcam'); return;
       }
@@ -4855,8 +4863,34 @@ function drawToolsPage() {
     }
     return;
   }
+  if (page === 'studio') {   // #380 S8 STUDIO: the S8 makes the TV picture and the Twitch stream; the Quest sends the scene with its matte and the sound
+    const y0 = head('S8 STUDIO', 'stream', streamer ? { label: P ? 'TV ▸' : 'FIRE STICK ▸', on: false, act: () => setTools('tv') } : null), S = streamer;
+    if (!S) { note('The studio is run from the headset (not on the phone).', y0 + 20); return; }
+    const U = S.stu, s8 = S.s8 && performance.now() - S.s8.at < 3500 ? S.s8 : null, gap = P ? 8 : 6, bh = P ? 54 : 36;
+    const title = !U.on ? 'Studio off: Twitch and the Fire Stick TV go from the Quest' : !S.stuLink ? 'S8 not linked' : !S.stuRun ? 'The S8 page is too old: reload it' : s8 && s8.run ? 'S8 studio running' : 'Waiting for the S8…';
+    g.textAlign = 'left'; g.font = `700 ${P ? 21 : 18}px system-ui`; g.fillStyle = s8 && s8.run ? '#7dff9a' : '#dfe6f2';
+    fitText2(g, title, L + 2, y0 + 20, R - L - 4);
+    const tw = s8 ? (s8.tw === 'live' ? `TWITCH LIVE ${((s8.kbps || 0) / 1000).toFixed(1)} Mb/s` : s8.tw === 'connecting' ? 'Twitch connecting' : 'Twitch off') : '';
+    const sub = U.on && s8 ? `out ${s8.fps || 0} fps · Quest frames ${s8.qfps || 0} fps · camera held ${s8.hold != null ? s8.hold + ' ms' : '-'} · ${tw}${s8.note ? ' · ' + s8.note : ''}` : U.on ? (S.stuMsg || 'Open the camera page on the S8, connect, Fixed camera, Calibrate.') : 'Turn the studio on with the S8 linked (Fixed camera, calibrated).';
+    g.font = '500 14px system-ui'; g.fillStyle = '#8c96a8';
+    const nl = wrapText(g, sub, L + 2, y0 + (P ? 40 : 36), R - L - 4, 18, P ? 3 : 2), y1 = y0 + (P ? 44 : 40) + Math.max(1, nl) * 18;
+    const w3 = (R - L - 2 * gap) / 3, w4 = (R - L - 3 * gap) / 4, fs = P ? 18 : 15;
+    btn(L, y1, w3, bh, U.on ? 'STUDIO: ON' : 'STUDIO: OFF', U.on, () => S.setStudio('on', !U.on), false, fs);
+    btn(L + w3 + gap, y1, w3, bh, U.snd ? 'SOUND: ON' : 'SOUND: OFF', U.snd, () => S.setStudio('snd', !U.snd), false, fs);
+    btn(L + 2 * (w3 + gap), y1, w3, bh, 'BACK: ' + S.showOpt.backdrop.toUpperCase(), S.showOpt.backdrop !== 'none', () => { S.nextBackdrop(); S._stuSync(); }, false, fs);
+    const y2 = y1 + bh + gap;
+    Object.entries(STUDIO_MODES).forEach(([k, label], i) => btn(L + i * (w3 + gap), y2, w3, bh + (P ? 12 : 0), label, U.mode === k, () => S.setStudio('mode', k), false, P ? 22 : 17));
+    const y3 = y2 + bh + (P ? 12 : 0) + gap;
+    btn(L, y3, w4, bh, 'DELAY −10', false, () => S.setStudio('trim', U.trim - 10), false, fs);
+    btn(L + w4 + gap, y3, w4, bh, `TRIM ${U.trim > 0 ? '+' : ''}${U.trim} ms`, false, U.trim ? () => S.setStudio('trim', 0) : null, false, fs);
+    btn(L + 2 * (w4 + gap), y3, w4, bh, 'DELAY +10', false, () => S.setStudio('trim', U.trim + 10), false, fs);
+    btn(L + 3 * (w4 + gap), y3, w4, bh, P ? 'CAMERA ▸' : 'SHOW CAMERA ▸', false, () => setTools('showobj'), false, fs);
+    note(P ? 'SHOW: Quest camera (SHOWTIME! pick), S8 backdrop. LIVE DJ!: the S8 films you in your room. LIVE KEY!: the S8 keys you over the backdrop. The S8 syncs its camera itself; TRIM + holds it back more. GO LIVE (STREAM page) goes out from the S8.'
+      : 'SHOW: Quest camera, S8 backdrop. LIVE DJ!: S8 camera, your room. LIVE KEY!: S8 camera keyed over the backdrop. The S8 syncs its camera itself (TRIM: + holds it back more). GO LIVE goes out from the S8.', y3 + bh + (P ? 26 : 20));
+    return;
+  }
   if (page === 'tv') {   // #376 CLY3DTV: the venue screen (venue.html). The TV shows a 6-digit code, it is typed here; then switches, sound, status
-    const y0 = head('CLY3DTV', 'stream'), S = streamer;
+    const y0 = head('CLY3DTV', 'stream', streamer ? { label: P ? 'S8 ▸' : 'S8 STUDIO ▸', on: false, act: () => setTools('studio') } : null), S = streamer;   // #380
     if (!S) { note('CLY3DTV runs on the headset (not on the phone).', y0 + 20); return; }
     const st = S.tvState(), gap = 8, bh = P ? 56 : 40, T = S.tvSet;
     const title = { unpaired: 'No TV paired yet', pairing: 'Looking for the TV...', waiting: 'Paired, waiting for the TV', up: 'TV connected', off: 'TV is switched off' }[st];
@@ -5992,7 +6026,8 @@ async function applySpect() {
       getSky: () => ({ h: settings.skyH, turn: settings.skyTurn, type: settings.skyType, key: settings.skyKey, file: settings.skyFile, media: settings.env === 'image' ? settings.skyMedia : '' }),
       onMedia: () => { refreshLibVV(); if (videoPage && vpFolder !== 'Sync') vpLoad(); },
       onCam: m => { if (m && pvWanted && !m.pv && spect) spect.camSet({ what: 'preview', v: true }); if (videoPage && vpFolder === 'Camera') drawMixScreen(); },   // a reconnected phone gets PREVIEW back
-      onPreview: onPreviewFrame });
+      onPreview: onPreviewFrame,
+      onStudio: (w, m) => { if (streamer) streamer.onStudio(w, m); } });   // #380 S8 STUDIO
   } catch (e) { toast('Spectator camera failed to start: ' + e.message, 4000); }
 }
 syncSettingsUI();
