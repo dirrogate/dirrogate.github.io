@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cly3DJ S8 test</title>
+<!-- #380 S8 STUDIO capability test. Runs, on one phone, everything the S8 studio does at once, plus a little more:
+     (1) a stand-in for the Quest's packed scene (colour + matte, 1920 x 720) is drawn, H.264-encoded at 4.5 Mbit/s and
+     decoded again through an in-page WebRTC loopback (the real Quest does the encode, so this part is extra load);
+     (2) the rear camera at 1280 x 720, 30 fps; (3) a WebGL2 pass that keys the camera (green), puts a moving backdrop
+     behind and the decoded scene in front (premultiplied alpha), full screen; (4) that picture captured and encoded
+     again at 1280 x 720, 3.5 Mbit/s, as Twitch would get it (loopback, nothing leaves the phone).
+     It reports frame rates, which encoder / decoder Chrome picked (hardware or software) and why it holds back,
+     every second, for 10 minutes. A steady 28-30 fps at the end means the S8 can carry the studio. -->
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #e6e8ec; font: 14px/1.4 system-ui, sans-serif; overflow: hidden; }
+  canvas#out { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #ui { position: fixed; left: 8px; top: 8px; right: 8px; background: rgba(10, 12, 18, 0.82); border: 1px solid #2e3850; border-radius: 10px; padding: 8px 10px; font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; max-height: 70vh; overflow: auto; }
+  #bar { position: fixed; left: 8px; right: 8px; bottom: 10px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  button { font: 700 15px system-ui, sans-serif; color: #fff; background: #1a2233; border: 1px solid #3a4560; border-radius: 10px; padding: 12px 16px; }
+  button.go { background: #b0141e; border-color: #e0202a; }
+  h1 { font: 800 22px system-ui, sans-serif; margin: 0 0 4px; } h1 b { color: #e0202a; }
+  #graph { position: fixed; right: 8px; bottom: 64px; width: 300px; height: 80px; background: rgba(10, 12, 18, 0.8); border: 1px solid #2e3850; border-radius: 8px; }
+  .hide #ui, .hide #graph { display: none; }
+</style>
+</head>
+<body>
+<canvas id="out" width="1280" height="720"></canvas>
+<div id="ui"><h1>Cly<b>3DJ</b> S8 test</h1>Press START. Allow the camera. Point the phone at anything (a green cloth if you have one). Leave it running 10 minutes, plugged in, with the HDMI adapter on if you have it. Then send a screenshot of this box.</div>
+<canvas id="graph" width="600" height="160"></canvas>
+<div id="bar"><button class="go" id="go">START</button><button id="hide">HIDE TEXT</button><button id="fs">FULL SCREEN</button></div>
+<script>
+(function () {
+'use strict';
+var $ = function (id) { return document.getElementById(id); };
+var ui = $('ui'), out = $('out'), graph = $('graph');
+var RUN_S = 600, W = 1280, H = 720, PW = 1920, PH = 720, CW = 1280, MX = 1296, MW = 624;
+var feats = [];
+function feat(name, ok) { feats.push((ok ? 'yes ' : 'NO  ') + name); }
+var ua = navigator.userAgent, cv = (ua.match(/Chrome\/([\d.]+)/) || [])[1] || '?';
+feat('WebGL2', !!document.createElement('canvas').getContext('webgl2'));
+feat('canvas.captureStream', !!HTMLCanvasElement.prototype.captureStream);
+feat('requestVideoFrameCallback', 'requestVideoFrameCallback' in HTMLVideoElement.prototype);
+feat('RTCRtpTransceiver.setCodecPreferences', !!(window.RTCRtpTransceiver && RTCRtpTransceiver.prototype.setCodecPreferences));
+var h264 = false; try { h264 = RTCRtpSender.getCapabilities('video').codecs.some(function (c) { return /h264/i.test(c.mimeType); }); } catch (e) {}
+feat('H.264 in WebRTC', h264);
+feat('CompressionStream (link handshake)', 'CompressionStream' in window);
+feat('Wake lock', 'wakeLock' in navigator);
+feat('Import maps (the app)', HTMLScriptElement.supports ? HTMLScriptElement.supports('importmap') : false);
+var head = 'Chrome ' + cv + '  ·  screen ' + screen.width + 'x' + screen.height + ' @' + devicePixelRatio + '\n' + feats.join('\n');
+ui.textContent = 'Cly3DJ S8 test\n' + head + '\n\nPress START.';
+
+// ---------------------------------------------------------------- the stand-in Quest scene (packed colour + matte)
+var src = document.createElement('canvas'); src.width = PW; src.height = PH;
+var sg = src.getContext('2d');
+var lay = document.createElement('canvas'); lay.width = CW; lay.height = PH;   // the scene on transparent black
+var lg = lay.getContext('2d');
+var mat = document.createElement('canvas'); mat.width = MW; mat.height = PH;
+var mg = mat.getContext('2d');
+function drawScene(t) {
+  lg.clearRect(0, 0, CW, PH);
+  // "decks": two discs that turn, a "tonearm" (thin line), a "mixer" box, text
+  for (var i = 0; i < 2; i++) {
+    var cx = 360 + i * 560, cy = 520;
+    lg.save(); lg.translate(cx, cy); lg.rotate(t * 3.5 * (i ? 1 : -1));
+    lg.fillStyle = '#16161a'; lg.beginPath(); lg.arc(0, 0, 150, 0, 6.283); lg.fill();
+    lg.fillStyle = '#c0141e'; lg.beginPath(); lg.arc(0, 0, 50, 0, 6.283); lg.fill();
+    lg.fillStyle = '#fff'; lg.fillRect(-4, -150, 8, 40); lg.restore();
+    lg.strokeStyle = '#d8dce4'; lg.lineWidth = 3; lg.beginPath(); lg.moveTo(cx + 170, cy - 150); lg.lineTo(cx + 40 + 20 * Math.sin(t), cy - 40); lg.stroke();
+  }
+  lg.fillStyle = 'rgba(40,44,56,0.92)'; lg.fillRect(560, 420, 160, 230);
+  lg.globalAlpha = 0.55; lg.fillStyle = '#39a8ff'; lg.fillRect(80 + 300 * (0.5 + 0.5 * Math.sin(t * 0.7)), 80, 260, 140); lg.globalAlpha = 1;   // a see-through panel
+  lg.font = '800 44px system-ui,sans-serif'; lg.fillStyle = '#fff'; lg.fillText('Cly', 1040, 60); lg.fillStyle = '#e0202a'; lg.fillText('3DJ', 1112, 60);
+  // pack: colour premultiplied over black, 16 px black guard, matte = alpha as grey at half width
+  sg.fillStyle = '#000'; sg.fillRect(0, 0, PW, PH);
+  sg.drawImage(lay, 0, 0);
+  mg.globalCompositeOperation = 'source-over'; mg.clearRect(0, 0, MW, PH); mg.drawImage(lay, 0, 0, MW, PH);
+  mg.globalCompositeOperation = 'source-in'; mg.fillStyle = '#fff'; mg.fillRect(0, 0, MW, PH);
+  mg.globalCompositeOperation = 'destination-over'; mg.fillStyle = '#000'; mg.fillRect(0, 0, MW, PH);
+  sg.drawImage(mat, MX, 0);
+}
+
+// ---------------------------------------------------------------- WebRTC loopback (both ends in this page)
+function preferH264(tx) {
+  try {
+    var caps = RTCRtpSender.getCapabilities('video').codecs;
+    var hh = caps.filter(function (c) { return /h264/i.test(c.mimeType); }), rest = caps.filter(function (c) { return !/h264/i.test(c.mimeType); });
+    if (hh.length) tx.setCodecPreferences(hh.concat(rest));
+  } catch (e) {}
+}
+function loop(track, kbps) {   // -> { a, b, ready: Promise<MediaStreamTrack (the received track)> }
+  var a = new RTCPeerConnection(), b = new RTCPeerConnection();
+  a.onicecandidate = function (e) { if (e.candidate) b.addIceCandidate(e.candidate).catch(function () {}); };
+  b.onicecandidate = function (e) { if (e.candidate) a.addIceCandidate(e.candidate).catch(function () {}); };
+  var tx = a.addTransceiver(track, { direction: 'sendonly' }); preferH264(tx);
+  var ready = new Promise(function (res) { b.ontrack = function (e) { res(e.track); }; });
+  a.createOffer().then(function (o) { return a.setLocalDescription(o); }).then(function () { return b.setRemoteDescription(a.localDescription); })
+    .then(function () { return b.createAnswer(); }).then(function (x) { return b.setLocalDescription(x); }).then(function () { return a.setRemoteDescription(b.localDescription); })
+    .then(function () { var p = tx.sender.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}]; p.encodings[0].maxBitrate = kbps * 1000; p.encodings[0].maxFramerate = 30; p.degradationPreference = 'maintain-framerate'; return tx.sender.setParameters(p); })
+    .catch(function (e) { log('loopback: ' + e.message); });
+  return { a: a, b: b, ready: ready };
+}
+
+// ---------------------------------------------------------------- WebGL2 compositor
+var gl = out.getContext('webgl2', { antialias: false, alpha: false, depth: false, preserveDrawingBuffer: false });
+var VS = '#version 300 es\nin vec2 p; out vec2 uv; void main(){ uv = p * 0.5 + 0.5; uv.y = 1.0 - uv.y; gl_Position = vec4(p, 0.0, 1.0); }';
+var FS = '#version 300 es\nprecision highp float; in vec2 uv; out vec4 o;\n' +
+  'uniform sampler2D q, cam; uniform float t, haveQ, haveC;\n' +
+  'float keyOf(vec3 c){ return (c.g - max(c.r, c.b)) / max(c.g, 0.15); }\n' +
+  'void main(){\n' +
+  '  vec3 bg = mix(vec3(0.05,0.07,0.14), vec3(0.45,0.12,0.30), 0.5 + 0.5 * sin(uv.x * 6.0 + t));\n' +
+  '  vec3 c = bg;\n' +
+  '  if (haveC > 0.5) { vec3 k = texture(cam, uv).rgb; float a = 1.0 - smoothstep(0.1, 0.2, keyOf(k)); float m = max(k.r, k.b); if (k.g > m) k.g = mix(k.g, m, 0.7); c = mix(bg, k, a); }\n' +
+  '  if (haveQ > 0.5) { vec3 s = texture(q, vec2(uv.x * ' + (CW / PW).toFixed(6) + ', uv.y)).rgb; float a = texture(q, vec2(' + (MX / PW).toFixed(6) + ' + uv.x * ' + (MW / PW).toFixed(6) + ', uv.y)).r; c = s + c * (1.0 - a); }\n' +
+  '  o = vec4(c, 1.0);\n}';
+function sh(type, s) { var o = gl.createShader(type); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; }
+var prog, uT, uHQ, uHC, texQ, texC;
+function glInit() {
+  prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  var buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  var loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  function mk(unit) { var tx = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tx);
+    [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]].forEach(function (k) { gl.texParameteri(gl.TEXTURE_2D, k[0], k[1]); }); return tx; }
+  texQ = mk(0); texC = mk(1);
+  gl.uniform1i(gl.getUniformLocation(prog, 'q'), 0); gl.uniform1i(gl.getUniformLocation(prog, 'cam'), 1);
+  uT = gl.getUniformLocation(prog, 't'); uHQ = gl.getUniformLocation(prog, 'haveQ'); uHC = gl.getUniformLocation(prog, 'haveC');
+  gl.viewport(0, 0, W, H);
+}
+
+// ---------------------------------------------------------------- run
+var vQ = document.createElement('video'), vC = document.createElement('video');
+[vQ, vC].forEach(function (v) { v.muted = true; v.playsInline = true; v.autoplay = true; v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none'; document.body.appendChild(v); });
+var L1 = null, L2 = null, camTrack = null, t0 = 0, running = false, notes = [];
+var n = { comp: 0, q: 0, c: 0, src: 0 }, fps = { comp: 0, q: 0, c: 0, src: 0 }, hist = [], worst = 99, statLines = '', jank = 0, lastRaf = 0, maxGap = 0;
+var newQ = false, newC = false;
+function log(s) { notes.push(s); if (notes.length > 6) notes.shift(); }
+function onFrames(v, key) {
+  if (!v.requestVideoFrameCallback) return;
+  var cb = function () { n[key]++; if (key === 'q') newQ = true; else newC = true; v.requestVideoFrameCallback(cb); };
+  v.requestVideoFrameCallback(cb);
+}
+function start() {
+  if (running) return; running = true; $('go').textContent = 'RUNNING…'; $('go').disabled = true;
+  try { glInit(); } catch (e) { log('WebGL2 failed: ' + e.message); }
+  try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(function () {}); } catch (e) {}
+  var srcTrack = src.captureStream(30).getVideoTracks()[0]; srcTrack.contentHint = 'motion';
+  L1 = loop(srcTrack, 4500);
+  L1.ready.then(function (t) { vQ.srcObject = new MediaStream([t]); vQ.play().catch(function () {}); onFrames(vQ, 'q'); });
+  navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } })
+    .then(function (s) { camTrack = s.getVideoTracks()[0]; vC.srcObject = s; vC.play().catch(function () {}); onFrames(vC, 'c'); var st = camTrack.getSettings(); log('camera ' + st.width + 'x' + st.height + ' @' + (st.frameRate || '?')); })
+    .catch(function (e) { log('camera: ' + e.name + ' ' + e.message); });
+  var outTrack = out.captureStream(30).getVideoTracks()[0]; outTrack.contentHint = 'motion';
+  L2 = loop(outTrack, 3500);
+  t0 = performance.now(); lastRaf = t0;
+  requestAnimationFrame(frame);
+  setInterval(second, 1000);
+}
+function frame(now) {
+  if (!running) return;
+  var gap = now - lastRaf; lastRaf = now; if (now - t0 > 3000 && gap > maxGap) maxGap = gap; if (gap > 50) jank++;
+  var t = (now - t0) / 1000;
+  drawScene(t); n.src++;
+  if (prog) {
+    gl.useProgram(prog);
+    var hq = vQ.readyState >= 2 && vQ.videoWidth > 0, hc = vC.readyState >= 2 && vC.videoWidth > 0;
+    if (hq && (newQ || !vQ.requestVideoFrameCallback)) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texQ); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vQ); newQ = false; }
+    if (hc && (newC || !vC.requestVideoFrameCallback)) { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texC); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vC); newC = false; }
+    gl.uniform1f(uT, t); gl.uniform1f(uHQ, hq ? 1 : 0); gl.uniform1f(uHC, hc ? 1 : 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 3); n.comp++;
+  }
+  requestAnimationFrame(frame);
+}
+function rtpInfo(pc, dir) {
+  return pc.getStats().then(function (rep) {
+    var r = null; rep.forEach(function (s) { if (s.type === dir && s.kind === 'video') r = s; });
+    if (!r) return '';
+    if (dir === 'outbound-rtp') return (r.encoderImplementation || '?') + ', ' + (r.frameWidth || '?') + 'x' + (r.frameHeight || '?') + ' ' + Math.round(r.framesPerSecond || 0) + ' fps, held back by: ' + (r.qualityLimitationReason || '?');
+    return (r.decoderImplementation || '?') + ', ' + Math.round(r.framesPerSecond || 0) + ' fps, dropped ' + (r.framesDropped || 0);
+  }).catch(function () { return ''; });
+}
+function second() {
+  var el = (performance.now() - t0) / 1000;
+  ['comp', 'q', 'c', 'src'].forEach(function (k) { fps[k] = n[k]; n[k] = 0; });
+  hist.push(fps.comp); if (hist.length > 600) hist.shift();
+  if (el > 15 && fps.comp < worst) worst = fps.comp;
+  drawGraph();
+  if (Math.floor(el) % 2 === 0 && L1 && L2) Promise.all([rtpInfo(L1.a, 'outbound-rtp'), rtpInfo(L1.b, 'inbound-rtp'), rtpInfo(L2.a, 'outbound-rtp')]).then(function (x) {
+    statLines = 'Quest stand-in encode: ' + x[0] + '\nQuest stream decode:   ' + x[1] + '\nTwitch-side encode:    ' + x[2];
+  });
+  var last60 = hist.slice(-60), avg = last60.reduce(function (a, b) { return a + b; }, 0) / Math.max(1, last60.length);
+  var done = el >= RUN_S, verdict = '';
+  if (done) {
+    verdict = avg >= 27 ? 'RESULT: GOOD. The S8 kept ' + avg.toFixed(1) + ' fps after 10 minutes.' : avg >= 20 ? 'RESULT: BORDERLINE (' + avg.toFixed(1) + ' fps after 10 minutes). Usable at lower settings.' : 'RESULT: TOO SLOW (' + avg.toFixed(1) + ' fps after 10 minutes).';
+  }
+  ui.textContent = 'Cly3DJ S8 test   ' + fmt(el) + (done ? '  (finished)' : ' / 10:00') + '\n' + head + '\n\n' +
+    'Composite on screen: ' + fps.comp + ' fps (last minute ' + avg.toFixed(1) + ', worst ' + (worst === 99 ? '-' : worst) + ')\n' +
+    'Camera frames:       ' + fps.c + ' fps\nQuest stream frames: ' + fps.q + ' fps\nStand-in drawing:    ' + fps.src + ' fps\n' +
+    'Long frames (>50 ms): ' + jank + ', longest ' + Math.round(maxGap) + ' ms\n' + statLines + (notes.length ? '\n' + notes.join('\n') : '') + (verdict ? '\n\n' + verdict : '') +
+    '\n\nNote: this test does one more encode and decode than the real studio, so the real thing is lighter.';
+}
+function fmt(s) { s = Math.floor(s); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+function drawGraph() {
+  var g = graph.getContext('2d'), w = graph.width, h = graph.height;
+  g.clearRect(0, 0, w, h); g.strokeStyle = '#2e3850'; g.lineWidth = 1;
+  [30, 20].forEach(function (f) { var y = h - f / 35 * h; g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); g.fillStyle = '#6f7a8c'; g.font = '18px monospace'; g.fillText(f, 4, y - 3); });
+  g.strokeStyle = '#40d080'; g.lineWidth = 2; g.beginPath();
+  hist.forEach(function (f, i) { var x = i / 599 * w, y = h - Math.min(35, f) / 35 * h; if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
+}
+$('go').onclick = start;
+$('hide').onclick = function () { document.body.classList.toggle('hide'); };
+$('fs').onclick = function () { try { document.documentElement.requestFullscreen().catch(function () {}); } catch (e) {} try { screen.orientation.lock('landscape').catch(function () {}); } catch (e) {} };
+})();
+</script>
+</body>
+</html>
