@@ -35,6 +35,7 @@ uniform sampler2D map;
 uniform vec4 so;            // u = u * so.x + so.y, v = v * so.z + so.w (picks the eye's half)
 uniform vec2 texSize;       // texels (whole picture)
 uniform float aa;           // 1 = video (no mipmaps): footprint-adaptive 4-tap
+uniform float gain;         // #404 DOME EXPOSURE (2^EV)
 varying vec3 vDir;
 varying vec2 vUv;
 void main() {
@@ -46,7 +47,7 @@ void main() {
     c = 0.25 * (texture2D(map, uv + dx * 0.125 + dy * 0.375) + texture2D(map, uv + dx * 0.375 - dy * 0.125)
               + texture2D(map, uv - dx * 0.125 - dy * 0.375) + texture2D(map, uv - dx * 0.375 + dy * 0.125));
   } else c = texture2D(map, uv);
-  gl_FragColor = c;
+  gl_FragColor = vec4(c.rgb * gain, c.a);
   #include <colorspace_fragment>
 }`;
 
@@ -105,7 +106,7 @@ export class Skybox {
     this.group = new THREE.Group(); this.group.visible = false; this.group.name = 'skybox';
     this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.tex = null;
     this.mats = [0, 1].map(() => new THREE.ShaderMaterial({
-      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 } },
+      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 } },
       vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthWrite: false, toneMapped: false,
     }));
     this.geo = null; this.setHeight(this.height);
@@ -180,6 +181,7 @@ export class Skybox {
     this.meshes[1].layers.set(2); this.meshes[1].visible = st;
   }
   setTurn(rad) { this.group.rotation.y = rad; }
+  setExposure(ev) { const g = Math.pow(2, ev || 0); this.mats.forEach(m => { m.uniforms.gain.value = g; }); }   // #404 DOME EXPOSURE
 }
 
 // The chosen panorama file is kept in the site's private storage (OPFS) at full size; localStorage only has room for

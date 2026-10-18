@@ -627,3 +627,12 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - PC check: old vs new renders of the neon room pano from the DJ's eye (ahead, looking down, turned round) identical. GPU timing on the RTX 4050 is too small and noisy to show the gain (dome ~0.2 ms at Quest eye size); the savings (per-pixel math, overdraw) count on the Quest's tile GPU. Untested in the headset.
 - Not done (owner's call): dome writing real depth for the Quest's reprojection, an opaque clear behind the dome.
 - Backup: backups/pre-403/skybox.js. No server restart.
+
+## #404 DOME under HEADSET CAM, GoPro to hand (A), GoPro reset, DOME EXPOSURE (owner, 18 Oct) (cly3dj-dev)
+- Owner: video panos sharper after #403, flicker only very rarely now.
+- SHOWTIME! OBJECTS: DOME was greyed with HEADSET CAM (left over from before #401); now always on/off (it is the room's dome; dome + HEADSET CAM = the owner's first-person shot).
+- A on the right controller (gamepad button 4, press edge, xr.js -> ctx.onA -> `gpSummon`): the GoPro that is the camera comes to that hand, 15 cm in front of the controller, 2 cm up, facing where it points (grab / hold / release on the prop, so it saves). Grip it from there to place it. Nothing happens without an active GoPro.
+- GoPro reset: the double-tap window was 350 ms, but a tablet poke re-arms only after the tip leaves the screen by 2 cm, so it almost never fit. Now 700 ms, and a long press (0.6 s, `mixScreenLong` now runs a button's `long` on TOOLS pages) on GOPRO / GOPRO2 (STREAM and the SHOWTIME! camera row) = `goproReset`: back to its start spot, made the camera (source back to SHOWTIME! from HEADSET / PHONE CAM).
+- DOME EXPOSURE on PORTALS SETUP (cell beside DOME SIZE): -3 .. +1 EV in 0.25 steps, saved as dome.ev in vire.dome; skybox.js multiplies the colour by 2^EV (uniform gain; also the full VR sky, same material). Clipped whites in the picture itself can only go grey, not get detail back. DOME TURN moved to its own row (landscape: third row, help beside it).
+- Tested in the PC pane: exposure -1.5 EV -> gain 0.354, saved; GoPro2 brought from 2.4 m up to a test grip at hand height, then long-press reset put it back; PORTALS page in both orientations.
+- Backup: backups/pre-404/ (main.js, xr.js, skybox.js). No server restart.
