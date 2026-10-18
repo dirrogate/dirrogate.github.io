@@ -3859,10 +3859,31 @@ const NUDGE_ROWS = [
   [['Move', 'x-', '◀', 'x+', '▶'], ['Up / down', 'y+', '▲', 'y-', '▼'], ['Near / far', 'z-', 'NEAR', 'z+', 'FAR'], ['Zoom', 'fov-', 'IN', 'fov+', 'OUT']],
   [['Turn', 'yaw+', '⟲', 'yaw-', '⟳'], ['Tilt', 'pitch+', 'UP', 'pitch-', 'DOWN'], ['Roll', 'roll+', '⟲', 'roll-', '⟳']],
 ];
+// #391 a video pano lights the phone from one still frame: frame 61 (2 s at 30 fps, past any fade-in), saved to PANO as '<name> light frame.jpg'
+async function lightFrame(name) {
+  const out = name.replace(/\.[^.]+$/, '') + ' light frame.jpg';
+  if ((await media.list('Pano')).some(i => i.name === out)) return out;
+  const f = await media.getFile('Video pano', name); if (!f) throw new Error('video pano not found');
+  const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.preload = 'auto'; const url = URL.createObjectURL(f); v.src = url;
+  try {
+    await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('this video does not play here')); });
+    const t = Math.min(61 / 30, Math.max(0, (v.duration || 3) - 0.1));
+    await new Promise(res => { v.onseeked = res; v.currentTime = t; setTimeout(res, 4000); });
+    const W = Math.min(2048, v.videoWidth), c = document.createElement('canvas'); c.width = W; c.height = Math.round(W * v.videoHeight / v.videoWidth);
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.92)); if (!blob) throw new Error('could not grab a frame');
+    await media.importFile('Pano', new File([blob], out, { type: 'image/jpeg' }));
+  } finally { URL.revokeObjectURL(url); v.removeAttribute('src'); v.load(); }
+  return out;
+}
 async function lightPhone(folder, name) {
   const cs = spect && spect.cam;
   if (!cs || !cs.fixed) { toast('Start Fixed camera on the phone first (the light belongs to its camera)', 3500); return; }
   if (!spect.syncCopy) return;
+  if (folder === 'Video pano') {
+    toast('Grabbing a still frame for the light…', 2500);
+    try { name = await lightFrame(name); folder = 'Pano'; } catch (e) { toast('LIGHT PHONE: ' + e.message, 4000); return; }
+  }
   lightBusy = name; drawMixScreen(); toast(`Sending ${name} to the phone…`, 2500);
   let res = null;
   try { res = await spect.syncCopy([{ f: folder, n: name, q: true, p: false }], st => { lightBusy = `${name} ${st.pct || 0}%`; if (videoPage) drawMixScreen(); }); }
@@ -4138,11 +4159,11 @@ function drawVideoPage() {
   const by = P ? H - 62 : H - 44, bh = 36, bx = P ? 26 : 8;
   btn(bx, by, 44, bh, '‹', false, () => { vpPg = Math.max(0, vpPg - 1); drawMixScreen(); }, vpPg === 0);
   btn(bx + 48, by, 44, bh, '›', false, () => { vpPg = Math.min(pages - 1, vpPg + 1); drawMixScreen(); }, vpPg >= pages - 1);
-  const T = { Pano: [['SKY', 'sky'], ['SKY OFF', 'skyoff'], ['LIGHT PHONE', 'light']], 'Video pano': [['SKY', 'sky'], ['SKY OFF', 'skyoff']],
+  const T = { Pano: [['SKY', 'sky'], ['SKY OFF', 'skyoff'], ['LIGHT PHONE', 'light']], 'Video pano': [['SKY', 'sky'], ['SKY OFF', 'skyoff'], ['LIGHT PHONE', 'light']],
     Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['LED NOW', 'lednow'], ['+ LED', 'ledadd']], Images: [['LED NOW', 'lednow'], ['+ LED', 'ledadd']] }[vpFolder];
   const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : 86, ty = P ? H - 106 : by;
   let x = P ? 8 : 108;
-  for (const [label, what] of T) { const dim = (!vpSel && what !== 'skyoff') || (what === 'light' && vpSelFolder === 'Video pano'); btn(x, ty, tw, bh, label, false, dim ? null : () => vpAct(what), dim); x += tw + 6; }
+  for (const [label, what] of T) { const dim = (!vpSel && what !== 'skyoff'); btn(x, ty, tw, bh, label, false, dim ? null : () => vpAct(what), dim); x += tw + 6; }
   if (vpFolder === 'Pano') {   // #379 PANO SPIN 0 to 5 (degrees a second); landscape: between the SKY buttons and the LED button, portrait: a row of its own
     const sx = P ? 26 : x, sw = P ? W - 52 : W - 8 - 140 - 6 - x;
     tSlider(g, sx, P ? H - 150 : by, sw, bh, 'PANO TURN', settings.skyTurn / 359, `${settings.skyTurn}°`, v => setSkyTurn(v * 359));   // #389 was SPIN: a bar that turns the pano by hand
