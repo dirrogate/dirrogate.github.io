@@ -15,6 +15,7 @@ import { makeFixedCam } from './fixedcam.js';
 import * as media from './medialib.js';
 import { applyNeon } from './neonenv.js';   // #355
 import { makePhoneHands } from './phonehands.js';   // #288
+import { makeStudio } from './studio.js';   // #380 S8 STUDIO
 
 export function startCamera(ctx) {
   const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, scroller, skybox, envLight, key } = ctx;
@@ -134,9 +135,10 @@ export function startCamera(ctx) {
     link = spectatorLink(code, {
       onStatus: s => { linkState = s; st(STATUS[s] || s); },
       onState: s => { linkState = s; st(STATUS[s] || s); },
-      onOpen: () => { linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; $('#spFix').disabled = false; lib.onLinkOpen(); sendCst(true); },
-      onClose: () => { linkState = 'disconnected'; st(STATUS.disconnected); if (liveOn) { liveOn = false; liveStop(); showLiveCard(false); } },
+      onOpen: () => { studio.onLink(true); linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; $('#spFix').disabled = false; lib.onLinkOpen(); sendCst(true); },
+      onClose: () => { studio.onLink(false); linkState = 'disconnected'; st(STATUS.disconnected); if (liveOn) { liveOn = false; liveStop(); showLiveCard(false); } },
       onMessage: onMsg,
+      onTrack: t => studio.onTrack(t),   // #380 the Quest's studio picture and sound
       onBinary: onSyncBin,   // #206 media sync: files from the Quest
     });
   };
@@ -273,6 +275,7 @@ export function startCamera(ctx) {
     onChange: () => { $('#spS').style.display = fixed.on ? 'none' : ''; sendCst(true); } });
   // #214 look without AR (fixed mode): camera grade from the video, 360 photo as light, manual key light; set from the Quest's LOOK tab
   const flook = makeFixLook({ THREE, scene, key, envLight, look, getVideo: () => fixed.video });
+  const studio = makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fixed, led, getLink: () => link, questNow });   // #380 S8 STUDIO: this phone makes the TV picture and the Twitch stream
   flook.onChange = () => sendCst(true);
   if (ctx.crateRemote) ctx.crateRemote.setAsk(key => { if (link && link.isOpen) link.send('ctl', { k: 'cover?', key }); });   // #218 covers from the Quest
   let flErr = '';
@@ -507,7 +510,7 @@ export function startCamera(ctx) {
   const _rq = new THREE.Quaternion(), _hq = new THREE.Quaternion(), _hp = new THREE.Vector3();
   const W = (x, y, z) => rig.localToWorld(new THREE.Vector3(x, y, z));
   function robotFrame(dt, now) {
-    const a = robo.a, on = !!(a && a.ready && robo.msg && now - robo.seen < 1000);
+    const a = robo.a, liveStu = !!(studio && studio.S && studio.S.on && studio.S.mode !== 'show'), on = !liveStu && !!(a && a.ready && robo.msg && now - robo.seen < 1000);   // #385 no robot over the real DJ
     if (on !== robo.on) {
       robo.on = on; if (a) a.root.visible = on;
       if (robo.layer != null) { if (on) camera.layers.enable(robo.layer); else camera.layers.disable(robo.layer); }
@@ -580,6 +583,8 @@ export function startCamera(ctx) {
       else if (!scroller.on || scroller.text !== m.text) { scroller.on = true; scroller.text = m.text; scroller.x = scroller.canvas.width; scroller.mesh.visible = true; }
     }
     else if (m.k === 'sky') vs.onSky(m);
+    else if (m.k === 'stu' || m.k === 'stuLive') studio.onMsg(m);   // #380 S8 STUDIO: mode / backdrop / sound / Twitch
+    else if (m.k === 'scp') studio.onScp(m);   // #380 the SHOW camera's pose (for the DOME)
     else if (m.k === 'cset') onCset(m);   // #188
     else if (m.k === 'mls' || m.k === 'mgo' || m.k === 'mok') lib.onMsg(m);
     else if (m.k === 'mls?') sendMediaList();   // #206 media sync (the Quest's VIDEO page)
@@ -817,16 +822,18 @@ export function startCamera(ctx) {
     vs.S.pvNeed = !!(pvOn && frame && link && link.isOpen && now - pvT > 150) || liveDue;   // #188 (#238 the camera picture for LIVE CAM too)
     vs.frame(frame);   // #184: camera picture for the key / preview
     if (frame) renderer.setRenderTarget(xrRT);   // #204 back to the AR layer
-    renderer.render(scene, camera);
-    if (liveDue) liveAR(now);   // #238
+    const stuDrew = !frame && studio.frame(now);   // #380 S8 STUDIO draws the screen (the TV / Twitch picture) instead of the mirror
+    if (!stuDrew) renderer.render(scene, camera);
+    if (stuDrew) { /* no LIVE CAM while the studio runs */ }
+    else if (liveDue) liveAR(now);   // #238
     else if (liveLink && fixed.on && now - liveT > 32) liveFixed(now);   // #238 fixed mode at ~30 fps
-    if (vs.S.pvNeed && pvOn && now - pvT > 150) renderPreview(now);   // #188 (after the AR frame)
-    else if (fixed.on && pvOn && link && link.isOpen && now - pvT > 150) fixedPreview(now);   // #208 the screen itself, scaled
+    if (!stuDrew && vs.S.pvNeed && pvOn && now - pvT > 150) renderPreview(now);   // #188 (after the AR frame)
+    else if ((stuDrew ? studio.mon : fixed.on && pvOn) && link && link.isOpen && now - pvT > 150) fixedPreview(now);   // #208 the screen itself, scaled (#380 the studio's output for the tablet's PREVIEW)
     if (frame) {   // #203 late AR frames (each one shows as a flash of bare camera on the phone's screen)
       if (lastXT) { const d = t - lastXT; dts.push(d); if (dts.length > 60) dts.shift(); const md = [...dts].sort((x, y) => x - y)[dts.length >> 1]; if (dts.length > 10 && d > md * 1.5) lateN++; }
       lastXT = t;
     } else lastXT = 0;
     fpsN++; if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; late = lateN; lateN = 0; sendCst(); }
   });
-  window.spect = { _robo: { robo, onAvatar, robotFrame } /* #278 test hook */, _ph: phoneHands /* #288 */, vs, look, renderPreview, fixed, flook, _live: { fixedFrame: liveFixed, get on() { return liveOn; }, get track() { return liveTrack; } } /* #238 test hook */, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
+  window.spect = { studio /* #380 test hook */, _robo: { robo, onAvatar, robotFrame } /* #278 test hook */, _ph: phoneHands /* #288 */, vs, look, renderPreview, fixed, flook, _live: { fixedFrame: liveFixed, get on() { return liveOn; }, get track() { return liveTrack; } } /* #238 test hook */, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
 }

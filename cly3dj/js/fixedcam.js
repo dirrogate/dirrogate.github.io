@@ -15,6 +15,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
   const loadPose = f => { try { const p = JSON.parse(localStorage.getItem(keyOf(f))); if (p && p.p && p.e && p.fov) return p; } catch {} return null; };
   const savePose = () => { try { localStorage.setItem(keyOf(S.facing), JSON.stringify(S.pose)); } catch {} };
   let saved = null;   // scene state to restore on exit
+  const lowLight = { fps25: true, ev: 1, ...(() => { try { return JSON.parse(localStorage.getItem('vire.fixcam.low')) || {}; } catch { return {}; } })() };   // #382
 
   // ---------------------------------------------------------------- UI
   document.head.insertAdjacentHTML('beforeend', `<style>
@@ -55,6 +56,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     </div></div><div id="fxTap" hidden></div>`);
   const $ = s => document.querySelector(s), ov = $('#fxO'), tap = $('#fxTap'), hint = $('#fxHint');
   const say = t => { S.msg = t; hint.hidden = !t; hint.textContent = t || ''; };
+  hint.style.pointerEvents = 'auto'; hint.onclick = () => say('');   // #385 tap the blue box to close it
   let marks = [];
   const clearMarks = () => { for (const m of marks) m.remove(); marks = []; };
   function markAt(vx, vy, label, rep) {   // video px -> screen
@@ -68,15 +70,21 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
   async function open(facing) {
     if (S.stream) { for (const t of S.stream.getTracks()) t.stop(); S.stream = null; }
     const t0 = performance.now();
-    const want = exact => ({ audio: false, video: { facingMode: exact ? { exact: facing } : facing, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } } });
-    try { S.stream = await navigator.mediaDevices.getUserMedia(want(true)); }
-    catch (e) { if (e.name !== 'OverconstrainedError' && e.name !== 'NotFoundError') throw e; S.stream = await navigator.mediaDevices.getUserMedia(want(false)); }   // a single camera (PC)
+    // #382 LOW LIGHT 25 (owner, dark clubs): a phone camera in a dim room slows itself to ~15 fps to gather light (the S8 / M33 / laptop
+    // tests all showed 10-17). Asking for at least 24 fps holds it at 25; the picture gets darker, which EV + (exposure compensation, the
+    // camera's own gain) and the studio's GAIN make up for.
+    const fr = lowLight.fps25 ? { ideal: 25, min: 24 } : { ideal: 30 };
+    const want = (exact, f) => ({ audio: false, video: { facingMode: exact ? { exact: facing } : facing, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: f } });
+    const get = async f => { try { return await navigator.mediaDevices.getUserMedia(want(true, f)); }
+      catch (e) { if (e.name !== 'OverconstrainedError' && e.name !== 'NotFoundError') throw e; return navigator.mediaDevices.getUserMedia(want(false, f)); } };   // a single camera (PC)
+    try { S.stream = await get(fr); } catch (e) { if (!lowLight.fps25 || e.name !== 'OverconstrainedError') throw e; S.stream = await get({ ideal: 25 }); }   // no 24+ range on this camera: ask nicely
     S.track = S.stream.getVideoTracks()[0]; S.facing = facing;
     video.srcObject = S.stream; await video.play().catch(() => {});
     await new Promise(res => { if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(() => res()); else video.addEventListener('playing', res, { once: true }); setTimeout(res, 3000); });
     S.vw = video.videoWidth; S.vh = video.videoHeight;
     try { S.caps = S.track.getCapabilities ? S.track.getCapabilities() : {}; S.set = S.track.getSettings(); } catch { S.caps = {}; S.set = {}; }
     S.lock = false;
+    await applyEv();   // #382
     S.pose = loadPose(facing) || S.pose || defaultPose();
     $('#fxCamB').textContent = facing === 'user' ? 'Selfie camera' : 'Main camera';
     ui();
@@ -362,7 +370,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     const weak = !C.lens && pts.length < 6;
     say(`Calibrated: points match within ${px} px` + (lensCm != null ? `, lens ${lensCm} cm from your touch` : '') + (dropped ? ` (point ${dropped} didn't fit and was left out)` : '')
       + (r.rms > 6 || (lensCm != null && lensCm > 4) ? '. High: redo; touch the exact corner of each point.' : weak ? '. Only ' + pts.length + ' points and no lens touch: check the blue outline in the headset sits on the phone, else redo with the lens touch.' : '. Fine-tune with Nudge if needed.'));
-    setTimeout(() => { if (!S.cal) say(''); }, 12000);
+    { const keep = S.msg; setTimeout(() => { if (S.msg === keep) say(''); }, 12000); }   // #385 the box stayed for ever: it cleared only if there was no calibration
     ui();
   }
 
@@ -413,8 +421,28 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     const c = S.caps && S.caps.exposureCompensation; if (!c) { say('No exposure compensation on this camera in Chrome.'); setTimeout(() => say(''), 3000); return; }
     try { S.set = S.track.getSettings(); } catch {}
     const v = Math.min(c.max, Math.max(c.min, (S.set.exposureCompensation || 0) + dir * (c.step || 0.33)));
-    try { await S.track.applyConstraints({ advanced: [{ exposureCompensation: v }] }); S.set.exposureCompensation = v; } catch (e) { say('Exposure: ' + e.message); }
+    try { await S.track.applyConstraints({ advanced: [{ exposureCompensation: v }] }); S.set.exposureCompensation = v; lowLight.ev = v; localStorage.setItem('vire.fixcam.low', JSON.stringify(lowLight)); } catch (e) { say('Exposure: ' + e.message); }   // #382 kept
     ui();
+  }
+
+  // #382 LOW LIGHT: 25 fps hold and exposure compensation, kept on this phone and set from the tablet (S8 STUDIO page)
+  async function applyEv() {
+    const c = S.caps && S.caps.exposureCompensation; if (!c || !S.track) return;
+    const v = Math.min(c.max, Math.max(c.min, lowLight.ev));
+    try { await S.track.applyConstraints({ advanced: [{ exposureCompensation: v }] }); S.set.exposureCompensation = v; } catch {}
+  }
+  async function setLowLight(o) {
+    const fpsCh = o.fps25 != null && !!o.fps25 !== lowLight.fps25, evCh = o.ev != null && +o.ev !== lowLight.ev;
+    if (o.fps25 != null) lowLight.fps25 = !!o.fps25; if (o.ev != null) lowLight.ev = +o.ev;
+    try { localStorage.setItem('vire.fixcam.low', JSON.stringify(lowLight)); } catch {}
+    if (fpsCh && S.on) { try { await open(S.facing); } catch (e) { say('Camera: ' + e.message); } }
+    else if (evCh) await applyEv();
+    ui();
+  }
+  function camInfo() {   // what the camera is really doing (for the tablet)
+    let st = {}; try { st = S.track ? S.track.getSettings() : {}; } catch {}
+    const c = S.caps && S.caps.exposureCompensation;
+    return { fps: st.frameRate ? Math.round(st.frameRate) : null, ev: st.exposureCompensation != null ? +(+st.exposureCompensation).toFixed(2) : null, evMax: c ? c.max : null, w: st.width, h: st.height };
   }
 
   // ---------------------------------------------------------------- camera switch / swap test
@@ -453,7 +481,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     $('#fxInfo').textContent = `${S.facing === 'user' ? 'selfie' : 'main'} ${S.vw}x${S.vh}` + (P ? ` · zoom ${P.fov.toFixed(1)}°` : '') + (S.err != null ? ` · cal ${S.err.toFixed(1)} px` : ' · not calibrated')
       + (ec != null ? ` · exp ${ec > 0 ? '+' : ''}${(+ec).toFixed(1)}` : '') + (S.swap ? ` · swap ${S.swap}` : '') + (extra ? ' · ' + extra : '');
   }
-  return { S, video, start, stop, frame, camState, onCalPoint, nudge, setCoarse, resetView, calCancel, get coarse() { return coarse; }, calSkip, calStart, calRescan, detect, info, get on() { return S.on; } };
+  return { S, video, start, stop, frame, camState, setLowLight, camInfo, lowLight, onCalPoint, nudge, setCoarse, resetView, calCancel, get coarse() { return coarse; }, calSkip, calStart, calRescan, detect, info, get on() { return S.on; } };
 }
 
 // ---------------------------------------------------------------- pose solve

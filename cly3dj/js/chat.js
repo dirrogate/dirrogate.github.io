@@ -108,26 +108,28 @@ export function drawChat(g, x, y, w, h, msgs, opts = {}) {
 
 // A floating chat screen in the room: grip (hands: pinch) moves it like the GoPro; no gravity; pose saved.
 export class ChatPanel {
-  constructor(rig, home) {
-    this.rig = rig; this.home = home; this.on = false; this.held = false;
+  // #377 two separate objects from one class: the CHAT PANEL (chat mode only) and the CHALKBOARD (opts.boardOnly: always the slate), each with its own
+  // saved place (opts.key) and start spot (home), so they no longer share one spot or flip into each other.
+  constructor(rig, home, opts = {}) {
+    this.rig = rig; this.home = home; this.on = false; this.held = false; this.key = opts.key || 'vire.chatPanel'; this.boardOnly = !!opts.boardOnly;
     const W = 0.36, H = 0.45; this.W = W; this.H = H;
-    const g = this.obj = new THREE.Group(); g.name = 'chatPanel'; g.visible = false; g.userData.noMirror = true; rig.add(g);
+    const g = this.obj = new THREE.Group(); g.name = opts.name || 'chatPanel'; g.visible = false; g.userData.noMirror = true; rig.add(g);
     const back = new THREE.Mesh(new THREE.BoxGeometry(W + 0.016, H + 0.016, 0.012), new THREE.MeshStandardMaterial({ color: 0x14161b, roughness: 0.6, metalness: 0.3 }));
     back.position.z = -0.0065; g.add(back);
     this.canvas = document.createElement('canvas'); this.canvas.width = 512; this.canvas.height = 640;
     this.g = this.canvas.getContext('2d'); this.tex = new THREE.CanvasTexture(this.canvas); this.tex.colorSpace = THREE.SRGBColorSpace;
     this.tex.anisotropy = 4;
     const scr = this.scr = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ map: this.tex, toneMapped: false })); scr.position.z = 0.0006; g.add(scr);
-    this._buildBoard();
+    if (this.boardOnly) this._buildBoard(); else { this.board = false; this.strokes = new Map(); }   // #377 the chat panel never builds the slate (saves its canvases)
     // #341 resize like the tablet: a silver corner tab top-right (trigger / pinch and drag), or a second grip while held
     { const c = document.createElement('canvas'); c.width = c.height = 64; const g2 = c.getContext('2d'); g2.fillStyle = '#d9dde3'; g2.beginPath(); g2.moveTo(64, 0); g2.lineTo(64, 64); g2.lineTo(0, 0); g2.closePath(); g2.fill();
       g2.strokeStyle = '#555b66'; g2.lineWidth = 5; g2.beginPath(); g2.moveTo(30, 34); g2.lineTo(54, 10); g2.moveTo(40, 10); g2.lineTo(54, 10); g2.lineTo(54, 24); g2.stroke();
       const tab = new THREE.Mesh(new THREE.PlaneGeometry(0.034, 0.034), new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(c), transparent: true, metalness: 0.6, roughness: 0.35 }));
       tab.position.set(W / 2 - 0.009, H / 2 - 0.009, 0.0012); g.add(tab); }
-    let s = null; try { s = JSON.parse(localStorage.getItem('vire.chatPanel') || 'null'); } catch {}
-    if (s && s.p) { g.position.fromArray(s.p); g.quaternion.fromArray(s.q); if (s.s) g.scale.setScalar(s.s); this._ledgeFit(); } else this.reset(false);   // #368 saved size: ledge back to real size
+    let s = null; try { s = JSON.parse(localStorage.getItem(this.key) || 'null'); } catch {}
+    if (s && s.p) { g.position.fromArray(s.p); g.quaternion.fromArray(s.q); if (s.s) g.scale.setScalar(s.s); if (this.ledge) this._ledgeFit(); } else this.reset(false);   // #368 saved size: ledge back to real size
     this.setOn(!!(s && s.on), false);
-    if (s && s.board) this.setBoard(true);
+    if (this.boardOnly) this.setBoard(true);
   }
   // ---- #341 CHALKBOARD: the panel turns into a greenish-black slate with a ledge holding three chalks (classic white,
   // yellow, soft pink) and a duster. Touch a chalk (controller ball or fingertip) to pick its colour, touch the duster to
@@ -161,16 +163,35 @@ export class ChatPanel {
     const duster = this.duster = new THREE.Group(); duster.position.set(0.125, 0, 0.018); ledge.add(duster);
     { const top = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.016, 0.03), wood); top.position.y = 0.006; duster.add(top);
       const felt = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.006, 0.03), new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: 1 })); felt.position.y = -0.005; duster.add(felt); }
-    this._pick(0); this._ledgeFit();
+    this.edge = 0; this._pick(0); this._ledgeFit();
   }
-  _ledgeFit() { const s = this.obj.scale.x; this.ledge.scale.setScalar(1 / s); this.shelf.scale.x = this.lip.scale.x = s; }   // #368
+  // #370 (owner: turn the board on its side and the chalk tray should go to the portrait side): the ledge sits on whichever
+  // edge of the board is lowest in the room. Bottom / top edges are board-width long, the side edges board-height long.
+  // The ledge frame is turned so its own "down" points out of that edge: chalks and duster stay upright in the room, and
+  // stay real size (counter-scaled, #368). A small margin stops it flipping back and forth near 45 deg; a board lying flat
+  // keeps the edge it has.
+  _ledgeFit() { this._edgeSet(this._lowestEdge()); }
+  _lowestEdge() {
+    let e = this.edge || 0;
+    this.obj.getWorldQuaternion(_q).invert(); _d.set(0, -1, 0).applyQuaternion(_q);   // room-down in board space
+    if (Math.hypot(_d.x, _d.y) < 0.3) return e;   // flat: no clear low edge
+    let bd = EDGE_N[e][0] * _d.x + EDGE_N[e][1] * _d.y;
+    for (let i = 0; i < 4; i++) { const dd = EDGE_N[i][0] * _d.x + EDGE_N[i][1] * _d.y; if (dd > bd + 0.12) { e = i; bd = dd; } }
+    return e;
+  }
+  _edgeSet(e) {
+    const s = this.obj.scale.x, W = this.W, H = this.H, n = EDGE_N[e], long = e % 2 ? H : W;
+    this.edge = e; this._es = s;
+    this.ledge.position.set(n[0] * W / 2, n[1] * H / 2, 0); this.ledge.rotation.set(0, 0, EDGE_ROT[e]); this.ledge.scale.setScalar(1 / s);
+    this.shelf.scale.x = this.lip.scale.x = (long * s + 0.016) / (W + 0.016);   // shelf and lip run the length of that edge
+  }
   _pick(k) {   // k = 0..2 chalk, 3 = duster
     this.chalk = k;
     this.sticks.forEach((m, i) => { m.position.y = -0.0035 + (i === k ? 0.007 : 0); m.position.z = i === k ? 0.024 : 0.018; });
     this.duster.position.y = k === 3 ? 0.008 : 0;
   }
   setBoard(on) {
-    this.board = !!on; this.ledge.visible = this.board; this.strokes.clear();
+    this.board = !!on; this.ledge.visible = this.board; this.strokes.clear(); if (this.board) this._ledgeFit();
     this.scr.material.map = this.board ? this.bTex : this.tex; this.scr.material.needsUpdate = true;
   }
   wipe() { this.bInkG.clearRect(0, 0, this.BW, this.BH); this._compose(); }
@@ -179,8 +200,9 @@ export class ChatPanel {
   touch(key, P) {
     if (!this.on || !this.board || this.held) { this.strokes.delete(key); return null; }
     this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P)), sc = this.obj.scale.x, zw = l.z * sc;   // zw: metres in front of the board
-    // the ledge: chalks and duster
-    const ly = (l.y + this.H / 2) * sc, lx = l.x * sc, lz = l.z * sc;   // #368 ledge coordinates are real metres
+    // the ledge: chalks and duster. #370 measured in the ledge's own frame (turned to the low edge, real metres since the
+    // ledge cancels the board's scale): lx along the edge, ly above it, lz out of the board
+    this.ledge.updateMatrixWorld(true); const lq = this.ledge.worldToLocal(_s.copy(P)), lx = lq.x, ly = lq.y, lz = lq.z;
     if (ly < 0.01 && ly > -0.04 && lz > -0.005 && lz < 0.05) {
       this.strokes.delete(key);
       for (let i = 0; i < 4; i++) {
@@ -219,8 +241,8 @@ export class ChatPanel {
     }
     g.globalAlpha = 1; this.bDirty = true;
   }
-  tickBoard() { if (this.board && this.bDirty && performance.now() - this.bT > 66) this._compose(); }   // up to ~15 uploads a second while writing
-  save() { try { localStorage.setItem('vire.chatPanel', JSON.stringify({ on: this.on, board: !!this.board, p: this.obj.position.toArray(), q: this.obj.quaternion.toArray(), s: this.obj.scale.x })); } catch {} }
+  tickBoard() { if (this.board) { const e = this._lowestEdge(); if (e !== this.edge || this.obj.scale.x !== this._es) this._edgeSet(e); } if (this.board && this.bDirty && performance.now() - this.bT > 66) this._compose(); }   // up to ~15 uploads a second while writing
+  save() { try { localStorage.setItem(this.key, JSON.stringify({ on: this.on, board: !!this.board, p: this.obj.position.toArray(), q: this.obj.quaternion.toArray(), s: this.obj.scale.x })); } catch {} }
   reset(save = true) { const h = this.home(); this.obj.scale.setScalar(1); if (this.ledge) this._ledgeFit(); this.obj.position.copy(h.p); this.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), h.yaw); if (save) this.save(); }
   setOn(on, save = true) { this.on = !!on; this.obj.visible = this.on; if (save) this.save(); }
   hit(P) { if (!this.on) return false; this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P)); return Math.abs(l.x) < this.W / 2 + 0.03 && Math.abs(l.y) < this.H / 2 + 0.03 && Math.abs(l.z) < 0.05; }
@@ -239,5 +261,6 @@ export class ChatPanel {
     this.tex.needsUpdate = true;
   }
 }
-const _v = new THREE.Vector3(), _m = new THREE.Matrix4(), _s = new THREE.Vector3();
+const _v = new THREE.Vector3(), _m = new THREE.Matrix4(), _s = new THREE.Vector3(), _q = new THREE.Quaternion(), _d = new THREE.Vector3();
+const EDGE_N = [[0, -1], [1, 0], [0, 1], [-1, 0]], EDGE_ROT = [0, Math.PI / 2, Math.PI, -Math.PI / 2];   // #370 tray edge: bottom, right, top, left (outward normal in board space, ledge turn)
 const CHALKS = [{ name: 'WHITE', hex: 0xf2f0e8, css: '#f2f0e8' }, { name: 'YELLOW', hex: 0xf3dc6a, css: '#f3dc6a' }, { name: 'PINK', hex: 0xf2a7c3, css: '#f2a7c3' }];

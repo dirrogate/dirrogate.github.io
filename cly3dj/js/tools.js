@@ -62,6 +62,15 @@ export function drawBitText(g, s, x, y, px, color, bold = true) {
 export const bitWidth = (s, px) => [...s].reduce((w, ch) => w + (glyph(ch)[0].length + 1) * px, 0);
 
 // ---------------------------------------------------------------- VJ Scroller on the LED wall
+// #370 (owner: the scroller showed only as a narrow, tall strip in the middle of a landscape LED wall). Cause: the wall can
+// be CURVED (#358, edges toward the viewer) and the scroller was a flat plane, so everything beyond a few centimetres of the
+// centre sank inside the curved screen (measured: 8 to 14 % of the width visible at 45 to 150 deg). Now, on a curved wall,
+// the band is bent onto the same circle as the screen (same formula as ledwall.js bendGeometry), 3 mm in front of it.
+function bendOnCircle(geo, R) {
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i), th = x / R, r = R - z; p.setX(i, r * Math.sin(th)); p.setZ(i, R - r * Math.cos(th)); }
+  p.needsUpdate = true; geo.computeBoundingSphere(); geo.computeBoundingBox(); return geo;
+}
 export class Scroller {
   constructor(wall, LED) {
     this.wall = wall; this.LED = LED; this.on = false; this.t = 0; this.x = 0; this.n = 0;
@@ -71,7 +80,8 @@ export class Scroller {
     this.g = this.canvas.getContext('2d');
     this.tex = new THREE.CanvasTexture(this.canvas); this.tex.colorSpace = THREE.SRGBColorSpace;
     this.tex.magFilter = THREE.NearestFilter; this.tex.generateMipmaps = false; this.tex.minFilter = THREE.LinearFilter;
-    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, toneMapped: false, depthWrite: false }));
+    this.flatGeo = new THREE.PlaneGeometry(1, 1); this.bentKey = null;
+    this.mesh = new THREE.Mesh(this.flatGeo, new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, toneMapped: false, depthWrite: false }));
     this.mesh.raycast = () => {};   // never blocks grabbing the wall
     this.mesh.renderOrder = 5; this.mesh.visible = false; this.mesh.userData.noMirror = true;
     this.holder = new THREE.Group(); this.holder.add(this.mesh); wall.add(this.holder);
@@ -86,7 +96,20 @@ export class Scroller {
     const side = Math.abs(Math.round(snap / (Math.PI / 2))) % 2 === 1;
     const aW = side ? LED.H : LED.W, aH = side ? LED.W : LED.H, bh = Math.min(aH * 0.3, aW * 128 / 768);
     this.holder.rotation.z = -snap;
-    this.mesh.scale.set(aW, bh, 1); this.mesh.position.set(0, -aH / 2 + bh / 2 + aH * 0.02, LED.D / 2 + 0.004);
+    const ud = this.wall.userData, curve = side ? 0 : (ud.curveRad ? ud.curveRad() : ud.curveDeg ? ud.curveDeg() * Math.PI / 180 : 0);   // a portrait wall stays flat
+    const py = -aH / 2 + bh / 2 + aH * 0.02, pz = LED.D / 2 + 0.004;
+    if (curve > 0.001) {
+      const key = [curve.toFixed(5), aW.toFixed(4), bh.toFixed(4), py.toFixed(4)].join('|');
+      if (key !== this.bentKey) {
+        this.bentKey = key; if (this.mesh.geometry !== this.flatGeo) this.mesh.geometry.dispose();
+        const pg = new THREE.PlaneGeometry(aW, bh, Math.max(16, Math.round(curve * 60)), 1); pg.translate(0, py, pz);
+        this.mesh.geometry = bendOnCircle(pg, LED.W / curve);
+      }
+      this.mesh.scale.set(1, 1, 1); this.mesh.position.set(0, 0, 0);
+    } else {
+      if (this.bentKey) { this.bentKey = null; this.mesh.geometry.dispose(); this.mesh.geometry = this.flatGeo; }
+      this.mesh.scale.set(aW, bh, 1); this.mesh.position.set(0, py, pz);
+    }
     this.t += dt;
     if (++this.n % 2) return;   // redraw at half the frame rate (~45 / 36 fps)
     const g = this.g, W = this.canvas.width, H = this.canvas.height, px = 6;

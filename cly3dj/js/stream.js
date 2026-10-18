@@ -13,7 +13,31 @@
 // The key is kept on this headset only (localStorage 'vire.twitchKey') and goes nowhere but the Twitch endpoint.
 import * as THREE from 'three';
 import { drawChat } from './chat.js';
+import { tvHost, tvNewKey, tvPairSend } from './net-link.js';   // #376 Cly3DTV
 
+const TVK = 'vire.tv';
+// #380 S8 STUDIO (owner's core redesign): the S8 (spectator page, fixed tripod camera) becomes the studio. The Quest draws only the scene, packs it
+// with its matte into one 1920 x 720 frame (colour 1280 wide, a timestamp strip, the matte 624 wide at x 1296, like the #347 phone packer) and sends
+// it with the master sound over the spectator link at 4.5 Mbit/s. The S8 puts its own backdrop behind it (NONE / DOME / its own copy of the LED
+// clip), adds its camera (LIVE DJ!: your real room; LIVE KEY!: keyed), shows the result full screen (HDMI) and sends it to Twitch.
+// Modes: 'show' (the SHOWTIME! camera pick: GOPRO / FRONT / FADERS; HEADSET CAM goes as it is, opaque), 'dj' (LIVE DJ!) and 'key' (LIVE KEY!):
+// both drawn from the S8's calibrated pose. Studio ON closes the Fire Stick screen (#376) and GO LIVE goes through the S8; OFF = everything as before.
+const STUK = 'vire.studio';
+export const STUDIO_DEF = { on: false, mode: 'show', snd: true, trim: 0, fps25: true, ev: 1, gain: 1.2 };   // #382 LOW LIGHT: the S8 camera held at 25 fps, exposure compensation (EV), the studio's GAIN
+export const STUDIO_MODES = { show: 'SHOW', dj: 'LIVE DJ!', key: 'LIVE KEY!' };
+export const STU = { PW: 1920, CW: 1280, SX: 1284, SW: 8, MX: 1296, MW: 624, BITS: 28 };   // packed frame layout (studio.js reads the same)
+// timestamp strip: 28 blocks down x 1284..1292: 1, 0 (sync), 24 bits of the Quest's clock in ms (low bit first), 2 bits of the bit count (a check)
+export function stampBits(t) {
+  const v = Math.round(t) & 0xFFFFFF, out = [1, 0]; let n = 0;
+  for (let i = 0; i < 24; i++) { const b = (v >> i) & 1; out.push(b); n += b; }
+  out.push(n & 1, (n >> 1) & 1); return out;
+}
+export function readStamp(bits) {   // -> ms (24 bits) or -1
+  if (bits.length < 28 || bits[0] !== 1 || bits[1] !== 0) return -1;
+  let v = 0, n = 0; for (let i = 0; i < 24; i++) { if (bits[2 + i]) { v |= 1 << i; n++; } }
+  return bits[26] === (n & 1) && bits[27] === ((n >> 1) & 1) ? v : -1;
+}
+export const stampBlock = H => Math.floor((H - 24) / 28);   // block height (24 px at 720)   // #376 { key, on, audio }: the paired venue screen
 export const TWITCH_WHIP = 'https://g.webrtc.live-video.net:4443/v2/offer';
 // #370 (owner): the CARD plate carries a QR code for the Twitch channel, top right, so people in the room (or on a club
 // screen) can scan it. Static: made offline (Python qrcode, version 3, error correction M, 29 x 29 modules) for the text
@@ -149,7 +173,158 @@ export class Streamer {
     // #374 PHONE CAM follows the SHOWTIME! backdrop (NONE / VISUALS / DOME); its own BG setting is dropped, a saved DOME carries over once if no SHOWTIME! settings were saved
     if ('bg' in this.pc_) { if (this.pc_.bg === 'dome' && !lsJ(SHOWO)) { this.showOpt.backdrop = 'dome'; ls.set(SHOWO, JSON.stringify(this.showOpt)); } delete this.pc_.bg; ls.set(PCAMK, JSON.stringify(this.pc_)); }
     if (this.source === 'phone') { this.source = 'show'; ls.set(SRC, 'show'); }   // #374 the plain PHONE source has no button any more
+    // #376 Cly3DTV: the paired venue screen (venue.html); listens as soon as the app is up when a key is saved
+    this.tvSet = { key: '', on: true, audio: true, ...(lsJ(TVK) || {}) }; this.tvLink = null; this.tvUp = false; this.tvMsg = ''; this.tvPairing = 0; this.tvKbps = 0; this.tvFps = 0;
+    if (this.tvSet.key && this.tvSet.on) this._tvOpen();
     this.pk = null; this.pkNew = false; this.pkMsg = ''; this.delay = null; this.grade = new THREE.Vector3(1, 1, 1); this.gradeT = 0;   // #347
+    this.stu = { ...STUDIO_DEF, ...(lsJ(STUK) || {}) }; this.s8 = null; this.stuAtt = false; this.stuTw = false; this.stuMsg = ''; this.stuFrames = 0; this.stuH = 720;   // #380
+  }
+  // ---- #380 S8 STUDIO ----
+  get stuLink() { const L = this.env.studio && this.env.studio(); return L && L.open ? L : null; }
+  get stuRun() { const L = this.stuLink; return this.stu.on && !!L && L.ok; }
+  get stuShow() { return this.stuRun && this.stu.mode === 'show'; }
+  setStudio(k, v) {
+    if (!(k in STUDIO_DEF)) return;
+    if (k === 'mode' && !STUDIO_MODES[v]) return;
+    if (k === 'trim') v = Math.max(-300, Math.min(300, Math.round(v)));
+    if (k === 'ev') v = Math.max(-2, Math.min(3, Math.round(v * 2) / 2));
+    if (k === 'gain') v = Math.max(1, Math.min(2.5, Math.round(v * 10) / 10));
+    const was = this.stu.on; this.stu[k] = v; ls.set(STUK, JSON.stringify(this.stu));
+    if (k === 'on') {
+      if (v && !was) { if (this.source === 'pcam' || this.source === 'phone') this.setSource('show'); this._tvClose(); this.tvMsg = 'S8 STUDIO is on: the S8 is the screen now.'; }
+      if (!v && was) { if (this.stuTw && this.live) this.stop(); this._stuDetach(); if (this.tvSet.key && this.tvSet.on) this._tvOpen(); }
+    }
+    if (this.stu.on && this.stu.mode === 'show' && (k === 'mode' || (k === 'on' && v)) && !['show', 'headset'].includes(this.source)) this.setSource('show');   // SHOW = the SHOWTIME! shot (CARD / AVACAM stay one tap away on STREAM)
+    if (k === 'mode' && this.stuAtt) this._stuFollow();   // the picture track can differ (HEADSET CAM's camera)
+    if (k === 'snd' && this.stuAtt) this._stuAttach(true);
+    this.layerOk = false; this._stuSync(true); this.env.onChange && this.env.onChange();
+  }
+  onStudio(what, m) {   // from the spectator host: 'open' | 'close' | 'sst' (the S8's status, once a second)
+    if (what === 'open') { this.stuAtt = false; this._stuSync(true); }
+    else if (what === 'close') {
+      this.stuAtt = false; this.s8 = null;
+      if (this.stuTw && this.live) this._set('error', 'The S8 link dropped (the S8 keeps Twitch up for a minute: reconnect it)');
+      this._stuIdle();
+    } else if (what === 'sst') {
+      this.s8 = { ...m, at: performance.now() };
+      if (this.stuTw) {
+        const tw = m.tw || 'off';
+        if (tw === 'live') { if (this.state !== 'live') { this.t0 = this.t0 || performance.now(); this._set('live', ''); } this.kbps = m.kbps || 0; }
+        else if (tw === 'connecting') { if (this.state !== 'connecting') this._set('connecting', m.twMsg || 'The S8 is connecting to Twitch…'); }
+        else if (tw === 'error') { this.stuTw = false; this.t0 = 0; this._set('error', 'S8: ' + (m.twMsg || 'Twitch failed')); }
+        else if (tw === 'off' && this.live) { this.stuTw = false; this.t0 = 0; this._set('off', ''); }
+      }
+    }
+    this.env.onChange && this.env.onChange();
+  }
+  _stuIdle() { if (!this.live && !this.tvUp && !this.rehearse) { if (this.canvasTrack) { this.canvasTrack.stop(); this.canvasTrack = null; } this.env.engine && this.env.engine.streamStop && this.env.engine.streamStop(); } }
+  _stuDetach() {
+    const L = this.stuLink; this.stuAtt = false;
+    if (L) { if (L.ok) L.set(null, null).catch(() => {}); L.ctl({ k: 'stu', on: false }); }
+    this._stuIdle();
+  }
+  async _stuAttach(force) {   // the picture and sound onto the S8's slots
+    const L = this.stuLink; if (!L || !L.ok || (this.stuAtt && !force) || this._stuBusy) return;
+    this._stuBusy = true;
+    try {
+      const v = await this._videoTrack(this.stu.mode === 'show' ? this.source : 'show');
+      if (this.stu.mode !== 'show' || this.source === 'show') this._sizeCanvas(STU.PW, this.stuH);
+      let a = null;
+      if (this.stu.snd) { const e = this.env.engine; if (e) { if (!e.ctx) await e.init({ latencyHint: 'interactive' }); await e.resume(); a = e.streamTrack(); } }
+      if (await L.set(v, a, 4500)) { this.stuAtt = true; this.stuTrack = v; this.stuMsg = ''; }
+    } catch (e) { this.stuMsg = 'Studio: ' + e.message; }
+    finally { this._stuBusy = false; }
+  }
+  _stuSync(now) {   // keep the S8 told (mode, backdrop, sound, trim) and the tracks attached
+    const L = this.stuLink;
+    if (!this.stu.on) return;
+    if (!L) { this.stuMsg = 'S8 not linked: open the camera page on the S8 and connect.'; return; }
+    if (!L.ok) { this.stuMsg = 'The S8 page is too old for the studio: reload it on the S8.'; return; }
+    if (!this.stuAtt) this._stuAttach();
+    const O = this.showOpt;
+    L.ctl({ k: 'stu', on: true, mode: this.stu.mode, bd: O.backdrop, snd: !!this.stu.snd, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
+  }
+  _ledClip() { const c = this.env.ledClip && this.env.ledClip(); return c || ''; }
+  get s8HasClip() { const c = this._ledClip(); return !!c && !!this.s8 && this.s8.clip === c; }
+  async _stuFollow() { if (this.stuAtt) { this.stuAtt = false; await this._stuAttach(); } }
+  // one packed frame: colour premultiplied over black (the 2D canvas does that by drawing a see-through picture onto black), the stamp, the matte
+  _stuPack(layer, stamp) {
+    const W = STU.CW, H = this.stuH, O = this.showOpt;
+    this._sizeCanvas(STU.PW, H);
+    if (!this.stuLay) { this.stuLay = document.createElement('canvas'); this.stuMat = document.createElement('canvas'); }
+    const lc = this.stuLay, mc = this.stuMat;
+    if (lc.width !== W || lc.height !== H) { lc.width = W; lc.height = H; mc.width = STU.MW; mc.height = H; }
+    const lg = lc.getContext('2d'), mg = mc.getContext('2d'), g = this.g;
+    lg.globalCompositeOperation = 'source-over'; lg.globalAlpha = 1; lg.clearRect(0, 0, W, H);
+    // VISUALS that only the Quest has (VidVinyl, AVACAM, a still, or a clip the S8 hasn't got): drawn here, so the frame is opaque and the S8 shows it as it is
+    if (this.stu.mode === 'show' && O.backdrop === 'visuals' && !this.s8HasClip) {
+      const gr = lg.createRadialGradient(W / 2, H * 0.45, 40, W / 2, H / 2, W * 0.65); gr.addColorStop(0, '#141a28'); gr.addColorStop(1, '#030409'); lg.fillStyle = gr; lg.fillRect(0, 0, W, H);
+      for (const L of (this.env.wallSource && this.env.wallSource()) || []) { if (!L || !L.el || L.gain === 0) continue; lg.globalAlpha = L.gain == null ? 1 : Math.min(1, L.gain); lg.globalCompositeOperation = L.add ? 'lighter' : 'source-over'; this._cover(lg, L.el, W, H, L.flip); }
+      lg.globalAlpha = 1; lg.globalCompositeOperation = 'source-over'; this.stuBaked = true;
+    } else this.stuBaked = false;
+    if (layer) lg.drawImage(layer, 0, 0, W, H);
+    this._overlays(lg, W, H);
+    g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.fillStyle = '#000'; g.fillRect(0, 0, STU.PW, H);
+    g.drawImage(lc, 0, 0);
+    mg.globalCompositeOperation = 'copy'; mg.drawImage(lc, 0, 0, STU.MW, H);
+    mg.globalCompositeOperation = 'source-in'; mg.fillStyle = '#fff'; mg.fillRect(0, 0, STU.MW, H);
+    mg.globalCompositeOperation = 'destination-over'; mg.fillStyle = '#000'; mg.fillRect(0, 0, STU.MW, H); mg.globalCompositeOperation = 'source-over';
+    g.drawImage(mc, STU.MX, 0);
+    const bits = stampBits(stamp), bh = stampBlock(H);
+    for (let i = 0; i < bits.length; i++) { g.fillStyle = bits[i] ? '#fff' : '#000'; g.fillRect(STU.SX, 12 + i * bh, STU.SW, bh); }
+    if (this.canvasTrack && this.sending) this.canvasTrack.requestFrame();
+    this.stuFrames++;
+  }
+  // LIVE DJ! / LIVE KEY!: the scene drawn from the S8's calibrated pose on a see-through background (no camera picture here: the S8 adds it)
+  _stuPhoneTick(now) {
+    if (this.busy || now - this.showT < 33) return; this.showT = now;
+    const r = this.env.renderer, c6 = this.env.phoneCam && this.env.phoneCam(), rig = this.env.rig;
+    if (!c6 || !c6.ff || !rig) { this.stuMsg = !c6 ? 'S8 not calibrated: Fixed camera on the S8, then Calibrate.' : 'The S8 is in AR mode: use Fixed camera.'; this._stuPack(null, performance.now()); return; }
+    this.stuMsg = '';
+    const asp = c6.vw && c6.vh ? c6.vw / c6.vh : 16 / 9, W = STU.CW, H = Math.round(W / asp / 2) * 2;
+    if (H !== this.stuH) { this.stuH = H; this._sizeCanvas(STU.PW, H); }
+    if (!this.sp || this.sp.W !== W || this.sp.H !== H) {
+      if (this.sp) { this.sp.rt.dispose(); this.sp.out.dispose(); }
+      const half = r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float');
+      const sp = this.sp = { W, H };
+      sp.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 });
+      sp.out = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false });
+      sp.cam = new THREE.PerspectiveCamera(50, W / H, 0.05, 40); sp.cam.updateMatrixWorld = () => {};
+      sp.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: sp.rt.texture } }, vertexShader: COPY_VS, fragmentShader: SHOW_FS, depthTest: false, depthWrite: false });
+      sp.scene = new THREE.Scene(); const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), sp.mat); q.frustumCulled = false; sp.scene.add(q);
+      sp.oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+      sp.buf = new Uint8Array(W * H * 4); sp.img = new ImageData(new Uint8ClampedArray(sp.buf.buffer), W, H);
+      sp.canvas = document.createElement('canvas'); sp.canvas.width = W; sp.canvas.height = H; sp.g = sp.canvas.getContext('2d');
+    }
+    const sp = this.sp, cam = sp.cam;
+    _m2.compose(_v1.fromArray(c6.p), _q1.fromArray(c6.q), _s1); rig.updateMatrixWorld();
+    cam.matrixWorld.multiplyMatrices(rig.matrixWorld, _m2); cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
+    cam.matrixWorld.decompose(cam.position, cam.quaternion, cam.scale);
+    if (cam.fov !== c6.ff || cam.aspect !== asp) { cam.fov = c6.ff; cam.aspect = asp; cam.updateProjectionMatrix(); }
+    this._wallShot = false;   // no 3D LED wall in this shot (#374), the scroller is the flat band
+    const stamp = performance.now();
+    const sc = this.env.scene, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled, prevSh = r.shadowMap.autoUpdate, prevCol = r.getClearColor(_c1), prevA = r.getClearAlpha();
+    const undo = this.env.pcamPrep ? this.env.pcamPrep(cam) : null;   // the PHONE CAM rules: no room / sky / wall, props behind you left out (#374), your own hands (#377)
+    try {
+      r.xr.enabled = false; r.shadowMap.autoUpdate = false; r.setClearColor(0x000000, 0);
+      cam.layers.mask = 1;
+      r.setRenderTarget(sp.rt); r.clear(); r.render(sc, cam);
+      r.setRenderTarget(sp.out); r.render(sp.scene, sp.oc);
+    } finally {
+      r.setClearColor(prevCol, prevA); r.xr.enabled = prevXR; r.shadowMap.autoUpdate = prevSh; r.setRenderTarget(prevRT);
+      if (undo) undo();
+    }
+    this.busy = true;
+    r.readRenderTargetPixelsAsync(sp.out, 0, 0, W, H, sp.buf).then(() => {
+      this.busy = false; if (this.sp !== sp || !this.stuRun || this.stu.mode === 'show') return;
+      sp.g.putImageData(sp.img, 0, 0); this._stuPack(sp.canvas, stamp);
+    }).catch(() => { this.busy = false; });
+  }
+  _stuPose(cam, W, H, stamp) {   // SHOW: the show camera's rig-space pose for the S8's dome, tagged with the frame's stamp
+    const L = this.stuLink, rig = this.env.rig; if (!L || !rig) return;
+    rig.updateMatrixWorld(); _m1.copy(rig.matrixWorld).invert().multiply(cam.matrixWorld); _m1.decompose(_v1, _q1, _v2);
+    const r3 = x => Math.round(x * 1000) / 1000, r4 = x => Math.round(x * 10000) / 10000;
+    L.state({ k: 'scp', t: Math.round(stamp) & 0xFFFFFF, p: _v1.toArray().map(r3), q: _q1.toArray().map(r4), fov: cam.fov, asp: W / H });
   }
   setPcam(k, v) {   // #347 PHONE CAM SETUP
     if (!(k in PCAM_DEF)) return; this.pc_[k] = v; ls.set(PCAMK, JSON.stringify(this.pc_));
@@ -164,10 +339,12 @@ export class Streamer {
   applyPreset(name) { const p = SHOW_PRESETS[name]; if (!p) return; Object.assign(this.showOpt, p); ls.set(SHOWO, JSON.stringify(this.showOpt)); this.env.onChange && this.env.onChange(); }
   nextBackdrop() { this.setShowOpt('backdrop', BACKDROPS[(BACKDROPS.indexOf(this.showOpt.backdrop) + 1) % BACKDROPS.length]); }
   get show3d() { const O = this.showOpt; return this.source === 'show' && !!(O.robot || O.gear || O.wall || O.gopro || O.panel || O.chalk || O.neon || O.backdrop === 'dome'); }
-  get running() { return this.live || this.testing; }
-  get active() { return this.live || this.rehearse; }   // #339 REHEARSAL: the chosen source is drawn for the tablet MONITOR without going live
+  get running() { return this.live || this.testing || this.stuShow; }
+  get active() { return this.live || this.rehearse || this.stuRun; }   // #380 the S8 studio keeps the shot running
+  get sending() { return this.live || this.tvUp || this.stuRun; }   // #376 the canvas track is fed for Twitch and / or the venue screen   // #339 REHEARSAL: the chosen source is drawn for the tablet MONITOR without going live
   setRehearse(on) {
-    on = !!on; if (on === this.rehearse) return; this.rehearse = on;
+    on = !!on; if (!on && this.tvUp) return;   // #376 the venue screen needs the shot running
+    if (on === this.rehearse) return; this.rehearse = on;
     if (on && !this.live) { this._sizeFor(this.source); this.layerOk = false; }
     if (this.source === 'pcam' && !this.live) { this.env.phoneLive && this.env.phoneLive(on, this._pcamOpts()); this._audioDelay(); }
     if (this.source === 'headset' && !this.live) this.setTesting(on);
@@ -178,7 +355,7 @@ export class Streamer {
   resetFit() { const g = this.fit.gear; this.fit = { ...FIT_DEF, gear: g }; ls.set(FIT, JSON.stringify(this.fit)); this.env.onChange && this.env.onChange(); }
   async _gearChanged() {   // HEADSET CAM on air: switch between the MR canvas and the raw camera
     if (!this.live || this.source !== 'headset' || !this.vSender) return;
-    try { const t = await this._videoTrack('headset'); await this.vSender.replaceTrack(t); this.vTrack = t; } catch (e) { this.msg = 'Camera: ' + e.message; }
+    try { const t = await this._videoTrack('headset'); await this.vSender.replaceTrack(t); this.vTrack = t; this._tvFollow(); } catch (e) { this.msg = 'Camera: ' + e.message; }
   }
   async setTesting(on) {
     if (on === this.testing) return;
@@ -187,7 +364,7 @@ export class Streamer {
     this.env.onChange && this.env.onChange();
   }
   get live() { return this.state === 'live' || this.state === 'connecting'; }
-  get wantsCam() { return this.active && (this.source === 'avacam' || this.show3d); }   // main.js keeps the DJ CAM (pose, aim, robot) running for us
+  get wantsCam() { return this.active && (this.source === 'avacam' || this.show3d) && !(this.stuRun && this.stu.mode !== 'show'); }   // #380 LIVE DJ! / KEY! film from the S8, not the DJ camera   // main.js keeps the DJ CAM (pose, aim, robot) running for us
   get needsCamRT() { return this.active && this.source === 'avacam'; }   // only AVACAM uses the DJ CAM's own picture
   hasKey() { return !!streamKey.get(); }
   keyHint() { const k = streamKey.get(); return k ? '••••' + k.slice(-4) : 'no key'; }
@@ -242,6 +419,8 @@ export class Streamer {
       if (src === 'phone' || src === 'pcam') this.env.phoneLive && this.env.phoneLive(true, this._pcamOpts()); else if (prev === 'phone' || prev === 'pcam') this.env.phoneLive && this.env.phoneLive(false);
       this._audioDelay();
     }
+    this._tvFollow();   // #376
+    this._stuFollow();   // #380
     if (!this.live || !this.vSender) { this.env.onChange && this.env.onChange(); return; }
     try {
       if (src === 'phone' || src === 'pcam') this.env.phoneLive && this.env.phoneLive(true, this._pcamOpts());
@@ -365,7 +544,7 @@ export class Streamer {
     this.busy = true; const buf = mr.buf, img = mr.img;
     r.readRenderTargetPixelsAsync(mr.out, 0, 0, W, H, buf).then(() => {
       this.busy = false; if (!this.running || this.source !== 'headset' || this.mr !== mr) return;
-      this.g.putImageData(img, 0, 0); if (this.canvasTrack && this.live) this.canvasTrack.requestFrame();
+      this.g.putImageData(img, 0, 0); if (this.canvasTrack && this.sending) this.canvasTrack.requestFrame();
       this.mrFrames = (this.mrFrames || 0) + 1;
     }).catch(() => { this.busy = false; });
   }
@@ -396,7 +575,7 @@ export class Streamer {
     const g = this.g, W = this.canvas.width, H = this.canvas.height;
     g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H); g.fillStyle = '#8c96a8'; g.font = '600 30px system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText('PHONE CAM: ' + this.pkMsg, W / 2, H / 2); g.textBaseline = 'alphabetic';
-    this._overlays(g, W, H); if (this.canvasTrack && this.live) this.canvasTrack.requestFrame();
+    this._overlays(g, W, H); if (this.canvasTrack && this.sending) this.canvasTrack.requestFrame();
   }
   // LATENCY MATCH: the fast movers (hands, controllers, glove, sleeves) keep ~1 s of their local poses; the PHONE CAM
   // render puts them back where they were when the phone filmed the frame, then restores them.
@@ -532,7 +711,7 @@ export class Streamer {
     r.readRenderTargetPixelsAsync(pk.out, 0, 0, W, H, buf).then(() => {
       this.busy = false; if (!this.active || this.source !== 'pcam' || this.pk !== pk) return;
       this.g.putImageData(img, 0, 0); this._overlays(this.g, W, H);
-      if (this.canvasTrack && this.live) this.canvasTrack.requestFrame();
+      if (this.canvasTrack && this.sending) this.canvasTrack.requestFrame();
       this.pkFrames = (this.pkFrames || 0) + 1;
     }).catch(() => { this.busy = false; });
   }
@@ -576,6 +755,7 @@ export class Streamer {
     this._wallShot = !!(O.wall && this.env.wallInShot && this.env.wallInShot(cam));   // #372 scroller: on the 3D wall when it is in shot, else flat
     const sc = this.env.scene, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled, prevSh = r.shadowMap.autoUpdate, prevCol = r.getClearColor(_c1), prevA = r.getClearAlpha();
     const undo = this.env.showPrep ? this.env.showPrep() : null;
+    const stamp = performance.now(); if (this.stuShow) this._stuPose(cam, W, H, stamp);   // #380
     try {
       r.xr.enabled = false; r.shadowMap.autoUpdate = false; r.setClearColor(0x000000, 0);
       r.setRenderTarget(ly.rt); r.clear(); r.render(sc, cam);
@@ -587,7 +767,7 @@ export class Streamer {
     this.busy = true;
     r.readRenderTargetPixelsAsync(ly.out, 0, 0, W, H, ly.buf).then(() => {
       this.busy = false; if (this.ly !== ly) return;
-      ly.g.putImageData(ly.img, 0, 0); this.layerOk = true;
+      ly.g.putImageData(ly.img, 0, 0); this.layerOk = true; ly.stamp = stamp;
       if (this.source === 'show') this._compose();
     }).catch(() => { this.busy = false; });
   }
@@ -598,6 +778,11 @@ export class Streamer {
     g.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh); g.restore(); return true;
   }
   _compose() {
+    if (this.stuShow) {   // #380 the S8 adds the backdrop: send the scene with its matte
+      const lay = this.source === 'show' && this.show3d && this.layerOk && this.ly;
+      if (!lay) { const L = this.stuLink, c = this.env.showCam && this.env.showCam(); if (c && L) this._stuPose(c, 16, 9, performance.now()); }   // the dome still follows the camera with nothing 3D on
+      return this._stuPack(lay ? this.ly.canvas : null, lay ? this.ly.stamp : performance.now());
+    }
     const g = this.g, W = this.canvas.width, H = this.canvas.height, O = this.showOpt;
     // 1. visuals
     const bg = (O.backdrop === 'visuals' && this.env.wallSource && this.env.wallSource()) || [];
@@ -613,7 +798,7 @@ export class Streamer {
     // 2. robot + gear
     if (this.source === 'show' && this.show3d && this.layerOk && this.ly) g.drawImage(this.ly.canvas, 0, 0, W, H);
     this._overlays(g, W, H);
-    if (this.canvasTrack && this.live) this.canvasTrack.requestFrame();
+    if (this.canvasTrack && this.sending) this.canvasTrack.requestFrame();
     this.showFrames = (this.showFrames || 0) + 1;
   }
   _overlays(g, W, H) {   // 3. overlays (#347 PHONE CAM uses them too)
@@ -646,14 +831,16 @@ export class Streamer {
   }
 
   tick(now = performance.now()) {   // from the frame loop, after the DJ CAM render
-    if (this.source === 'headset' && (this.testing || (this.live && this.fit.gear))) {
+    if (this.stu.on && now - (this._stuT || 0) > 1000) { this._stuT = now; this._stuSync(); }   // #380
+    if (this.source === 'headset' && (this.testing || ((this.live || this.stuShow) && this.fit.gear))) {
       this._headPose(now);
       // no frame callbacks (immersive session, video not composited): take a new picture ~30 times a second, 45 ms old
       if (now - (this.rvfcT || 0) > 300 && now - (this.pollT || 0) > 33) { this.pollT = now; this.camNew = true; this.camFrameT = now - 45; }
       this._mrFrame();
     }
     if (!this.active) return;
-    if (this.source === 'show') this._showTick(now);
+    if (this.stuRun && this.stu.mode !== 'show') { this._stuPhoneTick(now); return; }   // #380 LIVE DJ! / LIVE KEY!
+    if (this.source === 'show' || (this.stuRun && (this.source === 'pcam' || this.source === 'phone'))) this._showTick(now);
     else if (this.source === 'pcam') this._pcamTick(now);
     else if (this.source === 'card') {
       if (now - this.cardT > 1000) { this.cardT = now; this.drawCard(now); }
@@ -673,11 +860,85 @@ export class Streamer {
     } catch {}
   }
 
+  // ---- #376 Cly3DTV: a venue screen (venue.html) gets the same picture as Twitch, and the master sound if the tablet allows it ----
+  // One second WebRTC link, made by net-link.js tvHost. The picture is the SAME track Twitch gets (the stream canvas, composed once), so the
+  // Quest pays only one more encode; it also works off air (the shot then runs like the PREVIEW does, setRehearse), so a club-only night
+  // needs no Twitch. Sound is the same master track Twitch gets (after the limiter, no CUE), with the same LATENCY MATCH hold-back.
+  tvState() { return !this.tvSet.key ? (this.tvPairing ? 'pairing' : 'unpaired') : this.tvPairing ? 'pairing' : !this.tvSet.on ? 'off' : this.tvUp ? 'up' : 'waiting'; }
+  _tvNote(m) { this.tvMsg = m; this.env.onChange && this.env.onChange(); }
+  _tvSave() { ls.set(TVK, JSON.stringify(this.tvSet)); this.env.onChange && this.env.onChange(); }
+  async _tvVideo() { return this.live && this.vTrack ? this.vTrack : await this._videoTrack(this.source); }
+  async _tvAudio() {
+    if (!this.tvSet.audio) return null;
+    const eng = this.env.engine; if (!eng) return null;
+    if (!eng.ctx) await eng.init({ latencyHint: 'interactive' });
+    await eng.resume(); return eng.streamTrack();
+  }
+  async _tvFollow() { const l = this.tvLink; if (!l || !this.tvUp) return; try { await l.setVideo(await this._tvVideo()); } catch (e) { console.warn('venue screen picture', e); } }
+  _tvOpen() {
+    if (this.tvLink || !this.tvSet.key || (!this.tvSet.on && !this.tvPairing)) return;
+    if (this.stu && this.stu.on) return;   // #380 the S8 studio is the screen while it is on
+    this.tvLink = tvHost(this.tvSet.key, {
+      video: () => this._tvVideo(), audio: () => this._tvAudio(),
+      onOffer: () => { if (this.tvPairing) { clearTimeout(this._tvPairT); this.tvPairing = 0; this._tvSave(); this._tvNote('TV paired.'); } },
+      onUp: () => this._tvUp(), onDown: () => this._tvDown(),
+      onCtlOpen: () => { this.tvLink && this.tvLink.ctl({ t: 'hi', audio: !!this.tvSet.audio }); },
+    });
+  }
+  _tvClose() { const l = this.tvLink; this.tvLink = null; if (l) l.close(); this._tvDown(); }
+  _tvUp() {
+    this.tvUp = true;
+    if (!this.active) this.setRehearse(true);   // off air: draw the shot for the screen
+    clearInterval(this._tvIv); let lb = 0, lt = 0;
+    this._tvIv = setInterval(async () => {   // kbit/s and frames per second leaving for the screen, every 2 s
+      const pc = this.tvLink && this.tvLink.pc; if (!pc) return;
+      try { (await pc.getStats()).forEach(r => { if (r.type === 'outbound-rtp' && r.kind === 'video') { if (lt && r.timestamp > lt) this.tvKbps = Math.round((r.bytesSent - lb) * 8 / (r.timestamp - lt)); lb = r.bytesSent; lt = r.timestamp; this.tvFps = Math.round(r.framesPerSecond || 0); } }); } catch {}
+    }, 2000);
+    this.env.onChange && this.env.onChange();
+  }
+  _tvDown() {
+    const was = this.tvUp; this.tvUp = false; clearInterval(this._tvIv); this._tvIv = 0; this.tvKbps = this.tvFps = 0;
+    if (was) {
+      if (this.rehearse && !this.live && !(this.env.monitorOn && this.env.monitorOn())) this.setRehearse(false);
+      if (!this.live) { if (this.canvasTrack) { this.canvasTrack.stop(); this.canvasTrack = null; } this.env.engine && this.env.engine.streamStop && this.env.engine.streamStop(); }
+    }
+    this.env.onChange && this.env.onChange();
+  }
+  // pairing: the TV shows a 6-digit code, the tablet types it here; a fresh long key goes to the TV over the code's own relay topic, and the
+  // pairing counts once the TV calls back under that key (45 s). On failure the old pairing (if any) comes back.
+  async tvPair(code) {
+    code = String(code || '').replace(/\D/g, '');
+    if (code.length !== 6) { this._tvNote('The code has 6 digits.'); return false; }
+    if (this.tvPairing) return false;
+    const prev = { ...this.tvSet }, key = tvNewKey();
+    this._tvClose(); this.tvSet = { ...prev, key, on: true }; this.tvPairing = Date.now(); this._tvNote('Looking for the TV…');
+    this._tvOpen();
+    try { await this.tvLink.ready; await tvPairSend(code, key); } catch (e) { return this._tvPairFail(prev, 'Could not reach the relay (' + e.message + ').'); }
+    this._tvPairT = setTimeout(() => { if (this.tvPairing) this._tvPairFail(prev, 'No TV answered. Check the code on the TV (venue.html) and that it is still showing.'); }, 45000);
+    return true;
+  }
+  _tvPairFail(prev, msg) { clearTimeout(this._tvPairT); this.tvPairing = 0; this._tvClose(); this.tvSet = prev; this._tvOpen(); this._tvNote(msg); return false; }
+  tvForget() {
+    const l = this.tvLink; this.tvLink = null;
+    if (l) { l.ctl({ t: 'forget' }); setTimeout(() => l.close(), 500); }
+    this._tvDown(); this.tvSet = { ...this.tvSet, key: '' }; this.tvPairing = 0; this._tvSave(); this._tvNote('Forgotten. The TV shows a new code.');
+  }
+  async setTv(k, v) {
+    if (k === 'on') { this.tvSet.on = !!v; this._tvSave(); if (v) this._tvOpen(); else this._tvClose(); }
+    else if (k === 'audio') { this.tvSet.audio = !!v; this._tvSave(); if (this.tvLink) { try { await this.tvLink.setAudio(v ? await this._tvAudio() : null); } catch (e) { console.warn('venue screen sound', e); } } }
+  }
+
   // ---- WHIP ----
   async start() {
     if (this.live) return;
     const key = streamKey.get();
     if (!key) { this._set('error', 'No Twitch stream key: enter it on the start page'); return; }
+    if (this.stu.on) {   // #380 the S8 goes live: it gets the key over the link (encrypted, DTLS) and keeps it
+      if (!this.stuRun) { this._set('error', this.stuMsg || 'S8 not linked'); return; }
+      this.stuTw = true; this.t0 = 0; this.stuLink.ctl({ k: 'stuLive', on: true, key }); this._set('connecting', 'The S8 is connecting to Twitch…');
+      setTimeout(() => { if (this.stuTw && this.state === 'connecting') { this.stuTw = false; this._set('error', 'The S8 did not answer (is its page open?)'); } }, 20000);
+      return;
+    }
     this._set('connecting', 'Connecting to Twitch…');
     try {
       const eng = this.env.engine; if (!eng.ctx) await eng.init({ latencyHint: 'interactive' }); await eng.resume();
@@ -751,9 +1012,12 @@ export class Streamer {
     if (this.source === 'phone' || this.source === 'pcam') this.env.phoneLive && this.env.phoneLive(false);
     this.env.engine.setStreamDelay && this.env.engine.setStreamDelay(0);
     if (!this.testing) this._stopCam();
-    if (this.canvasTrack) { this.canvasTrack.stop(); this.canvasTrack = null; }
-    this.env.engine.streamStop && this.env.engine.streamStop();
+    if (this.canvasTrack && !this.tvUp) { this.canvasTrack.stop(); this.canvasTrack = null; }   // #376 kept while the venue screen is using it
+    if (!this.tvUp) this.env.engine.streamStop && this.env.engine.streamStop();
     this.aTrack = this.vTrack = this.vSender = this.aSender = null; this.t0 = 0; this.kbps = 0;
   }
-  stop() { this._teardown(); this._set('off', ''); }
+  stop() {
+    if (this.stuTw) { this.stuTw = false; const L = this.stuLink; if (L) L.ctl({ k: 'stuLive', on: false }); this.t0 = 0; this.kbps = 0; this._set('off', ''); return; }   // #380
+    this._teardown(); this._set('off', '');
+  }
 }

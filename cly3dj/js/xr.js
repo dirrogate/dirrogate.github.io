@@ -19,6 +19,25 @@ const PINCH_ON = 0.018, PINCH_OFF = 0.032;
 const PLATTER_R = 0.166;
 const PITCH_STEP = 0.0001;   // #270 (owner): 0.01 % per thumbstick flick (was 0.05 %)
 
+// #378 the turntables turn in 45 degree steps. g.snap is the step the deck is on; a twist of more than 30 degrees (22.5 plus a 7.5 degree detent) moves it to the next
+// step, with a buzz, so it ratchets instead of wobbling at the halfway point. battle mode (both decks turned 90) is then two clean clicks.
+const SNAP_STEP = Math.PI / 4, SNAP_HOLD = 0.52;
+function snapStep(g, raw, onStep) {
+  const two = Math.PI * 2, wrapTo = a => a - two * Math.round(a / two);
+  if (g.snap === undefined) { g.snap = Math.round(raw / SNAP_STEP) * SNAP_STEP; return g.snap; }
+  if (Math.abs(wrapTo(raw - g.snap)) > SNAP_HOLD) { const n = Math.round(raw / SNAP_STEP) * SNAP_STEP; if (Math.abs(n - g.snap) > 1e-6) { g.snap = n; onStep && onStep(); } }
+  return g.snap;
+}
+// #385 (owner) the 45 degree ratchet was clunky. The deck now follows the twist freely; within 6 degrees of a 45 it is pulled in (exact inside 2 degrees,
+// eased between, no jump), with one light tick when it settles. No per-step buzz, no holding at the halfway point.
+const DET_DZ = 0.035, DET_MAG = 0.105;
+function softSnap(g, raw, onDetent) {
+  const n = Math.round(raw / SNAP_STEP) * SNAP_STEP, d = raw - n, a = Math.abs(d);
+  let out = raw;
+  if (a < DET_DZ) out = n; else if (a < DET_MAG) { const u = (a - DET_DZ) / (DET_MAG - DET_DZ); out = n + Math.sign(d) * DET_MAG * u * u; }
+  if (a < DET_DZ) { if (!g.det) { g.det = true; onDetent && onDetent(); } } else if (a > DET_MAG) g.det = false;
+  return out;
+}
 export function setupXR(ctx) {
   REC12 = ctx.REC;   // #260
   const { renderer, scene } = ctx;
@@ -29,7 +48,7 @@ export function setupXR(ctx) {
   const hmf = new XRHandModelFactory().setPath(PROF + '/generic-hand/');
 
   const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
-  const tipGeo = new THREE.SphereGeometry(0.0135, 12, 8);   // #291 / #293 (owner) 150 % twice (6 -> 9 -> 13.5 mm)
+  const tipGeo = new THREE.SphereGeometry(0.00675, 12, 8);   // #291 / #293 (owner) 150 % twice (6 -> 9 -> 13.5 mm); #385 (owner) 50 %: 6.75 mm
   // #140 (owner): the blue tip ball sits at the front centre of the controller's own model (the fixed grip-space
   // point was off to one side on Quest 3 Touch Plus). Measured once from the loaded model: the front-most 2.5 cm of
   // its vertices give the centre (x, y); the ball's centre sits 2 mm inside the front face. Fallback until the model loads.
@@ -237,6 +256,8 @@ export function setupXR(ctx) {
       if (holder && (btn === 'grip' || st.isHand) && pr.hit(P)) {
         st.direct = { kind: 'propStretch', prop: pr, other: holder, d0: Math.max(0.02, pinchOf(holder).distanceTo(P)), s0: pr.obj.scale.x }; buzz(st, 0.5, 40); buzz(holder, 0.5, 40); return true;
       }
+      // #379 props with a slider or handle of their own (FLOAT slider, WATER corner): trigger / pinch on it, then drag
+      if (pr.knob && (st.isHand || btn !== 'grip') && pr.knob(P)) { st.direct = { kind: 'propKnob', prop: pr }; pr.knobMove(P); buzz(st, 0.3, 20); return true; }
       if (pr.scaleTo && pr.corner && (st.isHand || btn !== 'grip') && pr.corner(P)) {
         const c = pr.obj.getWorldPosition(new THREE.Vector3());
         st.direct = { kind: 'propScale', prop: pr, c0: c, d0: Math.max(0.02, c.distanceTo(P)), s0: pr.obj.scale.x }; buzz(st, 0.4, 25); return true;
@@ -441,6 +462,7 @@ export function setupXR(ctx) {
       if (other) { startTwoHand(other, st, hit.key); buzz(st, 0.5, 40); buzz(other, 0.5, 40); return true; }
     }
     if (hit) {
+      if (ctx.gearLocked && ctx.gearLocked(hit.key)) { ctx.gearLockMsg && ctx.gearLockMsg(); buzz(st, 0.6, 60); return true; }   // #378 GEAR LOCKDOWN: decks and mixer can't be picked up
       const g = ctx.MOVABLE[hit.key];
       if (ctx.flyingMilk && ctx.flyingMilk.has(g)) { ctx.flyingMilk.delete(g); g.rotation.x = 0; g.rotation.z = 0; }   // #200 caught mid-bounce
       st.direct = { kind: 'move', target: hit.key, stMove: ctx.stage.beginMove(hit.key), p0: P.clone(), pos0: g.position.clone(), yaw0: g.rotation.y, hyaw0: yawOf(handQuat(st, q1)) };
@@ -611,6 +633,7 @@ export function setupXR(ctx) {
       const isCase = !!ctx.cases[g.target];
       obj.position.set(g.pos0.x + delta.x, isCase ? g.pos0.y : Math.max(0, g.pos0.y + delta.y), g.pos0.z + delta.z);
       obj.rotation.y = g.yaw0 + wrap(yawOf(handQuat(st, q1)) - g.hyaw0);
+      if (ctx.snapYaw && ctx.snapYaw(g.target)) obj.rotation.y = softSnap(g, obj.rotation.y, () => buzz(st, 0.25, 12));   // #385 turntables: free twist, soft pull to each 45 degrees (was #378's ratchet)
       if (!isCase) ctx.clampStack(g.target);   // #142: crates can't sink into what is under them
       // hand velocity (world), so a milk crate can be tossed (#88)
       const now = performance.now();
@@ -619,6 +642,8 @@ export function setupXR(ctx) {
     } else if (g.kind === 'propStretch') {   // #341
       if (!g.other.direct || g.other.direct.kind !== 'gopro') st.direct = null;
       else g.prop.scaleTo(g.s0 * pinchOf(g.other).distanceTo(P) / g.d0);
+    } else if (g.kind === 'propKnob') {   // #379
+      g.prop.knobMove(P);
     } else if (g.kind === 'propScale') {   // #341 corner drag: size follows the distance from the centre
       g.prop.scaleTo(g.s0 * g.c0.distanceTo(P) / g.d0);
     } else if (g.kind === 'gopro') {   // #337
@@ -663,6 +688,7 @@ export function setupXR(ctx) {
     else if (g.kind === 'sleeve') ctx.sleeveRelease(st.anchor);   // #242 let go: it stays there (over the record crate: back in)
     else if (g.kind === 'gopro') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'propStretch' && o.direct.prop === g.prop) o.direct = null; g.prop.release(); }   // #337 (#340 any prop)
     else if (g.kind === 'propStretch' || g.kind === 'propScale') g.prop.save();   // #341
+    else if (g.kind === 'propKnob') { if (g.prop.knobEnd) g.prop.knobEnd(); }   // #379
     else if (g.kind === 'tablet') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'tabletStretch') o.direct = null; if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
     else if (g.kind === 'tabletScale' || g.kind === 'tabletStretch') ctx.saveTablet();
     else if (g.kind === 'ledTurn') { if (g.axis === 'tilt') ctx.ledTilted && ctx.ledTilted(); else ctx.ledTurned(); buzz(st, 0.5, 30); }   // #222 settle on portrait / landscape; #248 a tilt just stays
