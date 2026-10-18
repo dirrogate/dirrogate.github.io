@@ -3762,6 +3762,7 @@ function vpThumb(folder, name) {
 function videoPageFolder() { return vpFolder === 'Pano' ? (vpSelFolder || 'Pano') : vpFolder; }
 let scrollFromVP = false;   // #342 the scroller editor opened from VISUALS: BACK goes back there
 function openScrollerFromVP() { scrollFromVP = true; videoPage = false; setTools('scroller'); }
+function openFxPage() { setVideoPage(true); vpFolder = 'Fx'; vpSel = null; vpSelFolder = null; vpPg = 0; vpLoad(); }   // #390 VJ TOOLS > FX
 function openGoprosPage() { videoPage = false; scrollFromVP = false; setTools('showobj'); }   // #389 VISUALS > GOPROS
 function setVideoPage(on) { videoPage = on; if (on) { toolsPage = null; vpLoad(); } drawMixScreen(); }
 async function vpAct(what) {
@@ -5142,6 +5143,7 @@ function drawToolsPage() {
       const fs = P ? 19 : 16, tile = (x, y, w, h, i) => [
         () => btn(x, y, w, h, scroller.on ? 'SCROLLER (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, fs),
         () => btn(x, y, w, h, 'VISUALS', false, () => setVideoPage(true), false, fs),
+        () => btn(x, y, w, h, 'FX', false, openFxPage, false, fs),   // #390 the FX tab of VISUALS
         () => sw(x, y, w, h, 'LED WALL', 'ledwall'),
         () => sw(x, y, w, h, 'NEON', 'neon'),
         () => avBtn(x, y, w, h),
@@ -5152,9 +5154,9 @@ function drawToolsPage() {
         () => btn(x, y, w, h, 'CAM FIT', false, () => setTools('streamfit'), !streamer, fs),
         () => btn(x, y, w, h, 'PHONE CAM', !!(streamer && streamer.source === 'pcam'), openPhoneCam, !streamer, fs),
         () => btn(x, y, w, h, perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false, fs)][i]();
-      const cols = P ? 2 : 4, gap = P ? 8 : 6, bh = P ? 58 : 50, bw = (R - L - gap * (cols - 1)) / cols;
-      for (let i = 0; i < 12; i++) tile(L + (i % cols) * (bw + gap), y0 + 4 + Math.floor(i / cols) * (bh + gap), bw, bh, i);
-      ledCells(L, y0 + 4 + Math.ceil(12 / cols) * (bh + gap) + 4, R - L, P);
+      const cols = P ? 2 : 5, gap = P ? 8 : 6, bh = P ? 58 : 50, bw = (R - L - gap * (cols - 1)) / cols;   // #390 13 buttons: 5 across in landscape
+      for (let i = 0; i < 13; i++) tile(L + (i % cols) * (bw + gap), y0 + 4 + Math.floor(i / cols) * (bh + gap), bw, bh, i);
+      ledCells(L, y0 + 4 + Math.ceil(13 / cols) * (bh + gap) + 4, R - L, P);
     };
     if (P) {
       if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
