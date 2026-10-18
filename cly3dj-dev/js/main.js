@@ -746,7 +746,7 @@ function portalsTap() {   // tap = every frame on / off; double-tap = every fram
   if (now - portalTapT < 350) { portalTapT = 0; portals.reset(); portals.setOn(true); toast('Portals back at the start', 1500); drawMixScreen(); return; }
   portalTapT = now; portals.setOn(!portals.on); drawMixScreen();
 }
-function saveDome() { try { localStorage.setItem('vire.dome', JSON.stringify(dome)); } catch {} }
+function saveDome() { try { localStorage.setItem('vire.dome', JSON.stringify(dome)); } catch {} try { syncShowFromRoom(); } catch {} }   // #401
 async function setDome(on) {   // the sky picked on VISUALS (PANO > SKY) as a dome round the booth; loads it if it isn't yet
   dome.on = !!on; saveDome();
   if (dome.on && !skybox.tex) { try { await ensureSky(true); } catch (e) { console.warn('dome sky', e); } }
@@ -1011,6 +1011,38 @@ streamer = CAMERA_ROLE ? null : new Streamer({
   },
   onChange: () => { if (toolsPage === 'stream' || !streamer || streamer.state !== streamOnChangeLast) { streamOnChangeLast = streamer && streamer.state; drawMixScreen(); } },
 });
+// #401 (owner) one switch per object, on every page: SHOWTIME! OBJECTS no longer has its own stream-only copies of DOME,
+// WHITEBOARD, CHAT PANEL and NEON. Those buttons switch the object itself (in the room, for the DJ and every camera), and
+// the room switches (VJ TOOLS, PORTALS SETUP, the TOOLS page...) light up the SHOWTIME! buttons. The stream backdrop DOME is
+// the dome: picking BACK: DOME switches the dome on, any other backdrop switches it off, and switching the dome on anywhere
+// makes it the backdrop. Kept stream-only on purpose: LED WALL (the flat VISUALS backdrop stands in for it), GEAR,
+// ROBO-BODY and the GoPro prop.
+const SHOW_LINK = {
+  chalk: { get: () => !!(chalkboard && chalkboard.on), set: v => { if (chalkboard) { chalkboard.setOn(v); chalkboard.save(); } } },
+  panel: { get: () => !!(chatPanel && chatPanel.on), set: v => { if (chatPanel) { chatPanel.setOn(v); chatPanel.save(); } } },
+  neon: { get: () => pieceOn('neon'), set: v => setPiece('neon', v) },
+};
+if (streamer) {
+  const rawSet = streamer.setShowOpt.bind(streamer);
+  streamer._rawShowOpt = rawSet;
+  streamer.setShowOpt = (k, v) => {
+    if (SHOW_LINK[k]) { SHOW_LINK[k].set(!!v); rawSet(k, SHOW_LINK[k].get()); return; }
+    if (k === 'backdrop') {
+      rawSet(k, v);
+      if (v === 'dome' && !dome.on) setDome(true);
+      else if (v !== 'dome' && dome.on) setDome(false);
+      return;
+    }
+    rawSet(k, v);
+  };
+}
+function syncShowFromRoom() {   // the room's switches into SHOWTIME! (only writes when something differs)
+  if (!streamer || !streamer._rawShowOpt) return;
+  const O = streamer.showOpt, raw = streamer._rawShowOpt;
+  for (const k of Object.keys(SHOW_LINK)) { const v = SHOW_LINK[k].get(); if (O[k] !== v) raw(k, v); }
+  if (dome.on && O.backdrop !== 'dome') raw('backdrop', 'dome');
+  else if (!dome.on && O.backdrop === 'dome') raw('backdrop', 'visuals');
+}
 let streamOnChangeLast = 'off';
 const _wsN = new THREE.Vector3(), _wsP = new THREE.Vector3(), _wsC = new THREE.Vector3(), _wsM = new THREE.Matrix4(), _wsF = new THREE.Frustum(), _wsB = new THREE.Box3();   // #372 wallInShot scratch
 // #347 PHONE CAM render: what the phone's camera must not see (room, sky, helpers, the GoPro), plus the forearm sleeves
@@ -5906,6 +5938,7 @@ function drawTypeBadge(g, x, y, video) {
 
 function drawMixScreen() {
   navTrack();   // #363
+  syncShowFromRoom();   // #401 one switch per object
   if (toolsPage) { drawToolsPage(); scr().commit(); return; }   // #224
   if (videoPage) { drawVideoPage(); scr().commit(); return; }   // #185
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();

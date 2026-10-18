@@ -603,3 +603,10 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - Markers: open dry-erase pens, no caps (owner). 13 cm: colour end plug with the owner's Gemini crest (models/avatar/gemini_emboss.png) as a bump map on its flat end, a printed white barrel (canvas label: "dirrovinyl" wordmark with a little record in a colour band, facing out of the board at u = 0 and on the far side, small print DRY ERASE · CHISEL TIP · colour, LOW ODOUR · NON-TOXIC · WHITEBOARDS & VINYL CRATES on the sides, a colour band by the plug, scuffs), tapered grip with four rings, colour collar, chisel felt nib. Satin plastic with a light clear coat.
 - Tested in the PC pane: lit board with the neon's reflection and a highlight; slow / fast / chisel strokes; duster ghost; marker close-ups (label and crest). Untested in the headset. Cost: one extra 512 x 640 texture, uploaded with the board (up to ~15 a second while writing).
 - Backup: backups/pre-400/whiteboard.js. No server restart (static files).
+
+## #401 One switch per object across pages (owner, 18 Oct) (cly3dj-dev)
+- SHOWTIME! OBJECTS no longer keeps stream-only copies of DOME, WHITEBOARD, CHAT PANEL and NEON. Those buttons now switch the object itself (room + every camera), and the room switches (VJ TOOLS, PORTALS SETUP DOME, TOOLS WHITEBOARD, setPiece neon, PANO off) light up the SHOWTIME! buttons.
+- How: `SHOW_LINK` (chalk / panel / neon -> chalkboard.on, chatPanel.on, pieceOn('neon')); `streamer.setShowOpt` is wrapped so those keys set the room object, and `backdrop` keeps the dome in step (BACK: DOME = dome on; any other backdrop = dome off). `syncShowFromRoom()` copies room state into showOpt (writes only on a difference) on every `drawMixScreen` and in `saveDome`. All persist as before (vire.dome, vire.chalkboard, vire.chatPanel, settings.pieces, vire.showOpts).
+- Kept stream-only on purpose: LED WALL (the flat VISUALS backdrop stands in for the 3D wall in the shot, #372), GEAR, ROBO-BODY, the GoPro prop.
+- Tested in the PC pane: whiteboard and neon both ways, dome from BACK: DOME / next backdrop / setDome on and off.
+- Backup: backups/pre-401/main.js. No server restart.
