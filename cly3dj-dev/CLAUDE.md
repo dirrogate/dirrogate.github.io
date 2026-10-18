@@ -708,3 +708,9 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 
 ## DISCUSSION NEXT (owner, 19 Oct): club-goers record their own AR 'experience' on their phones
 - How can people in a club video-record the laser show, the LED wall and the DJ as the robot through their own phone's AR (Android only to start)? Not built; to discuss.
+
+## #412 Laser beams missing in HEADSET CAM (owner, 19 Oct) (cly3dj-dev)
+- Cause: the stream's offscreen renders draw the scene on transparent black and lay it over the camera / backdrop by its alpha (MR_FS: mix(camera, gear, a)). The laser (and the neon's halo / wall glow) uses lightBlend: it adds colour but leaves alpha alone (so it shows over passthrough), so in those renders it had alpha 0 and was dropped. Same in SHOWTIME! (SHOW_FS) and PHONE CAM (PCAM_FS).
+- Fix (stream.js, all three): the light in a pixel with no coverage (alpha < 0.05, smoothstep) is tone-mapped and added on top: MR / PCAM = min(mix(c, gc, a) + L, 1); SHOW layer (drawn in 2D over the visuals and packed for the S8) gets alpha from its brightness (A = max(a, max channel of P), colour P / A) so it survives source-over. Neon glow now shows in those pictures too.
+- Checked on the PC: SHOWTIME! rehearsal with the laser in the FRONT shot, 30k green beam pixels over the visuals. HEADSET CAM can't run on the PC (needs the Quest camera); same formula. Note: from its start spot (behind you, 2.1 m up) the laser head is usually just above the FRONT camera's frame; beams show where they cross the picture.
+- Backup: backups/pre-412/stream.js. No server restart.
