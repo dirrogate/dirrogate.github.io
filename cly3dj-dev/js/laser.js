@@ -20,12 +20,40 @@ const DEF = { pat: 'fan', col: 'green', auto: true, n: 8, spread: 60, speed: 1, 
 const B = { w: 0.14, h: 0.07, d: 0.16 };   // the head, metres
 const AP = new THREE.Vector3(0.035, 0.004, -B.d / 2 - 0.004);   // aperture (beams start here), front panel, right of centre
 
-const BEAM_VS = `attribute vec3 aDir; attribute vec3 aCol; attribute float aLen;
-uniform float uLen; varying vec2 vUv; varying vec3 vCol; varying float vFwd; varying float vK;
+// #413 beams stop at real things (hands, people): the depth map seen from the depth camera, so it is the same for every
+// camera (headset eyes, HEADSET CAM, SHOWTIME!...). realGap(P) > 0: P lies behind the real surface on its depth-camera ray.
+const DEPTH_GLSL = `uniform sampler2DArray uDepth; uniform float uDOn; uniform float uDLayer; uniform mat4 uDView; uniform mat4 uDProj; uniform mat4 uDInvProj; uniform mat4 uDNorm;
+float realGap(vec3 P) {
+  vec4 pv = uDView * vec4(P, 1.0); vec4 c = uDProj * pv; if (c.w <= 1e-4) return -1e3;
+  vec3 n = c.xyz / c.w; if (abs(n.x) > 1.0 || abs(n.y) > 1.0) return -1e3;
+  vec2 buf = (uDNorm * vec4(n.xy * 0.5 + 0.5, 0.0, 1.0)).xy;
+  float d = min(textureLod(uDepth, vec3(buf, uDLayer), 0.0).r, 0.9999);
+  if (d >= 0.9998) return -1e3;
+  vec4 rv = uDInvProj * vec4(n.xy, d * 2.0 - 1.0, 1.0); rv.xyz /= rv.w;
+  return length(pv.xyz) - length(rv.xyz);
+}
+float depthHit(vec3 o, vec3 dir, float len) {
+  if (uDOn < 0.5) return len;
+  float st = len / 40.0, prev = realGap(o + dir * 0.05);
+  for (int i = 1; i <= 40; i++) {
+    float t = st * float(i), g = realGap(o + dir * t);
+    if (prev < 0.0 && g > 0.0 && g < st + 0.25) {   // crossed a real surface between the last two samples
+      float a = t - st, b = t;
+      for (int k = 0; k < 5; k++) { float m = 0.5 * (a + b); if (realGap(o + dir * m) > 0.0) b = m; else a = m; }
+      return b;
+    }
+    prev = g;
+  }
+  return len;
+}`;
+const BEAM_VS = DEPTH_GLSL + `
+attribute vec3 aDir; attribute vec3 aCol; attribute float aLen;
+uniform float uLen; varying vec2 vUv; varying vec3 vCol; varying float vFwd; varying float vK; varying float vTip;
 void main() {
   vec3 o = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
   vec3 d = normalize(mat3(modelMatrix) * aDir);
-  float s = uv.y * aLen;                                   // metres from the aperture
+  float L = depthHit(o, d, aLen);                          // #413 a real hand / person in the way: the beam ends there
+  float s = uv.y * L;                                      // metres from the aperture
   vec3 p = o + d * s;
   vec3 toC = cameraPosition - p; float dist = length(toC); vec3 v = toC / max(dist, 1e-4);
   vec3 side = cross(d, v); float sl = length(side); side = sl > 1e-4 ? side / sl : vec3(1.0, 0.0, 0.0);
@@ -33,21 +61,30 @@ void main() {
   float c = max(wPhys, dist * 0.0016);                     // never under ~2 headset pixels
   p += side * (uv.x - 0.5) * c * 8.0;                      // ribbon = core + halo
   vK = sqrt(wPhys / c);                                    // a widened far beam is dimmer per pixel (same light)
-  vUv = vec2((uv.x - 0.5) * 8.0, uv.y * aLen / max(uLen, 1e-3)); vCol = aCol; vFwd = dot(d, v);
+  vUv = vec2((uv.x - 0.5) * 8.0, uv.y * L / max(uLen, 1e-3)); vCol = aCol; vFwd = dot(d, v);
+  vTip = L < aLen - 0.01 ? uv.y : 0.0;                     // stopped by something real: a hot spot where it hits
   gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
 }`;
-const BEAM_FS = `uniform float uHaze; uniform float uDecay; varying vec2 vUv; varying vec3 vCol; varying float vFwd; varying float vK;
+const BEAM_FS = `uniform float uHaze; uniform float uDecay; varying vec2 vUv; varying vec3 vCol; varying float vFwd; varying float vK; varying float vTip;
 void main() {
   float x = vUv.x;
   float prof = exp(-2.0 * x * x) * 1.4 + exp(-x * x * 0.25) * (0.1 + 0.2 * uHaze);
   float along = exp(-vUv.y * uDecay) * smoothstep(1.0, 0.82, vUv.y) * smoothstep(0.0, 0.01, vUv.y);
   float fwd = 1.0 + 3.0 * pow(max(vFwd, 0.0), 14.0);       // haze scatters forward: a beam coming at you is brighter
-  gl_FragColor = vec4(vCol * prof * along * fwd * vK * uHaze, 0.0);
+  float tip = 1.0 + 2.5 * smoothstep(0.985, 1.0, vTip);    // #413 brighter where it lands on a hand
+  gl_FragColor = vec4(vCol * prof * along * fwd * vK * uHaze * tip, 0.0);
 }`;
-const SPOT_VS = `attribute vec3 aCol; varying vec2 vUv; varying vec3 vCol;
-void main() { vUv = uv - 0.5; vCol = aCol; gl_Position = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(position, 1.0); }`;
+const SPOT_VS = DEPTH_GLSL + `
+attribute vec3 aCol; uniform vec3 uOrigin; varying vec2 vUv; varying vec3 vCol;
+void main() {
+  vUv = uv - 0.5; vCol = aCol;
+  vec3 w = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz, dv = w - uOrigin; float len = length(dv);
+  if (uDOn > 0.5 && len > 0.2 && depthHit(uOrigin, dv / len, len - 0.06) < len - 0.08) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }   // #413 the beam is stopped before it gets here
+  gl_Position = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(position, 1.0);
+}`;
 const SPOT_FS = `varying vec2 vUv; varying vec3 vCol;
 void main() { float r2 = dot(vUv, vUv) * 4.0; gl_FragColor = vec4(vCol * (exp(-r2 * 60.0) * 2.0 + exp(-r2 * 6.0) * 0.12), 0.0); }`;
+const depthUniforms = () => ({ uDepth: { value: null }, uDOn: { value: 0 }, uDLayer: { value: 0 }, uDView: { value: new THREE.Matrix4() }, uDProj: { value: new THREE.Matrix4() }, uDInvProj: { value: new THREE.Matrix4() }, uDNorm: { value: new THREE.Matrix4() } });
 
 function hsv(h, out) {   // laser RGB from a hue: pure diode mixes, fully saturated
   const k = n => { const t = (n + h * 6) % 6; return 1 - Math.max(0, Math.min(1, Math.min(t, 4 - t))); };
@@ -88,7 +125,7 @@ export class Laser {
     this.aLen = new THREE.InstancedBufferAttribute(new Float32Array(MAX), 1);
     for (const a of [this.aDir, this.aCol, this.aLen]) a.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('aDir', this.aDir); geo.setAttribute('aCol', this.aCol); geo.setAttribute('aLen', this.aLen); geo.instanceCount = 0;
-    this.bMat = lightBlend(new THREE.ShaderMaterial({ uniforms: { uLen: { value: 10 }, uHaze: { value: 0.7 }, uDecay: { value: 0.5 } }, vertexShader: BEAM_VS, fragmentShader: BEAM_FS, side: THREE.DoubleSide }));
+    this.bMat = lightBlend(new THREE.ShaderMaterial({ uniforms: { uLen: { value: 10 }, uHaze: { value: 0.7 }, uDecay: { value: 0.5 }, ...depthUniforms() }, vertexShader: BEAM_VS, fragmentShader: BEAM_FS, side: THREE.DoubleSide }));
     this.beams = new THREE.Mesh(geo, this.bMat); this.beams.frustumCulled = false; this.beams.renderOrder = 5; this.beams.raycast = () => {}; ap.add(this.beams);
     // glow at the exit window (where every beam starts; brightest when one points at you)
     const gc = document.createElement('canvas'); gc.width = gc.height = 64; const gx = gc.getContext('2d');
@@ -98,7 +135,7 @@ export class Laser {
     this.glow = new THREE.Sprite(this.glowMat); this.glow.scale.setScalar(0.05); this.glow.raycast = () => {}; ap.add(this.glow);
     // dots where beams meet the floor (rig space)
     const sg = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
-    const sMat = lightBlend(new THREE.ShaderMaterial({ vertexShader: SPOT_VS, fragmentShader: SPOT_FS }));
+    const sMat = this.sMat = lightBlend(new THREE.ShaderMaterial({ uniforms: { uOrigin: { value: new THREE.Vector3() }, ...depthUniforms() }, vertexShader: SPOT_VS, fragmentShader: SPOT_FS }));
     this.sCol = new THREE.InstancedBufferAttribute(new Float32Array(MAX * 3), 3); this.sCol.setUsage(THREE.DynamicDrawUsage); sg.setAttribute('aCol', this.sCol);
     this.spots = new THREE.InstancedMesh(sg, sMat, MAX); this.spots.count = 0; this.spots.frustumCulled = false; this.spots.raycast = () => {};
     this.spots.userData.noMirror = true; this.spots.visible = false; rig.add(this.spots);
@@ -124,6 +161,13 @@ export class Laser {
   setCol(c) { if (c in COLOURS) { this.col = c; this.save(); } }
   // #411 planes: [{ inv: Matrix4 rig -> plane, q: Quaternion plane -> rig, poly: Float32Array x,z pairs in plane space }] or null
   setRoom(list) { this.room = list && list.length ? list : null; }
+  // #413 D = RealDepth.laserData() (depth view: tex, layer, view = world -> depth camera, proj, invProj, norm) or null
+  setDepth(D) {
+    for (const u of [this.bMat.uniforms, this.sMat.uniforms]) {
+      u.uDOn.value = D ? 1 : 0; if (!D) continue;
+      u.uDepth.value = D.tex; u.uDLayer.value = D.layer; u.uDView.value.copy(D.view); u.uDProj.value.copy(D.proj); u.uDInvProj.value.copy(D.invProj); u.uDNorm.value.copy(D.norm);
+    }
+  }
   hit(P) {   // grab box: head + 3 cm
     if (!this.on) return false;
     this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P));
@@ -197,6 +241,7 @@ export class Laser {
     this.beams.geometry.instanceCount = n;
     this.aDir.needsUpdate = this.aCol.needsUpdate = this.aLen.needsUpdate = true;
     this.spots.count = spots; if (spots) { this.spots.instanceMatrix.needsUpdate = true; this.sCol.needsUpdate = true; }
+    this.ap.getWorldPosition(this.sMat.uniforms.uOrigin.value);   // #413 where the beams start, for the spots' depth test
     const u = this.bMat.uniforms; u.uLen.value = this.len; u.uHaze.value = this.haze; u.uDecay.value = (0.15 + 0.6 * this.haze);
     const gk = (0.25 + 4 * Math.pow(Math.max(0, toward), 40)) * I / n;   // a beam at your eye = a bright point
     this.glowMat.color.setRGB(gr * gk, gg * gk, gb * gk); this.glow.scale.setScalar(0.04 + 0.08 * Math.pow(Math.max(0, toward), 40));

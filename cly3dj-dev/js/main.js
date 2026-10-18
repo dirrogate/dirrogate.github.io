@@ -12,6 +12,7 @@ import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose, AV_LAYER } from './direct
 import { Streamer, SOURCES as STREAM_SRC, streamKey, STUDIO_MODES } from './stream.js';   // #380 STUDIO_MODES
 import { KEY_LABEL } from './keycol.js';   // #347 key colour names   // #331 LIVE STREAM (Twitch)
 import { GoPro, ZOOMS as GOPRO_ZOOMS } from './gopro.js';
+import { RealDepth } from './realdepth.js';   // #413 depth-camera-correct occlusion
 import { Laser, PATTERNS as LASER_PATS, PAT_LABEL as LASER_PL, COLOURS as LASER_COLS, COL_LABEL as LASER_CL } from './laser.js';   // #406 laser head prop   // #337 movable camera for SHOW / AVACAM
 import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #340 Twitch chat
 import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whiteboard, markers and duster
@@ -682,10 +683,25 @@ void main() {
 }`;
   mat.needsUpdate = true;
 }
+// #413 the depth map lifted back into the room through the depth camera's own projection / pose (RealDepth): lines up
+// close to the headset, unlike three's screen-space copy (#411 owner: real hand / controller ~5 cm above the drawn one).
+// three's own occluder stays as the fallback if the depth info can't be read. The laser gets the same depth view.
+let realDepth = null, rdBinding = null, rdSession = null;
 function stepRealWorld(dt) {
-  if (!arMode || !renderer.xr.isPresenting) return;
-  const occ = renderer.xr.hasDepthSensing && renderer.xr.hasDepthSensing() ? renderer.xr.getDepthSensingMesh() : null;
-  if (occ) { if (!occ.userData.vireOcc) patchOcclusion(occ); occ.visible = settings.occlusion !== false; }
+  if (!arMode || !renderer.xr.isPresenting) { if (realDepth) realDepth.clear(); if (laser) laser.setDepth(null); return; }
+  const hasD = renderer.xr.hasDepthSensing && renderer.xr.hasDepthSensing();
+  const occ = hasD ? renderer.xr.getDepthSensingMesh() : null;
+  let rdOk = false;
+  if (hasD && !CAMERA_ROLE) {
+    const ses = renderer.xr.getSession();
+    if (ses !== rdSession) { rdSession = ses; rdBinding = null; try { rdBinding = new XRWebGLBinding(ses, renderer.getContext()); } catch (e) { console.warn('XRWebGLBinding', e); } }
+    if (!realDepth) realDepth = new RealDepth(scene);
+    const frame = renderer.xr.getFrame(), ref = renderer.xr.getReferenceSpace(), vp = frame && ref ? frame.getViewerPose(ref) : null;
+    rdOk = realDepth.update(vp && vp.views, rdBinding, renderer.xr.getDepthTexture());
+    realDepth.on = settings.occlusion !== false;
+  }
+  if (occ) { if (!occ.userData.vireOcc) patchOcclusion(occ); occ.visible = !rdOk && settings.occlusion !== false; }   // fallback only
+  if (laser) laser.setDepth(rdOk && settings.roomHits !== false && laser.on ? realDepth.laserData() : null);   // beams stop at real hands / people
   if (!laser || !laser.on) return;
   roomT += dt; if (roomT < 0.1) return; roomT = 0;
   const frame = renderer.xr.getFrame(), ref = renderer.xr.getReferenceSpace();
