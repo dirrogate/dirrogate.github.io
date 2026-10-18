@@ -658,6 +658,7 @@ const gopro2 = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3
 // #406 LASER: one movable head; start spot behind the DJ, 2.1 m up, firing forward (-z) over his head toward the audience side
 const laser = CAMERA_ROLE ? null : new Laser(rig, () => ({ p: new THREE.Vector3(mixer.position.x, 2.1, mixer.position.z + 0.9), yaw: 0, pitch: -0.1 }));
 let laserTapT = 0;
+const laserPv = { c: document.createElement('canvas') };   // #407 the Workbench page's scope preview (phosphor trails)
 function laserTap() {   // tap = on / off; double-tap = back to its start spot, on
   if (!laser) return; const now = performance.now();
   if (now - laserTapT < 700) { laserTapT = 0; laser.reset(); laser.setOn(true); toast('Laser back at its start', 1500); drawMixScreen(); return; }
@@ -5687,41 +5688,125 @@ function drawToolsPage() {
     }
     return;
   }
-  if (page === 'laser') {   // #406 LASER: one movable head, six patterns, eight colours, AUTO on the bass beat
-    const y0 = head('LASER', 'vj'), LZ = laser;
-    if (!LZ) { note('The laser runs on the headset.', y0 + 20); return; }
-    const wake = () => { if (!LZ.on) LZ.setOn(true); };
-    const top = [[LZ.on ? 'LASER: ON' : 'LASER: OFF', LZ.on, laserTap], [LZ.auto ? 'AUTO: ON' : 'AUTO: OFF', LZ.auto, () => { LZ.set('auto', !LZ.auto); drawMixScreen(); }]];
-    const pats = LASER_PATS.map(p => [LASER_PL[p], LZ.pat === p, () => { LZ.setPat(p); wake(); drawMixScreen(); }]);
-    const cols = Object.keys(LASER_COLS).map(c => [LASER_CL[c], LZ.col === c, () => { LZ.setCol(c); wake(); drawMixScreen(); }, c]);
-    const cells = [['BEAMS', `${LZ.n}`, 'n'], ['SPREAD', `${LZ.spread}°`, 'spread'], ['SPEED', `${LZ.speed}x`, 'speed'], ['HAZE', `${Math.round(LZ.haze * 100)} %`, 'haze'], ['LENGTH', `${LZ.len} m`, 'len']];
-    const cell = ([label, val, k], x, y, w, h) => {
-      g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
-      const by = y + 15, bh = h - 15, bw = 40;
-      btn(x, by, bw, bh, '−', false, () => { LZ.step(k, -1); drawMixScreen(); });
-      g.fillStyle = '#fff'; g.font = '700 17px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + w / 2, by + bh / 2); g.textBaseline = 'alphabetic';
-      btn(x + w - bw, by, bw, bh, '+', false, () => { LZ.step(k, 1); drawMixScreen(); });
+  if (page === 'laser') {   // #406 LASER; #407 drawn as a Workbench 3.1 screen (Amiga nostalgia): grey screen, white title bar, bevelled gadgets, blue active title bar, chunky bitmap font, a scope-style vector preview
+    const LZ = laser, WB = { grey: '#aaaaaa', blk: '#000000', wht: '#ffffff', blue: '#6688bb', dark: '#555555' };
+    const fit = (s, w, max = 2) => { const u = bitWidth(s, 1); return Math.max(1, Math.min(max, Math.floor(((w - 10) / u) * 4) / 4)); };
+    const txt = (s, x, y, px, col) => drawBitText(g, s, Math.round(x), Math.round(y), px, col, px >= 1.5);
+    const bevel = (x, y, w, h, up) => {   // the 2.0 / 3.1 look: light top-left, dark bottom-right (swapped when pressed in)
+      g.fillStyle = up ? WB.wht : WB.blk; g.fillRect(x, y, w, 2); g.fillRect(x, y, 2, h);
+      g.fillStyle = up ? WB.blk : WB.wht; g.fillRect(x, y + h - 2, w, 2); g.fillRect(x + w - 2, y, 2, h);
     };
-    const swatch = (c, x, y, w) => {   // a colour strip under each colour button
-      if (LASER_COLS[c]) { const v = LASER_COLS[c]; g.fillStyle = `rgb(${v.map(a => Math.round(Math.min(1, a) * 255)).join(',')})`; }
-      else { const gr = g.createLinearGradient(x, 0, x + w, 0); ['#f00', '#ff0', '#0f0', '#0ff', '#00f', '#f0f'].forEach((s, i) => gr.addColorStop(i / 5, s)); g.fillStyle = gr; }
-      g.fillRect(x + 4, y, w - 8, 5);
+    const gad = (x, y, w, h, label, sel, act, dim, max = 2) => {
+      g.fillStyle = sel ? WB.blue : WB.grey; g.fillRect(x, y, w, h); bevel(x, y, w, h, !sel);
+      const s = cleanText(label), px = fit(s, w, max), tw = bitWidth(s, px);
+      txt(s, x + (w - tw) / 2, y + (h - 7 * px) / 2 + (sel ? 1 : 0), px, dim ? WB.dark : sel ? WB.wht : WB.blk);
+      if (act) VP_HIT.push({ x, y, w, h, act });
     };
-    const help = 'Grip (hands: pinch) the head to move and aim it; it stays where you let go. LASER: tap = on / off, double-tap = back to its start (behind you, high, firing over your head). AUTO changes pattern and colour on the bass beat and dims in breakdowns; you can still pick them. Beams stop at the floor with a dot. HAZE = how much the air shows them.';
+    const groupBox = (x, y, w, h, title) => {   // etched frame with its title on the line
+      g.fillStyle = WB.blk; g.fillRect(x, y, w, 1); g.fillRect(x, y, 1, h); g.fillStyle = WB.wht; g.fillRect(x + 1, y + 1, w - 1, 1); g.fillRect(x + 1, y + 1, 1, h - 1);
+      g.fillStyle = WB.blk; g.fillRect(x, y + h - 1, w, 1); g.fillRect(x + w - 1, y, 1, h); g.fillStyle = WB.wht; g.fillRect(x, y + h, w + 1, 1); g.fillRect(x + w, y, 1, h + 1);
+      if (title) { const s = cleanText(title), tw = bitWidth(s, 1.25); g.fillStyle = WB.grey; g.fillRect(x + 8, y - 5, tw + 8, 10); txt(s, x + 12, y - 4, 1.25, WB.blk); }
+    };
+    const arrow = (x, y, w, h, dir, act) => {   // integer-gadget arrows
+      gad(x, y, w, h, '', false, act); g.fillStyle = WB.blk; g.beginPath();
+      const cx = x + w / 2, cy = y + h / 2, a = Math.min(w, h) * 0.22;
+      if (dir < 0) { g.moveTo(cx + a * 0.7, cy - a); g.lineTo(cx - a * 0.7, cy); g.lineTo(cx + a * 0.7, cy + a); } else { g.moveTo(cx - a * 0.7, cy - a); g.lineTo(cx + a * 0.7, cy); g.lineTo(cx - a * 0.7, cy + a); }
+      g.fill();
+    };
+    const stepper = ([label, val, k], x, y, w, h) => {
+      txt(cleanText(label), x + 2, y, 1.5, WB.blk);
+      const by = y + 14, bh = h - 14, aw = Math.min(40, w * 0.28);
+      arrow(x, by, aw, bh, -1, LZ ? () => { LZ.step(k, -1); drawMixScreen(); } : null);
+      g.fillStyle = WB.grey; g.fillRect(x + aw + 3, by, w - 2 * aw - 6, bh); bevel(x + aw + 3, by, w - 2 * aw - 6, bh, false);
+      const s = cleanText(val), px = fit(s, w - 2 * aw - 6), tw = bitWidth(s, px); txt(s, x + aw + 3 + (w - 2 * aw - 6 - tw) / 2, by + (bh - 7 * px) / 2, px, WB.blk);
+      arrow(x + w - aw, by, aw, bh, 1, LZ ? () => { LZ.step(k, 1); drawMixScreen(); } : null);
+    };
+    const swatch = (c, x, y, w, h, sel, act) => {   // palette-requester style colour boxes
+      g.fillStyle = WB.grey; g.fillRect(x, y, w, h); bevel(x, y, w, h, !sel);
+      const ix = x + 5, iy = y + 5, iw = w - 10, ih = h - 10;
+      if (LASER_COLS[c]) { g.fillStyle = `rgb(${LASER_COLS[c].map(a => Math.round(Math.min(1, a) * 255)).join(',')})`; }
+      else { const gr = g.createLinearGradient(ix, 0, ix + iw, 0); ['#f00', '#ff0', '#0f0', '#0ff', '#00f', '#f0f'].forEach((s, i) => gr.addColorStop(i / 5, s)); g.fillStyle = gr; }
+      g.fillRect(ix, iy, iw, ih);
+      if (sel) { g.strokeStyle = WB.blk; g.lineWidth = 2; g.strokeRect(ix - 1, iy - 1, iw + 2, ih + 2); g.strokeStyle = WB.wht; g.lineWidth = 1; g.strokeRect(ix + 1.5, iy + 1.5, iw - 3, ih - 3); }
+      VP_HIT.push({ x, y, w, h, act });
+    };
+    const preview = (x, y, w, h) => {   // scope-style XY preview: where each beam lands on a wall in front, phosphor trails
+      g.fillStyle = WB.grey; g.fillRect(x - 3, y - 3, w + 6, h + 6); bevel(x - 3, y - 3, w + 6, h + 6, false);
+      const pv = laserPv.c.width !== w || laserPv.c.height !== h ? (laserPv.c.width = w, laserPv.c.height = h, laserPv) : laserPv, pg = pv.c.getContext('2d');
+      pg.fillStyle = 'rgba(0,0,0,0.35)'; pg.fillRect(0, 0, w, h);
+      pg.strokeStyle = 'rgba(40,90,40,0.5)'; pg.lineWidth = 1; pg.beginPath();
+      for (let i = 1; i < 8; i++) { pg.moveTo(i * w / 8, 0); pg.lineTo(i * w / 8, h); } for (let i = 1; i < 4; i++) { pg.moveTo(0, i * h / 4); pg.lineTo(w, i * h / 4); } pg.stroke();
+      const n = LZ && LZ.on ? LZ.beams.geometry.instanceCount : 0, D = LZ ? LZ.aDir.array : null, C = LZ ? LZ.aCol.array : null, f = w * 0.45, cx = w / 2, cy = h * 0.55;
+      for (let i = 0; i < n; i++) {
+        const z = -D[i * 3 + 2]; if (z < 0.05) continue;
+        const px = cx + D[i * 3] / z * f, py = cy - D[i * 3 + 1] / z * f;
+        const col = `rgb(${[0, 1, 2].map(k => Math.round(Math.min(1, C[i * 3 + k] * 1.2) * 255)).join(',')})`;
+        pg.strokeStyle = col; pg.lineWidth = 1.5; pg.globalAlpha = 0.55; pg.beginPath(); pg.moveTo(cx, h); pg.lineTo(px, py); pg.stroke();
+        pg.globalAlpha = 1; pg.fillStyle = col; pg.beginPath(); pg.arc(px, py, 3.6, 0, Math.PI * 2); pg.fill(); pg.fillStyle = '#fff'; pg.beginPath(); pg.arc(px, py, 1.3, 0, Math.PI * 2); pg.fill();
+      }
+      pg.globalAlpha = 1; g.drawImage(pv.c, x, y);
+      if (!n) txt('LASER OFF', x + (w - bitWidth('LASER OFF', 2)) / 2, y + h / 2 - 7, 2, '#3c8a3c');
+    };
+    const wrapBit = (s, x, y, w, px, lh, max) => {   // word wrap in the bitmap font
+      let line = '', n = 0;
+      for (const word of cleanText(s, 999).split(' ')) {
+        const t = line ? line + ' ' + word : word;
+        if (bitWidth(t, px) > w && line) { txt(line, x, y + n * lh, px, WB.blk); line = word; if (++n >= max) return; } else line = t;
+      }
+      if (line) txt(line, x, y + n * lh, px, WB.blk);
+    };
+    // the screen: grey, white screen title bar with the page gadgets on it
+    g.fillStyle = WB.grey; g.fillRect(0, 0, W, H);
+    const top = P ? 70 : 40;
+    g.fillStyle = WB.wht; g.fillRect(0, 0, W, top); g.fillStyle = WB.blk; g.fillRect(0, top - 2, W, 2);
+    const up = () => setTools('vj');
     if (P) {
-      const tw = (R - L - 8) / 2, w3 = (R - L - 16) / 3, w4 = (R - L - 18) / 4;
-      top.forEach(([lb, on, act], i) => btn(L + i * (tw + 8), y0, tw, 46, lb, on, act, false, 18));
-      pats.forEach(([lb, on, act], i) => btn(L + (i % 3) * (w3 + 8), y0 + 54 + Math.floor(i / 3) * 50, w3, 44, lb, on, act, false, 15));
-      cols.forEach(([lb, on, act, c], i) => { const x = L + (i % 4) * (w4 + 6), y = y0 + 158 + Math.floor(i / 4) * 48; btn(x, y, w4, 40, lb, on, act, false, 12); swatch(c, x, y + 34, w4); });
-      cells.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y0 + 262 + Math.floor(i / 2) * 62, tw, 56));
-      g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; wrapText(g, help, L + 4, y0 + 262 + 3 * 62 + 14, R - L - 8, 18, 10);
+      txt('CLY3DJ WORKBENCH', L, 8, 1.5, WB.blk);
+      const bw = (R - L - 12) / 3; gad(L, 26, bw, 38, 'VJ TOOLS', false, up); gad(L + bw + 6, 26, bw, 38, 'PREVIEW', monOn, () => setMonitor(!monOn)); gad(L + 2 * (bw + 6), 26, bw, 38, 'BACK', false, navCan() ? navBack : null, !navCan());
     } else {
-      const tw = (R - L - 42) / 8;
-      [...top, ...pats].forEach(([lb, on, act], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, false, 15));
-      cols.forEach(([lb, on, act, c], i) => { const x = L + i * (tw + 6); btn(x, y0 + 46, tw, 38, lb, on, act, false, 14); swatch(c, x, y0 + 46 + 31, tw); });
-      const cw = (R - L - 32) / 5;
-      cells.forEach((c, i) => cell(c, L + i * (cw + 8), y0 + 92, cw, 44));
-      g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, help, L + 4, y0 + 152, R - L - 8, 16, 6);
+      txt('CLY3DJ WORKBENCH  LASER SHOW', L + 2, 13, 2, WB.blk);
+      gad(R - 96, 3, 96, 34, 'BACK', false, navCan() ? navBack : null, !navCan()); gad(R - 96 - 6 - 100, 3, 100, 34, 'PREVIEW', monOn, () => setMonitor(!monOn)); gad(R - 202 - 6 - 110, 3, 110, 34, 'VJ TOOLS', false, up);
+    }
+    if (!LZ) { wrapBit('The laser runs on the headset.', L + 4, top + 20, R - L - 8, 2, 20, 3); return; }
+    // the window: black outline, blue active title bar with close and depth gadgets
+    const wx = P ? L - 6 : 6, wy = top + 4, ww = (P ? R + 6 : W - 6) - wx, wh = H - wy - (P ? 26 : 4);
+    g.fillStyle = WB.grey; g.fillRect(wx, wy, ww, wh); bevel(wx, wy, ww, wh, true);
+    g.fillStyle = WB.blue; g.fillRect(wx + 2, wy + 2, ww - 4, 20); bevel(wx + 2, wy + 2, ww - 4, 20, true);
+    g.fillStyle = WB.grey; g.fillRect(wx + 4, wy + 4, 18, 16); bevel(wx + 4, wy + 4, 18, 16, true); g.fillStyle = WB.blk; g.fillRect(wx + 11, wy + 10, 4, 4);   // close
+    for (const [ox, dk] of [[22, 0], [42, 1]]) { const bx = wx + ww - ox - 2; g.fillStyle = WB.grey; g.fillRect(bx, wy + 4, 18, 16); bevel(bx, wy + 4, 18, 16, true);   // zoom, depth
+      g.strokeStyle = WB.blk; g.lineWidth = 1; if (dk) { g.strokeRect(bx + 4.5, wy + 7.5, 7, 6); g.fillStyle = WB.wht; g.fillRect(bx + 8, wy + 11, 6, 5); g.strokeRect(bx + 7.5, wy + 10.5, 7, 6); } else { g.strokeRect(bx + 4.5, wy + 7.5, 9, 9); g.strokeRect(bx + 4.5, wy + 7.5, 4, 4); } }
+    txt(P ? 'LASER' : 'LASER  ' + (LZ.on ? 'ON AIR' : 'STANDBY'), wx + 28, wy + 7, 1.5, WB.blk);
+    // the gadgets
+    const lsrBtn = (x, y, w, h) => gad(x, y, w, h, LZ.on ? 'LASER ON' : 'LASER OFF', LZ.on, laserTap);
+    const autoBtn = (x, y, w, h) => gad(x, y, w, h, LZ.auto ? 'AUTO ON' : 'AUTO OFF', LZ.auto, () => { LZ.set('auto', !LZ.auto); drawMixScreen(); });
+    const beatLed = (x, y) => { const lit = LZ.on && LZ.auto && performance.now() - LZ.lastBeat < 140; g.fillStyle = WB.grey; g.fillRect(x, y, 20, 14); bevel(x, y, 20, 14, false); g.fillStyle = lit ? '#30ff40' : '#1d4a22'; g.fillRect(x + 3, y + 3, 14, 8); };
+    const status = () => !LZ.auto ? 'MANUAL' : performance.now() - LZ.lastBeat > 4000 ? 'WAITING FOR BEAT' : `BEAT ${LZ.beats}`;
+    const pats = LASER_PATS.map(p => [LASER_PL[p], LZ.pat === p, () => { LZ.setPat(p); if (!LZ.on) LZ.setOn(true); drawMixScreen(); }]);
+    const colPick = c => () => { LZ.setCol(c); if (!LZ.on) LZ.setOn(true); drawMixScreen(); };
+    const cells = [['BEAMS', `${LZ.n}`, 'n'], ['SPREAD', `${LZ.spread}`, 'spread'], ['SPEED', `${LZ.speed}X`, 'speed'], ['HAZE', `${Math.round(LZ.haze * 100)}%`, 'haze'], ['LENGTH', `${LZ.len} M`, 'len']];
+    const help = 'Grip the head to move it. Double-tap LASER = home. AUTO follows the beat.';
+    if (P) {
+      const x0 = wx + 10, x1 = wx + ww - 10, cw = x1 - x0; let y = wy + 30;
+      preview(x0 + 3, y + 3, cw - 6, 120); y += 132;
+      const hw = (cw - 8) / 2; lsrBtn(x0, y, hw, 40); autoBtn(x0 + hw + 8, y, hw, 40); y += 48;
+      beatLed(x0, y); txt(status(), x0 + 26, y + 3, 1.25, WB.blk); y += 26;
+      groupBox(x0, y, cw, 98, 'PATTERN'); const w3 = (cw - 24) / 3;
+      pats.forEach(([lb, on, act], i) => gad(x0 + 6 + (i % 3) * (w3 + 6), y + 10 + Math.floor(i / 3) * 42, w3, 38, lb, on, act)); y += 108;
+      groupBox(x0, y, cw, 90, 'COLOUR'); const w4 = (cw - 30) / 4;
+      Object.keys(LASER_COLS).forEach((c, i) => swatch(c, x0 + 6 + (i % 4) * (w4 + 6), y + 10 + Math.floor(i / 4) * 38, w4, 34, LZ.col === c, colPick(c))); y += 100;
+      cells.forEach((c, i) => stepper(c, x0 + (i % 2) * (hw + 8), y + Math.floor(i / 2) * 54, hw, 48)); y += 3 * 54 + 4;
+      wrapBit(help, x0, y, cw, 1.25, 12, Math.floor((wy + wh - 6 - y) / 12));
+    } else {
+      const x0 = wx + 10, pw = 214, px0 = wx + ww - 10 - pw, lw = px0 - 10 - x0; let y = wy + 30;
+      preview(px0 + 3, y + 3, pw - 6, 112);
+      lsrBtn(x0, y, 112, 32); autoBtn(x0 + 118, y, 112, 32); beatLed(x0 + 240, y + 9); txt(status(), x0 + 266, y + 12, 1.25, WB.blk); y += 46;
+      groupBox(x0, y, lw, 46, 'PATTERN'); const w6 = (lw - 42) / 6;
+      pats.forEach(([lb, on, act], i) => gad(x0 + 6 + i * (w6 + 6), y + 9, w6, 32, lb, on, act)); y += 56;
+      groupBox(x0, y, lw, 46, 'COLOUR'); const w8 = (lw - 54) / 8;
+      Object.keys(LASER_COLS).forEach((c, i) => swatch(c, x0 + 6 + i * (w8 + 6), y + 9, w8, 32, LZ.col === c, colPick(c)));
+      y = wy + 30 + 122;
+      const sw5 = (ww - 20 - 32) / 5; cells.forEach((c, i) => stepper(c, x0 + i * (sw5 + 8), Math.max(y, wy + 30 + 46 + 56 + 54), sw5, 42));
+      wrapBit(help, x0, wy + wh - 16, ww - 20, 1.25, 12, 1);
     }
     return;
   }
