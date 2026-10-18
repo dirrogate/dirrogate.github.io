@@ -450,7 +450,6 @@ export class Streamer {
     const fit = (s, y) => { s = s || ''; while (s.length > 4 && g.measureText(s).width > 1160) s = s.slice(0, -2); g.fillText(s, 640, y); };
     if (np.a) fit('▶ ' + np.a, 520);
     if (np.b) fit(np.b, 580);
-    if (np.bpm) { g.font = '600 28px system-ui,sans-serif'; g.fillStyle = '#8c96a8'; g.fillText(np.bpm + ' BPM', 640, 640); }
     this._drawQr(g);
   }
   // #370 the Twitch QR: white plate with the 4-module quiet zone the scanners want, 7 px modules (≈ 260 px), top right,
@@ -801,20 +800,63 @@ export class Streamer {
     if (this.canvasTrack && this.sending) this.canvasTrack.requestFrame();
     this.showFrames = (this.showFrames || 0) + 1;
   }
+  // #396 (owner) NOW PLAYING bar for Twitch and Cly3DTV: no BPM. A red tab with a spinning record, then a dark glass
+  // panel with "NOW SPINNING" and artist – title. A new track: the old bar slides out (0.35 s), the new one slides in
+  // from the left with a little overshoot (0.7 s), the red underline runs across, then the title is wiped in.
+  _npBar(g, W, H) {
+    const np = (this.env.nowPlaying && this.env.nowPlaying()) || {}, now = performance.now(), S = this._npS || (this._npS = { cur: '', t: 0, old: '', ot: -1e9 });
+    const txt = np.a || '';
+    if (txt !== S.cur) { if (S.cur) { S.old = S.cur; S.ot = now; } S.cur = txt; S.t = now + (S.old && now - S.ot < 350 ? 300 : 0); }
+    const OUT = 350, IN = 700;
+    if (S.old && now - S.ot < OUT) { const k = (now - S.ot) / OUT; this._npDraw(g, W, H, S.old, 1 - k * k, 1, now); }
+    if (S.cur && now >= S.t) {
+      const k = Math.min(1, (now - S.t) / IN), c1 = 1.4, back = 1 + (c1 + 1) * Math.pow(k - 1, 3) + c1 * Math.pow(k - 1, 2);   // ease-out-back
+      const reveal = Math.min(1, Math.max(0, (now - S.t - IN * 0.55) / 520));
+      this._npDraw(g, W, H, S.cur, back, reveal, now);
+    }
+  }
+  _npDraw(g, W, H, text, k, reveal, now) {
+    const u = H / 720, x0 = Math.round(24 * u), y0 = Math.round(22 * u), h = Math.round(66 * u), tab = h;
+    g.save(); g.textBaseline = 'middle'; g.textAlign = 'left';
+    const tf = `700 ${Math.round(27 * u)}px system-ui,sans-serif`; g.font = tf;
+    let s = text; while (s.length > 6 && g.measureText(s).width > W * 0.56) s = s.slice(0, -2); if (s !== text) s = s.slice(0, -1) + '…';
+    const tw = g.measureText(s).width, pw = tw + Math.round(46 * u), full = tab + pw;
+    const off = -(full + x0 + 20 * u) * (1 - k);
+    g.translate(off, 0);
+    // shadow + glass panel
+    g.shadowColor = 'rgba(0,0,0,0.45)'; g.shadowBlur = 18 * u; g.shadowOffsetY = 4 * u;
+    const gr = g.createLinearGradient(0, y0, 0, y0 + h); gr.addColorStop(0, 'rgba(26,29,38,0.9)'); gr.addColorStop(1, 'rgba(8,9,13,0.9)');
+    g.fillStyle = gr; g.beginPath(); g.roundRect(x0 + tab - 8 * u, y0, pw + 8 * u, h, [0, 10 * u, 10 * u, 0]); g.fill();
+    g.shadowColor = 'transparent';
+    g.fillStyle = 'rgba(255,255,255,0.10)'; g.fillRect(x0 + tab, y0, pw - 6 * u, Math.max(1, u));   // top edge light
+    // the red tab with a spinning record (33 rpm)
+    const tg = g.createLinearGradient(0, y0, 0, y0 + h); tg.addColorStop(0, '#f0303a'); tg.addColorStop(1, '#a8121b');
+    g.fillStyle = tg; g.beginPath(); g.roundRect(x0, y0, tab, h, [10 * u, 0, 0, 10 * u]); g.fill();
+    const cx = x0 + tab / 2, cy = y0 + h / 2, R = h * 0.36, a = now / 1000 * 3.49;
+    g.fillStyle = '#0b0b0d'; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,0.09)'; g.lineWidth = Math.max(1, u); for (const rr of [0.55, 0.72, 0.88]) { g.beginPath(); g.arc(cx, cy, R * rr, 0, Math.PI * 2); g.stroke(); }
+    g.strokeStyle = 'rgba(255,255,255,0.32)'; g.lineWidth = 2 * u; g.beginPath(); g.arc(cx, cy, R * 0.8, a, a + 0.9); g.stroke();   // the sheen going round
+    g.fillStyle = '#e0202a'; g.beginPath(); g.arc(cx, cy, R * 0.34, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#f2f2f2'; g.beginPath(); g.arc(cx + Math.cos(a) * R * 0.18, cy + Math.sin(a) * R * 0.18, R * 0.07, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#0b0b0d'; g.beginPath(); g.arc(cx, cy, R * 0.06, 0, Math.PI * 2); g.fill();
+    // the red underline runs across as it lands
+    g.fillStyle = '#e0202a'; g.fillRect(x0 + tab, y0 + h - 3 * u, (pw - 6 * u) * Math.min(1, Math.max(0, k)), 3 * u);
+    // NOW SPINNING, then the title wiped in
+    const tx = x0 + tab + 18 * u;
+    g.font = `800 ${Math.round(12 * u)}px system-ui,sans-serif`; g.fillStyle = '#ff5a62';
+    try { g.letterSpacing = `${2.4 * u}px`; } catch {}
+    g.fillText('NOW SPINNING', tx, y0 + 19 * u);
+    try { g.letterSpacing = '0px'; } catch {}
+    g.save(); g.beginPath(); g.rect(tx - 2, y0, (tw + 6) * reveal, h); g.clip();
+    g.font = tf; g.fillStyle = '#ffffff'; g.fillText(s, tx, y0 + 43 * u);
+    g.restore();
+    g.restore();
+  }
   _overlays(g, W, H) {   // 3. overlays (#347 PHONE CAM uses them too)
     const O = this.showOpt;
     const sc = this.env.scroller && this.env.scroller();
     if (O.scroll && sc && sc.on && sc.canvas && !this._wallShot) { const bh = Math.round(W * sc.canvas.height / sc.canvas.width * 0.66); g.drawImage(sc.canvas, 0, H - bh - Math.round(H * 0.01), W, bh); /* a little wider than the wall's band: ~20 % of the frame */ }
-    if (O.np) {
-      const np = (this.env.nowPlaying && this.env.nowPlaying()) || {};
-      if (np.a) {
-        const t = '▶ ' + np.a + (np.bpm ? '   ' + np.bpm + ' BPM' : '');
-        g.font = '600 26px system-ui,sans-serif'; g.textBaseline = 'middle'; g.textAlign = 'left';
-        let s = t; while (s.length > 6 && g.measureText(s).width > W * 0.6) s = s.slice(0, -2);
-        const tw = g.measureText(s).width;
-        g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(24, 24, tw + 32, 44); g.fillStyle = '#ffffff'; g.fillText(s, 40, 47);
-      }
-    }
+    if (O.np) this._npBar(g, W, H);   // #396 the now-playing bar (no BPM), slides in on every new track
     if (O.chat && this.env.chat) {   // #340 the newest messages on the right, each fading out 40 s after it arrived
       const ch = this.env.chat(), now = performance.now(), recent = ch && ch.msgs.filter(m => !m.sys && now - m.t < 42000);
       if (recent && recent.length) {

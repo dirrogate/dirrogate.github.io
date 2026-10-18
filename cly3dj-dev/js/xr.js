@@ -264,8 +264,8 @@ export function setupXR(ctx) {
       }
       if (!((btn === 'grip' || st.isHand) && pr.hit(P))) continue;
       updateAnchor(st); const o = pr.obj; o.updateMatrixWorld();
-      st.direct = { kind: 'gopro', prop: pr, off: new THREE.Matrix4().copy(st.anchor.matrixWorld).invert().multiply(o.matrixWorld) };
-      pr.grab(); buzz(st, 0.4, 25); return true;
+      st.direct = { kind: 'gopro', prop: pr, off: pr.penOff ? pr.penOff.clone() : new THREE.Matrix4().copy(st.anchor.matrixWorld).invert().multiply(o.matrixWorld) };   // #395 a marker: held like a pen
+      pr.grab(st); buzz(st, 0.4, 25); return true;
     }
     // 0a. #189 the mixer's tablet: grip (controllers) or pinch (hands) on its frame picks it up; it keeps its pose
     //     relative to the hand while held (main.js places it; it stays a child of the mixer so the phone mirrors it)

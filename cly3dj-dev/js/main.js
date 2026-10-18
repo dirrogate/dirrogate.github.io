@@ -13,6 +13,8 @@ import { Streamer, SOURCES as STREAM_SRC, streamKey, STUDIO_MODES } from './stre
 import { KEY_LABEL } from './keycol.js';   // #347 key colour names   // #331 LIVE STREAM (Twitch)
 import { GoPro, ZOOMS as GOPRO_ZOOMS } from './gopro.js';   // #337 movable camera for SHOW / AVACAM
 import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #340 Twitch chat
+import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whiteboard, markers and duster
+import { InkLabel } from './inklabel.js';   // #394 milk crate labels
 import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
 import { Portals } from './portal.js';   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
@@ -227,12 +229,22 @@ function lidGrabTest(P) {
 const milk = makeMilkCrate();
 rig.add(milk);
 milk.traverse(o => { if (o.isMesh) o.userData.move = 'milk'; });
+// #394 (owner) every milk crate has a weather-beaten paper label on both long sides (one label, shown twice), to write on
+// with a whiteboard marker; the playlist crate gets the playlist's name scrawled on it. Kept per crate ('vire.milkLabel.<key>').
+function attachMilkLabel(m, key) {
+  let h = 7; for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) % 9973;
+  const lb = new InkLabel(0.21, 0.08, { key: CAMERA_ROLE ? null : key, seed: h + 3 });
+  for (const sd of [1, -1]) { const p = lb.addPlane(m, new THREE.Vector3(sd * (MILK.W / 2 + 0.004), MILK.H - 0.058, 0), sd * Math.PI / 2); p.userData.move = key; }
+  m.userData.label = lb; return lb;
+}
+attachMilkLabel(milk, 'milk');
+function milkLabels() { const out = []; for (const m of milks()) if (m.userData.label) out.push(m.userData.label); return out; }
 // More milk crates (owner, #88): spawned from the crate icon on the lid screen, up to 6 in all. Keys milk2..milk6
 // are ordinary stage items (saved with the layout); which ones exist is kept in 'vire.milkKeys'. Tossing an
 // extra crate away (thrown or dragged more than 3 m from the decks) deletes it with its records.
 const MILK_MAX = 6, MILK_FAR = 3.0;   // desktop drag-away distance from the decks (thrown: see releaseMilk, #200)
 const extraMilk = {};
-function newMilk(key) { const m = makeMilkCrate(); m.userData.key = key; rig.add(m); m.traverse(o => { if (o.isMesh) o.userData.move = key; }); extraMilk[key] = m; return m; }
+function newMilk(key) { const m = makeMilkCrate(); m.userData.key = key; rig.add(m); m.traverse(o => { if (o.isMesh) o.userData.move = key; }); attachMilkLabel(m, key); extraMilk[key] = m; return m; }   // #394 label
 try { for (const k of JSON.parse(localStorage.getItem('vire.milkKeys') || '[]')) if (/^milk[2-6]$/.test(k)) newMilk(k); } catch (e) {}
 milk.userData.key = 'milk';
 function milks() { return [milk, ...Object.values(extraMilk)].filter(m => m.parent); }   // #248 a switched-off first crate is out of the scene
@@ -676,7 +688,8 @@ const _gpM = new THREE.Matrix4(), _gpS = new THREE.Vector3();
 // could not be out together). The panel starts left of the mixer, the chalkboard right of it (mirrored). A chalkboard saved by the old single
 // panel moves over to the chalkboard, so it stays where it was; the panel then starts from its own spot.
 try { const raw = localStorage.getItem('vire.chatPanel'), o = raw && JSON.parse(raw); if (o && o.board && !localStorage.getItem('vire.chalkboard')) { localStorage.setItem('vire.chalkboard', raw); localStorage.removeItem('vire.chatPanel'); } } catch {}
-const chalkboard = CAMERA_ROLE ? null : new ChatPanel(rig, () => ({ p: new THREE.Vector3(mixer.position.x + 0.75, deckGroups[0].position.y + DECK.H + 0.38, mixer.position.z + 0.05), yaw: -0.94 }), { key: 'vire.chalkboard', boardOnly: true, name: 'chalkboard' });
+const chalkboard = CAMERA_ROLE ? null : new WhiteBoard(rig, () => ({ p: new THREE.Vector3(mixer.position.x + 0.75, deckGroups[0].position.y + DECK.H + 0.38, mixer.position.z + 0.05), yaw: -0.94 }), { key: 'vire.chalkboard', boardOnly: true, name: 'chalkboard' });
+const boardTools = chalkboard ? makeBoardTools(chalkboard, rig) : null;   // #395 three magnetic markers and the duster
 const chatPanel = CAMERA_ROLE ? null : new ChatPanel(rig, () => ({ p: new THREE.Vector3(mixer.position.x - 0.75, deckGroups[0].position.y + DECK.H + 0.38, mixer.position.z + 0.05), yaw: 0.94 }));
 let chatDrawPend = false, chatPanelTapT = 0, chalkWipeT = 0;
 function chatRedraw() {   // at most ~5 redraws a second
@@ -688,7 +701,7 @@ if (chat && chatChannel.get()) chat.start();
 // #342 CHALKBOARD on the TOOLS home page: tap = board out / away (the panel goes back to chat mode, hidden); double-tap =
 // board back to its start spot and size
 let chalkTapT = 0;
-const chalkLbl = () => chalkboard && chalkboard.on ? 'CHALKBOARD: ON' : 'CHALKBOARD';
+const chalkLbl = () => chalkboard && chalkboard.on ? 'WHITEBOARD: ON' : 'WHITEBOARD';   // #395
 function openPhoneCam() {   // #389 from VJ TOOLS and SHOWTIME! OBJECTS: pick PHONE CAM and open its setup page (says why when the phone isn't there)
   const S = streamer; if (!S) { toast('Streaming runs on the headset', 2500); return; }
   if (S.stu.on) { toast('S8 STUDIO is on: use LIVE DJ! or LIVE KEY! on the S8 STUDIO page', 3500); return; }
@@ -753,11 +766,12 @@ function saveLayout() { stage.save(); }
 // gone, put the crate on the floor (once) instead of leaving it floating
 try { const L = JSON.parse(localStorage.getItem('vire.layout2')); if (L && L.cases && L.cases.caseB) { const c = L.cases.caseB, p = crateRig.position; if (Math.abs(p.y - (c[1] + c[6])) < 0.04) p.y = 0; stage.save(); } } catch (e) {}
 function saveMilkKeys() { try { localStorage.setItem('vire.milkKeys', JSON.stringify(Object.keys(extraMilk))); } catch (e) {} }
-function spawnMilk() {
+function spawnMilk(side = false) {   // #394 side: to one side of the record crate first (the playlist crate)
   const free = ['milk2', 'milk3', 'milk4', 'milk5', 'milk6'].find(k => !extraMilk[k]);
   if (!free) { toast(`That's the lot: ${MILK_MAX} milk crates`); return null; }
   const m = newMilk(free); stage.items[free] = { obj: m, base: 0 };
-  placeMilk(m);   // on the floor near the record crate
+  m.userData.label.clear();   // a fresh crate: a blank label (the key may have been used by a crate tossed away)
+  placeMilk(m, side);   // on the floor near the record crate
   m.scale.setScalar(0.01); m.userData.pop = 0;   // grows in over ~0.25 s (stepMilkCrates)
   saveMilkKeys(); stage.save(); toast('Milk crate added. Toss it away to remove it');
   return m;
@@ -765,6 +779,7 @@ function spawnMilk() {
 function removeMilk(key) {
   const m = extraMilk[key]; if (!m) return;
   for (let i = loose.length - 1; i >= 0; i--) if (loose[i].milk === m) { loose[i].rec.dispose(); loose.splice(i, 1); }   // its records go back to the library
+  if (m.userData.label) { m.userData.label.forget(); m.userData.label.dispose(); m.userData.label = null; }   // #394
   rig.remove(m); m.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
   delete extraMilk[key]; delete stage.items[key]; flyingMilk.delete(m);
   saveMilkKeys(); stage.save(); toast('Milk crate removed');
@@ -774,10 +789,10 @@ function removeMilk(key) {
 // Tossed away (let go moving faster than 1.2 m/s): an extra crate shrinks away where it is and is deleted with its
 // records; the first crate stays. On the desktop, dragged beyond 3 m from the decks an extra crate is deleted.
 const flyingMilk = new Map();   // #207: crates shrinking away (name kept for xr.js / the record code)
-function placeMilk(m) {   // first free spot on the floor round the record crate (front first), clear of the case and crates
+function placeMilk(m, side = false) {   // first free spot on the floor round the record crate (front first; #394 side: left / right first), clear of the case and crates
   const c = crateRig, up = new THREE.Vector3(0, 1, 0), blockers = [cases.caseA.group, crateRig, ...milks().filter(x => x !== m)].map(o => new THREE.Box3().setFromObject(o).expandByScalar(0.03));
   m.rotation.set(0, c.rotation.y, 0); m.position.set(c.position.x, 0, c.position.z + 0.5);
-  for (const r of [0.45, 0.85, 1.25]) for (const deg of [0, 45, -45, 90, -90, 135, -135, 180]) {
+  for (const r of [0.45, 0.85, 1.25]) for (const deg of side ? [90, -90, 45, -45, 135, -135, 0, 180] : [0, 45, -45, 90, -90, 135, -135, 180]) {
     const off = new THREE.Vector3(0, 0, r).applyAxisAngle(up, c.rotation.y + deg * Math.PI / 180);
     m.position.set(c.position.x + off.x, 0, c.position.z + off.z); m.updateMatrixWorld(true);
     const bb = new THREE.Box3().setFromObject(m);
@@ -1588,10 +1603,11 @@ function drawCrateScreen() {
   if (plm) {
     const TW = 128;
     search.btns = [
-      { id: 'field', x: 12, y: by, w: W - 12 - 3 * (TW + 8) - 2 * 78 - 12, h: bh },
-      { id: 'plsave', x: W - 2 * 78 - 3 * (TW + 8) - 4, y: by, w: TW, h: bh, label: 'SAVE' },
-      { id: 'plsets', x: W - 2 * 78 - 2 * (TW + 8) - 4, y: by, w: TW, h: bh, label: sets ? 'LIST' : 'SETS' },
-      { id: 'plclear', x: W - 2 * 78 - (TW + 8) - 4, y: by, w: TW, h: bh, label: performance.now() < plUI.clearArm ? 'SURE?' : 'CLEAR' },
+      { id: 'field', x: 12, y: by, w: W - 12 - 3 * (TW + 8) - 3 * 78 - 12, h: bh },
+      { id: 'plsave', x: W - 3 * 78 - 3 * (TW + 8) - 4, y: by, w: TW, h: bh, label: 'SAVE' },
+      { id: 'plsets', x: W - 3 * 78 - 2 * (TW + 8) - 4, y: by, w: TW, h: bh, label: sets ? 'LIST' : 'SETS' },
+      { id: 'plclear', x: W - 3 * 78 - (TW + 8) - 4, y: by, w: TW, h: bh, label: performance.now() < plUI.clearArm ? 'SURE?' : 'CLEAR' },
+      { id: 'plmilk', x: W - 3 * 78 - 4, y: by, w: 70, h: bh },   // #394 records jump into a new milk crate
       { id: 'mic', x: W - 2 * 78 - 4, y: by, w: 70, h: bh },
       { id: 'pl', x: W - 78 - 4, y: by, w: 70, h: bh },
     ];
@@ -1606,6 +1622,7 @@ function drawCrateScreen() {
       g.fillStyle = b.id === 'plclear' && on ? '#8a2a1a' : on ? '#23527c' : b.id === 'plsave' ? '#1d5a33' : '#1b2128'; g.fillRect(b.x, b.y, b.w, b.h);
       g.textAlign = 'center'; g.fillStyle = '#e6e9ec';
       if (b.id === 'pl') { drawPlIcon(g, b.x + b.w / 2, b.y + bh / 2, true, plNow.items.length); continue; }
+      if (b.id === 'plmilk') { drawJumpIcon(g, b.x + b.w / 2, b.y + bh / 2, !!plJump); continue; }
       if (b.id === 'mic') { g.font = `34px ${EMOJI}`; g.fillText('🎤', b.x + b.w / 2, b.y + bh / 2 + 2); continue; }
       g.font = '700 26px system-ui'; g.fillText(b.label, b.x + b.w / 2, b.y + bh / 2 + 1);
     }
@@ -1831,8 +1848,55 @@ function crateSearchRowPl(b) {   // a tap on the PLAYLIST view's search row
   else if (b.id === 'plsave') plSave();
   else if (b.id === 'plsets') { plUI.view = plUI.view === 'sets' ? 'list' : 'sets'; plUI.delArm = null; search.kb = false; search.target = null; drawCrateScreen(); }
   else if (b.id === 'plclear') plClear();
+  else if (b.id === 'plmilk') plToMilk();   // #394
   else if (b.id === 'mic') openNativeKeyboard();
   else if (b.id === 'pl') plOpen();
+}
+// ---- #394 (owner) PLAYLIST > the curved arrow into a milk crate: a new milk crate pops up beside the record crate with the
+// playlist's name scrawled on its label, and every record in the playlist jumps out of the record crate, one after the
+// other, flips through the air and lands in it (the milk crate's own physics settles them). Records already out (all
+// 3 copies) or missing files stay behind; at most 40 per crate.
+let plJump = null;
+function plToMilk() {
+  const e = plEntry(), all = e ? e.records : [], recs = all.filter(r => !r.missing && copiesOut(r) < COPIES);
+  if (!recs.length) { crateSay(all.length ? 'Every record in this playlist is already out of the crate' : 'The playlist is empty: tap ➕ before records first', false, 3500); return; }
+  if (plJump) { crateSay('Still moving the last playlist', false, 2000); return; }
+  const mc = spawnMilk(true); if (!mc) { crateSay(`No room for another: ${MILK_MAX} milk crates are out (toss one away)`, false, 3500); return; }
+  const name = (plNow.name || '').trim() || 'PLAYLIST';
+  mc.userData.label.writeText(name);
+  plJump = { recs: recs.slice(0, 40), mc, i: 0, t: -0.45 };
+  crateSay(`${Math.min(40, recs.length)} record${recs.length === 1 ? '' : 's'} jumping into the "${name}" milk crate`, true, 3500);
+}
+function stepPlJump(dt) {
+  const J = plJump; if (!J) return;
+  if (!J.mc.parent || flyingMilk.has(J.mc)) { plJump = null; drawCrateScreen(); return; }
+  J.t += dt;
+  while (J.i < J.recs.length && J.t >= J.i * 0.3) { try { launchToMilk(J.recs[J.i], J.mc); } catch (e) { console.warn('jump', e); } J.i++; }
+  if (J.i >= J.recs.length && J.t > J.i * 0.3 + 1.2) { plJump = null; drawCrateScreen(); }
+}
+function launchToMilk(r, mc) {
+  const rec = new Record3D(r); rec.group.scale.setScalar(1); scene.add(rec.group); prepareArt(rec);
+  crate.updateMatrixWorld(true); mc.updateMatrixWorld(true);
+  const S = crate.localToWorld(new THREE.Vector3((Math.random() - 0.5) * 0.06, CRATE.H + 0.04, (Math.random() - 0.5) * 0.08));
+  const T = mc.localToWorld(new THREE.Vector3((Math.random() - 0.5) * 0.08, MILK.H + 0.1, (Math.random() - 0.5) * 0.12));
+  rec.group.position.copy(S);
+  rec.group.quaternion.copy(crate.getWorldQuaternion(new THREE.Quaternion())).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2));   // standing in the crate, as the records do
+  // ballistic with the loose-record air drag (v *= 1 - 0.5 dt): solve for the start speed that lands on T after tf
+  const tf = 0.55 + Math.min(0.25, S.distanceTo(T) * 0.2), k = 0.5, f = (1 - Math.exp(-k * tf)) / k;
+  const vel = new THREE.Vector3((T.x - S.x) / f, ((T.y - S.y) + GRAV * tf / k) / f - GRAV / k, (T.z - S.z) / f);
+  const ax = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.3, Math.random() - 0.5).normalize();
+  loose.push({ rec, vel, ang: ax.multiplyScalar(5 + Math.random() * 4), resting: false, since: performance.now() });
+  rec.attach = null; rec.mesh.userData.loose = true;
+  layoutSleeves();
+}
+// a curved arrow dropping into a little milk crate
+function drawJumpIcon(g, cx, cy, busy) {
+  g.save(); g.lineCap = 'round'; g.lineJoin = 'round';
+  g.strokeStyle = busy ? '#4aa8f0' : '#3fbf6a'; g.lineWidth = 3;
+  g.strokeRect(cx - 4, cy + 2, 24, 15); for (const x of [2, 8, 14]) { g.beginPath(); g.moveTo(cx + x, cy + 2); g.lineTo(cx + x, cy + 17); g.stroke(); }
+  g.strokeStyle = '#e6e9ec'; g.lineWidth = 3.5; g.beginPath(); g.moveTo(cx - 22, cy + 10); g.quadraticCurveTo(cx - 18, cy - 20, cx + 8, cy - 6); g.stroke();
+  g.beginPath(); g.moveTo(cx + 1, cy - 12); g.lineTo(cx + 9, cy - 5); g.lineTo(cx + 1, cy + 1); g.stroke();
+  g.restore();
 }
 // the playlist button: three lines and a note, with the count
 function drawPlIcon(g, cx, cy, on, n) {
@@ -4883,11 +4947,11 @@ function drawToolsPage() {
     if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
       btn(L, y0 + 224, R - L, 96, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
       btn(L, y0 + 332, R - L, 80, streamer ? tvLbl(streamer) : 'CLY3DTV', !!(streamer && (streamer.tvUp || streamer.stuRun)), () => setTools('tv'), !streamer, 24);   // #389 was CHALKBOARD (now on VJ TOOLS)
-      note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall, neon, chalkboard, portals, cameras. STREAM: go live on Twitch (master mix only, never the cue). CLY3DTV: the Fire Stick TV.', y0 + 436); }   // #363 was under the CHALKBOARD button
+      note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall, neon, whiteboard, portals, cameras. STREAM: go live on Twitch (master mix only, never the cue). CLY3DTV: the Fire Stick TV.', y0 + 436); }   // #363 was under the CHALKBOARD button
     else { const bw = (R - L - 36) / 4; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
       btn(L + 2 * (bw + 12), y0 + 8, bw, 130, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
       btn(L + 3 * (bw + 12), y0 + 8, bw, 130, streamer ? tvLbl(streamer) : 'CLY3DTV', !!(streamer && (streamer.tvUp || streamer.stuRun)), () => setTools('tv'), !streamer, 22);   // #389 was CHALKBOARD (now on VJ TOOLS)
-      note('DJ TOOLS: Record Maker, milk crate.  VJ TOOLS: Scroller, LED wall, neon, chalkboard, portals, cameras.  STREAM: Twitch.  CLY3DTV: the Fire Stick TV.', y0 + 160); }
+      note('DJ TOOLS: Record Maker, milk crate.  VJ TOOLS: Scroller, LED wall, neon, whiteboard, portals, cameras.  STREAM: Twitch.  CLY3DTV: the Fire Stick TV.', y0 + 160); }
     return;
   }
   if (page === 'stream') {   // #331 LIVE STREAM to Twitch
@@ -4967,7 +5031,7 @@ function drawToolsPage() {
     cams.forEach(([k, label, off], i) => btn(L + (i % cols) * (bw + gap), y0 + (P ? 14 : 6) + Math.floor(i / cols) * (bh + gap), bw, bh, label, camOn(k), (off && k !== 'pcam') ? null : () => camPick(k), off, P ? 16 : 15));   // PHONE CAM stays tappable when greyed: it says why
     const cy2 = y0 + (P ? 14 : 6) + Math.ceil(cams.length / cols) * (bh + gap) + (P ? 6 : 0);
     g.fillStyle = '#8c96a8'; if (P) g.fillText('OBJECTS', L + 2, cy2 + 8);
-    const items = [['wall', 'LED WALL', S.source === 'headset' || S.source === 'pcam'], ['pcam', 'PHONE CAM', !!pcamReady()], ['neon', 'NEON', false], ['panel', 'CHAT PANEL', false], ['chalk', 'CHALKBOARD', false], ['gear', 'GEAR', false], ['robot', 'ROBO-BODY', S.source === 'headset' || S.source === 'pcam'], ['dome', 'DOME', S.source === 'headset']];
+    const items = [['wall', 'LED WALL', S.source === 'headset' || S.source === 'pcam'], ['pcam', 'PHONE CAM', !!pcamReady()], ['neon', 'NEON', false], ['panel', 'CHAT PANEL', false], ['chalk', 'WHITEBOARD', false], ['gear', 'GEAR', false], ['robot', 'ROBO-BODY', S.source === 'headset' || S.source === 'pcam'], ['dome', 'DOME', S.source === 'headset']];
     // #377 DOME is an object here (the sky dome from VISUALS > PANO > SKY). It is the backdrop's 'dome' choice: on = DOME, off = the VISUALS picture behind (they
     // are one at a time, the dome would hide it); on the PHONE CAM shot it is what you are keyed over, so it needs GREEN SCREEN. NONE stays on the STREAM page's BACK button.
     const domeTap = () => { if (O.backdrop === 'dome') S.setShowOpt('backdrop', 'visuals'); else { S.setShowOpt('backdrop', 'dome'); if (!skybox.tex) toast('DOME needs a sky: VISUALS > PANO > SKY', 3200); } drawMixScreen(); };
@@ -6068,14 +6132,12 @@ function frame() {
   for (const d of decks) vvStep(d);   // #177 VideoVinyl
   stepPvLid(dt);   // #196 preview lid
   stepMonitor(performance.now());   // #339
-  if (chalkboard && chalkboard.on) {   // #341 chalkboard (#377 its own object): every fingertip / controller ball writes, picks a chalk or wipes
-    if (xr && renderer.xr.isPresenting) for (const t of xr.tips()) {
-      const r = chalkboard.touch(t.st.i, t.p);
-      if (r === 'pick') xr.buzz(t.st, 0.5, 30);
-      else if (r === 'write' && performance.now() - (t.st.chalkBuzz || 0) > 90) { t.st.chalkBuzz = performance.now(); xr.buzz(t.st, 0.12, 8); }   // the scratch of chalk
-    }
-    chalkboard.tickBoard();
+  if (chalkboard) {   // #395 whiteboard: the held marker's tip writes on the board or a milk crate label, the duster rubs out
+    if (boardTools) boardTools.tick(dt, [chalkboard, ...milkLabels()], xr);
+    if (chalkboard.on) chalkboard.tickBoard();
   }
+  for (const lb of milkLabels()) lb.tick();   // #394 label ink: upload / save
+  stepPlJump(dt);   // #394 playlist records jumping into a milk crate
   stepScrDir();    // #198 portrait menu
   if (ledMode === 'decks') ledwall.userData.setDecks(deckVid[0].tex, deckVid[1].tex, ...deckGains(mixVal));
   if (spect) {   // #158 spectator camera (nothing when off / no phone)
@@ -6172,7 +6234,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack, gearLocked, gearLockMsg, snapYaw: isDeckKey,   // #378
   REC, DECK, CRATE, ARM,
-  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
+  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
   scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
@@ -6516,7 +6578,8 @@ if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
 window.vire = { THREE, get fx() { return fx; }, skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
-window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };   // #392 / #393 test hooks
+window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
+window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, get plJump() { return plJump; } };   // #394 / #395 test hooks   // #392 / #393 test hooks
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
