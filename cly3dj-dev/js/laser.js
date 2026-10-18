@@ -15,8 +15,9 @@ export const PATTERNS = ['beam', 'fan', 'sweep', 'cone', 'wave', 'scan'];
 export const PAT_LABEL = { beam: 'BEAM', fan: 'FAN', sweep: 'SWEEP', cone: 'TUNNEL', wave: 'WAVE', scan: 'SCAN' };
 export const COLOURS = { red: [1, 0.02, 0.02], green: [0.04, 1, 0.06], blue: [0.08, 0.22, 1], yellow: [1, 0.72, 0.02], cyan: [0.04, 0.85, 1], magenta: [1, 0.04, 0.75], white: [1, 0.9, 0.82], rgb: null };
 export const COL_LABEL = { red: 'RED', green: 'GREEN', blue: 'BLUE', yellow: 'YELLOW', cyan: 'CYAN', magenta: 'MAGENTA', white: 'WHITE', rgb: 'RGB' };
-export const LIMITS = { n: [1, MAX, 1], spread: [10, 140, 10], speed: [0.25, 3, 0.25], haze: [0.1, 1, 0.1], len: [2, 15, 1] };
-const DEF = { pat: 'fan', col: 'green', auto: true, n: 8, spread: 60, speed: 1, haze: 0.7, len: 10 };
+export const LIMITS = { n: [1, MAX, 1], spread: [10, 140, 10], speed: [0.25, 3, 0.25], haze: [0.1, 1, 0.1], len: [2, 15, 1], drift: [0.25, 3, 0.25] };
+export const SMOKES = ['off', 'beams', 'sheets'];   // #414 swirly haze: none, in the beams, in the beams and the light sheets between them
+const DEF = { pat: 'fan', col: 'green', auto: true, n: 8, spread: 60, speed: 1, haze: 0.7, len: 10, smoke: 'sheets', drift: 1 };
 const B = { w: 0.14, h: 0.07, d: 0.16 };   // the head, metres
 const AP = new THREE.Vector3(0.035, 0.004, -B.d / 2 - 0.004);   // aperture (beams start here), front panel, right of centre
 
@@ -46,15 +47,34 @@ float depthHit(vec3 o, vec3 dir, float len) {
   }
   return len;
 }`;
+// #414 SWIRLY HAZE: real haze only shows where light passes, so the smoke is a brightness pattern on the beams and on
+// the light sheets between them: 3D value noise, domain-warped (noise displaced by noise = curls), drifting up and
+// across with time (uDrift), worked out at each point in the room so the swirls stay put while the beams sweep
+// through them. uSmoke 0 = even beams.
+const SMOKE_GLSL = `uniform float uTime; uniform float uSmoke; uniform float uDrift; uniform float uPuff;
+float h3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float vnoise(vec3 x) {
+  vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(h3(i), h3(i + vec3(1.0, 0.0, 0.0)), f.x), mix(h3(i + vec3(0.0, 1.0, 0.0)), h3(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),
+             mix(mix(h3(i + vec3(0.0, 0.0, 1.0)), h3(i + vec3(1.0, 0.0, 1.0)), f.x), mix(h3(i + vec3(0.0, 1.0, 1.0)), h3(i + vec3(1.0, 1.0, 1.0)), f.x), f.y), f.z);
+}
+float smokeAt(vec3 w) {
+  float t = uTime * uDrift;
+  vec3 p = w * 1.4 + vec3(0.05 * t, -0.11 * t, 0.03 * t);
+  vec3 q = vec3(vnoise(p + vec3(0.0, 0.0, 0.07 * t)), vnoise(p + vec3(5.2, 1.3, -0.05 * t)), vnoise(p + vec3(2.1, 7.7, 0.04 * t)));
+  return vnoise(p + 1.8 * q) * 0.65 + vnoise(p * 2.3 + 1.1 * q) * 0.35;
+}
+float smokeMod(vec3 w) { if (uSmoke < 0.01) return 1.0; float n = smoothstep(0.22, 0.82, smokeAt(w)); return mix(1.0, 0.12 + 1.75 * n, uSmoke) * (1.0 + 0.6 * uPuff); }`;
+const smokeUniforms = () => ({ uTime: { value: 0 }, uSmoke: { value: 0 }, uDrift: { value: 1 }, uPuff: { value: 0 } });
 const BEAM_VS = DEPTH_GLSL + `
 attribute vec3 aDir; attribute vec3 aCol; attribute float aLen;
-uniform float uLen; varying vec2 vUv; varying vec3 vCol; varying float vFwd; varying float vK; varying float vTip;
+uniform float uLen; varying vec2 vUv; varying vec3 vCol; varying float vFwd; varying float vK; varying float vTip; varying vec3 vW;
 void main() {
   vec3 o = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
   vec3 d = normalize(mat3(modelMatrix) * aDir);
   float L = depthHit(o, d, aLen);                          // #413 a real hand / person in the way: the beam ends there
   float s = uv.y * L;                                      // metres from the aperture
-  vec3 p = o + d * s;
+  vec3 p = o + d * s; vW = p;                              // #414 smoke is looked up on the beam's centre line
   vec3 toC = cameraPosition - p; float dist = length(toC); vec3 v = toC / max(dist, 1e-4);
   vec3 side = cross(d, v); float sl = length(side); side = sl > 1e-4 ? side / sl : vec3(1.0, 0.0, 0.0);
   float wPhys = 0.003 + 0.0016 * s;                        // beam diameter: 3 mm at the head, slow divergence
@@ -65,14 +85,34 @@ void main() {
   vTip = L < aLen - 0.01 ? uv.y : 0.0;                     // stopped by something real: a hot spot where it hits
   gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
 }`;
-const BEAM_FS = `uniform float uHaze; uniform float uDecay; varying vec2 vUv; varying vec3 vCol; varying float vFwd; varying float vK; varying float vTip;
+const BEAM_FS = SMOKE_GLSL + `
+uniform float uHaze; uniform float uDecay; varying vec2 vUv; varying vec3 vCol; varying float vFwd; varying float vK; varying float vTip; varying vec3 vW;
 void main() {
   float x = vUv.x;
   float prof = exp(-2.0 * x * x) * 1.4 + exp(-x * x * 0.25) * (0.1 + 0.2 * uHaze);
   float along = exp(-vUv.y * uDecay) * smoothstep(1.0, 0.82, vUv.y) * smoothstep(0.0, 0.01, vUv.y);
   float fwd = 1.0 + 3.0 * pow(max(vFwd, 0.0), 14.0);       // haze scatters forward: a beam coming at you is brighter
   float tip = 1.0 + 2.5 * smoothstep(0.985, 1.0, vTip);    // #413 brighter where it lands on a hand
-  gl_FragColor = vec4(vCol * prof * along * fwd * vK * uHaze * tip, 0.0);
+  gl_FragColor = vec4(vCol * prof * along * fwd * vK * uHaze * tip * smokeMod(vW), 0.0);
+}`;
+// #414 light sheets: one triangle per neighbouring pair of beams (origin, end of beam a, end of beam b; TUNNEL wraps round),
+// the far ends cut where each beam is stopped, filled with the same smoke, fading out along the throw and toward the ends.
+const SHEET_VS = DEPTH_GLSL + `
+attribute vec3 aDirS; attribute vec3 aColS; attribute float aLenS; attribute float aEnd;
+uniform vec3 uOrigin; varying vec3 vW; varying vec3 vC; varying float vF;
+void main() {
+  vec3 d = normalize(mat3(modelMatrix) * aDirS);
+  float L = aEnd > 0.5 ? depthHit(uOrigin, d, aLenS) : 0.0;
+  vec3 p = uOrigin + d * L; vW = p; vC = aColS; vF = aEnd;
+  gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+}`;
+const SHEET_FS = SMOKE_GLSL + `
+uniform vec3 uOrigin; uniform float uLen; uniform float uDecay; uniform float uSheet; varying vec3 vW; varying vec3 vC; varying float vF;
+void main() {
+  float s = length(vW - uOrigin);
+  float fade = exp(-s / max(uLen, 0.1) * uDecay * 1.4) * smoothstep(0.0, 0.35, s) * (1.0 - smoothstep(0.75, 1.0, vF));
+  float n = smoothstep(0.3, 0.9, smokeAt(vW));
+  gl_FragColor = vec4(vC * uSheet * fade * (0.15 + 1.6 * n) * (1.0 + 0.8 * uPuff), 0.0);
 }`;
 const SPOT_VS = DEPTH_GLSL + `
 attribute vec3 aCol; uniform vec3 uOrigin; varying vec2 vUv; varying vec3 vCol;
@@ -125,8 +165,20 @@ export class Laser {
     this.aLen = new THREE.InstancedBufferAttribute(new Float32Array(MAX), 1);
     for (const a of [this.aDir, this.aCol, this.aLen]) a.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('aDir', this.aDir); geo.setAttribute('aCol', this.aCol); geo.setAttribute('aLen', this.aLen); geo.instanceCount = 0;
-    this.bMat = lightBlend(new THREE.ShaderMaterial({ uniforms: { uLen: { value: 10 }, uHaze: { value: 0.7 }, uDecay: { value: 0.5 }, ...depthUniforms() }, vertexShader: BEAM_VS, fragmentShader: BEAM_FS, side: THREE.DoubleSide }));
+    this.bMat = lightBlend(new THREE.ShaderMaterial({ uniforms: { uLen: { value: 10 }, uHaze: { value: 0.7 }, uDecay: { value: 0.5 }, ...depthUniforms(), ...smokeUniforms() }, vertexShader: BEAM_VS, fragmentShader: BEAM_FS, side: THREE.DoubleSide }));
     this.beams = new THREE.Mesh(geo, this.bMat); this.beams.frustumCulled = false; this.beams.renderOrder = 5; this.beams.raycast = () => {}; ap.add(this.beams);
+    // #414 light sheets between neighbouring beams (3 vertices per pair, rebuilt per frame from the beam arrays)
+    const shg = new THREE.BufferGeometry();
+    this.sDir = new THREE.BufferAttribute(new Float32Array(MAX * 9), 3); this.sCol2 = new THREE.BufferAttribute(new Float32Array(MAX * 9), 3);
+    this.sLen = new THREE.BufferAttribute(new Float32Array(MAX * 3), 1); const sEnd = new Float32Array(MAX * 3);
+    for (let k = 0; k < MAX; k++) { sEnd[k * 3] = 0; sEnd[k * 3 + 1] = 1; sEnd[k * 3 + 2] = 1; }
+    for (const a of [this.sDir, this.sCol2, this.sLen]) a.setUsage(THREE.DynamicDrawUsage);
+    shg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX * 9), 3)); shg.setAttribute('aDirS', this.sDir); shg.setAttribute('aColS', this.sCol2);
+    shg.setAttribute('aLenS', this.sLen); shg.setAttribute('aEnd', new THREE.BufferAttribute(sEnd, 1)); shg.setDrawRange(0, 0);
+    this.shMat = lightBlend(new THREE.ShaderMaterial({ uniforms: { uOrigin: { value: new THREE.Vector3() }, uLen: { value: 10 }, uDecay: { value: 0.5 }, uSheet: { value: 0.1 }, ...depthUniforms(), ...smokeUniforms() },
+      vertexShader: SHEET_VS, fragmentShader: SHEET_FS, side: THREE.DoubleSide }));
+    this.sheets = new THREE.Mesh(shg, this.shMat); this.sheets.frustumCulled = false; this.sheets.renderOrder = 4; this.sheets.raycast = () => {}; ap.add(this.sheets);
+    this.t = 0; this.puff = 0;
     // glow at the exit window (where every beam starts; brightest when one points at you)
     const gc = document.createElement('canvas'); gc.width = gc.height = 64; const gx = gc.getContext('2d');
     const gr = gx.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.15, 'rgba(255,255,255,0.5)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
@@ -146,7 +198,7 @@ export class Laser {
     let s = null; try { s = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch {}
     if (s && s.p && s.q) { this.obj.position.fromArray(s.p); this.obj.quaternion.fromArray(s.q); } else this.reset(false);
     if (s) for (const k of Object.keys(DEF)) if (s[k] !== undefined) this[k] = s[k];
-    if (!PATTERNS.includes(this.pat)) this.pat = DEF.pat; if (!(this.col in COLOURS)) this.col = DEF.col;
+    if (!PATTERNS.includes(this.pat)) this.pat = DEF.pat; if (!SMOKES.includes(this.smoke)) this.smoke = DEF.smoke; if (!(this.col in COLOURS)) this.col = DEF.col;
     for (const k of Object.keys(LIMITS)) this[k] = this._clamp(k, +this[k] || DEF[k]);
     this.setOn(!!(s && s.on), false);
   }
@@ -159,11 +211,13 @@ export class Laser {
   // the tablet picks a pattern / colour: AUTO keeps running from there (it changes them on the beat)
   setPat(p) { if (PATTERNS.includes(p)) { this.pat = p; this.save(); } }
   setCol(c) { if (c in COLOURS) { this.col = c; this.save(); } }
+  setSmoke(m) { if (SMOKES.includes(m)) { this.smoke = m; this.save(); } }   // #414
+  nextSmoke() { this.setSmoke(SMOKES[(SMOKES.indexOf(this.smoke) + 1) % SMOKES.length]); }
   // #411 planes: [{ inv: Matrix4 rig -> plane, q: Quaternion plane -> rig, poly: Float32Array x,z pairs in plane space }] or null
   setRoom(list) { this.room = list && list.length ? list : null; }
   // #413 D = RealDepth.laserData() (depth view: tex, layer, view = world -> depth camera, proj, invProj, norm) or null
   setDepth(D) {
-    for (const u of [this.bMat.uniforms, this.sMat.uniforms]) {
+    for (const u of [this.bMat.uniforms, this.sMat.uniforms, this.shMat.uniforms]) {
       u.uDOn.value = D ? 1 : 0; if (!D) continue;
       u.uDepth.value = D.tex; u.uDLayer.value = D.layer; u.uDView.value.copy(D.view); u.uDProj.value.copy(D.proj); u.uDInvProj.value.copy(D.invProj); u.uDNorm.value.copy(D.norm);
     }
@@ -184,7 +238,7 @@ export class Laser {
     if (this.auto && beat) {
       if (this._bc < 0) this._bc = beat.count;
       if (beat.count !== this._bc) {   // a bass beat
-        this._bc = beat.count; this.beats++; this.kick = 1;
+        this._bc = beat.count; this.beats++; this.kick = 1; this.puff = 1;   // #414 a little haze burst on the beat
         const iv = now - this.lastBeat; if (iv > 260 && iv < 1500) this.iv += (iv - this.iv) * 0.25; this.lastBeat = now;
         if (this.beats % 16 === 0) { const o = PATTERNS.filter(p => p !== this.pat && p !== 'beam'); this.pat = o[Math.floor(Math.random() * o.length)]; }
         else if (this.beats % 8 === 0) { const o = Object.keys(COLOURS).filter(c => c !== this.col); this.col = o[Math.floor(Math.random() * o.length)]; }
@@ -239,6 +293,27 @@ export class Laser {
       if (camPos) toward = Math.max(toward, _d.dot(_c));
     }
     this.beams.geometry.instanceCount = n;
+    // #414 smoke + sheets
+    this.t += dt; this.puff *= Math.exp(-dt / 0.35);
+    const smk = this.smoke === 'off' ? 0 : 0.55 + 0.4 * this.haze, puff = this.auto ? this.puff * 0.5 : 0;
+    for (const u of [this.bMat.uniforms, this.shMat.uniforms]) { u.uTime.value = this.t; u.uSmoke.value = smk; u.uDrift.value = this.drift; u.uPuff.value = puff; }
+    const sheetsOn = this.smoke === 'sheets' && n > 1 && pat !== 'scan' && pat !== 'beam';
+    let pairs = 0;
+    if (sheetsOn) {
+      const SD = this.sDir.array, SC = this.sCol2.array, SL = this.sLen.array, wrap = pat === 'cone';
+      for (let k = 0; k < (wrap ? n : n - 1); k++) {
+        const a = k, b = (k + 1) % n, base = pairs * 3;
+        for (const [v, i] of [[0, a], [1, a], [2, b]]) {
+          const o3 = (base + v) * 3;
+          SD[o3] = dirs[i * 3]; SD[o3 + 1] = dirs[i * 3 + 1]; SD[o3 + 2] = dirs[i * 3 + 2];
+          SC[o3] = cols[i * 3]; SC[o3 + 1] = cols[i * 3 + 1]; SC[o3 + 2] = cols[i * 3 + 2]; SL[base + v] = lens[i];
+        }
+        pairs++;
+      }
+      this.sDir.needsUpdate = this.sCol2.needsUpdate = this.sLen.needsUpdate = true;
+    }
+    this.sheets.geometry.setDrawRange(0, pairs * 3); this.sheets.visible = pairs > 0;
+    { const su = this.shMat.uniforms; this.ap.getWorldPosition(su.uOrigin.value); su.uLen.value = this.len; su.uDecay.value = 0.15 + 0.6 * this.haze; su.uSheet.value = 0.1 + 0.3 * this.haze; }   // sheet strength tuned on the PC: 0.31 at the default haze
     this.aDir.needsUpdate = this.aCol.needsUpdate = this.aLen.needsUpdate = true;
     this.spots.count = spots; if (spots) { this.spots.instanceMatrix.needsUpdate = true; this.sCol.needsUpdate = true; }
     this.ap.getWorldPosition(this.sMat.uniforms.uOrigin.value);   // #413 where the beams start, for the spots' depth test

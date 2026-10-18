@@ -5841,18 +5841,19 @@ function drawToolsPage() {
     // the gadgets
     const lsrBtn = (x, y, w, h) => gad(x, y, w, h, LZ.on ? 'LASER ON' : 'LASER OFF', LZ.on, laserTap);
     const autoBtn = (x, y, w, h) => gad(x, y, w, h, LZ.auto ? 'AUTO ON' : 'AUTO OFF', LZ.auto, () => { LZ.set('auto', !LZ.auto); drawMixScreen(); });
+    const smokeBtn = (x, y, w, h) => gad(x, y, w, h, ({ off: 'NO SMOKE', beams: 'SMOKE', sheets: 'SMOKE+' }[LZ.smoke] || 'NO SMOKE'), LZ.smoke !== 'off', () => { LZ.nextSmoke(); drawMixScreen(); });   // #414 swirly haze
     const roomBtn = (x, y, w, h) => gad(x, y, w, h, settings.roomHits !== false ? 'ROOM ON' : 'ROOM OFF', settings.roomHits !== false, () => { settings.roomHits = settings.roomHits === false; saveSettings(); const c = document.getElementById('cRoomHits'); if (c) c.checked = settings.roomHits; drawMixScreen(); });   // #411 beams stop at walls / ceiling
     const beatLed = (x, y) => { const lit = LZ.on && LZ.auto && performance.now() - LZ.lastBeat < 140; g.fillStyle = WB.grey; g.fillRect(x, y, 20, 14); bevel(x, y, 20, 14, false); g.fillStyle = lit ? '#30ff40' : '#1d4a22'; g.fillRect(x + 3, y + 3, 14, 8); };
-    const status = () => !LZ.auto ? 'MANUAL' : performance.now() - LZ.lastBeat > 4000 ? 'WAITING FOR BEAT' : `BEAT ${LZ.beats}`;
+    const status = () => !LZ.auto ? 'MANUAL' : performance.now() - LZ.lastBeat > 4000 ? 'NO BEAT' : `BEAT ${LZ.beats}`;
     const pats = LASER_PATS.map(p => [LASER_PL[p], LZ.pat === p, () => { LZ.setPat(p); if (!LZ.on) LZ.setOn(true); drawMixScreen(); }]);
     const colPick = c => () => { LZ.setCol(c); if (!LZ.on) LZ.setOn(true); drawMixScreen(); };
-    const cells = [['BEAMS', `${LZ.n}`, 'n'], ['SPREAD', `${LZ.spread}`, 'spread'], ['SPEED', `${LZ.speed}X`, 'speed'], ['HAZE', `${Math.round(LZ.haze * 100)}%`, 'haze'], ['LENGTH', `${LZ.len} M`, 'len']];
+    const cells = [['BEAMS', `${LZ.n}`, 'n'], ['SPREAD', `${LZ.spread}`, 'spread'], ['SPEED', `${LZ.speed}X`, 'speed'], ['HAZE', `${Math.round(LZ.haze * 100)}%`, 'haze'], ['LENGTH', `${LZ.len} M`, 'len'], ['DRIFT', `${LZ.drift}X`, 'drift']];   // #414 DRIFT = how fast the smoke swirls
     const help = 'Grip the head to move it. Double-tap LASER = home. AUTO follows the beat.';
     if (P) {
       const x0 = wx + 10, x1 = wx + ww - 10, cw = x1 - x0; let y = wy + 30;
       preview(x0 + 3, y + 3, cw - 6, 120); y += 132;
       const hw = (cw - 8) / 2, tw3 = (cw - 12) / 3; lsrBtn(x0, y, tw3, 40); autoBtn(x0 + tw3 + 6, y, tw3, 40); roomBtn(x0 + 2 * (tw3 + 6), y, tw3, 40); y += 48;
-      beatLed(x0, y); txt(status(), x0 + 26, y + 3, 1.25, WB.blk); y += 26;
+      beatLed(x0, y + 9); txt(status(), x0 + 26, y + 12, 1.25, WB.blk); smokeBtn(x0 + cw - 130, y, 130, 32); y += 40;
       groupBox(x0, y, cw, 98, 'PATTERN'); const w3 = (cw - 24) / 3;
       pats.forEach(([lb, on, act], i) => gad(x0 + 6 + (i % 3) * (w3 + 6), y + 10 + Math.floor(i / 3) * 42, w3, 38, lb, on, act)); y += 108;
       groupBox(x0, y, cw, 90, 'COLOUR'); const w4 = (cw - 30) / 4;
@@ -5862,13 +5863,13 @@ function drawToolsPage() {
     } else {
       const x0 = wx + 10, pw = 214, px0 = wx + ww - 10 - pw, lw = px0 - 10 - x0; let y = wy + 30;
       preview(px0 + 3, y + 3, pw - 6, 112);
-      lsrBtn(x0, y, 112, 32); autoBtn(x0 + 118, y, 104, 32); roomBtn(x0 + 228, y, 104, 32); beatLed(x0 + 340, y + 9); txt(status(), x0 + 366, y + 12, 1.25, WB.blk); y += 46;
+      lsrBtn(x0, y, 96, 32); autoBtn(x0 + 102, y, 88, 32); roomBtn(x0 + 196, y, 88, 32); smokeBtn(x0 + 290, y, 112, 32); beatLed(x0 + 408, y + 9); txt(status(), x0 + 434, y + 12, 1.25, WB.blk); y += 46;
       groupBox(x0, y, lw, 46, 'PATTERN'); const w6 = (lw - 42) / 6;
       pats.forEach(([lb, on, act], i) => gad(x0 + 6 + i * (w6 + 6), y + 9, w6, 32, lb, on, act)); y += 56;
       groupBox(x0, y, lw, 46, 'COLOUR'); const w8 = (lw - 54) / 8;
       Object.keys(LASER_COLS).forEach((c, i) => swatch(c, x0 + 6 + i * (w8 + 6), y + 9, w8, 32, LZ.col === c, colPick(c)));
       y = wy + 30 + 122;
-      const sw5 = (ww - 20 - 32) / 5; cells.forEach((c, i) => stepper(c, x0 + i * (sw5 + 8), Math.max(y, wy + 30 + 46 + 56 + 54), sw5, 42));
+      const sw5 = (ww - 20 - 40) / 6; cells.forEach((c, i) => stepper(c, x0 + i * (sw5 + 8), Math.max(y, wy + 30 + 46 + 56 + 54), sw5, 42));
       wrapBit(help, x0, wy + wh - 16, ww - 20, 1.25, 12, 1);
     }
     return;
