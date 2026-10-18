@@ -23,7 +23,7 @@ const TVK = 'vire.tv';
 // Modes: 'show' (the SHOWTIME! camera pick: GOPRO / FRONT / FADERS; HEADSET CAM goes as it is, opaque), 'dj' (LIVE DJ!) and 'key' (LIVE KEY!):
 // both drawn from the S8's calibrated pose. Studio ON closes the Fire Stick screen (#376) and GO LIVE goes through the S8; OFF = everything as before.
 const STUK = 'vire.studio';
-export const STUDIO_DEF = { on: false, mode: 'show', snd: true, trim: 0 };
+export const STUDIO_DEF = { on: false, mode: 'show', snd: true, trim: 0, fps25: true, ev: 1, gain: 1.2 };   // #382 LOW LIGHT: the S8 camera held at 25 fps, exposure compensation (EV), the studio's GAIN
 export const STUDIO_MODES = { show: 'SHOW', dj: 'LIVE DJ!', key: 'LIVE KEY!' };
 export const STU = { PW: 1920, CW: 1280, SX: 1284, SW: 8, MX: 1296, MW: 624, BITS: 28 };   // packed frame layout (studio.js reads the same)
 // timestamp strip: 28 blocks down x 1284..1292: 1, 0 (sync), 24 bits of the Quest's clock in ms (low bit first), 2 bits of the bit count (a check)
@@ -187,6 +187,8 @@ export class Streamer {
     if (!(k in STUDIO_DEF)) return;
     if (k === 'mode' && !STUDIO_MODES[v]) return;
     if (k === 'trim') v = Math.max(-300, Math.min(300, Math.round(v)));
+    if (k === 'ev') v = Math.max(-2, Math.min(3, Math.round(v * 2) / 2));
+    if (k === 'gain') v = Math.max(1, Math.min(2.5, Math.round(v * 10) / 10));
     const was = this.stu.on; this.stu[k] = v; ls.set(STUK, JSON.stringify(this.stu));
     if (k === 'on') {
       if (v && !was) { if (this.source === 'pcam' || this.source === 'phone') this.setSource('show'); this._tvClose(); this.tvMsg = 'S8 STUDIO is on: the S8 is the screen now.'; }
@@ -240,7 +242,7 @@ export class Streamer {
     if (!L.ok) { this.stuMsg = 'The S8 page is too old for the studio: reload it on the S8.'; return; }
     if (!this.stuAtt) this._stuAttach();
     const O = this.showOpt;
-    L.ctl({ k: 'stu', on: true, mode: this.stu.mode, bd: O.backdrop, snd: !!this.stu.snd, trim: this.stu.trim, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
+    L.ctl({ k: 'stu', on: true, mode: this.stu.mode, bd: O.backdrop, snd: !!this.stu.snd, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
   }
   _ledClip() { const c = this.env.ledClip && this.env.ledClip(); return c || ''; }
   get s8HasClip() { const c = this._ledClip(); return !!c && !!this.s8 && this.s8.clip === c; }

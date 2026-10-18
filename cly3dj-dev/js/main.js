@@ -4866,7 +4866,7 @@ function drawToolsPage() {
   if (page === 'studio') {   // #380 S8 STUDIO: the S8 makes the TV picture and the Twitch stream; the Quest sends the scene with its matte and the sound
     const y0 = head('S8 STUDIO', 'stream', streamer ? { label: P ? 'TV ▸' : 'FIRE STICK ▸', on: false, act: () => setTools('tv') } : null), S = streamer;
     if (!S) { note('The studio is run from the headset (not on the phone).', y0 + 20); return; }
-    const U = S.stu, s8 = S.s8 && performance.now() - S.s8.at < 3500 ? S.s8 : null, gap = P ? 8 : 6, bh = P ? 54 : 36;
+    const U = S.stu, s8 = S.s8 && performance.now() - S.s8.at < 3500 ? S.s8 : null, gap = P ? 8 : 6, bh = P ? 54 : 30;
     const title = !U.on ? 'Studio off: Twitch and the Fire Stick TV go from the Quest' : !S.stuLink ? 'S8 not linked' : !S.stuRun ? 'The S8 page is too old: reload it' : s8 && s8.run ? 'S8 studio running' : 'Waiting for the S8…';
     g.textAlign = 'left'; g.font = `700 ${P ? 21 : 18}px system-ui`; g.fillStyle = s8 && s8.run ? '#7dff9a' : '#dfe6f2';
     fitText2(g, title, L + 2, y0 + 20, R - L - 4);
@@ -4885,8 +4885,17 @@ function drawToolsPage() {
     btn(L + w4 + gap, y3, w4, bh, `TRIM ${U.trim > 0 ? '+' : ''}${U.trim} ms`, false, U.trim ? () => S.setStudio('trim', 0) : null, false, fs);
     btn(L + 2 * (w4 + gap), y3, w4, bh, 'DELAY +10', false, () => S.setStudio('trim', U.trim + 10), false, fs);
     btn(L + 3 * (w4 + gap), y3, w4, bh, P ? 'CAMERA ▸' : 'SHOW CAMERA ▸', false, () => setTools('showobj'), false, fs);
-    note(P ? 'SHOW: Quest camera (SHOWTIME! pick), S8 backdrop. LIVE DJ!: the S8 films you in your room. LIVE KEY!: the S8 keys you over the backdrop. The S8 syncs its camera itself; TRIM + holds it back more. GO LIVE (STREAM page) goes out from the S8.'
-      : 'SHOW: Quest camera, S8 backdrop. LIVE DJ!: S8 camera, your room. LIVE KEY!: S8 camera keyed over the backdrop. The S8 syncs its camera itself (TRIM: + holds it back more). GO LIVE goes out from the S8.', y3 + bh + (P ? 26 : 20));
+    { // #382 LOW LIGHT (dark clubs): hold the S8 camera at 25 fps, raise its exposure (EV, the camera's own gain) and the studio's GAIN
+      const yL = y3 + bh + gap, ci = s8 && s8.cam, fsL = P ? 16 : 14;
+      const ev = (U.ev > 0 ? '+' : '') + U.ev.toFixed(1);
+      const items = [[U.fps25 ? '25 FPS: ON' : '25 FPS: OFF', U.fps25, () => S.setStudio('fps25', !U.fps25)], ['EV −', false, () => S.setStudio('ev', U.ev - 0.5)], [`EV ${ev}`, false, () => S.setStudio('ev', 0)], ['EV +', false, () => S.setStudio('ev', U.ev + 0.5)],
+        ['GAIN −', false, () => S.setStudio('gain', U.gain - 0.1)], [`GAIN ×${U.gain.toFixed(1)}`, false, () => S.setStudio('gain', 1)], ['GAIN +', false, () => S.setStudio('gain', U.gain + 0.1)]];
+      if (P) { items.slice(0, 4).forEach(([l, on, a], i) => btn(L + i * (w4 + gap), yL, w4, bh, l, on, a, false, fsL)); items.slice(4).forEach(([l, on, a], i) => btn(L + i * (w3 + gap), yL + bh + gap, w3, bh, l, on, a, false, fsL)); }
+      else { const w7 = (R - L - 6 * gap) / 7; items.forEach(([l, on, a], i) => btn(L + i * (w7 + gap), yL, w7, bh, l, on, a, false, fsL)); }
+      const camLine = ci ? `S8 camera: ${ci.rate || ci.fps || '?'} fps${ci.ev != null ? ', EV ' + ci.ev + (ci.evMax != null ? ' (max ' + ci.evMax + ')' : '') : ', no EV control in Chrome'}${ci.rate && ci.rate < 22 ? ' · too dark for 25: more light, or EV / GAIN up' : ''}` : '';
+      if (P) { note((camLine ? camLine + '. ' : '') + 'SHOW: Quest camera (SHOWTIME! pick), S8 backdrop. LIVE DJ!: S8 films you in your room. LIVE KEY!: keyed over the backdrop. TRIM + holds the camera back more. GO LIVE goes out from the S8.', yL + 2 * (bh + gap) + 20); }
+      else if (camLine) { g.fillStyle = ci.rate && ci.rate < 22 ? '#f1b650' : '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, camLine, L + 4, yL + bh + 18, R - L - 8); }
+    }
     return;
   }
   if (page === 'tv') {   // #376 CLY3DTV: the venue screen (venue.html). The TV shows a 6-digit code, it is typed here; then switches, sound, status

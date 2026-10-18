@@ -20,7 +20,7 @@ const STRIP_FS = `uniform sampler2D q; uniform float H, bh; varying vec2 vUv;
 void main() { float i = floor(gl_FragCoord.x); float y = 12.0 + i * bh + bh * 0.5;
   float v = texture2D(q, vec2(${((STU.SX + STU.SW / 2) / STU.PW).toFixed(6)}, 1.0 - y / H)).r; gl_FragColor = vec4(v, v, v, 1.0); }`;
 const COMP_FS = `uniform sampler2D q, cam, bgT; uniform float qMode, camMode, bgMode, t; uniform vec4 bgUv, qFit; uniform vec4 crop;
-uniform float thr, soft, spill, cmatch; uniform vec3 tint; varying vec2 vUv;
+uniform float thr, soft, spill, cmatch, camGain; uniform vec3 tint; varying vec2 vUv;
 uniform float keyCol;
 float keyOf(vec3 c) {
   if (keyCol < 0.5) return (c.g - max(c.r, c.b)) / max(c.g, 0.15);
@@ -43,6 +43,7 @@ void main() {
   // 2. camera
   if (camMode > 0.5) {
     vec3 k = texture2D(cam, uv).rgb;
+    k = 1.0 - pow(1.0 - k, vec3(camGain));                                        // #382 GAIN: lifts the dark and the mids, the highlights stay (1 = as filmed)
     if (camMode < 1.5) c = k;                                                     // LIVE DJ!: the real room
     else {
       float a = 1.0 - smoothstep(thr, thr + soft, keyOf(k));
@@ -84,7 +85,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   const qTex = new THREE.VideoTexture(qv); qTex.colorSpace = THREE.NoColorSpace; qTex.generateMipmaps = false; qTex.minFilter = qTex.magFilter = THREE.LinearFilter;
   // ---- camera ring (the S8's own camera, kept ~400 ms so it can wait for the Quest's picture)
   const cTex = new THREE.VideoTexture(fixed.video); cTex.colorSpace = THREE.NoColorSpace; cTex.generateMipmaps = false;
-  const ring = [], ringT = new Float64Array(RING).fill(-1e9); let ringI = 0, camNew = false, camQt = 0, camWatch = null;
+  const ring = [], ringT = new Float64Array(RING).fill(-1e9); let ringI = 0, camNew = false, camQt = 0, camWatch = null, camN = 0, camRate = 0;
   function ringRT(i) {
     if (!ring[i] || ring[i].width !== S.W || ring[i].height !== S.H) { if (ring[i]) ring[i].dispose(); ring[i] = new THREE.WebGLRenderTarget(S.W, S.H, { depthBuffer: false }); ring[i].texture.colorSpace = THREE.NoColorSpace; ringT[i] = -1e9; }
     return ring[i];
@@ -94,7 +95,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     const cb = (now, md) => {
       if (camWatch !== v.srcObject) return;
       const t = md && md.captureTime ? md.captureTime : (md && md.presentationTime ? md.presentationTime - 15 : now - 15);   // camera frames carry captureTime; others: when the page got it
-      camQt = t + (questNow() - performance.now()); camNew = true; v.requestVideoFrameCallback(cb);
+      camQt = t + (questNow() - performance.now()); camNew = true; camN++; v.requestVideoFrameCallback(cb);
     };
     v.requestVideoFrameCallback(cb);
   }
@@ -109,7 +110,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   const clipTex = led.video ? new THREE.VideoTexture(led.video) : null; if (clipTex) { clipTex.colorSpace = THREE.NoColorSpace; clipTex.generateMipmaps = false; }
   const U = { q: { value: qTex }, cam: { value: null }, bgT: { value: null }, qMode: { value: 0 }, camMode: { value: 0 }, bgMode: { value: 0 }, t: { value: 0 },
     bgUv: { value: new THREE.Vector4(0, 0, 1, 1) }, qFit: { value: new THREE.Vector4(0, 0, 1, 1) }, crop: { value: new THREE.Vector4() },
-    thr: { value: 0.1 }, soft: { value: 0.1 }, spill: { value: 0.7 }, cmatch: { value: 0.4 }, tint: { value: new THREE.Vector3(1, 1, 1) }, keyCol: { value: 0 } };
+    thr: { value: 0.1 }, soft: { value: 0.1 }, spill: { value: 0.7 }, cmatch: { value: 0.4 }, tint: { value: new THREE.Vector3(1, 1, 1) }, keyCol: { value: 0 }, camGain: { value: 1 } };
   const compMat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: COMP_FS, depthTest: false, depthWrite: false }), compSc = quad(compMat);
   // ---- the screen: 1280 x 720 drawing buffer, shown full screen with bars (the HDMI picture), the page's own UI hidden
   document.head.insertAdjacentHTML('beforeend', `<style>
@@ -171,6 +172,10 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       if (S.on && !was) { S.paused = false; if (S.bd === 'dome') vs.ensure().catch(() => {}); }
       if (!S.on && was) { twStop('studio off'); }
       if (S.on && S.bd === 'dome') { vs.ensure().catch(() => {}); vs.playPano && vs.playPano(true); }
+      if (m.cam) {   // #382 LOW LIGHT from the tablet: 25 fps hold, exposure compensation (the camera's own gain), the studio's GAIN
+        U.camGain.value = Math.max(1, Math.min(3, +m.cam.gain || 1));
+        const L = fixed.lowLight; if (L && fixed.setLowLight && (!!m.cam.fps25 !== L.fps25 || +m.cam.ev !== L.ev)) fixed.setLowLight({ fps25: !!m.cam.fps25, ev: +m.cam.ev });
+      }
       apply();
     } else if (m.k === 'stuLive') {
       if (m.on) { if (m.key) { try { localStorage.setItem(KEYK, m.key); } catch {} } twStart(); } else twStop('');
@@ -262,7 +267,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       renderer.setRenderTarget(null); renderer.render(compSc, oc); outN++;
     } finally { renderer.setRenderTarget(prevRT); renderer.xr.enabled = prevXR; renderer.autoClear = ac; }
     if (twTrack && twTrack.requestFrame) twTrack.requestFrame();
-    if (now - fpsT > 1000) { S.fps = outN; S.qfps = qN; outN = qN = 0; fpsT = now; status(now, haveQ, needNote(haveQ, packed)); }
+    if (now - fpsT > 1000) { S.fps = outN; S.qfps = qN; camRate = camN; outN = qN = camN = 0; fpsT = now; status(now, haveQ, needNote(haveQ, packed)); }
     return true;
   }
   function needNote(haveQ, packed) {
@@ -278,9 +283,9 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     S.note = note;
     const L = getLink();
     if (L && L.isOpen) L.send('ctl', { k: 'sst', run: !!(S.on && !S.paused && haveQ), fps: S.fps, qfps: S.qfps, hold: S.hold, d: S.D != null ? Math.round(S.D) : null, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps, note,
-      clip: led.on && led.video && !led.video.paused ? led.name : '' });
+      clip: led.on && led.video && !led.video.paused ? led.name : '', cam: fixed.on && fixed.camInfo ? { ...fixed.camInfo(), rate: camRate } : null });
     stEl.textContent = `S8 STUDIO  ${({ show: 'SHOW', dj: 'LIVE DJ!', key: 'LIVE KEY!' })[S.mode]}  ·  backdrop ${S.bd.toUpperCase()}  ·  out ${S.fps} fps  ·  Quest ${S.qfps} fps\n` +
-      `Quest frames ${S.D != null ? Math.round(S.D) + ' ms' : '-'} late  ·  camera held ${S.hold != null ? S.hold + ' ms' : '-'}  ·  trim ${S.trim} ms  ·  sound ${aTrack && S.snd ? 'on' : 'off'}\n` +
+      `camera ${camRate} fps  ·  Quest frames ${S.D != null ? Math.round(S.D) + ' ms' : '-'} late  ·  camera held ${S.hold != null ? S.hold + ' ms' : '-'}  ·  trim ${S.trim} ms  ·  sound ${aTrack && S.snd ? 'on' : 'off'}\n` +
       `Twitch: ${S.tw}${S.twMsg ? ' (' + S.twMsg + ')' : ''}${S.tw === 'live' ? '  ' + (S.kbps / 1000).toFixed(1) + ' Mb/s' : ''}${note ? '\n' + note : ''}`;
     if (S.linkLost && S.tw !== 'off' && now - S.linkLost > 60000) twStop('the Quest link was gone for a minute');
     onState && onState(S);
