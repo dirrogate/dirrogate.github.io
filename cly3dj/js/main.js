@@ -104,7 +104,7 @@ const KEY_POS = key.position.clone();
 // catches the gear's shadows on the panorama's floor (the studio floor is hidden then).
 const skybox = new Skybox(renderer); rig.add(skybox.group); skybox.group.position.x = 0.05; skybox.group.position.z = 0.62;
 // #346 DOME (PORTALS SETUP): the same grounded sky, shown even in passthrough and with any light setting, sized 3-20 m
-const dome = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.dome') || 'null'); } catch {} return { on: !!(s && s.on), r: Math.min(20, Math.max(3, (s && s.r) || 10)), turn: Math.min(359, Math.max(0, (s && s.turn) || 0)) }; })();   // #389 turn: the dome's own angle
+const dome = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.dome') || 'null'); } catch {} return { on: !!(s && s.on), r: Math.min(20, Math.max(3, (s && s.r) || 10)), turn: Math.min(359, Math.max(0, (s && s.turn) || 0)), ev: Math.min(1, Math.max(-3, +(s && s.ev) || 0)) }; })();   // #404 ev: DOME EXPOSURE   // #389 turn: the dome's own angle
 const skyShadow = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.ShadowMaterial({ opacity: 0.4 }));
 skyShadow.rotation.x = -Math.PI / 2; skyShadow.position.y = 0.001; skyShadow.receiveShadow = true; skyShadow.visible = false; skyShadow.raycast = () => {};
 rig.add(skyShadow);
@@ -660,15 +660,29 @@ let goproTapT = 0, goproTapWas = false, goproTapId = '';
 // tap = GOPRO angle on / back to FRONT; double-tap (within 0.35 s) on either button = the GoPro back to its start spot, on.
 function goproTap(id = 'gopro') {   // #389 for GOPRO and GOPRO2: tap = on / back to FRONT, double-tap = back to its start spot, on
   const gp = id === 'gopro2' ? gopro2 : gopro; if (!gp) return; const now = performance.now();
-  if (now - goproTapT < 350 && goproTapId === id) { goproTapT = 0; gp.reset(); setDjPreset(id); toast((id === 'gopro2' ? 'GOPRO2' : 'GOPRO') + ' back at its start', 1500); return; }
+  if (now - goproTapT < 700 && goproTapId === id) { goproTapT = 0; gp.reset(); setDjPreset(id); toast((id === 'gopro2' ? 'GOPRO2' : 'GOPRO') + ' back at its start', 1500); return; }
   goproTapT = now; goproTapId = id; goproTapWas = gp.on;
   if (!gp.on && streamer && (streamer.source === 'headset' || streamer.source === 'pcam')) streamer.setSource('show');   // #402 the GoPro becomes the camera from any page
   setDjPreset(gp.on ? 'front' : id);
 }
 function goproPick(id) {   // #389 the SHOWTIME! camera row: select it; double-tap = back to its start spot
   const gp = id === 'gopro2' ? gopro2 : gopro; if (!gp) return; const now = performance.now();
-  if (now - goproTapT < 350 && goproTapId === id && djSet.preset === id) { goproTapT = 0; gp.reset(); setDjPreset(id); toast((id === 'gopro2' ? 'GOPRO2' : 'GOPRO') + ' back at its start', 1500); return; }
+  if (now - goproTapT < 700 && goproTapId === id && djSet.preset === id) { goproTapT = 0; gp.reset(); setDjPreset(id); toast((id === 'gopro2' ? 'GOPRO2' : 'GOPRO') + ' back at its start', 1500); return; }
   goproTapT = now; goproTapId = id; setDjPreset(id);
+}
+function goproReset(id) {   // #404 long press on a GOPRO button: back to its start spot, and it is the camera
+  const gp = id === 'gopro2' ? gopro2 : gopro; if (!gp) return;
+  if (streamer && (streamer.source === 'headset' || streamer.source === 'pcam')) streamer.setSource('show');
+  gp.reset(); setDjPreset(id); toast((id === 'gopro2' ? 'GOPRO2' : 'GOPRO') + ' back at its start', 1500); drawMixScreen();
+}
+// #404 (owner: GOPRO2 hangs too high to reach) the A button on the right controller brings the GoPro that is the camera to
+// that hand: 15 cm in front of the controller, looking where it points. Grip it from there to place it.
+function gpSummon(st) {
+  const gp = gpActive(); if (!gp || !st || !st.grip) return false;
+  st.grip.updateMatrixWorld(); const q = st.grip.getWorldQuaternion(new THREE.Quaternion()), p = st.grip.getWorldPosition(new THREE.Vector3());
+  p.addScaledVector(new THREE.Vector3(0, 0, -1).applyQuaternion(q), 0.15); p.y += 0.02;
+  gp.grab(); gp.hold(new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1))); gp.release();
+  toast((gp === gopro2 ? 'GOPRO2' : 'GOPRO') + ' in your hand: grip it to place it', 1800); return true;
 }
 function goproAngleTap() {   // the AVACAM tab's GOPRO angle button: select it; double-tap = back to the start
   if (!gopro) return setDjPreset('gopro'); const now = performance.now();
@@ -755,6 +769,8 @@ async function setDome(on) {   // the sky picked on VISUALS (PANO > SKY) as a do
   applySky(); drawMixScreen();
 }
 function setDomeTurn(a) { dome.turn = clamp(Math.round(a), 0, 359); saveDome(); applySkyTurn(); drawMixScreen(); }   // #389 PORTALS SETUP > DOME TURN
+function setDomeEv(ev) { dome.ev = Math.min(1, Math.max(-3, Math.round(ev * 4) / 4)); saveDome(); skybox.setExposure(dome.ev); drawMixScreen(); }   // #404
+skybox.setExposure(dome.ev);
 function setDomeSize(r) { dome.r = Math.min(20, Math.max(3, Math.round(r))); saveDome(); applySky(); }
 function portalDefaults() {   // two taps: wall shape, fractal speed / colour cycle and dome size back to their defaults
   if (performance.now() - portalDefArm < 3000) {
@@ -4711,6 +4727,7 @@ function readout(d, st) {
 let screenHold = null, holdSeq = 0, vpDel = null;
 function mixScreenRelease() { screenHold = null; }
 function mixScreenLong(px, py) {
+  if (toolsPage) { const b = VP_HIT.find(h => h.long && px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h); if (b) b.long(); return; }   // #404 tablet buttons with a long press (the GOPRO buttons: reset)
   if (!videoPage || !media.FOLDERS.includes(vpFolder)) return;
   const b = VP_HIT.find(h => h.item && px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h);
   if (!b) return;
@@ -5157,8 +5174,8 @@ function drawToolsPage() {
     };
     const gpZoom = () => { const gp = gpActive(); if (gp) { gp.nextZoom(); drawMixScreen(); } };
     const gpBtns = (x, y, w1, w2, w3, h) => {   // #389 GOPRO, GOPRO2 and the zoom of whichever is out
-      btn(x, y, w1, h, gopro && gopro.on ? 'GOPRO: ON' : 'GOPRO', !!(gopro && gopro.on), () => goproTap('gopro'), !gopro, P ? 17 : 17);
-      btn(x + w1 + 8, y, w2, h, gopro2 && gopro2.on ? 'GOPRO2: ON' : 'GOPRO2', !!(gopro2 && gopro2.on), () => goproTap('gopro2'), !gopro2, P ? 17 : 17);
+      btn(x, y, w1, h, gopro && gopro.on ? 'GOPRO: ON' : 'GOPRO', !!(gopro && gopro.on), () => goproTap('gopro'), !gopro, P ? 17 : 17); if (gopro) VP_HIT[VP_HIT.length - 1].long = () => goproReset('gopro');   // #404
+      btn(x + w1 + 8, y, w2, h, gopro2 && gopro2.on ? 'GOPRO2: ON' : 'GOPRO2', !!(gopro2 && gopro2.on), () => goproTap('gopro2'), !gopro2, P ? 17 : 17); if (gopro2) VP_HIT[VP_HIT.length - 1].long = () => goproReset('gopro2');
       const ga = gpActive(); btn(x + w1 + w2 + 16, y, w3, h, ga ? GOPRO_ZOOMS[ga.zoom].label : 'ZOOM', false, ga ? gpZoom : null, !ga, 15);
     };
     if (P) {
@@ -5200,10 +5217,10 @@ function drawToolsPage() {
       }
       drawMixScreen();
     };
-    cams.forEach(([k, label, off], i) => btn(L + (i % cols) * (bw + gap), y0 + (P ? 14 : 6) + Math.floor(i / cols) * (bh + gap), bw, bh, label, camOn(k), (off && k !== 'pcam') ? null : () => camPick(k), off, P ? 16 : 15));   // PHONE CAM stays tappable when greyed: it says why
+    cams.forEach(([k, label, off], i) => { btn(L + (i % cols) * (bw + gap), y0 + (P ? 14 : 6) + Math.floor(i / cols) * (bh + gap), bw, bh, label, camOn(k), (off && k !== 'pcam') ? null : () => camPick(k), off, P ? 16 : 15); if ((k === 'gopro' || k === 'gopro2') && !off) VP_HIT[VP_HIT.length - 1].long = () => goproReset(k); });   // #404 long press = reset   // PHONE CAM stays tappable when greyed: it says why
     const cy2 = y0 + (P ? 14 : 6) + Math.ceil(cams.length / cols) * (bh + gap) + (P ? 6 : 0);
     g.fillStyle = '#8c96a8'; if (P) g.fillText('OBJECTS', L + 2, cy2 + 8);
-    const items = [['wall', 'LED WALL', false], ['pcam', 'PHONE CAM', !!pcamReady()], ['neon', 'NEON', false], ['panel', 'CHAT PANEL', false], ['chalk', 'WHITEBOARD', false], ['gear', 'GEAR', false], ['robot', 'ROBO-BODY', S.source === 'headset' || S.source === 'pcam'], ['dome', 'DOME', S.source === 'headset']];
+    const items = [['wall', 'LED WALL', false], ['pcam', 'PHONE CAM', !!pcamReady()], ['neon', 'NEON', false], ['panel', 'CHAT PANEL', false], ['chalk', 'WHITEBOARD', false], ['gear', 'GEAR', false], ['robot', 'ROBO-BODY', S.source === 'headset' || S.source === 'pcam'], ['dome', 'DOME', false]];
     // #377 DOME is an object here (the sky dome from VISUALS > PANO > SKY). It is the backdrop's 'dome' choice: on = DOME, off = the VISUALS picture behind (they
     // are one at a time, the dome would hide it); on the PHONE CAM shot it is what you are keyed over, so it needs GREEN SCREEN. NONE stays on the STREAM page's BACK button.
     const domeTap = () => { if (O.backdrop === 'dome') S.setShowOpt('backdrop', 'visuals'); else { S.setShowOpt('backdrop', 'dome'); if (!skybox.tex) toast('DOME needs a sky: VISUALS > PANO > SKY', 3200); } drawMixScreen(); };
@@ -5533,6 +5550,7 @@ function drawToolsPage() {
       ['HEIGHT', `${WL.val('h').toFixed(2)} m`, d => WL.step('h', d)],
       ['DISTANCE', `${WL.val('r').toFixed(2)} m`, d => WL.step('r', d)],
       ['DOME SIZE', `${dome.r} m`, d => setDomeSize(dome.r + d)],
+      ['DOME EXPOSURE', `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)} EV`, d => setDomeEv(dome.ev + d * 0.25)],   // #404 tame blown-out panos
       ['FRACTAL SPEED', `${WL.val('speed')}x`, d => WL.step('speed', d)],
       ['COLOUR CYCLE', `${WL.val('cycle')}x`, d => WL.step('cycle', d)],
     ];
@@ -5556,15 +5574,15 @@ function drawToolsPage() {
       toggles.forEach(([lb, on, act], i) => btn(L + (i % 2) * (tw + 8), y0 + Math.floor(i / 2) * 52, tw, 46, lb, on, act, false, 17));
       const y1 = y0 + 3 * 52 + 6;
       cells.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 60, tw, 56));
-      tSlider(g, L + (tw + 8), y1 + 3 * 60, tw, 56, 'DOME TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on);   // #389
-      text(L + 4, y1 + 4 * 60 + 18, R - L - 8, 20, 9, 15);
+      tSlider(g, L, y1 + 4 * 60, R - L, 56, 'DOME TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on);   // #389 (#404 own row)
+      text(L + 4, y1 + 5 * 60 + 18, R - L - 8, 20, 8, 15);
     } else {
       const tw = (R - L - 30) / 6;
       toggles.forEach(([lb, on, act], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, false, 15));
       const cw = (R - L - 24) / 4, y1 = y0 + 48;
       cells.forEach((c, i) => cell(c, L + (i % 4) * (cw + 8), y1 + Math.floor(i / 4) * 48, cw, 44));
-      tSlider(g, L + 3 * (cw + 8), y1 + 48, cw, 44, 'DOME TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on);   // #389
-      text(L + 4, y1 + 2 * 48 + 14, R - L - 8, 17, 4, 13);
+      tSlider(g, L, y1 + 2 * 48, 2 * cw + 8, 40, 'DOME TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on);   // #389 (#404 third row)
+      text(L + 2 * cw + 24, y1 + 2 * 48 + 12, R - L - 2 * cw - 28, 15, 3, 12);
     }
     return;
   }
@@ -6415,6 +6433,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
   sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease, spiderGrabTest, spiderGrab, spiderRelease,
   crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, crateWalkStep, drawCrateScreen, layoutSleeves, crateDisc,
+  onA: st => gpSummon(st),   // #404 right controller A: the camera GoPro to that hand
   neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, ledTilted, toast, mixScreenRelease,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
@@ -6752,7 +6771,7 @@ drawMixScreen();
 // debugging handle
 window.vire = { THREE, get fx() { return fx; }, skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
-window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, milkSleeveHit, layoutMilkSleeves, get plJump() { return plJump; }, msFly };   // #394 / #395 test hooks   // #392 / #393 test hooks
+window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, milkSleeveHit, layoutMilkSleeves, gpSummon, goproReset, gopro2, setDomeEv, get plJump() { return plJump; }, msFly };   // #394 / #395 test hooks   // #392 / #393 test hooks
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {
