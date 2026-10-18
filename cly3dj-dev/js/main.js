@@ -1342,6 +1342,7 @@ function openNativeKeyboard() {
 }
 // XR: a trigger press or pinch at the mic button (a real user gesture, so the system keyboard may open)
 function crateMicSelect(P) {
+  if (sysKbPending) { sysKbPending = false; if (openSysKb()) return true; }   // #387 the tablet KEYBOARD page asked for the Meta keyboard; this trigger / pinch is the user gesture it needs
   if (!crateLidOpen() || !search.btns.length) return false;
   const scr = crate.userData.screen, l = scr.worldToLocal(P.clone());
   const sw = scr.geometry.parameters.width, sh = scr.geometry.parameters.height, c = crateScreen.canvas;
@@ -4395,12 +4396,38 @@ function setTools(p) {
   if (p === 'pcamcrop') setTools.fitIv = setInterval(() => { if (toolsPage === 'pcamcrop') drawMixScreen(); }, 200);
   if (p === 'perfcap') setTools.fitIv = setInterval(() => { if (toolsPage === 'perfcap') drawMixScreen(); }, 1000);   // #387 the clock and size
   if (p === 'studiokey') setTools.fitIv = setInterval(() => { if (toolsPage === 'studiokey') drawMixScreen(); }, 400);   // #385 the S8 KEY numbers and preview   // #353 the CROP picture, ~5 a second
+  if (p !== 'kbd') { try { if (document.activeElement === sysKbInput) sysKbInput.blur(); } catch (e) {} }   // #387
   toolsPage = p; pickPg = 0;
   if (p === 'pickVideo' || p === 'pickImage') { pickItems = []; loadPick(p === 'pickVideo' ? 'Video' : 'Images'); }
   drawMixScreen();
 }
 async function loadPick(folder) { pickItems = (await media.list(folder)).map(i => ({ ...i, folder })); drawMixScreen(); }
 function openKbd(title, text, emoji, max, done, back) { Object.assign(kbd, { title, text: text || '', emoji, max, done, back }); setTools('kbd'); }
+// #387 the Meta system keyboard (with voice dictation) for the tablet KEYBOARD page: a real <input> focused from a user gesture,
+// like the crate search. Its text is mirrored into kbd.text; Enter in it = ENTER on the page.
+let sysKbPending = false;
+const sysKbInput = document.createElement('input');
+Object.assign(sysKbInput, { type: 'text', autocomplete: 'off', spellcheck: false, enterKeyHint: 'done' });
+sysKbInput.id = 'tabletText';
+sysKbInput.style.cssText = 'position:fixed;left:50%;top:52px;transform:translateX(-50%);width:min(460px,76vw);padding:8px 12px;font:500 15px system-ui,sans-serif;border-radius:8px;border:1px solid #4aa8f0;background:#141925;color:#e6e9ec;z-index:50;opacity:0;pointer-events:none';
+document.body.appendChild(sysKbInput);
+sysKbInput.addEventListener('focus', () => { sysKbInput.style.opacity = 1; sysKbInput.style.pointerEvents = 'auto'; });
+sysKbInput.addEventListener('blur', () => { sysKbInput.style.opacity = 0; sysKbInput.style.pointerEvents = 'none'; sysKbPending = false; });
+sysKbInput.addEventListener('input', () => { if (toolsPage !== 'kbd') return; kbd.text = [...sysKbInput.value].slice(0, kbd.max).join(''); drawMixScreen(); });
+sysKbInput.addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.key === 'Enter') { sysKbInput.blur(); if (toolsPage === 'kbd') kbdKey('ENTER'); }
+  if (e.key === 'Escape') sysKbInput.blur();
+});
+function openSysKb() {
+  sysKbInput.maxLength = kbd.max || 200; sysKbInput.value = kbd.text || '';
+  try { sysKbInput.focus({ preventScroll: true }); sysKbInput.setSelectionRange(sysKbInput.value.length, sysKbInput.value.length); } catch (e) {}
+  return document.activeElement === sysKbInput;
+}
+function sysKbTap() {   // the tablet button: try now (works with a trigger tap); a fingertip poke is not always a gesture, so keep it armed for the next trigger / pinch
+  if (openSysKb()) { sysKbPending = false; return; }
+  sysKbPending = true; toast('Pull the trigger or pinch anywhere to open the headset keyboard', 3500);
+}
 function kbdKey(k) {
   const n = [...kbd.text].length;
   if (k === 'ENTER') { const d = kbd.done, t = kbd.text; if (d) d(t); setTools(kbd.back); return; }
@@ -5170,7 +5197,7 @@ function drawToolsPage() {
     return;
   }
   if (page === 'kbd') {
-    const y0 = head(kbd.title, kbd.back);
+    const y0 = head(kbd.title, kbd.back, { label: 'MIC / KEYS', on: sysKbPending, act: sysKbTap });   // #387 the headset keyboard + dictation
     g.fillStyle = '#0d1422'; g.fillRect(L, y0, R - L, 44);
     g.save(); g.beginPath(); g.rect(L, y0, R - L, 44); g.clip();
     const tw = bitWidth(kbd.text + ' ', 4), tx = Math.min(L + 10, R - 12 - tw);
