@@ -151,8 +151,16 @@ function start(real) {
   var srcTrack = src.captureStream(30).getVideoTracks()[0]; srcTrack.contentHint = 'motion';
   L1 = loop(srcTrack, 4500);
   L1.ready.then(function (t) { vQ.srcObject = new MediaStream([t]); vQ.play().catch(function () {}); onFrames(vQ, 'q'); });
-  navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } })
-    .then(function (s) { camTrack = s.getVideoTracks()[0]; vC.srcObject = s; vC.play().catch(function () {}); onFrames(vC, 'c'); var st = camTrack.getSettings(); log('camera ' + st.width + 'x' + st.height + ' @' + (st.frameRate || '?')); })
+  // #384 the same camera request as the studio (fixedcam.js #382): 25 fps held (min 24, else ideal 25), then exposure compensation +1
+  var camReq = function (fr) { return navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: fr } }); };
+  camReq({ ideal: 25, min: 24 }).catch(function (e) { log('camera 24+ fps refused (' + e.name + '), asking for 25'); return camReq({ ideal: 25 }); })
+    .then(function (s) {
+      camTrack = s.getVideoTracks()[0]; vC.srcObject = s; vC.play().catch(function () {}); onFrames(vC, 'c');
+      var st = camTrack.getSettings(), cp = camTrack.getCapabilities ? camTrack.getCapabilities() : {}, ec = cp.exposureCompensation;
+      log('camera ' + st.width + 'x' + st.height + ' @' + (st.frameRate || '?') + ' fps asked');
+      if (ec) { var v = Math.min(ec.max, Math.max(ec.min, 1)); return camTrack.applyConstraints({ advanced: [{ exposureCompensation: v }] }).then(function () { log('exposure +' + v + ' set (range ' + ec.min + ' to ' + ec.max + ')'); }).catch(function (e) { log('exposure: ' + e.message); }); }
+      log('no exposure compensation on this camera in this browser');
+    })
     .catch(function (e) { log('camera: ' + e.name + ' ' + e.message); });
   var outTrack = out.captureStream(30).getVideoTracks()[0]; outTrack.contentHint = 'motion';
   L2 = loop(outTrack, 3500);
