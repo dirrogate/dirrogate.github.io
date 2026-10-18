@@ -636,3 +636,12 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - DOME EXPOSURE on PORTALS SETUP (cell beside DOME SIZE): -3 .. +1 EV in 0.25 steps, saved as dome.ev in vire.dome; skybox.js multiplies the colour by 2^EV (uniform gain; also the full VR sky, same material). Clipped whites in the picture itself can only go grey, not get detail back. DOME TURN moved to its own row (landscape: third row, help beside it).
 - Tested in the PC pane: exposure -1.5 EV -> gain 0.354, saved; GoPro2 brought from 2.4 m up to a test grip at hand height, then long-press reset put it back; PORTALS page in both orientations.
 - Backup: backups/pre-404/ (main.js, xr.js, skybox.js). No server restart.
+
+## #405 Release of #404 and open items (owner, 18 Oct)
+- cly3dj = cly3dj-dev again (commit af2b623, owner pushes in GitHub Desktop). Owner: make no changes until asked.
+- Reported, not changed: edge stair-stepping between objects and background, and an NTSC-like interlace line flicker at the far left periphery of the LEFT eye only (right eye clear).
+  - Suspects: fixed foveated rendering 0.5 (coarser periphery, high-contrast and moving content crawls in bands; owner's rule: don't change foveation); the #403 dome video 1-tap / 4-tap hard switch at footprint 1.2 flipping along foveation tile borders; the headset's lens / display.
+  - Owner to try: dome off, a still pano instead of video, LED wall off, other Quest apps.
+  - Offered, waiting for the owner: soft blend instead of the hard switch on the dome (about free); the adaptive 4-tap on the LED wall video (VideoTexture, no mipmaps, anisotropy 4 alone does little; costs a few extra reads on the wall's pixels where minified).
+- Owner asked what made the dome video sharper: no sharpening; the dome now costs less (drawn only where it shows) so fewer dropped / reprojected frames, and the 4-tap only where the video would sparkle. The tablet already has mipmaps and 4x anisotropy; a larger canvas would cost CPU on each redraw (about 15 a second), so left as is.
+- PROJECT.md updated (status #394 to #404, next step 0).

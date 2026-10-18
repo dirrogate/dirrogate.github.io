@@ -1,6 +1,6 @@
 # Cly3DJ: project overview
 
-Updated 18 Oct 2026 (decision log up to #391 in `ViRe_Custom/CLAUDE.md`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 18 Oct 2026 (decision log up to #405 in `ViRe_Custom/CLAUDE.md`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 Cly3DJ is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -145,9 +145,18 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 
 - Built 17 Oct (#379): VISUALS > FX (FLOAT, WATER) and PANO SPIN (0 to 5 deg/s on VISUALS > PANO); in cly3dj-dev (commit 04219b0), not yet tried in the headset.
 - Built 18 Oct (#392, #393): crate PLAYLIST (➕ / ✔ before every title, playlist button in the search row, NAME / SAVE / SETS / CLEAR, saved sets as ★ lists) and Record Maker FETCH ART (Discogs + MusicBrainz / Cover Art Archive: sleeve, label A, back cover before STAMP; new js/artfetch.js; Discogs token set once with ?discogs=TOKEN, never in the repo); cly3dj-dev commit e8a97de, not yet tried in the headset.
+- Built and released 18 Oct (#394 to #404; release cly3dj = dev, commit af2b623, waiting for the owner's push):
+  - #394 PLAYLIST > jump into a milk crate; weather-beaten paper labels on every milk crate (js/inklabel.js, ink kept per crate).
+  - #395 / #400 WHITEBOARD (js/whiteboard.js, replaces the chalkboard look): lit enamel with gloss map, orange peel, ghosting, felt strokes; three open "dirrovinyl" magnetic markers (Gemini crest on the end plug) and a magnetic duster; markers also write on milk crate labels.
+  - #396 / #397 NOW SPINNING bar on Twitch and Cly3DTV: no BPM, slide-in, panel 60 % opaque.
+  - #398 playlist records jump into the milk crate in their sleeves, standing in a row (instanced jackets, covers on the 10 front-most only); rows kept per crate.
+  - #401 / #402 one switch per object on every page: DOME, WHITEBOARD, CHAT PANEL, NEON, LED WALL (no flat VISUALS behind the 3D wall), GoPros (one camera choice). GEAR and ROBO-BODY stay stream-only.
+  - #403 cheaper, steadier dome (vertex UVs, drawn last behind the gear, adaptive 4-tap on video panos). Owner: video panos sharper, flicker only very rarely.
+  - #404 DOME usable under HEADSET CAM, A on the right controller brings the camera GoPro to that hand, GoPro reset by long press (double-tap window 700 ms), DOME EXPOSURE on PORTALS SETUP.
 
 ## Next steps
 
+0. Open after 18 Oct (owner: no changes until asked, #405): edge stair-stepping and an interlace-like line flicker at the far left of the LEFT eye only (right eye clear). Suspects: fixed foveation 0.5 (owner's rule: don't change it), the dome's 1-tap / 4-tap switch on video panos flipping where foveation tiles change, the lens / display. Owner to check: dome off, still pano, LED wall off, other Quest apps. Offered, not built: soft blend instead of the hard 4-tap switch (about free), the same adaptive 4-tap on the LED wall video (small cost). Tablet already has mipmaps + 4x anisotropy; a bigger canvas would cost CPU on every redraw, so no.
 1. Owner tests #372 / #373 SHOWTIME! modular redesign:
    - Stream page: BACKDROP cycle (NONE / VISUALS / DOME), OBJECTS ▸ navigation.
    - SHOWTIME! OBJECTS page: Camera pick row, object toggles, PRESETS (FULL, LEAN, FIRST PERSON), and render time readout.
