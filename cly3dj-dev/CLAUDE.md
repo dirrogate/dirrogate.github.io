@@ -610,3 +610,11 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - Kept stream-only on purpose: LED WALL (the flat VISUALS backdrop stands in for the 3D wall in the shot, #372), GEAR, ROBO-BODY, the GoPro prop.
 - Tested in the PC pane: whiteboard and neon both ways, dome from BACK: DOME / next backdrop / setDome on and off.
 - Backup: backups/pre-401/main.js. No server restart.
+
+## #402 LED WALL and GoPros system wide (owner, 18 Oct) (cly3dj-dev)
+- Owner: one toggle system wide; no flat VISUALS in the stream when the scene has the LED wall; GoPros system wide.
+- LED WALL joins `SHOW_LINK` (pieceOn('ledwall') <-> showOpt.wall): VJ TOOLS LED WALL and SHOWTIME! OBJECTS LED WALL are one switch (the OBJECTS button is no longer greyed under HEADSET CAM / PHONE CAM; those shots still leave the 3D wall out, #374, since it would paint over the DJ).
+- stream.js: the flat VISUALS backdrop is skipped while the 3D wall is in the SHOWTIME! scene (`!(source === 'show' && O.wall)`), and the S8 studio is sent backdrop 'none' instead of 'visuals' then (and doesn't bake its own copy).
+- GoPros: one camera choice everywhere. Tapping GOPRO / GOPRO2 on STREAM while HEADSET CAM or PHONE CAM is the source switches the source to SHOWTIME! (as the SHOWTIME! camera row already did); picking HEADSET CAM / PHONE CAM (any page, `streamer.setSource` wrapped) puts a GoPro away (AVACAM preset FRONT); the SHOWTIME! camera row lights GOPRO / GOPRO2 exactly when that GoPro is out, like STREAM.
+- Tested in the PC pane: wall both ways; GOPRO from HEADSET CAM -> source SHOWTIME!, GoPro out; HEADSET CAM again -> GoPro away.
+- Backup: backups/pre-402/ (main.js, stream.js). No server restart.
