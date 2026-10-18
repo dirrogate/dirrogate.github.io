@@ -27,8 +27,8 @@ void main() {
 
 export class GoPro {
   // home(): { p: Vector3, yaw } in rig space (the starting spot)
-  constructor(rig, home) {
-    this.rig = rig; this.home = home; this.on = false; this.held = false; this.zoom = 'normal'; this.relT = 0;
+  constructor(rig, home, key = KEY, defZoom = 'normal') {   // #389 a second instance (GOPRO2) has its own saved spot
+    this.key = key; this.defZoom = defZoom; this.rig = rig; this.home = home; this.on = false; this.held = false; this.zoom = defZoom; this.relT = 0;
     const g = this.obj = new THREE.Group(); g.name = 'gopro'; g.visible = false; g.userData.noMirror = true; rig.add(g);
     const dark = new THREE.MeshStandardMaterial({ color: 0x1b1d22, roughness: 0.55, metalness: 0.2 });
     const rubber = new THREE.MeshStandardMaterial({ color: 0x0b0c0e, roughness: 0.9 });
@@ -55,14 +55,14 @@ export class GoPro {
     this._load();
   }
   _load() {
-    let s = null; try { s = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch {}
+    let s = null; try { s = JSON.parse(localStorage.getItem(this.key) || 'null'); } catch {}
     if (s && s.p && s.q) { this.obj.position.fromArray(s.p); this.obj.quaternion.fromArray(s.q); } else this.reset(false);
     if (s && ZOOMS[s.zoom]) this.zoom = s.zoom;
     this.setOn(!!(s && s.on), false);
   }
-  save() { try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, p: this.obj.position.toArray(), q: this.obj.quaternion.toArray(), zoom: this.zoom })); } catch {} }
+  save() { try { localStorage.setItem(this.key, JSON.stringify({ on: this.on, p: this.obj.position.toArray(), q: this.obj.quaternion.toArray(), zoom: this.zoom })); } catch {} }
   reset(save = true) {
-    const h = this.home(); this.obj.position.copy(h.p); this.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), h.yaw);
+    const h = this.home(); this.obj.position.copy(h.p); this.obj.quaternion.setFromEuler(new THREE.Euler(h.pitch || 0, h.yaw, 0, 'YXZ'));
     this.smooth = false; if (save) this.save();
   }
   setOn(on, save = true) { this.on = !!on; this.obj.visible = this.on; this.held = false; this.smooth = false; if (save) this.save(); }

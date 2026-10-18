@@ -234,7 +234,8 @@ export function setupXR(ctx) {
       if (sl) { st.direct = { kind: 'sleeveSlide', sl: sl.sl, y0: sl.y0, s0: sl.s0 }; buzz(st, 0.3, 20); return true; }
     }
     // #242 a sleeve lying about: grab it anywhere to pick it up again
-    if (ctx.sleeveGrabTest && (st.isHand || btn === 'grip')) { const h = ctx.sleeveGrabTest(P); if (h && h.sl) {   // #324 grip only (missed in #316)
+    if (ctx.sleeveGrabTest && (st.isHand || btn === 'grip')) { const h = ctx.sleeveGrabTest(P); if (h && (h.sl || h.milk)) {   // #398 h.milk: a sleeve standing in a milk crate
+        // #324 grip only (missed in #316)
       updateAnchor(st); if (ctx.sleeveGrab(st.anchor, P)) { st.direct = { kind: 'sleeve' }; buzz(st, 0.4, 30); return true; } } }
     // 0. target lamp, controllers only: the trigger (or grip) at the lamp head toggles it (CLAUDE.md #58).
     //    Controllers never toggle it by hovering; bare hands still press it with a fingertip poke.
@@ -264,8 +265,8 @@ export function setupXR(ctx) {
       }
       if (!((btn === 'grip' || st.isHand) && pr.hit(P))) continue;
       updateAnchor(st); const o = pr.obj; o.updateMatrixWorld();
-      st.direct = { kind: 'gopro', prop: pr, off: new THREE.Matrix4().copy(st.anchor.matrixWorld).invert().multiply(o.matrixWorld) };
-      pr.grab(); buzz(st, 0.4, 25); return true;
+      st.direct = { kind: 'gopro', prop: pr, off: pr.penOff ? pr.penOff.clone() : new THREE.Matrix4().copy(st.anchor.matrixWorld).invert().multiply(o.matrixWorld) };   // #395 a marker: held like a pen
+      pr.grab(st); buzz(st, 0.4, 25); return true;
     }
     // 0a. #189 the mixer's tablet: grip (controllers) or pinch (hands) on its frame picks it up; it keeps its pose
     //     relative to the hand while held (main.js places it; it stays a child of the mixer so the phone mirrors it)
