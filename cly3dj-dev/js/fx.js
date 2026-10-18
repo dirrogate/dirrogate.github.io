@@ -12,7 +12,7 @@
 // the gear materials are recompiled once, the first time WATER is switched on in a session (a short hitch).
 import * as THREE from 'three';
 
-export const USER_LAYER = 6;   // not 1 / 2 (three's eye cameras), not 5 (deck-inst HIDE_LAYER)
+export const USER_LAYER = 7;   // not 1 / 2 (three's eye cameras), not 5 (deck-inst HIDE_LAYER), not 6 (director.js AV_LAYER: the robot). #386 it WAS 6, so the headset's eyes drew the robot
 const FKEY = 'vire.fx.floats', WKEY = 'vire.fx.water';
 const R = 0.035, TRACK = 0.12, POST_H = 0.75;
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _eye = new THREE.Vector3(), _c = new THREE.Vector3(), _sz = new THREE.Vector3(), _s = new THREE.Vector3();
