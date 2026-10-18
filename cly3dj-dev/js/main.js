@@ -12,7 +12,8 @@ import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose, AV_LAYER } from './direct
 import { Streamer, SOURCES as STREAM_SRC, streamKey, STUDIO_MODES } from './stream.js';   // #380 STUDIO_MODES
 import { KEY_LABEL } from './keycol.js';   // #347 key colour names   // #331 LIVE STREAM (Twitch)
 import { GoPro, ZOOMS as GOPRO_ZOOMS } from './gopro.js';
-import { RealDepth } from './realdepth.js';   // #413 depth-camera-correct occlusion
+import { RealDepth } from './realdepth.js';
+import { solveCamFit, CAL_TARGETS } from './camfit.js';   // #415 HEADSET CAM auto fit   // #413 depth-camera-correct occlusion
 import { Laser, PATTERNS as LASER_PATS, PAT_LABEL as LASER_PL, COLOURS as LASER_COLS, COL_LABEL as LASER_CL } from './laser.js';   // #406 laser head prop   // #337 movable camera for SHOW / AVACAM
 import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #340 Twitch chat
 import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whiteboard, markers and duster
@@ -49,7 +50,7 @@ const params = new URLSearchParams(location.search);
 const CAMERA_ROLE = params.get('role') === 'camera';   // #161: this page is the spectator phone (spectator.html sends it here)
 // start-screen settings, remembered per browser
 const SETTINGS_DEFAULT = { needleLift: 7, source: 'pc', xml: 'rekordbox.xml', hands: '3d', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
-  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off', arRefl: 60, occlusion: true, roomHits: true,   // #411
+  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off', arRefl: 60, occlusion: false, roomHits: true,   // #411 (#415 occlusion off by default: owner prefers seeing the beams in DOME scenes)
   skyH: 1.5, skyTurn: 0, skyType: 'auto', skyKey: 'on', skyFile: '', skyMedia: '' };   // turntable physics (#120)
 const settings = (() => { try { return { ...SETTINGS_DEFAULT, ...JSON.parse(localStorage.getItem('vire.settings') || '{}') }; } catch { return { ...SETTINGS_DEFAULT }; } })();
 if (params.get('xml')) { settings.source = 'pc'; settings.xml = params.get('xml'); }
@@ -687,6 +688,42 @@ void main() {
 // close to the headset, unlike three's screen-space copy (#411 owner: real hand / controller ~5 cm above the drawn one).
 // three's own occluder stays as the fallback if the depth info can't be read. The laser gets the same depth view.
 let realDepth = null, rdBinding = null, rdSession = null;
+// #415 HEADSET CAM AUTO FIT (CAM FIT page): 9 crosshairs on the camera picture; the controller's front tip on each + trigger
+const camCal = { on: false, k: 0, samples: [], prev: {}, msg: '', handsWas: false };
+const _ccM = new THREE.Matrix4(), _ccH = new THREE.Matrix4(), _ccV = new THREE.Vector3();
+function camCalStart() {
+  const S = streamer; if (!S) return;
+  if (!renderer.xr.isPresenting) { camCal.msg = 'AUTO FIT runs in the headset (passthrough).'; drawMixScreen(); return; }
+  if (S.source !== 'headset') S.setSource('headset');
+  camCal.handsWas = !!S.showOpt.handsReal; if (!camCal.handsWas) S.setShowOpt('handsReal', true);   // drawn hands / controllers would cover the real tip in the picture
+  if (!S.testing && !S.live) S.setTesting(true);
+  Object.assign(camCal, { on: true, k: 0, samples: [], prev: {}, msg: '' }); drawMixScreen();
+}
+function camCalStop(msg) {
+  camCal.on = false; if (streamer && !camCal.handsWas) streamer.setShowOpt('handsReal', false);
+  camCal.msg = msg || ''; drawMixScreen();
+}
+function camCalStep() {   // per frame while on: a trigger press = one sample at the current crosshair
+  if (!camCal.on || !renderer.xr.isPresenting) return;
+  const ses = renderer.xr.getSession(), frame = renderer.xr.getFrame(), ref = renderer.xr.getReferenceSpace(); if (!ses || !frame || !ref) return;
+  for (const src of ses.inputSources) {
+    const gp = src.gamepad; if (!gp || !src.gripSpace) continue;
+    const key = src.handedness || 'x', down = !!(gp.buttons[0] && gp.buttons[0].pressed), was = camCal.prev[key]; camCal.prev[key] = down;
+    if (!down || was) continue;
+    const pose = frame.getPose(src.gripSpace, ref); if (!pose) continue;
+    _ccM.fromArray(pose.transform.matrix); _ccV.set(0, -0.007, -0.05).applyMatrix4(_ccM);   // the controller's front tip (#140), in the room
+    _ccH.copy(renderer.xr.getCamera().matrixWorld).invert(); _ccV.applyMatrix4(_ccH);         // -> the headset's own frame
+    const S = streamer, W = S.canvas.width, H = S.canvas.height, t = CAL_TARGETS[camCal.k];
+    camCal.samples.push({ P: _ccV.toArray(), px: [t[0] * W, t[1] * H] }); camCal.k++;
+    if (camCal.k >= CAL_TARGETS.length) {
+      const r = solveCamFit(camCal.samples, W, H, S.fit);
+      if (!r) { camCalStop('AUTO FIT failed: try again, with the tip exactly on each cross.'); return; }
+      for (const [k, v] of Object.entries(r.fit)) S.setFit(k, v);
+      camCalStop(`AUTO FIT done: ${r.rms.toFixed(1)} px off on average${r.rms > 12 ? ' (high: run it again)' : ''}. Turn your head: if the gear trails the picture, raise LAG.`);
+    } else drawMixScreen();
+    return;
+  }
+}
 function stepRealWorld(dt) {
   if (!arMode || !renderer.xr.isPresenting) { if (realDepth) realDepth.clear(); if (laser) laser.setDepth(null); return; }
   const hasD = renderer.xr.hasDepthSensing && renderer.xr.hasDepthSensing();
@@ -5666,6 +5703,17 @@ function drawToolsPage() {
     if (run && S.mrFrames) g.drawImage(S.canvas, L, y0, pw, ph);
     else { g.fillStyle = '#8c96a8'; g.font = '600 15px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
       g.fillText(S.source !== 'headset' ? 'Pick HEADSET CAM on STREAM' : !F.gear ? 'GEAR OFF: raw camera' : 'Press TEST to see it', L + pw / 2, y0 + ph / 2); g.textBaseline = 'alphabetic'; }
+    if (camCal.on) {   // #415 the crosshair to put the controller tip on
+      const t = CAL_TARGETS[Math.min(camCal.k, CAL_TARGETS.length - 1)], cx = L + t[0] * pw, cy = y0 + t[1] * ph;
+      g.strokeStyle = '#000'; g.lineWidth = 5; g.beginPath(); g.moveTo(cx - 16, cy); g.lineTo(cx + 16, cy); g.moveTo(cx, cy - 16); g.lineTo(cx, cy + 16); g.stroke();
+      g.strokeStyle = '#ff3030'; g.lineWidth = 2; g.beginPath(); g.moveTo(cx - 16, cy); g.lineTo(cx + 16, cy); g.moveTo(cx, cy - 16); g.lineTo(cx, cy + 16); g.stroke();
+      g.beginPath(); g.arc(cx, cy, 7, 0, Math.PI * 2); g.stroke();
+      g.fillStyle = 'rgba(0,0,0,0.65)'; g.fillRect(L, y0, 110, 22); g.fillStyle = '#ff5050'; g.font = '700 14px system-ui'; g.textAlign = 'left'; g.fillText(`${camCal.k + 1}/9  ${t[2] === 'near' ? 'CLOSE' : 'ARM OUT'}`, L + 6, y0 + 16);
+    }
+    const aBtn = (x, y, w, h) => btn(x, y, w, h, camCal.on ? `CANCEL ${camCal.k}/9` : 'AUTO FIT', camCal.on, () => { if (camCal.on) camCalStop('AUTO FIT cancelled.'); else camCalStart(); }, false, 18);
+    const uBtn = (x, y, w, h) => btn(x, y, w, h, 'UNDO', false, camCal.on && camCal.k > 0 ? () => { camCal.k--; camCal.samples.pop(); drawMixScreen(); } : null, !(camCal.on && camCal.k > 0), 16);
+    const calText = camCal.on ? `Hold a controller so its FRONT TIP sits on the red cross in the picture (${(CAL_TARGETS[camCal.k] || CAL_TARGETS[0])[2] === 'near' ? 'close, about 30 cm' : 'arm out'}), keep still, pull the trigger.`
+      : camCal.msg || 'AUTO FIT: line a controller tip up with 9 crosses on the picture; it works out where the camera sits and how wide it sees.';
     const rows = [['x', 'LEFT / RIGHT', 'mm', 5], ['y', 'DOWN / UP', 'mm', 5], ['z', 'FWD / BACK', 'mm', 5], ['hfov', 'ZOOM (FOV)', '°', 0.5],
       ['tilt', 'TILT', '°', 0.5], ['turn', 'TURN', '°', 0.5], ['roll', 'ROLL', '°', 0.5], ['lag', 'LAG', 'ms', 5]];
     const cell = (k, label, unit, step, x, y, w, h) => {
@@ -5682,12 +5730,14 @@ function drawToolsPage() {
       const y1 = y0 + ph + 8, cw = (R - L - 8) / 2;
       rows.forEach((r, i) => cell(...r, L + (i % 2) * (cw + 8), y1 + Math.floor(i / 2) * 58, cw, 54));
       const yb = y1 + 4 * 58 + 6, bw = (R - L - 16) / 3; tBtn(L, yb, bw, 50); gBtn(L + bw + 8, yb, bw, 50); rBtn(L + 2 * (bw + 8), yb, bw, 50);
-      note('TEST shows the picture here off air. Line the decks and crate up with the real room: LEFT / RIGHT, DOWN / UP and ZOOM first, then TILT. LAG: turn your head; raise it if the gear trails the picture, lower it if it leads.', yb + 66);
+      const ya = yb + 58, aw = (R - L - 8) * 0.65; aBtn(L, ya, aw, 50); uBtn(L + aw + 8, ya, R - L - aw - 8, 50);   // #415
+      g.fillStyle = camCal.on ? '#fff' : '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; wrapText(g, calText, L + 4, ya + 72, R - L - 8, 20, 6);
     } else {
       const x1 = L + pw + 10, cw = (R - x1 - 8) / 2;
       rows.forEach((r, i) => cell(...r, x1 + (i % 2) * (cw + 8), y0 + Math.floor(i / 2) * 46, cw, 42));
       const yb = y0 + ph + 8, bw = (pw - 12) / 3; tBtn(L, yb, bw, 40); gBtn(L + bw + 6, yb, bw, 40); rBtn(L + 2 * (bw + 6), yb, bw, 40);
-      g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; wrapText(g, 'TEST = the picture here, off air. Match LEFT / RIGHT, DOWN / UP, ZOOM, then TILT. LAG: raise it if the gear trails a head turn.', x1, y0 + 4 * 46 + 14, R - x1, 18, 3);
+      const ya = y0 + 4 * 46 + 2, aw = (R - x1) * 0.62; aBtn(x1, ya, aw, 30); uBtn(x1 + aw + 6, ya, R - x1 - aw - 6, 30);   // #415
+      g.fillStyle = camCal.on ? '#fff' : '#8c96a8'; g.font = '500 12px system-ui'; g.textAlign = 'left'; wrapText(g, calText, x1, ya + 44, R - x1, 14, 2);
     }
     return;
   }
@@ -6539,6 +6589,7 @@ function frame() {
     gp.setTally(!!(streamer && streamer.state === 'live' && (streamer.source === 'show' || streamer.source === 'avacam')));
     if (gp.on) gp.setView(showLive && streamer.ly && streamer.layerOk ? streamer.ly.out.texture : (ledMode === 'cam' || gp.aiming || (streamer && streamer.needsCamRT)) && djcam ? djcam.rt.texture : null, !showLive, showLive);
   }
+  camCalStep();   // #415
   stepRealWorld(dt);   // #411 depth occlusion on / off, room planes for the laser
   if (facetWall || laser) {   // #345; #346 BEAT: bass onsets on the master, read only while the wall is on with BEAT (#406 or the laser on AUTO)
     if (!beat) beat = new Beat(engine);
@@ -6981,7 +7032,7 @@ drawMixScreen();
 // debugging handle
 window.vire = { THREE, get fx() { return fx; }, skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
-window.vire._laser = { laser, laserTap };   // #406 test hook
+window.vire._laser = { laser, laserTap, camCal, camCalStart, camCalStop };   // #415 camCal test hook   // #406 test hook
 window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, milkSleeveHit, layoutMilkSleeves, gpSummon, goproReset, gopro2, setDomeEv, get plJump() { return plJump; }, msFly };   // #394 / #395 test hooks   // #392 / #393 test hooks
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
