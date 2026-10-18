@@ -661,7 +661,9 @@ let goproTapT = 0, goproTapWas = false, goproTapId = '';
 function goproTap(id = 'gopro') {   // #389 for GOPRO and GOPRO2: tap = on / back to FRONT, double-tap = back to its start spot, on
   const gp = id === 'gopro2' ? gopro2 : gopro; if (!gp) return; const now = performance.now();
   if (now - goproTapT < 350 && goproTapId === id) { goproTapT = 0; gp.reset(); setDjPreset(id); toast((id === 'gopro2' ? 'GOPRO2' : 'GOPRO') + ' back at its start', 1500); return; }
-  goproTapT = now; goproTapId = id; goproTapWas = gp.on; setDjPreset(gp.on ? 'front' : id);
+  goproTapT = now; goproTapId = id; goproTapWas = gp.on;
+  if (!gp.on && streamer && (streamer.source === 'headset' || streamer.source === 'pcam')) streamer.setSource('show');   // #402 the GoPro becomes the camera from any page
+  setDjPreset(gp.on ? 'front' : id);
 }
 function goproPick(id) {   // #389 the SHOWTIME! camera row: select it; double-tap = back to its start spot
   const gp = id === 'gopro2' ? gopro2 : gopro; if (!gp) return; const now = performance.now();
@@ -746,7 +748,7 @@ function portalsTap() {   // tap = every frame on / off; double-tap = every fram
   if (now - portalTapT < 350) { portalTapT = 0; portals.reset(); portals.setOn(true); toast('Portals back at the start', 1500); drawMixScreen(); return; }
   portalTapT = now; portals.setOn(!portals.on); drawMixScreen();
 }
-function saveDome() { try { localStorage.setItem('vire.dome', JSON.stringify(dome)); } catch {} }
+function saveDome() { try { localStorage.setItem('vire.dome', JSON.stringify(dome)); } catch {} try { syncShowFromRoom(); } catch {} }   // #401
 async function setDome(on) {   // the sky picked on VISUALS (PANO > SKY) as a dome round the booth; loads it if it isn't yet
   dome.on = !!on; saveDome();
   if (dome.on && !skybox.tex) { try { await ensureSky(true); } catch (e) { console.warn('dome sky', e); } }
@@ -1011,6 +1013,45 @@ streamer = CAMERA_ROLE ? null : new Streamer({
   },
   onChange: () => { if (toolsPage === 'stream' || !streamer || streamer.state !== streamOnChangeLast) { streamOnChangeLast = streamer && streamer.state; drawMixScreen(); } },
 });
+// #401 (owner) one switch per object, on every page: SHOWTIME! OBJECTS no longer has its own stream-only copies of DOME,
+// WHITEBOARD, CHAT PANEL and NEON. Those buttons switch the object itself (in the room, for the DJ and every camera), and
+// the room switches (VJ TOOLS, PORTALS SETUP, the TOOLS page...) light up the SHOWTIME! buttons. The stream backdrop DOME is
+// the dome: picking BACK: DOME switches the dome on, any other backdrop switches it off, and switching the dome on anywhere
+// makes it the backdrop. #402: LED WALL joins (flat VISUALS only while the wall is off), and the GoPros are one camera
+// choice everywhere (see goproTap / the setSource wrap). Still stream-only: GEAR and ROBO-BODY.
+const SHOW_LINK = {
+  chalk: { get: () => !!(chalkboard && chalkboard.on), set: v => { if (chalkboard) { chalkboard.setOn(v); chalkboard.save(); } } },
+  panel: { get: () => !!(chatPanel && chatPanel.on), set: v => { if (chatPanel) { chatPanel.setOn(v); chatPanel.save(); } } },
+  neon: { get: () => pieceOn('neon'), set: v => setPiece('neon', v) },
+  wall: { get: () => pieceOn('ledwall'), set: v => setPiece('ledwall', v) },   // #402 the LED wall: on = the 3D wall is in the SHOWTIME! shot and the flat VISUALS backdrop steps aside
+};
+if (streamer) {
+  const rawSet = streamer.setShowOpt.bind(streamer);
+  streamer._rawShowOpt = rawSet;
+  streamer.setShowOpt = (k, v) => {
+    if (SHOW_LINK[k]) { SHOW_LINK[k].set(!!v); rawSet(k, SHOW_LINK[k].get()); return; }
+    if (k === 'backdrop') {
+      rawSet(k, v);
+      if (v === 'dome' && !dome.on) setDome(true);
+      else if (v !== 'dome' && dome.on) setDome(false);
+      return;
+    }
+    rawSet(k, v);
+  };
+  const rawSource = streamer.setSource.bind(streamer);
+  streamer.setSource = async (src, ...a) => {   // #402 one camera choice: HEADSET CAM / PHONE CAM put the GoPro away (FRONT), so no page shows GOPRO: ON while it isn't the shot
+    const r = await rawSource(src, ...a);
+    if ((src === 'headset' || src === 'pcam') && (djSet.preset === 'gopro' || djSet.preset === 'gopro2')) setDjPreset('front');
+    return r;
+  };
+}
+function syncShowFromRoom() {   // the room's switches into SHOWTIME! (only writes when something differs)
+  if (!streamer || !streamer._rawShowOpt) return;
+  const O = streamer.showOpt, raw = streamer._rawShowOpt;
+  for (const k of Object.keys(SHOW_LINK)) { const v = SHOW_LINK[k].get(); if (O[k] !== v) raw(k, v); }
+  if (dome.on && O.backdrop !== 'dome') raw('backdrop', 'dome');
+  else if (!dome.on && O.backdrop === 'dome') raw('backdrop', 'visuals');
+}
 let streamOnChangeLast = 'off';
 const _wsN = new THREE.Vector3(), _wsP = new THREE.Vector3(), _wsC = new THREE.Vector3(), _wsM = new THREE.Matrix4(), _wsF = new THREE.Frustum(), _wsB = new THREE.Box3();   // #372 wallInShot scratch
 // #347 PHONE CAM render: what the phone's camera must not see (room, sky, helpers, the GoPro), plus the forearm sleeves
@@ -5147,7 +5188,7 @@ function drawToolsPage() {
        bw = (R - L - gap * (cols - 1)) / cols;
     // camera pick: GOPRO / FRONT / FADERS are the DJ camera angles, HEADSET CAM and PHONE CAM their own pictures (#372)
     const cams = [['gopro', 'GOPRO', !gopro], ['gopro2', 'GOPRO2', !gopro2], ['front', 'FRONT', false], ['faders', 'FADERS', false], ['headset', P ? 'HEADSET' : 'HEADSET CAM', false]];   // #389 PHONE CAM is in the objects row; GOPRO2 where it was
-    const camOn = k => (k === 'headset' || k === 'pcam') ? S.source === k : (S.source === 'show' || S.source === 'avacam') && djSet.preset === k;   // #389 GOPRO / GOPRO2 / FRONT / FADERS
+    const camOn = k => (k === 'headset' || k === 'pcam') ? S.source === k : (k === 'gopro' || k === 'gopro2') ? djSet.preset === k : (S.source === 'show' || S.source === 'avacam') && djSet.preset === k;   // #389 GOPRO / GOPRO2 / FRONT / FADERS; #402 a GoPro lights up exactly when it is out (as on STREAM)
     g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; if (P) g.fillText('CAMERA', L + 2, y0 + 8);
     const camPick = k => {
       if (k === 'pcam') { openPhoneCam(); return; }   // #374 / #389
@@ -5162,7 +5203,7 @@ function drawToolsPage() {
     cams.forEach(([k, label, off], i) => btn(L + (i % cols) * (bw + gap), y0 + (P ? 14 : 6) + Math.floor(i / cols) * (bh + gap), bw, bh, label, camOn(k), (off && k !== 'pcam') ? null : () => camPick(k), off, P ? 16 : 15));   // PHONE CAM stays tappable when greyed: it says why
     const cy2 = y0 + (P ? 14 : 6) + Math.ceil(cams.length / cols) * (bh + gap) + (P ? 6 : 0);
     g.fillStyle = '#8c96a8'; if (P) g.fillText('OBJECTS', L + 2, cy2 + 8);
-    const items = [['wall', 'LED WALL', S.source === 'headset' || S.source === 'pcam'], ['pcam', 'PHONE CAM', !!pcamReady()], ['neon', 'NEON', false], ['panel', 'CHAT PANEL', false], ['chalk', 'WHITEBOARD', false], ['gear', 'GEAR', false], ['robot', 'ROBO-BODY', S.source === 'headset' || S.source === 'pcam'], ['dome', 'DOME', S.source === 'headset']];
+    const items = [['wall', 'LED WALL', false], ['pcam', 'PHONE CAM', !!pcamReady()], ['neon', 'NEON', false], ['panel', 'CHAT PANEL', false], ['chalk', 'WHITEBOARD', false], ['gear', 'GEAR', false], ['robot', 'ROBO-BODY', S.source === 'headset' || S.source === 'pcam'], ['dome', 'DOME', S.source === 'headset']];
     // #377 DOME is an object here (the sky dome from VISUALS > PANO > SKY). It is the backdrop's 'dome' choice: on = DOME, off = the VISUALS picture behind (they
     // are one at a time, the dome would hide it); on the PHONE CAM shot it is what you are keyed over, so it needs GREEN SCREEN. NONE stays on the STREAM page's BACK button.
     const domeTap = () => { if (O.backdrop === 'dome') S.setShowOpt('backdrop', 'visuals'); else { S.setShowOpt('backdrop', 'dome'); if (!skybox.tex) toast('DOME needs a sky: VISUALS > PANO > SKY', 3200); } drawMixScreen(); };
@@ -5906,6 +5947,7 @@ function drawTypeBadge(g, x, y, video) {
 
 function drawMixScreen() {
   navTrack();   // #363
+  syncShowFromRoom();   // #401 one switch per object
   if (toolsPage) { drawToolsPage(); scr().commit(); return; }   // #224
   if (videoPage) { drawVideoPage(); scr().commit(); return; }   // #185
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();

@@ -242,7 +242,7 @@ export class Streamer {
     if (!L.ok) { this.stuMsg = 'The S8 page is too old for the studio: reload it on the S8.'; return; }
     if (!this.stuAtt) this._stuAttach();
     const O = this.showOpt;
-    L.ctl({ k: 'stu', on: true, mode: this.stu.mode, bd: O.backdrop, snd: !!this.stu.snd, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
+    L.ctl({ k: 'stu', on: true, mode: this.stu.mode, bd: O.backdrop === 'visuals' && O.wall && this.source === 'show' ? 'none' : O.backdrop, snd: !!this.stu.snd, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
   }
   _ledClip() { const c = this.env.ledClip && this.env.ledClip(); return c || ''; }
   get s8HasClip() { const c = this._ledClip(); return !!c && !!this.s8 && this.s8.clip === c; }
@@ -257,7 +257,7 @@ export class Streamer {
     const lg = lc.getContext('2d'), mg = mc.getContext('2d'), g = this.g;
     lg.globalCompositeOperation = 'source-over'; lg.globalAlpha = 1; lg.clearRect(0, 0, W, H);
     // VISUALS that only the Quest has (VidVinyl, AVACAM, a still, or a clip the S8 hasn't got): drawn here, so the frame is opaque and the S8 shows it as it is
-    if (this.stu.mode === 'show' && O.backdrop === 'visuals' && !this.s8HasClip) {
+    if (this.stu.mode === 'show' && O.backdrop === 'visuals' && !O.wall && !this.s8HasClip) {   // #402 not while the 3D wall is in the shot
       const gr = lg.createRadialGradient(W / 2, H * 0.45, 40, W / 2, H / 2, W * 0.65); gr.addColorStop(0, '#141a28'); gr.addColorStop(1, '#030409'); lg.fillStyle = gr; lg.fillRect(0, 0, W, H);
       for (const L of (this.env.wallSource && this.env.wallSource()) || []) { if (!L || !L.el || L.gain === 0) continue; lg.globalAlpha = L.gain == null ? 1 : Math.min(1, L.gain); lg.globalCompositeOperation = L.add ? 'lighter' : 'source-over'; this._cover(lg, L.el, W, H, L.flip); }
       lg.globalAlpha = 1; lg.globalCompositeOperation = 'source-over'; this.stuBaked = true;
@@ -784,7 +784,7 @@ export class Streamer {
     }
     const g = this.g, W = this.canvas.width, H = this.canvas.height, O = this.showOpt;
     // 1. visuals
-    const bg = (O.backdrop === 'visuals' && this.env.wallSource && this.env.wallSource()) || [];
+    const bg = (O.backdrop === 'visuals' && !(this.source === 'show' && O.wall) && this.env.wallSource && this.env.wallSource()) || [];   // #402 the 3D LED wall is in the scene: no flat copy of its visuals behind it
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     const gr = g.createRadialGradient(W / 2, H * 0.45, 40, W / 2, H / 2, W * 0.65); gr.addColorStop(0, '#141a28'); gr.addColorStop(1, '#030409');
     g.fillStyle = gr; g.fillRect(0, 0, W, H);
