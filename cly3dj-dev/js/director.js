@@ -267,7 +267,7 @@ export function demoPose(rig, gear, t) {
 export const CAM_PRESETS = {
   // #338 (owner): only FRONT, FADERS and GOPRO (the movable camera, main.js; was the BOOTH angle). The other aims below stay
   // in aimAt for old saved settings but are no longer offered.
-  front: { label: 'FRONT', fov: 38 }, faders: { label: 'FADERS', fov: 40 }, gopro: { label: 'GOPRO', fov: 46 },
+  front: { label: 'FRONT', fov: 38 }, faders: { label: 'FADERS', fov: 40 }, gopro: { label: 'GOPRO', fov: 46 }, gopro2: { label: 'GOPRO2', fov: 62 },
 };
 export class DjCam {
   constructor(renderer, rig) {
