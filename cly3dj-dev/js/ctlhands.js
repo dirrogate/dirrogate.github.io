@@ -13,13 +13,17 @@ const D = Math.PI / 180;
 
 // Pose numbers (degrees), open = button released, shut = fully pressed. Tuned on the PC against the Touch Plus model.
 export const POSE = {
-  index: { open: [18, 22, 12], shut: [40, 55, 35], rest: [60, 80, 45] },
+  index: { open: [18, 22, 12], shut: [40, 55, 35], rest: [18, 22, 12] },   // #416 rest straight again (pointing at the ball); #295 had it curled into the palm [60, 80, 45]
   gloveSoft: 0.45,
   gloveO: { thumb: 1, swing: 0.2, roll: 0.2, index: 0.8 },   // #302 glove O: thumb turn 20 %, index curl 80 % (PC: glove tips 11 mm apart, was 33 mm with the thumb under the index)   // #301 glove mode: relaxed curls at 45 % (pressing the grip still closes the fist fully)      // on the trigger; rest = curled when not pressed (#295)
   rest: { open: [55, 75, 40], shut: [75, 85, 45] },       // middle / ring / pinky round the handle
   thumb: { open: [8, 10, 10], down: [18, 22, 18], spread: 0 },
   // #280 grip = an O of thumb and index (tips meeting), blended from whatever the trigger / thumb were doing
-  O: { index: [25, 70, 50], thumb: [5, 30, 15], swing: 45, swingAxis: 'z', roll: 20 },   // PC: tips 1.6 cm apart (touching), a round opening ~4 cm
+  // #416 (owner): no O any more. A press is a pointing press: the index curls a little (its tip moves 6 mm, so it stays on the
+  // ball) and the thumb comes up beside it. The hand's thumb can't reach a straight index tip while holding the controller
+  // (PC search: closest 38 mm); closing the O needed the index curled 47 mm away from the ball, the #293 problem.
+  // Old O: { index: [25, 70, 50], thumb: [5, 30, 15], swing: 45, roll: 20 }
+  O: { index: [20, 26, 14], thumb: [0, 15, 15], swing: 60, swingAxis: 'z', roll: 40 },
   // where the hand sits in grip space (right hand; the left is the mirror in X; grip -Z runs along the handle toward
   // the face): back of the hand facing out (+X),
   // the knuckle line along the handle (index at the front by the trigger, pinky toward the back), the middle knuckle at `knuckle`
@@ -82,12 +86,13 @@ function place(h, handed) {
   // drawn hand (h.oShift, eased with the press) so the middle of the O lands on that point: the fingers close round
   // whatever the ball was on, and the touch point itself never moves.
   pose(h, 0, 0, false, true); h.holder.updateMatrix(); it.updateWorldMatrix(true, false); tt.updateWorldMatrix(true, false);   // #295 measured with the old straight index, so the ball stays where it was
-  const tdj = h.bones['thumb-phalanx-distal']; tdj.updateWorldMatrix(true, false);
+  // #416 (owner): #294's thumb-pad ball and the hand slide are gone. The ball and touch point are back on the relaxed
+  // index fingertip (6 mm past its tip joint, as #279 / #293), fixed in grip space; nothing slides on a press.
+  dj.updateWorldMatrix(true, false);
   const P = o => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).applyMatrix4(inv);
-  const td = P(tdj), tp = P(tt), ip = P(it), pad = td.clone().lerp(tp, 0.6);
-  h.tipRest = pad.clone().addScaledVector(ip.sub(pad).normalize(), 0.008);
-  h.basePos = h.holder.position.clone();
-  h.oShift = h.tipRest.clone().sub(h.oLocal);   // root (grip) space = the holder's parent space
+  const ip = P(it), dp = P(dj);
+  h.tipRest = ip.clone().addScaledVector(ip.clone().sub(dp).normalize(), 0.006);
+  h.basePos = null; h.oShift = null;
   h.cur = '';
 }
 
@@ -130,7 +135,6 @@ function update(h, t, g, th) {
   if (!h.ready) return;
   const key = `${t.toFixed(2)}|${g.toFixed(2)}|${th ? 1 : 0}`; if (key === h.cur) return; h.cur = key;
   pose(h, t, g, th);
-  if (h.basePos && h.oShift) h.holder.position.copy(h.basePos).addScaledVector(h.oShift, Math.max(t, g));   // #294 the O onto the ball
   // #280 / #289 the blue ball and the touch point follow the thumb tip (6 mm past the tip joint, which is inside the
   // skin), in the hand root's space (= grip space)
   h.holder.updateMatrix();
