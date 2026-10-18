@@ -28,6 +28,16 @@ function snapStep(g, raw, onStep) {
   if (Math.abs(wrapTo(raw - g.snap)) > SNAP_HOLD) { const n = Math.round(raw / SNAP_STEP) * SNAP_STEP; if (Math.abs(n - g.snap) > 1e-6) { g.snap = n; onStep && onStep(); } }
   return g.snap;
 }
+// #385 (owner) the 45 degree ratchet was clunky. The deck now follows the twist freely; within 6 degrees of a 45 it is pulled in (exact inside 2 degrees,
+// eased between, no jump), with one light tick when it settles. No per-step buzz, no holding at the halfway point.
+const DET_DZ = 0.035, DET_MAG = 0.105;
+function softSnap(g, raw, onDetent) {
+  const n = Math.round(raw / SNAP_STEP) * SNAP_STEP, d = raw - n, a = Math.abs(d);
+  let out = raw;
+  if (a < DET_DZ) out = n; else if (a < DET_MAG) { const u = (a - DET_DZ) / (DET_MAG - DET_DZ); out = n + Math.sign(d) * DET_MAG * u * u; }
+  if (a < DET_DZ) { if (!g.det) { g.det = true; onDetent && onDetent(); } } else if (a > DET_MAG) g.det = false;
+  return out;
+}
 export function setupXR(ctx) {
   REC12 = ctx.REC;   // #260
   const { renderer, scene } = ctx;
@@ -38,7 +48,7 @@ export function setupXR(ctx) {
   const hmf = new XRHandModelFactory().setPath(PROF + '/generic-hand/');
 
   const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
-  const tipGeo = new THREE.SphereGeometry(0.0135, 12, 8);   // #291 / #293 (owner) 150 % twice (6 -> 9 -> 13.5 mm)
+  const tipGeo = new THREE.SphereGeometry(0.00675, 12, 8);   // #291 / #293 (owner) 150 % twice (6 -> 9 -> 13.5 mm); #385 (owner) 50 %: 6.75 mm
   // #140 (owner): the blue tip ball sits at the front centre of the controller's own model (the fixed grip-space
   // point was off to one side on Quest 3 Touch Plus). Measured once from the loaded model: the front-most 2.5 cm of
   // its vertices give the centre (x, y); the ball's centre sits 2 mm inside the front face. Fallback until the model loads.
@@ -623,7 +633,7 @@ export function setupXR(ctx) {
       const isCase = !!ctx.cases[g.target];
       obj.position.set(g.pos0.x + delta.x, isCase ? g.pos0.y : Math.max(0, g.pos0.y + delta.y), g.pos0.z + delta.z);
       obj.rotation.y = g.yaw0 + wrap(yawOf(handQuat(st, q1)) - g.hyaw0);
-      if (ctx.snapYaw && ctx.snapYaw(g.target)) obj.rotation.y = snapStep(g, obj.rotation.y, () => buzz(st, 0.5, 25));   // #378 turntables: 45 degree steps
+      if (ctx.snapYaw && ctx.snapYaw(g.target)) obj.rotation.y = softSnap(g, obj.rotation.y, () => buzz(st, 0.25, 12));   // #385 turntables: free twist, soft pull to each 45 degrees (was #378's ratchet)
       if (!isCase) ctx.clampStack(g.target);   // #142: crates can't sink into what is under them
       // hand velocity (world), so a milk crate can be tossed (#88)
       const now = performance.now();

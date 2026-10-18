@@ -914,6 +914,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
   showPrep: () => {   // #372 the SHOWTIME! 3D layer: each prop is in or out by its own toggle; no XR hands, nothing behind
     const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } }, O = streamer.showOpt;
     hide(room);
+    if (spect && spect.helpers) spect.helpers.forEach(hide);   // #385 the blue camera outline and the calibration panel are for the headset, never in the picture
     if (!O.wall) hide(ledwall);   // the 3D wall (with the scroller on it) only when asked for; the flat backdrop is the 2D layer
     if (O.backdrop !== 'dome') hide(skybox.group);
     propHides(hide, O, true);
@@ -925,6 +926,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
   mrPrep: () => {   // #372 HEADSET CAM: you are the robot and the real room is the picture, so the robot and the 3D LED wall are out of this render only; the OBJECTS toggles decide the rest (and keep their values)
     const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
     hide(ledwall); if (avatar && avatar.root) hide(avatar.root);
+    if (spect && spect.helpers) spect.helpers.forEach(hide);   // #385
     propHides(hide, streamer.showOpt, false); handsHides(hide, streamer.showOpt);   // #375
     return () => { for (const o of undo) o.visible = true; };
   },
@@ -1041,6 +1043,7 @@ function pcamPrep(cam) {
     for (const o of [neon, chatPanel && chatPanel.obj, chalkboard && chalkboard.obj, gopro && gopro.obj]) if (behindDj(o, cam)) hide(o);   // #374 props behind the DJ are left out
   }
   if (spect && spect.helpers) spect.helpers.forEach(hide);
+  if (avatar && avatar.root) hide(avatar.root);   // #385 the real DJ is in this picture
   if (xr) for (const st of xr.inputs) { hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); }
   const bg = scene.background; scene.background = null;
   if (armSleeves) armSleeves.group.visible = false;   // #377 natural hands: no sleeves either
@@ -3864,6 +3867,7 @@ function setDjAvatar(on) { djSet.avatar = on; saveDjSet(); if (avatar) avatar.ro
 // trigger / grip values and tip balls, so the phone poses its own copy of the robot (the Quest only sends numbers).
 function phoneRobotState() {
   if (!djSet.phoneRobot || !renderer.xr.isPresenting || !xr) return undefined;
+  if (streamer && streamer.stuRun && streamer.stu.mode !== 'show') return undefined;   // #385 LIVE DJ! / LIVE KEY!: the real DJ is on camera, no robot on the S8
   const r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000, c = [];
   for (const st of xr.inputs) {
     if (!st.connected || st.isHand || !st.source || !st.source.gamepad) continue;
@@ -4392,7 +4396,8 @@ function setTools(p) {
     if (p === 'pcam' || p === 'pcamcrop') { if (streamer.source === 'pcam' && !streamer.active) { streamer.setRehearse(true); pcamAutoReh = true; } }
     else if (pcamAutoReh) { pcamAutoReh = false; if (!streamer.live && !monOn) streamer.setRehearse(false); }
   }
-  if (p === 'pcamcrop') setTools.fitIv = setInterval(() => { if (toolsPage === 'pcamcrop') drawMixScreen(); }, 200);   // #353 the CROP picture, ~5 a second
+  if (p === 'pcamcrop') setTools.fitIv = setInterval(() => { if (toolsPage === 'pcamcrop') drawMixScreen(); }, 200);
+  if (p === 'studiokey') setTools.fitIv = setInterval(() => { if (toolsPage === 'studiokey') drawMixScreen(); }, 400);   // #385 the S8 KEY numbers and preview   // #353 the CROP picture, ~5 a second
   toolsPage = p; pickPg = 0;
   if (p === 'pickVideo' || p === 'pickImage') { pickItems = []; loadPick(p === 'pickVideo' ? 'Video' : 'Images'); }
   drawMixScreen();
@@ -4548,7 +4553,7 @@ async function pressBytes(track) {
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
 }
-const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO' };   // #363 up-button names; #376
+const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY' };   // #363 up-button names; #376
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -4863,6 +4868,60 @@ function drawToolsPage() {
     }
     return;
   }
+  if (page === 'studiokey') {   // #385 S8 KEY: the keying of LIVE KEY! on the tablet (it was only on the S8's own screen). Same remote as the PHONE CAM page: 'cset' key / auto
+    const y0 = head(P ? 'KEY' : 'S8 KEY (LIVE KEY!)', 'studio'), S = streamer; if (!S) return;
+    const cs = spect && spect.cam, K = cs && cs.K, keySend = (key, v) => { if (spect && spect.camSet && K) { K[key] = v; spect.camSet({ what: 'key', key, v }); } };
+    const r2 = v => Math.round(v * 100) / 100, cl = (v, a, b) => Math.min(b, Math.max(a, v)), pc = v => Math.round(v * 100) + '%';
+    const toggles = [
+      [P ? 'KEY: ' + KEY_LABEL[(K && K.col) || 0] : 'KEY ' + ['GRN', 'BLUE', 'MAG'][(K && K.col) || 0], false, K ? () => { keySend('col', (((K.col || 0) + 1) % 3)); drawMixScreen(); } : null, !K],
+      ['AUTO KEY', false, K ? () => { spect.camSet({ what: 'auto' }); toast('Auto key: point the S8 at the EMPTY key screen', 3000); } : null, !K],
+      ['PREVIEW', monOn, () => setMonitor(!monOn)],
+      [STUDIO_MODES.key || 'LIVE KEY!', S.stu.mode === 'key', () => S.setStudio('mode', 'key')],
+    ];
+    const cells = [
+      ['STRENGTH', K ? r2(K.thr).toFixed(2) : '--', d => K && keySend('thr', cl(r2(K.thr + d * 0.01), 0, 0.8))],
+      ['SOFTNESS', K ? r2(K.soft).toFixed(2) : '--', d => K && keySend('soft', cl(r2(K.soft + d * 0.01), 0.02, 0.4))],
+      ['SPILL', K ? r2(K.spill).toFixed(2) : '--', d => K && keySend('spill', cl(r2(K.spill + d * 0.05), 0, 1))],
+      ['DOME MATCH', K ? pc(K.cmatch || 0) : '--', d => K && keySend('cmatch', cl(r2((K.cmatch || 0) + d * 0.1), 0, 1))],
+      ['CROP LEFT', K ? pc(K.gl || 0) : '--', d => K && keySend('gl', cl(r2((K.gl || 0) + d * 0.02), 0, 0.45))],
+      ['CROP RIGHT', K ? pc(K.gr || 0) : '--', d => K && keySend('gr', cl(r2((K.gr || 0) + d * 0.02), 0, 0.45))],
+      ['CROP TOP', K ? pc(K.gt || 0) : '--', d => K && keySend('gt', cl(r2((K.gt || 0) + d * 0.02), 0, 0.45))],
+      ['CROP BOTTOM', K ? pc(K.gb || 0) : '--', d => K && keySend('gb', cl(r2((K.gb || 0) + d * 0.02), 0, 0.45))],
+    ];
+    const cell = ([label, val, act], x, y, w, h) => {
+      g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
+      const by = y + 15, bh2 = h - 15, bw = 40;
+      btn(x, by, bw, bh2, '−', false, () => { act(-1); drawMixScreen(); });
+      let fs = 17; g.font = `700 ${fs}px system-ui`; while (fs > 11 && g.measureText(val).width > w - 2 * bw - 6) g.font = `700 ${--fs}px system-ui`;
+      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + w / 2, by + bh2 / 2); g.textBaseline = 'alphabetic';
+      btn(x + w - bw, by, bw, bh2, '+', false, () => { act(1); drawMixScreen(); });
+    };
+    const prev = (x, y, w) => {
+      const h2 = Math.round(w * 9 / 16); g.fillStyle = '#000'; g.fillRect(x, y, w, h2);
+      const im = monOn && S.stuRun ? pvTex.image : null;
+      if (im) { try { g.drawImage(im, x, y, w, h2); } catch {} }
+      else { g.fillStyle = '#8c96a8'; g.font = '600 13px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(monOn ? 'waiting for the S8' : 'PREVIEW shows the S8 picture', x + w / 2, y + h2 / 2); g.textBaseline = 'alphabetic'; }
+      g.strokeStyle = '#2a3142'; g.lineWidth = 1; g.strokeRect(x + 0.5, y + 0.5, w - 1, h2 - 1);
+    };
+    const info = !K ? 'The S8 is not linked: open the camera page on it, connect, Fixed camera.' : 'AUTO KEY: point the S8 at the EMPTY green screen. STRENGTH: higher cuts more green. SOFTNESS: the edge. SPILL: green off your skin. DOME MATCH: tints you to the dome picture. CROP: cuts stands and the room past the cloth. PREVIEW shows the result.';
+    const text = (x, y, w, lh, max) => { g.textAlign = 'left'; g.font = '500 13px system-ui'; g.fillStyle = '#8c96a8'; wrapText(g, info, x, y, w, lh, max); };
+    if (P) {
+      const tw = (R - L - 8) / 2;
+      toggles.forEach(([lb, on, act, dim], i) => btn(L + (i % 2) * (tw + 8), y0 + Math.floor(i / 2) * 50, tw, 44, lb, on, act, !!dim, 16));
+      const y1 = y0 + 2 * 50 + 6;
+      cells.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 58, tw, 54));
+      const yb = y1 + 4 * 58 + 12, pw = Math.round((R - L) * 0.42); prev(R - pw, yb, pw);
+      text(L + 4, yb + 14, R - L - 8 - pw - 10, 18, Math.max(3, Math.floor((H - 10 - yb) / 18)));
+    } else {
+      const tw = (R - L - 18) / 4;
+      toggles.forEach(([lb, on, act, dim], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, !!dim, 15));
+      const cw = (R - L - 24) / 4, y1 = y0 + 48;
+      cells.forEach((c, i) => cell(c, L + (i % 4) * (cw + 8), y1 + Math.floor(i / 4) * 48, cw, 44));
+      const pw = Math.min(210, Math.round((R - L) * 0.34)), yb = y1 + 2 * 48 + 8; prev(R - pw, yb, pw);
+      text(L + 4, yb + 12, R - L - 8 - pw - 10, 16, Math.max(3, Math.floor((H - 10 - yb) / 16)));
+    }
+    return;
+  }
   if (page === 'studio') {   // #380 S8 STUDIO: the S8 makes the TV picture and the Twitch stream; the Quest sends the scene with its matte and the sound
     const y0 = head('S8 STUDIO', 'stream', streamer ? { label: P ? 'TV ▸' : 'FIRE STICK ▸', on: false, act: () => setTools('tv') } : null), S = streamer;
     if (!S) { note('The studio is run from the headset (not on the phone).', y0 + 20); return; }
@@ -4874,17 +4933,19 @@ function drawToolsPage() {
     const sub = U.on && s8 ? `out ${s8.fps || 0} fps · Quest frames ${s8.qfps || 0} fps · camera held ${s8.hold != null ? s8.hold + ' ms' : '-'} · ${tw}${s8.note ? ' · ' + s8.note : ''}` : U.on ? (S.stuMsg || 'Open the camera page on the S8, connect, Fixed camera, Calibrate.') : 'Turn the studio on with the S8 linked (Fixed camera, calibrated).';
     g.font = '500 14px system-ui'; g.fillStyle = '#8c96a8';
     const nl = wrapText(g, sub, L + 2, y0 + (P ? 40 : 36), R - L - 4, 18, P ? 3 : 2), y1 = y0 + (P ? 44 : 40) + Math.max(1, nl) * 18;
-    const w3 = (R - L - 2 * gap) / 3, w4 = (R - L - 3 * gap) / 4, fs = P ? 18 : 15;
+    const w3 = (R - L - 2 * gap) / 3, w4 = (R - L - 3 * gap) / 4, w5 = (R - L - 4 * gap) / 5, fs = P ? 18 : 15;
     btn(L, y1, w3, bh, U.on ? 'STUDIO: ON' : 'STUDIO: OFF', U.on, () => S.setStudio('on', !U.on), false, fs);
     btn(L + w3 + gap, y1, w3, bh, U.snd ? 'SOUND: ON' : 'SOUND: OFF', U.snd, () => S.setStudio('snd', !U.snd), false, fs);
     btn(L + 2 * (w3 + gap), y1, w3, bh, 'BACK: ' + S.showOpt.backdrop.toUpperCase(), S.showOpt.backdrop !== 'none', () => { S.nextBackdrop(); S._stuSync(); }, false, fs);
     const y2 = y1 + bh + gap;
     Object.entries(STUDIO_MODES).forEach(([k, label], i) => btn(L + i * (w3 + gap), y2, w3, bh + (P ? 12 : 0), label, U.mode === k, () => S.setStudio('mode', k), false, P ? 22 : 17));
     const y3 = y2 + bh + (P ? 12 : 0) + gap;
-    btn(L, y3, w4, bh, 'DELAY −10', false, () => S.setStudio('trim', U.trim - 10), false, fs);
-    btn(L + w4 + gap, y3, w4, bh, `TRIM ${U.trim > 0 ? '+' : ''}${U.trim} ms`, false, U.trim ? () => S.setStudio('trim', 0) : null, false, fs);
-    btn(L + 2 * (w4 + gap), y3, w4, bh, 'DELAY +10', false, () => S.setStudio('trim', U.trim + 10), false, fs);
-    btn(L + 3 * (w4 + gap), y3, w4, bh, P ? 'CAMERA ▸' : 'SHOW CAMERA ▸', false, () => setTools('showobj'), false, fs);
+    const fs5 = P ? 15 : 14;
+    btn(L, y3, w5, bh, 'DELAY −10', false, () => S.setStudio('trim', U.trim - 10), false, fs5);
+    btn(L + w5 + gap, y3, w5, bh, `TRIM ${U.trim > 0 ? '+' : ''}${U.trim} ms`, false, U.trim ? () => S.setStudio('trim', 0) : null, false, fs5);
+    btn(L + 2 * (w5 + gap), y3, w5, bh, 'DELAY +10', false, () => S.setStudio('trim', U.trim + 10), false, fs5);
+    btn(L + 3 * (w5 + gap), y3, w5, bh, P ? 'CAMERA ▸' : 'SHOW CAMERA ▸', false, () => setTools('showobj'), false, fs5);
+    btn(L + 4 * (w5 + gap), y3, w5, bh, 'KEY ▸', U.mode === 'key', () => setTools('studiokey'), false, fs5);   // #385 the keying controls
     { // #382 LOW LIGHT (dark clubs): hold the S8 camera at 25 fps, raise its exposure (EV, the camera's own gain) and the studio's GAIN
       const yL = y3 + bh + gap, ci = s8 && s8.cam, fsL = P ? 16 : 14;
       const ev = (U.ev > 0 ? '+' : '') + U.ev.toFixed(1);

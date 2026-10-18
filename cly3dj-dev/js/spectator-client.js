@@ -510,7 +510,7 @@ export function startCamera(ctx) {
   const _rq = new THREE.Quaternion(), _hq = new THREE.Quaternion(), _hp = new THREE.Vector3();
   const W = (x, y, z) => rig.localToWorld(new THREE.Vector3(x, y, z));
   function robotFrame(dt, now) {
-    const a = robo.a, on = !!(a && a.ready && robo.msg && now - robo.seen < 1000);
+    const a = robo.a, liveStu = !!(studio && studio.S && studio.S.on && studio.S.mode !== 'show'), on = !liveStu && !!(a && a.ready && robo.msg && now - robo.seen < 1000);   // #385 no robot over the real DJ
     if (on !== robo.on) {
       robo.on = on; if (a) a.root.visible = on;
       if (robo.layer != null) { if (on) camera.layers.enable(robo.layer); else camera.layers.disable(robo.layer); }

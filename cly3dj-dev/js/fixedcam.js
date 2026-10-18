@@ -56,6 +56,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     </div></div><div id="fxTap" hidden></div>`);
   const $ = s => document.querySelector(s), ov = $('#fxO'), tap = $('#fxTap'), hint = $('#fxHint');
   const say = t => { S.msg = t; hint.hidden = !t; hint.textContent = t || ''; };
+  hint.style.pointerEvents = 'auto'; hint.onclick = () => say('');   // #385 tap the blue box to close it
   let marks = [];
   const clearMarks = () => { for (const m of marks) m.remove(); marks = []; };
   function markAt(vx, vy, label, rep) {   // video px -> screen
@@ -369,7 +370,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     const weak = !C.lens && pts.length < 6;
     say(`Calibrated: points match within ${px} px` + (lensCm != null ? `, lens ${lensCm} cm from your touch` : '') + (dropped ? ` (point ${dropped} didn't fit and was left out)` : '')
       + (r.rms > 6 || (lensCm != null && lensCm > 4) ? '. High: redo; touch the exact corner of each point.' : weak ? '. Only ' + pts.length + ' points and no lens touch: check the blue outline in the headset sits on the phone, else redo with the lens touch.' : '. Fine-tune with Nudge if needed.'));
-    setTimeout(() => { if (!S.cal) say(''); }, 12000);
+    { const keep = S.msg; setTimeout(() => { if (S.msg === keep) say(''); }, 12000); }   // #385 the box stayed for ever: it cleared only if there was no calibration
     ui();
   }
 
