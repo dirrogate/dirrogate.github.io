@@ -149,24 +149,29 @@ async function writeIndex(list) {
   const fh = await (await pressDir()).getFileHandle('index.json', { create: true }); const w = await fh.createWritable();
   await w.write(JSON.stringify(list)); await w.close();
 }
-export async function savePressing(p, labelBlob) {
-  if (labelBlob) {
-    const fh = await (await pressDir()).getFileHandle(p.id + '.jpg', { create: true }); const w = await fh.createWritable();
-    await w.write(labelBlob); await w.close(); p.label = p.id + '.jpg';
-  }
+async function writePic(name, blob) { const fh = await (await pressDir()).getFileHandle(name, { create: true }); const w = await fh.createWritable(); await w.write(blob); await w.close(); return name; }
+// #393 extra: { cover, back } blobs (the sleeve front and back, from FETCH ART) kept beside the label as <id>_cover.jpg / <id>_back.jpg
+export async function savePressing(p, labelBlob, extra = {}) {
+  if (labelBlob) p.label = await writePic(p.id + '.jpg', labelBlob);
+  if (extra.cover) p.cover = await writePic(p.id + '_cover.jpg', extra.cover);
+  if (extra.back) p.back = await writePic(p.id + '_back.jpg', extra.back);
   const list = await listPressings(); list.push(p); await writeIndex(list); return p;
 }
 export async function deletePressing(id) {
   const list = (await listPressings()).filter(p => p.id !== id); await writeIndex(list);
-  try { await (await pressDir()).removeEntry(id + '.jpg'); } catch {}
+  for (const n of [id + '.jpg', id + '_cover.jpg', id + '_back.jpg']) try { await (await pressDir()).removeEntry(n); } catch {}
+}
+export async function readPic(p, key) {   // #393 key: 'cover' | 'back'
+  if (!p[key]) return null;
+  try { return await (await (await pressDir()).getFileHandle(p[key])).getFile(); } catch { return null; }
 }
 export async function readLabel(p) {
   if (!p.label) return null;
   try { return await (await (await pressDir()).getFileHandle(p.label)).getFile(); } catch { return null; }
 }
 // a square label picture (512 px JPEG, centre crop) from any image file
-export async function labelFrom(file) {
-  const bm = await createImageBitmap(file); const S = 512, c = new OffscreenCanvas(S, S), g = c.getContext('2d');
+export async function labelFrom(file, S = 512) {   // #393 S: 1024 for sleeves
+  const bm = await createImageBitmap(file), c = new OffscreenCanvas(S, S), g = c.getContext('2d');
   const s = Math.max(S / bm.width, S / bm.height), w = bm.width * s, h = bm.height * s;
   g.drawImage(bm, (S - w) / 2, (S - h) / 2, w, h); bm.close && bm.close();
   return c.convertToBlob({ type: 'image/jpeg', quality: 0.88 });

@@ -20,7 +20,8 @@ import { Beat } from './beat.js';   // #346 bass onsets on the master for the wa
 import { RobotAvatar } from './robot.js';
 import { RobotAvatar2, ROBOT_GLB } from './robot2.js';
 import { applyNeon } from './neonenv.js';   // #355 NEON CHROME   // #245 the licensed AvatarRobot (EntroPi Games)
-import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, labelFrom, blankWav } from './tools.js';
+import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, readPic, labelFrom, blankWav } from './tools.js';
+import { discogsToken, setDiscogsToken, initDiscogsToken, splitQuery, searchArt, releaseImages, guessSlots, imageBlob, artThumb } from './artfetch.js';   // #393 FETCH ART
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
@@ -1329,7 +1330,13 @@ function exitSearch() {
   crateState.sel = 0; drawCrateScreen(); layoutSleeves();
 }
 function kbKey(k) {
-  if (k === 'DONE') { search.kb = false; drawCrateScreen(); return; }
+  if (k === 'DONE') { search.kb = false; search.target = null; drawCrateScreen(); return; }
+  if (search.target === 'plname') {   // #392 typing the playlist's name
+    let n = plNow.name || '';
+    if (k === '⌫') n = n.slice(0, -1); else if (k === 'SPACE') n += ' '; else if (k === 'CLEAR') n = ''; else n += k;
+    search.flash = { k, t: performance.now() }; setTimeout(drawCrateScreen, 150);
+    plRename(n); return;
+  }
   let q = search.q;
   if (k === '⌫') q = q.slice(0, -1); else if (k === 'SPACE') q += ' '; else if (k === 'CLEAR') q = ''; else q += k.toLowerCase();
   search.flash = { k, t: performance.now() }; setTimeout(drawCrateScreen, 150);
@@ -1343,15 +1350,17 @@ searchInput.style.cssText = 'position:fixed;left:50%;top:52px;transform:translat
 document.body.appendChild(searchInput);
 searchInput.addEventListener('focus', () => { searchInput.style.opacity = 1; searchInput.style.pointerEvents = 'auto'; });
 searchInput.addEventListener('blur', () => { searchInput.style.opacity = 0; searchInput.style.pointerEvents = 'none'; });
-searchInput.addEventListener('input', () => setQuery(searchInput.value));
+searchInput.addEventListener('input', () => { if (search.target === 'plname') plRename(searchInput.value); else setQuery(searchInput.value); });   // #392
 searchInput.addEventListener('keydown', e => {
   e.stopPropagation();
   if (e.key === 'Enter') searchInput.blur();
   if (e.key === 'Escape') { if (!searchInput.value) exitSearch(); searchInput.blur(); }
 });
 function openNativeKeyboard() {
-  searchInput.value = search.q;
-  try { searchInput.focus({ preventScroll: true }); searchInput.setSelectionRange(search.q.length, search.q.length); } catch (e) {}
+  if (plMode()) search.target = 'plname';   // #392 on the PLAYLIST view the mic names the playlist
+  const v = search.target === 'plname' ? (plNow.name || '') : search.q;
+  searchInput.value = v;
+  try { searchInput.focus({ preventScroll: true }); searchInput.setSelectionRange(v.length, v.length); } catch (e) {}
   const ok = document.activeElement === searchInput;
   if (!ok) { search.hint = performance.now() + 3000; drawCrateScreen(); setTimeout(drawCrateScreen, 3100); }
   return ok;
@@ -1369,6 +1378,7 @@ function crateMicSelect(P) {
   openNativeKeyboard(); return true;
 }
 
+initDiscogsToken();   // #393
 async function loadLibrary() {
   sideCache.clear();
   try {
@@ -1403,6 +1413,7 @@ async function loadLibrary() {
   }
   try { const pr = await listPressings(); if (pr.length) { if (!lib) lib = emptyLibrary(); addPressings(lib, pr); } } catch (e) { console.warn('pressings', e); }   // #224
   if (!CAMERA_ROLE) { if (!lib) lib = emptyLibrary(); addExamples(lib); }   // #231
+  plAttach();   // #392
   crateState.pl = 0; crateState.sel = 0; search.q = ''; search.results = null; searchInput.value = '';
   drawCrateScreen(); layoutSleeves();
 }
@@ -1482,7 +1493,7 @@ function fetchSide(track) {
   if (!track || track.missing) return Promise.resolve(null);
   if (sideCache.has(track.id)) return sideCache.get(track.id);
   const p = (async () => {
-    if (track.press) return { bytes: await pressBytes(track), art: await pressArt(track) };   // #224
+    if (track.press) return { bytes: await pressBytes(track), art: await pressArt(track).then(a => labelArt.get(track.id) || a) };   // #224 (#393 the label, not the sleeve)
     let bytes;
     if (track.opfs) bytes = await (await store.readFile(track.opfs)).arrayBuffer();
     else {
@@ -1570,11 +1581,38 @@ function drawCrateScreen() {
   g.fillStyle = '#4aa8f0'; g.font = '600 36px system-ui'; g.textAlign = 'left';
   g.fillText('◀', 20, CS.head / 2); g.textAlign = 'right'; g.fillText('▶', W - 20, CS.head / 2);
   g.fillStyle = '#e6e9ec'; g.font = '600 32px system-ui'; g.textAlign = 'center';
-  fitText(g, searching ? `Search · ${list.length} result${list.length === 1 ? '' : 's'}` : `Crate > ${pl.path}`, W / 2, CS.head / 2, W - 150);
-  // search bar: field | keyboard | mic | clear
+  const plm = plMode(), sets = plm && plUI.view === 'sets';   // #392 the PLAYLIST view (and its SETS list)
+  fitText(g, searching ? `Search · ${list.length} result${list.length === 1 ? '' : 's'}` : sets ? `Saved playlists · ${plSaved.length}` : `Crate > ${pl.path}`, W / 2, CS.head / 2, W - 150);
+  // search bar: field | playlist | 45s | milk | keyboard | mic | clear   (#392 PLAYLIST view: name | SAVE | SETS | CLEAR | mic | playlist)
   const by = SB.y + 8, bh = SB.h - 14;
+  if (plm) {
+    const TW = 128;
+    search.btns = [
+      { id: 'field', x: 12, y: by, w: W - 12 - 3 * (TW + 8) - 2 * 78 - 12, h: bh },
+      { id: 'plsave', x: W - 2 * 78 - 3 * (TW + 8) - 4, y: by, w: TW, h: bh, label: 'SAVE' },
+      { id: 'plsets', x: W - 2 * 78 - 2 * (TW + 8) - 4, y: by, w: TW, h: bh, label: sets ? 'LIST' : 'SETS' },
+      { id: 'plclear', x: W - 2 * 78 - (TW + 8) - 4, y: by, w: TW, h: bh, label: performance.now() < plUI.clearArm ? 'SURE?' : 'CLEAR' },
+      { id: 'mic', x: W - 2 * 78 - 4, y: by, w: 70, h: bh },
+      { id: 'pl', x: W - 78 - 4, y: by, w: 70, h: bh },
+    ];
+    const f = search.btns[0], ed = search.target === 'plname';
+    g.fillStyle = ed ? '#1d2a38' : '#171c22'; g.fillRect(f.x, f.y, f.w, f.h);
+    g.strokeStyle = ed ? '#4aa8f0' : '#2c343d'; g.lineWidth = 2; g.strokeRect(f.x + 1, f.y + 1, f.w - 2, f.h - 2);
+    g.textAlign = 'left'; g.font = '600 26px system-ui'; g.fillStyle = '#8d96a1'; g.fillText('NAME', f.x + 12, f.y + bh / 2);
+    g.font = '500 30px system-ui'; g.fillStyle = plNow.name ? '#ffffff' : '#6f7985';
+    fitText2(g, plNow.name ? plNow.name + (ed && search.kb ? '▏' : '') : 'tap to name it', f.x + 96, f.y + bh / 2, f.w - 106);
+    for (const b of search.btns.slice(1)) {
+      const on = (b.id === 'mic' && document.activeElement === searchInput) || (b.id === 'plsets' && sets) || (b.id === 'plclear' && performance.now() < plUI.clearArm);
+      g.fillStyle = b.id === 'plclear' && on ? '#8a2a1a' : on ? '#23527c' : b.id === 'plsave' ? '#1d5a33' : '#1b2128'; g.fillRect(b.x, b.y, b.w, b.h);
+      g.textAlign = 'center'; g.fillStyle = '#e6e9ec';
+      if (b.id === 'pl') { drawPlIcon(g, b.x + b.w / 2, b.y + bh / 2, true, plNow.items.length); continue; }
+      if (b.id === 'mic') { g.font = `34px ${EMOJI}`; g.fillText('🎤', b.x + b.w / 2, b.y + bh / 2 + 2); continue; }
+      g.font = '700 26px system-ui'; g.fillText(b.label, b.x + b.w / 2, b.y + bh / 2 + 1);
+    }
+  } else {
   search.btns = [
-    { id: 'field', x: 12, y: by, w: W - 12 - 5 * 78 - 16, h: bh },
+    { id: 'field', x: 12, y: by, w: W - 12 - 6 * 78 - 16, h: bh },
+    { id: 'pl', x: W - 6 * 78 - 4, y: by, w: 70, h: bh },   // #392 the PLAYLIST view
     { id: 's45', x: W - 5 * 78 - 4, y: by, w: 70, h: bh },   // #255 the 45s list
     { id: 'milk', x: W - 4 * 78 - 4, y: by, w: 70, h: bh },
     { id: 'kb', x: W - 3 * 78 - 4, y: by, w: 70, h: bh },
@@ -1594,7 +1632,9 @@ function drawCrateScreen() {
     g.textAlign = 'center'; g.font = `34px ${EMOJI}`; g.fillStyle = b.id === 'clear' ? (search.q ? '#e6e9ec' : '#3d454e') : '#e6e9ec';
     if (b.id === 'milk') { drawMilkIcon(g, b.x + b.w / 2, b.y + bh / 2, Object.keys(extraMilk).length + 1 < MILK_MAX); continue; }
     if (b.id === 's45') { const pl = lib && lib.playlists[crateState.pl]; draw45Icon(g, b.x + b.w / 2, b.y + bh / 2, !!(pl && pl.name === '45s' && !search.results)); continue; }
+    if (b.id === 'pl') { drawPlIcon(g, b.x + b.w / 2, b.y + bh / 2, false, plNow.items.length); continue; }   // #392
     g.fillText(b.id === 'kb' ? '⌨' : b.id === 'mic' ? '🎤' : '✕', b.x + b.w / 2, b.y + bh / 2 + 2);
+  }
   }
   // keyboard layout (bottom, above the footer) decides how many rows fit
   const footTop = H - CS.foot, kbH = KB.length * 68 + 8, kbY = footTop - kbH;
@@ -1602,7 +1642,23 @@ function drawCrateScreen() {
   const ROWS = Math.floor(((search.kb ? kbY - 4 : footTop) - y0) / RH);
   // rows
   let start = clamp(crateState.sel - Math.min(4, ROWS >> 1), 0, Math.max(0, list.length - ROWS));
-  if (!list.length) { g.textAlign = 'center'; g.fillStyle = '#6f7985'; g.font = '500 32px system-ui'; g.fillText(searching ? 'No matches' : 'Empty playlist', W / 2, y0 + RH * 1.5); }
+  if (sets) {   // #392 SETS: the saved playlists; tap one to load it, ✕ (twice) to delete it
+    start = plUI.setsStart = clamp(plUI.setsStart, 0, Math.max(0, plSaved.length - ROWS));
+    if (!plSaved.length) { g.textAlign = 'center'; g.fillStyle = '#6f7985'; g.font = '500 32px system-ui'; g.fillText('No saved playlists yet: build one, then SAVE', W / 2, y0 + RH * 1.5); }
+    for (let k = 0; k < ROWS && start + k < plSaved.length; k++) {
+      const st = plSaved[start + k], y = y0 + k * RH, cur = plNow.name && st.name.toLowerCase() === plNow.name.toLowerCase();
+      g.fillStyle = cur ? '#1d3346' : '#151a20'; g.fillRect(6, y + 1, W - 12, RH - 2);
+      g.textAlign = 'left'; g.fillStyle = '#f1b650'; g.font = '600 34px system-ui'; g.fillText('★', 22, y + RH / 2);
+      g.fillStyle = '#e6e9ec'; fitText2(g, st.name, 70, y + RH / 2, W - 520);
+      g.textAlign = 'right'; g.fillStyle = '#aab2bc'; g.font = '500 28px system-ui';
+      g.fillText(`${st.items.length} rec · ${new Date(st.made).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`, W - 150, y + RH / 2);
+      const arm = plUI.delArm === st.id;
+      g.fillStyle = arm ? '#c8202c' : '#2a1a1e'; g.fillRect(W - 132, y + 4, 120, RH - 8);
+      g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '700 26px system-ui'; g.fillText(arm ? 'DELETE?' : '✕', W - 72, y + RH / 2 + 1);
+    }
+  } else {
+  if (!list.length) { g.textAlign = 'center'; g.fillStyle = '#6f7985'; g.font = '500 32px system-ui'; g.fillText(searching ? 'No matches' : plm ? 'Empty: tap ➕ before a record in any list' : 'Empty playlist', W / 2, y0 + RH * 1.5); }
+  const inPl = plEntry() ? new Set(plEntry().records) : new Set();   // #392 ➕ / ✔ before each title
   for (let k = 0; k < ROWS && start + k < list.length; k++) {
     const idx = start + k, r = list[idx], y = y0 + k * RH;
     const sel = idx === crateState.sel;
@@ -1611,7 +1667,9 @@ function drawCrateScreen() {
     g.textAlign = 'left'; g.fillStyle = r.missing ? '#4c535c' : sel ? '#ffffff' : '#dde1e5';
     g.font = `${sel ? 600 : 500} 34px system-ui`;
     const badge = (r.paired ? 'A|B ' : '') + ((r.sides.A && r.sides.A.split) || (r.sides.B && r.sides.B.split) ? 'S ' : '');
-    fitText2(g, `${r.title}${r.artist ? ' - ' + r.artist : ''}`, 22, y + RH / 2, W - 250);
+    if (!CAMERA_ROLE) drawPlMark(g, 40, y + RH / 2, inPl.has(r));   // #392
+    g.textAlign = 'left'; g.fillStyle = r.missing ? '#4c535c' : sel ? '#ffffff' : '#dde1e5'; g.font = `${sel ? 600 : 500} 34px system-ui`;
+    fitText2(g, `${r.title}${r.artist ? ' - ' + r.artist : ''}`, PLX, y + RH / 2, W - 250 - (PLX - 22));
     g.textAlign = 'right'; g.font = '600 26px system-ui'; g.fillStyle = '#f1b650'; g.fillText(badge, W - 138, y + RH / 2);
     g.fillStyle = sel ? '#ffffff' : '#aab2bc'; g.font = '600 32px system-ui';
     g.fillText(r.bpm ? r.bpm.toFixed(r.bpm % 1 ? 1 : 0) : '', W - 22, y + RH / 2);
@@ -1619,6 +1677,7 @@ function drawCrateScreen() {
       g.fillStyle = '#c8202c'; g.fillRect(W - CDEL_W - 12, y + 3, CDEL_W + 6, RH - 6);
       g.fillStyle = '#fff'; g.font = '700 30px system-ui'; g.textAlign = 'center'; g.fillText('✕ DELETE', W - 9 - CDEL_W / 2, y + RH / 2 + 1);
     }
+  }
   }
   // on-screen keyboard: 10 units per row, ~3 cm keys on the LCD
   search.keys = [];
@@ -1688,6 +1747,108 @@ function crate45s() {
     crateBack45 = { pl: crateState.pl, sel: crateState.sel }; crateState.pl = i; crateState.sel = 0;
   }
   drawCrateScreen(); layoutSleeves();
+}
+// ---- #392 PLAYLIST (owner): build a set on the crate lid. ➕ before a title adds the record (it turns to ✔; tap the ✔
+// to take it out). The playlist button in the search row (left of 45, milk crate, keyboard, mic) opens the PLAYLIST view:
+// NAME (tap the field: on-screen keys or the mic), SAVE (same name = update that set), SETS (the saved playlists: tap one
+// to load it back, ✕ twice to delete), CLEAR (two taps). Saved sets are also lists in the crate's ◀ ▶ as ★ NAME, so
+// they can be dug through like Rekordbox playlists. Pull, preview and STAMP (SONG… list) work from any of them.
+// Kept on this device: 'vire.plNow' (the one being built) and 'vire.playlists' (saved). A record is remembered by its file
+// (location / headset path / URL) plus title|artist, so a set finds its records again after a reload or a source switch.
+const PLX = 74;   // titles start right of the ➕ / ✔ (tap zone x < 70)
+const PL_NOW = 'vire.plNow', PL_SAVED = 'vire.playlists';
+const plRead = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || 'null') || d; } catch { return d; } };
+const plNow = plRead(PL_NOW, { items: [], name: '' });
+let plSaved = plRead(PL_SAVED, []);
+const plUI = { view: 'list', back: null, clearArm: 0, delArm: null, setsStart: 0 };
+function plStore() { try { localStorage.setItem(PL_NOW, JSON.stringify(plNow)); localStorage.setItem(PL_SAVED, JSON.stringify(plSaved)); } catch {} }
+function plItem(r) { const t = r.sides.A || r.sides.B; return { loc: (t && (t.location || t.opfs || t.url)) || r.id, ta: `${r.title}|${r.artist || ''}`.toLowerCase(), t: r.title }; }
+function plMaps() {
+  const byLoc = new Map(), byTa = new Map();
+  if (lib) for (const r of lib.records) { const it = plItem(r); if (!byLoc.has(it.loc)) byLoc.set(it.loc, r); if (!byTa.has(it.ta)) byTa.set(it.ta, r); }
+  return x => byLoc.get(x.loc) || byTa.get(x.ta) || null;
+}
+function plResolve(items, find = plMaps()) { const out = []; for (const x of items) { const r = find(x); if (r && !out.includes(r)) out.push(r); } return out; }
+const plEntry = () => (lib && lib.playlists.find(p => p.special === 'now')) || null;
+const plMode = () => !CAMERA_ROLE && !search.results && !!lib && !!lib.playlists[crateState.pl] && lib.playlists[crateState.pl].special === 'now';
+// the PLAYLIST list and the saved sets go at the end of lib.playlists (rebuilt after every change; the crate keeps its place)
+function plAttach() {
+  if (!lib || CAMERA_ROLE) return;
+  const cur = lib.playlists[crateState.pl], find = plMaps();
+  lib.playlists = lib.playlists.filter(p => !p.special);
+  const recs = plResolve(plNow.items, find);
+  lib.playlists.push({ name: 'PLAYLIST', special: 'now', path: `PLAYLIST${plNow.name ? ' · ' + plNow.name : ''} · ${recs.length} record${recs.length === 1 ? '' : 's'}`, records: recs });
+  for (const st of plSaved) lib.playlists.push({ name: '★ ' + st.name, special: 'set', setId: st.id, path: `★ ${st.name} (saved playlist)`, records: plResolve(st.items, find) });
+  let i = cur ? lib.playlists.indexOf(cur) : -1;
+  if (i < 0 && cur && cur.special) i = lib.playlists.findIndex(p => p.special === cur.special && p.setId === cur.setId);
+  crateState.pl = i >= 0 ? i : Math.max(0, Math.min(crateState.pl, lib.playlists.length - 1));
+}
+function plToggle(r) {
+  const e = plEntry(), find = plMaps(), sel = currentList()[crateState.sel];
+  if (e && e.records.includes(r)) plNow.items = plNow.items.filter(x => find(x) !== r);
+  else plNow.items.push(plItem(r));
+  plStore(); plAttach();
+  const L = currentList(), k = sel ? L.indexOf(sel) : -1;
+  crateState.sel = clamp(k >= 0 ? k : crateState.sel, 0, Math.max(0, L.length - 1));
+  drawCrateScreen(); if (plMode()) layoutSleeves();
+}
+function plOpen() {   // the playlist button: open the PLAYLIST view; pressed there it goes back to where you were
+  if (CAMERA_ROLE) return;
+  if (!lib) lib = emptyLibrary();
+  if (search.results) exitSearch();
+  plAttach();
+  const i = lib.playlists.findIndex(p => p.special === 'now');
+  if (crateState.pl === i) { if (plUI.back && lib.playlists[plUI.back.pl]) { crateState.pl = plUI.back.pl; crateState.sel = plUI.back.sel; } else { crateState.pl = 0; crateState.sel = 0; } plUI.back = null; }
+  else { plUI.back = { pl: crateState.pl, sel: crateState.sel }; crateState.pl = i; crateState.sel = 0; }
+  plUI.view = 'list'; plUI.delArm = null; search.kb = false; search.target = null;
+  drawCrateScreen(); layoutSleeves();
+}
+function plRename(n) { plNow.name = [...(n || '')].slice(0, 28).join(''); plStore(); plAttach(); drawCrateScreen(); }
+function plSave() {
+  if (!plNow.items.length) { crateSay('The playlist is empty: tap ➕ before records first', false, 3500); return; }
+  const name = (plNow.name || '').trim() || 'SET ' + new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).toUpperCase().replace(',', '');
+  plNow.name = name; search.kb = false; search.target = null;
+  const old = plSaved.find(st => st.name.toLowerCase() === name.toLowerCase());
+  if (old) { old.items = plNow.items.slice(); old.made = Date.now(); }
+  else plSaved.push({ id: 's' + Date.now().toString(36), name, made: Date.now(), items: plNow.items.slice() });
+  plStore(); plAttach();
+  crateSay(`${old ? 'Updated' : 'Saved'} "${name}": ${plNow.items.length} record${plNow.items.length === 1 ? '' : 's'} (SETS, or ◀ ▶ to ★ ${name})`, true, 5000);
+}
+function plLoadSet(st) {
+  plNow.items = st.items.slice(); plNow.name = st.name; plStore(); plAttach();
+  plUI.view = 'list'; plUI.delArm = null; crateState.sel = 0; layoutSleeves();
+  const n = plEntry().records.length, miss = st.items.length - n;
+  crateSay(`Loaded "${st.name}": ${n} record${n === 1 ? '' : 's'}${miss > 0 ? `, ${miss} not in this library` : ''}`, miss <= 0, 3500);
+}
+function plDeleteSet(st) { plSaved = plSaved.filter(x => x !== st); plUI.delArm = null; plStore(); plAttach(); crateSay(`Deleted the saved playlist "${st.name}" (the records stay in the crate)`, true, 3500); }
+function plClear() {
+  if (performance.now() > plUI.clearArm) { plUI.clearArm = performance.now() + 3000; setTimeout(drawCrateScreen, 3050); crateSay('Tap SURE? to empty the playlist (saved sets stay)', false, 3000); return; }
+  plUI.clearArm = 0; plNow.items = []; plNow.name = ''; plStore(); plAttach(); crateState.sel = 0; layoutSleeves();
+  crateSay('Playlist emptied', true, 2000);
+}
+function crateSearchRowPl(b) {   // a tap on the PLAYLIST view's search row
+  if (b.id === 'field') { search.target = 'plname'; search.kb = true; drawCrateScreen(); }
+  else if (b.id === 'plsave') plSave();
+  else if (b.id === 'plsets') { plUI.view = plUI.view === 'sets' ? 'list' : 'sets'; plUI.delArm = null; search.kb = false; search.target = null; drawCrateScreen(); }
+  else if (b.id === 'plclear') plClear();
+  else if (b.id === 'mic') openNativeKeyboard();
+  else if (b.id === 'pl') plOpen();
+}
+// the playlist button: three lines and a note, with the count
+function drawPlIcon(g, cx, cy, on, n) {
+  g.save(); g.strokeStyle = on ? '#4aa8f0' : '#e6e9ec'; g.fillStyle = g.strokeStyle; g.lineWidth = 3.5; g.lineCap = 'round';
+  for (const [y, w] of [[-12, 22], [-3, 22], [6, 13]]) { g.beginPath(); g.moveTo(cx - 22, cy + y); g.lineTo(cx - 22 + w, cy + y); g.stroke(); }
+  g.beginPath(); g.moveTo(cx + 11, cy + 9); g.lineTo(cx + 11, cy - 14); g.lineTo(cx + 19, cy - 10); g.stroke();
+  g.beginPath(); g.ellipse(cx + 7, cy + 10, 5, 4, -0.4, 0, Math.PI * 2); g.fill();
+  if (n) { g.fillStyle = '#3fbf6a'; g.beginPath(); g.arc(cx + 22, cy + 14, 11, 0, Math.PI * 2); g.fill(); g.fillStyle = '#fff'; g.font = '800 14px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(n > 99 ? '99' : String(n), cx + 22, cy + 15); }
+  g.restore();
+}
+// ➕ (not in the playlist) or ✔ (in it), before each title
+function drawPlMark(g, cx, cy, inPl) {
+  g.save(); g.lineWidth = 3.5; g.lineCap = 'round'; g.lineJoin = 'round';
+  if (inPl) { g.fillStyle = '#2f9e57'; g.beginPath(); g.arc(cx, cy, 19, 0, Math.PI * 2); g.fill(); g.strokeStyle = '#fff'; g.beginPath(); g.moveTo(cx - 9, cy + 1); g.lineTo(cx - 3, cy + 8); g.lineTo(cx + 10, cy - 8); g.stroke(); }
+  else { g.strokeStyle = '#5d6772'; g.lineWidth = 2.5; g.beginPath(); g.arc(cx, cy, 18, 0, Math.PI * 2); g.stroke(); g.strokeStyle = '#c9d0d8'; g.lineWidth = 3.5; g.beginPath(); g.moveTo(cx - 9, cy); g.lineTo(cx + 9, cy); g.moveTo(cx, cy - 9); g.lineTo(cx, cy + 9); g.stroke(); }
+  g.restore();
 }
 function drawMilkIcon(g, cx, cy, can) {
   g.save(); g.strokeStyle = can ? '#3fbf6a' : '#3d454e'; g.lineWidth = 3;
@@ -2285,6 +2446,7 @@ function cratePlaylist(delta) {
   if (!lib) return;
   if (search.results) { exitSearch(); return; }
   crateState.pl = (crateState.pl + delta + lib.playlists.length) % lib.playlists.length;
+  plUI.view = 'list'; if (search.target) { search.target = null; search.kb = false; }   // #392
   crateState.sel = 0; drawCrateScreen(); layoutSleeves();
   toast(lib.playlists[crateState.pl].path, 1400);
 }
@@ -3147,7 +3309,9 @@ function crateScreenPress(uv) {
   if (py < CS.head) { if (search.results) exitSearch(); else cratePlaylist(px < c.width / 2 ? -1 : 1); return; }
   if (py < SB.y + SB.h) {
     const b = search.btns.find(inR); if (!b) return;
-    if (b.id === 'mic') openNativeKeyboard();
+    if (plMode()) { crateSearchRowPl(b); return; }   // #392
+    if (b.id === 'pl') plOpen();   // #392
+    else if (b.id === 'mic') openNativeKeyboard();
     else if (b.id === 'milk') { spawnMilk(); drawCrateScreen(); }
     else if (b.id === 's45') crate45s();
     else if (b.id === 'clear') exitSearch();
@@ -3164,6 +3328,14 @@ function crateScreenPress(uv) {
     else drawCrateScreen();
     return;
   }
+  if (plMode() && plUI.view === 'sets') {   // #392 SETS: load, or ✕ twice to delete
+    const st = k >= 0 && k < R.ROWS ? plSaved[plUI.setsStart + k] : null; if (!st) return;
+    if (px >= c.width - 140) { if (plUI.delArm === st.id) plDeleteSet(st); else { plUI.delArm = st.id; drawCrateScreen(); } }
+    else plLoadSet(st);
+    return;
+  }
+  if (plUI.delArm) plUI.delArm = null;
+  if (k >= 0 && k < R.ROWS && px < 70 && !CAMERA_ROLE) { const r = currentList()[R.start + k]; if (r) { plToggle(r); return; } }   // #392 ➕ / ✔
   if (k >= 0 && k < R.ROWS) {
     const idx = R.start + k, r = currentList()[idx];
     const id = ++crateHoldSeq;
@@ -4395,7 +4567,7 @@ function drawPhoneIcon(g, px, py, pw, ph, on) {   // small phone icon; its LED i
 // VJ TOOLS (Scroller). Pages: home, dj, vj, maker, pickSong, pickVideo, pickImage, kbd, scroller.
 let streamEndArm = 0;   // #331 END STREAM takes two taps
 let pickItems = [], pickPg = 0;   // toolsPage is declared with videoPage (drawMixScreen reads it early)
-const maker = { kind: 'blank', song: null, video: null, image: null, name: '', busy: false, msg: '', msgOk: true, size: 12 };   // #261 size: 12 or 7 (inches)
+const maker = { kind: 'blank', song: null, video: null, image: null, name: '', busy: false, msg: '', msgOk: true, size: 12, art: null, artLabelBmp: null };   // #393 art: { rel, front, label, back } blobs from FETCH ART   // #261 size: 12 or 7 (inches)
 // #225 the Record Maker's answers show on the tablet (toast() is a desktop-only overlay, invisible in the headset)
 let makerMsgT = 0;
 function makerSay(text, ok, ms = 5000) {
@@ -4530,6 +4702,53 @@ function makerSourceText() {
   if (maker.kind === 'clip') return maker.video ? `Clip: ${maker.video.replace(/\.[^.]+$/, '')} (its sound, and it plays on the record)` : 'Clip: pick one (CLIP…)';
   return 'Blank: generic grooves (quiet vinyl crackle)';
 }
+// ---- #393 FETCH ART (Record Maker): sleeve, label A and back cover from Discogs / MusicBrainz, see artfetch.js
+const art = { q: '', dg: true, mb: true, busy: false, searched: false, results: [], errors: [], pg: 0, rel: null, imgs: [], slots: { front: null, label: null, back: null }, slot: 'front', ipg: 0, msg: '' };
+const artRedraw = () => { if (toolsPage === 'art' || toolsPage === 'artpick' || toolsPage === 'maker') drawMixScreen(); };
+function artSummary() {
+  const A = maker.art, ok = k => (A[k] ? '✓' : '–');
+  return `Art: sleeve ${ok('front')}  label ${ok('label')}  back ${ok('back')}  ·  ${A.rel.title}${A.rel.year ? ' (' + A.rel.year + ')' : ''}`;
+}
+function drawArtThumb(g, t, x, y, w, h, empty) {
+  g.fillStyle = '#121824'; g.fillRect(x, y, w, h);
+  if (t && t !== 'loading') { const s = Math.max(w / t.width, h / t.height), sw = w / s, sh = h / s; g.drawImage(t, (t.width - sw) / 2, (t.height - sh) / 2, sw, sh, x, y, w, h); return; }
+  g.fillStyle = '#56627a'; g.font = '600 12px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(empty ? '' : t === 'loading' ? '…' : 'no art', x + w / 2, y + h / 2); g.textBaseline = 'alphabetic';
+}
+function openArtPage() {
+  if (!art.q) { const s = maker.kind === 'song' && maker.song; art.q = s ? (s.artist ? s.artist + ' - ' : '') + s.title : maker.name || ''; }
+  setTools('art');
+  if (art.q && !art.results.length && !art.busy) runArtSearch();
+}
+async function runArtSearch() {
+  const { artist, title } = splitQuery(art.q);
+  if (!title) { art.errors = ['Type ARTIST - TITLE first (SEARCH…)']; drawMixScreen(); return; }
+  if (!art.dg && !art.mb) { art.errors = ['Switch on DISCOGS or MUSICBRAINZ']; drawMixScreen(); return; }
+  art.busy = true; art.results = []; art.errors = []; art.pg = 0; artRedraw();
+  try { const r = await searchArt(title, artist, { discogs: art.dg && !!discogsToken(), mb: art.mb }); art.results = r.results; art.errors = r.errors; if (art.dg && !discogsToken()) art.errors.push('Discogs skipped: no token (TOKEN…)'); }
+  catch (e) { art.errors = [e.message]; }
+  art.busy = false; art.searched = true; artRedraw();
+}
+async function openArtRelease(rel) {
+  art.rel = rel; art.imgs = []; art.slots = { front: null, label: null, back: null }; art.slot = 'front'; art.ipg = 0; art.msg = ''; art.busy = true;
+  setTools('artpick');
+  try { art.imgs = await releaseImages(rel); art.slots = guessSlots(art.imgs); art.slot = !art.slots.front ? 'front' : !art.slots.label ? 'label' : !art.slots.back ? 'back' : 'front'; }
+  catch (e) { art.msg = e.message; }
+  art.busy = false; artRedraw();
+}
+async function useArt() {
+  const S = art.slots; if (!S.front && !S.label && !S.back) { art.msg = 'Pick at least one picture (SLEEVE, LABEL A or BACK)'; drawMixScreen(); return; }
+  art.busy = true; art.msg = ''; drawMixScreen();
+  try {
+    const get = async im => (im ? imageBlob(im.url, im.src).catch(() => imageBlob(im.thumb, im.src)) : null);   // the big picture, else the small one
+    const [front, label, back] = await Promise.all([get(S.front), get(S.label), get(S.back)]);
+    maker.art = { rel: { src: art.rel.src, id: art.rel.id, title: art.rel.title, artist: art.rel.artist, year: art.rel.year }, front, label, back };
+    maker.artLabelBmp = label ? await createImageBitmap(label) : front && !maker.image ? await createImageBitmap(front) : null;   // the preview (a sleeve only: the label shows the sleeve, as with MP3s)
+    if (!maker.name) maker.name = cleanText(art.rel.title || '', 32);
+    art.busy = false; setTools('maker');
+    makerSay(`Art ready: ${artSummary().replace(/^Art: /, '')}. STAMP RECORD when you are set.`, true, 5000);
+  } catch (e) { art.busy = false; art.msg = 'Pictures not fetched: ' + e.message; drawMixScreen(); }
+}
 async function pressRecord() {
   if (maker.busy) return;
   if (maker.kind === 'song' && !maker.song) { makerSay('Pick a song first (SONG…)', false, 3000); return; }
@@ -4538,18 +4757,21 @@ async function pressRecord() {
   const title = maker.name.trim() || `DUBPLATE ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`;
   maker.busy = true; drawMixScreen();
   try {
-    let label = null;
-    if (maker.image) { const f = await media.getFile('Images', maker.image); if (f) label = await labelFrom(f); }
+    let label = null; const extra = {}, A = maker.art;
+    if (A && A.label) label = await labelFrom(A.label);   // #393 the fetched label wins over a PICTURE…
+    else if (maker.image) { const f = await media.getFile('Images', maker.image); if (f) label = await labelFrom(f); }
+    if (A && A.front) extra.cover = await labelFrom(A.front, 1024);
+    if (A && A.back) extra.back = await labelFrom(A.back, 1024);
     const s = maker.song, src = maker.kind === 'blank' ? { kind: 'blank' } : maker.kind === 'clip' ? { kind: 'video', video: maker.video }
       : { kind: 'song', opfs: s.opfs || null, url: s.url || null, bpm: s.bpm || 0, artist: s.artist || '', from: s.title };
-    const p = await savePressing({ id: 'p' + Date.now().toString(36), title, src, made: Date.now(), size: maker.size === 7 ? 7 : 12 }, label);
+    const p = await savePressing({ id: 'p' + Date.now().toString(36), title, src, made: Date.now(), size: maker.size === 7 ? 7 : 12 }, label, extra);
     if (!lib) lib = emptyLibrary();
-    const r = addPressings(lib, [p]);
+    const r = addPressings(lib, [p]); plAttach();   // #392 keep the playlists at the end
     const where = p.size === 7 ? '45s' : 'Unsorted', pi = lib.playlists.findIndex(pl => pl.name === where);   // #261
     search.q = ''; search.results = null; searchInput.value = '';
     crateState.pl = pi; crateState.sel = Math.max(0, lib.playlists[pi].records.indexOf(r));
     drawCrateScreen(); layoutSleeves();
-    maker.busy = false; maker.name = '';
+    maker.busy = false; maker.name = ''; maker.art = null; maker.artLabelBmp = null;   // #393
     makerSay(`✓ STAMPED "${title}"${p.size === 7 ? ' (7")' : ''}: in the crate, ${where}`, true, 6000);
   } catch (e) { maker.busy = false; makerSay('Not stamped: ' + e.message, false, 6000); }
   maker.busy = false; drawMixScreen();
@@ -4608,6 +4830,11 @@ async function pressArt(track) {
   if (artCache.has(track.id)) return artCache.get(track.id);
   let art = null;
   try { const f = await readLabel(track.press); if (f) { art = await createImageBitmap(f); artBlobs.set(track.id, f); } } catch {}
+  try {   // #393 a fetched sleeve: the front is the cover, the label picture stays the label; the back cover goes on the sleeve's back
+    const cv = await readPic(track.press, 'cover');
+    if (cv) { if (art) labelArt.set(track.id, art); art = await createImageBitmap(cv); artBlobs.set(track.id, cv); }
+    const bk = await readPic(track.press, 'back'); if (bk) backBlobs.set(track.id, bk);
+  } catch {}
   artCache.set(track.id, art); return art;
 }
 async function pressBytes(track) {
@@ -4617,7 +4844,7 @@ async function pressBytes(track) {
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
 }
-const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP' };   // #363 up-button names; #376
+const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP' };   // #363 up-button names; #376
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -5300,7 +5527,7 @@ function drawToolsPage() {
   }
   if (page === 'maker') {
     const y0 = head('RECORD MAKER', 'dj');
-    const bmp = maker.image ? vpThumb('Images', maker.image) : null;
+    const bmp = maker.artLabelBmp || (maker.image ? vpThumb('Images', maker.image) : null);   // #393
     let x0, cy0, rad;
     const k7 = maker.size === 7 ? 0.573 : 1;   // #261 the preview shrinks to 7" (175 / 305 mm)
     if (P) { rad = 92; drawDisc(g, W / 2, y0 + rad + 4, rad * k7, bmp, maker.name || 'BLANK', k7 < 1); x0 = L; cy0 = y0 + 2 * rad + 20; }
@@ -5316,13 +5543,14 @@ function drawToolsPage() {
     sub(makerSourceText(), y + bo + 52); y += 64 + bo;
     row(y, 'LABEL');
     btn(x0 + lw, y + bo, bw, 34, 'PICTURE…', !!maker.image, () => setTools('pickImage'));
-    btn(x0 + lw + bw + 6, y + bo, bw, 34, 'NONE', !maker.image, () => { maker.image = null; });
+    btn(x0 + lw + bw + 6, y + bo, bw, 34, 'NONE', !maker.image && !(maker.art && maker.art.label), () => { maker.image = null; if (maker.art) { maker.art.label = null; maker.artLabelBmp = null; } });
     btn(x0 + lw + 2 * (bw + 6), y + bo, bw, 34, maker.size === 7 ? 'SIZE: 7"  45' : 'SIZE: 12"', maker.size === 7, () => { maker.size = maker.size === 7 ? 12 : 7; });   // #261
-    sub((maker.image ? 'Picture: ' + maker.image.replace(/\.[^.]+$/, '') : 'Plain red label with the name') + (maker.size === 7 ? '  ·  7" single, 45 rpm, needs the adapter, into the 45s list' : ''), y + bo + 52); y += 64 + bo;
+    sub((maker.art ? artSummary() : maker.image ? 'Picture: ' + maker.image.replace(/\.[^.]+$/, '') : 'Plain red label with the name') + (maker.size === 7 ? '  ·  7" single, 45 rpm, needs the adapter, into the 45s list' : ''), y + bo + 52); y += 64 + bo;
     row(y, 'NAME');
     btn(x0 + lw, y + bo, bw, 34, 'NAME…', false, () => openKbd('RECORD NAME', maker.name, false, 32, t => { maker.name = t.trim(); }, 'maker'));
+    btn(x0 + lw + bw + 6, y + bo, bw, 34, 'FETCH ART…', !!maker.art, openArtPage, false, 15);   // #393 Discogs / MusicBrainz
     g.fillStyle = maker.name ? '#ffffff' : '#56627a'; g.font = '600 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
-    fitText2(g, maker.name || '(no name yet)', x0 + lw + bw + 14, y + bo + 17, R - x0 - lw - bw - 14); g.textBaseline = 'alphabetic';
+    fitText2(g, maker.name || '(no name yet)', x0 + lw + 2 * bw + 20, y + bo + 17, R - x0 - lw - 2 * bw - 20); g.textBaseline = 'alphabetic';
     y += 46 + bo;
     const sh = P ? 52 : Math.min(52, H - y - 6);
     if (maker.msg && !maker.busy) {   // #225 the answer, on the tablet; tap to clear
@@ -5348,6 +5576,104 @@ function drawToolsPage() {
     const by = P ? H - 62 : H - 44;
     btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
     btn(L + 48, by, 44, 36, '›', false, () => { pickPg = Math.min(pages - 1, pickPg + 1); }, pickPg >= pages - 1);
+    return;
+  }
+  if (page === 'art') {   // #393 FETCH ART: search Discogs / MusicBrainz, then open a release
+    const tokOk = !!discogsToken();
+    const y0 = head('FETCH ART', 'maker', { label: tokOk ? 'TOKEN' : 'TOKEN…', on: !tokOk && art.dg, act: () => openKbd('DISCOGS TOKEN (MIC / KEYS, paste)', '', false, 64, t => { if (t.trim()) { setDiscogsToken(t.trim()); makerSay('Discogs token kept on this headset', true, 3000); } }, 'art') });
+    const per = P ? 9 : 4, pages = Math.max(1, Math.ceil(art.results.length / per)); art.pg = Math.min(art.pg, pages - 1);
+    const qTxt = (x, y, w) => { g.fillStyle = art.q ? '#ffffff' : '#56627a'; g.font = '600 16px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; fitText2(g, art.q || 'ARTIST - TITLE', x, y + 17, w); g.textBaseline = 'alphabetic'; };
+    const askQ = () => openKbd('ARTIST - TITLE', art.q, false, 60, t => { art.q = t.trim(); if (art.q) runArtSearch(); }, 'art');
+    let ly;
+    if (P) {
+      btn(L, y0, 110, 34, 'SEARCH…', false, askQ); qTxt(L + 118, y0, R - L - 118);
+      const w3 = (R - L - 12) / 3;
+      btn(L, y0 + 40, w3, 34, 'DISCOGS', art.dg, () => { art.dg = !art.dg; }, false, 14);
+      btn(L + w3 + 6, y0 + 40, w3, 34, 'MUSICBRAINZ', art.mb, () => { art.mb = !art.mb; }, false, 13);
+      btn(L + 2 * (w3 + 6), y0 + 40, w3, 34, art.busy ? 'FINDING…' : 'FIND', art.busy, art.busy ? null : runArtSearch);
+      ly = y0 + 84;
+      btn(L, H - 62, 44, 36, '‹', false, () => { art.pg = Math.max(0, art.pg - 1); }, art.pg === 0);
+      btn(L + 48, H - 62, 44, 36, '›', false, () => { art.pg = Math.min(pages - 1, art.pg + 1); }, art.pg >= pages - 1);
+      if (art.results.length) { g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; g.fillText(`${art.pg + 1} / ${pages}`, L + 100, H - 40); }
+    } else {
+      const fx = R - 6 * 6 - 100 - 112 - 72 - 40 - 40;
+      btn(L, y0, 96, 34, 'SEARCH…', false, askQ); qTxt(L + 104, y0, fx - L - 104);
+      btn(fx + 6, y0, 100, 34, 'DISCOGS', art.dg, () => { art.dg = !art.dg; }, false, 14);
+      btn(fx + 112, y0, 112, 34, 'MUSICBRAINZ', art.mb, () => { art.mb = !art.mb; }, false, 13);
+      btn(fx + 230, y0, 72, 34, art.busy ? '…' : 'FIND', art.busy, art.busy ? null : runArtSearch);
+      btn(R - 86, y0, 40, 34, '‹', false, () => { art.pg = Math.max(0, art.pg - 1); }, art.pg === 0);
+      btn(R - 40, y0, 40, 34, '›', false, () => { art.pg = Math.min(pages - 1, art.pg + 1); }, art.pg >= pages - 1);
+      ly = y0 + 42;
+    }
+    const RH = P ? 58 : 46;
+    if (art.busy) note('Searching ' + [art.dg && 'Discogs', art.mb && 'MusicBrainz'].filter(Boolean).join(' and ') + '…', ly + 16);
+    else if (!art.results.length) note(art.errors.length ? art.errors.join('  ·  ') : art.searched ? 'Nothing found. Try SEARCH… with ARTIST - TITLE (a dash between them), or switch a source on.'
+      : (art.dg && !tokOk ? 'Discogs needs your token on this headset: TOKEN… (paste with MIC / KEYS), or open the app once with ?discogs=YOURTOKEN. ' : '') + 'SEARCH… type ARTIST - TITLE, then FIND. Vinyl pressings come first; pick one to choose its sleeve, label and back cover.', ly + 16);
+    else {
+      art.results.slice(art.pg * per, art.pg * per + per).forEach((rr, k) => {
+        const y = ly + k * RH, h = RH - 6, th = h;
+        g.fillStyle = '#0d1422'; g.fillRect(L, y, R - L, h);
+        drawArtThumb(g, artThumb(rr.thumb, rr.src, artRedraw), L, y, th, th);
+        g.textAlign = 'left'; g.textBaseline = 'middle';
+        g.fillStyle = '#dfe6f2'; g.font = '600 16px system-ui'; fitText2(g, `${rr.title}${rr.artist ? '  ·  ' + rr.artist : ''}`, L + th + 10, y + h * 0.32, R - L - th - 20);
+        g.fillStyle = rr.vinyl ? '#f1b650' : '#8c96a8'; g.font = '500 13px system-ui';
+        fitText2(g, [rr.year, rr.format, rr.label, rr.src === 'mb' ? 'MUSICBRAINZ' : 'DISCOGS'].filter(Boolean).join('  ·  '), L + th + 10, y + h * 0.74, R - L - th - 20);
+        g.textBaseline = 'alphabetic';
+        VP_HIT.push({ x: L, y, w: R - L, h, act: () => openArtRelease(rr) });
+      });
+      if (art.errors.length) { g.fillStyle = '#c86a5a'; g.font = '500 12px system-ui'; g.textAlign = 'left'; fitText2(g, art.errors.join('  ·  '), L + 4, P ? H - 76 : H - 4, R - L - 8); }
+    }
+    return;
+  }
+  if (page === 'artpick') {   // #393 choose SLEEVE, LABEL A, BACK from the release's pictures
+    const y0 = head('PICK THE ART', 'art');
+    const rel = art.rel || {};
+    const SL = [['front', 'SLEEVE'], ['label', 'LABEL A'], ['back', 'BACK']];
+    const slot = (key, name, x, y, w, h) => {
+      const on = art.slot === key, im = art.slots[key];
+      g.fillStyle = on ? '#c8202c' : '#1a2233'; g.fillRect(x, y, w, h);
+      const ts = h - 8; drawArtThumb(g, im ? artThumb(im.thumb, im.src, artRedraw) : null, x + 4, y + 4, ts, ts, !im);
+      g.fillStyle = '#fff'; g.font = '700 15px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+      if (w - ts > 40) { fitText2(g, name, x + ts + 12, y + h * 0.36, w - ts - 16); g.fillStyle = on ? '#ffd9d9' : '#8c96a8'; g.font = '500 12px system-ui'; fitText2(g, im ? 'tap a picture to change' : on ? 'tap a picture' : 'none', x + ts + 12, y + h * 0.7, w - ts - 16); }
+      else { g.textAlign = 'center'; g.font = '700 12px system-ui'; g.fillText(name, x + w / 2, y + h - 10); }
+      g.textBaseline = 'alphabetic';
+      VP_HIT.push({ x, y, w, h, act: () => { art.slot = key; } });
+    };
+    let gx, gy, gw, gh, cols;
+    if (P) {
+      const sw = (R - L - 12) / 3; SL.forEach(([k, n], i) => slot(k, n, L + i * (sw + 6), y0, sw, 96));
+      btn(L, H - 62, R - L - 100, 40, art.busy ? 'FETCHING…' : 'USE THIS ART', art.busy, art.busy ? null : useArt, !art.imgs.length, 18);
+      gx = L; gy = y0 + 104; gw = R - L; gh = H - 70 - gy; cols = 3;
+    } else {
+      const sw = 214; SL.forEach(([k, n], i) => slot(k, n, L, y0 + i * 64, sw, 58));
+      btn(L, y0 + 196, sw, 44, art.busy ? 'FETCHING…' : 'USE THIS ART', art.busy, art.busy ? null : useArt, !art.imgs.length, 18);
+      gx = L + sw + 10; gy = y0; gw = R - gx; gh = H - 40 - gy; cols = Math.floor((gw + 6) / 84);
+    }
+    const ts = Math.floor((gw - (cols - 1) * 6) / cols), rowsN = Math.max(1, Math.floor((gh + 6) / (ts + 6)));
+    const per = cols * rowsN, pages = Math.max(1, Math.ceil(art.imgs.length / per)); art.ipg = Math.min(art.ipg, pages - 1);
+    if (art.busy && !art.imgs.length) note('Opening the release…', gy + 16);
+    else if (!art.imgs.length) note(art.msg || 'This release has no pictures. BACK and pick another pressing.', gy + 16);
+    art.imgs.slice(art.ipg * per, art.ipg * per + per).forEach((im, i) => {
+      const x = gx + (i % cols) * (ts + 6), y = gy + Math.floor(i / cols) * (ts + 6);
+      drawArtThumb(g, artThumb(im.thumb, im.src, artRedraw), x, y, ts, ts);
+      const used = SL.filter(([k]) => art.slots[k] === im).map(([, n]) => n[0]).join(' ');
+      if (im.kind !== 'other' || used) {
+        const tag = used || im.kind;   // red S / L / B = in that slot; grey front / back / label = how the source names it
+        g.font = '700 13px system-ui'; g.fillStyle = used ? '#c8202c' : 'rgba(5,7,12,0.75)'; g.fillRect(x + 2, y + 2, g.measureText(tag).width + 10, 20);
+        g.fillStyle = '#fff'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(tag, x + 7, y + 13); g.textBaseline = 'alphabetic';
+      }
+      VP_HIT.push({ x, y, w: ts, h: ts, act: () => {
+        if (art.slots[art.slot] === im) art.slots[art.slot] = null;   // tapped again: that slot is empty
+        else { art.slots[art.slot] = im; const n = SL.findIndex(([k]) => k === art.slot); art.slot = SL[(n + 1) % 3][0]; }
+      } });
+    });
+    const iy = P ? H - 18 : H - 30;
+    g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    const info = `${rel.title || ''}${rel.year ? ' (' + rel.year + ')' : ''}  ·  ${art.imgs.length} picture${art.imgs.length === 1 ? '' : 's'}${art.imgs.length && rel.src === 'discogs' ? '  ·  Discogs pictures are not named: check the label and back' : ''}`;
+    if (P) { fitText2(g, info, L + 4, H - 12, R - L - 8); btn(R - 92, H - 62, 44, 40, '‹', false, () => { art.ipg = Math.max(0, art.ipg - 1); }, art.ipg === 0); btn(R - 44, H - 62, 44, 40, '›', false, () => { art.ipg = Math.min(pages - 1, art.ipg + 1); }, art.ipg >= pages - 1); }
+    else { fitText2(g, info, gx + 4, iy + 12, gw - 100); btn(R - 86, iy - 4, 40, 32, '‹', false, () => { art.ipg = Math.max(0, art.ipg - 1); }, art.ipg === 0); btn(R - 40, iy - 4, 40, 32, '›', false, () => { art.ipg = Math.min(pages - 1, art.ipg + 1); }, art.ipg >= pages - 1); }
+    g.textBaseline = 'alphabetic';
+    if (art.msg && art.imgs.length) { g.fillStyle = '#c86a5a'; g.font = '600 13px system-ui'; g.textAlign = 'left'; fitText2(g, art.msg, gx + 4, P ? gy - 6 : iy - 8, gw - 8); }
     return;
   }
   if (page === 'pickVideo' || page === 'pickImage') {
@@ -6190,6 +6516,7 @@ if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
 window.vire = { THREE, get fx() { return fx; }, skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };   // #392 / #393 test hooks
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
 if (CAMERA_ROLE) {

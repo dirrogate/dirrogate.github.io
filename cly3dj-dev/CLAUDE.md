@@ -482,3 +482,83 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
   - js/models.js + textures.js: procedural decks (strobe rows that stand still at 169/174/180/186-dot speeds), tonearm solved from groove radius, mixer, flight-case crate with screen and instanced sleeves. Record grooves = loudness-driven colour/roughness + anisotropy map (radial highlight). Labels from ID3 art, title/BPM overlay default on for sides without art, L toggles.
   - Desktop mouse only; XR buttons enter a static preview (no hand input yet).
 - Next: owner test on PC, then Quest pass (hands/controllers, perf, texture sizes).
+
+## #383 S8: Quest picture when Chrome 101 shows 0 Quest frames (cly3dj-dev, c93f802)
+- studio.js: Quest frame detection now uses currentTime AND getVideoPlaybackQuality().totalVideoFrames; if neither ever moves (and no rVFC), the picture is copied on every draw ("blind", only when no signal ever moved in the session). Before, haveQ stayed false and the S8 would have shown no Quest picture at all.
+- s8test.html: same detection; a note says when the counter is unavailable; read the "Quest stream decode" line for the true decode fps.
+- Backup: backups/pre-383/. No server restart needed.
+
+## #384 s8test camera request = studio request (25 fps min 24, EV +1), logged on the page (cly3dj-dev)
+
+## #385 owner list after the first S8 STUDIO run (cly3dj-dev)
+- fixedcam.js: the blue "Calibrated: ..." box never closed (it cleared only `if (!S.cal)`, and S.cal is the finished calibration). Now clears after 12 s unless replaced, and a tap on it closes it.
+- main.js: showPrep and mrPrep now hide the spectator helpers (blue camera outline, calibration panel) like pcamPrep did, so they can't land in a stream / studio picture. pcamPrep also hides the DJ CAM avatar.
+- main.js phoneRobotState: no robot data to the S8 while the studio is in LIVE DJ! / LIVE KEY!; spectator-client.js robotFrame: robot forced off there too (it could freeze at its last pose).
+- xr.js: tip ball (the interaction sphere) 13.5 -> 6.75 mm. The grab REACH (4 cm, 5 cm tonearm) is unchanged: say if it should shrink too.
+- xr.js: decks no longer ratchet in 45 degree steps. softSnap: free twist, pulled in within 6 degrees of each 45 (exact inside 2, eased between, one light tick). snapStep is now unused. Mouse wheel / shift-drag still step 45.
+- main.js: new tablet page S8 KEY (S8 STUDIO > KEY ▸): colour, AUTO KEY, PREVIEW, LIVE KEY!, STRENGTH, SOFTNESS, SPILL, DOME MATCH, CROP L/R/T/B. Uses the existing 'cset' key/auto remote. The studio page's third row is now 5 buttons.
+- Backup: backups/pre-385/. No server restart needed.
+
+## #386 robot visible in the headset room (cly3dj-dev)
+- fx.js USER_LAYER was 6, the same layer as director.js AV_LAYER (the robot). #379 fx.preRender enables USER_LAYER on the headset eye cameras every frame, so the eyes drew the avatar (it stood frozen at its start pose, then jumped onto the DJ once posed). USER_LAYER is now 7. Layers in use: 0 scene, 1/2 eyes, 5 deck-inst HIDE, 6 robot, 7 FX/DJ-only helpers, 30 phone camera quad.
+- Side effect fixed: the FLOAT ball (DJ-only) no longer shows in the stream when ROBO-BODY is on.
+- Backup: backups/pre-385/fx.js. No server restart needed.
+
+## #387 PERFCAP gets its own page (cly3dj-dev)
+- PerfCap (● PERFCAP, MARKS, SAVE TAKE) left the VISUALS > CAMERA tab. New tablet page `perfcap`, opened by a PERFCAP button on VJ TOOLS (landscape: right of the LED CURVE / LED SIZE row; portrait: under them). Button shows ● and the clock while recording.
+- CAMERA tab now has 6 top buttons (SET, AUTO KEY, MATTE, PREVIEW, LOOK, ROOM LIGHT); all but PREVIEW dim without the phone.
+- Page shows record time and size, plus the short take procedure. 1 s redraw while open.
+- Backup: backups/pre-387/main.js. No server restart needed (static files).
+
+## #388 MIC / KEYS on the tablet KEYBOARD page (cly3dj-dev)
+- KEYBOARD page header has a MIC / KEYS button (left of the parent button). It focuses a real <input> (`tabletText`), the same trick as the crate search mic, so the Meta system keyboard and its voice dictation open in the headset. Typed or dictated text is mirrored into the page's text; Enter in the system keyboard = ENTER (OK) on the page.
+- A fingertip poke may not count as a user gesture: if the keyboard does not open, the button arms itself (red) and the next trigger press or pinch anywhere opens it (hooked into crateMicSelect, which xr.js already calls first on every select). A toast says so.
+- Leaving the KEYBOARD page closes the field. The on-tablet keys still work as before.
+- Untested in the headset. Backup: backups/pre-387/main-kbd.js. No server restart.
+
+## #389 menu streamlining from the owner's mark-up (cly3dj-dev)
+- PREVIEW (the stream monitor, setMonitor) is now a master button: top right, left of BACK, on the mixer screen (replaces VISUALS), every TOOLS page header, and the VISUALS page. Removed from STREAM.
+- Mixer bottom bar: TOOLS, RESET MIX, STREAM (● LIVE when on air), CLY3DTV, STUDIO (landscape one row; portrait: STREAM/CLY3DTV/STUDIO on a row above TOOLS/RESET MIX). The "● LIVE ON TWITCH" text is gone (the STREAM button shows it). Test buttons GLASS TEST / CAM 2ND FRAME / FPS left the TOOLS page (code kept; FPS readout still shows beside the bar if testState.fps was set).
+- TOOLS page: CHALKBOARD replaced by CLY3DTV.
+- VJ TOOLS is a 12-button grid: SCROLLER, VISUALS, LED WALL, NEON, AVATAR, CHALKBOARD, PORTALS, PORTALS SETUP, LED AVACAM (LED wall mode), CAM FIT, PHONE CAM (opens its setup page), PERFCAP; LED CURVE / LED SIZE steppers under. PORTALS SETUP and CAM FIT now go up to VJ TOOLS.
+- STREAM page: sources CARD, SHOWTIME!, VJ SETUP (AVACAM source button gone); CHAT left the header (the row button is now CHAT ▸ and opens the chat page); PORTALS, PORTALS SETUP, CAM FIT, PREVIEW and the TV button left. GOPRO, GOPRO2 and ZOOM (of whichever is out) sit beside GO LIVE.
+- GOPRO2: a second GoPro (`gopro2`, key vire.gopro2, preset 'gopro2'), starts 1.4 m above the decks looking straight down, WIDE zoom. One camera at a time (gpActive()). Double-tap on GOPRO / GOPRO2 (STREAM or SHOWTIME! button) = back to its start. gopro.js takes (rig, home, key, defZoom) and home() may return pitch.
+- SHOWTIME! OBJECTS: camera row GOPRO, GOPRO2, FRONT, FADERS, HEADSET CAM; PHONE CAM moved to the objects row (where the GOPRO prop switch was; O.gopro stays on by default); FULL / LEAN / FIRST PERSON removed.
+- VISUALS: CAMERA tab renamed REMOTE CAM (PerfCap already left it, #387); the AVACAM tab is now GOPROS and opens SHOWTIME! OBJECTS (the AVACAM tab's MIRROR and ROBOT / HUMAN STYLE controls have no UI now; defaults stay). PANO tab: SPIN slider replaced by a PANO TURN bar (0 to 359, same value as the start page's Pano turn); saved spin is ignored. Tab row narrowed for the PREVIEW button.
+- PORTALS SETUP: DOME TURN slider (dome.turn, saved with the dome, added to the dome's angle on top of the pano turn).
+- Owner's mark-up asked to remove RESET MIX from VISUALS: it was never on the real VISUALS page (only on my map), nothing to do.
+- Untested in the headset. Backups: backups/pre-389/ (main.js, gopro.js, director.js).
+
+## #390 FX button on VJ TOOLS (cly3dj-dev)
+- The FX page (#379, the VISUALS > FX tab) is also a button on VJ TOOLS, right after VISUALS (`openFxPage`: opens VISUALS on the FX tab). VJ TOOLS landscape is now 5 buttons across (13 buttons); portrait 2 across. The FX tab stays on VISUALS too. Backup: backups/pre-389/main-fx.js.
+
+## #391 LIGHT PHONE for video panos (cly3dj-dev)
+- VISUALS > PANO: a video pano now has LIGHT PHONE too. `lightFrame(name)` (main.js, above `lightPhone`) seeks the clip to frame 61 (2 s at 30 fps, past any fade-in; clamped for short clips), draws it to a 2048 px canvas and saves it with `media.importFile('Pano', ...)` as `<name> light frame.jpg`. `lightPhone` then sends that still to the phone as before (Fixed camera must be on). The frame is reused if it already exists.
+- A video pano as the phone's background already worked: SKY on the Quest sends `m.media`, and vset.js plays the phone's own copy (copy files over with VISUALS > SYNC, tag VPANO).
+- Backup: `backups/pre-391/main.js`. No server restart (static files).
+
+## PARKED 18 Oct: signalling without ntfy.sh (revisit later)
+- ntfy.sh only carries the handshake (net-link.js `RELAY`); after that the Quest and phone talk directly over the LAN. Google STUN is the only other internet piece and is not needed on one subnet.
+- Backup idea (owner agreed in principle, not built): a "relay address" setting, ntfy.sh default, a free public MQTT broker over wss as the second path (needs a small MQTT client), or a Cloudflare Workers / Deno relay, or server.js behind Pinggy (PC must stay on).
+- GitHub Pages cannot host a relay (static only). A true no-internet hotspot needs a local https relay (Termux on the M33 is possible); the open problem is https from the Quest to a LAN address. Test on the PC first.
+- A phone hotspot with mobile data on works today with ntfy.sh (the handshake is a few KB).
+
+## #392 PLAYLIST on the crate lid (owner, 18 Oct) (cly3dj-dev)
+- Every crate row starts with ➕ (tap zone x < 70 px on the 1024 px lid canvas); tapped, the record joins the working playlist and the mark turns to a green ✔ (tap again to take it out). Titles moved right to x 74 (`PLX`). Not on the phone (CAMERA_ROLE).
+- New playlist button in the search row, left of 45 / milk crate / keyboard / mic (field is one button narrower). Green badge = count. It opens the PLAYLIST view (pressed there: back to where you were, like the 45s button).
+- PLAYLIST view search row: NAME field (tap: on-screen keys type the name; the 🎤 opens the Meta keyboard for the name), SAVE (same name updates that set, empty name = "SET 18 OCT 21:40"), SETS / LIST (saved playlists: tap to load into the working playlist, ✕ then DELETE? to remove), CLEAR (two taps, saved sets untouched).
+- The working playlist and every saved set are lists at the end of `lib.playlists` (`special: 'now' | 'set'`, rebuilt by `plAttach()` after library load, every change and every STAMP), so ◀ ▶ reaches them (★ NAME) and pull, the sleeves, SONG… in the Record Maker all work from them.
+- Storage: localStorage `vire.plNow` and `vire.playlists`. A record is stored as { loc (Rekordbox location / headset path / URL), ta (title|artist lower case) }: found by file first, then by title + artist (survives reloads, Unsorted ID3 renames, PC vs headset source).
+- Global UI state is `plUI` (not `pl`: drawCrateScreen has a local `pl` = the current playlist).
+- Tested in the PC pane: add 3, remove from inside the view, save, reload (kept), SETS load, delete, clear. Untested in the headset.
+
+## #393 FETCH ART in the Record Maker: Discogs + MusicBrainz (owner, 18 Oct) (cly3dj-dev)
+- New `js/artfetch.js` (added to sw.js APP). RECORD MAKER > NAME row: FETCH ART… opens page `art`: SEARCH… (ARTIST - TITLE, prefilled from the picked song or the name), DISCOGS / MUSICBRAINZ toggles, FIND, results with thumbnails (vinyl pressings first, the two sources interleaved). Tap a release: page `artpick` with slots SLEEVE, LABEL A, BACK and the release's pictures; tap a slot then a picture (next slot is picked automatically; tapping the same picture again empties the slot); USE THIS ART fetches the full pictures.
+- MusicBrainz: recording search (title + artist), its releases; pictures from the Cover Art Archive are typed (Front, Back, Medium = label) so all three slots fill themselves; release-group fallback. 1 request a second. No key.
+- Discogs: database/search (track + artist, then q), releases/{id}; token as a query parameter (no CORS pre-flight). Pictures are untyped: primary = sleeve, next = back guess, label picked by hand. i.discogs.com sends no CORS header (fetch fails), so pictures go through https://wsrv.nl/?url=… (checked: 200, image/jpeg).
+- Token: never in the code or repo. localStorage `vire.discogsToken`, set by opening the app once with `?discogs=TOKEN` (stripped from the address at once, history.replaceState), or TOKEN… on the FETCH ART page (paste with MIC / KEYS), or on the PC from `web/discogs.local.json` {"token": "..."} if the owner makes one (never copy that file to cly3dj-dev / cly3dj).
+- Stamping: label = fetched LABEL A (wins over PICTURE…), else the picture; sleeve front and back saved as `<id>_cover.jpg` / `<id>_back.jpg` (1024 px square) in vire-press (tools.js savePressing extra, readPic, deletePressing removes them, labelFrom(file, S)). pressArt: cover = the crate sleeve / phone cover, label stays the disc label (labelArt), back = backBlobs (sleeve back).
+- Maker preview disc shows the fetched label; LABEL sub-line reads "Art: sleeve ✓ label ✓ back ✓ · release". NONE also drops the fetched label.
+- Test hooks: `vire._art` (art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, plNow).
+- Tested in the PC pane: Madonna - Ray of Light: 48 results; MB release 35e414a2 filled all three slots; Discogs 121732 (13 pictures via wsrv); stamped a blank with all three, the crate sleeve showed the fetched cover; test pressing removed afterwards. Untested in the headset.
+- Backup: backups/pre-392/ (main.js, tools.js, sw.js, index.html). No server restart (static files).
