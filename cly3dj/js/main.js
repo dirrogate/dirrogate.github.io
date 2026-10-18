@@ -11,7 +11,10 @@ import { makeLedWall, LedPlayer, LED } from './ledwall.js';
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose, AV_LAYER } from './director.js';
 import { Streamer, SOURCES as STREAM_SRC, streamKey, STUDIO_MODES } from './stream.js';   // #380 STUDIO_MODES
 import { KEY_LABEL } from './keycol.js';   // #347 key colour names   // #331 LIVE STREAM (Twitch)
-import { GoPro, ZOOMS as GOPRO_ZOOMS } from './gopro.js';   // #337 movable camera for SHOW / AVACAM
+import { GoPro, ZOOMS as GOPRO_ZOOMS } from './gopro.js';
+import { RealDepth } from './realdepth.js';
+import { solveCamFit, CAL_TARGETS } from './camfit.js';   // #415 HEADSET CAM auto fit   // #413 depth-camera-correct occlusion
+import { Laser, PATTERNS as LASER_PATS, PAT_LABEL as LASER_PL, COLOURS as LASER_COLS, COL_LABEL as LASER_CL } from './laser.js';   // #406 laser head prop   // #337 movable camera for SHOW / AVACAM
 import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #340 Twitch chat
 import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whiteboard, markers and duster
 import { InkLabel } from './inklabel.js';   // #394 milk crate labels
@@ -47,7 +50,7 @@ const params = new URLSearchParams(location.search);
 const CAMERA_ROLE = params.get('role') === 'camera';   // #161: this page is the spectator phone (spectator.html sends it here)
 // start-screen settings, remembered per browser
 const SETTINGS_DEFAULT = { needleLift: 7, source: 'pc', xml: 'rekordbox.xml', hands: '3d', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
-  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off', arRefl: 60,
+  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off', arRefl: 60, occlusion: false, roomHits: true,   // #411 (#415 occlusion off by default: owner prefers seeing the beams in DOME scenes)
   skyH: 1.5, skyTurn: 0, skyType: 'auto', skyKey: 'on', skyFile: '', skyMedia: '' };   // turntable physics (#120)
 const settings = (() => { try { return { ...SETTINGS_DEFAULT, ...JSON.parse(localStorage.getItem('vire.settings') || '{}') }; } catch { return { ...SETTINGS_DEFAULT }; } })();
 if (params.get('xml')) { settings.source = 'pc'; settings.xml = params.get('xml'); }
@@ -654,6 +657,111 @@ const snapDeck = (k, y) => isDeckKey(k) ? Math.round(y / DECK_STEP) * DECK_STEP 
 const gopro = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 0.3, mixer.position.z - 0.55), yaw: Math.PI }));
 // #389 GOPRO2 (owner): a second action camera, by default overhead: above the mixer and decks, looking straight down
 const gopro2 = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 1.4, mixer.position.z), yaw: 0, pitch: -Math.PI / 2 }), 'vire.gopro2', 'wide');
+// #406 LASER: one movable head; start spot behind the DJ, 2.1 m up, firing forward (-z) over his head toward the audience side
+const laser = CAMERA_ROLE ? null : new Laser(rig, () => ({ p: new THREE.Vector3(mixer.position.x, 2.1, mixer.position.z + 0.9), yaw: 0, pitch: -0.1 }));
+let laserTapT = 0;
+// #411 REAL WORLD (passthrough, Quest 3; #408 depth test: clean, no frame cost). Occlusion: three r169 draws the headset's
+// depth map into the depth buffer by itself once the session has depth-sensing (getDepthSensingMesh). We patch its
+// shader: colour writes off (it wrote none of its own: could paint passthrough black) and the real surface pushed back
+// 3 cm + 2 % of its distance, so things drawn right at a real surface (3D hands / glove on your real hands, gear on a
+// real table, the neon's glow on the wall) still show. Assumes the Quest's depth convention seen in #408c: near 0.1 m,
+// far infinite (window depth = 1 - near / z). Room: the Space Setup planes (walls, ceiling, floor, tables...) in rig
+// space, refreshed 10 times a second, for the laser's beams to stop on.
+let roomT = 0;
+const roomCache = new Map();   // XRPlane -> { t, poly, inv, q }
+const _rwM = new THREE.Matrix4(), _rwI = new THREE.Matrix4();
+function patchOcclusion(m) {
+  m.userData.vireOcc = true; const mat = m.material; mat.colorWrite = false;
+  mat.uniforms.uNear = { value: 0.1 }; mat.uniforms.uBias = { value: 0.03 };
+  mat.fragmentShader = `uniform sampler2DArray depthColor; uniform float depthWidth; uniform float depthHeight; uniform float uNear; uniform float uBias;
+void main() {
+  vec2 coord = vec2(gl_FragCoord.x / depthWidth, gl_FragCoord.y / depthHeight); float layer = 0.0;
+  if (coord.x >= 1.0) { coord.x -= 1.0; layer = 1.0; }
+  float d = texture(depthColor, vec3(coord, layer)).r;
+  if (d >= 0.99999) { gl_FragDepth = d; return; }
+  float z = uNear / max(1.0 - d, 1e-6); z += uBias + 0.02 * z;
+  gl_FragDepth = 1.0 - uNear / z;
+}`;
+  mat.needsUpdate = true;
+}
+// #413 the depth map lifted back into the room through the depth camera's own projection / pose (RealDepth): lines up
+// close to the headset, unlike three's screen-space copy (#411 owner: real hand / controller ~5 cm above the drawn one).
+// three's own occluder stays as the fallback if the depth info can't be read. The laser gets the same depth view.
+let realDepth = null, rdBinding = null, rdSession = null;
+// #415 HEADSET CAM AUTO FIT (CAM FIT page): 9 crosshairs on the camera picture; the controller's front tip on each + trigger
+const camCal = { on: false, k: 0, samples: [], prev: {}, msg: '', handsWas: false };
+const _ccM = new THREE.Matrix4(), _ccH = new THREE.Matrix4(), _ccV = new THREE.Vector3();
+function camCalStart() {
+  const S = streamer; if (!S) return;
+  if (!renderer.xr.isPresenting) { camCal.msg = 'AUTO FIT runs in the headset (passthrough).'; drawMixScreen(); return; }
+  if (S.source !== 'headset') S.setSource('headset');
+  camCal.handsWas = !!S.showOpt.handsReal; if (!camCal.handsWas) S.setShowOpt('handsReal', true);   // drawn hands / controllers would cover the real tip in the picture
+  if (!S.testing && !S.live) S.setTesting(true);
+  Object.assign(camCal, { on: true, k: 0, samples: [], prev: {}, msg: '' }); drawMixScreen();
+}
+function camCalStop(msg) {
+  camCal.on = false; if (streamer && !camCal.handsWas) streamer.setShowOpt('handsReal', false);
+  camCal.msg = msg || ''; drawMixScreen();
+}
+function camCalStep() {   // per frame while on: a trigger press = one sample at the current crosshair
+  if (!camCal.on || !renderer.xr.isPresenting) return;
+  const ses = renderer.xr.getSession(), frame = renderer.xr.getFrame(), ref = renderer.xr.getReferenceSpace(); if (!ses || !frame || !ref) return;
+  for (const src of ses.inputSources) {
+    const gp = src.gamepad; if (!gp || !src.gripSpace) continue;
+    const key = src.handedness || 'x', down = !!(gp.buttons[0] && gp.buttons[0].pressed), was = camCal.prev[key]; camCal.prev[key] = down;
+    if (!down || was) continue;
+    const pose = frame.getPose(src.gripSpace, ref); if (!pose) continue;
+    _ccM.fromArray(pose.transform.matrix); _ccV.set(0, -0.007, -0.05).applyMatrix4(_ccM);   // the controller's front tip (#140), in the room
+    _ccH.copy(renderer.xr.getCamera().matrixWorld).invert(); _ccV.applyMatrix4(_ccH);         // -> the headset's own frame
+    const S = streamer, W = S.canvas.width, H = S.canvas.height, t = CAL_TARGETS[camCal.k];
+    camCal.samples.push({ P: _ccV.toArray(), px: [t[0] * W, t[1] * H] }); camCal.k++;
+    if (camCal.k >= CAL_TARGETS.length) {
+      const r = solveCamFit(camCal.samples, W, H, S.fit);
+      if (!r) { camCalStop('AUTO FIT failed: try again, with the tip exactly on each cross.'); return; }
+      for (const [k, v] of Object.entries(r.fit)) S.setFit(k, v);
+      camCalStop(`AUTO FIT done: ${r.rms.toFixed(1)} px off on average${r.rms > 12 ? ' (high: run it again)' : ''}. Turn your head: if the gear trails the picture, raise LAG.`);
+    } else drawMixScreen();
+    return;
+  }
+}
+function stepRealWorld(dt) {
+  if (!arMode || !renderer.xr.isPresenting) { if (realDepth) realDepth.clear(); if (laser) laser.setDepth(null); return; }
+  const hasD = renderer.xr.hasDepthSensing && renderer.xr.hasDepthSensing();
+  const occ = hasD ? renderer.xr.getDepthSensingMesh() : null;
+  let rdOk = false;
+  if (hasD && !CAMERA_ROLE) {
+    const ses = renderer.xr.getSession();
+    if (ses !== rdSession) { rdSession = ses; rdBinding = null; try { rdBinding = new XRWebGLBinding(ses, renderer.getContext()); } catch (e) { console.warn('XRWebGLBinding', e); } }
+    if (!realDepth) realDepth = new RealDepth(scene);
+    const frame = renderer.xr.getFrame(), ref = renderer.xr.getReferenceSpace(), vp = frame && ref ? frame.getViewerPose(ref) : null;
+    rdOk = realDepth.update(vp && vp.views, rdBinding, renderer.xr.getDepthTexture());
+    realDepth.on = settings.occlusion !== false;
+  }
+  if (occ) { if (!occ.userData.vireOcc) patchOcclusion(occ); occ.visible = !rdOk && settings.occlusion !== false; }   // fallback only
+  if (laser) laser.setDepth(rdOk && settings.roomHits !== false && laser.on ? realDepth.laserData() : null);   // beams stop at real hands / people
+  if (!laser || !laser.on) return;
+  roomT += dt; if (roomT < 0.1) return; roomT = 0;
+  const frame = renderer.xr.getFrame(), ref = renderer.xr.getReferenceSpace();
+  if (settings.roomHits === false || !frame || !ref || !frame.detectedPlanes) { laser.setRoom(null); return; }
+  rig.updateMatrixWorld(); _rwI.copy(rig.matrixWorld).invert();
+  const list = [], seen = new Set();
+  for (const p of frame.detectedPlanes) {
+    const pose = frame.getPose(p.planeSpace, ref); if (!pose) continue;
+    let e = roomCache.get(p);
+    if (!e || e.t !== p.lastChangedTime) { e = { t: p.lastChangedTime, poly: new Float32Array(p.polygon.flatMap(v => [v.x, v.z])), inv: new THREE.Matrix4(), q: new THREE.Quaternion() }; roomCache.set(p, e); }
+    _rwM.fromArray(pose.transform.matrix).premultiply(_rwI);   // plane -> rig
+    e.q.setFromRotationMatrix(_rwM); e.inv.copy(_rwM).invert();
+    list.push(e); seen.add(p);
+  }
+  for (const k of roomCache.keys()) if (!seen.has(k)) roomCache.delete(k);
+  laser.setRoom(list);
+}
+const laserPv = { c: document.createElement('canvas') };   // #407 the Workbench page's scope preview (phosphor trails)
+function laserTap() {   // tap = on / off; double-tap = back to its start spot, on
+  if (!laser) return; const now = performance.now();
+  if (now - laserTapT < 700) { laserTapT = 0; laser.reset(); laser.setOn(true); toast('Laser back at its start', 1500); drawMixScreen(); return; }
+  laserTapT = now; laser.setOn(!laser.on); drawMixScreen();
+}
 const gpActive = () => gopro && gopro.on ? gopro : gopro2 && gopro2.on ? gopro2 : null;   // the one that is the camera now (only one at a time)
 let goproTapT = 0, goproTapWas = false, goproTapId = '';
 // #338 GOPRO is an AVACAM angle: picking it brings the GoPro out (FRONT / FADERS put it away). STREAM page GOPRO button:
@@ -752,6 +860,7 @@ const portals = CAMERA_ROLE ? null : new Portals(rig, i => {   // frame i's star
 });
 if (portals) { if (facetWall) portals.cutInto(facetWall.obj); portals.cutInto(skybox.group); }   // the windows punch through the backdrop and the dome; cutInto() again for any future glb room
 let wallTapT = 0, portalTapT = 0, portalDefArm = 0, beat = null, domeBoot = true;
+const _laserCam = new THREE.Vector3();   // #406
 function wallTap() {   // tap = backdrop on / off; double-tap = back to its start spot and mode
   if (!facetWall) return; const now = performance.now();
   if (now - wallTapT < 350) { wallTapT = 0; facetWall.reset(); facetWall.setOn(true); toast('Backdrop back at the start', 1500); drawMixScreen(); return; }
@@ -5097,7 +5206,7 @@ async function pressBytes(track) {
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
 }
-const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP' };   // #363 up-button names; #376
+const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -5594,6 +5703,17 @@ function drawToolsPage() {
     if (run && S.mrFrames) g.drawImage(S.canvas, L, y0, pw, ph);
     else { g.fillStyle = '#8c96a8'; g.font = '600 15px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
       g.fillText(S.source !== 'headset' ? 'Pick HEADSET CAM on STREAM' : !F.gear ? 'GEAR OFF: raw camera' : 'Press TEST to see it', L + pw / 2, y0 + ph / 2); g.textBaseline = 'alphabetic'; }
+    if (camCal.on) {   // #415 the crosshair to put the controller tip on
+      const t = CAL_TARGETS[Math.min(camCal.k, CAL_TARGETS.length - 1)], cx = L + t[0] * pw, cy = y0 + t[1] * ph;
+      g.strokeStyle = '#000'; g.lineWidth = 5; g.beginPath(); g.moveTo(cx - 16, cy); g.lineTo(cx + 16, cy); g.moveTo(cx, cy - 16); g.lineTo(cx, cy + 16); g.stroke();
+      g.strokeStyle = '#ff3030'; g.lineWidth = 2; g.beginPath(); g.moveTo(cx - 16, cy); g.lineTo(cx + 16, cy); g.moveTo(cx, cy - 16); g.lineTo(cx, cy + 16); g.stroke();
+      g.beginPath(); g.arc(cx, cy, 7, 0, Math.PI * 2); g.stroke();
+      g.fillStyle = 'rgba(0,0,0,0.65)'; g.fillRect(L, y0, 110, 22); g.fillStyle = '#ff5050'; g.font = '700 14px system-ui'; g.textAlign = 'left'; g.fillText(`${camCal.k + 1}/9  ${t[2] === 'near' ? 'CLOSE' : 'ARM OUT'}`, L + 6, y0 + 16);
+    }
+    const aBtn = (x, y, w, h) => btn(x, y, w, h, camCal.on ? `CANCEL ${camCal.k}/9` : 'AUTO FIT', camCal.on, () => { if (camCal.on) camCalStop('AUTO FIT cancelled.'); else camCalStart(); }, false, 18);
+    const uBtn = (x, y, w, h) => btn(x, y, w, h, 'UNDO', false, camCal.on && camCal.k > 0 ? () => { camCal.k--; camCal.samples.pop(); drawMixScreen(); } : null, !(camCal.on && camCal.k > 0), 16);
+    const calText = camCal.on ? `Hold a controller so its FRONT TIP sits on the red cross in the picture (${(CAL_TARGETS[camCal.k] || CAL_TARGETS[0])[2] === 'near' ? 'close, about 30 cm' : 'arm out'}), keep still, pull the trigger.`
+      : camCal.msg || 'AUTO FIT: line a controller tip up with 9 crosses on the picture; it works out where the camera sits and how wide it sees.';
     const rows = [['x', 'LEFT / RIGHT', 'mm', 5], ['y', 'DOWN / UP', 'mm', 5], ['z', 'FWD / BACK', 'mm', 5], ['hfov', 'ZOOM (FOV)', '°', 0.5],
       ['tilt', 'TILT', '°', 0.5], ['turn', 'TURN', '°', 0.5], ['roll', 'ROLL', '°', 0.5], ['lag', 'LAG', 'ms', 5]];
     const cell = (k, label, unit, step, x, y, w, h) => {
@@ -5610,12 +5730,14 @@ function drawToolsPage() {
       const y1 = y0 + ph + 8, cw = (R - L - 8) / 2;
       rows.forEach((r, i) => cell(...r, L + (i % 2) * (cw + 8), y1 + Math.floor(i / 2) * 58, cw, 54));
       const yb = y1 + 4 * 58 + 6, bw = (R - L - 16) / 3; tBtn(L, yb, bw, 50); gBtn(L + bw + 8, yb, bw, 50); rBtn(L + 2 * (bw + 8), yb, bw, 50);
-      note('TEST shows the picture here off air. Line the decks and crate up with the real room: LEFT / RIGHT, DOWN / UP and ZOOM first, then TILT. LAG: turn your head; raise it if the gear trails the picture, lower it if it leads.', yb + 66);
+      const ya = yb + 58, aw = (R - L - 8) * 0.65; aBtn(L, ya, aw, 50); uBtn(L + aw + 8, ya, R - L - aw - 8, 50);   // #415
+      g.fillStyle = camCal.on ? '#fff' : '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; wrapText(g, calText, L + 4, ya + 72, R - L - 8, 20, 6);
     } else {
       const x1 = L + pw + 10, cw = (R - x1 - 8) / 2;
       rows.forEach((r, i) => cell(...r, x1 + (i % 2) * (cw + 8), y0 + Math.floor(i / 2) * 46, cw, 42));
       const yb = y0 + ph + 8, bw = (pw - 12) / 3; tBtn(L, yb, bw, 40); gBtn(L + bw + 6, yb, bw, 40); rBtn(L + 2 * (bw + 6), yb, bw, 40);
-      g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; wrapText(g, 'TEST = the picture here, off air. Match LEFT / RIGHT, DOWN / UP, ZOOM, then TILT. LAG: raise it if the gear trails a head turn.', x1, y0 + 4 * 46 + 14, R - x1, 18, 3);
+      const ya = y0 + 4 * 46 + 2, aw = (R - x1) * 0.62; aBtn(x1, ya, aw, 30); uBtn(x1 + aw + 6, ya, R - x1 - aw - 6, 30);   // #415
+      g.fillStyle = camCal.on ? '#fff' : '#8c96a8'; g.font = '500 12px system-ui'; g.textAlign = 'left'; wrapText(g, calText, x1, ya + 44, R - x1, 14, 2);
     }
     return;
   }
@@ -5655,10 +5777,12 @@ function drawToolsPage() {
         () => btn(x, y, w, h, ledMode === 'cam' ? 'LED AVACAM: ON' : 'LED AVACAM', ledMode === 'cam', () => setLedMode(ledMode === 'cam' ? 'off' : 'cam'), false, fs),
         () => btn(x, y, w, h, 'CAM FIT', false, () => setTools('streamfit'), !streamer, fs),
         () => btn(x, y, w, h, 'PHONE CAM', !!(streamer && streamer.source === 'pcam'), openPhoneCam, !streamer, fs),
-        () => btn(x, y, w, h, perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false, fs)][i]();
-      const cols = P ? 2 : 5, gap = P ? 8 : 6, bh = P ? 58 : 50, bw = (R - L - gap * (cols - 1)) / cols;   // #390 13 buttons: 5 across in landscape
-      for (let i = 0; i < 13; i++) tile(L + (i % cols) * (bw + gap), y0 + 4 + Math.floor(i / cols) * (bh + gap), bw, bh, i);
-      ledCells(L, y0 + 4 + Math.ceil(13 / cols) * (bh + gap) + 4, R - L, P);
+        () => btn(x, y, w, h, perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false, fs),
+        () => btn(x, y, w, h, laser && laser.on ? 'LASER: ON' : 'LASER', !!(laser && laser.on), () => setTools('laser'), !laser, fs),   // #406
+        () => btn(x, y, w, h, settings.occlusion !== false ? 'REAL OCCLUSION: ON' : 'REAL OCCLUSION: OFF', settings.occlusion !== false, () => { settings.occlusion = settings.occlusion === false; saveSettings(); const c = document.getElementById('cOccl'); if (c) c.checked = settings.occlusion; drawMixScreen(); }, false, fs)][i]();   // #411 passthrough: real things hide virtual ones
+      const NT = 15, cols = P ? 2 : 5, gap = P ? 8 : 6, bh = P ? 58 : 50, bw = (R - L - gap * (cols - 1)) / cols;   // #390 13 buttons: 5 across in landscape (#406 14 with LASER)
+      for (let i = 0; i < NT; i++) tile(L + (i % cols) * (bw + gap), y0 + 4 + Math.floor(i / cols) * (bh + gap), bw, bh, i);
+      ledCells(L, y0 + 4 + Math.ceil(NT / cols) * (bh + gap) + 4, R - L, P);
     };
     if (P) {
       if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
@@ -5673,6 +5797,130 @@ function drawToolsPage() {
         lockBtn(L, y0 + 154, R - L, 46);   // #378
         note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until it is switched off. RECORD MAKER: press your own record. CONTROLLERS: 3D hands or bare controllers.', y0 + 218); }
       else vjPage(y0);   // #389
+    }
+    return;
+  }
+  if (page === 'laser') {   // #406 LASER; #407 drawn as a Workbench 3.1 screen (Amiga nostalgia): grey screen, white title bar, bevelled gadgets, blue active title bar, chunky bitmap font, a scope-style vector preview
+    const LZ = laser, WB = { grey: '#aaaaaa', blk: '#000000', wht: '#ffffff', blue: '#6688bb', dark: '#555555' };
+    const fit = (s, w, max = 2) => { const u = bitWidth(s, 1); return Math.max(1, Math.min(max, Math.floor(((w - 10) / u) * 4) / 4)); };
+    const txt = (s, x, y, px, col) => drawBitText(g, s, Math.round(x), Math.round(y), px, col, px >= 1.5);
+    const bevel = (x, y, w, h, up) => {   // the 2.0 / 3.1 look: light top-left, dark bottom-right (swapped when pressed in)
+      g.fillStyle = up ? WB.wht : WB.blk; g.fillRect(x, y, w, 2); g.fillRect(x, y, 2, h);
+      g.fillStyle = up ? WB.blk : WB.wht; g.fillRect(x, y + h - 2, w, 2); g.fillRect(x + w - 2, y, 2, h);
+    };
+    const gad = (x, y, w, h, label, sel, act, dim, max = 2) => {
+      g.fillStyle = sel ? WB.blue : WB.grey; g.fillRect(x, y, w, h); bevel(x, y, w, h, !sel);
+      const s = cleanText(label), px = fit(s, w, max), tw = bitWidth(s, px);
+      txt(s, x + (w - tw) / 2, y + (h - 7 * px) / 2 + (sel ? 1 : 0), px, dim ? WB.dark : sel ? WB.wht : WB.blk);
+      if (act) VP_HIT.push({ x, y, w, h, act });
+    };
+    const groupBox = (x, y, w, h, title) => {   // etched frame with its title on the line
+      g.fillStyle = WB.blk; g.fillRect(x, y, w, 1); g.fillRect(x, y, 1, h); g.fillStyle = WB.wht; g.fillRect(x + 1, y + 1, w - 1, 1); g.fillRect(x + 1, y + 1, 1, h - 1);
+      g.fillStyle = WB.blk; g.fillRect(x, y + h - 1, w, 1); g.fillRect(x + w - 1, y, 1, h); g.fillStyle = WB.wht; g.fillRect(x, y + h, w + 1, 1); g.fillRect(x + w, y, 1, h + 1);
+      if (title) { const s = cleanText(title), tw = bitWidth(s, 1.25); g.fillStyle = WB.grey; g.fillRect(x + 8, y - 5, tw + 8, 10); txt(s, x + 12, y - 4, 1.25, WB.blk); }
+    };
+    const arrow = (x, y, w, h, dir, act) => {   // integer-gadget arrows
+      gad(x, y, w, h, '', false, act); g.fillStyle = WB.blk; g.beginPath();
+      const cx = x + w / 2, cy = y + h / 2, a = Math.min(w, h) * 0.22;
+      if (dir < 0) { g.moveTo(cx + a * 0.7, cy - a); g.lineTo(cx - a * 0.7, cy); g.lineTo(cx + a * 0.7, cy + a); } else { g.moveTo(cx - a * 0.7, cy - a); g.lineTo(cx + a * 0.7, cy); g.lineTo(cx - a * 0.7, cy + a); }
+      g.fill();
+    };
+    const stepper = ([label, val, k], x, y, w, h) => {
+      txt(cleanText(label), x + 2, y, 1.5, WB.blk);
+      const by = y + 14, bh = h - 14, aw = Math.min(40, w * 0.28);
+      arrow(x, by, aw, bh, -1, LZ ? () => { LZ.step(k, -1); drawMixScreen(); } : null);
+      g.fillStyle = WB.grey; g.fillRect(x + aw + 3, by, w - 2 * aw - 6, bh); bevel(x + aw + 3, by, w - 2 * aw - 6, bh, false);
+      const s = cleanText(val), px = fit(s, w - 2 * aw - 6), tw = bitWidth(s, px); txt(s, x + aw + 3 + (w - 2 * aw - 6 - tw) / 2, by + (bh - 7 * px) / 2, px, WB.blk);
+      arrow(x + w - aw, by, aw, bh, 1, LZ ? () => { LZ.step(k, 1); drawMixScreen(); } : null);
+    };
+    const swatch = (c, x, y, w, h, sel, act) => {   // palette-requester style colour boxes
+      g.fillStyle = WB.grey; g.fillRect(x, y, w, h); bevel(x, y, w, h, !sel);
+      const ix = x + 5, iy = y + 5, iw = w - 10, ih = h - 10;
+      if (LASER_COLS[c]) { g.fillStyle = `rgb(${LASER_COLS[c].map(a => Math.round(Math.min(1, a) * 255)).join(',')})`; }
+      else { const gr = g.createLinearGradient(ix, 0, ix + iw, 0); ['#f00', '#ff0', '#0f0', '#0ff', '#00f', '#f0f'].forEach((s, i) => gr.addColorStop(i / 5, s)); g.fillStyle = gr; }
+      g.fillRect(ix, iy, iw, ih);
+      if (sel) { g.strokeStyle = WB.blk; g.lineWidth = 2; g.strokeRect(ix - 1, iy - 1, iw + 2, ih + 2); g.strokeStyle = WB.wht; g.lineWidth = 1; g.strokeRect(ix + 1.5, iy + 1.5, iw - 3, ih - 3); }
+      VP_HIT.push({ x, y, w, h, act });
+    };
+    const preview = (x, y, w, h) => {   // scope-style XY preview: where each beam lands on a wall in front, phosphor trails
+      g.fillStyle = WB.grey; g.fillRect(x - 3, y - 3, w + 6, h + 6); bevel(x - 3, y - 3, w + 6, h + 6, false);
+      const pv = laserPv.c.width !== w || laserPv.c.height !== h ? (laserPv.c.width = w, laserPv.c.height = h, laserPv) : laserPv, pg = pv.c.getContext('2d');
+      pg.fillStyle = 'rgba(0,0,0,0.35)'; pg.fillRect(0, 0, w, h);
+      pg.strokeStyle = 'rgba(40,90,40,0.5)'; pg.lineWidth = 1; pg.beginPath();
+      for (let i = 1; i < 8; i++) { pg.moveTo(i * w / 8, 0); pg.lineTo(i * w / 8, h); } for (let i = 1; i < 4; i++) { pg.moveTo(0, i * h / 4); pg.lineTo(w, i * h / 4); } pg.stroke();
+      const n = LZ && LZ.on ? LZ.beams.geometry.instanceCount : 0, D = LZ ? LZ.aDir.array : null, C = LZ ? LZ.aCol.array : null, f = w * 0.45, cx = w / 2, cy = h * 0.55;
+      for (let i = 0; i < n; i++) {
+        const z = -D[i * 3 + 2]; if (z < 0.05) continue;
+        const px = cx + D[i * 3] / z * f, py = cy - D[i * 3 + 1] / z * f;
+        const col = `rgb(${[0, 1, 2].map(k => Math.round(Math.min(1, C[i * 3 + k] * 1.2) * 255)).join(',')})`;
+        pg.strokeStyle = col; pg.lineWidth = 1.5; pg.globalAlpha = 0.55; pg.beginPath(); pg.moveTo(cx, h); pg.lineTo(px, py); pg.stroke();
+        pg.globalAlpha = 1; pg.fillStyle = col; pg.beginPath(); pg.arc(px, py, 3.6, 0, Math.PI * 2); pg.fill(); pg.fillStyle = '#fff'; pg.beginPath(); pg.arc(px, py, 1.3, 0, Math.PI * 2); pg.fill();
+      }
+      pg.globalAlpha = 1; g.drawImage(pv.c, x, y);
+      if (!n) txt('LASER OFF', x + (w - bitWidth('LASER OFF', 2)) / 2, y + h / 2 - 7, 2, '#3c8a3c');
+    };
+    const wrapBit = (s, x, y, w, px, lh, max) => {   // word wrap in the bitmap font
+      let line = '', n = 0;
+      for (const word of cleanText(s, 999).split(' ')) {
+        const t = line ? line + ' ' + word : word;
+        if (bitWidth(t, px) > w && line) { txt(line, x, y + n * lh, px, WB.blk); line = word; if (++n >= max) return; } else line = t;
+      }
+      if (line) txt(line, x, y + n * lh, px, WB.blk);
+    };
+    // the screen: grey, white screen title bar with the page gadgets on it
+    g.fillStyle = WB.grey; g.fillRect(0, 0, W, H);
+    const top = P ? 70 : 40;
+    g.fillStyle = WB.wht; g.fillRect(0, 0, W, top); g.fillStyle = WB.blk; g.fillRect(0, top - 2, W, 2);
+    const up = () => setTools('vj');
+    if (P) {
+      txt('CLY3DJ WORKBENCH', L, 8, 1.5, WB.blk);
+      const bw = (R - L - 12) / 3; gad(L, 26, bw, 38, 'VJ TOOLS', false, up); gad(L + bw + 6, 26, bw, 38, 'PREVIEW', monOn, () => setMonitor(!monOn)); gad(L + 2 * (bw + 6), 26, bw, 38, 'BACK', false, navCan() ? navBack : null, !navCan());
+    } else {
+      txt('CLY3DJ WORKBENCH  LASER SHOW', L + 2, 13, 2, WB.blk);
+      gad(R - 96, 3, 96, 34, 'BACK', false, navCan() ? navBack : null, !navCan()); gad(R - 96 - 6 - 100, 3, 100, 34, 'PREVIEW', monOn, () => setMonitor(!monOn)); gad(R - 202 - 6 - 110, 3, 110, 34, 'VJ TOOLS', false, up);
+    }
+    if (!LZ) { wrapBit('The laser runs on the headset.', L + 4, top + 20, R - L - 8, 2, 20, 3); return; }
+    // the window: black outline, blue active title bar with close and depth gadgets
+    const wx = P ? L - 6 : 6, wy = top + 4, ww = (P ? R + 6 : W - 6) - wx, wh = H - wy - (P ? 26 : 4);
+    g.fillStyle = WB.grey; g.fillRect(wx, wy, ww, wh); bevel(wx, wy, ww, wh, true);
+    g.fillStyle = WB.blue; g.fillRect(wx + 2, wy + 2, ww - 4, 20); bevel(wx + 2, wy + 2, ww - 4, 20, true);
+    g.fillStyle = WB.grey; g.fillRect(wx + 4, wy + 4, 18, 16); bevel(wx + 4, wy + 4, 18, 16, true); g.fillStyle = WB.blk; g.fillRect(wx + 11, wy + 10, 4, 4);   // close
+    for (const [ox, dk] of [[22, 0], [42, 1]]) { const bx = wx + ww - ox - 2; g.fillStyle = WB.grey; g.fillRect(bx, wy + 4, 18, 16); bevel(bx, wy + 4, 18, 16, true);   // zoom, depth
+      g.strokeStyle = WB.blk; g.lineWidth = 1; if (dk) { g.strokeRect(bx + 4.5, wy + 7.5, 7, 6); g.fillStyle = WB.wht; g.fillRect(bx + 8, wy + 11, 6, 5); g.strokeRect(bx + 7.5, wy + 10.5, 7, 6); } else { g.strokeRect(bx + 4.5, wy + 7.5, 9, 9); g.strokeRect(bx + 4.5, wy + 7.5, 4, 4); } }
+    txt(P ? 'LASER' : 'LASER  ' + (LZ.on ? 'ON AIR' : 'STANDBY'), wx + 28, wy + 7, 1.5, WB.blk);
+    // the gadgets
+    const lsrBtn = (x, y, w, h) => gad(x, y, w, h, LZ.on ? 'LASER ON' : 'LASER OFF', LZ.on, laserTap);
+    const autoBtn = (x, y, w, h) => gad(x, y, w, h, LZ.auto ? 'AUTO ON' : 'AUTO OFF', LZ.auto, () => { LZ.set('auto', !LZ.auto); drawMixScreen(); });
+    const smokeBtn = (x, y, w, h) => gad(x, y, w, h, ({ off: 'NO SMOKE', beams: 'SMOKE', sheets: 'SMOKE+' }[LZ.smoke] || 'NO SMOKE'), LZ.smoke !== 'off', () => { LZ.nextSmoke(); drawMixScreen(); });   // #414 swirly haze
+    const roomBtn = (x, y, w, h) => gad(x, y, w, h, settings.roomHits !== false ? 'ROOM ON' : 'ROOM OFF', settings.roomHits !== false, () => { settings.roomHits = settings.roomHits === false; saveSettings(); const c = document.getElementById('cRoomHits'); if (c) c.checked = settings.roomHits; drawMixScreen(); });   // #411 beams stop at walls / ceiling
+    const beatLed = (x, y) => { const lit = LZ.on && LZ.auto && performance.now() - LZ.lastBeat < 140; g.fillStyle = WB.grey; g.fillRect(x, y, 20, 14); bevel(x, y, 20, 14, false); g.fillStyle = lit ? '#30ff40' : '#1d4a22'; g.fillRect(x + 3, y + 3, 14, 8); };
+    const status = () => !LZ.auto ? 'MANUAL' : performance.now() - LZ.lastBeat > 4000 ? 'NO BEAT' : `BEAT ${LZ.beats}`;
+    const pats = LASER_PATS.map(p => [LASER_PL[p], LZ.pat === p, () => { LZ.setPat(p); if (!LZ.on) LZ.setOn(true); drawMixScreen(); }]);
+    const colPick = c => () => { LZ.setCol(c); if (!LZ.on) LZ.setOn(true); drawMixScreen(); };
+    const cells = [['BEAMS', `${LZ.n}`, 'n'], ['SPREAD', `${LZ.spread}`, 'spread'], ['SPEED', `${LZ.speed}X`, 'speed'], ['HAZE', `${Math.round(LZ.haze * 100)}%`, 'haze'], ['LENGTH', `${LZ.len} M`, 'len'], ['DRIFT', `${LZ.drift}X`, 'drift']];   // #414 DRIFT = how fast the smoke swirls
+    const help = 'Grip the head to move it. Double-tap LASER = home. AUTO follows the beat.';
+    if (P) {
+      const x0 = wx + 10, x1 = wx + ww - 10, cw = x1 - x0; let y = wy + 30;
+      preview(x0 + 3, y + 3, cw - 6, 120); y += 132;
+      const hw = (cw - 8) / 2, tw3 = (cw - 12) / 3; lsrBtn(x0, y, tw3, 40); autoBtn(x0 + tw3 + 6, y, tw3, 40); roomBtn(x0 + 2 * (tw3 + 6), y, tw3, 40); y += 48;
+      beatLed(x0, y + 9); txt(status(), x0 + 26, y + 12, 1.25, WB.blk); smokeBtn(x0 + cw - 130, y, 130, 32); y += 40;
+      groupBox(x0, y, cw, 98, 'PATTERN'); const w3 = (cw - 24) / 3;
+      pats.forEach(([lb, on, act], i) => gad(x0 + 6 + (i % 3) * (w3 + 6), y + 10 + Math.floor(i / 3) * 42, w3, 38, lb, on, act)); y += 108;
+      groupBox(x0, y, cw, 90, 'COLOUR'); const w4 = (cw - 30) / 4;
+      Object.keys(LASER_COLS).forEach((c, i) => swatch(c, x0 + 6 + (i % 4) * (w4 + 6), y + 10 + Math.floor(i / 4) * 38, w4, 34, LZ.col === c, colPick(c))); y += 100;
+      cells.forEach((c, i) => stepper(c, x0 + (i % 2) * (hw + 8), y + Math.floor(i / 2) * 54, hw, 48)); y += 3 * 54 + 4;
+      wrapBit(help, x0, y, cw, 1.25, 12, Math.floor((wy + wh - 6 - y) / 12));
+    } else {
+      const x0 = wx + 10, pw = 214, px0 = wx + ww - 10 - pw, lw = px0 - 10 - x0; let y = wy + 30;
+      preview(px0 + 3, y + 3, pw - 6, 112);
+      lsrBtn(x0, y, 96, 32); autoBtn(x0 + 102, y, 88, 32); roomBtn(x0 + 196, y, 88, 32); smokeBtn(x0 + 290, y, 112, 32); beatLed(x0 + 408, y + 9); txt(status(), x0 + 434, y + 12, 1.25, WB.blk); y += 46;
+      groupBox(x0, y, lw, 46, 'PATTERN'); const w6 = (lw - 42) / 6;
+      pats.forEach(([lb, on, act], i) => gad(x0 + 6 + i * (w6 + 6), y + 9, w6, 32, lb, on, act)); y += 56;
+      groupBox(x0, y, lw, 46, 'COLOUR'); const w8 = (lw - 54) / 8;
+      Object.keys(LASER_COLS).forEach((c, i) => swatch(c, x0 + 6 + i * (w8 + 6), y + 9, w8, 32, LZ.col === c, colPick(c)));
+      y = wy + 30 + 122;
+      const sw5 = (ww - 20 - 40) / 6; cells.forEach((c, i) => stepper(c, x0 + i * (sw5 + 8), Math.max(y, wy + 30 + 46 + 56 + 54), sw5, 42));
+      wrapBit(help, x0, wy + wh - 16, ww - 20, 1.25, 12, 1);
     }
     return;
   }
@@ -6341,10 +6589,14 @@ function frame() {
     gp.setTally(!!(streamer && streamer.state === 'live' && (streamer.source === 'show' || streamer.source === 'avacam')));
     if (gp.on) gp.setView(showLive && streamer.ly && streamer.layerOk ? streamer.ly.out.texture : (ledMode === 'cam' || gp.aiming || (streamer && streamer.needsCamRT)) && djcam ? djcam.rt.texture : null, !showLive, showLive);
   }
-  if (facetWall) {   // #345; #346 BEAT: bass onsets on the master, read only while the wall is on with BEAT
+  camCalStep();   // #415
+  stepRealWorld(dt);   // #411 depth occlusion on / off, room planes for the laser
+  if (facetWall || laser) {   // #345; #346 BEAT: bass onsets on the master, read only while the wall is on with BEAT (#406 or the laser on AUTO)
     if (!beat) beat = new Beat(engine);
-    beat.want = facetWall.on && facetWall.beat;
-    facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource, beat.tick(dt));
+    beat.want = !!((facetWall && facetWall.on && facetWall.beat) || (laser && laser.on && laser.auto));
+    const bp = beat.tick(dt);
+    if (facetWall) facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource, bp);
+    if (laser && laser.on) laser.tick(dt, beat, camera.getWorldPosition(_laserCam));
   }
   if (portals) portals.tick();   // #345 #346
   if (domeBoot) { domeBoot = false; if (dome.on && !CAMERA_ROLE) setDome(true); }   // #346 a dome left on last time: load its sky once everything is up
@@ -6425,7 +6677,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack, gearLocked, gearLockMsg, snapYaw: isDeckKey,   // #378
   REC, DECK, CRATE, ARM,
-  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
+  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
   scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
@@ -6451,7 +6703,13 @@ async function begin(mode) {
     setRecordTexSize(2048); // only a few full-detail records exist at once; grooves need the resolution
     applyShadows(false);   // real-time shadows per the Shadows setting (#96)
     renderer.setPixelRatio(1);
-    const session = await navigator.xr.requestSession(mode, { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'anchors'] });   // #210 anchors
+    const base = ['local-floor', 'bounded-floor', 'hand-tracking', 'anchors'];   // #210 anchors
+    let session = null;
+    if (mode === 'immersive-ar') {   // #411 (#408 depth test): Quest 3 depth for occlusion, Space Setup planes for the laser
+      try { session = await navigator.xr.requestSession(mode, { optionalFeatures: [...base, 'depth-sensing', 'plane-detection'], depthSensing: { usagePreference: ['gpu-optimized'], dataFormatPreference: ['luminance-alpha', 'float32'] } }); }
+      catch (e) { console.warn('depth / planes refused, plain passthrough', e); }
+    }
+    if (!session) session = await navigator.xr.requestSession(mode, { optionalFeatures: base });
     renderer.xr.setReferenceSpaceType('local-floor');
     renderer.xr.setFoveation(0.5);
     await renderer.xr.setSession(session);
@@ -6621,6 +6879,8 @@ $('#fLed').onchange = e => {
   $('#ledList').textContent = n ? `${n} video${n > 1 ? 's' : ''}: ${led.files.map(f => f.name).join(' · ')}` + (all.length > 5 ? '  (only the first 5 are used)' : '') : 'No playable videos in that pick (mp4 / webm).';
   drawMixScreen();
 };
+$('#cOccl').onchange = e => { settings.occlusion = e.target.checked; saveSettings(); drawMixScreen(); };   // #411
+$('#cRoomHits').onchange = e => { settings.roomHits = e.target.checked; saveSettings(); drawMixScreen(); };
 $('#sArRefl').oninput = e => { settings.arRefl = +e.target.value; saveSettings(); $('#arReflVal').textContent = settings.arRefl + '%'; if (arMode) scene.environmentIntensity = settings.arRefl / 100; };
 $('#sEnvMix').oninput = e => { settings.envMix = +e.target.value; saveSettings(); envLight.setMix(settings.envMix / 100); $('#envMixVal').textContent = settings.envMix + '%'; };
 
@@ -6633,6 +6893,7 @@ function syncSettingsUI() {
   $('#sDeckModel').value = settings.deckModel; $('#sRecWeight').value = settings.recWeight; $('#sSlipmat').value = settings.slipmat; $('#cPll').checked = !!settings.pll;
   $('#bEnvImg').hidden = settings.env !== 'image'; $('#rowEnvMix').hidden = settings.env === 'studio';
   $('#sArRefl').value = settings.arRefl; $('#arReflVal').textContent = settings.arRefl + '%';
+  $('#cOccl').checked = settings.occlusion !== false; $('#cRoomHits').checked = settings.roomHits !== false;   // #411
   $('#sSky').value = settings.sky; $('#rowSky').hidden = settings.env === 'studio';
   const skyAdj = settings.env !== 'image' || settings.sky !== 'on';
   for (const id of ['#rowSkyH', '#rowSkyTurn', '#rowSkyType', '#rowSkyKey', '#skyInfo']) $(id).hidden = skyAdj;
@@ -6771,6 +7032,7 @@ drawMixScreen();
 // debugging handle
 window.vire = { THREE, get fx() { return fx; }, skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
+window.vire._laser = { laser, laserTap, camCal, camCalStart, camCalStop };   // #415 camCal test hook   // #406 test hook
 window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, milkSleeveHit, layoutMilkSleeves, gpSummon, goproReset, gopro2, setDomeEv, get plJump() { return plJump; }, msFly };   // #394 / #395 test hooks   // #392 / #393 test hooks
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop

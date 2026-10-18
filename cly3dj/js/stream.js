@@ -99,7 +99,8 @@ vec3 aces(vec3 c) {
 vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
 void main() { vec2 uv = vec2(vUv.x, 1.0 - vUv.y); vec4 g = texture2D(map, uv); vec3 c = texture2D(cam, uv).rgb;
   float a = clamp(g.a, 0.0, 1.0); vec3 gc = srgb(aces(g.rgb / max(a, 0.001)));
-  gl_FragColor = vec4(mix(c, gc, a), 1.0); }`;
+  vec3 L = srgb(aces(g.rgb)) * (1.0 - smoothstep(0.0, 0.05, a));   // #412 additive light (laser beams, neon glow) leaves alpha at 0: add it on top
+  gl_FragColor = vec4(min(mix(c, gc, a) + L, 1.0), 1.0); }`;
 
 const DEG = Math.PI / 180, _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _s1 = new THREE.Vector3(1, 1, 1), _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _e1 = new THREE.Euler(), _c1 = new THREE.Color();
 
@@ -112,7 +113,10 @@ vec3 aces(vec3 c) {
   c *= 1.0 / 0.6; return clamp(O * rrt(I * c), 0.0, 1.0); }
 vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
 void main() { vec4 g = texture2D(map, vec2(vUv.x, 1.0 - vUv.y)); float a = clamp(g.a, 0.0, 1.0);
-  gl_FragColor = vec4(srgb(aces(g.rgb / max(a, 0.001))), a); }`;
+  vec3 gc = srgb(aces(g.rgb / max(a, 0.001)));
+  vec3 L = srgb(aces(g.rgb)) * (1.0 - smoothstep(0.0, 0.05, a));   // #412 additive light (laser, neon glow) has alpha 0: give it alpha from its brightness so it survives
+  vec3 P = min(gc * a + L, 1.0); float A = max(a, max(P.r, max(P.g, P.b)));
+  gl_FragColor = vec4(P / max(A, 0.001), A); }`;
 
 // #347 PHONE CAM (owner): the spectator phone on a tripod (fixed camera mode, calibrated) sends its plain camera video;
 // the Quest draws the gear, LED wall, chalkboard and the DJ's drawn hands (3D hands / glove / controllers, with black
@@ -149,7 +153,8 @@ void main() { vec2 uv = vec2(vUv.x, 1.0 - vUv.y); vec4 g = texture2D(map, uv);
     }
     c = showMatte > 0.5 ? vec3(m) : mix(b, clamp(p, 0.0, 1.0), m);
   } else c = texture2D(cam, uv).rgb;
-  gl_FragColor = vec4(mix(c, gc, a), 1.0); }`;
+  vec3 L = srgb(aces(g.rgb)) * (1.0 - smoothstep(0.0, 0.05, a));   // #412 additive light on top
+  gl_FragColor = vec4(min(mix(c, gc, a) + L, 1.0), 1.0); }`;
 const _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3();
 
 export class Streamer {

@@ -40,6 +40,10 @@ const G = {
   '👍': '....##..|...###..|..###...|########|##.#####|##.####.|##.#####|##.####.',
 };
 export const EMOJI = ['☺', '☹', '👍'];
+Object.assign(G, {   // #407 for the Workbench-style LASER page
+  '%': '##...#|##..#.|...#..|..#...|.#..##|#...##|......', '<': '...##.|..##..|.##...|##....|.##...|..##..|...##.',
+  '>': '.##...|..##..|...##.|....##|...##.|..##..|.##...', '*': '......|#.##.#|.####.|######|.####.|#.##.#|......',
+});
 const GLYPH = new Map(Object.entries(G).map(([k, v]) => [k, v.split('|').map(r => [...r].map(c => c === '#'))]));
 export const FONT_OK = ch => GLYPH.has(ch);
 export function cleanText(s, max = 120) { return [...s.toUpperCase()].filter(FONT_OK).slice(0, max).join(''); }
