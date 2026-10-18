@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cly3DJ depth test</title>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js" } }
+</script>
+<style>
+  body { background: #0b0d12; color: #e6e8ec; font: 16px system-ui, sans-serif; margin: 0; padding: 20px; }
+  h1 { font-size: 26px; margin: 0 0 4px; } h1 b { color: #e0202a; }
+  p { color: #9aa4b6; max-width: 760px; line-height: 1.45; }
+  button { font: 700 18px system-ui; padding: 14px 22px; border: 0; border-radius: 8px; background: #e0202a; color: #fff; margin: 6px 8px 6px 0; }
+  button.sec { background: #2a3140; }
+  button:disabled { opacity: 0.4; }
+  pre { background: #121722; padding: 14px; border-radius: 8px; white-space: pre-wrap; font: 14px ui-monospace, monospace; max-width: 900px; }
+</style>
+</head>
+<body>
+<h1>Cly<b>3DJ</b> depth test</h1>
+<p>A probe for the Quest 3: what the browser gives a web page about the real room (depth map, walls / ceiling planes, room mesh), whether real things hide virtual ones in the right place, and what it costs in frame rate. Nothing here changes the app.</p>
+<p>In the headset: <b>trigger / pinch</b> = next mode, <b>A</b> = run room setup (if no planes were found), <b>B</b> = bring the panel back in front of you. Walk round, put your hand and other people in front of the coloured pillars, then exit (Meta button) and read the report below.</p>
+<button id="go" disabled>Start depth test (passthrough)</button><button id="copy" class="sec" disabled>Copy report</button>
+<pre id="out">Checking…</pre>
+<script type="module" src="./js/depthtest.js"></script>
+</body>
+</html>

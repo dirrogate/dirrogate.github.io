@@ -656,3 +656,22 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - Checked in the PC pane (localhost, RTX 4050): fan and RGB wave render from the audience side, AUTO with 40 fake beats changed patterns and colours, floor dots (12 with the head tilted down), LASER and VJ TOOLS pages in both orientations (no laser labels cut). Pre-existing, not mine: in portrait every TOOLS page title gets cut ("LA...") since #389 put PREVIEW in the header. Not checked in the headset (grab, look in passthrough, frame time).
 - Next (#371 order): SHOUTS can send text / emoji to LASER (scanned text not built yet).
 - Backup: backups/pre-406/ (main.js, sw.js). No server restart (static files).
+
+## #407 LASER page as an Amiga Workbench screen (owner, 19 Oct) (cly3dj-dev)
+- Owner: an ode to the Amiga (OS nostalgia only, no Pangolin / LSD credit). The LASER tools page is drawn as a Workbench 3.1 screen: grey screen (#aaaaaa), white screen title bar "CLY3DJ WORKBENCH  LASER SHOW" with VJ TOOLS / PREVIEW / BACK as bevelled gadgets (replaces the usual header there), a window with the blue (#6688bb) active title bar, close, zoom and depth gadgets, "LASER ON AIR / STANDBY".
+- Gadgets: 2 px white / black bevels (pressed = recessed, blue, white text); etched group boxes PATTERN and COLOUR; colours as palette-requester swatches (no labels, RGB = rainbow, picked one framed); integer gadgets with arrow buttons for BEAMS, SPREAD, SPEED, HAZE, LENGTH; a green beat LED with BEAT n / WAITING FOR BEAT / MANUAL.
+- All text in our own bitmap font (tools.js, the scroller's), sized to fit each gadget; tools.js gained %, <, >, * glyphs.
+- Scope preview (black, green grid): where each beam would land on a wall in front, coloured dots with white cores and faint lines from the head, phosphor trails (persistent canvas laserPv, faded each redraw; the tablet already redraws ~15 a second).
+- Landscape: everything on one screen, one help line. Portrait: preview on top, then LASER / AUTO, beat LED, patterns 3 x 2, swatches 4 x 2, steppers 2 per row, help.
+- Checked in the PC pane (RTX 4050) in both orientations, no labels cut. Not checked in the headset.
+- Backup: backups/pre-407/ (main.js, tools.js). No server restart.
+
+## #408 QUEST DEPTH TEST probe page (owner, 19 Oct; #371 order step 1) (cly3dj-dev)
+- Owner: retro Workbench theme for the whole tablet dropped (only the LASER page keeps it, #407); later maybe an original or a free Amiga-style font with credits instead of drawing text as bitmap rectangles.
+- New stand-alone page depthtest.html + js/depthtest.js (not in the app, not in sw.js): dirrogate.github.io/cly3dj-dev/depthtest.html in the Quest Browser.
+- Asks immersive-ar with depth-sensing (gpu or cpu, luminance-alpha or float32), plane-detection, mesh-detection, hand-tracking; retries without depth if that request fails; 72 Hz like the app.
+- FOUND in our vendored three r169: with depth-sensing granted, three draws the depth map into the depth buffer by itself every frame (WebXRDepthSensing / renderer.xr.getDepthSensingMesh(), group order -Infinity): real things hide virtual ones with no code of ours. Caveat: it binds the first depth texture it gets only; the probe counts whether Quest hands out a new texture object (report line 'depth texture object changed').
+- Four modes (trigger / pinch): OCCLUSION (three's mesh on), NO OCCLUSION (mesh hidden, to compare frame rate), DEPTH COLOURS (depth texture linearised with the frame's depthNear / depthFar, colour 0-5 m, white contour every 0.5 m = first look at crowd contours), ROOM PLANES + MESH (plane outlines by semantic label, room mesh wireframe). A = session.initiateRoomCapture() if offered, B = panel in front.
+- Test scene: 7 labelled pillars at 0.8 / 1.2 / 1.6 / 2 / 2.5 / 3 / 4 m on an arc ahead, a 7 x 4 cube grid at hand height 0.6 m ahead, the app's laser (fan, green, 12 beams; nothing saved over the app's vire.laser).
+- Report on the page after exiting (Copy report), also localStorage vire.depthtest: granted features, depth usage / format, depth size / near / far / own projection / own pose, % valid, texture changes, CPU centre depth if CPU, planes and meshes by label, fps per mode (worst frame, frames over 20 ms), errors.
+- Checked on the PC only that it loads without errors (no passthrough there). Not run on the Quest yet.
