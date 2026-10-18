@@ -71,14 +71,14 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   const qv = Object.assign(document.createElement('video'), { muted: true, playsInline: true, autoplay: true });
   const au = Object.assign(document.createElement('audio'), { autoplay: true });
   for (const el of [qv, au]) { el.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none'; document.body.appendChild(el); }
-  let qTrack = null, aTrack = null, qNew = false, qN = 0, outN = 0, qLast = 0;
+  let qTrack = null, aTrack = null, qNew = false, qN = 0, outN = 0, qLast = 0, qCT = -1, qPoll = false;
   function onTrack(t) {
     if (t.kind === 'video') { qTrack = t; qv.srcObject = new MediaStream([t]); qv.play().catch(() => {}); watchQ(); }
     else { aTrack = t; au.srcObject = new MediaStream([t]); au.play().catch(() => {}); }
   }
   function watchQ() {
     if (!qv.requestVideoFrameCallback) return;
-    const cb = () => { qNew = true; qN++; qLast = performance.now(); qv.requestVideoFrameCallback(cb); };
+    const cb = () => { qNew = true; qN++; qLast = performance.now(); qPoll = false; qv.requestVideoFrameCallback(cb); };
     qv.requestVideoFrameCallback(cb);
   }
   const qTex = new THREE.VideoTexture(qv); qTex.colorSpace = THREE.NoColorSpace; qTex.generateMipmaps = false; qTex.minFilter = qTex.magFilter = THREE.LinearFilter;
@@ -205,6 +205,10 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     S.drawT = now;
     if (uiT && now > uiT) { uiT = 0; stEl.hidden = barEl.hidden = true; }
     size(); watchCam();
+    // Chrome 101 on the S8 never fires frame callbacks for a WebRTC video (the S8 test: 0 Quest frames counted while the decoder ran at full
+    // rate), and three's VideoTexture waits for those callbacks: so when none have come for 400 ms, a new frame = the video's clock moved
+    if (qv.readyState >= 2 && (qPoll || now - qLast > 400) && qv.currentTime !== qCT) { qCT = qv.currentTime; qNew = true; qN++; qLast = now; qPoll = true; }
+    if (qPoll && qNew) qTex.needsUpdate = true;
     const packed = qv.videoWidth === STU.PW, haveQ = qv.readyState >= 2 && qv.videoWidth > 0 && now - qLast < 1500;
     const prevRT = renderer.getRenderTarget(), prevXR = renderer.xr.enabled, ac = renderer.autoClear;
     renderer.xr.enabled = false; renderer.autoClear = true;

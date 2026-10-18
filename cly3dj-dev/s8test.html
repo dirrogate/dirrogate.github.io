@@ -28,7 +28,7 @@
 <canvas id="out" width="1280" height="720"></canvas>
 <div id="ui"><h1>Cly<b>3DJ</b> S8 test</h1>Press START. Allow the camera. Point the phone at anything (a green cloth if you have one). Leave it running 10 minutes, plugged in, with the HDMI adapter on if you have it. Then send a screenshot of this box.</div>
 <canvas id="graph" width="600" height="160"></canvas>
-<div id="bar"><button class="go" id="go">START</button><button id="hide">HIDE TEXT</button><button id="fs">FULL SCREEN</button></div>
+<div id="bar"><button class="go" id="go">START (FULL)</button><button class="go" id="go2">START (REAL LOAD)</button><button id="hide">HIDE TEXT</button><button id="fs">FULL SCREEN</button></div>
 <script>
 (function () {
 'use strict';
@@ -134,15 +134,18 @@ var vQ = document.createElement('video'), vC = document.createElement('video');
 [vQ, vC].forEach(function (v) { v.muted = true; v.playsInline = true; v.autoplay = true; v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none'; document.body.appendChild(v); });
 var L1 = null, L2 = null, camTrack = null, t0 = 0, running = false, notes = [];
 var n = { comp: 0, q: 0, c: 0, src: 0 }, fps = { comp: 0, q: 0, c: 0, src: 0 }, hist = [], worst = 99, statLines = '', jank = 0, lastRaf = 0, maxGap = 0;
-var newQ = false, newC = false;
+var newQ = false, newC = false, lastCT = -1, rvfcQ = 0, realLoad = false, frames = [], fi = 0;
 function log(s) { notes.push(s); if (notes.length > 6) notes.shift(); }
 function onFrames(v, key) {
   if (!v.requestVideoFrameCallback) return;
-  var cb = function () { n[key]++; if (key === 'q') newQ = true; else newC = true; v.requestVideoFrameCallback(cb); };
+  var cb = function () { n[key]++; if (key === 'q') { newQ = true; rvfcQ = performance.now(); } else newC = true; v.requestVideoFrameCallback(cb); };
   v.requestVideoFrameCallback(cb);
 }
-function start() {
-  if (running) return; running = true; $('go').textContent = 'RUNNING…'; $('go').disabled = true;
+function start(real) {
+  if (running) return; running = true; realLoad = !!real; $(real ? 'go2' : 'go').textContent = 'RUNNING…'; $('go').disabled = $('go2').disabled = true; $(real ? 'go' : 'go2').style.display = 'none';
+  if (realLoad) {   // #380 the stand-in scene drawn once into 16 pictures, then only copied: the phone no longer pays for drawing the Quest's frame
+    for (var k = 0; k < 16; k++) { drawScene(k / 16 * 2.0); var c = document.createElement('canvas'); c.width = PW; c.height = PH; c.getContext('2d').drawImage(src, 0, 0); frames.push(c); }
+  }
   try { glInit(); } catch (e) { log('WebGL2 failed: ' + e.message); }
   try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(function () {}); } catch (e) {}
   var srcTrack = src.captureStream(30).getVideoTracks()[0]; srcTrack.contentHint = 'motion';
@@ -161,7 +164,10 @@ function frame(now) {
   if (!running) return;
   var gap = now - lastRaf; lastRaf = now; if (now - t0 > 3000 && gap > maxGap) maxGap = gap; if (gap > 50) jank++;
   var t = (now - t0) / 1000;
-  drawScene(t); n.src++;
+  if (realLoad && now - (frame.last || 0) < 30) { requestAnimationFrame(frame); return; }   // the studio draws at most ~30 a second
+  frame.last = now;
+  if (realLoad) { sg.drawImage(frames[fi = (fi + 1) % frames.length], 0, 0); } else drawScene(t); n.src++;
+  if (vQ.readyState >= 2 && performance.now() - rvfcQ > 400 && vQ.currentTime !== lastCT) { lastCT = vQ.currentTime; newQ = true; n.q++; }   // Chrome 101: no frame callbacks for WebRTC video
   if (prog) {
     gl.useProgram(prog);
     var hq = vQ.readyState >= 2 && vQ.videoWidth > 0, hc = vC.readyState >= 2 && vC.videoWidth > 0;
@@ -194,7 +200,7 @@ function second() {
   if (done) {
     verdict = avg >= 27 ? 'RESULT: GOOD. The S8 kept ' + avg.toFixed(1) + ' fps after 10 minutes.' : avg >= 20 ? 'RESULT: BORDERLINE (' + avg.toFixed(1) + ' fps after 10 minutes). Usable at lower settings.' : 'RESULT: TOO SLOW (' + avg.toFixed(1) + ' fps after 10 minutes).';
   }
-  ui.textContent = 'Cly3DJ S8 test   ' + fmt(el) + (done ? '  (finished)' : ' / 10:00') + '\n' + head + '\n\n' +
+  ui.textContent = 'Cly3DJ S8 test ' + (realLoad ? '(REAL LOAD) ' : '(FULL) ') + fmt(el) + (done ? '  (finished)' : ' / 10:00') + '\n' + head + '\n\n' +
     'Composite on screen: ' + fps.comp + ' fps (last minute ' + avg.toFixed(1) + ', worst ' + (worst === 99 ? '-' : worst) + ')\n' +
     'Camera frames:       ' + fps.c + ' fps\nQuest stream frames: ' + fps.q + ' fps\nStand-in drawing:    ' + fps.src + ' fps\n' +
     'Long frames (>50 ms): ' + jank + ', longest ' + Math.round(maxGap) + ' ms\n' + statLines + (notes.length ? '\n' + notes.join('\n') : '') + (verdict ? '\n\n' + verdict : '') +
@@ -208,7 +214,7 @@ function drawGraph() {
   g.strokeStyle = '#40d080'; g.lineWidth = 2; g.beginPath();
   hist.forEach(function (f, i) { var x = i / 599 * w, y = h - Math.min(35, f) / 35 * h; if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
 }
-$('go').onclick = start;
+$('go').onclick = function () { start(false); }; $('go2').onclick = function () { start(true); };
 $('hide').onclick = function () { document.body.classList.toggle('hide'); };
 $('fs').onclick = function () { try { document.documentElement.requestFullscreen().catch(function () {}); } catch (e) {} try { screen.orientation.lock('landscape').catch(function () {}); } catch (e) {} };
 })();
