@@ -48,7 +48,7 @@ const params = new URLSearchParams(location.search);
 const CAMERA_ROLE = params.get('role') === 'camera';   // #161: this page is the spectator phone (spectator.html sends it here)
 // start-screen settings, remembered per browser
 const SETTINGS_DEFAULT = { needleLift: 7, source: 'pc', xml: 'rekordbox.xml', hands: '3d', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
-  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off', arRefl: 60,
+  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off', arRefl: 60, occlusion: true, roomHits: true,   // #411
   skyH: 1.5, skyTurn: 0, skyType: 'auto', skyKey: 'on', skyFile: '', skyMedia: '' };   // turntable physics (#120)
 const settings = (() => { try { return { ...SETTINGS_DEFAULT, ...JSON.parse(localStorage.getItem('vire.settings') || '{}') }; } catch { return { ...SETTINGS_DEFAULT }; } })();
 if (params.get('xml')) { settings.source = 'pc'; settings.xml = params.get('xml'); }
@@ -658,6 +658,51 @@ const gopro2 = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3
 // #406 LASER: one movable head; start spot behind the DJ, 2.1 m up, firing forward (-z) over his head toward the audience side
 const laser = CAMERA_ROLE ? null : new Laser(rig, () => ({ p: new THREE.Vector3(mixer.position.x, 2.1, mixer.position.z + 0.9), yaw: 0, pitch: -0.1 }));
 let laserTapT = 0;
+// #411 REAL WORLD (passthrough, Quest 3; #408 depth test: clean, no frame cost). Occlusion: three r169 draws the headset's
+// depth map into the depth buffer by itself once the session has depth-sensing (getDepthSensingMesh). We patch its
+// shader: colour writes off (it wrote none of its own: could paint passthrough black) and the real surface pushed back
+// 3 cm + 2 % of its distance, so things drawn right at a real surface (3D hands / glove on your real hands, gear on a
+// real table, the neon's glow on the wall) still show. Assumes the Quest's depth convention seen in #408c: near 0.1 m,
+// far infinite (window depth = 1 - near / z). Room: the Space Setup planes (walls, ceiling, floor, tables...) in rig
+// space, refreshed 10 times a second, for the laser's beams to stop on.
+let roomT = 0;
+const roomCache = new Map();   // XRPlane -> { t, poly, inv, q }
+const _rwM = new THREE.Matrix4(), _rwI = new THREE.Matrix4();
+function patchOcclusion(m) {
+  m.userData.vireOcc = true; const mat = m.material; mat.colorWrite = false;
+  mat.uniforms.uNear = { value: 0.1 }; mat.uniforms.uBias = { value: 0.03 };
+  mat.fragmentShader = `uniform sampler2DArray depthColor; uniform float depthWidth; uniform float depthHeight; uniform float uNear; uniform float uBias;
+void main() {
+  vec2 coord = vec2(gl_FragCoord.x / depthWidth, gl_FragCoord.y / depthHeight); float layer = 0.0;
+  if (coord.x >= 1.0) { coord.x -= 1.0; layer = 1.0; }
+  float d = texture(depthColor, vec3(coord, layer)).r;
+  if (d >= 0.99999) { gl_FragDepth = d; return; }
+  float z = uNear / max(1.0 - d, 1e-6); z += uBias + 0.02 * z;
+  gl_FragDepth = 1.0 - uNear / z;
+}`;
+  mat.needsUpdate = true;
+}
+function stepRealWorld(dt) {
+  if (!arMode || !renderer.xr.isPresenting) return;
+  const occ = renderer.xr.hasDepthSensing && renderer.xr.hasDepthSensing() ? renderer.xr.getDepthSensingMesh() : null;
+  if (occ) { if (!occ.userData.vireOcc) patchOcclusion(occ); occ.visible = settings.occlusion !== false; }
+  if (!laser || !laser.on) return;
+  roomT += dt; if (roomT < 0.1) return; roomT = 0;
+  const frame = renderer.xr.getFrame(), ref = renderer.xr.getReferenceSpace();
+  if (settings.roomHits === false || !frame || !ref || !frame.detectedPlanes) { laser.setRoom(null); return; }
+  rig.updateMatrixWorld(); _rwI.copy(rig.matrixWorld).invert();
+  const list = [], seen = new Set();
+  for (const p of frame.detectedPlanes) {
+    const pose = frame.getPose(p.planeSpace, ref); if (!pose) continue;
+    let e = roomCache.get(p);
+    if (!e || e.t !== p.lastChangedTime) { e = { t: p.lastChangedTime, poly: new Float32Array(p.polygon.flatMap(v => [v.x, v.z])), inv: new THREE.Matrix4(), q: new THREE.Quaternion() }; roomCache.set(p, e); }
+    _rwM.fromArray(pose.transform.matrix).premultiply(_rwI);   // plane -> rig
+    e.q.setFromRotationMatrix(_rwM); e.inv.copy(_rwM).invert();
+    list.push(e); seen.add(p);
+  }
+  for (const k of roomCache.keys()) if (!seen.has(k)) roomCache.delete(k);
+  laser.setRoom(list);
+}
 const laserPv = { c: document.createElement('canvas') };   // #407 the Workbench page's scope preview (phosphor trails)
 function laserTap() {   // tap = on / off; double-tap = back to its start spot, on
   if (!laser) return; const now = performance.now();
@@ -5667,8 +5712,9 @@ function drawToolsPage() {
         () => btn(x, y, w, h, 'CAM FIT', false, () => setTools('streamfit'), !streamer, fs),
         () => btn(x, y, w, h, 'PHONE CAM', !!(streamer && streamer.source === 'pcam'), openPhoneCam, !streamer, fs),
         () => btn(x, y, w, h, perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false, fs),
-        () => btn(x, y, w, h, laser && laser.on ? 'LASER: ON' : 'LASER', !!(laser && laser.on), () => setTools('laser'), !laser, fs)][i]();   // #406
-      const NT = 14, cols = P ? 2 : 5, gap = P ? 8 : 6, bh = P ? 58 : 50, bw = (R - L - gap * (cols - 1)) / cols;   // #390 13 buttons: 5 across in landscape (#406 14 with LASER)
+        () => btn(x, y, w, h, laser && laser.on ? 'LASER: ON' : 'LASER', !!(laser && laser.on), () => setTools('laser'), !laser, fs),   // #406
+        () => btn(x, y, w, h, settings.occlusion !== false ? 'REAL OCCLUSION: ON' : 'REAL OCCLUSION: OFF', settings.occlusion !== false, () => { settings.occlusion = settings.occlusion === false; saveSettings(); const c = document.getElementById('cOccl'); if (c) c.checked = settings.occlusion; drawMixScreen(); }, false, fs)][i]();   // #411 passthrough: real things hide virtual ones
+      const NT = 15, cols = P ? 2 : 5, gap = P ? 8 : 6, bh = P ? 58 : 50, bw = (R - L - gap * (cols - 1)) / cols;   // #390 13 buttons: 5 across in landscape (#406 14 with LASER)
       for (let i = 0; i < NT; i++) tile(L + (i % cols) * (bw + gap), y0 + 4 + Math.floor(i / cols) * (bh + gap), bw, bh, i);
       ledCells(L, y0 + 4 + Math.ceil(NT / cols) * (bh + gap) + 4, R - L, P);
     };
@@ -5779,6 +5825,7 @@ function drawToolsPage() {
     // the gadgets
     const lsrBtn = (x, y, w, h) => gad(x, y, w, h, LZ.on ? 'LASER ON' : 'LASER OFF', LZ.on, laserTap);
     const autoBtn = (x, y, w, h) => gad(x, y, w, h, LZ.auto ? 'AUTO ON' : 'AUTO OFF', LZ.auto, () => { LZ.set('auto', !LZ.auto); drawMixScreen(); });
+    const roomBtn = (x, y, w, h) => gad(x, y, w, h, settings.roomHits !== false ? 'ROOM ON' : 'ROOM OFF', settings.roomHits !== false, () => { settings.roomHits = settings.roomHits === false; saveSettings(); const c = document.getElementById('cRoomHits'); if (c) c.checked = settings.roomHits; drawMixScreen(); });   // #411 beams stop at walls / ceiling
     const beatLed = (x, y) => { const lit = LZ.on && LZ.auto && performance.now() - LZ.lastBeat < 140; g.fillStyle = WB.grey; g.fillRect(x, y, 20, 14); bevel(x, y, 20, 14, false); g.fillStyle = lit ? '#30ff40' : '#1d4a22'; g.fillRect(x + 3, y + 3, 14, 8); };
     const status = () => !LZ.auto ? 'MANUAL' : performance.now() - LZ.lastBeat > 4000 ? 'WAITING FOR BEAT' : `BEAT ${LZ.beats}`;
     const pats = LASER_PATS.map(p => [LASER_PL[p], LZ.pat === p, () => { LZ.setPat(p); if (!LZ.on) LZ.setOn(true); drawMixScreen(); }]);
@@ -5788,7 +5835,7 @@ function drawToolsPage() {
     if (P) {
       const x0 = wx + 10, x1 = wx + ww - 10, cw = x1 - x0; let y = wy + 30;
       preview(x0 + 3, y + 3, cw - 6, 120); y += 132;
-      const hw = (cw - 8) / 2; lsrBtn(x0, y, hw, 40); autoBtn(x0 + hw + 8, y, hw, 40); y += 48;
+      const hw = (cw - 8) / 2, tw3 = (cw - 12) / 3; lsrBtn(x0, y, tw3, 40); autoBtn(x0 + tw3 + 6, y, tw3, 40); roomBtn(x0 + 2 * (tw3 + 6), y, tw3, 40); y += 48;
       beatLed(x0, y); txt(status(), x0 + 26, y + 3, 1.25, WB.blk); y += 26;
       groupBox(x0, y, cw, 98, 'PATTERN'); const w3 = (cw - 24) / 3;
       pats.forEach(([lb, on, act], i) => gad(x0 + 6 + (i % 3) * (w3 + 6), y + 10 + Math.floor(i / 3) * 42, w3, 38, lb, on, act)); y += 108;
@@ -5799,7 +5846,7 @@ function drawToolsPage() {
     } else {
       const x0 = wx + 10, pw = 214, px0 = wx + ww - 10 - pw, lw = px0 - 10 - x0; let y = wy + 30;
       preview(px0 + 3, y + 3, pw - 6, 112);
-      lsrBtn(x0, y, 112, 32); autoBtn(x0 + 118, y, 112, 32); beatLed(x0 + 240, y + 9); txt(status(), x0 + 266, y + 12, 1.25, WB.blk); y += 46;
+      lsrBtn(x0, y, 112, 32); autoBtn(x0 + 118, y, 104, 32); roomBtn(x0 + 228, y, 104, 32); beatLed(x0 + 340, y + 9); txt(status(), x0 + 366, y + 12, 1.25, WB.blk); y += 46;
       groupBox(x0, y, lw, 46, 'PATTERN'); const w6 = (lw - 42) / 6;
       pats.forEach(([lb, on, act], i) => gad(x0 + 6 + i * (w6 + 6), y + 9, w6, 32, lb, on, act)); y += 56;
       groupBox(x0, y, lw, 46, 'COLOUR'); const w8 = (lw - 54) / 8;
@@ -6475,6 +6522,7 @@ function frame() {
     gp.setTally(!!(streamer && streamer.state === 'live' && (streamer.source === 'show' || streamer.source === 'avacam')));
     if (gp.on) gp.setView(showLive && streamer.ly && streamer.layerOk ? streamer.ly.out.texture : (ledMode === 'cam' || gp.aiming || (streamer && streamer.needsCamRT)) && djcam ? djcam.rt.texture : null, !showLive, showLive);
   }
+  stepRealWorld(dt);   // #411 depth occlusion on / off, room planes for the laser
   if (facetWall || laser) {   // #345; #346 BEAT: bass onsets on the master, read only while the wall is on with BEAT (#406 or the laser on AUTO)
     if (!beat) beat = new Beat(engine);
     beat.want = !!((facetWall && facetWall.on && facetWall.beat) || (laser && laser.on && laser.auto));
@@ -6587,7 +6635,13 @@ async function begin(mode) {
     setRecordTexSize(2048); // only a few full-detail records exist at once; grooves need the resolution
     applyShadows(false);   // real-time shadows per the Shadows setting (#96)
     renderer.setPixelRatio(1);
-    const session = await navigator.xr.requestSession(mode, { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'anchors'] });   // #210 anchors
+    const base = ['local-floor', 'bounded-floor', 'hand-tracking', 'anchors'];   // #210 anchors
+    let session = null;
+    if (mode === 'immersive-ar') {   // #411 (#408 depth test): Quest 3 depth for occlusion, Space Setup planes for the laser
+      try { session = await navigator.xr.requestSession(mode, { optionalFeatures: [...base, 'depth-sensing', 'plane-detection'], depthSensing: { usagePreference: ['gpu-optimized'], dataFormatPreference: ['luminance-alpha', 'float32'] } }); }
+      catch (e) { console.warn('depth / planes refused, plain passthrough', e); }
+    }
+    if (!session) session = await navigator.xr.requestSession(mode, { optionalFeatures: base });
     renderer.xr.setReferenceSpaceType('local-floor');
     renderer.xr.setFoveation(0.5);
     await renderer.xr.setSession(session);
@@ -6757,6 +6811,8 @@ $('#fLed').onchange = e => {
   $('#ledList').textContent = n ? `${n} video${n > 1 ? 's' : ''}: ${led.files.map(f => f.name).join(' · ')}` + (all.length > 5 ? '  (only the first 5 are used)' : '') : 'No playable videos in that pick (mp4 / webm).';
   drawMixScreen();
 };
+$('#cOccl').onchange = e => { settings.occlusion = e.target.checked; saveSettings(); drawMixScreen(); };   // #411
+$('#cRoomHits').onchange = e => { settings.roomHits = e.target.checked; saveSettings(); drawMixScreen(); };
 $('#sArRefl').oninput = e => { settings.arRefl = +e.target.value; saveSettings(); $('#arReflVal').textContent = settings.arRefl + '%'; if (arMode) scene.environmentIntensity = settings.arRefl / 100; };
 $('#sEnvMix').oninput = e => { settings.envMix = +e.target.value; saveSettings(); envLight.setMix(settings.envMix / 100); $('#envMixVal').textContent = settings.envMix + '%'; };
 
@@ -6769,6 +6825,7 @@ function syncSettingsUI() {
   $('#sDeckModel').value = settings.deckModel; $('#sRecWeight').value = settings.recWeight; $('#sSlipmat').value = settings.slipmat; $('#cPll').checked = !!settings.pll;
   $('#bEnvImg').hidden = settings.env !== 'image'; $('#rowEnvMix').hidden = settings.env === 'studio';
   $('#sArRefl').value = settings.arRefl; $('#arReflVal').textContent = settings.arRefl + '%';
+  $('#cOccl').checked = settings.occlusion !== false; $('#cRoomHits').checked = settings.roomHits !== false;   // #411
   $('#sSky').value = settings.sky; $('#rowSky').hidden = settings.env === 'studio';
   const skyAdj = settings.env !== 'image' || settings.sky !== 'on';
   for (const id of ['#rowSkyH', '#rowSkyTurn', '#rowSkyType', '#rowSkyKey', '#skyInfo']) $(id).hidden = skyAdj;

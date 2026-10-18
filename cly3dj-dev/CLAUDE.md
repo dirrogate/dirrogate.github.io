@@ -697,3 +697,14 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - No errors.
 - Open: how occlusion and depth colours LOOKED (edge alignment, lag, hands); three r169 ignores the depth view's own projection / pose, so edges may be off. Waiting for the owner.
 - Ideas from this: laser beams stop at real walls / ceiling / furniture from the planes (CPU ray-plane tests, cheap, static); depth occlusion as an app setting (colorWrite false fix); crowd contours / point cloud would have to read the depth on the GPU (no CPU depth on Quest).
+
+## #411 Real-world occlusion + lasers stop at the room (owner, 19 Oct) (cly3dj-dev)
+- Owner's #408 check: occlusion cut his hand / the pillars cleanly; DEPTH COLOURS sat well on real things.
+- Passthrough sessions now also ask for depth-sensing (gpu-optimized) and plane-detection; if the Quest refuses, plain passthrough as before. Full VR unchanged.
+- REAL OCCLUSION (start page checkbox 'Real things hide virtual ones', VJ TOOLS 15th tile; settings.occlusion, default on): three r169's own depth mesh (getDepthSensingMesh), its shader replaced once: colour writes off, real surface pushed back 3 cm + 2 % of its distance (so 3D hands / glove on real hands, gear on a real table, the neon's wall glow still show), window depth = 1 - 0.1 / z (Quest: near 0.1, far infinite, #408c). Off = the mesh hidden. All offscreen renders (DJ CAM, SHOWTIME!, HEADSET CAM, PHONE CAM, neon bake, fractal) already turn xr.enabled off, so the mesh only draws in the headset's own view; the stream pictures are unchanged.
+- ROOM HITS (start page checkbox 'Lasers stop at your walls...', LASER page gadget ROOM ON/OFF; settings.roomHits, default on): stepRealWorld() reads frame.detectedPlanes 10 times a second, plane -> rig matrices (the rig can move with its anchor), polygons cached per plane until lastChangedTime changes; laser.setRoom(list). Each beam stops at the nearest of the floor (rig y 0) and any plane it crosses inside its polygon (ray in plane space, even-odd test), the dot turned to lie on that surface, 3 mm in front. 24 beams x ~12 planes a frame, negligible. People don't stop beams, but with REAL OCCLUSION on a beam is hidden behind a person.
+- Checked on the PC: a fake wall 3 m ahead stops all 8 fan beams at 2.94-3.38 m with the dots on it; no room = full length; LASER and VJ TOOLS pages fit. Not checked in the headset.
+- Backup: backups/pre-411/ (main.js, laser.js, index.html). No server restart.
+
+## DISCUSSION NEXT (owner, 19 Oct): club-goers record their own AR 'experience' on their phones
+- How can people in a club video-record the laser show, the LED wall and the DJ as the robot through their own phone's AR (Android only to start)? Not built; to discuss.

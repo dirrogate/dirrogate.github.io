@@ -59,6 +59,7 @@ export class Laser {
   constructor(rig, home) {
     this.rig = rig; this.home = home; this.on = false; this.held = false;
     Object.assign(this, DEF);
+    this.room = null;   // #411 Space Setup planes in rig space (setRoom), beams stop on them
     this.ph = 0; this.kick = 0; this.dim = 1; this._bc = -1; this.beats = 0; this.lastBeat = 0; this.iv = 500; this.tapT = 0;
     const g = this.obj = new THREE.Group(); g.name = 'laser'; g.visible = false; g.userData.noMirror = true; rig.add(g);
     // head: black anodised body, heat-sink fins on top, front panel with the exit window, key switch, status LED, feet
@@ -121,6 +122,8 @@ export class Laser {
   // the tablet picks a pattern / colour: AUTO keeps running from there (it changes them on the beat)
   setPat(p) { if (PATTERNS.includes(p)) { this.pat = p; this.save(); } }
   setCol(c) { if (c in COLOURS) { this.col = c; this.save(); } }
+  // #411 planes: [{ inv: Matrix4 rig -> plane, q: Quaternion plane -> rig, poly: Float32Array x,z pairs in plane space }] or null
+  setRoom(list) { this.room = list && list.length ? list : null; }
   hit(P) {   // grab box: head + 3 cm
     if (!this.on) return false;
     this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P));
@@ -171,14 +174,22 @@ export class Laser {
       dirs[i * 3] = _d.x; dirs[i * 3 + 1] = _d.y; dirs[i * 3 + 2] = _d.z;
       const c = base || hsv((i / Math.max(1, n) + ph * 0.04) % 1, _hc);
       cols[i * 3] = c[0] * I; cols[i * 3 + 1] = c[1] * I; cols[i * 3 + 2] = c[2] * I;
-      // floor: stop the beam there and leave a dot
-      _d.applyQuaternion(_qq); let L = this.len;
-      if (_d.y < -1e-3) { const t = -o.y / _d.y; if (t > 0 && t < L) {
-        L = t; const k = Math.exp(-(t / this.len) * (0.15 + 0.6 * this.haze)) * I;
-        _p.copy(o).addScaledVector(_d, t); _p.y = 0.003; const sz = 0.08 + t * 0.004;
-        _sm.makeScale(sz, 1, sz).setPosition(_p); this.spots.setMatrixAt(spots, _sm);
+      // the beam stops at the nearest surface: the floor (rig y 0) or, #411, a Space Setup plane (wall, ceiling, table...), and leaves a dot there
+      _d.applyQuaternion(_qq); let L = this.len, hitQ = null;
+      if (_d.y < -1e-3) { const t = -o.y / _d.y; if (t > 0 && t < L) L = t; }
+      if (this.room) for (const pl of this.room) {
+        _po.copy(o).applyMatrix4(pl.inv); _pd.copy(_d).transformDirection(pl.inv);   // into plane space: the plane is y = 0
+        if (Math.abs(_pd.y) < 1e-4) continue;
+        const t = -_po.y / _pd.y; if (t <= 0.02 || t >= L) continue;
+        if (inPoly(pl.poly, _po.x + _pd.x * t, _po.z + _pd.z * t)) { L = t; hitQ = pl.q; }
+      }
+      if (L < this.len) {
+        const t = L, k = Math.exp(-(t / this.len) * (0.15 + 0.6 * this.haze)) * I, sz = 0.08 + t * 0.004;
+        _p.copy(o).addScaledVector(_d, t - 0.003);   // 3 mm in front of the surface
+        if (hitQ) _sq.copy(hitQ); else { _sq.identity(); _p.y = Math.max(_p.y, 0.003); }
+        _sm.compose(_p, _sq, _ss.set(sz, 1, sz)); this.spots.setMatrixAt(spots, _sm);
         sc[spots * 3] = c[0] * k; sc[spots * 3 + 1] = c[1] * k; sc[spots * 3 + 2] = c[2] * k; spots++;
-      } }
+      }
       lens[i] = L;
       gr += c[0]; gg += c[1]; gb += c[2];
       if (camPos) toward = Math.max(toward, _d.dot(_c));
@@ -194,4 +205,13 @@ export class Laser {
   }
 }
 const _v = new THREE.Vector3(), _m = new THREE.Matrix4(), _s = new THREE.Vector3(), _mi = new THREE.Matrix4(), _o = new THREE.Vector3(), _qq = new THREE.Quaternion();
+function inPoly(a, x, z) {   // even-odd test, a = [x0, z0, x1, z1, ...]
+  let inside = false;
+  for (let i = 0, j = a.length - 2; i < a.length; j = i, i += 2) {
+    const xi = a[i], zi = a[i + 1], xj = a[j], zj = a[j + 1];
+    if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+const _po = new THREE.Vector3(), _pd = new THREE.Vector3(), _sq = new THREE.Quaternion(), _ss = new THREE.Vector3();
 const _d = new THREE.Vector3(), _p = new THREE.Vector3(), _c = new THREE.Vector3(), _sm = new THREE.Matrix4(), _hc = [0, 0, 0];
