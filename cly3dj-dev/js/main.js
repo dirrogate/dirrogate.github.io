@@ -11,7 +11,8 @@ import { makeLedWall, LedPlayer, LED } from './ledwall.js';
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose, AV_LAYER } from './director.js';
 import { Streamer, SOURCES as STREAM_SRC, streamKey, STUDIO_MODES } from './stream.js';   // #380 STUDIO_MODES
 import { KEY_LABEL } from './keycol.js';   // #347 key colour names   // #331 LIVE STREAM (Twitch)
-import { GoPro, ZOOMS as GOPRO_ZOOMS } from './gopro.js';   // #337 movable camera for SHOW / AVACAM
+import { GoPro, ZOOMS as GOPRO_ZOOMS } from './gopro.js';
+import { Laser, PATTERNS as LASER_PATS, PAT_LABEL as LASER_PL, COLOURS as LASER_COLS, COL_LABEL as LASER_CL } from './laser.js';   // #406 laser head prop   // #337 movable camera for SHOW / AVACAM
 import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #340 Twitch chat
 import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whiteboard, markers and duster
 import { InkLabel } from './inklabel.js';   // #394 milk crate labels
@@ -654,6 +655,14 @@ const snapDeck = (k, y) => isDeckKey(k) ? Math.round(y / DECK_STEP) * DECK_STEP 
 const gopro = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 0.3, mixer.position.z - 0.55), yaw: Math.PI }));
 // #389 GOPRO2 (owner): a second action camera, by default overhead: above the mixer and decks, looking straight down
 const gopro2 = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 1.4, mixer.position.z), yaw: 0, pitch: -Math.PI / 2 }), 'vire.gopro2', 'wide');
+// #406 LASER: one movable head; start spot behind the DJ, 2.1 m up, firing forward (-z) over his head toward the audience side
+const laser = CAMERA_ROLE ? null : new Laser(rig, () => ({ p: new THREE.Vector3(mixer.position.x, 2.1, mixer.position.z + 0.9), yaw: 0, pitch: -0.1 }));
+let laserTapT = 0;
+function laserTap() {   // tap = on / off; double-tap = back to its start spot, on
+  if (!laser) return; const now = performance.now();
+  if (now - laserTapT < 700) { laserTapT = 0; laser.reset(); laser.setOn(true); toast('Laser back at its start', 1500); drawMixScreen(); return; }
+  laserTapT = now; laser.setOn(!laser.on); drawMixScreen();
+}
 const gpActive = () => gopro && gopro.on ? gopro : gopro2 && gopro2.on ? gopro2 : null;   // the one that is the camera now (only one at a time)
 let goproTapT = 0, goproTapWas = false, goproTapId = '';
 // #338 GOPRO is an AVACAM angle: picking it brings the GoPro out (FRONT / FADERS put it away). STREAM page GOPRO button:
@@ -752,6 +761,7 @@ const portals = CAMERA_ROLE ? null : new Portals(rig, i => {   // frame i's star
 });
 if (portals) { if (facetWall) portals.cutInto(facetWall.obj); portals.cutInto(skybox.group); }   // the windows punch through the backdrop and the dome; cutInto() again for any future glb room
 let wallTapT = 0, portalTapT = 0, portalDefArm = 0, beat = null, domeBoot = true;
+const _laserCam = new THREE.Vector3();   // #406
 function wallTap() {   // tap = backdrop on / off; double-tap = back to its start spot and mode
   if (!facetWall) return; const now = performance.now();
   if (now - wallTapT < 350) { wallTapT = 0; facetWall.reset(); facetWall.setOn(true); toast('Backdrop back at the start', 1500); drawMixScreen(); return; }
@@ -5097,7 +5107,7 @@ async function pressBytes(track) {
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
 }
-const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP' };   // #363 up-button names; #376
+const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -5655,10 +5665,11 @@ function drawToolsPage() {
         () => btn(x, y, w, h, ledMode === 'cam' ? 'LED AVACAM: ON' : 'LED AVACAM', ledMode === 'cam', () => setLedMode(ledMode === 'cam' ? 'off' : 'cam'), false, fs),
         () => btn(x, y, w, h, 'CAM FIT', false, () => setTools('streamfit'), !streamer, fs),
         () => btn(x, y, w, h, 'PHONE CAM', !!(streamer && streamer.source === 'pcam'), openPhoneCam, !streamer, fs),
-        () => btn(x, y, w, h, perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false, fs)][i]();
-      const cols = P ? 2 : 5, gap = P ? 8 : 6, bh = P ? 58 : 50, bw = (R - L - gap * (cols - 1)) / cols;   // #390 13 buttons: 5 across in landscape
-      for (let i = 0; i < 13; i++) tile(L + (i % cols) * (bw + gap), y0 + 4 + Math.floor(i / cols) * (bh + gap), bw, bh, i);
-      ledCells(L, y0 + 4 + Math.ceil(13 / cols) * (bh + gap) + 4, R - L, P);
+        () => btn(x, y, w, h, perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false, fs),
+        () => btn(x, y, w, h, laser && laser.on ? 'LASER: ON' : 'LASER', !!(laser && laser.on), () => setTools('laser'), !laser, fs)][i]();   // #406
+      const NT = 14, cols = P ? 2 : 5, gap = P ? 8 : 6, bh = P ? 58 : 50, bw = (R - L - gap * (cols - 1)) / cols;   // #390 13 buttons: 5 across in landscape (#406 14 with LASER)
+      for (let i = 0; i < NT; i++) tile(L + (i % cols) * (bw + gap), y0 + 4 + Math.floor(i / cols) * (bh + gap), bw, bh, i);
+      ledCells(L, y0 + 4 + Math.ceil(NT / cols) * (bh + gap) + 4, R - L, P);
     };
     if (P) {
       if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
@@ -5673,6 +5684,44 @@ function drawToolsPage() {
         lockBtn(L, y0 + 154, R - L, 46);   // #378
         note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until it is switched off. RECORD MAKER: press your own record. CONTROLLERS: 3D hands or bare controllers.', y0 + 218); }
       else vjPage(y0);   // #389
+    }
+    return;
+  }
+  if (page === 'laser') {   // #406 LASER: one movable head, six patterns, eight colours, AUTO on the bass beat
+    const y0 = head('LASER', 'vj'), LZ = laser;
+    if (!LZ) { note('The laser runs on the headset.', y0 + 20); return; }
+    const wake = () => { if (!LZ.on) LZ.setOn(true); };
+    const top = [[LZ.on ? 'LASER: ON' : 'LASER: OFF', LZ.on, laserTap], [LZ.auto ? 'AUTO: ON' : 'AUTO: OFF', LZ.auto, () => { LZ.set('auto', !LZ.auto); drawMixScreen(); }]];
+    const pats = LASER_PATS.map(p => [LASER_PL[p], LZ.pat === p, () => { LZ.setPat(p); wake(); drawMixScreen(); }]);
+    const cols = Object.keys(LASER_COLS).map(c => [LASER_CL[c], LZ.col === c, () => { LZ.setCol(c); wake(); drawMixScreen(); }, c]);
+    const cells = [['BEAMS', `${LZ.n}`, 'n'], ['SPREAD', `${LZ.spread}°`, 'spread'], ['SPEED', `${LZ.speed}x`, 'speed'], ['HAZE', `${Math.round(LZ.haze * 100)} %`, 'haze'], ['LENGTH', `${LZ.len} m`, 'len']];
+    const cell = ([label, val, k], x, y, w, h) => {
+      g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
+      const by = y + 15, bh = h - 15, bw = 40;
+      btn(x, by, bw, bh, '−', false, () => { LZ.step(k, -1); drawMixScreen(); });
+      g.fillStyle = '#fff'; g.font = '700 17px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + w / 2, by + bh / 2); g.textBaseline = 'alphabetic';
+      btn(x + w - bw, by, bw, bh, '+', false, () => { LZ.step(k, 1); drawMixScreen(); });
+    };
+    const swatch = (c, x, y, w) => {   // a colour strip under each colour button
+      if (LASER_COLS[c]) { const v = LASER_COLS[c]; g.fillStyle = `rgb(${v.map(a => Math.round(Math.min(1, a) * 255)).join(',')})`; }
+      else { const gr = g.createLinearGradient(x, 0, x + w, 0); ['#f00', '#ff0', '#0f0', '#0ff', '#00f', '#f0f'].forEach((s, i) => gr.addColorStop(i / 5, s)); g.fillStyle = gr; }
+      g.fillRect(x + 4, y, w - 8, 5);
+    };
+    const help = 'Grip (hands: pinch) the head to move and aim it; it stays where you let go. LASER: tap = on / off, double-tap = back to its start (behind you, high, firing over your head). AUTO changes pattern and colour on the bass beat and dims in breakdowns; you can still pick them. Beams stop at the floor with a dot. HAZE = how much the air shows them.';
+    if (P) {
+      const tw = (R - L - 8) / 2, w3 = (R - L - 16) / 3, w4 = (R - L - 18) / 4;
+      top.forEach(([lb, on, act], i) => btn(L + i * (tw + 8), y0, tw, 46, lb, on, act, false, 18));
+      pats.forEach(([lb, on, act], i) => btn(L + (i % 3) * (w3 + 8), y0 + 54 + Math.floor(i / 3) * 50, w3, 44, lb, on, act, false, 15));
+      cols.forEach(([lb, on, act, c], i) => { const x = L + (i % 4) * (w4 + 6), y = y0 + 158 + Math.floor(i / 4) * 48; btn(x, y, w4, 40, lb, on, act, false, 12); swatch(c, x, y + 34, w4); });
+      cells.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y0 + 262 + Math.floor(i / 2) * 62, tw, 56));
+      g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; wrapText(g, help, L + 4, y0 + 262 + 3 * 62 + 14, R - L - 8, 18, 10);
+    } else {
+      const tw = (R - L - 42) / 8;
+      [...top, ...pats].forEach(([lb, on, act], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, false, 15));
+      cols.forEach(([lb, on, act, c], i) => { const x = L + i * (tw + 6); btn(x, y0 + 46, tw, 38, lb, on, act, false, 14); swatch(c, x, y0 + 46 + 31, tw); });
+      const cw = (R - L - 32) / 5;
+      cells.forEach((c, i) => cell(c, L + i * (cw + 8), y0 + 92, cw, 44));
+      g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, help, L + 4, y0 + 152, R - L - 8, 16, 6);
     }
     return;
   }
@@ -6341,10 +6390,12 @@ function frame() {
     gp.setTally(!!(streamer && streamer.state === 'live' && (streamer.source === 'show' || streamer.source === 'avacam')));
     if (gp.on) gp.setView(showLive && streamer.ly && streamer.layerOk ? streamer.ly.out.texture : (ledMode === 'cam' || gp.aiming || (streamer && streamer.needsCamRT)) && djcam ? djcam.rt.texture : null, !showLive, showLive);
   }
-  if (facetWall) {   // #345; #346 BEAT: bass onsets on the master, read only while the wall is on with BEAT
+  if (facetWall || laser) {   // #345; #346 BEAT: bass onsets on the master, read only while the wall is on with BEAT (#406 or the laser on AUTO)
     if (!beat) beat = new Beat(engine);
-    beat.want = facetWall.on && facetWall.beat;
-    facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource, beat.tick(dt));
+    beat.want = !!((facetWall && facetWall.on && facetWall.beat) || (laser && laser.on && laser.auto));
+    const bp = beat.tick(dt);
+    if (facetWall) facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource, bp);
+    if (laser && laser.on) laser.tick(dt, beat, camera.getWorldPosition(_laserCam));
   }
   if (portals) portals.tick();   // #345 #346
   if (domeBoot) { domeBoot = false; if (dome.on && !CAMERA_ROLE) setDome(true); }   // #346 a dome left on last time: load its sky once everything is up
@@ -6425,7 +6476,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack, gearLocked, gearLockMsg, snapYaw: isDeckKey,   // #378
   REC, DECK, CRATE, ARM,
-  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
+  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
   scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
@@ -6771,6 +6822,7 @@ drawMixScreen();
 // debugging handle
 window.vire = { THREE, get fx() { return fx; }, skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
+window.vire._laser = { laser, laserTap };   // #406 test hook
 window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, milkSleeveHit, layoutMilkSleeves, gpSummon, goproReset, gopro2, setDomeEv, get plJump() { return plJump; }, msFly };   // #394 / #395 test hooks   // #392 / #393 test hooks
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 // #161 spectator phone: same scene, no audio / library / input; the client module takes over the loop
