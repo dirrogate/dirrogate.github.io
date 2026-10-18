@@ -579,3 +579,6 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 ## #396 NOW PLAYING bar: no BPM, slide-in (owner, 18 Oct) (cly3dj-dev)
 - stream.js: BPM gone from the overlay and from the CARD source. New `_npBar` / `_npDraw`: a red tab with a spinning record (33 rpm sheen, red label), a dark glass panel with a letter-spaced "NOW SPINNING" and artist – title, shadow, top edge light. New track: the old bar slides out (0.35 s), the new one slides in with an ease-out-back overshoot (0.7 s), the red underline runs across, the title is wiped in. Scales with the frame height (u = H / 720). Same frame goes to Twitch and Cly3DTV.
 - Backup for #394 to #396: backups/pre-394/ (main.js, xr.js, stream.js, chat.js, sw.js). New files added to sw.js APP. No server restart (static files).
+
+## #397 NOW SPINNING bar panel 40 % see-through (owner, 18 Oct) (cly3dj-dev)
+- stream.js _npDraw: the dark glass panel behind the title goes from 90 % to 60 % opaque. The red tab, record and text are unchanged.

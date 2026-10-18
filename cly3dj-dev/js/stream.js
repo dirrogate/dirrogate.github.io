@@ -825,7 +825,7 @@ export class Streamer {
     g.translate(off, 0);
     // shadow + glass panel
     g.shadowColor = 'rgba(0,0,0,0.45)'; g.shadowBlur = 18 * u; g.shadowOffsetY = 4 * u;
-    const gr = g.createLinearGradient(0, y0, 0, y0 + h); gr.addColorStop(0, 'rgba(26,29,38,0.9)'); gr.addColorStop(1, 'rgba(8,9,13,0.9)');
+    const gr = g.createLinearGradient(0, y0, 0, y0 + h); gr.addColorStop(0, 'rgba(26,29,38,0.6)'); gr.addColorStop(1, 'rgba(8,9,13,0.6)');   // #397 40 % see-through (owner)
     g.fillStyle = gr; g.beginPath(); g.roundRect(x0 + tab - 8 * u, y0, pw + 8 * u, h, [0, 10 * u, 10 * u, 0]); g.fill();
     g.shadowColor = 'transparent';
     g.fillStyle = 'rgba(255,255,255,0.10)'; g.fillRect(x0 + tab, y0, pw - 6 * u, Math.max(1, u));   // top edge light
