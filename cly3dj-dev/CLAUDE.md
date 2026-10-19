@@ -820,3 +820,6 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - Settings saved per phone ('dirro.set'): distance, stage height, robot x / z, camera angle, BPM, scroller text, NOW SPINNING text (?np= and ?scroll= in the link too).
 - PC test: ?demo=1 uses web/_test/stage_demo.png (the owner's photo; _test is not shipped). Checked in the browser pane (landscape and portrait). Not tried on a phone yet: open it over HTTPS (Pinggy to the PC, or cly3dj-dev on GitHub Pages) for camera and gyroscope.
 - No server restart.
+
+## #426 The robot DJ is called DIRRODJ (owner, 19 Oct) (cly3dj-dev)
+- Owner: the robot is DIRRODJ from now on (not robodj / robotdj). Dirrogram labels renamed (DIRRODJ LEFT / RIGHT, BACK / FRONT, start text). Helmet and hands only is deliberate: people see through him.

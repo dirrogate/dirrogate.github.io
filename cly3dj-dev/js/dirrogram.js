@@ -179,7 +179,7 @@ async function buildBooth() {
   try { const m = makeMixer(); gear.add(m); } catch (e) { console.warn('mixer', e); const m = new THREE.Mesh(new THREE.BoxGeometry(MIX.W, MIX.H, MIX.D), caseMat); m.position.y = MIX.H / 2; gear.add(m); }
 }
 const robot = new RobotAvatar2(robotRoot);
-const robotReady = robot.load(ROBOT_GLB).catch(e => { console.warn('robot', e); toast('Robot did not load'); });
+const robotReady = robot.load(ROBOT_GLB).catch(e => { console.warn('robot', e); toast('DIRRODJ did not load'); });
 
 // the laser: right under the LED wall, aimed at the audience (re-aimed at this phone on AIM)
 const laser = new Laser(stage, () => ({ p: V(0, WALL.y - WALL.h / 2 - 0.25, WALL.z + 0.1), yaw: Math.PI, pitch: 0 }));
@@ -376,8 +376,8 @@ function aim() {
 const ROWS = [
   ['dist', 'DISTANCE', 1, 25, 0.5, v => v.toFixed(1) + ' m'],
   ['lift', 'STAGE HEIGHT', -2, 2, 0.1, v => (v >= 0 ? '+' : '') + v.toFixed(1) + ' m'],
-  ['robotX', 'ROBOT LEFT / RIGHT', -5, 5, 0.25, v => v.toFixed(2) + ' m'],
-  ['robotZ', 'ROBOT BACK / FRONT', -2, 2, 0.25, v => v.toFixed(2) + ' m'],
+  ['robotX', 'DIRRODJ LEFT / RIGHT', -5, 5, 0.25, v => v.toFixed(2) + ' m'],
+  ['robotZ', 'DIRRODJ BACK / FRONT', -2, 2, 0.25, v => v.toFixed(2) + ' m'],
   ['fov', 'CAMERA ANGLE', 40, 100, 1, v => v.toFixed(0) + '°'],
   ['bpm', 'BPM', 60, 180, 1, v => v.toFixed(0)],
 ];
