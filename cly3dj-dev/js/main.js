@@ -60,7 +60,7 @@ if (settings.env === 'camera') settings.env = 'studio'; // camera snapshots remo
 // #114: Recording-friendly mode removed (always 90 Hz, 'interactive' audio); the owner records with the Quest
 // recorder's mic off, so the voice goes through the mixer; wired headphones, so no echo cancelling by default
 if (!settings.mig114) { delete settings.perf; settings.micRoute = 'app'; settings.micEcho = false; settings.mig114 = 1; saveSettings(); }
-let dirro = null, dirroRoomT = 0;   // #427 DirroHost, set up at the end of start-up
+let dirro = null, dirroRoomT = 0, smsPg = 0;   // #435 smsPg: HOLOSMS page   // #427 DirroHost, set up at the end of start-up
 let spect = null, spectErrShown = false;   // #158 spectator host (declared early: drawMixScreen reads it, #164)
 function saveSettings() { try { localStorage.setItem('vire.settings', JSON.stringify(settings)); } catch {} }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -5286,7 +5286,7 @@ const PINCH_FIT_DEF = {
   lh: { label: 'HAND LIFT', lo: -20, hi: 60, v: 10, unit: 'mm' }, lg: { label: 'GLOVE LIFT', lo: -20, hi: 60, v: 15, unit: 'mm' },
   pa: { label: 'PINCH TILT', lo: -60, hi: 60, v: 0, unit: '°' }, pt: { label: 'PINCH TURN', lo: -90, hi: 90, v: 0, unit: '°' },
 };
-const TOOLS_NAME = { dirro: 'DIRROGRAM', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
+const TOOLS_NAME = { dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -5672,6 +5672,28 @@ function drawToolsPage() {
     }
     return;
   }
+  if (page === 'holosms') {   // #435 HoloSMS from the audience: HOLO = on the phones' hologram scroller (6 at most), SINE = on the Quest's scroller, ✕ = delete
+    const y0 = head('HOLOSMS', 'dirro'), d = dirro;
+    if (!d) { note('Not on this device.', y0 + 24); return; }
+    const per = P ? 9 : 3, rh = P ? 60 : 58, pages = Math.max(1, Math.ceil(d.sms.length / per)); smsPg = Math.min(smsPg, pages - 1);
+    const bw = P ? 56 : 70, bx = R - 3 * bw - 12;
+    if (!d.sms.length) note(d.on ? 'No messages yet. People type a HoloSMS on the Dirrogram page (140 characters, one every 20 s each); they come here first and reach no screen until you pick HOLO or SINE.' : 'DIRROGRAM is off: switch it on to receive messages.', y0 + 24);
+    d.sms.slice(smsPg * per, smsPg * per + per).forEach((m, i) => {
+      const y = y0 + 4 + i * rh, ago = Math.max(0, Math.round((Date.now() - m.at) / 60000));
+      g.fillStyle = m.holo ? '#1d2a3c' : '#121722'; g.fillRect(L, y, R - L, rh - 6);
+      g.fillStyle = '#8c96a8'; g.font = '600 11px system-ui'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillText(ago ? `${ago} min ago` : 'just now', L + 6, y + 13);
+      g.fillStyle = '#ffffff'; g.font = '500 14px system-ui'; wrapText(g, m.t, L + 6, y + 29, bx - L - 14, 16, 2);
+      btn(bx, y + 4, bw, rh - 14, 'HOLO', m.holo, () => d.smsHolo(m.id), false, 15);
+      btn(bx + bw + 6, y + 4, bw, rh - 14, 'SINE', m.sine, () => d.smsSine(m.id), false, 15);
+      btn(bx + 2 * (bw + 6), y + 4, bw, rh - 14, '✕', false, () => d.smsDelete(m.id), false, 18);
+    });
+    const fy = y0 + 4 + per * rh + 2, fw = (R - L - 18) / 4;
+    btn(L, fy, fw, 36, '◀', false, smsPg > 0 ? () => { smsPg--; drawMixScreen(); } : null, smsPg === 0, 18);
+    g.fillStyle = '#dfe6f2'; g.font = '600 15px system-ui'; g.textAlign = 'center'; g.fillText(`${smsPg + 1} / ${pages}  ·  ${d.holo.length} on holo`, L + fw * 1.5 + 6, fy + 23);
+    btn(L + 2 * (fw + 6), fy, fw, 36, '▶', false, smsPg < pages - 1 ? () => { smsPg++; drawMixScreen(); } : null, smsPg >= pages - 1, 18);
+    btn(L + 3 * (fw + 6), fy, fw, 36, 'CLEAR HOLO', false, d.holo.length ? () => d.holoClear() : null, !d.holo.length, 14);
+    return;
+  }
   if (page === 'dirro') {   // #427 DIRROGRAM: on / off, the relay, the room and its QR (the audience scans it), status; #434 the phones' LED wall
     const y0 = head('DIRROGRAM', 'home'), d = dirro;
     if (!d) { note('Not on this device.', y0 + 24); return; }
@@ -5696,6 +5718,7 @@ function drawToolsPage() {
       acts.forEach(([l, on, a], i) => btn(L, y0 + 6 + i * 56, R - L, 48, l, on, a, false, 21));
       let y = y0 + 6 + 3 * 56; wallBtn(L, y, R - L, 44); y += 52;
       steps.forEach(([l, v, dn, up], i) => stp(L + (i % 2) * ((R - L) / 2 + 3), y + Math.floor(i / 2) * 52, (R - L) / 2 - 3, 44, l, v, dn, up)); y += 2 * 52 + 6;
+      btn(L, y, R - L, 40, `HOLOSMS (${d.sms.length})`, d.holo.length > 0, () => setTools('holosms'), false, 17); y += 46;   // #435
       ty = y + 14; tw = R - L - 8;
       const q = Math.min(R - L, H - (ty + 44) - 10); drawQr(g, fanUrl(), L + (R - L - q) / 2, ty + 44, q);
     } else {
@@ -5704,6 +5727,7 @@ function drawToolsPage() {
       wallBtn(L, y0 + 54, aw, 42);
       steps.forEach(([l, v, dn, up], i) => { const k = i + 1, x = L + (k % 3) * (sw + 6), y = y0 + 54 + Math.floor(k / 3) * 48; stp(x, y, sw, 42, l, v, dn, up); });
       drawQr(g, fanUrl(), qx, y0 + 2, q);
+      btn(L + 2 * (sw + 6), y0 + 54 + 48, sw, 42, `HOLOSMS (${d.sms.length})`, d.holo.length > 0, () => setTools('holosms'), false, 15);   // #435
       ty = y0 + 54 + 2 * 48 + 20; tw = lw;
     }
     g.textAlign = 'left'; g.fillStyle = d.state === 'live' ? '#7dffa0' : '#dfe6f2'; g.font = '600 16px system-ui';
@@ -6793,7 +6817,9 @@ if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr
   scrollText: () => (scroller && scroller.on ? scroller.text : ''),
   getLed: () => ({ img: !!(led.on && led.img), name: led.name, file: led.name ? led.fileNamed(led.name) : null }),   // #434 the LED wall's picture
   tvCanvas: () => (streamer && streamer.active ? streamer.canvas : null),   // #434 the stream / venue-screen picture
-  onChange: () => { if (toolsPage === 'dirro' || toolsPage === 'home') drawMixScreen(); } });
+  sineText: t => { const c = cleanText(t, 120); if (c.trim()) { scroller.start(c); toast('On the sine scroller', 1500); } },   // #435 a HoloSMS on the Quest's own scroller
+  onSms: t => toast('HoloSMS: ' + (t.length > 46 ? t.slice(0, 45) + '…' : t), 2500),
+  onChange: () => { if (toolsPage === 'dirro' || toolsPage === 'home' || toolsPage === 'holosms') drawMixScreen(); } });
 renderer.setAnimationLoop(frame);
 // #220 DJ CAM: pose the avatar (headset: head + hands; desktop: a demo DJ), then render the camera into the LED wall
 const _djT0 = performance.now();
@@ -7225,7 +7251,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, mixScreenDrag, mixScreenRelease, get fx() { return fx; }, skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
 window.vire._laser = { laser, laserTap, camCal, camCalStart, camCalStop };   // #415 camCal test hook   // #406 test hook
 window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, milkSleeveHit, layoutMilkSleeves, gpSummon, goproReset, gopro2, setDomeEv, get plJump() { return plJump; }, msFly };   // #394 / #395 test hooks   // #392 / #393 test hooks

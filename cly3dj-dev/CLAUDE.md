@@ -869,3 +869,12 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - Phone: AUTO = the Quest's picture whenever one is up, else fractal with the promo card 6 s in 24; PICTURES = the Quest's picture (fractal when none); CLY3DTV = frames (fractal when none for 3 s); FRACTAL. Grid shader: cells from LED GRID (rows = 9/16), dot size from LED DOT, brightness from LED GLOW, no grid at OFF. Checked on the PC with a test picture (96 across, 60 % dots) and test frames (grid off).
 - Bandwidth: CLY3DTV at 2 frames a second is ~10 KB/s per phone through the tunnel (100 phones ~1 MB/s); PICTURES costs one 30-60 KB send per picture.
 - Backup backups/pre-434/.
+
+## #435 HoloSMS: audience messages, moderated on the tablet (owner, 19 Oct) (cly3dj-dev)
+- Owner: a 140-character message field on the Dirrogram page; a moderation page on the tablet picks which ones go to the hologram scroller and, optionally, the sine scroller, and deletes the rest. Also asked: does the Quest send to each phone? No: the Quest sends each update once to the relay (the PC server); the relay copies it to every phone, so the PC's upload grows with the crowd, the Quest's does not.
+- Phone: HOLO SMS button -> box (textarea, 140 max, counter, SEND / CANCEL; text selectable there). Sends {k:'sms', t} when live; toasts "Sent to the DJ. It goes up if the DJ picks it" / "wait N s" / "Not connected".
+- Relay core: a phone's sms goes to the DJ only, never to other phones: control characters and runs of spaces cleaned, 140 characters, one per 20 s per phone (else {k:'smsw', s}), numbered per room; the sender gets {k:'smsok'}. Tested in Node: trimmed to 140, the second within 20 s refused, the other phone got nothing. Server restart needed.
+- Quest (dirro-host.js): sms list (newest first, 60 kept), a toast in the headset for each; smsHolo(id) toggles a message onto the hologram list (6 at most, oldest drops) which goes out in the config ('holo'); smsSine(id) puts it on the Quest's own scroller (cleaned to the bitmap font's letters, 120 max); smsDelete, holoClear. Nothing reaches a screen without HOLO or SINE.
+- Tablet: DIRROGRAM page HOLOSMS (n) button (lit while any are on holo) -> HOLOSMS page: 3 per page in landscape, 9 in portrait, each with its age, HOLO / SINE / ✕; footer ◀ page ▶, "n on holo", CLEAR HOLO. Checked in the browser pane.
+- Phone scroller: the DJ's scroller text, then the approved messages, joined by ✦. Checked in the browser pane. window.vire.dirro added for tests.
+- Backup backups/pre-435/.

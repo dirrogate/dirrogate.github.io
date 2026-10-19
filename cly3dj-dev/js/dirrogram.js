@@ -29,8 +29,9 @@ if (Q.get('np')) S.np = Q.get('np');
 if (Q.get('scroll')) S.scroll = Q.get('scroll');
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
 // #427 texts from the Quest while live (scroller, NOW SPINNING) win over this phone's own
-const liveCfg = { scroll: '', np: '', wall: null, img: '' };
-const scrollText = () => liveCfg.scroll || S.scroll, npText = () => liveCfg.np || S.np;
+const liveCfg = { scroll: '', np: '', wall: null, img: '', holo: [] };
+// #435 approved HoloSMS ride along on the hologram scroller after the DJ's text
+const scrollText = () => [liveCfg.scroll || S.scroll, ...liveCfg.holo].join('  \u2726  '), npText = () => liveCfg.np || S.np;
 
 // ---------------------------------------------------------------- renderer, scenes
 const canvas = $('view');
@@ -345,6 +346,8 @@ function netConnect() {
   ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (x) { return; } netMsg(m, performance.now()); };
 }
 function netMsg(m, now) {
+  if (m.k === 'smsok') { toast('Sent to the DJ. It goes up if the DJ picks it.'); return; }   // #435
+  if (m.k === 'smsw') { toast(`One message every 20 s: wait ${m.s} s`); return; }
   if (m.k === 'pong') { const r = now - m.c; NET.rtt = NET.rtt ? NET.rtt + (r - NET.rtt) * 0.25 : r; return; }
   if (m.k === 'i' && m.id && m.d) {   // #434 a picture from the Quest's LED wall (kept, the last 8)
     if (NET.imgs.has(m.id)) return;
@@ -356,6 +359,7 @@ function netMsg(m, now) {
   }
   if (m.k === 'c') {
     liveCfg.wall = m.wall || null; liveCfg.img = m.img || '';   // #434
+    { const h = Array.isArray(m.holo) ? m.holo.map(x => String(x).slice(0, 140)) : []; if (h.join('\n') !== liveCfg.holo.join('\n')) { liveCfg.holo = h; drawScroller(); } }   // #435
     if ((m.scroll || '') !== liveCfg.scroll) { liveCfg.scroll = m.scroll || ''; drawScroller(); }
     if ((m.np || '') !== liveCfg.np) { liveCfg.np = m.np || ''; drawCaption(); if (liveCfg.np) capUntil = T + 10; }   // a new track: NOW SPINNING for 10 s
     return;
@@ -562,7 +566,7 @@ function buildPanel() {
 }
 $('bAim').onclick = () => { if (!aimF) aim(); else { show('aim', true); show('hint', true); aimF = null; stage.visible = false; } };
 $('aim').onclick = aim;
-$('bSet').onclick = () => { const p = $('panel'); if (p.classList.contains('hide')) buildPanel(); p.classList.toggle('hide'); };
+$('bSet').onclick = () => { show('sms', false); const p = $('panel'); if (p.classList.contains('hide')) buildPanel(); p.classList.toggle('hide'); };
 $('bFlip').onclick = async () => {
   if (!stream) { toast('No camera on this device'); return; }
   selfie = !selfie; document.body.classList.toggle('selfie', selfie); $('bFlip').textContent = selfie ? 'BACK CAM' : 'SELFIE';
@@ -570,6 +574,15 @@ $('bFlip').onclick = async () => {
   if (selfie && !people.on) setPeople(true);   // a selfie wants the show behind you
 };
 $('bPeople').onclick = () => setPeople(!people.on);
+// #435 HoloSMS: up to 140 characters to the DJ's tablet; the DJ decides what reaches the hologram scroller
+$('bSms').onclick = () => { show('panel', false); const box = $('sms'), on = box.classList.contains('hide'); show('sms', on); if (on) setTimeout(() => $('smsIn').focus(), 50); };
+$('smsCancel').onclick = () => show('sms', false);
+$('smsIn').oninput = () => { $('smsN').textContent = `${[...$('smsIn').value].length} / 140`; };
+$('smsSend').onclick = () => {
+  const t = $('smsIn').value.replace(/\s+/g, ' ').trim().slice(0, 140); if (!t) return;
+  if (!NET.ws || NET.ws.readyState !== 1 || !netLive(performance.now())) { toast('Not connected to the DJ right now'); return; }
+  NET.ws.send(JSON.stringify({ k: 'sms', t })); $('smsIn').value = ''; $('smsN').textContent = '0 / 140'; show('sms', false);
+};
 // tapping anywhere while the ring shows = AIM
 canvas.addEventListener('click', () => { if (!aimF && !$('aim').classList.contains('hide')) aim(); });
 

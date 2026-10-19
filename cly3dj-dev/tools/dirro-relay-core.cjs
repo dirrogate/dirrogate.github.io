@@ -66,7 +66,14 @@ function handleUpgrade(req, sock, head, prefix = '') {
   console.log(new Date().toISOString(), 'dirrogram', id, role, 'in', '(phones', r.fans.size + ')');
   ws.onmsg = s => {
     if (s.length < 64 && s.includes('"ping"')) { try { const q = JSON.parse(s); if (q.k === 'ping') { ws.send(JSON.stringify({ k: 'pong', c: q.c, s: Date.now() })); return; } } catch (e) {} }
-    if (role !== 'dj') return;   // phones only ping
+    if (role !== 'dj') {   // phones only ping, and send HoloSMS (#435): to the DJ alone, one per 20 s per phone, 140 characters
+      if (!r.dj || s.length > 2000 || !s.startsWith('{"k":"sms"')) return;
+      const now = Date.now(); if (now - (ws.smsT || 0) < 20000) { ws.send('{"k":"smsw","s":' + Math.ceil((20000 - (now - ws.smsT)) / 1000) + '}'); return; }
+      let q; try { q = JSON.parse(s); } catch (e) { return; }
+      const t = String(q.t || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140); if (!t) return;
+      ws.smsT = now; r.smsN = (r.smsN || 0) + 1; r.dj.send(JSON.stringify({ k: 'sms', id: r.smsN, t, at: now })); ws.send('{"k":"smsok"}');
+      return;
+    }
     if (s.startsWith('{"k":"c"')) r.cfg = s;
     else if (s.startsWith('{"k":"i"')) {   // #434 an LED-wall picture: the last 8 are kept for phones that join later
       const m = s.match(/^\{"k":"i","id":"([A-Za-z0-9_-]{1,40})"/);

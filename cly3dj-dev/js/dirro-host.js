@@ -55,7 +55,17 @@ export class DirroHost {
     this.sent = 0; this.bytes = 0; this.kbps = 0; this._rateT = performance.now(); this._rateB = 0;
     this.wall = { ...WALL_DEF }; try { Object.assign(this.wall, JSON.parse(ls(K_WALL) || '{}')); } catch (e) {}
     this.imgName = ''; this.imgId = ''; this.imgSent = new Set(); this.frameT = 0; this.frames = 0;
+    this.sms = []; this.holo = []; this.smsNew = 0;   // #435 HoloSMS: messages in (newest first, 60 kept), the ones you put on the hologram scroller (6 at most)
   }
+  // #435 HoloSMS moderation: nothing reaches the phones until it is put on HOLO here
+  smsHolo(id) {
+    const m = this.sms.find(x => x.id === id); if (!m) return;
+    if (this.holo.includes(m)) this.holo = this.holo.filter(x => x !== m); else { this.holo.push(m); while (this.holo.length > 6) this.holo.shift(); }
+    m.holo = this.holo.includes(m); this.cfgKey = ''; this.cfgT = 0; this._changed();
+  }
+  smsSine(id) { const m = this.sms.find(x => x.id === id); if (m && this.env.sineText) { this.env.sineText(m.t); m.sine = true; this._changed(); } }
+  smsDelete(id) { this.sms = this.sms.filter(x => x.id !== id); const n = this.holo.length; this.holo = this.holo.filter(x => x.id !== id); if (n !== this.holo.length) { this.cfgKey = ''; this.cfgT = 0; } this._changed(); }
+  holoClear() { for (const m of this.holo) m.holo = false; this.holo = []; this.cfgKey = ''; this.cfgT = 0; this._changed(); }
   setWall(k, v) { this.wall[k] = v; ls(K_WALL, JSON.stringify(this.wall)); this.cfgKey = ''; this.cfgT = 0; this._changed(); }
   // #434 the picture on the Quest's LED wall, once per connection: fitted (cover) into 512 x 288, JPEG under ~60 KB
   async _sendImg(file, name) {
@@ -93,6 +103,7 @@ export class DirroHost {
     ws.onmessage = e => {
       let m; try { m = JSON.parse(e.data); } catch (x) { return; }
       if (m.k === 'fans') { if (m.n !== this.fans) { this.fans = m.n; this._changed(); } }
+      else if (m.k === 'sms' && m.t) { this.sms.unshift({ id: m.id, t: String(m.t).slice(0, 140), at: m.at || Date.now(), holo: false, sine: false }); if (this.sms.length > 60) this.sms.length = 60; this.smsNew++; if (this.env.onSms) this.env.onSms(m.t); this._changed(); }   // #435
       else if (m.k === 'pong') { const r = performance.now() - m.c; this.rtt = this.rtt ? this.rtt + (r - this.rtt) * 0.3 : r; }
     };
     ws.onclose = () => { if (this.ws !== ws) return; this.ws = null; this.state = 'retrying'; this.retry++; this.retryT = performance.now() + Math.min(15000, 1000 * Math.pow(1.6, this.retry)); this._changed(); };
@@ -112,7 +123,7 @@ export class DirroHost {
     if (L && L.img && L.file && L.name) { if (L.name !== this.imgName) { this.imgName = L.name; this._sendImg(L.file, L.name); } }
     else if (this.imgName) { this.imgName = ''; this.imgId = ''; }
     if (this.wall.src === 'tv') this._sendFrame(now);
-    const W = this.wall, cfg = { k: 'c', scroll, np: np.a || '', img: this.imgSent.has(this.imgId) ? this.imgId : '', wall: { src: W.src, cols: W.cols, fill: W.fill, glow: W.glow } }, key = JSON.stringify(cfg);
+    const W = this.wall, cfg = { k: 'c', scroll, np: np.a || '', img: this.imgSent.has(this.imgId) ? this.imgId : '', wall: { src: W.src, cols: W.cols, fill: W.fill, glow: W.glow }, holo: this.holo.map(x => x.t) }, key = JSON.stringify(cfg);   // #435 approved HoloSMS
     if ((key !== this.cfgKey && now - this.cfgT > CFG_MS) || now - this.cfgSent > CFG_FORCE_MS) { this.cfgKey = key; this.cfgT = this.cfgSent = now; this.ws.send(key); this._rateB += key.length; }
     if (now - this.sendT < SEND_MS) return;
     this.sendT = now;
