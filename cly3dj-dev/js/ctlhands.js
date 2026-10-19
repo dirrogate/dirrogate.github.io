@@ -151,6 +151,7 @@ function update(h, t, g, th, pin = 0) {
   tb.updateWorldMatrix(true, false); db.updateWorldMatrix(true, false); _inv.copy(h.root.matrixWorld).invert();
   _t.setFromMatrixPosition(tb.matrixWorld).applyMatrix4(_inv); _d.setFromMatrixPosition(db.matrixWorld).applyMatrix4(_inv);
   (h.tipLive || (h.tipLive = new THREE.Vector3())).copy(_t);   // #420 the ball sits ON the drawn fingertip (was 6 mm past it, in the air)
+  (h.tipBall || (h.tipBall = new THREE.Vector3())).copy(_t).addScaledVector(_d.subVectors(_t, _d).normalize(), 0.010);   // #421 (owner) the ball 1 cm ahead of the 3D hand's fingertip, along the last finger bone
   const th2 = h.bones['thumb-tip']; th2.updateWorldMatrix(true, false);
   (h.thumbLive || (h.thumbLive = new THREE.Vector3())).setFromMatrixPosition(th2.matrixWorld).applyMatrix4(_inv);   // #420 for the pinch centre
 }
