@@ -3756,25 +3756,46 @@ function sliderFromLocal(id, l, raw = false) {
 // #120: the hand's angle (unwrapped, rad) goes to the worklet, which ties the record to it with a stiff spring
 // (the platter keeps turning under the slipmat). force = how hard a finger presses on the platter rim (N).
 function scratchBegin(d, localPoint, nudge = false, force) {
-  const s = { deck: d, nudge, lastAng: Math.atan2(localPoint.z - DECK.spindle.z, localPoint.x - DECK.spindle.x), lastT: performance.now(), rate: 0, lastMove: performance.now(), holding: false, ang: 0, force: force != null ? force : RIM_FORCE_LIGHT };
+  const s = { deck: d, nudge, lastAng: Math.atan2(localPoint.z - DECK.spindle.z, localPoint.x - DECK.spindle.x), lastT: performance.now(), rate: 0, lastMove: performance.now(), holding: false, ang: 0, force: force != null ? force : RIM_FORCE_LIGHT,
+    raw: 0, dx: 0, t: 0 };   // #423 raw = hand angle x SCRATCH & DRAG, ang = filtered, dx = filtered speed, t = stamp (ms)
   scratches.add(s); return s;
 }
 const RIM_FORCE_LIGHT = 0.35;   // N: a fingertip resting on the platter's side
 function handRate(s) { return s.rate; }
 function postHand(s, holding) {
   if (s.nudge) engine.post({ type: 'touch', deck: s.deck.i, active: holding, rate: s.rate, force: s.force });
-  else engine.post(holding ? { type: 'hand', deck: s.deck.i, holding: true, rate: s.rate, ang: s.ang } : { type: 'hand', deck: s.deck.i, holding: false });
+  else engine.post(holding ? { type: 'hand', deck: s.deck.i, holding: true, rate: s.rate, ang: s.ang, t: s.t || undefined } : { type: 'hand', deck: s.deck.i, holding: false });   // #423 t: the reading's time stamp
 }
 function scratchMove(s, localPoint, force) {
   const d = s.deck;
   if (force != null) s.force += (force - s.force) * 0.3;   // tracking jitter: smooth the pressing force
-  if (!s.holding) { s.holding = true; s.rate = s.nudge ? 0 : engine.state.decks[d.i].rate; postHand(s, true); }
+  const now = performance.now(), tS = renderer.xr.isPresenting && frameT ? frameT : now;   // #423 stamp: XR frame time
+  if (!s.holding) { s.holding = true; s.rate = s.nudge ? 0 : engine.state.decks[d.i].rate; s.t = tS; postHand(s, true); }
   const ang = Math.atan2(localPoint.z - DECK.spindle.z, localPoint.x - DECK.spindle.x);
   let da = ang - s.lastAng; if (da > Math.PI) da -= 2 * Math.PI; if (da < -Math.PI) da += 2 * Math.PI;
-  const now = performance.now(); const dtm = Math.max(4, now - s.lastT) / 1000;
-  s.rate = s.rate * 0.4 + ((da / dtm) / W33) * 0.6;
-  s.ang += da;
-  s.lastAng = ang; s.lastT = now; s.lastMove = now;
+  s.lastAng = ang;
+  if (s.nudge) {   // finger on the platter rim: unchanged (#120)
+    const dtm = Math.max(4, now - s.lastT) / 1000;
+    s.rate = s.rate * 0.4 + ((da / dtm) / W33) * 0.6; s.ang += da;
+    s.lastT = now; s.lastMove = now; postHand(s, true); return;
+  }
+  // #423 (owner: warbling and too fast while holding / back-cueing). Measured in Node on the real worklet with 0.3 mm of
+  // tracking noise and 4 ms of frame-timing jitter: a hand held still shook the record by 0.15 x normal speed (RMS) and
+  // a 2 cm back-cue overshot 4 %. The record still follows the hand 1:1 (x SCRATCH & DRAG), but the angle now goes
+  // through a one-euro filter (smooth when slow, quick when fast; TURNTABLE FEEL > HAND SMOOTHING) and every reading is
+  // stamped with the headset frame's time, which the worklet plays back evenly instead of trusting message timing.
+  s.raw += da * FEEL.scr / 100;
+  const dt = Math.min(0.1, Math.max(0.001, (tS - s.t) / 1000)); s.t = tS;
+  const k = FEEL.smooth / 100;
+  let nx;
+  if (k <= 0) { nx = s.raw; s.dx = (s.raw - s.ang) / dt; }
+  else {
+    const al = c => 1 / (1 + 1 / (2 * Math.PI * c * dt)), minCut = 0.25 + 1.75 * (1 - k), beta = 4 + 36 * (1 - k);
+    s.dx += ((s.raw - s.ang) / dt - s.dx) * al(10);
+    nx = s.ang + (s.raw - s.ang) * al(minCut + beta * Math.abs(s.dx));
+  }
+  s.rate = ((nx - s.ang) / dt) / W33; s.ang = nx;
+  s.lastT = now; s.lastMove = now;
   postHand(s, true);
 }
 // Spindle twist (owner, #105): pinch the spindle / label and twist. The record moves by exactly the twisted
@@ -3782,7 +3803,7 @@ function scratchMove(s, localPoint, force) {
 // pitch-fader speed, so the tempo is untouched. Positive seconds = forward (clockwise seen from above).
 function spindleTwist(d, seconds) {
   if (!d.loaded || !seconds) return;
-  engine.post({ type: 'shift', deck: d.i, delta: seconds }); d.twistT = performance.now();
+  engine.post({ type: 'shift', deck: d.i, delta: seconds * FEEL.spin / 100 }); d.twistT = performance.now();   // #423 SPINDLE TWIST
 }
 // #322 VR: fingers pinching the spindle (a friction torque on the platter, see the worklet); rate = their turning speed
 function spindleHold(d, rate) { engine.post({ type: 'spin', deck: d.i, active: true, rate }); d.twistT = performance.now(); }
@@ -3792,6 +3813,7 @@ function scratchIdle() { // a still hand holds the record still
   const now = performance.now();
   for (const s of scratches) if (s.holding && now - s.lastMove > 45) {
     s.rate *= 0.5; if (Math.abs(s.rate) < 0.01) s.rate = 0;
+    if (!s.nudge) { s.t = renderer.xr.isPresenting && frameT ? frameT : now; s.ang = s.raw; s.dx = 0; }   // #423 no new reading: the hand is still
     postHand(s, true);
   }
 }
@@ -4708,10 +4730,10 @@ function drawVideoPage() {
   btn(W - (P ? 26 : 8) - mw, by, mw, bh, LED_LABEL[ledMode], ledMode !== 'off', () => setLedMode(nextLedMode(ledMode)));   // #238 + LIVE
 }
 // #379 tablet slider: tap (or keep tapping) anywhere along it to set the value
-function tSlider(g, x, y, w, h, label, v, txt, set, dim) {
+function tSlider(g, x, y, w, h, label, v, txt, set, dim, lwMax = 110) {   // #423 lwMax: room for a longer label
   v = clamp(v, 0, 1);
   g.fillStyle = '#0d1422'; g.fillRect(x, y, w, h);
-  const lw = Math.round(Math.min(110, Math.max(w * 0.36, label.length * 8.6 + 12))), vw = 58, tx = x + lw, tw = Math.max(20, w - lw - vw - 6), ty = y + h / 2;
+  const lw = Math.round(Math.min(lwMax, Math.max(w * 0.36, label.length * 8.6 + 12))), vw = 58, tx = x + lw, tw = Math.max(20, w - lw - vw - 6), ty = y + h / 2;
   g.textBaseline = 'middle'; g.textAlign = 'left'; g.font = '700 13px system-ui'; g.fillStyle = dim ? '#56627a' : '#dfe6f2';
   fitText2(g, label, x + 8, ty + 1, lw - 12);
   g.fillStyle = '#1e2a3d'; g.fillRect(tx, ty - 3, tw, 6);
@@ -5213,6 +5235,17 @@ async function pressBytes(track) {
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
 }
+// #423 TURNTABLE FEEL (DJ TOOLS > TURNTABLE FEEL, sliders). 100 % = the physics as built (#120 / #272 / #322).
+const FEEL_DEF = {
+  fric: { label: 'PLATTER FRICTION', lo: 25, hi: 300, v: 100, unit: '%' },   // slipmat friction against the platter (stick / slip)
+  scr: { label: 'SCRATCH & DRAG', lo: 25, hi: 150, v: 100, unit: '%' },      // record turn per hand turn (100 % = 1:1, a real record)
+  smooth: { label: 'HAND SMOOTHING', lo: 0, hi: 100, v: 85, unit: '%' },     // tracking-noise filter on the hand on the record
+  spin: { label: 'SPINDLE TWIST', lo: 25, hi: 300, v: 100, unit: '%' },      // pinch on the spindle: torque passed to the platter
+  nudge: { label: 'NUDGE AMOUNT', lo: 25, hi: 300, v: 100, unit: '%' },      // finger on the platter rim: drag / push strength
+};
+const FEEL = Object.fromEntries(Object.entries(FEEL_DEF).map(([k, r]) => [k, r.v]));
+try { Object.assign(FEEL, JSON.parse(localStorage.getItem('vire.feel') || '{}')); } catch (e) {}
+function setFeel(k, v) { FEEL[k] = v; try { localStorage.setItem('vire.feel', JSON.stringify(FEEL)); } catch (e) {} if (k !== 'scr' && k !== 'smooth') sendPhysics(); }
 // #422 PINCH FIT sliders: key -> range, default (must match xr.js PF)
 const PINCH_FIT_DEF = {
   bx: { label: 'BALL IN/OUT', lo: -25, hi: 25, v: 0, unit: 'mm' }, by: { label: 'BALL UP/DN', lo: -25, hi: 25, v: 0, unit: 'mm' },
@@ -5801,14 +5834,14 @@ function drawToolsPage() {
     if (P) {
       if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
         ctlBtn(L, y0 + 176, (R - L - 8) * 0.62, 64); btn(L + (R - L - 8) * 0.62 + 8, y0 + 176, (R - L - 8) * 0.38, 64, 'HAND FIT', false, () => setTools('handfit'), false, 18);   // #291
-        lockBtn(L, y0 + 252, R - L, 64);   // #378
+        lockBtn(L, y0 + 252, (R - L - 8) * 0.55, 64); btn(L + (R - L - 8) * 0.55 + 8, y0 + 252, (R - L - 8) * 0.45, 64, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 17);   // #378, #423
         note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until you switch it off (then decks turn in 45 degree steps). RECORD MAKER: press your own record. MILK CRATE: the first milk crate. CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 332); }
       else vjPage(y0);   // #389
     } else {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
       if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(x2, y0 + 8, w2, 80, 'MILK CRATE', 'milk');
         ctlBtn(L, y0 + 96, (R - L - 8) * 0.66, 50); btn(L + (R - L - 8) * 0.66 + 8, y0 + 96, (R - L - 8) * 0.34, 50, 'HAND FIT', false, () => setTools('handfit'), false, 20);   // #291
-        lockBtn(L, y0 + 154, R - L, 46);   // #378
+        lockBtn(L, y0 + 154, (R - L - 8) * 0.62, 46); btn(L + (R - L - 8) * 0.62 + 8, y0 + 154, (R - L - 8) * 0.38, 46, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 18);   // #378, #423
         note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until it is switched off. RECORD MAKER: press your own record. CONTROLLERS: 3D hands or bare controllers.', y0 + 218); }
       else vjPage(y0);   // #389
     }
@@ -6040,6 +6073,22 @@ function drawToolsPage() {
       const cw = (R - L - 16) / 2, half = Math.ceil(cells.length / 2);
       cells.forEach((c, i) => cell(c, L + (i < half ? 0 : cw + 16), y0 + (i % half) * 44, cw, 38, false));
       bottomBtns(L, y0 + half * 44 + 4, R - L, 36);
+    }
+    return;
+  }
+  if (page === 'feel') {   // #423 (owner) TURNTABLE FEEL sliders, preset to the current physics
+    const y0 = head('TURNTABLE FEEL', 'dj'), D = FEEL_DEF, keys = Object.keys(D);
+    const row = (k, x, y, w, h) => { const r = D[k], v = FEEL[k]; tSlider(g, x, y, w, h, r.label, (v - r.lo) / (r.hi - r.lo), `${v} ${r.unit}`, f => setFeel(k, Math.round(r.lo + f * (r.hi - r.lo))), false, 170); };
+    const reset = () => { for (const k of keys) setFeel(k, D[k].v); drawMixScreen(); };
+    if (P) {
+      keys.forEach((k, i) => row(k, L, y0 + i * 52, R - L, 46));
+      const yb = y0 + keys.length * 52 + 4; btn(L, yb, R - L, 40, 'RESET TO AS BUILT', false, reset);
+      note('Drag a bar. 100 % = the physics as built. PLATTER FRICTION: slipmat grip. SCRATCH & DRAG: record turn per hand turn (100 % = 1:1). HAND SMOOTHING: filters tracking jitter on the record. SPINDLE TWIST: pinch on the spindle. NUDGE: finger on the platter rim.', yb + 58);
+    } else {
+      const bw = 170;   // one bar per row, full width; RESET under the label column
+      keys.forEach((k, i) => row(k, L, y0 + i * 42, R - L, 38));
+      btn(L, y0 + keys.length * 42, bw, 34, 'RESET TO AS BUILT', false, reset, false, 14);
+      g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('100 % = as built.  SCRATCH & DRAG 100 % = the record turns as far as your hand.', L + bw + 12, y0 + keys.length * 42 + 17); g.textBaseline = 'alphabetic';
     }
     return;
   }
@@ -6435,7 +6484,9 @@ function setTest(k) {
 // got no new frame and Quest Browser leaves immersive mode after a few empty frames. Now the frame always renders; the
 // first error of each XR session is kept (xrDiag) and shown when the session ends.
 const xrDiag = { t0: 0, frames: 0, err: '', errN: 0, mode: '' };
-function frame() {
+let frameT = 0;   // #423 the frame's own timestamp (XR: the headset frame time), for stamping hand readings
+function frame(t) {
+  if (t) frameT = t;
   if (renderer.xr.isPresenting) xrDiag.frames++;
   try { frameBody(); }
   catch (e) {
@@ -7009,7 +7060,8 @@ for (const [id, k] of [['#sSource', 'source'], ['#sXml', 'xml'], ['#sEnv', 'env'
 $('#cPll').onchange = e => { settings.pll = e.target.checked; saveSettings(); sendPhysics(); };
 // #120: turntable physics settings go to the deck worklet (both decks)
 function sendPhysics() {
-  engine.post({ type: 'physics', model: settings.deckModel, recMass: (+settings.recWeight || 180) / 1000, mat: settings.slipmat, pll: !!settings.pll });
+  engine.post({ type: 'physics', model: settings.deckModel, recMass: (+settings.recWeight || 180) / 1000, mat: settings.slipmat, pll: !!settings.pll,
+    fricK: FEEL.fric / 100, nudgeK: FEEL.nudge / 100, spinK: FEEL.spin / 100 });   // #423 TURNTABLE FEEL
 }
 // #113: the device / feedback-guard rows only matter when the app opens the mic itself
 function showMicRoute() { $('#rowMicApp').hidden = settings.micRoute !== 'app'; }
