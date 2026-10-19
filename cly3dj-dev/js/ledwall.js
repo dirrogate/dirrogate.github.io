@@ -113,6 +113,17 @@ export function makeLedWall() {
     const va = bmp.width / bmp.height; aspectOf = () => va;   // #222 whole picture at its own aspect (was 'cover')
     onMat.map = tex; onMat.needsUpdate = true; screen.material = onMat;
   };
+  // #439 a canvas that is drawn into (the RETRO-SCENE / MANDEL visuals, wallfx.js): returns its texture, whose
+  // needsUpdate the caller sets after each new picture
+  g.userData.setCanvas = cv => {
+    if (tex) { tex.dispose(); tex = null; }
+    screenB.visible = false;
+    if (!cv) { screen.material = offMat; return null; }
+    tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    aspectOf = () => cv.width / cv.height;
+    onMat.map = tex; onMat.needsUpdate = true; screen.material = onMat;
+    return tex;
+  };
   // show a <video> (or nothing). 'cover': the clip fills the 16:9 panel, cropping the long side if it isn't 16:9.
   g.userData.setVideo = video => {
     if (tex) { tex.dispose(); tex = null; }
@@ -130,7 +141,9 @@ export function makeLedWall() {
 const IMG_SECONDS = 8;
 const isImage = f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|avif)$/i.test(f.name);
 export class LedPlayer {
-  constructor(wall) { this.wall = wall; this.files = []; this.video = null; this.name = null; this.on = false; this.onChange = null; this.order = 'random'; this.silent = false; this.clk = null; }
+  constructor(wall) { this.wall = wall; this.files = []; this.video = null; this.name = null; this.on = false; this.onChange = null; this.order = 'random'; this.silent = false; this.clk = null; this.kind = null; }
+  // #439 the WALL page's CLIPS / PICTURES tiles: the playlist's videos only ('video') or pictures only ('image'); null = both
+  pool() { return this.kind ? this.files.filter(f => (this.kind === 'image') === isImage(f)) : this.files; }
   // #236 silent: the LED wall is switched off on the Quest but the playlist keeps running for the spectator phone.
   // Videos are not decoded: a clock (from the clip's length, read from its metadata) stands in for the video, ends
   // the clip on time and gives state() its playhead, so the phone plays its own copy in step. Switching back on
@@ -164,8 +177,8 @@ export class LedPlayer {
   move(name, d) { const i = this.files.findIndex(f => f.name === name), j = i + d; if (i < 0 || j < 0 || j >= this.files.length) return; [this.files[i], this.files[j]] = [this.files[j], this.files[i]]; this.onChange && this.onChange(); }
   next() {
     if (this.order !== 'list') return this.playRandom();
-    if (!this.files.length) return false;
-    const i = this.files.findIndex(f => f.name === this.name), f = this.files[(i + 1) % this.files.length];
+    const F = this.pool(); if (!F.length) return false;
+    const i = F.findIndex(f => f.name === this.name), f = F[(i + 1) % F.length];
     this.on = true; this._open(f, () => this.next()); this.onChange && this.onChange(); return true;
   }
   play(file, loop = false) { this.on = true; this._open(file, loop ? null : () => this.next()); if (loop) this._loop(true); this.onChange && this.onChange(); }
@@ -199,8 +212,8 @@ export class LedPlayer {
     if (v) { v.pause(); URL.revokeObjectURL(v._url); v.removeAttribute('src'); v.load(); }   // frees the decoder
   }
   playRandom() {
-    if (!this.files.length) return false;
-    const pool = this.files.length > 1 ? this.files.filter(f => f.name !== this.name) : this.files;
+    const F = this.pool(); if (!F.length) return false;
+    const pool = F.length > 1 ? F.filter(f => f.name !== this.name) : F;
     const f = pool[Math.floor(Math.random() * pool.length)];
     this.on = true; this._open(f, () => this.next()); this.onChange && this.onChange();
     return true;

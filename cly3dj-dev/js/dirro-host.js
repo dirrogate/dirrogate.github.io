@@ -12,10 +12,14 @@ const K_RELAY = 'vire.dirroRelay', K_ROOM = 'vire.dirroRoom', K_ON = 'vire.dirro
 // SPINNING now and then), FRACTAL, PICTURES (the picture on the Quest's LED wall, sent once as a small JPEG),
 // CLY3DTV (small frames of the stream / venue-screen picture, fps a second). cols = LED cells across (0 = no grid),
 // fill = how much of each cell lights, glow = brightness.
-export const WALL_SRC = ['auto', 'fractal', 'pictures', 'tv'];
-export const WALL_LABEL = { auto: 'AUTO', fractal: 'FRACTAL', pictures: 'PICTURES', tv: 'CLY3DTV' };
+// #439 FOLLOW (the default): the phones show whatever the Quest's LED wall shows. MANDEL / RETRO-SCENE are drawn on each
+// phone from the show clock and the beat (wallfx.js; a GRAB LOOP goes once as a small sprite-sheet JPEG); a picture
+// as before; clips, AVACAM, LIVE as small frames (TV FRAMES / S); the wall OFF = the phones' own AUTO.
+export const WALL_SRC = ['follow', 'auto', 'fractal', 'pictures', 'tv'];
+export const WALL_LABEL = { follow: 'FOLLOW', auto: 'AUTO', fractal: 'FRACTAL', pictures: 'PICTURES', tv: 'CLY3DTV' };
+const FRAME_M = new Set(['clips', 'cam', 'live', 'solo', 'decks', 'screen']);   // wall modes the phones get as frames
 export const WALL_COLS = [0, 48, 64, 96, 128, 160, 192, 240, 320];
-const WALL_DEF = { src: 'auto', cols: 160, fill: 0.78, glow: 1, fps: 2 };
+const WALL_DEF = { src: 'follow', cols: 160, fill: 0.78, glow: 1, fps: 2, v: 2 };
 const idOf = s => { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.codePointAt(0), 16777619) >>> 0; return 'p' + h.toString(36); };
 const SEND_MS = 66, CFG_MS = 1000, CFG_FORCE_MS = 5000, PING_MS = 2000;
 const r3 = v => Math.round(v * 1000) / 1000, r4 = v => Math.round(v * 10000) / 10000;
@@ -53,7 +57,7 @@ export class DirroHost {
     this.env = env; this.on = ls(K_ON) === '1'; this.ws = null; this.state = 'off'; this.fans = 0; this.rtt = 0;
     this.sendT = 0; this.cfgT = 0; this.cfgSent = 0; this.cfgKey = ''; this.pingT = 0; this.retry = 0; this.retryT = 0; this.err = '';
     this.sent = 0; this.bytes = 0; this.kbps = 0; this._rateT = performance.now(); this._rateB = 0;
-    this.wall = { ...WALL_DEF }; try { Object.assign(this.wall, JSON.parse(ls(K_WALL) || '{}')); } catch (e) {}
+    this.wall = { ...WALL_DEF }; try { const o = JSON.parse(ls(K_WALL) || '{}'); if (o.src && !o.v) { o.src = 'follow'; o.v = 2; } Object.assign(this.wall, o); } catch (e) {}   // #439 once: AUTO -> FOLLOW
     this.imgName = ''; this.imgId = ''; this.imgSent = new Set(); this.frameT = 0; this.frames = 0;
     this.sms = []; this.holo = []; this.smsNew = 0;
     this.bcn = {}; try { this.bcn = JSON.parse(ls(K_BCN) || '{}') || {}; } catch (e) {}   // #438 DirroBeacons: L / R = [x, y, z] in rig space (crowd's left / right)   // #435 HoloSMS: messages in (newest first, 60 kept), the ones you put on the hologram scroller (6 at most)
@@ -90,11 +94,12 @@ export class DirroHost {
     } catch (e) { console.warn('dirrogram picture', e); }
   }
   // #434 CLY3DTV on the phones: the stream / venue-screen picture, 192 x 108 JPEG, fps a second
-  _sendFrame(now) {
-    const cv = this.env.tvCanvas && this.env.tvCanvas(); if (!cv || now - this.frameT < 1000 / this.wall.fps) return;
+  // #439 or, on FOLLOW, the LED wall's own clip / live picture (cv)
+  _sendFrame(now, cv) {
+    if (!cv || now - this.frameT < 1000 / this.wall.fps) return;
     this.frameT = now;
     const c = this._fc || (this._fc = Object.assign(document.createElement('canvas'), { width: 192, height: 108 }));
-    c.getContext('2d').drawImage(cv, 0, 0, 192, 108);
+    try { c.getContext('2d').drawImage(cv, 0, 0, 192, 108); } catch (e) { return; }
     this._send({ k: 'f', d: c.toDataURL('image/jpeg', 0.6) }); this.frames++;
   }
   setOn(on) { this.on = !!on; ls(K_ON, this.on ? '1' : '0'); if (!this.on) this._close('off'); else { this.retry = 0; this.retryT = 0; } this._changed(); }
@@ -132,8 +137,11 @@ export class DirroHost {
     const L = this.env.getLed && this.env.getLed();   // #434 the LED wall's current picture, if it shows one
     if (L && L.img && L.file && L.name) { if (L.name !== this.imgName) { this.imgName = L.name; this._sendImg(L.file, L.name); } }
     else if (this.imgName) { this.imgName = ''; this.imgId = ''; }
-    if (this.wall.src === 'tv') this._sendFrame(now);
-    const W = this.wall, cfg = { k: 'c', scroll, np: np.a || '', img: this.imgSent.has(this.imgId) ? this.imgId : '', wall: { src: W.src, cols: W.cols, fill: W.fill, glow: W.glow }, holo: this.holo.map(x => x.t), bcn: this.bcn.L && this.bcn.R ? this.bcn : null }, key = JSON.stringify(cfg);   // #438   // #435 approved HoloSMS
+    const q = this.env.wallState ? this.env.wallState() : null;   // #439 what the Quest's LED wall shows: { m, s, t0, lp, lt0 }
+    if (q && q.lp && !this.imgSent.has(q.lp)) { const d = this.env.loopData && this.env.loopData(q.lp); if (d) { this._send({ k: 'i', id: q.lp, d }); this.imgSent.add(q.lp); } }   // a GRAB LOOP sheet, once
+    if (this.wall.src === 'tv') this._sendFrame(now, this.env.tvCanvas && this.env.tvCanvas());
+    else if (this.wall.src === 'follow' && q && FRAME_M.has(q.m)) this._sendFrame(now, this.env.wallFrame && this.env.wallFrame());
+    const W = this.wall, cfg = { k: 'c', scroll, np: np.a || '', img: this.imgSent.has(this.imgId) ? this.imgId : '', wall: { src: W.src, cols: W.cols, fill: W.fill, glow: W.glow, q: q ? { ...q, lp: this.imgSent.has(q.lp) ? q.lp : '' } : null }, holo: this.holo.map(x => x.t), bcn: this.bcn.L && this.bcn.R ? this.bcn : null }, key = JSON.stringify(cfg);   // #438   // #435 approved HoloSMS
     if ((key !== this.cfgKey && now - this.cfgT > CFG_MS) || now - this.cfgSent > CFG_FORCE_MS) { this.cfgKey = key; this.cfgT = this.cfgSent = now; this.ws.send(key); this._rateB += key.length; }
     if (now - this.sendT < SEND_MS) return;
     this.sendT = now;

@@ -13,6 +13,7 @@ import { Laser } from './laser.js';
 import { initMaterials, makeMixer, loadMixerParts, DECK, MIX } from './models.js';
 import { loadDeckTemplate, makeGlbDeck } from './deck-glb.js';
 import { PersonMask } from './dirro-mask.js';   // #428
+import { WallFx } from './wallfx.js';   // #439 MANDEL / RETRO-SCENE, drawn here from the Quest's clock and beat
 
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
@@ -62,21 +63,52 @@ let src = null;   // { tex, el, w, h }
 // #428 PEOPLE: the people in the camera picture drawn back over the show (MediaPipe mask), lit by the lasers behind them.
 // The finished frame is copied to a texture; the light the show added around each person's outline (frame minus the
 // camera picture) spills onto them, brightest on the edge, so a beam that meets a hand ends in a glow there.
-const people = { on: false, mask: new PersonMask(), fb: null };
+const people = { on: false, mask: new PersonMask(), fb: null, fx: 0 };
+// #439 people FX (the FX button): what the person in front of the phone becomes, drawn into the recording too.
+// 1 OP-ART: filled with rings from their middle, pulsing on the beat, outlined; 2 NEON: a glowing outline on the kick;
+// 3 ECHO: fading copies of their last second of moves; 4 HOLO: the cyan scanline look of the hologram scroller.
+// Cyan and pink swap every 4 beats.
+const PFX = ['', 'OP-ART', 'NEON', 'ECHO', 'HOLO'];
 const ovScene = new THREE.Scene();
 const ovMat = new THREE.ShaderMaterial({
-  uniforms: { uVid: { value: null }, uMask: { value: null }, uFb: { value: null }, uK: bgMat.uniforms.uK, uPx: { value: new THREE.Vector2(1e-3, 1e-3) } },
+  uniforms: { uVid: { value: null }, uMask: { value: null }, uFb: { value: null }, uK: bgMat.uniforms.uK, uPx: { value: new THREE.Vector2(1e-3, 1e-3) },
+    uTrail: { value: null }, uMode: { value: 0 }, uT: { value: 0 }, uKick: { value: 0 }, uBeat: { value: 0 }, uBar: { value: 0 }, uAsp: { value: 1 },
+    uCen: { value: new THREE.Vector2(0.5, 0.5) }, uMpx: { value: new THREE.Vector2(1 / 256, 1 / 256) } },   // #439 people FX
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
-  fragmentShader: `uniform sampler2D uVid, uMask, uFb; uniform vec2 uK, uPx; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D uVid, uMask, uFb, uTrail; uniform vec2 uK, uPx, uCen, uMpx; uniform float uMode, uT, uKick, uBeat, uBar, uAsp; varying vec2 vUv;
 vec3 lightAt(vec2 p) { vec2 c = 0.5 + (p - 0.5) * uK; return max(texture2D(uFb, p).rgb - texture2D(uVid, c).rgb, 0.0); }
 void main() {
-  vec2 cuv = 0.5 + (vUv - 0.5) * uK;
-  float m = smoothstep(0.4, 0.8, texture2D(uMask, vec2(cuv.x, 1.0 - cuv.y)).r);
+  vec2 cuv = 0.5 + (vUv - 0.5) * uK, mc = vec2(cuv.x, 1.0 - cuv.y);
+  float m = smoothstep(0.4, 0.8, texture2D(uMask, mc).r);
+  bool alt = mod(uBar, 2.0) < 1.0;
+  vec3 A = alt ? vec3(0.22, 0.9, 1.0) : vec3(1.0, 0.16, 0.55), B = alt ? vec3(1.0, 0.16, 0.55) : vec3(0.22, 0.9, 1.0);
+  if (uMode > 1.5 && uMode < 2.5) {   // NEON: a line where the mask changes, the person dimmed under it
+    float mx = 0.0, mn = 1.0;
+    for (int i = 0; i < 8; i++) { float a = float(i) * 0.7854; float v = texture2D(uMask, mc + vec2(cos(a), sin(a)) * uMpx * 2.5).r; mx = max(mx, v); mn = min(mn, v); }
+    float e = smoothstep(0.2, 0.7, mx - mn);
+    if (m < 0.01 && e < 0.02) discard;
+    gl_FragColor = vec4(mix(texture2D(uVid, cuv).rgb * 0.5, A * (1.5 + 1.5 * uKick), e), max(m, e)); return;
+  }
+  if (uMode > 2.5 && uMode < 3.5) {   // ECHO: the trail of the last second, coloured by age, behind the person
+    float tr = texture2D(uTrail, mc).r, gh = smoothstep(0.12, 0.7, tr) * (1.0 - m);
+    if (m < 0.01 && gh < 0.02) discard;
+    gl_FragColor = vec4(mix(mix(B, A, tr) * (0.9 + 0.6 * uKick), texture2D(uVid, cuv).rgb, m), max(m, gh * 0.8)); return;
+  }
   if (m < 0.01) discard;
   vec3 vid = texture2D(uVid, cuv).rgb, L = vec3(0.0);
   for (int i = 0; i < 6; i++) { float a = float(i) * 1.0472; L += lightAt(vUv + vec2(cos(a), sin(a)) * uPx * 14.0); }
   L /= 6.0;
   float rim = clamp(m * (1.0 - m) * 4.0, 0.0, 1.0);
+  if (uMode > 0.5 && uMode < 1.5) {   // OP-ART: rings from the person's middle, moving out two a beat, a pink / cyan outline
+    float bit = step(0.5, fract(length((vUv - uCen) * vec2(uAsp, 1.0)) * 34.0 - uBeat * 2.0));
+    vec3 c = mix(vec3(0.02, 0.0, 0.06), mix(vec3(0.94), A, 0.35) * (1.0 + 0.4 * uKick), bit);
+    gl_FragColor = vec4(mix(c, B * 1.4, smoothstep(0.35, 0.95, rim)), m); return;
+  }
+  if (uMode > 3.5) {   // HOLO
+    float l = dot(vid, vec3(0.3, 0.59, 0.11)), scan = 0.55 + 0.45 * sin(vUv.y * 700.0 - uT * 9.0), fl = 0.9 + 0.1 * sin(uT * 37.0) * sin(uT * 13.0);
+    vec3 c = vec3(0.25, 0.9, 1.0) * (0.2 + 1.3 * l) * scan * fl + L * rim + vec3(1.0, 0.1, 0.6) * rim * 0.6;
+    gl_FragColor = vec4(c * (1.0 + 0.4 * uKick), m * 0.88); return;
+  }
   gl_FragColor = vec4(vid + L * (0.35 + 1.8 * rim), m);
 }`,
   transparent: true, depthTest: false, depthWrite: false, toneMapped: false,
@@ -531,6 +563,17 @@ function netStatus(now) {   // the pill top right: LIVE with the round trip, or 
   const s = netLive(now) ? `\u25cf LIVE ${Math.round(NET.rtt)} ms` : NET.state === 'open' ? '\u25cb WAITING FOR THE DJ' : '\u25cb CONNECTING';
   if (s === netShown) return; netShown = s; const el = $('net'); el.textContent = s; el.classList.remove('hide'); el.classList.toggle('on', netLive(now));
 }
+// #439 the wall visuals on this phone: the Quest's show clock (its time less the clock offset) and its beat count
+const FOLLOW_FRAMES = new Set(['clips', 'cam', 'live', 'solo', 'decks', 'screen']);
+let wfx = null, wfxTex = null;
+function wallFx(now, q) {
+  if (!wfx) { wfx = new WallFx(); wfxTex = new THREE.CanvasTexture(wfx.canvas); wfxTex.colorSpace = THREE.SRGBColorSpace; }
+  const qn = now - (NET.cd || 0), iv = beatIv(), lv = NET.b && iv && now - NET.anchor < 4000;
+  const bp = lv ? NET.bn + (now - NET.anchor) / iv : qn / 500, L = q.lp ? NET.imgs.get(q.lp) : null;
+  const mode = q.m === 'mandel' ? 'mandel' : q.s === 'loop' && L ? 'loop' : 'dancer';
+  if (wfx.frame({ mode, t: qn - (q.t0 || 0), bp, kick: beat.kick, loop: L && L.image, lt: qn - (q.lt0 || 0) })) wfxTex.needsUpdate = true;
+  return wfxTex;
+}
 const _cq = new THREE.Quaternion();
 function frame() {
   const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000); last = now; T += dt;
@@ -543,9 +586,13 @@ function frame() {
   promoT += dt; const pc = promoT % 24, cc = T % 30;
   const wu = wallMat.uniforms; wu.uT.value = T; wu.uKick.value = beat.kick;
   {   // #434 what the wall shows: the tablet's WALL choice while live (AUTO otherwise), and its LED grid
-    const Wc = netLive(now) && liveCfg.wall ? liveCfg.wall : null, src = Wc ? Wc.src : 'auto';
-    const pic = liveCfg.img && netLive(now) ? NET.imgs.get(liveCfg.img) : null, tv = NET.tv && now - NET.tvAt < 3000 ? NET.tv : null;
-    const tgt = src === 'fractal' ? null : src === 'pictures' ? pic : src === 'tv' ? tv : (pic || (pc > 18 ? promoTex : null));
+    const Wc = netLive(now) && liveCfg.wall ? liveCfg.wall : null, src = Wc ? Wc.src : 'auto', q = Wc && Wc.q;
+    const pic = liveCfg.img && netLive(now) ? NET.imgs.get(liveCfg.img) : null, tv = NET.tv && now - NET.tvAt < 3000 ? NET.tv : null, auto = pic || (pc > 18 ? promoTex : null);
+    let tgt;
+    if (src === 'follow') {   // #439 the Quest's LED wall: MANDEL / RETRO-SCENE drawn here, a picture, or the wall's frames; OFF = AUTO
+      const m = q ? q.m : 'off';
+      tgt = m === 'mandel' || m === 'retro' ? wallFx(now, q) : m === 'pics' ? pic : FOLLOW_FRAMES.has(m) ? tv : auto;
+    } else tgt = src === 'fractal' ? null : src === 'pictures' ? pic : src === 'tv' ? tv : auto;
     if (tgt) wu.uImg.value = tgt;
     wu.uMix.value += ((tgt ? 1 : 0) - wu.uMix.value) * Math.min(1, dt * 3);
     const cols = Wc ? Wc.cols : 160; wu.uGridOn.value = cols > 0 ? 1 : 0; if (cols > 0) wu.uGrid.value.set(cols, Math.round(cols * 9 / 16));
@@ -564,6 +611,12 @@ function frame() {
     if (people.mask.tex) {
       const fb = peopleFb(); renderer.copyFramebufferToTexture(fb);
       ovMat.uniforms.uFb.value = fb; ovMat.uniforms.uVid.value = src.tex; ovMat.uniforms.uMask.value = people.mask.tex;
+      {   // #439 people FX
+        const u = ovMat.uniforms, pm = people.mask, K = bgMat.uniforms.uK.value;
+        u.uMode.value = people.fx; u.uT.value = T; u.uKick.value = beat.kick; u.uBeat.value = beat.count + beat.phase; u.uBar.value = Math.floor(beat.count / 4);
+        u.uTrail.value = pm.ttex; u.uMpx.value.set(1 / (pm.w || 256), 1 / (pm.h || 256)); u.uAsp.value = canvas.clientWidth / Math.max(1, canvas.clientHeight);
+        u.uCen.value.set(0.5 + (pm.cx - 0.5) / K.x, 0.5 + (0.5 - pm.cy) / K.y);
+      }
       renderer.render(ovScene, bgCam);
     }
   }
@@ -641,6 +694,11 @@ $('bFlip').onclick = async () => {
   if (selfie && !people.on) setPeople(true);   // a selfie wants the show behind you
 };
 $('bPeople').onclick = () => setPeople(!people.on);
+$('bPfx').onclick = async () => {   // #439
+  people.fx = (people.fx + 1) % PFX.length; $('bPfx').textContent = people.fx ? 'FX: ' + PFX[people.fx] : 'FX';
+  if (people.fx && !people.on) await setPeople(true);
+  if (people.fx) toast(['', 'Your friend in op-art rings', 'Neon outline on the kick', 'Echo trails of every move', 'Hologram'][people.fx]);
+};
 // #437 RECORD: what is on screen (camera picture, the show, the people cutout; never the buttons) plus the phone's
 // microphone (the club sound), up to 30 s, saved straight to the phone. MP4 where the phone can make it (iPhone,
 // newer Android Chrome), else WebM. No watermark (owner: the scene carries the branding).
@@ -713,4 +771,4 @@ $('go').onclick = async () => {
 drawCaption(); drawPromo(); drawScroller(); resize();
 buildBooth().then(() => robotReady).then(() => { window.__dirroReady = true; });
 renderer.setAnimationLoop(frame);
-window.dirro = { BCN, bcnSolve, bcnStage, liveCfg, rec, recStart, recStop, NET, people, setPeople, S, stage, booth, robot, laser, camera, scene, renderer, place, feedPose, live, beat, wall, scroller, set aim(v) { aimF = v; place(); }, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, set pitch(v) { pitch = v; } };
+window.dirro = { get wfx() { return wfx; }, wallFx, /* #439 */ BCN, bcnSolve, bcnStage, liveCfg, rec, recStart, recStop, NET, people, setPeople, S, stage, booth, robot, laser, camera, scene, renderer, place, feedPose, live, beat, wall, scroller, set aim(v) { aimF = v; place(); }, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, set pitch(v) { pitch = v; } };
