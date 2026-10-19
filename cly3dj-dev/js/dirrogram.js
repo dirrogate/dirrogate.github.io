@@ -29,7 +29,7 @@ if (Q.get('np')) S.np = Q.get('np');
 if (Q.get('scroll')) S.scroll = Q.get('scroll');
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
 // #427 texts from the Quest while live (scroller, NOW SPINNING) win over this phone's own
-const liveCfg = { scroll: '', np: '', wall: null, img: '', holo: [] };
+const liveCfg = { scroll: '', np: '', wall: null, img: '', holo: [], bcn: null };
 // #435 approved HoloSMS ride along on the hologram scroller after the DJ's text
 const scrollText = () => [liveCfg.scroll || S.scroll, ...liveCfg.holo].join('  \u2726  '), npText = () => liveCfg.np || S.np;
 
@@ -245,7 +245,47 @@ function aimLaser() {   // point the head at this phone (beams come straight at 
 
 // ---------------------------------------------------------------- placement (AIM)
 let aimF = null;   // camera forward at the AIM tap (world)
+// #438 AIM WITH BEACON: the Quest's two DirroBeacons (rig space, sent in the config) and the DJ's head (the live pose)
+// seen from this phone: three taps, LEFT beacon, the DJ in the headset, RIGHT beacon. Rig -> stage: (x, y, z) ->
+// (-x, y, -z) (the DJ looks down the rig's -z at the crowd; the stage's +z faces the crowd), origin = the Quest's rig.
+// Each tap is a direction on the gyroscope: the horizontal angles between them hold whatever the phone's yaw, and each
+// tilt is true to gravity. Search the floor for the spot that sees those angles (phone height from the tilts and a
+// 1.45 m guess), then the turn that lines the phone's yaw up with the stage. Two beacons alone leave a circle of
+// answers (PC test: 1.5 to 10 m off); the DJ, ~2 m in front of them, pins it (0.3 m at 6 m, 0.6 m at 10 m, 1.2 m at
+// 15 m with 0.7 deg hand taps and beacons 3 m apart).
+const BCN = { fix: null, step: 0, dirs: [], pts: [] };
+const toStage = a => V(-a[0], a[1], -a[2]);
+function bcnStage() { const b = liveCfg.bcn; if (!b || !b.L || !b.R) return null; return { L: toStage(b.L), R: toStage(b.R) }; }
+function djHead() { const m = netLive(performance.now()) && NET.snaps.length ? NET.snaps[NET.snaps.length - 1].m : null; return m && m.h ? toStage(m.h) : V(0, 1.7, 0); }
+function bcnSolve(dirs, pts) {
+  const az = (x, z) => Math.atan2(x, -z), wrap = a => Math.atan2(Math.sin(a), Math.cos(a)), el = v => Math.atan2(v.y, Math.hypot(v.x, v.z));
+  const sT = 0.7 * Math.PI / 180, sE = Math.PI / 180, vP = 0.35 * 0.35, a0 = az(dirs[0].x, dirs[0].z);
+  const th = dirs.map(d => wrap(az(d.x, d.z) - a0)), e = dirs.map(el);
+  if (Math.max(...th.map(Math.abs)) < 0.5 * Math.PI / 180) return null;   // all taps on one spot
+  const c = pts.reduce((s2, p) => s2.add(p), V()).multiplyScalar(1 / pts.length);
+  const cost = (px, pz) => {
+    const b0 = az(pts[0].x - px, pts[0].z - pz); let C = 0; const ys = [], vs = [];
+    pts.forEach((p, i) => { const r = Math.hypot(p.x - px, p.z - pz); if (i) C += ((wrap(az(p.x - px, p.z - pz) - b0) - th[i]) / sT) ** 2; ys.push(p.y - r * Math.tan(e[i])); vs.push((r * sE) ** 2 + 1e-4); });
+    let num = 1.45 / vP, den = 1 / vP; ys.forEach((y, i) => { num += y / vs[i]; den += 1 / vs[i]; }); const py = num / den;
+    ys.forEach((y, i) => { C += (py - y) ** 2 / vs[i]; }); C += (py - 1.45) ** 2 / vP;
+    return { c: C, py };
+  };
+  let best = null;
+  for (let pz = c.z + 0.8; pz <= c.z + 40; pz += 0.25) for (let px = c.x - 25; px <= c.x + 25; px += 0.25) { const r = cost(px, pz); if (!best || r.c < best.c) best = { ...r, px, pz }; }
+  const b0 = best;
+  for (let pz = b0.pz - 0.3; pz <= b0.pz + 0.3; pz += 0.02) for (let px = b0.px - 0.3; px <= b0.px + 0.3; px += 0.02) { const r = cost(px, pz); if (r.c < best.c) best = { ...r, px, pz }; }
+  const P = V(best.px, best.py, best.pz);
+  // the turn: each tap's yaw minus that point's bearing on the stage (circular mean); three's Y turn by phi lowers az by phi
+  let sx = 0, sy = 0; dirs.forEach((d, i) => { const dd = wrap(az(d.x, d.z) - az(pts[i].x - P.x, pts[i].z - P.z)); sx += Math.cos(dd); sy += Math.sin(dd); });
+  const q = new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), -Math.atan2(sy, sx));
+  return { q, pos: P.clone().applyQuaternion(q).negate(), P, dist: Math.hypot(P.x - c.x, P.z - c.z), cost: best.c };
+}
 function place() {
+  if (BCN.fix) {   // #438 placed from the beacons: the Quest's own layout
+    stage.quaternion.copy(BCN.fix.q); stage.position.copy(BCN.fix.pos);
+    booth.position.set(S.robotX, 0, S.robotZ);
+    stage.visible = true; stage.updateMatrixWorld(true); aimLaser(); return;
+  }
   if (!aimF) return;
   const f = aimF.clone().normalize(), anchor = f.clone().multiplyScalar(S.dist);
   stage.rotation.set(0, Math.atan2(-f.x, -f.z), 0);   // stage +z (toward the audience) points back at this phone
@@ -358,7 +398,7 @@ function netMsg(m, now) {
     const im = new Image(); im.onload = () => { if (!NET.tv) { NET.tv = new THREE.Texture(im); NET.tv.colorSpace = THREE.SRGBColorSpace; } else NET.tv.image = im; NET.tv.needsUpdate = true; NET.tvAt = performance.now(); }; im.src = m.d; return;
   }
   if (m.k === 'c') {
-    liveCfg.wall = m.wall || null; liveCfg.img = m.img || '';   // #434
+    liveCfg.wall = m.wall || null; liveCfg.img = m.img || ''; liveCfg.bcn = m.bcn || null;   // #434, #438
     { const h = Array.isArray(m.holo) ? m.holo.map(x => String(x).slice(0, 140)) : []; if (h.join('\n') !== liveCfg.holo.join('\n')) { liveCfg.holo = h; drawScroller(); } }   // #435
     if ((m.scroll || '') !== liveCfg.scroll) { liveCfg.scroll = m.scroll || ''; drawScroller(); }
     if ((m.np || '') !== liveCfg.np) { liveCfg.np = m.np || ''; drawCaption(); if (liveCfg.np) capUntil = T + 10; }   // a new track: NOW SPINNING for 10 s
@@ -532,8 +572,12 @@ function frame() {
 // ---------------------------------------------------------------- UI
 let toastT = 0;
 function toast(s) { const t = $('toast'); t.textContent = s; t.style.opacity = 1; clearTimeout(toastT); toastT = setTimeout(() => { t.style.opacity = 0; }, 1800); }
-const show = (id, on) => $(id).classList.toggle('hide', !on);
+const show = (id, on) => { $(id).classList.toggle('hide', !on); if (on && (id === 'aimMenu' || id === 'panel' || id === 'sms')) overBar(); };
+// #438 the boxes over the button bar sit above its real height (it wraps onto two rows on a phone)
+function overBar() { const h = $('bar').offsetHeight || 50; for (const id of ['aimMenu', 'panel', 'sms']) $(id).style.bottom = `calc(env(safe-area-inset-bottom) + ${h + 28}px)`; }
+window.addEventListener('resize', () => overBar());
 function aim() {
+  BCN.fix = null; BCN.step = 0;   // #438 a plain AIM ends a beacon placement
   aimF = V(0, 0, -1).applyQuaternion(camQuat(new THREE.Quaternion()));
   if (selfie) aimF.negate();   // aimed with the front camera: the booth is behind the phone's screen side
   place(); show('aim', false); show('hint', false); toast('Placed. Tap AIM again to re-centre.');
@@ -564,9 +608,32 @@ function buildPanel() {
     p.appendChild(r);
   }
 }
-$('bAim').onclick = () => { if (!aimF) aim(); else { show('aim', true); show('hint', true); aimF = null; stage.visible = false; } };
-$('aim').onclick = aim;
-$('bSet').onclick = () => { show('sms', false); const p = $('panel'); if (p.classList.contains('hide')) buildPanel(); p.classList.toggle('hide'); };
+// #438 AIM opens a choice: AIM (the ring on the centre DJ, as before) or AIM WITH BEACON (DirroBeacon venues only)
+function aimMenu(on) { show('aimMenu', on); if (on) { show('panel', false); show('sms', false); $('mBcn').classList.toggle('off', !bcnStage()); } }
+$('bAim').onclick = () => aimMenu($('aimMenu').classList.contains('hide'));
+$('mAim').onclick = () => { aimMenu(false); BCN.step = 0; $('hint').textContent = 'Point the ring at the centre DJ, then tap'; show('aim', true); show('hint', true); aimF = null; BCN.fix = null; stage.visible = false; };
+const BCN_HINT = ['', 'Put the ring on the LEFT beacon light, then tap', 'Now on the DJ in the headset (the head), then tap', 'Now the RIGHT beacon light, then tap'];
+$('mBcn').onclick = () => {
+  if (!bcnStage()) { toast('No DirroBeacons at this venue: use AIM'); return; }
+  if (selfie) { toast('Switch to the back camera for the beacons'); return; }
+  aimMenu(false); BCN.step = 1; BCN.dirs = []; BCN.pts = []; $('hint').textContent = BCN_HINT[1]; show('aim', true); show('hint', true);
+};
+function ringTap() {
+  if (BCN.step) {
+    const Bs = bcnStage(); if (!Bs) { BCN.step = 0; toast('The beacons are gone: use AIM'); return; }
+    BCN.dirs.push(V(0, 0, -1).applyQuaternion(camQuat(new THREE.Quaternion())));
+    BCN.pts.push(BCN.step === 1 ? Bs.L : BCN.step === 2 ? djHead() : Bs.R);
+    if (BCN.step < 3) { BCN.step++; $('hint').textContent = BCN_HINT[BCN.step]; return; }
+    BCN.step = 0;
+    const fix = bcnSolve(BCN.dirs, BCN.pts);
+    if (!fix) { toast('Those taps were all on one spot: try again'); BCN.step = 1; BCN.dirs = []; BCN.pts = []; $('hint').textContent = BCN_HINT[1]; return; }
+    BCN.fix = fix; aimF = null; place(); show('aim', false); show('hint', false); $('hint').textContent = 'Point the ring at the centre DJ, then tap';
+    toast(`Placed from the beacons: ${fix.dist.toFixed(1)} m from the stage`); return;
+  }
+  aim();
+}
+$('aim').onclick = ringTap;
+$('bSet').onclick = () => { show('sms', false); const p = $('panel'); if (p.classList.contains('hide')) buildPanel(); p.classList.toggle('hide'); overBar(); aimMenu(false); };
 $('bFlip').onclick = async () => {
   if (!stream) { toast('No camera on this device'); return; }
   selfie = !selfie; document.body.classList.toggle('selfie', selfie); $('bFlip').textContent = selfie ? 'BACK CAM' : 'SELFIE';
@@ -622,7 +689,7 @@ $('smsSend').onclick = () => {
   NET.ws.send(JSON.stringify({ k: 'sms', t })); $('smsIn').value = ''; $('smsN').textContent = '0 / 140'; show('sms', false);
 };
 // tapping anywhere while the ring shows = AIM
-canvas.addEventListener('click', () => { if (!aimF && !$('aim').classList.contains('hide')) aim(); });
+canvas.addEventListener('click', () => { if (!$('aim').classList.contains('hide') && (BCN.step || !aimF)) ringTap(); });
 
 $('go').onclick = async () => {
   $('err').textContent = '';
@@ -637,13 +704,13 @@ $('go').onclick = async () => {
     $('err').textContent = (e && e.name === 'NotAllowedError') ? 'Camera access was refused. Allow it in the browser settings and try again.' : (e.message || String(e));
     try { await startDemo(); } catch (e2) { return; }
   }
-  show('start', false); show('aim', true); show('hint', true); show('bar', true);
+  show('start', false); show('bar', true); aimMenu(true);   // #438 start with the AIM choice
   resize();
-  if (Q.has('demo')) { aimF = V(0, 0, -1); place(); show('aim', false); show('hint', false); }   // PC: placed straight ahead
+  if (Q.has('demo')) { aimF = V(0, 0, -1); place(); aimMenu(false); }   // PC: placed straight ahead
 };
 
 // ---------------------------------------------------------------- start
 drawCaption(); drawPromo(); drawScroller(); resize();
 buildBooth().then(() => robotReady).then(() => { window.__dirroReady = true; });
 renderer.setAnimationLoop(frame);
-window.dirro = { rec, recStart, recStop, NET, people, setPeople, S, stage, booth, robot, laser, camera, scene, renderer, place, feedPose, live, beat, wall, scroller, set aim(v) { aimF = v; place(); }, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, set pitch(v) { pitch = v; } };
+window.dirro = { BCN, bcnSolve, bcnStage, liveCfg, rec, recStart, recStop, NET, people, setPeople, S, stage, booth, robot, laser, camera, scene, renderer, place, feedPose, live, beat, wall, scroller, set aim(v) { aimF = v; place(); }, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, set pitch(v) { pitch = v; } };

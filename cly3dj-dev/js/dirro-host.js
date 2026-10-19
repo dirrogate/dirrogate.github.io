@@ -7,7 +7,7 @@
 // env: { renderer, rig, getXr(), getBeat(), laser, micLevel(), nowPlaying() -> { a, bpm }, scrollText() -> string, onChange() }
 import * as THREE from 'three';
 
-const K_RELAY = 'vire.dirroRelay', K_ROOM = 'vire.dirroRoom', K_ON = 'vire.dirroOn', K_WALL = 'vire.dirroWall';
+const K_RELAY = 'vire.dirroRelay', K_ROOM = 'vire.dirroRoom', K_ON = 'vire.dirroOn', K_WALL = 'vire.dirroWall', K_BCN = 'vire.dirroBeacons';
 // #434 the phones' LED wall: AUTO (fractal; the Quest's LED-wall picture whenever one is up; the promo card and NOW
 // SPINNING now and then), FRACTAL, PICTURES (the picture on the Quest's LED wall, sent once as a small JPEG),
 // CLY3DTV (small frames of the stream / venue-screen picture, fps a second). cols = LED cells across (0 = no grid),
@@ -55,7 +55,17 @@ export class DirroHost {
     this.sent = 0; this.bytes = 0; this.kbps = 0; this._rateT = performance.now(); this._rateB = 0;
     this.wall = { ...WALL_DEF }; try { Object.assign(this.wall, JSON.parse(ls(K_WALL) || '{}')); } catch (e) {}
     this.imgName = ''; this.imgId = ''; this.imgSent = new Set(); this.frameT = 0; this.frames = 0;
-    this.sms = []; this.holo = []; this.smsNew = 0;   // #435 HoloSMS: messages in (newest first, 60 kept), the ones you put on the hologram scroller (6 at most)
+    this.sms = []; this.holo = []; this.smsNew = 0;
+    this.bcn = {}; try { this.bcn = JSON.parse(ls(K_BCN) || '{}') || {}; } catch (e) {}   // #438 DirroBeacons: L / R = [x, y, z] in rig space (crowd's left / right)   // #435 HoloSMS: messages in (newest first, 60 kept), the ones you put on the hologram scroller (6 at most)
+  }
+  // #438 DirroBeacons: two real, visible lights (or any two landmarks) marked with the controller tip; the phones aim at
+  // them (AIM WITH BEACON) and work out where they stand in this rig's layout
+  setBeacon(k, v) { this.bcn[k] = [Math.round(v.x * 1000) / 1000, Math.round(v.y * 1000) / 1000, Math.round(v.z * 1000) / 1000]; ls(K_BCN, JSON.stringify(this.bcn)); this.cfgKey = ''; this.cfgT = 0; this._changed(); }
+  clearBeacons() { this.bcn = {}; ls(K_BCN, null); this.cfgKey = ''; this.cfgT = 0; this._changed(); }
+  beaconInfo() {
+    const { L, R } = this.bcn; if (!L && !R) return 'No beacons';
+    if (!L || !R) return `${L ? 'LEFT' : 'RIGHT'} marked, ${L ? 'RIGHT' : 'LEFT'} missing`;
+    return `Beacons ${Math.hypot(L[0] - R[0], L[1] - R[1], L[2] - R[2]).toFixed(2)} m apart, ${((L[1] + R[1]) / 2).toFixed(2)} m up`;
   }
   // #435 HoloSMS moderation: nothing reaches the phones until it is put on HOLO here
   smsHolo(id) {
@@ -123,7 +133,7 @@ export class DirroHost {
     if (L && L.img && L.file && L.name) { if (L.name !== this.imgName) { this.imgName = L.name; this._sendImg(L.file, L.name); } }
     else if (this.imgName) { this.imgName = ''; this.imgId = ''; }
     if (this.wall.src === 'tv') this._sendFrame(now);
-    const W = this.wall, cfg = { k: 'c', scroll, np: np.a || '', img: this.imgSent.has(this.imgId) ? this.imgId : '', wall: { src: W.src, cols: W.cols, fill: W.fill, glow: W.glow }, holo: this.holo.map(x => x.t) }, key = JSON.stringify(cfg);   // #435 approved HoloSMS
+    const W = this.wall, cfg = { k: 'c', scroll, np: np.a || '', img: this.imgSent.has(this.imgId) ? this.imgId : '', wall: { src: W.src, cols: W.cols, fill: W.fill, glow: W.glow }, holo: this.holo.map(x => x.t), bcn: this.bcn.L && this.bcn.R ? this.bcn : null }, key = JSON.stringify(cfg);   // #438   // #435 approved HoloSMS
     if ((key !== this.cfgKey && now - this.cfgT > CFG_MS) || now - this.cfgSent > CFG_FORCE_MS) { this.cfgKey = key; this.cfgT = this.cfgSent = now; this.ws.send(key); this._rateB += key.length; }
     if (now - this.sendT < SEND_MS) return;
     this.sendT = now;

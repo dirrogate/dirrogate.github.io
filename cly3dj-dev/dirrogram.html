@@ -46,6 +46,10 @@
   #sms .btn { padding: 10px 18px; font-size: 14px; }
   #bRec { color: #ff3b4e; border-color: #ff3b4e88; }
   #bRec.recOn { background: #e0102a; color: #fff; border-color: #ff6b7a; box-shadow: 0 0 18px #ff2a3c; }
+  #aimMenu { position: fixed; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 84px); display: flex; gap: 14px; justify-content: center; align-items: flex-start; z-index: 5; flex-wrap: wrap; padding: 0 12px; }
+  #aimMenu .mb { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  #aimMenu .sub { font-size: 11px; letter-spacing: 0.06em; opacity: 0.75; text-shadow: 0 1px 3px #000; }
+  #aimMenu .btn.off { opacity: 0.45; }
   #toast { position: fixed; left: 50%; top: 40%; transform: translateX(-50%); background: rgba(0,0,0,0.7); padding: 8px 14px; border-radius: 10px; font-size: 14px; z-index: 6; pointer-events: none; transition: opacity 0.4s; }
 </style>
 <script type="importmap">
@@ -71,6 +75,10 @@
   <button class="btn ghost" id="bSet">SETTINGS</button>
 </div>
 <div id="panel" class="hide"></div>
+<div id="aimMenu" class="hide">
+  <button class="btn" id="mAim">AIM</button>
+  <div class="mb"><button class="btn ghost" id="mBcn">AIM WITH BEACON</button><div class="sub">DirroBeacon venues only</div></div>
+</div>
 <div id="sms" class="hide">
   <div class="smsT">HoloSMS to the DJ</div>
   <textarea id="smsIn" maxlength="140" rows="3" placeholder="Your message for the hologram scroller (the DJ picks which ones go up)"></textarea>

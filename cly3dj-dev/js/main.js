@@ -60,7 +60,8 @@ if (settings.env === 'camera') settings.env = 'studio'; // camera snapshots remo
 // #114: Recording-friendly mode removed (always 90 Hz, 'interactive' audio); the owner records with the Quest
 // recorder's mic off, so the voice goes through the mixer; wired headphones, so no echo cancelling by default
 if (!settings.mig114) { delete settings.perf; settings.micRoute = 'app'; settings.micEcho = false; settings.mig114 = 1; saveSettings(); }
-let dirro = null, dirroRoomT = 0, smsPg = 0;   // #435 smsPg: HOLOSMS page   // #427 DirroHost, set up at the end of start-up
+let dirro = null, dirroRoomT = 0, smsPg = 0;
+const dirroMark = { want: '', t0: 0, prev: {} };   // #438 MARK LEFT / RIGHT: the next trigger press records the controller tip   // #435 smsPg: HOLOSMS page   // #427 DirroHost, set up at the end of start-up
 let spect = null, spectErrShown = false;   // #158 spectator host (declared early: drawMixScreen reads it, #164)
 function saveSettings() { try { localStorage.setItem('vire.settings', JSON.stringify(settings)); } catch {} }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -5707,6 +5708,13 @@ function drawToolsPage() {
       g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.fillText(label, x + w / 2, y + 14);
       g.fillStyle = '#fff'; g.font = '700 17px system-ui'; g.fillText(val, x + w / 2, y + h - 7);
     };
+    // #438 MARK LEFT / RIGHT (as the crowd sees them): tap, then touch the light with the controller tip and pull the trigger; CLEAR takes two taps
+    const bcnRow = (x, y, w, h) => {
+      const bw3 = (w - 12) / 3, mk = k => () => { dirroMark.want = k; dirroMark.t0 = performance.now(); dirroMark.prev = {}; toast(`Touch the ${k === 'L' ? 'LEFT' : 'RIGHT'} beacon (as the crowd sees it) with the controller tip, pull the trigger`, 4000); drawMixScreen(); };
+      btn(x, y, bw3, h, dirroMark.want === 'L' ? 'TOUCH LEFT…' : d.bcn.L ? 'BEACON L ✓' : 'MARK BEACON L', !!d.bcn.L || dirroMark.want === 'L', mk('L'), false, 14);
+      btn(x + bw3 + 6, y, bw3, h, dirroMark.want === 'R' ? 'TOUCH RIGHT…' : d.bcn.R ? 'BEACON R ✓' : 'MARK BEACON R', !!d.bcn.R || dirroMark.want === 'R', mk('R'), false, 14);
+      btn(x + 2 * (bw3 + 6), y, bw3, h, 'CLEAR BEACONS', false, d.bcn.L || d.bcn.R ? () => { const now = performance.now(); if (now - dirroRoomT < 2500) { dirroRoomT = 0; d.clearBeacons(); } else { dirroRoomT = now; toast('Tap CLEAR BEACONS again', 2000); } } : null, !(d.bcn.L || d.bcn.R), 13);
+    };
     const wallBtn = (x, y, w, h) => btn(x, y, w, h, 'WALL: ' + WALL_LABEL[W8.src], W8.src !== 'auto', () => d.setWall('src', cyc(WALL_SRC, W8.src, 1)), false, 16);
     const steps = [
       ['LED GRID', W8.cols ? `${W8.cols} across` : 'OFF', () => d.setWall('cols', cyc(WALL_COLS, W8.cols, -1)), () => d.setWall('cols', cyc(WALL_COLS, W8.cols, 1))],
@@ -5719,6 +5727,7 @@ function drawToolsPage() {
       let y = y0 + 6 + 3 * 56; wallBtn(L, y, R - L, 44); y += 52;
       steps.forEach(([l, v, dn, up], i) => stp(L + (i % 2) * ((R - L) / 2 + 3), y + Math.floor(i / 2) * 52, (R - L) / 2 - 3, 44, l, v, dn, up)); y += 2 * 52 + 6;
       btn(L, y, R - L, 40, `HOLOSMS (${d.sms.length})`, d.holo.length > 0, () => setTools('holosms'), false, 17); y += 46;   // #435
+      bcnRow(L, y, R - L, 40); y += 46;   // #438
       ty = y + 14; tw = R - L - 8;
       const q = Math.min(R - L, H - (ty + 44) - 10); drawQr(g, fanUrl(), L + (R - L - q) / 2, ty + 44, q);
     } else {
@@ -5728,13 +5737,14 @@ function drawToolsPage() {
       steps.forEach(([l, v, dn, up], i) => { const k = i + 1, x = L + (k % 3) * (sw + 6), y = y0 + 54 + Math.floor(k / 3) * 48; stp(x, y, sw, 42, l, v, dn, up); });
       drawQr(g, fanUrl(), qx, y0 + 2, q);
       btn(L + 2 * (sw + 6), y0 + 54 + 48, sw, 42, `HOLOSMS (${d.sms.length})`, d.holo.length > 0, () => setTools('holosms'), false, 15);   // #435
-      ty = y0 + 54 + 2 * 48 + 20; tw = lw;
+      bcnRow(L, y0 + 54 + 2 * 48, lw, 36); ty = y0 + 54 + 2 * 48 + 36 + 18; tw = lw;   // #438
     }
     g.textAlign = 'left'; g.fillStyle = d.state === 'live' ? '#7dffa0' : '#dfe6f2'; g.font = '600 16px system-ui';
     g.fillText(d.status(), tx, ty, tw);
     g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui';
-    g.fillText(`Room ${roomKey()}  ·  relay ${relayUrl().replace(/^wss?:\/\//, '') || 'not set'}`, tx, ty + 21, tw);
-    g.font = '500 13px system-ui'; wrapText(g, 'WALL on the phones: AUTO = fractal + your LED picture + promo + NOW SPINNING. PICTURES = the picture on your LED wall. CLY3DTV = the stream / TV picture (stream or TV must be running).', tx, ty + 40, tw, 16, P ? 4 : 2);
+    g.fillText(`Room ${roomKey()}  ·  relay ${relayUrl().replace(/^wss?:\/\//, '') || 'not set'}`, tx, ty + 19, tw);
+    g.fillText(d.beaconInfo() + (d.bcn.L && d.bcn.R ? ' · phones: AIM > AIM WITH BEACON' : ''), tx, ty + 38, tw);   // #438
+    if (P) { g.font = '500 13px system-ui'; wrapText(g, 'WALL on the phones: AUTO = fractal + your LED picture + promo + NOW SPINNING. PICTURES = the picture on your LED wall. CLY3DTV = the stream / TV picture (stream or TV must be running).', tx, ty + 60, tw, 16, 4); }
     return;
   }
   if (page === 'tv') {   // #376 CLY3DTV: the venue screen (venue.html). The TV shows a 6-digit code, it is typed here; then switches, sound, status
@@ -6802,6 +6812,16 @@ function frameBody() {
     if (laser && laser.on) laser.tick(dt, beat, camera.getWorldPosition(_laserCam));
   }
   if (dirro) dirro.tick(performance.now());   // #427
+  if (dirroMark.want && xr && renderer.xr.isPresenting) {   // #438 the next trigger press (after 0.7 s) = the beacon, at the controller tip
+    const now = performance.now();
+    for (const st of xr.inputs) {
+      if (!st.connected || st.isHand || !st.source || !st.source.gamepad || !st.tip) continue;
+      const down = !!(st.source.gamepad.buttons[0] && st.source.gamepad.buttons[0].pressed), was = dirroMark.prev[st.i]; dirroMark.prev[st.i] = down;
+      if (!down || was || now - dirroMark.t0 < 700) continue;
+      const k = dirroMark.want; dirroMark.want = ''; dirro.setBeacon(k, rig.worldToLocal(st.tip.clone()));
+      toast(`Beacon ${k === 'L' ? 'LEFT' : 'RIGHT'} marked`, 2000); xr.buzz && xr.buzz(st, 0.6, 60); break;
+    }
+  }
   if (portals) portals.tick();   // #345 #346
   if (domeBoot) { domeBoot = false; if (dome.on && !CAMERA_ROLE) setDome(true); }   // #346 a dome left on last time: load its sky once everything is up
   if (skySpin.speed > 0 && skybox.group.visible) { skySpin.ang = (skySpin.ang + skySpin.speed * DEG * dt) % (2 * Math.PI); applySkyTurn(); }   // #379 PANO SPIN
