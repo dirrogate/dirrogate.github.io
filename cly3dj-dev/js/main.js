@@ -3784,6 +3784,16 @@ function scratchMove(s, localPoint, force) {
   // a 2 cm back-cue overshot 4 %. The record still follows the hand 1:1 (x SCRATCH & DRAG), but the angle now goes
   // through a one-euro filter (smooth when slow, quick when fast; TURNTABLE FEEL > HAND SMOOTHING) and every reading is
   // stamped with the headset frame's time, which the worklet plays back evenly instead of trusting message timing.
+  // #424 (owner: back-cueing near the label sounded sped up, near the edge real). On vinyl the record turns by the
+  // finger's travel / its distance from the spindle, so the same 2 cm of hand travel at 6 cm turns it twice as far
+  // as at 12 cm. On a real deck the finger feels that and moves less; in VR nothing tells the hand, so it moves the
+  // same and the kick comes out fast. RADIUS EVEN-OUT (100 % = default) makes every touch point act like the outer
+  // music area: the turn = hand travel along the groove / (r + k (R_ref - r)), R_ref = edge - 2 cm. 0 % = true 1:1.
+  {
+    const r = Math.hypot(localPoint.x - DECK.spindle.x, localPoint.z - DECK.spindle.z), dims = recD(d), rRef = (dims.EDGE || 0.1508) - 0.02;
+    const rEff = r + (FEEL.even / 100) * (rRef - r);
+    if (r > 0.01 && rEff > 0.01) da *= r / rEff;
+  }
   s.raw += da * FEEL.scr / 100;
   const dt = Math.min(0.1, Math.max(0.001, (tS - s.t) / 1000)); s.t = tS;
   const k = FEEL.smooth / 100;
@@ -5240,12 +5250,13 @@ const FEEL_DEF = {
   fric: { label: 'PLATTER FRICTION', lo: 25, hi: 300, v: 100, unit: '%' },   // slipmat friction against the platter (stick / slip)
   scr: { label: 'SCRATCH & DRAG', lo: 25, hi: 150, v: 100, unit: '%' },      // record turn per hand turn (100 % = 1:1, a real record)
   smooth: { label: 'HAND SMOOTHING', lo: 0, hi: 100, v: 85, unit: '%' },     // tracking-noise filter on the hand on the record
+  even: { label: 'RADIUS EVEN-OUT', lo: 0, hi: 100, v: 100, unit: '%' },     // #424 any touch radius moves the record like the outer music area
   spin: { label: 'SPINDLE TWIST', lo: 25, hi: 300, v: 100, unit: '%' },      // pinch on the spindle: torque passed to the platter
   nudge: { label: 'NUDGE AMOUNT', lo: 25, hi: 300, v: 100, unit: '%' },      // finger on the platter rim: drag / push strength
 };
 const FEEL = Object.fromEntries(Object.entries(FEEL_DEF).map(([k, r]) => [k, r.v]));
 try { Object.assign(FEEL, JSON.parse(localStorage.getItem('vire.feel') || '{}')); } catch (e) {}
-function setFeel(k, v) { FEEL[k] = v; try { localStorage.setItem('vire.feel', JSON.stringify(FEEL)); } catch (e) {} if (k !== 'scr' && k !== 'smooth') sendPhysics(); }
+function setFeel(k, v) { FEEL[k] = v; try { localStorage.setItem('vire.feel', JSON.stringify(FEEL)); } catch (e) {} if (k !== 'scr' && k !== 'smooth' && k !== 'even') sendPhysics(); }
 // #422 PINCH FIT sliders: key -> range, default (must match xr.js PF)
 const PINCH_FIT_DEF = {
   bx: { label: 'BALL IN/OUT', lo: -25, hi: 25, v: 0, unit: 'mm' }, by: { label: 'BALL UP/DN', lo: -25, hi: 25, v: 0, unit: 'mm' },
@@ -6083,12 +6094,12 @@ function drawToolsPage() {
     if (P) {
       keys.forEach((k, i) => row(k, L, y0 + i * 52, R - L, 46));
       const yb = y0 + keys.length * 52 + 4; btn(L, yb, R - L, 40, 'RESET TO AS BUILT', false, reset);
-      note('Drag a bar. 100 % = the physics as built. PLATTER FRICTION: slipmat grip. SCRATCH & DRAG: record turn per hand turn (100 % = 1:1). HAND SMOOTHING: filters tracking jitter on the record. SPINDLE TWIST: pinch on the spindle. NUDGE: finger on the platter rim.', yb + 58);
+      note('Drag a bar. 100 % = the physics as built. PLATTER FRICTION: slipmat grip. SCRATCH & DRAG: record turn per hand turn (100 % = 1:1). RADIUS EVEN-OUT: every touch point moves the record like the outer edge (0 % = true vinyl). HAND SMOOTHING: filters tracking jitter on the record. SPINDLE TWIST: pinch on the spindle. NUDGE: finger on the platter rim.', yb + 58);
     } else {
       const bw = 170;   // one bar per row, full width; RESET under the label column
-      keys.forEach((k, i) => row(k, L, y0 + i * 42, R - L, 38));
-      btn(L, y0 + keys.length * 42, bw, 34, 'RESET TO AS BUILT', false, reset, false, 14);
-      g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('100 % = as built.  SCRATCH & DRAG 100 % = the record turns as far as your hand.', L + bw + 12, y0 + keys.length * 42 + 17); g.textBaseline = 'alphabetic';
+      keys.forEach((k, i) => row(k, L, y0 + i * 36, R - L, 32));   // #424 six bars
+      btn(L, y0 + keys.length * 36 + 2, bw, 32, 'RESET TO AS BUILT', false, reset, false, 14);
+      g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('100 % = as built.  RADIUS EVEN-OUT 0 % = true vinyl (near the label moves faster).', L + bw + 12, y0 + keys.length * 36 + 18); g.textBaseline = 'alphabetic';
     }
     return;
   }
