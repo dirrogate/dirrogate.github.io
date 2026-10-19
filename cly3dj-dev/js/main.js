@@ -5677,7 +5677,7 @@ function drawToolsPage() {
     if (!d) { note('Not on this device.', y0 + 24); return; }
     const per = P ? 9 : 3, rh = P ? 60 : 58, pages = Math.max(1, Math.ceil(d.sms.length / per)); smsPg = Math.min(smsPg, pages - 1);
     const bw = P ? 56 : 70, bx = R - 3 * bw - 12;
-    if (!d.sms.length) note(d.on ? 'No messages yet. People type a HoloSMS on the Dirrogram page (140 characters, one every 20 s each); they come here first and reach no screen until you pick HOLO or SINE.' : 'DIRROGRAM is off: switch it on to receive messages.', y0 + 24);
+    if (!d.sms.length) note(d.on ? 'No messages yet. People type a HoloSMS on the Dirrogram page (140 characters, one every 3 minutes each); they come here first and reach no screen until you pick HOLO or SINE.' : 'DIRROGRAM is off: switch it on to receive messages.', y0 + 24);
     d.sms.slice(smsPg * per, smsPg * per + per).forEach((m, i) => {
       const y = y0 + 4 + i * rh, ago = Math.max(0, Math.round((Date.now() - m.at) / 60000));
       g.fillStyle = m.holo ? '#1d2a3c' : '#121722'; g.fillRect(L, y, R - L, rh - 6);

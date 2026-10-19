@@ -346,8 +346,8 @@ function netConnect() {
   ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (x) { return; } netMsg(m, performance.now()); };
 }
 function netMsg(m, now) {
-  if (m.k === 'smsok') { toast('Sent to the DJ. It goes up if the DJ picks it.'); return; }   // #435
-  if (m.k === 'smsw') { toast(`One message every 20 s: wait ${m.s} s`); return; }
+  if (m.k === 'smsok') { toast('Sent! It goes up if the DJ picks it.'); return; }   // #435
+  if (m.k === 'smsw') { toast(`One message every 3 minutes: next one in ${m.s >= 60 ? Math.floor(m.s / 60) + ' min ' + (m.s % 60) + ' s' : m.s + ' s'}`); return; }
   if (m.k === 'pong') { const r = now - m.c; NET.rtt = NET.rtt ? NET.rtt + (r - NET.rtt) * 0.25 : r; return; }
   if (m.k === 'i' && m.id && m.d) {   // #434 a picture from the Quest's LED wall (kept, the last 8)
     if (NET.imgs.has(m.id)) return;

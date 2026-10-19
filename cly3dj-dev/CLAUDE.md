@@ -878,3 +878,6 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - Tablet: DIRROGRAM page HOLOSMS (n) button (lit while any are on holo) -> HOLOSMS page: 3 per page in landscape, 9 in portrait, each with its age, HOLO / SINE / ✕; footer ◀ page ▶, "n on holo", CLEAR HOLO. Checked in the browser pane.
 - Phone scroller: the DJ's scroller text, then the approved messages, joined by ✦. Checked in the browser pane. window.vire.dirro added for tests.
 - Backup backups/pre-435/.
+
+## #436 HoloSMS wording and 3-minute gap (owner, 19 Oct) (cly3dj-dev)
+- Phone toast after sending: "Sent! It goes up if the DJ picks it." One message per phone every 3 minutes (relay SMS_GAP 180000 ms, was 20 s; owner: keeps the anticipation); the wait toast shows minutes and seconds. Tablet help text updated. Server restart needed (relay core).

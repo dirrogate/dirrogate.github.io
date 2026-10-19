@@ -10,7 +10,7 @@
 'use strict';
 const crypto = require('crypto');
 
-const MAX_FANS = 2000, MAX_MSG = 64 * 1024;
+const MAX_FANS = 2000, MAX_MSG = 64 * 1024, SMS_GAP = 180000;   // #436 one HoloSMS per phone every 3 min (owner: keeps the anticipation)
 const rooms = new Map();   // room -> { dj, fans: Set, cfg }
 const room = id => { let r = rooms.get(id); if (!r) rooms.set(id, r = { dj: null, fans: new Set(), cfg: null, imgs: new Map() }); return r; };
 
@@ -66,9 +66,9 @@ function handleUpgrade(req, sock, head, prefix = '') {
   console.log(new Date().toISOString(), 'dirrogram', id, role, 'in', '(phones', r.fans.size + ')');
   ws.onmsg = s => {
     if (s.length < 64 && s.includes('"ping"')) { try { const q = JSON.parse(s); if (q.k === 'ping') { ws.send(JSON.stringify({ k: 'pong', c: q.c, s: Date.now() })); return; } } catch (e) {} }
-    if (role !== 'dj') {   // phones only ping, and send HoloSMS (#435): to the DJ alone, one per 20 s per phone, 140 characters
+    if (role !== 'dj') {   // phones only ping, and send HoloSMS (#435): to the DJ alone, one per 3 min per phone (#436), 140 characters
       if (!r.dj || s.length > 2000 || !s.startsWith('{"k":"sms"')) return;
-      const now = Date.now(); if (now - (ws.smsT || 0) < 20000) { ws.send('{"k":"smsw","s":' + Math.ceil((20000 - (now - ws.smsT)) / 1000) + '}'); return; }
+      const now = Date.now(); if (now - (ws.smsT || 0) < SMS_GAP) { ws.send('{"k":"smsw","s":' + Math.ceil((SMS_GAP - (now - ws.smsT)) / 1000) + '}'); return; }
       let q; try { q = JSON.parse(s); } catch (e) { return; }
       const t = String(q.t || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140); if (!t) return;
       ws.smsT = now; r.smsN = (r.smsN || 0) + 1; r.dj.send(JSON.stringify({ k: 'sms', id: r.smsN, t, at: now })); ws.send('{"k":"smsok"}');
