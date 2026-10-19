@@ -6064,11 +6064,7 @@ function drawToolsPage() {
     const y0 = head(kbd.title, kbd.back, { label: 'MIC / KEYS', on: sysKbPending, act: sysKbTap });   // #387 the headset keyboard + dictation
     g.fillStyle = '#0d1422'; g.fillRect(L, y0, R - L, 44);
     g.save(); g.beginPath(); g.rect(L, y0, R - L, 44); g.clip();
-    if ([...kbd.text].every(ch => ch === ' ' || FONT_OK(ch))) {
-      const tw = bitWidth(kbd.text + ' ', 4), tx = Math.min(L + 10, R - 12 - tw);
-      drawBitText(g, kbd.text, tx, y0 + 9, 4, '#ffffff');
-      g.fillStyle = '#39a8ff'; g.fillRect(tx + bitWidth(kbd.text, 4), y0 + 9, 16, 28);   // cursor
-    } else {   // #431 text from the headset keyboard with characters the bitmap font lacks (lower case, : / ...): a plain font, not ???
+    {   // #432 (owner) the typed text always in a plain font (was the pixel font; #431 switched only for missing glyphs)
       g.font = '600 26px system-ui, sans-serif'; g.textBaseline = 'middle'; g.textAlign = 'left';
       const tw = g.measureText(kbd.text + ' ').width, tx = Math.min(L + 10, R - 12 - tw);
       g.fillStyle = '#ffffff'; g.fillText(kbd.text, tx, y0 + 23);

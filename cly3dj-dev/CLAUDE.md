@@ -854,3 +854,6 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - KEYBOARD page: text with characters the bitmap font lacks is drawn in a plain system font instead (cursor too).
 - dirro-host.js setRelay: short forms. Lower case, spaces dropped; a name without a dot gets .a.pinggy.link; no path gets /dirro; no scheme = wss://, http(s) becomes ws(s). UNIVDEMO -> wss://univdemo.a.pinggy.link/dirro (checked in Node with nine spellings). RELAY… title says to type the Pinggy name.
 - Backup backups/pre-427/main.js.pre431. No server restart.
+
+## #432 KEYBOARD page input in a plain font (owner, 19 Oct) (cly3dj-dev)
+- Owner: use a normal font for the typed text, not the pixel font. The KEYBOARD page text line is always system-ui 600 26 px now (the keys keep their look). No server restart.
