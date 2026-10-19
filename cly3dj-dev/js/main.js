@@ -5676,7 +5676,7 @@ function drawToolsPage() {
     const y0 = head('DIRROGRAM', 'home'), d = dirro;
     if (!d) { note('Not on this device.', y0 + 24); return; }
     const acts = [[d.on ? 'DIRROGRAM: ON' : 'DIRROGRAM: OFF', d.on, () => d.setOn(!d.on)],
-      ['RELAY…', false, () => openKbd('RELAY ADDRESS (wss://…)', relayUrl(), false, 160, t => d.setRelay(t), 'dirro')],
+      ['RELAY…', false, () => openKbd('RELAY: TYPE THE PINGGY NAME, E.G. UNIVDEMO', relayUrl(), false, 160, t => d.setRelay(t), 'dirro')],   // #431 the short form is enough
       ['NEW ROOM', false, () => { const now = performance.now(); if (now - dirroRoomT < 2500) { dirroRoomT = 0; d.newRoom(); toast('New room: the old QR no longer works', 2500); } else { dirroRoomT = now; toast('Tap NEW ROOM again: printed QR codes of the old room stop working', 2500); } }]];
     const q = P ? Math.min(R - L, 300) : 196, qx = P ? L + (R - L - q) / 2 : R - q, qy = P ? y0 + 3 * 62 + 8 : y0 + 2;
     if (P) acts.forEach(([l, on, a], i) => btn(L, y0 + 6 + i * 62, R - L, 54, l, on, a, false, 22));
@@ -6064,9 +6064,16 @@ function drawToolsPage() {
     const y0 = head(kbd.title, kbd.back, { label: 'MIC / KEYS', on: sysKbPending, act: sysKbTap });   // #387 the headset keyboard + dictation
     g.fillStyle = '#0d1422'; g.fillRect(L, y0, R - L, 44);
     g.save(); g.beginPath(); g.rect(L, y0, R - L, 44); g.clip();
-    const tw = bitWidth(kbd.text + ' ', 4), tx = Math.min(L + 10, R - 12 - tw);
-    drawBitText(g, kbd.text, tx, y0 + 9, 4, '#ffffff');
-    g.fillStyle = '#39a8ff'; g.fillRect(tx + bitWidth(kbd.text, 4), y0 + 9, 16, 28);   // cursor
+    if ([...kbd.text].every(ch => ch === ' ' || FONT_OK(ch))) {
+      const tw = bitWidth(kbd.text + ' ', 4), tx = Math.min(L + 10, R - 12 - tw);
+      drawBitText(g, kbd.text, tx, y0 + 9, 4, '#ffffff');
+      g.fillStyle = '#39a8ff'; g.fillRect(tx + bitWidth(kbd.text, 4), y0 + 9, 16, 28);   // cursor
+    } else {   // #431 text from the headset keyboard with characters the bitmap font lacks (lower case, : / ...): a plain font, not ???
+      g.font = '600 26px system-ui, sans-serif'; g.textBaseline = 'middle'; g.textAlign = 'left';
+      const tw = g.measureText(kbd.text + ' ').width, tx = Math.min(L + 10, R - 12 - tw);
+      g.fillStyle = '#ffffff'; g.fillText(kbd.text, tx, y0 + 23);
+      g.fillStyle = '#39a8ff'; g.fillRect(tx + g.measureText(kbd.text).width + 2, y0 + 9, 14, 28); g.textBaseline = 'alphabetic';
+    }
     g.restore();
     const gap = 4, kh = P ? 46 : 36, ky0 = y0 + 52;
     KEY_ROWS.forEach((row, ri) => {

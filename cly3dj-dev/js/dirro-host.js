@@ -20,10 +20,16 @@ export function initRelayFromUrl() {
   } catch (e) {}
 }
 export function relayUrl() { return ls(K_RELAY) || ''; }
+// #431 short forms (the tablet keyboard has no ':'): 'UNIVDEMO' -> wss://univdemo.a.pinggy.link/dirro; a name with a dot
+// keeps its host; no path -> /dirro (the relay inside the owner's server); http(s) -> ws(s); spaces dropped, all lower case
 export function setRelay(s) {
-  s = (s || '').trim().replace(/\/+$/, ''); if (!s) { ls(K_RELAY, null); return ''; }
-  if (/^https?:\/\//i.test(s)) s = s.replace(/^http/i, 'ws'); else if (!/^wss?:\/\//i.test(s)) s = 'wss://' + s;
-  ls(K_RELAY, s); return s;
+  s = (s || '').trim().toLowerCase().replace(/\s+/g, '').replace(/\/+$/, ''); if (!s) { ls(K_RELAY, null); return ''; }
+  let scheme = 'wss://', m = s.match(/^(wss?|https?):\/\//);
+  if (m) { scheme = m[1].replace(/^http/, 'ws') + '://'; s = s.slice(m[0].length); }
+  let host = s, path = ''; const i = s.indexOf('/'); if (i >= 0) { host = s.slice(0, i); path = s.slice(i); }
+  if (!host.includes('.') && !host.includes(':')) host += '.a.pinggy.link';
+  if (!path) path = '/dirro';
+  s = scheme + host + path; ls(K_RELAY, s); return s;
 }
 export function roomKey() { let k = ls(K_ROOM); if (!k) { k = newRoomKey(); ls(K_ROOM, k); } return k; }
 // the address the audience opens (the QR): dirrogram.html next to the app, relay and room in the hash

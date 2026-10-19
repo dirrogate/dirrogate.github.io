@@ -848,3 +848,9 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 ## #430 Relay status page in a browser (owner, 19 Oct)
 - Owner opened wss://univdemo.a.pinggy.link/dirro and it "went nowhere": a wss:// address is not a web page. Checked from the PC browser pane: ws://localhost:8000/dirro and wss://univdemo.a.pinggy.link/dirro both answer a ping (through Pinggy in ~0.8 s), so the relay inside the unified server works.
 - server.js: GET /dirro (and /dirro/) now answers a text line: rooms, phones and the Quest RELAY address (wss://<host>/dirro). Needs one more server restart.
+
+## #431 RELAY on the tablet: short form, readable text (owner, 19 Oct) (cly3dj-dev)
+- Owner: the tablet keyboard has no ":" and the Meta keyboard (MIC / KEYS) text showed as ???. The text itself came through; the KEYBOARD page draws with the bitmap font (upper case, no : / etc.), which printed ? for each missing glyph.
+- KEYBOARD page: text with characters the bitmap font lacks is drawn in a plain system font instead (cursor too).
+- dirro-host.js setRelay: short forms. Lower case, spaces dropped; a name without a dot gets .a.pinggy.link; no path gets /dirro; no scheme = wss://, http(s) becomes ws(s). UNIVDEMO -> wss://univdemo.a.pinggy.link/dirro (checked in Node with nine spellings). RELAY… title says to type the Pinggy name.
+- Backup backups/pre-427/main.js.pre431. No server restart.
