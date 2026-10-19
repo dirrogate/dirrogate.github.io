@@ -95,6 +95,11 @@ function place(h, handed) {
   const P = o => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).applyMatrix4(inv);
   const ip = P(it), dp = P(dj);
   h.tipRest = ip.clone().addScaledVector(ip.clone().sub(dp).normalize(), 0.006);
+  // #422 (owner) the interaction sphere sits on the INSIDE of the relaxed index finger (its pad), not the tip: half way
+  // along the last finger bone, 7 mm out on the palm side (-Y of the joint, WebXR convention). Fixed in grip space.
+  const qd = new THREE.Quaternion(); dj.getWorldQuaternion(qd);
+  h.padDir = new THREE.Vector3(0, -1, 0).applyQuaternion(qd).transformDirection(inv).normalize();
+  h.padRest = ip.clone().add(dp).multiplyScalar(0.5).addScaledVector(h.padDir, 0.007);
   h.basePos = null; h.oShift = null;
   h.cur = '';
 }

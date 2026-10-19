@@ -3889,6 +3889,7 @@ const _q = new THREE.Quaternion(), _a = new THREE.Vector3(), _b = new THREE.Vect
 function pointerMove(p) {
   const dr = p.drag; if (!dr) return;
   p.tip = '';
+  if (dr.kind === 'screen') { if (screenDrag) { const h = castRay(p.ray, [mixer.userData.screen])[0]; if (h) mixScreenDrag(h.uv); } return; }   // #422
   if (dr.kind === 'lid') { // mouse: drag down pulls the lid toward you and shut, up lifts it open
     if (!dr.moved && Math.abs(p.y - dr.y0) < 4) return;
     if (!dr.moved) { dr.moved = true; lidGrab(); }
@@ -4718,7 +4719,7 @@ function tSlider(g, x, y, w, h, label, v, txt, set, dim) {
   g.fillStyle = dim ? '#56627a' : '#dfe6f2'; g.beginPath(); g.arc(tx + tw * v, ty, 8, 0, 2 * Math.PI); g.fill();
   g.textAlign = 'right'; g.font = '600 13px system-ui'; g.fillText(txt, x + w - 6, ty + 1);
   g.textBaseline = 'alphabetic';
-  VP_HIT.push({ x: tx - 10, y, w: tw + 20, h, act: px => set(clamp((px - tx) / tw, 0, 1)) });
+  VP_HIT.push({ x: tx - 10, y, w: tw + 20, h, drag: true, act: px => set(clamp((px - tx) / tw, 0, 1)) });   // #422 drag: finger / mouse held on the bar keeps moving it
 }
 // #379 VISUALS > FX: FLOAT balls (the DJ drops them on gear in the headset; here the list with each one's float amount) and WATER
 let fxClearT = 0;
@@ -4834,7 +4835,13 @@ function readout(d, st) {
 }
 // #222 long press on the tablet (trigger / pinch / fingertip held 0.6 s): on a VIDEO page thumbnail it offers delete
 let screenHold = null, holdSeq = 0, vpDel = null;
-function mixScreenRelease() { screenHold = null; }
+let screenDrag = null;   // #422 the slider being dragged on the tablet
+function mixScreenRelease() { screenHold = null; screenDrag = null; }
+function scrUvPx(uv) { const c = scr().canvas; return [(scrDir === 'px' ? 1 - uv.y : scrDir === 'nx' ? uv.y : uv.x) * c.width, (scrDir === 'px' ? 1 - uv.x : scrDir === 'nx' ? uv.x : 1 - uv.y) * c.height]; }
+function mixScreenDrag(uv) {   // #422 finger still on the screen (XR) / mouse held (desktop): a grabbed slider follows it
+  if (!screenDrag || !uv) return; const [px, py] = scrUvPx(uv);
+  screenHold = null; screenDrag.act(px, py); drawMixScreen();
+}
 function mixScreenLong(px, py) {
   if (toolsPage) { const b = VP_HIT.find(h => h.long && px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h); if (b) b.long(); return; }   // #404 tablet buttons with a long press (the GOPRO buttons: reset)
   if (!videoPage || !media.FOLDERS.includes(vpFolder)) return;
@@ -4860,7 +4867,7 @@ function mixScreenPress(uv) {
   if (videoPage || toolsPage) {   // #224 the TOOLS pages use the same tap list
     const b = VP_HIT.find(h => px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h);
     if (vpDel && !(b && b.del)) vpDel = null;   // any other tap closes the delete offer
-    if (b) b.act(px, py); drawMixScreen(); return true;   // #353 the tap point, for the CROP picture
+    if (b) { b.act(px, py); if (b.drag) screenDrag = b; } drawMixScreen(); return true;   // #353 the tap point, for the CROP picture; #422 sliders keep dragging
   }   // #185
   // #164 spectator strip: MR GUI (helpers on/off) and CELL REC (phone goes clean for recording)
   for (const b of SP_HIT) if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) { b.act(); drawMixScreen(); return true; }
@@ -5206,7 +5213,14 @@ async function pressBytes(track) {
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
 }
-const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
+// #422 PINCH FIT sliders: key -> range, default (must match xr.js PF)
+const PINCH_FIT_DEF = {
+  bx: { label: 'BALL IN/OUT', lo: -25, hi: 25, v: 0, unit: 'mm' }, by: { label: 'BALL UP/DN', lo: -25, hi: 25, v: 0, unit: 'mm' },
+  bz: { label: 'BALL BK/FWD', lo: -30, hi: 30, v: 0, unit: 'mm' }, kt: { label: 'KNOB TWIST', lo: 30, hi: 300, v: 90, unit: '°' },
+  lh: { label: 'HAND LIFT', lo: -20, hi: 60, v: 10, unit: 'mm' }, lg: { label: 'GLOVE LIFT', lo: -20, hi: 60, v: 15, unit: 'mm' },
+  pa: { label: 'PINCH TILT', lo: -60, hi: 60, v: 0, unit: '°' }, pt: { label: 'PINCH TURN', lo: -90, hi: 90, v: 0, unit: '°' },
+};
+const TOOLS_NAME = { handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -6013,8 +6027,10 @@ function drawToolsPage() {
     const neonOn = A.neon !== 0;
     const bottomBtns = (x, y, w, h) => {
       const b2 = (w - 8) / 2;
-      btn(x, y, b2, h, 'RESET', false, () => { if (X) { for (const [k] of rows) X.setHandFit(k, 0); X.setHandFit('gs', 94); drawMixScreen(); } });
-      btn(x + b2 + 8, y, b2, h, neonOn ? 'NEON CHROME: ON' : 'NEON CHROME', neonOn, () => { if (X) X.setHandFit('neon', neonOn ? 0 : 1); robotNeon(); drawMixScreen(); });
+      btn(x, y, (w - 16) / 3, h, 'RESET', false, () => { if (X) { for (const [k] of rows) X.setHandFit(k, 0); X.setHandFit('gs', 94); drawMixScreen(); } });
+      const b3 = (w - 16) / 3;
+      btn(x + b3 + 8, y, b3, h, neonOn ? 'NEON CHROME: ON' : 'NEON CHROME', neonOn, () => { if (X) X.setHandFit('neon', neonOn ? 0 : 1); robotNeon(); drawMixScreen(); });
+      btn(x + 2 * b3 + 16, y, b3, h, 'PINCH FIT ▸', false, () => setTools('pinchfit'));   // #422
     };
     if (P) {
       cells.forEach((c, i) => cell(c, L, y0 + i * 62, R - L, 58, true));
@@ -6024,6 +6040,26 @@ function drawToolsPage() {
       const cw = (R - L - 16) / 2, half = Math.ceil(cells.length / 2);
       cells.forEach((c, i) => cell(c, L + (i < half ? 0 : cw + 16), y0 + (i % half) * 44, cw, 38, false));
       bottomBtns(L, y0 + half * 44 + 4, R - L, 36);
+    }
+    return;
+  }
+  if (page === 'pinchfit') {   // #422 (owner) sliders: the interaction sphere, the pinched hand / glove (lift, tilt, turn) and knob twist
+    const y0 = head('PINCH FIT', 'handfit');
+    let X = null; try { X = xr; } catch (e) {}
+    const A = X ? X.handFit : {}, D = PINCH_FIT_DEF;
+    const val = k => (A[k] != null ? A[k] : D[k].v);
+    const set = (k, f) => { if (!X) return; const r = D[k]; X.setHandFit(k, Math.round(r.lo + f * (r.hi - r.lo))); };
+    const keys = Object.keys(D);
+    const row = (k, x, y, w, h) => { const r = D[k], v = val(k); tSlider(g, x, y, w, h, r.label, (v - r.lo) / (r.hi - r.lo), `${v > 0 && r.lo < 0 ? '+' : ''}${v} ${r.unit}`, f => set(k, f)); };
+    if (P) {
+      keys.forEach((k, i) => row(k, L, y0 + i * 50, R - L, 44));
+      const yb = y0 + keys.length * 50 + 4;
+      btn(L, yb, R - L, 40, 'RESET PINCH FIT', false, () => { if (X) for (const k of keys) X.setHandFit(k, D[k].v); drawMixScreen(); });
+      note('Drag a bar with your fingertip. BALL: where the touch point sits on your index finger (mm). LIFT / TILT / TURN: the 3D hand or glove once it has pinched a knob or fader. TWIST: wrist turn for a knob from 0 to full.', yb + 58);
+    } else {
+      const cw = (R - L - 12) / 2, half = Math.ceil(keys.length / 2);
+      keys.forEach((k, i) => row(k, L + (i < half ? 0 : cw + 12), y0 + (i % half) * 40, cw, 36));
+      btn(L, y0 + half * 40 + 4, 200, 34, 'RESET PINCH FIT', false, () => { if (X) for (const k of keys) X.setHandFit(k, D[k].v); drawMixScreen(); });
     }
     return;
   }
@@ -6699,7 +6735,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease, spiderGrabTest, spiderGrab, spiderRelease,
   crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, crateWalkStep, drawCrateScreen, layoutSleeves, crateDisc,
   onA: st => gpSummon(st),   // #404 right controller A: the camera GoPro to that hand
-  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, ledTilted, toast, mixScreenRelease,
+  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, ledTilted, toast, mixScreenRelease, mixScreenDrag,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
 });
@@ -7051,7 +7087,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get fx() { return fx; }, skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, mixScreenDrag, mixScreenRelease, get fx() { return fx; }, skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
 window.vire._laser = { laser, laserTap, camCal, camCalStart, camCalStop };   // #415 camCal test hook   // #406 test hook
 window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, milkSleeveHit, layoutMilkSleeves, gpSummon, goproReset, gopro2, setDomeEv, get plJump() { return plJump; }, msFly };   // #394 / #395 test hooks   // #392 / #393 test hooks
