@@ -5688,7 +5688,7 @@ function drawToolsPage() {
     g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui';
     g.fillText(`Room ${roomKey()}  ·  relay ${relayUrl().replace(/^wss?:\/\//, '') || 'not set'}`, tx, ty + 24, tw);
     g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui';
-    wrapText(g, 'People scan the QR (print it, or show it on Cly3DTV) and point their phone at the booth. DIRRODJ copies your head and hands, the lasers and the beat follow yours, the LED wall shows NOW SPINNING and the scroller text. The relay: tools/dirro-relay.mjs on the PC or a phone, behind Pinggy.', tx, ty + 50, tw, 18, P ? 8 : 6);
+    wrapText(g, 'People scan the QR (print it, or show it on Cly3DTV) and point their phone at the booth. DIRRODJ copies your head and hands, the lasers and the beat follow yours, the LED wall shows NOW SPINNING and the scroller text. The relay runs inside your PC server: RELAY… = wss://<your Pinggy address>/dirro (or tools/dirro-relay.mjs on a phone).', tx, ty + 50, tw, 18, P ? 8 : 6);
     return;
   }
   if (page === 'tv') {   // #376 CLY3DTV: the venue screen (venue.html). The TV shows a 6-digit code, it is typed here; then switches, sound, status
