@@ -12,7 +12,7 @@ const crypto = require('crypto');
 
 const MAX_FANS = 2000, MAX_MSG = 64 * 1024;
 const rooms = new Map();   // room -> { dj, fans: Set, cfg }
-const room = id => { let r = rooms.get(id); if (!r) rooms.set(id, r = { dj: null, fans: new Set(), cfg: null }); return r; };
+const room = id => { let r = rooms.get(id); if (!r) rooms.set(id, r = { dj: null, fans: new Set(), cfg: null, imgs: new Map() }); return r; };
 
 function frame(op, data) {
   const p = Buffer.isBuffer(data) ? data : Buffer.from(data || ''), n = p.length;
@@ -62,12 +62,16 @@ function handleUpgrade(req, sock, head, prefix = '') {
   sock.setNoDelay(true);
   const id = m[2], r = room(id), role = u.searchParams.get('role') === 'dj' ? 'dj' : 'fan', ws = wrap(sock, head);
   if (role === 'dj') { if (r.dj) r.dj.close(); r.dj = ws; }
-  else { if (r.fans.size >= MAX_FANS) { ws.close(); return true; } r.fans.add(ws); if (r.cfg) ws.send(r.cfg); }
+  else { if (r.fans.size >= MAX_FANS) { ws.close(); return true; } r.fans.add(ws); for (const im of r.imgs.values()) ws.send(im); if (r.cfg) ws.send(r.cfg); }   // #434 the wall pictures first, then the config that names one
   console.log(new Date().toISOString(), 'dirrogram', id, role, 'in', '(phones', r.fans.size + ')');
   ws.onmsg = s => {
     if (s.length < 64 && s.includes('"ping"')) { try { const q = JSON.parse(s); if (q.k === 'ping') { ws.send(JSON.stringify({ k: 'pong', c: q.c, s: Date.now() })); return; } } catch (e) {} }
     if (role !== 'dj') return;   // phones only ping
     if (s.startsWith('{"k":"c"')) r.cfg = s;
+    else if (s.startsWith('{"k":"i"')) {   // #434 an LED-wall picture: the last 8 are kept for phones that join later
+      const m = s.match(/^\{"k":"i","id":"([A-Za-z0-9_-]{1,40})"/);
+      if (m) { r.imgs.delete(m[1]); r.imgs.set(m[1], s); while (r.imgs.size > 8) r.imgs.delete(r.imgs.keys().next().value); }
+    }
     for (const f of r.fans) f.send(s);
   };
   ws.onclose = () => {

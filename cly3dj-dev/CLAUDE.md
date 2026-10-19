@@ -860,3 +860,12 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 
 ## #433 Selfie: no mirror (owner, 19 Oct) (cly3dj-dev)
 - Owner: in selfie mode the LED wall and scroller text read backwards. Cause: SELFIE mirrored the whole canvas with CSS (like a mirror). Removed: the selfie view is now the true view (as a friend standing there would see it), so the text reads the right way and the screen matches what a later RECORD will save (a recording takes the canvas without CSS). The 3D camera still turns 180 for the front camera. No server restart.
+
+## #434 Dirrogram LED wall: your pictures, a CLY3DTV copy, tunable LED grid from the tablet (owner, 19 Oct) (cly3dj-dev)
+- Owner: send the LED-wall extras (Cly3DTV copy, promo JPGs = the pictures from VISUALS > IMAGES playing on the LED wall) to the audience phones, small JPEGs over the air, and a pixel-grid effect controlled from the tablet.
+- Quest (dirro-host.js): when the LED playlist shows a picture (led.on && led.img), it goes out once per connection as {k:'i', id, d}: cover-fitted 512 x 288 JPEG, quality stepped down until under 60 KB (the relay's 64 KB limit). The config carries img (that picture's id) and wall {src, cols, fill, glow}. WALL = CLY3DTV: {k:'f', d} frames of streamer.canvas (when streamer.active: live, rehearsal or the S8 studio) at 192 x 108 JPEG q0.6, 1-6 a second (default 2, ~3-6 KB each). Settings saved on the headset (vire.dirroWall).
+- Relay core: keeps the last 8 pictures per room and hands them, then the config, to phones that join later (tested in Node: a late phone got p2..p9 then c). Server restart needed (the core is loaded at start).
+- Tablet DIRROGRAM page: WALL: AUTO / FRACTAL / PICTURES / CLY3DTV, LED GRID (OFF, 48 to 320 across), LED DOT (40 to 100 %), LED GLOW (0.5 to 2x), TV FRAMES / S (1 to 6); landscape fits beside the QR (checked in the browser pane), portrait stacked above the QR.
+- Phone: AUTO = the Quest's picture whenever one is up, else fractal with the promo card 6 s in 24; PICTURES = the Quest's picture (fractal when none); CLY3DTV = frames (fractal when none for 3 s); FRACTAL. Grid shader: cells from LED GRID (rows = 9/16), dot size from LED DOT, brightness from LED GLOW, no grid at OFF. Checked on the PC with a test picture (96 across, 60 % dots) and test frames (grid off).
+- Bandwidth: CLY3DTV at 2 frames a second is ~10 KB/s per phone through the tunnel (100 phones ~1 MB/s); PICTURES costs one 30-60 KB send per picture.
+- Backup backups/pre-434/.

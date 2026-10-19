@@ -7,7 +7,16 @@
 // env: { renderer, rig, getXr(), getBeat(), laser, micLevel(), nowPlaying() -> { a, bpm }, scrollText() -> string, onChange() }
 import * as THREE from 'three';
 
-const K_RELAY = 'vire.dirroRelay', K_ROOM = 'vire.dirroRoom', K_ON = 'vire.dirroOn';
+const K_RELAY = 'vire.dirroRelay', K_ROOM = 'vire.dirroRoom', K_ON = 'vire.dirroOn', K_WALL = 'vire.dirroWall';
+// #434 the phones' LED wall: AUTO (fractal; the Quest's LED-wall picture whenever one is up; the promo card and NOW
+// SPINNING now and then), FRACTAL, PICTURES (the picture on the Quest's LED wall, sent once as a small JPEG),
+// CLY3DTV (small frames of the stream / venue-screen picture, fps a second). cols = LED cells across (0 = no grid),
+// fill = how much of each cell lights, glow = brightness.
+export const WALL_SRC = ['auto', 'fractal', 'pictures', 'tv'];
+export const WALL_LABEL = { auto: 'AUTO', fractal: 'FRACTAL', pictures: 'PICTURES', tv: 'CLY3DTV' };
+export const WALL_COLS = [0, 48, 64, 96, 128, 160, 192, 240, 320];
+const WALL_DEF = { src: 'auto', cols: 160, fill: 0.78, glow: 1, fps: 2 };
+const idOf = s => { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.codePointAt(0), 16777619) >>> 0; return 'p' + h.toString(36); };
 const SEND_MS = 66, CFG_MS = 1000, CFG_FORCE_MS = 5000, PING_MS = 2000;
 const r3 = v => Math.round(v * 1000) / 1000, r4 = v => Math.round(v * 10000) / 10000;
 const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} return null; };
@@ -44,6 +53,29 @@ export class DirroHost {
     this.env = env; this.on = ls(K_ON) === '1'; this.ws = null; this.state = 'off'; this.fans = 0; this.rtt = 0;
     this.sendT = 0; this.cfgT = 0; this.cfgSent = 0; this.cfgKey = ''; this.pingT = 0; this.retry = 0; this.retryT = 0; this.err = '';
     this.sent = 0; this.bytes = 0; this.kbps = 0; this._rateT = performance.now(); this._rateB = 0;
+    this.wall = { ...WALL_DEF }; try { Object.assign(this.wall, JSON.parse(ls(K_WALL) || '{}')); } catch (e) {}
+    this.imgName = ''; this.imgId = ''; this.imgSent = new Set(); this.frameT = 0; this.frames = 0;
+  }
+  setWall(k, v) { this.wall[k] = v; ls(K_WALL, JSON.stringify(this.wall)); this.cfgKey = ''; this.cfgT = 0; this._changed(); }
+  // #434 the picture on the Quest's LED wall, once per connection: fitted (cover) into 512 x 288, JPEG under ~60 KB
+  async _sendImg(file, name) {
+    const id = idOf(name); this.imgId = id;
+    if (this.imgSent.has(id)) return;
+    try {
+      const b = await createImageBitmap(file), W = 512, H = 288, c = Object.assign(document.createElement('canvas'), { width: W, height: H }), g = c.getContext('2d');
+      const k = Math.max(W / b.width, H / b.height), w = b.width * k, h = b.height * k; g.fillStyle = '#000'; g.fillRect(0, 0, W, H); g.drawImage(b, (W - w) / 2, (H - h) / 2, w, h); b.close && b.close();
+      let d = ''; for (const q of [0.8, 0.65, 0.5, 0.35]) { d = c.toDataURL('image/jpeg', q); if (d.length < 60000) break; }
+      if (d.length >= 60000 || this.imgName !== name) return;
+      this._send({ k: 'i', id, d }); this.imgSent.add(id); this.cfgKey = '';
+    } catch (e) { console.warn('dirrogram picture', e); }
+  }
+  // #434 CLY3DTV on the phones: the stream / venue-screen picture, 192 x 108 JPEG, fps a second
+  _sendFrame(now) {
+    const cv = this.env.tvCanvas && this.env.tvCanvas(); if (!cv || now - this.frameT < 1000 / this.wall.fps) return;
+    this.frameT = now;
+    const c = this._fc || (this._fc = Object.assign(document.createElement('canvas'), { width: 192, height: 108 }));
+    c.getContext('2d').drawImage(cv, 0, 0, 192, 108);
+    this._send({ k: 'f', d: c.toDataURL('image/jpeg', 0.6) }); this.frames++;
   }
   setOn(on) { this.on = !!on; ls(K_ON, this.on ? '1' : '0'); if (!this.on) this._close('off'); else { this.retry = 0; this.retryT = 0; } this._changed(); }
   newRoom() { ls(K_ROOM, newRoomKey()); this._close(this.on ? 'connecting' : 'off'); this.retryT = 0; this._changed(); }
@@ -57,7 +89,7 @@ export class DirroHost {
     const relay = relayUrl(); if (!relay) { this.state = 'no relay'; return; }
     let ws; try { ws = new WebSocket(`${relay}/r/${roomKey()}?role=dj`); } catch (e) { this.err = e.message; this.state = 'error'; return; }
     this.ws = ws; this.state = 'connecting'; this.err = '';
-    ws.onopen = () => { this.state = 'live'; this.retry = 0; this.cfgKey = ''; this.cfgT = 0; this._changed(); };
+    ws.onopen = () => { this.state = 'live'; this.retry = 0; this.cfgKey = ''; this.cfgT = 0; this.imgSent.clear(); this.imgName = ''; this._changed(); };   // #434 pictures again for a new connection
     ws.onmessage = e => {
       let m; try { m = JSON.parse(e.data); } catch (x) { return; }
       if (m.k === 'fans') { if (m.n !== this.fans) { this.fans = m.n; this._changed(); } }
@@ -76,7 +108,11 @@ export class DirroHost {
     if (now - this.pingT > PING_MS) { this.pingT = now; this._send({ k: 'ping', c: Math.round(now) }); }
     // config: scroller text and NOW SPINNING (the relay keeps the last one for phones that join later)
     const np = (this.env.nowPlaying && this.env.nowPlaying()) || {}, scroll = (this.env.scrollText && this.env.scrollText()) || '';
-    const cfg = { k: 'c', scroll, np: np.a || '' }, key = JSON.stringify(cfg);
+    const L = this.env.getLed && this.env.getLed();   // #434 the LED wall's current picture, if it shows one
+    if (L && L.img && L.file && L.name) { if (L.name !== this.imgName) { this.imgName = L.name; this._sendImg(L.file, L.name); } }
+    else if (this.imgName) { this.imgName = ''; this.imgId = ''; }
+    if (this.wall.src === 'tv') this._sendFrame(now);
+    const W = this.wall, cfg = { k: 'c', scroll, np: np.a || '', img: this.imgSent.has(this.imgId) ? this.imgId : '', wall: { src: W.src, cols: W.cols, fill: W.fill, glow: W.glow } }, key = JSON.stringify(cfg);
     if ((key !== this.cfgKey && now - this.cfgT > CFG_MS) || now - this.cfgSent > CFG_FORCE_MS) { this.cfgKey = key; this.cfgT = this.cfgSent = now; this.ws.send(key); this._rateB += key.length; }
     if (now - this.sendT < SEND_MS) return;
     this.sendT = now;
@@ -118,7 +154,7 @@ export class DirroHost {
   status() {
     if (!this.on) return 'Off';
     if (!relayUrl()) return 'No relay set: RELAY… (or open the app once with ?relay=wss://…)';
-    if (this.state === 'live') return `Live · ${this.fans} phone${this.fans === 1 ? '' : 's'} · ${Math.round(this.rtt)} ms · ${this.kbps.toFixed(1)} KB/s`;
+    if (this.state === 'live') return `Live · ${this.fans} phone${this.fans === 1 ? '' : 's'} · ${Math.round(this.rtt)} ms · ${this.kbps.toFixed(1)} KB/s${this.wall.src === 'tv' ? (this.env.tvCanvas && this.env.tvCanvas() ? ' · TV frames' : ' · no TV picture (stream / TV off)') : ''}`;
     if (this.state === 'retrying') return `Relay not reachable, trying again (${this.retry})`;
     return this.state[0].toUpperCase() + this.state.slice(1) + '…';
   }

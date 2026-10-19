@@ -22,7 +22,7 @@ import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
 import { Portals } from './portal.js';   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
 import { Beat } from './beat.js';   // #346 bass onsets on the master for the wall's BEAT
-import { DirroHost, initRelayFromUrl, fanUrl, relayUrl, roomKey } from './dirro-host.js';   // #427 DIRROGRAM: the show to the audience phones
+import { DirroHost, initRelayFromUrl, fanUrl, relayUrl, roomKey, WALL_SRC, WALL_LABEL, WALL_COLS } from './dirro-host.js';   // #427 DIRROGRAM: the show to the audience phones
 import qrcode from '../vendor/qrcode/qrcode.mjs';   // #427 the room's QR (MIT, Kazuhiko Arase)
 import { RobotAvatar } from './robot.js';
 import { RobotAvatar2, ROBOT_GLB } from './robot2.js';
@@ -5672,23 +5672,45 @@ function drawToolsPage() {
     }
     return;
   }
-  if (page === 'dirro') {   // #427 DIRROGRAM: on / off, the relay, the room and its QR (the audience scans it), status
+  if (page === 'dirro') {   // #427 DIRROGRAM: on / off, the relay, the room and its QR (the audience scans it), status; #434 the phones' LED wall
     const y0 = head('DIRROGRAM', 'home'), d = dirro;
     if (!d) { note('Not on this device.', y0 + 24); return; }
+    const W8 = d.wall, cyc = (arr, v, dir) => arr[(arr.indexOf(v) + dir + arr.length) % arr.length];
     const acts = [[d.on ? 'DIRROGRAM: ON' : 'DIRROGRAM: OFF', d.on, () => d.setOn(!d.on)],
       ['RELAY…', false, () => openKbd('RELAY: TYPE THE PINGGY NAME, E.G. UNIVDEMO', relayUrl(), false, 160, t => d.setRelay(t), 'dirro')],   // #431 the short form is enough
       ['NEW ROOM', false, () => { const now = performance.now(); if (now - dirroRoomT < 2500) { dirroRoomT = 0; d.newRoom(); toast('New room: the old QR no longer works', 2500); } else { dirroRoomT = now; toast('Tap NEW ROOM again: printed QR codes of the old room stop working', 2500); } }]];
-    const q = P ? Math.min(R - L, 300) : 196, qx = P ? L + (R - L - q) / 2 : R - q, qy = P ? y0 + 3 * 62 + 8 : y0 + 2;
-    if (P) acts.forEach(([l, on, a], i) => btn(L, y0 + 6 + i * 62, R - L, 54, l, on, a, false, 22));
-    else { const aw = (qx - L - 16 - 12) / 3; acts.forEach(([l, on, a], i) => btn(L + i * (aw + 6), y0 + 6, aw, 52, l, on, a, false, 18)); }
-    drawQr(g, fanUrl(), qx, qy, q);
-    const tx = L + 4, ty = P ? qy + q + 26 : y0 + 82, tw = P ? R - L - 8 : qx - L - 24;
-    g.fillStyle = d.state === 'live' ? '#7dffa0' : '#dfe6f2'; g.font = '600 17px system-ui'; g.textAlign = 'left';
+    // stepper: − value +, the label small above the value
+    const stp = (x, y, w, h, label, val, dn, up) => {
+      btn(x, y, 40, h, '−', false, () => { dn(); drawMixScreen(); }); btn(x + w - 40, y, 40, h, '+', false, () => { up(); drawMixScreen(); });
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.fillText(label, x + w / 2, y + 14);
+      g.fillStyle = '#fff'; g.font = '700 17px system-ui'; g.fillText(val, x + w / 2, y + h - 7);
+    };
+    const wallBtn = (x, y, w, h) => btn(x, y, w, h, 'WALL: ' + WALL_LABEL[W8.src], W8.src !== 'auto', () => d.setWall('src', cyc(WALL_SRC, W8.src, 1)), false, 16);
+    const steps = [
+      ['LED GRID', W8.cols ? `${W8.cols} across` : 'OFF', () => d.setWall('cols', cyc(WALL_COLS, W8.cols, -1)), () => d.setWall('cols', cyc(WALL_COLS, W8.cols, 1))],
+      ['LED DOT', `${Math.round(W8.fill * 100)} %`, () => d.setWall('fill', Math.max(0.4, Math.round((W8.fill - 0.05) * 100) / 100)), () => d.setWall('fill', Math.min(1, Math.round((W8.fill + 0.05) * 100) / 100))],
+      ['LED GLOW', `${W8.glow.toFixed(1)}x`, () => d.setWall('glow', Math.max(0.5, Math.round((W8.glow - 0.1) * 10) / 10)), () => d.setWall('glow', Math.min(2, Math.round((W8.glow + 0.1) * 10) / 10))],
+      ['TV FRAMES / S', String(W8.fps), () => d.setWall('fps', Math.max(1, W8.fps - 1)), () => d.setWall('fps', Math.min(6, W8.fps + 1))]];
+    let ty, tx = L + 4, tw;
+    if (P) {
+      acts.forEach(([l, on, a], i) => btn(L, y0 + 6 + i * 56, R - L, 48, l, on, a, false, 21));
+      let y = y0 + 6 + 3 * 56; wallBtn(L, y, R - L, 44); y += 52;
+      steps.forEach(([l, v, dn, up], i) => stp(L + (i % 2) * ((R - L) / 2 + 3), y + Math.floor(i / 2) * 52, (R - L) / 2 - 3, 44, l, v, dn, up)); y += 2 * 52 + 6;
+      ty = y + 14; tw = R - L - 8;
+      const q = Math.min(R - L, H - (ty + 44) - 10); drawQr(g, fanUrl(), L + (R - L - q) / 2, ty + 44, q);
+    } else {
+      const q = 196, qx = R - q, lw = qx - L - 14, aw = (lw - 12) / 3, sw = (lw - 12) / 3;
+      acts.forEach(([l, on, a], i) => btn(L + i * (aw + 6), y0 + 4, aw, 44, l, on, a, false, 17));
+      wallBtn(L, y0 + 54, aw, 42);
+      steps.forEach(([l, v, dn, up], i) => { const k = i + 1, x = L + (k % 3) * (sw + 6), y = y0 + 54 + Math.floor(k / 3) * 48; stp(x, y, sw, 42, l, v, dn, up); });
+      drawQr(g, fanUrl(), qx, y0 + 2, q);
+      ty = y0 + 54 + 2 * 48 + 20; tw = lw;
+    }
+    g.textAlign = 'left'; g.fillStyle = d.state === 'live' ? '#7dffa0' : '#dfe6f2'; g.font = '600 16px system-ui';
     g.fillText(d.status(), tx, ty, tw);
-    g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui';
-    g.fillText(`Room ${roomKey()}  ·  relay ${relayUrl().replace(/^wss?:\/\//, '') || 'not set'}`, tx, ty + 24, tw);
     g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui';
-    wrapText(g, 'People scan the QR (print it, or show it on Cly3DTV) and point their phone at the booth. DIRRODJ copies your head and hands, the lasers and the beat follow yours, the LED wall shows NOW SPINNING and the scroller text. The relay runs inside your PC server: RELAY… = wss://<your Pinggy address>/dirro (or tools/dirro-relay.mjs on a phone).', tx, ty + 50, tw, 18, P ? 8 : 6);
+    g.fillText(`Room ${roomKey()}  ·  relay ${relayUrl().replace(/^wss?:\/\//, '') || 'not set'}`, tx, ty + 21, tw);
+    g.font = '500 13px system-ui'; wrapText(g, 'WALL on the phones: AUTO = fractal + your LED picture + promo + NOW SPINNING. PICTURES = the picture on your LED wall. CLY3DTV = the stream / TV picture (stream or TV must be running).', tx, ty + 40, tw, 16, P ? 4 : 2);
     return;
   }
   if (page === 'tv') {   // #376 CLY3DTV: the venue screen (venue.html). The TV shows a 6-digit code, it is typed here; then switches, sound, status
@@ -6768,7 +6790,10 @@ function frameBody() {
 }
 // #427 DIRROGRAM: the show to the audience phones through the relay (dirro-host.js)
 if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr, getBeat: () => beat, laser, micLevel, nowPlaying: dirroNow,
-  scrollText: () => (scroller && scroller.on ? scroller.text : ''), onChange: () => { if (toolsPage === 'dirro' || toolsPage === 'home') drawMixScreen(); } });
+  scrollText: () => (scroller && scroller.on ? scroller.text : ''),
+  getLed: () => ({ img: !!(led.on && led.img), name: led.name, file: led.name ? led.fileNamed(led.name) : null }),   // #434 the LED wall's picture
+  tvCanvas: () => (streamer && streamer.active ? streamer.canvas : null),   // #434 the stream / venue-screen picture
+  onChange: () => { if (toolsPage === 'dirro' || toolsPage === 'home') drawMixScreen(); } });
 renderer.setAnimationLoop(frame);
 // #220 DJ CAM: pose the avatar (headset: head + hands; desktop: a demo DJ), then render the camera into the LED wall
 const _djT0 = performance.now();

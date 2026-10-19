@@ -29,7 +29,7 @@ if (Q.get('np')) S.np = Q.get('np');
 if (Q.get('scroll')) S.scroll = Q.get('scroll');
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
 // #427 texts from the Quest while live (scroller, NOW SPINNING) win over this phone's own
-const liveCfg = { scroll: '', np: '' };
+const liveCfg = { scroll: '', np: '', wall: null, img: '' };
 const scrollText = () => liveCfg.scroll || S.scroll, npText = () => liveCfg.np || S.np;
 
 // ---------------------------------------------------------------- renderer, scenes
@@ -128,9 +128,10 @@ function drawPromo() {   // the built-in card; promo JPGs from a list come with 
   promoTex.needsUpdate = true;
 }
 const wallMat = new THREE.ShaderMaterial({
-  uniforms: { uT: { value: 0 }, uKick: { value: 0 }, uMix: { value: 0 }, uCap: { value: 0 }, uImg: { value: promoTex }, uCapTex: { value: capTex }, uGrid: { value: new THREE.Vector2(160, 90) } },
+  uniforms: { uT: { value: 0 }, uKick: { value: 0 }, uMix: { value: 0 }, uCap: { value: 0 }, uImg: { value: promoTex }, uCapTex: { value: capTex }, uGrid: { value: new THREE.Vector2(160, 90) },
+    uGridOn: { value: 1 }, uFill: { value: 0.78 }, uGlow: { value: 1 } },   // #434 LED grid from the tablet
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-  fragmentShader: `uniform float uT, uKick, uMix, uCap; uniform sampler2D uImg, uCapTex; uniform vec2 uGrid; varying vec2 vUv;
+  fragmentShader: `uniform float uT, uKick, uMix, uCap, uGridOn, uFill, uGlow; uniform sampler2D uImg, uCapTex; uniform vec2 uGrid; varying vec2 vUv;
 vec3 pal(float t) { return 0.5 + 0.5 * cos(6.2831 * (vec3(0.0, 0.33, 0.67) + t)); }
 vec3 fractal(vec2 uv) {
   vec2 z = (uv - 0.5) * vec2(3.2, 1.8) / (1.0 + 0.12 * uKick);
@@ -139,13 +140,14 @@ vec3 fractal(vec2 uv) {
   float s = n / 40.0; return pal(s * 1.6 + uT * 0.05) * pow(s, 0.55) * (0.75 + 0.6 * uKick);
 }
 void main() {
-  vec2 g = vUv * uGrid, cell = (floor(g) + 0.5) / uGrid, f = fract(g);
+  vec2 g = vUv * uGrid, cell = uGridOn > 0.5 ? (floor(g) + 0.5) / uGrid : vUv, f = fract(g);
   vec3 col = mix(fractal(cell), texture2D(uImg, cell).rgb, uMix);
   float band = step(cell.y, 0.2) * uCap;
   vec4 cp = texture2D(uCapTex, vec2(cell.x, cell.y / 0.2));
   col = mix(col, col * 0.3, band); col = mix(col, cp.rgb, cp.a * band * step(0.0, 0.2 - cell.y));
-  float led = smoothstep(0.0, 0.22, f.x) * smoothstep(1.0, 0.78, f.x) * smoothstep(0.0, 0.22, f.y) * smoothstep(1.0, 0.78, f.y);
-  gl_FragColor = vec4(col * (0.18 + 1.05 * led) * 1.25, 1.0);
+  float e = (1.0 - uFill) * 0.5 + 0.03, led = smoothstep(0.0, e, f.x) * smoothstep(1.0, 1.0 - e, f.x) * smoothstep(0.0, e, f.y) * smoothstep(1.0, 1.0 - e, f.y);
+  if (uGridOn < 0.5) led = 1.0;
+  gl_FragColor = vec4(col * (0.18 + 1.05 * led) * 1.25 * uGlow, 1.0);
 }`,
   toneMapped: false,
 });
@@ -326,7 +328,7 @@ function beatStep(now, dt) {
 // ---------------------------------------------------------------- live link (#427, Phase B): the relay room from the QR (#relay=wss://…&room=KEY)
 const HQ = new URLSearchParams(location.hash.slice(1));
 const NET = { relay: HQ.get('relay') || Q.get('relay') || '', room: HQ.get('room') || Q.get('room') || '', ws: null, state: 'off', rtt: 0, retry: 0, retryT: 0,
-  offs: [], cd: null, last: -1e9, snaps: [], b: null, bn: -1, anchor: 0, onsets: [], l: null, lAt: 0 };
+  offs: [], cd: null, last: -1e9, snaps: [], b: null, bn: -1, anchor: 0, onsets: [], l: null, lAt: 0, imgs: new Map(), tv: null, tvAt: 0 };
 const netLive = now => now - NET.last < 1500;
 function beatIv() {
   const bpm = NET.b && NET.b.bpm;
@@ -344,7 +346,16 @@ function netConnect() {
 }
 function netMsg(m, now) {
   if (m.k === 'pong') { const r = now - m.c; NET.rtt = NET.rtt ? NET.rtt + (r - NET.rtt) * 0.25 : r; return; }
+  if (m.k === 'i' && m.id && m.d) {   // #434 a picture from the Quest's LED wall (kept, the last 8)
+    if (NET.imgs.has(m.id)) return;
+    const im = new Image(); im.onload = () => { const t = new THREE.Texture(im); t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; NET.imgs.set(m.id, t);
+      while (NET.imgs.size > 8) { const k = NET.imgs.keys().next().value; NET.imgs.get(k).dispose(); NET.imgs.delete(k); } }; im.src = m.d; return;
+  }
+  if (m.k === 'f' && m.d) {   // #434 a CLY3DTV frame (192 x 108)
+    const im = new Image(); im.onload = () => { if (!NET.tv) { NET.tv = new THREE.Texture(im); NET.tv.colorSpace = THREE.SRGBColorSpace; } else NET.tv.image = im; NET.tv.needsUpdate = true; NET.tvAt = performance.now(); }; im.src = m.d; return;
+  }
   if (m.k === 'c') {
+    liveCfg.wall = m.wall || null; liveCfg.img = m.img || '';   // #434
     if ((m.scroll || '') !== liveCfg.scroll) { liveCfg.scroll = m.scroll || ''; drawScroller(); }
     if ((m.np || '') !== liveCfg.np) { liveCfg.np = m.np || ''; drawCaption(); if (liveCfg.np) capUntil = T + 10; }   // a new track: NOW SPINNING for 10 s
     return;
@@ -487,7 +498,15 @@ function frame() {
   // LED wall: fractal, a promo card for 6 s every 24 s, NOW SPINNING band 10 s in every 30 s
   promoT += dt; const pc = promoT % 24, cc = T % 30;
   const wu = wallMat.uniforms; wu.uT.value = T; wu.uKick.value = beat.kick;
-  wu.uMix.value += ((pc > 18 ? 1 : 0) - wu.uMix.value) * Math.min(1, dt * 3);
+  {   // #434 what the wall shows: the tablet's WALL choice while live (AUTO otherwise), and its LED grid
+    const Wc = netLive(now) && liveCfg.wall ? liveCfg.wall : null, src = Wc ? Wc.src : 'auto';
+    const pic = liveCfg.img && netLive(now) ? NET.imgs.get(liveCfg.img) : null, tv = NET.tv && now - NET.tvAt < 3000 ? NET.tv : null;
+    const tgt = src === 'fractal' ? null : src === 'pictures' ? pic : src === 'tv' ? tv : (pic || (pc > 18 ? promoTex : null));
+    if (tgt) wu.uImg.value = tgt;
+    wu.uMix.value += ((tgt ? 1 : 0) - wu.uMix.value) * Math.min(1, dt * 3);
+    const cols = Wc ? Wc.cols : 160; wu.uGridOn.value = cols > 0 ? 1 : 0; if (cols > 0) wu.uGrid.value.set(cols, Math.round(cols * 9 / 16));
+    wu.uFill.value = Wc ? Wc.fill : 0.78; wu.uGlow.value = Wc ? Wc.glow : 1;
+  }
   wu.uCap.value += ((cc < 10 || T < capUntil ? 1 : 0) - wu.uCap.value) * Math.min(1, dt * 4);
   scrMat.uniforms.uT.value = T; scrMat.uniforms.uKick.value = beat.kick; scrMat.uniforms.uOff.value = (T * 0.07) % 1;
   for (const d of decks) if (d.userData.platter) d.userData.platter.rotation.y -= dt * (33.333 / 60) * Math.PI * 2;
