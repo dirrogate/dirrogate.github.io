@@ -12,6 +12,7 @@ import { AV_LAYER } from './director.js';
 import { Laser } from './laser.js';
 import { initMaterials, makeMixer, loadMixerParts, DECK, MIX } from './models.js';
 import { loadDeckTemplate, makeGlbDeck } from './deck-glb.js';
+import { PersonMask } from './dirro-mask.js';   // #428
 
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
@@ -27,6 +28,9 @@ try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (
 if (Q.get('np')) S.np = Q.get('np');
 if (Q.get('scroll')) S.scroll = Q.get('scroll');
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
+// #427 texts from the Quest while live (scroller, NOW SPINNING) win over this phone's own
+const liveCfg = { scroll: '', np: '' };
+const scrollText = () => liveCfg.scroll || S.scroll, npText = () => liveCfg.np || S.np;
 
 // ---------------------------------------------------------------- renderer, scenes
 const canvas = $('view');
@@ -52,7 +56,48 @@ const bgMat = new THREE.ShaderMaterial({
   depthTest: false, depthWrite: false,
 });
 bgScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), bgMat));
-let src = null;   // { tex, w, h }
+let src = null;   // { tex, el, w, h }
+
+// #428 PEOPLE: the people in the camera picture drawn back over the show (MediaPipe mask), lit by the lasers behind them.
+// The finished frame is copied to a texture; the light the show added around each person's outline (frame minus the
+// camera picture) spills onto them, brightest on the edge, so a beam that meets a hand ends in a glow there.
+const people = { on: false, mask: new PersonMask(), fb: null };
+const ovScene = new THREE.Scene();
+const ovMat = new THREE.ShaderMaterial({
+  uniforms: { uVid: { value: null }, uMask: { value: null }, uFb: { value: null }, uK: bgMat.uniforms.uK, uPx: { value: new THREE.Vector2(1e-3, 1e-3) } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+  fragmentShader: `uniform sampler2D uVid, uMask, uFb; uniform vec2 uK, uPx; varying vec2 vUv;
+vec3 lightAt(vec2 p) { vec2 c = 0.5 + (p - 0.5) * uK; return max(texture2D(uFb, p).rgb - texture2D(uVid, c).rgb, 0.0); }
+void main() {
+  vec2 cuv = 0.5 + (vUv - 0.5) * uK;
+  float m = smoothstep(0.4, 0.8, texture2D(uMask, vec2(cuv.x, 1.0 - cuv.y)).r);
+  if (m < 0.01) discard;
+  vec3 vid = texture2D(uVid, cuv).rgb, L = vec3(0.0);
+  for (int i = 0; i < 6; i++) { float a = float(i) * 1.0472; L += lightAt(vUv + vec2(cos(a), sin(a)) * uPx * 14.0); }
+  L /= 6.0;
+  float rim = clamp(m * (1.0 - m) * 4.0, 0.0, 1.0);
+  gl_FragColor = vec4(vid + L * (0.35 + 1.8 * rim), m);
+}`,
+  transparent: true, depthTest: false, depthWrite: false, toneMapped: false,
+});
+ovScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), ovMat));
+function peopleFb() {   // a copy of the drawn frame, the drawing-buffer size
+  const v = renderer.getDrawingBufferSize(new THREE.Vector2());
+  if (!people.fb || people.fb.image.width !== v.x || people.fb.image.height !== v.y) {
+    if (people.fb) people.fb.dispose(); people.fb = new THREE.FramebufferTexture(v.x, v.y); people.fb.minFilter = people.fb.magFilter = THREE.LinearFilter;
+    ovMat.uniforms.uPx.value.set(1 / v.x, 1 / v.y);
+  }
+  return people.fb;
+}
+async function setPeople(on) {
+  people.on = on; $('bPeople').textContent = on ? 'PEOPLE: ON' : 'PEOPLE';
+  if (on && people.mask.state !== 'ready') {
+    toast('Loading the people cutout\u2026');
+    const st = await people.mask.load();
+    if (st !== 'ready') { people.on = false; $('bPeople').textContent = 'PEOPLE'; toast('People cutout not available here'); return; }
+    toast('People cutout on');
+  }
+}
 
 // ---------------------------------------------------------------- the stage
 const stage = new THREE.Group(); stage.name = 'stage'; scene.add(stage); stage.visible = false;
@@ -66,9 +111,9 @@ function drawCaption() {
   const g = capCv.getContext('2d'); g.clearRect(0, 0, 1024, 128);
   g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillRect(0, 0, 1024, 128);
   g.fillStyle = '#ff2a3c'; g.font = '800 30px system-ui, sans-serif'; g.textBaseline = 'middle'; g.fillText('NOW SPINNING', 36, 40);
-  g.fillStyle = '#ffffff'; let fs = 52; g.font = `700 ${fs}px system-ui, sans-serif`;
-  while (g.measureText(S.np).width > 950 && fs > 24) { fs -= 2; g.font = `700 ${fs}px system-ui, sans-serif`; }
-  g.fillText(S.np, 36, 88); capTex.needsUpdate = true;
+  const np = npText(); g.fillStyle = '#ffffff'; let fs = 52; g.font = `700 ${fs}px system-ui, sans-serif`;
+  while (g.measureText(np).width > 950 && fs > 24) { fs -= 2; g.font = `700 ${fs}px system-ui, sans-serif`; }
+  g.fillText(np, 36, 88); capTex.needsUpdate = true;
 }
 const promoCv = document.createElement('canvas'); promoCv.width = 512; promoCv.height = 288;
 const promoTex = new THREE.CanvasTexture(promoCv); promoTex.colorSpace = THREE.SRGBColorSpace;
@@ -139,9 +184,10 @@ scroller.add(new THREE.Mesh(new THREE.PlaneGeometry(SCR.w, SCR.h), scrMat));
 }
 function drawScroller() {
   const g = scrCv.getContext('2d'); let fs = 88; g.font = `800 ${fs}px system-ui, sans-serif`;
-  const txt = S.scroll + '      ';
+  const txt = scrollText() + '      ';
   let w = Math.ceil(g.measureText(txt).width);
   if (w > 4096) { fs = Math.floor(fs * 4096 / w); w = 4096; }
+  if (scrCv.width !== w) scrTex.dispose();   // three allocates texture storage once: a new width needs a new texture
   scrCv.width = w; g.font = `800 ${fs}px system-ui, sans-serif`;   // resizing clears and resets the context
   g.fillStyle = '#000'; g.fillRect(0, 0, w, 128); g.fillStyle = '#fff'; g.textBaseline = 'middle'; g.fillText(txt, 0, 66);
   scrTex.needsUpdate = true;
@@ -240,13 +286,13 @@ async function startCamera(front) {
   stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: front ? 'user' : 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } });
   video.srcObject = stream; await video.play();
   const tex = new THREE.VideoTexture(video); tex.colorSpace = THREE.NoColorSpace; tex.minFilter = tex.magFilter = THREE.LinearFilter;
-  src = { tex, get w() { return video.videoWidth || 1280; }, get h() { return video.videoHeight || 720; } };
+  src = { tex, el: video, get w() { return video.videoWidth || 1280; }, get h() { return video.videoHeight || 720; } };
   bgMat.uniforms.uTex.value = tex; bgMat.uniforms.uOn.value = 1;
 }
 async function startDemo() {   // the PC test picture (web/_test/stage_demo.png, not shipped)
   const tex = await new THREE.TextureLoader().loadAsync(Q.get('demo') && Q.get('demo') !== '1' ? Q.get('demo') : '_test/stage_demo.png');
   tex.colorSpace = THREE.NoColorSpace; const img = tex.image;
-  src = { tex, w: img.width, h: img.height }; bgMat.uniforms.uTex.value = tex; bgMat.uniforms.uOn.value = 1;
+  src = { tex, el: img, w: img.width, h: img.height }; bgMat.uniforms.uTex.value = tex; bgMat.uniforms.uOn.value = 1;
 }
 
 // field of view: the camera picture's long side spans S.fov degrees; the 3D camera matches what the cover crop shows
@@ -262,17 +308,97 @@ function resize() {
 window.addEventListener('resize', resize);
 
 // ---------------------------------------------------------------- beat clock (Phase A: local BPM; Phase B: the Quest's beat phase)
-const beat = { t0: performance.now(), count: 0, kick: 0, phase: 0 };
+const beat = { t0: performance.now(), count: 0, kick: 0, phase: 0, lastKick: 0 };
 function beatStep(now, dt) {
+  beat.kick *= Math.exp(-dt / 0.18);
+  if (netLive(now) && NET.b) {   // #427 the Quest's beat: the last bass onset (on this phone's clock) and the track's tempo
+    const iv = beatIv(), anchor = NET.anchor;
+    if (!iv || now - anchor > 4000) return;   // no music: no beats (the laser dims itself)
+    const pos = (now - anchor) / iv, ph = pos - Math.floor(pos);
+    if (ph < beat.phase - 0.5 && now - beat.lastKick > iv * 0.5) { beat.count++; beat.kick = 1; beat.lastKick = now; }
+    beat.phase = ph; return;
+  }
   const iv = 60000 / S.bpm, b = (now - beat.t0) / iv, n = Math.floor(b);
-  if (n !== beat.count) { beat.count = n; beat.kick = 1; }
-  beat.phase = b - n; beat.kick *= Math.exp(-dt / 0.18);
+  if (n !== beat.count) { beat.count = n; beat.kick = 1; beat.lastKick = now; }
+  beat.phase = b - n;
+}
+
+// ---------------------------------------------------------------- live link (#427, Phase B): the relay room from the QR (#relay=wss://…&room=KEY)
+const HQ = new URLSearchParams(location.hash.slice(1));
+const NET = { relay: HQ.get('relay') || Q.get('relay') || '', room: HQ.get('room') || Q.get('room') || '', ws: null, state: 'off', rtt: 0, retry: 0, retryT: 0,
+  offs: [], cd: null, last: -1e9, snaps: [], b: null, bn: -1, anchor: 0, onsets: [], l: null, lAt: 0 };
+const netLive = now => now - NET.last < 1500;
+function beatIv() {
+  const bpm = NET.b && NET.b.bpm;
+  if (bpm >= 60 && bpm <= 200) { let iv = 60000 / bpm; while (iv < 300) iv *= 2; while (iv > 1000) iv /= 2; return iv; }   // the kick, not the hi-hat
+  const o = NET.onsets, d = []; for (let i = 1; i < o.length; i++) { const x = o[i] - o[i - 1]; if (x > 280 && x < 1500) d.push(x); }
+  if (d.length < 3) return 0; d.sort((a, b) => a - b); return d[d.length >> 1];
+}
+function netConnect() {
+  if (!NET.relay || !NET.room) return;
+  let ws; try { ws = new WebSocket(`${NET.relay}/r/${encodeURIComponent(NET.room)}?role=fan`); } catch (e) { NET.state = 'error'; return; }
+  NET.ws = ws; NET.state = 'connecting';
+  ws.onopen = () => { NET.state = 'open'; NET.retry = 0; ws.send(JSON.stringify({ k: 'ping', c: performance.now() })); };
+  ws.onclose = () => { if (NET.ws !== ws) return; NET.ws = null; NET.state = 'retrying'; NET.retry++; NET.retryT = performance.now() + Math.min(10000, 800 * Math.pow(1.6, NET.retry)); };
+  ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (x) { return; } netMsg(m, performance.now()); };
+}
+function netMsg(m, now) {
+  if (m.k === 'pong') { const r = now - m.c; NET.rtt = NET.rtt ? NET.rtt + (r - NET.rtt) * 0.25 : r; return; }
+  if (m.k === 'c') {
+    if ((m.scroll || '') !== liveCfg.scroll) { liveCfg.scroll = m.scroll || ''; drawScroller(); }
+    if ((m.np || '') !== liveCfg.np) { liveCfg.np = m.np || ''; drawCaption(); if (liveCfg.np) capUntil = T + 10; }   // a new track: NOW SPINNING for 10 s
+    return;
+  }
+  if (m.k !== 'p') return;
+  NET.last = now;
+  // clock: the smallest (arrival - Quest time) over the last 10 s, less half of each leg's round trip = the Quest clock on this phone
+  NET.offs.push([now, now - m.t]); while (NET.offs.length && now - NET.offs[0][0] > 10000) NET.offs.shift();
+  let mn = Infinity; for (const o of NET.offs) mn = Math.min(mn, o[1]);
+  NET.cd = mn - ((m.qr || 0) + (NET.rtt || 0)) / 2;
+  if (m.b) {
+    NET.b = m.b;
+    if (m.b.n !== NET.bn) { NET.bn = m.b.n; NET.anchor = m.b.lt + NET.cd; NET.onsets.push(NET.anchor); if (NET.onsets.length > 9) NET.onsets.shift(); }
+  }
+  if (m.l) { NET.l = m.l; NET.lAt = now; }
+  NET.snaps.push({ at: now, m }); while (NET.snaps.length > 6) NET.snaps.shift();
+}
+// the pose 110 ms back in time, between the two messages around it (15 a second arrive), so DIRRODJ moves smoothly
+const lerpQ = (a, i, b, k, out) => {   // four numbers at i: nlerp the shorter way
+  let d = a[i] * b[i] + a[i + 1] * b[i + 1] + a[i + 2] * b[i + 2] + a[i + 3] * b[i + 3]; const sg = d < 0 ? -1 : 1, q = [];
+  for (let j = 0; j < 4; j++) q.push(a[i + j] + (sg * b[i + j] - a[i + j]) * k);
+  const n = Math.hypot(...q) || 1; for (let j = 0; j < 4; j++) out[i + j] = q[j] / n;
+};
+function netPose(now) {
+  const S2 = NET.snaps; if (!S2.length) return null;
+  const t = now - 110; let a = S2[0], b = S2[S2.length - 1];
+  for (let i = 0; i < S2.length - 1; i++) if (S2[i].at <= t && S2[i + 1].at >= t) { a = S2[i]; b = S2[i + 1]; break; }
+  if (t <= a.at || a === b) return a.m;
+  if (t >= b.at) return b.m;
+  const k = (t - a.at) / (b.at - a.at), A = a.m, B = b.m, h = B.h.slice();
+  for (let j = 0; j < 3; j++) h[j] = A.h[j] + (B.h[j] - A.h[j]) * k; lerpQ(A.h, 3, B.h, k, h);
+  const hd = (B.hd || []).map(([i, kind, v]) => {
+    const pa = (A.hd || []).find(x => x[0] === i && x[1] === kind); if (!pa || pa[2].length !== v.length) return [i, kind, v];
+    const o = v.slice(), u = pa[2];
+    if (kind === 'c') { for (let j = 0; j < 3; j++) o[j] = u[j] + (v[j] - u[j]) * k; lerpQ(u, 3, v, k, o); }
+    else for (let j = 0; j < v.length; j++) o[j] = u[j] + (v[j] - u[j]) * k;
+    return [i, kind, o];
+  });
+  return { h, hd, av: B.av };
+}
+// the laser follows the Quest's (pattern, colour, beams, spread, speed, haze...); this phone keeps its own aim and length
+function netLaser(now) {
+  const l = NET.l; if (!l || !netLive(now)) return;
+  if (!!l.on !== laser.on) laser.setOn(!!l.on, false);
+  for (const k of ['pat', 'col', 'n', 'spread', 'speed', 'haze', 'drift']) if (l[k] !== undefined) laser[k] = l[k];
+  laser.smoke = l.smoke === 'off' ? 'off' : 'beams';   // light sheets cost too much on a phone
+  laser.auto = !!l.auto; laser.beats = 1;               // never its own random pattern / colour change: the Quest's come in
+  if (typeof l.ph === 'number') { const d = l.ph - laser.ph; laser.ph += Math.abs(d) > 3 ? d : d * 0.15; }
 }
 
 // ---------------------------------------------------------------- the robot: live poses first, its own dancing mixed in
 // live = the #278 'av' state tick (Quest rig space): h = head [x, y, z, qx, qy, qz, qw], hd = [[i, 'c' | 'h', v]], av = { hs, c, m }
 const live = { msg: null, seen: -1e9, ref: null, w: 0 };
-export function feedPose(m) { live.msg = m; live.seen = performance.now(); }
+export function feedPose(m) { netMsg(Object.assign({ k: 'p', t: performance.now() }, m), performance.now()); }   // tests: a fake Quest message
 const _M = new THREE.Matrix4(), _R = new THREE.Quaternion(), _t = V(), _hq = new THREE.Quaternion();
 function liveFrame(m) {
   // the DJ's standing spot (eased) maps onto the robot's spot; the Quest DJ looks down -z, the robot down +z
@@ -328,7 +454,7 @@ function idleFrame(t) {
 }
 function robotStep(now, dt, t) {
   if (!robot.ready) return;
-  const fresh = now - live.seen < 1000;
+  const fresh = netLive(now) && NET.snaps.length > 0; live.msg = fresh ? netPose(now) : live.msg;
   live.w = clamp(live.w + (fresh ? dt * 3 : -dt * 1.5), 0, 1);
   const idle = idleFrame(t);
   let pose = idle;
@@ -344,24 +470,40 @@ function robotStep(now, dt, t) {
 }
 
 // ---------------------------------------------------------------- frame loop
-let last = performance.now(), T = 0, promoT = 0;
+let last = performance.now(), T = 0, promoT = 0, capUntil = 0, netShown = '';
+function netStatus(now) {   // the pill top right: LIVE with the round trip, or what the link is doing
+  if (!NET.relay) return;
+  const s = netLive(now) ? `\u25cf LIVE ${Math.round(NET.rtt)} ms` : NET.state === 'open' ? '\u25cb WAITING FOR THE DJ' : '\u25cb CONNECTING';
+  if (s === netShown) return; netShown = s; const el = $('net'); el.textContent = s; el.classList.remove('hide'); el.classList.toggle('on', netLive(now));
+}
 const _cq = new THREE.Quaternion();
 function frame() {
   const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000); last = now; T += dt;
+  if (NET.relay && !NET.ws && now >= NET.retryT) netConnect();
+  if (NET.ws && NET.ws.readyState === 1 && now - (NET.pingT || 0) > 3000) { NET.pingT = now; NET.ws.send(JSON.stringify({ k: 'ping', c: now })); }
+  netStatus(now);
   beatStep(now, dt);
   camQuat(_cq); camera.quaternion.copy(_cq); camera.updateMatrixWorld();
   // LED wall: fractal, a promo card for 6 s every 24 s, NOW SPINNING band 10 s in every 30 s
   promoT += dt; const pc = promoT % 24, cc = T % 30;
   const wu = wallMat.uniforms; wu.uT.value = T; wu.uKick.value = beat.kick;
   wu.uMix.value += ((pc > 18 ? 1 : 0) - wu.uMix.value) * Math.min(1, dt * 3);
-  wu.uCap.value += ((cc < 10 ? 1 : 0) - wu.uCap.value) * Math.min(1, dt * 4);
+  wu.uCap.value += ((cc < 10 || T < capUntil ? 1 : 0) - wu.uCap.value) * Math.min(1, dt * 4);
   scrMat.uniforms.uT.value = T; scrMat.uniforms.uKick.value = beat.kick; scrMat.uniforms.uOff.value = (T * 0.07) % 1;
   for (const d of decks) if (d.userData.platter) d.userData.platter.rotation.y -= dt * (33.333 / 60) * Math.PI * 2;
   if (stage.visible) {
     robotStep(now, dt, T);
-    laser.tick(dt, beat, camera.getWorldPosition(_t));
+    netLaser(now); laser.tick(dt, beat, camera.getWorldPosition(_t));
   }
   renderer.clear(); renderer.render(bgScene, bgCam); renderer.clearDepth(); renderer.render(scene, camera);
+  if (people.on && people.mask.seg && src && src.el) {   // #428
+    people.mask.step(src.el, now);
+    if (people.mask.tex) {
+      const fb = peopleFb(); renderer.copyFramebufferToTexture(fb);
+      ovMat.uniforms.uFb.value = fb; ovMat.uniforms.uVid.value = src.tex; ovMat.uniforms.uMask.value = people.mask.tex;
+      renderer.render(ovScene, bgCam);
+    }
+  }
 }
 
 // ---------------------------------------------------------------- UI
@@ -406,7 +548,9 @@ $('bFlip').onclick = async () => {
   if (!stream) { toast('No camera on this device'); return; }
   selfie = !selfie; document.body.classList.toggle('selfie', selfie); $('bFlip').textContent = selfie ? 'BACK CAM' : 'SELFIE';
   try { await startCamera(selfie); resize(); } catch (e) { toast(e.message); }
+  if (selfie && !people.on) setPeople(true);   // a selfie wants the show behind you
 };
+$('bPeople').onclick = () => setPeople(!people.on);
 // tapping anywhere while the ring shows = AIM
 canvas.addEventListener('click', () => { if (!aimF && !$('aim').classList.contains('hide')) aim(); });
 
@@ -432,4 +576,4 @@ $('go').onclick = async () => {
 drawCaption(); drawPromo(); drawScroller(); resize();
 buildBooth().then(() => robotReady).then(() => { window.__dirroReady = true; });
 renderer.setAnimationLoop(frame);
-window.dirro = { S, stage, booth, robot, laser, camera, scene, renderer, place, feedPose, live, beat, wall, scroller, set aim(v) { aimF = v; place(); }, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, set pitch(v) { pitch = v; } };
+window.dirro = { NET, people, setPeople, S, stage, booth, robot, laser, camera, scene, renderer, place, feedPose, live, beat, wall, scroller, set aim(v) { aimF = v; place(); }, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, set pitch(v) { pitch = v; } };

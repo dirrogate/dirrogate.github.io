@@ -22,6 +22,8 @@ import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
 import { Portals } from './portal.js';   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
 import { Beat } from './beat.js';   // #346 bass onsets on the master for the wall's BEAT
+import { DirroHost, initRelayFromUrl, fanUrl, relayUrl, roomKey } from './dirro-host.js';   // #427 DIRROGRAM: the show to the audience phones
+import qrcode from '../vendor/qrcode/qrcode.mjs';   // #427 the room's QR (MIT, Kazuhiko Arase)
 import { RobotAvatar } from './robot.js';
 import { RobotAvatar2, ROBOT_GLB } from './robot2.js';
 import { applyNeon } from './neonenv.js';   // #355 NEON CHROME   // #245 the licensed AvatarRobot (EntroPi Games)
@@ -58,6 +60,7 @@ if (settings.env === 'camera') settings.env = 'studio'; // camera snapshots remo
 // #114: Recording-friendly mode removed (always 90 Hz, 'interactive' audio); the owner records with the Quest
 // recorder's mic off, so the voice goes through the mixer; wired headphones, so no echo cancelling by default
 if (!settings.mig114) { delete settings.perf; settings.micRoute = 'app'; settings.micEcho = false; settings.mig114 = 1; saveSettings(); }
+let dirro = null, dirroRoomT = 0;   // #427 DirroHost, set up at the end of start-up
 let spect = null, spectErrShown = false;   // #158 spectator host (declared early: drawMixScreen reads it, #164)
 function saveSettings() { try { localStorage.setItem('vire.settings', JSON.stringify(settings)); } catch {} }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -1563,6 +1566,7 @@ function crateMicSelect(P) {
 }
 
 initDiscogsToken();   // #393
+initRelayFromUrl();   // #427 ?relay=wss://… saves the Dirrogram relay on this headset
 async function loadLibrary() {
   sideCache.clear();
   try {
@@ -3659,6 +3663,23 @@ async function toggleMic() {
   } catch (e) { toast('Microphone: ' + (e.name === 'NotAllowedError' ? 'permission denied' : e.name === 'OverconstrainedError' ? 'that mic is not connected' : e.message), 3500); }
   micBusy = false;
 }
+function dirroLbl() { return dirro && dirro.on ? (dirro.state === 'live' ? `DIRROGRAM · ${dirro.fans}` : 'DIRROGRAM …') : 'DIRROGRAM'; }   // #427
+// #427 the loudest playing deck's track and its tempo at the deck's speed (pitch included), for the Dirrogram phones
+function dirroNow() {
+  const on = decks.filter(d => d.track && engine.state.decks[d.i] && engine.state.decks[d.i].needle && Math.abs(engine.state.decks[d.i].rate) > 0.2);
+  const loud = d => (mixVal[(d.i ? 'B' : 'A') + '.fader'] || 0) * (d.i ? Math.min(1, 1 + mixVal.xfader) : Math.min(1, 1 - mixVal.xfader));
+  on.sort((a, b) => loud(a) - loud(b)); const top = on[on.length - 1]; if (!top) return { a: '', bpm: 0 };
+  const t = top.track; let bpm = 0; try { bpm = bpmOf(t) * Math.abs(engine.state.decks[top.i].rate); } catch (e) {}
+  return { a: (t.artist ? t.artist + ' – ' : '') + (t.title || t.name || ''), bpm };
+}
+// #427 a QR code on the tablet: white plate, 4-module quiet zone, whole-pixel modules (made once per text)
+const qrCache = { text: '', n: 0, mods: null };
+function drawQr(g, text, x, y, size) {
+  if (qrCache.text !== text) { const q = qrcode(0, 'M'); q.addData(text); q.make(); const n = q.getModuleCount(), mods = []; for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) mods.push(r, c); Object.assign(qrCache, { text, n, mods }); }
+  const n = qrCache.n, px = Math.floor(size / (n + 8)), sz = px * (n + 8), ox = x + Math.floor((size - sz) / 2), oy = y + Math.floor((size - sz) / 2);
+  g.fillStyle = '#fff'; g.fillRect(ox, oy, sz, sz); g.fillStyle = '#000';
+  for (let i = 0; i < qrCache.mods.length; i += 2) g.fillRect(ox + (qrCache.mods[i + 1] + 4) * px, oy + (qrCache.mods[i] + 4) * px, px, px);
+}
 function micLevel() {
   const m = engine.mic; if (!m || !micOn) return 0;
   m.meter.getFloatTimeDomainData(m.meterBuf); let p = 0; for (const x of m.meterBuf) { const a = Math.abs(x); if (a > p) p = a; } return p;
@@ -5001,6 +5022,7 @@ function setTools(p) {
   clearInterval(setTools.fitIv); if (p === 'streamfit') setTools.fitIv = setInterval(() => { if (toolsPage === 'streamfit' && streamer && streamer.running) drawMixScreen(); }, 250);
   if (p === 'tv') setTools.fitIv = setInterval(() => { if (toolsPage === 'tv') drawMixScreen(); }, 1000);   // #376 status numbers
   if (p === 'studio') setTools.fitIv = setInterval(() => { if (toolsPage === 'studio') drawMixScreen(); }, 1000);   // #380 the S8's numbers
+  if (p === 'dirro') setTools.fitIv = setInterval(() => { if (toolsPage === 'dirro') drawMixScreen(); }, 1000);   // #427 phones, latency
   if (p === 'pcam') setTools.fitIv = setInterval(() => { if (toolsPage === 'pcam') drawMixScreen(); }, 200);   // #347 delay / phone status; #374 about 5 pictures a second for the preview
   if (streamer) {   // #374 the PHONE CAM pages run the shot off air so the preview moves; leaving stops it again unless it is live / PREVIEW
     if (p === 'pcam' || p === 'pcamcrop') { if (streamer.source === 'pcam' && !streamer.active) { streamer.setRehearse(true); pcamAutoReh = true; } }
@@ -5264,7 +5286,7 @@ const PINCH_FIT_DEF = {
   lh: { label: 'HAND LIFT', lo: -20, hi: 60, v: 10, unit: 'mm' }, lg: { label: 'GLOVE LIFT', lo: -20, hi: 60, v: 15, unit: 'mm' },
   pa: { label: 'PINCH TILT', lo: -60, hi: 60, v: 0, unit: '°' }, pt: { label: 'PINCH TURN', lo: -90, hi: 90, v: 0, unit: '°' },
 };
-const TOOLS_NAME = { handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
+const TOOLS_NAME = { dirro: 'DIRROGRAM', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -5303,11 +5325,13 @@ function drawToolsPage() {
     if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
       btn(L, y0 + 224, R - L, 96, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
       btn(L, y0 + 332, R - L, 80, streamer ? tvLbl(streamer) : 'CLY3DTV', !!(streamer && (streamer.tvUp || streamer.stuRun)), () => setTools('tv'), !streamer, 24);   // #389 was CHALKBOARD (now on VJ TOOLS)
-      note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall, neon, whiteboard, portals, cameras. STREAM: go live on Twitch (master mix only, never the cue). CLY3DTV: the Fire Stick TV.', y0 + 436); }   // #363 was under the CHALKBOARD button
-    else { const bw = (R - L - 36) / 4; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
-      btn(L + 2 * (bw + 12), y0 + 8, bw, 130, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
-      btn(L + 3 * (bw + 12), y0 + 8, bw, 130, streamer ? tvLbl(streamer) : 'CLY3DTV', !!(streamer && (streamer.tvUp || streamer.stuRun)), () => setTools('tv'), !streamer, 22);   // #389 was CHALKBOARD (now on VJ TOOLS)
-      note('DJ TOOLS: Record Maker, milk crate.  VJ TOOLS: Scroller, LED wall, neon, whiteboard, portals, cameras.  STREAM: Twitch.  CLY3DTV: the Fire Stick TV.', y0 + 160); }
+      btn(L, y0 + 424, R - L, 72, dirroLbl(), !!(dirro && dirro.on), () => setTools('dirro'), !dirro, 24);   // #427
+      note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall, neon, whiteboard, portals, cameras. STREAM: go live on Twitch (master mix only, never the cue). CLY3DTV: the Fire Stick TV. DIRROGRAM: the show on the audience\'s phones.', y0 + 520); }   // #363 was under the CHALKBOARD button
+    else { const bw = (R - L - 48) / 5; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 24); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 24);   // #427 five across
+      btn(L + 2 * (bw + 12), y0 + 8, bw, 130, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 24);
+      btn(L + 3 * (bw + 12), y0 + 8, bw, 130, streamer ? tvLbl(streamer) : 'CLY3DTV', !!(streamer && (streamer.tvUp || streamer.stuRun)), () => setTools('tv'), !streamer, 21);   // #389 was CHALKBOARD (now on VJ TOOLS)
+      btn(L + 4 * (bw + 12), y0 + 8, bw, 130, dirroLbl(), !!(dirro && dirro.on), () => setTools('dirro'), !dirro, 21);   // #427
+      note('DJ TOOLS: Record Maker, milk crate.  VJ TOOLS: Scroller, LED wall, neon, whiteboard, portals, cameras.  STREAM: Twitch.  CLY3DTV: the Fire Stick TV.  DIRROGRAM: the show on the audience\'s phones.', y0 + 160); }
     return;
   }
   if (page === 'stream') {   // #331 LIVE STREAM to Twitch
@@ -5646,6 +5670,25 @@ function drawToolsPage() {
       if (P) { note((camLine ? camLine + '. ' : '') + 'SHOW: Quest camera (SHOWTIME! pick), S8 backdrop. LIVE DJ!: S8 films you in your room. LIVE KEY!: keyed over the backdrop. TRIM + holds the camera back more. GO LIVE goes out from the S8.', yL + 2 * (bh + gap) + 20); }
       else if (camLine) { g.fillStyle = ci.rate && ci.rate < 22 ? '#f1b650' : '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, camLine, L + 4, yL + bh + 18, R - L - 8); }
     }
+    return;
+  }
+  if (page === 'dirro') {   // #427 DIRROGRAM: on / off, the relay, the room and its QR (the audience scans it), status
+    const y0 = head('DIRROGRAM', 'home'), d = dirro;
+    if (!d) { note('Not on this device.', y0 + 24); return; }
+    const acts = [[d.on ? 'DIRROGRAM: ON' : 'DIRROGRAM: OFF', d.on, () => d.setOn(!d.on)],
+      ['RELAY…', false, () => openKbd('RELAY ADDRESS (wss://…)', relayUrl(), false, 160, t => d.setRelay(t), 'dirro')],
+      ['NEW ROOM', false, () => { const now = performance.now(); if (now - dirroRoomT < 2500) { dirroRoomT = 0; d.newRoom(); toast('New room: the old QR no longer works', 2500); } else { dirroRoomT = now; toast('Tap NEW ROOM again: printed QR codes of the old room stop working', 2500); } }]];
+    const q = P ? Math.min(R - L, 300) : 196, qx = P ? L + (R - L - q) / 2 : R - q, qy = P ? y0 + 3 * 62 + 8 : y0 + 2;
+    if (P) acts.forEach(([l, on, a], i) => btn(L, y0 + 6 + i * 62, R - L, 54, l, on, a, false, 22));
+    else { const aw = (qx - L - 16 - 12) / 3; acts.forEach(([l, on, a], i) => btn(L + i * (aw + 6), y0 + 6, aw, 52, l, on, a, false, 18)); }
+    drawQr(g, fanUrl(), qx, qy, q);
+    const tx = L + 4, ty = P ? qy + q + 26 : y0 + 82, tw = P ? R - L - 8 : qx - L - 24;
+    g.fillStyle = d.state === 'live' ? '#7dffa0' : '#dfe6f2'; g.font = '600 17px system-ui'; g.textAlign = 'left';
+    g.fillText(d.status(), tx, ty, tw);
+    g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui';
+    g.fillText(`Room ${roomKey()}  ·  relay ${relayUrl().replace(/^wss?:\/\//, '') || 'not set'}`, tx, ty + 24, tw);
+    g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui';
+    wrapText(g, 'People scan the QR (print it, or show it on Cly3DTV) and point their phone at the booth. DIRRODJ copies your head and hands, the lasers and the beat follow yours, the LED wall shows NOW SPINNING and the scroller text. The relay: tools/dirro-relay.mjs on the PC or a phone, behind Pinggy.', tx, ty + 50, tw, 18, P ? 8 : 6);
     return;
   }
   if (page === 'tv') {   // #376 CLY3DTV: the venue screen (venue.html). The TV shows a 6-digit code, it is typed here; then switches, sound, status
@@ -6704,11 +6747,12 @@ function frameBody() {
   stepRealWorld(dt);   // #411 depth occlusion on / off, room planes for the laser
   if (facetWall || laser) {   // #345; #346 BEAT: bass onsets on the master, read only while the wall is on with BEAT (#406 or the laser on AUTO)
     if (!beat) beat = new Beat(engine);
-    beat.want = !!((facetWall && facetWall.on && facetWall.beat) || (laser && laser.on && laser.auto));
+    beat.want = !!((facetWall && facetWall.on && facetWall.beat) || (laser && laser.on && laser.auto) || (dirro && dirro.on));   // #427 the phones follow the beat
     const bp = beat.tick(dt);
     if (facetWall) facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource, bp);
     if (laser && laser.on) laser.tick(dt, beat, camera.getWorldPosition(_laserCam));
   }
+  if (dirro) dirro.tick(performance.now());   // #427
   if (portals) portals.tick();   // #345 #346
   if (domeBoot) { domeBoot = false; if (dome.on && !CAMERA_ROLE) setDome(true); }   // #346 a dome left on last time: load its sky once everything is up
   if (skySpin.speed > 0 && skybox.group.visible) { skySpin.ang = (skySpin.ang + skySpin.speed * DEG * dt) % (2 * Math.PI); applySkyTurn(); }   // #379 PANO SPIN
@@ -6719,6 +6763,9 @@ function frameBody() {
   renderer.render(scene, camera);
   if (fx) fx.postRender();   // #379 the floated gear back in its real place for hands, grabs and saving
 }
+// #427 DIRROGRAM: the show to the audience phones through the relay (dirro-host.js)
+if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr, getBeat: () => beat, laser, micLevel, nowPlaying: dirroNow,
+  scrollText: () => (scroller && scroller.on ? scroller.text : ''), onChange: () => { if (toolsPage === 'dirro' || toolsPage === 'home') drawMixScreen(); } });
 renderer.setAnimationLoop(frame);
 // #220 DJ CAM: pose the avatar (headset: head + hands; desktop: a demo DJ), then render the camera into the LED wall
 const _djT0 = performance.now();
