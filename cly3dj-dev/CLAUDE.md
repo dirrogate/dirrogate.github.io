@@ -857,3 +857,6 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 
 ## #432 KEYBOARD page input in a plain font (owner, 19 Oct) (cly3dj-dev)
 - Owner: use a normal font for the typed text, not the pixel font. The KEYBOARD page text line is always system-ui 600 26 px now (the keys keep their look). No server restart.
+
+## #433 Selfie: no mirror (owner, 19 Oct) (cly3dj-dev)
+- Owner: in selfie mode the LED wall and scroller text read backwards. Cause: SELFIE mirrored the whole canvas with CSS (like a mirror). Removed: the selfie view is now the true view (as a friend standing there would see it), so the text reads the right way and the screen matches what a later RECORD will save (a recording takes the canvas without CSS). The 3D camera still turns 180 for the front camera. No server restart.
