@@ -844,3 +844,7 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - The relay's workings moved to tools/dirro-relay-core.cjs (handleUpgrade(req, socket, head, prefix), status()); tools/dirro-relay.mjs is now a thin stand-alone wrapper (phones / laptops without that server).
 - server.js (backup server.js.claudded_2026-10-19_bak-before-dirrogram): requires C:\Users\cly3d\Downloads\ViRe_Custom\tools\dirro-relay-core.cjs (try / catch: the server starts without it), its 'upgrade' handler passes /dirro/r/<ROOM> sockets to it before destroying unknown ones, and the start-up log prints the relay address. The existing /<app>/ws hubs are untouched.
 - Relay address on the Quest (RELAY…, or ?relay=): wss://<Pinggy address>/dirro. Tested in Node: stand-alone and mounted at /dirro next to a ws-package hub (both relay; the hub still answers; other paths refused). The unified server needs one restart to load it.
+
+## #430 Relay status page in a browser (owner, 19 Oct)
+- Owner opened wss://univdemo.a.pinggy.link/dirro and it "went nowhere": a wss:// address is not a web page. Checked from the PC browser pane: ws://localhost:8000/dirro and wss://univdemo.a.pinggy.link/dirro both answer a ping (through Pinggy in ~0.8 s), so the relay inside the unified server works.
+- server.js: GET /dirro (and /dirro/) now answers a text line: rooms, phones and the Quest RELAY address (wss://<host>/dirro). Needs one more server restart.
