@@ -45,7 +45,7 @@ import { loadCaseKit } from './flightcase.js';
 import { setRecordTexSize } from './textures.js';
 import {
   initMaterials, MAT, tabletBodyMat, TABLET_T, makeDeck, makeButton, makeMixer, makeCrate, makeMilkCrate, loadMilkCrate, loadMilkCrateBaked, upgradeMilkCrate, loadRecordCrateBaked, upgradeRecordCrate, loadMixerParts, initKTX2, loadBaked, MILK_CREDIT, Record3D, armYawForRadius,
-  DECK, MIX, CRATE, MILK, W33, ARM, LID,
+  DECK, MIX, CRATE, MILK, W33, ARM, LID, padCull,
 } from './models.js';
 
 const $ = s => document.querySelector(s);
@@ -3314,6 +3314,7 @@ function supportUnder(pos) {
   return out;
 }
 const _dn = new THREE.Vector3(), _dq = new THREE.Quaternion(), _dq2 = new THREE.Quaternion(), _dax = new THREE.Vector3(), _dup = new THREE.Vector3();
+const FLOOR_RETURN_S = 180;   // #441
 function stepLoose(dt) {
   const eye = camera.getWorldPosition(new THREE.Vector3());
   for (let i = loose.length - 1; i >= 0; i--) {
@@ -3357,6 +3358,11 @@ function stepLoose(dt) {
         }
       }
     }
+    // #441: a record left lying on the floor goes back to the record crate after 3 minutes; anywhere else it stays
+    if (L.resting && L.onFloor) {
+      L.floorT = (L.floorT || 0) + dt;
+      if (L.floorT > FLOOR_RETURN_S) { loose.splice(i, 1); scene.remove(g); L.rec.dispose(); layoutSleeves(); toast('A record on the floor went back to the crate'); continue; }
+    } else L.floorT = 0;
     // low detail when it lies on the floor or is more than about a foot from your eyes
     L.rec.setLOD(L.onFloor || g.position.distanceTo(eye) > 0.3);
   }
@@ -6749,6 +6755,12 @@ function frame(t) {
   }
 }
 function frameBody() {
+  // #440: tablet parts added later (lid, glass, corner L) and the slipmats never get edge-culled in the headset
+  if ((frameBody._n = (frameBody._n || 0) + 1) % 60 === 1) {
+    const nc = o => { if (o.isMesh) padCull(o); };
+    mixer.userData.tablet && mixer.userData.tablet.traverse(nc);
+    for (const d of decks) { const g = d && d.g; if (g && g.userData.slipmat) g.userData.slipmat.forEach(nc); if (g && g.userData.matPivot) g.userData.matPivot.traverse(nc); }
+  }
   if (testState.fps) fpsLog.push(performance.now());   // #258
   const dt = Math.min(0.05, clock.getDelta());
   if (renderer.xr.isPresenting) anchorFollow();   // #210
