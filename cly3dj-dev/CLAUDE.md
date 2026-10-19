@@ -940,3 +940,6 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - wallfx.js: renderRings / renderMeta (run on the main thread inside WallFx.frame, no worker; modes 'rings', 'meta'), RP_DEF, MP_DEF. LED_LABEL / nextLedMode / isFxMode know 'vdancer' and 'meta'.
 - Phones (FOLLOW): rings alone and metaballs are drawn on the phone from wallState rp / mp; VECTOR-DANCER with a matte goes as frames (wallState m 'vmat', FRAME_M / FOLLOW_FRAMES), since the matte clip is not on the phones.
 - Backup backups/pre-442/. No server restart. Tested in the browser pane only (not on the headset or phones).
+
+## #443 VECTOR-DANCER ZOOM
+- A ZOOM slider (0.6x to 3x, rp.z, saved with the other VECTOR-DANCER settings) next to RING GAP: the matte scales about the middle of the frame (a little low, where the feet are); the rings do not scale. wallfx.js renderRings. No server restart.

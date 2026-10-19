@@ -5942,9 +5942,11 @@ function drawToolsPage() {
     btn(L, yb, cw * 2 + 6, h, `CIRCLES: ${rp.n} SET${rp.n > 1 ? 'S' : ''}`, false, () => { rp.n = rp.n % 3 + 1; vdSave(); drawMixScreen(); }, false, 16);
     btn(L + 2 * (cw + 6), yb, cw, h, 'BEAT: ' + MV[rp.mv], rp.mv > 0, () => { rp.mv = (rp.mv + 1) % 3; vdSave(); drawMixScreen(); }, false, 15);
     btn(L + 3 * (cw + 6), yb, cw, h, PL[rp.pal], false, () => { rp.pal = (rp.pal + 1) % 3; vdSave(); drawMixScreen(); }, false, 16);
-    tSlider(g, L, yb + h + 6, R - L, 34, 'RING GAP', (rp.g - 1.5) / 6.5, `${rp.g.toFixed(1)} px`, v => { rp.g = Math.round((1.5 + v * 6.5) * 10) / 10; vdSave(); drawMixScreen(); });
+    const sw2 = P ? R - L : (R - L - 6) / 2, ys = yb + h + 6;
+    tSlider(g, L, ys, sw2, 34, 'RING GAP', (rp.g - 1.5) / 6.5, `${rp.g.toFixed(1)} px`, v => { rp.g = Math.round((1.5 + v * 6.5) * 10) / 10; vdSave(); drawMixScreen(); });
+    tSlider(g, P ? L : L + sw2 + 6, P ? ys + 40 : ys, sw2, 34, 'ZOOM', ((rp.z || 1) - 0.6) / 2.4, `${(rp.z || 1).toFixed(1)}x`, v => { rp.z = Math.round((0.6 + v * 2.4) * 10) / 10; vdSave(); drawMixScreen(); });
     g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left';
-    wrapText(g, 'Slot 1 is the bundled matte. Tap an empty slot to pick a clip on the VISUALS > Video page (a white figure on black works best). PULSE: the rings run out on the beat. BOUNCE: the circles bounce.', L + 4, yb + h + 62, R - L - 8, 16, P ? 5 : 3);
+    wrapText(g, 'Slot 1 is the bundled matte. Tap an empty slot to pick a clip on the VISUALS > Video page (a white figure on black works best). PULSE: the rings run out on the beat. BOUNCE: the circles bounce.', L + 4, ys + (P ? 90 : 52), R - L - 8, 16, P ? 5 : 2);
     return;
   }
   if (page === 'wall') {   // #439 LED WALL: one tap a source. It drives the 3D wall, the stream's / CLY3DTV's VIDEOWALL and the Dirrogram phones (FOLLOW)

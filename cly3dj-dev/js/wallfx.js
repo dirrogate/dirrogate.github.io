@@ -119,7 +119,7 @@ export function renderDancer(px, W, H, t, bp, kick) {
 // ------------------------------------------------------------------ #442 VECTOR-DANCER: moire rings through a matte
 // rp { n: 1-3 ring sets, g: gap between rings in LED pixels, mv: 0 none / 1 PULSE (rings run out on the beat) / 2 BOUNCE (centres bounce on the beat),
 //      pal: 0 ACID / 1 NEON / 2 MONO, inv: 1 swaps matte and background }; mask: W x H bytes (255 = the matte) or null for rings alone
-export const RP_DEF = { n: 2, g: 3, mv: 1, pal: 0, inv: 0 };
+export const RP_DEF = { n: 2, g: 3, mv: 1, pal: 0, inv: 0, z: 1 };   // z: ZOOM of the matte (0.6 to 3)
 const RPAL = [
   { bg: [[6, 0, 10], [150, 20, 150], [20, 150, 40], [110, 10, 20]], fg: [[10, 0, 4], [255, 220, 20], [240, 40, 20], [255, 150, 20]] },   // the purple / green / maroon of the op-art film, the figure yellow / red
   { bg: [[6, 0, 18], [57, 230, 255], [255, 42, 140], [80, 0, 150]], fg: [[20, 0, 40], [255, 240, 120], [255, 120, 60], [255, 255, 255]] },
@@ -130,7 +130,7 @@ export function renderRings(px, W, H, t, bp, kick, mask, rp) {
   const ph = rp.mv === 1 ? -bp + 0.4 * kick : rp.mv === 2 ? -bp * 0.25 : -ts * 0.4;   // the rings' own run
   const ax = 0.95 * Math.sin(ts * 0.31), ay = 0.5 * Math.sin(ts * 0.47) + bnc, bx = -0.95 * Math.sin(ts * 0.23 + 1), by = 0.5 * Math.cos(ts * 0.37) - bnc;
   const cx = 0.6 * Math.sin(ts * 0.17 + 2), cy = -0.6 * Math.cos(ts * 0.29) + bnc * 0.5, fB = f * (1 + 0.07 * Math.sin(ts * 0.2));
-  const pal = RPAL[rp.pal] || RPAL[0], gn = 1 + 0.3 * kick, n = rp.n;
+  const pal = RPAL[rp.pal] || RPAL[0], gn = 1 + 0.3 * kick, n = rp.n, z = Math.max(0.3, rp.z || 1), mx = W / 2, my = H * 0.55;   // the matte zooms about the middle, a little low where the feet are
   for (let j = 0; j < H; j++) {
     const y = (hh - j - 0.5) / hh;
     for (let i = 0; i < W; i++) {
@@ -138,7 +138,8 @@ export function renderRings(px, W, H, t, bp, kick, mask, rp) {
       const a = Math.floor(Math.hypot(x - ax, y - ay) * f + ph) & 1;
       const b = n > 1 ? Math.floor(Math.hypot(x - bx, y - by) * fB) & 1 : 0;
       const c = n > 2 ? Math.floor(Math.hypot(x - cx, y - cy) * f * 0.8 - ph * 0.5) & 1 : 0;
-      const k = (a ^ c) | (b << 1), m = mask ? (mask[j * W + i] > 127) !== !!rp.inv : false, col = (m ? pal.fg : pal.bg)[k];
+      let mv = false; if (mask) { const u = Math.round((i - mx) / z + mx), w = Math.round((j - my) / z + my); mv = u >= 0 && u < W && w >= 0 && w < H && mask[w * W + u] > 127; }
+      const k = (a ^ c) | (b << 1), m = mask ? mv !== !!rp.inv : false, col = (m ? pal.fg : pal.bg)[k];
       px[o] = Math.min(255, col[0] * gn); px[o + 1] = Math.min(255, col[1] * gn); px[o + 2] = Math.min(255, col[2] * gn); px[o + 3] = 255;
     }
   }
