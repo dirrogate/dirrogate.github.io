@@ -110,8 +110,22 @@ export function setupXR(ctx) {
     const down = btn => {
       st.held = st.held || {}; st.held[btn] = true;   // #291 button state as the events see it (the gamepad snapshot can lag a frame)
       if (ctx.crateMicSelect(st.isHand ? st.pinchPt : st.tip)) { buzz(st, 0.4, 20); return; }
-      if (!st.isHand) { const hl = ctlTipLocal(st); if (hl) { st.grip.updateMatrixWorld(); st.grip.localToWorld(st.tip.copy(hl)); } }   // #283 / #284 grab from the closed O's fingertip, not last frame's
-      if (!st.isHand && !st.direct && grabStart(st, st.tip, btn)) st.btn = btn;
+      if (!st.isHand) { const hl = ctlTipLocal(st); if (hl) { st.grip.updateMatrixWorld(); st.grip.localToWorld(st.tip.copy(hl)); } }   // #283 / #284 grab from the fingertip now, not last frame's
+      if (!st.isHand && !st.direct) {
+        // #419 by the time the trigger clicks, the index has already curled part way. So the grab is tested first where the
+        // ball was just before the trigger started to move (st.aimTip = what you aimed at), then at the fingertip now.
+        const live = ctlTipLocal(st), cands = [];
+        if (btn === 'trigger' && st.aimTip) cands.push(st.aimTip);
+        if (live) cands.push(live);
+        let ok = false, used = null;
+        if (!cands.length) ok = grabStart(st, st.tip, btn);
+        for (const c of cands) {
+          if (st.direct) break;
+          const pw = st.grip.localToWorld(new THREE.Vector3().copy(c));
+          if (grabStart(st, pw, btn)) { ok = true; used = c; st.tip.copy(pw); break; }
+        }
+        if (ok) { st.btn = btn; st.grabTip = used ? used.clone() : null; }
+      }
     };
     const up = btn => { if (st.held) st.held[btn] = false; if (!st.isHand && (!st.direct || st.btn === btn)) release(st); };
     ray.addEventListener('selectstart', () => down('trigger')); ray.addEventListener('selectend', () => up('trigger'));
@@ -674,7 +688,7 @@ export function setupXR(ctx) {
   }
 
   function release(st) {
-    const g = st.direct; st.direct = null;
+    const g = st.direct; st.direct = null; st.grabTip = null;   // #419
     if (st.rayActive) rayUp(st);
     if (!g) return;
     if (g.kind === 'arm') ctx.armRelease(g.d);
@@ -863,6 +877,11 @@ export function setupXR(ctx) {
       st.tipDot.visible = hasTip && !(st.isHand && handMode === 'real'); if (hasTip) { st.tipDot.position.copy(st.tip); st.tipDot.scale.setScalar(st.isHand ? 0.5 : 1); }   // #324 (owner) hands: back on the index fingertip, half size (#323 had it at the pinch)
       if (st.isHand) applyHandLook(st);
       ctlHandStep(st);   // #276
+      if (!st.isHand && st.ctlHand && st.ctlHand.root.visible && st.ctlHand.tipLive && ctlLook !== 'controller') {   // #419 no one-frame lag
+        const hl = ctlTipLocal(st); st.grip.localToWorld(st.tip.copy(hl)); st.pinchPt.copy(st.tip);
+        if (!st.direct && (st.tA || 0) < 0.08) (st.aimTip || (st.aimTip = new THREE.Vector3())).copy(st.ctlHand.tipLive);   // trigger untouched: the aimed fingertip
+        st.tipDot.position.copy(st.ctlHand.tipLive).applyMatrix4(st.ctlHand.root.matrix);   // the ball always on the drawn fingertip (incl. the poke lift)
+      }
       updateOccluder(st);
       updateAnchor(st);
 
@@ -981,7 +1000,11 @@ export function setupXR(ctx) {
     // #293 (owner): one fixed point, the relaxed hand's index fingertip. #284-#292 moved it to the closed O's fingertip on a
     // press: 4.8 cm up and back from where the ball was aimed, so knobs and faders were only caught with the hand an inch
     // into the mixer. The finger still curls into the O; the ball and the touch point stay where you aimed.
-    return h.tipRest || h.tipLive;
+    // #419 (owner: the ball stayed put and lagged while the index curled on the trigger). The ball and touch point ride
+    // the LIVE index fingertip. While a grab is held the touch point is frozen in grip space where the grab started
+    // (st.grabTip), so the finger curling round the trigger never drags a held fader, knob or record.
+    if (st.direct && st.grabTip) return st.grabTip;
+    return h.tipLive || h.tipRest;
   }
   function ctlHandStep(st) {
     const want = st.connected && !st.isHand && ctlLook !== 'controller' && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
