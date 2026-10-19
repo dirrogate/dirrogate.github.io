@@ -5379,7 +5379,7 @@ function setFeel(k, v) { FEEL[k] = v; try { localStorage.setItem('vire.feel', JS
 // #422 PINCH FIT sliders: key -> range, default (must match xr.js PF)
 const PINCH_FIT_DEF = {
   bx: { label: 'BALL IN/OUT', lo: -25, hi: 25, v: 0, unit: 'mm' }, by: { label: 'BALL UP/DN', lo: -25, hi: 25, v: 0, unit: 'mm' },
-  bz: { label: 'BALL BK/FWD', lo: -30, hi: 30, v: 0, unit: 'mm' }, kt: { label: 'KNOB TWIST', lo: 30, hi: 300, v: 90, unit: '°' },
+  bz: { label: 'BALL BK/FWD', lo: -30, hi: 30, v: 0, unit: 'mm' }, kt: { label: 'KNOB TWIST', lo: 30, hi: 300, v: 250, unit: '°' },
   lh: { label: 'HAND LIFT', lo: -20, hi: 60, v: 10, unit: 'mm' }, lg: { label: 'GLOVE LIFT', lo: -20, hi: 60, v: 15, unit: 'mm' },
   pa: { label: 'PINCH TILT', lo: -60, hi: 60, v: 0, unit: '°' }, pt: { label: 'PINCH TURN', lo: -90, hi: 90, v: 0, unit: '°' },
 };

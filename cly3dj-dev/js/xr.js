@@ -979,7 +979,13 @@ export function setupXR(ctx) {
     st.gloveH = H;
   }
   // #291 HAND FIT: the owner's move / turn of the 3D hands (and glove) on the controllers, saved
-  try { const a = JSON.parse(localStorage.getItem('vire.handFit') || 'null'); if (a) Object.assign(CTL_POSE.adj, a); } catch (e) {}
+  try {
+    const a = JSON.parse(localStorage.getItem('vire.handFit') || 'null');
+    // #440 knob resistance back to 250 deg of wrist for full travel (#421 / #422 had made 90 the default): a saved 90 (the old default, e.g. from RESET PINCH FIT) is dropped once
+    if (a && a.kt === 90 && !localStorage.getItem('vire.kt250')) { delete a.kt; localStorage.setItem('vire.handFit', JSON.stringify(a)); }
+    localStorage.setItem('vire.kt250', '1');
+    if (a) Object.assign(CTL_POSE.adj, a);
+  } catch (e) {}
   // #355 GLOVE SIZE and NEON CHROME (kept with the HAND FIT values, so the phone gets them too)
   function gloveLook() {
     if (!glove) return; const A = CTL_POSE.adj, k = (A.gs || 94) / 100;
@@ -1005,7 +1011,7 @@ export function setupXR(ctx) {
     return st.sphereLocal || h.padRest || h.tipRest || h.tipLive;
   }
   // #422 PINCH FIT values (DJ TOOLS > HAND FIT > PINCH FIT, sliders), kept with the HAND FIT values ('vire.handFit')
-  const PF = { bx: 0, by: 0, bz: 0, lh: 10, lg: 15, kt: 90, pa: 0, pt: 0 };
+  const PF = { bx: 0, by: 0, bz: 0, lh: 10, lg: 15, kt: 250, pa: 0, pt: 0 };
   const pf = k => (CTL_POSE.adj[k] != null ? CTL_POSE.adj[k] : PF[k]);
   // #420 (owner): a trigger grab latched on a knob, fader, pitch fader or power dial pulls the drawn hand onto it: the hand
   // closes into a pinch and slides so the middle of the pinch sits on the control's cap, following the cap as it moves.
