@@ -881,3 +881,9 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 
 ## #436 HoloSMS wording and 3-minute gap (owner, 19 Oct) (cly3dj-dev)
 - Phone toast after sending: "Sent! It goes up if the DJ picks it." One message per phone every 3 minutes (relay SMS_GAP 180000 ms, was 20 s; owner: keeps the anticipation); the wait toast shows minutes and seconds. Tablet help text updated. Server restart needed (relay core).
+
+## #437 Dirrogram RECORD (owner, 19 Oct) (cly3dj-dev)
+- Owner: a quick record button, no Instagram / share upload yet; no watermark (the scene carries the branding).
+- ● REC (first in the bar): canvas.captureStream(30) = exactly the screen picture (camera, the show, the PEOPLE cutout; the buttons are HTML, never in it) + the phone microphone (asked on the first REC, echo cancellation / noise suppression / auto gain off so the club sound stays; no mic = a silent clip with a toast). MediaRecorder: MP4 (avc1 + AAC) where the phone can, else WebM VP9 / VP8 + Opus; 6 Mbit/s; 30 s at most; the button shows ■ and the seconds; tap again to stop; the page hidden (phone locked, app switched) stops and keeps the clip. Saved straight away as cly3dj-dirrogram-YYYYMMDD-HHMMSS.mp4 (Android: Downloads; iPhone Safari: the Files app's Downloads).
+- PC check (browser pane, desktop Chrome): 3.2 s clip, MP4, 1024 x 768, 2.2 MB, plays. Not tried on a phone.
+- Backup backups/pre-437/. No server restart.

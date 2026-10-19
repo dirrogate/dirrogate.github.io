@@ -574,6 +574,44 @@ $('bFlip').onclick = async () => {
   if (selfie && !people.on) setPeople(true);   // a selfie wants the show behind you
 };
 $('bPeople').onclick = () => setPeople(!people.on);
+// #437 RECORD: what is on screen (camera picture, the show, the people cutout; never the buttons) plus the phone's
+// microphone (the club sound), up to 30 s, saved straight to the phone. MP4 where the phone can make it (iPhone,
+// newer Android Chrome), else WebM. No watermark (owner: the scene carries the branding).
+const rec = { on: false, mr: null, chunks: [], t0: 0, mic: null, timer: 0, vs: null };
+function recMime() {
+  if (!window.MediaRecorder) return '';
+  for (const m of ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']) if (MediaRecorder.isTypeSupported(m)) return m;
+  return '';
+}
+async function recStart() {
+  if (!window.MediaRecorder || !canvas.captureStream) { toast('Recording is not supported in this browser'); return; }
+  if (rec.mic === null) { try { rec.mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); } catch (e) { rec.mic = false; toast('No microphone: recording without sound'); } }
+  const vs = rec.vs = canvas.captureStream(30), tracks = [...vs.getVideoTracks()]; if (rec.mic) tracks.push(...rec.mic.getAudioTracks());
+  const mime = recMime(); let mr;
+  try { mr = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType: mime, videoBitsPerSecond: 6e6 } : { videoBitsPerSecond: 6e6 }); } catch (e) { for (const t of vs.getTracks()) t.stop(); toast('Could not start recording'); return; }
+  rec.chunks = []; mr.ondataavailable = e => { if (e.data && e.data.size) rec.chunks.push(e.data); };
+  mr.onstop = () => recSave(mr.mimeType || mime);
+  mr.start(1000); rec.mr = mr; rec.on = true; rec.t0 = performance.now();
+  $('bRec').classList.add('recOn'); recTick(); rec.timer = setInterval(recTick, 250);
+}
+function recTick() { const s = (performance.now() - rec.t0) / 1000; $('bRec').textContent = `\u25a0 ${Math.floor(s)} s`; if (s >= 30) recStop(); }
+function recStop() {
+  if (!rec.on) return; rec.on = false; clearInterval(rec.timer);
+  try { rec.mr.stop(); } catch (e) {}
+  $('bRec').classList.remove('recOn'); $('bRec').textContent = '\u25cf REC';
+}
+function recSave(type) {
+  if (rec.vs) { for (const t of rec.vs.getTracks()) t.stop(); rec.vs = null; }   // the microphone stays open for the next clip
+  const blob = new Blob(rec.chunks, { type: (type || 'video/webm').split(';')[0] }); rec.chunks = [];
+  if (!blob.size) { toast('Nothing recorded'); return; }
+  const ext = /mp4/.test(blob.type) ? 'mp4' : 'webm', d = new Date(), p = n => String(n).padStart(2, '0');
+  const name = `cly3dj-dirrogram-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 60000);
+  toast(`Saved ${name} (${(blob.size / 1048576).toFixed(1)} MB)`);
+}
+$('bRec').onclick = () => { if (rec.on) recStop(); else recStart(); };
+document.addEventListener('visibilitychange', () => { if (document.hidden) recStop(); });   // the phone locked or switched app: keep what was filmed
 // #435 HoloSMS: up to 140 characters to the DJ's tablet; the DJ decides what reaches the hologram scroller
 $('bSms').onclick = () => { show('panel', false); const box = $('sms'), on = box.classList.contains('hide'); show('sms', on); if (on) setTimeout(() => $('smsIn').focus(), 50); };
 $('smsCancel').onclick = () => show('sms', false);
@@ -608,4 +646,4 @@ $('go').onclick = async () => {
 drawCaption(); drawPromo(); drawScroller(); resize();
 buildBooth().then(() => robotReady).then(() => { window.__dirroReady = true; });
 renderer.setAnimationLoop(frame);
-window.dirro = { NET, people, setPeople, S, stage, booth, robot, laser, camera, scene, renderer, place, feedPose, live, beat, wall, scroller, set aim(v) { aimF = v; place(); }, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, set pitch(v) { pitch = v; } };
+window.dirro = { rec, recStart, recStop, NET, people, setPeople, S, stage, booth, robot, laser, camera, scene, renderer, place, feedPose, live, beat, wall, scroller, set aim(v) { aimF = v; place(); }, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, set pitch(v) { pitch = v; } };

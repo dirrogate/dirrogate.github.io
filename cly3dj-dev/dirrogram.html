@@ -44,6 +44,8 @@
   #sms textarea { width: 100%; box-sizing: border-box; background: #141824; color: #e8ecf2; border: 1px solid rgba(255,255,255,0.2); border-radius: 10px; padding: 10px; font: 16px system-ui, sans-serif; resize: none; user-select: text; -webkit-user-select: text; touch-action: auto; }
   #sms .smsRow { display: flex; align-items: center; gap: 8px; margin-top: 8px; } #sms .smsRow span { flex: 1; opacity: 0.7; font-size: 13px; }
   #sms .btn { padding: 10px 18px; font-size: 14px; }
+  #bRec { color: #ff3b4e; border-color: #ff3b4e88; }
+  #bRec.recOn { background: #e0102a; color: #fff; border-color: #ff6b7a; box-shadow: 0 0 18px #ff2a3c; }
   #toast { position: fixed; left: 50%; top: 40%; transform: translateX(-50%); background: rgba(0,0,0,0.7); padding: 8px 14px; border-radius: 10px; font-size: 14px; z-index: 6; pointer-events: none; transition: opacity 0.4s; }
 </style>
 <script type="importmap">
@@ -61,6 +63,7 @@
 <div id="aim" class="hide"></div>
 <div id="hint" class="hide">Point the ring at the centre DJ, then tap AIM</div>
 <div id="bar" class="hide">
+  <button class="btn ghost" id="bRec">● REC</button>
   <button class="btn ghost" id="bAim">AIM</button>
   <button class="btn ghost" id="bFlip">SELFIE</button>
   <button class="btn ghost" id="bPeople">PEOPLE</button>
