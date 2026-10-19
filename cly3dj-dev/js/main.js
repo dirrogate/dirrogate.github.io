@@ -612,7 +612,7 @@ function onPhoneScreen(on) {
 // #439 MANDEL and RETRO-SCENE (wallfx.js): one 160 x 90 picture, drawn 4x up with the LED grid / dot / glow (the
 // DIRROGRAM page's, shared) into fxBig, which is the 3D wall's picture and the stream's / CLY3DTV's VIDEOWALL. The
 // phones on FOLLOW draw their own copy from the same clock and beat. RETRO-SCENE = the op-art dancer, and every 8 bars
-// a GRAB LOOP (3 s of headset camera) when there is one. AUTO swaps MANDEL and RETRO-SCENE every 16 or 32 bars.
+// a GRAB LOOP (5 s of headset camera) when there is one. AUTO swaps MANDEL and RETRO-SCENE every 16 or 32 bars.
 const wfx = new WallFx();
 const fxBig = Object.assign(document.createElement('canvas'), { width: 640, height: 360 }), fxBigG = fxBig.getContext('2d');
 let fxTex = null, fxMask = null, fxMaskK = '';
@@ -657,7 +657,7 @@ function stepWallFx(now) {
   if (wfx.frame({ mode, t: now - ledFx.t0, bp, kick, loop: ledFx.loop && ledFx.loop.sheet, lt: now - ledFx.loopT0 })) fxPaint();
 }
 function setWallAuto(n) { ledFx.auto = n; ledFx.autoBar = ledFx.bar; try { localStorage.setItem('vire.wallAuto', String(n)); } catch (e) {} if (n && !isFxMode(ledMode)) setLedMode('mandel'); else drawMixScreen(); }
-// GRAB LOOP: 3 s, 12 pictures a second, 128 x 72 each on a 6 x 6 sheet (a JPEG under 60 KB for the phones). From the
+// GRAB LOOP: 5.3 s (#441), 12 pictures a second, 112 x 63 each on an 8 x 8 sheet (a JPEG under 60 KB for the phones). From the
 // SHOWTIME! shot while the stream runs, else the headset camera (HEADSET CAM's own, or opened just for the 3 s)
 async function grabLoop() {
   if (grab.on) return;
@@ -683,13 +683,17 @@ async function grabLoop() {
     if (grab.n >= LOOP.n) { clearInterval(iv); done(); }
   }, 1000 / LOOP.fps); });
   if (own) { own.getTracks().forEach(t => t.stop()); el.srcObject = null; }
-  let d = ''; for (const q of [0.72, 0.6, 0.5, 0.4, 0.3]) { d = sheet.toDataURL('image/jpeg', q); if (d.length < 60000) break; }
-  const L = { id: 'L' + Date.now().toString(36), sheet, d: d.length < 60000 ? d : '' };
+  let d = ''; for (const q of [0.72, 0.6, 0.5, 0.4, 0.3, 0.22, 0.15]) { d = sheet.toDataURL('image/jpeg', q); if (d.length < 60000) break; }
+  const thumb = Object.assign(document.createElement('canvas'), { width: LOOP.w, height: LOOP.h }); thumb.getContext('2d').drawImage(sheet, 0, 0, LOOP.w, LOOP.h, 0, 0, LOOP.w, LOOP.h);
+  const L = { id: 'L' + Date.now().toString(36), sheet, thumb, d: d.length < 60000 ? d : '' };
   grab.loops.unshift(L); while (grab.loops.length > 4) grab.loops.pop();
   grab.on = false;
+  showLoop(L);
+  toast('Loop grabbed: on the LED wall now (also in VISUALS > Video)', 2500); if (videoPage && vpFolder === 'Video') vpLoad(); else drawMixScreen();
+}
+function showLoop(L) {   // #441 a grabbed loop on the LED wall (RETRO-SCENE shows it)
   if (ledMode !== 'retro') setLedMode('retro');
-  ledFx.s = 'loop'; ledFx.li = 0; ledFx.loop = L; ledFx.loopT0 = performance.now(); ledFx.sBar = ledFx.bar;
-  toast('Loop grabbed: on the LED wall now (RETRO-SCENE)', 2500); drawMixScreen();
+  ledFx.s = 'loop'; ledFx.li = Math.max(0, grab.loops.indexOf(L)); ledFx.loop = L; ledFx.loopT0 = performance.now(); ledFx.sBar = ledFx.bar; drawMixScreen();
 }
 const retroIcon = new Image(); retroIcon.onload = () => { if (toolsPage === 'wall') drawMixScreen(); }; retroIcon.src = 'retroscene.png';   // the owner's RETRO SCENE disk
 function setLedMode(m, kind) {
@@ -4433,6 +4437,7 @@ async function vpLoad() {
   if (vpFolder === 'Camera' || vpFolder === 'Look' || vpFolder === 'DJ Cam' || vpFolder === 'LedList' || vpFolder === 'Fx') { vpItems = []; drawMixScreen(); return; }
   if (vpFolder === 'Sync') { vpItems = []; syncLoad(); return; }   // #206
   vpItems = vpFolder === 'Pano' ? [...await media.list('Pano'), ...await media.list('Video pano')].sort((a, b) => a.name.localeCompare(b.name)) : await media.list(vpFolder);
+  if (vpFolder === 'Video') vpItems = [...grab.loops.map((L, i) => ({ name: 'LOOP ' + (grab.loops.length - i) + ' (5 s)', folder: 'Video', loopId: L.id })), ...vpItems];   // #441 grabbed loops first
   if (vpSel && !vpItems.some(i => i.name === vpSel)) vpSel = null;
   vpPg = Math.min(vpPg, Math.max(0, Math.ceil(vpItems.length / vpPer()) - 1));
   drawMixScreen();
@@ -4457,6 +4462,8 @@ async function vpAct(what) {
   const vpFolder = videoPageFolder();   // #224 the Pano tab holds two library folders (local, shadows the tab name)
   if (what === 'sky') return useSkyMedia(vpFolder, name).catch(e => toast('Sky: ' + e.message, 4000));
   if (what === 'light') return lightPhone(vpFolder, name);   // #214
+  const lpItem = vpItems.find(i => i.name === name && i.loopId);   // #441 a grabbed loop: only the LED wall
+  if (lpItem) { const L = grab.loops.find(x => x.id === lpItem.loopId); if (what === 'lednow' || what === 'ledadd') { if (L) showLoop(L); } else toast('A grabbed loop plays on the LED wall (LED NOW)', 2500); return; }
   const f = await media.getFile(vpFolder, name); if (!f) return;
   if (what === 'deckA' || what === 'deckB') {
     const d = decks[what === 'deckA' ? 0 : 1];
@@ -4786,15 +4793,18 @@ function drawVideoPage() {
     btn(22, 28, tw, 34, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW (where the title was)
     btn(22 + (tw + 6), 28, tw, 34, 'DJ MIXER', false, () => setVideoPage(false));
     btn(22 + 2 * (tw + 6), 28, tw, 34, '◀ BACK', false, navCan() ? navBack : null, !navCan());
-    tabs.forEach((f, i) => btn(22 + (i % 3) * (tw + 6), 68 + Math.floor(i / 3) * 40, tw, 34, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)));
-    btn(22 + 2 * (tw + 6), 148, tw, 34, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #379 moved one over for FX   // #342 the scroller editor
+    const tw4 = (W - 30 - 18) / 4;   // #441 the last row has four: two tabs, SCROLLER and WALL +1
+    tabs.forEach((f, i) => btn(i < 6 ? 22 + (i % 3) * (tw + 6) : 22 + (i - 6) * (tw4 + 6), 68 + Math.floor(i / 3) * 40, i < 6 ? tw : tw4, 34, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)));
+    btn(22 + 2 * (tw4 + 6), 148, tw4, 34, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);
+    btn(22 + 3 * (tw4 + 6), 148, tw4, 34, 'WALL ⁺¹', ledMode !== 'off', () => { videoPage = false; setTools('wall'); });   // #379 moved one over for FX   // #342 the scroller editor
   } else {
     let x = 8;   // #214 seven tabs fit left of MIXER; #220 eight (narrower); #363 narrower again for BACK
     for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam', 'Fx']) { const w = { Pano: 50, Video: 50, Images: 58, Camera: 66, Sync: 44, Look: 44, 'DJ Cam': 62, Fx: 36 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)); x += w + 4; }   // #379 narrower again for FX
-    btn(x, 8, 70, 32, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
-    btn(W - 8 - 76 - 4 - 76 - 4 - 84, 8, 84, 32, 'DJ MIXER', false, () => setVideoPage(false));   // #225 was MIXER
-    btn(W - 8 - 76 - 4 - 76, 8, 76, 32, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW
-    btn(W - 8 - 76, 8, 76, 32, '◀ BACK', false, navCan() ? navBack : null, !navCan());   // #363
+    btn(x, 8, 62, 32, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
+    btn(x + 66, 8, 52, 32, 'WALL ⁺¹', ledMode !== 'off', () => { videoPage = false; setTools('wall'); });   // #441
+    btn(W - 8 - 62 - 4 - 66 - 4 - 56, 8, 56, 32, 'MIXER', false, () => setVideoPage(false));   // #225 (#441 narrower for WALL)
+    btn(W - 8 - 62 - 4 - 66, 8, 66, 32, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW
+    btn(W - 8 - 62, 8, 62, 32, '◀ BACK', false, navCan() ? navBack : null, !navCan());   // #363
   }
   const y0 = P ? 192 : 48;   // #363 portrait: one more header row
   if (vpFolder === 'Camera') { drawCamTab(btn, y0); return; }
@@ -4814,7 +4824,7 @@ function drawVideoPage() {
   const cur = settings.env === 'image' && settings.sky === 'on' ? settings.skyMedia : '';
   vpItems.slice(vpPg * PER, vpPg * PER + PER).forEach((it, i) => {
     const cx = 8 + (i % COLS) * (CW + 8), cy = y0 + Math.floor(i / COLS) * (CH + 6);
-    const itF = it.folder || vpFolder, t = vpThumb(itF, it.name);
+    const itF = it.folder || vpFolder, lp = it.loopId && grab.loops.find(x => x.id === it.loopId), t = it.loopId ? (lp && lp.thumb) : vpThumb(itF, it.name);
     g.fillStyle = '#121824'; g.fillRect(cx, cy, CW, TH);
     if (t && t !== 'loading') {   // cover the cell
       const s = Math.max(CW / t.width, TH / t.height), sw = CW / s, sh = TH / s;
@@ -4822,7 +4832,7 @@ function drawVideoPage() {
     }
     drawTypeBadge(g, cx + CW - 30, cy + TH - 22, itF === 'Video' || itF === 'Video pano');   // #224
     const on = [vvOverride[0], vvOverride[1]].map(o => o && vpFolder === 'Video' && o.name === it.name);
-    const tag = cur === itF + '/' + it.name ? 'SKY' : on[0] ? 'A' : on[1] ? 'B' : led.name === it.name ? 'LED' : '';
+    const tag = lp ? (ledMode === 'retro' && ledFx.s === 'loop' && ledFx.loop === lp ? 'WALL' : 'LOOP') : cur === itF + '/' + it.name ? 'SKY' : on[0] ? 'A' : on[1] ? 'B' : led.name === it.name ? 'LED' : '';
     if (tag) { g.fillStyle = '#40d080'; g.fillRect(cx + 4, cy + 4, 14 + tag.length * 11, 20); g.fillStyle = '#05070c'; g.font = '700 14px system-ui'; g.textAlign = 'left'; g.fillText(tag, cx + 9, cy + 19); }
     if (it.name === vpSel) { g.strokeStyle = '#39a8ff'; g.lineWidth = 4; g.strokeRect(cx + 2, cy + 2, CW - 4, TH + 16); }
     g.fillStyle = it.name === vpSel ? '#fff' : '#b8c0cf'; g.font = '500 14px system-ui'; g.textAlign = 'left';
@@ -5000,6 +5010,8 @@ function mixScreenLong(px, py) {
   vpDel = b.item; vpSel = b.item; drawMixScreen();
 }
 async function deleteMedia(folder, name) {   // remove from this headset's library, and stop using it anywhere
+  const lpi = vpItems.find(i => i.name === name && i.loopId);   // #441 a grabbed loop: just drop it from this session
+  if (lpi) { const k = grab.loops.findIndex(x => x.id === lpi.loopId); if (k >= 0) { if (ledFx.loop === grab.loops[k]) { ledFx.s = 'dancer'; ledFx.loop = null; } grab.loops.splice(k, 1); } vpSel = null; vpDel = null; toast('Loop removed', 1500); vpLoad(); return; }
   if (led.files.some(f => f.name === name)) { led.remove(name); ledSrc.delete(name); saveLedList(); }
   if (settings.skyMedia === folder + '/' + name) { settings.sky = 'off'; saveSettings(); syncSettingsUI(); applySky(); }
   for (let i = 0; i < 2; i++) if (vvOverride[i] && vvOverride[i].name === name) vvOverride[i] = null;
@@ -5201,6 +5213,10 @@ function drawDisc(g, cx, cy, R, bmp, title, s7 = false) {
 // them best), then smaller still; a label that still can't fit is cut with … . Text colour / alignment set by the caller.
 const _lblOver = [];   // test hook: labels that had to be cut
 function btnLabel(g, label, x, y, w, h, fs0 = 17, weight = 700) {
+  if (label.endsWith('⁺¹')) {   // #441 a tiny +1 in the upper right: this button opens a page of sub menus that is not obvious
+    label = label.slice(0, -2).trimEnd(); btnLabel(g, label, x, y, w - 6, h, fs0, weight);
+    g.save(); g.font = '700 11px system-ui'; g.textAlign = 'right'; g.textBaseline = 'top'; g.fillText('+1', x + w - 3, y + 2); g.restore(); return;
+  }
   const pad = 8, room = w - pad, f = n => { g.font = `${weight} ${n}px system-ui`; }, wid = t => g.measureText(t).width;
   const one = Math.max(12, Math.round(fs0 * 0.8));
   for (let n = fs0; n >= one; n--) { f(n); if (wid(label) <= room) { g.fillText(label, x + w / 2, y + h / 2 + 1); return; } }
@@ -5848,7 +5864,7 @@ function drawToolsPage() {
     const nOf = k => { const o = led.kind; led.kind = k; const n = led.pool().length; led.kind = o; return n; };
     const tiles = [
       ['OFF', ledMode === 'off', () => setLedMode('off'), false],
-      ['CLIPS', ledMode === 'clips' && !led.img, () => setLedMode('clips', 'video'), !nOf('video')],
+      ['CLIPS', (ledMode === 'clips' && !led.img) || (ledMode === 'retro' && ledFx.s === 'loop'), () => (nOf('video') ? setLedMode('clips', 'video') : showLoop(grab.loops[0])), !nOf('video') && !grab.loops.length],
       ['PICTURES', ledMode === 'clips' && !!led.img, () => setLedMode('clips', 'image'), !nOf('image')],
       ['MANDEL', ledMode === 'mandel', () => setLedMode('mandel'), false],
       ['RETRO-SCENE', ledMode === 'retro', () => setLedMode('retro'), false],
@@ -5872,7 +5888,7 @@ function drawToolsPage() {
       ['LED GRID', LK.cols ? `${LK.cols} across` : 'OFF', () => d.setWall('cols', cyc(WALL_COLS, LK.cols, -1)), () => d.setWall('cols', cyc(WALL_COLS, LK.cols, 1))],
       ['LED DOT', `${Math.round(LK.fill * 100)} %`, () => d.setWall('fill', Math.max(0.4, Math.round((LK.fill - 0.05) * 100) / 100)), () => d.setWall('fill', Math.min(1, Math.round((LK.fill + 0.05) * 100) / 100))],
       ['LED GLOW', `${LK.glow.toFixed(1)}x`, () => d.setWall('glow', Math.max(0.5, Math.round((LK.glow - 0.1) * 10) / 10)), () => d.setWall('glow', Math.min(2, Math.round((LK.glow + 0.1) * 10) / 10))]] : [];
-    const info = `Showing ${LED_LABEL[ledMode].replace('LED ', '')}${ledMode === 'retro' && ledFx.s === 'loop' ? ' (loop)' : ''}. The same picture is the stream's and CLY3DTV's VIDEOWALL${d && d.on ? ', and the phones on FOLLOW' : ''}. GRID / DOT / GLOW: MANDEL and RETRO-SCENE here, everything on the phones. GRAB LOOP: 3 s of headset camera (the SHOWTIME! shot while streaming), on the wall every 8 bars.`;
+    const info = `Showing ${LED_LABEL[ledMode].replace('LED ', '')}${ledMode === 'retro' && ledFx.s === 'loop' ? ' (loop)' : ''}. The same picture is the stream's and CLY3DTV's VIDEOWALL${d && d.on ? ', and the phones on FOLLOW' : ''}. GRID / DOT / GLOW: MANDEL and RETRO-SCENE here, everything on the phones. GRAB LOOP: 5 s of headset camera (the SHOWTIME! shot while streaming), on the wall every 8 bars.`;
     if (P) {
       const tw = (R - L - 6) / 2, th = 74;
       tiles.forEach((t, i) => tile(L + (i % 2) * (tw + 6), y0 + 2 + Math.floor(i / 2) * (th + 6), tw, th, t));
@@ -6579,7 +6595,7 @@ function drawMixScreen() {
       SP_HIT.push({ x: 18, y: y - 8, w: mw + 9, h: h + 16, act: () => spect.setMR(!sp.mr) });
     }
     { const S = streamer, bw3 = (W - 40 - 3 * 6) / 4, by3 = H - 96;   // #389 STREAM, CLY3DTV, STUDIO on a row above TOOLS / RESET MIX; #439 + WALL
-      [[S && S.live ? '● LIVE' : 'STREAM', !!(S && S.live), () => setTools('stream'), !S], ['CLY3DTV', !!(S && S.tvUp), () => setTools('tv'), !S], ['STUDIO', !!(S && S.stu.on), () => setTools('studio'), !S], ['WALL', ledMode !== 'off', () => setTools('wall'), false]].forEach(([l, o, a, dim], i) => {
+      [[S && S.live ? '● LIVE' : 'STREAM', !!(S && S.live), () => setTools('stream'), !S], ['CLY3DTV', !!(S && S.tvUp), () => setTools('tv'), !S], ['STUDIO', !!(S && S.stu.on), () => setTools('studio'), !S], ['WALL ⁺¹', ledMode !== 'off', () => setTools('wall'), false]].forEach(([l, o, a, dim], i) => {
         const bx3 = 20 + i * (bw3 + 6); drawTopBtn(g, bx3, by3, bw3, 36, l, o, dim, 15); if (!dim) SP_HIT.push({ x: bx3 - 3, y: by3 - 4, w: bw3 + 6, h: 44, act: a }); });
     }
     drawTopBtn(g, 20, H - 52, 92, 36, 'TOOLS', !!(scroller && scroller.on));   // #224
@@ -6605,7 +6621,7 @@ function drawMixScreen() {
     tb(S && S.live ? '● LIVE' : 'STREAM', !!(S && S.live), () => setTools('stream'), !S, 92);
     tb('CLY3DTV', !!(S && S.tvUp), () => setTools('tv'), !S, 98);
     tb('STUDIO', !!(S && S.stu.on), () => setTools('studio'), !S, 92);
-    tb('WALL', ledMode !== 'off', () => setTools('wall'), false, 78);   // #439 the LED WALL page, one tap from the mixer
+    tb('WALL ⁺¹', ledMode !== 'off', () => setTools('wall'), false, 78);   // #439 the LED WALL page, one tap from the mixer
     if (testState.fps) {   // #258 live frame rate (kept for the console: window.vire)
       const st = fpsStats(); g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '700 15px system-ui';
       g.fillStyle = !st ? '#8c96a8' : st.drops > 3 ? '#ff5050' : st.drops ? '#f1b650' : '#40d080';

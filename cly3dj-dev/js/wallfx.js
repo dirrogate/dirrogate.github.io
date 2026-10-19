@@ -5,12 +5,12 @@
 //  MANDEL      infinite zoom into a Mandelbrot spiral (on the edge all the way down, so no flat black and no slow frames), 64 s down to 2.5e-12 and round again
 //              (double precision is enough that deep), colours cycling on the beat
 //  RETRO-SCENE the op-art dancer: two sets of moving rings (moire) behind a dancing figure filled with tighter rings,
-//              her moves changing every 8 beats; and GRAB LOOPs (3 s of headset camera, 36 frames on a 6 x 6 sheet)
+//              her moves changing every 8 beats; and GRAB LOOPs (5.3 s of headset camera, 64 frames on an 8 x 8 sheet)
 //              played back and forth with an Amiga-style 64-colour dither
 // The output is a 160 x 90 canvas (the low-res LED look). The sums run in a worker (wallfx-worker.js) where there is
 // one, so neither the headset nor a phone loses frames; the loop is drawn here (a sheet cell, then the dither).
 export const FX_W = 160, FX_H = 90;
-export const LOOP = { cols: 6, rows: 6, n: 36, fps: 12, w: 128, h: 72 };
+export const LOOP = { cols: 8, rows: 8, n: 64, fps: 12, w: 112, h: 63 };   // #441 5.3 s
 
 // ------------------------------------------------------------------ MANDEL ZOOM
 const MP = 64000, MCX = -0.77568377, MCY = 0.13646737, MS0 = 3.2, MS1 = 2.5e-12;
