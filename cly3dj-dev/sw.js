@@ -20,7 +20,7 @@ const APP = [
   ...['flight_case_kit', 'flight_case_kit_ktx', 'milk_crate', 'milk_crate_ktx', 'mixer_parts', 'neon_sign', 'neon_sign_glass', 'neon_sign_glass_ktx',
     'neon_sign_ktx', 'record_crate', 'record_crate_ktx', 'turntable', 'avatar/robot', 'avatar/avatar_robot', 'avatar/avatar_robot_v2', 'avatar/dirroface'].map(n => `models/${n}.glb`),
   'models/avatar/gemini_emboss.png', 'models/slipmat_left.jpg', 'models/slipmat_right.jpg', 'models/turntable_ao.json', 'models/turntable_ao.png',
-  'vendor/three/three.module.js', 'vendor/qrcode/qrcode.mjs', 'dirrogram.html', 'retroscene.png', 'vendor/three/OrbitControls.js', 'vendor/three/RoomEnvironment.js',
+  'vendor/three/three.module.js', 'vendor/qrcode/qrcode.mjs', 'dirrogram.html', 'retroscene.png', 'mattes/matte1.mp4', 'vendor/three/OrbitControls.js', 'vendor/three/RoomEnvironment.js',
   'vendor/three/loaders/GLTFLoader.js', 'vendor/three/loaders/KTX2Loader.js', 'vendor/three/utils/BufferGeometryUtils.js', 'vendor/three/utils/WorkerPool.js',
   'vendor/three/libs/ktx-parse.module.js', 'vendor/three/libs/zstddec.module.js', 'vendor/three/libs/motion-controllers.module.js',
   'vendor/three/libs/basis/basis_transcoder.js', 'vendor/three/libs/basis/basis_transcoder.wasm',

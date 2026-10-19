@@ -17,7 +17,7 @@ const K_RELAY = 'vire.dirroRelay', K_ROOM = 'vire.dirroRoom', K_ON = 'vire.dirro
 // as before; clips, AVACAM, LIVE as small frames (TV FRAMES / S); the wall OFF = the phones' own AUTO.
 export const WALL_SRC = ['follow', 'auto', 'fractal', 'pictures', 'tv'];
 export const WALL_LABEL = { follow: 'FOLLOW', auto: 'AUTO', fractal: 'FRACTAL', pictures: 'PICTURES', tv: 'CLY3DTV' };
-const FRAME_M = new Set(['clips', 'cam', 'live', 'solo', 'decks', 'screen']);   // wall modes the phones get as frames
+const FRAME_M = new Set(['clips', 'cam', 'live', 'solo', 'decks', 'screen', 'vmat']);   // #442 vmat: VECTOR-DANCER with a matte (the matte clip is not on the phones)   // wall modes the phones get as frames
 export const WALL_COLS = [0, 48, 64, 96, 128, 160, 192, 240, 320];
 const WALL_DEF = { src: 'follow', cols: 160, fill: 0.78, glow: 1, fps: 2, v: 2 };
 const idOf = s => { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.codePointAt(0), 16777619) >>> 0; return 'p' + h.toString(36); };

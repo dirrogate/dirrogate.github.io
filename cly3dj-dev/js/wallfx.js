@@ -116,6 +116,56 @@ export function renderDancer(px, W, H, t, bp, kick) {
   }
 }
 
+// ------------------------------------------------------------------ #442 VECTOR-DANCER: moire rings through a matte
+// rp { n: 1-3 ring sets, g: gap between rings in LED pixels, mv: 0 none / 1 PULSE (rings run out on the beat) / 2 BOUNCE (centres bounce on the beat),
+//      pal: 0 ACID / 1 NEON / 2 MONO, inv: 1 swaps matte and background }; mask: W x H bytes (255 = the matte) or null for rings alone
+export const RP_DEF = { n: 2, g: 3, mv: 1, pal: 0, inv: 0 };
+const RPAL = [
+  { bg: [[6, 0, 10], [150, 20, 150], [20, 150, 40], [110, 10, 20]], fg: [[10, 0, 4], [255, 220, 20], [240, 40, 20], [255, 150, 20]] },   // the purple / green / maroon of the op-art film, the figure yellow / red
+  { bg: [[6, 0, 18], [57, 230, 255], [255, 42, 140], [80, 0, 150]], fg: [[20, 0, 40], [255, 240, 120], [255, 120, 60], [255, 255, 255]] },
+  { bg: [[4, 2, 10], [236, 232, 246], [150, 146, 160], [70, 66, 80]], fg: [[236, 232, 246], [4, 2, 10], [70, 66, 80], [150, 146, 160]] }];
+export function renderRings(px, W, H, t, bp, kick, mask, rp) {
+  rp = { ...RP_DEF, ...(rp || {}) };
+  const ts = t * 0.001, hh = H / 2, f = hh / Math.max(1, rp.g), bnc = rp.mv === 2 ? 0.2 * Math.abs(Math.sin(Math.PI * bp)) : 0;
+  const ph = rp.mv === 1 ? -bp + 0.4 * kick : rp.mv === 2 ? -bp * 0.25 : -ts * 0.4;   // the rings' own run
+  const ax = 0.95 * Math.sin(ts * 0.31), ay = 0.5 * Math.sin(ts * 0.47) + bnc, bx = -0.95 * Math.sin(ts * 0.23 + 1), by = 0.5 * Math.cos(ts * 0.37) - bnc;
+  const cx = 0.6 * Math.sin(ts * 0.17 + 2), cy = -0.6 * Math.cos(ts * 0.29) + bnc * 0.5, fB = f * (1 + 0.07 * Math.sin(ts * 0.2));
+  const pal = RPAL[rp.pal] || RPAL[0], gn = 1 + 0.3 * kick, n = rp.n;
+  for (let j = 0; j < H; j++) {
+    const y = (hh - j - 0.5) / hh;
+    for (let i = 0; i < W; i++) {
+      const x = (i + 0.5 - W / 2) / hh, o = (j * W + i) * 4;
+      const a = Math.floor(Math.hypot(x - ax, y - ay) * f + ph) & 1;
+      const b = n > 1 ? Math.floor(Math.hypot(x - bx, y - by) * fB) & 1 : 0;
+      const c = n > 2 ? Math.floor(Math.hypot(x - cx, y - cy) * f * 0.8 - ph * 0.5) & 1 : 0;
+      const k = (a ^ c) | (b << 1), m = mask ? (mask[j * W + i] > 127) !== !!rp.inv : false, col = (m ? pal.fg : pal.bg)[k];
+      px[o] = Math.min(255, col[0] * gn); px[o + 1] = Math.min(255, col[1] * gn); px[o + 2] = Math.min(255, col[2] * gn); px[o + 3] = 255;
+    }
+  }
+}
+
+// ------------------------------------------------------------------ #442 METABALLS bouncing on the beat (they touch the floor on the beat)
+export const MP_DEF = { n: 5 };
+export function renderMeta(px, W, H, t, bp, kick, mp) {
+  const N = Math.max(2, Math.min(9, (mp && mp.n) | 0 || MP_DEF.n)), ts = t * 0.001, hh = H / 2, B = [];
+  for (let i = 0; i < N; i++) {
+    const half = i % 3 === 2 ? 2 : 1, ph = (bp / half + i * 0.37), r = 0.23 + 0.1 * ((i * 37) % 5) / 4 + 0.04 * kick;
+    B.push([0.95 * Math.sin(ts * (0.17 + 0.031 * i) + i * 2.1) * (1 + 0.1 * (i % 2)), -0.62 + (1.15 + 0.12 * Math.sin(i * 1.7)) * Math.abs(Math.sin(Math.PI * ph)), r * r]);
+  }
+  const sh = bp / 16;
+  for (let j = 0; j < H; j++) {
+    const y = (hh - j - 0.5) / hh;
+    for (let i = 0; i < W; i++) {
+      const x = (i + 0.5 - W / 2) / hh, o = (j * W + i) * 4;
+      let fl = 0; for (let k = 0; k < N; k++) { const d = B[k], dx = x - d[0], dy = y - d[1]; fl += d[2] / (dx * dx + dy * dy + 1e-4); }
+      let R, G, Bl;
+      if (fl >= 1) { const u = (fl * 0.18 + sh) % 1, q = ((u < 0 ? u + 1 : u) * 256 | 0) * 3, gn = 0.85 + 0.35 * kick; R = PAL[q] * gn; G = PAL[q + 1] * gn; Bl = PAL[q + 2] * gn; if (fl < 1.25) { R = 255; G = 240; Bl = 250; } }   // a bright rim, the body in the palette
+      else { const h = fl * fl * 0.6; R = 8 + 90 * h; G = 0 + 20 * h; Bl = 26 + 120 * h; }   // the glow round them
+      px[o] = R; px[o + 1] = G; px[o + 2] = Bl; px[o + 3] = 255;
+    }
+  }
+}
+
 // ------------------------------------------------------------------ the engine
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 export class WallFx {
@@ -136,7 +186,7 @@ export class WallFx {
     this.img.data.set(new Uint8ClampedArray(buf)); this.pool.push(buf);
     if (this.mode !== 'loop') { this.g.putImageData(this.img, 0, 0); this.fresh = true; }
   }
-  // o: { mode: 'mandel' | 'dancer' | 'loop', t (ms), bp (beats), kick (0..1), loop (sheet image / canvas), lt (ms into the loop) }
+  // o: { mode: 'mandel' | 'dancer' | 'loop' | 'rings' (mask, rp) | 'meta' (mp), t (ms), bp (beats), kick (0..1), loop (sheet image / canvas), lt (ms into the loop) }
   // returns true when the canvas has a new picture (about 15 a second; loops 12)
   frame(o) {
     const now = performance.now(); this.mode = o.mode;
@@ -148,6 +198,14 @@ export class WallFx {
       return fresh;
     }
     this.loopI = -1;
+    if (o.mode === 'rings' || o.mode === 'meta') {   // #442 cheap enough to draw right here (no worker, so the matte needs no trip)
+      if (now - this.reqT >= 66) {
+        this.reqT = now; const px = this.img.data;
+        if (o.mode === 'rings') renderRings(px, FX_W, FX_H, o.t || 0, o.bp || 0, o.kick || 0, o.mask || null, o.rp); else renderMeta(px, FX_W, FX_H, o.t || 0, o.bp || 0, o.kick || 0, o.mp);
+        this.g.putImageData(this.img, 0, 0); this.ms = performance.now() - now; fresh = true;
+      }
+      return fresh;
+    }
     if (this.busy && now - this.reqT > 2000) this.busy = false;   // a lost answer
     if (!this.busy && now - this.reqT >= 66) {
       this.reqT = now;

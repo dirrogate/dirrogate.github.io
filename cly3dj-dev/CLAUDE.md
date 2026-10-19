@@ -918,3 +918,25 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - Owner asked whether #440 (frustumCulled = false) makes off-screen records and slipmats render for nothing. It did: they were always submitted. Replaced by models.js padCull(): culling stays on, the bounding sphere gets +30 cm once per geometry, so the canted Quest eye frustums don't clip a piece at the periphery while things behind you are still skipped. Used on Record3D discs, the tablet meshes (build + the 1 s sweep in main.js frameBody) and the slipmats (deck-glb.js).
 - A loose record resting on the FLOOR (L.onFloor) for 180 s (FLOOR_RETURN_S) is filed back into the record crate with a toast. Records on decks, cases, gear, milk crates or leaning stay. The timer resets if it is picked up (it leaves the loose list) or is not resting.
 - Syntax checked. Not tested on the Quest. Reload only, no Node restart. Not yet copied to cly3dj-dev.
+
+## #440 Knob resistance restored (owner, 19 Oct) (cly3dj-dev)
+- Owner: mixer knobs feel too loose since the hand / glove fit work. Cause: #421 changed the controllers' knob gain from 250 deg of wrist twist for full travel (dy / 300 deg x 1.2) to 90 deg, and #422 made 90 the default of PINCH FIT > KNOB TWIST.
+- Default back to 250 deg (xr.js PF.kt, main.js PINCH_FIT_DEF.kt; slider range 30 to 300 unchanged, so it can still be tuned). Exactly the old gain: dy / 250 deg. Bare tracked hands were never touched by #421 (125 deg, #327).
+- A saved KNOB TWIST of exactly 90 in 'vire.handFit' on the headset (e.g. from RESET PINCH FIT, which writes every default) is removed once (flag 'vire.kt250'); other saved HAND FIT values and any other KNOB TWIST value stay.
+- Checked on the PC: saved {kt: 90, lh: 22} became {lh: 22} after a reload; the PINCH FIT page shows KNOB TWIST 250.
+- Backup backups/pre-440/. No server restart.
+
+## #441 CLIPS active after a grab, 5 s GRAB LOOP, "+1" sub-menu marker
+- A grabbed loop now counts as a clip: the WALL page CLIPS tile is no longer ghosted when there is a loop (it plays the newest loop if the LED LIST has no clips) and shows red while a loop runs. VISUALS > Video lists the grabbed loops first (LOOP n (5 s), tag LOOP / WALL); select one and LED NOW (or + LED) puts it on the wall (showLoop). Long press deletes it from the session.
+- GRAB LOOP is 5.3 s: LOOP in wallfx.js is 8 x 8 cells, 64 frames at 12 fps, 112 x 63 per cell (sheet 896 x 504); the quality ladder gained 0.22 and 0.15. Test on noisy video: 57.8 KB (limit 60 KB). Phones use the same constants.
+- Convention: a button label ending in the superscript +1 draws a tiny "+1" in its upper right (btnLabel), for buttons that open a page of sub menus that is not obvious. Used on the main WALL button (landscape + portrait) and a new WALL +1 button on VISUALS (landscape tab row: SCROLLER and the MIXER / PREVIEW / BACK buttons narrowed; portrait: last row of four).
+- Backup backups/pre-441/. No server restart.
+
+## #442 RETRO-SCENE +1 page, VECTOR-DANCER (matte clips + moire rings), METABALLS
+- The WALL page's RETRO-SCENE tile has a "+1" and opens a RETRO-SCENE page (setTools 'retro'): DANCER (the old vector dancer + grab loops), MANDEL, VECTOR-DANCER +1, METABALLS (BALLS stepper 2 to 9) and GRAB LOOP.
+- VECTOR-DANCER page (ledMode 'vdancer', tools page 'vdancer'): 6 matte slots; slot 1 is the bundled web/mattes/matte1.mp4 ("DANCER 1", the owner's white-on-black matte, 640 x 360, 464 KB, in the sw.js precache). An empty slot opens VISUALS > Video in pick mode (vd.pick, red frame): the next clip tapped is loaded into the slot (vdAssign). REPLACE / CLEAR (RESET 1 for slot 1) / RINGS ONLY (no matte) / SWAP MATTE; CIRCLES 1-3 sets; BEAT OFF / PULSE (rings run out on the beat) / BOUNCE (centres bounce); colours ACID / NEON / MONO; RING GAP slider (1.5 to 8 LED px). Saved in localStorage 'vire.vd'.
+- Matte: a hidden video drawn to 160 x 90, light pixels (red > 110) = the figure (vdMask). The figure shows the same moire in other colours (yellow / red), like the op-art film.
+- METABALLS (ledMode 'meta'): 2 to 9 balls bouncing, touching the floor on the beat, palette-coloured with a bright rim.
+- wallfx.js: renderRings / renderMeta (run on the main thread inside WallFx.frame, no worker; modes 'rings', 'meta'), RP_DEF, MP_DEF. LED_LABEL / nextLedMode / isFxMode know 'vdancer' and 'meta'.
+- Phones (FOLLOW): rings alone and metaballs are drawn on the phone from wallState rp / mp; VECTOR-DANCER with a matte goes as frames (wallState m 'vmat', FRAME_M / FOLLOW_FRAMES), since the matte clip is not on the phones.
+- Backup backups/pre-442/. No server restart. Tested in the browser pane only (not on the headset or phones).
