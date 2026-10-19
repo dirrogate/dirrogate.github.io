@@ -6395,7 +6395,20 @@ function setTest(k) {
   if (k === 'fps') { clearInterval(setTest.iv); if (testState.fps) setTest.iv = setInterval(drawMixScreen, 1000); }
   drawMixScreen();
 }
+// #418 (owner: Full VR drops back to the 2D page). A throw anywhere in the frame skipped renderer.render, so the headset
+// got no new frame and Quest Browser leaves immersive mode after a few empty frames. Now the frame always renders; the
+// first error of each XR session is kept (xrDiag) and shown when the session ends.
+const xrDiag = { t0: 0, frames: 0, err: '', errN: 0, mode: '' };
 function frame() {
+  if (renderer.xr.isPresenting) xrDiag.frames++;
+  try { frameBody(); }
+  catch (e) {
+    xrDiag.errN++;
+    if (!xrDiag.err) { xrDiag.err = (e && e.message || String(e)) + ' @ ' + ((e && e.stack || '').split('\n').find(l => /\.js:\d+/.test(l)) || '').trim().replace(/^at /, '').replace(/https?:\/\/[^ )]*\//, ''); console.error('frame', e); }
+    try { renderer.render(scene, camera); } catch {}
+  }
+}
+function frameBody() {
   if (testState.fps) fpsLog.push(performance.now());   // #258
   const dt = Math.min(0.05, clock.getDelta());
   if (renderer.xr.isPresenting) anchorFollow();   // #210
@@ -6726,6 +6739,14 @@ async function begin(mode) {
     if (mode === 'immersive-ar') { scene.background = null; room.visible = false; skybox.group.visible = skyShadow.visible = false; scene.environmentIntensity = settings.arRefl / 100; if (dome.on) applySky(); }   // #346 the dome shows in passthrough
     else applySky();   // #182: stereo panoramas split per eye while presenting   // #180: was a fixed 0.28, now Settings > Reflections in passthrough (default 60 %)
     tidyRecords();   // #242 every VR / passthrough start: records lying about go back into the crate
+    Object.assign(xrDiag, { t0: performance.now(), frames: 0, err: '', errN: 0, mode });
+    session.addEventListener('visibilitychange', () => { if (session.visibilityState !== 'visible') xrDiag.vis = session.visibilityState; });
+    session.addEventListener('end', () => {   // #418 why did it end?
+      const secs = ((performance.now() - xrDiag.t0) / 1000).toFixed(1);
+      const msg = `${xrDiag.mode === 'immersive-vr' ? 'Full VR' : 'Passthrough'} ended after ${secs} s, ${xrDiag.frames} frames` + (xrDiag.vis ? `, last state ${xrDiag.vis}` : '') + (xrDiag.err ? ` · ${xrDiag.errN} frame errors, first: ${xrDiag.err}` : ' · no frame errors');
+      try { localStorage.setItem('vire.xrLastEnd', new Date().toISOString() + ' ' + msg); } catch {}
+      console.warn(msg); setTimeout(() => toast(msg, 15000), 300);
+    });
     session.addEventListener('end', () => { rigAnchor = null; anchorPending = false; rig.rotation.set(0, 0, 0); arMode = false; applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
     toast('Reach out and touch: pinch or grip right at a knob, fader, tonearm or record', 5000);
   } catch (e) { toast('Could not start XR: ' + e.message, 4000); }

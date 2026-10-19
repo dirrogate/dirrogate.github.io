@@ -1009,7 +1009,12 @@ export function setupXR(ctx) {
     // events (st.held, with the system's own hysteresis) instead of gamepad.pressed, which flickers on a light trigger
     // and left the O half closed. The thumb-stick touch no longer changes the thumb either (it moved the thumb off the ball).
     const hb = st.held || {};   // (#298: was "hd", which clashed with the handedness above)
-    h.update(Math.round(ease('tA', hb.trigger) * 20) / 20, Math.round(ease('gA', hb.grip) * 20) / 20, false);
+    // #418 (owner): the drawn index follows the real trigger travel (analog value), the other three fingers the grip, and
+    // the thumb lowers when it rests on the stick / A-B / X-Y, like the real hand. The touch point is fixed (h.tipRest),
+    // so the analog travel no longer moves it. Held state (#296) still forces a full squeeze if the value reads 0.
+    const tv = Math.max(val(0), hb.trigger ? 1 : 0), gv = Math.max(val(1), hb.grip ? 1 : 0);
+    st.tA = (st.tA || 0) + (tv - (st.tA || 0)) * 0.5; st.gA = (st.gA || 0) + (gv - (st.gA || 0)) * 0.5;
+    h.update(Math.round(st.tA * 20) / 20, Math.round(st.gA * 20) / 20, thumb);
     if (h.soft !== (ctlLook === 'glove')) { h.soft = ctlLook === 'glove'; h.cur = ''; }   // #301 looser relaxed hand for the glove
     h.holder.visible = ctlLook !== 'glove';   // #287 the skin hand stays posed (it drives the glove) but is not drawn
     if (ctlLook === 'glove') gloveStep(st, h, 1 / 60);

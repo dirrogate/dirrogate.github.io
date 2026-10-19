@@ -13,7 +13,7 @@ const D = Math.PI / 180;
 
 // Pose numbers (degrees), open = button released, shut = fully pressed. Tuned on the PC against the Touch Plus model.
 export const POSE = {
-  index: { open: [18, 22, 12], shut: [40, 55, 35], rest: [18, 22, 12] },   // #416 rest straight again (pointing at the ball); #295 had it curled into the palm [60, 80, 45]
+  index: { open: [18, 22, 12], shut: [45, 60, 35], rest: [18, 22, 12] },   // #418 shut = full trigger squeeze   // #416 rest straight again (pointing at the ball); #295 had it curled into the palm [60, 80, 45]
   gloveSoft: 0.45,
   gloveO: { thumb: 1, swing: 0.2, roll: 0.2, index: 0.8 },   // #302 glove O: thumb turn 20 %, index curl 80 % (PC: glove tips 11 mm apart, was 33 mm with the thumb under the index)   // #301 glove mode: relaxed curls at 45 % (pressing the grip still closes the fist fully)      // on the trigger; rest = curled when not pressed (#295)
   rest: { open: [55, 75, 40], shut: [75, 85, 45] },       // middle / ring / pinky round the handle
@@ -116,18 +116,16 @@ function pose(h, t, g, th, openIndex = false) {
   // #280 (owner): the grip closes thumb and index into an O (record grabs, the power dial, faders and knobs look like
   // real fingers on the casts); the trigger alone curls the index (scratching). Grip wins over the trigger.
   // #284 (owner): the trigger closes the O too (knobs, faders, scratching); the grip also curls the other three fingers
-  const O = POSE.O, o = Math.max(t, g);
-  // #295 (owner): the index rests curled into the palm and only comes up to close the O on a press
-  const idx = lerp3(openIndex ? POSE.index.open : POSE.index.rest, h.soft ? O.index.map(v => v * POSE.gloveO.index) : O.index, o), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
-  // #301 GLOVE mode: a looser relaxed hand (the robot's thick fingers crushed into each other in the full fist)
-  if (h.soft) { const k = POSE.gloveSoft; for (let j = 0; j < 3; j++) { rest[j] *= k + (1 - k) * g; if (!openIndex) idx[j] = lerp3(POSE.index.rest.map(v => v * k), O.index.map(v => v * POSE.gloveO.index), o)[j]; } }
+  // #418 (owner: the trigger moved the thumb into the palm and the index hardly moved). Back to a real controller hand:
+  // the TRIGGER curls only the index (a trigger squeeze, rest -> shut), the GRIP only the middle / ring / pinky, and the
+  // thumb only drops onto the face buttons / stick when it touches them. No O, no thumb swing or roll on a press.
+  // The touch point / ball stays the relaxed index tip fixed in grip space (h.tipRest), so the curl never moves it.
+  const k = h.soft ? POSE.gloveSoft : 1;
+  const idx = lerp3(openIndex ? POSE.index.open : POSE.index.rest.map(v => v * k), POSE.index.shut, t);   // ball measured with the unscaled open index (as before)
+  const rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
+  if (h.soft) for (let j = 0; j < 3; j++) rest[j] *= k + (1 - k) * g;   // #301 glove: looser relaxed fingers, full fist on grip
   for (const f of FINGERS) { const c = CH(f), a = f === 'index-finger' ? idx : rest; for (let j = 0; j < 3; j++) curl(h, c, j + 1, a[j]); }
-  // #293 (owner): the thumb moves naturally again (#292 had it fixed in the O); the ball is back on the index tip
-  // #302 glove: its thumb is longer than the skin hand's, so its O uses a smaller thumb turn (POSE.gloveO) or it slid under the index
-  const GO = h.soft ? POSE.gloveO : { thumb: 1, swing: 1, roll: 1, index: 1 };
-  const tp = lerp3(th ? POSE.thumb.down : POSE.thumb.open, O.thumb.map(v => v * GO.thumb), o);
-  if (O.swing) curl(h, THUMB, 0, O.swing * GO.swing * o * (h.handed === 'left' ? -1 : 1), O.swingAxis || 'z');   // thumb across toward the index
-  if (O.roll) curl(h, THUMB, 0, O.roll * GO.roll * o * (h.handed === 'left' ? -1 : 1), 'y');
+  const tp = th ? POSE.thumb.down : POSE.thumb.open;
   for (let j = 0; j < 3; j++) curl(h, THUMB, j, tp[j]);
 }
 const _t = new THREE.Vector3(), _d = new THREE.Vector3(), _inv = new THREE.Matrix4();
