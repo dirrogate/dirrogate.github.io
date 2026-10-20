@@ -976,3 +976,7 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 ## #449 (20 Oct 2026) Dirrogram EXPOSURE (cly3dj-dev)
 - SETTINGS gains EXPOSURE, -2.00 to +1.00 EV in 0.25 steps (S.exp, saved per phone, default 0). applyExposure(): where the camera track reports exposureCompensation (Android Chrome on most phones) it sets the camera's own exposure (the sensor stops clipping on beams, the cutout sees the adjusted picture); otherwise a software gain 2^EV on the camera picture (bgMat uGain), the same gain in the people shader's cam() so cutout effects match. The recording gets either. The person mask itself is still run on the camera element, so software gain does not change the cutout.
 - Tested in the browser pane (demo picture): four taps on - gives -1.00 EV, picture darker, setting saved. Not on the M33 yet (hardware path unverified: depends on the phone's camera caps). Backup backups/pre-449/. No server restart.
+
+## #450 (20 Oct 2026) Dirrogram: SCROLLER and NOW SPINNING fields removed from SETTINGS (cly3dj-dev)
+- Owner: remove them, keep the defaults in code. They were Phase A leftovers (no relay); live, the DJ's text wins (`liveCfg.scroll || S.scroll`). buildPanel no longer draws the two text rows; S.scroll / S.np are reset to DEF after the saved settings load (so old saved text can't linger); the ?scroll= link override still works for tests.
+- Syntax checked only. Backup backups/pre-450/. No server restart.

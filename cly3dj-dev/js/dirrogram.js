@@ -26,6 +26,7 @@ const DEF = { exp: 0, dist: 6, robotX: -2.3, robotZ: 0, lift: 0, fov: 64, bpm: 1
   scroll: 'WELCOME TO THE DIRROGRAM  ✦  CLY3DJ LIVE ON VINYL  ✦  TWITCH.TV/DIRROGATE  ✦  FILM IT, SHARE IT  ✦', np: 'Cly3DJ · live vinyl set' };
 const S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+S.scroll = DEF.scroll; S.np = DEF.np;   // #450 no scroller / NOW SPINNING fields on the phone any more: the DJ's text rules live, these are the offline defaults
 if (Q.get('np')) S.np = Q.get('np');
 if (Q.get('scroll')) S.scroll = Q.get('scroll');
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
@@ -690,13 +691,6 @@ function buildPanel() {
     const [m, pl] = r.querySelectorAll('button');
     const step = d => { S[k] = clamp(Math.round((S[k] + d * st) / st) * st, a, b); upd(); save(); if (k === 'fov') resize(); else if (k === 'exp') applyExposure(); else place(); };
     m.onclick = () => step(-1); pl.onclick = () => step(1); upd(); p.appendChild(r);
-  }
-  for (const [k, lab, fn] of [['scroll', 'SCROLLER', drawScroller], ['np', 'NOW SPINNING', drawCaption]]) {
-    const r = document.createElement('div'); r.className = 'row';
-    r.innerHTML = `<span class="lab">${lab}</span><input type="text">`;
-    const inp = r.querySelector('input'); inp.value = S[k];
-    inp.onchange = () => { S[k] = inp.value || DEF[k]; save(); fn(); };
-    p.appendChild(r);
   }
 }
 // #438 AIM opens a choice: AIM (the ring on the centre DJ, as before) or AIM WITH BEACON (DirroBeacon venues only)
