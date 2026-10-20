@@ -22,7 +22,7 @@ const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 
 // ---------------------------------------------------------------- settings (per phone)
 const KEY = 'dirro.set';
-const DEF = { dist: 6, robotX: -2.3, robotZ: 0, lift: 0, fov: 64, bpm: 124,
+const DEF = { exp: 0, dist: 6, robotX: -2.3, robotZ: 0, lift: 0, fov: 64, bpm: 124,
   scroll: 'WELCOME TO THE DIRROGRAM  ✦  CLY3DJ LIVE ON VINYL  ✦  TWITCH.TV/DIRROGATE  ✦  FILM IT, SHARE IT  ✦', np: 'Cly3DJ · live vinyl set' };
 const S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
@@ -52,9 +52,9 @@ const key = new THREE.DirectionalLight(0xffffff, 1.2); key.position.set(2, 5, 6)
 // camera picture: a full-screen quad drawn first (raw sRGB through, no tone mapping), cover-cropped
 const bgScene = new THREE.Scene(), bgCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 const bgMat = new THREE.ShaderMaterial({
-  uniforms: { uTex: { value: null }, uK: { value: new THREE.Vector2(1, 1) }, uOn: { value: 0 } },
+  uniforms: { uTex: { value: null }, uK: { value: new THREE.Vector2(1, 1) }, uOn: { value: 0 }, uGain: { value: 1 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
-  fragmentShader: 'uniform sampler2D uTex; uniform vec2 uK; uniform float uOn; varying vec2 vUv; void main(){ vec2 uv = 0.5 + (vUv - 0.5) * uK; gl_FragColor = uOn > 0.5 ? vec4(texture2D(uTex, uv).rgb, 1.0) : vec4(0.02, 0.02, 0.035, 1.0); }',
+  fragmentShader: 'uniform sampler2D uTex; uniform vec2 uK; uniform float uOn, uGain; varying vec2 vUv; void main(){ vec2 uv = 0.5 + (vUv - 0.5) * uK; gl_FragColor = uOn > 0.5 ? vec4(texture2D(uTex, uv).rgb * uGain, 1.0) : vec4(0.02, 0.02, 0.035, 1.0); }',
   depthTest: false, depthWrite: false,
 });
 bgScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), bgMat));
@@ -71,12 +71,13 @@ const people = { on: false, mask: new PersonMask(), fb: null, fx: 0 };
 const PFX = ['', 'OP-ART', 'NEON', 'ECHO', 'HOLO', 'WALL WINDOW', 'LED SELF'];   // 5 WALL WINDOW: the person is a window onto the LED wall; 6 LED SELF: the person drawn in LED cells (#448)
 const ovScene = new THREE.Scene();
 const ovMat = new THREE.ShaderMaterial({
-  uniforms: { uVid: { value: null }, uMask: { value: null }, uFb: { value: null }, uK: bgMat.uniforms.uK, uPx: { value: new THREE.Vector2(1e-3, 1e-3) },
+  uniforms: { uVid: { value: null }, uMask: { value: null }, uFb: { value: null }, uK: bgMat.uniforms.uK, uGain: bgMat.uniforms.uGain, uPx: { value: new THREE.Vector2(1e-3, 1e-3) },
     uTrail: { value: null }, uMode: { value: 0 }, uT: { value: 0 }, uKick: { value: 0 }, uBeat: { value: 0 }, uBar: { value: 0 }, uAsp: { value: 1 },
     uWall: { value: null }, uCen: { value: new THREE.Vector2(0.5, 0.5) }, uMpx: { value: new THREE.Vector2(1 / 256, 1 / 256) } },   // #439 people FX
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
-  fragmentShader: `uniform sampler2D uVid, uMask, uFb, uTrail, uWall; uniform vec2 uK, uPx, uCen, uMpx; uniform float uMode, uT, uKick, uBeat, uBar, uAsp; varying vec2 vUv;
-vec3 lightAt(vec2 p) { vec2 c = 0.5 + (p - 0.5) * uK; return max(texture2D(uFb, p).rgb - texture2D(uVid, c).rgb, 0.0); }
+  fragmentShader: `uniform sampler2D uVid, uMask, uFb, uTrail, uWall; uniform vec2 uK, uPx, uCen, uMpx; uniform float uMode, uT, uKick, uBeat, uBar, uAsp, uGain; varying vec2 vUv;
+vec3 cam(vec2 p) { return texture2D(uVid, p).rgb * uGain; }   // #449 exposure
+vec3 lightAt(vec2 p) { vec2 c = 0.5 + (p - 0.5) * uK; return max(texture2D(uFb, p).rgb - cam(c), 0.0); }
 void main() {
   vec2 cuv = 0.5 + (vUv - 0.5) * uK, mc = vec2(cuv.x, 1.0 - cuv.y);
   float m = smoothstep(0.4, 0.8, texture2D(uMask, mc).r);
@@ -87,19 +88,19 @@ void main() {
     for (int i = 0; i < 8; i++) { float a = float(i) * 0.7854; float v = texture2D(uMask, mc + vec2(cos(a), sin(a)) * uMpx * 2.5).r; mx = max(mx, v); mn = min(mn, v); }
     float e = smoothstep(0.2, 0.7, mx - mn);
     if (m < 0.01 && e < 0.02) discard;
-    gl_FragColor = vec4(mix(texture2D(uVid, cuv).rgb * 0.5, A * (1.5 + 1.5 * uKick), e), max(m, e)); return;
+    gl_FragColor = vec4(mix(cam(cuv) * 0.5, A * (1.5 + 1.5 * uKick), e), max(m, e)); return;
   }
   if (uMode > 2.5 && uMode < 3.5) {   // ECHO: the trail of the last second, coloured by age, behind the person
     float tr = texture2D(uTrail, mc).r, gh = smoothstep(0.12, 0.7, tr) * (1.0 - m);
     if (m < 0.01 && gh < 0.02) discard;
-    gl_FragColor = vec4(mix(mix(B, A, tr) * (0.9 + 0.6 * uKick), texture2D(uVid, cuv).rgb, m), max(m, gh * 0.8)); return;
+    gl_FragColor = vec4(mix(mix(B, A, tr) * (0.9 + 0.6 * uKick), cam(cuv), m), max(m, gh * 0.8)); return;
   }
   if (uMode > 5.5) {   // #448 LED SELF: the person in LED cells, 4 levels a channel with an ordered dither, hard cell edge
     vec2 G = vec2(72.0, 72.0 / uAsp), gc = vUv * G, cv = (floor(gc) + 0.5) / G, cc = 0.5 + (cv - 0.5) * uK, f = fract(gc);
     float mm = smoothstep(0.4, 0.8, texture2D(uMask, vec2(cc.x, 1.0 - cc.y)).r);
     if (mm < 0.5) discard;
     vec2 ip = floor(mod(gc, 4.0)); float bay = (mod(ip.x * 4.0 + ip.y * 2.0 + ip.x * ip.y * 3.0, 16.0) + 0.5) / 16.0 - 0.5;
-    vec3 v = texture2D(uVid, cc).rgb; v = floor(clamp(v * 1.05 + bay * 0.34, 0.0, 1.0) * 3.0 + 0.5) / 3.0;
+    vec3 v = cam(cc); v = floor(clamp(v * 1.05 + bay * 0.34, 0.0, 1.0) * 3.0 + 0.5) / 3.0;
     float e = 0.14, led = smoothstep(0.0, e, f.x) * smoothstep(1.0, 1.0 - e, f.x) * smoothstep(0.0, e, f.y) * smoothstep(1.0, 1.0 - e, f.y);
     gl_FragColor = vec4(v * (0.2 + 1.1 * led) * (1.0 + 0.4 * uKick), 1.0); return;
   }
@@ -109,7 +110,7 @@ void main() {
     float rimW = clamp(m * (1.0 - m) * 4.0, 0.0, 1.0);
     gl_FragColor = vec4(mix(w * (1.0 + 0.5 * uKick), B * 1.5, smoothstep(0.35, 0.95, rimW)), m); return;
   }
-  vec3 vid = texture2D(uVid, cuv).rgb, L = vec3(0.0);
+  vec3 vid = cam(cuv), L = vec3(0.0);
   for (int i = 0; i < 6; i++) { float a = float(i) * 1.0472; L += lightAt(vUv + vec2(cos(a), sin(a)) * uPx * 14.0); }
   L /= 6.0;
   float rim = clamp(m * (1.0 - m) * 4.0, 0.0, 1.0);
@@ -377,15 +378,28 @@ async function startCamera(front) {
   if (stream) { for (const t of stream.getTracks()) t.stop(); stream = null; }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('No camera here (the page needs https)');
   stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: front ? 'user' : 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } });
-  video.srcObject = stream; await video.play();
+  video.srcObject = stream; await video.play(); applyExposure();
   const tex = new THREE.VideoTexture(video); tex.colorSpace = THREE.NoColorSpace; tex.minFilter = tex.magFilter = THREE.LinearFilter;
   src = { tex, el: video, get w() { return video.videoWidth || 1280; }, get h() { return video.videoHeight || 720; } };
   bgMat.uniforms.uTex.value = tex; bgMat.uniforms.uOn.value = 1;
 }
+// #449 EXPOSURE (SETTINGS): the camera's own exposure compensation where the browser offers it (Android Chrome on most phones;
+// it also helps the cutout and keeps beams from clipping in the sensor), else a gain on the picture (every phone, in the recording too)
+function applyExposure() {
+  let hw = false;
+  try {
+    const t = stream && stream.getVideoTracks()[0], c = t && t.getCapabilities && t.getCapabilities();
+    if (c && c.exposureCompensation && c.exposureCompensation.max > c.exposureCompensation.min) {
+      const e = clamp(S.exp, c.exposureCompensation.min, c.exposureCompensation.max);
+      t.applyConstraints({ advanced: [{ exposureCompensation: e }] }).catch(() => {}); hw = true;
+    }
+  } catch (e) { hw = false; }
+  bgMat.uniforms.uGain.value = hw ? 1 : Math.pow(2, S.exp);
+}
 async function startDemo() {   // the PC test picture (web/_test/stage_demo.png, not shipped)
   const tex = await new THREE.TextureLoader().loadAsync(Q.get('demo') && Q.get('demo') !== '1' ? Q.get('demo') : '_test/stage_demo.png');
   tex.colorSpace = THREE.NoColorSpace; const img = tex.image;
-  src = { tex, el: img, w: img.width, h: img.height }; bgMat.uniforms.uTex.value = tex; bgMat.uniforms.uOn.value = 1;
+  src = { tex, el: img, w: img.width, h: img.height }; bgMat.uniforms.uTex.value = tex; bgMat.uniforms.uOn.value = 1; applyExposure();
 }
 
 // field of view: the camera picture's long side spans S.fov degrees; the 3D camera matches what the cover crop shows
@@ -665,6 +679,7 @@ const ROWS = [
   ['robotZ', 'DIRRODJ BACK / FRONT', -2, 2, 0.25, v => v.toFixed(2) + ' m'],
   ['fov', 'CAMERA ANGLE', 40, 100, 1, v => v.toFixed(0) + '°'],
   ['bpm', 'BPM', 60, 180, 1, v => v.toFixed(0)],
+  ['exp', 'EXPOSURE', -2, 1, 0.25, v => (v > 0 ? '+' : '') + v.toFixed(2) + ' EV'],   // #449
 ];
 function buildPanel() {
   const p = $('panel'); p.innerHTML = '';
@@ -673,7 +688,7 @@ function buildPanel() {
     r.innerHTML = `<span class="lab">${lab}</span><button>−</button><span class="val"></span><button>+</button>`;
     const val = r.querySelector('.val'), upd = () => { val.textContent = fmt(S[k]); };
     const [m, pl] = r.querySelectorAll('button');
-    const step = d => { S[k] = clamp(Math.round((S[k] + d * st) / st) * st, a, b); upd(); save(); if (k === 'fov') resize(); else place(); };
+    const step = d => { S[k] = clamp(Math.round((S[k] + d * st) / st) * st, a, b); upd(); save(); if (k === 'fov') resize(); else if (k === 'exp') applyExposure(); else place(); };
     m.onclick = () => step(-1); pl.onclick = () => step(1); upd(); p.appendChild(r);
   }
   for (const [k, lab, fn] of [['scroll', 'SCROLLER', drawScroller], ['np', 'NOW SPINNING', drawCaption]]) {
