@@ -68,14 +68,14 @@ const people = { on: false, mask: new PersonMask(), fb: null, fx: 0 };
 // 1 OP-ART: filled with rings from their middle, pulsing on the beat, outlined; 2 NEON: a glowing outline on the kick;
 // 3 ECHO: fading copies of their last second of moves; 4 HOLO: the cyan scanline look of the hologram scroller.
 // Cyan and pink swap every 4 beats.
-const PFX = ['', 'OP-ART', 'NEON', 'ECHO', 'HOLO'];
+const PFX = ['', 'OP-ART', 'NEON', 'ECHO', 'HOLO', 'WALL WINDOW', 'LED SELF'];   // 5 WALL WINDOW: the person is a window onto the LED wall; 6 LED SELF: the person drawn in LED cells (#448)
 const ovScene = new THREE.Scene();
 const ovMat = new THREE.ShaderMaterial({
   uniforms: { uVid: { value: null }, uMask: { value: null }, uFb: { value: null }, uK: bgMat.uniforms.uK, uPx: { value: new THREE.Vector2(1e-3, 1e-3) },
     uTrail: { value: null }, uMode: { value: 0 }, uT: { value: 0 }, uKick: { value: 0 }, uBeat: { value: 0 }, uBar: { value: 0 }, uAsp: { value: 1 },
-    uCen: { value: new THREE.Vector2(0.5, 0.5) }, uMpx: { value: new THREE.Vector2(1 / 256, 1 / 256) } },   // #439 people FX
+    uWall: { value: null }, uCen: { value: new THREE.Vector2(0.5, 0.5) }, uMpx: { value: new THREE.Vector2(1 / 256, 1 / 256) } },   // #439 people FX
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
-  fragmentShader: `uniform sampler2D uVid, uMask, uFb, uTrail; uniform vec2 uK, uPx, uCen, uMpx; uniform float uMode, uT, uKick, uBeat, uBar, uAsp; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D uVid, uMask, uFb, uTrail, uWall; uniform vec2 uK, uPx, uCen, uMpx; uniform float uMode, uT, uKick, uBeat, uBar, uAsp; varying vec2 vUv;
 vec3 lightAt(vec2 p) { vec2 c = 0.5 + (p - 0.5) * uK; return max(texture2D(uFb, p).rgb - texture2D(uVid, c).rgb, 0.0); }
 void main() {
   vec2 cuv = 0.5 + (vUv - 0.5) * uK, mc = vec2(cuv.x, 1.0 - cuv.y);
@@ -94,7 +94,21 @@ void main() {
     if (m < 0.01 && gh < 0.02) discard;
     gl_FragColor = vec4(mix(mix(B, A, tr) * (0.9 + 0.6 * uKick), texture2D(uVid, cuv).rgb, m), max(m, gh * 0.8)); return;
   }
+  if (uMode > 5.5) {   // #448 LED SELF: the person in LED cells, 4 levels a channel with an ordered dither, hard cell edge
+    vec2 G = vec2(72.0, 72.0 / uAsp), gc = vUv * G, cv = (floor(gc) + 0.5) / G, cc = 0.5 + (cv - 0.5) * uK, f = fract(gc);
+    float mm = smoothstep(0.4, 0.8, texture2D(uMask, vec2(cc.x, 1.0 - cc.y)).r);
+    if (mm < 0.5) discard;
+    vec2 ip = floor(mod(gc, 4.0)); float bay = (mod(ip.x * 4.0 + ip.y * 2.0 + ip.x * ip.y * 3.0, 16.0) + 0.5) / 16.0 - 0.5;
+    vec3 v = texture2D(uVid, cc).rgb; v = floor(clamp(v * 1.05 + bay * 0.34, 0.0, 1.0) * 3.0 + 0.5) / 3.0;
+    float e = 0.14, led = smoothstep(0.0, e, f.x) * smoothstep(1.0, 1.0 - e, f.x) * smoothstep(0.0, e, f.y) * smoothstep(1.0, 1.0 - e, f.y);
+    gl_FragColor = vec4(v * (0.2 + 1.1 * led) * (1.0 + 0.4 * uKick), 1.0); return;
+  }
   if (m < 0.01) discard;
+  if (uMode > 4.5) {   // #448 WALL WINDOW: the wall's picture shows through the person, centred on them, a pink / cyan edge
+    vec3 w = texture2D(uWall, clamp(0.5 + (vUv - uCen) * 0.9, 0.0, 1.0)).rgb;
+    float rimW = clamp(m * (1.0 - m) * 4.0, 0.0, 1.0);
+    gl_FragColor = vec4(mix(w * (1.0 + 0.5 * uKick), B * 1.5, smoothstep(0.35, 0.95, rimW)), m); return;
+  }
   vec3 vid = texture2D(uVid, cuv).rgb, L = vec3(0.0);
   for (int i = 0; i < 6; i++) { float a = float(i) * 1.0472; L += lightAt(vUv + vec2(cos(a), sin(a)) * uPx * 14.0); }
   L /= 6.0;
@@ -104,7 +118,7 @@ void main() {
     vec3 c = mix(vec3(0.02, 0.0, 0.06), mix(vec3(0.94), A, 0.35) * (1.0 + 0.4 * uKick), bit);
     gl_FragColor = vec4(mix(c, B * 1.4, smoothstep(0.35, 0.95, rim)), m); return;
   }
-  if (uMode > 3.5) {   // HOLO
+  if (uMode > 3.5 && uMode < 4.5) {   // HOLO
     float l = dot(vid, vec3(0.3, 0.59, 0.11)), scan = 0.55 + 0.45 * sin(vUv.y * 700.0 - uT * 9.0), fl = 0.9 + 0.1 * sin(uT * 37.0) * sin(uT * 13.0);
     vec3 c = vec3(0.25, 0.9, 1.0) * (0.2 + 1.3 * l) * scan * fl + L * rim + vec3(1.0, 0.1, 0.6) * rim * 0.6;
     gl_FragColor = vec4(c * (1.0 + 0.4 * uKick), m * 0.88); return;
@@ -114,6 +128,10 @@ void main() {
   transparent: true, depthTest: false, depthWrite: false, toneMapped: false,
 });
 ovScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), ovMat));
+// #448 the wall's picture as a flat texture for WALL WINDOW: wallMat's own shader and uniforms drawn full-screen into a small target
+const wallRT = new THREE.WebGLRenderTarget(480, 270, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
+const wallFlat = new THREE.ShaderMaterial({ uniforms: {}, vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }', fragmentShader: '', depthTest: false, depthWrite: false, toneMapped: false });
+const wallScene = new THREE.Scene(); wallScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), wallFlat));
 function peopleFb() {   // a copy of the drawn frame, the drawing-buffer size
   const v = renderer.getDrawingBufferSize(new THREE.Vector2());
   if (!people.fb || people.fb.image.width !== v.x || people.fb.image.height !== v.y) {
@@ -617,6 +635,11 @@ function frame() {
         u.uTrail.value = pm.ttex; u.uMpx.value.set(1 / (pm.w || 256), 1 / (pm.h || 256)); u.uAsp.value = canvas.clientWidth / Math.max(1, canvas.clientHeight);
         u.uCen.value.set(0.5 + (pm.cx - 0.5) / K.x, 0.5 + (0.5 - pm.cy) / K.y);
       }
+      if (people.fx === 5) {   // #448 the wall flat into wallRT (its shader and uniforms are wallMat's)
+        if (!wallFlat.userData.set) { wallFlat.userData.set = 1; wallFlat.uniforms = wallMat.uniforms; wallFlat.fragmentShader = wallMat.fragmentShader; wallFlat.needsUpdate = true; }
+        renderer.setRenderTarget(wallRT); renderer.clear(); renderer.render(wallScene, bgCam); renderer.setRenderTarget(null);
+        ovMat.uniforms.uWall.value = wallRT.texture;
+      }
       renderer.render(ovScene, bgCam);
     }
   }
@@ -695,9 +718,9 @@ $('bFlip').onclick = async () => {
 };
 $('bPeople').onclick = () => setPeople(!people.on);
 $('bPfx').onclick = async () => {   // #439
-  people.fx = (people.fx + 1) % PFX.length; $('bPfx').textContent = people.fx ? 'FX: ' + PFX[people.fx] : 'FX';
+  people.fx = (people.fx + 1) % PFX.length; $('bPfx').textContent = people.fx ? 'FX\u207a\u207a: ' + PFX[people.fx] : 'FX\u207a\u207a';
   if (people.fx && !people.on) await setPeople(true);
-  if (people.fx) toast(['', 'Your friend in op-art rings', 'Neon outline on the kick', 'Echo trails of every move', 'Hologram'][people.fx]);
+  if (people.fx) toast(['', 'Your friend in op-art rings', 'Neon outline on the kick', 'Echo trails of every move', 'Hologram', 'A window onto the LED wall', 'Drawn in LED cells'][people.fx]);
 };
 // #437 RECORD: what is on screen (camera picture, the show, the people cutout; never the buttons) plus the phone's
 // microphone (the club sound), up to 30 s, saved straight to the phone. MP4 where the phone can make it (iPhone,

@@ -962,3 +962,13 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - Still: drawn whole on black at the PIXELS render size (WallFx mode 'pic', then the LED grid); to the phones it goes as the normal LED-wall picture (wallState m 'pics', getLed returns the card file, 512x288 JPEG under 60 KB).
 - GIF: decoded with ImageDecoder (gifLoop in main.js), at most 64 frames sampled evenly across it, with its own speed (n / duration, 2 to 24 fps), played forwards only. Same sprite-sheet rule as GRAB LOOP: 112x63 a cell as a JPEG under 60 KB for the phones (sent once, wallState m 'card', lp / ln / lf), 224x126 a cell for the Quest. WallFx loop mode takes ln, lfps and fwd. Without ImageDecoder a GIF shows as a still. A GIF longer than 64 frames is thinned, not cut.
 - Tested in the browser pane (4-frame GIF: card mode, sheet 14.8 KB, frames cycle in order at 4 fps; a PNG goes the pics route). Not on the headset or phones. Backup backups/pre-446/. No server restart.
+
+## #447 (20 Oct 2026) RELEASE: cly3dj = cly3dj-dev
+- Release folder cly3dj now equals cly3dj-dev (everything from #417 to #446) except CLAUDE.md, PROJECT.md and tools/. Includes the LED wall pages (RETRO-SCENE+1, VECTOR-DANCER, METABALLS, CARD), ZOOM, PIXELS 0-10, TAP BPM, 5.3 s 8x8 grab, card pictures/GIFs on stream, wall and phones.
+- Project docs on claude.ai updated (audience-ar-plan.md, cly3dj-project.md). No server restart needed. Only tested in the browser pane, not on headset or phones.
+
+## #448 (20 Oct 2026) Dirrogram FX++ : WALL WINDOW and LED SELF (cly3dj-dev)
+- Owner tried Dirrogram on the M33: all features fine, segmentation included. Asked for the FX button to read FX with a superscript double plus (FX⁺⁺, the +1 convention: more than one effect) and two new people effects.
+- js/dirrogram.js: PFX gains 5 WALL WINDOW (the person is a window onto the LED wall: wallMat's own shader and uniforms drawn flat into a 480x270 target `wallRT` each frame while this effect is on, sampled centred on the person, pink / cyan edge, brighter on the kick) and 6 LED SELF (the person drawn in 72-column LED cells, 4 levels a channel with a Bayer dither, hard cell edge, LED dot mask). HOLO test bounded to mode 4. Button text FX⁺⁺ and FX⁺⁺: NAME; dirrogram.html idle label FX⁺⁺.
+- Tested in the browser pane with a fake circular mask (both effects draw, shaders compile, no GL error). Not on the M33 yet. Backup backups/pre-448/. No server restart.
+- Not built (discussed): exposure gain/reduce in settings (camera exposure compensation where the browser offers it, software gain otherwise), SPARKS, GLITCH, SPOTLIGHT, MIRROR CLONES.
