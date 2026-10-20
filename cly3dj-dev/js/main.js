@@ -5209,6 +5209,7 @@ function setTools(p) {
   if (p !== 'kbd') { try { if (document.activeElement === sysKbInput) sysKbInput.blur(); } catch (e) {} }   // #387
   toolsPage = p; pickPg = 0;
   if (p === 'pickVideo' || p === 'pickImage') { pickItems = []; loadPick(p === 'pickVideo' ? 'Video' : 'Images'); }
+  if (p === 'card') { pickItems = []; loadPick('Images'); }   // #445
   drawMixScreen();
 }
 async function loadPick(folder) { pickItems = (await media.list(folder)).map(i => ({ ...i, folder })); drawMixScreen(); }
@@ -5465,7 +5466,7 @@ const PINCH_FIT_DEF = {
   lh: { label: 'HAND LIFT', lo: -20, hi: 60, v: 10, unit: 'mm' }, lg: { label: 'GLOVE LIFT', lo: -20, hi: 60, v: 15, unit: 'mm' },
   pa: { label: 'PINCH TILT', lo: -60, hi: 60, v: 0, unit: '°' }, pt: { label: 'PINCH TURN', lo: -90, hi: 90, v: 0, unit: '°' },
 };
-const TOOLS_NAME = { retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'LED WALL', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
+const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'LED WALL', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -5527,7 +5528,7 @@ function drawToolsPage() {
     const keys = ['card', 'show', 'vj'];   // #389 AVACAM source gone: GOPRO / GOPRO2 do that job   // #374 PHONE and PHONE CAM SETUP moved into SHOWTIME! (camera pick on OBJECTS);   // #347 PHONE CAM   // #338 VJ SETUP where VIDEOWALL was   // #372 HEADSET CAM and PHONE CAM are camera picks inside SHOWTIME! (OBJECTS page)
     const inShow = k => S.source === k || (k === 'show' && (S.source === 'headset' || S.source === 'pcam' || S.source === 'avacam'));
     const srcBtn = (k, x, y, w, h) => { if (k === 'vj') return btn(x, y, w, h, 'VJ SETUP', false, () => setVideoPage(true), false, P ? 20 : 17);   // #338 the VISUALS pages, as from the main mixer page
-      btn(x, y, w, h, STREAM_SRC[k], inShow(k), () => S.setSource(k), false, P ? 20 : 18); };
+      btn(x, y, w, h, k === 'card' ? 'CARD ⁺¹' : STREAM_SRC[k], inShow(k), k === 'card' ? () => { S.setSource('card'); setTools('card'); } : () => S.setSource(k), false, P ? 20 : 18); };   // #445 CARD opens its page
     const ending = performance.now() - (streamEndArm || 0) < 2500;
     const goLabel = live || st === 'connecting' ? (ending ? 'TAP AGAIN TO END' : 'END STREAM') : 'GO LIVE';
     const goAct = () => {
@@ -6660,6 +6661,37 @@ function drawToolsPage() {
     if (art.msg && art.imgs.length) { g.fillStyle = '#c86a5a'; g.font = '600 13px system-ui'; g.textAlign = 'left'; fitText2(g, art.msg, gx + 4, P ? gy - 6 : iy - 8, gw - 8); }
     return;
   }
+  if (page === 'card') {   // #445 the stream's CARD: the main card (always the first slot), or any picture / animated GIF from IMAGES (sponsor, theme night, a QR code)
+    const S = streamer, y0 = head('STREAM CARD', 'stream');
+    if (!S) { note('The card is part of the stream, which runs on the headset.', y0 + 20); return; }
+    const COLS = P ? 2 : 4, PER = P ? 10 : 8, CW = (R - L - (COLS - 1) * 8) / COLS, TH = P ? 64 : 76, CH = TH + 20, cur = S.cardPic ? S.cardPic.name : '';
+    const list = [{ main: true }, ...pickItems], pages = Math.max(1, Math.ceil(list.length / PER)); pickPg = Math.min(pickPg, pages - 1);
+    list.slice(pickPg * PER, pickPg * PER + PER).forEach((it, i) => {
+      const cx = L + (i % COLS) * (CW + 8), cy = y0 + Math.floor(i / COLS) * (CH + 6), on = it.main ? !cur : it.name === cur;
+      g.fillStyle = '#121824'; g.fillRect(cx, cy, CW, TH);
+      if (it.main) {
+        g.textAlign = 'right'; g.textBaseline = 'middle'; g.font = '800 26px system-ui'; g.fillStyle = '#fff'; g.fillText('Cly', cx + CW / 2 + 2, cy + TH / 2 - 8); g.textAlign = 'left'; g.fillStyle = '#e0202a'; g.fillText('3DJ', cx + CW / 2 + 3, cy + TH / 2 - 8);
+        g.textAlign = 'center'; g.font = '600 12px system-ui'; g.fillStyle = '#b9a3ff'; g.fillText('LIVE ON VINYL + TWITCH QR', cx + CW / 2, cy + TH - 12); g.textBaseline = 'alphabetic';
+      } else {
+        const t = vpThumb('Images', it.name);
+        if (t && t !== 'loading') { const s = Math.min(CW / t.width, TH / t.height), w = t.width * s, h = t.height * s; g.drawImage(t, cx + (CW - w) / 2, cy + (TH - h) / 2, w, h); }
+        if (/\.gif$/i.test(it.name)) { g.fillStyle = 'rgba(5,7,12,0.78)'; g.fillRect(cx + CW - 34, cy + TH - 20, 32, 18); g.fillStyle = '#ffd24a'; g.font = '800 12px system-ui'; g.textAlign = 'center'; g.fillText('GIF', cx + CW - 18, cy + TH - 7); }
+      }
+      if (on) { g.strokeStyle = '#39a8ff'; g.lineWidth = 4; g.strokeRect(cx + 2, cy + 2, CW - 4, TH + 16); if (S.source === 'card') { g.fillStyle = '#40d080'; g.fillRect(cx + 4, cy + 4, 62, 20); g.fillStyle = '#05070c'; g.font = '800 13px system-ui'; g.textAlign = 'left'; g.fillText('ON AIR', cx + 9, cy + 19); } }
+      g.fillStyle = on ? '#fff' : '#b8c0cf'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, it.main ? 'MAIN CARD' : it.name.replace(/\.[^.]+$/, ''), cx + 2, cy + TH + 15, CW - 4);
+      VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, act: async () => {
+        if (it.main) { S.setCardPic(null); try { localStorage.setItem('vire.cardPic', ''); } catch (e) {} }
+        else { const f = await media.getFile('Images', it.name); if (!f || !(await S.setCardPic(f))) { toast('That picture would not open', 2500); return; } try { localStorage.setItem('vire.cardPic', it.name); } catch (e) {} }
+        S.setSource('card'); drawMixScreen();
+      } });
+    });
+    const by = P ? H - 62 : H - 44;
+    btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
+    btn(L + 48, by, 44, 36, '›', false, () => { pickPg = Math.min(pages - 1, pickPg + 1); }, pickPg >= pages - 1);
+    g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left';
+    wrapText(g, 'Tap a picture or GIF (add them in IMAGES: on the start page, or Library > Import on the phone). It goes to Twitch and CLY3DTV. MAIN CARD is the Cly3DJ card with the Twitch QR.', L + 104, by + 12, R - L - 110, 15, 2);
+    return;
+  }
   if (page === 'pickVideo' || page === 'pickImage') {
     const folder = page === 'pickVideo' ? 'Video' : 'Images';
     const y0 = head(page === 'pickVideo' ? 'PICK A CLIP' : 'PICK A LABEL PICTURE', 'maker');
@@ -7567,6 +7599,7 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
+try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media.getFile('Images', cn).then(f => f && streamer.setCardPic(f)).catch(() => {}); } catch (e) {}   // #445 the CARD picture of last time
 window.vire = { THREE, wfx, ledFx, grab, grabLoop, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
 window.vire._laser = { laser, laserTap, camCal, camCalStart, camCalStop };   // #415 camCal test hook   // #406 test hook

@@ -951,3 +951,8 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - Dither: 8 levels a channel (was 4), ordered, from PIXELS 2 up; the darker odd lines from 5 up; none at 0 and 1.
 - TAP BPM (WALL page, RETRO-SCENE page): tap the beat; the tempo is the mean of the last 8 taps (60 to 200 BPM), each tap snaps the beat; the effects, the grab/dancer timing and the phones (getBeat / tapBpm) follow until a long press on the button hands the beat back to the music (also times out after 10 minutes). The button shows TAP <bpm>.
 - Backup backups/pre-444/. No server restart. Tested in the browser pane only.
+
+## #445 CARD page: pictures and animated GIFs on the stream card
+- STREAM > CARD now has a "+1": it puts the CARD source on air and opens the STREAM CARD page (tools page 'card'). Slot 1 is always MAIN CARD (the Cly3DJ card with the Twitch QR); the rest are everything in IMAGES (GIFs tagged GIF; thumbnails as on the other pickers). Tap one: it becomes the card (ON AIR tag when the card is the live source). The choice is remembered (localStorage 'vire.cardPic'; restored at start).
+- stream.js: Streamer.setCardPic(file) / drawCard: the picture is fitted whole on black (a QR stays square); an animated GIF lives in a hidden <img> in the page so it keeps moving, and the card redraws every 70 ms for it (1 s otherwise). It goes to Twitch and to CLY3DTV (same canvas).
+- Tested in the browser pane with a 4-frame GIF in IMAGES (it animated on the stream canvas); not on the headset or on Twitch. Backup backups/pre-445/. No server restart.
