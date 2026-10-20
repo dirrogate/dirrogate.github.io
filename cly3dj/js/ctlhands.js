@@ -13,7 +13,7 @@ const D = Math.PI / 180;
 
 // Pose numbers (degrees), open = button released, shut = fully pressed. Tuned on the PC against the Touch Plus model.
 export const POSE = {
-  index: { open: [18, 22, 12], shut: [40, 55, 35], rest: [18, 22, 12] },   // #416 rest straight again (pointing at the ball); #295 had it curled into the palm [60, 80, 45]
+  index: { open: [18, 22, 12], shut: [45, 60, 35], rest: [18, 22, 12] },   // #418 shut = full trigger squeeze   // #416 rest straight again (pointing at the ball); #295 had it curled into the palm [60, 80, 45]
   gloveSoft: 0.45,
   gloveO: { thumb: 1, swing: 0.2, roll: 0.2, index: 0.8 },   // #302 glove O: thumb turn 20 %, index curl 80 % (PC: glove tips 11 mm apart, was 33 mm with the thumb under the index)   // #301 glove mode: relaxed curls at 45 % (pressing the grip still closes the fist fully)      // on the trigger; rest = curled when not pressed (#295)
   rest: { open: [55, 75, 40], shut: [75, 85, 45] },       // middle / ring / pinky round the handle
@@ -24,6 +24,9 @@ export const POSE = {
   // (PC search: closest 38 mm); closing the O needed the index curled 47 mm away from the ball, the #293 problem.
   // Old O: { index: [25, 70, 50], thumb: [5, 30, 15], swing: 45, roll: 20 }
   O: { index: [20, 26, 14], thumb: [0, 15, 15], swing: 60, swingAxis: 'z', roll: 40 },
+  // #420 (owner): the PINCH the hand closes into once a trigger grab has latched on a knob / fader / pitch / power dial
+  // (the hand is then moved so the middle of this pinch sits on the control). Thumb and index tips meet (the #280-#292 O).
+  pinch: { index: [25, 70, 50], thumb: [5, 30, 15], swing: 45, roll: 20 },
   // where the hand sits in grip space (right hand; the left is the mirror in X; grip -Z runs along the handle toward
   // the face): back of the hand facing out (+X),
   // the knuckle line along the handle (index at the front by the trigger, pinky toward the back), the middle knuckle at `knuckle`
@@ -45,7 +48,7 @@ export function createControllerHand(handed, url, material) {
     });
     h.ready = true; h.cur = ''; place(h, handed); update(h, 0, 0, false);
   }).catch(e => console.warn('controller hand', e));
-  h.update = (t, g, th) => update(h, t, g, th);
+  h.update = (t, g, th, pin) => update(h, t, g, th, pin || 0);
   h.place = () => place(h, handed);
   return h;
 }
@@ -92,6 +95,11 @@ function place(h, handed) {
   const P = o => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).applyMatrix4(inv);
   const ip = P(it), dp = P(dj);
   h.tipRest = ip.clone().addScaledVector(ip.clone().sub(dp).normalize(), 0.006);
+  // #422 (owner) the interaction sphere sits on the INSIDE of the relaxed index finger (its pad), not the tip: half way
+  // along the last finger bone, 7 mm out on the palm side (-Y of the joint, WebXR convention). Fixed in grip space.
+  const qd = new THREE.Quaternion(); dj.getWorldQuaternion(qd);
+  h.padDir = new THREE.Vector3(0, -1, 0).applyQuaternion(qd).transformDirection(inv).normalize();
+  h.padRest = ip.clone().add(dp).multiplyScalar(0.5).addScaledVector(h.padDir, 0.007);
   h.basePos = null; h.oShift = null;
   h.cur = '';
 }
@@ -111,37 +119,46 @@ function curl(h, chain, k, deg, axis = 'x') {
 const lerp3 = (a, b, t) => a.map((x, i) => x + (b[i] - x) * t);
 const add3 = (a, b, k) => a.map((x, i) => x + b[i] * k);
 const _ta = new THREE.Vector3(), _tb = new THREE.Vector3();
-function pose(h, t, g, th, openIndex = false) {
+function pose(h, t, g, th, openIndex = false, pin = 0) {
   for (const n in h.bind) { h.bones[n].position.copy(h.bind[n].p); h.bones[n].quaternion.copy(h.bind[n].q); }
   // #280 (owner): the grip closes thumb and index into an O (record grabs, the power dial, faders and knobs look like
   // real fingers on the casts); the trigger alone curls the index (scratching). Grip wins over the trigger.
   // #284 (owner): the trigger closes the O too (knobs, faders, scratching); the grip also curls the other three fingers
-  const O = POSE.O, o = Math.max(t, g);
-  // #295 (owner): the index rests curled into the palm and only comes up to close the O on a press
-  const idx = lerp3(openIndex ? POSE.index.open : POSE.index.rest, h.soft ? O.index.map(v => v * POSE.gloveO.index) : O.index, o), rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
-  // #301 GLOVE mode: a looser relaxed hand (the robot's thick fingers crushed into each other in the full fist)
-  if (h.soft) { const k = POSE.gloveSoft; for (let j = 0; j < 3; j++) { rest[j] *= k + (1 - k) * g; if (!openIndex) idx[j] = lerp3(POSE.index.rest.map(v => v * k), O.index.map(v => v * POSE.gloveO.index), o)[j]; } }
+  // #418 (owner: the trigger moved the thumb into the palm and the index hardly moved). Back to a real controller hand:
+  // the TRIGGER curls only the index (a trigger squeeze, rest -> shut), the GRIP only the middle / ring / pinky, and the
+  // thumb only drops onto the face buttons / stick when it touches them. No O, no thumb swing or roll on a press.
+  // The touch point / ball stays the relaxed index tip fixed in grip space (h.tipRest), so the curl never moves it.
+  const k = h.soft ? POSE.gloveSoft : 1;
+  let idx = lerp3(openIndex ? POSE.index.open : POSE.index.rest.map(v => v * k), POSE.index.shut, t);   // ball measured with the unscaled open index (as before)
+  const GO = h.soft ? POSE.gloveO : { thumb: 1, swing: 1, roll: 1, index: 1 }, PI = POSE.pinch;   // #302 the glove's longer thumb turns less
+  if (pin > 0) idx = lerp3(idx, PI.index.map(v => v * GO.index), pin);   // #420 pinch on a latched control
+  const rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
+  if (h.soft) for (let j = 0; j < 3; j++) rest[j] *= k + (1 - k) * g;   // #301 glove: looser relaxed fingers, full fist on grip
   for (const f of FINGERS) { const c = CH(f), a = f === 'index-finger' ? idx : rest; for (let j = 0; j < 3; j++) curl(h, c, j + 1, a[j]); }
-  // #293 (owner): the thumb moves naturally again (#292 had it fixed in the O); the ball is back on the index tip
-  // #302 glove: its thumb is longer than the skin hand's, so its O uses a smaller thumb turn (POSE.gloveO) or it slid under the index
-  const GO = h.soft ? POSE.gloveO : { thumb: 1, swing: 1, roll: 1, index: 1 };
-  const tp = lerp3(th ? POSE.thumb.down : POSE.thumb.open, O.thumb.map(v => v * GO.thumb), o);
-  if (O.swing) curl(h, THUMB, 0, O.swing * GO.swing * o * (h.handed === 'left' ? -1 : 1), O.swingAxis || 'z');   // thumb across toward the index
-  if (O.roll) curl(h, THUMB, 0, O.roll * GO.roll * o * (h.handed === 'left' ? -1 : 1), 'y');
+  let tp = th ? POSE.thumb.down : POSE.thumb.open;
+  if (pin > 0) {
+    const sg = h.handed === 'left' ? -1 : 1;
+    tp = lerp3(tp, PI.thumb.map(v => v * GO.thumb), pin);
+    curl(h, THUMB, 0, PI.swing * GO.swing * pin * sg, 'z');   // thumb across toward the index
+    curl(h, THUMB, 0, PI.roll * GO.roll * pin * sg, 'y');
+  }
   for (let j = 0; j < 3; j++) curl(h, THUMB, j, tp[j]);
 }
 const _t = new THREE.Vector3(), _d = new THREE.Vector3(), _inv = new THREE.Matrix4();
-function update(h, t, g, th) {
+function update(h, t, g, th, pin = 0) {
   if (!h.ready) return;
-  const key = `${t.toFixed(2)}|${g.toFixed(2)}|${th ? 1 : 0}`; if (key === h.cur) return; h.cur = key;
-  pose(h, t, g, th);
+  const key = `${t.toFixed(2)}|${g.toFixed(2)}|${th ? 1 : 0}|${pin.toFixed(2)}`; if (key === h.cur) return; h.cur = key;
+  pose(h, t, g, th, false, pin);
   // #280 / #289 the blue ball and the touch point follow the thumb tip (6 mm past the tip joint, which is inside the
   // skin), in the hand root's space (= grip space)
   h.holder.updateMatrix();
   const tb = h.bones['index-finger-tip'], db = h.bones['index-finger-phalanx-distal'];   // #293 the index tip again
   tb.updateWorldMatrix(true, false); db.updateWorldMatrix(true, false); _inv.copy(h.root.matrixWorld).invert();
   _t.setFromMatrixPosition(tb.matrixWorld).applyMatrix4(_inv); _d.setFromMatrixPosition(db.matrixWorld).applyMatrix4(_inv);
-  (h.tipLive || (h.tipLive = new THREE.Vector3())).copy(_t).addScaledVector(_d.subVectors(_t, _d).normalize(), 0.006);
+  (h.tipLive || (h.tipLive = new THREE.Vector3())).copy(_t);   // #420 the ball sits ON the drawn fingertip (was 6 mm past it, in the air)
+  (h.tipBall || (h.tipBall = new THREE.Vector3())).copy(_t).addScaledVector(_d.subVectors(_t, _d).normalize(), 0.010);   // #421 (owner) the ball 1 cm ahead of the 3D hand's fingertip, along the last finger bone
+  const th2 = h.bones['thumb-tip']; th2.updateWorldMatrix(true, false);
+  (h.thumbLive || (h.thumbLive = new THREE.Vector3())).setFromMatrixPosition(th2.matrixWorld).applyMatrix4(_inv);   // #420 for the pinch centre
 }
 
 // #300 (owner: the glove looked mangled / squashed). The glove follows the skin hand's 25 joints through robot2.js's
@@ -249,4 +266,28 @@ export function chromePads(mat) {
   };
   mat.customProgramCacheKey = () => 'vire-glove-chrome';
   mat.needsUpdate = true;
+}
+
+// #420 the glove's own drawn fingertips (its fingers are longer than the skin hand's, #287): the farthest skinned vertex
+// of Index_Distal (robot2's H.tip) and of Thumb_Distal, in world space
+const _gm = new THREE.Vector3();
+function boneTipLocal(H, name) {
+  const mesh = H.mesh; if (!mesh) return null;
+  const sk = mesh.skeleton, di = sk.bones.findIndex(b => b.name.replace(/_\d+$/, '') === name); if (di < 0) return null;
+  const M = sk.boneInverses[di].clone().multiply(mesh.bindMatrix), g = mesh.geometry, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, pa = g.attributes.position;
+  let best = null, bl = -1;
+  for (let k = 0; k < pa.count; k++) {
+    let b = 0, bw = -1; for (let c = 0; c < 4; c++) { const wv = sw.getComponent(k, c); if (wv > bw) { bw = wv; b = si.getComponent(k, c); } }
+    if (b !== di) continue; _gm.fromBufferAttribute(pa, k).applyMatrix4(M); const l = _gm.length(); if (l > bl) { bl = l; best = _gm.clone(); }
+  }
+  return best;
+}
+export function gloveTips(H, outIndex, outThumb) {
+  if (!H || !H.B || !H.B.Index_Distal || !H.B.Thumb_Distal) return false;
+  if (!H.tipIdx) H.tipIdx = H.tip || boneTipLocal(H, 'Index_Distal') || new THREE.Vector3(0, 0, 0.025);
+  if (!H.tipThumb) H.tipThumb = boneTipLocal(H, 'Thumb_Distal') || new THREE.Vector3(0, 0, 0.02);
+  H.B.Index_Distal.updateWorldMatrix(true, false); H.B.Thumb_Distal.updateWorldMatrix(true, false);
+  outIndex.copy(H.tipIdx).applyMatrix4(H.B.Index_Distal.matrixWorld);
+  if (outThumb) outThumb.copy(H.tipThumb).applyMatrix4(H.B.Thumb_Distal.matrixWorld);
+  return true;
 }

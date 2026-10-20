@@ -276,6 +276,13 @@ function mixButtons(parent, specs, top) {
 }
 
 // ---------- record ----------
+// #440: culling stays on (off-screen things cost nothing) but the bounding sphere gets a margin, so the canted Quest
+// eye frustums never clip a piece that is still just inside the view. Padded once per geometry.
+export function padCull(o, m = 0.3) {
+  const g = o.geometry; if (!g || g.userData.padded) return;
+  if (!g.boundingSphere) g.computeBoundingSphere();
+  g.boundingSphere.radius += m; g.userData.padded = true; o.frustumCulled = true;
+}
 export class Record3D {
   constructor(rec) {
     this.rec = rec;
@@ -294,7 +301,7 @@ export class Record3D {
     this.edgeMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.4 });
     this.matA = mk(); this.matB = mk();
     this.mesh = new THREE.Mesh(geo, [this.edgeMat, this.matA, this.matB]);
-    this.mesh.castShadow = true;
+    this.mesh.castShadow = true; padCull(this.mesh);   // #440 wider cull margin at the headset's edges
     this.mesh.userData.record = this;
     this.disc.add(this.mesh);
     this.sideUp = rec.sides.A ? 'A' : 'B';
@@ -628,6 +635,7 @@ diffuseColor.rgb = diffuseColor.rgb * vireHs * 1.5 + vec3(0.45) * smoothstep(0.7
   const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.075), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
   scr.position.set(0, 0, TABLET_T / 2 - REC_D + 0.0001);   // #201 on the recess floor, 1 mm below the bezel
   tab.add(scr); u.screen = scr; scr.userData.mixScreen = true;   // BPM / ORIG / KEY readout taps (#116)
+  tab.traverse(o => { if (o.isMesh) padCull(o); });   // #440
   u.tablet = tab; u.tabletDock = { p: tab.position.clone(), q: tab.quaternion.clone() };
   const slot = box(0.206, 0.0012, 0.016, new THREE.MeshStandardMaterial({ color: 0x030303, roughness: 0.95, metalness: 0 }));   // the slot (1.2 mm)
   slot.position.set(0, top + 0.0006, -0.168); slot.raycast = () => {}; g.add(slot);

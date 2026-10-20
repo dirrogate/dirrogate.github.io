@@ -4,7 +4,7 @@
 // until scaled into deck-local metres.
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
-import { makeLED, DECK, MAT } from './models.js';
+import { makeLED, DECK, MAT, padCull } from './models.js';
 import { strobeDotTexture, glowTexture, satinSteel } from './textures.js';
 import { mergeStatic } from './merge.js';
 
@@ -339,7 +339,7 @@ export function makeGlbDeck(name) {
   const platterSurfaceY = 16.93 * S + OFF.y;
   u.platter = pivotGroup(g, new THREE.Vector3(DECK.spindle.x, platterSurfaceY, DECK.spindle.z), platterParts);
   u.platterSurface = platterSurfaceY + 0.0015; // record floats 1.5 mm up so it never z-fights the mat in the headset
-  u.slipmat = []; u.platter.traverse(o => { if (o.isMesh && o.material === MAT.felt) u.slipmat.push(o); });
+  u.slipmat = []; u.platter.traverse(o => { if (o.isMesh && o.material === MAT.felt) { u.slipmat.push(o); padCull(o); } });   // #440
   // owner's slipmats: left deck (A) and right deck (B)
   {
     const tex = new THREE.TextureLoader().load(new URL(`../models/slipmat_${name === 'A' ? 'left' : 'right'}.jpg`, import.meta.url).href);

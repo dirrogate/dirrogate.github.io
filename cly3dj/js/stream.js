@@ -167,7 +167,7 @@ export class Streamer {
     this.pc = null; this.vSender = null; this.aTrack = null; this.vTrack = null; this.camStream = null;
     this.canvas = document.createElement('canvas'); this.canvas.width = 1280; this.canvas.height = 720;
     this.g = this.canvas.getContext('2d');
-    this.canvasTrack = null; this.cardT = 0; this.frameT = 0; this.busy = false; this.camN = -1;
+    this.canvasTrack = null; this.cardT = 0; this.frameT = 0; this.busy = false; this.camN = -1; this.cardPic = null;   // #445 cardPic: a picture / GIF on the CARD instead of the main card
     this.fit = { ...FIT_DEF, ...(lsJ(FIT) || {}) };
     this.testing = false;   // CAM FIT TEST: the MR picture runs off air, for lining up
     this.rehearse = false;
@@ -440,8 +440,26 @@ export class Streamer {
     this.env.onChange && this.env.onChange();
   }
 
-  drawCard(now) {   // ~1 fps redraw, the encoder gets a frame every 100 ms so Twitch never sees a stall
+  // #445 a picture or an animated GIF on the CARD (sponsor message, theme night, a QR code); null = the main card again
+  setCardPic(file) {
+    const o = this.cardPic; if (o) { URL.revokeObjectURL(o.url); if (o.el.parentNode) o.el.remove(); }
+    this.cardPic = null; this.cardT = 0;
+    if (!file) { this.env.onChange && this.env.onChange(); return Promise.resolve(false); }
+    const url = URL.createObjectURL(file), el = new Image(), gif = /gif$/i.test(file.type) || /\.gif$/i.test(file.name);
+    el.style.cssText = 'position:fixed;left:-20000px;top:0;width:8px;height:8px;opacity:0.01;pointer-events:none';
+    if (gif) document.body.appendChild(el);   // an animated GIF only moves while it is in the page
+    return new Promise(res => {
+      el.onload = () => { this.cardPic = { el, url, gif, name: file.name }; this.cardT = 0; this.env.onChange && this.env.onChange(); res(true); };
+      el.onerror = () => { URL.revokeObjectURL(url); if (el.parentNode) el.remove(); res(false); };
+      el.src = url;
+    });
+  }
+  drawCard(now) {   // ~1 fps redraw, the encoder gets a frame every 100 ms so Twitch never sees a stall (a GIF: every 70 ms)
     const g = this.g, W = 1280, H = 720;
+    if (this.cardPic) {   // the whole picture on black
+      const im = this.cardPic.el, iw = im.naturalWidth || 1, ih = im.naturalHeight || 1, k = Math.min(W / iw, H / ih);
+      g.fillStyle = '#000'; g.fillRect(0, 0, W, H); g.drawImage(im, (W - iw * k) / 2, (H - ih * k) / 2, iw * k, ih * k); return;
+    }
     const gr = g.createRadialGradient(640, 300, 40, 640, 360, 780); gr.addColorStop(0, '#1b2233'); gr.addColorStop(1, '#05070c');
     g.fillStyle = gr; g.fillRect(0, 0, W, H);
     g.textBaseline = 'middle'; g.font = '800 150px system-ui,sans-serif';
@@ -890,7 +908,7 @@ export class Streamer {
     if (this.source === 'show' || (this.stuRun && (this.source === 'pcam' || this.source === 'phone'))) this._showTick(now);
     else if (this.source === 'pcam') this._pcamTick(now);
     else if (this.source === 'card') {
-      if (now - this.cardT > 1000) { this.cardT = now; this.drawCard(now); }
+      if (now - this.cardT > (this.cardPic && this.cardPic.gif ? 70 : 1000)) { this.cardT = now; this.drawCard(now); }
       if (now - this.frameT > 100 && this.canvasTrack) { this.frameT = now; this.canvasTrack.requestFrame(); }
     } else if (this.source === 'avacam') this._avacamFrame();
     if (this.live && now - (this.statT || 0) > 2000) { this.statT = now; this._stats(); }

@@ -67,6 +67,17 @@ const MU_FINGER = 0.6;             // skin on the platter's dotted rim
 const HAND_DOWN = 2.0;             // N: a DJ's hand pressing on the record while holding / scratching
 const HAND_HZ = 60;                // hand-to-record coupling stiffness (critically damped)
 const HAND_LOOKAHEAD = 0.03;       // s: dead-reckon the hand between video-frame messages, at most this far
+// #423 (owner: warbling while holding / back-cueing). The hand arrives once per headset frame (72 Hz) with tracking
+// jitter; jumping the spring's target to each new reading (plus a velocity guess from frame-to-frame differences)
+// shook the record at 72 Hz. Now the target CHASES each reading over one frame interval at constant speed (a smooth,
+// piecewise-linear path, ~1 frame behind), aimed HAND_PRED of a frame ahead along the hand's (filtered) speed so the
+// delay is made up. main.js filters the angle (one-euro) before sending it.
+const HAND_PRED = 1.0;
+// #423 better still: readings stamped with the headset frame's display time (m.t, ms) are played back on the audio
+// clock at a fixed small delay and interpolated between, so uneven delivery (main-thread / message timing) no longer
+// turns into speed wobble. The clock offset is the fastest delivery seen (it creeps up slowly to follow drift).
+const HAND_DELAY = 0.008;          // s of safety margin past the fastest delivery
+const HAND_EXTRA = 0.03;           // s: a late reading is extrapolated at most this far, then the hand holds
 const BRAKE_KNEE = 0.08 * W33;     // electronic brake: full torque above this speed, proportional below
 const BRAKE_OFF = 0.005 * W33;     // brake releases here; the platter is then free (spin it by hand)
 // Brake strength as a share of the motor's torque limit. The MK2 service manual only says "electronic brake";
@@ -95,6 +106,9 @@ class Deck {
     this.wp = 0; this.wr = 0; this.thp = 0; this.thr = 0; this.phi = 0; this.refCur = 0;
     this.hasRec = false; this.stuck = false; this.slipDir = 1; this.braking = false; this.starting = false;
     this.handOn = false; this.handAng = 0; this.handW = 0; this.handAge = 0; this.handOff = 0;
+    this.hT = 0; this.hV = 0; this.hInt = 1 / 72; this.hChase = false;   // #423 chased hand target
+    this.fricK = 1; this.nudgeK = 1; this.spinK = 1;   // #423 TURNTABLE FEEL: slipmat friction, rim nudge, spindle pinch (1 = as built)
+    this.hq = []; this.hOff = null; this.hClock = 0;   // #423 stamped readings (display s, angle), clock offset, audio clock
     this.grip = 50;   // N m: far above any real finger, so the record never slides under a tracked hand (the hand is the truth in VR)
     this.quietPhi = 0; this.wasDisturbed = false; this.load = 0; this.matT = 0;
     this.setRecord(0.18);
@@ -118,6 +132,7 @@ class Deck {
 
   // ---- one audio sample of turntable physics. Returns the record's rate (1 = 33 1/3 rpm).
   step(dt, handK, touchK) {
+    this.hClock += dt;   // #423 audio clock for stamped hand readings
     if (this.model === 'legacy') return this.stepLegacy(dt, handK, touchK);
     const P = this.P, Ip = P.I;
     // #319 spindle twist: the fingers carry the platter (and a record gripping the mat) round by the twisted angle,
@@ -167,11 +182,11 @@ class Deck {
     if (this.touch) {   // finger on the rim: friction pulls the platter edge toward the finger's speed
       // #272 (owner: a nudge moved the record twice as far as wanted): the finger counts for half its speed
       // difference from the motor's speed, so a push or a drag shifts the beat half as much
-      const ref = on ? this.refCur : this.wp, fw = ref + RIM_NUDGE_GAIN * (this.touchRate * W33 - ref);
+      const ref = on ? this.refCur : this.wp, fw = ref + Math.min(1, RIM_NUDGE_GAIN * this.nudgeK) * (this.touchRate * W33 - ref);   // #423 NUDGE AMOUNT
       const vrel = (fw - this.wp) * R_PLATTER;
-      tp += MU_FINGER * this.touchF * Math.tanh(vrel / 0.02) * R_PLATTER;
+      tp += MU_FINGER * this.touchF * this.nudgeK * Math.tanh(vrel / 0.02) * R_PLATTER;
     }
-    if (this.spinOn) tp += SPIN_T * Math.tanh((this.spinRate * W33 - this.wp) / SPIN_SLIP);   // #322 pinch on the spindle
+    if (this.spinOn) tp += SPIN_T * this.spinK * Math.tanh((this.spinRate * W33 - this.wp) / SPIN_SLIP);   // #322 pinch on the spindle
     let disturbed = this.touch || this.spinOn;
     // #364 (owner) no record: a hand on the bare slipmat holds the MAT (25 g felt) while the platter spins under it,
     // the same slip friction as with a record but with only the mat's weight + the hand pressing it down
@@ -182,15 +197,30 @@ class Deck {
       const kH = mat ? IR_MAT * Math.pow(2 * Math.PI * HAND_HZ, 2) : this.kHand, cH = mat ? 2 * Math.sqrt(kH * IR_MAT) : this.cHand;
       let tr = mat ? 0 : -STYLUS_DRAG * this.needleGain * Math.tanh(this.wr / 0.05);
       if (this.handOn) {   // the hand holds / moves the record through a stiff spring, limited by grip
-        const tgt = this.handAng + this.handOff + this.handW * Math.min(this.handAge, HAND_LOOKAHEAD);
+        let tgt, tw;
+        if (this.hq.length) {   // #423 stamped: interpolate at (audio time - offset - delay) on the display clock
+          const q = this.hq, tq = this.hClock - this.hOff - HAND_DELAY;
+          while (q.length > 2 && q[1].t <= tq) q.shift();
+          let a, v;
+          if (q.length === 1) { a = q[0].a; v = 0; }
+          else {
+            const A = q[0], B = q[1], span = Math.max(1e-4, B.t - A.t); v = (B.a - A.a) / span;
+            if (tq <= B.t) a = A.a + v * Math.max(0, tq - A.t);
+            else { const L = q[q.length - 1], P = q[q.length - 2], vl = (L.a - P.a) / Math.max(1e-4, L.t - P.t), ex = tq - L.t; a = L.a + vl * Math.min(ex, HAND_EXTRA); v = ex < HAND_EXTRA ? vl : 0; }
+          }
+          tgt = a + this.handOff; tw = v; this.hT = tgt; this.hV = v;
+        } else if (this.hChase) {   // #423
+          if (this.handAge < 1.5 * this.hInt) this.hT += this.hV * dt; else this.hV = 0;   // reading late: hold where it got to
+          tgt = this.hT; tw = this.hV;
+        } else { tgt = this.handAng + this.handOff + this.handW * Math.min(this.handAge, HAND_LOOKAHEAD); tw = this.handW; }
         this.handAge += dt;
-        let th = kH * (tgt - this.thr) + cH * (this.handW - this.wr);
-        if (th > this.grip) { this.handOff -= (th - this.grip) / kH; th = this.grip; }        // the record slides under the fingers
-        else if (th < -this.grip) { this.handOff -= (th + this.grip) / kH; th = -this.grip; }
+        let th = kH * (tgt - this.thr) + cH * (tw - this.wr);
+        if (th > this.grip) { const x = (th - this.grip) / kH; this.handOff -= x; this.hT -= x; th = this.grip; }        // the record slides under the fingers
+        else if (th < -this.grip) { const x = (th + this.grip) / kH; this.handOff -= x; this.hT -= x; th = -this.grip; }
         tr += th; disturbed = true;
       }
       const N = (mat ? MAT_MASS : this.mTot) * GRAV + (this.handOn ? HAND_DOWN : 0);
-      const Ts = this.mat.muS * N * R_EFF, Tk = this.mat.muK * N * R_EFF;
+      const Ts = this.mat.muS * this.fricK * N * R_EFF, Tk = this.mat.muK * this.fricK * N * R_EFF;   // #423 PLATTER FRICTION
       if (this.stuck) {
         const a = (tp + tr) / (Ip + Ir), need = Ir * a - tr;   // torque the mat must pass to the record
         if (Math.abs(need) <= Ts) { this.wp += a * dt; this.wr = this.wp; this.matT = need; }
@@ -289,9 +319,19 @@ class Decks extends AudioWorkletProcessor {
         if (m.holding) {
           const w = (m.rate || 0) * W33;
           if (m.ang != null) {
-            if (!d.handOn) d.handOff = d.thr - m.ang;   // grab: no jump, the record is held where it is
-            d.handAng = m.ang;
-          } else { if (!d.handOn) { d.handOff = d.thr; d.handAng = 0; } else d.handAng += d.handW * d.handAge; }
+            if (m.t != null) {   // #423 stamped reading
+              const ts = m.t / 1000, off = d.hClock - ts;
+              d.hOff = d.hOff == null || !d.handOn ? off : Math.min(off, d.hOff + 2e-4);
+              if (!d.handOn) d.hq.length = 0;
+              d.hq.push({ t: ts, a: m.ang }); if (d.hq.length > 12) d.hq.shift();
+            } else d.hq.length = 0;
+            if (!d.handOn) { d.handOff = d.thr - m.ang; d.hT = d.thr; d.hV = d.wr; }   // grab: no jump, the record is held where it is
+            else {   // #423 chase the new reading over one frame interval, aimed HAND_PRED of a frame ahead
+              d.hInt += (Math.min(0.05, Math.max(0.005, d.handAge)) - d.hInt) * 0.2;
+              d.hV = (m.ang + d.handOff + HAND_PRED * w * d.hInt - d.hT) / d.hInt;
+            }
+            d.hChase = true; d.handAng = m.ang;
+          } else { d.hChase = false; if (!d.handOn) { d.handOff = d.thr; d.handAng = 0; } else d.handAng += d.handW * d.handAge; }
           d.handW = w; d.handAge = 0; d.handOn = true;
           if (m.grip != null) d.grip = m.grip;
         } else {
@@ -331,6 +371,7 @@ class Decks extends AudioWorkletProcessor {
     if (m.mat && MATS[m.mat]) d.mat = MATS[m.mat];
     if (m.recMass) { d.massSetting = m.recMass; if (!d.is7) d.setRecord(m.recMass); }   // #261 a 45 keeps its own weight
     if (m.pll != null) d.pll = !!m.pll;
+    if (m.fricK != null) d.fricK = m.fricK; if (m.nudgeK != null) d.nudgeK = m.nudgeK; if (m.spinK != null) d.spinK = m.spinK;   // #423
   }
 
   // LOCK phase step (#116): nudge-only, to the NEAREST beat. Beat positions come from the DJ's BEAT 1 taps

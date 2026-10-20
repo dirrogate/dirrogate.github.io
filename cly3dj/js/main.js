@@ -8,6 +8,7 @@ import { REC, REC7, dimsOf, timeToRadius, radiusToTime, Screen, fitText, drawRec
 import { setupXR } from './xr.js';
 import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeNeon } from './neon.js';
 import { makeLedWall, LedPlayer, LED } from './ledwall.js';
+import { WallFx, LOOP, RP_DEF, MP_DEF, FX_W, FX_H, PX_DEF, pxSize, OUT_W, OUT_H } from './wallfx.js';   // #439 MANDEL / RETRO-SCENE on the LED wall (and the phones)
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose, AV_LAYER } from './director.js';
 import { Streamer, SOURCES as STREAM_SRC, streamKey, STUDIO_MODES } from './stream.js';   // #380 STUDIO_MODES
 import { KEY_LABEL } from './keycol.js';   // #347 key colour names   // #331 LIVE STREAM (Twitch)
@@ -22,6 +23,8 @@ import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
 import { Portals } from './portal.js';   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
 import { Beat } from './beat.js';   // #346 bass onsets on the master for the wall's BEAT
+import { DirroHost, initRelayFromUrl, fanUrl, relayUrl, roomKey, WALL_SRC, WALL_LABEL, WALL_COLS } from './dirro-host.js';   // #427 DIRROGRAM: the show to the audience phones
+import qrcode from '../vendor/qrcode/qrcode.mjs';   // #427 the room's QR (MIT, Kazuhiko Arase)
 import { RobotAvatar } from './robot.js';
 import { RobotAvatar2, ROBOT_GLB } from './robot2.js';
 import { applyNeon } from './neonenv.js';   // #355 NEON CHROME   // #245 the licensed AvatarRobot (EntroPi Games)
@@ -42,7 +45,7 @@ import { loadCaseKit } from './flightcase.js';
 import { setRecordTexSize } from './textures.js';
 import {
   initMaterials, MAT, tabletBodyMat, TABLET_T, makeDeck, makeButton, makeMixer, makeCrate, makeMilkCrate, loadMilkCrate, loadMilkCrateBaked, upgradeMilkCrate, loadRecordCrateBaked, upgradeRecordCrate, loadMixerParts, initKTX2, loadBaked, MILK_CREDIT, Record3D, armYawForRadius,
-  DECK, MIX, CRATE, MILK, W33, ARM, LID,
+  DECK, MIX, CRATE, MILK, W33, ARM, LID, padCull,
 } from './models.js';
 
 const $ = s => document.querySelector(s);
@@ -58,6 +61,8 @@ if (settings.env === 'camera') settings.env = 'studio'; // camera snapshots remo
 // #114: Recording-friendly mode removed (always 90 Hz, 'interactive' audio); the owner records with the Quest
 // recorder's mic off, so the voice goes through the mixer; wired headphones, so no echo cancelling by default
 if (!settings.mig114) { delete settings.perf; settings.micRoute = 'app'; settings.micEcho = false; settings.mig114 = 1; saveSettings(); }
+let dirro = null, dirroRoomT = 0, smsPg = 0;
+const dirroMark = { want: '', t0: 0, prev: {} };   // #438 MARK LEFT / RIGHT: the next trigger press records the controller tip   // #435 smsPg: HOLOSMS page   // #427 DirroHost, set up at the end of start-up
 let spect = null, spectErrShown = false;   // #158 spectator host (declared early: drawMixScreen reads it, #164)
 function saveSettings() { try { localStorage.setItem('vire.settings', JSON.stringify(settings)); } catch {} }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -589,14 +594,14 @@ function onLiveTrack(t) {
 }
 const livePossible = () => !!(liveTrack && spect && spect.ui && spect.ui().phone);
 function isLive(m) { return m === 'live' || m === 'solo'; }   // #239 SOLO = the phone's camera only, no gear
-function nextLedMode(m) {   // OFF > CLIPS > VIDVINYL ('decks') > AVACAM ('cam', #240 names) > LIVE > SOLO (the last two only with the phone linked) > OFF
-  const order = ['off', 'clips', 'decks', 'cam', 'live', 'solo', 'screen'];   // #358 PHONE SCREEN only while the phone shares
+function nextLedMode(m) {   // OFF > CLIPS > VIDVINYL ('decks') > MANDEL > RETRO-SCENE (#439) > AVACAM ('cam', #240 names) > LIVE > SOLO (the last two only with the phone linked) > OFF
+  const order = ['off', 'clips', 'decks', 'mandel', 'retro', 'vdancer', 'meta', 'cam', 'live', 'solo', 'screen'];   // #358 PHONE SCREEN only while the phone shares
   let i = order.indexOf(m);
   for (let k = 0; k < order.length; k++) { i = (i + 1) % order.length; const o = order[i]; if (o === 'screen' ? phoneScreen && livePossible() : !isLive(o) || livePossible()) return o; }
   return 'off';
 }
-function clipsMode() { if (isLive(ledMode) && spect && spect.liveCam && !streamPhone()) spect.liveCam(false); ledMode = 'clips'; }   // #238 a clip from the LED list ends LIVE
-const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED VIDVINYL', cam: 'LED AVACAM', live: 'LED LIVE', solo: 'LED SOLO', screen: 'LED PHONE SCREEN' };
+function clipsMode() { if (isLive(ledMode) && spect && spect.liveCam && !streamPhone()) spect.liveCam(false); ledMode = 'clips'; led.kind = null; fxTex = null; }   // #238 a clip from the LED list ends LIVE
+const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED VIDVINYL', mandel: 'LED MANDEL', retro: 'LED RETRO-SCENE', card: 'LED CARD', vdancer: 'LED VECTOR-DANCER', meta: 'LED METABALLS', cam: 'LED AVACAM', live: 'LED LIVE', solo: 'LED SOLO', screen: 'LED PHONE SCREEN' };
 let phoneScreen = false;   // #358 the spectator phone is sharing its screen (its video slot carries it)
 function onPhoneScreen(on) {
   phoneScreen = on;
@@ -604,8 +609,202 @@ function onPhoneScreen(on) {
   else if (ledMode === 'screen') setLedMode('off');
   drawMixScreen();
 }
-function setLedMode(m) {
-  if (m === 'clips' && !led.hasFiles) m = 'decks';
+// #439 MANDEL and RETRO-SCENE (wallfx.js): one 160 x 90 picture, drawn 4x up with the LED grid / dot / glow (the
+// DIRROGRAM page's, shared) into fxBig, which is the 3D wall's picture and the stream's / CLY3DTV's VIDEOWALL. The
+// phones on FOLLOW draw their own copy from the same clock and beat. RETRO-SCENE = the op-art dancer, and every 8 bars
+// a GRAB LOOP (5 s of headset camera) when there is one. AUTO swaps MANDEL and RETRO-SCENE every 16 or 32 bars.
+const wfx = new WallFx();
+const fxBig = Object.assign(document.createElement('canvas'), { width: OUT_W, height: OUT_H }), fxBigG = fxBig.getContext('2d');
+let fxTex = null, fxMask = null, fxMaskK = '';
+const ledFx = { t0: 0, s: 'dancer', sBar: 0, bar: 0, autoBar: 0, loop: null, li: 0, loopT0: 0, auto: 0 };
+try { ledFx.auto = +localStorage.getItem('vire.wallAuto') || 0; } catch (e) {}
+const grab = { on: false, n: 0, loops: [] };   // GRAB LOOP: the last 4, this session only
+// #444 PIXELS 0 to 10: the render size of the wall visuals and the LED grid with it (wallfx.js PX); the slider sets both
+let wallPx = PX_DEF, wallPxApplied = false;
+try { const v = localStorage.getItem('vire.wallPx'); if (v !== null) wallPx = Math.max(0, Math.min(10, +v | 0)); } catch (e) {}
+function setWallPx(l) {
+  wallPx = Math.max(0, Math.min(10, Math.round(l))); wallPxApplied = true;
+  try { localStorage.setItem('vire.wallPx', String(wallPx)); localStorage.setItem('vire.wallPxA', '1'); } catch (e) {}
+  if (dirro) dirro.setWall('cols', pxSize(wallPx)[2]);
+  fxMaskK = ''; if (isFxMode(ledMode)) fxPaint(); drawMixScreen();
+}
+// #446 the CARD page's picture / animated GIF on the LED wall too (ledMode 'card'). A still goes to the phones as the usual LED picture (512 x 288 JPEG);
+// a GIF is cut to at most 64 frames on the grab loops' sprite sheet (112 x 63 a cell, a JPEG under 60 KB for the phones; 224 x 126 for the Quest), keeping its timing
+const cardWall = { on: true, file: null, name: '', pic: null, loop: null, prev: 'off' };
+try { cardWall.on = localStorage.getItem('vire.cardWall') !== '0'; } catch (e) {}
+async function gifLoop(file) {
+  const dec = new ImageDecoder({ data: await file.arrayBuffer(), type: 'image/gif' }); await dec.tracks.ready;
+  const total = dec.tracks.selectedTrack.frameCount; if (!total) throw new Error('no frames');
+  const N = Math.min(LOOP.n, total), pick = new Set(Array.from({ length: N }, (_, k) => Math.floor(k * total / N)));
+  const mk = (w, h) => { const c = Object.assign(document.createElement('canvas'), { width: w * LOOP.cols, height: h * LOOP.rows }), g = c.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, c.width, c.height); return [c, g]; };
+  const [sheet, sg] = mk(LOOP.W2, LOOP.H2), [small, smg] = mk(LOOP.w, LOOP.h);
+  let ms = 0, n = 0;
+  for (let i = 0; i < total; i++) {
+    const r = await dec.decode({ frameIndex: i }), im = r.image; ms += (im.duration || 100000) / 1000;
+    if (pick.has(i)) {
+      const iw = im.displayWidth || im.codedWidth, ih = im.displayHeight || im.codedHeight;
+      const cell = (cw, ch, cg) => { const k = Math.min(cw / iw, ch / ih), w = iw * k, h = ih * k; cg.drawImage(im, (n % LOOP.cols) * cw + (cw - w) / 2, Math.floor(n / LOOP.cols) * ch + (ch - h) / 2, w, h); };
+      cell(LOOP.W2, LOOP.H2, sg); cell(LOOP.w, LOOP.h, smg); n++;
+    }
+    im.close();
+  }
+  dec.close && dec.close();
+  let d = ''; for (const q of [0.8, 0.65, 0.5, 0.4, 0.3, 0.22, 0.15]) { d = small.toDataURL('image/jpeg', q); if (d.length < 60000) break; }
+  return { id: 'G' + (file.size % 99991).toString(36) + file.name.length.toString(36) + Date.now().toString(36).slice(-4), sheet, d: d.length < 60000 ? d : '', n, fps: Math.max(2, Math.min(24, n / Math.max(0.2, ms / 1000))) };
+}
+async function cardWallSet(file, show = true) {   // the CARD page's pick (null = back to the main card) as a LED wall source
+  if (cardWall.pic && cardWall.pic.close) cardWall.pic.close();
+  cardWall.pic = null; cardWall.loop = null; cardWall.file = file || null; cardWall.name = file ? file.name : '';
+  if (!file) { if (ledMode === 'card') setLedMode(cardWall.prev && cardWall.prev !== 'card' ? cardWall.prev : 'off'); return; }
+  if ((/\.gif$/i.test(file.name) || file.type === 'image/gif') && typeof ImageDecoder !== 'undefined') {
+    toast('Preparing the GIF for the LED wall…', 2000);
+    try { cardWall.loop = await gifLoop(file); } catch (e) { console.warn('GIF for the LED wall', e); }
+  }
+  if (!cardWall.loop) { try { cardWall.pic = await createImageBitmap(file); } catch (e) { toast('That picture would not open for the LED wall', 2500); return; } }
+  if (cardWall.file !== file) return;   // another pick came meanwhile
+  if (show && cardWall.on) { if (ledMode !== 'card') cardWall.prev = ledMode; setLedMode('card'); ledFx.loopT0 = performance.now(); }
+  else drawMixScreen();
+}
+// #444 TAP BPM: the VJ taps the beat in; the effects (and the phones) run on it until a long press hands them back to the music
+const wtap = { t: [], iv: 0, anchor: 0, last: 0, n: 0 };
+const wtapOn = () => !!wtap.iv && performance.now() - wtap.last < 600000;
+function tapWall() {
+  const now = performance.now(); if (wtap.t.length && now - wtap.t[wtap.t.length - 1] > 2000) wtap.t = [];
+  wtap.t.push(now); if (wtap.t.length > 8) wtap.t.shift();
+  if (wtap.t.length >= 2) wtap.iv = Math.max(300, Math.min(1000, (wtap.t[wtap.t.length - 1] - wtap.t[0]) / (wtap.t.length - 1)));
+  if (wtap.iv) { if (wtapOn()) wtap.n = Math.round(wtap.n + (now - wtap.anchor) / wtap.iv); wtap.anchor = now; }   // the tap is a beat: snap to it
+  wtap.last = now; drawMixScreen();
+}
+function tapClear() { wtap.t = []; wtap.iv = 0; toast('TAP BPM off: the effects follow the music again', 2500); drawMixScreen(); }
+const tapLbl = () => (wtapOn() ? 'TAP ' + Math.round(60000 / wtap.iv) : wtap.t.length ? 'TAP…' : 'TAP BPM');
+function tapBeat() { if (!wtapOn()) return null; const k = Math.floor((performance.now() - wtap.anchor) / wtap.iv); return { count: wtap.n + k, last: wtap.anchor + k * wtap.iv }; }
+const isFxMode = m => m === 'mandel' || m === 'retro' || m === 'vdancer' || m === 'meta' || m === 'card';
+// #442 VECTOR-DANCER: moire rings through a matte (white on black) clip, 6 slots (slot 1 is the bundled DANCER 1; the rest load from VISUALS > Video)
+const VD_SLOTS = 6, VD_BUILTIN = 'mattes/matte1.mp4';
+const vd = { rp: { ...RP_DEF }, mp: { ...MP_DEF }, slots: ['@builtin', '', '', '', '', ''], sel: 0, pick: null, ok: false, vid: null, cv: null, g: null, url: '', cur: null, mask: new Uint8Array(FX_W * FX_H) };
+try { const o = JSON.parse(localStorage.getItem('vire.vd') || '{}'); if (o.rp) Object.assign(vd.rp, o.rp); if (o.mp) Object.assign(vd.mp, o.mp); if (Array.isArray(o.slots) && o.slots.length === VD_SLOTS) vd.slots = o.slots.map(x => (typeof x === 'string' ? x : '')); if (typeof o.sel === 'number') vd.sel = o.sel; } catch (e) {}
+function vdSave() { try { localStorage.setItem('vire.vd', JSON.stringify({ rp: vd.rp, mp: vd.mp, slots: vd.slots, sel: vd.sel })); } catch (e) {} }
+function vdLabel(i) { const s = vd.slots[i]; return s === '@builtin' ? 'DANCER 1' : s ? s.replace(/\.[^.]+$/, '') : ''; }
+async function vdLoad() {   // the selected slot's matte into the hidden video
+  const s = vd.slots[vd.sel]; vd.ok = false;
+  if (!s) { vd.cur = null; if (vd.vid) vd.vid.pause(); return; }
+  if (!vd.vid) {
+    vd.vid = Object.assign(document.createElement('video'), { muted: true, loop: true, playsInline: true });
+    vd.cv = Object.assign(document.createElement('canvas'), { width: FX_W, height: FX_H }); vd.g = vd.cv.getContext('2d', { willReadFrequently: true });
+  }
+  if (vd.cur === s) { try { await vd.vid.play(); vd.ok = true; } catch (e) {} return; }
+  let url = '';
+  if (s === '@builtin') url = new URL(VD_BUILTIN, location.href).href;
+  else {
+    const f = await media.getFile('Video', s).catch(() => null);
+    if (!f) { toast('The matte ' + s + ' is not on this headset', 3000); vd.slots[vd.sel] = ''; vd.cur = null; vdSave(); drawMixScreen(); return; }
+    url = URL.createObjectURL(f);
+  }
+  if (vd.url.startsWith('blob:')) URL.revokeObjectURL(vd.url);
+  vd.url = url; vd.cur = s; vd.vid.src = url;
+  try { await vd.vid.play(); vd.ok = true; } catch (e) { toast('The matte video will not play (' + (e.name || e.message) + ')', 3500); }
+}
+function vdMask(W, H) {   // the matte at the render size: bytes, 255 where the clip is light
+  const v = vd.vid; if (!vd.ok || !v || v.readyState < 2 || !vd.slots[vd.sel]) return null;
+  if (vd.cv.width !== W || vd.cv.height !== H) { vd.cv.width = W; vd.cv.height = H; vd.mask = new Uint8Array(W * H); }
+  vd.g.drawImage(v, 0, 0, W, H);
+  const p = vd.g.getImageData(0, 0, W, H).data, m = vd.mask;
+  for (let i = 0, k = 0; i < m.length; i++, k += 4) m[i] = p[k] > 110 ? 255 : 0;
+  return m;
+}
+function vdSelect(i) { if (!vd.slots[i]) { vdPickFor(i); return; } vd.sel = i; vdSave(); if (ledMode === 'vdancer') vdLoad(); else setLedMode('vdancer'); drawMixScreen(); }
+function vdPickFor(i) {   // to the clips page (VISUALS > Video): the next thumbnail tapped is this slot's matte
+  vd.pick = i; toolsPage = null; videoPage = true; vpFolder = 'Video'; vpSel = null; vpSelFolder = null; vpPg = 0; vpLoad();
+  toast(`Tap a clip to load it into matte slot ${i + 1} (white figure on black)`, 4500);
+}
+function vdAssign(name) { const i = vd.pick; vd.pick = null; if (i == null) return; vd.slots[i] = name; vd.sel = i; vdSave(); videoPage = false; setTools('vdancer'); if (ledMode === 'vdancer') vdLoad(); else setLedMode('vdancer'); }
+function fxPaint() {
+  const L = dirro ? dirro.wall : { cols: pxSize(wallPx)[2], fill: 0.78, glow: 1 }, g = fxBigG, cols = ledMode === 'mandel' ? FX_W : L.cols;   // #444 MANDEL always on its own 160 grid
+  g.globalCompositeOperation = 'source-over'; g.imageSmoothingEnabled = false;
+  g.filter = L.glow !== 1 ? `brightness(${L.glow})` : 'none'; g.drawImage(wfx.canvas, 0, 0, OUT_W, OUT_H); g.filter = 'none';
+  if (cols > 0) {
+    const k = cols + '|' + L.fill;
+    if (k !== fxMaskK) {
+      fxMaskK = k; fxMask = fxMask || Object.assign(document.createElement('canvas'), { width: OUT_W, height: OUT_H });
+      const m = fxMask.getContext('2d'), rows = Math.round(cols * 9 / 16), cw = OUT_W / cols, ch = OUT_H / rows, dw = cw * L.fill, dh = ch * L.fill;
+      m.fillStyle = '#2e2e2e'; m.fillRect(0, 0, OUT_W, OUT_H); m.fillStyle = '#fff';
+      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) m.fillRect(x * cw + (cw - dw) / 2, y * ch + (ch - dh) / 2, dw, dh);
+    }
+    g.globalCompositeOperation = 'multiply'; g.drawImage(fxMask, 0, 0); g.globalCompositeOperation = 'source-over';
+  }
+  if (fxTex) fxTex.needsUpdate = true;
+}
+function wallBeat(now) {   // beat position (beats: onset count + the part of a beat since) and the kick, as the phones work it out
+  if (wtapOn()) { const ph = now - wtap.anchor; return { bp: wtap.n + ph / wtap.iv, kick: Math.exp(-(ph % wtap.iv) / 180) }; }   // #444 tapped in
+  let iv = 0; const bpm = (dirroNow() || {}).bpm;
+  if (bpm >= 60 && bpm <= 200) { iv = 60000 / bpm; while (iv < 300) iv *= 2; while (iv > 1000) iv /= 2; }
+  if (iv && beat && beat.last && now - beat.last < 4000) return { bp: beat.count + (now - beat.last) / iv, kick: Math.exp(-(now - beat.last) / 180) };
+  return { bp: now / 500, kick: 0 };   // no music: 120 BPM on the clock
+}
+function stepWallFx(now) {
+  if (!wallPxApplied && dirro) { wallPxApplied = true; try { if (!localStorage.getItem('vire.wallPxA')) { localStorage.setItem('vire.wallPxA', '1'); dirro.setWall('cols', pxSize(wallPx)[2]); } } catch (e) {} }   // #444 once: the grid follows PIXELS
+  if (!isFxMode(ledMode)) return;
+  const { bp, kick } = wallBeat(now), bar = Math.floor(bp / 4);
+  if (bar < ledFx.bar - 1) ledFx.sBar = ledFx.autoBar = bar;   // the beat count started again
+  ledFx.bar = bar;
+  if (ledFx.auto && ledMode !== 'card' && bar - ledFx.autoBar >= ledFx.auto) setLedMode(ledMode === 'mandel' ? 'retro' : 'mandel');
+  if (ledMode === 'retro' && bar - ledFx.sBar >= 8) {   // every 8 bars: the dancer, or the next loop
+    ledFx.sBar = bar;
+    if (ledFx.s === 'loop' || !grab.loops.length) ledFx.s = 'dancer';
+    else { ledFx.li = (ledFx.li + 1) % grab.loops.length; ledFx.loop = grab.loops[ledFx.li]; ledFx.s = 'loop'; ledFx.loopT0 = now; }
+  }
+  const mode = ledMode === 'mandel' ? 'mandel' : ledMode === 'vdancer' ? 'rings' : ledMode === 'meta' ? 'meta' : ledMode === 'card' ? (cardWall.loop ? 'loop' : 'pic') : ledFx.s === 'loop' && ledFx.loop ? 'loop' : 'dancer';
+  const cl = ledMode === 'card' ? cardWall.loop : null;   // #446
+  if (wfx.frame({ mode, t: now - ledFx.t0, bp, kick, loop: cl ? cl.sheet : ledFx.loop && ledFx.loop.sheet, ln: cl ? cl.n : 0, lfps: cl ? cl.fps : 0, fwd: !!cl, pic: cardWall.pic, lw: LOOP.W2, lh: LOOP.H2, lt: now - ledFx.loopT0, px: wallPx, mask: mode === 'rings' ? vdMask(...pxSize(wallPx)) : null, rp: vd.rp, mp: vd.mp })) fxPaint();
+}
+function setWallAuto(n) { ledFx.auto = n; ledFx.autoBar = ledFx.bar; try { localStorage.setItem('vire.wallAuto', String(n)); } catch (e) {} if (n && !isFxMode(ledMode)) setLedMode('mandel'); else drawMixScreen(); }
+// GRAB LOOP: 5.3 s (#441), 12 pictures a second, 112 x 63 each on an 8 x 8 sheet (a JPEG under 60 KB for the phones). From the
+// SHOWTIME! shot while the stream runs, else the headset camera (HEADSET CAM's own, or opened just for the 3 s)
+async function grabLoop() {
+  if (grab.on) return;
+  let el = null, own = null;
+  if (streamer && streamer.active && streamer.source !== 'card') el = streamer.canvas;
+  else if (streamer && streamer.camStream && streamer.camVideo && streamer.camVideo.videoWidth) el = streamer.camVideo;
+  else {
+    grab.on = true; grab.n = -1; drawMixScreen();
+    try {
+      own = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+      el = Object.assign(document.createElement('video'), { muted: true, playsInline: true }); el.srcObject = own; await el.play();
+      for (let i = 0; i < 40 && !el.videoWidth; i++) await new Promise(r => setTimeout(r, 50));
+      await new Promise(r => setTimeout(r, 300));   // the exposure settles
+    } catch (e) { grab.on = false; if (own) own.getTracks().forEach(t => t.stop()); toast('GRAB LOOP: no headset camera (' + (e.message || e.name) + ')', 3500); drawMixScreen(); return; }
+  }
+  grab.on = true; grab.n = 0; drawMixScreen();
+  const sheet = Object.assign(document.createElement('canvas'), { width: LOOP.W2 * LOOP.cols, height: LOOP.H2 * LOOP.rows }), sg = sheet.getContext('2d');   // #444 the Quest's own sheet, 224 x 126 a cell
+  const small = Object.assign(document.createElement('canvas'), { width: LOOP.w * LOOP.cols, height: LOOP.h * LOOP.rows }), smg = small.getContext('2d');   // and the phones' (112 x 63, a JPEG under 60 KB)
+  sg.fillStyle = '#000'; sg.fillRect(0, 0, sheet.width, sheet.height); smg.fillStyle = '#000'; smg.fillRect(0, 0, small.width, small.height);
+  await new Promise(done => { const iv = setInterval(() => {
+    const i = grab.n, sw = el.videoWidth || el.width, sh = el.videoHeight || el.height;
+    if (sw && sh) { const cell = (cw, ch, cg) => { const k = Math.max(cw / sw, ch / sh), w = cw / k, h = ch / k; try { cg.drawImage(el, (sw - w) / 2, (sh - h) / 2, w, h, (i % LOOP.cols) * cw, Math.floor(i / LOOP.cols) * ch, cw, ch); } catch (e) {} }; cell(LOOP.W2, LOOP.H2, sg); cell(LOOP.w, LOOP.h, smg); }
+    grab.n++; if (grab.n % 6 === 0) drawMixScreen();
+    if (grab.n >= LOOP.n) { clearInterval(iv); done(); }
+  }, 1000 / LOOP.fps); });
+  if (own) { own.getTracks().forEach(t => t.stop()); el.srcObject = null; }
+  let d = ''; for (const q of [0.72, 0.6, 0.5, 0.4, 0.3, 0.22, 0.15]) { d = small.toDataURL('image/jpeg', q); if (d.length < 60000) break; }
+  const thumb = Object.assign(document.createElement('canvas'), { width: LOOP.w, height: LOOP.h }); thumb.getContext('2d').drawImage(sheet, 0, 0, LOOP.W2, LOOP.H2, 0, 0, LOOP.w, LOOP.h);
+  const L = { id: 'L' + Date.now().toString(36), sheet, thumb, d: d.length < 60000 ? d : '' };
+  grab.loops.unshift(L); while (grab.loops.length > 4) grab.loops.pop();
+  grab.on = false;
+  showLoop(L);
+  toast('Loop grabbed: on the LED wall now (also in VISUALS > Video)', 2500); if (videoPage && vpFolder === 'Video') vpLoad(); else drawMixScreen();
+}
+function showLoop(L) {   // #441 a grabbed loop on the LED wall (RETRO-SCENE shows it)
+  if (ledMode !== 'retro') setLedMode('retro');
+  ledFx.s = 'loop'; ledFx.li = Math.max(0, grab.loops.indexOf(L)); ledFx.loop = L; ledFx.loopT0 = performance.now(); ledFx.sBar = ledFx.bar; drawMixScreen();
+}
+const retroIcon = new Image(); retroIcon.onload = () => { if (toolsPage === 'wall') drawMixScreen(); }; retroIcon.src = 'retroscene.png';   // the owner's RETRO SCENE disk
+function setLedMode(m, kind) {
+  if (m === 'clips') {   // #439 kind: 'video' = CLIPS, 'image' = PICTURES (the WALL page's tiles); none = the whole LED LIST
+    led.kind = kind || null;
+    if (!led.pool().length) { if (kind) { toast(kind === 'image' ? 'No pictures in the LED LIST (VISUALS > Images > + LED)' : 'No clips in the LED LIST (VISUALS > Video > + LED)', 3000); return; } m = 'decks'; }
+  }
+  if (!isFxMode(m)) fxTex = null;
+  if (m === 'vdancer') vdLoad(); else if (vd.vid && !vd.vid.paused) vd.vid.pause();   // #442
   if (!pieceOn('ledwall') && (m === 'decks' || m === 'cam' || isLive(m))) m = 'off';   // #236 switched off: only clips run (for the phone)
   if (isLive(m) && !livePossible()) m = 'off';   // #238 needs the phone linked
   if (m === 'screen' && !(phoneScreen && livePossible() && pieceOn('ledwall'))) m = 'off';   // #358
@@ -618,6 +817,7 @@ function setLedMode(m) {
   else if (m === 'cam') ledwall.userData.setCam(djcam.rt.texture, djSet.mirror);   // #220
   else if (isLive(m)) { spect.liveCam(true, m === 'solo', pcamOpts()); ledwall.userData.setVideo(liveVideo); }
   else if (m === 'screen') ledwall.userData.setVideo(liveVideo);   // #358 the phone's shared screen   // #238 (#239 SOLO: camera only)
+  else if (isFxMode(m)) { ledFx.t0 = performance.now(); ledFx.s = 'dancer'; ledFx.sBar = ledFx.autoBar = ledFx.bar; fxTex = ledwall.userData.setCanvas(fxBig); fxPaint(); }   // #439
   drawMixScreen();
 }
 function setNeonScale(s) { s = clamp(s, 0.3, 4); neon.scale.setScalar(s); neon.userData.setLodScale(s); if (stage) stage.items.neon.base = NEON.R * s; return s; }
@@ -1105,6 +1305,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     // #338 what the VISUALS pages are playing, whatever the LED wall itself shows (AVACAM, off, switched off)
     if (ledMode === 'decks') { const [gA, gB] = deckGains(mixVal); return [{ el: deckVid[0].v, gain: gA }, { el: deckVid[1].v, gain: gB, add: true }]; }
     if (isLive(ledMode) || ledMode === 'screen') return [{ el: liveVideo }];   // #358 the phone's screen too
+    if (isFxMode(ledMode)) return [{ el: fxBig }];   // #439 MANDEL / RETRO-SCENE, with the LED grid
     if (ledMode === 'clips' && led.video) return [{ el: led.video }];
     if (ledMode === 'clips' && led.img && ledwall.userData.curImage && !led.silent) return [{ el: ledwall.userData.curImage, flip: true }];
     return streamClip();   // #337 the stream decodes the clip itself (follows the playlist, or runs the LED LIST on its own)
@@ -1563,6 +1764,7 @@ function crateMicSelect(P) {
 }
 
 initDiscogsToken();   // #393
+initRelayFromUrl();   // #427 ?relay=wss://… saves the Dirrogram relay on this headset
 async function loadLibrary() {
   sideCache.clear();
   try {
@@ -3219,6 +3421,7 @@ function supportUnder(pos) {
   return out;
 }
 const _dn = new THREE.Vector3(), _dq = new THREE.Quaternion(), _dq2 = new THREE.Quaternion(), _dax = new THREE.Vector3(), _dup = new THREE.Vector3();
+const FLOOR_RETURN_S = 180;   // #441
 function stepLoose(dt) {
   const eye = camera.getWorldPosition(new THREE.Vector3());
   for (let i = loose.length - 1; i >= 0; i--) {
@@ -3262,6 +3465,11 @@ function stepLoose(dt) {
         }
       }
     }
+    // #441: a record left lying on the floor goes back to the record crate after 3 minutes; anywhere else it stays
+    if (L.resting && L.onFloor) {
+      L.floorT = (L.floorT || 0) + dt;
+      if (L.floorT > FLOOR_RETURN_S) { loose.splice(i, 1); scene.remove(g); L.rec.dispose(); layoutSleeves(); toast('A record on the floor went back to the crate'); continue; }
+    } else L.floorT = 0;
     // low detail when it lies on the floor or is more than about a foot from your eyes
     L.rec.setLOD(L.onFloor || g.position.distanceTo(eye) > 0.3);
   }
@@ -3659,6 +3867,23 @@ async function toggleMic() {
   } catch (e) { toast('Microphone: ' + (e.name === 'NotAllowedError' ? 'permission denied' : e.name === 'OverconstrainedError' ? 'that mic is not connected' : e.message), 3500); }
   micBusy = false;
 }
+function dirroLbl() { return dirro && dirro.on ? (dirro.state === 'live' ? `DIRROGRAM · ${dirro.fans}` : 'DIRROGRAM …') : 'DIRROGRAM'; }   // #427
+// #427 the loudest playing deck's track and its tempo at the deck's speed (pitch included), for the Dirrogram phones
+function dirroNow() {
+  const on = decks.filter(d => d.track && engine.state.decks[d.i] && engine.state.decks[d.i].needle && Math.abs(engine.state.decks[d.i].rate) > 0.2);
+  const loud = d => (mixVal[(d.i ? 'B' : 'A') + '.fader'] || 0) * (d.i ? Math.min(1, 1 + mixVal.xfader) : Math.min(1, 1 - mixVal.xfader));
+  on.sort((a, b) => loud(a) - loud(b)); const top = on[on.length - 1]; if (!top) return { a: '', bpm: 0 };
+  const t = top.track; let bpm = 0; try { bpm = bpmOf(t) * Math.abs(engine.state.decks[top.i].rate); } catch (e) {}
+  return { a: (t.artist ? t.artist + ' – ' : '') + (t.title || t.name || ''), bpm };
+}
+// #427 a QR code on the tablet: white plate, 4-module quiet zone, whole-pixel modules (made once per text)
+const qrCache = { text: '', n: 0, mods: null };
+function drawQr(g, text, x, y, size) {
+  if (qrCache.text !== text) { const q = qrcode(0, 'M'); q.addData(text); q.make(); const n = q.getModuleCount(), mods = []; for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) mods.push(r, c); Object.assign(qrCache, { text, n, mods }); }
+  const n = qrCache.n, px = Math.floor(size / (n + 8)), sz = px * (n + 8), ox = x + Math.floor((size - sz) / 2), oy = y + Math.floor((size - sz) / 2);
+  g.fillStyle = '#fff'; g.fillRect(ox, oy, sz, sz); g.fillStyle = '#000';
+  for (let i = 0; i < qrCache.mods.length; i += 2) g.fillRect(ox + (qrCache.mods[i + 1] + 4) * px, oy + (qrCache.mods[i] + 4) * px, px, px);
+}
 function micLevel() {
   const m = engine.mic; if (!m || !micOn) return 0;
   m.meter.getFloatTimeDomainData(m.meterBuf); let p = 0; for (const x of m.meterBuf) { const a = Math.abs(x); if (a > p) p = a; } return p;
@@ -3756,25 +3981,56 @@ function sliderFromLocal(id, l, raw = false) {
 // #120: the hand's angle (unwrapped, rad) goes to the worklet, which ties the record to it with a stiff spring
 // (the platter keeps turning under the slipmat). force = how hard a finger presses on the platter rim (N).
 function scratchBegin(d, localPoint, nudge = false, force) {
-  const s = { deck: d, nudge, lastAng: Math.atan2(localPoint.z - DECK.spindle.z, localPoint.x - DECK.spindle.x), lastT: performance.now(), rate: 0, lastMove: performance.now(), holding: false, ang: 0, force: force != null ? force : RIM_FORCE_LIGHT };
+  const s = { deck: d, nudge, lastAng: Math.atan2(localPoint.z - DECK.spindle.z, localPoint.x - DECK.spindle.x), lastT: performance.now(), rate: 0, lastMove: performance.now(), holding: false, ang: 0, force: force != null ? force : RIM_FORCE_LIGHT,
+    raw: 0, dx: 0, t: 0 };   // #423 raw = hand angle x SCRATCH & DRAG, ang = filtered, dx = filtered speed, t = stamp (ms)
   scratches.add(s); return s;
 }
 const RIM_FORCE_LIGHT = 0.35;   // N: a fingertip resting on the platter's side
 function handRate(s) { return s.rate; }
 function postHand(s, holding) {
   if (s.nudge) engine.post({ type: 'touch', deck: s.deck.i, active: holding, rate: s.rate, force: s.force });
-  else engine.post(holding ? { type: 'hand', deck: s.deck.i, holding: true, rate: s.rate, ang: s.ang } : { type: 'hand', deck: s.deck.i, holding: false });
+  else engine.post(holding ? { type: 'hand', deck: s.deck.i, holding: true, rate: s.rate, ang: s.ang, t: s.t || undefined } : { type: 'hand', deck: s.deck.i, holding: false });   // #423 t: the reading's time stamp
 }
 function scratchMove(s, localPoint, force) {
   const d = s.deck;
   if (force != null) s.force += (force - s.force) * 0.3;   // tracking jitter: smooth the pressing force
-  if (!s.holding) { s.holding = true; s.rate = s.nudge ? 0 : engine.state.decks[d.i].rate; postHand(s, true); }
+  const now = performance.now(), tS = renderer.xr.isPresenting && frameT ? frameT : now;   // #423 stamp: XR frame time
+  if (!s.holding) { s.holding = true; s.rate = s.nudge ? 0 : engine.state.decks[d.i].rate; s.t = tS; postHand(s, true); }
   const ang = Math.atan2(localPoint.z - DECK.spindle.z, localPoint.x - DECK.spindle.x);
   let da = ang - s.lastAng; if (da > Math.PI) da -= 2 * Math.PI; if (da < -Math.PI) da += 2 * Math.PI;
-  const now = performance.now(); const dtm = Math.max(4, now - s.lastT) / 1000;
-  s.rate = s.rate * 0.4 + ((da / dtm) / W33) * 0.6;
-  s.ang += da;
-  s.lastAng = ang; s.lastT = now; s.lastMove = now;
+  s.lastAng = ang;
+  if (s.nudge) {   // finger on the platter rim: unchanged (#120)
+    const dtm = Math.max(4, now - s.lastT) / 1000;
+    s.rate = s.rate * 0.4 + ((da / dtm) / W33) * 0.6; s.ang += da;
+    s.lastT = now; s.lastMove = now; postHand(s, true); return;
+  }
+  // #423 (owner: warbling and too fast while holding / back-cueing). Measured in Node on the real worklet with 0.3 mm of
+  // tracking noise and 4 ms of frame-timing jitter: a hand held still shook the record by 0.15 x normal speed (RMS) and
+  // a 2 cm back-cue overshot 4 %. The record still follows the hand 1:1 (x SCRATCH & DRAG), but the angle now goes
+  // through a one-euro filter (smooth when slow, quick when fast; TURNTABLE FEEL > HAND SMOOTHING) and every reading is
+  // stamped with the headset frame's time, which the worklet plays back evenly instead of trusting message timing.
+  // #424 (owner: back-cueing near the label sounded sped up, near the edge real). On vinyl the record turns by the
+  // finger's travel / its distance from the spindle, so the same 2 cm of hand travel at 6 cm turns it twice as far
+  // as at 12 cm. On a real deck the finger feels that and moves less; in VR nothing tells the hand, so it moves the
+  // same and the kick comes out fast. RADIUS EVEN-OUT (100 % = default) makes every touch point act like the outer
+  // music area: the turn = hand travel along the groove / (r + k (R_ref - r)), R_ref = edge - 2 cm. 0 % = true 1:1.
+  {
+    const r = Math.hypot(localPoint.x - DECK.spindle.x, localPoint.z - DECK.spindle.z), dims = recD(d), rRef = (dims.EDGE || 0.1508) - 0.02;
+    const rEff = r + (FEEL.even / 100) * (rRef - r);
+    if (r > 0.01 && rEff > 0.01) da *= r / rEff;
+  }
+  s.raw += da * FEEL.scr / 100;
+  const dt = Math.min(0.1, Math.max(0.001, (tS - s.t) / 1000)); s.t = tS;
+  const k = FEEL.smooth / 100;
+  let nx;
+  if (k <= 0) { nx = s.raw; s.dx = (s.raw - s.ang) / dt; }
+  else {
+    const al = c => 1 / (1 + 1 / (2 * Math.PI * c * dt)), minCut = 0.25 + 1.75 * (1 - k), beta = 4 + 36 * (1 - k);
+    s.dx += ((s.raw - s.ang) / dt - s.dx) * al(10);
+    nx = s.ang + (s.raw - s.ang) * al(minCut + beta * Math.abs(s.dx));
+  }
+  s.rate = ((nx - s.ang) / dt) / W33; s.ang = nx;
+  s.lastT = now; s.lastMove = now;
   postHand(s, true);
 }
 // Spindle twist (owner, #105): pinch the spindle / label and twist. The record moves by exactly the twisted
@@ -3782,7 +4038,7 @@ function scratchMove(s, localPoint, force) {
 // pitch-fader speed, so the tempo is untouched. Positive seconds = forward (clockwise seen from above).
 function spindleTwist(d, seconds) {
   if (!d.loaded || !seconds) return;
-  engine.post({ type: 'shift', deck: d.i, delta: seconds }); d.twistT = performance.now();
+  engine.post({ type: 'shift', deck: d.i, delta: seconds * FEEL.spin / 100 }); d.twistT = performance.now();   // #423 SPINDLE TWIST
 }
 // #322 VR: fingers pinching the spindle (a friction torque on the platter, see the worklet); rate = their turning speed
 function spindleHold(d, rate) { engine.post({ type: 'spin', deck: d.i, active: true, rate }); d.twistT = performance.now(); }
@@ -3792,6 +4048,7 @@ function scratchIdle() { // a still hand holds the record still
   const now = performance.now();
   for (const s of scratches) if (s.holding && now - s.lastMove > 45) {
     s.rate *= 0.5; if (Math.abs(s.rate) < 0.01) s.rate = 0;
+    if (!s.nudge) { s.t = renderer.xr.isPresenting && frameT ? frameT : now; s.ang = s.raw; s.dx = 0; }   // #423 no new reading: the hand is still
     postHand(s, true);
   }
 }
@@ -3889,6 +4146,7 @@ const _q = new THREE.Quaternion(), _a = new THREE.Vector3(), _b = new THREE.Vect
 function pointerMove(p) {
   const dr = p.drag; if (!dr) return;
   p.tip = '';
+  if (dr.kind === 'screen') { if (screenDrag) { const h = castRay(p.ray, [mixer.userData.screen])[0]; if (h) mixScreenDrag(h.uv); } return; }   // #422
   if (dr.kind === 'lid') { // mouse: drag down pulls the lid toward you and shut, up lifts it open
     if (!dr.moved && Math.abs(p.y - dr.y0) < 4) return;
     if (!dr.moved) { dr.moved = true; lidGrab(); }
@@ -4282,6 +4540,7 @@ async function vpLoad() {
   if (vpFolder === 'Camera' || vpFolder === 'Look' || vpFolder === 'DJ Cam' || vpFolder === 'LedList' || vpFolder === 'Fx') { vpItems = []; drawMixScreen(); return; }
   if (vpFolder === 'Sync') { vpItems = []; syncLoad(); return; }   // #206
   vpItems = vpFolder === 'Pano' ? [...await media.list('Pano'), ...await media.list('Video pano')].sort((a, b) => a.name.localeCompare(b.name)) : await media.list(vpFolder);
+  if (vpFolder === 'Video') vpItems = [...grab.loops.map((L, i) => ({ name: 'LOOP ' + (grab.loops.length - i) + ' (5 s)', folder: 'Video', loopId: L.id })), ...vpItems];   // #441 grabbed loops first
   if (vpSel && !vpItems.some(i => i.name === vpSel)) vpSel = null;
   vpPg = Math.min(vpPg, Math.max(0, Math.ceil(vpItems.length / vpPer()) - 1));
   drawMixScreen();
@@ -4297,7 +4556,7 @@ let scrollFromVP = false;   // #342 the scroller editor opened from VISUALS: BAC
 function openScrollerFromVP() { scrollFromVP = true; videoPage = false; setTools('scroller'); }
 function openFxPage() { setVideoPage(true); vpFolder = 'Fx'; vpSel = null; vpSelFolder = null; vpPg = 0; vpLoad(); }   // #390 VJ TOOLS > FX
 function openGoprosPage() { videoPage = false; scrollFromVP = false; setTools('showobj'); }   // #389 VISUALS > GOPROS
-function setVideoPage(on) { videoPage = on; if (on) { toolsPage = null; vpLoad(); } drawMixScreen(); }
+function setVideoPage(on) { videoPage = on; if (!on) vd.pick = null; if (on) { toolsPage = null; vpLoad(); } drawMixScreen(); }
 async function vpAct(what) {
   // #367 SKY OFF works without a thumbnail picked (it was behind this check: a desktop-only toast and nothing else), and
   // turns the whole panorama off: the sky setting, the DOME (#346, which kept it showing in passthrough); a video pano pauses
@@ -4306,6 +4565,8 @@ async function vpAct(what) {
   const vpFolder = videoPageFolder();   // #224 the Pano tab holds two library folders (local, shadows the tab name)
   if (what === 'sky') return useSkyMedia(vpFolder, name).catch(e => toast('Sky: ' + e.message, 4000));
   if (what === 'light') return lightPhone(vpFolder, name);   // #214
+  const lpItem = vpItems.find(i => i.name === name && i.loopId);   // #441 a grabbed loop: only the LED wall
+  if (lpItem) { const L = grab.loops.find(x => x.id === lpItem.loopId); if (what === 'lednow' || what === 'ledadd') { if (L) showLoop(L); } else toast('A grabbed loop plays on the LED wall (LED NOW)', 2500); return; }
   const f = await media.getFile(vpFolder, name); if (!f) return;
   if (what === 'deckA' || what === 'deckB') {
     const d = decks[what === 'deckA' ? 0 : 1];
@@ -4635,15 +4896,18 @@ function drawVideoPage() {
     btn(22, 28, tw, 34, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW (where the title was)
     btn(22 + (tw + 6), 28, tw, 34, 'DJ MIXER', false, () => setVideoPage(false));
     btn(22 + 2 * (tw + 6), 28, tw, 34, '◀ BACK', false, navCan() ? navBack : null, !navCan());
-    tabs.forEach((f, i) => btn(22 + (i % 3) * (tw + 6), 68 + Math.floor(i / 3) * 40, tw, 34, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)));
-    btn(22 + 2 * (tw + 6), 148, tw, 34, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #379 moved one over for FX   // #342 the scroller editor
+    const tw4 = (W - 30 - 18) / 4;   // #441 the last row has four: two tabs, SCROLLER and WALL +1
+    tabs.forEach((f, i) => btn(i < 6 ? 22 + (i % 3) * (tw + 6) : 22 + (i - 6) * (tw4 + 6), 68 + Math.floor(i / 3) * 40, i < 6 ? tw : tw4, 34, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)));
+    btn(22 + 2 * (tw4 + 6), 148, tw4, 34, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);
+    btn(22 + 3 * (tw4 + 6), 148, tw4, 34, 'WALL ⁺¹', ledMode !== 'off', () => { videoPage = false; setTools('wall'); });   // #379 moved one over for FX   // #342 the scroller editor
   } else {
     let x = 8;   // #214 seven tabs fit left of MIXER; #220 eight (narrower); #363 narrower again for BACK
     for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam', 'Fx']) { const w = { Pano: 50, Video: 50, Images: 58, Camera: 66, Sync: 44, Look: 44, 'DJ Cam': 62, Fx: 36 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)); x += w + 4; }   // #379 narrower again for FX
-    btn(x, 8, 70, 32, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
-    btn(W - 8 - 76 - 4 - 76 - 4 - 84, 8, 84, 32, 'DJ MIXER', false, () => setVideoPage(false));   // #225 was MIXER
-    btn(W - 8 - 76 - 4 - 76, 8, 76, 32, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW
-    btn(W - 8 - 76, 8, 76, 32, '◀ BACK', false, navCan() ? navBack : null, !navCan());   // #363
+    btn(x, 8, 62, 32, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
+    btn(x + 66, 8, 52, 32, 'WALL ⁺¹', ledMode !== 'off', () => { videoPage = false; setTools('wall'); });   // #441
+    btn(W - 8 - 62 - 4 - 66 - 4 - 56, 8, 56, 32, 'MIXER', false, () => setVideoPage(false));   // #225 (#441 narrower for WALL)
+    btn(W - 8 - 62 - 4 - 66, 8, 66, 32, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW
+    btn(W - 8 - 62, 8, 62, 32, '◀ BACK', false, navCan() ? navBack : null, !navCan());   // #363
   }
   const y0 = P ? 192 : 48;   // #363 portrait: one more header row
   if (vpFolder === 'Camera') { drawCamTab(btn, y0); return; }
@@ -4663,7 +4927,7 @@ function drawVideoPage() {
   const cur = settings.env === 'image' && settings.sky === 'on' ? settings.skyMedia : '';
   vpItems.slice(vpPg * PER, vpPg * PER + PER).forEach((it, i) => {
     const cx = 8 + (i % COLS) * (CW + 8), cy = y0 + Math.floor(i / COLS) * (CH + 6);
-    const itF = it.folder || vpFolder, t = vpThumb(itF, it.name);
+    const itF = it.folder || vpFolder, lp = it.loopId && grab.loops.find(x => x.id === it.loopId), t = it.loopId ? (lp && lp.thumb) : vpThumb(itF, it.name);
     g.fillStyle = '#121824'; g.fillRect(cx, cy, CW, TH);
     if (t && t !== 'loading') {   // cover the cell
       const s = Math.max(CW / t.width, TH / t.height), sw = CW / s, sh = TH / s;
@@ -4671,7 +4935,7 @@ function drawVideoPage() {
     }
     drawTypeBadge(g, cx + CW - 30, cy + TH - 22, itF === 'Video' || itF === 'Video pano');   // #224
     const on = [vvOverride[0], vvOverride[1]].map(o => o && vpFolder === 'Video' && o.name === it.name);
-    const tag = cur === itF + '/' + it.name ? 'SKY' : on[0] ? 'A' : on[1] ? 'B' : led.name === it.name ? 'LED' : '';
+    const tag = lp ? (ledMode === 'retro' && ledFx.s === 'loop' && ledFx.loop === lp ? 'WALL' : 'LOOP') : cur === itF + '/' + it.name ? 'SKY' : on[0] ? 'A' : on[1] ? 'B' : led.name === it.name ? 'LED' : '';
     if (tag) { g.fillStyle = '#40d080'; g.fillRect(cx + 4, cy + 4, 14 + tag.length * 11, 20); g.fillStyle = '#05070c'; g.font = '700 14px system-ui'; g.textAlign = 'left'; g.fillText(tag, cx + 9, cy + 19); }
     if (it.name === vpSel) { g.strokeStyle = '#39a8ff'; g.lineWidth = 4; g.strokeRect(cx + 2, cy + 2, CW - 4, TH + 16); }
     g.fillStyle = it.name === vpSel ? '#fff' : '#b8c0cf'; g.font = '500 14px system-ui'; g.textAlign = 'left';
@@ -4686,8 +4950,9 @@ function drawVideoPage() {
       const folder = itF, name = it.name;
       VP_HIT.push({ x: xx - 4, y: xy - 4, w: xs + 8, h: xs + 8, del: true, act: () => deleteMedia(folder, name) });
     }
-    VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, item: it.name, act: () => { vpSel = it.name === vpSel ? null : it.name; vpSelFolder = vpSel ? itF : null; drawMixScreen(); } });
+    VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, item: it.name, act: () => { if (vd.pick != null && !it.loopId) { vdAssign(it.name); return; } vpSel = it.name === vpSel ? null : it.name; vpSelFolder = vpSel ? itF : null; drawMixScreen(); } });
   });
+  if (vd.pick != null) { g.strokeStyle = '#ff3040'; g.lineWidth = 4; g.strokeRect(2, 2, W - 4, H - 4); g.fillStyle = '#ff6070'; g.font = '700 15px system-ui'; g.textAlign = 'right'; g.fillText(`PICK THE MATTE FOR SLOT ${vd.pick + 1}`, W - 12, y0 + 12); }   // #442
   // bottom bar: pages, targets for this folder, LED mode (portrait: targets get a row of their own)
   const by = P ? H - 62 : H - 44, bh = 36, bx = P ? 26 : 8;
   btn(bx, by, 44, bh, '‹', false, () => { vpPg = Math.max(0, vpPg - 1); drawMixScreen(); }, vpPg === 0);
@@ -4707,10 +4972,10 @@ function drawVideoPage() {
   btn(W - (P ? 26 : 8) - mw, by, mw, bh, LED_LABEL[ledMode], ledMode !== 'off', () => setLedMode(nextLedMode(ledMode)));   // #238 + LIVE
 }
 // #379 tablet slider: tap (or keep tapping) anywhere along it to set the value
-function tSlider(g, x, y, w, h, label, v, txt, set, dim) {
+function tSlider(g, x, y, w, h, label, v, txt, set, dim, lwMax = 110) {   // #423 lwMax: room for a longer label
   v = clamp(v, 0, 1);
   g.fillStyle = '#0d1422'; g.fillRect(x, y, w, h);
-  const lw = Math.round(Math.min(110, Math.max(w * 0.36, label.length * 8.6 + 12))), vw = 58, tx = x + lw, tw = Math.max(20, w - lw - vw - 6), ty = y + h / 2;
+  const lw = Math.round(Math.min(lwMax, Math.max(w * 0.36, label.length * 8.6 + 12))), vw = 58, tx = x + lw, tw = Math.max(20, w - lw - vw - 6), ty = y + h / 2;
   g.textBaseline = 'middle'; g.textAlign = 'left'; g.font = '700 13px system-ui'; g.fillStyle = dim ? '#56627a' : '#dfe6f2';
   fitText2(g, label, x + 8, ty + 1, lw - 12);
   g.fillStyle = '#1e2a3d'; g.fillRect(tx, ty - 3, tw, 6);
@@ -4718,7 +4983,7 @@ function tSlider(g, x, y, w, h, label, v, txt, set, dim) {
   g.fillStyle = dim ? '#56627a' : '#dfe6f2'; g.beginPath(); g.arc(tx + tw * v, ty, 8, 0, 2 * Math.PI); g.fill();
   g.textAlign = 'right'; g.font = '600 13px system-ui'; g.fillText(txt, x + w - 6, ty + 1);
   g.textBaseline = 'alphabetic';
-  VP_HIT.push({ x: tx - 10, y, w: tw + 20, h, act: px => set(clamp((px - tx) / tw, 0, 1)) });
+  VP_HIT.push({ x: tx - 10, y, w: tw + 20, h, drag: true, act: px => set(clamp((px - tx) / tw, 0, 1)) });   // #422 drag: finger / mouse held on the bar keeps moving it
 }
 // #379 VISUALS > FX: FLOAT balls (the DJ drops them on gear in the headset; here the list with each one's float amount) and WATER
 let fxClearT = 0;
@@ -4834,7 +5099,13 @@ function readout(d, st) {
 }
 // #222 long press on the tablet (trigger / pinch / fingertip held 0.6 s): on a VIDEO page thumbnail it offers delete
 let screenHold = null, holdSeq = 0, vpDel = null;
-function mixScreenRelease() { screenHold = null; }
+let screenDrag = null;   // #422 the slider being dragged on the tablet
+function mixScreenRelease() { screenHold = null; screenDrag = null; }
+function scrUvPx(uv) { const c = scr().canvas; return [(scrDir === 'px' ? 1 - uv.y : scrDir === 'nx' ? uv.y : uv.x) * c.width, (scrDir === 'px' ? 1 - uv.x : scrDir === 'nx' ? uv.x : 1 - uv.y) * c.height]; }
+function mixScreenDrag(uv) {   // #422 finger still on the screen (XR) / mouse held (desktop): a grabbed slider follows it
+  if (!screenDrag || !uv) return; const [px, py] = scrUvPx(uv);
+  screenHold = null; screenDrag.act(px, py); drawMixScreen();
+}
 function mixScreenLong(px, py) {
   if (toolsPage) { const b = VP_HIT.find(h => h.long && px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h); if (b) b.long(); return; }   // #404 tablet buttons with a long press (the GOPRO buttons: reset)
   if (!videoPage || !media.FOLDERS.includes(vpFolder)) return;
@@ -4843,6 +5114,8 @@ function mixScreenLong(px, py) {
   vpDel = b.item; vpSel = b.item; drawMixScreen();
 }
 async function deleteMedia(folder, name) {   // remove from this headset's library, and stop using it anywhere
+  const lpi = vpItems.find(i => i.name === name && i.loopId);   // #441 a grabbed loop: just drop it from this session
+  if (lpi) { const k = grab.loops.findIndex(x => x.id === lpi.loopId); if (k >= 0) { if (ledFx.loop === grab.loops[k]) { ledFx.s = 'dancer'; ledFx.loop = null; } grab.loops.splice(k, 1); } vpSel = null; vpDel = null; toast('Loop removed', 1500); vpLoad(); return; }
   if (led.files.some(f => f.name === name)) { led.remove(name); ledSrc.delete(name); saveLedList(); }
   if (settings.skyMedia === folder + '/' + name) { settings.sky = 'off'; saveSettings(); syncSettingsUI(); applySky(); }
   for (let i = 0; i < 2; i++) if (vvOverride[i] && vvOverride[i].name === name) vvOverride[i] = null;
@@ -4860,7 +5133,7 @@ function mixScreenPress(uv) {
   if (videoPage || toolsPage) {   // #224 the TOOLS pages use the same tap list
     const b = VP_HIT.find(h => px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h);
     if (vpDel && !(b && b.del)) vpDel = null;   // any other tap closes the delete offer
-    if (b) b.act(px, py); drawMixScreen(); return true;   // #353 the tap point, for the CROP picture
+    if (b) { b.act(px, py); if (b.drag) screenDrag = b; } drawMixScreen(); return true;   // #353 the tap point, for the CROP picture; #422 sliders keep dragging
   }   // #185
   // #164 spectator strip: MR GUI (helpers on/off) and CELL REC (phone goes clean for recording)
   for (const b of SP_HIT) if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) { b.act(); drawMixScreen(); return true; }
@@ -4962,6 +5235,7 @@ function setTools(p) {
   clearInterval(setTools.fitIv); if (p === 'streamfit') setTools.fitIv = setInterval(() => { if (toolsPage === 'streamfit' && streamer && streamer.running) drawMixScreen(); }, 250);
   if (p === 'tv') setTools.fitIv = setInterval(() => { if (toolsPage === 'tv') drawMixScreen(); }, 1000);   // #376 status numbers
   if (p === 'studio') setTools.fitIv = setInterval(() => { if (toolsPage === 'studio') drawMixScreen(); }, 1000);   // #380 the S8's numbers
+  if (p === 'dirro') setTools.fitIv = setInterval(() => { if (toolsPage === 'dirro') drawMixScreen(); }, 1000);   // #427 phones, latency
   if (p === 'pcam') setTools.fitIv = setInterval(() => { if (toolsPage === 'pcam') drawMixScreen(); }, 200);   // #347 delay / phone status; #374 about 5 pictures a second for the preview
   if (streamer) {   // #374 the PHONE CAM pages run the shot off air so the preview moves; leaving stops it again unless it is live / PREVIEW
     if (p === 'pcam' || p === 'pcamcrop') { if (streamer.source === 'pcam' && !streamer.active) { streamer.setRehearse(true); pcamAutoReh = true; } }
@@ -4973,6 +5247,7 @@ function setTools(p) {
   if (p !== 'kbd') { try { if (document.activeElement === sysKbInput) sysKbInput.blur(); } catch (e) {} }   // #387
   toolsPage = p; pickPg = 0;
   if (p === 'pickVideo' || p === 'pickImage') { pickItems = []; loadPick(p === 'pickVideo' ? 'Video' : 'Images'); }
+  if (p === 'card') { pickItems = []; loadPick('Images'); }   // #445
   drawMixScreen();
 }
 async function loadPick(folder) { pickItems = (await media.list(folder)).map(i => ({ ...i, folder })); drawMixScreen(); }
@@ -5043,6 +5318,10 @@ function drawDisc(g, cx, cy, R, bmp, title, s7 = false) {
 // them best), then smaller still; a label that still can't fit is cut with … . Text colour / alignment set by the caller.
 const _lblOver = [];   // test hook: labels that had to be cut
 function btnLabel(g, label, x, y, w, h, fs0 = 17, weight = 700) {
+  if (label.endsWith('⁺¹')) {   // #441 a tiny +1 in the upper right: this button opens a page of sub menus that is not obvious
+    label = label.slice(0, -2).trimEnd(); btnLabel(g, label, x, y, w - 6, h, fs0, weight);
+    g.save(); g.font = '700 11px system-ui'; g.textAlign = 'right'; g.textBaseline = 'top'; g.fillText('+1', x + w - 3, y + 2); g.restore(); return;
+  }
   const pad = 8, room = w - pad, f = n => { g.font = `${weight} ${n}px system-ui`; }, wid = t => g.measureText(t).width;
   const one = Math.max(12, Math.round(fs0 * 0.8));
   for (let n = fs0; n >= one; n--) { f(n); if (wid(label) <= room) { g.fillText(label, x + w / 2, y + h / 2 + 1); return; } }
@@ -5206,7 +5485,26 @@ async function pressBytes(track) {
   if (track.opfs) return (await store.readFile(track.opfs)).arrayBuffer();
   const r = await fetch(track.url); if (!r.ok) throw new Error(`HTTP ${r.status} for the pressed song`); return r.arrayBuffer();
 }
-const TOOLS_NAME = { home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
+// #423 TURNTABLE FEEL (DJ TOOLS > TURNTABLE FEEL, sliders). 100 % = the physics as built (#120 / #272 / #322).
+const FEEL_DEF = {
+  fric: { label: 'PLATTER FRICTION', lo: 25, hi: 300, v: 100, unit: '%' },   // slipmat friction against the platter (stick / slip)
+  scr: { label: 'SCRATCH & DRAG', lo: 25, hi: 150, v: 100, unit: '%' },      // record turn per hand turn (100 % = 1:1, a real record)
+  smooth: { label: 'HAND SMOOTHING', lo: 0, hi: 100, v: 85, unit: '%' },     // tracking-noise filter on the hand on the record
+  even: { label: 'RADIUS EVEN-OUT', lo: 0, hi: 100, v: 100, unit: '%' },     // #424 any touch radius moves the record like the outer music area
+  spin: { label: 'SPINDLE TWIST', lo: 25, hi: 300, v: 100, unit: '%' },      // pinch on the spindle: torque passed to the platter
+  nudge: { label: 'NUDGE AMOUNT', lo: 25, hi: 300, v: 100, unit: '%' },      // finger on the platter rim: drag / push strength
+};
+const FEEL = Object.fromEntries(Object.entries(FEEL_DEF).map(([k, r]) => [k, r.v]));
+try { Object.assign(FEEL, JSON.parse(localStorage.getItem('vire.feel') || '{}')); } catch (e) {}
+function setFeel(k, v) { FEEL[k] = v; try { localStorage.setItem('vire.feel', JSON.stringify(FEEL)); } catch (e) {} if (k !== 'scr' && k !== 'smooth' && k !== 'even') sendPhysics(); }
+// #422 PINCH FIT sliders: key -> range, default (must match xr.js PF)
+const PINCH_FIT_DEF = {
+  bx: { label: 'BALL IN/OUT', lo: -25, hi: 25, v: 0, unit: 'mm' }, by: { label: 'BALL UP/DN', lo: -25, hi: 25, v: 0, unit: 'mm' },
+  bz: { label: 'BALL BK/FWD', lo: -30, hi: 30, v: 0, unit: 'mm' }, kt: { label: 'KNOB TWIST', lo: 30, hi: 300, v: 250, unit: '°' },
+  lh: { label: 'HAND LIFT', lo: -20, hi: 60, v: 10, unit: 'mm' }, lg: { label: 'GLOVE LIFT', lo: -20, hi: 60, v: 15, unit: 'mm' },
+  pa: { label: 'PINCH TILT', lo: -60, hi: 60, v: 0, unit: '°' }, pt: { label: 'PINCH TURN', lo: -90, hi: 90, v: 0, unit: '°' },
+};
+const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'LED WALL', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'CLY3DTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -5236,6 +5534,8 @@ function drawToolsPage() {
     g.textBaseline = 'alphabetic';
     return y + 46;
   };
+  const tapB = (x, y, w, h, fs = 17) => { btn(x, y, w, h, tapLbl(), wtapOn(), tapWall, false, fs); VP_HIT[VP_HIT.length - 1].long = tapClear; };   // #444 a long press hands the beat back to the music
+  const pxSlider = (x, y, w, h) => tSlider(g, x, y, w, h, 'PIXELS', wallPx / 10, wallPx === 0 ? '0 SMOOTH' : String(wallPx), v => setWallPx(v * 10));   // #444
   const note = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; return wrapText(g, s, L + 4, y, R - L - 8, 20, 5); };
   const lockBtn = (x, y, w, h) => btn(x, y, w, h, gearLock ? 'GEAR LOCKDOWN: ON' : 'GEAR LOCKDOWN: OFF', gearLock, () => { gearLock = !gearLock; toast(gearLock ? 'Gear locked' : 'Gear unlocked: decks and mixer can be moved and turned', 2400); drawMixScreen(); }, false, 18);   // #378 DJ TOOLS
   const page = toolsPage;
@@ -5245,11 +5545,13 @@ function drawToolsPage() {
     if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
       btn(L, y0 + 224, R - L, 96, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
       btn(L, y0 + 332, R - L, 80, streamer ? tvLbl(streamer) : 'CLY3DTV', !!(streamer && (streamer.tvUp || streamer.stuRun)), () => setTools('tv'), !streamer, 24);   // #389 was CHALKBOARD (now on VJ TOOLS)
-      note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall, neon, whiteboard, portals, cameras. STREAM: go live on Twitch (master mix only, never the cue). CLY3DTV: the Fire Stick TV.', y0 + 436); }   // #363 was under the CHALKBOARD button
-    else { const bw = (R - L - 36) / 4; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
-      btn(L + 2 * (bw + 12), y0 + 8, bw, 130, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
-      btn(L + 3 * (bw + 12), y0 + 8, bw, 130, streamer ? tvLbl(streamer) : 'CLY3DTV', !!(streamer && (streamer.tvUp || streamer.stuRun)), () => setTools('tv'), !streamer, 22);   // #389 was CHALKBOARD (now on VJ TOOLS)
-      note('DJ TOOLS: Record Maker, milk crate.  VJ TOOLS: Scroller, LED wall, neon, whiteboard, portals, cameras.  STREAM: Twitch.  CLY3DTV: the Fire Stick TV.', y0 + 160); }
+      btn(L, y0 + 424, R - L, 72, dirroLbl(), !!(dirro && dirro.on), () => setTools('dirro'), !dirro, 24);   // #427
+      note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall, neon, whiteboard, portals, cameras. STREAM: go live on Twitch (master mix only, never the cue). CLY3DTV: the Fire Stick TV. DIRROGRAM: the show on the audience\'s phones.', y0 + 520); }   // #363 was under the CHALKBOARD button
+    else { const bw = (R - L - 48) / 5; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 24); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 24);   // #427 five across
+      btn(L + 2 * (bw + 12), y0 + 8, bw, 130, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 24);
+      btn(L + 3 * (bw + 12), y0 + 8, bw, 130, streamer ? tvLbl(streamer) : 'CLY3DTV', !!(streamer && (streamer.tvUp || streamer.stuRun)), () => setTools('tv'), !streamer, 21);   // #389 was CHALKBOARD (now on VJ TOOLS)
+      btn(L + 4 * (bw + 12), y0 + 8, bw, 130, dirroLbl(), !!(dirro && dirro.on), () => setTools('dirro'), !dirro, 21);   // #427
+      note('DJ TOOLS: Record Maker, milk crate.  VJ TOOLS: Scroller, LED wall, neon, whiteboard, portals, cameras.  STREAM: Twitch.  CLY3DTV: the Fire Stick TV.  DIRROGRAM: the show on the audience\'s phones.', y0 + 160); }
     return;
   }
   if (page === 'stream') {   // #331 LIVE STREAM to Twitch
@@ -5264,7 +5566,7 @@ function drawToolsPage() {
     const keys = ['card', 'show', 'vj'];   // #389 AVACAM source gone: GOPRO / GOPRO2 do that job   // #374 PHONE and PHONE CAM SETUP moved into SHOWTIME! (camera pick on OBJECTS);   // #347 PHONE CAM   // #338 VJ SETUP where VIDEOWALL was   // #372 HEADSET CAM and PHONE CAM are camera picks inside SHOWTIME! (OBJECTS page)
     const inShow = k => S.source === k || (k === 'show' && (S.source === 'headset' || S.source === 'pcam' || S.source === 'avacam'));
     const srcBtn = (k, x, y, w, h) => { if (k === 'vj') return btn(x, y, w, h, 'VJ SETUP', false, () => setVideoPage(true), false, P ? 20 : 17);   // #338 the VISUALS pages, as from the main mixer page
-      btn(x, y, w, h, STREAM_SRC[k], inShow(k), () => S.setSource(k), false, P ? 20 : 18); };
+      btn(x, y, w, h, k === 'card' ? 'CARD ⁺¹' : STREAM_SRC[k], inShow(k), k === 'card' ? () => { S.setSource('card'); setTools('card'); } : () => S.setSource(k), false, P ? 20 : 18); };   // #445 CARD opens its page
     const ending = performance.now() - (streamEndArm || 0) < 2500;
     const goLabel = live || st === 'connecting' ? (ending ? 'TAP AGAIN TO END' : 'END STREAM') : 'GO LIVE';
     const goAct = () => {
@@ -5590,6 +5892,184 @@ function drawToolsPage() {
     }
     return;
   }
+  if (page === 'holosms') {   // #435 HoloSMS from the audience: HOLO = on the phones' hologram scroller (6 at most), SINE = on the Quest's scroller, ✕ = delete
+    const y0 = head('HOLOSMS', 'dirro'), d = dirro;
+    if (!d) { note('Not on this device.', y0 + 24); return; }
+    const per = P ? 9 : 3, rh = P ? 60 : 58, pages = Math.max(1, Math.ceil(d.sms.length / per)); smsPg = Math.min(smsPg, pages - 1);
+    const bw = P ? 56 : 70, bx = R - 3 * bw - 12;
+    if (!d.sms.length) note(d.on ? 'No messages yet. People type a HoloSMS on the Dirrogram page (140 characters, one every 3 minutes each); they come here first and reach no screen until you pick HOLO or SINE.' : 'DIRROGRAM is off: switch it on to receive messages.', y0 + 24);
+    d.sms.slice(smsPg * per, smsPg * per + per).forEach((m, i) => {
+      const y = y0 + 4 + i * rh, ago = Math.max(0, Math.round((Date.now() - m.at) / 60000));
+      g.fillStyle = m.holo ? '#1d2a3c' : '#121722'; g.fillRect(L, y, R - L, rh - 6);
+      g.fillStyle = '#8c96a8'; g.font = '600 11px system-ui'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillText(ago ? `${ago} min ago` : 'just now', L + 6, y + 13);
+      g.fillStyle = '#ffffff'; g.font = '500 14px system-ui'; wrapText(g, m.t, L + 6, y + 29, bx - L - 14, 16, 2);
+      btn(bx, y + 4, bw, rh - 14, 'HOLO', m.holo, () => d.smsHolo(m.id), false, 15);
+      btn(bx + bw + 6, y + 4, bw, rh - 14, 'SINE', m.sine, () => d.smsSine(m.id), false, 15);
+      btn(bx + 2 * (bw + 6), y + 4, bw, rh - 14, '✕', false, () => d.smsDelete(m.id), false, 18);
+    });
+    const fy = y0 + 4 + per * rh + 2, fw = (R - L - 18) / 4;
+    btn(L, fy, fw, 36, '◀', false, smsPg > 0 ? () => { smsPg--; drawMixScreen(); } : null, smsPg === 0, 18);
+    g.fillStyle = '#dfe6f2'; g.font = '600 15px system-ui'; g.textAlign = 'center'; g.fillText(`${smsPg + 1} / ${pages}  ·  ${d.holo.length} on holo`, L + fw * 1.5 + 6, fy + 23);
+    btn(L + 2 * (fw + 6), fy, fw, 36, '▶', false, smsPg < pages - 1 ? () => { smsPg++; drawMixScreen(); } : null, smsPg >= pages - 1, 18);
+    btn(L + 3 * (fw + 6), fy, fw, 36, 'CLEAR HOLO', false, d.holo.length ? () => d.holoClear() : null, !d.holo.length, 14);
+    return;
+  }
+  if (page === 'dirro') {   // #427 DIRROGRAM: on / off, the relay, the room and its QR (the audience scans it), status; #434 the phones' LED wall
+    const y0 = head('DIRROGRAM', 'home'), d = dirro;
+    if (!d) { note('Not on this device.', y0 + 24); return; }
+    const W8 = d.wall, cyc = (arr, v, dir) => arr[(arr.indexOf(v) + dir + arr.length) % arr.length];
+    const acts = [[d.on ? 'DIRROGRAM: ON' : 'DIRROGRAM: OFF', d.on, () => d.setOn(!d.on)],
+      ['RELAY…', false, () => openKbd('RELAY: TYPE THE PINGGY NAME, E.G. UNIVDEMO', relayUrl(), false, 160, t => d.setRelay(t), 'dirro')],   // #431 the short form is enough
+      ['NEW ROOM', false, () => { const now = performance.now(); if (now - dirroRoomT < 2500) { dirroRoomT = 0; d.newRoom(); toast('New room: the old QR no longer works', 2500); } else { dirroRoomT = now; toast('Tap NEW ROOM again: printed QR codes of the old room stop working', 2500); } }]];
+    // stepper: − value +, the label small above the value
+    const stp = (x, y, w, h, label, val, dn, up) => {
+      btn(x, y, 40, h, '−', false, () => { dn(); drawMixScreen(); }); btn(x + w - 40, y, 40, h, '+', false, () => { up(); drawMixScreen(); });
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.fillText(label, x + w / 2, y + 14);
+      g.fillStyle = '#fff'; g.font = '700 17px system-ui'; g.fillText(val, x + w / 2, y + h - 7);
+    };
+    // #438 MARK LEFT / RIGHT (as the crowd sees them): tap, then touch the light with the controller tip and pull the trigger; CLEAR takes two taps
+    const bcnRow = (x, y, w, h) => {
+      const bw3 = (w - 12) / 3, mk = k => () => { dirroMark.want = k; dirroMark.t0 = performance.now(); dirroMark.prev = {}; toast(`Touch the ${k === 'L' ? 'LEFT' : 'RIGHT'} beacon (as the crowd sees it) with the controller tip, pull the trigger`, 4000); drawMixScreen(); };
+      btn(x, y, bw3, h, dirroMark.want === 'L' ? 'TOUCH LEFT…' : d.bcn.L ? 'BEACON L ✓' : 'MARK BEACON L', !!d.bcn.L || dirroMark.want === 'L', mk('L'), false, 14);
+      btn(x + bw3 + 6, y, bw3, h, dirroMark.want === 'R' ? 'TOUCH RIGHT…' : d.bcn.R ? 'BEACON R ✓' : 'MARK BEACON R', !!d.bcn.R || dirroMark.want === 'R', mk('R'), false, 14);
+      btn(x + 2 * (bw3 + 6), y, bw3, h, 'CLEAR BEACONS', false, d.bcn.L || d.bcn.R ? () => { const now = performance.now(); if (now - dirroRoomT < 2500) { dirroRoomT = 0; d.clearBeacons(); } else { dirroRoomT = now; toast('Tap CLEAR BEACONS again', 2000); } } : null, !(d.bcn.L || d.bcn.R), 13);
+    };
+    const wallBtn = (x, y, w, h) => btn(x, y, w, h, 'WALL: ' + WALL_LABEL[W8.src], W8.src !== 'follow', () => d.setWall('src', cyc(WALL_SRC, W8.src, 1)), false, 16);
+    const steps = [
+      ['LED GRID', W8.cols ? `${W8.cols} across` : 'OFF', () => d.setWall('cols', cyc(WALL_COLS, W8.cols, -1)), () => d.setWall('cols', cyc(WALL_COLS, W8.cols, 1))],
+      ['LED DOT', `${Math.round(W8.fill * 100)} %`, () => d.setWall('fill', Math.max(0.4, Math.round((W8.fill - 0.05) * 100) / 100)), () => d.setWall('fill', Math.min(1, Math.round((W8.fill + 0.05) * 100) / 100))],
+      ['LED GLOW', `${W8.glow.toFixed(1)}x`, () => d.setWall('glow', Math.max(0.5, Math.round((W8.glow - 0.1) * 10) / 10)), () => d.setWall('glow', Math.min(2, Math.round((W8.glow + 0.1) * 10) / 10))],
+      ['TV FRAMES / S', String(W8.fps), () => d.setWall('fps', Math.max(1, W8.fps - 1)), () => d.setWall('fps', Math.min(6, W8.fps + 1))]];
+    let ty, tx = L + 4, tw;
+    if (P) {
+      acts.forEach(([l, on, a], i) => btn(L, y0 + 6 + i * 56, R - L, 48, l, on, a, false, 21));
+      let y = y0 + 6 + 3 * 56; wallBtn(L, y, R - L, 44); y += 52;
+      steps.forEach(([l, v, dn, up], i) => stp(L + (i % 2) * ((R - L) / 2 + 3), y + Math.floor(i / 2) * 52, (R - L) / 2 - 3, 44, l, v, dn, up)); y += 2 * 52 + 6;
+      btn(L, y, R - L, 40, `HOLOSMS (${d.sms.length})`, d.holo.length > 0, () => setTools('holosms'), false, 17); y += 46;   // #435
+      bcnRow(L, y, R - L, 40); y += 46;   // #438
+      ty = y + 14; tw = R - L - 8;
+      const q = Math.min(R - L, H - (ty + 44) - 10); drawQr(g, fanUrl(), L + (R - L - q) / 2, ty + 44, q);
+    } else {
+      const q = 196, qx = R - q, lw = qx - L - 14, aw = (lw - 12) / 3, sw = (lw - 12) / 3;
+      acts.forEach(([l, on, a], i) => btn(L + i * (aw + 6), y0 + 4, aw, 44, l, on, a, false, 17));
+      wallBtn(L, y0 + 54, aw, 42);
+      steps.forEach(([l, v, dn, up], i) => { const k = i + 1, x = L + (k % 3) * (sw + 6), y = y0 + 54 + Math.floor(k / 3) * 48; stp(x, y, sw, 42, l, v, dn, up); });
+      drawQr(g, fanUrl(), qx, y0 + 2, q);
+      btn(L + 2 * (sw + 6), y0 + 54 + 48, sw, 42, `HOLOSMS (${d.sms.length})`, d.holo.length > 0, () => setTools('holosms'), false, 15);   // #435
+      bcnRow(L, y0 + 54 + 2 * 48, lw, 36); ty = y0 + 54 + 2 * 48 + 36 + 18; tw = lw;   // #438
+    }
+    g.textAlign = 'left'; g.fillStyle = d.state === 'live' ? '#7dffa0' : '#dfe6f2'; g.font = '600 16px system-ui';
+    g.fillText(d.status(), tx, ty, tw);
+    g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui';
+    g.fillText(`Room ${roomKey()}  ·  relay ${relayUrl().replace(/^wss?:\/\//, '') || 'not set'}`, tx, ty + 19, tw);
+    g.fillText(d.beaconInfo() + (d.bcn.L && d.bcn.R ? ' · phones: AIM > AIM WITH BEACON' : ''), tx, ty + 38, tw);   // #438
+    if (P) { g.font = '500 13px system-ui'; wrapText(g, 'WALL on the phones: FOLLOW = whatever your LED wall shows (WALL on the mixer). AUTO = fractal + your LED picture + promo + NOW SPINNING. PICTURES = the picture on your LED wall. CLY3DTV = the stream / TV picture (stream or TV must be running).', tx, ty + 60, tw, 16, 4); }
+    return;
+  }
+  if (page === 'retro') {   // #442 RETRO-SCENE: the effect-driven visuals, one tap each
+    const y0 = head('RETRO-SCENE', 'wall'), cyc = (arr, v, dir) => arr[(arr.indexOf(v) + dir + arr.length) % arr.length];
+    const tiles = [['DANCER', ledMode === 'retro' && ledFx.s !== 'loop', () => setLedMode('retro')], ['MANDEL', ledMode === 'mandel', () => setLedMode('mandel')],
+      ['VECTOR-DANCER ⁺¹', ledMode === 'vdancer', () => { setLedMode('vdancer'); setTools('vdancer'); }], ['METABALLS', ledMode === 'meta', () => setLedMode('meta')]];
+    const grabLbl = grab.on ? (grab.n < 0 ? 'CAMERA…' : `GRABBING ${Math.max(0, Math.ceil((LOOP.n - grab.n) / LOOP.fps))} s`) : 'GRAB LOOP' + (grab.loops.length ? ` (${grab.loops.length})` : '');
+    const stp = (x, y, w, h) => {
+      btn(x, y, 40, h, '−', false, () => { vd.mp.n = Math.max(2, vd.mp.n - 1); vdSave(); drawMixScreen(); }); btn(x + w - 40, y, 40, h, '+', false, () => { vd.mp.n = Math.min(9, vd.mp.n + 1); vdSave(); drawMixScreen(); });
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.fillText('METABALLS', x + w / 2, y + 14);
+      g.fillStyle = '#fff'; g.font = '700 17px system-ui'; g.fillText(vd.mp.n + ' balls', x + w / 2, y + h - 7);
+    };
+    const info = 'DANCER: the vector dancer, and your grabbed loops every 8 bars. VECTOR-DANCER: moire circles through a matte clip (open it for the matte slots, circle sets, gap and beat motion). METABALLS bounce on the beat. All of them go to the stream, CLY3DTV and the phones too.';
+    if (P) {
+      const tw = (R - L - 6) / 2, th = 84;
+      tiles.forEach(([l, on, a], i) => btn(L + (i % 2) * (tw + 6), y0 + 2 + Math.floor(i / 2) * (th + 6), tw, th, l, on, a, false, 19));
+      let y = y0 + 2 + 2 * (th + 6) + 4;
+      btn(L, y, R - L, 50, grabLbl, grab.on, grabLoop, false, 20); y += 58; stp(L, y, R - L, 44); y += 52;
+      tapB(L, y, R - L, 50, 20); y += 58; pxSlider(L, y, R - L, 40); y += 48;
+      note(info, y + 14);
+    } else {
+      const tw = (R - L - 18) / 4, th = 96;
+      tiles.forEach(([l, on, a], i) => btn(L + i * (tw + 6), y0 + 2, tw, th, l, on, a, false, 19));
+      const aw = (R - L - 12) / 3;
+      btn(L, y0 + 106, aw, 42, grabLbl, grab.on, grabLoop, false, 17); stp(L + aw + 6, y0 + 106, aw, 42); tapB(L + 2 * (aw + 6), y0 + 106, aw, 42);
+      pxSlider(L, y0 + 154, R - L, 32);
+      g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, info, L + 4, y0 + 206, R - L - 8, 16, 3);
+    }
+    return;
+  }
+  if (page === 'vdancer') {   // #442 VECTOR-DANCER: rings through a matte; 6 matte slots, loaded from VISUALS > Video
+    const y0 = head('VECTOR-DANCER', 'retro'), cyc = (arr, v, dir) => arr[(arr.indexOf(v) + dir + arr.length) % arr.length], rp = vd.rp, on = ledMode === 'vdancer';
+    const sw = P ? (R - L - 6) / 2 : (R - L - 5 * 6) / 6, sh = P ? 44 : 48;
+    for (let i = 0; i < VD_SLOTS; i++) {
+      const x = P ? L + (i % 2) * (sw + 6) : L + i * (sw + 6), y = P ? y0 + 2 + Math.floor(i / 2) * (sh + 6) : y0 + 2;
+      btn(x, y, sw, sh, vd.slots[i] ? `${i + 1}  ${vdLabel(i)}` : `${i + 1}  + LOAD`, on && vd.sel === i && !!vd.slots[i], () => vdSelect(i), !vd.slots[i], 15);
+    }
+    const ya = P ? y0 + 2 + 3 * (sh + 6) + 2 : y0 + 2 + sh + 6, h = 40, cw = (R - L - 18) / 4;
+    const sel = vd.sel >= 0 ? vd.sel : Math.max(0, vd.slots.findIndex(x => !x));
+    btn(L, ya, cw, h, vd.slots[sel] ? 'REPLACE…' : 'LOAD…', false, () => vdPickFor(sel), false, 16);
+    btn(L + (cw + 6), ya, cw, h, vd.sel === 0 ? 'RESET 1' : 'CLEAR', false, vd.sel >= 0 && vd.slots[vd.sel] ? () => { vd.slots[vd.sel] = vd.sel === 0 ? '@builtin' : ''; if (vd.sel !== 0) vd.sel = -1; vdSave(); vd.cur = null; vdLoad(); drawMixScreen(); } : null, vd.sel < 0 || !vd.slots[vd.sel], 16);
+    btn(L + 2 * (cw + 6), ya, cw, h, 'RINGS ONLY', on && vd.sel < 0, () => { vd.sel = -1; vdSave(); if (on) vdLoad(); else setLedMode('vdancer'); drawMixScreen(); }, false, 15);
+    btn(L + 3 * (cw + 6), ya, cw, h, 'SWAP MATTE', !!rp.inv, () => { rp.inv = rp.inv ? 0 : 1; vdSave(); drawMixScreen(); }, false, 15);
+    const yb = ya + h + 6, MV = ['OFF', 'PULSE', 'BOUNCE'], PL = ['ACID', 'NEON', 'MONO'];
+    btn(L, yb, cw * 2 + 6, h, `CIRCLES: ${rp.n} SET${rp.n > 1 ? 'S' : ''}`, false, () => { rp.n = rp.n % 3 + 1; vdSave(); drawMixScreen(); }, false, 16);
+    btn(L + 2 * (cw + 6), yb, cw, h, 'BEAT: ' + MV[rp.mv], rp.mv > 0, () => { rp.mv = (rp.mv + 1) % 3; vdSave(); drawMixScreen(); }, false, 15);
+    btn(L + 3 * (cw + 6), yb, cw, h, PL[rp.pal], false, () => { rp.pal = (rp.pal + 1) % 3; vdSave(); drawMixScreen(); }, false, 16);
+    const sw2 = P ? R - L : (R - L - 6) / 2, ys = yb + h + 6;
+    tSlider(g, L, ys, sw2, 34, 'RING GAP', (rp.g - 1.5) / 6.5, `${rp.g.toFixed(1)} px`, v => { rp.g = Math.round((1.5 + v * 6.5) * 10) / 10; vdSave(); drawMixScreen(); });
+    tSlider(g, P ? L : L + sw2 + 6, P ? ys + 40 : ys, sw2, 34, 'ZOOM', ((rp.z || 1) - 0.6) / 2.4, `${(rp.z || 1).toFixed(1)}x`, v => { rp.z = Math.round((0.6 + v * 2.4) * 10) / 10; vdSave(); drawMixScreen(); });
+    g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left';
+    wrapText(g, 'Slot 1 is the bundled matte. Tap an empty slot to pick a clip on the VISUALS > Video page (a white figure on black works best). PULSE: the rings run out on the beat. BOUNCE: the circles bounce.', L + 4, ys + (P ? 90 : 52), R - L - 8, 16, P ? 5 : 2);
+    return;
+  }
+  if (page === 'wall') {   // #439 LED WALL: one tap a source. It drives the 3D wall, the stream's / CLY3DTV's VIDEOWALL and the Dirrogram phones (FOLLOW)
+    const y0 = head('LED WALL', 'mixer'), d = dirro, LK = d ? d.wall : null, cyc = (arr, v, dir) => arr[(arr.indexOf(v) + dir + arr.length) % arr.length];
+    const nOf = k => { const o = led.kind; led.kind = k; const n = led.pool().length; led.kind = o; return n; };
+    const tiles = [
+      ['OFF', ledMode === 'off', () => setLedMode('off'), false],
+      ['CLIPS', (ledMode === 'clips' && !led.img) || (ledMode === 'retro' && ledFx.s === 'loop'), () => (nOf('video') ? setLedMode('clips', 'video') : showLoop(grab.loops[0])), !nOf('video') && !grab.loops.length],
+      ['PICTURES', ledMode === 'clips' && !!led.img, () => setLedMode('clips', 'image'), !nOf('image')],
+      ['MANDEL', ledMode === 'mandel', () => setLedMode('mandel'), false],
+      ['RETRO-SCENE', ledMode === 'retro' || ledMode === 'vdancer' || ledMode === 'meta', () => { if (!isFxMode(ledMode) || ledMode === 'mandel') setLedMode('retro'); setTools('retro'); }, false],
+      ['AVACAM', ledMode === 'cam', () => setLedMode('cam'), !djcam || !pieceOn('ledwall')],
+      ['LIVE', isLive(ledMode), () => setLedMode('live'), !livePossible() || !pieceOn('ledwall')]];
+    const tile = (x, y, w, h, [label, on, act, dim]) => {
+      if (label !== 'RETRO-SCENE') { btn(x, y, w, h, label, on, dim ? null : act, dim, P ? 19 : 17); return; }
+      btn(x, y, w, h, '', on, act, false);
+      const s = Math.min(h - 28, w - 16); if (retroIcon.complete && retroIcon.naturalWidth) g.drawImage(retroIcon, x + (w - s) / 2, y + 5, s, s);
+      g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : '#3a4252'; g.font = '800 13px system-ui'; g.fillText('RETRO-SCENE', x + w / 2, y + h - 12);
+      g.font = '700 12px system-ui'; g.textAlign = 'right'; g.textBaseline = 'top'; g.fillText('+1', x + w - 4, y + 3); g.textBaseline = 'alphabetic';   // #442 opens the RETRO-SCENE page
+    };
+    const grabLbl = grab.on ? (grab.n < 0 ? 'CAMERA…' : `GRABBING ${Math.max(0, Math.ceil((LOOP.n - grab.n) / LOOP.fps))} s`) : 'GRAB LOOP' + (grab.loops.length ? ` (${grab.loops.length})` : '');
+    const acts = [[grabLbl, grab.on, grabLoop, false], ['AUTO: ' + (ledFx.auto ? ledFx.auto + ' BARS' : 'OFF'), !!ledFx.auto, () => setWallAuto(cyc([0, 16, 32], ledFx.auto, 1)), false],
+      [d ? 'PHONES: ' + WALL_LABEL[LK.src] : 'PHONES', !!d && LK.src === 'follow', d ? () => d.setWall('src', cyc(WALL_SRC, LK.src, 1)) : null, !d]];
+    const stp = (x, y, w, h, label, val, dn, up) => {
+      btn(x, y, 40, h, '−', false, () => { dn(); drawMixScreen(); }); btn(x + w - 40, y, 40, h, '+', false, () => { up(); drawMixScreen(); });
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.fillText(label, x + w / 2, y + 14);
+      g.fillStyle = '#fff'; g.font = '700 17px system-ui'; g.fillText(val, x + w / 2, y + h - 7);
+    };
+    const steps = d ? [
+      ['LED GRID', LK.cols ? `${LK.cols} across` : 'OFF', () => d.setWall('cols', cyc(WALL_COLS, LK.cols, -1)), () => d.setWall('cols', cyc(WALL_COLS, LK.cols, 1))],
+      ['LED DOT', `${Math.round(LK.fill * 100)} %`, () => d.setWall('fill', Math.max(0.4, Math.round((LK.fill - 0.05) * 100) / 100)), () => d.setWall('fill', Math.min(1, Math.round((LK.fill + 0.05) * 100) / 100))],
+      ['LED GLOW', `${LK.glow.toFixed(1)}x`, () => d.setWall('glow', Math.max(0.5, Math.round((LK.glow - 0.1) * 10) / 10)), () => d.setWall('glow', Math.min(2, Math.round((LK.glow + 0.1) * 10) / 10))]] : [];
+    const info = `Showing ${LED_LABEL[ledMode].replace('LED ', '')}${ledMode === 'retro' && ledFx.s === 'loop' ? ' (loop)' : ''}. The same picture is the stream's and CLY3DTV's VIDEOWALL${d && d.on ? ', and the phones on FOLLOW' : ''}. PIXELS sets the picture size and the LED grid together (MANDEL keeps its own). TAP BPM: tap the beat in; a long press hands it back to the music.`;
+    if (P) {
+      const tw = (R - L - 6) / 2, th = 66;
+      tiles.forEach((t, i) => tile(L + (i % 2) * (tw + 6), y0 + 2 + Math.floor(i / 2) * (th + 6), tw, th, t));
+      const [al, ao, aa] = acts[1]; btn(L + tw + 6, y0 + 2 + 3 * (th + 6), tw, th, al, ao, aa, false, 17);
+      let y = y0 + 2 + 4 * (th + 6) + 4;
+      btn(L, y, R - L, 54, acts[0][0], acts[0][1], acts[0][2], false, 22); y += 60;
+      btn(L, y, tw, 44, acts[2][0], acts[2][1], acts[2][2], acts[2][3], 16); tapB(L + tw + 6, y, tw, 44, 18); y += 52;
+      steps.forEach(([l, v, dn, up]) => { stp(L, y, R - L, 40, l, v, dn, up); y += 46; });
+      pxSlider(L, y, R - L, 38); y += 44;
+      note(info, y + 14);
+    } else {
+      const tw = (R - L - 6 * 6) / 7, th = 80;
+      tiles.forEach((t, i) => tile(L + i * (tw + 6), y0 + 2, tw, th, t));
+      const aw = (R - L - 12) / 3, a4 = (R - L - 18) / 4;
+      acts.forEach(([l, on, a, dim], i) => btn(L + i * (a4 + 6), y0 + 88, a4, 38, l, on, dim ? null : a, dim, 16)); tapB(L + 3 * (a4 + 6), y0 + 88, a4, 38, 16);
+      steps.forEach(([l, v, dn, up], i) => stp(L + i * (aw + 6), y0 + 132, aw, 38, l, v, dn, up));
+      pxSlider(L, y0 + 176, R - L, 32);
+      g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, info, L + 4, y0 + 226, R - L - 8, 16, 2);
+    }
+    return;
+  }
   if (page === 'tv') {   // #376 CLY3DTV: the venue screen (venue.html). The TV shows a 6-digit code, it is typed here; then switches, sound, status
     const y0 = head('CLY3DTV', 'stream', streamer ? { label: P ? 'S8 ▸' : 'S8 STUDIO ▸', on: false, act: () => setTools('studio') } : null), S = streamer;   // #380
     if (!S) { note('CLY3DTV runs on the headset (not on the phone).', y0 + 20); return; }
@@ -5787,14 +6267,14 @@ function drawToolsPage() {
     if (P) {
       if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
         ctlBtn(L, y0 + 176, (R - L - 8) * 0.62, 64); btn(L + (R - L - 8) * 0.62 + 8, y0 + 176, (R - L - 8) * 0.38, 64, 'HAND FIT', false, () => setTools('handfit'), false, 18);   // #291
-        lockBtn(L, y0 + 252, R - L, 64);   // #378
+        lockBtn(L, y0 + 252, (R - L - 8) * 0.55, 64); btn(L + (R - L - 8) * 0.55 + 8, y0 + 252, (R - L - 8) * 0.45, 64, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 17);   // #378, #423
         note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until you switch it off (then decks turn in 45 degree steps). RECORD MAKER: press your own record. MILK CRATE: the first milk crate. CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 332); }
       else vjPage(y0);   // #389
     } else {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
       if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(x2, y0 + 8, w2, 80, 'MILK CRATE', 'milk');
         ctlBtn(L, y0 + 96, (R - L - 8) * 0.66, 50); btn(L + (R - L - 8) * 0.66 + 8, y0 + 96, (R - L - 8) * 0.34, 50, 'HAND FIT', false, () => setTools('handfit'), false, 20);   // #291
-        lockBtn(L, y0 + 154, R - L, 46);   // #378
+        lockBtn(L, y0 + 154, (R - L - 8) * 0.62, 46); btn(L + (R - L - 8) * 0.62 + 8, y0 + 154, (R - L - 8) * 0.38, 46, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 18);   // #378, #423
         note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until it is switched off. RECORD MAKER: press your own record. CONTROLLERS: 3D hands or bare controllers.', y0 + 218); }
       else vjPage(y0);   // #389
     }
@@ -5963,9 +6443,12 @@ function drawToolsPage() {
     const y0 = head(kbd.title, kbd.back, { label: 'MIC / KEYS', on: sysKbPending, act: sysKbTap });   // #387 the headset keyboard + dictation
     g.fillStyle = '#0d1422'; g.fillRect(L, y0, R - L, 44);
     g.save(); g.beginPath(); g.rect(L, y0, R - L, 44); g.clip();
-    const tw = bitWidth(kbd.text + ' ', 4), tx = Math.min(L + 10, R - 12 - tw);
-    drawBitText(g, kbd.text, tx, y0 + 9, 4, '#ffffff');
-    g.fillStyle = '#39a8ff'; g.fillRect(tx + bitWidth(kbd.text, 4), y0 + 9, 16, 28);   // cursor
+    {   // #432 (owner) the typed text always in a plain font (was the pixel font; #431 switched only for missing glyphs)
+      g.font = '600 26px system-ui, sans-serif'; g.textBaseline = 'middle'; g.textAlign = 'left';
+      const tw = g.measureText(kbd.text + ' ').width, tx = Math.min(L + 10, R - 12 - tw);
+      g.fillStyle = '#ffffff'; g.fillText(kbd.text, tx, y0 + 23);
+      g.fillStyle = '#39a8ff'; g.fillRect(tx + g.measureText(kbd.text).width + 2, y0 + 9, 14, 28); g.textBaseline = 'alphabetic';
+    }
     g.restore();
     const gap = 4, kh = P ? 46 : 36, ky0 = y0 + 52;
     KEY_ROWS.forEach((row, ri) => {
@@ -6013,8 +6496,10 @@ function drawToolsPage() {
     const neonOn = A.neon !== 0;
     const bottomBtns = (x, y, w, h) => {
       const b2 = (w - 8) / 2;
-      btn(x, y, b2, h, 'RESET', false, () => { if (X) { for (const [k] of rows) X.setHandFit(k, 0); X.setHandFit('gs', 94); drawMixScreen(); } });
-      btn(x + b2 + 8, y, b2, h, neonOn ? 'NEON CHROME: ON' : 'NEON CHROME', neonOn, () => { if (X) X.setHandFit('neon', neonOn ? 0 : 1); robotNeon(); drawMixScreen(); });
+      btn(x, y, (w - 16) / 3, h, 'RESET', false, () => { if (X) { for (const [k] of rows) X.setHandFit(k, 0); X.setHandFit('gs', 94); drawMixScreen(); } });
+      const b3 = (w - 16) / 3;
+      btn(x + b3 + 8, y, b3, h, neonOn ? 'NEON CHROME: ON' : 'NEON CHROME', neonOn, () => { if (X) X.setHandFit('neon', neonOn ? 0 : 1); robotNeon(); drawMixScreen(); });
+      btn(x + 2 * b3 + 16, y, b3, h, 'PINCH FIT ▸', false, () => setTools('pinchfit'));   // #422
     };
     if (P) {
       cells.forEach((c, i) => cell(c, L, y0 + i * 62, R - L, 58, true));
@@ -6024,6 +6509,42 @@ function drawToolsPage() {
       const cw = (R - L - 16) / 2, half = Math.ceil(cells.length / 2);
       cells.forEach((c, i) => cell(c, L + (i < half ? 0 : cw + 16), y0 + (i % half) * 44, cw, 38, false));
       bottomBtns(L, y0 + half * 44 + 4, R - L, 36);
+    }
+    return;
+  }
+  if (page === 'feel') {   // #423 (owner) TURNTABLE FEEL sliders, preset to the current physics
+    const y0 = head('TURNTABLE FEEL', 'dj'), D = FEEL_DEF, keys = Object.keys(D);
+    const row = (k, x, y, w, h) => { const r = D[k], v = FEEL[k]; tSlider(g, x, y, w, h, r.label, (v - r.lo) / (r.hi - r.lo), `${v} ${r.unit}`, f => setFeel(k, Math.round(r.lo + f * (r.hi - r.lo))), false, 170); };
+    const reset = () => { for (const k of keys) setFeel(k, D[k].v); drawMixScreen(); };
+    if (P) {
+      keys.forEach((k, i) => row(k, L, y0 + i * 52, R - L, 46));
+      const yb = y0 + keys.length * 52 + 4; btn(L, yb, R - L, 40, 'RESET TO AS BUILT', false, reset);
+      note('Drag a bar. 100 % = the physics as built. PLATTER FRICTION: slipmat grip. SCRATCH & DRAG: record turn per hand turn (100 % = 1:1). RADIUS EVEN-OUT: every touch point moves the record like the outer edge (0 % = true vinyl). HAND SMOOTHING: filters tracking jitter on the record. SPINDLE TWIST: pinch on the spindle. NUDGE: finger on the platter rim.', yb + 58);
+    } else {
+      const bw = 170;   // one bar per row, full width; RESET under the label column
+      keys.forEach((k, i) => row(k, L, y0 + i * 36, R - L, 32));   // #424 six bars
+      btn(L, y0 + keys.length * 36 + 2, bw, 32, 'RESET TO AS BUILT', false, reset, false, 14);
+      g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('100 % = as built.  RADIUS EVEN-OUT 0 % = true vinyl (near the label moves faster).', L + bw + 12, y0 + keys.length * 36 + 18); g.textBaseline = 'alphabetic';
+    }
+    return;
+  }
+  if (page === 'pinchfit') {   // #422 (owner) sliders: the interaction sphere, the pinched hand / glove (lift, tilt, turn) and knob twist
+    const y0 = head('PINCH FIT', 'handfit');
+    let X = null; try { X = xr; } catch (e) {}
+    const A = X ? X.handFit : {}, D = PINCH_FIT_DEF;
+    const val = k => (A[k] != null ? A[k] : D[k].v);
+    const set = (k, f) => { if (!X) return; const r = D[k]; X.setHandFit(k, Math.round(r.lo + f * (r.hi - r.lo))); };
+    const keys = Object.keys(D);
+    const row = (k, x, y, w, h) => { const r = D[k], v = val(k); tSlider(g, x, y, w, h, r.label, (v - r.lo) / (r.hi - r.lo), `${v > 0 && r.lo < 0 ? '+' : ''}${v} ${r.unit}`, f => set(k, f)); };
+    if (P) {
+      keys.forEach((k, i) => row(k, L, y0 + i * 50, R - L, 44));
+      const yb = y0 + keys.length * 50 + 4;
+      btn(L, yb, R - L, 40, 'RESET PINCH FIT', false, () => { if (X) for (const k of keys) X.setHandFit(k, D[k].v); drawMixScreen(); });
+      note('Drag a bar with your fingertip. BALL: where the touch point sits on your index finger (mm). LIFT / TILT / TURN: the 3D hand or glove once it has pinched a knob or fader. TWIST: wrist turn for a knob from 0 to full.', yb + 58);
+    } else {
+      const cw = (R - L - 12) / 2, half = Math.ceil(keys.length / 2);
+      keys.forEach((k, i) => row(k, L + (i < half ? 0 : cw + 12), y0 + (i % half) * 40, cw, 36));
+      btn(L, y0 + half * 40 + 4, 200, 34, 'RESET PINCH FIT', false, () => { if (X) for (const k of keys) X.setHandFit(k, D[k].v); drawMixScreen(); });
     }
     return;
   }
@@ -6178,6 +6699,38 @@ function drawToolsPage() {
     if (art.msg && art.imgs.length) { g.fillStyle = '#c86a5a'; g.font = '600 13px system-ui'; g.textAlign = 'left'; fitText2(g, art.msg, gx + 4, P ? gy - 6 : iy - 8, gw - 8); }
     return;
   }
+  if (page === 'card') {   // #445 the stream's CARD: the main card (always the first slot), or any picture / animated GIF from IMAGES (sponsor, theme night, a QR code)
+    const S = streamer, y0 = head('STREAM CARD', 'stream');
+    if (!S) { note('The card is part of the stream, which runs on the headset.', y0 + 20); return; }
+    const COLS = P ? 2 : 4, PER = P ? 10 : 8, CW = (R - L - (COLS - 1) * 8) / COLS, TH = P ? 64 : 76, CH = TH + 20, cur = S.cardPic ? S.cardPic.name : '';
+    const list = [{ main: true }, ...pickItems], pages = Math.max(1, Math.ceil(list.length / PER)); pickPg = Math.min(pickPg, pages - 1);
+    list.slice(pickPg * PER, pickPg * PER + PER).forEach((it, i) => {
+      const cx = L + (i % COLS) * (CW + 8), cy = y0 + Math.floor(i / COLS) * (CH + 6), on = it.main ? !cur : it.name === cur;
+      g.fillStyle = '#121824'; g.fillRect(cx, cy, CW, TH);
+      if (it.main) {
+        g.textAlign = 'right'; g.textBaseline = 'middle'; g.font = '800 26px system-ui'; g.fillStyle = '#fff'; g.fillText('Cly', cx + CW / 2 + 2, cy + TH / 2 - 8); g.textAlign = 'left'; g.fillStyle = '#e0202a'; g.fillText('3DJ', cx + CW / 2 + 3, cy + TH / 2 - 8);
+        g.textAlign = 'center'; g.font = '600 12px system-ui'; g.fillStyle = '#b9a3ff'; g.fillText('LIVE ON VINYL + TWITCH QR', cx + CW / 2, cy + TH - 12); g.textBaseline = 'alphabetic';
+      } else {
+        const t = vpThumb('Images', it.name);
+        if (t && t !== 'loading') { const s = Math.min(CW / t.width, TH / t.height), w = t.width * s, h = t.height * s; g.drawImage(t, cx + (CW - w) / 2, cy + (TH - h) / 2, w, h); }
+        if (/\.gif$/i.test(it.name)) { g.fillStyle = 'rgba(5,7,12,0.78)'; g.fillRect(cx + CW - 34, cy + TH - 20, 32, 18); g.fillStyle = '#ffd24a'; g.font = '800 12px system-ui'; g.textAlign = 'center'; g.fillText('GIF', cx + CW - 18, cy + TH - 7); }
+      }
+      if (on) { g.strokeStyle = '#39a8ff'; g.lineWidth = 4; g.strokeRect(cx + 2, cy + 2, CW - 4, TH + 16); if (S.source === 'card') { g.fillStyle = '#40d080'; g.fillRect(cx + 4, cy + 4, 62, 20); g.fillStyle = '#05070c'; g.font = '800 13px system-ui'; g.textAlign = 'left'; g.fillText('ON AIR', cx + 9, cy + 19); } }
+      g.fillStyle = on ? '#fff' : '#b8c0cf'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, it.main ? 'MAIN CARD' : it.name.replace(/\.[^.]+$/, ''), cx + 2, cy + TH + 15, CW - 4);
+      VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, act: async () => {
+        if (it.main) { S.setCardPic(null); cardWallSet(null); try { localStorage.setItem('vire.cardPic', ''); } catch (e) {} }
+        else { const f = await media.getFile('Images', it.name); if (!f || !(await S.setCardPic(f))) { toast('That picture would not open', 2500); return; } try { localStorage.setItem('vire.cardPic', it.name); } catch (e) {} cardWallSet(f); }
+        S.setSource('card'); drawMixScreen();
+      } });
+    });
+    const by = P ? H - 62 : H - 44;
+    btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
+    btn(L + 48, by, 44, 36, '›', false, () => { pickPg = Math.min(pages - 1, pickPg + 1); }, pickPg >= pages - 1);
+    btn(R - 150, by, 150, 36, cardWall.on ? 'LED WALL: ON' : 'LED WALL: OFF', cardWall.on, () => { cardWall.on = !cardWall.on; try { localStorage.setItem('vire.cardWall', cardWall.on ? '1' : '0'); } catch (e) {} if (cardWall.on) { if (cardWall.file) cardWallSet(cardWall.file); } else if (ledMode === 'card') setLedMode(cardWall.prev && cardWall.prev !== 'card' ? cardWall.prev : 'off'); drawMixScreen(); }, false, 15);   // #446
+    g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left';
+    wrapText(g, 'Tap a picture or GIF (add them in IMAGES on the start page, or Library > Import on the phone). It goes to Twitch, CLY3DTV and, with LED WALL on, the LED wall and the phones (a GIF is cut to 64 frames for them). MAIN CARD is the Cly3DJ card with the Twitch QR.', L + 104, by + 8, R - L - 270, 14, 3);
+    return;
+  }
   if (page === 'pickVideo' || page === 'pickImage') {
     const folder = page === 'pickVideo' ? 'Video' : 'Images';
     const y0 = head(page === 'pickVideo' ? 'PICK A CLIP' : 'PICK A LABEL PICTURE', 'maker');
@@ -6235,9 +6788,9 @@ function drawMixScreen() {
       drawTopBtn(g, 24, y, mw, h, 'MR GUI', sp.mr); drawPhoneIcon(g, 24 + mw + 5, y + (h - 24) / 2, 14, 24, sp.phone);
       SP_HIT.push({ x: 18, y: y - 8, w: mw + 9, h: h + 16, act: () => spect.setMR(!sp.mr) });
     }
-    { const S = streamer, bw3 = (W - 40 - 2 * 6) / 3, by3 = H - 96;   // #389 STREAM, CLY3DTV, STUDIO on a row above TOOLS / RESET MIX
-      [[S && S.live ? '● LIVE' : 'STREAM', !!(S && S.live), () => setTools('stream')], ['CLY3DTV', !!(S && S.tvUp), () => setTools('tv')], ['STUDIO', !!(S && S.stu.on), () => setTools('studio')]].forEach(([l, o, a], i) => {
-        const bx3 = 20 + i * (bw3 + 6); drawTopBtn(g, bx3, by3, bw3, 36, l, o, !S, 18); if (S) SP_HIT.push({ x: bx3 - 3, y: by3 - 4, w: bw3 + 6, h: 44, act: a }); });
+    { const S = streamer, bw3 = (W - 40 - 3 * 6) / 4, by3 = H - 96;   // #389 STREAM, CLY3DTV, STUDIO on a row above TOOLS / RESET MIX; #439 + WALL
+      [[S && S.live ? '● LIVE' : 'STREAM', !!(S && S.live), () => setTools('stream'), !S], ['CLY3DTV', !!(S && S.tvUp), () => setTools('tv'), !S], ['STUDIO', !!(S && S.stu.on), () => setTools('studio'), !S], ['WALL ⁺¹', ledMode !== 'off', () => setTools('wall'), false]].forEach(([l, o, a, dim], i) => {
+        const bx3 = 20 + i * (bw3 + 6); drawTopBtn(g, bx3, by3, bw3, 36, l, o, dim, 15); if (!dim) SP_HIT.push({ x: bx3 - 3, y: by3 - 4, w: bw3 + 6, h: 44, act: a }); });
     }
     drawTopBtn(g, 20, H - 52, 92, 36, 'TOOLS', !!(scroller && scroller.on));   // #224
     SP_HIT.push({ x: 14, y: H - 60, w: 104, h: 52, act: () => setTools('home') });
@@ -6262,6 +6815,7 @@ function drawMixScreen() {
     tb(S && S.live ? '● LIVE' : 'STREAM', !!(S && S.live), () => setTools('stream'), !S, 92);
     tb('CLY3DTV', !!(S && S.tvUp), () => setTools('tv'), !S, 98);
     tb('STUDIO', !!(S && S.stu.on), () => setTools('studio'), !S, 92);
+    tb('WALL ⁺¹', ledMode !== 'off', () => setTools('wall'), false, 78);   // #439 the LED WALL page, one tap from the mixer
     if (testState.fps) {   // #258 live frame rate (kept for the console: window.vire)
       const st = fpsStats(); g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '700 15px system-ui';
       g.fillStyle = !st ? '#8c96a8' : st.drops > 3 ? '#ff5050' : st.drops ? '#f1b650' : '#40d080';
@@ -6395,7 +6949,28 @@ function setTest(k) {
   if (k === 'fps') { clearInterval(setTest.iv); if (testState.fps) setTest.iv = setInterval(drawMixScreen, 1000); }
   drawMixScreen();
 }
-function frame() {
+// #418 (owner: Full VR drops back to the 2D page). A throw anywhere in the frame skipped renderer.render, so the headset
+// got no new frame and Quest Browser leaves immersive mode after a few empty frames. Now the frame always renders; the
+// first error of each XR session is kept (xrDiag) and shown when the session ends.
+const xrDiag = { t0: 0, frames: 0, err: '', errN: 0, mode: '' };
+let frameT = 0;   // #423 the frame's own timestamp (XR: the headset frame time), for stamping hand readings
+function frame(t) {
+  if (t) frameT = t;
+  if (renderer.xr.isPresenting) xrDiag.frames++;
+  try { frameBody(); }
+  catch (e) {
+    xrDiag.errN++;
+    if (!xrDiag.err) { xrDiag.err = (e && e.message || String(e)) + ' @ ' + ((e && e.stack || '').split('\n').find(l => /\.js:\d+/.test(l)) || '').trim().replace(/^at /, '').replace(/https?:\/\/[^ )]*\//, ''); console.error('frame', e); }
+    try { renderer.render(scene, camera); } catch {}
+  }
+}
+function frameBody() {
+  // #440: tablet parts added later (lid, glass, corner L) and the slipmats never get edge-culled in the headset
+  if ((frameBody._n = (frameBody._n || 0) + 1) % 60 === 1) {
+    const nc = o => { if (o.isMesh) padCull(o); };
+    mixer.userData.tablet && mixer.userData.tablet.traverse(nc);
+    for (const d of decks) { const g = d && d.g; if (g && g.userData.slipmat) g.userData.slipmat.forEach(nc); if (g && g.userData.matPivot) g.userData.matPivot.traverse(nc); }
+  }
   if (testState.fps) fpsLog.push(performance.now());   // #258
   const dt = Math.min(0.05, clock.getDelta());
   if (renderer.xr.isPresenting) anchorFollow();   // #210
@@ -6593,10 +7168,22 @@ function frame() {
   stepRealWorld(dt);   // #411 depth occlusion on / off, room planes for the laser
   if (facetWall || laser) {   // #345; #346 BEAT: bass onsets on the master, read only while the wall is on with BEAT (#406 or the laser on AUTO)
     if (!beat) beat = new Beat(engine);
-    beat.want = !!((facetWall && facetWall.on && facetWall.beat) || (laser && laser.on && laser.auto));
+    beat.want = !!((facetWall && facetWall.on && facetWall.beat) || (laser && laser.on && laser.auto) || (dirro && dirro.on) || isFxMode(ledMode));   // #427 the phones follow the beat; #439 the wall visuals
     const bp = beat.tick(dt);
     if (facetWall) facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource, bp);
     if (laser && laser.on) laser.tick(dt, beat, camera.getWorldPosition(_laserCam));
+  }
+  stepWallFx(performance.now());   // #439
+  if (dirro) dirro.tick(performance.now());   // #427
+  if (dirroMark.want && xr && renderer.xr.isPresenting) {   // #438 the next trigger press (after 0.7 s) = the beacon, at the controller tip
+    const now = performance.now();
+    for (const st of xr.inputs) {
+      if (!st.connected || st.isHand || !st.source || !st.source.gamepad || !st.tip) continue;
+      const down = !!(st.source.gamepad.buttons[0] && st.source.gamepad.buttons[0].pressed), was = dirroMark.prev[st.i]; dirroMark.prev[st.i] = down;
+      if (!down || was || now - dirroMark.t0 < 700) continue;
+      const k = dirroMark.want; dirroMark.want = ''; dirro.setBeacon(k, rig.worldToLocal(st.tip.clone()));
+      toast(`Beacon ${k === 'L' ? 'LEFT' : 'RIGHT'} marked`, 2000); xr.buzz && xr.buzz(st, 0.6, 60); break;
+    }
   }
   if (portals) portals.tick();   // #345 #346
   if (domeBoot) { domeBoot = false; if (dome.on && !CAMERA_ROLE) setDome(true); }   // #346 a dome left on last time: load its sky once everything is up
@@ -6608,6 +7195,18 @@ function frame() {
   renderer.render(scene, camera);
   if (fx) fx.postRender();   // #379 the floated gear back in its real place for hands, grabs and saving
 }
+// #427 DIRROGRAM: the show to the audience phones through the relay (dirro-host.js)
+if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr, getBeat: () => tapBeat() || beat, tapBpm: () => (wtapOn() ? 60000 / wtap.iv : 0), laser, micLevel, nowPlaying: dirroNow,
+  scrollText: () => (scroller && scroller.on ? scroller.text : ''),
+  getLed: () => (ledMode === 'card' && cardWall.pic ? { img: true, name: 'card:' + cardWall.name, file: cardWall.file } : { img: !!(led.on && led.img), name: led.name, file: led.name ? led.fileNamed(led.name) : null }),   // #434 (#446 the card's still)   // #434 the LED wall's picture
+  tvCanvas: () => (streamer && streamer.active ? streamer.canvas : null),   // #434 the stream / venue-screen picture
+  // #439 FOLLOW: what the LED wall shows, the GRAB LOOP sheets, and the wall's own clip / live picture for the frames
+  wallState: () => ({ m: ledMode === 'clips' ? (led.img ? 'pics' : 'clips') : ledMode === 'card' ? (cardWall.loop ? 'card' : 'pics') : ledMode === 'vdancer' && vd.sel >= 0 && vd.slots[vd.sel] ? 'vmat' : ledMode, rp: vd.rp, mp: vd.mp, px: wallPx, s: ledFx.s, t0: Math.round(ledFx.t0), lp: ledMode === 'card' && cardWall.loop && cardWall.loop.d ? cardWall.loop.id : ledMode === 'retro' && ledFx.s === 'loop' && ledFx.loop && ledFx.loop.d ? ledFx.loop.id : '', ln: cardWall.loop ? cardWall.loop.n : 0, lf: cardWall.loop ? Math.round(cardWall.loop.fps * 10) / 10 : 0, lt0: Math.round(ledFx.loopT0) }),
+  loopData: id => { const l = grab.loops.find(x => x.id === id); return l ? l.d : cardWall.loop && cardWall.loop.id === id ? cardWall.loop.d : null; },
+  wallFrame: () => (ledMode === 'vdancer' ? fxBig : ledMode === 'clips' && led.video ? led.video : isLive(ledMode) || ledMode === 'screen' ? liveVideo : ledMode === 'decks' ? deckVid[0].v : streamer && streamer.active ? streamer.canvas : null),
+  sineText: t => { const c = cleanText(t, 120); if (c.trim()) { scroller.start(c); toast('On the sine scroller', 1500); } },   // #435 a HoloSMS on the Quest's own scroller
+  onSms: t => toast('HoloSMS: ' + (t.length > 46 ? t.slice(0, 45) + '…' : t), 2500),
+  onChange: () => { if (toolsPage === 'dirro' || toolsPage === 'home' || toolsPage === 'holosms' || toolsPage === 'wall') drawMixScreen(); } });
 renderer.setAnimationLoop(frame);
 // #220 DJ CAM: pose the avatar (headset: head + hands; desktop: a demo DJ), then render the camera into the LED wall
 const _djT0 = performance.now();
@@ -6686,7 +7285,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease, spiderGrabTest, spiderGrab, spiderRelease,
   crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, crateWalkStep, drawCrateScreen, layoutSleeves, crateDisc,
   onA: st => gpSummon(st),   // #404 right controller A: the camera GoPro to that hand
-  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, ledTilted, toast, mixScreenRelease,
+  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, ledTilted, toast, mixScreenRelease, mixScreenDrag,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
 });
@@ -6726,6 +7325,14 @@ async function begin(mode) {
     if (mode === 'immersive-ar') { scene.background = null; room.visible = false; skybox.group.visible = skyShadow.visible = false; scene.environmentIntensity = settings.arRefl / 100; if (dome.on) applySky(); }   // #346 the dome shows in passthrough
     else applySky();   // #182: stereo panoramas split per eye while presenting   // #180: was a fixed 0.28, now Settings > Reflections in passthrough (default 60 %)
     tidyRecords();   // #242 every VR / passthrough start: records lying about go back into the crate
+    Object.assign(xrDiag, { t0: performance.now(), frames: 0, err: '', errN: 0, mode });
+    session.addEventListener('visibilitychange', () => { if (session.visibilityState !== 'visible') xrDiag.vis = session.visibilityState; });
+    session.addEventListener('end', () => {   // #418 why did it end?
+      const secs = ((performance.now() - xrDiag.t0) / 1000).toFixed(1);
+      const msg = `${xrDiag.mode === 'immersive-vr' ? 'Full VR' : 'Passthrough'} ended after ${secs} s, ${xrDiag.frames} frames` + (xrDiag.vis ? `, last state ${xrDiag.vis}` : '') + (xrDiag.err ? ` · ${xrDiag.errN} frame errors, first: ${xrDiag.err}` : ' · no frame errors');
+      try { localStorage.setItem('vire.xrLastEnd', new Date().toISOString() + ' ' + msg); } catch {}
+      console.warn(msg); setTimeout(() => toast(msg, 15000), 300);
+    });
     session.addEventListener('end', () => { rigAnchor = null; anchorPending = false; rig.rotation.set(0, 0, 0); arMode = false; applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
     toast('Reach out and touch: pinch or grip right at a knob, fader, tonearm or record', 5000);
   } catch (e) { toast('Could not start XR: ' + e.message, 4000); }
@@ -6952,7 +7559,8 @@ for (const [id, k] of [['#sSource', 'source'], ['#sXml', 'xml'], ['#sEnv', 'env'
 $('#cPll').onchange = e => { settings.pll = e.target.checked; saveSettings(); sendPhysics(); };
 // #120: turntable physics settings go to the deck worklet (both decks)
 function sendPhysics() {
-  engine.post({ type: 'physics', model: settings.deckModel, recMass: (+settings.recWeight || 180) / 1000, mat: settings.slipmat, pll: !!settings.pll });
+  engine.post({ type: 'physics', model: settings.deckModel, recMass: (+settings.recWeight || 180) / 1000, mat: settings.slipmat, pll: !!settings.pll,
+    fricK: FEEL.fric / 100, nudgeK: FEEL.nudge / 100, spinK: FEEL.spin / 100 });   // #423 TURNTABLE FEEL
 }
 // #113: the device / feedback-guard rows only matter when the app opens the mic itself
 function showMicRoute() { $('#rowMicApp').hidden = settings.micRoute !== 'app'; }
@@ -7030,7 +7638,8 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-window.vire = { THREE, get fx() { return fx; }, skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media.getFile('Images', cn).then(f => { if (f) { streamer.setCardPic(f); cardWallSet(f, false); } }).catch(() => {}); } catch (e) {}   // #445 the CARD picture of last time
+window.vire = { THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
 window.vire._laser = { laser, laserTap, camCal, camCalStart, camCalStop };   // #415 camCal test hook   // #406 test hook
 window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, milkSleeveHit, layoutMilkSleeves, gpSummon, goproReset, gopro2, setDomeEv, get plJump() { return plJump; }, msFly };   // #394 / #395 test hooks   // #392 / #393 test hooks

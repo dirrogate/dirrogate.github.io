@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { applyNeon } from './neonenv.js';   // #355
 import { XRControllerModelFactory } from '../vendor/three/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from '../vendor/three/webxr/XRHandModelFactory.js';
-import { createControllerHand, driveGloveHand, gloveCap, gloveHide, chromePads, POSE as CTL_POSE } from './ctlhands.js';   // #276, #291
+import { createControllerHand, driveGloveHand, gloveCap, gloveHide, chromePads, gloveTips, POSE as CTL_POSE } from './ctlhands.js';   // #276, #291
 const LIFT_OUT = 0.05;
 // #260 the record on a deck: 12" or 7" sizes (lift zone just past a 45's label, 1.2 cm)
 let REC12 = null; const RD = d => (d.record && d.record.dims) || REC12; const LO = D => (D.SIZE === 7 ? 0.012 : LIFT_OUT);   // #136: record lift-off zone reaches this far past the label edge (m)
@@ -110,8 +110,8 @@ export function setupXR(ctx) {
     const down = btn => {
       st.held = st.held || {}; st.held[btn] = true;   // #291 button state as the events see it (the gamepad snapshot can lag a frame)
       if (ctx.crateMicSelect(st.isHand ? st.pinchPt : st.tip)) { buzz(st, 0.4, 20); return; }
-      if (!st.isHand) { const hl = ctlTipLocal(st); if (hl) { st.grip.updateMatrixWorld(); st.grip.localToWorld(st.tip.copy(hl)); } }   // #283 / #284 grab from the closed O's fingertip, not last frame's
-      if (!st.isHand && !st.direct && grabStart(st, st.tip, btn)) st.btn = btn;
+      if (!st.isHand) { const hl = ctlTipLocal(st); if (hl) { st.grip.updateMatrixWorld(); st.grip.localToWorld(st.tip.copy(hl)); } }   // #283 / #284 grab from the touch point now, not last frame's
+      if (!st.isHand && !st.direct && grabStart(st, st.tip, btn)) st.btn = btn;   // #422 (owner) the #416 grab restored: one fixed touch point
     };
     const up = btn => { if (st.held) st.held[btn] = false; if (!st.isHand && (!st.direct || st.btn === btn)) release(st); };
     ray.addEventListener('selectstart', () => down('trigger')); ray.addEventListener('selectend', () => up('trigger'));
@@ -574,7 +574,8 @@ export function setupXR(ctx) {
         let tw = 2 * Math.atan2(d.x * h.x + d.y * h.y + d.z * h.z, d.w); tw = wrap(tw);
         dy = -Math.max(-0.6, Math.min(0.6, tw));   // same sign convention as the yaw: clockwise = dy < 0 = up
       }
-      let nv = ctx.mixVal[g.id] - dy / (300 * Math.PI / 180) * 1.2 * (st.isHand ? 2 : 1);   // turn clockwise (seen from above) = up; full travel = 250 deg of wrist (#327 bare hands: 125 deg)
+      // #421 (owner: far too much twist, the hand ended up buried in the mixer): controllers 0 -> full in 90 deg of twist
+      let nv = ctx.mixVal[g.id] - (st.isHand ? dy / (300 * Math.PI / 180) * 2.4 : dy / (pf('kt') * Math.PI / 180));   // #422 TWIST slider (deg of wrist for 0 -> full)   // turn clockwise (seen from above) = up; full travel = 250 deg of wrist (#327 bare hands: 125 deg)
       // #254 (owner) sticky PAN: centred, it holds until turned 8 % of its travel away (a brush can't swing it);
       // turned back within 3 % of the middle it settles there again. The hold keeps the turn so far in g.panAcc.
       if (g.id.endsWith('.pan')) {
@@ -674,7 +675,7 @@ export function setupXR(ctx) {
   }
 
   function release(st) {
-    const g = st.direct; st.direct = null;
+    const g = st.direct; st.direct = null; st.grabTip = null;   // #419
     if (st.rayActive) rayUp(st);
     if (!g) return;
     if (g.kind === 'arm') ctx.armRelease(g.d);
@@ -760,7 +761,7 @@ export function setupXR(ctx) {
       const ms = ctx.mixer.userData.screen, l = ms.worldToLocal(v2.copy(T));
       const sw = ms.geometry.parameters.width, sh = ms.geometry.parameters.height;
       const inside = Math.abs(l.x) < sw / 2 && Math.abs(l.y) < sh / 2, armed = st.poke.get(ms) !== false;
-      if (inside && l.z < 0.006 && l.z > -0.015) { if (armed && ctx.mixScreenPress({ x: l.x / sw + 0.5, y: l.y / sh + 0.5 })) { st.poke.set(ms, false); buzz(st, 0.4, 20); } }
+      if (inside && l.z < 0.006 && l.z > -0.015) { if (armed && ctx.mixScreenPress({ x: l.x / sw + 0.5, y: l.y / sh + 0.5 })) { st.poke.set(ms, false); buzz(st, 0.4, 20); } else if (!armed && ctx.mixScreenDrag) ctx.mixScreenDrag({ x: l.x / sw + 0.5, y: l.y / sh + 0.5 }); }   // #422 slider drag
       else if (!inside || l.z > 0.02) { if (!armed && ctx.mixScreenRelease) ctx.mixScreenRelease(); st.poke.set(ms, true); }   // #222 fingertip off = end of a long press
     }
     // crate screen
@@ -863,6 +864,23 @@ export function setupXR(ctx) {
       st.tipDot.visible = hasTip && !(st.isHand && handMode === 'real'); if (hasTip) { st.tipDot.position.copy(st.tip); st.tipDot.scale.setScalar(st.isHand ? 0.5 : 1); }   // #324 (owner) hands: back on the index fingertip, half size (#323 had it at the pinch)
       if (st.isHand) applyHandLook(st);
       ctlHandStep(st);   // #276
+      if (!st.isHand && st.ctlHand && st.ctlHand.root.visible && st.ctlHand.tipLive && ctlLook !== 'controller') {   // #419 no one-frame lag
+        // #422 the drawn index + thumb tips give the pinch centre (root space) for the snap
+        const h = st.ctlHand, glv = ctlLook === 'glove' && st.gloveH && gloveTips(st.gloveH, _bw, _bt);
+        if (!glv) { _bw.copy(h.tipLive).applyMatrix4(h.root.matrix); _bt.copy(h.thumbLive || h.tipLive).applyMatrix4(h.root.matrix); }
+        _ri.copy(h.root.matrix).invert();
+        (st.pinchRoot || (st.pinchRoot = new THREE.Vector3())).copy(_bw).add(_bt).multiplyScalar(0.5).applyMatrix4(_ri);
+        // the glove's own relaxed index pad (its finger is longer than the skin hand's), measured while relaxed, then fixed
+        if (glv && (st.tA || 0) < 0.05 && !(st.pin > 0) && h.padDir) {
+          st.gloveH.B.Index_Distal.getWorldPosition(_bp);
+          (st.gloveRest || (st.gloveRest = new THREE.Vector3())).copy(_bw).add(_bp).multiplyScalar(0.5).applyMatrix4(_ri).addScaledVector(h.padDir, 0.009);
+        }
+        const base = ctlLook === 'glove' && st.gloveRest ? st.gloveRest : (h.padRest || h.tipRest);
+        const sg = st.source.handedness === 'left' ? -1 : 1;
+        (st.sphereLocal || (st.sphereLocal = new THREE.Vector3())).set(pf('bx') * sg, pf('by'), pf('bz')).multiplyScalar(0.001).add(base);   // PINCH FIT sphere offsets (mm, grip space)
+        st.grip.localToWorld(st.tip.copy(st.sphereLocal)); st.pinchPt.copy(st.tip);
+        st.tipDot.position.copy(st.tip); if (st.pokeLift > 0.0005 && !st.direct) st.tipDot.position.y += st.pokeLift;
+      }
       updateOccluder(st);
       updateAnchor(st);
 
@@ -961,7 +979,13 @@ export function setupXR(ctx) {
     st.gloveH = H;
   }
   // #291 HAND FIT: the owner's move / turn of the 3D hands (and glove) on the controllers, saved
-  try { const a = JSON.parse(localStorage.getItem('vire.handFit') || 'null'); if (a) Object.assign(CTL_POSE.adj, a); } catch (e) {}
+  try {
+    const a = JSON.parse(localStorage.getItem('vire.handFit') || 'null');
+    // #440 knob resistance back to 250 deg of wrist for full travel (#421 / #422 had made 90 the default): a saved 90 (the old default, e.g. from RESET PINCH FIT) is dropped once
+    if (a && a.kt === 90 && !localStorage.getItem('vire.kt250')) { delete a.kt; localStorage.setItem('vire.handFit', JSON.stringify(a)); }
+    localStorage.setItem('vire.kt250', '1');
+    if (a) Object.assign(CTL_POSE.adj, a);
+  } catch (e) {}
   // #355 GLOVE SIZE and NEON CHROME (kept with the HAND FIT values, so the phone gets them too)
   function gloveLook() {
     if (!glove) return; const A = CTL_POSE.adj, k = (A.gs || 94) / 100;
@@ -981,7 +1005,27 @@ export function setupXR(ctx) {
     // #293 (owner): one fixed point, the relaxed hand's index fingertip. #284-#292 moved it to the closed O's fingertip on a
     // press: 4.8 cm up and back from where the ball was aimed, so knobs and faders were only caught with the hand an inch
     // into the mixer. The finger still curls into the O; the ball and the touch point stay where you aimed.
-    return h.tipRest || h.tipLive;
+    // #422 (owner): #419-#421 made the touch point follow the curling finger, which broke the controller grab zone.
+    // Back to ONE point fixed in grip space (as #416): the interaction sphere, on the inside (pad) of the relaxed index
+    // finger, plus the owner's PINCH FIT offsets.
+    return st.sphereLocal || h.padRest || h.tipRest || h.tipLive;
+  }
+  // #422 PINCH FIT values (DJ TOOLS > HAND FIT > PINCH FIT, sliders), kept with the HAND FIT values ('vire.handFit')
+  const PF = { bx: 0, by: 0, bz: 0, lh: 10, lg: 15, kt: 250, pa: 0, pt: 0 };
+  const pf = k => (CTL_POSE.adj[k] != null ? CTL_POSE.adj[k] : PF[k]);
+  // #420 (owner): a trigger grab latched on a knob, fader, pitch fader or power dial pulls the drawn hand onto it: the hand
+  // closes into a pinch and slides so the middle of the pinch sits on the control's cap, following the cap as it moves.
+  // The touch point itself is untouched (fixed sphere), so how far you move or twist your real hand is what the control does.
+  const _kqI = new THREE.Quaternion(), _kq3 = new THREE.Quaternion(), _kq4 = new THREE.Quaternion(), _snP = new THREE.Vector3(), _snS = new THREE.Vector3(), _snA = new THREE.Vector3(), _snQa = new THREE.Quaternion(), _sm2 = new THREE.Matrix4();
+  const _bw = new THREE.Vector3(), _bp = new THREE.Vector3(), _bt = new THREE.Vector3(), _ri = new THREE.Matrix4(), _gi = new THREE.Matrix4(), _sn = new THREE.Vector3(), _sm = new THREE.Matrix4();
+  function snapTarget(st) {
+    const d = st.direct; if (!d || st.btn !== 'trigger') return null;
+    let o = null, dy = 0.008;
+    if (d.kind === 'knob' || d.kind === 'slider') o = ctx.mixer.userData.controls && ctx.mixer.userData.controls[d.id];
+    else if (d.kind === 'pitch') o = d.d && d.d.g.userData.pitchCap;
+    else if (d.kind === 'power') { o = d.d && d.d.g.userData.powerKnob; dy = 0.01; }
+    if (!o) return null;
+    o.getWorldPosition(_sn); _sn.y += dy; return _sn;
   }
   function ctlHandStep(st) {
     const want = st.connected && !st.isHand && ctlLook !== 'controller' && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
@@ -999,6 +1043,35 @@ export function setupXR(ctx) {
     st.grip.updateMatrixWorld(); h.root.matrix.copy(st.grip.matrixWorld);
     if (st.direct) st.pokeLift = 0;
     if (st.pokeLift > 0.0005) { h.root.matrix.elements[13] += st.pokeLift; st.tipDot.position.y += st.pokeLift; }   // #282 finger rests on the cap, not through it
+    { // #420 pinch snap, #422 rebuilt with the owner's PINCH FIT sliders. Eases in / out over ~0.1 s.
+      // Pinched pose: the hand's angle from the moment of the grab (knobs: turned about the cap by the wrist twist that
+      // turned the knob; faders etc.: follows the controller), then the owner's TILT and TURN, the middle of the pinch on
+      // the cap, raised by LIFT (3D hand / glove). The touch point is not moved by any of this.
+      const T = snapTarget(st), d = st.direct;
+      st.pin = Math.max(0, Math.min(1, (st.pin || 0) + (T ? 1 : -1) / 60 / 0.1));
+      if (T && st.pinchRoot) {
+        const kc = d.kind === 'knob' ? ctx.mixer.userData.controls[d.id] : null;
+        if (!st.snapQ || st.snapQ.d !== d) st.snapQ = { d, qGrip: st.grip.getWorldQuaternion(new THREE.Quaternion()), qKnob: kc ? kc.getWorldQuaternion(new THREE.Quaternion()) : null };
+        let q;
+        if (kc) {
+          const qk = kc.getWorldQuaternion(_kq3).multiply(_kq4.copy(st.snapQ.qKnob).invert());
+          qk.slerp(_kqI, 1 - Math.min(1, pf('kt') / 300));   // the hand turns as far as the wrist did (TWIST deg for the knob's 300)
+          q = _kq4.copy(qk).multiply(st.snapQ.qGrip);
+        } else q = st.grip.getWorldQuaternion(_kq4);
+        // TILT: about the hand's own sideways axis (level); TURN: about straight up through the cap
+        const side = _snA.set(1, 0, 0).applyQuaternion(q); side.y = 0; if (side.lengthSq() < 1e-6) side.set(1, 0, 0); side.normalize();
+        const sg = st.source.handedness === 'left' ? -1 : 1;
+        q.premultiply(_kq3.setFromAxisAngle(side, pf('pa') * Math.PI / 180)).premultiply(_kq3.setFromAxisAngle(_snS.set(0, 1, 0), pf('pt') * sg * Math.PI / 180));
+        _snP.copy(T); _snP.y += (ctlLook === 'glove' ? pf('lg') : pf('lh')) / 1000;
+        _sm.compose(_snP, q, _snS.set(1, 1, 1)).multiply(_sm2.makeTranslation(-st.pinchRoot.x, -st.pinchRoot.y, -st.pinchRoot.z));
+        st.snapM = (st.snapM || new THREE.Matrix4()).copy(_sm);
+      }
+      if (st.pin > 0.001 && st.snapM) {
+        const k = st.pin * st.pin * (3 - 2 * st.pin);
+        h.root.matrix.decompose(_snA, _snQa, _snS); st.snapM.decompose(_snP, _kq3, _snS);
+        h.root.matrix.compose(_snA.lerp(_snP, k), _snQa.slerp(_kq3, k), _snS.set(1, 1, 1));
+      } else { st.snapM = null; st.snapQ = null; }
+    }
     h.root.matrixWorldNeedsUpdate = true;
     const gp = st.source.gamepad, b = gp ? gp.buttons : [];
     const val = i => (b[i] ? (b[i].value || (b[i].pressed ? 1 : 0)) : 0);
@@ -1009,7 +1082,12 @@ export function setupXR(ctx) {
     // events (st.held, with the system's own hysteresis) instead of gamepad.pressed, which flickers on a light trigger
     // and left the O half closed. The thumb-stick touch no longer changes the thumb either (it moved the thumb off the ball).
     const hb = st.held || {};   // (#298: was "hd", which clashed with the handedness above)
-    h.update(Math.round(ease('tA', hb.trigger) * 20) / 20, Math.round(ease('gA', hb.grip) * 20) / 20, false);
+    // #418 (owner): the drawn index follows the real trigger travel (analog value), the other three fingers the grip, and
+    // the thumb lowers when it rests on the stick / A-B / X-Y, like the real hand. The touch point is fixed (h.tipRest),
+    // so the analog travel no longer moves it. Held state (#296) still forces a full squeeze if the value reads 0.
+    const tv = Math.max(val(0), hb.trigger ? 1 : 0), gv = Math.max(val(1), hb.grip ? 1 : 0);
+    st.tA = (st.tA || 0) + (tv - (st.tA || 0)) * 0.5; st.gA = (st.gA || 0) + (gv - (st.gA || 0)) * 0.5;
+    h.update(Math.round(st.tA * 20) / 20, Math.round(st.gA * 20) / 20, thumb, Math.round((st.pin || 0) * 20) / 20);   // #420 pin = pinch on a latched control
     if (h.soft !== (ctlLook === 'glove')) { h.soft = ctlLook === 'glove'; h.cur = ''; }   // #301 looser relaxed hand for the glove
     h.holder.visible = ctlLook !== 'glove';   // #287 the skin hand stays posed (it drives the glove) but is not drawn
     if (ctlLook === 'glove') gloveStep(st, h, 1 / 60);
