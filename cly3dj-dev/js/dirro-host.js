@@ -18,7 +18,7 @@ const K_RELAY = 'vire.dirroRelay', K_ROOM = 'vire.dirroRoom', K_ON = 'vire.dirro
 export const WALL_SRC = ['follow', 'auto', 'fractal', 'pictures', 'tv'];
 export const WALL_LABEL = { follow: 'FOLLOW', auto: 'AUTO', fractal: 'FRACTAL', pictures: 'PICTURES', tv: 'CLY3DTV' };
 const FRAME_M = new Set(['clips', 'cam', 'live', 'solo', 'decks', 'screen', 'vmat']);   // #442 vmat: VECTOR-DANCER with a matte (the matte clip is not on the phones)   // wall modes the phones get as frames
-export const WALL_COLS = [0, 48, 64, 96, 128, 160, 192, 240, 320];
+export const WALL_COLS = [0, 32, 48, 64, 96, 128, 160, 192, 240, 320];   // #444 32 for PIXELS 10
 const WALL_DEF = { src: 'follow', cols: 160, fill: 0.78, glow: 1, fps: 2, v: 2 };
 const idOf = s => { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.codePointAt(0), 16777619) >>> 0; return 'p' + h.toString(36); };
 const SEND_MS = 66, CFG_MS = 1000, CFG_FORCE_MS = 5000, PING_MS = 2000;
@@ -141,7 +141,7 @@ export class DirroHost {
     if (q && q.lp && !this.imgSent.has(q.lp)) { const d = this.env.loopData && this.env.loopData(q.lp); if (d) { this._send({ k: 'i', id: q.lp, d }); this.imgSent.add(q.lp); } }   // a GRAB LOOP sheet, once
     if (this.wall.src === 'tv') this._sendFrame(now, this.env.tvCanvas && this.env.tvCanvas());
     else if (this.wall.src === 'follow' && q && FRAME_M.has(q.m)) this._sendFrame(now, this.env.wallFrame && this.env.wallFrame());
-    const W = this.wall, cfg = { k: 'c', scroll, np: np.a || '', img: this.imgSent.has(this.imgId) ? this.imgId : '', wall: { src: W.src, cols: W.cols, fill: W.fill, glow: W.glow, q: q ? { ...q, lp: this.imgSent.has(q.lp) ? q.lp : '' } : null }, holo: this.holo.map(x => x.t), bcn: this.bcn.L && this.bcn.R ? this.bcn : null }, key = JSON.stringify(cfg);   // #438   // #435 approved HoloSMS
+    const W = this.wall, cfg = { k: 'c', scroll, np: np.a || '', img: this.imgSent.has(this.imgId) ? this.imgId : '', wall: { src: W.src, cols: q && q.m === 'mandel' ? 160 : W.cols, fill: W.fill, glow: W.glow, q: q ? { ...q, lp: this.imgSent.has(q.lp) ? q.lp : '' } : null }, holo: this.holo.map(x => x.t), bcn: this.bcn.L && this.bcn.R ? this.bcn : null }, key = JSON.stringify(cfg);   // #438   // #435 approved HoloSMS
     if ((key !== this.cfgKey && now - this.cfgT > CFG_MS) || now - this.cfgSent > CFG_FORCE_MS) { this.cfgKey = key; this.cfgT = this.cfgSent = now; this.ws.send(key); this._rateB += key.length; }
     if (now - this.sendT < SEND_MS) return;
     this.sendT = now;
@@ -175,7 +175,7 @@ export class DirroHost {
     } else m.av = { m: r3(this.env.micLevel ? this.env.micLevel() : 0), hs: [], c: [] };
     // beat: onset count and the time of the last one (Quest clock), and the playing track's tempo at its pitch
     const bt = this.env.getBeat && this.env.getBeat();
-    m.b = { n: bt ? bt.count : 0, lt: bt ? Math.round(bt.last) : 0, bpm: Math.round((np.bpm || 0) * 100) / 100 };
+    m.b = { n: bt ? bt.count : 0, lt: bt ? Math.round(bt.last) : 0, bpm: Math.round(((this.env.tapBpm && this.env.tapBpm()) || np.bpm || 0) * 100) / 100 };   // #444 a tapped tempo wins
     const L = this.env.laser;
     if (L) m.l = { on: L.on ? 1 : 0, pat: L.pat, col: L.col, n: L.n, spread: L.spread, speed: L.speed, haze: L.haze, smoke: L.smoke, drift: L.drift, auto: L.auto ? 1 : 0, ph: r3(L.ph) };
     return m;

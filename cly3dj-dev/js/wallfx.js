@@ -9,8 +9,13 @@
 //              played back and forth with an Amiga-style 64-colour dither
 // The output is a 160 x 90 canvas (the low-res LED look). The sums run in a worker (wallfx-worker.js) where there is
 // one, so neither the headset nor a phone loses frames; the loop is drawn here (a sheet cell, then the dither).
-export const FX_W = 160, FX_H = 90;
-export const LOOP = { cols: 8, rows: 8, n: 64, fps: 12, w: 112, h: 63 };   // #441 5.3 s
+export const FX_W = 160, FX_H = 90;   // MANDEL's size, and the old size of everything
+export const LOOP = { cols: 8, rows: 8, n: 64, fps: 12, w: 112, h: 63, W2: 224, H2: 126 };   // #441 5.3 s; the phones' small sheet is w x h per cell, the Quest keeps a W2 x H2 one for its own wall
+// #444 PIXELS 0 to 10 (the master slider): [render width, height, LED grid across (0 = no grid)]. 5 is the old 160 x 90 look. MANDEL stays at 160 x 90 at every level.
+export const PX = [[480, 270, 0], [384, 216, 0], [320, 180, 320], [240, 135, 240], [192, 108, 192], [160, 90, 160], [128, 72, 128], [96, 54, 96], [64, 36, 64], [48, 27, 48], [32, 18, 32]];
+export const PX_DEF = 2;
+export const pxSize = l => PX[Math.max(0, Math.min(10, l | 0))];
+export const OUT_W = 640, OUT_H = 360;   // the canvas every screen draws (a fixed size, so the textures never change); the picture is drawn into it blocky
 
 // ------------------------------------------------------------------ MANDEL ZOOM
 const MP = 64000, MCX = -0.77568377, MCY = 0.13646737, MS0 = 3.2, MS1 = 2.5e-12;
@@ -168,13 +173,19 @@ export function renderMeta(px, W, H, t, bp, kick, mp) {
 }
 
 // ------------------------------------------------------------------ the engine
+export function renderMode(mode, px, W, H, t, bp, kick, rp, mp, mask) {   // one picture into px (RGBA bytes), here or in the worker
+  if (mode === 'mandel') renderMandel(px, W, H, t, bp, kick);
+  else if (mode === 'rings') renderRings(px, W, H, t, bp, kick, mask, rp);
+  else if (mode === 'meta') renderMeta(px, W, H, t, bp, kick, mp);
+  else renderDancer(px, W, H, t, bp, kick);
+}
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 export class WallFx {
   constructor() {
-    this.canvas = Object.assign(document.createElement('canvas'), { width: FX_W, height: FX_H });
-    this.g = this.canvas.getContext('2d', { willReadFrequently: true });
-    this.img = this.g.createImageData(FX_W, FX_H);
-    this.busy = false; this.reqT = 0; this.ms = 0; this.fresh = false; this.loopT = 0; this.loopI = -1; this.pool = [];
+    this.canvas = Object.assign(document.createElement('canvas'), { width: OUT_W, height: OUT_H });
+    this.g = this.canvas.getContext('2d');
+    this.low = document.createElement('canvas'); this.lg = this.low.getContext('2d', { willReadFrequently: true });
+    this.busy = false; this.reqT = 0; this.ms = 0; this.fresh = false; this.loopT = 0; this.loopI = -1; this.pool = []; this.rw = 160; this.rh = 90;
     this.w = null;
     try {
       this.w = new Worker(new URL('./wallfx-worker.js', import.meta.url), { type: 'module' });
@@ -182,58 +193,62 @@ export class WallFx {
       this.w.onerror = e => { console.warn('wall visuals worker', e.message || e); this.w = null; this.busy = false; };
     } catch (e) { this.w = null; }
   }
+  _size(w, h) { if (this.low.width !== w || this.low.height !== h) { this.low.width = w; this.low.height = h; } }
+  _present() {   // the two softest levels scale smoothly, the rest blocky
+    const g = this.g; g.imageSmoothingEnabled = this.low.width >= 384; g.drawImage(this.low, 0, 0, OUT_W, OUT_H);
+  }
   _done(buf) {
     this.busy = false; this.ms = performance.now() - this.reqT;
-    this.img.data.set(new Uint8ClampedArray(buf)); this.pool.push(buf);
-    if (this.mode !== 'loop') { this.g.putImageData(this.img, 0, 0); this.fresh = true; }
+    if (this.mode !== 'loop') { this._size(this.rw, this.rh); this.lg.putImageData(new ImageData(new Uint8ClampedArray(buf), this.rw, this.rh), 0, 0); this._present(); this.fresh = true; }
+    this.pool.push(buf); if (this.pool.length > 3) this.pool.shift();
   }
-  // o: { mode: 'mandel' | 'dancer' | 'loop' | 'rings' (mask, rp) | 'meta' (mp), t (ms), bp (beats), kick (0..1), loop (sheet image / canvas), lt (ms into the loop) }
+  // o: { mode: 'mandel' | 'dancer' | 'loop' | 'rings' (mask: bytes at the render size, rp) | 'meta' (mp), px (PIXELS 0 to 10), t (ms), bp (beats), kick (0..1),
+  //      loop (sheet image / canvas), lw / lh (its cell size), lt (ms into the loop) }
   // returns true when the canvas has a new picture (about 15 a second; loops 12)
   frame(o) {
     const now = performance.now(); this.mode = o.mode;
     let fresh = this.fresh; this.fresh = false;
+    const lvl = o.px == null ? 5 : o.px, [pw, ph] = pxSize(lvl);
     if (o.mode === 'loop') {
       if (!o.loop) return fresh;
       const k = Math.floor(Math.max(0, o.lt) * LOOP.fps / 1000) % (2 * LOOP.n - 2), i = k < LOOP.n ? k : 2 * LOOP.n - 2 - k;   // forwards, then back
-      if (i !== this.loopI || now - this.loopT > 500) { this.loopI = i; this.loopT = now; this._loop(o.loop, i, o.kick || 0); fresh = true; }
+      if (i !== this.loopI || now - this.loopT > 500) { this.loopI = i; this.loopT = now; this._loop(o.loop, i, o.kick || 0, lvl, o.lw || LOOP.w, o.lh || LOOP.h, pw, ph); fresh = true; }
       return fresh;
     }
     this.loopI = -1;
-    if (o.mode === 'rings' || o.mode === 'meta') {   // #442 cheap enough to draw right here (no worker, so the matte needs no trip)
-      if (now - this.reqT >= 66) {
-        this.reqT = now; const px = this.img.data;
-        if (o.mode === 'rings') renderRings(px, FX_W, FX_H, o.t || 0, o.bp || 0, o.kick || 0, o.mask || null, o.rp); else renderMeta(px, FX_W, FX_H, o.t || 0, o.bp || 0, o.kick || 0, o.mp);
-        this.g.putImageData(this.img, 0, 0); this.ms = performance.now() - now; fresh = true;
-      }
-      return fresh;
-    }
     if (this.busy && now - this.reqT > 2000) this.busy = false;   // a lost answer
     if (!this.busy && now - this.reqT >= 66) {
       this.reqT = now;
-      const mode = o.mode === 'mandel' ? 'mandel' : 'dancer', t = o.t || 0, bp = o.bp || 0, kick = o.kick || 0;
+      const mode = o.mode, W = mode === 'mandel' ? FX_W : pw, H = mode === 'mandel' ? FX_H : ph, t = o.t || 0, bp = o.bp || 0, kick = o.kick || 0;
+      this.rw = W; this.rh = H;
       if (this.w) {
-        this.busy = true; const buf = this.pool.pop() || new ArrayBuffer(FX_W * FX_H * 4);
-        this.w.postMessage({ mode, W: FX_W, H: FX_H, t, bp, kick, buf }, [buf]);
+        this.busy = true; const need = W * H * 4, pi = this.pool.findIndex(b => b.byteLength === need), buf = pi >= 0 ? this.pool.splice(pi, 1)[0] : new ArrayBuffer(need);
+        const mk = mode === 'rings' && o.mask && o.mask.length === W * H ? o.mask.slice().buffer : null, tr = mk ? [buf, mk] : [buf];
+        this.w.postMessage({ mode, W, H, t, bp, kick, rp: o.rp, mp: o.mp, mask: mk, buf }, tr);
       } else {
-        const px = this.img.data; if (mode === 'mandel') renderMandel(px, FX_W, FX_H, t, bp, kick); else renderDancer(px, FX_W, FX_H, t, bp, kick);
-        this.g.putImageData(this.img, 0, 0); this.ms = performance.now() - now; fresh = true;
+        this._size(W, H); const id = this.lg.createImageData(W, H);
+        renderMode(mode, id.data, W, H, t, bp, kick, o.rp, o.mp, o.mask && o.mask.length === W * H ? o.mask : null);
+        this.lg.putImageData(id, 0, 0); this._present(); this.ms = performance.now() - now; fresh = true;
       }
     }
     return fresh;
   }
-  // one cell of a GRAB LOOP sheet, then 4 levels a channel with an ordered dither and every other line darker
-  _loop(sheet, i, kick) {
-    const c = i % LOOP.cols, r = Math.floor(i / LOOP.cols), g = this.g;
-    g.imageSmoothingEnabled = true;
-    try { g.drawImage(sheet, c * LOOP.w, r * LOOP.h, LOOP.w, LOOP.h, 0, 0, FX_W, FX_H); } catch (e) { return; }
-    const im = g.getImageData(0, 0, FX_W, FX_H), p = im.data, gain = 1.08 + 0.25 * kick;
-    for (let y = 0; y < FX_H; y++) {
-      const line = y & 1 ? 0.82 : 1;
-      for (let x = 0; x < FX_W; x++) {
-        const o = (y * FX_W + x) * 4, d = (BAYER[(y & 3) * 4 + (x & 3)] / 16 - 0.5) * 85;
-        for (let k = 0; k < 3; k++) { const v = Math.max(0, Math.min(255, p[o + k] * gain + d)); p[o + k] = Math.round(v / 85) * 85 * line; }
+  // one cell of a GRAB LOOP sheet at the render size; from PIXELS 2 up 8 levels a channel with an ordered dither, and from 5 every other line darker
+  _loop(sheet, i, kick, lvl, cw, ch, pw, ph) {
+    const c = i % LOOP.cols, r = Math.floor(i / LOOP.cols), g = this.lg;
+    this._size(pw, ph); g.imageSmoothingEnabled = true;
+    try { g.drawImage(sheet, c * cw, r * ch, cw, ch, 0, 0, pw, ph); } catch (e) { return; }
+    if (lvl >= 2) {
+      const im = g.getImageData(0, 0, pw, ph), p = im.data, gain = 1.08 + 0.25 * kick, st = 255 / 7, scan = lvl >= 5;
+      for (let y = 0; y < ph; y++) {
+        const line = scan && (y & 1) ? 0.82 : 1;
+        for (let x = 0; x < pw; x++) {
+          const o = (y * pw + x) * 4, d = (BAYER[(y & 3) * 4 + (x & 3)] / 16 - 0.5) * st;
+          for (let k = 0; k < 3; k++) { const v = Math.max(0, Math.min(255, p[o + k] * gain + d)); p[o + k] = Math.round(v / st) * st * line; }
+        }
       }
+      g.putImageData(im, 0, 0);
     }
-    g.putImageData(im, 0, 0);
+    this._present();
   }
 }

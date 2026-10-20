@@ -13,7 +13,7 @@ import { Laser } from './laser.js';
 import { initMaterials, makeMixer, loadMixerParts, DECK, MIX } from './models.js';
 import { loadDeckTemplate, makeGlbDeck } from './deck-glb.js';
 import { PersonMask } from './dirro-mask.js';   // #428
-import { WallFx } from './wallfx.js';   // #439 MANDEL / RETRO-SCENE, drawn here from the Quest's clock and beat
+import { WallFx, LOOP } from './wallfx.js';   // #439 MANDEL / RETRO-SCENE, drawn here from the Quest's clock and beat
 
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
@@ -571,7 +571,7 @@ function wallFx(now, q) {
   const qn = now - (NET.cd || 0), iv = beatIv(), lv = NET.b && iv && now - NET.anchor < 4000;
   const bp = lv ? NET.bn + (now - NET.anchor) / iv : qn / 500, L = q.lp ? NET.imgs.get(q.lp) : null;
   const mode = q.m === 'mandel' ? 'mandel' : q.m === 'vdancer' ? 'rings' : q.m === 'meta' ? 'meta' : q.s === 'loop' && L ? 'loop' : 'dancer';   // #442
-  if (wfx.frame({ mode, t: qn - (q.t0 || 0), bp, kick: beat.kick, loop: L && L.image, lt: qn - (q.lt0 || 0), rp: q.rp, mp: q.mp })) wfxTex.needsUpdate = true;
+  if (wfx.frame({ mode, t: qn - (q.t0 || 0), bp, kick: beat.kick, loop: L && L.image, lt: qn - (q.lt0 || 0), rp: q.rp, mp: q.mp, px: q.px, lw: LOOP.w, lh: LOOP.h })) wfxTex.needsUpdate = true;
   return wfxTex;
 }
 const _cq = new THREE.Quaternion();
@@ -595,7 +595,7 @@ function frame() {
     } else tgt = src === 'fractal' ? null : src === 'pictures' ? pic : src === 'tv' ? tv : auto;
     if (tgt) wu.uImg.value = tgt;
     wu.uMix.value += ((tgt ? 1 : 0) - wu.uMix.value) * Math.min(1, dt * 3);
-    const cols = Wc ? Wc.cols : 160; wu.uGridOn.value = cols > 0 ? 1 : 0; if (cols > 0) wu.uGrid.value.set(cols, Math.round(cols * 9 / 16));
+    const cols = q && q.m === 'mandel' ? 160 : Wc ? Wc.cols : 160; wu.uGridOn.value = cols > 0 ? 1 : 0; if (cols > 0) wu.uGrid.value.set(cols, Math.round(cols * 9 / 16));
     wu.uFill.value = Wc ? Wc.fill : 0.78; wu.uGlow.value = Wc ? Wc.glow : 1;
   }
   wu.uCap.value += ((cc < 10 || T < capUntil ? 1 : 0) - wu.uCap.value) * Math.min(1, dt * 4);

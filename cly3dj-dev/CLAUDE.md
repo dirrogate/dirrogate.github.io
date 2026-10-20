@@ -943,3 +943,11 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 
 ## #443 VECTOR-DANCER ZOOM
 - A ZOOM slider (0.6x to 3x, rp.z, saved with the other VECTOR-DANCER settings) next to RING GAP: the matte scales about the middle of the frame (a little low, where the feet are); the rings do not scale. wallfx.js renderRings. No server restart.
+
+## #444 PIXELS 0 to 10, hi-res Quest grab, 8-level dither, TAP BPM
+- PIXELS slider (WALL page and RETRO-SCENE page, setWallPx): render size + LED grid together (wallfx.js PX): 0 = 480x270 smooth (no grid), 1 = 384x216 smooth, 2 = 320x180 / 320 across (the new default), 3 = 240, 4 = 192, 5 = 160x90 / 160 (the old look), 6 = 128, 7 = 96, 8 = 64, 9 = 48, 10 = 32 across. MANDEL stays 160x90 on its own 160 grid at every level (Quest fxPaint, host cfg and phones override cols). The output canvas (WallFx.canvas, fxBig) is a fixed 640x360; levels 2 and up are drawn blocky into it. The slider sets dirro wall cols (WALL_COLS gained 32); LED GRID can still be nudged after. First run applies the default grid once (vire.wallPxA).
+- Rings / METABALLS now run in wallfx-worker.js too (renderMode; the matte goes along as a size-matched byte copy, vdMask(W, H)). Level 0 costs about 10 ms in the worker.
+- GRAB LOOP: the Quest records its own 224x126 cell sheet (1792x1008) as well as the phones' 112x63 one (JPEG 52 KB, unchanged); the wall plays the big one.
+- Dither: 8 levels a channel (was 4), ordered, from PIXELS 2 up; the darker odd lines from 5 up; none at 0 and 1.
+- TAP BPM (WALL page, RETRO-SCENE page): tap the beat; the tempo is the mean of the last 8 taps (60 to 200 BPM), each tap snaps the beat; the effects, the grab/dancer timing and the phones (getBeat / tapBpm) follow until a long press on the button hands the beat back to the music (also times out after 10 minutes). The button shows TAP <bpm>.
+- Backup backups/pre-444/. No server restart. Tested in the browser pane only.
