@@ -211,11 +211,19 @@ export class WallFx {
     const lvl = o.px == null ? 5 : o.px, [pw, ph] = pxSize(lvl);
     if (o.mode === 'loop') {
       if (!o.loop) return fresh;
-      const k = Math.floor(Math.max(0, o.lt) * LOOP.fps / 1000) % (2 * LOOP.n - 2), i = k < LOOP.n ? k : 2 * LOOP.n - 2 - k;   // forwards, then back
+      const n = o.ln || LOOP.n, fps = o.lfps || LOOP.fps;   // #446 a GIF on the card has its own frame count and speed, and plays forwards only (o.fwd)
+      const k = Math.floor(Math.max(0, o.lt) * fps / 1000) % (o.fwd ? n : Math.max(1, 2 * n - 2)), i = o.fwd || k < n ? k : 2 * n - 2 - k;   // forwards, then back
       if (i !== this.loopI || now - this.loopT > 500) { this.loopI = i; this.loopT = now; this._loop(o.loop, i, o.kick || 0, lvl, o.lw || LOOP.w, o.lh || LOOP.h, pw, ph); fresh = true; }
       return fresh;
     }
     this.loopI = -1;
+    if (o.mode === 'pic') {   // #446 a still picture (the CARD page's) whole on black
+      if (o.pic && now - this.reqT >= 250) {
+        this.reqT = now; this._size(pw, ph); const g = this.lg, iw = o.pic.width, ih = o.pic.height, k = Math.min(pw / iw, ph / ih);
+        g.imageSmoothingEnabled = true; g.fillStyle = '#000'; g.fillRect(0, 0, pw, ph); g.drawImage(o.pic, (pw - iw * k) / 2, (ph - ih * k) / 2, iw * k, ih * k); this._present(); fresh = true;
+      }
+      return fresh;
+    }
     if (this.busy && now - this.reqT > 2000) this.busy = false;   // a lost answer
     if (!this.busy && now - this.reqT >= 66) {
       this.reqT = now;

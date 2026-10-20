@@ -570,8 +570,8 @@ function wallFx(now, q) {
   if (!wfx) { wfx = new WallFx(); wfxTex = new THREE.CanvasTexture(wfx.canvas); wfxTex.colorSpace = THREE.SRGBColorSpace; }
   const qn = now - (NET.cd || 0), iv = beatIv(), lv = NET.b && iv && now - NET.anchor < 4000;
   const bp = lv ? NET.bn + (now - NET.anchor) / iv : qn / 500, L = q.lp ? NET.imgs.get(q.lp) : null;
-  const mode = q.m === 'mandel' ? 'mandel' : q.m === 'vdancer' ? 'rings' : q.m === 'meta' ? 'meta' : q.s === 'loop' && L ? 'loop' : 'dancer';   // #442
-  if (wfx.frame({ mode, t: qn - (q.t0 || 0), bp, kick: beat.kick, loop: L && L.image, lt: qn - (q.lt0 || 0), rp: q.rp, mp: q.mp, px: q.px, lw: LOOP.w, lh: LOOP.h })) wfxTex.needsUpdate = true;
+  const mode = q.m === 'mandel' ? 'mandel' : q.m === 'vdancer' ? 'rings' : q.m === 'meta' ? 'meta' : q.m === 'card' ? 'loop' : q.s === 'loop' && L ? 'loop' : 'dancer';   // #446 card: a GIF   // #442
+  if (wfx.frame({ mode, t: qn - (q.t0 || 0), bp, kick: beat.kick, loop: L && L.image, lt: qn - (q.lt0 || 0), rp: q.rp, mp: q.mp, px: q.px, lw: LOOP.w, lh: LOOP.h, ln: q.m === 'card' ? q.ln : 0, lfps: q.m === 'card' ? q.lf : 0, fwd: q.m === 'card' })) wfxTex.needsUpdate = true;
   return wfxTex;
 }
 const _cq = new THREE.Quaternion();
@@ -591,7 +591,7 @@ function frame() {
     let tgt;
     if (src === 'follow') {   // #439 the Quest's LED wall: MANDEL / RETRO-SCENE drawn here, a picture, or the wall's frames; OFF = AUTO
       const m = q ? q.m : 'off';
-      tgt = m === 'mandel' || m === 'retro' || m === 'vdancer' || m === 'meta' ? wallFx(now, q) : m === 'pics' ? pic : FOLLOW_FRAMES.has(m) ? tv : auto;
+      tgt = m === 'mandel' || m === 'retro' || m === 'vdancer' || m === 'meta' || m === 'card' ? wallFx(now, q) : m === 'pics' ? pic : FOLLOW_FRAMES.has(m) ? tv : auto;
     } else tgt = src === 'fractal' ? null : src === 'pictures' ? pic : src === 'tv' ? tv : auto;
     if (tgt) wu.uImg.value = tgt;
     wu.uMix.value += ((tgt ? 1 : 0) - wu.uMix.value) * Math.min(1, dt * 3);

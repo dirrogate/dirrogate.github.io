@@ -601,7 +601,7 @@ function nextLedMode(m) {   // OFF > CLIPS > VIDVINYL ('decks') > MANDEL > RETRO
   return 'off';
 }
 function clipsMode() { if (isLive(ledMode) && spect && spect.liveCam && !streamPhone()) spect.liveCam(false); ledMode = 'clips'; led.kind = null; fxTex = null; }   // #238 a clip from the LED list ends LIVE
-const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED VIDVINYL', mandel: 'LED MANDEL', retro: 'LED RETRO-SCENE', vdancer: 'LED VECTOR-DANCER', meta: 'LED METABALLS', cam: 'LED AVACAM', live: 'LED LIVE', solo: 'LED SOLO', screen: 'LED PHONE SCREEN' };
+const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED VIDVINYL', mandel: 'LED MANDEL', retro: 'LED RETRO-SCENE', card: 'LED CARD', vdancer: 'LED VECTOR-DANCER', meta: 'LED METABALLS', cam: 'LED AVACAM', live: 'LED LIVE', solo: 'LED SOLO', screen: 'LED PHONE SCREEN' };
 let phoneScreen = false;   // #358 the spectator phone is sharing its screen (its video slot carries it)
 function onPhoneScreen(on) {
   phoneScreen = on;
@@ -628,6 +628,43 @@ function setWallPx(l) {
   if (dirro) dirro.setWall('cols', pxSize(wallPx)[2]);
   fxMaskK = ''; if (isFxMode(ledMode)) fxPaint(); drawMixScreen();
 }
+// #446 the CARD page's picture / animated GIF on the LED wall too (ledMode 'card'). A still goes to the phones as the usual LED picture (512 x 288 JPEG);
+// a GIF is cut to at most 64 frames on the grab loops' sprite sheet (112 x 63 a cell, a JPEG under 60 KB for the phones; 224 x 126 for the Quest), keeping its timing
+const cardWall = { on: true, file: null, name: '', pic: null, loop: null, prev: 'off' };
+try { cardWall.on = localStorage.getItem('vire.cardWall') !== '0'; } catch (e) {}
+async function gifLoop(file) {
+  const dec = new ImageDecoder({ data: await file.arrayBuffer(), type: 'image/gif' }); await dec.tracks.ready;
+  const total = dec.tracks.selectedTrack.frameCount; if (!total) throw new Error('no frames');
+  const N = Math.min(LOOP.n, total), pick = new Set(Array.from({ length: N }, (_, k) => Math.floor(k * total / N)));
+  const mk = (w, h) => { const c = Object.assign(document.createElement('canvas'), { width: w * LOOP.cols, height: h * LOOP.rows }), g = c.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, c.width, c.height); return [c, g]; };
+  const [sheet, sg] = mk(LOOP.W2, LOOP.H2), [small, smg] = mk(LOOP.w, LOOP.h);
+  let ms = 0, n = 0;
+  for (let i = 0; i < total; i++) {
+    const r = await dec.decode({ frameIndex: i }), im = r.image; ms += (im.duration || 100000) / 1000;
+    if (pick.has(i)) {
+      const iw = im.displayWidth || im.codedWidth, ih = im.displayHeight || im.codedHeight;
+      const cell = (cw, ch, cg) => { const k = Math.min(cw / iw, ch / ih), w = iw * k, h = ih * k; cg.drawImage(im, (n % LOOP.cols) * cw + (cw - w) / 2, Math.floor(n / LOOP.cols) * ch + (ch - h) / 2, w, h); };
+      cell(LOOP.W2, LOOP.H2, sg); cell(LOOP.w, LOOP.h, smg); n++;
+    }
+    im.close();
+  }
+  dec.close && dec.close();
+  let d = ''; for (const q of [0.8, 0.65, 0.5, 0.4, 0.3, 0.22, 0.15]) { d = small.toDataURL('image/jpeg', q); if (d.length < 60000) break; }
+  return { id: 'G' + (file.size % 99991).toString(36) + file.name.length.toString(36) + Date.now().toString(36).slice(-4), sheet, d: d.length < 60000 ? d : '', n, fps: Math.max(2, Math.min(24, n / Math.max(0.2, ms / 1000))) };
+}
+async function cardWallSet(file, show = true) {   // the CARD page's pick (null = back to the main card) as a LED wall source
+  if (cardWall.pic && cardWall.pic.close) cardWall.pic.close();
+  cardWall.pic = null; cardWall.loop = null; cardWall.file = file || null; cardWall.name = file ? file.name : '';
+  if (!file) { if (ledMode === 'card') setLedMode(cardWall.prev && cardWall.prev !== 'card' ? cardWall.prev : 'off'); return; }
+  if ((/\.gif$/i.test(file.name) || file.type === 'image/gif') && typeof ImageDecoder !== 'undefined') {
+    toast('Preparing the GIF for the LED wall…', 2000);
+    try { cardWall.loop = await gifLoop(file); } catch (e) { console.warn('GIF for the LED wall', e); }
+  }
+  if (!cardWall.loop) { try { cardWall.pic = await createImageBitmap(file); } catch (e) { toast('That picture would not open for the LED wall', 2500); return; } }
+  if (cardWall.file !== file) return;   // another pick came meanwhile
+  if (show && cardWall.on) { if (ledMode !== 'card') cardWall.prev = ledMode; setLedMode('card'); ledFx.loopT0 = performance.now(); }
+  else drawMixScreen();
+}
 // #444 TAP BPM: the VJ taps the beat in; the effects (and the phones) run on it until a long press hands them back to the music
 const wtap = { t: [], iv: 0, anchor: 0, last: 0, n: 0 };
 const wtapOn = () => !!wtap.iv && performance.now() - wtap.last < 600000;
@@ -641,7 +678,7 @@ function tapWall() {
 function tapClear() { wtap.t = []; wtap.iv = 0; toast('TAP BPM off: the effects follow the music again', 2500); drawMixScreen(); }
 const tapLbl = () => (wtapOn() ? 'TAP ' + Math.round(60000 / wtap.iv) : wtap.t.length ? 'TAP…' : 'TAP BPM');
 function tapBeat() { if (!wtapOn()) return null; const k = Math.floor((performance.now() - wtap.anchor) / wtap.iv); return { count: wtap.n + k, last: wtap.anchor + k * wtap.iv }; }
-const isFxMode = m => m === 'mandel' || m === 'retro' || m === 'vdancer' || m === 'meta';
+const isFxMode = m => m === 'mandel' || m === 'retro' || m === 'vdancer' || m === 'meta' || m === 'card';
 // #442 VECTOR-DANCER: moire rings through a matte (white on black) clip, 6 slots (slot 1 is the bundled DANCER 1; the rest load from VISUALS > Video)
 const VD_SLOTS = 6, VD_BUILTIN = 'mattes/matte1.mp4';
 const vd = { rp: { ...RP_DEF }, mp: { ...MP_DEF }, slots: ['@builtin', '', '', '', '', ''], sel: 0, pick: null, ok: false, vid: null, cv: null, g: null, url: '', cur: null, mask: new Uint8Array(FX_W * FX_H) };
@@ -710,14 +747,15 @@ function stepWallFx(now) {
   const { bp, kick } = wallBeat(now), bar = Math.floor(bp / 4);
   if (bar < ledFx.bar - 1) ledFx.sBar = ledFx.autoBar = bar;   // the beat count started again
   ledFx.bar = bar;
-  if (ledFx.auto && bar - ledFx.autoBar >= ledFx.auto) setLedMode(ledMode === 'mandel' ? 'retro' : 'mandel');
+  if (ledFx.auto && ledMode !== 'card' && bar - ledFx.autoBar >= ledFx.auto) setLedMode(ledMode === 'mandel' ? 'retro' : 'mandel');
   if (ledMode === 'retro' && bar - ledFx.sBar >= 8) {   // every 8 bars: the dancer, or the next loop
     ledFx.sBar = bar;
     if (ledFx.s === 'loop' || !grab.loops.length) ledFx.s = 'dancer';
     else { ledFx.li = (ledFx.li + 1) % grab.loops.length; ledFx.loop = grab.loops[ledFx.li]; ledFx.s = 'loop'; ledFx.loopT0 = now; }
   }
-  const mode = ledMode === 'mandel' ? 'mandel' : ledMode === 'vdancer' ? 'rings' : ledMode === 'meta' ? 'meta' : ledFx.s === 'loop' && ledFx.loop ? 'loop' : 'dancer';
-  if (wfx.frame({ mode, t: now - ledFx.t0, bp, kick, loop: ledFx.loop && ledFx.loop.sheet, lw: LOOP.W2, lh: LOOP.H2, lt: now - ledFx.loopT0, px: wallPx, mask: mode === 'rings' ? vdMask(...pxSize(wallPx)) : null, rp: vd.rp, mp: vd.mp })) fxPaint();
+  const mode = ledMode === 'mandel' ? 'mandel' : ledMode === 'vdancer' ? 'rings' : ledMode === 'meta' ? 'meta' : ledMode === 'card' ? (cardWall.loop ? 'loop' : 'pic') : ledFx.s === 'loop' && ledFx.loop ? 'loop' : 'dancer';
+  const cl = ledMode === 'card' ? cardWall.loop : null;   // #446
+  if (wfx.frame({ mode, t: now - ledFx.t0, bp, kick, loop: cl ? cl.sheet : ledFx.loop && ledFx.loop.sheet, ln: cl ? cl.n : 0, lfps: cl ? cl.fps : 0, fwd: !!cl, pic: cardWall.pic, lw: LOOP.W2, lh: LOOP.H2, lt: now - ledFx.loopT0, px: wallPx, mask: mode === 'rings' ? vdMask(...pxSize(wallPx)) : null, rp: vd.rp, mp: vd.mp })) fxPaint();
 }
 function setWallAuto(n) { ledFx.auto = n; ledFx.autoBar = ledFx.bar; try { localStorage.setItem('vire.wallAuto', String(n)); } catch (e) {} if (n && !isFxMode(ledMode)) setLedMode('mandel'); else drawMixScreen(); }
 // GRAB LOOP: 5.3 s (#441), 12 pictures a second, 112 x 63 each on an 8 x 8 sheet (a JPEG under 60 KB for the phones). From the
@@ -6680,16 +6718,17 @@ function drawToolsPage() {
       if (on) { g.strokeStyle = '#39a8ff'; g.lineWidth = 4; g.strokeRect(cx + 2, cy + 2, CW - 4, TH + 16); if (S.source === 'card') { g.fillStyle = '#40d080'; g.fillRect(cx + 4, cy + 4, 62, 20); g.fillStyle = '#05070c'; g.font = '800 13px system-ui'; g.textAlign = 'left'; g.fillText('ON AIR', cx + 9, cy + 19); } }
       g.fillStyle = on ? '#fff' : '#b8c0cf'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, it.main ? 'MAIN CARD' : it.name.replace(/\.[^.]+$/, ''), cx + 2, cy + TH + 15, CW - 4);
       VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, act: async () => {
-        if (it.main) { S.setCardPic(null); try { localStorage.setItem('vire.cardPic', ''); } catch (e) {} }
-        else { const f = await media.getFile('Images', it.name); if (!f || !(await S.setCardPic(f))) { toast('That picture would not open', 2500); return; } try { localStorage.setItem('vire.cardPic', it.name); } catch (e) {} }
+        if (it.main) { S.setCardPic(null); cardWallSet(null); try { localStorage.setItem('vire.cardPic', ''); } catch (e) {} }
+        else { const f = await media.getFile('Images', it.name); if (!f || !(await S.setCardPic(f))) { toast('That picture would not open', 2500); return; } try { localStorage.setItem('vire.cardPic', it.name); } catch (e) {} cardWallSet(f); }
         S.setSource('card'); drawMixScreen();
       } });
     });
     const by = P ? H - 62 : H - 44;
     btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
     btn(L + 48, by, 44, 36, '›', false, () => { pickPg = Math.min(pages - 1, pickPg + 1); }, pickPg >= pages - 1);
+    btn(R - 150, by, 150, 36, cardWall.on ? 'LED WALL: ON' : 'LED WALL: OFF', cardWall.on, () => { cardWall.on = !cardWall.on; try { localStorage.setItem('vire.cardWall', cardWall.on ? '1' : '0'); } catch (e) {} if (cardWall.on) { if (cardWall.file) cardWallSet(cardWall.file); } else if (ledMode === 'card') setLedMode(cardWall.prev && cardWall.prev !== 'card' ? cardWall.prev : 'off'); drawMixScreen(); }, false, 15);   // #446
     g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left';
-    wrapText(g, 'Tap a picture or GIF (add them in IMAGES: on the start page, or Library > Import on the phone). It goes to Twitch and CLY3DTV. MAIN CARD is the Cly3DJ card with the Twitch QR.', L + 104, by + 12, R - L - 110, 15, 2);
+    wrapText(g, 'Tap a picture or GIF (add them in IMAGES on the start page, or Library > Import on the phone). It goes to Twitch, CLY3DTV and, with LED WALL on, the LED wall and the phones (a GIF is cut to 64 frames for them). MAIN CARD is the Cly3DJ card with the Twitch QR.', L + 104, by + 8, R - L - 270, 14, 3);
     return;
   }
   if (page === 'pickVideo' || page === 'pickImage') {
@@ -7159,11 +7198,11 @@ function frameBody() {
 // #427 DIRROGRAM: the show to the audience phones through the relay (dirro-host.js)
 if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr, getBeat: () => tapBeat() || beat, tapBpm: () => (wtapOn() ? 60000 / wtap.iv : 0), laser, micLevel, nowPlaying: dirroNow,
   scrollText: () => (scroller && scroller.on ? scroller.text : ''),
-  getLed: () => ({ img: !!(led.on && led.img), name: led.name, file: led.name ? led.fileNamed(led.name) : null }),   // #434 the LED wall's picture
+  getLed: () => (ledMode === 'card' && cardWall.pic ? { img: true, name: 'card:' + cardWall.name, file: cardWall.file } : { img: !!(led.on && led.img), name: led.name, file: led.name ? led.fileNamed(led.name) : null }),   // #434 (#446 the card's still)   // #434 the LED wall's picture
   tvCanvas: () => (streamer && streamer.active ? streamer.canvas : null),   // #434 the stream / venue-screen picture
   // #439 FOLLOW: what the LED wall shows, the GRAB LOOP sheets, and the wall's own clip / live picture for the frames
-  wallState: () => ({ m: ledMode === 'clips' ? (led.img ? 'pics' : 'clips') : ledMode === 'vdancer' && vd.sel >= 0 && vd.slots[vd.sel] ? 'vmat' : ledMode, rp: vd.rp, mp: vd.mp, px: wallPx, s: ledFx.s, t0: Math.round(ledFx.t0), lp: ledMode === 'retro' && ledFx.s === 'loop' && ledFx.loop && ledFx.loop.d ? ledFx.loop.id : '', lt0: Math.round(ledFx.loopT0) }),
-  loopData: id => { const l = grab.loops.find(x => x.id === id); return l ? l.d : null; },
+  wallState: () => ({ m: ledMode === 'clips' ? (led.img ? 'pics' : 'clips') : ledMode === 'card' ? (cardWall.loop ? 'card' : 'pics') : ledMode === 'vdancer' && vd.sel >= 0 && vd.slots[vd.sel] ? 'vmat' : ledMode, rp: vd.rp, mp: vd.mp, px: wallPx, s: ledFx.s, t0: Math.round(ledFx.t0), lp: ledMode === 'card' && cardWall.loop && cardWall.loop.d ? cardWall.loop.id : ledMode === 'retro' && ledFx.s === 'loop' && ledFx.loop && ledFx.loop.d ? ledFx.loop.id : '', ln: cardWall.loop ? cardWall.loop.n : 0, lf: cardWall.loop ? Math.round(cardWall.loop.fps * 10) / 10 : 0, lt0: Math.round(ledFx.loopT0) }),
+  loopData: id => { const l = grab.loops.find(x => x.id === id); return l ? l.d : cardWall.loop && cardWall.loop.id === id ? cardWall.loop.d : null; },
   wallFrame: () => (ledMode === 'vdancer' ? fxBig : ledMode === 'clips' && led.video ? led.video : isLive(ledMode) || ledMode === 'screen' ? liveVideo : ledMode === 'decks' ? deckVid[0].v : streamer && streamer.active ? streamer.canvas : null),
   sineText: t => { const c = cleanText(t, 120); if (c.trim()) { scroller.start(c); toast('On the sine scroller', 1500); } },   // #435 a HoloSMS on the Quest's own scroller
   onSms: t => toast('HoloSMS: ' + (t.length > 46 ? t.slice(0, 45) + '…' : t), 2500),
@@ -7599,8 +7638,8 @@ if (!CAMERA_ROLE) loadLibrary();
 if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
-try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media.getFile('Images', cn).then(f => f && streamer.setCardPic(f)).catch(() => {}); } catch (e) {}   // #445 the CARD picture of last time
-window.vire = { THREE, wfx, ledFx, grab, grabLoop, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media.getFile('Images', cn).then(f => { if (f) { streamer.setCardPic(f); cardWallSet(f, false); } }).catch(() => {}); } catch (e) {}   // #445 the CARD picture of last time
+window.vire = { THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
 window.vire._laser = { laser, laserTap, camCal, camCalStart, camCalStop };   // #415 camCal test hook   // #406 test hook
 window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, milkSleeveHit, layoutMilkSleeves, gpSummon, goproReset, gopro2, setDomeEv, get plJump() { return plJump; }, msFly };   // #394 / #395 test hooks   // #392 / #393 test hooks
