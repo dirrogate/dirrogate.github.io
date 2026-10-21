@@ -175,9 +175,9 @@ function drawPromo() {   // the built-in card; promo JPGs from a list come with 
   const g = promoCv.getContext('2d'), W = 512, H = 288;
   const gr = g.createLinearGradient(0, 0, W, H); gr.addColorStop(0, '#12051f'); gr.addColorStop(1, '#2a0610'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
   g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '900 112px system-ui, sans-serif';
-  const a = g.measureText('CLY').width, b = g.measureText('3DJ').width, x0 = W / 2 - (a + b) / 2;
-  g.textAlign = 'left'; g.fillStyle = '#ffffff'; g.fillText('CLY', x0, 120); g.fillStyle = '#ff2a3c'; g.fillText('3DJ', x0 + a, 120);
-  g.textAlign = 'center'; g.fillStyle = '#39e6ff'; g.font = '700 30px system-ui, sans-serif'; g.fillText('LIVE ON VINYL', W / 2, 200);
+  const a = g.measureText('DIRRO').width, b = g.measureText('DJ').width, x0 = W / 2 - (a + b) / 2;
+  g.textAlign = 'left'; g.fillStyle = '#ffffff'; g.fillText('DIRRO', x0, 120); g.fillStyle = '#ff2a3c'; g.fillText('DJ', x0 + a, 120);
+  g.textAlign = 'center'; g.fillStyle = '#39e6ff'; g.font = '700 30px system-ui, sans-serif'; g.fillText('DIRRODJ.CLUB', W / 2, 200);
   g.fillStyle = '#ffffff'; g.font = '600 24px system-ui, sans-serif'; g.fillText('twitch.tv/dirrogate', W / 2, 246);
   promoTex.needsUpdate = true;
 }
