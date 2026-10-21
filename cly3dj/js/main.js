@@ -42,7 +42,7 @@ import * as media from './medialib.js';
 import { makePerfCap } from './perfcap.js';
 import { Stage, FlightCase } from './layout.js';
 import { loadCaseKit } from './flightcase.js';
-import { setRecordTexSize } from './textures.js';
+import { setRecordTexSize, setGrooveK } from './textures.js';
 import {
   initMaterials, MAT, tabletBodyMat, TABLET_T, makeDeck, makeButton, makeMixer, makeCrate, makeMilkCrate, loadMilkCrate, loadMilkCrateBaked, upgradeMilkCrate, loadRecordCrateBaked, upgradeRecordCrate, loadMixerParts, initKTX2, loadBaked, MILK_CREDIT, Record3D, armYawForRadius,
   DECK, MIX, CRATE, MILK, W33, ARM, LID, padCull,
@@ -3468,7 +3468,7 @@ function stepLoose(dt) {
     // #441: a record left lying on the floor goes back to the record crate after 3 minutes; anywhere else it stays
     if (L.resting && L.onFloor) {
       L.floorT = (L.floorT || 0) + dt;
-      if (L.floorT > FLOOR_RETURN_S) { loose.splice(i, 1); scene.remove(g); L.rec.dispose(); layoutSleeves(); toast('A record on the floor went back to the crate'); continue; }
+      if (L.floorT > FLOOR_RETURN_S) { loose.splice(i, 1); scene.remove(g); L.rec.dispose(); layoutSleeves(); continue; }
     } else L.floorT = 0;
     // low detail when it lies on the floor or is more than about a foot from your eyes
     L.rec.setLOD(L.onFloor || g.position.distanceTo(eye) > 0.3);
@@ -5493,10 +5493,12 @@ const FEEL_DEF = {
   even: { label: 'RADIUS EVEN-OUT', lo: 0, hi: 100, v: 100, unit: '%' },     // #424 any touch radius moves the record like the outer music area
   spin: { label: 'SPINDLE TWIST', lo: 25, hi: 300, v: 100, unit: '%' },      // pinch on the spindle: torque passed to the platter
   nudge: { label: 'NUDGE AMOUNT', lo: 25, hi: 300, v: 100, unit: '%' },      // finger on the platter rim: drag / push strength
+  grv: { label: 'RECORD GROOVES', lo: 0, hi: 300, v: 100, unit: '%' },       // #455 ring contrast + sheen on the vinyl (looks only, no physics)
 };
 const FEEL = Object.fromEntries(Object.entries(FEEL_DEF).map(([k, r]) => [k, r.v]));
 try { Object.assign(FEEL, JSON.parse(localStorage.getItem('vire.feel') || '{}')); } catch (e) {}
-function setFeel(k, v) { FEEL[k] = v; try { localStorage.setItem('vire.feel', JSON.stringify(FEEL)); } catch (e) {} if (k !== 'scr' && k !== 'smooth' && k !== 'even') sendPhysics(); }
+setGrooveK((FEEL.grv != null ? FEEL.grv : 100) / 100);   // #455
+function setFeel(k, v) { FEEL[k] = v; try { localStorage.setItem('vire.feel', JSON.stringify(FEEL)); } catch (e) {} if (k === 'grv') setGrooveK(v / 100); if (k !== 'scr' && k !== 'smooth' && k !== 'even' && k !== 'grv') sendPhysics(); }
 // #422 PINCH FIT sliders: key -> range, default (must match xr.js PF)
 const PINCH_FIT_DEF = {
   bx: { label: 'BALL IN/OUT', lo: -25, hi: 25, v: 0, unit: 'mm' }, by: { label: 'BALL UP/DN', lo: -25, hi: 25, v: 0, unit: 'mm' },
@@ -6522,9 +6524,9 @@ function drawToolsPage() {
       note('Drag a bar. 100 % = the physics as built. PLATTER FRICTION: slipmat grip. SCRATCH & DRAG: record turn per hand turn (100 % = 1:1). RADIUS EVEN-OUT: every touch point moves the record like the outer edge (0 % = true vinyl). HAND SMOOTHING: filters tracking jitter on the record. SPINDLE TWIST: pinch on the spindle. NUDGE: finger on the platter rim.', yb + 58);
     } else {
       const bw = 170;   // one bar per row, full width; RESET under the label column
-      keys.forEach((k, i) => row(k, L, y0 + i * 36, R - L, 32));   // #424 six bars
-      btn(L, y0 + keys.length * 36 + 2, bw, 32, 'RESET TO AS BUILT', false, reset, false, 14);
-      g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('100 % = as built.  RADIUS EVEN-OUT 0 % = true vinyl (near the label moves faster).', L + bw + 12, y0 + keys.length * 36 + 18); g.textBaseline = 'alphabetic';
+      keys.forEach((k, i) => row(k, L, y0 + i * 31, R - L, 28));   // #424 / #455 seven bars
+      btn(L, y0 + keys.length * 31 + 2, bw, 30, 'RESET TO AS BUILT', false, reset, false, 14);
+      g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('100 % = as built.  RADIUS EVEN-OUT 0 % = true vinyl.  RECORD GROOVES = ring contrast and sheen.', L + bw + 12, y0 + keys.length * 31 + 17); g.textBaseline = 'alphabetic';
     }
     return;
   }
@@ -7281,6 +7283,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
   armGrab, armDrag, armRelease,
+  needleDown: d => !!(d.record && ((engine.state.decks[d.i] && engine.state.decks[d.i].needle) || (d.arm && (d.arm.lift < 0.5 || d.arm.dragDown)))),   // #451
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
   sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease, spiderGrabTest, spiderGrab, spiderRelease,
   crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, crateWalkStep, drawCrateScreen, layoutSleeves, crateDisc,

@@ -145,22 +145,27 @@ export function drawRecordSide({ env, duration, cues, labelImg, title, artist, b
   g.beginPath(); g.arc(C, C, D.HOLE * lpx, 0, Math.PI * 2); g.fillStyle = '#000'; g.fill();
   const map = new THREE.CanvasTexture(c); map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4; map.channel = 1;
   map.wrapS = map.wrapT = THREE.ClampToEdgeWrapping;
-  return { map, strip, cues: cueList, labelCanvas: c, labelN: D.LABEL / D.R, holeN: D.SIZE === 7 ? D.HOLE / D.R : 0 };
+  return { map, strip, cues: cueList, labelCanvas: c, grvN: [D.IN / D.R, D.OUT / D.R], labelN: D.LABEL / D.R, holeN: D.SIZE === 7 ? D.HOLE / D.R : 0 };
 }
 // The record side material (#137): MeshPhysical as before (#58 / #93 gloss settings), colour and roughness from the
 // ring strip outside the label, the label canvas inside it. Works without a label map (the crate's riding disc).
+// #455 RECORD GROOVES slider: one shared uniform scales ring contrast and the sheen on every record (1 = as shipped)
+const GRV_K = { value: 1 };
+export function setGrooveK(k) { GRV_K.value = k; }
 export function recordMaterial(extra = {}) {
-  const u = { uStrip: { value: null }, uLabelN: { value: REC.LABEL / REC.R }, uHoleN: { value: 0 }, uCueN: { value: 0 },
+  const u = { uStrip: { value: null }, uLabelN: { value: REC.LABEL / REC.R }, uHoleN: { value: 0 }, uCueN: { value: 0 }, uGrv: { value: new THREE.Vector2(0.3, 0.95) }, uGrvK: GRV_K,
     uCue: { value: Array.from({ length: 16 }, () => new THREE.Vector2()) }, uCueC: { value: Array.from({ length: 16 }, () => new THREE.Color()) } };
   const m = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: 0.86, clearcoat: 0, anisotropy: 0, specularIntensity: 0.15, envMapIntensity: 0.14, ...extra });
   m.userData.rec = u;
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, u);
-    sh.vertexShader = sh.vertexShader.replace('void main() {', 'varying vec2 vDiscUv;\nvoid main() {').replace('#include <uv_vertex>', '#include <uv_vertex>\nvDiscUv = uv;');
-    sh.fragmentShader = sh.fragmentShader.replace('void main() {', `uniform sampler2D uStrip; uniform float uLabelN; uniform float uHoleN; uniform int uCueN; uniform vec2 uCue[16]; uniform vec3 uCueC[16];
-varying vec2 vDiscUv;
+    sh.vertexShader = sh.vertexShader.replace('void main() {', 'varying vec2 vDiscUv; varying vec3 vVW; varying vec3 vVC;\nvoid main() {').replace('#include <uv_vertex>', '#include <uv_vertex>\nvDiscUv = uv; vVW = (modelMatrix * vec4(position, 1.0)).xyz; vVC = modelMatrix[3].xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('void main() {', `uniform float uGrvK; uniform vec2 uGrv; uniform sampler2D uStrip; uniform float uLabelN; uniform float uHoleN; uniform int uCueN; uniform vec2 uCue[16]; uniform vec3 uCueC[16];
+varying vec2 vDiscUv; varying vec3 vVW; varying vec3 vVC;
+float vh(float n) { return fract(sin(n * 127.1) * 43758.5453); }
 void main() {`).replace('#include <map_fragment>', `vec2 vdp = vDiscUv - 0.5; float vrn = length(vdp) * 2.0;
 if (vrn < uHoleN) discard;   // #257 a 45's open centre
+vec3 vireGlow = vec3(0.0);
 vec4 vireStrip = texture2D(uStrip, vec2(vrn, 0.5));
 vec3 vireCol = vireStrip.rgb;
 #ifdef USE_MAP
@@ -168,7 +173,18 @@ vec3 vireCol = vireStrip.rgb;
 #endif
 { float va = atan(vdp.y, vdp.x);
   for (int i = 0; i < 16; i++) { if (i >= uCueN) break; if (abs(vrn - uCue[i].x) < 2.5 / 1024.0 && abs(va - 1.5707963) < 0.09) vireCol = uCueC[i]; } }
-diffuseColor.rgb *= vireCol;`).replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness * vireStrip.a;');
+diffuseColor.rgb *= vireCol;
+// #451 realistic grooves: hairline rings + fixed sheen wedges + dust; all cheap arithmetic, no textures
+float vGm = smoothstep(uGrv.x - 0.004, uGrv.x + 0.004, vrn) * (1.0 - smoothstep(uGrv.y - 0.004, uGrv.y + 0.004, vrn));
+float vRi = vrn * 340.0, vRf = floor(vRi), vRh = vh(vRf);
+float vFw = fwidth(vRi), vFade = 1.0 - smoothstep(0.3, 0.9, vFw);
+float vTri = abs(fract(vRi) - 0.5);
+float vRing = ((vRh - 0.5) * 0.26 + (0.25 - vTri) * 0.16) * vFade;
+diffuseColor.rgb *= 1.0 + vRing * vGm * uGrvK;
+vec3 vOff = vVW - vVC; float vWa = atan(vOff.z, vOff.x);
+float vSh = pow(max(cos(2.0 * (vWa - 0.55)), 0.0), 5.0) * (0.55 + 0.45 * vh(vRf * 0.37 + 3.0) * vFade + 0.45 * (1.0 - vFade));
+float vArc = step(0.985, vh(floor(vrn * 520.0) + 91.0)) * smoothstep(0.0, 0.2, fract(atan(vdp.y, vdp.x) * 0.159 + vh(floor(vrn * 520.0))) ) * (1.0 - smoothstep(0.2, 0.45, fract(atan(vdp.y, vdp.x) * 0.159 + vh(floor(vrn * 520.0)))));
+vireGlow = vec3(0.80, 0.84, 0.95) * (vSh * 0.028 + vArc * 0.03 * vFade) * uGrvK * vGm;`).replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness * vireStrip.a;').replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vireGlow;');
   };
   m.customProgramCacheKey = () => 'vire-record-strip';
   return m;
@@ -182,6 +198,7 @@ export function setRecordSide(mat, s, withLabel = true) {
   mat.map = withLabel ? s.map : null;
   if (!withLabel) s.map.dispose();
   if (s.labelN !== undefined) { u.uLabelN.value = s.labelN; u.uHoleN.value = s.holeN || 0; }   // #257
+  if (s.grvN) u.uGrv.value.set(s.grvN[0], s.grvN[1]);
   u.uCueN.value = s.cues.length;
   s.cues.forEach((q, i) => { u.uCue.value[i].set(q.rn, 0); u.uCueC.value[i].copy(q.color); });
   mat.needsUpdate = true;

@@ -354,7 +354,12 @@ export function setupXR(ctx) {
       if (!d.record) continue;
       const l = d.g.worldToLocal(v2.copy(P));
       const r = Math.hypot(l.x - ctx.DECK.spindle.x, l.z - ctx.DECK.spindle.z), h = l.y - (d.g.userData.platterSurface + RD(d).THICK);
-      if (h > -0.035 && h < 0.05 && r < RD(d).LABEL + LO(RD(d))) { st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true; }
+      // #451 (owner): the grip grabs the whole record, label to rim (was label + 5 cm), with extra height for the tip ball;
+      // with the needle down it can't be lifted (two short buzzes, nothing else happens). Trigger / touch still scratch and nudge.
+      if (h > -0.04 && h < 0.07 && r < RD(d).R + 0.012) {
+        if (ctx.needleDown && ctx.needleDown(d)) { st.direct = { kind: 'tap' }; buzz(st, 0.5, 40); setTimeout(() => buzz(st, 0.5, 40), 90); return true; }
+        st.direct = { kind: 'lift', d, y0: P.y }; buzz(st, 0.2, 15); return true;
+      }
     }
     if (deckOk) for (const d of ctx.decks) {
       const l = d.g.worldToLocal(v2.copy(P));
@@ -553,7 +558,7 @@ export function setupXR(ctx) {
       if (ctx.armDrag(g.d, Math.atan2(l.x - pv.x, l.z - pv.z), P.y - g.y0) === 'drop') buzz(st, 0.6, 35);   // #104: needle found the lead-in
       if (g.d.arm.dragDown && (g.buzzT = (g.buzzT || 0) + 1) % 3 === 0) buzz(st, 0.15, 12);   // feel the grooves
     } else if (g.kind === 'pinchHold') {   // #325 held; lifted 3 cm = the record comes off
-      if (!g.mat && P.y - g.y0 > 0.03) { ctx.scratchEnd(g.s); updateAnchor(st); ctx.pickUpFromDeck(g.d, st.anchor); st.direct = { kind: 'held' }; }
+      if (!g.mat && P.y - g.y0 > 0.03 && !(ctx.needleDown && ctx.needleDown(g.d))) { ctx.scratchEnd(g.s); updateAnchor(st); ctx.pickUpFromDeck(g.d, st.anchor); st.direct = { kind: 'held' }; }
       else ctx.scratchMove(g.s, g.d.g.worldToLocal(v2.copy(P)));   // #326 (owner) the pinched record follows the hand: rock it to hear the kick
     } else if (g.kind === 'lampHold') {   // #324 pinch held 1.5 s at the lamp head
       if (!g.done && performance.now() - g.t0 > 1500) { g.done = true; ctx.pressControl({ deck: g.d.name, id: 'target' }); }
@@ -611,7 +616,7 @@ export function setupXR(ctx) {
       ctx.spindleHold(g.d, g.w / W33_XR);
       g.acc += Math.abs(dy); if (g.acc >= 0.035) { g.acc -= 0.035; buzz(st, 0.15, 8); }   // a tick every 2 deg of twist
     } else if (g.kind === 'lift') {
-      if (P.y - g.y0 > 0.03) { updateAnchor(st); ctx.pickUpFromDeck(g.d, st.anchor); st.direct = { kind: 'held' }; buzz(st); }
+      if (P.y - g.y0 > 0.03 && !(ctx.needleDown && ctx.needleDown(g.d))) { updateAnchor(st); ctx.pickUpFromDeck(g.d, st.anchor); st.direct = { kind: 'held' }; buzz(st); }
     } else if (g.kind === 'scratch') {
       const l = g.d.g.worldToLocal(v2.copy(P));
       ctx.scratchMove(g.s, l, g.s.nudge ? rimForce(st, rimR(g.d, l)) : undefined);
