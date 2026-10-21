@@ -3468,7 +3468,7 @@ function stepLoose(dt) {
     // #441: a record left lying on the floor goes back to the record crate after 3 minutes; anywhere else it stays
     if (L.resting && L.onFloor) {
       L.floorT = (L.floorT || 0) + dt;
-      if (L.floorT > FLOOR_RETURN_S) { loose.splice(i, 1); scene.remove(g); L.rec.dispose(); layoutSleeves(); toast('A record on the floor went back to the crate'); continue; }
+      if (L.floorT > FLOOR_RETURN_S) { loose.splice(i, 1); scene.remove(g); L.rec.dispose(); layoutSleeves(); continue; }
     } else L.floorT = 0;
     // low detail when it lies on the floor or is more than about a foot from your eyes
     L.rec.setLOD(L.onFloor || g.position.distanceTo(eye) > 0.3);

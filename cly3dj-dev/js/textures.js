@@ -164,7 +164,7 @@ void main() {`).replace('#include <map_fragment>', `vec2 vdp = vDiscUv - 0.5; fl
 if (vrn < uHoleN) discard;   // #257 a 45's open centre
 vec3 vireGlow = vec3(0.0);
 vec4 vireStrip = texture2D(uStrip, vec2(vrn, 0.5));
-vec3 vireCol = vireStrip.rgb;
+vec3 vireCol = pow(vireStrip.rgb, vec3(1.7)) * 0.85;   // #453 near-black vinyl, bands kept
 #ifdef USE_MAP
 { vec4 lab = texture2D(map, vMapUv); float aw = fwidth(vrn); vireCol = mix(vireCol, lab.rgb, 1.0 - smoothstep(uLabelN - aw, uLabelN + aw, vrn)); }
 #endif
