@@ -176,13 +176,12 @@ float vGm = smoothstep(uGrv.x - 0.004, uGrv.x + 0.004, vrn) * (1.0 - smoothstep(
 float vRi = vrn * 340.0, vRf = floor(vRi), vRh = vh(vRf);
 float vFw = fwidth(vRi), vFade = 1.0 - smoothstep(0.3, 0.9, vFw);
 float vTri = abs(fract(vRi) - 0.5);
-float vRing = ((vRh - 0.5) * 0.34 + (0.25 - vTri) * 0.3) * vFade;
+float vRing = ((vRh - 0.5) * 0.26 + (0.25 - vTri) * 0.16) * vFade;
 diffuseColor.rgb *= 1.0 + vRing * vGm;
 vec3 vOff = vVW - vVC; float vWa = atan(vOff.z, vOff.x);
 float vSh = pow(max(cos(2.0 * (vWa - 0.55)), 0.0), 5.0) * (0.55 + 0.45 * vh(vRf * 0.37 + 3.0) * vFade + 0.45 * (1.0 - vFade));
 float vArc = step(0.985, vh(floor(vrn * 520.0) + 91.0)) * smoothstep(0.0, 0.2, fract(atan(vdp.y, vdp.x) * 0.159 + vh(floor(vrn * 520.0))) ) * (1.0 - smoothstep(0.2, 0.45, fract(atan(vdp.y, vdp.x) * 0.159 + vh(floor(vrn * 520.0)))));
-float vDust = step(0.9992, vh(dot(floor(vDiscUv * 900.0), vec2(12.9898, 78.233)))) * 0.5;
-vireGlow = vec3(0.80, 0.84, 0.95) * (vSh * 0.075 + vArc * 0.05 * vFade + vDust * 0.2) * vGm;`).replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness * vireStrip.a;').replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vireGlow;');
+vireGlow = vec3(0.80, 0.84, 0.95) * (vSh * 0.028 + vArc * 0.03 * vFade) * vGm;`).replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness * vireStrip.a;').replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vireGlow;');
   };
   m.customProgramCacheKey = () => 'vire-record-strip';
   return m;
