@@ -152,7 +152,7 @@ export function drawRecordSide({ env, duration, cues, labelImg, title, artist, b
 export function recordMaterial(extra = {}) {
   const u = { uStrip: { value: null }, uLabelN: { value: REC.LABEL / REC.R }, uHoleN: { value: 0 }, uCueN: { value: 0 }, uGrv: { value: new THREE.Vector2(0.3, 0.95) },
     uCue: { value: Array.from({ length: 16 }, () => new THREE.Vector2()) }, uCueC: { value: Array.from({ length: 16 }, () => new THREE.Color()) } };
-  const m = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: 0.86, clearcoat: 0, anisotropy: 0, specularIntensity: 0.15, envMapIntensity: 0.14, ...extra });
+  const m = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: 0.86, clearcoat: 0, anisotropy: 0, specularIntensity: 0.4, envMapIntensity: 0.14, ...extra });
   m.userData.rec = u;
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, u);
