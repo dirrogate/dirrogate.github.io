@@ -1,6 +1,6 @@
 # Cly3DJ: project overview
 
-Updated 24 Oct 2026 (decision log up to #458 in `ViRe_Custom/CLAUDE.md`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 24 Oct 2026 (decision log up to #459 in `ViRe_Custom/CLAUDE.md`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 Cly3DJ is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
