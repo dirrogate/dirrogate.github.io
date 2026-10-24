@@ -537,7 +537,12 @@ export function makeMixer() {
     addKnob(ch + '.pan', x, 0.030, 0xffb040, 0.009);
     addButton(ch + '.cue', 0.022, 0.012, 0xffc030, 'CUE', x, 0.056);
     // tap-to-set beat 1 (owner, #110): press on a kick; beside CUE, towards the mixer's outer edge
-    addButton(ch + '.beat1', 0.02, 0.012, 0x40ff70, 'BEAT 1', x + (x < 0 ? -0.033 : 0.033), 0.030);   // #253 (owner): in line with PAN (was beside CUE)
+    if (ch === 'A') addButton(ch + '.beat1', 0.02, 0.012, 0x40ff70, 'BEAT 1', x - 0.033, 0.030);   // #253 (owner): in line with PAN (was beside CUE)
+    else {   // LOOPER (owner): replaces deck B's BEAT 1 button; LOOP VOL knob above it, same column
+      addButton('looper', 0.02, 0.012, 0xff6a30, 'LOOP', x + 0.033, 0.030);
+      addKnob('loop.vol', x + 0.033, 0.006, 0xff8a40, 0.008);
+      label('LOOP VOL', x + 0.033, -0.0065, 0.0024);
+    }
     layout.slots.push({ x, z: 0.104, w: 0.0035, d: 0.066 });
     layout.faderScales.push({ x: x + (x < 0 ? 0.013 : -0.013), z0: 0.076, z1: 0.132 });
     const slot = box(0.0033, 0.004, 0.064, MAT.black); slot.position.set(x, top - 0.0021, 0.104); g.add(slot);

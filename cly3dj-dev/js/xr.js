@@ -731,7 +731,7 @@ export function setupXR(ctx) {
   function buttonList() {
     const out = [];
     const mc = ctx.mixer.userData.controls;
-    for (const id of ['sync', 'splitcue', 'mic', 'A.cue', 'B.cue', 'A.beat1', 'B.beat1']) out.push({ g: mc[id], c: { mixer: true, id }, r: 0.013 });   // all centre buttons the same size now (#89)
+    for (const id of ['sync', 'splitcue', 'mic', 'A.cue', 'B.cue', 'A.beat1', 'looper']) out.push({ g: mc[id], c: { mixer: true, id }, r: 0.013 });   // all centre buttons the same size now (#89); LOOPER replaced B.beat1
     for (const d of ctx.decks) {
       const u = d.g.userData;
       out.push({ g: u.start, c: { deck: d.name, id: 'start' }, r: 0.022 });

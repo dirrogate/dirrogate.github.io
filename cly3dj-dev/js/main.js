@@ -1523,7 +1523,7 @@ const cueOn = [false, false];
 const MIXDEF = {
   'A.trim': 0.5, 'A.hi': 0.5, 'A.mid': 0.5, 'A.low': 0.5, 'A.filter': 0.5, 'A.pan': 0.5, 'A.fader': 0.8,
   'B.trim': 0.5, 'B.hi': 0.5, 'B.mid': 0.5, 'B.low': 0.5, 'B.filter': 0.5, 'B.pan': 0.5, 'B.fader': 0.8,
-  master: 0.8, xfader: 0, 'mic.gain': 0.5, 'mic.pitch': 0.5, hpmix: 0.5,   // #334 🎧 MIX (centre = cue + master both full)
+  master: 0.8, xfader: 0, 'mic.gain': 0.5, 'mic.pitch': 0.5, hpmix: 0.5, 'loop.vol': 0.8,   // #334 🎧 MIX (centre = cue + master both full)   // LOOPER: 0.8 = the loop at the level it was sampled
 };
 const mixVal = { ...MIXDEF };
 
@@ -1535,6 +1535,7 @@ function applyMix(id) {
   if (id === 'mic.gain') return engine.setMicGain(v);
   if (id === 'mic.pitch') return engine.setMicPitch(v);
   if (id === 'hpmix') return engine.setHpMix(v);   // #334
+  if (id === 'loop.vol') return engine.setLoopVol(v);   // LOOPER
   const [ch, what] = id.split('.'); const i = ch === 'A' ? 0 : 1;
   if (what === 'trim') engine.setTrim(i, v);
   else if (what === 'hi' || what === 'mid' || what === 'low') engine.setEQ(i, what, v);
@@ -1565,6 +1566,7 @@ function mixLabel(id) {
     case 'pitch': if (settings.micRoute !== 'app') return 'Voice pitch: only with Mic route "Through the mixer"';
     { const st = engine.micSemitones(v); return `Mic pitch ${st === 0 ? '0' : (st > 0 ? '+' : '') + st.toFixed(1)} semitones`; }
     case 'hpmix': return `Headphones ${v < 0.03 ? 'cue only' : v > 0.97 ? 'master only' : Math.abs(v - 0.5) < 0.03 ? 'cue + master' : v < 0.5 ? 'more cue' : 'more master'} (stream untouched)`;   // #334
+    case 'vol': return `Loop volume ${v < 0.01 ? 'off' : Math.round(20 * Math.log10(Math.pow(v / 0.8, 2) + 1e-9)) + ' dB'} (the loop then goes through that channel's EQ and filter)`;   // LOOPER
     case 'xfader': return `Crossfader ${v < -0.02 ? 'A ' + Math.round(-v * 100) : v > 0.02 ? 'B ' + Math.round(v * 100) : 'centre'}`;
   }
   return id;
@@ -3837,12 +3839,37 @@ function pressControl(c, src) { // buttons; returns true if handled (src: who pr
     const id = c.id;
     { const b = mixer.userData.controls[id]; if (b && b.userData.press) b.userData.press(); }
     if (id === 'mic') { toggleMic(); return true; }
+    if (id === 'looper') { toggleLooper(); return true; }
     if (id === 'sync') { doSync(); return true; }
     if (id === 'splitcue') { splitCue = !splitCue; engine.setSplitCue(splitCue); toast(splitCue ? 'Split cue: master left ear, cue right ear' : 'Split cue off'); return true; }
     if (id.endsWith('.beat1')) { tapBeat1(decks[id[0] === 'A' ? 0 : 1], src || 'mouse'); return true; }
     if (id.endsWith('.cue')) { const i = id[0] === 'A' ? 0 : 1; cueOn[i] = !cueOn[i]; engine.setCue(i, cueOn[i]); return true; }
   }
   return false;
+}
+// LOOPER (owner): one button, three presses. 1st: starts sampling the channel(s) with CUE on, taken after TRIM and
+// before EQ / filter (so the cue sound, not the master), up to 30 s. 2nd: stops sampling and loops it through those
+// channel(s) of the mixer (LOOP VOL sets its level; EQ / filter / fader / crossfader apply). 3rd: stops the loop.
+// A full 30 s sample goes into the loop by itself; a sample shorter than 0.25 s is dropped (engine tells us).
+const looper = { state: 'idle', mask: [false, false], t0: 0, len: 0 };
+engine.onLooper = m => {
+  if (m.type !== 'looper') return;
+  looper.state = m.state; looper.len = m.len || 0;
+  if (m.state === 'play') toast(`LOOP ${looper.len.toFixed(1)} s${looper.len >= 29.9 ? ' (30 s full)' : ''}: playing. Press LOOP again to stop`, 2600);
+  else if (m.state === 'idle') toast('LOOP: too short, nothing sampled', 1800);
+};
+function toggleLooper() {
+  if (!engine.ctx || !engine.looper) return;
+  if (looper.state === 'idle') {
+    const mask = [cueOn[0], cueOn[1]];
+    if (!mask[0] && !mask[1]) { toast('LOOP: switch CUE on for the channel to sample first', 2400); return; }
+    looper.mask = mask; looper.t0 = performance.now() / 1000; looper.state = 'rec';
+    engine.looperRec(mask);
+    toast(`LOOP: sampling channel ${mask[0] && mask[1] ? 'A + B' : mask[0] ? 'A' : 'B'} (cue, before EQ). Press LOOP again to start the loop (30 s max)`, 2800);
+  } else if (looper.state === 'rec') {
+    engine.looperPlay();   // the engine answers 'play' (or 'idle' when too short)
+    looper.state = 'play';
+  } else { engine.looperStop(); looper.state = 'idle'; toast('LOOP stopped', 1400); }
 }
 // microphone (CLAUDE.md #60): first press asks for the mic (if not already allowed on the start screen)
 let micOn = false, micBusy = false;
@@ -4250,6 +4277,7 @@ function hover(e) {
   const c = obj && obj.userData.control;
   if (c && c.mixer && mixVal[c.id] !== undefined) showTip(mixLabel(c.id), e.clientX, e.clientY);
   else if (c && c.deck && c.id === 'pitch') { const d = deckOf(c.deck); showTip(`${d.name} pitch ${(d.pitch * 100).toFixed(2)}%`, e.clientX, e.clientY); }
+  else if (c && c.id === 'looper') showTip('LOOP: press once to sample the channel with CUE on (before EQ, up to 30 s), again to loop it through the mixer, again to stop. The knob above sets its volume', e.clientX, e.clientY);
   else if (c && c.id && c.id.endsWith('.beat1')) showTip(`BEAT 1 (deck ${c.id[0]}): tap on beat 1; keep tapping on the beat to measure BPM; hold to clear`, e.clientX, e.clientY);
   else if (obj && obj.userData.mixScreen) showTip('Tap the tempo readout to cycle: ORIG BPM (ID3 tag) → BPM (playing now) → KEY (moves with pitch)', e.clientX, e.clientY);
   else if (c && c.id === 'sync') showTip(`LOCK: sync the decks (lead: deck ${DECK_NAMES[lastTouched]})`, e.clientX, e.clientY);
@@ -7085,8 +7113,14 @@ function frameBody() {
   mc['A.cue'].userData.set(cueOn[0] ? 1 : 0.06); mc['B.cue'].userData.set(cueOn[1] ? 1 : 0.06);
   stepTaps();
   for (const d of decks) {
+    const b1 = mc[d.name + '.beat1']; if (!b1) continue;   // LOOPER: deck B has no BEAT 1 button any more
     const bl = blinkUntil[d.i] - performance.now() / 1000;   // #117: cleared = 4 quick blinks
-    mc[d.name + '.beat1'].userData.set(bl > 0 ? (Math.floor(bl * 8) % 2 ? 1 : 0.02) : d.loaded && d.track && beat1Of(d.track) !== null && d.ledShown === 0 ? 1 : 0.06);   // #110: flashes on beat 1 once tapped
+    b1.userData.set(bl > 0 ? (Math.floor(bl * 8) % 2 ? 1 : 0.02) : d.loaded && d.track && beat1Of(d.track) !== null && d.ledShown === 0 ? 1 : 0.06);   // #110: flashes on beat 1 once tapped
+  }
+  {   // LOOPER LED: dim orange idle, fast red blink while sampling (the blink slows as the 30 s run out), green while looping
+    const lb = mc.looper, rec = looper.state === 'rec', ela = performance.now() / 1000 - looper.t0;
+    if (lb.userData.setColor) lb.userData.setColor(rec ? 0xff2a20 : looper.state === 'play' ? 0x40ff70 : 0xff6a30);
+    lb.userData.set(rec ? (Math.floor(ela * (ela > 25 ? 12 : 6)) % 2 ? 1 : 0.15) : looper.state === 'play' ? 1 : 0.06);
   }
   mc.splitcue.userData.set(splitCue ? (Math.floor(performance.now() / 350) % 2 ? 1 : 0.15) : 0.06);   // #254 flashes while split cue is on
   mc.mic.userData.set(micOn ? 0.75 + Math.min(0.6, micLevel() * 2) : 0.06);

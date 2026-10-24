@@ -1,5 +1,6 @@
 // Audio engine: worklet decks -> 2-channel mixer -> master / split cue.
 // Channel strip: trim > HI/MID/LOW > filter (LP left, HP right) > [meter, cue] > fader > crossfader > master.
+// LOOPER: samples a channel after its trim (before EQ / filter / cue) and loops it back in ahead of that channel's EQ.
 
 export const PITCH_RANGE = 0.16;
 export const MIC_MAX = 10;   // #334 +20 dB
@@ -79,6 +80,21 @@ export class AudioEngine {
       this.setFader(i, 0.8);
     }
     this.setCrossfader(0);
+
+    // LOOPER (owner): input k = channel k's trim output (so pre-EQ, pre-filter, and not the master), output k goes
+    // through the LOOP VOL gain into that same channel's first EQ stage, so EQ / filter / cue / fader / crossfader
+    // all treat the loop like the deck it was sampled from. The tap is before that point, so the loop never feeds itself.
+    this.looper = new AudioWorkletNode(ctx, 'vire-looper', { numberOfInputs: 2, numberOfOutputs: 2, outputChannelCount: [2, 2], channelCount: 2, channelCountMode: 'explicit' });
+    this.looper.port.onmessage = e => { if (this.onLooper) this.onLooper(e.data); };
+    this.loopGain = [];
+    for (let i = 0; i < 2; i++) {
+      const lg = ctx.createGain();
+      this.ch[i].trim.connect(this.looper, 0, i);
+      this.looper.connect(lg, i, 0);
+      lg.connect(this.ch[i].low);
+      this.loopGain.push(lg);
+    }
+    this.setLoopVol(this._loopVol ?? 0.8);
   }
 
   resume() { return this.ctx && this.ctx.state !== 'running' ? this.ctx.resume() : Promise.resolve(); }
@@ -110,6 +126,16 @@ export class AudioEngine {
   setPan(i, v) { this.deck(i, 'pan', Math.max(-1, Math.min(1, (v - 0.5) * 2))); }
   setFader(i, v) { this._ramp(this.ch[i].fader.gain, v * v); }
   setCue(i, on) { this._ramp(this.ch[i].cue.gain, on ? 1 : 0); }
+  // LOOP VOL knob (0..1, default 0.8 = the loop at the level it was sampled; full = +4 dB, 0 = silent)
+  setLoopVol(v) {
+    this._loopVol = v; if (!this.loopGain) return;
+    const g = Math.pow(v / 0.8, 2);
+    for (const n of this.loopGain) this._ramp(n.gain, g);
+  }
+  // mask = [bool, bool]: the channels to sample (the ones with CUE on); looperPlay() ends the sample and loops it
+  looperRec(mask) { if (this.looper) this.looper.port.postMessage({ type: 'rec', mask }); }
+  looperPlay() { if (this.looper) this.looper.port.postMessage({ type: 'play' }); }
+  looperStop() { if (this.looper) this.looper.port.postMessage({ type: 'stop' }); }
   setCrossfader(x) { // x -1..1, constant power
     this.xf = x; const a = (x + 1) / 2 * Math.PI / 2;
     this._ramp(this.ch[0].xf.gain, Math.cos(a) * Math.SQRT2 > 1 ? 1 : Math.cos(a) * Math.SQRT2);
