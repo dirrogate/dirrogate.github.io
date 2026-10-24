@@ -1006,3 +1006,8 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - Display logic: displays Deck A's original embedded BPM (do NOT take pitch fader into account) or '---.--' if no embedded BPM exists. On first tap displays '--.- ' prompt, on subsequent taps calculates rolling average BPM and updates live. Hold (>0.8 s) clears tapped BPM.
 - Yellow Ring Flash: added tapRing collar mesh around the TAP button base; on each tap, the ring and the button's backlight flash bright yellow (#ffea00) and smoothly fade back to dim red over 0.28 s.
 - Service worker & Cloudflare deploy: bumped CACHE to 'vire-app-v2' in sw.js and added auto-purge of old caches on activate. Added web/_headers with Cache-Control: no-cache, no-store for /sw.js to ensure immediate fresh deploys on Quest 3. No server restart.
+
+## #460 (24 Oct 2026) Fix syntax error in main.js & bump sw.js cache to v3 (cly3dj-dev)
+- Fixed missing closing brace '}' on fitTaps() at line 4459 in main.js which caused 'Unexpected end of input @ main.js:7727' when loading ES modules in browser.
+- Bumped CACHE in sw.js to 'vire-app-v3' so Quest 3 browser automatically purges v2 cache on activate.
+
