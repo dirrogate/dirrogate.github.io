@@ -1016,9 +1016,9 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - Added dedicated tapTempo handler (handleBpmTap) tracking physical wall-clock intervals (performance.now() / 1000). On tap 1, counter shows '--.- '; on tap 2+, calculates rolling average BPM and live-updates counter (e.g. 124.00, 128.50). Works whether a record is playing, paused, or unloaded.
 - If Deck A has a track, tapping also attaches the measured BPM to the track (setTap). Holding the button (>0.8 s) triggers clearBpmTap() and reverts the display to original embedded BPM or '---.--'.
 
-## #462 (24 Oct 2026) BPM counter strictly shows tapped BPM only (never record BPM) and supports Deck A or B (cly3dj-dev)
-- Owner: "DO NOT SHOW ANY CURRENT RECORDS BPM on the BPMtap display" and "this is not only for deck A . its for deck A or B!".
-- Display logic: The red LED counter is strictly a tapped BPM counter. It starts and clears to '---.--', prompts '--.- ' on tap 1, and displays only the live measured tapped tempo (e.g. 128.00) on tap 2+. It never reads, displays, or pre-populates any record's embedded, ID3, or Rekordbox XML BPM.
-- Deck A / B support: Added activeBpmDeck() resolving the target deck by prioritizing active CUE (cueOn[1] vs cueOn[0]), single loaded track, playing/needle state, or lastTouched. Tapping measures and saves the tapped BPM to that active deck's track. Hold (>0.8 s) clears it back to '---.--'.
+## #462 (24 Oct 2026) BPM tap is a pure standalone, deck-agnostic utility (cly3dj-dev)
+- Owner: "PLEASE DO NOT DO ANYTHING YOU ARE NOT TOLD TO. DO NOT TARGET ANY DECK. The BPMtap is agnostic and not tied to any deck. its simply a utility for the DJ to use for songs that have no bpm or that the dj needs to reconfirm."
+- Pure standalone utility: Zero deck targeting, zero track mutation, zero setTap. The BPM counter does not read, show, or attach to any record or deck.
+- Behavior: Starts and clears to '---.--', prompts '--.- ' on tap 1 (flashes yellow ring), and displays live tapped BPM (e.g. 128.00) on tap 2+. Hold (>0.8 s) clears back to '---.--'.
 
 
