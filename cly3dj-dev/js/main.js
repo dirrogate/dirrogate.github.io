@@ -4466,22 +4466,6 @@ const tapTempo = {
   lastTap: 0        // timestamp of last tap
 };
 
-function activeBpmDeck() {
-  if (cueOn[1] && !cueOn[0]) return decks[1];
-  if (cueOn[0] && !cueOn[1]) return decks[0];
-  const l0 = decks[0].loaded && decks[0].track;
-  const l1 = decks[1].loaded && decks[1].track;
-  if (l1 && !l0) return decks[1];
-  if (l0 && !l1) return decks[0];
-  const st0 = engine.state && engine.state.decks[0];
-  const st1 = engine.state && engine.state.decks[1];
-  const p0 = st0 && (st0.playing || st0.needle);
-  const p1 = st1 && (st1.playing || st1.needle);
-  if (p1 && !p0) return decks[1];
-  if (p0 && !p1) return decks[0];
-  return decks[lastTouched] || decks[0];
-}
-
 function handleBpmTap(src = 'mouse') {
   const now = performance.now() / 1000;
   tapFlashT = now;
@@ -4493,8 +4477,7 @@ function handleBpmTap(src = 'mouse') {
   if (dt > 2.5 || tapTempo.times.length === 0) {
     // Start of a new tapping sequence
     tapTempo.times = [now];
-    const d = activeBpmDeck();
-    toast(`TAP (${d.name}): 1 · keep tapping on the beat`, 1200);
+    toast('TAP: 1 · keep tapping on the beat', 1200);
   } else {
     // Subsequent tap
     tapTempo.times.push(now);
@@ -4509,12 +4492,7 @@ function handleBpmTap(src = 'mouse') {
 
     if (bpm >= 30 && bpm <= 300) {
       tapTempo.bpm = bpm;
-      const d = activeBpmDeck(), t = d.loaded && d.track ? d.track : null;
-      if (t) {
-        setTap(t, { bpm: +bpm.toFixed(3), taps: n });
-        d.ledShown = undefined;
-      }
-      toast(`TAP (${d.name}): ${n} · ${bpm.toFixed(2)} BPM`, 1200);
+      toast(`TAP: ${n} · ${bpm.toFixed(2)} BPM`, 1200);
     }
   }
   tapTempo.lastTap = now;
@@ -4524,10 +4502,7 @@ function clearBpmTap() {
   tapTempo.times = [];
   tapTempo.bpm = 0;
   blinkUntil[0] = performance.now() / 1000 + 1.0;
-  const d = activeBpmDeck();
-  if (d.track) setTap(d.track, null);
-  d.ledShown = undefined;
-  toast(`TAP (${d.name}): BPM cleared`, 1400);
+  toast('TAP: BPM cleared', 1400);
 }
 
 function tapBeat1(d, src = 'mouse') {
