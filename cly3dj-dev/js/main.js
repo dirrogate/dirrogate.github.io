@@ -4457,6 +4457,7 @@ function fitTaps(run) {   // least squares: time = a + beat x period
   for (let i = 0; i < n; i++) { const k = run.k[i], t = run.t[i]; sk += k; st += t; skk += k * k; skt += k * t; }
   const per = (n * skt - sk * st) / (n * skk - sk * sk);
   return per > 0 ? 60 / per : 0;
+}
 let tapFlashT = 0;
 function tapBeat1(d, src = 'mouse') {
   const t = d.loaded && d.track ? d.track : null;
