@@ -541,6 +541,14 @@ export function makeMixer() {
       addButton('bpmtap', 0.02, 0.012, 0xff3b30, 'TAP', x - 0.033, 0.030);
       label('BPM', x - 0.033, -0.0065, 0.0024);
 
+      // Yellow flashing ring / collar around the TAP button
+      const tapRingMat = new THREE.MeshBasicMaterial({ color: 0xffea00, toneMapped: false, transparent: true, opacity: 0 });
+      const tapRing = new THREE.Mesh(roundedTop(0.024, 0.016, 0.0035, 0.0006), tapRingMat);
+      tapRing.position.set(x - 0.033, top + 0.0002, 0.030);
+      tapRing.raycast = () => {};
+      g.add(tapRing);
+      u.tapRing = tapRingMat;
+
       // Embedded red numeric counter display above TAP button
       const bpmCanvas = document.createElement('canvas');
       bpmCanvas.width = 256; bpmCanvas.height = 96;
@@ -548,16 +556,16 @@ export function makeMixer() {
       const bpmTex = new THREE.CanvasTexture(bpmCanvas);
       bpmTex.colorSpace = THREE.SRGBColorSpace;
 
-      // Sunk bezel frame
-      const bez = box(0.028, 0.0016, 0.013, new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.9, metalness: 0.1 }));
-      bez.position.set(x - 0.033, top + 0.0001, 0.006);
+      // Sunk dark bezel frame
+      const bez = box(0.028, 0.0005, 0.013, new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.9, metalness: 0.1 }));
+      bez.position.set(x - 0.033, top + 0.0003, 0.006);
       g.add(bez);
 
-      // Digital display face
-      const dispMat = new THREE.MeshBasicMaterial({ map: bpmTex, toneMapped: false });
+      // Digital display face: sitting cleanly on top of the bezel
+      const dispMat = new THREE.MeshBasicMaterial({ map: bpmTex, toneMapped: false, side: THREE.DoubleSide });
       const disp = new THREE.Mesh(new THREE.PlaneGeometry(0.025, 0.0105), dispMat);
       disp.rotation.x = -Math.PI / 2;
-      disp.position.set(x - 0.033, top + 0.0006, 0.006);
+      disp.position.set(x - 0.033, top + 0.0010, 0.006);
       g.add(disp);
 
       let lastText = '';
@@ -567,16 +575,19 @@ export function makeMixer() {
         const W = 256, H = 96;
         bpmCtx.fillStyle = '#080101';
         bpmCtx.fillRect(0, 0, W, H);
+        bpmCtx.strokeStyle = '#220404';
+        bpmCtx.lineWidth = 3;
+        bpmCtx.strokeRect(2, 2, W - 4, H - 4);
 
-        bpmCtx.font = '700 44px "Courier New", Consolas, monospace';
+        bpmCtx.font = '900 46px monospace, "Courier New", sans-serif';
         bpmCtx.textAlign = 'center';
         bpmCtx.textBaseline = 'middle';
         bpmCtx.fillStyle = '#220404';
         bpmCtx.fillText('888.88', W / 2, H / 2);
 
         bpmCtx.shadowColor = '#ff2818';
-        bpmCtx.shadowBlur = 8;
-        bpmCtx.fillStyle = '#ff2414';
+        bpmCtx.shadowBlur = 10;
+        bpmCtx.fillStyle = '#ff2818';
         bpmCtx.fillText(txt, W / 2, H / 2);
         bpmCtx.shadowBlur = 0;
         bpmTex.needsUpdate = true;

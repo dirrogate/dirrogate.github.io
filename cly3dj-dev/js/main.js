@@ -4457,10 +4457,11 @@ function fitTaps(run) {   // least squares: time = a + beat x period
   for (let i = 0; i < n; i++) { const k = run.k[i], t = run.t[i]; sk += k; st += t; skk += k * k; skt += k * t; }
   const per = (n * skt - sk * st) / (n * skk - sk * sk);
   return per > 0 ? 60 / per : 0;
-}
+let tapFlashT = 0;
 function tapBeat1(d, src = 'mouse') {
   const t = d.loaded && d.track ? d.track : null;
   const now = performance.now() / 1000;
+  if (d.i === 0) tapFlashT = now;
   const p = t ? heardPos(d) : now, rate = (engine.state && engine.state.decks[d.i] && Math.abs(engine.state.decks[d.i].rate)) || 1;
   holds[d.i] = { t0: now, seen: now, src, cleared: false };
   let run = tapRuns[d.i];
@@ -4478,12 +4479,14 @@ function tapBeat1(d, src = 'mouse') {
   if (!run) {
     tapRuns[d.i] = { track: t, t: [p], k: [0], per: 0, wall: now, bpm: 0 };
     if (t) { setTap(t, { beat1: p }); d.ledShown = undefined; }
+    if (d.i === 0) tapFlashT = now;
     toast(`TAP: 1 · keep tapping on the beat`, 1200);
     return;
   }
   const bpm = fitTaps(run);
   if (!(bpm >= 30 && bpm <= 300)) { run.t.pop(); run.k.pop(); toast(`Deck ${d.name}: tap ignored (out of range)`, 900); return; }
   run.wall = now; run.per = 60 / bpm; run.bpm = bpm; run.rate = rate;
+  if (d.i === 0) tapFlashT = now;
   if (t) {
     setTap(t, { bpm: +bpm.toFixed(3), taps: run.t.length });
     d.ledShown = undefined;
@@ -7120,17 +7123,27 @@ function frameBody() {
     const bl = blinkUntil[d.i] - performance.now() / 1000;   // #117: cleared = 4 quick blinks
     b1.userData.set(bl > 0 ? (Math.floor(bl * 8) % 2 ? 1 : 0.02) : d.loaded && d.track && beat1Of(d.track) !== null && d.ledShown === 0 ? 1 : 0.06);   // #110: flashes on beat 1 once tapped
   }
+  const nowSec = performance.now() / 1000;
+  const tapAge = nowSec - tapFlashT;
+  if (mixer.userData.tapRing) {
+    mixer.userData.tapRing.opacity = tapAge < 0.28 ? Math.max(0, 1 - tapAge / 0.28) : 0;
+  }
   if (mc.bpmtap) {
-    const bl = blinkUntil[0] - performance.now() / 1000;
-    const runA = tapRuns[0];
-    const tapFlash = runA && runA.t.length > 0 && performance.now() / 1000 - runA.wall < 0.15;
-    mc.bpmtap.userData.set(bl > 0 ? (Math.floor(bl * 8) % 2 ? 1 : 0.02) : tapFlash ? 1 : 0.06);
+    if (tapAge < 0.28) {
+      if (mc.bpmtap.userData.setColor) mc.bpmtap.userData.setColor(0xffea00);   // yellow flash on tap!
+      mc.bpmtap.userData.set(1.4);
+    } else {
+      if (mc.bpmtap.userData.setColor) mc.bpmtap.userData.setColor(0xff3b30);   // return to red
+      const bl = blinkUntil[0] - nowSec;
+      mc.bpmtap.userData.set(bl > 0 ? (Math.floor(bl * 8) % 2 ? 1 : 0.02) : 0.06);
+    }
   }
   if (mixer.userData.bpmCounter) {
     const runA = tapRuns[0];
     let txt = '---.--';
-    if (runA && runA.bpm > 0) {
-      txt = runA.bpm.toFixed(2);
+    if (runA) {
+      if (runA.bpm > 0) txt = runA.bpm.toFixed(2);
+      else if (runA.t && runA.t.length === 1) txt = '--.- ';
     } else {
       const t = decks[0].track;
       if (t) {
