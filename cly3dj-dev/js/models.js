@@ -537,8 +537,53 @@ export function makeMixer() {
     addKnob(ch + '.pan', x, 0.030, 0xffb040, 0.009);
     addButton(ch + '.cue', 0.022, 0.012, 0xffc030, 'CUE', x, 0.056);
     // tap-to-set beat 1 (owner, #110): press on a kick; beside CUE, towards the mixer's outer edge
-    if (ch === 'A') addButton(ch + '.beat1', 0.02, 0.012, 0x40ff70, 'BEAT 1', x - 0.033, 0.030);   // #253 (owner): in line with PAN (was beside CUE)
-    else {   // LOOPER (owner): replaces deck B's BEAT 1 button; LOOP VOL knob above it, same column
+    if (ch === 'A') {
+      addButton('bpmtap', 0.02, 0.012, 0xff3b30, 'TAP', x - 0.033, 0.030);
+      label('BPM', x - 0.033, -0.0065, 0.0024);
+
+      // Embedded red numeric counter display above TAP button
+      const bpmCanvas = document.createElement('canvas');
+      bpmCanvas.width = 256; bpmCanvas.height = 96;
+      const bpmCtx = bpmCanvas.getContext('2d');
+      const bpmTex = new THREE.CanvasTexture(bpmCanvas);
+      bpmTex.colorSpace = THREE.SRGBColorSpace;
+
+      // Sunk bezel frame
+      const bez = box(0.028, 0.0016, 0.013, new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.9, metalness: 0.1 }));
+      bez.position.set(x - 0.033, top + 0.0001, 0.006);
+      g.add(bez);
+
+      // Digital display face
+      const dispMat = new THREE.MeshBasicMaterial({ map: bpmTex, toneMapped: false });
+      const disp = new THREE.Mesh(new THREE.PlaneGeometry(0.025, 0.0105), dispMat);
+      disp.rotation.x = -Math.PI / 2;
+      disp.position.set(x - 0.033, top + 0.0006, 0.006);
+      g.add(disp);
+
+      let lastText = '';
+      const drawText = (txt) => {
+        if (txt === lastText) return;
+        lastText = txt;
+        const W = 256, H = 96;
+        bpmCtx.fillStyle = '#080101';
+        bpmCtx.fillRect(0, 0, W, H);
+
+        bpmCtx.font = '700 44px "Courier New", Consolas, monospace';
+        bpmCtx.textAlign = 'center';
+        bpmCtx.textBaseline = 'middle';
+        bpmCtx.fillStyle = '#220404';
+        bpmCtx.fillText('888.88', W / 2, H / 2);
+
+        bpmCtx.shadowColor = '#ff2818';
+        bpmCtx.shadowBlur = 8;
+        bpmCtx.fillStyle = '#ff2414';
+        bpmCtx.fillText(txt, W / 2, H / 2);
+        bpmCtx.shadowBlur = 0;
+        bpmTex.needsUpdate = true;
+      };
+      drawText('---.--');
+      u.bpmCounter = { canvas: bpmCanvas, tex: bpmTex, setText: drawText };
+    } else {   // LOOPER (owner): replaces deck B's BEAT 1 button; LOOP VOL knob above it, same column
       addButton('looper', 0.02, 0.012, 0xff6a30, 'LOOP', x + 0.033, 0.030);
       addKnob('loop.vol', x + 0.033, 0.006, 0xff8a40, 0.008);
       label('LOOP VOL', x + 0.033, -0.0065, 0.0024);

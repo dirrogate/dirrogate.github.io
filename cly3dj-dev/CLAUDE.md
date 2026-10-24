@@ -993,3 +993,9 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 
 ## #457 (21 Oct 2026) RELEASE: cly3dj = cly3dj-dev
 - Release folder cly3dj brought level with cly3dj-dev (everything except CLAUDE.md, PROJECT.md, tools/): Dirrogram FX++ with WALL WINDOW and LED SELF, EXPOSURE, ?dev=1 test fields (#448 to #451 Dirrogram), and the record groove work from the cloud session (#451 to #456 in the commits: hairline grooves, near-black groove colour removed, specular 0.15, RECORD GROOVES visibility slider, bigger grip lift zone). Files changed in release: dirrogram.html, js/dirrogram.js, js/main.js, js/textures.js, js/xr.js. No server restart.
+
+## #458 (24 Oct 2026) 30 s CUE LOOPER and LOOP VOL knob (cly3dj-dev)
+- Replaces Deck B's BEAT 1 button with a LOOP toggle button; adds a LOOP VOL knob above it in the same column (x = +0.108, z = 0.006) with label LOOP VOL.
+- deck-worklet.js: added AudioWorkletProcessor vire-looper (circular stereo buffer up to 30 s, 4 ms anti-click crossfade seam at the loop point).
+- audio.js: looper input taps each channel directly after trim (pre-EQ, pre-filter, so it captures pure cue audio and never master mix audio). Looper output passes through loopGain (controlled by LOOP VOL knob; 0.8 default = unity, full = +4 dB) and feeds into that channel strip's low filter ahead of the EQ. The loop is thus shaped by that channel's EQ, filter, channel fader and crossfader.
+- main.js & xr.js: LOOP button press/poke cycles: (1) Sample active CUE channel(s), LED blinks red fast, speeding up near 30 s; (2) Start looping through the mixer, LED solid green (auto-loops at 30 s if not pressed); (3) Stop loop, LED returns to dim orange. LOOP VOL knob defaults to 0.8, tooltip and desktop/XR touch supported. No server restart.

@@ -3842,7 +3842,7 @@ function pressControl(c, src) { // buttons; returns true if handled (src: who pr
     if (id === 'looper') { toggleLooper(); return true; }
     if (id === 'sync') { doSync(); return true; }
     if (id === 'splitcue') { splitCue = !splitCue; engine.setSplitCue(splitCue); toast(splitCue ? 'Split cue: master left ear, cue right ear' : 'Split cue off'); return true; }
-    if (id.endsWith('.beat1')) { tapBeat1(decks[id[0] === 'A' ? 0 : 1], src || 'mouse'); return true; }
+    if (id === 'bpmtap' || id.endsWith('.beat1')) { tapBeat1(decks[id[0] === 'B' ? 1 : 0], src || 'mouse'); return true; }
     if (id.endsWith('.cue')) { const i = id[0] === 'A' ? 0 : 1; cueOn[i] = !cueOn[i]; engine.setCue(i, cueOn[i]); return true; }
   }
   return false;
@@ -4278,6 +4278,7 @@ function hover(e) {
   if (c && c.mixer && mixVal[c.id] !== undefined) showTip(mixLabel(c.id), e.clientX, e.clientY);
   else if (c && c.deck && c.id === 'pitch') { const d = deckOf(c.deck); showTip(`${d.name} pitch ${(d.pitch * 100).toFixed(2)}%`, e.clientX, e.clientY); }
   else if (c && c.id === 'looper') showTip('LOOP: press once to sample the channel with CUE on (before EQ, up to 30 s), again to loop it through the mixer, again to stop. The knob above sets its volume', e.clientX, e.clientY);
+  else if (c && c.id === 'bpmtap') showTip('TAP: tap on the beat to measure BPM (counter above shows BPM; embeds into track); hold to clear', e.clientX, e.clientY);
   else if (c && c.id && c.id.endsWith('.beat1')) showTip(`BEAT 1 (deck ${c.id[0]}): tap on beat 1; keep tapping on the beat to measure BPM; hold to clear`, e.clientX, e.clientY);
   else if (obj && obj.userData.mixScreen) showTip('Tap the tempo readout to cycle: ORIG BPM (ID3 tag) → BPM (playing now) → KEY (moves with pitch)', e.clientX, e.clientY);
   else if (c && c.id === 'sync') showTip(`LOCK: sync the decks (lead: deck ${DECK_NAMES[lastTouched]})`, e.clientX, e.clientY);
@@ -4458,35 +4459,37 @@ function fitTaps(run) {   // least squares: time = a + beat x period
   return per > 0 ? 60 / per : 0;
 }
 function tapBeat1(d, src = 'mouse') {
-  if (!d.loaded || !d.track) { toast(`Deck ${d.name}: no record playing`); return; }
-  const t = d.track, p = heardPos(d), now = performance.now() / 1000, rate = Math.abs(engine.state.decks[d.i].rate) || 1;
+  const t = d.loaded && d.track ? d.track : null;
+  const now = performance.now() / 1000;
+  const p = t ? heardPos(d) : now, rate = (engine.state && engine.state.decks[d.i] && Math.abs(engine.state.decks[d.i].rate)) || 1;
   holds[d.i] = { t0: now, seen: now, src, cleared: false };
   let run = tapRuns[d.i];
   if (run && run.track !== t) run = null;
   if (run) {
     const per = run.per || 0, dt = p - run.t[run.t.length - 1];
-    if (dt <= 0) run = null;
+    if (dt <= 0 || (now - run.wall > 2.5)) run = null;
     else if (per && dt < TAP_MIN * per) { toast(`Deck ${d.name}: tap ignored (too soon)`, 900); return; }
     else if (per) {
       const n = Math.round(dt / per);
-      if (n < 1 || n > 2 || Math.abs(dt / per - n) > 0.3) run = null;   // off the beat: start again
+      if (n < 1 || n > 2 || Math.abs(dt / per - n) > 0.35) run = null;   // off the beat: start again
       else { run.t.push(p); run.k.push(run.k[run.k.length - 1] + n); }
     } else { run.t.push(p); run.k.push(1); }
   }
   if (!run) {
-    tapRuns[d.i] = { track: t, t: [p], k: [0], per: 0, wall: now };
-    setTap(t, { beat1: p }); d.ledShown = undefined;
-    toast(`Deck ${d.name}: beat 1 set${bpmOf(t) ? '' : ' (no BPM yet: keep tapping on the beat)'}`, 1400);
+    tapRuns[d.i] = { track: t, t: [p], k: [0], per: 0, wall: now, bpm: 0 };
+    if (t) { setTap(t, { beat1: p }); d.ledShown = undefined; }
+    toast(`TAP: 1 · keep tapping on the beat`, 1200);
     return;
   }
   const bpm = fitTaps(run);
-  if (!(bpm >= 30 && bpm <= 300)) { run.t.pop(); run.k.pop(); toast(`Deck ${d.name}: tap ignored (too soon)`, 900); return; }
-  run.wall = now; run.per = 60 / bpm;
-  {
-    run.bpm = bpm; run.rate = rate;
-    const fs = fileBpmSrc(t);
-    toast(`Deck ${d.name}: tap ${run.t.length} · ${bpm.toFixed(2)} BPM${fs ? ` (${fs === 'id3' ? 'ID3' : 'RB'} ${+t.bpm.toFixed(2)} is used)` : ''}`, 1200);
+  if (!(bpm >= 30 && bpm <= 300)) { run.t.pop(); run.k.pop(); toast(`Deck ${d.name}: tap ignored (out of range)`, 900); return; }
+  run.wall = now; run.per = 60 / bpm; run.bpm = bpm; run.rate = rate;
+  if (t) {
+    setTap(t, { bpm: +bpm.toFixed(3), taps: run.t.length });
+    d.ledShown = undefined;
   }
+  const fs = t ? fileBpmSrc(t) : '';
+  toast(`TAP: ${run.t.length} · ${bpm.toFixed(2)} BPM${fs ? ` (embedded ${+t.bpm.toFixed(2)})` : ''}`, 1200);
 }
 function stepTaps() {
   const now = performance.now() / 1000;
@@ -7116,6 +7119,27 @@ function frameBody() {
     const b1 = mc[d.name + '.beat1']; if (!b1) continue;   // LOOPER: deck B has no BEAT 1 button any more
     const bl = blinkUntil[d.i] - performance.now() / 1000;   // #117: cleared = 4 quick blinks
     b1.userData.set(bl > 0 ? (Math.floor(bl * 8) % 2 ? 1 : 0.02) : d.loaded && d.track && beat1Of(d.track) !== null && d.ledShown === 0 ? 1 : 0.06);   // #110: flashes on beat 1 once tapped
+  }
+  if (mc.bpmtap) {
+    const bl = blinkUntil[0] - performance.now() / 1000;
+    const runA = tapRuns[0];
+    const tapFlash = runA && runA.t.length > 0 && performance.now() / 1000 - runA.wall < 0.15;
+    mc.bpmtap.userData.set(bl > 0 ? (Math.floor(bl * 8) % 2 ? 1 : 0.02) : tapFlash ? 1 : 0.06);
+  }
+  if (mixer.userData.bpmCounter) {
+    const runA = tapRuns[0];
+    let txt = '---.--';
+    if (runA && runA.bpm > 0) {
+      txt = runA.bpm.toFixed(2);
+    } else {
+      const t = decks[0].track;
+      if (t) {
+        const tb = tapBpmOf(t);
+        if (tb > 0) txt = tb.toFixed(2);
+        else if (fileBpmSrc(t) && t.bpm > 0) txt = t.bpm.toFixed(2);   // do NOT take pitch fader into account!
+      }
+    }
+    mixer.userData.bpmCounter.setText(txt);
   }
   {   // LOOPER LED: dim orange idle, fast red blink while sampling (the blink slows as the 30 s run out), green while looping
     const lb = mc.looper, rec = looper.state === 'rec', ela = performance.now() / 1000 - looper.t0;

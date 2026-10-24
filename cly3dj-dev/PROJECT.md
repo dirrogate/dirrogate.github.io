@@ -1,6 +1,6 @@
 # Cly3DJ: project overview
 
-Updated 18 Oct 2026 (decision log up to #405 in `ViRe_Custom/CLAUDE.md`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 24 Oct 2026 (decision log up to #458 in `ViRe_Custom/CLAUDE.md`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 Cly3DJ is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -71,7 +71,7 @@ Owner: Clyde DeSouza (c3souza).
 ## Controllers and hands (#276 to #296)
 
 - **Looks** (DJ TOOLS > CONTROLLERS, or the start page "Controllers look like"; saved as `vire.ctlLook`): 3D HANDS (default), GLOVE (the Cly3DJ robot's glove at 110 %, driven by the hidden 3D hand's joints, cuff closed by a cap) or CONTROLLER (bare Touch Plus). In hand modes the controller model is hidden.
-- **The grab (#294, owner: "this works"):** a light grey see-through ball sits on the inner side of the thumb pad. Aim it at a knob, fader or record and press: the index (curled at rest, #295) comes up and the thumb meets it in an O, and the drawn hand slides ~2.8 cm so the O closes round the ball. The ball / touch point is one fixed point in grip space and never moves, so grabs land where you aimed.
+- **The grab (#416, was #294):** a light grey see-through ball sits 6 mm past the relaxed index fingertip, one fixed point in grip space, so grabs land where you aimed. The index rests straight and a press is a pointing press (the index curls a little, the thumb comes up beside it); the thumb-pad ball, the hand slide and the thumb-index O are gone (the O looked like the middle finger was pushing the fader).
 - **Buttons:** knobs, faders and pitch faders = trigger; record hold / scratch = trigger; lifting a record off the platter, records lying about, sleeves and the record riding out of a sleeve, gear, power dial, START / STOP = grip only (#316, #324); tap buttons with the ball. The finger rests on button caps instead of going through (drawn hand lifted).
 - **Knobs in the 3D HANDS / GLOVE looks (#328):** follow the twist about the controller's own long axis (turn it like a key; the O grip holds the controller level or nose-up, where the old top-down reading weakened or reversed). The CONTROLLER look keeps the old reading.
 - **Bare hands (no controllers, #323 to #327):** small grey ball on the index fingertip; fingertip on the grooves = scratch, on the platter side = nudge (both ways); pinch anywhere on the record = hold it while the platter spins, moving the pinch rocks it (back-cue thump), pinch and lift 3 cm takes it off; START / STOP, 33 / 45 / X2 = a deliberate pinch (no taps); target lamp = pinch and hold 1.5 s (it goes dark as soon as it sinks); knobs need half the wrist turn (125 deg full travel); the hand mesh is rebuilt when the Quest swaps hands between slots (was drawn mangled).
@@ -79,9 +79,9 @@ Owner: Clyde DeSouza (c3souza).
 - **Alignment with the real hand:** not solved; parked by the owner. HAND FIT on the tablet (move / turn, 5 mm / 5 deg steps, saved as `vire.handFit`, sent to the phone) is there for that day.
 - **Controller mode ball:** placed from the owner's 1 mm crosshair renders (#285).
 
-## LED wall sources (VISUALS, LED button)
+## LED wall (VISUALS LED button, and the WALL page since #439)
 
-OFF > CLIPS > VIDVINYL > AVACAM > LIVE > SOLO (LIVE and SOLO only while the phone is linked). LED wall can be tilted (#250).
+Sources: OFF, CLIPS, VIDVINYL, AVACAM, LIVE, SOLO plus the effect modes MANDEL, RETRO-SCENE+1 (VECTOR-DANCER, METABALLS, ZOOM) and CARD+1 (pictures and GIFs), with PIXELS 0 to 10, TAP BPM and a 5.3 s GRAB LOOP (8x8 sheet, 112x63 cells, under 60 KB for phones). A button with a tiny "+1" opens its own page. Output is 640x360 and also feeds the stream, CLY3DTV and the Dirrogram phones. Details: audience-ar-plan.md and CLAUDE.md #441 to #447. Tested in the browser pane only.
 
 ## Backdrop and portal (#345)
 
