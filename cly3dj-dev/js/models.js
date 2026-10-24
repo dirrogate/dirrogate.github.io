@@ -585,11 +585,9 @@ export function makeMixer() {
         bpmCtx.fillStyle = '#220404';
         bpmCtx.fillText('888.88', W / 2, H / 2);
 
-        bpmCtx.shadowColor = '#ff2818';
-        bpmCtx.shadowBlur = 10;
-        bpmCtx.fillStyle = '#ff2818';
+        // Crisp emissive red text - zero CPU shadow/blur overhead
+        bpmCtx.fillStyle = '#ff2b1a';
         bpmCtx.fillText(txt, W / 2, H / 2);
-        bpmCtx.shadowBlur = 0;
         bpmTex.needsUpdate = true;
       };
       drawText('---.--');
