@@ -3842,7 +3842,8 @@ function pressControl(c, src) { // buttons; returns true if handled (src: who pr
     if (id === 'looper') { toggleLooper(); return true; }
     if (id === 'sync') { doSync(); return true; }
     if (id === 'splitcue') { splitCue = !splitCue; engine.setSplitCue(splitCue); toast(splitCue ? 'Split cue: master left ear, cue right ear' : 'Split cue off'); return true; }
-    if (id === 'bpmtap' || id.endsWith('.beat1')) { tapBeat1(decks[id[0] === 'B' ? 1 : 0], src || 'mouse'); return true; }
+    if (id === 'bpmtap') { handleBpmTap(src || 'mouse'); return true; }
+    if (id.endsWith('.beat1')) { tapBeat1(decks[id[0] === 'B' ? 1 : 0], src || 'mouse'); return true; }
     if (id.endsWith('.cue')) { const i = id[0] === 'A' ? 0 : 1; cueOn[i] = !cueOn[i]; engine.setCue(i, cueOn[i]); return true; }
   }
   return false;
@@ -4459,10 +4460,65 @@ function fitTaps(run) {   // least squares: time = a + beat x period
   return per > 0 ? 60 / per : 0;
 }
 let tapFlashT = 0;
+const tapTempo = {
+  times: [],        // timestamps in seconds (performance.now() / 1000)
+  bpm: 0,           // calculated BPM
+  lastTap: 0,       // timestamp of last tap
+  lastTrack: null
+};
+
+function handleBpmTap(src = 'mouse') {
+  const now = performance.now() / 1000;
+  tapFlashT = now;
+  holds[0] = { t0: now, seen: now, src, cleared: false };
+
+  const dt = now - tapTempo.lastTap;
+  if (dt < 0.10) return;   // ignore bounce/jitter < 100ms
+
+  if (dt > 2.5 || tapTempo.times.length === 0) {
+    // Start of a new tapping sequence
+    tapTempo.times = [now];
+    toast('TAP: 1 · keep tapping on the beat', 1200);
+  } else {
+    // Subsequent tap
+    tapTempo.times.push(now);
+    if (tapTempo.times.length > 8) tapTempo.times.shift();
+
+    // Average the intervals between consecutive taps
+    const n = tapTempo.times.length;
+    let sumDt = 0;
+    for (let i = 1; i < n; i++) sumDt += (tapTempo.times[i] - tapTempo.times[i - 1]);
+    const avgPer = sumDt / (n - 1);
+    const bpm = avgPer > 0 ? 60 / avgPer : 0;
+
+    if (bpm >= 30 && bpm <= 300) {
+      tapTempo.bpm = bpm;
+      const d = decks[0], t = d.loaded && d.track ? d.track : null;
+      if (t) {
+        setTap(t, { bpm: +bpm.toFixed(3), taps: n });
+        d.ledShown = undefined;
+      }
+      const fs = t ? fileBpmSrc(t) : '';
+      toast(`TAP: ${n} · ${bpm.toFixed(2)} BPM${fs ? ` (embedded ${+t.bpm.toFixed(2)})` : ''}`, 1200);
+    }
+  }
+  tapTempo.lastTap = now;
+}
+
+function clearBpmTap() {
+  tapTempo.times = [];
+  tapTempo.bpm = 0;
+  blinkUntil[0] = performance.now() / 1000 + 1.0;
+  const d = decks[0];
+  if (d.track) setTap(d.track, null);
+  d.ledShown = undefined;
+  toast('TAP: BPM cleared', 1400);
+}
+
 function tapBeat1(d, src = 'mouse') {
+  if (d.i === 0) { handleBpmTap(src); return; }
   const t = d.loaded && d.track ? d.track : null;
   const now = performance.now() / 1000;
-  if (d.i === 0) tapFlashT = now;
   const p = t ? heardPos(d) : now, rate = (engine.state && engine.state.decks[d.i] && Math.abs(engine.state.decks[d.i].rate)) || 1;
   holds[d.i] = { t0: now, seen: now, src, cleared: false };
   let run = tapRuns[d.i];
@@ -4480,20 +4536,18 @@ function tapBeat1(d, src = 'mouse') {
   if (!run) {
     tapRuns[d.i] = { track: t, t: [p], k: [0], per: 0, wall: now, bpm: 0 };
     if (t) { setTap(t, { beat1: p }); d.ledShown = undefined; }
-    if (d.i === 0) tapFlashT = now;
-    toast(`TAP: 1 · keep tapping on the beat`, 1200);
+    toast(`Deck ${d.name}: beat 1 set${bpmOf(t) ? '' : ' (no BPM yet: keep tapping on the beat)'}`, 1400);
     return;
   }
   const bpm = fitTaps(run);
   if (!(bpm >= 30 && bpm <= 300)) { run.t.pop(); run.k.pop(); toast(`Deck ${d.name}: tap ignored (out of range)`, 900); return; }
   run.wall = now; run.per = 60 / bpm; run.bpm = bpm; run.rate = rate;
-  if (d.i === 0) tapFlashT = now;
   if (t) {
     setTap(t, { bpm: +bpm.toFixed(3), taps: run.t.length });
     d.ledShown = undefined;
   }
   const fs = t ? fileBpmSrc(t) : '';
-  toast(`TAP: ${run.t.length} · ${bpm.toFixed(2)} BPM${fs ? ` (embedded ${+t.bpm.toFixed(2)})` : ''}`, 1200);
+  toast(`Deck ${d.name}: tap ${run.t.length} · ${bpm.toFixed(2)} BPM${fs ? ` (${fs === 'id3' ? 'ID3' : 'RB'} ${+t.bpm.toFixed(2)} is used)` : ''}`, 1200);
 }
 function stepTaps() {
   const now = performance.now() / 1000;
@@ -4510,7 +4564,11 @@ function stepTaps() {
     const h = holds[d.i];
     if (h && !h.cleared) {
       if (h.src !== 'mouse' && now - h.seen > 0.15) holds[d.i] = null;   // hand/controller lost contact (tracking gap)
-      else if (now - h.t0 >= HOLD_CLEAR) { h.cleared = true; clearTaps(d); }
+      else if (now - h.t0 >= HOLD_CLEAR) {
+        h.cleared = true;
+        if (d.i === 0) clearBpmTap();
+        else clearTaps(d);
+      }
     }
   }
 }
@@ -7140,18 +7198,23 @@ function frameBody() {
     }
   }
   if (mixer.userData.bpmCounter) {
-    const runA = tapRuns[0];
     let txt = '---.--';
-    if (runA) {
-      if (runA.bpm > 0) txt = runA.bpm.toFixed(2);
-      else if (runA.t && runA.t.length === 1) txt = '--.- ';
-    } else {
-      const t = decks[0].track;
-      if (t) {
-        const tb = tapBpmOf(t);
-        if (tb > 0) txt = tb.toFixed(2);
-        else if (fileBpmSrc(t) && t.bpm > 0) txt = t.bpm.toFixed(2);   // do NOT take pitch fader into account!
-      }
+    const t = decks[0].loaded && decks[0].track ? decks[0].track : null;
+
+    if (t !== tapTempo.lastTrack) {
+      tapTempo.lastTrack = t;
+      tapTempo.bpm = 0;
+      tapTempo.times = [];
+    }
+
+    if (tapTempo.times.length === 1 && nowSec - tapTempo.lastTap < 2.5 && tapTempo.bpm === 0) {
+      txt = '--.- ';   // waiting for next tap
+    } else if (tapTempo.bpm > 0) {
+      txt = tapTempo.bpm.toFixed(2);
+    } else if (t) {
+      const tb = tapBpmOf(t);
+      if (tb > 0) txt = tb.toFixed(2);
+      else if (fileBpmSrc(t) && t.bpm > 0) txt = t.bpm.toFixed(2);   // do NOT take pitch fader into account!
     }
     mixer.userData.bpmCounter.setText(txt);
   }
