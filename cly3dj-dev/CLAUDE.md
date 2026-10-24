@@ -1011,3 +1011,9 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - Fixed missing closing brace '}' on fitTaps() at line 4459 in main.js which caused 'Unexpected end of input @ main.js:7727' when loading ES modules in browser.
 - Bumped CACHE in sw.js to 'vire-app-v3' so Quest 3 browser automatically purges v2 cache on activate.
 
+## #461 (24 Oct 2026) Dedicated tapTempo for BPM TAP button and real-time counter updates (cly3dj-dev)
+- Fix: The old tapBeat1() was tied to vinyl needle audio position (heardPos) and stepTaps() automatically wiped tapRuns[0] every frame if !deck.loaded (no record playing). When tapping with the mouse on PC in Chrome without a playing record, tapRuns[0] was immediately wiped to null within 16 ms, keeping the counter at '---.--'.
+- Added dedicated tapTempo handler (handleBpmTap) tracking physical wall-clock intervals (performance.now() / 1000). On tap 1, counter shows '--.- '; on tap 2+, calculates rolling average BPM and live-updates counter (e.g. 124.00, 128.50). Works whether a record is playing, paused, or unloaded.
+- If Deck A has a track, tapping also attaches the measured BPM to the track (setTap). Holding the button (>0.8 s) triggers clearBpmTap() and reverts the display to original embedded BPM or '---.--'.
+
+
