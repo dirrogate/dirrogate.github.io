@@ -4463,9 +4463,24 @@ let tapFlashT = 0;
 const tapTempo = {
   times: [],        // timestamps in seconds (performance.now() / 1000)
   bpm: 0,           // calculated BPM
-  lastTap: 0,       // timestamp of last tap
-  lastTrack: null
+  lastTap: 0        // timestamp of last tap
 };
+
+function activeBpmDeck() {
+  if (cueOn[1] && !cueOn[0]) return decks[1];
+  if (cueOn[0] && !cueOn[1]) return decks[0];
+  const l0 = decks[0].loaded && decks[0].track;
+  const l1 = decks[1].loaded && decks[1].track;
+  if (l1 && !l0) return decks[1];
+  if (l0 && !l1) return decks[0];
+  const st0 = engine.state && engine.state.decks[0];
+  const st1 = engine.state && engine.state.decks[1];
+  const p0 = st0 && (st0.playing || st0.needle);
+  const p1 = st1 && (st1.playing || st1.needle);
+  if (p1 && !p0) return decks[1];
+  if (p0 && !p1) return decks[0];
+  return decks[lastTouched] || decks[0];
+}
 
 function handleBpmTap(src = 'mouse') {
   const now = performance.now() / 1000;
@@ -4478,7 +4493,8 @@ function handleBpmTap(src = 'mouse') {
   if (dt > 2.5 || tapTempo.times.length === 0) {
     // Start of a new tapping sequence
     tapTempo.times = [now];
-    toast('TAP: 1 · keep tapping on the beat', 1200);
+    const d = activeBpmDeck();
+    toast(`TAP (${d.name}): 1 · keep tapping on the beat`, 1200);
   } else {
     // Subsequent tap
     tapTempo.times.push(now);
@@ -4493,13 +4509,12 @@ function handleBpmTap(src = 'mouse') {
 
     if (bpm >= 30 && bpm <= 300) {
       tapTempo.bpm = bpm;
-      const d = decks[0], t = d.loaded && d.track ? d.track : null;
+      const d = activeBpmDeck(), t = d.loaded && d.track ? d.track : null;
       if (t) {
         setTap(t, { bpm: +bpm.toFixed(3), taps: n });
         d.ledShown = undefined;
       }
-      const fs = t ? fileBpmSrc(t) : '';
-      toast(`TAP: ${n} · ${bpm.toFixed(2)} BPM${fs ? ` (embedded ${+t.bpm.toFixed(2)})` : ''}`, 1200);
+      toast(`TAP (${d.name}): ${n} · ${bpm.toFixed(2)} BPM`, 1200);
     }
   }
   tapTempo.lastTap = now;
@@ -4509,10 +4524,10 @@ function clearBpmTap() {
   tapTempo.times = [];
   tapTempo.bpm = 0;
   blinkUntil[0] = performance.now() / 1000 + 1.0;
-  const d = decks[0];
+  const d = activeBpmDeck();
   if (d.track) setTap(d.track, null);
   d.ledShown = undefined;
-  toast('TAP: BPM cleared', 1400);
+  toast(`TAP (${d.name}): BPM cleared`, 1400);
 }
 
 function tapBeat1(d, src = 'mouse') {
@@ -7199,22 +7214,10 @@ function frameBody() {
   }
   if (mixer.userData.bpmCounter) {
     let txt = '---.--';
-    const t = decks[0].loaded && decks[0].track ? decks[0].track : null;
-
-    if (t !== tapTempo.lastTrack) {
-      tapTempo.lastTrack = t;
-      tapTempo.bpm = 0;
-      tapTempo.times = [];
-    }
-
     if (tapTempo.times.length === 1 && nowSec - tapTempo.lastTap < 2.5 && tapTempo.bpm === 0) {
       txt = '--.- ';   // waiting for next tap
     } else if (tapTempo.bpm > 0) {
       txt = tapTempo.bpm.toFixed(2);
-    } else if (t) {
-      const tb = tapBpmOf(t);
-      if (tb > 0) txt = tb.toFixed(2);
-      else if (fileBpmSrc(t) && t.bpm > 0) txt = t.bpm.toFixed(2);   // do NOT take pitch fader into account!
     }
     mixer.userData.bpmCounter.setText(txt);
   }
