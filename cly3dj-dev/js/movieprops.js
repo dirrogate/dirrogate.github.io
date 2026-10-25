@@ -178,14 +178,14 @@ varying vec2 vUv; varying vec3 vW, vLV, vTx, vTy, vNn;
 float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float height(vec2 p){
   float h = 0.012 * sin(p.x * 9.0 + uT * 1.3) * sin(p.y * 8.0 - uT * 1.1) + 0.008 * sin((p.x + p.y) * 17.0 - uT * 2.1);
-  for (int L = 0; L < 2; L++) {
-    float sc = L == 0 ? 2.0 : 2.9; vec2 q = p * sc + (L == 0 ? 0.0 : 17.3), id = floor(q), f = fract(q) - 0.5;
-    float r = h21(id + float(L) * 7.1);
-    if (r > 0.45) {
-      float ph = fract(uT * uRain * (0.25 + 0.5 * r) + r * 5.0);
-      vec2 c = (vec2(h21(id + 3.1), h21(id + 8.7)) - 0.5) * 0.35;
-      float d = length(f - c), rad = ph * 0.42, x = d - rad;
-      h += sin(x * 60.0) * exp(-x * x * 160.0) * (1.0 - ph) * 0.05;
+  for (int L = 0; L < 3; L++) {   // #496 three sizes of drop (small, medium, big splash); every cell rolls fresh dice on every cycle: whether a drop lands, where, how big, how hard
+    float sc = L == 0 ? 3.2 : (L == 1 ? 2.0 : 1.2), fl = float(L); vec2 q = p * sc + fl * 17.3, id = floor(q), f = fract(q) - 0.5;
+    float T = uT * uRain * (0.22 + 0.5 * h21(id + fl * 7.1)) + h21(id * 1.3 + 4.4) * 9.0, cyc = floor(T), ph = fract(T);
+    float rr = h21(id + cyc * 13.7 + fl * 3.3);
+    if (rr > 0.6) {
+      vec2 c = (vec2(h21(id + cyc * 3.1 + 3.1), h21(id + cyc * 5.7 + 8.7)) - 0.5) * 0.4;
+      float sz = h21(id + cyc * 9.1 + 2.2), rad = ph * (0.12 + 0.2 * sz), d = length(f - c), x = d - rad;
+      h += sin(x * 60.0 / (0.6 + sz)) * exp(-x * x * 160.0) * (1.0 - ph) * (0.025 + 0.05 * sz) * (L == 2 ? 1.3 : 1.0);
     }
   }
   return h;
@@ -638,9 +638,10 @@ void main(){
     float spw = pow(max(dot(N, normalize(V + normalize(uLP[0].xyz - vW))), 0.0), 20.0);
     col = col * (1.0 - 0.22 * rvE * k) * (1.0 + 0.07 * rvC * k) + sp * (2.4 * rvC + 3.0 * rvB) * k + spw * uLC[0] * 0.4 * rvB * k;   // no tint of its own: the picture behind shows through, bent; only lamp light glints on it
   } else {   // rain rings on the ground
-    vec2 q = vUv * max(uSize, 0.2) / 0.26; vec2 id = floor(q), f = fract(q) - 0.5; float rr = h21(id), ph = fract(uT * (0.7 + 0.5 * rr) + rr * 9.0);
-    float rad = ph * 0.45, ring = smoothstep(0.05, 0.0, abs(length(f + (vec2(h21(id + 1.3), h21(id + 7.1)) - 0.5) * 0.4) - rad)) * (1.0 - ph) * step(0.35, rr);
-    col += (vec3(0.5, 0.6, 0.8) * 0.6 + sp) * ring * k * 1.2;
+    vec2 q = vUv * max(uSize, 0.2) / 0.26; vec2 id = floor(q), f = fract(q) - 0.5; float T = uT * (0.5 + 0.6 * h21(id)) + h21(id + 5.5) * 9.0, cyc = floor(T), ph = fract(T), rr = h21(id + cyc * 13.7);
+    vec2 cc = (vec2(h21(id + cyc * 3.1 + 1.3), h21(id + cyc * 5.7 + 7.1)) - 0.5) * 0.4; float sz = h21(id + cyc * 9.1 + 2.2), rad = ph * (0.15 + 0.25 * sz);
+    float ring = smoothstep(0.05, 0.0, abs(length(f - cc) - rad)) * (1.0 - ph) * step(0.55, rr);
+    col += (vec3(0.5, 0.6, 0.8) * 0.6 + sp) * ring * k * (0.7 + 0.8 * sz);
   }
   gl_FragColor = vec4(col, tx.a * uOp);
   #include <colorspace_fragment>
@@ -955,12 +956,7 @@ export class MovieProps {
     this.selected = gr; this.save(); return gr;
   }
   setGuides(on) { this.guides = !!on; try { localStorage.setItem(KEY + '.guides', on ? '1' : '0'); } catch {} }
-  tickGearWet(dt) {   // #494 rain over the decks wets them: darker, glossier decks and records
-    const env = this.env; if (!env.wetGear || !env.gearPoints) return; let lv = 0;
-    const rains = this.items.filter(i => i.type === 'rain' && i.obj.visible); if (rains.length) { const pts = env.gearPoints(); for (const r of rains) { r.obj.updateWorldMatrix(true, false); for (const P of pts) { const l = r.obj.worldToLocal(_v2.copy(P)); if (Math.abs(l.x) < r.w / 2 && Math.abs(l.z) < r.d / 2 && l.y > -0.3 && l.y < r.h) lv = Math.max(lv, clamp(r.amt * 3, 0, 1)); } } }
-    this.gw = (this.gw || 0) + (lv - (this.gw || 0)) * Math.min(1, dt * 0.4); if (this.gw > 0.003 || this.gwOn) { this.gwOn = this.gw > 0.003; env.wetGear(this.gw); }
-  }
-  tick(dt) { this.tickGearWet(dt); this.tickFocus(dt); for (const p of this.items) if (p.edge) p.edge.visible = this.guides; for (const p of this.items) p.tick(dt); if (this.saveT > 0 && (this.saveT -= dt) <= 0) this.saveNow(); }
+  tick(dt) { this.tickFocus(dt); for (const p of this.items) if (p.edge) p.edge.visible = this.guides; for (const p of this.items) p.tick(dt); if (this.saveT > 0 && (this.saveT -= dt) <= 0) this.saveNow(); }
   save() { this.saveT = 0.6; }
   saveNow() { try { localStorage.setItem(KEY, JSON.stringify(this.items.filter(p => !p.dead).map(p => p.snap()))); } catch {} }
   load() {
