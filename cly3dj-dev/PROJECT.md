@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 25 Oct 2026 (decision log up to #463 in `ViRe_Custom/CLAUDE.md`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 25 Oct 2026 (decision log up to #464 in `ViRe_Custom/CLAUDE.md`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -12,7 +12,7 @@ Owner: Clyde DeSouza (c3souza).
 - **Decision log:** `ViRe_Custom/CLAUDE.md`, numbered entries, append only (one line per change: what, why, numbers, where in the code).
 - **Overview copy on disk:** `ViRe_Custom/PROJECT.md` (same text as this file).
 - **Hosting (Cloudflare, since 24 Oct 2026, #463):**
-  - **Performing address (private, not published):** `https://dirrogate-github-io.pages.dev/` = a Cloudflare Pages project linked to the GitHub repo below; it rebuilds on every push, so the DJ app is at `https://dirrogate-github-io.pages.dev/cly3dj-dev/` (and `/cly3dj/`). This is what the Quest opens at a gig.
+  - **Performing address (private, not published, #464):** `https://cabin.dirrodj.club/` (gigs `/cly3dj/`, rehearsals `/cly3dj-dev/`), a custom domain on the Pages project `dirrogate-github-io` (`https://dirrogate-github-io.pages.dev/` still works but keeps separate browser storage; use only cabin on the Quest, phone and TV). DirroTV for venues: `https://dirrodj.club/tv` forwards to `cabin.dirrodj.club/cly3dj/venue.html`. The Pages project = a Cloudflare Pages project linked to the GitHub repo below; it rebuilds on every push, so the DJ app is at `https://dirrogate-github-io.pages.dev/cly3dj-dev/` (and `/cly3dj/`). This is what the Quest opens at a gig.
   - **Public site:** `https://dirrodj.club` = the static website from `ViRe_Custom/dirroclub_website/` (uploaded to Cloudflare by the owner). The audience page Dirrogram is `https://dirrodj.club/gram` (`ViRe_Custom/gram/`, the old `dirrogram.html` as `index.html`; deploy zip `gram-cloudflare-deploy.zip`). The short link `https://dirrodj.club/<ROOM>` forwards to `/gram/#room=<ROOM>` (`dirroclub_website/404.html`, plus the same 3-line script in its `index.html`).
   - **Dirrogram relay:** Cloudflare Worker + Durable Object `dirrogramclubworker` at `wss://relay.dirrodj.club` (`ViRe_Custom/cloudflare-relay/worker.js`, `wrangler.toml`; deploy with `npx wrangler deploy` in that folder). One Durable Object per room key (class `Room`, SQLite-backed, Workers Free plan, location hint `apac`). Replaced the Pinggy tunnel and the relay inside the owner's Node server (#429) for shows.
   - Pinggy (`univdemo.a.pinggy.link`) is no longer used for shows; the Node server at `localhost:8000/vire/` stays for testing on the PC.
