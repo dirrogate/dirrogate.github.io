@@ -772,6 +772,28 @@ export class MovieProps {
   }
   remove(p) { const i = this.items.indexOf(p); if (i >= 0) this.items.splice(i, 1); p.dispose(); if (this.selected === p) this.selected = this.items[this.items.length - 1] || null; this.save(); }
   clear() { for (const p of this.items.splice(0)) p.dispose(); this.selected = null; this.save(); }
+  // #485 ALLEY SCENE: one tap dresses the area in front of you (the real room / alley stays as the passthrough background):
+  // wet cobblestone with shallow water, two street lamps with halos, rain, cold fog and a covered car parked far down the lane.
+  async alleyScene() {
+    this.clear(); const cam = this.viewCam(); cam.updateMatrixWorld();
+    const o = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld), f = new THREE.Vector3(0, 0, -1).transformDirection(cam.matrixWorld); f.y = 0; if (f.lengthSq() < 1e-4) f.set(0, 0, -1); f.normalize();
+    const r = new THREE.Vector3(-f.z, 0, f.x), yaw = Math.atan2(-f.x, -f.z);
+    const at = (x, d, y = 0) => this.rig.worldToLocal(o.clone().addScaledVector(f, d).addScaledVector(r, x)).setY(y);
+    const put = (p, x, d, ry = 0) => { p.obj.position.copy(at(x, d, p.floor ? 0.01 : 0)); p.obj.rotation.set(0, yaw + ry, 0); p.placeHandles(); return p; };
+    const halo = (g, size, bright) => {   // a LAMP halo on the bulb of a street-lamp model
+      const h = this.spawn('lamp'); g.obj.updateWorldMatrix(true, true); let bb = null;
+      g.obj.traverse(m => { if (m.isMesh && m.material && /bulb/i.test(m.material.name)) { const b = new THREE.Box3().setFromObject(m); bb = bb ? bb.union(b) : b; } });
+      const w = bb ? bb.getCenter(new THREE.Vector3()) : g.obj.localToWorld(new THREE.Vector3(0, 3.4, 0));
+      h.obj.position.copy(this.rig.worldToLocal(w)); h.size = size; h.bright = bright; h.flick = 0.12; h.col = 2; h.placeHandles(); return h;
+    };
+    const gr = this.spawn('puddle'); gr.setSurface('COBBLESTONE'); gr.setSize(5.5, 15); gr.wet = 0.55; gr.refl = 1.7; gr.rip = 0.7; gr.rain = 0.8; gr.amb = 0.1; gr.cover = 0.92; put(gr, 0, 8.2);
+    const l1 = this.spawn('glb'); await l1.load('street_lamp_01.glb'); put(l1, -2.3, 6.5, 0.3); halo(l1, 1.5, 1.1);
+    const l2 = this.spawn('glb'); await l2.load('street_lamp_02.glb'); put(l2, 2.3, 11.5, -0.3); halo(l2, 1.0, 0.8);
+    const car = this.spawn('glb'); await car.load('covered_car.glb'); put(car, 2.1, 14.5, 0.12);
+    const rn = this.spawn('rain'); rn.setSize(7, 15); rn.h = 5; rn.amt = 0.25; rn.layout && rn.layout(); put(rn, 0, 8.2);
+    const fg = this.spawn('fog'); fg.setSize(7, 16); fg.h = 2.0; fg.col = 1; fg.den = 0.3; fg.amb = 0.45; fg.layout && fg.layout(); put(fg, 0, 8.7);
+    this.selected = gr; this.save(); return gr;
+  }
   tick(dt) { this.tickFocus(dt); for (const p of this.items) p.tick(dt); if (this.saveT > 0 && (this.saveT -= dt) <= 0) this.saveNow(); }
   save() { this.saveT = 0.6; }
   saveNow() { try { localStorage.setItem(KEY, JSON.stringify(this.items.filter(p => !p.dead).map(p => p.snap()))); } catch {} }
