@@ -605,17 +605,17 @@ float h11(float n){ return fract(sin(n * 91.345) * 47453.5453); }
 float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 void main(){
   vec2 buv = vUv; float rvC = 0.0, rvE = 0.0, rvB = 0.0;
-  if (uWall > 0.5 && uWet * uRain > 0.01) {   // #495 rivulets: see-through runs of water that wander and stop-start down the face; each one bends the picture behind it a little (fake refraction), the bead at the head acts as a small lens
-    float sz = max(uSize, 0.2), cw = 0.075, cols = sz / cw, kk = clamp(uWet * uRain, 0.0, 1.0);
+  if (uWall > 0.5 && uRain > 0.01) {   // #495 rivulets: see-through runs of water that wander and stop-start down the face; each one bends the picture behind it a little (fake refraction), the bead at the head acts as a small lens
+    float sz = max(uSize, 0.2), cw = 0.075, cols = sz / cw, kk = clamp(uRain, 0.0, 1.0);
     for (int j = -1; j <= 1; j++) {
       float cx = floor(vUv.x * cols) + float(j), r = h11(cx + 3.7), r2 = h11(cx * 2.3 + 1.1), r3 = h11(cx * 5.1 + 9.0);
-      if (r2 > 0.5 + 0.5 * kk) continue;
+      if (r2 > kk * 1.1) continue;
       float u = uTf * (0.07 + 0.09 * r) + r3 * 10.0, stepped = (floor(u) + smoothstep(0.0, 0.45, fract(u))) * (0.05 + 0.05 * r);   // runs, pauses, runs again
       float head = 1.05 - mod(stepped + r2 * 3.0, 1.55), yM = vUv.y * sz;
       float cxm = (cx + 0.5 + (0.3 * sin(yM * (2.0 + 3.0 * r) + r * 20.0) * (0.6 + 0.4 * sin(yM * 6.0 + r2 * 9.0)) + 0.12 * sin(yM * 17.0 + r3 * 5.0))) / cols;   // wandering centre line, in uv
       float dx = (vUv.x - cxm) * sz, trail = step(head, vUv.y) * smoothstep(head + 0.4 + 0.3 * r3, head, vUv.y);
       float wd = (0.0042 + 0.0035 * r) * (1.0 + 0.7 * sin(yM * 9.0 + r * 5.0)), core = smoothstep(wd, 0.0, abs(dx)) * trail, edge = smoothstep(wd * 3.2, wd, abs(dx)) * trail;
-      float bd = length(vec2(dx, (vUv.y - head) * sz)), bead = smoothstep(0.012 + 0.006 * r, 0.0, bd) * step(r2, 0.5 + 0.5 * kk);
+      float bd = length(vec2(dx, (vUv.y - head) * sz)), bead = smoothstep(0.012 + 0.006 * r, 0.0, bd) * step(r2, kk * 1.1);
       buv += vec2(-dx * 8.0 * edge * (1.0 - core * 0.4), -0.0018 * core) / sz * kk;
       buv += vec2(dx, (vUv.y - head) * sz) * -0.9 * bead / sz * kk;
       rvC = max(rvC, core); rvE = max(rvE, edge - core * 0.6); rvB = max(rvB, bead);

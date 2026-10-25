@@ -6233,7 +6233,7 @@ function drawPropsPage(T) {
     cells.push(B('PICTURE: ' + sel.src, false, () => sel.set('src', cyc(names, sel.src))), B('ADD PNG', false, () => mp.pickFile('png', 'image/png,image/webp,image/*', nm => { sel.set('src', nm); drawMixScreen(); })),
       B('TINT: ' + GRAFF_TINTS[sel.tint % GRAFF_TINTS.length][0], false, () => sel.set('tint', (sel.tint + 1) % GRAFF_TINTS.length)), B(sel.glow ? 'GLOW (adds light): ON' : 'GLOW', sel.glow, () => sel.set('glow', !sel.glow)),
       S('BRIGHTNESS', sel.bright / 1.5, pc(sel.bright / 1.5), v => { sel.bright = v * 1.5; sel.look(); }), S('OPACITY', sel.opac, pc(sel.opac), v => { sel.opac = v; sel.look(); }), sizeUni());
-    if (dk) cells.push(S('WETNESS (gloss, lamp glints)', sel.wet, pc(sel.wet), v => { sel.wet = v; }), S(sel.type === 'decal' ? 'RAIN RINGS' : 'RAIN STREAKS', sel.rainAmt, pc(sel.rainAmt), v => { sel.rainAmt = v; }), S('AMBIENT', sel.amb / 0.6, pc(sel.amb / 0.6), v => { sel.amb = v * 0.6; }));
+    if (dk) cells.push(S('WETNESS (gloss, lamp glints)', sel.wet, pc(sel.wet), v => { sel.wet = v; }), S(sel.type === 'decal' ? 'RAIN RINGS' : 'RIVULET AMOUNT', sel.rainAmt, pc(sel.rainAmt), v => { sel.rainAmt = v; }), S('AMBIENT', sel.amb / 0.6, pc(sel.amb / 0.6), v => { sel.amb = v * 0.6; }));
     if (sel.type === 'walldecal') cells.push(S('RIVULET SPEED', (sel.flow - 0.1) / 3.9, sel.flow.toFixed(1) + 'x', v => { sel.flow = 0.1 + v * 3.9; }));
   } else if (sel.type === 'glb') {
     const names = mp.lists.glb;
