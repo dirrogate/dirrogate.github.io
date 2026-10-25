@@ -33,6 +33,11 @@ const SURF_BUILTIN = {
   ASPHALT: { tile: 1.6, disp: 0.6, slots: { diff: 'surfaces/asphalt/diff.jpg', disp: 'surfaces/asphalt/disp.png', rough: 'surfaces/asphalt/rough.jpg' } },
 };
 const SKEY = 'vire.surfaces';
+// #483 ready-made street props (real-world size, lightweight GLB: decimated, WebP textures)
+export const GLB_BUILTIN = {
+  'street_lamp_01.glb': 'models/props/street_lamp_01.glb', 'street_lamp_02.glb': 'models/props/street_lamp_02.glb', 'covered_car.glb': 'models/props/covered_car.glb',
+  'concrete_road_barrier.glb': 'models/props/concrete_road_barrier.glb', 'exterior_aircon.glb': 'models/props/exterior_aircon.glb', 'exterior_aircon_rusted.glb': 'models/props/exterior_aircon_rusted.glb',
+};
 export const GRAFF_BUILTIN = ['graff1.png', 'graff2.png'];
 export const GRAFF_TINTS = [['OFF', null], ['WHITE', '#ffffff'], ['PINK', '#ff2d95'], ['CYAN', '#19e6ff'], ['AMBER', '#ffb02e'], ['BLACK', '#000000']];
 
@@ -568,12 +573,13 @@ class Graffiti extends Prop {
 class GlbProp extends Prop {
   constructor(mp) { super(mp, 'glb', false); this.src = ''; this.hw = 0.3; this.state = 'empty'; }
   async load(name) {
-    this.src = name; this.state = 'loading'; const f = await getFile('glb', name);
+    this.src = name; this.state = 'loading'; const bi = GLB_BUILTIN[name]; let f = null;
+    if (bi) { try { f = await (await fetch(bi)).blob(); } catch {} } else f = await getFile('glb', name);
     if (!f) { this.state = 'missing'; this.mp.env.toast('Model "' + name + '" is not in this device\'s storage', 3000); return; }
     try {
       const gltf = await new GLTFLoader().parseAsync(await f.arrayBuffer(), ''); if (this.dead) return;
       const root = gltf.scene, box = new THREE.Box3().setFromObject(root), sz = box.getSize(new THREE.Vector3()), ctr = box.getCenter(new THREE.Vector3());
-      const k = 1.2 / Math.max(sz.x, sz.y, sz.z, 1e-3), inner = new THREE.Group(); inner.add(root); root.position.set(-ctr.x, -box.min.y, -ctr.z); inner.scale.setScalar(k); noRay(inner);
+      const k = GLB_BUILTIN[name] ? 1 : 1.2 / Math.max(sz.x, sz.y, sz.z, 1e-3), inner = new THREE.Group(); inner.add(root); root.position.set(-ctr.x, -box.min.y, -ctr.z); inner.scale.setScalar(k); noRay(inner);
       inner.traverse(o => { if (o.isMesh) { o.frustumCulled = false; } });
       if (this.inner) this.obj.remove(this.inner); this.inner = inner; this.obj.add(inner);
       const hx = sz.x * k / 2 + 0.08, hz = sz.z * k / 2 + 0.08; this.ringAt.set(hx, 0.04, hz); this.cubeAt.set(-hx, sz.y * k + 0.04, -hz); this.box = new THREE.Box3(new THREE.Vector3(-sz.x * k / 2, 0, -sz.z * k / 2), new THREE.Vector3(sz.x * k / 2, sz.y * k, sz.z * k / 2)); this.state = 'ok'; this.placeHandles();
@@ -702,7 +708,7 @@ export class MovieProps {
   loadCam() { try { const d = JSON.parse(localStorage.getItem(KEY + '.cam') || 'null'); if (d) Object.assign(this.focus, d, { rack: null }); } catch {} }
   get sel() { return this.items.find(p => p === this.selected) || null; }
   select(p) { this.selected = p; }
-  async refreshLists() { for (const k of Object.keys(this.lists)) this.lists[k] = await listFiles(k); this.listCb && this.listCb(); }
+  async refreshLists() { for (const k of Object.keys(this.lists)) this.lists[k] = await listFiles(k); this.lists.glb = [...Object.keys(GLB_BUILTIN), ...this.lists.glb]; this.listCb && this.listCb(); }
   matteTex(name, cb) {
     let e = this.mattes.get(name); if (e) return e.tex;
     const i = MATTES.indexOf(name);
