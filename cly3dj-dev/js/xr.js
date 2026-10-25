@@ -756,9 +756,10 @@ export function setupXR(ctx) {
       const armed = st.poke.get(key) !== false;
       if (dxz < b.r && h < 0.006 && h > -0.02) {
         if (armed) { ctx.pressControl(b.c, st); st.poke.set(key, false); buzz(st, 0.5, 30); }
+        else if (b.c.id === 'looper') ctx.holdLooper(st);   // #470 hold 0.8 s = clear
         else if (b.c.id && (b.c.id === 'bpmtap' || b.c.id.endsWith('.beat1'))) ctx.holdBeat1(ctx.decks[0], st);   // #117: still pressing (long press clears)
       }
-      else if (h > 0.02 || dxz > b.r * 2) { if (!armed && b.c.id && (b.c.id === 'bpmtap' || b.c.id.endsWith('.beat1'))) ctx.releaseBeat1(st); st.poke.set(key, true); }
+      else if (h > 0.02 || dxz > b.r * 2) { if (!armed && b.c.id && (b.c.id === 'bpmtap' || b.c.id === 'looper' || b.c.id.endsWith('.beat1'))) ctx.releaseBeat1(st); st.poke.set(key, true); }
     }
     st.pokeLift = (st.pokeLift || 0) + (Math.min(0.03, lift) - (st.pokeLift || 0)) * 0.5;
     // mixer readout (#116): poke the tempo number to cycle ORIG BPM / BPM / KEY

@@ -136,6 +136,14 @@ export class AudioEngine {
   looperRec(mask) { if (this.looper) this.looper.port.postMessage({ type: 'rec', mask }); }
   looperPlay() { if (this.looper) this.looper.port.postMessage({ type: 'play' }); }
   looperStop() { if (this.looper) this.looper.port.postMessage({ type: 'stop' }); }
+  looperClear() { if (this.looper) this.looper.port.postMessage({ type: 'clear' }); }   // #470 long press
+  looperRegion(a, b) { if (this.looper) this.looper.port.postMessage({ type: 'region', a, b }); }   // #470 in / out (samples)
+  looperLoad(d) {   // #470 a saved loop -> armed. d = { len, a, b, bufs: [[L, R] | null, ...] } (copied: the slot keeps its own)
+    if (!this.looper) return;
+    const bufs = d.bufs.map(c => c ? [c[0].slice(), c[1].slice()] : null), tr = [];
+    for (const c of bufs) if (c) tr.push(c[0].buffer, c[1].buffer);
+    this.looper.port.postMessage({ type: 'load', len: d.len, a: d.a, b: d.b, bufs }, tr);
+  }
   setCrossfader(x) { // x -1..1, constant power
     this.xf = x; const a = (x + 1) / 2 * Math.PI / 2;
     this._ramp(this.ch[0].xf.gain, Math.cos(a) * Math.SQRT2 > 1 ? 1 : Math.cos(a) * Math.SQRT2);
