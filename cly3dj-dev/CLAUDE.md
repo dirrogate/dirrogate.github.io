@@ -1059,3 +1059,10 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 
 ## #465 (25 Oct 2026) RELEASE: cly3dj = cly3dj-dev
 - Owner: yes, update cly3dj. Release folder brought level with cly3dj-dev (everything except CLAUDE.md, PROJECT.md, tools/): #458 CUE LOOPER + LOOP VOL, #459 to #462 BPM TAP with the red LED counter, #463 DirroDJ / DIRROTV names, relay.dirrodj.club default, dirrodj.club/<ROOM> link and CREATE CARD, sw.js vire-app-v5, _headers (no-cache for Cloudflare), #464 DIRROTV hint dirrodj.club/tv. Files: _headers (new), js/audio.js, deck-worklet.js, dirro-host.js, dirrogram.js, main.js, models.js, venue.js, xr.js, sw.js, venue.html. Gig address https://cabin.dirrodj.club/cly3dj/. Not tested on the Quest yet. No Node restart.
+- (25 Oct, after #465) Owner: NO public dirrodj.club/tv forward, so the public can't reach venue.html. dirroclub_website/tv/index.html moved to _to_delete/site_tv_464/. At each venue the owner opens https://cabin.dirrodj.club/cly3dj/venue.html on the TV himself and types its code on the tablet. The tablet hint still says dirrodj.club/tv: change it back when next touching main.js.
+
+## SECURITY OPTIONS (owner, 25 Oct 2026; parked, not set up yet)
+- Chosen for later: Cloudflare Access (Zero Trust, free up to 50 users) in front of cabin.dirrodj.club AND dirrogate-github-io.pages.dev. Policy: allow only the owner's email, one-time PIN login, session about 1 month. Each device (Quest, spectator phone, TV / Fire Stick) logs in once per session period. Audience side unaffected: dirrodj.club/gram and relay.dirrodj.club stay open. Owner will say when to set it up.
+- Known gap even with Access: the code is public in the GitHub repo dirrogate/dirrogate.github.io (cly3dj/, cly3dj-dev/, CLAUDE.md) and on dirrogate.github.io/cly3dj/. Options discussed, not chosen: make the repo private (stops GitHub Pages for everything in it on a free account: univdemo, spatialed, root app) or move DirroDJ to its own private repo and point the Cloudflare Pages project at it.
+- Anyone let in can still save the files from the browser; Access only controls who gets in.
+
