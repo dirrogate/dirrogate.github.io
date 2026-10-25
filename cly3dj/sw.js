@@ -10,7 +10,7 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v1';   // same name as before, so copies saved by older versions are kept
+const CACHE = 'vire-app-v5';   // bumped so Quest / browser purges stale cache (#463)
 const NET_WAIT = 2500, OFFLINE_HOLD = 30000;
 const APP = [
   'index.html', 'spectator.html', 'venue.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png',
@@ -57,7 +57,10 @@ self.addEventListener('install', e => {
     return fetch(u, { cache: 'no-cache' }).then(r => save(c, u, r)).catch(() => null);
   }))));
 });
-self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('activate', e => e.waitUntil(
+  caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    .then(() => self.clients.claim())
+));
 // the page sends the files it loaded before this worker took control, so even the first visit is kept
 self.addEventListener('message', e => {
   const urls = (e.data && e.data.cache) || [];

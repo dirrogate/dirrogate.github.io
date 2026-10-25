@@ -38,7 +38,7 @@ function codeMode() {
   clearTimeout(codeT); stopConn(); if (pairL) pairL.close();
   const code = tvNewCode();
   codeEl.textContent = code.slice(0, 3) + ' ' + code.slice(3);
-  show('code', 'Type this code on the Cly3DJ tablet:  TOOLS > STREAM > CLY3DTV');
+  show('code', 'Type this code on the DirroDJ tablet:  TOOLS > STREAM > DIRROTV');
   pairL = tvPairListen(code, key => { store.set(KEY, key); pairL.close(); pairL = null; clearTimeout(codeT); waitMode(key); }, s => { relayNote = s; });
   codeT = setTimeout(codeMode, 10 * 60 * 1000);   // a fresh code every 10 minutes
 }
@@ -47,7 +47,7 @@ function codeMode() {
 function stopConn() { clearTimeout(retryT); if (conn) { conn.close(); conn = null; } connected = false; }
 function waitMode(key) {
   stopConn(); ms = null; audioOn = false; v.srcObject = null;
-  show('wait', 'Waiting for the Quest…', 'Cly3DJ on the headset, TV switched on at the tablet (STREAM > CLY3DTV)');
+  show('wait', 'Waiting for the Quest…', 'DirroDJ on the headset, TV switched on at the tablet (STREAM > DIRROTV)');
   const attempt = () => {
     stopConn(); const my = conn = tvConnect(key, {
       onTrack: t => { if (conn !== my) return; if (!ms) { ms = new MediaStream(); v.srcObject = ms; } ms.addTrack(t); v.play && v.play().catch(() => {}); soundButton(); },
@@ -70,7 +70,7 @@ function waitMode(key) {
 }
 function lost(key) {
   stopConn(); ms = null; audioOn = false; v.srcObject = null;
-  show('wait', 'Waiting for the Quest…', 'Cly3DJ on the headset, TV switched on at the tablet (STREAM > CLY3DTV)');
+  show('wait', 'Waiting for the Quest…', 'DirroDJ on the headset, TV switched on at the tablet (STREAM > DIRROTV)');
   retryT = setTimeout(() => { if (mode === 'wait') waitMode(key); }, 3000);
 }
 function forget() { store.del(KEY); stopConn(); ms = null; audioOn = false; v.srcObject = null; codeMode(); }

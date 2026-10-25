@@ -1056,3 +1056,6 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 - dirroclub_website/tv/index.html (new): https://dirrodj.club/tv forwards to https://cabin.dirrodj.club/cly3dj/venue.html. Note: anyone opening dirrodj.club/tv sees the cabin address in the browser bar. Owner must upload it with the whole site folder.
 - main.js: the DIRROTV page's hint now says "On the TV open dirrodj.club/tv (DirroTV)" (two places, landscape and portrait). Backup backups/pre-464/. No Node restart.
 
+
+## #465 (25 Oct 2026) RELEASE: cly3dj = cly3dj-dev
+- Owner: yes, update cly3dj. Release folder brought level with cly3dj-dev (everything except CLAUDE.md, PROJECT.md, tools/): #458 CUE LOOPER + LOOP VOL, #459 to #462 BPM TAP with the red LED counter, #463 DirroDJ / DIRROTV names, relay.dirrodj.club default, dirrodj.club/<ROOM> link and CREATE CARD, sw.js vire-app-v5, _headers (no-cache for Cloudflare), #464 DIRROTV hint dirrodj.club/tv. Files: _headers (new), js/audio.js, deck-worklet.js, dirro-host.js, dirrogram.js, main.js, models.js, venue.js, xr.js, sw.js, venue.html. Gig address https://cabin.dirrodj.club/cly3dj/. Not tested on the Quest yet. No Node restart.

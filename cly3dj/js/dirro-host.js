@@ -16,39 +16,43 @@ const K_RELAY = 'vire.dirroRelay', K_ROOM = 'vire.dirroRoom', K_ON = 'vire.dirro
 // phone from the show clock and the beat (wallfx.js; a GRAB LOOP goes once as a small sprite-sheet JPEG); a picture
 // as before; clips, AVACAM, LIVE as small frames (TV FRAMES / S); the wall OFF = the phones' own AUTO.
 export const WALL_SRC = ['follow', 'auto', 'fractal', 'pictures', 'tv'];
-export const WALL_LABEL = { follow: 'FOLLOW', auto: 'AUTO', fractal: 'FRACTAL', pictures: 'PICTURES', tv: 'CLY3DTV' };
+export const WALL_LABEL = { follow: 'FOLLOW', auto: 'AUTO', fractal: 'FRACTAL', pictures: 'PICTURES', tv: 'DIRROTV' };
 const FRAME_M = new Set(['clips', 'cam', 'live', 'solo', 'decks', 'screen', 'vmat']);   // #442 vmat: VECTOR-DANCER with a matte (the matte clip is not on the phones)   // wall modes the phones get as frames
 export const WALL_COLS = [0, 32, 48, 64, 96, 128, 160, 192, 240, 320];   // #444 32 for PIXELS 10
 const WALL_DEF = { src: 'follow', cols: 160, fill: 0.78, glow: 1, fps: 2, v: 2 };
 const idOf = s => { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.codePointAt(0), 16777619) >>> 0; return 'p' + h.toString(36); };
 const SEND_MS = 66, CFG_MS = 1000, CFG_FORCE_MS = 5000, PING_MS = 2000;
 const r3 = v => Math.round(v * 1000) / 1000, r4 = v => Math.round(v * 10000) / 10000;
-const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} return null; };
+const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { } return null; };
 export function newRoomKey() { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; const r = crypto.getRandomValues(new Uint8Array(6)); for (const b of r) s += A[b % A.length]; return s; }
 // ?relay=wss://name.a.pinggy.link on the app's address saves the relay on the headset (like ?discogs=, #393)
 export function initRelayFromUrl() {
   try {
     const u = new URL(location.href), q = u.searchParams.get('relay');
     if (q) { setRelay(q); u.searchParams.delete('relay'); history.replaceState(null, '', u.pathname + (u.search || '') + u.hash); }
-  } catch (e) {}
+  } catch (e) { }
 }
-export function relayUrl() { return ls(K_RELAY) || ''; }
-// #431 short forms (the tablet keyboard has no ':'): 'UNIVDEMO' -> wss://univdemo.a.pinggy.link/dirro; a name with a dot
+// #463 Cloudflare: the relay is the Durable Object worker at relay.dirrodj.club (cloudflare-relay/worker.js); the audience
+// page lives at https://dirrodj.club/gram/ and the short link https://dirrodj.club/<ROOM> forwards there (dirroclub_website/404.html)
+export const DEFAULT_RELAY = 'wss://relay.dirrodj.club', FAN_HOST = 'https://dirrodj.club/';
+export function relayUrl() { return ls(K_RELAY) || DEFAULT_RELAY; }
+const isDefaultRelay = r => r.replace(/\/dirro$/, '') === DEFAULT_RELAY;
+// #431 short forms (the tablet keyboard has no ':'): #463 'RELAY' -> wss://relay.dirrodj.club/dirro (was a pinggy.link name); a name with a dot
 // keeps its host; no path -> /dirro (the relay inside the owner's server); http(s) -> ws(s); spaces dropped, all lower case
 export function setRelay(s) {
   s = (s || '').trim().toLowerCase().replace(/\s+/g, '').replace(/\/+$/, ''); if (!s) { ls(K_RELAY, null); return ''; }
   let scheme = 'wss://', m = s.match(/^(wss?|https?):\/\//);
   if (m) { scheme = m[1].replace(/^http/, 'ws') + '://'; s = s.slice(m[0].length); }
   let host = s, path = ''; const i = s.indexOf('/'); if (i >= 0) { host = s.slice(0, i); path = s.slice(i); }
-  if (!host.includes('.') && !host.includes(':')) host += '.a.pinggy.link';
+  if (!host.includes('.') && !host.includes(':')) host += '.dirrodj.club';   // #463 was '.a.pinggy.link'
   if (!path) path = '/dirro';
   s = scheme + host + path; ls(K_RELAY, s); return s;
 }
 export function roomKey() { let k = ls(K_ROOM); if (!k) { k = newRoomKey(); ls(K_ROOM, k); } return k; }
-// the address the audience opens (the QR): dirrogram.html next to the app, relay and room in the hash
+// the address the audience opens (the QR). #463 always on dirrodj.club (the app itself runs on pages.dev, which has no gram/):
+// the short https://dirrodj.club/<ROOM> on our own relay (gram/ knows it), else the long form with the relay in the hash
 export function fanUrl() {
-  const base = location.origin + location.pathname.replace(/[^/]*$/, '') + 'dirrogram.html';
-  return relayUrl() ? `${base}#relay=${encodeURIComponent(relayUrl())}&room=${roomKey()}` : base;
+  return isDefaultRelay(relayUrl()) ? FAN_HOST + roomKey() : `${FAN_HOST}gram/#relay=${encodeURIComponent(relayUrl())}&room=${roomKey()}`;
 }
 
 const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _rq = new THREE.Quaternion();
@@ -57,10 +61,10 @@ export class DirroHost {
     this.env = env; this.on = ls(K_ON) === '1'; this.ws = null; this.state = 'off'; this.fans = 0; this.rtt = 0;
     this.sendT = 0; this.cfgT = 0; this.cfgSent = 0; this.cfgKey = ''; this.pingT = 0; this.retry = 0; this.retryT = 0; this.err = '';
     this.sent = 0; this.bytes = 0; this.kbps = 0; this._rateT = performance.now(); this._rateB = 0;
-    this.wall = { ...WALL_DEF }; try { const o = JSON.parse(ls(K_WALL) || '{}'); if (o.src && !o.v) { o.src = 'follow'; o.v = 2; } Object.assign(this.wall, o); } catch (e) {}   // #439 once: AUTO -> FOLLOW
+    this.wall = { ...WALL_DEF }; try { const o = JSON.parse(ls(K_WALL) || '{}'); if (o.src && !o.v) { o.src = 'follow'; o.v = 2; } Object.assign(this.wall, o); } catch (e) { }   // #439 once: AUTO -> FOLLOW
     this.imgName = ''; this.imgId = ''; this.imgSent = new Set(); this.frameT = 0; this.frames = 0;
     this.sms = []; this.holo = []; this.smsNew = 0;
-    this.bcn = {}; try { this.bcn = JSON.parse(ls(K_BCN) || '{}') || {}; } catch (e) {}   // #438 DirroBeacons: L / R = [x, y, z] in rig space (crowd's left / right)   // #435 HoloSMS: messages in (newest first, 60 kept), the ones you put on the hologram scroller (6 at most)
+    this.bcn = {}; try { this.bcn = JSON.parse(ls(K_BCN) || '{}') || {}; } catch (e) { }   // #438 DirroBeacons: L / R = [x, y, z] in rig space (crowd's left / right)   // #435 HoloSMS: messages in (newest first, 60 kept), the ones you put on the hologram scroller (6 at most)
   }
   // #438 DirroBeacons: two real, visible lights (or any two landmarks) marked with the controller tip; the phones aim at
   // them (AIM WITH BEACON) and work out where they stand in this rig's layout
@@ -107,7 +111,7 @@ export class DirroHost {
   setRelay(s) { setRelay(s); this._close(this.on ? 'connecting' : 'off'); this.retryT = 0; this._changed(); }
   _changed() { if (this.env.onChange) this.env.onChange(); }
   _close(state) {
-    if (this.ws) { const w = this.ws; this.ws = null; w.onopen = w.onclose = w.onmessage = w.onerror = null; try { w.close(); } catch (e) {} }
+    if (this.ws) { const w = this.ws; this.ws = null; w.onopen = w.onclose = w.onmessage = w.onerror = null; try { w.close(); } catch (e) { } }
     this.state = state; this.fans = 0;
   }
   _connect() {

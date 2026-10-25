@@ -531,3 +531,65 @@ class Limiter extends AudioWorkletProcessor {
   }
 }
 registerProcessor('vire-limiter', Limiter);
+
+// LOOPER (owner): samples up to 30 s of the channel(s) that have CUE on, taken after the channel's TRIM and before its
+// EQ / filter / fader / crossfader (input k = channel k), then plays the same audio back in a loop on that channel's
+// output (output k), which audio.js feeds into the strip ahead of the EQ, so the loop gets that channel's EQ, filter,
+// fader and crossfader like a deck would. Messages in: rec { mask: [bool, bool] } (start sampling those channels),
+// play (stop sampling, loop what was sampled), stop. Message out: looper { state, len } when the state changes by
+// itself (30 s full: straight into the loop; a sample under 0.25 s is dropped). A 4 ms fade at the loop seam takes the click out.
+class Looper extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.max = Math.round(30 * sampleRate);
+    this.buf = [null, null];                 // per channel: [L, R], made on first use
+    this.mask = [false, false];
+    this.state = 'idle';                     // idle | rec | play
+    this.w = 0; this.len = 0; this.r = 0;
+    this.fade = Math.max(1, Math.round(0.004 * sampleRate));
+    this.port.onmessage = e => {
+      const m = e.data;
+      if (m.type === 'rec') {
+        this.mask = [!!(m.mask && m.mask[0]), !!(m.mask && m.mask[1])];
+        for (let k = 0; k < 2; k++) if (this.mask[k] && !this.buf[k]) this.buf[k] = [new Float32Array(this.max), new Float32Array(this.max)];
+        this.w = 0; this.len = 0; this.r = 0; this.state = 'rec';
+      } else if (m.type === 'play') this._play();
+      else if (m.type === 'stop') { this.state = 'idle'; this.len = 0; }
+    };
+  }
+  _play() {
+    if (this.state !== 'rec') return;
+    if (this.w < sampleRate * 0.25) { this.state = 'idle'; this.port.postMessage({ type: 'looper', state: 'idle', len: 0 }); return; }
+    this.len = this.w; this.r = 0; this.state = 'play';
+    this.port.postMessage({ type: 'looper', state: 'play', len: this.len / sampleRate });
+  }
+  process(inputs, outputs) {
+    const o0 = outputs[0] && outputs[0][0]; if (!o0) return true;
+    const n = o0.length;
+    if (this.state === 'rec') {
+      const take = Math.min(n, this.max - this.w), w0 = this.w;
+      for (let k = 0; k < 2; k++) {
+        if (!this.mask[k]) continue;
+        const inp = inputs[k], iL = inp && inp[0], iR = inp && (inp[1] || inp[0]), bL = this.buf[k][0], bR = this.buf[k][1];
+        for (let s = 0; s < take; s++) { bL[w0 + s] = iL ? iL[s] : 0; bR[w0 + s] = iR ? iR[s] : 0; }
+      }
+      this.w += take;
+      if (this.w >= this.max) this._play();
+    } else if (this.state === 'play') {
+      const len = this.len, F = Math.min(this.fade, len >> 1);
+      let r = this.r;
+      for (let s = 0; s < n; s++) {
+        const g = r < F ? r / F : r >= len - F ? (len - r) / F : 1;
+        for (let k = 0; k < 2; k++) {
+          if (!this.mask[k] || !outputs[k] || !outputs[k][0]) continue;
+          const oL = outputs[k][0], oR = outputs[k][1] || oL, b = this.buf[k];
+          oL[s] = b[0][r] * g; if (oR !== oL) oR[s] = b[1][r] * g;
+        }
+        if (++r >= len) r = 0;
+      }
+      this.r = r;
+    }
+    return true;
+  }
+}
+registerProcessor('vire-looper', Looper);

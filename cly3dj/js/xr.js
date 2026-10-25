@@ -731,7 +731,7 @@ export function setupXR(ctx) {
   function buttonList() {
     const out = [];
     const mc = ctx.mixer.userData.controls;
-    for (const id of ['sync', 'splitcue', 'mic', 'A.cue', 'B.cue', 'A.beat1', 'B.beat1']) out.push({ g: mc[id], c: { mixer: true, id }, r: 0.013 });   // all centre buttons the same size now (#89)
+    for (const id of ['sync', 'splitcue', 'mic', 'A.cue', 'B.cue', 'bpmtap', 'looper']) out.push({ g: mc[id], c: { mixer: true, id }, r: 0.013 });   // BPM TAP replaced A.beat1; LOOPER replaced B.beat1
     for (const d of ctx.decks) {
       const u = d.g.userData;
       out.push({ g: u.start, c: { deck: d.name, id: 'start' }, r: 0.022 });
@@ -756,9 +756,9 @@ export function setupXR(ctx) {
       const armed = st.poke.get(key) !== false;
       if (dxz < b.r && h < 0.006 && h > -0.02) {
         if (armed) { ctx.pressControl(b.c, st); st.poke.set(key, false); buzz(st, 0.5, 30); }
-        else if (b.c.id && b.c.id.endsWith('.beat1')) ctx.holdBeat1(ctx.decks[b.c.id[0] === 'A' ? 0 : 1], st);   // #117: still pressing (long press clears)
+        else if (b.c.id && (b.c.id === 'bpmtap' || b.c.id.endsWith('.beat1'))) ctx.holdBeat1(ctx.decks[0], st);   // #117: still pressing (long press clears)
       }
-      else if (h > 0.02 || dxz > b.r * 2) { if (!armed && b.c.id && b.c.id.endsWith('.beat1')) ctx.releaseBeat1(st); st.poke.set(key, true); }
+      else if (h > 0.02 || dxz > b.r * 2) { if (!armed && b.c.id && (b.c.id === 'bpmtap' || b.c.id.endsWith('.beat1'))) ctx.releaseBeat1(st); st.poke.set(key, true); }
     }
     st.pokeLift = (st.pokeLift || 0) + (Math.min(0.03, lift) - (st.pokeLift || 0)) * 0.5;
     // mixer readout (#116): poke the tempo number to cycle ORIG BPM / BPM / KEY

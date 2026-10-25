@@ -537,7 +537,66 @@ export function makeMixer() {
     addKnob(ch + '.pan', x, 0.030, 0xffb040, 0.009);
     addButton(ch + '.cue', 0.022, 0.012, 0xffc030, 'CUE', x, 0.056);
     // tap-to-set beat 1 (owner, #110): press on a kick; beside CUE, towards the mixer's outer edge
-    addButton(ch + '.beat1', 0.02, 0.012, 0x40ff70, 'BEAT 1', x + (x < 0 ? -0.033 : 0.033), 0.030);   // #253 (owner): in line with PAN (was beside CUE)
+    if (ch === 'A') {
+      addButton('bpmtap', 0.02, 0.012, 0xff3b30, 'TAP', x - 0.033, 0.030);
+      label('BPM', x - 0.033, -0.0065, 0.0024);
+
+      // Yellow flashing ring / collar around the TAP button
+      const tapRingMat = new THREE.MeshBasicMaterial({ color: 0xffea00, toneMapped: false, transparent: true, opacity: 0 });
+      const tapRing = new THREE.Mesh(roundedTop(0.024, 0.016, 0.0035, 0.0006), tapRingMat);
+      tapRing.position.set(x - 0.033, top + 0.0002, 0.030);
+      tapRing.raycast = () => {};
+      g.add(tapRing);
+      u.tapRing = tapRingMat;
+
+      // Embedded red numeric counter display above TAP button
+      const bpmCanvas = document.createElement('canvas');
+      bpmCanvas.width = 256; bpmCanvas.height = 96;
+      const bpmCtx = bpmCanvas.getContext('2d');
+      const bpmTex = new THREE.CanvasTexture(bpmCanvas);
+      bpmTex.colorSpace = THREE.SRGBColorSpace;
+
+      // Sunk dark bezel frame
+      const bez = box(0.028, 0.0005, 0.013, new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.9, metalness: 0.1 }));
+      bez.position.set(x - 0.033, top + 0.0003, 0.006);
+      g.add(bez);
+
+      // Digital display face: sitting cleanly on top of the bezel
+      const dispMat = new THREE.MeshBasicMaterial({ map: bpmTex, toneMapped: false, side: THREE.DoubleSide });
+      const disp = new THREE.Mesh(new THREE.PlaneGeometry(0.025, 0.0105), dispMat);
+      disp.rotation.x = -Math.PI / 2;
+      disp.position.set(x - 0.033, top + 0.0010, 0.006);
+      g.add(disp);
+
+      let lastText = '';
+      const drawText = (txt) => {
+        if (txt === lastText) return;
+        lastText = txt;
+        const W = 256, H = 96;
+        bpmCtx.fillStyle = '#080101';
+        bpmCtx.fillRect(0, 0, W, H);
+        bpmCtx.strokeStyle = '#220404';
+        bpmCtx.lineWidth = 3;
+        bpmCtx.strokeRect(2, 2, W - 4, H - 4);
+
+        bpmCtx.font = '900 46px monospace, "Courier New", sans-serif';
+        bpmCtx.textAlign = 'center';
+        bpmCtx.textBaseline = 'middle';
+        bpmCtx.fillStyle = '#220404';
+        bpmCtx.fillText('888.88', W / 2, H / 2);
+
+        // Crisp emissive red text - zero CPU shadow/blur overhead
+        bpmCtx.fillStyle = '#ff2b1a';
+        bpmCtx.fillText(txt, W / 2, H / 2);
+        bpmTex.needsUpdate = true;
+      };
+      drawText('---.--');
+      u.bpmCounter = { canvas: bpmCanvas, tex: bpmTex, setText: drawText };
+    } else {   // LOOPER (owner): replaces deck B's BEAT 1 button; LOOP VOL knob above it, same column
+      addButton('looper', 0.02, 0.012, 0xff6a30, 'LOOP', x + 0.033, 0.030);
+      addKnob('loop.vol', x + 0.033, 0.006, 0xff8a40, 0.008);
+      label('LOOP VOL', x + 0.033, -0.0065, 0.0024);
+    }
     layout.slots.push({ x, z: 0.104, w: 0.0035, d: 0.066 });
     layout.faderScales.push({ x: x + (x < 0 ? 0.013 : -0.013), z0: 0.076, z1: 0.132 });
     const slot = box(0.0033, 0.004, 0.064, MAT.black); slot.position.set(x, top - 0.0021, 0.104); g.add(slot);
