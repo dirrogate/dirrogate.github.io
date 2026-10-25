@@ -6220,7 +6220,7 @@ function drawPropsPage(T) {
       B(sel.frame ? 'FRAME: ON' : 'FRAME', sel.frame, () => sel.set('frame', !sel.frame)),
       S('FLICKER', sel.flick, pc(sel.flick), v => { sel.flick = v; }), S('GLOW', sel.glow / 1.5, pc(sel.glow / 1.5), v => { sel.glow = v * 1.5; }), sizeUni());
   } else if (sel.type === 'crate') {
-    cells.push(sizeUni());
+    cells.push(sizeUni(), B(sel.float ? 'FLOAT: ON (rides the water)' : 'FLOAT (flooded street)', sel.float, () => { sel.float = !sel.float; sel.save(); drawMixScreen(); }), S('FLOAT HEIGHT', (sel.floatH - 0.01) / 0.19, (sel.floatH * 100).toFixed(0) + ' cm', v => { sel.floatH = 0.01 + v * 0.19; sel.save(); }));
   } else if (sel.type === 'plate') {   // #487 backdrop photo
     const names = [...PLATE_BUILTIN, ...mp.lists.png], logP = s => Math.log(clamp(s, 2, 60) / 2) / Math.log(30);
     cells.push(B('PICTURE: ' + sel.src, false, () => sel.set('src', cyc(names, sel.src))), B('ADD PICTURE', false, () => mp.pickFile('png', 'image/*', nm => { sel.set('src', nm); drawMixScreen(); })),
@@ -8058,7 +8058,14 @@ if (!CAMERA_ROLE) {
     waterHome: () => { const g = cases.caseA.group; return { p: new THREE.Vector3(g.position.x, 0.12, g.position.z), yaw: g.rotation.y }; },
     isDeck: o => o === deckGroups[0] || o === deckGroups[1], afterFloat: () => { if (deckInst) deckInst.update(); },
   });
-  mprops = new MovieProps({ rig, camera, renderer, toast, scene });   // #478
+  const wetMats = new Map();   // #494 original look of every deck / record material, so the rain wet look can be blended in and out
+  const wetGearFn = lv => {
+    const roots = [...deckGroups, ...decks.map(d => d.record && d.record.group)].filter(Boolean);
+    for (const g of roots) g.traverse(o => { if (!o.isMesh || !o.material) return; for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
+      if (!('roughness' in m) || m.userData.noWet) continue; let w = wetMats.get(m); if (!w) { w = { r: m.roughness, c: m.color ? m.color.clone() : null, e: m.envMapIntensity }; wetMats.set(m, w); }
+      m.roughness = w.r * (1 - 0.65 * lv); if (w.c) m.color.copy(w.c).multiplyScalar(1 - 0.42 * lv); m.envMapIntensity = (w.e ?? 1) * (1 + 1.2 * lv); } });
+  };
+  mprops = new MovieProps({ rig, camera, renderer, toast, scene, wetGear: wetGearFn, gearPoints: () => [...deckGroups.map(g => g.getWorldPosition(new THREE.Vector3()))] });   // #478
   mprops.listCb = () => { if (toolsPage === 'props') drawMixScreen(); };
   try { mprops.load(); } catch (e) { console.warn('movie props load', e); }
 }

@@ -172,7 +172,7 @@ void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; g
   vTx = normalize(mat3(modelMatrix) * vec3(1.0, 0.0, 0.0)); vTy = normalize(mat3(modelMatrix) * vec3(0.0, 1.0, 0.0)); vNn = normalize(mat3(modelMatrix) * vec3(0.0, 0.0, 1.0)); }`;
 const PUD_F = `precision highp float;
 uniform sampler2D uMatte, uS0, uS1, uS2, uS3; uniform float uWet, uSoft, uInv, uRip, uRain, uRefl, uT, uDark, uSize, uCobble, uStreak, uBump; uniform vec2 uTile, uFocus;
-uniform vec3 uSky, uTint; uniform mat4 uSI[4]; uniform vec4 uSD[4];
+uniform vec3 uSky, uTint; uniform sampler2D uPT; uniform mat4 uPI; uniform float uPOn, uPB; uniform mat4 uSI[4]; uniform vec4 uSD[4];
 uniform float uSurf, uTileM, uDispAmt, uCover, uAmb, uHasD, uHasR, uHasN, uHasA, uHasC; uniform sampler2D uDiff, uDisp, uRoughT, uNormT, uAOT; uniform vec2 uWD; uniform vec4 uLP[4]; uniform vec3 uLC[4];
 varying vec2 vUv; varying vec3 vW, vLV, vTx, vTy, vNn;
 float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
@@ -241,6 +241,13 @@ vec4 surfColor(){
   vec3 sky = uSky * mix(1.6, 0.4, clamp(R.y * 1.5, 0.0, 1.0));
   vec3 refl = (sky + sgn(R, r * 6.0 + coc * 0.8 + length(N.xz) * 8.0, step(0.55, gloss))) * fr * uRefl * ao;
   refl += vec3(0.55, 0.65, 0.8) * max(h0, 0.0) * 1.4 * uRip * min(uRain, 1.5) * wm;
+  if (uPOn > 0.5) {   // #494 the backdrop photo seen in the wet ground: the reflected ray is traced to the photo's plane (ripples and tilt bend it, roughness blurs it)
+    vec3 pp = (uPI * vec4(vW, 1.0)).xyz, pd = (uPI * vec4(R, 0.0)).xyz; float tt = -pp.z / (abs(pd.z) < 1e-4 ? 1e-4 : pd.z);
+    vec3 hp = pp + pd * max(tt, 0.0); vec2 puv = hp.xy + 0.5;
+    float inside = step(0.0, tt) * smoothstep(0.0, 0.04, puv.x) * smoothstep(1.0, 0.96, puv.x) * smoothstep(0.0, 0.03, puv.y) * smoothstep(1.0, 0.9, puv.y);
+    vec3 pc = texture2D(uPT, clamp(puv, 0.001, 0.999), clamp(r * 7.0 + coc * 0.6 + length(N.xz) * 5.0, 0.0, 7.0)).rgb;
+    refl += pc * uPB * inside * (0.12 + fr * 1.2) * uRefl * (0.45 + 0.8 * wm) * ao;
+  }
   return vec4((dif * uCover + refl) * edge, uCover * edge);
 }
 void main(){
@@ -411,7 +418,7 @@ class Puddle extends BoxProp {
     super(mp, 'puddle'); this.matte = 'SCATTERED'; this.wet = 0.5; this.soft = 0.06; this.rip = 0.8; this.rain = 0.6; this.refl = 1; this.inv = false; this.dark = 0.6; this.stone = 0.8; this.surf = ''; this.cover = 1; this.amb = 0.12; this.sdirty = true;
     this.U = {
       uMatte: { value: DUMMY }, uS0: { value: DUMMY }, uS1: { value: DUMMY }, uS2: { value: DUMMY }, uS3: { value: DUMMY }, uWet: { value: 0.5 }, uSoft: { value: 0.06 }, uInv: { value: 0 }, uRip: { value: 0.8 }, uRain: { value: 0.6 },
-      uRefl: { value: 1 }, uT: { value: 0 }, uDark: { value: 0.55 }, uSize: { value: 3 }, uCobble: { value: 0 }, uStreak: { value: 0 }, uBump: { value: 1.1 }, uTile: { value: new THREE.Vector2(1, 1) }, uSurf: { value: 0 }, uTileM: { value: 1 }, uDispAmt: { value: 1 }, uCover: { value: 1 }, uAmb: { value: 0.12 }, uHasD: { value: 0 }, uHasR: { value: 0 }, uHasN: { value: 0 }, uHasA: { value: 0 }, uHasC: { value: 0 }, uDiff: { value: DUMMY }, uDisp: { value: DUMMY }, uRoughT: { value: DUMMY }, uNormT: { value: DUMMY }, uAOT: { value: DUMMY }, uWD: { value: new THREE.Vector2(1, 1) }, uLP: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, -99, 0, 1)) }, uLC: { value: [0, 1, 2, 3].map(() => new THREE.Color()) }, uFocus: { value: new THREE.Vector2(3, 0) }, uSky: { value: new THREE.Color(0.014, 0.02, 0.032) }, uTint: { value: new THREE.Color(0.1, 0.5, 0.6) },
+      uRefl: { value: 1 }, uT: { value: 0 }, uDark: { value: 0.55 }, uSize: { value: 3 }, uCobble: { value: 0 }, uStreak: { value: 0 }, uBump: { value: 1.1 }, uTile: { value: new THREE.Vector2(1, 1) }, uSurf: { value: 0 }, uTileM: { value: 1 }, uDispAmt: { value: 1 }, uCover: { value: 1 }, uAmb: { value: 0.12 }, uHasD: { value: 0 }, uHasR: { value: 0 }, uHasN: { value: 0 }, uHasA: { value: 0 }, uHasC: { value: 0 }, uDiff: { value: DUMMY }, uDisp: { value: DUMMY }, uRoughT: { value: DUMMY }, uNormT: { value: DUMMY }, uAOT: { value: DUMMY }, uWD: { value: new THREE.Vector2(1, 1) }, uLP: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, -99, 0, 1)) }, uLC: { value: [0, 1, 2, 3].map(() => new THREE.Color()) }, uFocus: { value: new THREE.Vector2(3, 0) }, uSky: { value: new THREE.Color(0.014, 0.02, 0.032) }, uPT: { value: DUMMY }, uPI: { value: new THREE.Matrix4() }, uPOn: { value: 0 }, uPB: { value: 1 }, uTint: { value: new THREE.Color(0.1, 0.5, 0.6) },
       uSI: { value: [0, 1, 2, 3].map(() => new THREE.Matrix4()) }, uSD: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
     };
     this.mat = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: PUD_V, fragmentShader: PUD_F, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide,
@@ -433,6 +440,7 @@ class Puddle extends BoxProp {
     const U = this.U; this.t += dt; U.uT.value = this.t; U.uWet.value = this.wet; U.uSoft.value = this.soft; U.uInv.value = this.inv ? 1 : 0; U.uRip.value = this.rip; U.uRain.value = this.rain; U.uRefl.value = this.refl; U.uDark.value = this.dark;
     if (this.sdirty) this.surfSync();
     if (U.uSurf.value > 0.5) {
+      { const pl = this.mp.items.find(i => i.type === 'plate' && i.mesh.visible && i.mat.map); if (pl) { pl.mesh.updateWorldMatrix(true, false); U.uPI.value.copy(pl.mesh.matrixWorld).invert(); U.uPT.value = pl.mat.map; U.uPB.value = pl.bright * 1.1; U.uPOn.value = 1; } else U.uPOn.value = 0; }
       U.uCover.value = this.cover; U.uAmb.value = this.amb; U.uWD.value.set(this.w, this.d); U.uTile.value.set(this.w / U.uTileM.value, this.d / U.uTileM.value);
       const Lx = this.mp.neonsNear(_v.setFromMatrixPosition(this.obj.matrixWorld), 4);
       for (let i = 0; i < 4; i++) { const n = Lx[i]; if (n) { const li = n.light(); U.uLP.value[i].set(li.pos.x, li.pos.y, li.pos.z, li.r); U.uLC.value[i].set(li.col.r, li.col.g, li.col.b).multiplyScalar(li.k * 0.5); } else U.uLP.value[i].set(0, -99, 0, 1); }
@@ -596,7 +604,24 @@ varying vec2 vUv; varying vec3 vW, vNn;
 float h11(float n){ return fract(sin(n * 91.345) * 47453.5453); }
 float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 void main(){
-  vec4 tx = texture2D(uTex, vUv); if (tx.a < 0.004) discard;
+  vec2 buv = vUv; float rvC = 0.0, rvE = 0.0, rvB = 0.0;
+  if (uWall > 0.5 && uWet * uRain > 0.01) {   // #495 rivulets: see-through runs of water that wander and stop-start down the face; each one bends the picture behind it a little (fake refraction), the bead at the head acts as a small lens
+    float sz = max(uSize, 0.2), cw = 0.075, cols = sz / cw, kk = clamp(uWet * uRain, 0.0, 1.0);
+    for (int j = -1; j <= 1; j++) {
+      float cx = floor(vUv.x * cols) + float(j), r = h11(cx + 3.7), r2 = h11(cx * 2.3 + 1.1), r3 = h11(cx * 5.1 + 9.0);
+      if (r2 > 0.5 + 0.5 * kk) continue;
+      float u = uT * (0.07 + 0.09 * r) + r3 * 10.0, stepped = (floor(u) + smoothstep(0.0, 0.45, fract(u))) * (0.05 + 0.05 * r);   // runs, pauses, runs again
+      float head = 1.05 - mod(stepped + r2 * 3.0, 1.55), yM = vUv.y * sz;
+      float cxm = (cx + 0.5 + (0.3 * sin(yM * (2.0 + 3.0 * r) + r * 20.0) * (0.6 + 0.4 * sin(yM * 6.0 + r2 * 9.0)) + 0.12 * sin(yM * 17.0 + r3 * 5.0))) / cols;   // wandering centre line, in uv
+      float dx = (vUv.x - cxm) * sz, trail = step(head, vUv.y) * smoothstep(head + 0.4 + 0.3 * r3, head, vUv.y);
+      float wd = (0.0042 + 0.0035 * r) * (1.0 + 0.7 * sin(yM * 9.0 + r * 5.0)), core = smoothstep(wd, 0.0, abs(dx)) * trail, edge = smoothstep(wd * 3.2, wd, abs(dx)) * trail;
+      float bd = length(vec2(dx, (vUv.y - head) * sz)), bead = smoothstep(0.012 + 0.006 * r, 0.0, bd) * step(r2, 0.5 + 0.5 * kk);
+      buv += vec2(-dx * 8.0 * edge * (1.0 - core * 0.4), -0.0018 * core) / sz * kk;
+      buv += vec2(dx, (vUv.y - head) * sz) * -0.9 * bead / sz * kk;
+      rvC = max(rvC, core); rvE = max(rvE, edge - core * 0.6); rvB = max(rvB, bead);
+    }
+  }
+  vec4 tx = texture2D(uTex, buv); if (tx.a < 0.004) discard;
   vec3 N = normalize(vNn); if (!gl_FrontFacing) N = -N;
   vec3 V = normalize(cameraPosition - vW);
   vec3 alb = tx.rgb * uCol * (1.0 - 0.38 * uWet);
@@ -608,12 +633,9 @@ void main(){
   vec3 col = alb * Lt + sp;
   float ndv = clamp(dot(N, V), 0.0, 1.0); col += uSky * pow(1.0 - ndv, 4.0) * uWet * 3.0;
   float k = uRain * uWet;
-  if (uWall > 0.5) {   // rain running down: thin bright runs that creep along, every column its own speed
-    float cols = max(uSize, 0.2) / 0.045, cx = floor(vUv.x * cols), r = h11(cx + 3.7), fx = abs(fract(vUv.x * cols) - 0.5);
-    float y = fract(vUv.y * (1.5 + 2.0 * r) + uT * (0.12 + 0.3 * r) + r * 7.0);   // y runs up the card, so the head of a run moves down as the phase grows
-    float run = smoothstep(0.5, 0.0, fx * 2.0 + 0.0) * smoothstep(0.0, 0.08, y) * smoothstep(0.55, 0.1, y) * step(0.45, h11(cx * 1.7 + 0.3));
-    col += (vec3(0.55, 0.65, 0.8) * 0.8 + sp) * run * k * 1.1;
-    col *= 1.0 - 0.18 * run * k;
+  if (uWall > 0.5) {   // the water itself: almost clear, a darker rim, a glint where a lamp catches it
+    float spw = pow(max(dot(N, normalize(V + normalize(uLP[0].xyz - vW))), 0.0), 20.0);
+    col = col * (1.0 - 0.16 * rvE * k) * (1.0 + 0.1 * rvC * k) + (sp * 1.6 + vec3(0.5, 0.62, 0.8) * 0.03) * rvC * k + (sp * 3.0 + spw * uLC[0] * 0.5 + vec3(0.6, 0.7, 0.85) * 0.12) * rvB * k;
   } else {   // rain rings on the ground
     vec2 q = vUv * max(uSize, 0.2) / 0.26; vec2 id = floor(q), f = fract(q) - 0.5; float rr = h21(id), ph = fract(uT * (0.7 + 0.5 * rr) + rr * 9.0);
     float rad = ph * 0.45, ring = smoothstep(0.05, 0.0, abs(length(f + (vec2(h21(id + 1.3), h21(id + 7.1)) - 0.5) * 0.4) - rad)) * (1.0 - ph) * step(0.35, rr);
@@ -687,7 +709,15 @@ class CrateProp extends Prop {   // #491 a milk crate packed with 12-inch record
     }
     this.box = new THREE.Box3(new THREE.Vector3(-MILK.W / 2, 0, -MILK.D / 2), new THREE.Vector3(MILK.W / 2, MILK.H + 0.05, MILK.D / 2));
     this.ringAt.set(MILK.W / 2 + 0.08, 0.04, MILK.D / 2 + 0.08); this.cubeAt.set(-MILK.W / 2 - 0.08, MILK.H + 0.1, -MILK.D / 2 - 0.08); this.placeHandles();
+    this.float = false; this.floatH = 0.05; this.ft = Math.random() * 20;
   }
+  // #494 FLOAT: a faked float for a flooded street (no physics): the crate rides up by the water depth, bobs, rocks and drifts a little
+  tick(dt) {
+    this.ft += dt; const f = this.float, k = f ? 1 : 0, t = this.ft, y = f ? this.floatH + 0.012 * Math.sin(t * 1.7) + 0.006 * Math.sin(t * 3.1) : 0;
+    for (const o of [this.crate, this.recs]) { o.position.set(f ? 0.03 * Math.sin(t * 0.37) : 0, y, f ? 0.025 * Math.sin(t * 0.29 + 1) : 0); o.rotation.set(k * 0.035 * Math.sin(t * 1.3 + 1), k * 0.05 * Math.sin(t * 0.21), k * 0.05 * Math.sin(t * 0.9)); }
+  }
+  snap() { return { ...this.base(), float: this.float, floatH: this.floatH }; }
+  apply(d) { if (d.float !== undefined) this.float = d.float; if (d.floatH !== undefined) this.floatH = d.floatH; this.setBase(d); }
   localBox() { return this.box; }
   dispose() { super.dispose && super.dispose(); }
 }
@@ -924,7 +954,12 @@ export class MovieProps {
     this.selected = gr; this.save(); return gr;
   }
   setGuides(on) { this.guides = !!on; try { localStorage.setItem(KEY + '.guides', on ? '1' : '0'); } catch {} }
-  tick(dt) { this.tickFocus(dt); for (const p of this.items) if (p.edge) p.edge.visible = this.guides; for (const p of this.items) p.tick(dt); if (this.saveT > 0 && (this.saveT -= dt) <= 0) this.saveNow(); }
+  tickGearWet(dt) {   // #494 rain over the decks wets them: darker, glossier decks and records
+    const env = this.env; if (!env.wetGear || !env.gearPoints) return; let lv = 0;
+    const rains = this.items.filter(i => i.type === 'rain' && i.obj.visible); if (rains.length) { const pts = env.gearPoints(); for (const r of rains) { r.obj.updateWorldMatrix(true, false); for (const P of pts) { const l = r.obj.worldToLocal(_v2.copy(P)); if (Math.abs(l.x) < r.w / 2 && Math.abs(l.z) < r.d / 2 && l.y > -0.3 && l.y < r.h) lv = Math.max(lv, clamp(r.amt * 3, 0, 1)); } } }
+    this.gw = (this.gw || 0) + (lv - (this.gw || 0)) * Math.min(1, dt * 0.4); if (this.gw > 0.003 || this.gwOn) { this.gwOn = this.gw > 0.003; env.wetGear(this.gw); }
+  }
+  tick(dt) { this.tickGearWet(dt); this.tickFocus(dt); for (const p of this.items) if (p.edge) p.edge.visible = this.guides; for (const p of this.items) p.tick(dt); if (this.saveT > 0 && (this.saveT -= dt) <= 0) this.saveNow(); }
   save() { this.saveT = 0.6; }
   saveNow() { try { localStorage.setItem(KEY, JSON.stringify(this.items.filter(p => !p.dead).map(p => p.snap()))); } catch {} }
   load() {
