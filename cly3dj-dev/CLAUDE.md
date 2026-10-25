@@ -1131,3 +1131,6 @@ The grooves in VR now match the owner's Vinyl Reality reference. Any change to r
 
 ## #476 (25 Oct 2026) RELEASE: cly3dj = cly3dj-dev
 - Owner: update the .md files and copy to cly3dj. PROJECT.md: new LOOPER and LOOP MASTER bullet under The DJ setup, loopbank.js in the file map, Status (25 Oct) updated; CLAUDE.md NOW section points to LOOP MASTER. Release brought level with cly3dj-dev: #473 UNDO, #474 / #475 CUT / COPY / PASTE across slots, REC/PLAY/CLR, RANGE ALL fit (js/main.js; everything else was already released in #472). Commit 03ddf5a (code) + this log. Not tried in the headset. No Node restart.
+
+## #477 TRIM RANGE -12 .. +24 dB (25 Oct)
+Owner: old records sound quiet even with TRIM up. Chain at defaults sits ~8.7 dB under the file (fader 0.8 = -3.9, bus -2.5, master 0.8 = -2.3) and old max was trim +12, so a -20 dBFS file never got near the limiter. TRIM knob is now asymmetric: left half 0 .. -12 dB, right half 0 .. +24 dB (centre still unity, so existing knob positions are unchanged below centre; above centre the same position gives twice the dB). audio.js setTrim, main.js tooltip text. sw.js cache v10. Dev only; release not copied. Not heard on the Quest.
