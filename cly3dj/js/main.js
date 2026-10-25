@@ -1573,7 +1573,7 @@ function mixLabel(id) {
   const [ch, what] = id.includes('.') ? id.split('.') : ['', id];
   const pre = ch ? ch + ' ' : '';
   switch (what) {
-    case 'trim': return `${pre}Trim ${((v - 0.5) * 24).toFixed(1)} dB`;
+    case 'trim': return `${pre}Trim ${((v < 0.5 ? (v - 0.5) * 24 : (v - 0.5) * 48)).toFixed(1)} dB`;
     case 'hi': case 'mid': case 'low': {
       const db = v < 0.5 ? -40 * Math.pow(1 - v / 0.5, 1.6) : (v - 0.5) / 0.5 * 6;
       return `${pre}${what.toUpperCase()} ${db <= -39.5 ? 'KILL' : db.toFixed(1) + ' dB'}`;
