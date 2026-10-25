@@ -621,7 +621,8 @@ void main(){
       rvC = max(rvC, core); rvE = max(rvE, edge - core * 0.6); rvB = max(rvB, bead);
     }
   }
-  vec4 tx = texture2D(uTex, buv); if (tx.a < 0.004) discard;
+  vec4 t0 = texture2D(uTex, vUv); if (t0.a < 0.004) discard;   // the shape of the decal never changes; only the colour is bent, and only from texels that exist (no holes)
+  vec4 tr = texture2D(uTex, buv); vec4 tx = vec4(mix(t0.rgb, tr.rgb, smoothstep(0.2, 0.9, tr.a)), t0.a);
   vec3 N = normalize(vNn); if (!gl_FrontFacing) N = -N;
   vec3 V = normalize(cameraPosition - vW);
   vec3 alb = tx.rgb * uCol * (1.0 - 0.38 * uWet);
