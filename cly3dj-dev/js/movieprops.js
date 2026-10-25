@@ -106,13 +106,24 @@ function nz(seed) {   // value noise on a 64 grid, wrapped
     return (h(xi, yi) * (1 - u) + h(xi + 1, yi) * u) * (1 - v) + (h(xi, yi + 1) * (1 - u) + h(xi + 1, yi + 1) * u) * v;
   };
 }
-function makeCobbles() {   // 6 x 8 staggered stones per tile; grey = the stone's rounded top, white = the joints (where the water stands)
-  const S = 240, rh = 30, sw = 40, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d'), im = g.createImageData(S, S);
-  const rnd = (a, b) => { let h = (a * 374761393 + b * 668265263) ^ 0x5bd1e995; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+function makeCobbles() {   // irregular rounded setts: jittered Voronoi cells, wobbly joints, each stone a little dome with its own tilt and brightness. R = joints white / stone tops grey, G = stone brightness
+  const S = 512, N = 9, TAU = Math.PI * 2, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d'), im = g.createImageData(S, S);
+  const rnd = (a, b, k) => { let h = (a * 374761393 + b * 668265263 + k * 2147483647) ^ 0x5bd1e995; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+  const pts = []; for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) pts.push({ x: i + 0.12 + 0.76 * rnd(i, j, 1), y: j + 0.12 + 0.76 * rnd(i, j, 2), tx: (rnd(i, j, 3) - 0.5) * 0.9, ty: (rnd(i, j, 4) - 0.5) * 0.9, br: rnd(i, j, 5), sz: 0.85 + 0.3 * rnd(i, j, 6) });
   for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-    const row = Math.floor(y / rh), xo = (row % 2) * sw / 2, xx = (x + xo) % S, col = Math.floor(xx / sw), u = (xx % sw) / sw - 0.5, v = (y % rh) / rh - 0.5;
-    const jit = 0.8 + rnd(row, col) * 0.2, d = Math.pow(Math.abs(u) / 0.46, 5) + Math.pow(Math.abs(v) / 0.44, 5), dome = Math.max(0, 1 - d) * jit;
-    const b = clamp(1 - dome * 1.05, 0, 1) * 255, i = (y * S + x) * 4; im.data[i] = im.data[i + 1] = im.data[i + 2] = b; im.data[i + 3] = 255;
+    let px = x / S * N, py = y / S * N;
+    const wx = 0.13 * Math.sin(TAU * (py * 2 / N) + 1.3) + 0.07 * Math.sin(TAU * (py * 5 / N) + 0.4) + 0.05 * Math.sin(TAU * ((px + py) * 4 / N)), wy = 0.13 * Math.sin(TAU * (px * 2 / N) + 2.1) + 0.07 * Math.sin(TAU * (px * 6 / N) + 1.1) + 0.05 * Math.sin(TAU * ((px - py) * 3 / N));
+    px += wx; py += wy;
+    const i0 = Math.floor(px), j0 = Math.floor(py); let f1 = 9, f2 = 9, id = null, cx = 0, cy = 0;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      const ii = i0 + di, jj = j0 + dj, p = pts[((jj % N) + N) % N * N + ((ii % N) + N) % N], qx = p.x + (ii - (((ii % N) + N) % N)), qy = p.y + (jj - (((jj % N) + N) % N)), d = Math.hypot(px - qx, py - qy) / p.sz;
+      if (d < f1) { f2 = f1; f1 = d; id = p; cx = qx; cy = qy; } else if (d < f2) f2 = d;
+    }
+    const e = f2 - f1, st = Math.min(1, Math.max(0, (e - 0.03) / 0.15)), dome = Math.pow(st * st * (3 - 2 * st), 0.8);
+    const fine = 0.025 * Math.sin(TAU * (x * 23 / S) + id.br * 9) * Math.sin(TAU * (y * 31 / S) + id.br * 5) + 0.02 * Math.sin(TAU * ((x + y) * 61 / S));
+    let h = dome * (1 - 0.45 * f1 * f1) + (id.tx * (px - cx) + id.ty * (py - cy)) * 0.22 * dome + fine * dome;
+    const m = Math.min(1, Math.max(0, 1 - h * 1.1)), i = (y * S + x) * 4;
+    im.data[i] = im.data[i + 1] = im.data[i + 2] = 0; im.data[i] = m * 255; im.data[i + 1] = id.br * 255; im.data[i + 3] = 255;
   }
   g.putImageData(im, 0, 0); return c;
 }
@@ -178,23 +189,23 @@ void main(){
   float t = 1.0 - uWet;
   float mask = smoothstep(t - uSoft, t + uSoft + 0.001, m);
   vec2 e2 = min(vUv, 1.0 - vUv); float edge = smoothstep(0.0, 0.07, min(e2.x, e2.y));
-  if (uCobble > 0.5) mask = max(mask, uWet * 0.65);   // stone tops are damp too, the joints hold the water
+  if (uCobble > 0.5) mask = max(mask, uWet * 0.9 * (0.6 + 0.8 * texture2D(uMatte, muv).g));   // stone tops are damp too, the joints hold the water
   mask *= edge; if (mask < 0.003) discard;
   vec2 p = vW.xz; float e = 0.01, h0 = height(p), hx = height(p + vec2(e, 0.0)), hy = height(p + vec2(0.0, e));
-  vec2 bump = vec2(0.0); float rough = 1.0;
+  vec2 bump = vec2(0.0); float rough = 1.0, jb = 0.0, isJoint = 0.0;
   if (uCobble > 0.5) {   // every stone is a little dome: its slope tilts the reflection; the tops are rougher than the joints
-    float te = 1.0 / 240.0;
+    float te = 1.0 / 512.0;
     bump = vec2(texture2D(uMatte, muv + vec2(te, 0.0)).r - texture2D(uMatte, muv - vec2(te, 0.0)).r, texture2D(uMatte, muv + vec2(0.0, te)).r - texture2D(uMatte, muv - vec2(0.0, te)).r) * uBump;
-    rough = mix(0.4, 1.0, smoothstep(0.3, 0.85, m));
+    isJoint = smoothstep(0.55, 0.92, m); rough = mix(1.0, 0.5, isJoint) * (0.72 + 0.55 * texture2D(uMatte, muv).g); jb = mix(1.6, 0.3, isJoint);   // polished, slightly soft stone tops; dark dirty joints; every stone wears differently
   }
   vec3 n = normalize(vec3(-(hx - h0) / e * uRip * 0.35 + bump.x, 1.0, -(hy - h0) / e * uRip * 0.35 + bump.y));
   vec3 V = normalize(vW - cameraPosition), R = reflect(V, n); R.y = max(abs(R.y), 0.03);
   float fr = (0.18 + 0.82 * pow(1.0 - clamp(dot(n, -V), 0.0, 1.0), 4.0)) * rough;
   float dist = length(vW - cameraPosition), coc = uFocus.y > 0.0 ? min(6.0, uFocus.y * 10.0 * abs(dist - uFocus.x) / max(dist, 0.3)) : 0.0;
   vec3 sky = uSky * mix(1.6, 0.4, clamp(R.y * 1.5, 0.0, 1.0));
-  vec3 refl = (sky + sgn(R, length(n.xz) * 14.0 + coc * 0.8 + (1.0 - rough) * 4.0, uStreak)) * fr * uRefl;
+  vec3 refl = (sky + sgn(R, length(n.xz) * 14.0 + coc * 0.8 + jb, uStreak)) * fr * uRefl;
   refl += uTint * 0.008 + vec3(0.55, 0.65, 0.8) * max(h0, 0.0) * 1.4 * uRip * min(uRain, 1.5);   // bright rim on the drop rings
-  float a = mask * uDark;
+  float a = min(1.0, mask * uDark + isJoint * 0.22);
   gl_FragColor = vec4(refl * mask, a);
   #include <colorspace_fragment>
 }`;
@@ -242,35 +253,31 @@ void main(){
   mv.xy += o; vUv = position.xy + 0.5; vF = fade; vD = -mv.z; vW = (inverse(viewMatrix) * mv).xyz;
   gl_Position = projectionMatrix * mv;
 }`;
-const FOG_F = DEPTH_GLSL + `uniform sampler2D uTex; uniform vec3 uCol; uniform float uDen, uAmb, uLit;
+const FOG_F = DEPTH_GLSL + `uniform sampler2D uTex; uniform vec3 uCol; uniform float uDen, uAmb, uLit, uT, uFloor;
 varying vec2 vUv; varying float vF; varying float vD; varying vec3 vL; varying vec3 vW;
 void main(){
   vec4 s = texture2D(uTex, vUv);
   float lum = dot(vL, vec3(0.33)) * uLit;
-  float a = s.a * uDen * vF * smoothstep(0.15, 0.7, vD) * (1.0 + 0.7 * lum);
+  vec2 q = (vUv - 0.5) * 1.35; float ca = cos(1.1), sa = sin(1.1); q = vec2(ca * q.x - sa * q.y, sa * q.x + ca * q.y) + 0.5 + vec2(uT * 0.004, -uT * 0.003);
+  vec4 s2 = texture2D(uTex, q);   // a second, turned and larger look at the same puff: breaks up the flat card
+  float a = s.a * mix(0.55, 1.25, s2.a) * uDen * vF * smoothstep(0.15, 0.9, vD) * (1.0 + 0.7 * lum);
+  a *= smoothstep(0.0, 0.3, vW.y - uFloor);   // tapers off before it meets the ground instead of cutting along it
   float g = realGap(vW); if (g > -900.0) a *= smoothstep(0.0, 0.4, -g);   // soft against real walls, people, hands: fog sits in the room instead of through it
   gl_FragColor = vec4(uCol * uAmb * (0.85 + 0.15 * s.r) + vL * uLit * (0.6 + 0.4 * uCol), min(a, 0.9));
   #include <colorspace_fragment>
 }`;
 let cloudTex = null;
-function cloud() {
+function cloud() {   // a soft round puff with cloudy noise inside and no edge at all (it is gone well before the quad ends)
   if (cloudTex) return cloudTex;
-  const S = 128, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d'); let s = 5;
-  const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
-  for (let i = 0; i < 26; i++) {
-    const x = S / 2 + (rnd() - 0.5) * S * 0.5, y = S / 2 + (rnd() - 0.5) * S * 0.5, r = S * (0.12 + rnd() * 0.2), gr = g.createRadialGradient(x, y, 0, x, y, r);
-    gr.addColorStop(0, 'rgba(255,255,255,0.22)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, S, S);
+  const S = 256, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d'), im = g.createImageData(S, S), TAU = Math.PI * 2;
+  const ph = [0.7, 2.1, 4.3, 5.9, 1.2, 3.3];
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const u = (x / S - 0.5) * 2, v = (y / S - 0.5) * 2, r2 = u * u + v * v;
+    const n = 0.5 + 0.25 * Math.sin(u * 5.1 + ph[0]) * Math.cos(v * 4.3 + ph[1]) + 0.15 * Math.sin(u * 11 + v * 7 + ph[2]) + 0.1 * Math.cos(u * 17 - v * 13 + ph[3]) * Math.sin(v * 9 + ph[4]);
+    const fall = Math.max(0, 1 - r2), a = Math.pow(fall, 2.2) * (0.35 + 0.9 * n), i = (y * S + x) * 4;
+    im.data[i] = 150 + 105 * n; im.data[i + 1] = im.data[i] ; im.data[i + 2] = im.data[i]; im.data[i + 3] = Math.min(255, a * 255);
   }
-  g.globalCompositeOperation = 'destination-in'; const m = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2); m.addColorStop(0, '#fff'); m.addColorStop(0.7, 'rgba(255,255,255,0.5)'); m.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = m; g.fillRect(0, 0, S, S);
-  cloudTex = new THREE.CanvasTexture(c); cloudTex.colorSpace = THREE.SRGBColorSpace; return cloudTex;
-}
-
-// out-of-focus softening for a flat card: the texture is read from a coarser mip level (bias set per frame from the focus pull)
-function biasMat(m) {
-  const u = { value: 0 };
-  m.onBeforeCompile = sh => { sh.uniforms.uBias = u; sh.fragmentShader = 'uniform float uBias;\n' + sh.fragmentShader.replace('#include <map_fragment>', '#ifdef USE_MAP\n vec4 sampledDiffuseColor = texture2D( map, vMapUv, uBias ); diffuseColor *= sampledDiffuseColor;\n#endif'); };
-  m.customProgramCacheKey = () => 'mpBias';
-  return u;
+  g.putImageData(im, 0, 0); cloudTex = new THREE.CanvasTexture(c); cloudTex.colorSpace = THREE.SRGBColorSpace; return cloudTex;
 }
 
 // ------------------------------------------------------------------ base prop (the interface xr.js drives: obj, hit, grab, hold, release, scaleTo, corner / knob)
@@ -338,10 +345,10 @@ class BoxProp extends Prop {
 
 class Puddle extends BoxProp {
   constructor(mp) {
-    super(mp, 'puddle'); this.matte = 'SCATTERED'; this.wet = 0.5; this.soft = 0.06; this.rip = 0.8; this.rain = 0.6; this.refl = 1; this.inv = false; this.dark = 0.6; this.stone = 1;
+    super(mp, 'puddle'); this.matte = 'SCATTERED'; this.wet = 0.5; this.soft = 0.06; this.rip = 0.8; this.rain = 0.6; this.refl = 1; this.inv = false; this.dark = 0.6; this.stone = 0.8;
     this.U = {
       uMatte: { value: DUMMY }, uS0: { value: DUMMY }, uS1: { value: DUMMY }, uS2: { value: DUMMY }, uS3: { value: DUMMY }, uWet: { value: 0.5 }, uSoft: { value: 0.06 }, uInv: { value: 0 }, uRip: { value: 0.8 }, uRain: { value: 0.6 },
-      uRefl: { value: 1 }, uT: { value: 0 }, uDark: { value: 0.55 }, uSize: { value: 3 }, uCobble: { value: 0 }, uStreak: { value: 0 }, uBump: { value: 0.9 }, uTile: { value: new THREE.Vector2(1, 1) }, uFocus: { value: new THREE.Vector2(3, 0) }, uSky: { value: new THREE.Color(0.014, 0.02, 0.032) }, uTint: { value: new THREE.Color(0.1, 0.5, 0.6) },
+      uRefl: { value: 1 }, uT: { value: 0 }, uDark: { value: 0.55 }, uSize: { value: 3 }, uCobble: { value: 0 }, uStreak: { value: 0 }, uBump: { value: 1.1 }, uTile: { value: new THREE.Vector2(1, 1) }, uFocus: { value: new THREE.Vector2(3, 0) }, uSky: { value: new THREE.Color(0.014, 0.02, 0.032) }, uTint: { value: new THREE.Color(0.1, 0.5, 0.6) },
       uSI: { value: [0, 1, 2, 3].map(() => new THREE.Matrix4()) }, uSD: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
     };
     this.mat = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: PUD_V, fragmentShader: PUD_F, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide,
@@ -354,7 +361,7 @@ class Puddle extends BoxProp {
   setMatte(name) { this.matte = name; this.U.uMatte.value = this.mp.matteTex(name, () => { this.U.uMatte.value = this.mp.matteTex(name); }); this.save(); }
   tick(dt) {
     const U = this.U; this.t += dt; U.uT.value = this.t; U.uWet.value = this.wet; U.uSoft.value = this.soft; U.uInv.value = this.inv ? 1 : 0; U.uRip.value = this.rip; U.uRain.value = this.rain; U.uRefl.value = this.refl; U.uDark.value = this.dark;
-    const cob = this.matte === 'COBBLES'; U.uCobble.value = cob ? 1 : 0; U.uStreak.value = cob ? 1 : 0; U.uTile.value.set(cob ? this.w / (0.6 * this.stone) : 1, cob ? this.d / (0.6 * this.stone) : 1);
+    const cob = this.matte === 'COBBLES'; U.uCobble.value = cob ? 1 : 0; U.uStreak.value = cob ? 1 : 0; U.uTile.value.set(cob ? this.w / (0.9 * this.stone) : 1, cob ? this.d / (0.9 * this.stone) : 1);
     U.uFocus.value.set(this.mp.focus.dist, this.mp.focus.on ? this.mp.focus.ap : 0);
     this.obj.updateWorldMatrix(true, false); _v.setFromMatrixPosition(this.obj.matrixWorld);
     const list = this.mp.neonsNear(_v, 4);
@@ -389,26 +396,26 @@ class Rain extends BoxProp {
 class Fog extends BoxProp {
   constructor(mp) {
     super(mp, 'fog'); this.w = 4; this.d = 4; this.h = 2.5; this.den = 0.4; this.smoke = false; this.col = 0; this.speed = 1; this.amb = 0.3; this.lit = 1; this.dep = true;
-    const N = 30, base = new THREE.PlaneGeometry(1, 1), geo = new THREE.InstancedBufferGeometry(); geo.index = base.index; geo.setAttribute('position', base.attributes.position); geo.instanceCount = N;
-    const aC = new Float32Array(N * 3), aP = new Float32Array(N * 3); for (let i = 0; i < N * 3; i++) { aC[i] = Math.random(); aP[i] = Math.random(); }
+    const N = 90, base = new THREE.PlaneGeometry(1, 1), geo = new THREE.InstancedBufferGeometry(); geo.index = base.index; geo.setAttribute('position', base.attributes.position); geo.instanceCount = N;
+    const aC = new Float32Array(N * 3), aP = new Float32Array(N * 3); for (let i = 0; i < N * 3; i++) { aC[i] = i % 3 === 1 ? Math.random() : (Math.random() + Math.random()) / 2; aP[i] = Math.random(); }   // x / z crowd toward the middle: no visible box edge
     geo.setAttribute('aC', new THREE.InstancedBufferAttribute(aC, 3)); geo.setAttribute('aP', new THREE.InstancedBufferAttribute(aP, 3));
-    this.U = { uBox: { value: new THREE.Vector3(4, 2.5, 4) }, uT: { value: 0 }, uSpeed: { value: 1 }, uSmoke: { value: 0 }, uSize: { value: 2 }, uTex: { value: cloud() }, uCol: { value: new THREE.Color(FOG_COLORS[0][1]) }, uDen: { value: 0.5 }, uAmb: { value: 0.5 }, uLit: { value: 1 }, uLP: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, -99, 0, 1)) }, uLC: { value: [0, 1, 2, 3].map(() => new THREE.Vector3()) },
+    this.U = { uBox: { value: new THREE.Vector3(4, 2.5, 4) }, uT: { value: 0 }, uSpeed: { value: 1 }, uSmoke: { value: 0 }, uSize: { value: 2 }, uTex: { value: cloud() }, uCol: { value: new THREE.Color(FOG_COLORS[0][1]) }, uDen: { value: 0.5 }, uAmb: { value: 0.5 }, uLit: { value: 1 }, uFloor: { value: 0 }, uLP: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, -99, 0, 1)) }, uLC: { value: [0, 1, 2, 3].map(() => new THREE.Vector3()) },
       uDepth: { value: null }, uDOn: { value: 0 }, uDLayer: { value: 0 }, uDView: { value: new THREE.Matrix4() }, uDProj: { value: new THREE.Matrix4() }, uDInvProj: { value: new THREE.Matrix4() }, uDNorm: { value: new THREE.Matrix4() } };
     this.mat = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: FOG_V, fragmentShader: FOG_F, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
-    this.mesh = new THREE.Mesh(geo, this.mat); this.mesh.frustumCulled = false; this.mesh.renderOrder = 5; noRay(this.mesh); this.obj.add(this.mesh);
+    this.mesh = new THREE.Mesh(geo, this.mat); this.mesh.frustumCulled = false; this.mesh.renderOrder = 5; this.mat.uniforms.uT = this.U.uT; noRay(this.mesh); this.obj.add(this.mesh);
     const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({ color: 0x39a8ff, transparent: true, opacity: 0.35, toneMapped: false }));
     this.edge = edge; this.obj.add(edge); userOnly(edge);
     this.onSize = () => { this.edge.scale.set(this.w, this.h, this.d); this.edge.position.y = this.h / 2; };
     this.layout();
   }
   tick(dt) {
-    const U = this.U; this.t += dt; U.uT.value = this.t; U.uSpeed.value = this.speed; U.uSmoke.value = this.smoke ? 1 : 0; U.uDen.value = this.den * 0.9; U.uCol.value.set(FOG_COLORS[this.col % FOG_COLORS.length][1]); U.uAmb.value = this.amb; U.uLit.value = this.lit;
+    const U = this.U; this.t += dt; U.uT.value = this.t; U.uSpeed.value = this.speed; U.uSmoke.value = this.smoke ? 1 : 0; U.uDen.value = this.den * 0.9; U.uCol.value.set(FOG_COLORS[this.col % FOG_COLORS.length][1]); U.uAmb.value = this.amb; U.uLit.value = this.lit; U.uFloor.value = this.obj.getWorldPosition(_v2).y - 0.02;
     this.obj.updateWorldMatrix(true, false); _v.setFromMatrixPosition(this.obj.matrixWorld); _v.y += this.h * 0.3;
     const L = this.mp.neonsNear(_v, 4);
     for (let i = 0; i < 4; i++) { const n = L[i]; if (n) { const li = n.light(); U.uLP.value[i].set(li.pos.x, li.pos.y, li.pos.z, li.r); U.uLC.value[i].set(li.col.r, li.col.g, li.col.b).multiplyScalar(li.k * 0.5); } else { U.uLP.value[i].set(0, -99, 0, 1); U.uLC.value[i].set(0, 0, 0); } }
     const D = this.dep ? this.mp.depth : null; U.uDOn.value = D ? 1 : 0;
     if (D) { U.uDepth.value = D.tex; U.uDLayer.value = D.layer; U.uDView.value.copy(D.view); U.uDProj.value.copy(D.proj); U.uDInvProj.value.copy(D.invProj); U.uDNorm.value.copy(D.norm); }
-    U.uBox.value.set(this.w, this.h, this.d); U.uSize.value = clamp(0.35 * Math.max(this.w, this.d) + 0.5, 0.8, 3.6);
+    U.uBox.value.set(this.w, this.h, this.d); U.uSize.value = clamp(0.22 * Math.max(this.w, this.d) + 0.4, 0.6, 2.4);
   }
   snap() { return { ...this.base(), w: this.w, d: this.d, h: this.h, den: this.den, smoke: this.smoke, col: this.col, speed: this.speed, amb: this.amb, lit: this.lit, dep: this.dep }; }
   apply(d) { for (const k of ['den', 'smoke', 'col', 'speed', 'h', 'amb', 'lit', 'dep']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.setSize(d.w || 4, d.d || 4); }
