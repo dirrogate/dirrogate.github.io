@@ -58,7 +58,7 @@ export function fanUrl() {
 const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _rq = new THREE.Quaternion();
 export class DirroHost {
   constructor(env) {
-    this.env = env; this.on = ls(K_ON) === '1'; this.ws = null; this.state = 'off'; this.fans = 0; this.rtt = 0;
+    this.env = env; this.on = ls(K_ON) === '1'; this.ws = null; this.state = 'off'; this.fans = 0; this.rtt = 0; this.colo = ''; this.coloIn = '';
     this.sendT = 0; this.cfgT = 0; this.cfgSent = 0; this.cfgKey = ''; this.pingT = 0; this.retry = 0; this.retryT = 0; this.err = '';
     this.sent = 0; this.bytes = 0; this.kbps = 0; this._rateT = performance.now(); this._rateB = 0;
     this.wall = { ...WALL_DEF }; try { const o = JSON.parse(ls(K_WALL) || '{}'); if (o.src && !o.v) { o.src = 'follow'; o.v = 2; } Object.assign(this.wall, o); } catch (e) { }   // #439 once: AUTO -> FOLLOW
@@ -121,7 +121,10 @@ export class DirroHost {
     ws.onopen = () => { this.state = 'live'; this.retry = 0; this.cfgKey = ''; this.cfgT = 0; this.imgSent.clear(); this.imgName = ''; this._changed(); };   // #434 pictures again for a new connection
     ws.onmessage = e => {
       let m; try { m = JSON.parse(e.data); } catch (x) { return; }
-      if (m.k === 'fans') { if (m.n !== this.fans) { this.fans = m.n; this._changed(); } }
+      if (m.k === 'fans') {   // #466 o = the relay's data centre, i = the one the Quest came in through (Cloudflare relay only)
+        const o = m.o || '', i = m.i || '';
+        if (m.n !== this.fans || o !== this.colo || i !== this.coloIn) { this.fans = m.n; this.colo = o; this.coloIn = i; this._changed(); }
+      }
       else if (m.k === 'sms' && m.t) { this.sms.unshift({ id: m.id, t: String(m.t).slice(0, 140), at: m.at || Date.now(), holo: false, sine: false }); if (this.sms.length > 60) this.sms.length = 60; this.smsNew++; if (this.env.onSms) this.env.onSms(m.t); this._changed(); }   // #435
       else if (m.k === 'pong') { const r = performance.now() - m.c; this.rtt = this.rtt ? this.rtt + (r - this.rtt) * 0.3 : r; }
     };
@@ -187,7 +190,7 @@ export class DirroHost {
   status() {
     if (!this.on) return 'Off';
     if (!relayUrl()) return 'No relay set: RELAY… (or open the app once with ?relay=wss://…)';
-    if (this.state === 'live') return `Live · ${this.fans} phone${this.fans === 1 ? '' : 's'} · ${Math.round(this.rtt)} ms · ${this.kbps.toFixed(1)} KB/s${this.wall.src === 'tv' ? (this.env.tvCanvas && this.env.tvCanvas() ? ' · TV frames' : ' · no TV picture (stream / TV off)') : ''}`;
+    if (this.state === 'live') return `Live · ${this.fans} phone${this.fans === 1 ? '' : 's'} · ${Math.round(this.rtt)} ms${this.colo ? ` (${this.coloIn ? this.coloIn + ' → ' : ''}${this.colo})` : ''} · ${this.kbps.toFixed(1)} KB/s${this.wall.src === 'tv' ? (this.env.tvCanvas && this.env.tvCanvas() ? ' · TV frames' : ' · no TV picture (stream / TV off)') : ''}`;
     if (this.state === 'retrying') return `Relay not reachable, trying again (${this.retry})`;
     return this.state[0].toUpperCase() + this.state.slice(1) + '…';
   }

@@ -22,7 +22,7 @@ const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 
 // ---------------------------------------------------------------- settings (per phone)
 const KEY = 'dirro.set';
-const DEF = { exp: 0, dist: 6, robotX: -2.3, robotZ: 0, lift: 0, fov: 64, bpm: 124,
+const DEF = { exp: 0, night: 1, dist: 6, robotX: -2.3, robotZ: 0, lift: 0, fov: 64, bpm: 124,
   scroll: 'WELCOME TO THE DIRROGRAM  ✦  CLY3DJ LIVE ON VINYL  ✦  TWITCH.TV/DIRROGATE  ✦  FILM IT, SHARE IT  ✦', np: 'Cly3DJ · live vinyl set' };
 const S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
@@ -379,22 +379,36 @@ let stream = null;
 async function startCamera(front) {
   if (stream) { for (const t of stream.getTracks()) t.stop(); stream = null; }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('No camera here (the page needs https)');
-  stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: front ? 'user' : 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } });
+  stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: front ? 'user' : 'environment', ...camSize() } });
   video.srcObject = stream; await video.play(); applyExposure();
   const tex = new THREE.VideoTexture(video); tex.colorSpace = THREE.NoColorSpace; tex.minFilter = tex.magFilter = THREE.LinearFilter;
   src = { tex, el: video, get w() { return video.videoWidth || 1280; }, get h() { return video.videoHeight || 720; } };
   bgMat.uniforms.uTex.value = tex; bgMat.uniforms.uOn.value = 1;
+}
+// #466 LOW LIGHT (SETTINGS): OFF / ON / MAX. ON and MAX ask the camera for 24 fps (the sensor may then expose up to
+// 1/24 s instead of 1/30) and run the model's own brightened copy of the picture (dirro-mask.js); MAX also sets a
+// manual 1/24 s exposure and a high ISO where the phone allows it (Android Chrome on some phones; EXPOSURE then works
+// as a picture gain). Phones without those controls just keep their auto exposure.
+const camSize = () => ({ width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: S.night ? { ideal: 24, max: 30 } : { ideal: 30 } });
+function applyNight() {
+  const t = stream && stream.getVideoTracks()[0];
+  if (t) t.applyConstraints(camSize()).catch(() => {}).then(applyExposure); else applyExposure();
 }
 // #449 EXPOSURE (SETTINGS): the camera's own exposure compensation where the browser offers it (Android Chrome on most phones;
 // it also helps the cutout and keeps beams from clipping in the sensor), else a gain on the picture (every phone, in the recording too)
 function applyExposure() {
   let hw = false;
   try {
-    const t = stream && stream.getVideoTracks()[0], c = t && t.getCapabilities && t.getCapabilities();
-    if (c && c.exposureCompensation && c.exposureCompensation.max > c.exposureCompensation.min) {
-      const e = clamp(S.exp, c.exposureCompensation.min, c.exposureCompensation.max);
-      t.applyConstraints({ advanced: [{ exposureCompensation: e }] }).catch(() => {}); hw = true;
+    const t = stream && stream.getVideoTracks()[0], c = t && t.getCapabilities && t.getCapabilities(), modes = (c && c.exposureMode) || [], adv = [];
+    if (S.night === 2 && c && c.exposureTime && c.iso && modes.includes('manual')) {   // #466 MAX: 1/24 s (units of 100 µs), ISO 60 % up its range
+      adv.push({ exposureMode: 'manual', exposureTime: clamp(10000 / 24, c.exposureTime.min, c.exposureTime.max), iso: Math.round(clamp(c.iso.min + (c.iso.max - c.iso.min) * 0.6, c.iso.min, c.iso.max)) });
+    } else {
+      if (modes.includes('continuous')) adv.push({ exposureMode: 'continuous' });   // back to auto after MAX
+      if (c && c.exposureCompensation && c.exposureCompensation.max > c.exposureCompensation.min) {
+        adv.push({ exposureCompensation: clamp(S.exp, c.exposureCompensation.min, c.exposureCompensation.max) }); hw = true;
+      }
     }
+    if (t && adv.length) t.applyConstraints({ advanced: adv }).catch(() => {});
   } catch (e) { hw = false; }
   bgMat.uniforms.uGain.value = hw ? 1 : Math.pow(2, S.exp);
 }
@@ -642,7 +656,7 @@ function frame() {
   }
   renderer.clear(); renderer.render(bgScene, bgCam); renderer.clearDepth(); renderer.render(scene, camera);
   if (people.on && people.mask.seg && src && src.el) {   // #428
-    people.mask.step(src.el, now);
+    people.mask.step(src.el, now, { low: S.night > 0 });   // #466
     if (people.mask.tex) {
       const fb = peopleFb(); renderer.copyFramebufferToTexture(fb);
       ovMat.uniforms.uFb.value = fb; ovMat.uniforms.uVid.value = src.tex; ovMat.uniforms.uMask.value = people.mask.tex;
@@ -683,6 +697,7 @@ const ROWS = [
   ['fov', 'CAMERA ANGLE', 40, 100, 1, v => v.toFixed(0) + '°'],
   ['bpm', 'BPM', 60, 180, 1, v => v.toFixed(0)],
   ['exp', 'EXPOSURE', -2, 1, 0.25, v => (v > 0 ? '+' : '') + v.toFixed(2) + ' EV'],   // #449
+  ['night', 'LOW LIGHT', 0, 2, 1, v => ['OFF', 'ON', 'MAX'][v] || 'ON'],   // #466
 ];
 function buildPanel() {
   const p = $('panel'); p.innerHTML = '';
@@ -691,7 +706,7 @@ function buildPanel() {
     r.innerHTML = `<span class="lab">${lab}</span><button>−</button><span class="val"></span><button>+</button>`;
     const val = r.querySelector('.val'), upd = () => { val.textContent = fmt(S[k]); };
     const [m, pl] = r.querySelectorAll('button');
-    const step = d => { S[k] = clamp(Math.round((S[k] + d * st) / st) * st, a, b); upd(); save(); if (k === 'fov') resize(); else if (k === 'exp') applyExposure(); else place(); };
+    const step = d => { S[k] = clamp(Math.round((S[k] + d * st) / st) * st, a, b); upd(); save(); if (k === 'fov') resize(); else if (k === 'exp') applyExposure(); else if (k === 'night') applyNight(); else place(); };
     m.onclick = () => step(-1); pl.onclick = () => step(1); upd(); p.appendChild(r);
   }
   if (!DEV) return;
