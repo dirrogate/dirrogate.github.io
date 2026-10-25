@@ -815,6 +815,8 @@ export class MovieProps {
     const car = this.spawn('glb'); await car.load('covered_car.glb'); put(car, 2.1, 14.5, 0.12);
     const rn = this.spawn('rain'); rn.setSize(7, 15); rn.h = 5; rn.amt = 0.25; rn.layout && rn.layout(); put(rn, 0, 8.2);
     const fg = this.spawn('fog'); fg.setSize(7, 16); fg.h = 2.0; fg.col = 1; fg.den = 0.3; fg.amb = 0.55; fg.lit = 0.45; fg.layout && fg.layout(); put(fg, 0, 8.7);
+    const far = this.spawn('fog'); far.setSize(15, 10); far.h = 6; far.col = 1; far.den = 0.6; far.amb = 0.5; far.lit = 0.35; far.layout && far.layout(); put(far, 0, 14);   // distance haze: thick and tall toward the backdrop so the far end of the lane melts into it
+    const sm = this.spawn('fog'); sm.setSize(1.1, 1.1); sm.h = 3.2; sm.smoke = true; sm.col = 0; sm.den = 0.55; sm.amb = 0.45; sm.lit = 0.8; sm.speed = 0.8; sm.layout && sm.layout(); put(sm, 1.0, 5.5);   // steam rising from a street grate
     this.selected = gr; this.save(); return gr;
   }
   setGuides(on) { this.guides = !!on; try { localStorage.setItem(KEY + '.guides', on ? '1' : '0'); } catch {} }
