@@ -8060,10 +8060,19 @@ if (!CAMERA_ROLE) {
     isDeck: o => o === deckGroups[0] || o === deckGroups[1], afterFloat: () => { if (deckInst) deckInst.update(); },
   });
   const wetMats = new Map();   // #494 original look of every deck / record material, so the rain wet look can be blended in and out
+  const wetU = { value: 0 };   // #496 shared wetness: water beads and a wet sheen painted on every deck / record material (world-space, so they stay put when the camera moves)
+  const wetPatch = m => {
+    const prev = m.onBeforeCompile; m.onBeforeCompile = (sh, r) => { prev && prev.call(m, sh, r); sh.uniforms.uWetG = wetU;
+      sh.vertexShader = 'varying vec3 vWetP;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n vec4 wq = vec4(transformed, 1.0);\n#ifdef USE_INSTANCING\n wq = instanceMatrix * wq;\n#endif\n vWetP = (modelMatrix * wq).xyz;');
+      const inj = 'if (uWetG > 0.001) { vec3 wp = vWetP * 46.0; vec3 id = floor(wp), f = fract(wp) - 0.5; float h = fract(sin(dot(id, vec3(12.9898, 78.233, 37.719))) * 43758.5453); float bead = step(0.62, h) * smoothstep(0.34 * (0.4 + h), 0.05, length(f + (vec3(fract(h * 7.0), fract(h * 13.0), fract(h * 3.0)) - 0.5) * 0.3)); vec3 wn = normalize(normal); float rim = pow(1.0 - clamp(dot(wn, normalize(vViewPosition)), 0.0, 1.0), 3.0); outgoingLight = outgoingLight * (1.0 - 0.18 * uWetG * bead) + vec3(0.55, 0.65, 0.8) * (bead * 0.55 + rim * 0.22) * uWetG; }\n';
+      sh.fragmentShader = 'uniform float uWetG; varying vec3 vWetP;\n' + sh.fragmentShader.replace('#include <opaque_fragment>', inj + '#include <opaque_fragment>').replace('#include <output_fragment>', inj + '#include <output_fragment>'); };
+    m.needsUpdate = true;
+  };
   const wetGearFn = lv => {
+    wetU.value = lv;
     const roots = [...deckGroups, ...decks.map(d => d.record && d.record.group)].filter(Boolean);
     for (const g of roots) g.traverse(o => { if (!o.isMesh || !o.material) return; for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
-      if (!('roughness' in m) || m.userData.noWet) continue; let w = wetMats.get(m); if (!w) { w = { r: m.roughness, c: m.color ? m.color.clone() : null, e: m.envMapIntensity }; wetMats.set(m, w); }
+      if (!('roughness' in m) || m.userData.noWet) continue; let w = wetMats.get(m); if (!w) { w = { r: m.roughness, c: m.color ? m.color.clone() : null, e: m.envMapIntensity }; wetMats.set(m, w); wetPatch(m); }
       m.roughness = w.r * (1 - 0.65 * lv); if (w.c) m.color.copy(w.c).multiplyScalar(1 - 0.42 * lv); m.envMapIntensity = (w.e ?? 1) * (1 + 1.2 * lv); } });
   };
   mprops = new MovieProps({ rig, camera, renderer, toast, scene, wetGear: wetGearFn, gearPoints: () => [...deckGroups.map(g => g.getWorldPosition(new THREE.Vector3()))] });   // #478
