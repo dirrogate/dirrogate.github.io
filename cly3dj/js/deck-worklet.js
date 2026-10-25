@@ -538,30 +538,59 @@ registerProcessor('vire-limiter', Limiter);
 // fader and crossfader like a deck would. Messages in: rec { mask: [bool, bool] } (start sampling those channels),
 // play (stop sampling, loop what was sampled), stop. Message out: looper { state, len } when the state changes by
 // itself (30 s full: straight into the loop; a sample under 0.25 s is dropped). A 4 ms fade at the loop seam takes the click out.
+// LOOPER (#458, #470): up to 30 s of the cued channel(s), taken after TRIM. States: empty | rec | play | stop (loop kept,
+// armed). In / out points (a, b, samples) set the played part; 4 ms seam fade at in and out; stop / clear fade out over
+// 6 ms (no click). After a take the recorded audio goes to the main thread once ('data') for the waveform and the slots.
 class Looper extends AudioWorkletProcessor {
   constructor() {
     super();
     this.max = Math.round(30 * sampleRate);
-    this.buf = [null, null];                 // per channel: [L, R], made on first use
+    this.buf = [null, null];                 // per channel: [L, R]
     this.mask = [false, false];
-    this.state = 'idle';                     // idle | rec | play
-    this.w = 0; this.len = 0; this.r = 0;
+    this.state = 'empty';
+    this.w = 0; this.len = 0; this.r = 0; this.a = 0; this.b = 0;
     this.fade = Math.max(1, Math.round(0.004 * sampleRate));
-    this.port.onmessage = e => {
-      const m = e.data;
-      if (m.type === 'rec') {
-        this.mask = [!!(m.mask && m.mask[0]), !!(m.mask && m.mask[1])];
-        for (let k = 0; k < 2; k++) if (this.mask[k] && !this.buf[k]) this.buf[k] = [new Float32Array(this.max), new Float32Array(this.max)];
-        this.w = 0; this.len = 0; this.r = 0; this.state = 'rec';
-      } else if (m.type === 'play') this._play();
-      else if (m.type === 'stop') { this.state = 'idle'; this.len = 0; }
-    };
+    this.outF = Math.max(1, Math.round(0.006 * sampleRate)); this.out = 0; this.after = null;   // stop / clear fade
+    this.posT = 0;
+    this.port.onmessage = e => this._msg(e.data);
   }
-  _play() {
-    if (this.state !== 'rec') return;
-    if (this.w < sampleRate * 0.25) { this.state = 'idle'; this.port.postMessage({ type: 'looper', state: 'idle', len: 0 }); return; }
-    this.len = this.w; this.r = 0; this.state = 'play';
-    this.port.postMessage({ type: 'looper', state: 'play', len: this.len / sampleRate });
+  _say() { this.port.postMessage({ type: 'looper', state: this.state, len: this.len / sampleRate, a: this.a, b: this.b, n: this.len, mask: this.mask }); }
+  _msg(m) {
+    if (m.type === 'rec') {
+      this.mask = [!!(m.mask && m.mask[0]), !!(m.mask && m.mask[1])];
+      for (let k = 0; k < 2; k++) if (this.mask[k] && !this.buf[k]) this.buf[k] = [new Float32Array(this.max), new Float32Array(this.max)];
+      this.w = 0; this.len = 0; this.r = 0; this.a = 0; this.b = 0; this.out = 0; this.state = 'rec'; this._say();
+    } else if (m.type === 'play') {
+      if (this.state === 'rec') this._endRec();
+      else if (this.state === 'stop' && this.len) { this.r = this.a; this.out = 0; this.state = 'play'; this._say(); }
+    } else if (m.type === 'stop') {
+      if (this.state === 'play') { this.out = this.outF; this.after = 'stop'; }
+      else if (this.state === 'rec') this._endRec(true);
+    } else if (m.type === 'clear') {
+      if (this.state === 'play') { this.out = this.outF; this.after = 'empty'; }
+      else { this.state = 'empty'; this.len = 0; this._say(); }
+    } else if (m.type === 'region') {
+      const a = Math.max(0, Math.min(this.len - 64, m.a | 0)), b = Math.max(a + 64, Math.min(this.len, m.b | 0));
+      this.a = a; this.b = b; if (this.r < a || this.r >= b) this.r = a;
+    } else if (m.type === 'load') {   // a saved loop: { mask, len, a, b, bufs: [[L, R] | null, [L, R] | null] } -> armed (stop)
+      const len = Math.min(this.max, m.len | 0);
+      this.mask = [!!m.bufs[0], !!m.bufs[1]];
+      for (let k = 0; k < 2; k++) {
+        if (!m.bufs[k]) continue;
+        if (!this.buf[k]) this.buf[k] = [new Float32Array(this.max), new Float32Array(this.max)];
+        this.buf[k][0].set(m.bufs[k][0].subarray(0, len)); this.buf[k][1].set((m.bufs[k][1] || m.bufs[k][0]).subarray(0, len));
+      }
+      this.len = len; this.a = Math.max(0, Math.min(len - 64, m.a | 0)); this.b = Math.max(this.a + 64, Math.min(len, m.b || len));
+      this.r = this.a; this.out = 0; this.state = 'stop'; this._say();
+    }
+  }
+  _endRec(stopAfter) {
+    if (this.w < sampleRate * 0.25) { this.state = 'empty'; this.len = 0; this.port.postMessage({ type: 'looper', state: 'empty', len: 0, short: true }); return; }
+    this.len = this.w; this.a = 0; this.b = this.w; this.r = 0; this.state = stopAfter ? 'stop' : 'play';
+    this._say();
+    const bufs = [null, null], tr = [];
+    for (let k = 0; k < 2; k++) if (this.mask[k]) { bufs[k] = [this.buf[k][0].slice(0, this.len), this.buf[k][1].slice(0, this.len)]; tr.push(bufs[k][0].buffer, bufs[k][1].buffer); }
+    this.port.postMessage({ type: 'data', len: this.len, sr: sampleRate, mask: this.mask, bufs }, tr);
   }
   process(inputs, outputs) {
     const o0 = outputs[0] && outputs[0][0]; if (!o0) return true;
@@ -574,20 +603,22 @@ class Looper extends AudioWorkletProcessor {
         for (let s = 0; s < take; s++) { bL[w0 + s] = iL ? iL[s] : 0; bR[w0 + s] = iR ? iR[s] : 0; }
       }
       this.w += take;
-      if (this.w >= this.max) this._play();
+      if (this.w >= this.max) this._endRec();
     } else if (this.state === 'play') {
-      const len = this.len, F = Math.min(this.fade, len >> 1);
+      const a = this.a, b = this.b, F = Math.min(this.fade, (b - a) >> 1);
       let r = this.r;
       for (let s = 0; s < n; s++) {
-        const g = r < F ? r / F : r >= len - F ? (len - r) / F : 1;
+        let g = r - a < F ? (r - a) / F : b - r <= F ? (b - r) / F : 1;
+        if (this.out) { g *= this.out / this.outF; if (--this.out === 0) { this.state = this.after; this.after = null; if (this.state === 'empty') this.len = 0; this.r = this.a; this._say(); for (let t = s; t < n; t++) for (let k = 0; k < 2; k++) if (outputs[k] && outputs[k][0]) { outputs[k][0][t] = 0; if (outputs[k][1]) outputs[k][1][t] = 0; } return true; } }
         for (let k = 0; k < 2; k++) {
           if (!this.mask[k] || !outputs[k] || !outputs[k][0]) continue;
-          const oL = outputs[k][0], oR = outputs[k][1] || oL, b = this.buf[k];
-          oL[s] = b[0][r] * g; if (oR !== oL) oR[s] = b[1][r] * g;
+          const oL = outputs[k][0], oR = outputs[k][1] || oL, bf = this.buf[k];
+          oL[s] = bf[0][r] * g; if (oR !== oL) oR[s] = bf[1][r] * g;
         }
-        if (++r >= len) r = 0;
+        if (++r >= b) r = a;
       }
       this.r = r;
+      if ((this.posT += n) >= sampleRate / 20) { this.posT = 0; this.port.postMessage({ type: 'lpos', r }); }
     }
     return true;
   }

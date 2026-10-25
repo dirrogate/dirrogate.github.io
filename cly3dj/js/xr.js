@@ -756,9 +756,10 @@ export function setupXR(ctx) {
       const armed = st.poke.get(key) !== false;
       if (dxz < b.r && h < 0.006 && h > -0.02) {
         if (armed) { ctx.pressControl(b.c, st); st.poke.set(key, false); buzz(st, 0.5, 30); }
+        else if (b.c.id === 'looper') ctx.holdLooper(st);   // #470 hold 0.8 s = clear
         else if (b.c.id && (b.c.id === 'bpmtap' || b.c.id.endsWith('.beat1'))) ctx.holdBeat1(ctx.decks[0], st);   // #117: still pressing (long press clears)
       }
-      else if (h > 0.02 || dxz > b.r * 2) { if (!armed && b.c.id && (b.c.id === 'bpmtap' || b.c.id.endsWith('.beat1'))) ctx.releaseBeat1(st); st.poke.set(key, true); }
+      else if (h > 0.02 || dxz > b.r * 2) { if (!armed && b.c.id && (b.c.id === 'bpmtap' || b.c.id === 'looper' || b.c.id.endsWith('.beat1'))) ctx.releaseBeat1(st); st.poke.set(key, true); }
     }
     st.pokeLift = (st.pokeLift || 0) + (Math.min(0.03, lift) - (st.pokeLift || 0)) * 0.5;
     // mixer readout (#116): poke the tempo number to cycle ORIG BPM / BPM / KEY
@@ -1033,11 +1034,12 @@ export function setupXR(ctx) {
     o.getWorldPosition(_sn); _sn.y += dy; return _sn;
   }
   function ctlHandStep(st) {
-    const want = st.connected && !st.isHand && ctlLook !== 'controller' && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
+    const ok = st.connected && !st.isHand && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
+    const want = ok && ctlLook !== 'controller';   // #469 CONTROLLER look: the hand is still posed (hidden) for the robot hands
     if (st.gloveH && (!want || ctlLook !== 'glove')) { gloveHide(glove, st.gloveH); st.gloveH = null; }   // #287 glove off: hide it
     // #279 (owner): 3D hands mode shows just the hand, no controller inside it
     const ctlModel = st.grip.children[0]; if (ctlModel) ctlModel.visible = !want;
-    if (!want) { if (st.ctlHand) st.ctlHand.root.visible = false; return; }
+    if (!ok) { if (st.ctlHand) st.ctlHand.root.visible = false; return; }
     const hd = st.source.handedness;
     if (!st.ctlHand || st.ctlHand.handed !== hd) {
       if (st.ctlHand) scene.remove(st.ctlHand.root);
@@ -1052,7 +1054,7 @@ export function setupXR(ctx) {
       // Pinched pose: the hand's angle from the moment of the grab (knobs: turned about the cap by the wrist twist that
       // turned the knob; faders etc.: follows the controller), then the owner's TILT and TURN, the middle of the pinch on
       // the cap, raised by LIFT (3D hand / glove). The touch point is not moved by any of this.
-      const T = snapTarget(st), d = st.direct;
+      const T = want ? snapTarget(st) : null, d = st.direct;   // #469 no pinch slide in CONTROLLER look
       st.pin = Math.max(0, Math.min(1, (st.pin || 0) + (T ? 1 : -1) / 60 / 0.1));
       if (T && st.pinchRoot) {
         const kc = d.kind === 'knob' ? ctx.mixer.userData.controls[d.id] : null;
@@ -1094,7 +1096,7 @@ export function setupXR(ctx) {
     st.tA = (st.tA || 0) + (tv - (st.tA || 0)) * 0.5; st.gA = (st.gA || 0) + (gv - (st.gA || 0)) * 0.5;
     h.update(Math.round(st.tA * 20) / 20, Math.round(st.gA * 20) / 20, thumb, Math.round((st.pin || 0) * 20) / 20);   // #420 pin = pinch on a latched control
     if (h.soft !== (ctlLook === 'glove')) { h.soft = ctlLook === 'glove'; h.cur = ''; }   // #301 looser relaxed hand for the glove
-    h.holder.visible = ctlLook !== 'glove';   // #287 the skin hand stays posed (it drives the glove) but is not drawn
+    h.holder.visible = ctlLook === '3dhands';   // #287 the skin hand stays posed (it drives the glove) but is not drawn; #469 nor in CONTROLLER look
     if (ctlLook === 'glove') gloveStep(st, h, 1 / 60);
   }
 

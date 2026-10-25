@@ -37,6 +37,7 @@ import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
 import { FX, USER_LAYER } from './fx.js';   // #379 VISUALS > FX: FLOAT and WATER
 import * as store from './storage.js';
+import * as loopDb from './loopbank.js';   // #470 loop slots and banks in private storage
 import { EnvLight } from './env.js';
 import { Skybox, detectLayout, leftEyeCanvas, brightestDir, savePano, loadPano, openPanoVideo, closePanoVideo } from './skybox.js';
 import * as media from './medialib.js';
@@ -602,7 +603,7 @@ function nextLedMode(m) {   // OFF > CLIPS > VIDVINYL ('decks') > MANDEL > RETRO
   return 'off';
 }
 function clipsMode() { if (isLive(ledMode) && spect && spect.liveCam && !streamPhone()) spect.liveCam(false); ledMode = 'clips'; led.kind = null; fxTex = null; }   // #238 a clip from the LED list ends LIVE
-const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED VIDVINYL', mandel: 'LED MANDEL', retro: 'LED RETRO-SCENE', card: 'LED CARD', vdancer: 'LED VECTOR-DANCER', meta: 'LED METABALLS', cam: 'LED AVACAM', live: 'LED LIVE', solo: 'LED SOLO', screen: 'LED PHONE SCREEN' };
+const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED VIDVINYL', mandel: 'LED MANDEL', retro: 'LED RETRO-SCENE', card: 'LED CARD', vdancer: 'LED VECTOR-DANCER', meta: 'LED METABALLS', cam: 'LED DirroDj📹', live: 'LED LIVE', solo: 'LED SOLO', screen: 'LED PHONE SCREEN' };
 let phoneScreen = false;   // #358 the spectator phone is sharing its screen (its video slot carries it)
 function onPhoneScreen(on) {
   phoneScreen = on;
@@ -3863,7 +3864,7 @@ function pressControl(c, src) { // buttons; returns true if handled (src: who pr
     const id = c.id;
     { const b = mixer.userData.controls[id]; if (b && b.userData.press) b.userData.press(); }
     if (id === 'mic') { toggleMic(); return true; }
-    if (id === 'looper') { toggleLooper(); return true; }
+    if (id === 'looper') { pressLooper(src || 'mouse'); return true; }
     if (id === 'sync') { doSync(); return true; }
     if (id === 'splitcue') { splitCue = !splitCue; engine.setSplitCue(splitCue); toast(splitCue ? 'Split cue: master left ear, cue right ear' : 'Split cue off'); return true; }
     if (id === 'bpmtap') { handleBpmTap(src || 'mouse'); return true; }
@@ -3872,29 +3873,112 @@ function pressControl(c, src) { // buttons; returns true if handled (src: who pr
   }
   return false;
 }
-// LOOPER (owner): one button, three presses. 1st: starts sampling the channel(s) with CUE on, taken after TRIM and
-// before EQ / filter (so the cue sound, not the master), up to 30 s. 2nd: stops sampling and loops it through those
-// channel(s) of the mixer (LOOP VOL sets its level; EQ / filter / fader / crossfader apply). 3rd: stops the loop.
-// A full 30 s sample goes into the loop by itself; a sample shorter than 0.25 s is dropped (engine tells us).
-const looper = { state: 'idle', mask: [false, false], t0: 0, len: 0 };
+// LOOPER (#458, #470 owner): one button, four states, its LED ring shows which.
+//   EMPTY (ring off)  press = start sampling the channel(s) with CUE on, taken after TRIM, before EQ / filter (30 s max)
+//   REC   (red)       press = stop sampling and loop it at once through those channel(s) of the mixer
+//   PLAY  (green)     press = stop the loop, it is kept
+//   STOP  (amber blinking, also = ARMED after a slot is loaded)  press = play it again from its IN point
+//   Hold 0.8 s in any state = clear (the ring blinks). A full 30 s sample goes into the loop by itself.
+// The tablet LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) edits IN / OUT and keeps 4 slots + banks (#470).
+const LOOP_HOLD = 0.8;
+const looper = { state: 'empty', mask: [false, false], t0: 0, len: 0, r: 0, data: null, slot: 0, hold: null, clearT: -1e9, bpm: 0 };
+const loopSlots = [null, null, null, null];
+const loopUI = { sel: 'out', zoom: 1, store: false, del: 0, msg: '', msgT: 0, loaded: null, banks: null, bankDel: '', drag: null };
+const LOOP_ZOOMS = [1.0, 0.25, 0.05];   // half window of the close-up view, seconds
+function loopSay(s, ms = 3000) { loopUI.msg = s; loopUI.msgT = performance.now() + ms; toast(s, Math.min(ms, 2600)); if (toolsPage === 'looper' || toolsPage === 'loopbanks') drawMixScreen(); }
 engine.onLooper = m => {
+  if (m.type === 'lpos') { looper.r = m.r; return; }
+  if (m.type === 'data') {   // a finished take: keep it for the waveform and the slots
+    looper.data = { len: m.len, sr: m.sr, a: 0, b: m.len, mask: m.mask, bufs: m.bufs, src: m.mask[0] && m.mask[1] ? 'A+B' : m.mask[0] ? 'A' : 'B', bpm: looper.bpm, t: Date.now(), name: '' };
+    looper.slot = 0; looper.peaks = null; if (toolsPage === 'looper') drawMixScreen(); return;
+  }
   if (m.type !== 'looper') return;
   looper.state = m.state; looper.len = m.len || 0;
-  if (m.state === 'play') toast(`LOOP ${looper.len.toFixed(1)} s${looper.len >= 29.9 ? ' (30 s full)' : ''}: playing. Press LOOP again to stop`, 2600);
-  else if (m.state === 'idle') toast('LOOP: too short, nothing sampled', 1800);
+  if (m.state === 'empty') { if (m.short) loopSay('LOOP: too short, nothing sampled', 1800); }
+  else if (m.state === 'play' && looper.recEnding) { looper.recEnding = false; toast(`LOOP ${looper.len.toFixed(2)} s${looper.len >= 29.9 ? ' (30 s full)' : ''}: playing`, 2000); }
+  if (toolsPage === 'looper') drawMixScreen();
 };
-function toggleLooper() {
+function pressLooper(src = 'mouse') {   // the mixer button, the tablet transport button: same four steps
   if (!engine.ctx || !engine.looper) return;
-  if (looper.state === 'idle') {
+  const now = performance.now() / 1000;
+  if (src !== 'tablet') looper.hold = { t0: now, seen: now, src, done: false };
+  const st = looper.state;
+  if (st === 'empty') {
     const mask = [cueOn[0], cueOn[1]];
-    if (!mask[0] && !mask[1]) { toast('LOOP: switch CUE on for the channel to sample first', 2400); return; }
-    looper.mask = mask; looper.t0 = performance.now() / 1000; looper.state = 'rec';
+    if (!mask[0] && !mask[1]) { loopSay('LOOP: switch CUE on for the channel to sample first', 2400); return; }
+    const di = mask[0] ? 0 : 1, d = decks[di], rate = Math.abs(engine.state.decks[di].rate) || 0;
+    looper.bpm = d && d.track && bpmOf(d.track) && rate > 0.3 ? bpmOf(d.track) * rate : 0;
+    looper.mask = mask; looper.t0 = now; looper.state = 'rec'; looper.data = null; looper.slot = 0;
     engine.looperRec(mask);
-    toast(`LOOP: sampling channel ${mask[0] && mask[1] ? 'A + B' : mask[0] ? 'A' : 'B'} (cue, before EQ). Press LOOP again to start the loop (30 s max)`, 2800);
-  } else if (looper.state === 'rec') {
-    engine.looperPlay();   // the engine answers 'play' (or 'idle' when too short)
-    looper.state = 'play';
-  } else { engine.looperStop(); looper.state = 'idle'; toast('LOOP stopped', 1400); }
+    toast(`LOOP: sampling ${mask[0] && mask[1] ? 'A + B' : mask[0] ? 'A' : 'B'} (cue, before EQ). Press again to loop it`, 2400);
+  } else if (st === 'rec') { looper.recEnding = true; engine.looperPlay(); looper.state = 'play'; }
+  else if (st === 'play') { engine.looperStop(); looper.state = 'stop'; }
+  else if (st === 'stop') { engine.looperPlay(); looper.state = 'play'; }
+  if (toolsPage === 'looper') drawMixScreen();
+}
+function toggleLooper(src) { pressLooper(src); }   // #458 name kept
+function clearLooper() {
+  engine.looperClear(); looper.state = 'empty'; looper.data = null; looper.slot = 0; looper.clearT = performance.now() / 1000;
+  loopSay('LOOP cleared (the slots keep theirs)', 1800);
+}
+function holdLooper(src) { const h = looper.hold; if (h && h.src === src) h.seen = performance.now() / 1000; }
+function releaseLooper(src) { if (looper.hold && looper.hold.src === src) looper.hold = null; }
+function stepLooper() {
+  const h = looper.hold; if (!h || h.done) return;
+  const now = performance.now() / 1000;
+  if (h.src !== 'mouse' && now - h.seen > 0.15) { looper.hold = null; return; }   // lost contact (tracking gap): no clear
+  if (now - h.t0 >= LOOP_HOLD) { h.done = true; clearLooper(); }
+}
+function loopRegion(a, b) {   // in / out in samples; a loaded slot keeps its new points
+  const L = looper.data; if (!L) return;
+  const minLen = Math.round(0.01 * L.sr);
+  a = Math.round(clamp(a, 0, L.len - minLen)); b = Math.round(clamp(b, a + minLen, L.len));
+  L.a = a; L.b = b; engine.looperRegion(a, b);
+  if (looper.slot) { clearTimeout(loopRegion.t); const n = looper.slot; loopRegion.t = setTimeout(() => loopDb.saveSlotMeta(n, loopSlots[n - 1]).catch(e => console.warn(e)), 800); }
+}
+function loopNudge(ms) {
+  const L = looper.data; if (!L) return; const d = Math.round(ms * L.sr / 1000);
+  if (loopUI.sel === 'in') loopRegion(L.a + d, L.b); else loopRegion(L.a, L.b + d);
+  drawMixScreen();
+}
+function ensureLoopSlots() {
+  if (loopUI.loaded || !engine.ctx) return loopUI.loaded;
+  loopUI.loaded = loopDb.readSlots(engine.ctx.sampleRate).then(s => { s.forEach((x, i) => { if (!loopSlots[i]) loopSlots[i] = x; }); drawMixScreen(); })
+    .catch(e => { console.warn('loop slots', e); loopUI.msg = 'Could not read the saved slots'; });
+  return loopUI.loaded;
+}
+function loopSlotTap(n) {
+  if (loopUI.del) { const d = loopUI.del; loopUI.del = 0; if (d === n) { loopSlots[n - 1] = null; if (looper.slot === n) looper.slot = 0; loopDb.saveSlot(n, null).catch(() => {}); loopSay(`SLOT ${n} emptied`); } drawMixScreen(); return; }
+  if (looper.state === 'rec') { loopSay('Finish the take first (press LOOP)'); return; }
+  const S = loopSlots[n - 1];
+  if (loopUI.store || !S) {   // STORE mode, or an empty slot: the current loop goes in
+    loopUI.store = false;
+    if (!looper.data) { loopSay(S ? '' : `SLOT ${n} is empty. Record a loop, then tap a slot to store it`); return; }
+    const C = { ...looper.data, name: `LOOP ${n}`, t: Date.now() };
+    loopSlots[n - 1] = C; looper.data = C; looper.slot = n;
+    loopSay(`Stored in SLOT ${n}, saving…`, 1500);
+    loopDb.saveSlot(n, C).then(() => loopSay(`SLOT ${n} saved on this headset`, 1800)).catch(e => loopSay('Saving failed: ' + e.message, 4000));
+    return;
+  }
+  if (engine.looper) engine.looperLoad(S);   // the worklet answers state 'stop' = ARMED (amber blinking on the mixer)
+  looper.data = S; looper.slot = n; looper.peaks = null; looper.state = 'stop'; looper.r = S.a;
+  loopSay(`SLOT ${n} loaded, armed: press LOOP to play`, 2000);
+}
+async function loopSaveBank(name) {
+  if (!loopSlots.some(Boolean)) { loopSay('All 4 slots are empty: nothing to save'); return; }
+  try { loopSay('Saving bank…', 8000); const nm = await loopDb.saveBank(name, loopSlots); loopSay(`Bank "${nm}" saved`, 2500); }
+  catch (e) { loopSay('Saving the bank failed: ' + e.message, 4000); }
+}
+async function loopOpenBanks() { loopUI.banks = null; loopUI.bankDel = ''; setTools('loopbanks'); try { loopUI.banks = await loopDb.listBanks(); } catch (e) { loopUI.banks = []; loopUI.msg = e.message; } drawMixScreen(); }
+async function loopLoadBank(name) {
+  if (!engine.ctx) return;
+  try {
+    loopSay(`Loading "${name}"…`, 8000);
+    const s = await loopDb.loadBank(name, engine.ctx.sampleRate);
+    for (let i = 0; i < loopDb.SLOTS; i++) { loopSlots[i] = s[i]; await loopDb.saveSlot(i + 1, s[i]); }
+    if (looper.slot) looper.slot = 0;
+    setTools('looper'); loopSay(`Bank "${name}" in the 4 slots (${s.filter(Boolean).length} loops). Tap a slot to arm it`, 2600);
+  } catch (e) { loopSay('Loading the bank failed: ' + e.message, 4000); }
 }
 // microphone (CLAUDE.md #60): first press asks for the mic (if not already allowed on the start screen)
 let micOn = false, micBusy = false;
@@ -4334,7 +4418,7 @@ function hover(e) {
   const c = obj && obj.userData.control;
   if (c && c.mixer && mixVal[c.id] !== undefined) showTip(mixLabel(c.id), e.clientX, e.clientY);
   else if (c && c.deck && c.id === 'pitch') { const d = deckOf(c.deck); showTip(`${d.name} pitch ${(d.pitch * 100).toFixed(2)}%`, e.clientX, e.clientY); }
-  else if (c && c.id === 'looper') showTip('LOOP: press once to sample the channel with CUE on (before EQ, up to 30 s), again to loop it through the mixer, again to stop. The knob above sets its volume', e.clientX, e.clientY);
+  else if (c && c.id === 'looper') showTip('LOOP: press = sample the CUE channel (red), again = loop it (green), again = stop (amber blinks), again = play. Hold 0.8 s = clear. Edit IN / OUT and slots on the tablet: LOOP', e.clientX, e.clientY);
   else if (c && c.id === 'bpmtap') showTip('TAP: tap on the beat to measure BPM (counter above shows BPM; embeds into track); hold to clear', e.clientX, e.clientY);
   else if (c && c.id && c.id.endsWith('.beat1')) showTip(`BEAT 1 (deck ${c.id[0]}): tap on beat 1; keep tapping on the beat to measure BPM; hold to clear`, e.clientX, e.clientY);
   else if (obj && obj.userData.mixScreen) showTip('Tap the tempo readout to cycle: ORIG BPM (ID3 tag) → BPM (playing now) → KEY (moves with pitch)', e.clientX, e.clientY);
@@ -4395,6 +4479,8 @@ canvas.addEventListener('wheel', e => {
 addEventListener('keydown', e => {
   if ($('#start').style.display !== 'none' || e.target === searchInput || toolsPage === 'kbd') return;   // #224 typing on the tablet keyboard
   const k = e.key;
+  if (toolsPage === 'looper' && looper.data && (k === 'ArrowLeft' || k === 'ArrowRight')) { e.preventDefault(); loopNudge((k === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 10 : e.altKey ? 100 : 1)); return; }   // #470 1 ms (Shift 10, Alt 100)
+  if (toolsPage === 'looper' && (k === 'ArrowUp' || k === 'ArrowDown')) { e.preventDefault(); loopUI.sel = loopUI.sel === 'in' ? 'out' : 'in'; drawMixScreen(); return; }
   if (k === '/') { e.preventDefault(); openNativeKeyboard(); return; }
   if (k === '1') setCam('dj'); else if (k === '2') setCam('top'); else if (k === '3') setCam('crate');
   else if (k === 'h' || k === 'H') $('#helpBtn').click();
@@ -4619,7 +4705,7 @@ function stepTaps() {
   }
 }
 function holdBeat1(d, src) { const h = holds[d.i]; if (h && h.src === src) h.seen = performance.now() / 1000; }
-function releaseBeat1(src) { for (let i = 0; i < 2; i++) if (holds[i] && holds[i].src === src) holds[i] = null; }
+function releaseBeat1(src) { for (let i = 0; i < 2; i++) if (holds[i] && holds[i].src === src) holds[i] = null; releaseLooper(src); }
 function clearTaps(d) {
   tapRuns[d.i] = null; blinkUntil[d.i] = performance.now() / 1000 + 1.0;
   if (d.track) setTap(d.track, null);
@@ -4851,7 +4937,7 @@ function drawDjCamTab(btn, y0) {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   const on = ledMode === 'cam';
   const top = [
-    ['LED AVACAM', on, () => setLedMode(on ? 'off' : 'cam')],   // #240 was LED CAM
+    ['LED DirroDj📹', on, () => setLedMode(on ? 'off' : 'cam')],   // #240 was LED CAM
     ['MIRROR', djSet.mirror, () => setDjMirror(!djSet.mirror)],
     ['AVATAR', djSet.avatar, () => setDjAvatar(!djSet.avatar)],
     [djSet.style === 'human' ? 'STYLE: HUMAN' : 'STYLE: ROBOT', false, () => setDjStyle(djSet.style === 'human' ? 'robot' : 'human')],
@@ -4865,7 +4951,7 @@ function drawDjCamTab(btn, y0) {
   const ty = y0b + 50 + Math.ceil(keys.length / pp) * 42 + 18;
   g.fillStyle = '#8c96a8'; g.font = '500 16px system-ui'; g.textAlign = 'left';
   const av = !avatar ? 'no avatar' : avatar.status === 'ready' ? 'avatar ready' : 'avatar ' + avatar.status;
-  const lines = [`${av} · ${on && djcam ? `cam ${djcam.ms.toFixed(1)} ms a frame (every 3rd headset frame)` : 'LED wall not on AVACAM'}`,
+  const lines = [`${av} · ${on && djcam ? `cam ${djcam.ms.toFixed(1)} ms a frame (every 3rd headset frame)` : 'LED wall not on DirroDj📹'}`,
     'Look at the LED wall to put the camera in the Meta cast.'];
   lines.forEach((t, i) => fitText2(g, t, 12, Math.min(H - 12, ty + i * 24), W - 24));
 }
@@ -5381,6 +5467,7 @@ function setTools(p) {
     else if (pcamAutoReh) { pcamAutoReh = false; if (!streamer.live && !monOn) streamer.setRehearse(false); }
   }
   if (p === 'pcamcrop') setTools.fitIv = setInterval(() => { if (toolsPage === 'pcamcrop') drawMixScreen(); }, 200);
+  if (p === 'looper') setTools.fitIv = setInterval(() => { if (toolsPage === 'looper') drawMixScreen(); }, 100);   // #470 playhead, REC clock, armed blink
   if (p === 'perfcap') setTools.fitIv = setInterval(() => { if (toolsPage === 'perfcap') drawMixScreen(); }, 1000);   // #387 the clock and size
   if (p === 'studiokey') setTools.fitIv = setInterval(() => { if (toolsPage === 'studiokey') drawMixScreen(); }, 400);   // #385 the S8 KEY numbers and preview   // #353 the CROP picture, ~5 a second
   if (p !== 'kbd') { try { if (document.activeElement === sysKbInput) sysKbInput.blur(); } catch (e) {} }   // #387
@@ -5645,7 +5732,268 @@ const PINCH_FIT_DEF = {
   lh: { label: 'HAND LIFT', lo: -20, hi: 60, v: 10, unit: 'mm' }, lg: { label: 'GLOVE LIFT', lo: -20, hi: 60, v: 15, unit: 'mm' },
   pa: { label: 'PINCH TILT', lo: -60, hi: 60, v: 0, unit: '°' }, pt: { label: 'PINCH TURN', lo: -90, hi: 90, v: 0, unit: '°' },
 };
-const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'LED WALL', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'DIRROTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
+const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'LED WALL', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'DIRROTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
+// #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
+const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
+function loopStateLabel() {
+  const st = looper.state, now = performance.now() / 1000;
+  return st === 'rec' ? `■ LOOP IT ${(now - looper.t0).toFixed(1)}s` : st === 'play' ? '■ STOP' : st === 'stop' ? '▶ PLAY' : '● REC';
+}
+function loopFill(blink = true) {   // the state colour; STOP / ARMED blinks like the mixer ring
+  const st = looper.state, c = LOOP_COL[st] || LOOP_COL.empty;
+  if (st === 'stop' && blink && Math.floor(performance.now() / 400) % 2) return ['#5a4010', '#ffd27a'];
+  return c;
+}
+function drawLoopMainBtn(g, x, y, w, h, fs = 15) {   // the mixer page's LOOP button: state colour, opens the LOOPER page
+  const [bg, fg] = loopFill(); g.fillStyle = bg; g.fillRect(x, y, w, h);
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = fg; btnLabel(g, 'LOOP ⁺¹', x, y, w, h, fs); g.textBaseline = 'alphabetic';
+}
+function fmtLoopT(samp, sr) { return (samp / sr).toFixed(3); }
+function drawWave(g, L, x, y, w, h, s0, s1, opts = {}) {
+  g.fillStyle = '#0a101b'; g.fillRect(x, y, w, h);
+  const mid = y + h / 2, span = s1 - s0, X = s => x + (s - s0) / span * w;
+  g.strokeStyle = '#1e2a3d'; g.lineWidth = 1; g.beginPath(); g.moveTo(x, mid + 0.5); g.lineTo(x + w, mid + 0.5); g.stroke();
+  if (!L) return X;
+  const bins = Math.max(8, Math.floor(w)), pk = opts.cache && opts.cache.bins === bins && opts.cache.L === L ? opts.cache.pk : loopDb.peaks(L, bins, s0, s1);
+  if (opts.cache && !(opts.cache.bins === bins && opts.cache.L === L)) Object.assign(opts.cache, { bins, L, pk });
+  let mx = 0.05; for (let i = 0; i < pk.length; i++) mx = Math.max(mx, Math.abs(pk[i]));
+  const k = (h / 2 - 3) / mx, xa = X(L.a), xb = X(L.b);
+  for (let i = 0; i < bins; i++) {
+    const px = x + i * w / bins, inside = px >= xa && px <= xb;
+    g.fillStyle = inside ? '#39a8ff' : '#2a4058';
+    const lo = pk[2 * i] * k, hi = pk[2 * i + 1] * k; g.fillRect(px, mid - hi, Math.max(1, w / bins), Math.max(1, hi - lo));
+  }
+  g.fillStyle = 'rgba(0,0,0,0.45)'; if (xa > x) g.fillRect(x, y, Math.min(w, xa - x), h); if (xb < x + w) g.fillRect(Math.max(x, xb), y, x + w - Math.max(x, xb), h);
+  const bar = (bx, col, lbl, sel) => {
+    if (bx < x - 1 || bx > x + w + 1) return;
+    g.fillStyle = col; g.fillRect(bx - (sel ? 2 : 1), y, sel ? 4 : 2, h);
+    g.beginPath(); g.moveTo(bx - 7, y); g.lineTo(bx + 7, y); g.lineTo(bx, y + 9); g.fill();
+    g.font = '700 11px system-ui'; g.textAlign = lbl === 'IN' ? 'left' : 'right'; g.textBaseline = 'bottom'; g.fillText(lbl, bx + (lbl === 'IN' ? 5 : -5), y + h - 2); g.textBaseline = 'alphabetic';
+  };
+  bar(xa, '#40ff70', 'IN', loopUI.sel === 'in'); bar(xb, '#ff4050', 'OUT', loopUI.sel === 'out');
+  if (looper.state === 'play' && looper.data === L) { const xp = X(looper.r); if (xp >= x && xp <= x + w) { g.fillStyle = '#fff'; g.fillRect(xp, y, 1.5, h); } }
+  return X;
+}
+// #471 LOOP MASTER: the LOOPER page in the spirit of the Amiga sample editors (owner's AudioMaster reference; our own name
+// and logo): cream screen title bar with a sunken readout, black stereo waveform panel (L / R lanes, cyan trace, the
+// IN..OUT range shaded), an Amiga scroll bar, dark bevelled gadgets in the bitmap font, an embossed logo band.
+const AM = { scr: '#2c2e35', face: '#3d4049', hi: '#9aa0ad', lo: '#0e0f13', txt: '#dfe8f2', dimT: '#6a707c', cyan: '#2ee8e8', cyanD: '#177a7a',
+  cream: '#efe6c8', creamD: '#b9b094', ink: '#121212', rng: '#14325c', sel: '#21507e', red: '#ff4a3a', grn: '#4dff7a', amb: '#ffb21e' };
+function lmCut(s, w, px) { s = cleanText(s); while (s.length > 1 && bitWidth(s, px) > w) s = s.slice(0, -1); return s; }
+function lmFit(s, w, max = 2) { const u = bitWidth(s, 1); return Math.max(1, Math.min(max, Math.floor(((w - 8) / Math.max(1, u)) * 4) / 4)); }
+function lanePeaks(L, ch, s0, s1, bins) {
+  const out = new Float32Array(bins * 2), span = Math.max(1, s1 - s0);
+  for (let i = 0; i < bins; i++) {
+    const a = Math.floor(s0 + i * span / bins), b = Math.max(a + 1, Math.floor(s0 + (i + 1) * span / bins)), step = Math.max(1, Math.floor((b - a) / 200));
+    let lo = 0, hi = 0;
+    for (const c of L.bufs) { if (!c) continue; const x = c[ch]; for (let j = Math.max(0, a); j < Math.min(L.len, b); j += step) { const v = x[j]; if (v < lo) lo = v; if (v > hi) hi = v; } }
+    out[2 * i] = lo; out[2 * i + 1] = hi;
+  }
+  return out;
+}
+function drawLooperPage(page, T) {
+  const { g, W, H, P, L, R } = T;
+  const txt = (s, x, y, px, col) => drawBitText(g, cleanText(s), Math.round(x), Math.round(y), px, col, px >= 1.5);
+  const bev = (x, y, w, h, up, hi = AM.hi, lo = AM.lo) => {
+    g.fillStyle = up ? hi : lo; g.fillRect(x, y, w, 2); g.fillRect(x, y, 2, h);
+    g.fillStyle = up ? lo : hi; g.fillRect(x, y + h - 2, w, 2); g.fillRect(x + w - 2, y, 2, h);
+  };
+  const gad = (x, y, w, h, label, sel, act, dim, col, max = 2) => {   // dark Amiga gadget; sel = pressed in, blue
+    g.fillStyle = sel ? AM.sel : AM.face; g.fillRect(x, y, w, h); bev(x, y, w, h, !sel);
+    const s = cleanText(label), px = lmFit(s, w, max), tw = bitWidth(s, px);
+    txt(s, x + (w - tw) / 2, y + (h - 7 * px) / 2 + (sel ? 1 : 0), px, dim ? AM.dimT : col || AM.txt);
+    const hit = { x, y, w, h, act }; if (act && !dim) VP_HIT.push(hit); return hit;
+  };
+  const creamGad = (x, y, w, h, label, act, dim) => {
+    g.fillStyle = AM.cream; g.fillRect(x, y, w, h); bev(x, y, w, h, true, '#ffffff', AM.creamD);
+    const s = cleanText(label), px = lmFit(s, w, 1.5), tw = bitWidth(s, px); txt(s, x + (w - tw) / 2, y + (h - 7 * px) / 2, px, dim ? AM.creamD : AM.ink);
+    if (act && !dim) VP_HIT.push({ x, y, w, h, act });
+  };
+  const panel = (x, y, w, h) => { g.fillStyle = AM.scr; g.fillRect(x, y, w, h); bev(x, y, w, h, false); };
+  const logo = (x, y, w, h) => {   // our own embossed logo band: fine stripes, 'Dirro' small, 'LoopMaster' big, a credit line
+    g.fillStyle = '#34373f'; g.fillRect(x, y, w, h); g.fillStyle = '#2d3037'; for (let yy = y; yy < y + h; yy += 3) g.fillRect(x, yy, w, 1);
+    bev(x, y, w, h, false);
+    const big = Math.round(Math.min(40, h * 0.6, w / 7)), cx = x + w / 2, by = y + h * 0.57;
+    g.save(); g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    const word = (s, fx, fy, sz) => { g.font = `italic 700 ${sz}px "Times New Roman", Georgia, serif`;
+      g.fillStyle = '#16171c'; g.fillText(s, fx + 1.5, fy + 1.5); g.fillStyle = '#a3a9b6'; g.fillText(s, fx - 1, fy - 1); g.fillStyle = '#5f6470'; g.fillText(s, fx, fy); };
+    g.font = `italic 700 ${big}px "Times New Roman", Georgia, serif`; const bw = g.measureText('LoopMaster').width;
+    const sm = Math.round(big * 0.45); word('LoopMaster', cx + sm * 1.1, by, big);
+    word('Dirro', cx - bw / 2 - sm * 0.2, by - big * 0.45, sm);
+    g.restore();
+    const cr = 'DIRRODJ VINYL LOOPER  2026 DIRROGATE', cpx = P ? 1 : 1.25; txt(cr, x + (w - bitWidth(cr, cpx)) / 2, y + h - 7 * cpx - (P ? 6 : 3), cpx, '#7d838f');
+  };
+  g.fillStyle = AM.scr; g.fillRect(0, 0, W, H);
+  // ---------- screen title bar: name, readout box, gadgets (DJ TOOLS / PREVIEW / BACK)
+  const tbY = P ? 24 : 0, tbH = P ? 32 : 30;
+  g.fillStyle = AM.cream; g.fillRect(0, tbY, W, tbH); g.fillStyle = AM.ink; g.fillRect(0, tbY + tbH - 2, W, 2);
+  const title = page === 'loopbanks' ? (P ? 'BANKS' : 'LOOP MASTER - BANKS') : 'LOOP MASTER';
+  { const tp = P ? Math.min(1.5, lmFit(title, 120, 1.5)) : 2; txt(title, L + 4, tbY + (tbH - 7 * tp) / 2, tp, AM.ink); }
+  { const gh = tbH - 8, gy = tbY + 3; let gx = R;
+    const nav = [['BACK', navCan() ? navBack : null, !navCan(), P ? 58 : 70], ['PREVIEW', () => setMonitor(!monOn), false, P ? 70 : 84]];
+    if (!P) nav.push([page === 'loopbanks' ? 'LOOPER' : 'DJ TOOLS', () => setTools(page === 'loopbanks' ? 'looper' : 'dj'), false, 92]);
+    for (const [lab, act, dim, w] of nav) { gx -= w; creamGad(gx, gy, w, gh, lab === 'PREVIEW' && monOn ? 'PREVIEW *' : lab, act, dim); gx -= 4; }
+    T.navX = gx;
+  }
+  const Ld = looper.data, sr = Ld ? Ld.sr : (engine.ctx ? engine.ctx.sampleRate : 48000);
+  const readout = () => {
+    if (looper.state === 'rec') return [`RECORDING ${(performance.now() / 1000 - looper.t0).toFixed(1)} S`, ''];
+    if (!Ld) return ['LOOP = EMPTY', ''];
+    const len = (Ld.b - Ld.a) / Ld.sr;
+    return [`LOOP = ${len.toFixed(3)} S`, `IN ${fmtLoopT(Ld.a, sr)}  OUT ${fmtLoopT(Ld.b, sr)}${Ld.bpm ? `  ${(len * Ld.bpm / 60).toFixed(2)} BEATS` : ''}`];
+  };
+  const dispBox = (x, y, w, h) => {   // the sunken display, like 'Display = ...'
+    g.fillStyle = AM.cream; g.fillRect(x, y, w, h); g.strokeStyle = AM.ink; g.lineWidth = 2; g.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    const [a, b] = readout(), msg = performance.now() < loopUI.msgT ? loopUI.msg : '';
+    if (h > 30) { txt(a, x + 8, y + 6, 1.5, AM.ink); const p2 = lmFit(cleanText(msg || b), w - 16, 1.25), l2 = lmCut(msg || b, w - 16, p2); txt(l2, x + 8, y + h - 7 * p2 - 6, p2, msg ? '#8a2a10' : AM.ink); }
+    else { const s0 = msg || (b ? `${a}  ${b}` : a), sp = lmFit(cleanText(s0), w - 16, 1.5), s = lmCut(s0, w - 16, sp); txt(s, x + 8, y + (h - 7 * sp) / 2, sp, msg ? '#8a2a10' : AM.ink); }
+  };
+  if (page === 'loopbanks') {
+    const B = loopUI.banks, y0 = tbY + tbH + 8, rh = P ? 46 : 34;
+    if (!B || !B.length) { txt(!B ? 'READING THE BANKS...' : 'NO BANKS YET. FILL THE SLOTS, THEN SAVE BANK.', L + 4, y0 + 10, 1.5, AM.txt); return; }
+    const per = Math.floor((H - y0 - (P ? 70 : 40)) / (rh + 4)), pages = Math.ceil(B.length / per), pg = clamp(loopUI.bankPg || 0, 0, pages - 1);
+    B.slice(pg * per, pg * per + per).forEach((b, i) => {
+      const y = y0 + i * (rh + 4), del = loopUI.bankDel === b.name, dw = del ? 110 : 0;
+      const hit = gad(L, y, R - L - dw - (dw ? 4 : 0), rh, '', false, () => { loopUI.bankDel = ''; loopLoadBank(b.name); });
+      hit.long = () => { loopUI.bankDel = b.name; drawMixScreen(); };
+      txt(b.name, L + 10, y + (P ? 8 : (rh - 14) / 2), 2, AM.cyan);
+      const info = `${b.used || 0}/4 SLOTS  ${b.t ? new Date(b.t).toLocaleString('en', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).toUpperCase() : ''}`;
+      if (P) txt(info, L + 10, y + rh - 14, 1.25, AM.txt); else txt(info, R - dw - 12 - bitWidth(cleanText(info), 1.25), y + (rh - 9) / 2, 1.25, AM.txt);
+      if (del) gad(R - dw, y, dw, rh, 'DELETE', true, async () => { loopUI.bankDel = ''; await loopDb.deleteBank(b.name); loopUI.banks = await loopDb.listBanks(); drawMixScreen(); }, false, AM.red);
+    });
+    const by = H - (P ? 62 : 32);
+    if (pages > 1) { gad(L, by, 60, 26, '<', false, () => { loopUI.bankPg = Math.max(0, pg - 1); }, pg === 0); gad(L + 64, by, 60, 26, '>', false, () => { loopUI.bankPg = pg + 1; }, pg >= pages - 1); }
+    txt('TAP = LOAD INTO THE 4 SLOTS. HOLD = DELETE.', L + (pages > 1 ? 136 : 4), by + 9, 1.25, AM.dimT);
+    return;
+  }
+  ensureLoopSlots();
+  if (!engine.ctx) { txt('START THE DECKS FIRST.', L + 4, tbY + tbH + 20, 2, AM.txt); return; }
+  // ---------- layout
+  const gap = 4;
+  let dX, dY, dW, dH, wx, wy, ww, wh, sy;
+  if (P) { dX = L; dY = tbY + tbH + 6; dW = R - L; dH = 40; wx = L; wy = dY + dH + 6; ww = R - L; wh = 236; }
+  else { dX = T.navX - 300; dY = tbY + 4; dW = 296; dH = tbH - 8; wx = 8; wy = tbY + tbH + 4; ww = W - 16; wh = 92; }
+  if (!P) { const tw = bitWidth('LOOP MASTER', 2) + 16; dX = Math.max(L + tw, dX); dW = T.navX - 4 - dX; }
+  dispBox(dX, dY, dW, dH);
+  sy = wy + wh + 2;
+  // ---------- view window (samples)
+  if (Ld && loopUI.vFor !== Ld) { loopUI.vFor = Ld; loopUI.v0 = 0; loopUI.v1 = Ld.len; }
+  const len = Ld ? Ld.len : 1, minSpan = Math.round(0.02 * sr);
+  const setView = (a, b) => { let s = clamp(b - a, minSpan, len); a = clamp(a, 0, len - s); loopUI.v0 = a; loopUI.v1 = a + s; drawMixScreen(); };
+  const v0 = Ld ? loopUI.v0 : 0, v1 = Ld ? loopUI.v1 : 1, X = s => wx + (s - v0) / (v1 - v0) * ww, S = px => v0 + (px - wx) / ww * (v1 - v0);
+  // ---------- waveform panel: two lanes
+  g.fillStyle = '#000'; g.fillRect(wx, wy, ww, wh); g.strokeStyle = '#6a707c'; g.lineWidth = 2; g.strokeRect(wx + 1, wy + 1, ww - 2, wh - 2);
+  const laneH = (wh - 6) / 2;
+  if (looper.state === 'rec') {
+    const t = performance.now() / 1000 - looper.t0;
+    txt(`REC ${t.toFixed(1)} S OF 30`, wx + 12, wy + 12, 2, AM.red);
+    g.fillStyle = AM.red; g.fillRect(wx + 12, wy + wh / 2 - 3, (ww - 24) * Math.min(1, t / 30), 6);
+  } else if (!Ld) {
+    for (let k = 0; k < 2; k++) { const my = Math.round(wy + 3 + laneH * k + laneH / 2); g.fillStyle = AM.cyanD; g.fillRect(wx + 3, my, ww - 6, 1); }
+    const s = 'NO LOOP. REC SAMPLES THE CUE CHANNEL, OR TAP A SLOT.'; txt(s, wx + (ww - bitWidth(s, 1.5)) / 2, wy + 10, 1.5, AM.txt);
+  } else {
+    const xa = X(Ld.a), xb = X(Ld.b), cols = Math.max(16, Math.floor((ww - 6) / (P ? 1 : 1.5)));
+    g.fillStyle = AM.rng; g.fillRect(Math.max(wx + 3, xa), wy + 3, Math.max(0, Math.min(wx + ww - 3, xb) - Math.max(wx + 3, xa)), wh - 6);
+    for (let k = 0; k < 2; k++) {
+      const top = wy + 3 + laneH * k, my = top + laneH / 2, pk = lanePeaks(Ld, k, v0, v1, cols), kk = (laneH / 2 - 3);
+      if (k) { g.fillStyle = '#4a4f5a'; g.fillRect(wx + 3, top - 1, ww - 6, 2); }
+      for (let i = 0; i < cols; i++) {
+        const px = wx + 3 + i * (ww - 6) / cols, sm = S(px), inside = sm >= Ld.a && sm <= Ld.b;
+        g.fillStyle = inside ? AM.cyan : AM.cyanD;
+        const lo = Math.max(-1, pk[2 * i]) * kk, hi = Math.min(1, pk[2 * i + 1]) * kk;
+        g.fillRect(px, my - hi, Math.max(1, (ww - 6) / cols), Math.max(1, hi - lo));
+      }
+      g.fillStyle = AM.cyan; g.fillRect(wx + 3, Math.round(my), ww - 6, 1);
+      txt(k ? 'R' : 'L', wx + 8, top + 4, 1.25, '#6a707c');
+    }
+    const mark = (x, lab, sel) => {
+      if (x < wx + 2 || x > wx + ww - 2) return;
+      const c = sel ? '#ffe14a' : '#ffffff'; g.fillStyle = c; g.fillRect(Math.round(x) - (sel ? 1 : 0), wy + 3, sel ? 3 : 1, wh - 6);
+      const tw = bitWidth(lab, 1.25) + 6, tx = lab === 'IN' ? x + 2 : x - tw - 1; g.fillRect(tx, wy + 4, tw, 12); txt(lab, tx + 3, wy + 6, 1.25, '#000');
+    };
+    mark(xa, 'IN', loopUI.sel === 'in'); mark(xb, 'OUT', loopUI.sel === 'out');
+    if (looper.state === 'play' && looper.data === Ld) { const xp = X(looper.r); if (xp > wx && xp < wx + ww) { g.fillStyle = AM.red; g.fillRect(xp, wy + 3, 2, wh - 6); } }
+    const sc = `VIEW = ${((v1 - v0) / sr).toFixed(3)} S${Ld.src ? '  FROM ' + Ld.src : ''}${looper.slot ? '  SLOT ' + looper.slot : ''}`;
+    { const scp = lmFit(cleanText(sc), ww - 20, 1.25); txt(sc, wx + ww - 8 - bitWidth(cleanText(sc), scp), wy + wh - 7 * scp - 6, scp, '#6a707c'); }
+    const hit = { x: wx, y: wy, w: ww, h: wh, drag: true, act: px => {   // drag: the nearer marker (picked where the finger lands)
+      const s = clamp(S(px), 0, Ld.len);
+      if (screenDrag !== hit) loopUI.sel = Math.abs(s - Ld.a) < Math.abs(s - Ld.b) ? 'in' : 'out';
+      if (loopUI.sel === 'in') loopRegion(s, Ld.b); else loopRegion(Ld.a, s);
+    } };
+    VP_HIT.push(hit);
+  }
+  // ---------- scroll bar
+  { const sh = P ? 22 : 18, aw = P ? 30 : 26, tx = wx + aw + 2, tw = ww - 2 * aw - 4, span = v1 - v0;
+    const arrowGad = (x, dir) => { gad(x, sy, aw, sh, '', false, Ld ? () => setView(v0 + dir * span * 0.5, v1 + dir * span * 0.5) : null, !Ld);
+      g.fillStyle = AM.txt; const cx = x + aw / 2, cy = sy + sh / 2, a = sh * 0.26; g.fillRect(cx - a * 1.4, cy - 1, a * 2.8, 2); g.beginPath();
+      if (dir < 0) { g.moveTo(cx - a * 1.6, cy); g.lineTo(cx - a * 0.4, cy - a); g.lineTo(cx - a * 0.4, cy + a); } else { g.moveTo(cx + a * 1.6, cy); g.lineTo(cx + a * 0.4, cy - a); g.lineTo(cx + a * 0.4, cy + a); } g.fill(); };
+    arrowGad(wx, -1); arrowGad(wx + ww - aw, 1);
+    g.fillStyle = '#1b1d22'; g.fillRect(tx, sy, tw, sh); bev(tx, sy, tw, sh, false);
+    const kx = tx + 3 + (Ld ? v0 / len : 0) * (tw - 6), kw = Math.max(14, (Ld ? span / len : 1) * (tw - 6));
+    g.fillStyle = '#c9ccd4'; g.fillRect(kx, sy + 3, Math.min(kw, tx + tw - 3 - kx), sh - 6); bev(kx, sy + 3, Math.min(kw, tx + tw - 3 - kx), sh - 6, true, '#ffffff', '#6a707c');
+    if (Ld) VP_HIT.push({ x: tx, y: sy - 4, w: tw, h: sh + 8, drag: true, act: px => { const c = clamp((px - tx - 3) / (tw - 6), 0, 1) * len; setView(c - span / 2, c + span / 2); } });
+    sy += sh + 6;
+  }
+  // ---------- gadget groups
+  const st = looper.state, blinkOff = st === 'stop' && Math.floor(performance.now() / 400) % 2;
+  const stCol = st === 'rec' ? AM.red : st === 'play' ? AM.grn : st === 'stop' ? (blinkOff ? '#7a5510' : AM.amb) : AM.txt;
+  const stTxt = st === 'rec' ? 'REC->' : st === 'play' ? 'LOOP->' : st === 'stop' ? (looper.slot ? 'ARMED' : 'STOPPED') : 'READY';
+  const act = st === 'rec' ? 'LOOP IT' : st === 'play' ? 'STOP' : st === 'stop' ? 'PLAY' : 'REC';
+  const dimE = !Ld || st === 'rec', dimV = !Ld;
+  const slotG = (x, y, w, h, n) => {
+    const Sx = loopSlots[n - 1], cur = looper.slot === n, del = loopUI.del === n, flash = loopUI.store && Math.floor(performance.now() / 300) % 2;
+    const col = del ? AM.red : cur ? AM.amb : Sx ? AM.cyan : AM.dimT;
+    const hit = gad(x, y, w, h, del ? 'EMPTY?' : Sx ? '' : String(n), cur || del || flash, () => loopSlotTap(n), false, col);
+    hit.long = () => { if (loopSlots[n - 1]) { loopUI.del = n; drawMixScreen(); } };
+    if (Sx && !del) {   // number on top, length under it
+      const s = ((Sx.b - Sx.a) / Sx.sr).toFixed(2) + 'S', np = h > 30 ? 2 : 1.5, sel = cur || flash;
+      txt(String(n), x + (w - bitWidth(String(n), np)) / 2, y + 3 + (sel ? 1 : 0), np, col); txt(s, x + (w - bitWidth(s, 1)) / 2, y + h - 10, 1, AM.txt);
+    }
+  };
+  const volG = (x, y, w, h) => {
+    const lw = bitWidth('VOLUME', 1.5) + 12, v = mixVal['loop.vol'] ?? 0.8, tx = x + lw, tw = w - lw - 4;
+    g.fillStyle = AM.face; g.fillRect(x, y, w, h); bev(x, y, w, h, true); txt('VOLUME', x + 6, y + (h - 10) / 2, 1.5, AM.txt);
+    g.fillStyle = '#1b1d22'; g.fillRect(tx, y + 5, tw, h - 10); bev(tx, y + 5, tw, h - 10, false);
+    g.fillStyle = '#c9ccd4'; g.fillRect(tx + 3, y + 8, Math.max(4, (tw - 6) * v), h - 16);
+    VP_HIT.push({ x: tx, y, w: tw, h, drag: true, act: px => { setMix('loop.vol', clamp((px - tx - 3) / (tw - 6), 0, 1)); drawMixScreen(); } });
+  };
+  const storeG = (x, y, w, h) => gad(x, y, w, h, loopUI.store ? 'TAP SLOT' : 'STORE', loopUI.store, () => { if (!looper.data) { loopSay('Nothing to store: record a loop first'); return; } loopUI.store = !loopUI.store; loopUI.del = 0; }, !looper.data);
+  const saveG = (x, y, w, h) => gad(x, y, w, h, 'SAVE BANK', false, () => { const d = new Date(), def = `BANK ${d.getDate()} ${d.toLocaleString('en', { month: 'short' }).toUpperCase()} ${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`; openKbd('LOOP BANK NAME (saves all 4 slots)', def, false, 40, t => loopSaveBank(t.trim() || def), 'looper'); }, !loopSlots.some(Boolean));
+  const loadG = (x, y, w, h) => gad(x, y, w, h, 'LOAD BANK', false, loopOpenBanks);
+  const zoomTo = f => { const c = loopUI.sel === 'in' ? Ld.a : Ld.b, s = (v1 - v0) * f; setView(c - s / 2, c + s / 2); };
+  const viewGads = [[P ? 'SHOW RNG' : 'SHOW RANGE', () => { const m = (Ld.b - Ld.a) * 0.06; setView(Ld.a - m, Ld.b + m); }], ['SHOW ALL', () => setView(0, len)], ['ZOOM', () => zoomTo(0.25)], ['TELE', () => zoomTo(4)]];
+  const markGads = [['IN', loopUI.sel === 'in', () => { loopUI.sel = 'in'; }], ['OUT', loopUI.sel === 'out', () => { loopUI.sel = 'out'; }], ['RANGE ALL', false, () => loopRegion(0, Ld.len)]];
+  const nudgeGads = [['-10MS', () => loopNudge(-10)], ['-1MS', () => loopNudge(-1)], ['+1MS', () => loopNudge(1)], ['+10MS', () => loopNudge(10)]];
+  if (!P) {
+    const gy = sy, rH = 26, gH = 3 * rH + 2 * gap + 8, x0 = 8;
+    const grp = (x, w) => { panel(x, gy, w, gH); return [x + 4, gy + 4, w - 8]; };
+    let [x, y, w] = grp(x0, 120);   // slots
+    { const hw = (w - gap) / 2; slotG(x, y, hw, rH, 1); slotG(x + hw + gap, y, hw, rH, 2); slotG(x, y + rH + gap, hw, rH, 3); slotG(x + hw + gap, y + rH + gap, hw, rH, 4); storeG(x, y + 2 * (rH + gap), w, rH); }
+    [x, y, w] = grp(x0 + 126, 108);   // transport
+    txt(stTxt, x + (w - bitWidth(stTxt, 2)) / 2, y + 5, 2, AM.cyan);
+    { const hit = gad(x, y + rH, w, 2 * rH + gap, act, st !== 'empty', () => pressLooper('tablet'), false, stCol); hit.long = clearLooper; }
+    [x, y, w] = grp(x0 + 240, 196);   // markers
+    { const w3 = (w - 2 * gap) / 3; markGads.forEach(([l, on, a], i) => gad(x + i * (w3 + gap), y, w3, rH, l, on, a, dimE));
+      const w4 = (w - 3 * gap) / 4; nudgeGads.forEach(([l, a], i) => gad(x + i * (w4 + gap), y + rH + gap, w4, rH, l, false, a, dimE));
+      txt('HOLD TRANSPORT = CLEAR', x + 2, y + 2 * (rH + gap) + 9, 1, AM.dimT); }
+    [x, y, w] = grp(x0 + 442, 186);   // view + volume
+    { const w2 = (w - gap) / 2; viewGads.forEach(([l, a], i) => gad(x + (i % 2) * (w2 + gap), y + Math.floor(i / 2) * (rH + gap), w2, rH, l, false, a, dimV)); volG(x, y + 2 * (rH + gap), w, rH); }
+    [x, y, w] = grp(x0 + 634, W - 8 - (x0 + 634));   // banks
+    saveG(x, y, w, rH); loadG(x, y + rH + gap, w, rH);
+    gad(x, y + 2 * (rH + gap), w, rH, 'DJ TOOLS', false, () => setTools('dj'));
+    logo(8, gy + gH + 4, W - 16, H - (gy + gH + 4) - 4);
+  } else {
+    const rH = 34, x = L, w = R - L; let y = sy;
+    panel(x, y, w, 2 * rH + 18); txt(stTxt, x + 8, y + 7, 2, AM.cyan); { const hit = gad(x + 4, y + 26, w - 8, rH + 18 - 6, act, st !== 'empty', () => pressLooper('tablet'), false, stCol); hit.long = clearLooper; } y += 2 * rH + 22;
+    const w4 = (w - 3 * gap) / 4; for (let n = 1; n <= 4; n++) slotG(x + (n - 1) * (w4 + gap), y, w4, rH + 6, n); y += rH + 6 + gap;
+    const w3 = (w - 2 * gap) / 3; storeG(x, y, w3, rH); saveG(x + w3 + gap, y, w3, rH); loadG(x + 2 * (w3 + gap), y, w3, rH); y += rH + gap;
+    markGads.forEach(([l, on, a], i) => gad(x + i * (w3 + gap), y, w3, rH, l, on, a, dimE)); y += rH + gap;
+    nudgeGads.forEach(([l, a], i) => gad(x + i * (w4 + gap), y, w4, rH, l, false, a, dimE)); y += rH + gap;
+    viewGads.forEach(([l, a], i) => gad(x + i * (w4 + gap), y, w4, rH, l, false, a, dimV)); y += rH + gap;
+    volG(x, y, w, rH); y += rH + gap;
+    logo(x, y, w, Math.max(40, H - 28 - y));
+  }
+}
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -5680,6 +6028,7 @@ function drawToolsPage() {
   const note = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; return wrapText(g, s, L + 4, y, R - L - 8, 20, 5); };
   const lockBtn = (x, y, w, h) => btn(x, y, w, h, gearLock ? 'GEAR LOCKDOWN: ON' : 'GEAR LOCKDOWN: OFF', gearLock, () => { gearLock = !gearLock; toast(gearLock ? 'Gear locked' : 'Gear unlocked: decks and mixer can be moved and turned', 2400); drawMixScreen(); }, false, 18);   // #378 DJ TOOLS
   const page = toolsPage;
+  if (page === 'looper' || page === 'loopbanks') { drawLooperPage(page, { g, W, H, P, L, R, btn, head, note }); return; }   // #470
   if (page === 'home') {
     const y0 = head('TOOLS', 'mixer');
     const stLbl = streamer && streamer.live ? '● LIVE ' + streamer.elapsed() : 'STREAM';   // #331
@@ -6172,7 +6521,7 @@ function drawToolsPage() {
       ['PICTURES', ledMode === 'clips' && !!led.img, () => setLedMode('clips', 'image'), !nOf('image')],
       ['MANDEL', ledMode === 'mandel', () => setLedMode('mandel'), false],
       ['RETRO-SCENE', ledMode === 'retro' || ledMode === 'vdancer' || ledMode === 'meta', () => { if (!isFxMode(ledMode) || ledMode === 'mandel') setLedMode('retro'); setTools('retro'); }, false],
-      ['AVACAM', ledMode === 'cam', () => setLedMode('cam'), !djcam || !pieceOn('ledwall')],
+      ['DirroDj📹', ledMode === 'cam', () => setLedMode('cam'), !djcam || !pieceOn('ledwall')],
       ['LIVE', isLive(ledMode), () => setLedMode('live'), !livePossible() || !pieceOn('ledwall')]];
     const tile = (x, y, w, h, [label, on, act, dim]) => {
       if (label !== 'RETRO-SCENE') { btn(x, y, w, h, label, on, dim ? null : act, dim, P ? 19 : 17); return; }
@@ -6399,7 +6748,7 @@ function drawToolsPage() {
         () => btn(x, y, w, h, chalkLbl(), !!(chalkboard && chalkboard.on), chalkTap, !chalkboard, fs),   // tap = out / away, double-tap = back to its spot
         () => btn(x, y, w, h, portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), portalsTap, !portals, fs),
         () => btn(x, y, w, h, 'PORTALS SETUP', false, portals ? () => setTools('portals') : null, !portals, fs),
-        () => btn(x, y, w, h, ledMode === 'cam' ? 'LED AVACAM: ON' : 'LED AVACAM', ledMode === 'cam', () => setLedMode(ledMode === 'cam' ? 'off' : 'cam'), false, fs),
+        () => btn(x, y, w, h, ledMode === 'cam' ? 'LED DirroDj📹: ON' : 'LED DirroDj📹', ledMode === 'cam', () => setLedMode(ledMode === 'cam' ? 'off' : 'cam'), false, fs),
         () => btn(x, y, w, h, 'CAM FIT', false, () => setTools('streamfit'), !streamer, fs),
         () => btn(x, y, w, h, 'PHONE CAM', !!(streamer && streamer.source === 'pcam'), openPhoneCam, !streamer, fs),
         () => btn(x, y, w, h, perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false, fs),
@@ -6410,14 +6759,14 @@ function drawToolsPage() {
       ledCells(L, y0 + 4 + Math.ceil(NT / cols) * (bh + gap) + 4, R - L, P);
     };
     if (P) {
-      if (page === 'dj') { btn(L, y0 + 8, R - L, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');
+      if (page === 'dj') { const lw = (R - L - 8) * 0.42; btn(L, y0 + 8, R - L - lw - 8, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 22); drawLoopMainBtn(g, R - lw, y0 + 8, lw, 80, 22); VP_HIT.push({ x: R - lw, y: y0 + 8, w: lw, h: 80, act: () => setTools('looper') }); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');   // #470 LOOPER
         ctlBtn(L, y0 + 176, (R - L - 8) * 0.62, 64); btn(L + (R - L - 8) * 0.62 + 8, y0 + 176, (R - L - 8) * 0.38, 64, 'HAND FIT', false, () => setTools('handfit'), false, 18);   // #291
         lockBtn(L, y0 + 252, (R - L - 8) * 0.55, 64); btn(L + (R - L - 8) * 0.55 + 8, y0 + 252, (R - L - 8) * 0.45, 64, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 17);   // #378, #423
         note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until you switch it off (then decks turn in 45 degree steps). RECORD MAKER: press your own record. MILK CRATE: the first milk crate. CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 332); }
       else vjPage(y0);   // #389
     } else {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
-      if (page === 'dj') { btn(L, y0 + 8, bw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 24); sw(x2, y0 + 8, w2, 80, 'MILK CRATE', 'milk');
+      if (page === 'dj') { const mw = 236, lw = 170; btn(L, y0 + 8, mw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 22); drawLoopMainBtn(g, L + mw + 8, y0 + 8, lw, 80, 22); VP_HIT.push({ x: L + mw + 8, y: y0 + 8, w: lw, h: 80, act: () => setTools('looper') }); sw(L + mw + lw + 16, y0 + 8, R - (L + mw + lw + 16), 80, 'MILK CRATE', 'milk');   // #470 LOOPER
         ctlBtn(L, y0 + 96, (R - L - 8) * 0.66, 50); btn(L + (R - L - 8) * 0.66 + 8, y0 + 96, (R - L - 8) * 0.34, 50, 'HAND FIT', false, () => setTools('handfit'), false, 20);   // #291
         lockBtn(L, y0 + 154, (R - L - 8) * 0.62, 46); btn(L + (R - L - 8) * 0.62 + 8, y0 + 154, (R - L - 8) * 0.38, 46, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 18);   // #378, #423
         note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until it is switched off. RECORD MAKER: press your own record. CONTROLLERS: 3D hands or bare controllers.', y0 + 218); }
@@ -6937,14 +7286,15 @@ function drawMixScreen() {
       [[S && S.live ? '● LIVE' : 'STREAM', !!(S && S.live), () => setTools('stream'), !S], ['DIRROTV', !!(S && S.tvUp), () => setTools('tv'), !S], ['STUDIO', !!(S && S.stu.on), () => setTools('studio'), !S], ['WALL ⁺¹', ledMode !== 'off', () => setTools('wall'), false]].forEach(([l, o, a, dim], i) => {
         const bx3 = 20 + i * (bw3 + 6); drawTopBtn(g, bx3, by3, bw3, 36, l, o, dim, 15); if (!dim) SP_HIT.push({ x: bx3 - 3, y: by3 - 4, w: bw3 + 6, h: 44, act: a }); });
     }
-    drawTopBtn(g, 20, H - 52, 92, 36, 'TOOLS', !!(scroller && scroller.on));   // #224
-    SP_HIT.push({ x: 14, y: H - 60, w: 104, h: 52, act: () => setTools('home') });
-    drawResetMix(g, 124, H - 52, 130, 36);   // #254
-    drawPin(g, W - 26 - 150, H - 50, 150, 34);   // #210 (#224: right of TOOLS)
+    drawTopBtn(g, 20, H - 52, 80, 36, 'TOOLS', !!(scroller && scroller.on));   // #224
+    SP_HIT.push({ x: 14, y: H - 60, w: 90, h: 52, act: () => setTools('home') });
+    drawResetMix(g, 106, H - 52, 110, 36);   // #254
+    drawLoopMainBtn(g, 222, H - 52, W - 20 - 222, 36, 15); SP_HIT.push({ x: 219, y: H - 60, w: W - 20 - 216, h: 52, act: () => setTools('looper') });   // #470
+    drawPin(g, W - 26 - 150, H - 142, 150, 34);   // #210 (#470: above the button rows, LOOP took its place)
     scr().commit(); return;
   }
   for (const d of decks) drawDeckPanel(g, d, d.i ? W / 2 + 6 : 6, 6, W / 2 - 12, H - 12, false);
-  drawPin(g, W - 14 - 150, H - 46, 150, 30);   // #210
+  drawPin(g, W - 14 - 120, H - 46, 120, 30);   // #210 (#470 narrower: LOOP joined the bottom bar)
   { // #185 VIDEO: deck B's top row (was the #176 LED WALL switch, which is on the Video page now)
     const w = 108, h = 28, y = 12, bw = 96, bx = W - 14 - bw, x = bx - 8 - w;   // #202 clear of the corner L; #363 BACK at the right, VISUALS left of it
     drawTopBtn(g, bx, y, bw, h, '◀ BACK', false, !navCan(), 18);
@@ -6955,12 +7305,13 @@ function drawMixScreen() {
   { // #389 bottom menu bar: TOOLS, RESET MIX, STREAM, CLY3DTV, STUDIO
     const h = 28, y = H - 40, gap = 6; let x = 14;
     const S = streamer, tb = (label, on, act, dim, w) => { drawTopBtn(g, x, y, w, h, label, on, dim); if (!dim) SP_HIT.push({ x: x - 3, y: y - 8, w: w + 6, h: h + 14, act }); x += w + gap; };
-    tb('TOOLS', !!(scroller && scroller.on), () => setTools('home'), false, 92);
+    tb('TOOLS', !!(scroller && scroller.on), () => setTools('home'), false, 80);
     drawResetMix(g, x, y, 100, h); x += 100 + gap;   // #254
-    tb(S && S.live ? '● LIVE' : 'STREAM', !!(S && S.live), () => setTools('stream'), !S, 92);
-    tb('DIRROTV', !!(S && S.tvUp), () => setTools('tv'), !S, 98);
-    tb('STUDIO', !!(S && S.stu.on), () => setTools('studio'), !S, 92);
-    tb('WALL ⁺¹', ledMode !== 'off', () => setTools('wall'), false, 78);   // #439 the LED WALL page, one tap from the mixer
+    tb(S && S.live ? '● LIVE' : 'STREAM', !!(S && S.live), () => setTools('stream'), !S, 82);
+    tb('DIRROTV', !!(S && S.tvUp), () => setTools('tv'), !S, 88);
+    tb('STUDIO', !!(S && S.stu.on), () => setTools('studio'), !S, 80);
+    tb('WALL ⁺¹', ledMode !== 'off', () => setTools('wall'), false, 72);   // #439 the LED WALL page, one tap from the mixer
+    drawLoopMainBtn(g, x, y, 74, h, 17); SP_HIT.push({ x: x - 3, y: y - 8, w: 80, h: h + 14, act: () => setTools('looper') }); x += 74 + gap;   // #470 LOOP: state colour, opens the LOOPER page
     if (testState.fps) {   // #258 live frame rate (kept for the console: window.vire)
       const st = fpsStats(); g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '700 15px system-ui';
       g.fillStyle = !st ? '#8c96a8' : st.drops > 3 ? '#ff5050' : st.drops ? '#f1b650' : '#40d080';
@@ -7256,10 +7607,16 @@ function frameBody() {
     }
     mixer.userData.bpmCounter.setText(txt);
   }
-  {   // LOOPER LED: dim orange idle, fast red blink while sampling (the blink slows as the 30 s run out), green while looping
-    const lb = mc.looper, rec = looper.state === 'rec', ela = performance.now() / 1000 - looper.t0;
-    if (lb.userData.setColor) lb.userData.setColor(rec ? 0xff2a20 : looper.state === 'play' ? 0x40ff70 : 0xff6a30);
-    lb.userData.set(rec ? (Math.floor(ela * (ela > 25 ? 12 : 6)) % 2 ? 1 : 0.15) : looper.state === 'play' ? 1 : 0.06);
+  {   // #470 LOOPER ring LED: off empty, red sampling (fast blink in the last 5 s), green looping, amber blinking stopped / armed,
+    // a quick blink when cleared. The button's own legend follows the same colour, dimmer.
+    stepLooper();
+    const lbn = mc.looper, now = performance.now() / 1000, st = looper.state, ela = now - looper.t0, ring = mixer.userData.loopRing;
+    const clr = now - looper.clearT < 0.8, blinkA = Math.floor(now * 2.5) % 2 === 0;
+    const col = clr ? 0xffd040 : st === 'rec' ? 0xff2a20 : st === 'play' ? 0x40ff70 : st === 'stop' ? 0xffa018 : 0xff6a30;
+    const lit = clr ? (Math.floor((now - looper.clearT) * 10) % 2 === 0) : st === 'rec' ? (ela < 25 || Math.floor(ela * 10) % 2 === 0) : st === 'play' ? true : st === 'stop' ? blinkA : false;
+    if (lbn.userData.setColor) lbn.userData.setColor(col);
+    lbn.userData.set(lit ? 0.8 : 0.06);
+    if (ring) { ring.color.setHex(col); ring.opacity = lit ? 1 : 0; }
   }
   mc.splitcue.userData.set(splitCue ? (Math.floor(performance.now() / 350) % 2 ? 1 : 0.15) : 0.06);   // #254 flashes while split cue is on
   mc.mic.userData.set(micOn ? 0.75 + Math.min(0.6, micLevel() * 2) : 0.06);
@@ -7371,7 +7728,7 @@ function frameBody() {
   if (fx) fx.postRender();   // #379 the floated gear back in its real place for hands, grabs and saving
 }
 // #427 DIRROGRAM: the show to the audience phones through the relay (dirro-host.js)
-if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr, getBeat: () => tapBeat() || beat, tapBpm: () => (wtapOn() ? 60000 / wtap.iv : 0), laser, micLevel, nowPlaying: dirroNow,
+if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr, handFit: () => (xr ? xr.handFit : null),   // #469 getBeat: () => tapBeat() || beat, tapBpm: () => (wtapOn() ? 60000 / wtap.iv : 0), laser, micLevel, nowPlaying: dirroNow,
   scrollText: () => (scroller && scroller.on ? scroller.text : ''),
   getLed: () => (ledMode === 'card' && cardWall.pic ? { img: true, name: 'card:' + cardWall.name, file: cardWall.file } : { img: !!(led.on && led.img), name: led.name, file: led.name ? led.fileNamed(led.name) : null }),   // #434 (#446 the card's still)   // #434 the LED wall's picture
   tvCanvas: () => (streamer && streamer.active ? streamer.canvas : null),   // #434 the stream / venue-screen picture
@@ -7459,7 +7816,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   needleDown: d => !!(d.record && ((engine.state.decks[d.i] && engine.state.decks[d.i].needle) || (d.arm && (d.arm.lift < 0.5 || d.arm.dragDown)))),   // #451
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
   sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease, spiderGrabTest, spiderGrab, spiderRelease,
-  crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, crateSelect, crateWalkStep, drawCrateScreen, layoutSleeves, crateDisc,
+  crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, holdLooper, crateSelect, crateWalkStep, drawCrateScreen, layoutSleeves, crateDisc,
   onA: st => gpSummon(st),   // #404 right controller A: the camera GoPro to that hand
   neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, ledTilted, toast, mixScreenRelease, mixScreenDrag,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
@@ -7816,6 +8173,7 @@ drawMixScreen();
 // debugging handle
 try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media.getFile('Images', cn).then(f => { if (f) { streamer.setCardPic(f); cardWallSet(f, false); } }).catch(() => {}); } catch (e) {}   // #445 the CARD picture of last time
 window.vire = { THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire._loop = { looper, loopSlots, loopUI, pressLooper, clearLooper, loopSlotTap, loopRegion, loopNudge, loopSaveBank, loopLoadBank, loopOpenBanks, stepLooper, releaseLooper };   // #470 test hook
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
 window.vire._laser = { laser, laserTap, camCal, camCalStart, camCalStop };   // #415 camCal test hook   // #406 test hook
 window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, milkSleeveHit, layoutMilkSleeves, gpSummon, goproReset, gopro2, setDomeEv, get plJump() { return plJump; }, msFly };   // #394 / #395 test hooks   // #392 / #393 test hooks

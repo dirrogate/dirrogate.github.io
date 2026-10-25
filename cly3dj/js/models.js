@@ -594,6 +594,12 @@ export function makeMixer() {
       u.bpmCounter = { canvas: bpmCanvas, tex: bpmTex, setText: drawText };
     } else {   // LOOPER (owner): replaces deck B's BEAT 1 button; LOOP VOL knob above it, same column
       addButton('looper', 0.02, 0.012, 0xff6a30, 'LOOP', x + 0.033, 0.030);
+      {   // #470 LED ring round the LOOP button (state colour: red / green / amber blinking; main.js drives it)
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0xff6a30, toneMapped: false, transparent: true, opacity: 0 });
+        const ring = new THREE.Mesh(roundedTop(0.024, 0.016, 0.0035, 0.0006), ringMat);
+        ring.position.set(x + 0.033, top + 0.0002, 0.030); ring.raycast = () => {};
+        g.add(ring); u.loopRing = ringMat;
+      }
       addKnob('loop.vol', x + 0.033, 0.006, 0xff8a40, 0.008);
       label('LOOP VOL', x + 0.033, -0.0065, 0.0024);
     }
