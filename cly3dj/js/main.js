@@ -35,6 +35,7 @@ import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.j
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
+import { MovieProps, SURF_SLOTS, PLATE_BUILTIN, COLORS, PRESETS, NEON_FONTS, FOG_COLORS, MATTES, GRAFF_BUILTIN, DECAL_GROUND, DECAL_WALL, GRAFF_TINTS, removeFile } from './movieprops.js';   // #478 VJ TOOLS > MOVIE PROPS
 import { FX, USER_LAYER } from './fx.js';   // #379 VISUALS > FX: FLOAT and WATER
 import * as store from './storage.js';
 import * as loopDb from './loopbank.js';   // #470 loop slots and banks in private storage
@@ -68,6 +69,7 @@ const dirroMark = { want: '', t0: 0, prev: {} };   // #438 MARK LEFT / RIGHT: th
 let spect = null, spectErrShown = false;   // #158 spectator host (declared early: drawMixScreen reads it, #164)
 function saveSettings() { try { localStorage.setItem('vire.settings', JSON.stringify(settings)); } catch {} }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+let mprops = null;   // #478 MOVIE PROPS: puddles, rain, fog, GLBs, neon signs, graffiti
 let fx = null;   // #379 FLOAT / WATER (made next to the XR setup, once everything it looks at exists)
 const DECK_NAMES = ['A', 'B'];
 
@@ -927,7 +929,7 @@ function camCalStep() {   // per frame while on: a trigger press = one sample at
   }
 }
 function stepRealWorld(dt) {
-  if (!arMode || !renderer.xr.isPresenting) { if (realDepth) realDepth.clear(); if (laser) laser.setDepth(null); return; }
+  if (!arMode || !renderer.xr.isPresenting) { if (realDepth) realDepth.clear(); if (laser) laser.setDepth(null); if (mprops) mprops.setDepth(null); return; }
   const hasD = renderer.xr.hasDepthSensing && renderer.xr.hasDepthSensing();
   const occ = hasD ? renderer.xr.getDepthSensingMesh() : null;
   let rdOk = false;
@@ -941,6 +943,7 @@ function stepRealWorld(dt) {
   }
   if (occ) { if (!occ.userData.vireOcc) patchOcclusion(occ); occ.visible = !rdOk && settings.occlusion !== false; }   // fallback only
   if (laser) laser.setDepth(rdOk && settings.roomHits !== false && laser.on ? realDepth.laserData() : null);   // beams stop at real hands / people
+  if (mprops) mprops.setDepth(rdOk && settings.roomHits !== false ? realDepth.laserData() : null);   // #480 MOVIE PROPS fog is soft against real walls / people
   if (!laser || !laser.on) return;
   roomT += dt; if (roomT < 0.1) return; roomT = 0;
   const frame = renderer.xr.getFrame(), ref = renderer.xr.getReferenceSpace();
@@ -5568,6 +5571,7 @@ function setTools(p) {
     else if (pcamAutoReh) { pcamAutoReh = false; if (!streamer.live && !monOn) streamer.setRehearse(false); }
   }
   if (p === 'pcamcrop') setTools.fitIv = setInterval(() => { if (toolsPage === 'pcamcrop') drawMixScreen(); }, 200);
+  if (p === 'props') setTools.fitIv = setInterval(() => { if (toolsPage === 'props') drawMixScreen(); }, 700);   // #478 prop list / names
   if (p === 'looper') setTools.fitIv = setInterval(() => { if (toolsPage === 'looper') drawMixScreen(); }, 100);   // #470 playhead, REC clock, armed blink
   if (p === 'perfcap') setTools.fitIv = setInterval(() => { if (toolsPage === 'perfcap') drawMixScreen(); }, 1000);   // #387 the clock and size
   if (p === 'studiokey') setTools.fitIv = setInterval(() => { if (toolsPage === 'studiokey') drawMixScreen(); }, 400);   // #385 the S8 KEY numbers and preview   // #353 the CROP picture, ~5 a second
@@ -5833,7 +5837,7 @@ const PINCH_FIT_DEF = {
   lh: { label: 'HAND LIFT', lo: -20, hi: 60, v: 10, unit: 'mm' }, lg: { label: 'GLOVE LIFT', lo: -20, hi: 60, v: 15, unit: 'mm' },
   pa: { label: 'PINCH TILT', lo: -60, hi: 60, v: 0, unit: '°' }, pt: { label: 'PINCH TURN', lo: -90, hi: 90, v: 0, unit: '°' },
 };
-const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'LED WALL', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'DIRROTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
+const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'LED WALL', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'DIRROTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -6099,6 +6103,151 @@ function drawLooperPage(page, T) {
     logo(x, y, w, Math.max(40, H - 28 - y));
   }
 }
+// #478 VJ TOOLS > MOVIE PROPS: spawn row, list of the props in the room (tap = select, X = remove) and the selected prop's controls
+const pcs = v => Math.round(v * 100) + '%';
+let propsClearT = 0, mpTab = 'props', mpSurfName = '', surfDelT = 0;
+function drawPropsPage(T) {
+  const { g, W, H, P, L, R, btn, head, note } = T;
+  const y0 = head('MOVIE PROPS', 'vj', mprops ? { label: mpTab !== 'props' ? 'PROPS' : 'FOCUS', on: mpTab === 'cam', act: () => { mpTab = mpTab !== 'props' ? 'props' : 'cam'; drawMixScreen(); } } : null);
+  if (!mprops) { note('Movie props are made on the headset / desktop page.', y0 + 10); return; }
+  const mp = mprops, sel = mp.sel, items = mp.props();
+  if (mpTab === 'cam') {   // #480 FOCUS PULL: the virtual layer goes soft away from the focus distance (the real passthrough picture stays sharp)
+    const f = mp.focus, CR = P ? 36 : 32, cc = P ? 1 : 2, cg = 6, cw = (R - L - cg * (cc - 1)) / cc, chh = CR - 3, pc = v => Math.round(v * 100) + '%', logD = d => Math.log(clamp(d, 0.3, 30) / 0.3) / Math.log(100), sv = () => mp.saveCam();
+    const cells = [
+      { b: 1, label: f.on ? 'FOCUS PULL: ON' : 'FOCUS PULL: OFF', on: f.on, act: () => { f.on = !f.on; f.rack = null; sv(); drawMixScreen(); } },
+      { s: 1, label: 'DISTANCE', v: logD(f.dist), txt: f.dist.toFixed(1) + ' m', set: v => { f.dist = 0.3 * Math.pow(100, v); f.rack = null; f.on = true; sv(); } },
+      { s: 1, label: 'APERTURE', v: f.ap, txt: pc(f.ap), set: v => { f.ap = v; sv(); } },
+      { b: 1, label: 'FOCUS ON SELECTED PROP', act: () => { const p = mp.sel; if (!p) return; const c = mp.viewCam(); c.updateMatrixWorld(); p.obj.updateWorldMatrix(true, false); f.dist = clamp(new THREE.Vector3().setFromMatrixPosition(p.obj.matrixWorld).distanceTo(new THREE.Vector3().setFromMatrixPosition(c.matrixWorld)), 0.3, 30); f.on = true; f.rack = null; sv(); drawMixScreen(); }, dim: !sel },
+      { b: 1, label: `SET A (${f.a.toFixed(1)} m)`, act: () => { f.a = f.dist; sv(); drawMixScreen(); } }, { b: 1, label: `SET B (${f.b.toFixed(1)} m)`, act: () => { f.b = f.dist; sv(); drawMixScreen(); } },
+      { s: 1, label: 'RACK TIME', v: (f.time - 0.5) / 19.5, txt: f.time.toFixed(1) + ' s', set: v => { f.time = 0.5 + v * 19.5; sv(); } },
+      { b: 1, label: 'RACK A > B', on: !!(f.rack && f.rack.to === f.b), act: () => { mp.rack(true); drawMixScreen(); } }, { b: 1, label: 'RACK B > A', on: !!(f.rack && f.rack.to === f.a), act: () => { mp.rack(false); drawMixScreen(); } },
+    ];
+    cells.forEach((c, i) => { const x = L + (i % cc) * (cw + cg), y = y0 + 4 + Math.floor(i / cc) * CR; if (c.s) tSlider(g, x, y, cw, chh, c.label, c.v, c.txt, c.set); else btn(x, y, cw, chh, c.label, c.on, c.act, c.dim, P ? 15 : 13); });
+    note('Neon, graffiti, lamp halos and the puddle reflections go soft the further they are from the focus distance; lamps open into bigger, fainter discs. The real passthrough picture cannot be blurred, so keep APERTURE low for a natural look.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 14);
+    return;
+  }
+  if (mpTab === 'surf') {   // #482 SURFACES: pick / make a surface and fill its map slots
+    const names = mp.surfNames(); if (!mpSurfName || !mp.surfaces.has(mpSurfName)) mpSurfName = names[0];
+    const nm = mpSurfName, S = mp.surfaces.get(nm), CR = P ? 34 : 31, cc = P ? 1 : 2, cg = 6, cw = (R - L - cg * (cc - 1)) / cc, chh = CR - 3, ts = () => { mp.saveSurfaces(); mp.touchSurf(nm); }, delArm = performance.now() - surfDelT < 3000;
+    const short = f => !f ? '(empty)' : f.startsWith('surfaces/') ? f.split('/').pop() : f.replace(/^.*__/, '');
+    const cells = [
+      { b: 1, label: 'DONE: BACK TO PROPS', act: () => { mpTab = 'props'; drawMixScreen(); } },
+      { b: 1, label: 'SURFACE: ' + nm + (S.builtin ? '' : ' (yours)'), act: () => { mpSurfName = names[(names.indexOf(nm) + 1) % names.length]; drawMixScreen(); } },
+      { b: 1, label: 'NEW SURFACE', act: () => openKbd('NEW SURFACE NAME', '', false, 24, t => { const n = mp.addSurface(t); if (n) mpSurfName = n; else toast('Name is empty or already used', 2500); }, 'props') },
+      { b: 1, label: delArm ? 'TAP AGAIN: DELETE' : 'DELETE SURFACE', on: delArm, dim: S.builtin, act: () => { if (performance.now() - surfDelT < 3000) { surfDelT = 0; mp.removeSurface(nm); mpSurfName = ''; } else surfDelT = performance.now(); drawMixScreen(); } },
+      { s: 1, label: 'TILE SIZE (real metres)', v: (S.tile - 0.2) / 3.8, txt: S.tile.toFixed(2) + ' m', set: v => { S.tile = 0.2 + v * 3.8; ts(); } },
+      { s: 1, label: 'DISPLACEMENT DEPTH', v: S.disp / 2, txt: pcs(S.disp / 2), set: v => { S.disp = v * 2; ts(); } },
+    ];
+    for (const [k, lab] of SURF_SLOTS) {
+      cells.push({ b: 1, label: lab + ': ' + short(S.slots[k]), on: !!S.slots[k], act: () => mp.pickSurf(nm, k, () => drawMixScreen()) });
+      if (S.slots[k]) cells.push({ b: 1, label: 'CLEAR ' + lab, act: () => { mp.setSlot(nm, k, null).then(() => drawMixScreen()); } });
+    }
+    cells.forEach((c, i) => { const x = L + (i % cc) * (cw + cg), y = y0 + 4 + Math.floor(i / cc) * CR; if (c.s) tSlider(g, x, y, cw, chh, c.label, c.v, c.txt, c.set); else btn(x, y, cw, chh, c.label, c.on, c.act, c.dim, P ? 15 : 13); });
+    note('Each slot takes a picture (jpg / png). Diffuse = colour, displacement = height (white high), roughness, normal (OpenGL style) and AO are optional. Added from this device; set TILE SIZE to how many metres one picture covers.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 12);
+    return;
+  }
+  const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', decal: 'GROUND DECAL', walldecal: 'WALL DECAL', glb: 'GLB', lamp: 'LAMP', plate: 'BACKDROP', crate: 'RECORD CRATE' };
+  const spawn = k => {
+    const o = {};
+    if (k === 'glb') { if (!mp.lists.glb.length) { toast('Add a .glb first (ADD GLB, on the GLB prop that appears)', 3500); } else o.src = mp.lists.glb[0]; }
+    if (k === 'graffiti') o.src = 'graff1.png';
+    if (k === 'decal') o.src = DECAL_GROUND[0]; if (k === 'walldecal') o.src = DECAL_WALL[0];
+    if (k === 'alley' || k === 'road') { toast('Setting up the alley scene in front of you (replaces the props in the room)...', 3500); mp.alleyScene(k === 'road').then(() => { if (pieceOn('neon')) setPiece('neon', false); mp.setGuides(false); toast('Alley scene ready: wet cobblestone, two lamps, rain, fog, a covered car down the lane. Tune each prop from the list.', 5000); drawMixScreen(); }); return; }
+    const p = mp.spawn(k === 'ground' ? 'puddle' : k, o);
+    if (k === 'ground' && p) { p.setSurface(mp.surfNames()[0]); p.setSize(6, 6); p.wet = 0.3; p.refl = 1.2; }
+    toast(p && p.floor ? (NAMES[k] || 'GROUND') + ' in front of you. Grip the ring on its post to carry it, trigger the cube to size it.' : NAMES[k] + ' in front of you. Grip the ring to carry it, trigger the cube to size it (or grip with both hands and stretch).', 4200);
+    drawMixScreen();
+  };
+  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['GROUND DECAL +', 'decal'], ['WALL DECAL +', 'walldecal'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['CRATE +', 'crate'], ['ALLEY SCENE', 'alley'], ['ROAD SCENE', 'road']];
+  const per = P ? 4 : 8, gap = 6, bw = (R - L - gap * (per - 1)) / per, bh = P ? 44 : 34;
+  kinds.forEach(([l, k], i) => btn(L + (i % per) * (bw + gap), y0 + Math.floor(i / per) * (bh + 6), bw, bh, l, false, () => spawn(k), false, P ? 16 : 14));
+  const top = y0 + Math.ceil(kinds.length / per) * (bh + 6) + 4;
+  // ---- list of props
+  const RH = P ? 33 : 30, listW = P ? R - L : 214, rowsMax = P ? 3 : Math.max(2, Math.floor((H - top - 8 - 3 * RH) / RH));
+  const n = items.length, si = Math.max(0, items.indexOf(sel)), start = n <= rowsMax ? 0 : Math.max(0, Math.min(si - Math.floor(rowsMax / 2), n - rowsMax));
+  const det = p => p.type === 'puddle' ? p.matte : p.type === 'neon' ? p.text.replace(/\n/g, ' ') : (p.type === 'graffiti' || p.type === 'decal' || p.type === 'walldecal' || p.type === 'glb') ? (p.src || '(none)') : '';
+  const detP = p => p.type === 'puddle' && p.surf ? p.surf : det(p);
+  for (let r = 0; r < rowsMax && start + r < n; r++) {
+    const p = items[start + r], y = top + r * RH;
+    btn(L, y, listW - 40, RH - 4, `${p.type === 'puddle' && p.surf ? 'GROUND' : NAMES[p.type]} ${detP(p)}`.trim(), p === sel, () => { mp.select(p); drawMixScreen(); }, false, P ? 15 : 13);
+    btn(L + listW - 36, y, 36, RH - 4, '✕', false, () => { mp.remove(p); drawMixScreen(); }, false, 15);
+  }
+  const rows = Math.min(rowsMax, Math.max(n, 1));
+  if (!n) { g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; wrapText(g, 'Tap a + button to put a prop in front of you.', L + 4, top + 16, listW - 8, 19, 3); }
+  const clearArm = performance.now() - propsClearT < 3000;
+  btn(L, top + rows * RH + 2, listW, RH - 4, clearArm ? 'TAP AGAIN: CLEAR ALL' : 'CLEAR ALL', clearArm, n ? () => { if (performance.now() - propsClearT < 3000) { propsClearT = 0; mp.clear(); } else propsClearT = performance.now(); drawMixScreen(); } : null, !n, P ? 15 : 13);
+  btn(L, top + (rows + 2) * RH + 2, listW, RH - 4, mp.guides ? 'GUIDE BOXES: ON' : 'GUIDE BOXES: OFF', mp.guides, () => { mp.setGuides(!mp.guides); drawMixScreen(); }, false, P ? 15 : 13);   // #486 the blue boxes only help while placing; off for filming
+  btn(L, top + (rows + 1) * RH + 2, listW, RH - 4, mp.placer.on ? 'LASER (B): ON' : 'PLACE LASER (B)', mp.placer.on, () => { mp.placer.toggle(); drawMixScreen(); }, false, P ? 15 : 13);   // #479
+  if (!sel) return;
+  // ---- the selected prop's controls
+  const cx = P ? L : L + listW + 10, cw = R - cx, cy = P ? top + (rows + 3) * RH + 10 : top, cols = P ? 1 : 2, cg = 6, cellW = (cw - cg * (cols - 1)) / cols, ch = RH - 3;
+  const logS = s => Math.log(clamp(s, 0.1, 10) / 0.1) / Math.log(100);
+  const S = (label, v, txt, set) => ({ s: 1, label, v, txt, set: x => { set(x); mp.save(); } });
+  const B = (label, on, act, dim) => ({ b: 1, label, on, act: () => { act(); mp.save(); drawMixScreen(); }, dim });
+  const pc = v => Math.round(v * 100) + '%';
+  const cyc = (arr, i, d = 1) => arr[(arr.indexOf(i) + d + arr.length) % arr.length];
+  const cells = [];
+  const sizeBox = () => S('SIZE', (Math.max(sel.w, sel.d) - 0.5) / 13.5, `${sel.w.toFixed(1)}x${sel.d.toFixed(1)}`, v => { const m = Math.max(sel.w, sel.d), k = (0.5 + v * 13.5) / m; sel.setSize(sel.w * k, sel.d * k); });
+  const sizeUni = () => S('SIZE', logS(sel.obj.scale.x), sel.obj.scale.x.toFixed(2) + 'x', v => sel.scaleTo(0.1 * Math.pow(100, v)));
+  const heightS = () => S('HEIGHT', (sel.h - 0.5) / 5.5, sel.h.toFixed(1) + ' m', v => { sel.h = 0.5 + v * 5.5; sel.layout(); });
+  if (sel.type === 'puddle' && sel.surf) {   // #482 ground from a surface
+    const sn = mp.surfNames();
+    cells.push(B('SURFACE: ' + sel.surf, false, () => sel.setSurface(sn[(sn.indexOf(sel.surf) + 1) % sn.length])), B('EDIT / ADD SURFACES', false, () => { mpSurfName = sel.surf; mpTab = 'surf'; }),
+      S('WETNESS', sel.wet, pc(sel.wet), v => { sel.wet = v; }), S('COVER (hides real floor)', sel.cover, pc(sel.cover), v => { sel.cover = v; }), S('AMBIENT LIGHT', sel.amb / 0.5, pc(sel.amb / 0.5), v => { sel.amb = v * 0.5; }),
+      S('REFLECTION', sel.refl / 2, pc(sel.refl / 2), v => { sel.refl = v * 2; }), S('RIPPLES', sel.rip, pc(sel.rip), v => { sel.rip = v; }), S('RIPPLE SIZE', (sel.ripSz - 0.3) / 2.2, sel.ripSz.toFixed(1) + 'x', v => { sel.ripSz = 0.3 + v * 2.2; }), S('RAIN DROPS', sel.rain / 2, pc(sel.rain / 2), v => { sel.rain = v * 2; }),
+      B('USE A MATTE INSTEAD', false, () => sel.setSurface('')), sizeBox());
+  } else if (sel.type === 'puddle') {
+    const names = [...MATTES, ...mp.lists.matte];
+    cells.push(B('MATTE: ' + sel.matte, false, () => sel.setMatte(cyc(names, sel.matte))), B(sel.inv ? 'INVERT: ON' : 'INVERT', sel.inv, () => { sel.inv = !sel.inv; }),
+      B('ADD MATTE PICTURE', false, () => mp.pickFile('matte', 'image/*', nm => { sel.setMatte(nm); drawMixScreen(); })),
+      B('WET COBBLES', sel.matte === 'COBBLES', () => { sel.setMatte('COBBLES'); sel.refl = Math.max(sel.refl, 1.2); }),
+      S('WETNESS', sel.wet, pc(sel.wet), v => { sel.wet = v; }), S('RIPPLES', sel.rip, pc(sel.rip), v => { sel.rip = v; }), S('RIPPLE SIZE', (sel.ripSz - 0.3) / 2.2, sel.ripSz.toFixed(1) + 'x', v => { sel.ripSz = 0.3 + v * 2.2; }),
+      S('RAIN DROPS', sel.rain / 2, pc(sel.rain / 2), v => { sel.rain = v * 2; }), S('REFLECTION', sel.refl / 2, pc(sel.refl / 2), v => { sel.refl = v * 2; }),
+      B('USE A TEXTURE SURFACE', false, () => sel.setSurface(mp.surfNames()[0])),
+      S('DARKEN', sel.dark, pc(sel.dark), v => { sel.dark = v; }), ...(sel.matte === 'COBBLES' ? [S('STONE SIZE', (sel.stone - 0.4) / 2.6, Math.round(sel.stone * 10) + ' cm', v => { sel.stone = 0.4 + v * 2.6; })] : []), sizeBox());
+  } else if (sel.type === 'rain') {
+    cells.push(S('AMOUNT', sel.amt, pc(sel.amt), v => { sel.amt = v; }), S('SPEED', (sel.speed - 2) / 12, sel.speed.toFixed(1) + ' m/s', v => { sel.speed = 2 + v * 12; }),
+      S('STREAK LENGTH', sel.len / 1.5, Math.round(sel.len * 100) + ' cm', v => { sel.len = v * 1.5; }), S('WIND', (sel.wind + 1) / 2, sel.wind.toFixed(2), v => { sel.wind = v * 2 - 1; }), heightS(), sizeBox());
+  } else if (sel.type === 'fog') {
+    cells.push(S('DENSITY', sel.den, pc(sel.den), v => { sel.den = v; }), S('DRIFT', (sel.speed - 0.2) / 3, sel.speed.toFixed(1) + 'x', v => { sel.speed = 0.2 + v * 3; }), S('ROLL TOWARD YOU', (sel.flow + 1) / 2, (sel.flow >= 0 ? '' : 'away ') + Math.abs(sel.flow).toFixed(2) + ' m/s', v => { sel.flow = Math.round((v * 2 - 1) * 20) / 20; }), heightS(), sizeBox(),
+      B('COLOR: ' + FOG_COLORS[sel.col % FOG_COLORS.length][0], false, () => { sel.col = (sel.col + 1) % FOG_COLORS.length; }), B(sel.smoke ? 'MODE: SMOKE (rises)' : 'MODE: FOG (low)', sel.smoke, () => { sel.smoke = !sel.smoke; }),
+      S('AMBIENT', sel.amb, pc(sel.amb), v => { sel.amb = v; }), B(sel.lit ? 'LIT BY LAMPS / NEON: ON' : 'LIT BY LAMPS / NEON: OFF', !!sel.lit, () => { sel.lit = sel.lit ? 0 : 1; }),
+      B(sel.dep ? 'DEPTH-AWARE (real room): ON' : 'DEPTH-AWARE (real room): OFF', sel.dep, () => { sel.dep = !sel.dep; }));
+  } else if (sel.type === 'neon') {
+    cells.push(B('EDIT TEXT', false, () => openKbd('NEON TEXT', sel.text, false, 40, t => sel.set('text', t.trim() || ' '), 'props')),
+      B('PRESET ▶', false, () => sel.set('text', cyc(PRESETS, sel.text))), B('FONT: ' + NEON_FONTS[sel.font], false, () => sel.set('font', (sel.font + 1) % NEON_FONTS.length)),
+      B(sel.vert ? 'VERTICAL' : 'HORIZONTAL', sel.vert, () => sel.set('vert', !sel.vert)), B('COLOR: ' + COLORS[sel.col][0], false, () => sel.set('col', (sel.col + 1) % COLORS.length)),
+      B(sel.frame ? 'FRAME: ON' : 'FRAME', sel.frame, () => sel.set('frame', !sel.frame)),
+      S('FLICKER', sel.flick, pc(sel.flick), v => { sel.flick = v; }), S('GLOW', sel.glow / 1.5, pc(sel.glow / 1.5), v => { sel.glow = v * 1.5; }), sizeUni());
+  } else if (sel.type === 'crate') {
+    cells.push(sizeUni(), B(sel.float ? 'FLOAT: ON (rides the water)' : 'FLOAT (flooded street)', sel.float, () => { sel.float = !sel.float; sel.save(); drawMixScreen(); }), S('FLOAT HEIGHT', (sel.floatH - 0.01) / 0.19, (sel.floatH * 100).toFixed(0) + ' cm', v => { sel.floatH = 0.01 + v * 0.19; sel.save(); }));
+  } else if (sel.type === 'plate') {   // #487 backdrop photo
+    const names = [...PLATE_BUILTIN, ...mp.lists.png], logP = s => Math.log(clamp(s, 2, 60) / 2) / Math.log(30);
+    cells.push(B('PICTURE: ' + sel.src, false, () => sel.set('src', cyc(names, sel.src))), B('ADD PICTURE', false, () => mp.pickFile('png', 'image/*', nm => { sel.set('src', nm); drawMixScreen(); })),
+      S('BRIGHTNESS', sel.bright / 1.5, pc(sel.bright / 1.5), v => { sel.bright = v * 1.5; sel.look(); }), S('SIZE (metres high)', logP(sel.obj.scale.x), sel.obj.scale.x.toFixed(1) + ' m', v => sel.obj.scale.setScalar(2 * Math.pow(30, v))));
+  } else if (sel.type === 'lamp') {
+    cells.push(B('COLOR: ' + COLORS[sel.col % COLORS.length][0], false, () => sel.set('col', (sel.col + 1) % COLORS.length)), S('BRIGHTNESS', sel.bright / 2, pc(sel.bright / 2), v => { sel.bright = v * 2; }),
+      S('FLICKER', sel.flick, pc(sel.flick), v => { sel.flick = v; }), sizeUni());
+  } else if (sel.type === 'graffiti' || sel.type === 'decal' || sel.type === 'walldecal') {
+    const dk = sel.type !== 'graffiti', names = dk ? [...(sel.type === 'decal' ? DECAL_GROUND : DECAL_WALL), ...mp.lists.png] : [...GRAFF_BUILTIN, ...mp.lists.png];
+    cells.push(B('PICTURE: ' + sel.src, false, () => sel.set('src', cyc(names, sel.src))), B('ADD PNG', false, () => mp.pickFile('png', 'image/png,image/webp,image/*', nm => { sel.set('src', nm); drawMixScreen(); })),
+      B('TINT: ' + GRAFF_TINTS[sel.tint % GRAFF_TINTS.length][0], false, () => sel.set('tint', (sel.tint + 1) % GRAFF_TINTS.length)), B(sel.glow ? 'GLOW (adds light): ON' : 'GLOW', sel.glow, () => sel.set('glow', !sel.glow)),
+      S('BRIGHTNESS', sel.bright / 1.5, pc(sel.bright / 1.5), v => { sel.bright = v * 1.5; sel.look(); }), S('OPACITY', sel.opac, pc(sel.opac), v => { sel.opac = v; sel.look(); }), sizeUni());
+    if (dk) cells.push(S('WETNESS (gloss, lamp glints)', sel.wet, pc(sel.wet), v => { sel.wet = v; }), S(sel.type === 'decal' ? 'RAIN RINGS' : 'RIVULET AMOUNT', sel.rainAmt, pc(sel.rainAmt), v => { sel.rainAmt = v; }), S('AMBIENT', sel.amb / 0.6, pc(sel.amb / 0.6), v => { sel.amb = v * 0.6; }));
+    if (sel.type === 'walldecal') cells.push(S('RIVULET SPEED', (sel.flow - 0.1) / 3.9, sel.flow.toFixed(1) + 'x', v => { sel.flow = 0.1 + v * 3.9; }));
+  } else if (sel.type === 'glb') {
+    const names = mp.lists.glb;
+    cells.push(B(sel.src ? 'MODEL: ' + sel.src : 'MODEL: (none)', false, () => { if (names.length) sel.load(cyc(names, sel.src || names[names.length - 1])); }, !names.length),
+      B('ADD GLB', false, () => mp.pickFile('glb', '.glb,model/gltf-binary', nm => { sel.load(nm); drawMixScreen(); })), sizeUni());
+    if (sel.src) cells.push(B('FORGET FILE', false, () => { removeFile('glb', sel.src).then(() => mp.refreshLists()); }));
+  }
+  cells.push(B('REMOVE', false, () => mp.remove(sel)));
+  const maxRows = Math.max(1, Math.floor((H - cy - 4) / RH));
+  cells.slice(0, maxRows * cols).forEach((c, i) => {
+    const x = cx + (i % cols) * (cellW + cg), y = cy + Math.floor(i / cols) * RH;
+    if (c.s) tSlider(g, x, y, cellW, ch, c.label, c.v, c.txt, c.set); else btn(x, y, cellW, ch, c.label, c.on, c.act, c.dim, P ? 15 : 13);
+  });
+}
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -6133,6 +6282,7 @@ function drawToolsPage() {
   const note = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; return wrapText(g, s, L + 4, y, R - L - 8, 20, 5); };
   const lockBtn = (x, y, w, h) => btn(x, y, w, h, gearLock ? 'GEAR LOCKDOWN: ON' : 'GEAR LOCKDOWN: OFF', gearLock, () => { gearLock = !gearLock; toast(gearLock ? 'Gear locked' : 'Gear unlocked: decks and mixer can be moved and turned', 2400); drawMixScreen(); }, false, 18);   // #378 DJ TOOLS
   const page = toolsPage;
+  if (page === 'props') { drawPropsPage({ g, W, H, P, L, R, btn, head, note }); return; }   // #478
   if (page === 'looper' || page === 'loopbanks') { drawLooperPage(page, { g, W, H, P, L, R, btn, head, note }); return; }   // #470
   if (page === 'home') {
     const y0 = head('TOOLS', 'mixer');
@@ -6858,8 +7008,9 @@ function drawToolsPage() {
         () => btn(x, y, w, h, 'PHONE CAM', !!(streamer && streamer.source === 'pcam'), openPhoneCam, !streamer, fs),
         () => btn(x, y, w, h, perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false, fs),
         () => btn(x, y, w, h, laser && laser.on ? 'LASER: ON' : 'LASER', !!(laser && laser.on), () => setTools('laser'), !laser, fs),   // #406
+        () => btn(x, y, w, h, mprops && mprops.props().length ? `MOVIE PROPS (${mprops.props().length})` : 'MOVIE PROPS', !!(mprops && mprops.props().length), () => setTools('props'), !mprops, fs),   // #478
         () => btn(x, y, w, h, settings.occlusion !== false ? 'REAL OCCLUSION: ON' : 'REAL OCCLUSION: OFF', settings.occlusion !== false, () => { settings.occlusion = settings.occlusion === false; saveSettings(); const c = document.getElementById('cOccl'); if (c) c.checked = settings.occlusion; drawMixScreen(); }, false, fs)][i]();   // #411 passthrough: real things hide virtual ones
-      const NT = 15, cols = P ? 2 : 5, gap = P ? 8 : 6, bh = P ? 58 : 50, bw = (R - L - gap * (cols - 1)) / cols;   // #390 13 buttons: 5 across in landscape (#406 14 with LASER)
+      const NT = 16, cols = P ? 2 : 5, gap = P ? 8 : 6, bh = P ? 58 : 50, bw = (R - L - gap * (cols - 1)) / cols;   // #390 13 buttons: 5 across in landscape (#406 14 with LASER)
       for (let i = 0; i < NT; i++) tile(L + (i % cols) * (bw + gap), y0 + 4 + Math.floor(i / cols) * (bh + gap), bw, bh, i);
       ledCells(L, y0 + 4 + Math.ceil(NT / cols) * (bh + gap) + 4, R - L, P);
     };
@@ -7825,6 +7976,7 @@ function frameBody() {
   if (portals) portals.tick();   // #345 #346
   if (domeBoot) { domeBoot = false; if (dome.on && !CAMERA_ROLE) setDome(true); }   // #346 a dome left on last time: load its sky once everything is up
   if (skySpin.speed > 0 && skybox.group.visible) { skySpin.ang = (skySpin.ang + skySpin.speed * DEG * dt) % (2 * Math.PI); applySkyTurn(); }   // #379 PANO SPIN
+  if (mprops) mprops.tick(dt);   // #478
   if (fx) fx.preRender(dt);   // #379 FLOAT goes on here (every camera below sees it) and comes off after the frame; WATER uniforms
   if ((ledMode === 'cam' || (streamer && streamer.wantsCam) || (gopro && gopro.aiming) || (gopro2 && gopro2.aiming)) && djcam) stepDjCam(dt);   // #220 (#331 also while the stream shows AVACAM)
   stepArmSleeves();   // #347
@@ -7907,13 +8059,17 @@ if (!CAMERA_ROLE) {
     waterHome: () => { const g = cases.caseA.group; return { p: new THREE.Vector3(g.position.x, 0.12, g.position.z), yaw: g.rotation.y }; },
     isDeck: o => o === deckGroups[0] || o === deckGroups[1], afterFloat: () => { if (deckInst) deckInst.update(); },
   });
+  mprops = new MovieProps({ rig, camera, renderer, toast, scene });   // #478
+  mprops.listCb = () => { if (toolsPage === 'props') drawMixScreen(); };
+  try { mprops.load(); } catch (e) { console.warn('movie props load', e); }
 }
 // ------------------------------------------------------------------ XR input (hands + controllers)
 const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or controllers to drive
+  get mprops() { return mprops; },   // #479
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack, gearLocked, gearLockMsg, snapYaw: isDeckKey,   // #378
   REC, DECK, CRATE, ARM,
-  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
+  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : []), ...(mprops ? mprops.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
   scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
@@ -8278,8 +8434,10 @@ drawMixScreen();
 // debugging handle
 try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media.getFile('Images', cn).then(f => { if (f) { streamer.setCardPic(f); cardWallSet(f, false); } }).catch(() => {}); } catch (e) {}   // #445 the CARD picture of last time
 window.vire = { THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire._deck = { pullRecord, placeOnDeck, setMotor, dropNeedleAt, get held() { return held; } };   // #497 test hook: put a record on a deck from the console
 window.vire._loop = { loopClip, loopCopy, loopPaste, loopUndo, loopUndoDo, loopDeleteBank, looper, loopSlots, loopUI, pressLooper, clearLooper, loopSlotTap, loopRegion, loopNudge, loopSaveBank, loopLoadBank, loopOpenBanks, stepLooper, releaseLooper };   // #470 test hook
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
+window.vire._mp = { get mp() { return mprops; }, setTab: t => { mpTab = t; } };   // #478 test hook
 window.vire._laser = { laser, laserTap, camCal, camCalStart, camCalStop };   // #415 camCal test hook   // #406 test hook
 window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, milkSleeveHit, layoutMilkSleeves, gpSummon, goproReset, gopro2, setDomeEv, get plJump() { return plJump; }, msFly };   // #394 / #395 test hooks   // #392 / #393 test hooks
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
