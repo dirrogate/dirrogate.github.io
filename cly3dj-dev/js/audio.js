@@ -111,7 +111,7 @@ export class AudioEngine {
 
   // ---- channel strip; knob values are 0..1 with 0.5 = neutral unless noted ----
   _ramp(param, v) { const t = this.ctx.currentTime; param.cancelScheduledValues(t); param.setTargetAtTime(v, t, 0.012); }
-  setTrim(i, v) { this._ramp(this.ch[i].trim.gain, dbToGain((v - 0.5) * 24)); }
+  setTrim(i, v) { this._ramp(this.ch[i].trim.gain, dbToGain(v < 0.5 ? (v - 0.5) * 24 : (v - 0.5) * 48)); }   // #477 -12 dB .. 0 (centre) .. +24 dB, for quiet old transfers
   setEQ(i, band, v) {
     // below centre: down to a near-kill (-40 dB); above: up to +6 dB
     const db = v < 0.5 ? -40 * Math.pow(1 - v / 0.5, 1.6) : (v - 0.5) / 0.5 * 6;
