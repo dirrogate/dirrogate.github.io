@@ -635,7 +635,7 @@ void main(){
   float k = uRain * uWet;
   if (uWall > 0.5) {   // the water itself: almost clear, a darker rim, a glint where a lamp catches it
     float spw = pow(max(dot(N, normalize(V + normalize(uLP[0].xyz - vW))), 0.0), 20.0);
-    col = col * (1.0 - 0.16 * rvE * k) * (1.0 + 0.1 * rvC * k) + (sp * 1.6 + vec3(0.5, 0.62, 0.8) * 0.03) * rvC * k + (sp * 3.0 + spw * uLC[0] * 0.5 + vec3(0.6, 0.7, 0.85) * 0.12) * rvB * k;
+    col = col * (1.0 - 0.22 * rvE * k) * (1.0 + 0.07 * rvC * k) + sp * (2.4 * rvC + 3.0 * rvB) * k + spw * uLC[0] * 0.4 * rvB * k;   // no tint of its own: the picture behind shows through, bent; only lamp light glints on it
   } else {   // rain rings on the ground
     vec2 q = vUv * max(uSize, 0.2) / 0.26; vec2 id = floor(q), f = fract(q) - 0.5; float rr = h21(id), ph = fract(uT * (0.7 + 0.5 * rr) + rr * 9.0);
     float rad = ph * 0.45, ring = smoothstep(0.05, 0.0, abs(length(f + (vec2(h21(id + 1.3), h21(id + 7.1)) - 0.5) * 0.4) - rad)) * (1.0 - ph) * step(0.35, rr);
