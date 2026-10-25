@@ -3917,7 +3917,43 @@ function pressLooper(src = 'mouse') {   // the mixer button, the tablet transpor
   if (toolsPage === 'looper') drawMixScreen();
 }
 function toggleLooper(src) { pressLooper(src); }   // #458 name kept
+// #473 UNDO: the last 20 looper actions. A drag or a quick run of nudges (within 0.8 s) counts as one step.
+const LOOP_UNDO_MAX = 20, loopUndo = [];
+function undoPush(e) { e.t = performance.now(); loopUndo.push(e); if (loopUndo.length > LOOP_UNDO_MAX) loopUndo.shift(); }
+function loopArm(L, slot) {   // put a loop back into the engine, ARMED (amber)
+  if (engine.looper) engine.looperLoad(L);
+  looper.data = L; looper.slot = slot || 0; looper.state = 'stop'; looper.r = L.a; looper.pkCache = null;
+}
+async function loopUndoDo() {
+  const e = loopUndo.pop(); if (!e) { loopSay('Nothing to undo'); return; }
+  if (looper.state === 'rec' && (e.kind === 'clear' || e.kind === 'load')) { loopUndo.push(e); loopSay('Finish the take first'); return; }
+  try {
+    if (e.kind === 'region') {
+      e.L.a = e.a; e.L.b = e.b; if (looper.data === e.L) engine.looperRegion(e.a, e.b);
+      const n = loopSlots.indexOf(e.L) + 1; if (n) await loopDb.saveSlotMeta(n, e.L);
+      loopUI.vFor = null; loopSay(`UNDO: IN ${fmtLoopT(e.a, e.L.sr)} OUT ${fmtLoopT(e.b, e.L.sr)}`, 2000);
+    } else if (e.kind === 'clear') { loopArm(e.L, e.slot); loopSay('UNDO: loop back, ARMED (press LOOP to play)', 2400); }
+    else if (e.kind === 'load') { if (e.L) { loopArm(e.L, e.slot); loopSay('UNDO: previous loop back, ARMED', 2400); } else { engine.looperClear(); looper.state = 'empty'; looper.data = null; looper.slot = 0; loopSay('UNDO: slot unloaded', 1800); } }
+    else if (e.kind === 'slot') {
+      loopSlots[e.n - 1] = e.prev; await loopDb.saveSlot(e.n, e.prev);
+      if (looper.slot === e.n) looper.slot = looper.data === e.prev ? e.n : 0;
+      loopSay(`UNDO: SLOT ${e.n} ${e.prev ? 'restored' : 'empty again'}`, 2000);
+    } else if (e.kind === 'slots') {
+      for (let i = 0; i < loopDb.SLOTS; i++) { loopSlots[i] = e.prev[i]; await loopDb.saveSlot(i + 1, e.prev[i]); }
+      looper.slot = 0; loopSay('UNDO: the 4 slots are back as before the bank load', 2400);
+    } else if (e.kind === 'bank') {
+      await loopDb.saveBank(e.name, e.slots); if (toolsPage === 'loopbanks') loopUI.banks = await loopDb.listBanks();
+      loopSay(`UNDO: bank "${e.name}" restored`, 2400);
+    }
+  } catch (err) { loopSay('Undo failed: ' + err.message, 4000); }
+  drawMixScreen();
+}
+async function loopDeleteBank(name) {   // keeps the bank's audio in memory so UNDO can write it back
+  try { const slots = await loopDb.loadBank(name, engine.ctx ? engine.ctx.sampleRate : 48000); await loopDb.deleteBank(name); undoPush({ kind: 'bank', name, slots }); loopUI.banks = await loopDb.listBanks(); loopSay(`Bank "${name}" deleted (UNDO brings it back)`, 2400); }
+  catch (e) { loopSay('Delete failed: ' + e.message, 4000); }
+}
 function clearLooper() {
+  if (looper.data && looper.state !== 'rec') undoPush({ kind: 'clear', L: looper.data, slot: looper.slot });
   engine.looperClear(); looper.state = 'empty'; looper.data = null; looper.slot = 0; looper.clearT = performance.now() / 1000;
   loopSay('LOOP cleared (the slots keep theirs)', 1800);
 }
@@ -3933,6 +3969,9 @@ function loopRegion(a, b) {   // in / out in samples; a loaded slot keeps its ne
   const L = looper.data; if (!L) return;
   const minLen = Math.round(0.01 * L.sr);
   a = Math.round(clamp(a, 0, L.len - minLen)); b = Math.round(clamp(b, a + minLen, L.len));
+  if (a === L.a && b === L.b) return;
+  { const top = loopUndo[loopUndo.length - 1], now = performance.now();   // #473 one undo step per gesture
+    if (top && top.kind === 'region' && top.L === L && now - top.t < 800) top.t = now; else undoPush({ kind: 'region', L, a: L.a, b: L.b }); }
   L.a = a; L.b = b; engine.looperRegion(a, b);
   if (looper.slot) { clearTimeout(loopRegion.t); const n = looper.slot; loopRegion.t = setTimeout(() => loopDb.saveSlotMeta(n, loopSlots[n - 1]).catch(e => console.warn(e)), 800); }
 }
@@ -3948,18 +3987,20 @@ function ensureLoopSlots() {
   return loopUI.loaded;
 }
 function loopSlotTap(n) {
-  if (loopUI.del) { const d = loopUI.del; loopUI.del = 0; if (d === n) { loopSlots[n - 1] = null; if (looper.slot === n) looper.slot = 0; loopDb.saveSlot(n, null).catch(() => {}); loopSay(`SLOT ${n} emptied`); } drawMixScreen(); return; }
+  if (loopUI.del) { const d = loopUI.del; loopUI.del = 0; if (d === n) { undoPush({ kind: 'slot', n, prev: loopSlots[n - 1] }); loopSlots[n - 1] = null; if (looper.slot === n) looper.slot = 0; loopDb.saveSlot(n, null).catch(() => {}); loopSay(`SLOT ${n} emptied`); } drawMixScreen(); return; }
   if (looper.state === 'rec') { loopSay('Finish the take first (press LOOP)'); return; }
   const S = loopSlots[n - 1];
   if (loopUI.store || !S) {   // STORE mode, or an empty slot: the current loop goes in
     loopUI.store = false;
     if (!looper.data) { loopSay(S ? '' : `SLOT ${n} is empty. Record a loop, then tap a slot to store it`); return; }
     const C = { ...looper.data, name: `LOOP ${n}`, t: Date.now() };
+    undoPush({ kind: 'slot', n, prev: S || null });
     loopSlots[n - 1] = C; looper.data = C; looper.slot = n;
     loopSay(`Stored in SLOT ${n}, saving…`, 1500);
     loopDb.saveSlot(n, C).then(() => loopSay(`SLOT ${n} saved on this headset`, 1800)).catch(e => loopSay('Saving failed: ' + e.message, 4000));
     return;
   }
+  if (looper.data !== S) undoPush({ kind: 'load', L: looper.data, slot: looper.slot });
   if (engine.looper) engine.looperLoad(S);   // the worklet answers state 'stop' = ARMED (amber blinking on the mixer)
   looper.data = S; looper.slot = n; looper.peaks = null; looper.state = 'stop'; looper.r = S.a;
   loopSay(`SLOT ${n} loaded, armed: press LOOP to play`, 2000);
@@ -3975,6 +4016,7 @@ async function loopLoadBank(name) {
   try {
     loopSay(`Loading "${name}"…`, 8000);
     const s = await loopDb.loadBank(name, engine.ctx.sampleRate);
+    undoPush({ kind: 'slots', prev: loopSlots.slice() });
     for (let i = 0; i < loopDb.SLOTS; i++) { loopSlots[i] = s[i]; await loopDb.saveSlot(i + 1, s[i]); }
     if (looper.slot) looper.slot = 0;
     setTools('looper'); loopSay(`Bank "${name}" in the 4 slots (${s.filter(Boolean).length} loops). Tap a slot to arm it`, 2600);
@@ -4480,6 +4522,7 @@ addEventListener('keydown', e => {
   if ($('#start').style.display !== 'none' || e.target === searchInput || toolsPage === 'kbd') return;   // #224 typing on the tablet keyboard
   const k = e.key;
   if (toolsPage === 'looper' && looper.data && (k === 'ArrowLeft' || k === 'ArrowRight')) { e.preventDefault(); loopNudge((k === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 10 : e.altKey ? 100 : 1)); return; }   // #470 1 ms (Shift 10, Alt 100)
+  if ((toolsPage === 'looper' || toolsPage === 'loopbanks') && (k === 'z' || k === 'Z') && (e.ctrlKey || e.metaKey)) { e.preventDefault(); loopUndoDo(); return; }   // #473
   if (toolsPage === 'looper' && (k === 'ArrowUp' || k === 'ArrowDown')) { e.preventDefault(); loopUI.sel = loopUI.sel === 'in' ? 'out' : 'in'; drawMixScreen(); return; }
   if (k === '/') { e.preventDefault(); openNativeKeyboard(); return; }
   if (k === '1') setCam('dj'); else if (k === '2') setCam('top'); else if (k === '3') setCam('crate');
@@ -5850,7 +5893,7 @@ function drawLooperPage(page, T) {
   };
   if (page === 'loopbanks') {
     const B = loopUI.banks, y0 = tbY + tbH + 8, rh = P ? 46 : 34;
-    if (!B || !B.length) { txt(!B ? 'READING THE BANKS...' : 'NO BANKS YET. FILL THE SLOTS, THEN SAVE BANK.', L + 4, y0 + 10, 1.5, AM.txt); return; }
+    if (!B || !B.length) { txt(!B ? 'READING THE BANKS...' : 'NO BANKS YET. FILL THE SLOTS, THEN SAVE BANK.', L + 4, y0 + 10, 1.5, AM.txt); if (loopUndo.length) gad(R - 96, H - (P ? 62 : 32), 96, 26, `UNDO ${loopUndo.length}`, false, loopUndoDo, false, AM.amb); return; }
     const per = Math.floor((H - y0 - (P ? 70 : 40)) / (rh + 4)), pages = Math.ceil(B.length / per), pg = clamp(loopUI.bankPg || 0, 0, pages - 1);
     B.slice(pg * per, pg * per + per).forEach((b, i) => {
       const y = y0 + i * (rh + 4), del = loopUI.bankDel === b.name, dw = del ? 110 : 0;
@@ -5859,11 +5902,12 @@ function drawLooperPage(page, T) {
       txt(b.name, L + 10, y + (P ? 8 : (rh - 14) / 2), 2, AM.cyan);
       const info = `${b.used || 0}/4 SLOTS  ${b.t ? new Date(b.t).toLocaleString('en', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).toUpperCase() : ''}`;
       if (P) txt(info, L + 10, y + rh - 14, 1.25, AM.txt); else txt(info, R - dw - 12 - bitWidth(cleanText(info), 1.25), y + (rh - 9) / 2, 1.25, AM.txt);
-      if (del) gad(R - dw, y, dw, rh, 'DELETE', true, async () => { loopUI.bankDel = ''; await loopDb.deleteBank(b.name); loopUI.banks = await loopDb.listBanks(); drawMixScreen(); }, false, AM.red);
+      if (del) gad(R - dw, y, dw, rh, 'DELETE', true, async () => { loopUI.bankDel = ''; await loopDeleteBank(b.name); drawMixScreen(); }, false, AM.red);
     });
     const by = H - (P ? 62 : 32);
     if (pages > 1) { gad(L, by, 60, 26, '<', false, () => { loopUI.bankPg = Math.max(0, pg - 1); }, pg === 0); gad(L + 64, by, 60, 26, '>', false, () => { loopUI.bankPg = pg + 1; }, pg >= pages - 1); }
-    txt('TAP = LOAD INTO THE 4 SLOTS. HOLD = DELETE.', L + (pages > 1 ? 136 : 4), by + 9, 1.25, AM.dimT);
+    gad(R - 96, by, 96, 26, loopUndo.length ? `UNDO ${loopUndo.length}` : 'UNDO', false, loopUndoDo, !loopUndo.length, AM.amb);   // #473
+    { const hs = 'TAP = LOAD INTO THE 4 SLOTS. HOLD = DELETE.', x0 = L + (pages > 1 ? 136 : 4), hp = lmFit(hs, R - 104 - x0, 1.25); txt(hs, x0, by + (26 - 7 * hp) / 2, hp, AM.dimT); }
     return;
   }
   ensureLoopSlots();
@@ -5963,6 +6007,7 @@ function drawLooperPage(page, T) {
   const zoomTo = f => { const c = loopUI.sel === 'in' ? Ld.a : Ld.b, s = (v1 - v0) * f; setView(c - s / 2, c + s / 2); };
   const viewGads = [[P ? 'SHOW RNG' : 'SHOW RANGE', () => { const m = (Ld.b - Ld.a) * 0.06; setView(Ld.a - m, Ld.b + m); }], ['SHOW ALL', () => setView(0, len)], ['ZOOM', () => zoomTo(0.25)], ['TELE', () => zoomTo(4)]];
   const markGads = [['IN', loopUI.sel === 'in', () => { loopUI.sel = 'in'; }], ['OUT', loopUI.sel === 'out', () => { loopUI.sel = 'out'; }], ['RANGE ALL', false, () => loopRegion(0, Ld.len)]];
+  const undoG = (x, y, w, h) => gad(x, y, w, h, loopUndo.length ? `UNDO ${loopUndo.length}` : 'UNDO', false, loopUndoDo, !loopUndo.length, AM.amb);
   const nudgeGads = [['-10MS', () => loopNudge(-10)], ['-1MS', () => loopNudge(-1)], ['+1MS', () => loopNudge(1)], ['+10MS', () => loopNudge(10)]];
   if (!P) {
     const gy = sy, rH = 26, gH = 3 * rH + 2 * gap + 8, x0 = 8;
@@ -5975,7 +6020,8 @@ function drawLooperPage(page, T) {
     [x, y, w] = grp(x0 + 240, 196);   // markers
     { const w3 = (w - 2 * gap) / 3; markGads.forEach(([l, on, a], i) => gad(x + i * (w3 + gap), y, w3, rH, l, on, a, dimE));
       const w4 = (w - 3 * gap) / 4; nudgeGads.forEach(([l, a], i) => gad(x + i * (w4 + gap), y + rH + gap, w4, rH, l, false, a, dimE));
-      txt('HOLD TRANSPORT = CLEAR', x + 2, y + 2 * (rH + gap) + 9, 1, AM.dimT); }
+      const uy = y + 2 * (rH + gap); undoG(x + 3 * (w4 + gap), uy, w4, rH);
+      txt('HOLD PLAY/REC', x + 2, uy + 3, 1.25, AM.dimT); txt('BTTN TO CLEAR', x + 2, uy + 14, 1.25, AM.dimT); }
     [x, y, w] = grp(x0 + 442, 186);   // view + volume
     { const w2 = (w - gap) / 2; viewGads.forEach(([l, a], i) => gad(x + (i % 2) * (w2 + gap), y + Math.floor(i / 2) * (rH + gap), w2, rH, l, false, a, dimV)); volG(x, y + 2 * (rH + gap), w, rH); }
     [x, y, w] = grp(x0 + 634, W - 8 - (x0 + 634));   // banks
@@ -5989,6 +6035,7 @@ function drawLooperPage(page, T) {
     const w3 = (w - 2 * gap) / 3; storeG(x, y, w3, rH); saveG(x + w3 + gap, y, w3, rH); loadG(x + 2 * (w3 + gap), y, w3, rH); y += rH + gap;
     markGads.forEach(([l, on, a], i) => gad(x + i * (w3 + gap), y, w3, rH, l, on, a, dimE)); y += rH + gap;
     nudgeGads.forEach(([l, a], i) => gad(x + i * (w4 + gap), y, w4, rH, l, false, a, dimE)); y += rH + gap;
+    undoG(x + 3 * (w4 + gap), y, w4, rH); { const hs = 'HOLD PLAY/REC BTTN TO CLEAR', hp = lmFit(hs, 3 * (w4 + gap) - 4, 1.5); txt(hs, x + 2, y + (rH - 7 * hp) / 2, hp, AM.dimT); } y += rH + gap;
     viewGads.forEach(([l, a], i) => gad(x + i * (w4 + gap), y, w4, rH, l, false, a, dimV)); y += rH + gap;
     volG(x, y, w, rH); y += rH + gap;
     logo(x, y, w, Math.max(40, H - 28 - y));
@@ -8173,7 +8220,7 @@ drawMixScreen();
 // debugging handle
 try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media.getFile('Images', cn).then(f => { if (f) { streamer.setCardPic(f); cardWallSet(f, false); } }).catch(() => {}); } catch (e) {}   // #445 the CARD picture of last time
 window.vire = { THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
-window.vire._loop = { looper, loopSlots, loopUI, pressLooper, clearLooper, loopSlotTap, loopRegion, loopNudge, loopSaveBank, loopLoadBank, loopOpenBanks, stepLooper, releaseLooper };   // #470 test hook
+window.vire._loop = { loopUndo, loopUndoDo, loopDeleteBank, looper, loopSlots, loopUI, pressLooper, clearLooper, loopSlotTap, loopRegion, loopNudge, loopSaveBank, loopLoadBank, loopOpenBanks, stepLooper, releaseLooper };   // #470 test hook
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
 window.vire._laser = { laser, laserTap, camCal, camCalStart, camCalStop };   // #415 camCal test hook   // #406 test hook
 window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, milkSleeveHit, layoutMilkSleeves, gpSummon, goproReset, gopro2, setDomeEv, get plJump() { return plJump; }, msFly };   // #394 / #395 test hooks   // #392 / #393 test hooks
