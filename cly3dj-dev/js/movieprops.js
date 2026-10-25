@@ -204,17 +204,21 @@ vec3 sgn(vec3 R, float blur, float streak){
   return acc;
 }
 // #482 a ground from texture maps: parallax + displacement-lit relief, damp / wet darkening, water pooling in the low parts, reflections of lamps and neon, lit by the 4 nearest lamps
+// #492 de-tiling: the map is read a second time (turned, 2.3x larger) and blended by slow noise, so one crack never repeats in a row
+float dtM;
+vec2 dtB(vec2 u){ const mat2 R = mat2(0.8, 0.6, -0.6, 0.8); return R * u * 0.43 + vec2(0.37, 0.71); }
+vec4 dtT(sampler2D s, vec2 u){ return mix(texture2D(s, u), texture2D(s, dtB(u)), dtM); }
 vec4 surfColor(){
   vec2 e2 = min(vUv, 1.0 - vUv); float edge = smoothstep(0.0, 0.05, min(e2.x, e2.y)); if (edge < 0.003) discard;
-  vec2 uv = vUv * uTile; float depthM = 0.04 * uDispAmt;
+  vec2 uv = vUv * uTile; { vec2 q = vW.xz; dtM = smoothstep(0.3, 0.7, 0.5 + 0.28 * sin(q.x * 1.1 + sin(q.y * 0.8) * 1.6) + 0.22 * sin(q.y * 0.6 + q.x * 0.45 + 1.3)); } float depthM = 0.04 * uDispAmt;
   vec3 lv = vec3(vLV.x * uWD.x, vLV.y * uWD.y, max(vLV.z, 0.08));
-  if (uHasD > 0.5) uv -= clamp(lv.xy / lv.z, vec2(-3.0), vec2(3.0)) * (1.0 - texture2D(uDisp, uv).r) * depthM / uTileM;
-  vec3 alb = uHasC > 0.5 ? texture2D(uDiff, uv).rgb : vec3(0.18);
-  float h = uHasD > 0.5 ? texture2D(uDisp, uv).r : 0.5;
-  float rg = uHasR > 0.5 ? texture2D(uRoughT, uv).r : 0.7, ao = uHasA > 0.5 ? texture2D(uAOT, uv).r : 1.0;
+  if (uHasD > 0.5) uv -= clamp(lv.xy / lv.z, vec2(-3.0), vec2(3.0)) * (1.0 - dtT(uDisp, uv).r) * depthM / uTileM;
+  vec3 alb = uHasC > 0.5 ? dtT(uDiff, uv).rgb : vec3(0.18);
+  float h = uHasD > 0.5 ? dtT(uDisp, uv).r : 0.5;
+  float rg = uHasR > 0.5 ? dtT(uRoughT, uv).r : 0.7, ao = uHasA > 0.5 ? dtT(uAOT, uv).r : 1.0;
   vec2 tilt = vec2(0.0);
-  if (uHasD > 0.5) { float te = 1.0 / 1024.0; tilt -= vec2(texture2D(uDisp, uv + vec2(te, 0.0)).r - texture2D(uDisp, uv - vec2(te, 0.0)).r, texture2D(uDisp, uv + vec2(0.0, te)).r - texture2D(uDisp, uv - vec2(0.0, te)).r) * depthM / (2.0 * te * uTileM); }
-  if (uHasN > 0.5) { vec3 nt = texture2D(uNormT, uv).xyz * 2.0 - 1.0; tilt += nt.xy / max(nt.z, 0.3) * 0.6; }
+  if (uHasD > 0.5) { float te = 1.0 / 1024.0; tilt -= vec2(dtT(uDisp, uv + vec2(te, 0.0)).r - dtT(uDisp, uv - vec2(te, 0.0)).r, dtT(uDisp, uv + vec2(0.0, te)).r - dtT(uDisp, uv - vec2(0.0, te)).r) * depthM / (2.0 * te * uTileM); }
+  if (uHasN > 0.5) { vec3 nt = dtT(uNormT, uv).xyz * 2.0 - 1.0; tilt += nt.xy / max(nt.z, 0.3) * 0.6; }
   float wl = uWet * 0.65, wm = uHasD > 0.5 ? (1.0 - smoothstep(wl - 0.04, wl + 0.04, h)) * step(0.02, uWet) : 0.0;
   vec2 pr = vW.xz; float e = 0.01, h0 = height(pr), hx = height(pr + vec2(e, 0.0)), hy = height(pr + vec2(0.0, e));
   vec2 rt = vec2(-(hx - h0) / e, -(hy - h0) / e) * uRip * 0.35;
