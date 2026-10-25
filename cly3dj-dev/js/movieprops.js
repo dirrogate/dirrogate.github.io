@@ -599,7 +599,7 @@ class Graffiti extends Prop {
 const DEC_V = `varying vec2 vUv; varying vec3 vW, vNn;
 void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vNn = normalize(mat3(modelMatrix) * vec3(0.0, 0.0, 1.0)); gl_Position = projectionMatrix * viewMatrix * w; }`;
 const DEC_F = `precision highp float;
-uniform sampler2D uTex; uniform vec3 uCol, uSky; uniform float uOp, uWet, uRain, uT, uWall, uAmb, uSize; uniform vec4 uLP[4]; uniform vec3 uLC[4];
+uniform sampler2D uTex; uniform vec3 uCol, uSky; uniform float uOp, uWet, uRain, uT, uTf, uWall, uAmb, uSize; uniform vec4 uLP[4]; uniform vec3 uLC[4];
 varying vec2 vUv; varying vec3 vW, vNn;
 float h11(float n){ return fract(sin(n * 91.345) * 47453.5453); }
 float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
@@ -610,7 +610,7 @@ void main(){
     for (int j = -1; j <= 1; j++) {
       float cx = floor(vUv.x * cols) + float(j), r = h11(cx + 3.7), r2 = h11(cx * 2.3 + 1.1), r3 = h11(cx * 5.1 + 9.0);
       if (r2 > 0.5 + 0.5 * kk) continue;
-      float u = uT * (0.07 + 0.09 * r) + r3 * 10.0, stepped = (floor(u) + smoothstep(0.0, 0.45, fract(u))) * (0.05 + 0.05 * r);   // runs, pauses, runs again
+      float u = uTf * (0.07 + 0.09 * r) + r3 * 10.0, stepped = (floor(u) + smoothstep(0.0, 0.45, fract(u))) * (0.05 + 0.05 * r);   // runs, pauses, runs again
       float head = 1.05 - mod(stepped + r2 * 3.0, 1.55), yM = vUv.y * sz;
       float cxm = (cx + 0.5 + (0.3 * sin(yM * (2.0 + 3.0 * r) + r * 20.0) * (0.6 + 0.4 * sin(yM * 6.0 + r2 * 9.0)) + 0.12 * sin(yM * 17.0 + r3 * 5.0))) / cols;   // wandering centre line, in uv
       float dx = (vUv.x - cxm) * sz, trail = step(head, vUv.y) * smoothstep(head + 0.4 + 0.3 * r3, head, vUv.y);
@@ -646,8 +646,8 @@ void main(){
 }`;
 class Decal extends Graffiti {
   constructor(mp, floor) {
-    super(mp, floor); this.type = floor ? 'decal' : 'walldecal'; this.obj.name = 'movieprop_' + this.type; this.tint = 0; this.wet = 0.5; this.rainAmt = 0.8; this.amb = 0.15;
-    this.U = { uTex: { value: DUMMY }, uCol: { value: new THREE.Color(1, 1, 1) }, uSky: { value: new THREE.Color(0.014, 0.02, 0.032) }, uOp: { value: 1 }, uWet: { value: 0.5 }, uRain: { value: 0.8 }, uT: { value: 0 }, uWall: { value: floor ? 0 : 1 }, uAmb: { value: 0.15 }, uSize: { value: 1 },
+    super(mp, floor); this.type = floor ? 'decal' : 'walldecal'; this.obj.name = 'movieprop_' + this.type; this.tint = 0; this.wet = 0.5; this.rainAmt = 0.8; this.flow = 1; this.amb = 0.15;
+    this.U = { uTex: { value: DUMMY }, uCol: { value: new THREE.Color(1, 1, 1) }, uSky: { value: new THREE.Color(0.014, 0.02, 0.032) }, uOp: { value: 1 }, uWet: { value: 0.5 }, uRain: { value: 0.8 }, uT: { value: 0 }, uTf: { value: 0 }, uWall: { value: floor ? 0 : 1 }, uAmb: { value: 0.15 }, uSize: { value: 1 },
       uLP: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, -99, 0, 1)) }, uLC: { value: [0, 1, 2, 3].map(() => new THREE.Color()) } };
     const m = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: DEC_V, fragmentShader: DEC_F, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     Object.defineProperty(m, 'map', { get() { return this.uniforms.uTex.value; }, set(v) { this.uniforms.uTex.value = v || DUMMY; } });
@@ -661,12 +661,12 @@ class Decal extends Graffiti {
   localBox() { const hw = this.hw || 0.1, hh = this.hh || 0.1; return this.floor ? _bx.set(_v.set(-hw, -0.05, -hh), _v2.set(hw, 0.05, hh)) : super.localBox(); }
   look() { const m = this.mat; if (!m || !m.uniforms) return; m.blending = this.glow ? THREE.AdditiveBlending : THREE.NormalBlending; const U = this.U; U.uOp.value = clamp(this.opac, 0, 1); U.uCol.value.setScalar(this.bright); m.needsUpdate = true; }
   tick() {
-    const U = this.U; U.uT.value += 0.016; U.uWet.value = this.wet; U.uRain.value = this.rainAmt; U.uAmb.value = this.amb; U.uSize.value = this.obj.scale.x * Math.max(this.hw, this.hh) * 2;
+    const U = this.U; U.uT.value += 0.016; U.uTf.value += 0.016 * this.flow; U.uWet.value = this.wet; U.uRain.value = this.rainAmt; U.uAmb.value = this.amb; U.uSize.value = this.obj.scale.x * Math.max(this.hw, this.hh) * 2;
     this.obj.updateMatrixWorld(); const Lx = this.mp.neonsNear(_v.setFromMatrixPosition(this.obj.matrixWorld), 4);
     for (let i = 0; i < 4; i++) { const n = Lx[i]; if (n) { const li = n.light(); U.uLP.value[i].set(li.pos.x, li.pos.y, li.pos.z, li.r); U.uLC.value[i].set(li.col.r, li.col.g, li.col.b).multiplyScalar(li.k * 0.5); } else U.uLP.value[i].set(0, -99, 0, 1); }
   }
-  snap() { return { ...super.snap(), wet: this.wet, rainAmt: this.rainAmt, amb: this.amb }; }
-  apply(d) { for (const k of ['wet', 'rainAmt', 'amb']) if (d[k] !== undefined) this[k] = d[k]; super.apply(d); }
+  snap() { return { ...super.snap(), wet: this.wet, rainAmt: this.rainAmt, flow: this.flow, amb: this.amb }; }
+  apply(d) { for (const k of ['wet', 'rainAmt', 'flow', 'amb']) if (d[k] !== undefined) this[k] = d[k]; super.apply(d); }
 }
 class GroundDecal extends Decal { constructor(mp) { super(mp, true); } }
 class WallDecal extends Decal { constructor(mp) { super(mp, false); } }
