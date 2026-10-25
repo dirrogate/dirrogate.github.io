@@ -6146,7 +6146,7 @@ function drawPropsPage(T) {
     note('Each slot takes a picture (jpg / png). Diffuse = colour, displacement = height (white high), roughness, normal (OpenGL style) and AO are optional. Added from this device; set TILE SIZE to how many metres one picture covers.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 12);
     return;
   }
-  const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', glb: 'GLB', lamp: 'LAMP', plate: 'BACKDROP' };
+  const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', glb: 'GLB', lamp: 'LAMP', plate: 'BACKDROP', crate: 'RECORD CRATE' };
   const spawn = k => {
     const o = {};
     if (k === 'glb') { if (!mp.lists.glb.length) { toast('Add a .glb first (ADD GLB, on the GLB prop that appears)', 3500); } else o.src = mp.lists.glb[0]; }
@@ -6157,7 +6157,7 @@ function drawPropsPage(T) {
     toast(p && p.floor ? (NAMES[k] || 'GROUND') + ' in front of you. Grip the ring on its post to carry it, trigger the cube to size it.' : NAMES[k] + ' in front of you. Grip the ring to carry it, trigger the cube to size it (or grip with both hands and stretch).', 4200);
     drawMixScreen();
   };
-  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['ALLEY SCENE', 'alley'], ['ROAD SCENE', 'road']];
+  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['CRATE +', 'crate'], ['ALLEY SCENE', 'alley'], ['ROAD SCENE', 'road']];
   const per = P ? 4 : 8, gap = 6, bw = (R - L - gap * (per - 1)) / per, bh = P ? 44 : 34;
   kinds.forEach(([l, k], i) => btn(L + (i % per) * (bw + gap), y0 + Math.floor(i / per) * (bh + 6), bw, bh, l, false, () => spawn(k), false, P ? 16 : 14));
   const top = y0 + Math.ceil(kinds.length / per) * (bh + 6) + 4;
@@ -6208,7 +6208,7 @@ function drawPropsPage(T) {
     cells.push(S('AMOUNT', sel.amt, pc(sel.amt), v => { sel.amt = v; }), S('SPEED', (sel.speed - 2) / 12, sel.speed.toFixed(1) + ' m/s', v => { sel.speed = 2 + v * 12; }),
       S('STREAK LENGTH', sel.len / 1.5, Math.round(sel.len * 100) + ' cm', v => { sel.len = v * 1.5; }), S('WIND', (sel.wind + 1) / 2, sel.wind.toFixed(2), v => { sel.wind = v * 2 - 1; }), heightS(), sizeBox());
   } else if (sel.type === 'fog') {
-    cells.push(S('DENSITY', sel.den, pc(sel.den), v => { sel.den = v; }), S('DRIFT', (sel.speed - 0.2) / 3, sel.speed.toFixed(1) + 'x', v => { sel.speed = 0.2 + v * 3; }), heightS(), sizeBox(),
+    cells.push(S('DENSITY', sel.den, pc(sel.den), v => { sel.den = v; }), S('DRIFT', (sel.speed - 0.2) / 3, sel.speed.toFixed(1) + 'x', v => { sel.speed = 0.2 + v * 3; }), S('ROLL TOWARD YOU', (sel.flow + 1) / 2, (sel.flow >= 0 ? '' : 'away ') + Math.abs(sel.flow).toFixed(2) + ' m/s', v => { sel.flow = Math.round((v * 2 - 1) * 20) / 20; }), heightS(), sizeBox(),
       B('COLOR: ' + FOG_COLORS[sel.col % FOG_COLORS.length][0], false, () => { sel.col = (sel.col + 1) % FOG_COLORS.length; }), B(sel.smoke ? 'MODE: SMOKE (rises)' : 'MODE: FOG (low)', sel.smoke, () => { sel.smoke = !sel.smoke; }),
       S('AMBIENT', sel.amb, pc(sel.amb), v => { sel.amb = v; }), B(sel.lit ? 'LIT BY LAMPS / NEON: ON' : 'LIT BY LAMPS / NEON: OFF', !!sel.lit, () => { sel.lit = sel.lit ? 0 : 1; }),
       B(sel.dep ? 'DEPTH-AWARE (real room): ON' : 'DEPTH-AWARE (real room): OFF', sel.dep, () => { sel.dep = !sel.dep; }));
@@ -6218,6 +6218,8 @@ function drawPropsPage(T) {
       B(sel.vert ? 'VERTICAL' : 'HORIZONTAL', sel.vert, () => sel.set('vert', !sel.vert)), B('COLOR: ' + COLORS[sel.col][0], false, () => sel.set('col', (sel.col + 1) % COLORS.length)),
       B(sel.frame ? 'FRAME: ON' : 'FRAME', sel.frame, () => sel.set('frame', !sel.frame)),
       S('FLICKER', sel.flick, pc(sel.flick), v => { sel.flick = v; }), S('GLOW', sel.glow / 1.5, pc(sel.glow / 1.5), v => { sel.glow = v * 1.5; }), sizeUni());
+  } else if (sel.type === 'crate') {
+    cells.push(sizeUni());
   } else if (sel.type === 'plate') {   // #487 backdrop photo
     const names = [...PLATE_BUILTIN, ...mp.lists.png], logP = s => Math.log(clamp(s, 2, 60) / 2) / Math.log(30);
     cells.push(B('PICTURE: ' + sel.src, false, () => sel.set('src', cyc(names, sel.src))), B('ADD PICTURE', false, () => mp.pickFile('png', 'image/*', nm => { sel.set('src', nm); drawMixScreen(); })),

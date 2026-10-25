@@ -13,7 +13,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
 import { USER_LAYER } from './fx.js';
+import { makeMilkCrate, MILK } from './models.js';
 
+const WALL_LAMP_YAW = Math.PI / 2;
 const KEY = 'vire.movieprops', POST_H = 0.26;
 const YAX = new THREE.Vector3(0, 1, 0), _r = new THREE.Ray(), _inv = new THREE.Matrix4(), _bx = new THREE.Box3();
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -30,6 +32,7 @@ export const MATTES = ['SCATTERED', 'BIG PUDDLE', 'GUTTER', 'CRACKED', 'COBBLES'
 export const SURF_SLOTS = [['diff', 'DIFFUSE'], ['disp', 'DISPLACEMENT'], ['rough', 'ROUGHNESS'], ['nor', 'NORMAL'], ['ao', 'AO']];
 const SURF_BUILTIN = {
   COBBLESTONE: { tile: 1.0, disp: 1.0, slots: { diff: 'surfaces/cobblestone/diff.jpg', disp: 'surfaces/cobblestone/disp.png', rough: 'surfaces/cobblestone/rough.jpg' } },
+  CONCRETE: { tile: 1.2, disp: 0.7, slots: { diff: 'surfaces/concrete/diff.jpg', disp: 'surfaces/concrete/disp.png' } },
   ASPHALT: { tile: 1.6, disp: 0.6, slots: { diff: 'surfaces/asphalt/diff.jpg', disp: 'surfaces/asphalt/disp.png', rough: 'surfaces/asphalt/rough.jpg' } },
 };
 const SKEY = 'vire.surfaces';
@@ -212,7 +215,7 @@ vec4 surfColor(){
   vec2 tilt = vec2(0.0);
   if (uHasD > 0.5) { float te = 1.0 / 1024.0; tilt -= vec2(texture2D(uDisp, uv + vec2(te, 0.0)).r - texture2D(uDisp, uv - vec2(te, 0.0)).r, texture2D(uDisp, uv + vec2(0.0, te)).r - texture2D(uDisp, uv - vec2(0.0, te)).r) * depthM / (2.0 * te * uTileM); }
   if (uHasN > 0.5) { vec3 nt = texture2D(uNormT, uv).xyz * 2.0 - 1.0; tilt += nt.xy / max(nt.z, 0.3) * 0.6; }
-  float wl = uWet * 0.5, wm = uHasD > 0.5 ? (1.0 - smoothstep(wl - 0.04, wl + 0.04, h)) * step(0.02, uWet) : 0.0;
+  float wl = uWet * 0.65, wm = uHasD > 0.5 ? (1.0 - smoothstep(wl - 0.04, wl + 0.04, h)) * step(0.02, uWet) : 0.0;
   vec2 pr = vW.xz; float e = 0.01, h0 = height(pr), hx = height(pr + vec2(e, 0.0)), hy = height(pr + vec2(0.0, e));
   vec2 rt = vec2(-(hx - h0) / e, -(hy - h0) / e) * uRip * 0.35;
   vec3 N = normalize(vNn + (vTx * tilt.x + vTy * tilt.y) * (1.0 - wm) + vec3(rt.x, 0.0, rt.y) * wm);
@@ -284,12 +287,13 @@ float realGap(vec3 P) {   // as in laser.js (#413): > 0 = P lies behind the real
   return length(pv.xyz) - length(rv.xyz);
 }
 `;
-const FOG_V = `uniform vec3 uBox; uniform float uT, uSpeed, uSmoke, uSize; uniform vec4 uLP[4]; uniform vec3 uLC[4];
+const FOG_V = `uniform vec3 uBox; uniform float uT, uSpeed, uSmoke, uSize, uFlow; uniform vec4 uLP[4]; uniform vec3 uLC[4];
 attribute vec3 aC; attribute vec3 aP; varying vec2 vUv; varying float vF; varying float vD; varying vec3 vL; varying vec3 vW;
 void main(){
   float t = uT * uSpeed; vec3 c = aC;
   c.x += 0.07 * sin(t * 0.7 + aP.x * 6.28); c.z += 0.07 * cos(t * 0.6 + aP.y * 6.28);
   float fade = 1.0;
+  if (uFlow != 0.0) { float zz = fract(aC.z + uFlow * uT / uBox.z); c.z = zz + 0.07 * cos(t * 0.6 + aP.y * 6.28); fade *= smoothstep(0.0, 0.14, zz) * smoothstep(1.0, 0.86, zz); }   // fog rolling along the box (+ = toward the viewer side)
   if (uSmoke > 0.5) { c.y = fract(aC.y + t * 0.06 * (0.6 + aP.z)); fade = sin(3.14159 * c.y); } else { c.y = aC.y * 0.55; c.x += 0.05 * sin(t * 0.3 + aP.z * 9.0); }
   vec3 ctr = (c - vec3(0.5, 0.0, 0.5)) * uBox;
   vec3 wc = (modelMatrix * vec4(ctr, 1.0)).xyz, L = vec3(0.0);   // light from the nearest lamps / neon signs, falling off with distance
@@ -456,11 +460,11 @@ class Rain extends BoxProp {
 
 class Fog extends BoxProp {
   constructor(mp) {
-    super(mp, 'fog'); this.w = 4; this.d = 4; this.h = 2.5; this.den = 0.4; this.smoke = false; this.col = 0; this.speed = 1; this.amb = 0.3; this.lit = 1; this.dep = true;
+    super(mp, 'fog'); this.w = 4; this.d = 4; this.h = 2.5; this.den = 0.4; this.smoke = false; this.col = 0; this.speed = 1; this.amb = 0.3; this.lit = 1; this.dep = true; this.flow = 0;
     const N = 90, base = new THREE.PlaneGeometry(1, 1), geo = new THREE.InstancedBufferGeometry(); geo.index = base.index; geo.setAttribute('position', base.attributes.position); geo.instanceCount = N;
     const aC = new Float32Array(N * 3), aP = new Float32Array(N * 3); for (let i = 0; i < N * 3; i++) { aC[i] = i % 3 === 1 ? Math.random() : (Math.random() + Math.random()) / 2; aP[i] = Math.random(); }   // x / z crowd toward the middle: no visible box edge
     geo.setAttribute('aC', new THREE.InstancedBufferAttribute(aC, 3)); geo.setAttribute('aP', new THREE.InstancedBufferAttribute(aP, 3));
-    this.U = { uBox: { value: new THREE.Vector3(4, 2.5, 4) }, uT: { value: 0 }, uSpeed: { value: 1 }, uSmoke: { value: 0 }, uSize: { value: 2 }, uTex: { value: cloud() }, uCol: { value: new THREE.Color(FOG_COLORS[0][1]) }, uDen: { value: 0.5 }, uAmb: { value: 0.5 }, uLit: { value: 1 }, uFloor: { value: 0 }, uLP: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, -99, 0, 1)) }, uLC: { value: [0, 1, 2, 3].map(() => new THREE.Vector3()) },
+    this.U = { uBox: { value: new THREE.Vector3(4, 2.5, 4) }, uT: { value: 0 }, uSpeed: { value: 1 }, uSmoke: { value: 0 }, uFlow: { value: 0 }, uSize: { value: 2 }, uTex: { value: cloud() }, uCol: { value: new THREE.Color(FOG_COLORS[0][1]) }, uDen: { value: 0.5 }, uAmb: { value: 0.5 }, uLit: { value: 1 }, uFloor: { value: 0 }, uLP: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, -99, 0, 1)) }, uLC: { value: [0, 1, 2, 3].map(() => new THREE.Vector3()) },
       uDepth: { value: null }, uDOn: { value: 0 }, uDLayer: { value: 0 }, uDView: { value: new THREE.Matrix4() }, uDProj: { value: new THREE.Matrix4() }, uDInvProj: { value: new THREE.Matrix4() }, uDNorm: { value: new THREE.Matrix4() } };
     this.mat = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: FOG_V, fragmentShader: FOG_F, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
     this.mesh = new THREE.Mesh(geo, this.mat); this.mesh.frustumCulled = false; this.mesh.renderOrder = 5; this.mat.uniforms.uT = this.U.uT; noRay(this.mesh); this.obj.add(this.mesh);
@@ -470,7 +474,7 @@ class Fog extends BoxProp {
     this.layout();
   }
   tick(dt) {
-    const U = this.U; this.t += dt; U.uT.value = this.t; U.uSpeed.value = this.speed; U.uSmoke.value = this.smoke ? 1 : 0; U.uDen.value = this.den * 0.9; U.uCol.value.set(FOG_COLORS[this.col % FOG_COLORS.length][1]); U.uAmb.value = this.amb; U.uLit.value = this.lit; U.uFloor.value = this.obj.getWorldPosition(_v2).y - 0.02;
+    const U = this.U; this.t += dt; U.uT.value = this.t; U.uSpeed.value = this.speed; U.uSmoke.value = this.smoke ? 1 : 0; U.uFlow.value = this.flow; U.uDen.value = this.den * 0.9; U.uCol.value.set(FOG_COLORS[this.col % FOG_COLORS.length][1]); U.uAmb.value = this.amb; U.uLit.value = this.lit; U.uFloor.value = this.obj.getWorldPosition(_v2).y - 0.02;
     this.obj.updateWorldMatrix(true, false); _v.setFromMatrixPosition(this.obj.matrixWorld); _v.y += this.h * 0.3;
     const L = this.mp.neonsNear(_v, 4);
     for (let i = 0; i < 4; i++) { const n = L[i]; if (n) { const li = n.light(); U.uLP.value[i].set(li.pos.x, li.pos.y, li.pos.z, li.r); U.uLC.value[i].set(li.col.r, li.col.g, li.col.b).multiplyScalar(li.k * 0.5); } else { U.uLP.value[i].set(0, -99, 0, 1); U.uLC.value[i].set(0, 0, 0); } }
@@ -478,8 +482,8 @@ class Fog extends BoxProp {
     if (D) { U.uDepth.value = D.tex; U.uDLayer.value = D.layer; U.uDView.value.copy(D.view); U.uDProj.value.copy(D.proj); U.uDInvProj.value.copy(D.invProj); U.uDNorm.value.copy(D.norm); }
     U.uBox.value.set(this.w, this.h, this.d); U.uSize.value = clamp(0.22 * Math.max(this.w, this.d) + 0.4, 0.6, 2.4);
   }
-  snap() { return { ...this.base(), w: this.w, d: this.d, h: this.h, den: this.den, smoke: this.smoke, col: this.col, speed: this.speed, amb: this.amb, lit: this.lit, dep: this.dep }; }
-  apply(d) { for (const k of ['den', 'smoke', 'col', 'speed', 'h', 'amb', 'lit', 'dep']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.setSize(d.w || 4, d.d || 4); }
+  snap() { return { ...this.base(), w: this.w, d: this.d, h: this.h, den: this.den, smoke: this.smoke, col: this.col, speed: this.speed, amb: this.amb, lit: this.lit, dep: this.dep, flow: this.flow }; }
+  apply(d) { for (const k of ['den', 'smoke', 'col', 'speed', 'h', 'amb', 'lit', 'dep', 'flow']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.setSize(d.w || 4, d.d || 4); }
 }
 
 // wall props: a flat card (neon, graffiti) or a model, sized as a whole by the cube
@@ -590,6 +594,28 @@ class Plate extends Prop {   // #487 a big backdrop photo (the real alley), unli
   set(k, v) { this[k] = v; if (k === 'src') this.load(); else this.look(); this.save(); }
   snap() { return { ...this.base(), src: this.src, bright: this.bright }; }
   apply(d) { for (const k of ['src', 'bright']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.load(); }
+}
+
+class CrateProp extends Prop {   // #491 a milk crate packed with 12-inch records (the app's own crate model + sleeve boxes), to leave out in the rain
+  constructor(mp) {
+    super(mp, 'crate', false); this.hw = MILK.W / 2; this.hh = MILK.H / 2;
+    this.crate = makeMilkCrate(); this.obj.add(this.crate); noRay(this.crate);
+    const cols = ['#c2402d', '#2d6cc2', '#d9b43c', '#3a8f5a', '#7a3ab5', '#e8e2d4', '#1e1e22', '#d86a9a'], tex = cols.map((c, k) => {
+      const cv = document.createElement('canvas'); cv.width = cv.height = 96; const g = cv.getContext('2d'); g.fillStyle = c; g.fillRect(0, 0, 96, 96);
+      g.fillStyle = 'rgba(0,0,0,0.28)'; g.beginPath(); g.arc(48, 48, 26 + (k % 3) * 6, 0, 7); g.fill(); g.fillStyle = 'rgba(255,255,255,0.55)'; g.fillRect(8, 8 + (k % 4) * 6, 44, 8);
+      const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t; });
+    const geo = new THREE.BoxGeometry(0.31, 0.31, 0.004); this.recs = new THREE.Group(); this.obj.add(this.recs);
+    let z = -MILK.D / 2 + 0.03, i = 0;
+    while (z < MILK.D / 2 - 0.03) {
+      const m = new THREE.MeshStandardMaterial({ map: tex[(i * 5 + (i >> 2)) % tex.length], roughness: 0.75, metalness: 0 }), r = new THREE.Mesh(geo, m);
+      const lean = (Math.random() - 0.5) * 0.18, up = (i % 7 === 3 ? 0.04 + Math.random() * 0.03 : 0); r.position.set((Math.random() - 0.5) * 0.012, 0.012 + 0.155 + up, z); r.rotation.x = lean; r.rotation.z = (Math.random() - 0.5) * 0.03;
+      noRay(r); this.recs.add(r); z += 0.0046 + Math.abs(lean) * 0.012; i++;
+    }
+    this.box = new THREE.Box3(new THREE.Vector3(-MILK.W / 2, 0, -MILK.D / 2), new THREE.Vector3(MILK.W / 2, MILK.H + 0.05, MILK.D / 2));
+    this.ringAt.set(MILK.W / 2 + 0.08, 0.04, MILK.D / 2 + 0.08); this.cubeAt.set(-MILK.W / 2 - 0.08, MILK.H + 0.1, -MILK.D / 2 - 0.08); this.placeHandles();
+  }
+  localBox() { return this.box; }
+  dispose() { super.dispose && super.dispose(); }
 }
 
 class GlbProp extends Prop {
@@ -787,7 +813,7 @@ export class MovieProps {
     return { p: new THREE.Vector3(l.x, floor ? 0.01 : Math.max(1.0, l.y - 0.25), l.z), yaw };
   }
   spawn(type, opt = {}) {
-    const P = { puddle: Puddle, rain: Rain, fog: Fog, neon: NeonSign, graffiti: Graffiti, glb: GlbProp, lamp: Lamp, plate: Plate }[type]; if (!P) return null;
+    const P = { puddle: Puddle, rain: Rain, fog: Fog, neon: NeonSign, graffiti: Graffiti, glb: GlbProp, lamp: Lamp, plate: Plate, crate: CrateProp }[type]; if (!P) return null;
     const p = new P(this), s = this.spot(p.floor); p.obj.position.copy(s.p); p.obj.rotation.set(0, s.yaw, 0); p.placeHandles();
     if (type === 'glb' && opt.src) p.load(opt.src); if (type === 'graffiti' && opt.src) { p.src = opt.src; p.tint = opt.src === 'graff1.png' ? 1 : 0; p.load(); }
     this.items.push(p); this.selected = p; this.save(); return p;
@@ -809,13 +835,15 @@ export class MovieProps {
       h.obj.position.copy(this.rig.worldToLocal(w)); h.size = size; h.bright = bright; h.flick = 0.12; h.col = 2; h.placeHandles(); return h;
     };
     const pl = this.spawn('plate'); pl.src = 'alley2.jpg'; pl.bright = 0.85; pl.obj.scale.setScalar(14); pl.obj.position.copy(at(3.4, 17.5, 1.32)); pl.obj.rotation.set(0, yaw, 0); pl.load();   // the photo's vanishing point lands on the eye line (1.6 m) straight down the lane
-    const gr = this.spawn('puddle'); gr.setSurface(road ? 'ASPHALT' : 'COBBLESTONE'); gr.setSize(5.5, 15); gr.wet = road ? 0.5 : 0.55; gr.refl = 1.7; gr.rip = 0.7; gr.rain = 0.8; gr.amb = 0.1; gr.cover = 0.92; put(gr, 0, 8.2);
+    const gr = this.spawn('puddle'); gr.setSurface(road ? 'ASPHALT' : 'COBBLESTONE'); gr.setSize(5.5, 15); gr.wet = road ? 0.8 : 0.65; gr.refl = 1.7; gr.rip = 1.0; gr.rain = 1.5; gr.amb = 0.1; gr.cover = 0.92; put(gr, 0, 8.2);
     const l1 = this.spawn('glb'); await l1.load('street_lamp_01.glb'); put(l1, -2.3, 6.5, 0.3); halo(l1, 1.5, 1.1);
-    const l2 = this.spawn('glb'); await l2.load('street_lamp_02.glb'); put(l2, 2.3, 11.5, -0.3); halo(l2, 1.0, 0.8);
+    // lamp 2 is a wall bracket lantern: it hangs on the building at the far right (the backdrop photo's facade)
+    const l2 = this.spawn('glb'); await l2.load('street_lamp_02.glb'); l2.obj.position.copy(at(4.6, 15.5, 2.3)); l2.obj.rotation.set(0, yaw + WALL_LAMP_YAW, 0); l2.placeHandles(); halo(l2, 1.0, 0.9);
+    const cr = this.spawn('crate'); put(cr, -1.75, 8.6, 0.5);   // a crate of records left out in the rain, midway along the left side
     const car = this.spawn('glb'); await car.load('covered_car.glb'); put(car, 2.1, 14.5, 0.12);
     const rn = this.spawn('rain'); rn.setSize(7, 15); rn.h = 5; rn.amt = 0.25; rn.layout && rn.layout(); put(rn, 0, 8.2);
-    const fg = this.spawn('fog'); fg.setSize(7, 16); fg.h = 2.0; fg.col = 1; fg.den = 0.3; fg.amb = 0.55; fg.lit = 0.45; fg.layout && fg.layout(); put(fg, 0, 8.7);
-    const far = this.spawn('fog'); far.setSize(15, 10); far.h = 6; far.col = 1; far.den = 0.6; far.amb = 0.5; far.lit = 0.35; far.layout && far.layout(); put(far, 0, 14);   // distance haze: thick and tall toward the backdrop so the far end of the lane melts into it
+    const fg = this.spawn('fog'); fg.setSize(7, 16); fg.h = 2.0; fg.col = 1; fg.den = 0.3; fg.amb = 0.55; fg.lit = 0.45; fg.flow = 0.45; fg.layout && fg.layout(); put(fg, 0, 8.7);
+    const far = this.spawn('fog'); far.setSize(15, 10); far.h = 6; far.col = 1; far.den = 0.6; far.amb = 0.5; far.lit = 0.35; far.flow = 0.3; far.layout && far.layout(); put(far, 0, 14);   // distance haze: thick and tall toward the backdrop so the far end of the lane melts into it
     let mx = road ? 1.55 : 1.0, md = road ? 5.0 : 5.5;
     if (road) { const mh = this.spawn('glb'); await mh.load('water_manhole.glb'); put(mh, mx, md); mh.obj.position.y = -0.045; }   // water manhole cover set into the road, the steam rises from it
     const sm = this.spawn('fog'); sm.setSize(road ? 0.8 : 1.1, road ? 0.8 : 1.1); sm.h = 3.2; sm.smoke = true; sm.col = 0; sm.den = 0.55; sm.amb = 0.45; sm.lit = 0.8; sm.speed = 0.8; sm.layout && sm.layout(); put(sm, mx, md);   // steam rising from a street grate
