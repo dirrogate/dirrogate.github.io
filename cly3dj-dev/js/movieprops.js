@@ -182,9 +182,9 @@ float height(vec2 p){
     float sc = L == 0 ? 3.2 : (L == 1 ? 2.0 : 1.2), fl = float(L); vec2 q = p * sc + fl * 17.3, id = floor(q), f = fract(q) - 0.5;
     float T = uT * uRain * (0.22 + 0.5 * h21(id + fl * 7.1)) + h21(id * 1.3 + 4.4) * 9.0, cyc = floor(T), ph = fract(T);
     float rr = h21(id + cyc * 13.7 + fl * 3.3);
-    if (rr > 0.6) {
+    if (rr > 0.3) {
       vec2 c = (vec2(h21(id + cyc * 3.1 + 3.1), h21(id + cyc * 5.7 + 8.7)) - 0.5) * 0.4;
-      float sz = h21(id + cyc * 9.1 + 2.2), rad = ph * (0.12 + 0.2 * sz), d = length(f - c), x = d - rad;
+      float sz = h21(id + cyc * 9.1 + 2.2), rad = ph * (0.14 + 0.24 * sz), d = length(f - c), x = d - rad;
       h += sin(x * 60.0 / (0.6 + sz)) * exp(-x * x * 160.0) * (1.0 - ph) * (0.025 + 0.05 * sz) * (L == 2 ? 1.3 : 1.0);
     }
   }
