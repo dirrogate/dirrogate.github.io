@@ -171,7 +171,7 @@ void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; g
   vLV = (inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz - position;
   vTx = normalize(mat3(modelMatrix) * vec3(1.0, 0.0, 0.0)); vTy = normalize(mat3(modelMatrix) * vec3(0.0, 1.0, 0.0)); vNn = normalize(mat3(modelMatrix) * vec3(0.0, 0.0, 1.0)); }`;
 const PUD_F = `precision highp float;
-uniform sampler2D uMatte, uS0, uS1, uS2, uS3; uniform float uWet, uSoft, uInv, uRip, uRain, uRefl, uT, uDark, uSize, uCobble, uStreak, uBump; uniform vec2 uTile, uFocus;
+uniform sampler2D uMatte, uS0, uS1, uS2, uS3; uniform float uRipSz, uWet, uSoft, uInv, uRip, uRain, uRefl, uT, uDark, uSize, uCobble, uStreak, uBump; uniform vec2 uTile, uFocus;
 uniform vec3 uSky, uTint; uniform sampler2D uPT; uniform mat4 uPI; uniform float uPOn, uPB; uniform mat4 uSI[4]; uniform vec4 uSD[4];
 uniform float uSurf, uTileM, uDispAmt, uCover, uAmb, uHasD, uHasR, uHasN, uHasA, uHasC; uniform sampler2D uDiff, uDisp, uRoughT, uNormT, uAOT; uniform vec2 uWD; uniform vec4 uLP[4]; uniform vec3 uLC[4];
 varying vec2 vUv; varying vec3 vW, vLV, vTx, vTy, vNn;
@@ -179,7 +179,7 @@ float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); 
 float height(vec2 p){
   float h = 0.012 * sin(p.x * 9.0 + uT * 1.3) * sin(p.y * 8.0 - uT * 1.1) + 0.008 * sin((p.x + p.y) * 17.0 - uT * 2.1);
   for (int L = 0; L < 3; L++) {   // #496 three sizes of drop (small, medium, big splash); every cell rolls fresh dice on every cycle: whether a drop lands, where, how big, how hard
-    float sc = L == 0 ? 6.0 : (L == 1 ? 4.2 : 3.0), fl = float(L); vec2 q = p * sc + fl * 17.3, id = floor(q), f = fract(q) - 0.5;
+    float sc = (L == 0 ? 6.0 : (L == 1 ? 4.2 : 3.0)) / uRipSz, fl = float(L); vec2 q = p * sc + fl * 17.3, id = floor(q), f = fract(q) - 0.5;
     float T = uT * uRain * (0.22 + 0.5 * h21(id + fl * 7.1)) + h21(id * 1.3 + 4.4) * 9.0, cyc = floor(T), ph = fract(T);
     float rr = h21(id + cyc * 13.7 + fl * 3.3);
     if (rr > 0.3) {
@@ -415,9 +415,9 @@ class BoxProp extends Prop {
 
 class Puddle extends BoxProp {
   constructor(mp) {
-    super(mp, 'puddle'); this.matte = 'SCATTERED'; this.wet = 0.5; this.soft = 0.06; this.rip = 0.8; this.rain = 0.6; this.refl = 1; this.inv = false; this.dark = 0.6; this.stone = 0.8; this.surf = ''; this.cover = 1; this.amb = 0.12; this.sdirty = true;
+    super(mp, 'puddle'); this.matte = 'SCATTERED'; this.wet = 0.5; this.soft = 0.06; this.rip = 0.8; this.ripSz = 1; this.rain = 0.6; this.refl = 1; this.inv = false; this.dark = 0.6; this.stone = 0.8; this.surf = ''; this.cover = 1; this.amb = 0.12; this.sdirty = true;
     this.U = {
-      uMatte: { value: DUMMY }, uS0: { value: DUMMY }, uS1: { value: DUMMY }, uS2: { value: DUMMY }, uS3: { value: DUMMY }, uWet: { value: 0.5 }, uSoft: { value: 0.06 }, uInv: { value: 0 }, uRip: { value: 0.8 }, uRain: { value: 0.6 },
+      uMatte: { value: DUMMY }, uS0: { value: DUMMY }, uS1: { value: DUMMY }, uS2: { value: DUMMY }, uS3: { value: DUMMY }, uWet: { value: 0.5 }, uSoft: { value: 0.06 }, uInv: { value: 0 }, uRip: { value: 0.8 }, uRipSz: { value: 1 }, uRain: { value: 0.6 },
       uRefl: { value: 1 }, uT: { value: 0 }, uDark: { value: 0.55 }, uSize: { value: 3 }, uCobble: { value: 0 }, uStreak: { value: 0 }, uBump: { value: 1.1 }, uTile: { value: new THREE.Vector2(1, 1) }, uSurf: { value: 0 }, uTileM: { value: 1 }, uDispAmt: { value: 1 }, uCover: { value: 1 }, uAmb: { value: 0.12 }, uHasD: { value: 0 }, uHasR: { value: 0 }, uHasN: { value: 0 }, uHasA: { value: 0 }, uHasC: { value: 0 }, uDiff: { value: DUMMY }, uDisp: { value: DUMMY }, uRoughT: { value: DUMMY }, uNormT: { value: DUMMY }, uAOT: { value: DUMMY }, uWD: { value: new THREE.Vector2(1, 1) }, uLP: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, -99, 0, 1)) }, uLC: { value: [0, 1, 2, 3].map(() => new THREE.Color()) }, uFocus: { value: new THREE.Vector2(3, 0) }, uSky: { value: new THREE.Color(0.014, 0.02, 0.032) }, uPT: { value: DUMMY }, uPI: { value: new THREE.Matrix4() }, uPOn: { value: 0 }, uPB: { value: 1 }, uTint: { value: new THREE.Color(0.1, 0.5, 0.6) },
       uSI: { value: [0, 1, 2, 3].map(() => new THREE.Matrix4()) }, uSD: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
     };
@@ -437,7 +437,7 @@ class Puddle extends BoxProp {
     bind('diff', 'uDiff', 'uHasC'); bind('disp', 'uDisp', 'uHasD'); bind('rough', 'uRoughT', 'uHasR'); bind('nor', 'uNormT', 'uHasN'); bind('ao', 'uAOT', 'uHasA');
   }
   tick(dt) {
-    const U = this.U; this.t += dt; U.uT.value = this.t; U.uWet.value = this.wet; U.uSoft.value = this.soft; U.uInv.value = this.inv ? 1 : 0; U.uRip.value = this.rip; U.uRain.value = this.rain; U.uRefl.value = this.refl; U.uDark.value = this.dark;
+    const U = this.U; this.t += dt; U.uT.value = this.t; U.uWet.value = this.wet; U.uSoft.value = this.soft; U.uInv.value = this.inv ? 1 : 0; U.uRip.value = this.rip; U.uRipSz.value = this.ripSz; U.uRain.value = this.rain; U.uRefl.value = this.refl; U.uDark.value = this.dark;
     if (this.sdirty) this.surfSync();
     if (U.uSurf.value > 0.5) {
       { const pl = this.mp.items.find(i => i.type === 'plate' && i.mesh.visible && i.mat.map); if (pl) { pl.mesh.updateWorldMatrix(true, false); U.uPI.value.copy(pl.mesh.matrixWorld).invert(); U.uPT.value = pl.mat.map; U.uPB.value = pl.bright * 1.1; U.uPOn.value = 1; } else U.uPOn.value = 0; }
@@ -454,8 +454,8 @@ class Puddle extends BoxProp {
       if (n) { const r = n.refObj(), hh = n.refHalf(); r.updateWorldMatrix(true, false); U.uSI.value[i].copy(r.matrixWorld).invert(); d.set(hh[0], hh[1], n.lit(), 0); U['uS' + i].value = n.tex; } else { d.set(0, 0, 0, 0); U['uS' + i].value = DUMMY; }
     }
   }
-  snap() { return { ...this.base(), w: this.w, d: this.d, matte: this.matte, wet: this.wet, rip: this.rip, rain: this.rain, refl: this.refl, inv: this.inv, soft: this.soft, dark: this.dark, stone: this.stone, surf: this.surf, cover: this.cover, amb: this.amb }; }
-  apply(d) { for (const k of ['wet', 'rip', 'rain', 'refl', 'inv', 'soft', 'dark', 'stone', 'cover', 'amb']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.setSize(d.w || 3, d.d || 3); if (d.matte) this.setMatte(d.matte); if (d.surf) this.setSurface(d.surf); }
+  snap() { return { ...this.base(), w: this.w, d: this.d, matte: this.matte, wet: this.wet, rip: this.rip, ripSz: this.ripSz, rain: this.rain, refl: this.refl, inv: this.inv, soft: this.soft, dark: this.dark, stone: this.stone, surf: this.surf, cover: this.cover, amb: this.amb }; }
+  apply(d) { for (const k of ['wet', 'rip', 'ripSz', 'rain', 'refl', 'inv', 'soft', 'dark', 'stone', 'cover', 'amb']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.setSize(d.w || 3, d.d || 3); if (d.matte) this.setMatte(d.matte); if (d.surf) this.setSurface(d.surf); }
 }
 
 class Rain extends BoxProp {

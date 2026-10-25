@@ -6194,14 +6194,14 @@ function drawPropsPage(T) {
     const sn = mp.surfNames();
     cells.push(B('SURFACE: ' + sel.surf, false, () => sel.setSurface(sn[(sn.indexOf(sel.surf) + 1) % sn.length])), B('EDIT / ADD SURFACES', false, () => { mpSurfName = sel.surf; mpTab = 'surf'; }),
       S('WETNESS', sel.wet, pc(sel.wet), v => { sel.wet = v; }), S('COVER (hides real floor)', sel.cover, pc(sel.cover), v => { sel.cover = v; }), S('AMBIENT LIGHT', sel.amb / 0.5, pc(sel.amb / 0.5), v => { sel.amb = v * 0.5; }),
-      S('REFLECTION', sel.refl / 2, pc(sel.refl / 2), v => { sel.refl = v * 2; }), S('RIPPLES', sel.rip, pc(sel.rip), v => { sel.rip = v; }), S('RAIN DROPS', sel.rain / 2, pc(sel.rain / 2), v => { sel.rain = v * 2; }),
+      S('REFLECTION', sel.refl / 2, pc(sel.refl / 2), v => { sel.refl = v * 2; }), S('RIPPLES', sel.rip, pc(sel.rip), v => { sel.rip = v; }), S('RIPPLE SIZE', (sel.ripSz - 0.3) / 2.2, sel.ripSz.toFixed(1) + 'x', v => { sel.ripSz = 0.3 + v * 2.2; }), S('RAIN DROPS', sel.rain / 2, pc(sel.rain / 2), v => { sel.rain = v * 2; }),
       B('USE A MATTE INSTEAD', false, () => sel.setSurface('')), sizeBox());
   } else if (sel.type === 'puddle') {
     const names = [...MATTES, ...mp.lists.matte];
     cells.push(B('MATTE: ' + sel.matte, false, () => sel.setMatte(cyc(names, sel.matte))), B(sel.inv ? 'INVERT: ON' : 'INVERT', sel.inv, () => { sel.inv = !sel.inv; }),
       B('ADD MATTE PICTURE', false, () => mp.pickFile('matte', 'image/*', nm => { sel.setMatte(nm); drawMixScreen(); })),
       B('WET COBBLES', sel.matte === 'COBBLES', () => { sel.setMatte('COBBLES'); sel.refl = Math.max(sel.refl, 1.2); }),
-      S('WETNESS', sel.wet, pc(sel.wet), v => { sel.wet = v; }), S('RIPPLES', sel.rip, pc(sel.rip), v => { sel.rip = v; }),
+      S('WETNESS', sel.wet, pc(sel.wet), v => { sel.wet = v; }), S('RIPPLES', sel.rip, pc(sel.rip), v => { sel.rip = v; }), S('RIPPLE SIZE', (sel.ripSz - 0.3) / 2.2, sel.ripSz.toFixed(1) + 'x', v => { sel.ripSz = 0.3 + v * 2.2; }),
       S('RAIN DROPS', sel.rain / 2, pc(sel.rain / 2), v => { sel.rain = v * 2; }), S('REFLECTION', sel.refl / 2, pc(sel.refl / 2), v => { sel.refl = v * 2; }),
       B('USE A TEXTURE SURFACE', false, () => sel.setSurface(mp.surfNames()[0])),
       S('DARKEN', sel.dark, pc(sel.dark), v => { sel.dark = v; }), ...(sel.matte === 'COBBLES' ? [S('STONE SIZE', (sel.stone - 0.4) / 2.6, Math.round(sel.stone * 10) + ' cm', v => { sel.stone = 0.4 + v * 2.6; })] : []), sizeBox());
