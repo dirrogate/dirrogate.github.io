@@ -35,6 +35,12 @@ const SURF_BUILTIN = {
   CONCRETE: { tile: 1.2, disp: 0.7, slots: { diff: 'surfaces/concrete/diff.jpg', disp: 'surfaces/concrete/disp.png' } },
   ASPHALT: { tile: 1.6, disp: 0.6, slots: { diff: 'surfaces/asphalt/diff.jpg', disp: 'surfaces/asphalt/disp.png', rough: 'surfaces/asphalt/rough.jpg' } },
 };
+// #493 out-of-focus softness for flat cards (neon, graffiti, decals): a texture mip bias driven by the focus-pull distance
+function biasMat(m) {
+  const b = { value: 0 };
+  m.onBeforeCompile = sh => { sh.uniforms.uBias = b; sh.fragmentShader = 'uniform float uBias;\n' + sh.fragmentShader.replace('#include <map_fragment>', '#ifdef USE_MAP\n vec4 sampledDiffuseColor = texture2D( map, vMapUv, uBias ); diffuseColor *= sampledDiffuseColor;\n#endif'); };
+  return b;
+}
 const SKEY = 'vire.surfaces';
 // #483 ready-made street props (real-world size, lightweight GLB: decimated, WebP textures)
 export const GLB_BUILTIN = {
@@ -42,7 +48,8 @@ export const GLB_BUILTIN = {
   'concrete_road_barrier.glb': 'models/props/concrete_road_barrier.glb', 'exterior_aircon.glb': 'models/props/exterior_aircon.glb', 'exterior_aircon_rusted.glb': 'models/props/exterior_aircon_rusted.glb', 'water_manhole.glb': 'models/props/water_manhole.glb',
 };
 export const PLATE_BUILTIN = ['alley2.jpg', 'alley1.jpg', 'alley3.jpg'];   // #487 backdrop photos (web/plates/)
-export const GRAFF_BUILTIN = ['graff1.png', 'graff2.png'];
+export const GRAFF_BUILTIN = ['graff1.png', 'graff2.png', 'decal_lane.png', 'decal_arrow.png', 'decal_tyre.png', 'decal_oil.png', 'decal_leaves.png', 'decal_poster.png', 'decal_rust.png', 'decal_stickers.png'];
+export const DECAL_GROUND = ['decal_lane.png', 'decal_arrow.png', 'decal_tyre.png', 'decal_oil.png', 'decal_leaves.png'], DECAL_WALL = ['decal_poster.png', 'decal_rust.png', 'decal_stickers.png'];
 export const GRAFF_TINTS = [['OFF', null], ['WHITE', '#ffffff'], ['PINK', '#ff2d95'], ['CYAN', '#19e6ff'], ['AMBER', '#ffb02e'], ['BLACK', '#000000']];
 
 // ------------------------------------------------------------------ the app's private file storage for added matte pictures, PNGs and GLBs
@@ -554,8 +561,8 @@ class Lamp extends Prop {   // a warm glow (street lamp, window, bulb): a halo c
 }
 
 class Graffiti extends Prop {
-  constructor(mp) {
-    super(mp, 'graffiti', false); this.src = 'graff1.png'; this.tint = 1; this.bright = 1; this.opac = 1; this.glow = false; this.hw = 0.5; this.hh = 0.5; this.seq = 0;
+  constructor(mp, floor = false) {
+    super(mp, 'graffiti', floor); this.src = 'graff1.png'; this.tint = 1; this.bright = 1; this.opac = 1; this.glow = false; this.hw = 0.5; this.hh = 0.5; this.seq = 0;
     this.mat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }); this.bias = biasMat(this.mat);
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat); this.mesh.renderOrder = 3; noRay(this.mesh); this.obj.add(this.mesh); this.mesh.visible = false; this.load();
   }
@@ -578,6 +585,69 @@ class Graffiti extends Prop {
   snap() { return { ...this.base(), src: this.src, tint: this.tint, bright: this.bright, opac: this.opac, glow: this.glow }; }
   apply(d) { for (const k of ['src', 'tint', 'bright', 'opac', 'glow']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.load(); }
 }
+
+// #493 DECALS: a transparent PNG laid on the ground (GROUND DECAL) or stuck on a wall / prop side (WALL DECAL). Both are lit by the nearest lamps,
+// darken and gloss up with WETNESS (lamp glints), and show rain: expanding ripple rings on the ground, rain streaks running down a wall.
+const DEC_V = `varying vec2 vUv; varying vec3 vW, vNn;
+void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vNn = normalize(mat3(modelMatrix) * vec3(0.0, 0.0, 1.0)); gl_Position = projectionMatrix * viewMatrix * w; }`;
+const DEC_F = `precision highp float;
+uniform sampler2D uTex; uniform vec3 uCol, uSky; uniform float uOp, uWet, uRain, uT, uWall, uAmb, uSize; uniform vec4 uLP[4]; uniform vec3 uLC[4];
+varying vec2 vUv; varying vec3 vW, vNn;
+float h11(float n){ return fract(sin(n * 91.345) * 47453.5453); }
+float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+void main(){
+  vec4 tx = texture2D(uTex, vUv); if (tx.a < 0.004) discard;
+  vec3 N = normalize(vNn); if (!gl_FrontFacing) N = -N;
+  vec3 V = normalize(cameraPosition - vW);
+  vec3 alb = tx.rgb * uCol * (1.0 - 0.38 * uWet);
+  vec3 Lt = vec3(0.55, 0.65, 0.9) * uAmb, sp = vec3(0.0);
+  float sh = mix(12.0, 150.0, uWet);
+  for (int i = 0; i < 4; i++) { if (uLP[i].y < -50.0) continue; vec3 d = uLP[i].xyz - vW; float dd = dot(d, d); vec3 L = normalize(d); float att = 1.0 / (1.0 + dd * 0.25);
+    Lt += uLC[i] * att * (max(dot(N, L), 0.0) * 0.85 + 0.15) * 4.0;
+    sp += uLC[i] * att * pow(max(dot(N, normalize(L + V)), 0.0), sh) * (0.15 + 1.6 * uWet); }
+  vec3 col = alb * Lt + sp;
+  float ndv = clamp(dot(N, V), 0.0, 1.0); col += uSky * pow(1.0 - ndv, 4.0) * uWet * 3.0;
+  float k = uRain * uWet;
+  if (uWall > 0.5) {   // rain running down: thin bright runs that creep along, every column its own speed
+    float cols = max(uSize, 0.2) / 0.045, cx = floor(vUv.x * cols), r = h11(cx + 3.7), fx = abs(fract(vUv.x * cols) - 0.5);
+    float y = fract(vUv.y * (1.5 + 2.0 * r) + uT * (0.12 + 0.3 * r) + r * 7.0);   // y runs up the card, so the head of a run moves down as the phase grows
+    float run = smoothstep(0.5, 0.0, fx * 2.0 + 0.0) * smoothstep(0.0, 0.08, y) * smoothstep(0.55, 0.1, y) * step(0.45, h11(cx * 1.7 + 0.3));
+    col += (vec3(0.55, 0.65, 0.8) * 0.8 + sp) * run * k * 1.1;
+    col *= 1.0 - 0.18 * run * k;
+  } else {   // rain rings on the ground
+    vec2 q = vUv * max(uSize, 0.2) / 0.26; vec2 id = floor(q), f = fract(q) - 0.5; float rr = h21(id), ph = fract(uT * (0.7 + 0.5 * rr) + rr * 9.0);
+    float rad = ph * 0.45, ring = smoothstep(0.05, 0.0, abs(length(f + (vec2(h21(id + 1.3), h21(id + 7.1)) - 0.5) * 0.4) - rad)) * (1.0 - ph) * step(0.35, rr);
+    col += (vec3(0.5, 0.6, 0.8) * 0.6 + sp) * ring * k * 1.2;
+  }
+  gl_FragColor = vec4(col, tx.a * uOp);
+  #include <colorspace_fragment>
+}`;
+class Decal extends Graffiti {
+  constructor(mp, floor) {
+    super(mp, floor); this.type = floor ? 'decal' : 'walldecal'; this.obj.name = 'movieprop_' + this.type; this.tint = 0; this.wet = 0.5; this.rainAmt = 0.8; this.amb = 0.15;
+    this.U = { uTex: { value: DUMMY }, uCol: { value: new THREE.Color(1, 1, 1) }, uSky: { value: new THREE.Color(0.014, 0.02, 0.032) }, uOp: { value: 1 }, uWet: { value: 0.5 }, uRain: { value: 0.8 }, uT: { value: 0 }, uWall: { value: floor ? 0 : 1 }, uAmb: { value: 0.15 }, uSize: { value: 1 },
+      uLP: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, -99, 0, 1)) }, uLC: { value: [0, 1, 2, 3].map(() => new THREE.Color()) } };
+    const m = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: DEC_V, fragmentShader: DEC_F, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    Object.defineProperty(m, 'map', { get() { return this.uniforms.uTex.value; }, set(v) { this.uniforms.uTex.value = v || DUMMY; } });
+    m.color = this.U.uCol.value; this.mat.dispose(); this.mat = m; this.mesh.material = m; this.bias = { value: 0 };
+    if (floor) { this.mesh.rotation.x = -Math.PI / 2; this.mesh.position.y = 0.004; }
+  }
+  async load() {
+    await super.load(); if (!this.mesh || !this.mesh.visible) return;
+    if (this.floor) { this.ringAt.set(-this.hw, POST_H, this.hh); this.cubeAt.set(this.hw, POST_H, this.hh); this.placeHandles(); }
+  }
+  localBox() { const hw = this.hw || 0.1, hh = this.hh || 0.1; return this.floor ? _bx.set(_v.set(-hw, -0.05, -hh), _v2.set(hw, 0.05, hh)) : super.localBox(); }
+  look() { const m = this.mat; if (!m || !m.uniforms) return; m.blending = this.glow ? THREE.AdditiveBlending : THREE.NormalBlending; const U = this.U; U.uOp.value = clamp(this.opac, 0, 1); U.uCol.value.setScalar(this.bright); m.needsUpdate = true; }
+  tick() {
+    const U = this.U; U.uT.value += 0.016; U.uWet.value = this.wet; U.uRain.value = this.rainAmt; U.uAmb.value = this.amb; U.uSize.value = this.obj.scale.x * Math.max(this.hw, this.hh) * 2;
+    this.obj.updateMatrixWorld(); const Lx = this.mp.neonsNear(_v.setFromMatrixPosition(this.obj.matrixWorld), 4);
+    for (let i = 0; i < 4; i++) { const n = Lx[i]; if (n) { const li = n.light(); U.uLP.value[i].set(li.pos.x, li.pos.y, li.pos.z, li.r); U.uLC.value[i].set(li.col.r, li.col.g, li.col.b).multiplyScalar(li.k * 0.5); } else U.uLP.value[i].set(0, -99, 0, 1); }
+  }
+  snap() { return { ...super.snap(), wet: this.wet, rainAmt: this.rainAmt, amb: this.amb }; }
+  apply(d) { for (const k of ['wet', 'rainAmt', 'amb']) if (d[k] !== undefined) this[k] = d[k]; super.apply(d); }
+}
+class GroundDecal extends Decal { constructor(mp) { super(mp, true); } }
+class WallDecal extends Decal { constructor(mp) { super(mp, false); } }
 
 class Plate extends Prop {   // #487 a big backdrop photo (the real alley), unlit, behind everything; size it so its vanishing point sits on the eye line
   constructor(mp) {
@@ -817,9 +887,9 @@ export class MovieProps {
     return { p: new THREE.Vector3(l.x, floor ? 0.01 : Math.max(1.0, l.y - 0.25), l.z), yaw };
   }
   spawn(type, opt = {}) {
-    const P = { puddle: Puddle, rain: Rain, fog: Fog, neon: NeonSign, graffiti: Graffiti, glb: GlbProp, lamp: Lamp, plate: Plate, crate: CrateProp }[type]; if (!P) return null;
+    const P = { puddle: Puddle, rain: Rain, fog: Fog, neon: NeonSign, graffiti: Graffiti, decal: GroundDecal, walldecal: WallDecal, glb: GlbProp, lamp: Lamp, plate: Plate, crate: CrateProp }[type]; if (!P) return null;
     const p = new P(this), s = this.spot(p.floor); p.obj.position.copy(s.p); p.obj.rotation.set(0, s.yaw, 0); p.placeHandles();
-    if (type === 'glb' && opt.src) p.load(opt.src); if (type === 'graffiti' && opt.src) { p.src = opt.src; p.tint = opt.src === 'graff1.png' ? 1 : 0; p.load(); }
+    if (type === 'glb' && opt.src) p.load(opt.src); if ((type === 'graffiti' || type === 'decal' || type === 'walldecal') && opt.src) { p.src = opt.src; p.tint = opt.src === 'graff1.png' ? 1 : 0; p.load(); }
     this.items.push(p); this.selected = p; this.save(); return p;
   }
   remove(p) { const i = this.items.indexOf(p); if (i >= 0) this.items.splice(i, 1); p.dispose(); if (this.selected === p) this.selected = this.items[this.items.length - 1] || null; this.save(); }

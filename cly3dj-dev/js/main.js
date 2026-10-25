@@ -35,7 +35,7 @@ import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.j
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
-import { MovieProps, SURF_SLOTS, PLATE_BUILTIN, COLORS, PRESETS, NEON_FONTS, FOG_COLORS, MATTES, GRAFF_BUILTIN, GRAFF_TINTS, removeFile } from './movieprops.js';   // #478 VJ TOOLS > MOVIE PROPS
+import { MovieProps, SURF_SLOTS, PLATE_BUILTIN, COLORS, PRESETS, NEON_FONTS, FOG_COLORS, MATTES, GRAFF_BUILTIN, DECAL_GROUND, DECAL_WALL, GRAFF_TINTS, removeFile } from './movieprops.js';   // #478 VJ TOOLS > MOVIE PROPS
 import { FX, USER_LAYER } from './fx.js';   // #379 VISUALS > FX: FLOAT and WATER
 import * as store from './storage.js';
 import * as loopDb from './loopbank.js';   // #470 loop slots and banks in private storage
@@ -6146,25 +6146,26 @@ function drawPropsPage(T) {
     note('Each slot takes a picture (jpg / png). Diffuse = colour, displacement = height (white high), roughness, normal (OpenGL style) and AO are optional. Added from this device; set TILE SIZE to how many metres one picture covers.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 12);
     return;
   }
-  const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', glb: 'GLB', lamp: 'LAMP', plate: 'BACKDROP', crate: 'RECORD CRATE' };
+  const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', decal: 'GROUND DECAL', walldecal: 'WALL DECAL', glb: 'GLB', lamp: 'LAMP', plate: 'BACKDROP', crate: 'RECORD CRATE' };
   const spawn = k => {
     const o = {};
     if (k === 'glb') { if (!mp.lists.glb.length) { toast('Add a .glb first (ADD GLB, on the GLB prop that appears)', 3500); } else o.src = mp.lists.glb[0]; }
     if (k === 'graffiti') o.src = 'graff1.png';
+    if (k === 'decal') o.src = DECAL_GROUND[0]; if (k === 'walldecal') o.src = DECAL_WALL[0];
     if (k === 'alley' || k === 'road') { toast('Setting up the alley scene in front of you (replaces the props in the room)...', 3500); mp.alleyScene(k === 'road').then(() => { if (pieceOn('neon')) setPiece('neon', false); mp.setGuides(false); toast('Alley scene ready: wet cobblestone, two lamps, rain, fog, a covered car down the lane. Tune each prop from the list.', 5000); drawMixScreen(); }); return; }
     const p = mp.spawn(k === 'ground' ? 'puddle' : k, o);
     if (k === 'ground' && p) { p.setSurface(mp.surfNames()[0]); p.setSize(6, 6); p.wet = 0.3; p.refl = 1.2; }
     toast(p && p.floor ? (NAMES[k] || 'GROUND') + ' in front of you. Grip the ring on its post to carry it, trigger the cube to size it.' : NAMES[k] + ' in front of you. Grip the ring to carry it, trigger the cube to size it (or grip with both hands and stretch).', 4200);
     drawMixScreen();
   };
-  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['CRATE +', 'crate'], ['ALLEY SCENE', 'alley'], ['ROAD SCENE', 'road']];
+  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['GROUND DECAL +', 'decal'], ['WALL DECAL +', 'walldecal'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['CRATE +', 'crate'], ['ALLEY SCENE', 'alley'], ['ROAD SCENE', 'road']];
   const per = P ? 4 : 8, gap = 6, bw = (R - L - gap * (per - 1)) / per, bh = P ? 44 : 34;
   kinds.forEach(([l, k], i) => btn(L + (i % per) * (bw + gap), y0 + Math.floor(i / per) * (bh + 6), bw, bh, l, false, () => spawn(k), false, P ? 16 : 14));
   const top = y0 + Math.ceil(kinds.length / per) * (bh + 6) + 4;
   // ---- list of props
   const RH = P ? 33 : 30, listW = P ? R - L : 214, rowsMax = P ? 3 : Math.max(2, Math.floor((H - top - 8 - 3 * RH) / RH));
   const n = items.length, si = Math.max(0, items.indexOf(sel)), start = n <= rowsMax ? 0 : Math.max(0, Math.min(si - Math.floor(rowsMax / 2), n - rowsMax));
-  const det = p => p.type === 'puddle' ? p.matte : p.type === 'neon' ? p.text.replace(/\n/g, ' ') : (p.type === 'graffiti' || p.type === 'glb') ? (p.src || '(none)') : '';
+  const det = p => p.type === 'puddle' ? p.matte : p.type === 'neon' ? p.text.replace(/\n/g, ' ') : (p.type === 'graffiti' || p.type === 'decal' || p.type === 'walldecal' || p.type === 'glb') ? (p.src || '(none)') : '';
   const detP = p => p.type === 'puddle' && p.surf ? p.surf : det(p);
   for (let r = 0; r < rowsMax && start + r < n; r++) {
     const p = items[start + r], y = top + r * RH;
@@ -6227,11 +6228,12 @@ function drawPropsPage(T) {
   } else if (sel.type === 'lamp') {
     cells.push(B('COLOR: ' + COLORS[sel.col % COLORS.length][0], false, () => sel.set('col', (sel.col + 1) % COLORS.length)), S('BRIGHTNESS', sel.bright / 2, pc(sel.bright / 2), v => { sel.bright = v * 2; }),
       S('FLICKER', sel.flick, pc(sel.flick), v => { sel.flick = v; }), sizeUni());
-  } else if (sel.type === 'graffiti') {
-    const names = [...GRAFF_BUILTIN, ...mp.lists.png];
+  } else if (sel.type === 'graffiti' || sel.type === 'decal' || sel.type === 'walldecal') {
+    const dk = sel.type !== 'graffiti', names = dk ? [...(sel.type === 'decal' ? DECAL_GROUND : DECAL_WALL), ...mp.lists.png] : [...GRAFF_BUILTIN, ...mp.lists.png];
     cells.push(B('PICTURE: ' + sel.src, false, () => sel.set('src', cyc(names, sel.src))), B('ADD PNG', false, () => mp.pickFile('png', 'image/png,image/webp,image/*', nm => { sel.set('src', nm); drawMixScreen(); })),
       B('TINT: ' + GRAFF_TINTS[sel.tint % GRAFF_TINTS.length][0], false, () => sel.set('tint', (sel.tint + 1) % GRAFF_TINTS.length)), B(sel.glow ? 'GLOW (adds light): ON' : 'GLOW', sel.glow, () => sel.set('glow', !sel.glow)),
       S('BRIGHTNESS', sel.bright / 1.5, pc(sel.bright / 1.5), v => { sel.bright = v * 1.5; sel.look(); }), S('OPACITY', sel.opac, pc(sel.opac), v => { sel.opac = v; sel.look(); }), sizeUni());
+    if (dk) cells.push(S('WETNESS (gloss, lamp glints)', sel.wet, pc(sel.wet), v => { sel.wet = v; }), S(sel.type === 'decal' ? 'RAIN RINGS' : 'RAIN STREAKS', sel.rainAmt, pc(sel.rainAmt), v => { sel.rainAmt = v; }), S('AMBIENT', sel.amb / 0.6, pc(sel.amb / 0.6), v => { sel.amb = v * 0.6; }));
   } else if (sel.type === 'glb') {
     const names = mp.lists.glb;
     cells.push(B(sel.src ? 'MODEL: ' + sel.src : 'MODEL: (none)', false, () => { if (names.length) sel.load(cyc(names, sel.src || names[names.length - 1])); }, !names.length),
