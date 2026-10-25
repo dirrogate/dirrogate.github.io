@@ -1146,3 +1146,10 @@ Owner: set-dressing props for filming the CyberGrunge scenes (Mumbai alley, late
 - ADD buttons open a file picker: works on the desktop page; in a headset session the picker may not open (add files from the desktop / before entering VR). Added files live in the browser's private storage (OPFS) of the device they were added on, so they do not travel to the Quest by themselves.
 - Credits for the end of the movie: the three Sketchfab "Standard licence" GLBs in CyberGrungeRef (air conditioner by Prince Obrymec, steampunk street light by assetfactory, PS1 GT1-style car by Aike) are NOT in the repo and must stay out of the public one; check each licence before using them in a published video.
 - Not tested on the Quest. No Node restart needed (static files only).
+
+## #479 MOVIE PROPS PLACEMENT LASER (25 Oct)
+Owner: filming mode (not performing), wants to place props with a pointer. Right controller B (gamepad button 5) toggles a beam (also PLACE LASER (B) on the MOVIE PROPS page). Class `Placer` in movieprops.js, called from xr.js `update()` (right controller only, not bare hands).
+- Aim at a prop: its box lights up (rain / fog are aimed at their ground footprint, so a puddle inside wins). Trigger takes hold, release puts down.
+- Held: wall props (neon, graffiti, GLB) ride the beam like a lever (hand moves it); floor props (puddle, rain, fog) slide along the floor where the beam lands and stay level. Thumbstick back / forward = closer / away; left / right = turn (yaw); grip + stick up / down = bigger / smaller.
+- While the laser is on, the right controller's trigger / grip no longer grab gear and its thumbstick no longer nudges faders / scrolls the crate (xr.js `down` and the thumbstick block check `ctx.mprops.placer.active(st)`). The left controller is unchanged. B again turns it off; the beam is DJ-only (USER_LAYER) but a Quest recording of the eyes would show it, so switch it off before filming.
+- Tested with a simulated controller in the PC pane (aim, grab, carry, pull, turn, resize, floor slide); not on the Quest. Backup `backups/pre-479/`. No Node restart needed.

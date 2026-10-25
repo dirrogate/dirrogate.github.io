@@ -109,6 +109,7 @@ export function setupXR(ctx) {
     // (middle finger) still grabs and moves everything else. A grab ends only when its own button is let go.
     const down = btn => {
       st.held = st.held || {}; st.held[btn] = true;   // #291 button state as the events see it (the gamepad snapshot can lag a frame)
+      if (ctx.mprops && ctx.mprops.placer.active(st)) return;   // #479 the right controller is the placement laser: its trigger / grip are read there
       if (ctx.crateMicSelect(st.isHand ? st.pinchPt : st.tip)) { buzz(st, 0.4, 20); return; }
       if (!st.isHand) { const hl = ctlTipLocal(st); if (hl) { st.grip.updateMatrixWorld(); st.grip.localToWorld(st.tip.copy(hl)); } }   // #283 / #284 grab from the touch point now, not last frame's
       if (!st.isHand && !st.direct && grabStart(st, st.tip, btn)) st.btn = btn;   // #422 (owner) the #416 grab restored: one fixed touch point
@@ -898,9 +899,10 @@ export function setupXR(ctx) {
       // #404 A on the right controller (gamepad button 4): ctx.onA (brings the camera GoPro to that hand)
       { const g4 = !st.isHand && st.source && st.source.handedness === 'right' && st.source.gamepad && st.source.gamepad.buttons[4];
         const down = !!(g4 && g4.pressed); if (down && !st.aWas && ctx.onA && ctx.onA(st)) buzz(st, 0.5, 40); st.aWas = down; }
+      if (ctx.mprops && !st.isHand && st.source && st.source.handedness === 'right') ctx.mprops.placer.step(st, dt, buzz);   // #479 B = placement laser for the MOVIE PROPS
       // thumbstick: rotate / raise furniture while moving it, scroll the crate while the hand is at it
       const gp = st.source && st.source.gamepad;
-      if (gp && gp.axes && gp.axes.length >= 4) {
+      if (gp && gp.axes && gp.axes.length >= 4 && !(ctx.mprops && ctx.mprops.placer.active(st))) {
         const ax = gp.axes[2], ay = gp.axes[3];
         const mv = (st.direct && st.direct.kind === 'move') ? st.direct : null;
         const pd = !mv && !st.isHand ? pitchFaderNear(st.tip) : null;

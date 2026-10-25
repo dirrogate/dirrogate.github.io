@@ -6123,7 +6123,7 @@ function drawPropsPage(T) {
   kinds.forEach(([l, k], i) => btn(L + (i % per) * (bw + gap), y0 + Math.floor(i / per) * (bh + 6), bw, bh, l, false, () => spawn(k), false, P ? 16 : 14));
   const top = y0 + Math.ceil(kinds.length / per) * (bh + 6) + 4;
   // ---- list of props
-  const RH = P ? 36 : 30, listW = P ? R - L : 214, rowsMax = P ? 3 : Math.max(2, Math.floor((H - top - 8 - RH) / RH));
+  const RH = P ? 36 : 30, listW = P ? R - L : 214, rowsMax = P ? 3 : Math.max(2, Math.floor((H - top - 8 - 2 * RH) / RH));
   const n = items.length, si = Math.max(0, items.indexOf(sel)), start = n <= rowsMax ? 0 : Math.max(0, Math.min(si - Math.floor(rowsMax / 2), n - rowsMax));
   const det = p => p.type === 'puddle' ? p.matte : p.type === 'neon' ? p.text.replace(/\n/g, ' ') : (p.type === 'graffiti' || p.type === 'glb') ? (p.src || '(none)') : '';
   for (let r = 0; r < rowsMax && start + r < n; r++) {
@@ -6135,9 +6135,10 @@ function drawPropsPage(T) {
   if (!n) { g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; wrapText(g, 'Tap a + button to put a prop in front of you.', L + 4, top + 16, listW - 8, 19, 3); }
   const clearArm = performance.now() - propsClearT < 3000;
   btn(L, top + rows * RH + 2, listW, RH - 4, clearArm ? 'TAP AGAIN: CLEAR ALL' : 'CLEAR ALL', clearArm, n ? () => { if (performance.now() - propsClearT < 3000) { propsClearT = 0; mp.clear(); } else propsClearT = performance.now(); drawMixScreen(); } : null, !n, P ? 15 : 13);
+  btn(L, top + (rows + 1) * RH + 2, listW, RH - 4, mp.placer.on ? 'LASER (B): ON' : 'PLACE LASER (B)', mp.placer.on, () => { mp.placer.toggle(); drawMixScreen(); }, false, P ? 15 : 13);   // #479
   if (!sel) return;
   // ---- the selected prop's controls
-  const cx = P ? L : L + listW + 10, cw = R - cx, cy = P ? top + (rows + 1) * RH + 10 : top, cols = P ? 1 : 2, cg = 6, cellW = (cw - cg * (cols - 1)) / cols, ch = RH - 3;
+  const cx = P ? L : L + listW + 10, cw = R - cx, cy = P ? top + (rows + 2) * RH + 10 : top, cols = P ? 1 : 2, cg = 6, cellW = (cw - cg * (cols - 1)) / cols, ch = RH - 3;
   const logS = s => Math.log(clamp(s, 0.1, 10) / 0.1) / Math.log(100);
   const S = (label, v, txt, set) => ({ s: 1, label, v, txt, set: x => { set(x); mp.save(); } });
   const B = (label, on, act, dim) => ({ b: 1, label, on, act: () => { act(); mp.save(); drawMixScreen(); }, dim });
@@ -7996,12 +7997,13 @@ if (!CAMERA_ROLE) {
     waterHome: () => { const g = cases.caseA.group; return { p: new THREE.Vector3(g.position.x, 0.12, g.position.z), yaw: g.rotation.y }; },
     isDeck: o => o === deckGroups[0] || o === deckGroups[1], afterFloat: () => { if (deckInst) deckInst.update(); },
   });
-  mprops = new MovieProps({ rig, camera, renderer, toast });   // #478
+  mprops = new MovieProps({ rig, camera, renderer, toast, scene });   // #478
   mprops.listCb = () => { if (toolsPage === 'props') drawMixScreen(); };
   try { mprops.load(); } catch (e) { console.warn('movie props load', e); }
 }
 // ------------------------------------------------------------------ XR input (hands + controllers)
 const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or controllers to drive
+  get mprops() { return mprops; },   // #479
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack, gearLocked, gearLockMsg, snapYaw: isDeckKey,   // #378
   REC, DECK, CRATE, ARM,

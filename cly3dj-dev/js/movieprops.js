@@ -15,7 +15,7 @@ import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
 import { USER_LAYER } from './fx.js';
 
 const KEY = 'vire.movieprops', POST_H = 0.26;
-const YAX = new THREE.Vector3(0, 1, 0);
+const YAX = new THREE.Vector3(0, 1, 0), _r = new THREE.Ray(), _inv = new THREE.Matrix4(), _bx = new THREE.Box3();
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _m = new THREE.Matrix4(), _e = new THREE.Euler();
 function userOnly(o) { o.traverse(c => { c.layers.set(USER_LAYER); if (c.isMesh) { c.raycast = () => {}; c.castShadow = c.receiveShadow = false; } }); }
@@ -255,7 +255,14 @@ class Prop {
   scaleTo(s) { const k = clamp(s, 0.05, 20); this.obj.scale.setScalar(k); this.placeHandles(); this.mp.save(); }
   save() { this.mp.save(); }
   dispose() { this.dead = true; this.obj.parent && this.obj.parent.remove(this.obj); this.obj.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
+  resize(k) { this.scaleTo(this.obj.scale.x * k); }
   tick() {}
+  localBox() { const t = 0.04 / Math.max(this.obj.scale.x, 1e-3); return _bx.set(_v.set(-(this.hw || 0.1), -(this.hh || 0.1), -t), _v2.set(this.hw || 0.1, this.hh || 0.1, t)); }   // the box the placement laser aims at (obj-local)
+  rayT(o, d) {   // distance along a world ray to the box (-1: none, or the ray starts inside it)
+    const b = this.localBox().clone(); this.obj.updateWorldMatrix(true, false); _inv.copy(this.obj.matrixWorld).invert();
+    _r.origin.copy(o).applyMatrix4(_inv); _p.copy(o).add(d).applyMatrix4(_inv).sub(_r.origin); const L = _p.length(); if (L < 1e-9) return -1; _r.direction.copy(_p).divideScalar(L);
+    if (b.containsPoint(_r.origin)) return -1; const h = _r.intersectBox(b, _p); return h ? _r.origin.distanceTo(h) / L : -1;
+  }
   base() { const o = this.obj; return { type: this.type, p: o.position.toArray(), q: o.quaternion.toArray(), s: o.scale.x }; }
   setBase(d) { if (d.p) this.obj.position.fromArray(d.p); if (d.q) this.obj.quaternion.fromArray(d.q); if (d.s) this.obj.scale.setScalar(d.s); this.placeHandles(); }
   snap() { return this.base(); }
@@ -266,11 +273,13 @@ class BoxProp extends Prop {
   constructor(mp, type) { super(mp, type, true); this.w = 3; this.d = 3; this.h = 2; }
   layout() { this.ringAt.set(0, POST_H, this.d / 2); this.cubeAt.set(this.w / 2, POST_H, this.d / 2); this.placeHandles(); this.onSize && this.onSize(); }
   setSize(w, d) { this.w = clamp(w, 0.3, 14); this.d = clamp(d, 0.3, 14); this.layout(); }
+  localBox() { return _bx.set(_v.set(-this.w / 2, this.type === 'puddle' ? -0.05 : -0.08, -this.d / 2), _v2.set(this.w / 2, this.type === 'puddle' ? 0.05 : 0, this.d / 2)); }   // rain / fog: only the ground footprint is aimed at (a puddle inside it wins)
   knob(P) { return this.wp(this.cube, _v).distanceTo(P) < 0.05; }
   knobMove(P) { this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P)); this.setSize(Math.abs(l.x) * 2, Math.abs(l.z) * 2); }
   knobEnd() { this.mp.save(); }
   corner() { return false; }
   scaleTo() {}
+  resize(k) { this.setSize(this.w * k, this.d * k); this.mp.save(); }
 }
 
 class Puddle extends BoxProp {
@@ -409,18 +418,111 @@ class GlbProp extends Prop {
       const k = 1.2 / Math.max(sz.x, sz.y, sz.z, 1e-3), inner = new THREE.Group(); inner.add(root); root.position.set(-ctr.x, -box.min.y, -ctr.z); inner.scale.setScalar(k); noRay(inner);
       inner.traverse(o => { if (o.isMesh) { o.frustumCulled = false; } });
       if (this.inner) this.obj.remove(this.inner); this.inner = inner; this.obj.add(inner);
-      const hx = sz.x * k / 2 + 0.08, hz = sz.z * k / 2 + 0.08; this.ringAt.set(hx, 0.04, hz); this.cubeAt.set(-hx, sz.y * k + 0.04, -hz); this.state = 'ok'; this.placeHandles();
+      const hx = sz.x * k / 2 + 0.08, hz = sz.z * k / 2 + 0.08; this.ringAt.set(hx, 0.04, hz); this.cubeAt.set(-hx, sz.y * k + 0.04, -hz); this.box = new THREE.Box3(new THREE.Vector3(-sz.x * k / 2, 0, -sz.z * k / 2), new THREE.Vector3(sz.x * k / 2, sz.y * k, sz.z * k / 2)); this.state = 'ok'; this.placeHandles();
     } catch (e) { console.warn('glb prop', e); this.state = 'failed'; this.mp.env.toast('That GLB could not be read (compressed formats other than plain / KTX2 are not supported)', 4000); }
   }
+  localBox() { return this.box || super.localBox(); }
   snap() { return { ...this.base(), src: this.src }; }
   apply(d) { this.setBase(d); if (d.src) this.load(d.src); }
 }
+
+
+// ------------------------------------------------------------------ #479 the placement laser: B on the right controller turns a beam on / off.
+// Aim at a prop (its box lights up), squeeze the trigger to take hold of it, let go to put it down.
+//   while held:  the hand carries it along the beam (floor props slide along the floor where the beam lands, and stay level)
+//                thumbstick back / forward  = pull it closer / push it away
+//                thumbstick left / right    = turn it
+//                grip + thumbstick up / down = bigger / smaller
+// DJ-only (USER_LAYER) like the other handles; switch it off with B again before recording.
+class Placer {
+  constructor(mp) {
+    this.mp = mp; this.on = false; this.base = 1; this.pull = 0; this.held = null; this.hover = null; this.bWas = false; this.trigWas = false;
+    const g = this.g = new THREE.Group(); g.name = 'placerLaser'; g.visible = false;
+    this.beamMat = new THREE.MeshBasicMaterial({ color: 0x39d0ff, transparent: true, opacity: 0.85, toneMapped: false });
+    this.beam = new THREE.Mesh(new THREE.CylinderGeometry(0.0018, 0.0018, 1, 6), this.beamMat); g.add(this.beam);
+    this.dot = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), this.beamMat); g.add(this.dot);
+    this.hl = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({ color: 0x39d0ff, toneMapped: false })); this.hl.visible = false;
+    userOnly(g); userOnly(this.hl);
+    this.o = new THREE.Vector3(); this.d = new THREE.Vector3(); this.rm = new THREE.Matrix4(); this.off = new THREE.Matrix4(); this.q0 = new THREE.Quaternion(); this.yawAdd = 0; this.lat = new THREE.Vector3();
+  }
+  attach(scene) { if (!this.g.parent) scene.add(this.g); }
+  active(st) { return this.on && st.source && st.source.handedness === 'right'; }
+  toggle(on = !this.on) {
+    this.on = on; this.g.visible = on; if (!on) { this.drop(); this.setHover(null); }
+    this.mp.env.toast(on ? 'PLACEMENT LASER on: aim at a prop, trigger to take hold. Thumbstick: back / forward = closer / away, left / right = turn, grip + up / down = size. B = off.' : 'Placement laser off', on ? 5200 : 1500);
+    this.mp.listCb && this.mp.listCb();
+  }
+  setHover(p) {
+    if (this.hover === p) return; this.hover = p; const h = this.hl;
+    if (h.parent) h.parent.remove(h);
+    if (p) { p.obj.add(h); const b = p.localBox().clone(), sz = b.getSize(_v2), c = b.getCenter(_v); h.position.copy(c); h.scale.set(Math.max(sz.x, 0.02), Math.max(sz.y, 0.02), Math.max(sz.z, 0.02)); h.visible = true; } else h.visible = false;
+  }
+  pick(o, d) {
+    let best = null, bt = 1e9;
+    for (const p of this.mp.props()) { const t = p.rayT(o, d); if (t > 0 && t < bt) { bt = t; best = p; } }
+    return best ? { p: best, t: bt } : null;
+  }
+  grab(p, t, ray) {
+    this.held = p; p.held = true; this.mp.select(p); this.yawAdd = 0; this.hl.material.color.set(0xffa030); this.beamMat.color.set(0xffa030);
+    p.obj.updateWorldMatrix(true, false); p.obj.matrixWorld.decompose(_p, this.q0, _s);
+    this.off.copy(this.rm).invert().multiply(p.obj.matrixWorld);   // the prop in the beam's own space (lever arm included)
+    if (p.floor) {
+      this.y0 = _p.y; const dy = this.d.y, hz = Math.hypot(this.d.x, this.d.z) || 1; let base;
+      if (dy < -0.04) { const tt = (this.y0 - this.o.y) / dy; base = Math.hypot(this.d.x * tt, this.d.z * tt); } else base = Math.hypot(_p.x - this.o.x, _p.z - this.o.z);
+      this.base = base; this.pull = 0; this.lat.set(_p.x - (this.o.x + this.d.x / hz * base), 0, _p.z - (this.o.z + this.d.z / hz * base));
+    }
+  }
+  drop() { const p = this.held; if (!p) return; this.held = null; p.held = false; p.mp.save(); this.hl.material.color.set(0x39d0ff); this.beamMat.color.set(0x39d0ff); }
+  step(st, dt, buzz) {
+    const gp = st.source && st.source.gamepad; if (!gp || !gp.buttons) return;
+    const b = gp.buttons[5], bp = !!(b && b.pressed); if (bp && !this.bWas) { this.toggle(); buzz(st, 0.4, 30); } this.bWas = bp;
+    if (!this.on) return;
+    st.ray.updateMatrixWorld(); this.rm.copy(st.ray.matrixWorld); this.o.setFromMatrixPosition(this.rm); this.d.set(0, 0, -1).transformDirection(this.rm);
+    const tr = gp.buttons[0] && gp.buttons[0].value > 0.6, grip = !!(gp.buttons[1] && gp.buttons[1].pressed);
+    let len = 6, hit = null;
+    if (!this.held) {
+      hit = this.pick(this.o, this.d); this.setHover(hit ? hit.p : null); if (hit) len = hit.t;
+      if (tr && !this.trigWas && hit) { this.grab(hit.p, hit.t, st.ray); buzz(st, 0.5, 40); }
+    } else {
+      const p = this.held, ax = gp.axes && gp.axes.length >= 4 ? gp.axes : null, sx = ax && Math.abs(ax[2]) > 0.15 ? ax[2] : 0, sy = ax && Math.abs(ax[3]) > 0.15 ? ax[3] : 0;
+      if (!tr) { this.drop(); buzz(st, 0.3, 25); }
+      else {
+        this.yawAdd -= sx * dt * 1.4;
+        if (grip) { if (sy) p.resize(Math.exp(-sy * dt * 0.9)); } else if (sy) { const k = sy * dt * (0.8 + (p.floor ? this.base : -this.off.elements[14]) * 0.8); if (p.floor) this.pull = clamp(this.pull - k, 0.3 - this.base, 25); else { _p.setFromMatrixPosition(this.off); this.off.setPosition(_p.x, _p.y, clamp(_p.z + k, -25, -0.2)); } }
+        const rig = this.mp.rig; rig.updateMatrixWorld();
+        if (p.floor) {   // slides along the floor: where the beam meets it (or the last distance), plus the carry-over from the grab
+          const dy = this.d.y, hz = Math.hypot(this.d.x, this.d.z) || 1;
+          if (dy < -0.04) { const tt = (this.y0 - this.o.y) / dy; this.base = Math.hypot(this.d.x * tt, this.d.z * tt); }
+          const Dt = Math.max(0.3, this.base + this.pull);
+          _v.set(this.o.x + this.d.x / hz * Dt + this.lat.x, this.y0, this.o.z + this.d.z / hz * Dt + this.lat.z);
+          rig.worldToLocal(_v); p.obj.position.copy(_v);
+          _q.setFromAxisAngle(YAX, this.yawAdd).multiply(this.q0); _e.setFromQuaternion(_q, 'YXZ'); p.obj.rotation.set(0, _e.y, 0);
+        } else {
+          _m.copy(this.rm).multiply(this.off); _m.decompose(_p, _q, _s);
+          _q.copy(this.q0).premultiply(new THREE.Quaternion().setFromAxisAngle(YAX, this.yawAdd));
+          // follow the hand's position only; the stick sets the turn
+          _v.copy(_p); rig.worldToLocal(_v); p.obj.position.copy(_v);
+          rig.getWorldQuaternion(_q2).invert(); p.obj.quaternion.copy(_q2.multiply(_q));
+        }
+        p.placeHandles(); len = Math.max(0.1, _v2.copy(p.obj.getWorldPosition(_v3)).sub(this.o).length());
+      }
+    }
+    this.trigWas = tr;
+    // the beam
+    const e = this.held ? _v3.copy(this.held.obj.getWorldPosition(_v2)) : _v3.copy(this.o).addScaledVector(this.d, len);
+    _v2.copy(e).sub(this.o); const L = Math.max(0.05, _v2.length());
+    this.beam.position.copy(this.o).addScaledVector(_v2, 0.5); this.beam.scale.set(1, L, 1); this.beam.quaternion.setFromUnitVectors(YAX, _v2.normalize());
+    this.dot.position.copy(e); this.dot.visible = !!(hit || this.held);
+  }
+}
+const _q2 = new THREE.Quaternion(), _v3 = new THREE.Vector3();
 
 // ------------------------------------------------------------------ manager
 // env: { rig, camera, renderer, toast }
 export class MovieProps {
   constructor(env) {
-    this.env = env; this.rig = env.rig; this.items = []; this.neons = []; this.selId = null; this.loaded = false; this.lists = { matte: [], glb: [], png: [] }; this.mattes = new Map(); this.saveT = 0;
+    this.env = env; this.rig = env.rig; this.placer = new Placer(this); this.items = []; this.neons = []; this.selId = null; this.loaded = false; this.lists = { matte: [], glb: [], png: [] }; this.mattes = new Map(); this.saveT = 0;
+    if (env.scene) this.placer.attach(env.scene);
     this.refreshLists();
   }
   props() { return this.items.filter(p => !p.dead); }
