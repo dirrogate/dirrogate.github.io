@@ -5774,114 +5774,225 @@ function drawWave(g, L, x, y, w, h, s0, s1, opts = {}) {
   if (looper.state === 'play' && looper.data === L) { const xp = X(looper.r); if (xp >= x && xp <= x + w) { g.fillStyle = '#fff'; g.fillRect(xp, y, 1.5, h); } }
   return X;
 }
+// #471 LOOP MASTER: the LOOPER page in the spirit of the Amiga sample editors (owner's AudioMaster reference; our own name
+// and logo): cream screen title bar with a sunken readout, black stereo waveform panel (L / R lanes, cyan trace, the
+// IN..OUT range shaded), an Amiga scroll bar, dark bevelled gadgets in the bitmap font, an embossed logo band.
+const AM = { scr: '#2c2e35', face: '#3d4049', hi: '#9aa0ad', lo: '#0e0f13', txt: '#dfe8f2', dimT: '#6a707c', cyan: '#2ee8e8', cyanD: '#177a7a',
+  cream: '#efe6c8', creamD: '#b9b094', ink: '#121212', rng: '#14325c', sel: '#21507e', red: '#ff4a3a', grn: '#4dff7a', amb: '#ffb21e' };
+function lmCut(s, w, px) { s = cleanText(s); while (s.length > 1 && bitWidth(s, px) > w) s = s.slice(0, -1); return s; }
+function lmFit(s, w, max = 2) { const u = bitWidth(s, 1); return Math.max(1, Math.min(max, Math.floor(((w - 8) / Math.max(1, u)) * 4) / 4)); }
+function lanePeaks(L, ch, s0, s1, bins) {
+  const out = new Float32Array(bins * 2), span = Math.max(1, s1 - s0);
+  for (let i = 0; i < bins; i++) {
+    const a = Math.floor(s0 + i * span / bins), b = Math.max(a + 1, Math.floor(s0 + (i + 1) * span / bins)), step = Math.max(1, Math.floor((b - a) / 200));
+    let lo = 0, hi = 0;
+    for (const c of L.bufs) { if (!c) continue; const x = c[ch]; for (let j = Math.max(0, a); j < Math.min(L.len, b); j += step) { const v = x[j]; if (v < lo) lo = v; if (v > hi) hi = v; } }
+    out[2 * i] = lo; out[2 * i + 1] = hi;
+  }
+  return out;
+}
 function drawLooperPage(page, T) {
-  const { g, W, H, P, L, R, btn, head, note } = T;
-  const cbtn = (x, y, w, h, label, [bg, fg], act, fs = 15) => {
-    g.fillStyle = bg; g.fillRect(x, y, w, h); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = fg;
-    if (label.includes('\n')) { const [a, b] = label.split('\n'); g.font = `700 ${fs}px system-ui`; fitText2Center(g, a, x + w / 2, y + h / 2 - fs * 0.55, w - 6); g.font = `500 ${fs - 2}px system-ui`; fitText2Center(g, b, x + w / 2, y + h / 2 + fs * 0.6, w - 6); }
-    else btnLabel(g, label, x, y, w, h, fs);
-    g.textBaseline = 'alphabetic';
-    const hit = { x, y, w, h, act }; if (act) VP_HIT.push(hit); return hit;
+  const { g, W, H, P, L, R } = T;
+  const txt = (s, x, y, px, col) => drawBitText(g, cleanText(s), Math.round(x), Math.round(y), px, col, px >= 1.5);
+  const bev = (x, y, w, h, up, hi = AM.hi, lo = AM.lo) => {
+    g.fillStyle = up ? hi : lo; g.fillRect(x, y, w, 2); g.fillRect(x, y, 2, h);
+    g.fillStyle = up ? lo : hi; g.fillRect(x, y + h - 2, w, 2); g.fillRect(x + w - 2, y, 2, h);
+  };
+  const gad = (x, y, w, h, label, sel, act, dim, col, max = 2) => {   // dark Amiga gadget; sel = pressed in, blue
+    g.fillStyle = sel ? AM.sel : AM.face; g.fillRect(x, y, w, h); bev(x, y, w, h, !sel);
+    const s = cleanText(label), px = lmFit(s, w, max), tw = bitWidth(s, px);
+    txt(s, x + (w - tw) / 2, y + (h - 7 * px) / 2 + (sel ? 1 : 0), px, dim ? AM.dimT : col || AM.txt);
+    const hit = { x, y, w, h, act }; if (act && !dim) VP_HIT.push(hit); return hit;
+  };
+  const creamGad = (x, y, w, h, label, act, dim) => {
+    g.fillStyle = AM.cream; g.fillRect(x, y, w, h); bev(x, y, w, h, true, '#ffffff', AM.creamD);
+    const s = cleanText(label), px = lmFit(s, w, 1.5), tw = bitWidth(s, px); txt(s, x + (w - tw) / 2, y + (h - 7 * px) / 2, px, dim ? AM.creamD : AM.ink);
+    if (act && !dim) VP_HIT.push({ x, y, w, h, act });
+  };
+  const panel = (x, y, w, h) => { g.fillStyle = AM.scr; g.fillRect(x, y, w, h); bev(x, y, w, h, false); };
+  const logo = (x, y, w, h) => {   // our own embossed logo band: fine stripes, 'Dirro' small, 'LoopMaster' big, a credit line
+    g.fillStyle = '#34373f'; g.fillRect(x, y, w, h); g.fillStyle = '#2d3037'; for (let yy = y; yy < y + h; yy += 3) g.fillRect(x, yy, w, 1);
+    bev(x, y, w, h, false);
+    const big = Math.round(Math.min(40, h * 0.6, w / 7)), cx = x + w / 2, by = y + h * 0.57;
+    g.save(); g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    const word = (s, fx, fy, sz) => { g.font = `italic 700 ${sz}px "Times New Roman", Georgia, serif`;
+      g.fillStyle = '#16171c'; g.fillText(s, fx + 1.5, fy + 1.5); g.fillStyle = '#a3a9b6'; g.fillText(s, fx - 1, fy - 1); g.fillStyle = '#5f6470'; g.fillText(s, fx, fy); };
+    g.font = `italic 700 ${big}px "Times New Roman", Georgia, serif`; const bw = g.measureText('LoopMaster').width;
+    const sm = Math.round(big * 0.45); word('LoopMaster', cx + sm * 1.1, by, big);
+    word('Dirro', cx - bw / 2 - sm * 0.2, by - big * 0.45, sm);
+    g.restore();
+    const cr = 'DIRRODJ VINYL LOOPER  2026 DIRROGATE', cpx = P ? 1 : 1.25; txt(cr, x + (w - bitWidth(cr, cpx)) / 2, y + h - 7 * cpx - (P ? 6 : 3), cpx, '#7d838f');
+  };
+  g.fillStyle = AM.scr; g.fillRect(0, 0, W, H);
+  // ---------- screen title bar: name, readout box, gadgets (DJ TOOLS / PREVIEW / BACK)
+  const tbY = P ? 24 : 0, tbH = P ? 32 : 30;
+  g.fillStyle = AM.cream; g.fillRect(0, tbY, W, tbH); g.fillStyle = AM.ink; g.fillRect(0, tbY + tbH - 2, W, 2);
+  const title = page === 'loopbanks' ? (P ? 'BANKS' : 'LOOP MASTER - BANKS') : 'LOOP MASTER';
+  { const tp = P ? Math.min(1.5, lmFit(title, 120, 1.5)) : 2; txt(title, L + 4, tbY + (tbH - 7 * tp) / 2, tp, AM.ink); }
+  { const gh = tbH - 8, gy = tbY + 3; let gx = R;
+    const nav = [['BACK', navCan() ? navBack : null, !navCan(), P ? 58 : 70], ['PREVIEW', () => setMonitor(!monOn), false, P ? 70 : 84]];
+    if (!P) nav.push([page === 'loopbanks' ? 'LOOPER' : 'DJ TOOLS', () => setTools(page === 'loopbanks' ? 'looper' : 'dj'), false, 92]);
+    for (const [lab, act, dim, w] of nav) { gx -= w; creamGad(gx, gy, w, gh, lab === 'PREVIEW' && monOn ? 'PREVIEW *' : lab, act, dim); gx -= 4; }
+    T.navX = gx;
+  }
+  const Ld = looper.data, sr = Ld ? Ld.sr : (engine.ctx ? engine.ctx.sampleRate : 48000);
+  const readout = () => {
+    if (looper.state === 'rec') return [`RECORDING ${(performance.now() / 1000 - looper.t0).toFixed(1)} S`, ''];
+    if (!Ld) return ['LOOP = EMPTY', ''];
+    const len = (Ld.b - Ld.a) / Ld.sr;
+    return [`LOOP = ${len.toFixed(3)} S`, `IN ${fmtLoopT(Ld.a, sr)}  OUT ${fmtLoopT(Ld.b, sr)}${Ld.bpm ? `  ${(len * Ld.bpm / 60).toFixed(2)} BEATS` : ''}`];
+  };
+  const dispBox = (x, y, w, h) => {   // the sunken display, like 'Display = ...'
+    g.fillStyle = AM.cream; g.fillRect(x, y, w, h); g.strokeStyle = AM.ink; g.lineWidth = 2; g.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    const [a, b] = readout(), msg = performance.now() < loopUI.msgT ? loopUI.msg : '';
+    if (h > 30) { txt(a, x + 8, y + 6, 1.5, AM.ink); const p2 = lmFit(cleanText(msg || b), w - 16, 1.25), l2 = lmCut(msg || b, w - 16, p2); txt(l2, x + 8, y + h - 7 * p2 - 6, p2, msg ? '#8a2a10' : AM.ink); }
+    else { const s0 = msg || (b ? `${a}  ${b}` : a), sp = lmFit(cleanText(s0), w - 16, 1.5), s = lmCut(s0, w - 16, sp); txt(s, x + 8, y + (h - 7 * sp) / 2, sp, msg ? '#8a2a10' : AM.ink); }
   };
   if (page === 'loopbanks') {
-    const y0 = head('LOOP BANKS', 'looper'), B = loopUI.banks;
-    g.textAlign = 'left'; g.font = '500 14px system-ui'; g.fillStyle = '#8c96a8';
-    if (!B) { g.fillText('Reading the banks…', L + 4, y0 + 24); return; }
-    if (!B.length) { note('No banks saved yet. On the LOOPER page fill the 4 slots, then SAVE BANK.', y0 + 20); return; }
-    const rh = P ? 54 : 38, per = Math.floor((H - y0 - (P ? 60 : 40)) / (rh + 6)), pg = clamp(loopUI.bankPg || 0, 0, Math.max(0, Math.ceil(B.length / per) - 1));
+    const B = loopUI.banks, y0 = tbY + tbH + 8, rh = P ? 46 : 34;
+    if (!B || !B.length) { txt(!B ? 'READING THE BANKS...' : 'NO BANKS YET. FILL THE SLOTS, THEN SAVE BANK.', L + 4, y0 + 10, 1.5, AM.txt); return; }
+    const per = Math.floor((H - y0 - (P ? 70 : 40)) / (rh + 4)), pages = Math.ceil(B.length / per), pg = clamp(loopUI.bankPg || 0, 0, pages - 1);
     B.slice(pg * per, pg * per + per).forEach((b, i) => {
-      const y = y0 + 4 + i * (rh + 6), del = loopUI.bankDel === b.name, dw = del ? (P ? 110 : 120) : 0;
-      const hit = cbtn(L, y, R - L - dw - (dw ? 6 : 0), rh, '', ['#c9ced8', '#3a4252'], () => { loopUI.bankDel = ''; loopLoadBank(b.name); });
+      const y = y0 + i * (rh + 4), del = loopUI.bankDel === b.name, dw = del ? 110 : 0;
+      const hit = gad(L, y, R - L - dw - (dw ? 4 : 0), rh, '', false, () => { loopUI.bankDel = ''; loopLoadBank(b.name); });
       hit.long = () => { loopUI.bankDel = b.name; drawMixScreen(); };
-      g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillStyle = '#1a2030'; g.font = '700 16px system-ui'; fitText2(g, b.name, L + 10, y + rh / 2 - (P ? 9 : 0), (R - L - dw) * (P ? 0.9 : 0.55));
-      g.font = '500 13px system-ui'; g.fillStyle = '#3a4252'; const info = `${b.used || 0} of 4 slots · ${b.t ? new Date(b.t).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}`;
-      if (P) g.fillText(info, L + 10, y + rh / 2 + 11); else { g.textAlign = 'right'; g.fillText(info, R - dw - 14, y + rh / 2); }
-      g.textBaseline = 'alphabetic';
-      if (del) btn(R - dw, y, dw, rh, 'DELETE?', true, async () => { loopUI.bankDel = ''; await loopDb.deleteBank(b.name); loopUI.banks = await loopDb.listBanks(); drawMixScreen(); }, false, 15);
+      txt(b.name, L + 10, y + (P ? 8 : (rh - 14) / 2), 2, AM.cyan);
+      const info = `${b.used || 0}/4 SLOTS  ${b.t ? new Date(b.t).toLocaleString('en', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).toUpperCase() : ''}`;
+      if (P) txt(info, L + 10, y + rh - 14, 1.25, AM.txt); else txt(info, R - dw - 12 - bitWidth(cleanText(info), 1.25), y + (rh - 9) / 2, 1.25, AM.txt);
+      if (del) gad(R - dw, y, dw, rh, 'DELETE', true, async () => { loopUI.bankDel = ''; await loopDb.deleteBank(b.name); loopUI.banks = await loopDb.listBanks(); drawMixScreen(); }, false, AM.red);
     });
-    const pages = Math.ceil(B.length / per), by = H - (P ? 56 : 36);
-    if (pages > 1) { btn(L, by, 70, 30, '◀', false, () => { loopUI.bankPg = Math.max(0, pg - 1); }, pg === 0); btn(L + 78, by, 70, 30, '▶', false, () => { loopUI.bankPg = pg + 1; }, pg >= pages - 1); }
-    g.textAlign = 'left'; g.font = '500 13px system-ui'; g.fillStyle = '#8c96a8'; g.fillText('Tap = load into the 4 slots (replaces them). Long press = delete.', L + (pages > 1 ? 160 : 4), by + 19);
+    const by = H - (P ? 62 : 32);
+    if (pages > 1) { gad(L, by, 60, 26, '<', false, () => { loopUI.bankPg = Math.max(0, pg - 1); }, pg === 0); gad(L + 64, by, 60, 26, '>', false, () => { loopUI.bankPg = pg + 1; }, pg >= pages - 1); }
+    txt('TAP = LOAD INTO THE 4 SLOTS. HOLD = DELETE.', L + (pages > 1 ? 136 : 4), by + 9, 1.25, AM.dimT);
     return;
   }
   ensureLoopSlots();
-  const y0 = head('LOOPER', 'dj'), Ld = looper.data, sr = Ld ? Ld.sr : (engine.ctx ? engine.ctx.sampleRate : 48000);
-  if (!engine.ctx) { note('Start the decks first (the looper lives in the audio engine).', y0 + 20); return; }
-  // row 1: transport, 4 slots, STORE / SAVE BANK / LOAD BANK
-  const gap = 6, rowH = P ? 46 : 40;
-  let y = y0;
-  const trW = P ? R - L : 112, slW = P ? (R - L - 3 * gap) / 4 : 76, bkW = P ? (R - L - 2 * gap) / 3 : 90;
-  const tr = cbtn(L, y, trW, rowH, loopStateLabel(), loopFill(), () => pressLooper('tablet'), P ? 18 : 15); tr.long = clearLooper;
-  let sx = P ? L : L + trW + gap; if (P) y += rowH + gap;
-  for (let n = 1; n <= 4; n++) {
-    const S = loopSlots[n - 1], cur = looper.slot === n, del = loopUI.del === n, flash = loopUI.store && Math.floor(performance.now() / 300) % 2;
-    const lab = del ? 'TAP = EMPTY' : S ? `SLOT ${n}\n${(((S.b - S.a) / S.sr)).toFixed(2)}s ${S.src}` : `SLOT ${n}\nempty`;
-    const col = del ? ['#c8202c', '#fff'] : flash ? ['#7a1820', '#fff'] : cur ? ['#d08a10', '#111'] : S ? ['#c9ced8', '#1a2030'] : ['#2a3140', '#8c96a8'];
-    const h = cbtn(sx, y, slW, rowH, lab, col, () => loopSlotTap(n), 13); h.long = () => { if (loopSlots[n - 1]) { loopUI.del = n; drawMixScreen(); } };
-    sx += slW + gap;
-  }
-  if (P) { y += rowH + gap; sx = L; }
-  btn(sx, y, bkW, rowH, loopUI.store ? 'TAP A SLOT' : 'STORE ▸', loopUI.store, () => { if (!looper.data) { loopSay('Nothing to store: record a loop first'); return; } loopUI.store = !loopUI.store; loopUI.del = 0; }, !looper.data, 13); sx += bkW + gap;
-  btn(sx, y, bkW, rowH, 'SAVE BANK', false, () => { const d = new Date(), def = `BANK ${d.getDate()} ${d.toLocaleString('en', { month: 'short' }).toUpperCase()} ${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`; openKbd('LOOP BANK NAME (saves all 4 slots)', def, false, 40, t => loopSaveBank(t.trim() || def), 'looper'); }, !loopSlots.some(Boolean), 13); sx += bkW + gap;
-  btn(sx, y, bkW, rowH, 'LOAD BANK', false, loopOpenBanks, false, 13);
-  y += rowH + 8;
-  // overview: the whole take; drag a bar (the nearer one is picked where the finger lands)
-  const wx = L, ww = R - L, oh = P ? 120 : 64;
+  if (!engine.ctx) { txt('START THE DECKS FIRST.', L + 4, tbY + tbH + 20, 2, AM.txt); return; }
+  // ---------- layout
+  const gap = 4;
+  let dX, dY, dW, dH, wx, wy, ww, wh, sy;
+  if (P) { dX = L; dY = tbY + tbH + 6; dW = R - L; dH = 40; wx = L; wy = dY + dH + 6; ww = R - L; wh = 236; }
+  else { dX = T.navX - 300; dY = tbY + 4; dW = 296; dH = tbH - 8; wx = 8; wy = tbY + tbH + 4; ww = W - 16; wh = 92; }
+  if (!P) { const tw = bitWidth('LOOP MASTER', 2) + 16; dX = Math.max(L + tw, dX); dW = T.navX - 4 - dX; }
+  dispBox(dX, dY, dW, dH);
+  sy = wy + wh + 2;
+  // ---------- view window (samples)
+  if (Ld && loopUI.vFor !== Ld) { loopUI.vFor = Ld; loopUI.v0 = 0; loopUI.v1 = Ld.len; }
+  const len = Ld ? Ld.len : 1, minSpan = Math.round(0.02 * sr);
+  const setView = (a, b) => { let s = clamp(b - a, minSpan, len); a = clamp(a, 0, len - s); loopUI.v0 = a; loopUI.v1 = a + s; drawMixScreen(); };
+  const v0 = Ld ? loopUI.v0 : 0, v1 = Ld ? loopUI.v1 : 1, X = s => wx + (s - v0) / (v1 - v0) * ww, S = px => v0 + (px - wx) / ww * (v1 - v0);
+  // ---------- waveform panel: two lanes
+  g.fillStyle = '#000'; g.fillRect(wx, wy, ww, wh); g.strokeStyle = '#6a707c'; g.lineWidth = 2; g.strokeRect(wx + 1, wy + 1, ww - 2, wh - 2);
+  const laneH = (wh - 6) / 2;
   if (looper.state === 'rec') {
-    const t = performance.now() / 1000 - looper.t0; g.fillStyle = '#0a101b'; g.fillRect(wx, y, ww, oh);
-    g.fillStyle = '#c8202c'; g.fillRect(wx, y + oh / 2 - 6, ww * Math.min(1, t / 30), 12);
-    g.fillStyle = '#fff'; g.font = '700 16px system-ui'; g.textAlign = 'center'; g.fillText(`RECORDING ${t.toFixed(1)} s of 30`, wx + ww / 2, y + oh / 2 - 12);
+    const t = performance.now() / 1000 - looper.t0;
+    txt(`REC ${t.toFixed(1)} S OF 30`, wx + 12, wy + 12, 2, AM.red);
+    g.fillStyle = AM.red; g.fillRect(wx + 12, wy + wh / 2 - 3, (ww - 24) * Math.min(1, t / 30), 6);
+  } else if (!Ld) {
+    for (let k = 0; k < 2; k++) { const my = Math.round(wy + 3 + laneH * k + laneH / 2); g.fillStyle = AM.cyanD; g.fillRect(wx + 3, my, ww - 6, 1); }
+    const s = 'NO LOOP. REC SAMPLES THE CUE CHANNEL, OR TAP A SLOT.'; txt(s, wx + (ww - bitWidth(s, 1.5)) / 2, wy + 10, 1.5, AM.txt);
   } else {
-    looper.pkCache = looper.pkCache || {};
-    const X = drawWave(g, Ld, wx, y, ww, oh, 0, Ld ? Ld.len : 1, { cache: looper.pkCache });
-    if (!Ld) { g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'center'; g.fillText('No loop. ● REC samples the channel with CUE on, or tap a filled slot.', wx + ww / 2, y + oh / 2 + 5); }
-    else {
-      const hit = { x: wx, y, w: ww, h: oh, drag: true, act: px => {
-        const s = clamp((px - wx) / ww, 0, 1) * Ld.len;
-        if (screenDrag !== hit) loopUI.sel = Math.abs(s - Ld.a) < Math.abs(s - Ld.b) ? 'in' : 'out';
-        if (loopUI.sel === 'in') loopRegion(s, Ld.b); else loopRegion(Ld.a, s);
-      } };
-      VP_HIT.push(hit);
+    const xa = X(Ld.a), xb = X(Ld.b), cols = Math.max(16, Math.floor((ww - 6) / (P ? 1 : 1.5)));
+    g.fillStyle = AM.rng; g.fillRect(Math.max(wx + 3, xa), wy + 3, Math.max(0, Math.min(wx + ww - 3, xb) - Math.max(wx + 3, xa)), wh - 6);
+    for (let k = 0; k < 2; k++) {
+      const top = wy + 3 + laneH * k, my = top + laneH / 2, pk = lanePeaks(Ld, k, v0, v1, cols), kk = (laneH / 2 - 3);
+      if (k) { g.fillStyle = '#4a4f5a'; g.fillRect(wx + 3, top - 1, ww - 6, 2); }
+      for (let i = 0; i < cols; i++) {
+        const px = wx + 3 + i * (ww - 6) / cols, sm = S(px), inside = sm >= Ld.a && sm <= Ld.b;
+        g.fillStyle = inside ? AM.cyan : AM.cyanD;
+        const lo = Math.max(-1, pk[2 * i]) * kk, hi = Math.min(1, pk[2 * i + 1]) * kk;
+        g.fillRect(px, my - hi, Math.max(1, (ww - 6) / cols), Math.max(1, hi - lo));
+      }
+      g.fillStyle = AM.cyan; g.fillRect(wx + 3, Math.round(my), ww - 6, 1);
+      txt(k ? 'R' : 'L', wx + 8, top + 4, 1.25, '#6a707c');
     }
-    void X;
-  }
-  y += oh + 6;
-  // close-up around the selected bar: drag = fine move (relative)
-  const zh = P ? 110 : 52;
-  if (Ld && looper.state !== 'rec') {
-    const half = Math.round(LOOP_ZOOMS[loopUI.zoom] * Ld.sr), c = loopUI.sel === 'in' ? Ld.a : Ld.b;
-    drawWave(g, Ld, wx, y, ww, zh, c - half, c + half);
-    g.fillStyle = 'rgba(255,255,255,0.25)'; g.fillRect(wx + ww / 2 - 0.5, y, 1, zh);
-    g.fillStyle = '#8c96a8'; g.font = '600 11px system-ui'; g.textAlign = 'left'; g.fillText(`CLOSE-UP ±${(LOOP_ZOOMS[loopUI.zoom] * 1000).toFixed(0)} ms · ${loopUI.sel.toUpperCase()}`, wx + 4, y + 12);
-    const hit = { x: wx, y, w: ww, h: zh, drag: true, act: px => {
-      if (screenDrag !== hit) { loopUI.drag = { px, v: loopUI.sel === 'in' ? Ld.a : Ld.b }; return; }
-      const v = loopUI.drag.v - (px - loopUI.drag.px) / ww * 2 * half;   // drag the picture: the bar stays centred, the audio slides under it
-      if (loopUI.sel === 'in') loopRegion(v, Ld.b); else loopRegion(Ld.a, v);
+    const mark = (x, lab, sel) => {
+      if (x < wx + 2 || x > wx + ww - 2) return;
+      const c = sel ? '#ffe14a' : '#ffffff'; g.fillStyle = c; g.fillRect(Math.round(x) - (sel ? 1 : 0), wy + 3, sel ? 3 : 1, wh - 6);
+      const tw = bitWidth(lab, 1.25) + 6, tx = lab === 'IN' ? x + 2 : x - tw - 1; g.fillRect(tx, wy + 4, tw, 12); txt(lab, tx + 3, wy + 6, 1.25, '#000');
+    };
+    mark(xa, 'IN', loopUI.sel === 'in'); mark(xb, 'OUT', loopUI.sel === 'out');
+    if (looper.state === 'play' && looper.data === Ld) { const xp = X(looper.r); if (xp > wx && xp < wx + ww) { g.fillStyle = AM.red; g.fillRect(xp, wy + 3, 2, wh - 6); } }
+    const sc = `VIEW = ${((v1 - v0) / sr).toFixed(3)} S${Ld.src ? '  FROM ' + Ld.src : ''}${looper.slot ? '  SLOT ' + looper.slot : ''}`;
+    { const scp = lmFit(cleanText(sc), ww - 20, 1.25); txt(sc, wx + ww - 8 - bitWidth(cleanText(sc), scp), wy + wh - 7 * scp - 6, scp, '#6a707c'); }
+    const hit = { x: wx, y: wy, w: ww, h: wh, drag: true, act: px => {   // drag: the nearer marker (picked where the finger lands)
+      const s = clamp(S(px), 0, Ld.len);
+      if (screenDrag !== hit) loopUI.sel = Math.abs(s - Ld.a) < Math.abs(s - Ld.b) ? 'in' : 'out';
+      if (loopUI.sel === 'in') loopRegion(s, Ld.b); else loopRegion(Ld.a, s);
     } };
     VP_HIT.push(hit);
-  } else { g.fillStyle = '#0a101b'; g.fillRect(wx, y, ww, zh); }
-  y += zh + 6;
-  // IN / OUT pick, arrows (1 ms / 10 ms), zoom, readout
-  const dim = !Ld || looper.state === 'rec', ah = P ? 44 : 32;
-  const ctl = [['IN', loopUI.sel === 'in', () => { loopUI.sel = 'in'; }], ['OUT', loopUI.sel === 'out', () => { loopUI.sel = 'out'; }],
-    ['◀◀ 10', false, () => loopNudge(-10)], ['◀ 1', false, () => loopNudge(-1)], ['1 ▶', false, () => loopNudge(1)], ['10 ▶▶', false, () => loopNudge(10)],
-    [['ZOOM 1 S', 'ZOOM ¼ S', 'ZOOM 50MS'][loopUI.zoom], false, () => { loopUI.zoom = (loopUI.zoom + 1) % LOOP_ZOOMS.length; }]];
-  if (P) {
-    const w2 = (R - L - gap) / 2, w4 = (R - L - 3 * gap) / 4;
-    btn(L, y, w2, ah, ...ctl[0].slice(0, 2), ctl[0][2], dim, 16); btn(L + w2 + gap, y, w2, ah, ...ctl[1].slice(0, 2), ctl[1][2], dim, 16); y += ah + gap;
-    for (let i = 0; i < 4; i++) btn(L + i * (w4 + gap), y, w4, ah, ctl[2 + i][0], false, ctl[2 + i][2], dim, 15); y += ah + gap;
-    btn(L, y, R - L, ah, ctl[6][0], false, ctl[6][2], dim, 15); y += ah + 10;
-  } else {
-    const ws = [52, 52, 70, 58, 58, 70, 92]; let x = L;
-    ctl.forEach(([l, on, act], i) => { btn(x, y, ws[i], ah, l, on, act, dim, 13); x += ws[i] + gap; });
-    y += ah + 4;
   }
-  g.textAlign = 'left'; g.font = '600 13px system-ui'; g.fillStyle = '#dfe6f2';
-  const len = Ld ? (Ld.b - Ld.a) / Ld.sr : 0;
-  const read = Ld ? `IN ${fmtLoopT(Ld.a, sr)} s · OUT ${fmtLoopT(Ld.b, sr)} s · LOOP ${len.toFixed(3)} s${Ld.bpm ? ` = ${(len * Ld.bpm / 60).toFixed(2)} beats at ${Ld.bpm.toFixed(1)}` : ''} · from ${Ld.src}${looper.slot ? ` · SLOT ${looper.slot}` : ''}` : '';
-  const msg = performance.now() < loopUI.msgT ? loopUI.msg : '';
-  if (P) { wrapText(g, read, L + 4, y + 14, R - L - 8, 18, 3); if (msg) { g.fillStyle = '#f1b650'; wrapText(g, msg, L + 4, y + 74, R - L - 8, 18, 2); } }
-  else fitText2(g, msg ? msg : read, L + 4, Math.min(H - 6, y + 12), R - L - 8);
+  // ---------- scroll bar
+  { const sh = P ? 22 : 18, aw = P ? 30 : 26, tx = wx + aw + 2, tw = ww - 2 * aw - 4, span = v1 - v0;
+    const arrowGad = (x, dir) => { gad(x, sy, aw, sh, '', false, Ld ? () => setView(v0 + dir * span * 0.5, v1 + dir * span * 0.5) : null, !Ld);
+      g.fillStyle = AM.txt; const cx = x + aw / 2, cy = sy + sh / 2, a = sh * 0.26; g.fillRect(cx - a * 1.4, cy - 1, a * 2.8, 2); g.beginPath();
+      if (dir < 0) { g.moveTo(cx - a * 1.6, cy); g.lineTo(cx - a * 0.4, cy - a); g.lineTo(cx - a * 0.4, cy + a); } else { g.moveTo(cx + a * 1.6, cy); g.lineTo(cx + a * 0.4, cy - a); g.lineTo(cx + a * 0.4, cy + a); } g.fill(); };
+    arrowGad(wx, -1); arrowGad(wx + ww - aw, 1);
+    g.fillStyle = '#1b1d22'; g.fillRect(tx, sy, tw, sh); bev(tx, sy, tw, sh, false);
+    const kx = tx + 3 + (Ld ? v0 / len : 0) * (tw - 6), kw = Math.max(14, (Ld ? span / len : 1) * (tw - 6));
+    g.fillStyle = '#c9ccd4'; g.fillRect(kx, sy + 3, Math.min(kw, tx + tw - 3 - kx), sh - 6); bev(kx, sy + 3, Math.min(kw, tx + tw - 3 - kx), sh - 6, true, '#ffffff', '#6a707c');
+    if (Ld) VP_HIT.push({ x: tx, y: sy - 4, w: tw, h: sh + 8, drag: true, act: px => { const c = clamp((px - tx - 3) / (tw - 6), 0, 1) * len; setView(c - span / 2, c + span / 2); } });
+    sy += sh + 6;
+  }
+  // ---------- gadget groups
+  const st = looper.state, blinkOff = st === 'stop' && Math.floor(performance.now() / 400) % 2;
+  const stCol = st === 'rec' ? AM.red : st === 'play' ? AM.grn : st === 'stop' ? (blinkOff ? '#7a5510' : AM.amb) : AM.txt;
+  const stTxt = st === 'rec' ? 'REC->' : st === 'play' ? 'LOOP->' : st === 'stop' ? (looper.slot ? 'ARMED' : 'STOPPED') : 'READY';
+  const act = st === 'rec' ? 'LOOP IT' : st === 'play' ? 'STOP' : st === 'stop' ? 'PLAY' : 'REC';
+  const dimE = !Ld || st === 'rec', dimV = !Ld;
+  const slotG = (x, y, w, h, n) => {
+    const Sx = loopSlots[n - 1], cur = looper.slot === n, del = loopUI.del === n, flash = loopUI.store && Math.floor(performance.now() / 300) % 2;
+    const col = del ? AM.red : cur ? AM.amb : Sx ? AM.cyan : AM.dimT;
+    const hit = gad(x, y, w, h, del ? 'EMPTY?' : Sx ? '' : String(n), cur || del || flash, () => loopSlotTap(n), false, col);
+    hit.long = () => { if (loopSlots[n - 1]) { loopUI.del = n; drawMixScreen(); } };
+    if (Sx && !del) {   // number on top, length under it
+      const s = ((Sx.b - Sx.a) / Sx.sr).toFixed(2) + 'S', np = h > 30 ? 2 : 1.5, sel = cur || flash;
+      txt(String(n), x + (w - bitWidth(String(n), np)) / 2, y + 3 + (sel ? 1 : 0), np, col); txt(s, x + (w - bitWidth(s, 1)) / 2, y + h - 10, 1, AM.txt);
+    }
+  };
+  const volG = (x, y, w, h) => {
+    const lw = bitWidth('VOLUME', 1.5) + 12, v = mixVal['loop.vol'] ?? 0.8, tx = x + lw, tw = w - lw - 4;
+    g.fillStyle = AM.face; g.fillRect(x, y, w, h); bev(x, y, w, h, true); txt('VOLUME', x + 6, y + (h - 10) / 2, 1.5, AM.txt);
+    g.fillStyle = '#1b1d22'; g.fillRect(tx, y + 5, tw, h - 10); bev(tx, y + 5, tw, h - 10, false);
+    g.fillStyle = '#c9ccd4'; g.fillRect(tx + 3, y + 8, Math.max(4, (tw - 6) * v), h - 16);
+    VP_HIT.push({ x: tx, y, w: tw, h, drag: true, act: px => { setMix('loop.vol', clamp((px - tx - 3) / (tw - 6), 0, 1)); drawMixScreen(); } });
+  };
+  const storeG = (x, y, w, h) => gad(x, y, w, h, loopUI.store ? 'TAP SLOT' : 'STORE', loopUI.store, () => { if (!looper.data) { loopSay('Nothing to store: record a loop first'); return; } loopUI.store = !loopUI.store; loopUI.del = 0; }, !looper.data);
+  const saveG = (x, y, w, h) => gad(x, y, w, h, 'SAVE BANK', false, () => { const d = new Date(), def = `BANK ${d.getDate()} ${d.toLocaleString('en', { month: 'short' }).toUpperCase()} ${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`; openKbd('LOOP BANK NAME (saves all 4 slots)', def, false, 40, t => loopSaveBank(t.trim() || def), 'looper'); }, !loopSlots.some(Boolean));
+  const loadG = (x, y, w, h) => gad(x, y, w, h, 'LOAD BANK', false, loopOpenBanks);
+  const zoomTo = f => { const c = loopUI.sel === 'in' ? Ld.a : Ld.b, s = (v1 - v0) * f; setView(c - s / 2, c + s / 2); };
+  const viewGads = [[P ? 'SHOW RNG' : 'SHOW RANGE', () => { const m = (Ld.b - Ld.a) * 0.06; setView(Ld.a - m, Ld.b + m); }], ['SHOW ALL', () => setView(0, len)], ['ZOOM', () => zoomTo(0.25)], ['TELE', () => zoomTo(4)]];
+  const markGads = [['IN', loopUI.sel === 'in', () => { loopUI.sel = 'in'; }], ['OUT', loopUI.sel === 'out', () => { loopUI.sel = 'out'; }], ['RANGE ALL', false, () => loopRegion(0, Ld.len)]];
+  const nudgeGads = [['-10MS', () => loopNudge(-10)], ['-1MS', () => loopNudge(-1)], ['+1MS', () => loopNudge(1)], ['+10MS', () => loopNudge(10)]];
+  if (!P) {
+    const gy = sy, rH = 26, gH = 3 * rH + 2 * gap + 8, x0 = 8;
+    const grp = (x, w) => { panel(x, gy, w, gH); return [x + 4, gy + 4, w - 8]; };
+    let [x, y, w] = grp(x0, 120);   // slots
+    { const hw = (w - gap) / 2; slotG(x, y, hw, rH, 1); slotG(x + hw + gap, y, hw, rH, 2); slotG(x, y + rH + gap, hw, rH, 3); slotG(x + hw + gap, y + rH + gap, hw, rH, 4); storeG(x, y + 2 * (rH + gap), w, rH); }
+    [x, y, w] = grp(x0 + 126, 108);   // transport
+    txt(stTxt, x + (w - bitWidth(stTxt, 2)) / 2, y + 5, 2, AM.cyan);
+    { const hit = gad(x, y + rH, w, 2 * rH + gap, act, st !== 'empty', () => pressLooper('tablet'), false, stCol); hit.long = clearLooper; }
+    [x, y, w] = grp(x0 + 240, 196);   // markers
+    { const w3 = (w - 2 * gap) / 3; markGads.forEach(([l, on, a], i) => gad(x + i * (w3 + gap), y, w3, rH, l, on, a, dimE));
+      const w4 = (w - 3 * gap) / 4; nudgeGads.forEach(([l, a], i) => gad(x + i * (w4 + gap), y + rH + gap, w4, rH, l, false, a, dimE));
+      txt('HOLD TRANSPORT = CLEAR', x + 2, y + 2 * (rH + gap) + 9, 1, AM.dimT); }
+    [x, y, w] = grp(x0 + 442, 186);   // view + volume
+    { const w2 = (w - gap) / 2; viewGads.forEach(([l, a], i) => gad(x + (i % 2) * (w2 + gap), y + Math.floor(i / 2) * (rH + gap), w2, rH, l, false, a, dimV)); volG(x, y + 2 * (rH + gap), w, rH); }
+    [x, y, w] = grp(x0 + 634, W - 8 - (x0 + 634));   // banks
+    saveG(x, y, w, rH); loadG(x, y + rH + gap, w, rH);
+    gad(x, y + 2 * (rH + gap), w, rH, 'DJ TOOLS', false, () => setTools('dj'));
+    logo(8, gy + gH + 4, W - 16, H - (gy + gH + 4) - 4);
+  } else {
+    const rH = 34, x = L, w = R - L; let y = sy;
+    panel(x, y, w, 2 * rH + 18); txt(stTxt, x + 8, y + 7, 2, AM.cyan); { const hit = gad(x + 4, y + 26, w - 8, rH + 18 - 6, act, st !== 'empty', () => pressLooper('tablet'), false, stCol); hit.long = clearLooper; } y += 2 * rH + 22;
+    const w4 = (w - 3 * gap) / 4; for (let n = 1; n <= 4; n++) slotG(x + (n - 1) * (w4 + gap), y, w4, rH + 6, n); y += rH + 6 + gap;
+    const w3 = (w - 2 * gap) / 3; storeG(x, y, w3, rH); saveG(x + w3 + gap, y, w3, rH); loadG(x + 2 * (w3 + gap), y, w3, rH); y += rH + gap;
+    markGads.forEach(([l, on, a], i) => gad(x + i * (w3 + gap), y, w3, rH, l, on, a, dimE)); y += rH + gap;
+    nudgeGads.forEach(([l, a], i) => gad(x + i * (w4 + gap), y, w4, rH, l, false, a, dimE)); y += rH + gap;
+    viewGads.forEach(([l, a], i) => gad(x + i * (w4 + gap), y, w4, rH, l, false, a, dimV)); y += rH + gap;
+    volG(x, y, w, rH); y += rH + gap;
+    logo(x, y, w, Math.max(40, H - 28 - y));
+  }
 }
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
