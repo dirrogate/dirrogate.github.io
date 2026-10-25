@@ -9,6 +9,7 @@ Keep this file updated as the decision log. Add to the "Decisions" and "Open que
 - The project is now called DirroDJ (was Cly3DJ). The dev folder stays `cly3dj-dev`; code, file and storage names stay ViRe / vire. Venue screen Cly3DTV is now DirroTV. Dirrogram = the audience phone experience. HoloSMS unchanged.
 - Performing address (private): https://dirrogate-github-io.pages.dev/ , a Cloudflare Pages project that rebuilds from the GitHub repo on every push (app at /cly3dj-dev/ and /cly3dj/). Same release flow as before: web/ -> cly3dj-dev (commit) -> ask -> cly3dj; the owner pushes in GitHub Desktop and Cloudflare picks it up.
 - Public: https://dirrodj.club (static site, ViRe_Custom/dirroclub_website/), Dirrogram at https://dirrodj.club/gram (ViRe_Custom/gram/), short link https://dirrodj.club/<ROOM>.
+- dirrodj.club uploads (owner, 25 Oct): uploading only 404.html worked and kept the rest of the site live, but best practice is to upload the WHOLE site folder each time (index.html, 404.html, the other pages, css/, js/, media/, gram/), so remind the owner of that on every site change. 404.html sits at the top level next to index.html, not in a subfolder.
 - Relay: wss://relay.dirrodj.club, Cloudflare Worker + Durable Object (ViRe_Custom/cloudflare-relay/). Pinggy and the Node-server relay are out of the show path. The Node server at localhost:8000/vire/ is still the PC test server; the Pinggy check in the RULE below only matters for testing the dev server on the Quest.
 
 ## RULE: test on the owner's PC, and say when that isn't possible (owner, 1 Oct)
