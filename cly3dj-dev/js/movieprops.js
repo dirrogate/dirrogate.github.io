@@ -36,7 +36,7 @@ const SKEY = 'vire.surfaces';
 // #483 ready-made street props (real-world size, lightweight GLB: decimated, WebP textures)
 export const GLB_BUILTIN = {
   'street_lamp_01.glb': 'models/props/street_lamp_01.glb', 'street_lamp_02.glb': 'models/props/street_lamp_02.glb', 'covered_car.glb': 'models/props/covered_car.glb',
-  'concrete_road_barrier.glb': 'models/props/concrete_road_barrier.glb', 'exterior_aircon.glb': 'models/props/exterior_aircon.glb', 'exterior_aircon_rusted.glb': 'models/props/exterior_aircon_rusted.glb',
+  'concrete_road_barrier.glb': 'models/props/concrete_road_barrier.glb', 'exterior_aircon.glb': 'models/props/exterior_aircon.glb', 'exterior_aircon_rusted.glb': 'models/props/exterior_aircon_rusted.glb', 'water_manhole.glb': 'models/props/water_manhole.glb',
 };
 export const PLATE_BUILTIN = ['alley2.jpg', 'alley1.jpg', 'alley3.jpg'];   // #487 backdrop photos (web/plates/)
 export const GRAFF_BUILTIN = ['graff1.png', 'graff2.png'];
@@ -796,7 +796,7 @@ export class MovieProps {
   clear() { for (const p of this.items.splice(0)) p.dispose(); this.selected = null; this.save(); }
   // #485 ALLEY SCENE: one tap dresses the area in front of you (the real room / alley stays as the passthrough background):
   // wet cobblestone with shallow water, two street lamps with halos, rain, cold fog and a covered car parked far down the lane.
-  async alleyScene() {
+  async alleyScene(road = false) {
     this.clear(); const cam = this.viewCam(); cam.updateMatrixWorld();
     const o = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld), f = new THREE.Vector3(0, 0, -1).transformDirection(cam.matrixWorld); f.y = 0; if (f.lengthSq() < 1e-4) f.set(0, 0, -1); f.normalize();
     const r = new THREE.Vector3(-f.z, 0, f.x), yaw = Math.atan2(-f.x, -f.z);
@@ -809,14 +809,16 @@ export class MovieProps {
       h.obj.position.copy(this.rig.worldToLocal(w)); h.size = size; h.bright = bright; h.flick = 0.12; h.col = 2; h.placeHandles(); return h;
     };
     const pl = this.spawn('plate'); pl.src = 'alley2.jpg'; pl.bright = 0.85; pl.obj.scale.setScalar(14); pl.obj.position.copy(at(3.4, 17.5, 1.32)); pl.obj.rotation.set(0, yaw, 0); pl.load();   // the photo's vanishing point lands on the eye line (1.6 m) straight down the lane
-    const gr = this.spawn('puddle'); gr.setSurface('COBBLESTONE'); gr.setSize(5.5, 15); gr.wet = 0.55; gr.refl = 1.7; gr.rip = 0.7; gr.rain = 0.8; gr.amb = 0.1; gr.cover = 0.92; put(gr, 0, 8.2);
+    const gr = this.spawn('puddle'); gr.setSurface(road ? 'ASPHALT' : 'COBBLESTONE'); gr.setSize(5.5, 15); gr.wet = road ? 0.5 : 0.55; gr.refl = 1.7; gr.rip = 0.7; gr.rain = 0.8; gr.amb = 0.1; gr.cover = 0.92; put(gr, 0, 8.2);
     const l1 = this.spawn('glb'); await l1.load('street_lamp_01.glb'); put(l1, -2.3, 6.5, 0.3); halo(l1, 1.5, 1.1);
     const l2 = this.spawn('glb'); await l2.load('street_lamp_02.glb'); put(l2, 2.3, 11.5, -0.3); halo(l2, 1.0, 0.8);
     const car = this.spawn('glb'); await car.load('covered_car.glb'); put(car, 2.1, 14.5, 0.12);
     const rn = this.spawn('rain'); rn.setSize(7, 15); rn.h = 5; rn.amt = 0.25; rn.layout && rn.layout(); put(rn, 0, 8.2);
     const fg = this.spawn('fog'); fg.setSize(7, 16); fg.h = 2.0; fg.col = 1; fg.den = 0.3; fg.amb = 0.55; fg.lit = 0.45; fg.layout && fg.layout(); put(fg, 0, 8.7);
     const far = this.spawn('fog'); far.setSize(15, 10); far.h = 6; far.col = 1; far.den = 0.6; far.amb = 0.5; far.lit = 0.35; far.layout && far.layout(); put(far, 0, 14);   // distance haze: thick and tall toward the backdrop so the far end of the lane melts into it
-    const sm = this.spawn('fog'); sm.setSize(1.1, 1.1); sm.h = 3.2; sm.smoke = true; sm.col = 0; sm.den = 0.55; sm.amb = 0.45; sm.lit = 0.8; sm.speed = 0.8; sm.layout && sm.layout(); put(sm, 1.0, 5.5);   // steam rising from a street grate
+    let mx = 1.0, md = 5.5;
+    if (road) { const mh = this.spawn('glb'); await mh.load('water_manhole.glb'); mx = 0.6; md = 5.0; put(mh, mx, md); mh.obj.position.y = -0.045; }   // water manhole cover set into the road, the steam rises from it
+    const sm = this.spawn('fog'); sm.setSize(road ? 0.8 : 1.1, road ? 0.8 : 1.1); sm.h = 3.2; sm.smoke = true; sm.col = 0; sm.den = 0.55; sm.amb = 0.45; sm.lit = 0.8; sm.speed = 0.8; sm.layout && sm.layout(); put(sm, mx, md);   // steam rising from a street grate
     this.selected = gr; this.save(); return gr;
   }
   setGuides(on) { this.guides = !!on; try { localStorage.setItem(KEY + '.guides', on ? '1' : '0'); } catch {} }

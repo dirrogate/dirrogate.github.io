@@ -6151,13 +6151,13 @@ function drawPropsPage(T) {
     const o = {};
     if (k === 'glb') { if (!mp.lists.glb.length) { toast('Add a .glb first (ADD GLB, on the GLB prop that appears)', 3500); } else o.src = mp.lists.glb[0]; }
     if (k === 'graffiti') o.src = 'graff1.png';
-    if (k === 'alley') { toast('Setting up the alley scene in front of you (replaces the props in the room)...', 3500); mp.alleyScene().then(() => { if (pieceOn('neon')) setPiece('neon', false); mp.setGuides(false); toast('Alley scene ready: wet cobblestone, two lamps, rain, fog, a covered car down the lane. Tune each prop from the list.', 5000); drawMixScreen(); }); return; }
+    if (k === 'alley' || k === 'road') { toast('Setting up the alley scene in front of you (replaces the props in the room)...', 3500); mp.alleyScene(k === 'road').then(() => { if (pieceOn('neon')) setPiece('neon', false); mp.setGuides(false); toast('Alley scene ready: wet cobblestone, two lamps, rain, fog, a covered car down the lane. Tune each prop from the list.', 5000); drawMixScreen(); }); return; }
     const p = mp.spawn(k === 'ground' ? 'puddle' : k, o);
     if (k === 'ground' && p) { p.setSurface(mp.surfNames()[0]); p.setSize(6, 6); p.wet = 0.3; p.refl = 1.2; }
     toast(p && p.floor ? (NAMES[k] || 'GROUND') + ' in front of you. Grip the ring on its post to carry it, trigger the cube to size it.' : NAMES[k] + ' in front of you. Grip the ring to carry it, trigger the cube to size it (or grip with both hands and stretch).', 4200);
     drawMixScreen();
   };
-  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['ALLEY SCENE', 'alley']];
+  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['ALLEY SCENE', 'alley'], ['ROAD SCENE', 'road']];
   const per = P ? 4 : 8, gap = 6, bw = (R - L - gap * (per - 1)) / per, bh = P ? 44 : 34;
   kinds.forEach(([l, k], i) => btn(L + (i % per) * (bw + gap), y0 + Math.floor(i / per) * (bh + 6), bw, bh, l, false, () => spawn(k), false, P ? 16 : 14));
   const top = y0 + Math.ceil(kinds.length / per) * (bh + 6) + 4;
