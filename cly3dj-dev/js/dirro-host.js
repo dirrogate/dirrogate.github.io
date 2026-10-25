@@ -16,7 +16,7 @@ const K_RELAY = 'vire.dirroRelay', K_ROOM = 'vire.dirroRoom', K_ON = 'vire.dirro
 // phone from the show clock and the beat (wallfx.js; a GRAB LOOP goes once as a small sprite-sheet JPEG); a picture
 // as before; clips, AVACAM, LIVE as small frames (TV FRAMES / S); the wall OFF = the phones' own AUTO.
 export const WALL_SRC = ['follow', 'auto', 'fractal', 'pictures', 'tv'];
-export const WALL_LABEL = { follow: 'FOLLOW', auto: 'AUTO', fractal: 'FRACTAL', pictures: 'PICTURES', tv: 'CLY3DTV' };
+export const WALL_LABEL = { follow: 'FOLLOW', auto: 'AUTO', fractal: 'FRACTAL', pictures: 'PICTURES', tv: 'DIRROTV' };
 const FRAME_M = new Set(['clips', 'cam', 'live', 'solo', 'decks', 'screen', 'vmat']);   // #442 vmat: VECTOR-DANCER with a matte (the matte clip is not on the phones)   // wall modes the phones get as frames
 export const WALL_COLS = [0, 32, 48, 64, 96, 128, 160, 192, 240, 320];   // #444 32 for PIXELS 10
 const WALL_DEF = { src: 'follow', cols: 160, fill: 0.78, glow: 1, fps: 2, v: 2 };
@@ -32,23 +32,27 @@ export function initRelayFromUrl() {
     if (q) { setRelay(q); u.searchParams.delete('relay'); history.replaceState(null, '', u.pathname + (u.search || '') + u.hash); }
   } catch (e) { }
 }
-export function relayUrl() { return ls(K_RELAY) || ''; }
-// #431 short forms (the tablet keyboard has no ':'): 'UNIVDEMO' -> wss://univdemo.a.pinggy.link/dirro; a name with a dot
+// #463 Cloudflare: the relay is the Durable Object worker at relay.dirrodj.club (cloudflare-relay/worker.js); the audience
+// page lives at https://dirrodj.club/gram/ and the short link https://dirrodj.club/<ROOM> forwards there (dirroclub_website/404.html)
+export const DEFAULT_RELAY = 'wss://relay.dirrodj.club', FAN_HOST = 'https://dirrodj.club/';
+export function relayUrl() { return ls(K_RELAY) || DEFAULT_RELAY; }
+const isDefaultRelay = r => r.replace(/\/dirro$/, '') === DEFAULT_RELAY;
+// #431 short forms (the tablet keyboard has no ':'): #463 'RELAY' -> wss://relay.dirrodj.club/dirro (was a pinggy.link name); a name with a dot
 // keeps its host; no path -> /dirro (the relay inside the owner's server); http(s) -> ws(s); spaces dropped, all lower case
 export function setRelay(s) {
   s = (s || '').trim().toLowerCase().replace(/\s+/g, '').replace(/\/+$/, ''); if (!s) { ls(K_RELAY, null); return ''; }
   let scheme = 'wss://', m = s.match(/^(wss?|https?):\/\//);
   if (m) { scheme = m[1].replace(/^http/, 'ws') + '://'; s = s.slice(m[0].length); }
   let host = s, path = ''; const i = s.indexOf('/'); if (i >= 0) { host = s.slice(0, i); path = s.slice(i); }
-  if (!host.includes('.') && !host.includes(':')) host += '.a.pinggy.link';
+  if (!host.includes('.') && !host.includes(':')) host += '.dirrodj.club';   // #463 was '.a.pinggy.link'
   if (!path) path = '/dirro';
   s = scheme + host + path; ls(K_RELAY, s); return s;
 }
 export function roomKey() { let k = ls(K_ROOM); if (!k) { k = newRoomKey(); ls(K_ROOM, k); } return k; }
-// the address the audience opens (the QR): gram/ next to the app (https://dirrodj.club/gram/), relay and room in the hash
+// the address the audience opens (the QR). #463 always on dirrodj.club (the app itself runs on pages.dev, which has no gram/):
+// the short https://dirrodj.club/<ROOM> on our own relay (gram/ knows it), else the long form with the relay in the hash
 export function fanUrl() {
-  const base = location.origin + location.pathname.replace(/[^/]*$/, '') + 'gram/';
-  return relayUrl() ? `${base}#relay=${encodeURIComponent(relayUrl())}&room=${roomKey()}` : base;
+  return isDefaultRelay(relayUrl()) ? FAN_HOST + roomKey() : `${FAN_HOST}gram/#relay=${encodeURIComponent(relayUrl())}&room=${roomKey()}`;
 }
 
 const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _rq = new THREE.Quaternion();

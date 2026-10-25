@@ -1,8 +1,8 @@
-# Cly3DJ: project overview
+# DirroDJ (formerly Cly3DJ): project overview
 
-Updated 24 Oct 2026 (decision log up to #459 in `ViRe_Custom/CLAUDE.md`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 25 Oct 2026 (decision log up to #463 in `ViRe_Custom/CLAUDE.md`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
-Cly3DJ is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
+DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
 Owner: Clyde DeSouza (c3souza).
 
@@ -11,11 +11,16 @@ Owner: Clyde DeSouza (c3souza).
 - **Source:** `C:\Users\cly3d\Downloads\ViRe_Custom\web` (served locally by the owner's Node server at `localhost:8000/vire/`). The server only serves static files, so code changes never need a restart (say so each time anyway, see Working rules).
 - **Decision log:** `ViRe_Custom/CLAUDE.md`, numbered entries, append only (one line per change: what, why, numbers, where in the code).
 - **Overview copy on disk:** `ViRe_Custom/PROJECT.md` (same text as this file).
-- **Hosting (GitHub Pages):** repo `dirrogate/dirrogate.github.io`, local clone `Documents/GitHub/dirrogate.github.io`.
+- **Hosting (Cloudflare, since 24 Oct 2026, #463):**
+  - **Performing address (private, not published):** `https://dirrogate-github-io.pages.dev/` = a Cloudflare Pages project linked to the GitHub repo below; it rebuilds on every push, so the DJ app is at `https://dirrogate-github-io.pages.dev/cly3dj-dev/` (and `/cly3dj/`). This is what the Quest opens at a gig.
+  - **Public site:** `https://dirrodj.club` = the static website from `ViRe_Custom/dirroclub_website/` (uploaded to Cloudflare by the owner). The audience page Dirrogram is `https://dirrodj.club/gram` (`ViRe_Custom/gram/`, the old `dirrogram.html` as `index.html`; deploy zip `gram-cloudflare-deploy.zip`). The short link `https://dirrodj.club/<ROOM>` forwards to `/gram/#room=<ROOM>` (`dirroclub_website/404.html`, plus the same 3-line script in its `index.html`).
+  - **Dirrogram relay:** Cloudflare Worker + Durable Object `dirrogramclubworker` at `wss://relay.dirrodj.club` (`ViRe_Custom/cloudflare-relay/worker.js`, `wrangler.toml`; deploy with `npx wrangler deploy` in that folder). One Durable Object per room key (class `Room`, SQLite-backed, Workers Free plan, location hint `apac`). Replaced the Pinggy tunnel and the relay inside the owner's Node server (#429) for shows.
+  - Pinggy (`univdemo.a.pinggy.link`) is no longer used for shows; the Node server at `localhost:8000/vire/` stays for testing on the PC.
+- **Source of the Pages build (GitHub):** repo `dirrogate/dirrogate.github.io`, local clone `Documents/GitHub/dirrogate.github.io`.
   - Test builds: `dirrogate.github.io/cly3dj-dev/` (also holds a copy of `CLAUDE.md`).
   - Release: `dirrogate.github.io/cly3dj/` (everything in dev except `CLAUDE.md`).
   - Phone camera page: `…/spectator.html` in either folder.
-  - Venue screen page: `…/venue.html` (title Cly3DTV), opened on a Fire Stick / phone with HDMI / smart TV (#376).
+  - Venue screen page: `…/venue.html` (DirroTV, was Cly3DTV), opened on a Fire Stick / phone with HDMI / smart TV (#376).
 - **Release flow (owner's rule):** edit in `web/`, copy the changed files to `cly3dj-dev/` and commit there (author "Clyde DeSouza <cly3desouza@gmail.com>", with the Claude co-author lines), then ASK before copying to `cly3dj/`.
   - **From the PC:** the owner pushes both in GitHub Desktop. Claude's shell on the PC can't reach github.com (proxy 403).
   - **From a Claude cloud session (#345):** attach `dirrogate/dirrogate.github.io` to the session, clone it, build on top of `cly3dj-dev/`, commit, and push only after the owner says so. The owner then pulls in GitHub Desktop and copies the changed files back: `cly3dj-dev/js/*` to `ViRe_Custom/web/js/`, `cly3dj-dev/sw.js` to `web/`, and `cly3dj-dev/CLAUDE.md` to `ViRe_Custom/` (not `web/`), so `web/` never falls behind dev.
@@ -131,6 +136,14 @@ Sources: OFF, CLIPS, VIDVINYL, AVACAM, LIVE, SOLO plus the effect modes MANDEL, 
 ## Spectator phone camera
 
 A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited in (AR or fixed tripod, look matching, virtual set, PerfCap). Details: `spectator-camera-plan.md`, `fixed-cam-switcher-plan.md`, `perfcap-plan.md`, `avatar-stage-plan.md`, `club-switcher-plan.md`. Since #288 the phone draws the DJ's hands like the Quest (3D hands / glove / controllers) instead of cut-outs; realistic hand textures are a later idea. In SHOWTIME! (#372), PHONE CAM receives the calibrated front/back phone feed and Quest overlays decks and selected objects via `pcamPrep`.
+
+## Status (25 Oct)
+
+- Release (cly3dj) = dev up to #457 (21 Oct). Dev (cly3dj-dev) also has #458 to #463.
+- 19 Oct (#406 to #447): LASER head prop and Amiga Workbench LASER page; Quest depth test and real-world occlusion (off by default); swirly laser smoke and light sheets; HEADSET CAM auto fit; controller / pinch / ball-on-fingertip work and TURNTABLE FEEL sliders; Dirrogram Phase A and B (audience phone page, live link through a relay, MediaPipe person cutout, LED wall copy, HoloSMS moderated on the tablet, RECORD, DirroBeacons, FOLLOW wall); the robot DJ is DIRRODJ (#426); LED WALL page with RETRO-SCENE, MANDEL, GRAB LOOP, VECTOR-DANCER, METABALLS, PIXELS, TAP BPM; CARD pictures and GIFs on stream, wall and phones. Released in #447.
+- 20 to 21 Oct (#448 to #457): Dirrogram FX++ (WALL WINDOW, LED SELF), EXPOSURE, ?dev=1 test fields; record grooves rework from a cloud session (hairline rings, sheen wedges, grip lift zone, no lift while the needle is down). Released in #457.
+- 24 Oct (#458 to #462): 30 s CUE LOOPER + LOOP VOL (Deck B's BEAT 1 button), standalone BPM TAP utility with a red LED counter (Deck A's BEAT 1 button; owner: deck-agnostic, never touches a record), `sw.js` cache bumps, `web/_headers` (no-cache) for Cloudflare.
+- 24 to 25 Oct (#463): moved to Cloudflare (Pages build at dirrogate-github-io.pages.dev, public dirrodj.club, Dirrogram at dirrodj.club/gram, Durable Object relay at relay.dirrodj.club); renamed to DirroDJ / DIRROTV on the tablet; DIRROGRAM page shows the short link dirrodj.club/<ROOM> and a CREATE CARD button (1920 x 1080 "SEND DIRROGRAMS NOW" PNG into VISUALS > IMAGES).
 
 ## Status (18 Oct)
 

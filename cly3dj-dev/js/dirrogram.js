@@ -434,7 +434,8 @@ function beatStep(now, dt) {
 
 // ---------------------------------------------------------------- live link (#427, Phase B): the relay room from the QR (#relay=wss://…&room=KEY)
 const HQ = new URLSearchParams(location.hash.slice(1));
-const NET = { relay: HQ.get('relay') || Q.get('relay') || '', room: HQ.get('room') || Q.get('room') || '', ws: null, state: 'off', rtt: 0, retry: 0, retryT: 0,
+const DEFAULT_RELAY = 'wss://relay.dirrodj.club';   // #463 Cloudflare relay (the short link dirrodj.club/<ROOM> carries only the room)
+const NET = { relay: HQ.get('relay') || Q.get('relay') || DEFAULT_RELAY, room: HQ.get('room') || Q.get('room') || '', ws: null, state: 'off', rtt: 0, retry: 0, retryT: 0,
   offs: [], cd: null, last: -1e9, snaps: [], b: null, bn: -1, anchor: 0, onsets: [], l: null, lAt: 0, imgs: new Map(), tv: null, tvAt: 0 };
 const netLive = now => now - NET.last < 1500;
 function beatIv() {
