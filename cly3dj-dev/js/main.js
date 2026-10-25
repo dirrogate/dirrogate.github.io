@@ -35,7 +35,7 @@ import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.j
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
-import { MovieProps, SURF_SLOTS, COLORS, PRESETS, NEON_FONTS, FOG_COLORS, MATTES, GRAFF_BUILTIN, GRAFF_TINTS, removeFile } from './movieprops.js';   // #478 VJ TOOLS > MOVIE PROPS
+import { MovieProps, SURF_SLOTS, PLATE_BUILTIN, COLORS, PRESETS, NEON_FONTS, FOG_COLORS, MATTES, GRAFF_BUILTIN, GRAFF_TINTS, removeFile } from './movieprops.js';   // #478 VJ TOOLS > MOVIE PROPS
 import { FX, USER_LAYER } from './fx.js';   // #379 VISUALS > FX: FLOAT and WATER
 import * as store from './storage.js';
 import * as loopDb from './loopbank.js';   // #470 loop slots and banks in private storage
@@ -6146,7 +6146,7 @@ function drawPropsPage(T) {
     note('Each slot takes a picture (jpg / png). Diffuse = colour, displacement = height (white high), roughness, normal (OpenGL style) and AO are optional. Added from this device; set TILE SIZE to how many metres one picture covers.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 12);
     return;
   }
-  const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', glb: 'GLB', lamp: 'LAMP' };
+  const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', glb: 'GLB', lamp: 'LAMP', plate: 'BACKDROP' };
   const spawn = k => {
     const o = {};
     if (k === 'glb') { if (!mp.lists.glb.length) { toast('Add a .glb first (ADD GLB, on the GLB prop that appears)', 3500); } else o.src = mp.lists.glb[0]; }
@@ -6157,7 +6157,7 @@ function drawPropsPage(T) {
     toast(p && p.floor ? (NAMES[k] || 'GROUND') + ' in front of you. Grip the ring on its post to carry it, trigger the cube to size it.' : NAMES[k] + ' in front of you. Grip the ring to carry it, trigger the cube to size it (or grip with both hands and stretch).', 4200);
     drawMixScreen();
   };
-  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['ALLEY SCENE', 'alley']];
+  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['ALLEY SCENE', 'alley']];
   const per = P ? 4 : 8, gap = 6, bw = (R - L - gap * (per - 1)) / per, bh = P ? 44 : 34;
   kinds.forEach(([l, k], i) => btn(L + (i % per) * (bw + gap), y0 + Math.floor(i / per) * (bh + 6), bw, bh, l, false, () => spawn(k), false, P ? 16 : 14));
   const top = y0 + Math.ceil(kinds.length / per) * (bh + 6) + 4;
@@ -6218,6 +6218,10 @@ function drawPropsPage(T) {
       B(sel.vert ? 'VERTICAL' : 'HORIZONTAL', sel.vert, () => sel.set('vert', !sel.vert)), B('COLOR: ' + COLORS[sel.col][0], false, () => sel.set('col', (sel.col + 1) % COLORS.length)),
       B(sel.frame ? 'FRAME: ON' : 'FRAME', sel.frame, () => sel.set('frame', !sel.frame)),
       S('FLICKER', sel.flick, pc(sel.flick), v => { sel.flick = v; }), S('GLOW', sel.glow / 1.5, pc(sel.glow / 1.5), v => { sel.glow = v * 1.5; }), sizeUni());
+  } else if (sel.type === 'plate') {   // #487 backdrop photo
+    const names = [...PLATE_BUILTIN, ...mp.lists.png], logP = s => Math.log(clamp(s, 2, 60) / 2) / Math.log(30);
+    cells.push(B('PICTURE: ' + sel.src, false, () => sel.set('src', cyc(names, sel.src))), B('ADD PICTURE', false, () => mp.pickFile('png', 'image/*', nm => { sel.set('src', nm); drawMixScreen(); })),
+      S('BRIGHTNESS', sel.bright / 1.5, pc(sel.bright / 1.5), v => { sel.bright = v * 1.5; sel.look(); }), S('SIZE (metres high)', logP(sel.obj.scale.x), sel.obj.scale.x.toFixed(1) + ' m', v => sel.obj.scale.setScalar(2 * Math.pow(30, v))));
   } else if (sel.type === 'lamp') {
     cells.push(B('COLOR: ' + COLORS[sel.col % COLORS.length][0], false, () => sel.set('col', (sel.col + 1) % COLORS.length)), S('BRIGHTNESS', sel.bright / 2, pc(sel.bright / 2), v => { sel.bright = v * 2; }),
       S('FLICKER', sel.flick, pc(sel.flick), v => { sel.flick = v; }), sizeUni());

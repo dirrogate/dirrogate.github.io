@@ -24,7 +24,7 @@ function noRay(o) { o.traverse(c => { if (c.isMesh || c.isLine || c.isPoints) c.
 export const COLORS = [['PINK', '#ff2d95'], ['CYAN', '#19e6ff'], ['AMBER', '#ffb02e'], ['GREEN', '#39ff7a'], ['VIOLET', '#a455ff'], ['RED', '#ff2b2b'], ['WARM WHITE', '#fff1d0']];
 export const PRESETS = ['DIRRO DJ', 'NEON', 'मुंबई', 'चाय', 'होटल', 'संगीत', 'डीजे', 'खुला है', 'प्रेम', 'BAR', 'हेलो मुंबई'];
 export const NEON_FONTS = ['NOTO OUTLINE', 'NOTO SOLID', 'MONOTON'];
-export const FOG_COLORS = [['GREY', '#aab4c0'], ['TEAL', '#5fb8c8'], ['MAGENTA', '#d45cc0'], ['AMBER', '#e0a050'], ['WHITE', '#ffffff']];
+export const FOG_COLORS = [['GREY', '#aab4c0'], ['TEAL', '#5a9fc4'], ['MAGENTA', '#d45cc0'], ['AMBER', '#e0a050'], ['WHITE', '#ffffff']];
 export const MATTES = ['SCATTERED', 'BIG PUDDLE', 'GUTTER', 'CRACKED', 'COBBLES'];   // COBBLES: the WET COBBLE ground (tiles, stones tilt the reflections, streaked lamp / neon reflections)
 // #482 SURFACES: a ground made from texture maps. Each surface has slots for the maps (any can stay empty) plus its real-world tile size and displacement depth.
 export const SURF_SLOTS = [['diff', 'DIFFUSE'], ['disp', 'DISPLACEMENT'], ['rough', 'ROUGHNESS'], ['nor', 'NORMAL'], ['ao', 'AO']];
@@ -38,6 +38,7 @@ export const GLB_BUILTIN = {
   'street_lamp_01.glb': 'models/props/street_lamp_01.glb', 'street_lamp_02.glb': 'models/props/street_lamp_02.glb', 'covered_car.glb': 'models/props/covered_car.glb',
   'concrete_road_barrier.glb': 'models/props/concrete_road_barrier.glb', 'exterior_aircon.glb': 'models/props/exterior_aircon.glb', 'exterior_aircon_rusted.glb': 'models/props/exterior_aircon_rusted.glb',
 };
+export const PLATE_BUILTIN = ['alley2.jpg', 'alley1.jpg', 'alley3.jpg'];   // #487 backdrop photos (web/plates/)
 export const GRAFF_BUILTIN = ['graff1.png', 'graff2.png'];
 export const GRAFF_TINTS = [['OFF', null], ['WHITE', '#ffffff'], ['PINK', '#ff2d95'], ['CYAN', '#19e6ff'], ['AMBER', '#ffb02e'], ['BLACK', '#000000']];
 
@@ -530,7 +531,7 @@ class Lamp extends Prop {   // a warm glow (street lamp, window, bulb): a halo c
   lit() { return this.bright * this.fl * 0.6; }
   refObj() { return this.mesh; }
   refHalf() { return [0.5, 0.5]; }
-  light() { this.obj.updateWorldMatrix(true, false); return { pos: _v3.setFromMatrixPosition(this.obj.matrixWorld).clone(), r: this.size * this.obj.scale.x * 5 + 0.5, col: new THREE.Color(COLORS[this.col % COLORS.length][1]), k: this.bright * this.fl * 1.3 }; }
+  light() { this.obj.updateWorldMatrix(true, false); return { pos: _v3.setFromMatrixPosition(this.obj.matrixWorld).clone(), r: this.size * this.obj.scale.x * 2.4 + 0.4, col: new THREE.Color(COLORS[this.col % COLORS.length][1]), k: this.bright * this.fl * 1.3 }; }
   tick(dt) {
     this.t += dt;
     if (this.flick > 0) { const r = Math.sin(this.t * 31) * Math.sin(this.t * 9.7 + 0.6), dip = r > 0.9 - this.flick * 0.1 ? 0.4 : 1; this.fl += (dip - this.fl) * Math.min(1, dt * 30); } else this.fl = 1;
@@ -568,6 +569,27 @@ class Graffiti extends Prop {
   set(k, v) { this[k] = v; if (k === 'src') this.tint = v === 'graff1.png' ? 1 : 0; if (k === 'src' || k === 'tint') this.load(); else this.look(); this.save(); }
   snap() { return { ...this.base(), src: this.src, tint: this.tint, bright: this.bright, opac: this.opac, glow: this.glow }; }
   apply(d) { for (const k of ['src', 'tint', 'bright', 'opac', 'glow']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.load(); }
+}
+
+class Plate extends Prop {   // #487 a big backdrop photo (the real alley), unlit, behind everything; size it so its vanishing point sits on the eye line
+  constructor(mp) {
+    super(mp, 'plate', false); this.src = PLATE_BUILTIN[0]; this.bright = 0.8; this.hw = 0.75; this.hh = 0.5; this.seq = 0;
+    this.mat = new THREE.MeshBasicMaterial({ toneMapped: false, side: THREE.DoubleSide }); this.mat.fog = false;
+    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat); this.mesh.renderOrder = -1; noRay(this.mesh); this.obj.add(this.mesh); this.mesh.visible = false; this.obj.scale.setScalar(14); this.load();
+  }
+  async load() {
+    const my = ++this.seq; let url = null, blobUrl = null;
+    if (PLATE_BUILTIN.includes(this.src)) url = './plates/' + this.src; else { const f = await getFile('png', this.src); if (!f) return; url = blobUrl = URL.createObjectURL(f); }
+    let im; try { im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; }); } catch { return; } finally { if (blobUrl) setTimeout(() => URL.revokeObjectURL(blobUrl), 4000); }
+    if (my !== this.seq || this.dead) return;
+    const t = new THREE.Texture(im); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; t.needsUpdate = true; const old = this.mat.map; this.mat.map = t; this.mat.needsUpdate = true; if (old) old.dispose();
+    const asp = (im.naturalWidth || im.width) / (im.naturalHeight || im.height); this.hw = asp / 2; this.hh = 0.5; this.mesh.scale.set(asp, 1, 1); this.mesh.visible = true;
+    this.ringAt.set(-this.hw - 0.03, -this.hh - 0.03, 0); this.cubeAt.set(this.hw + 0.03, this.hh + 0.03, 0); this.placeHandles(); this.look();
+  }
+  look() { this.mat.color.setScalar(this.bright); }
+  set(k, v) { this[k] = v; if (k === 'src') this.load(); else this.look(); this.save(); }
+  snap() { return { ...this.base(), src: this.src, bright: this.bright }; }
+  apply(d) { for (const k of ['src', 'bright']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.load(); }
 }
 
 class GlbProp extends Prop {
@@ -765,7 +787,7 @@ export class MovieProps {
     return { p: new THREE.Vector3(l.x, floor ? 0.01 : Math.max(1.0, l.y - 0.25), l.z), yaw };
   }
   spawn(type, opt = {}) {
-    const P = { puddle: Puddle, rain: Rain, fog: Fog, neon: NeonSign, graffiti: Graffiti, glb: GlbProp, lamp: Lamp }[type]; if (!P) return null;
+    const P = { puddle: Puddle, rain: Rain, fog: Fog, neon: NeonSign, graffiti: Graffiti, glb: GlbProp, lamp: Lamp, plate: Plate }[type]; if (!P) return null;
     const p = new P(this), s = this.spot(p.floor); p.obj.position.copy(s.p); p.obj.rotation.set(0, s.yaw, 0); p.placeHandles();
     if (type === 'glb' && opt.src) p.load(opt.src); if (type === 'graffiti' && opt.src) { p.src = opt.src; p.tint = opt.src === 'graff1.png' ? 1 : 0; p.load(); }
     this.items.push(p); this.selected = p; this.save(); return p;
@@ -786,12 +808,13 @@ export class MovieProps {
       const w = bb ? bb.getCenter(new THREE.Vector3()) : g.obj.localToWorld(new THREE.Vector3(0, 3.4, 0));
       h.obj.position.copy(this.rig.worldToLocal(w)); h.size = size; h.bright = bright; h.flick = 0.12; h.col = 2; h.placeHandles(); return h;
     };
+    const pl = this.spawn('plate'); pl.src = 'alley2.jpg'; pl.bright = 0.85; pl.obj.scale.setScalar(14); pl.obj.position.copy(at(3.4, 17.5, 1.32)); pl.obj.rotation.set(0, yaw, 0); pl.load();   // the photo's vanishing point lands on the eye line (1.6 m) straight down the lane
     const gr = this.spawn('puddle'); gr.setSurface('COBBLESTONE'); gr.setSize(5.5, 15); gr.wet = 0.55; gr.refl = 1.7; gr.rip = 0.7; gr.rain = 0.8; gr.amb = 0.1; gr.cover = 0.92; put(gr, 0, 8.2);
     const l1 = this.spawn('glb'); await l1.load('street_lamp_01.glb'); put(l1, -2.3, 6.5, 0.3); halo(l1, 1.5, 1.1);
     const l2 = this.spawn('glb'); await l2.load('street_lamp_02.glb'); put(l2, 2.3, 11.5, -0.3); halo(l2, 1.0, 0.8);
     const car = this.spawn('glb'); await car.load('covered_car.glb'); put(car, 2.1, 14.5, 0.12);
     const rn = this.spawn('rain'); rn.setSize(7, 15); rn.h = 5; rn.amt = 0.25; rn.layout && rn.layout(); put(rn, 0, 8.2);
-    const fg = this.spawn('fog'); fg.setSize(7, 16); fg.h = 2.0; fg.col = 1; fg.den = 0.3; fg.amb = 0.45; fg.layout && fg.layout(); put(fg, 0, 8.7);
+    const fg = this.spawn('fog'); fg.setSize(7, 16); fg.h = 2.0; fg.col = 1; fg.den = 0.3; fg.amb = 0.55; fg.lit = 0.45; fg.layout && fg.layout(); put(fg, 0, 8.7);
     this.selected = gr; this.save(); return gr;
   }
   setGuides(on) { this.guides = !!on; try { localStorage.setItem(KEY + '.guides', on ? '1' : '0'); } catch {} }
