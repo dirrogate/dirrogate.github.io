@@ -1161,3 +1161,82 @@ Owner (filming mode, bloom / quality over live frame rate): the Mumbai / foggy-c
 - FOG: lit per puff by the 4 nearest lamps / neon signs (colour and falloff; AMBIENT slider, LIT BY LAMPS / NEON toggle), and DEPTH-AWARE: fog fades out against real walls / people / hands using the Quest depth map (`realGap` copied from laser.js, fed by `mprops.setDepth(realDepth.laserData())` in `stepRealWorld`; only while the headset gives depth). Not testable on the PC; needs a Quest check. REAL OCCLUSION (VJ TOOLS) also hides fog behind real things (hard edge).
 - FOCUS PULL (FOCUS button on the page header): FOCUS ON/OFF, DISTANCE (0.3 .. 30 m), APERTURE, FOCUS ON SELECTED PROP, SET A / SET B, RACK TIME, RACK A > B / B > A (smooth rack focus). Softens only the virtual layer (neon / graffiti by mip bias per object, lamp halos by size, puddle reflections per pixel); the passthrough picture cannot be blurred. Saved in localStorage `vire.movieprops.cam`.
 - sw.js cache v12. Backup `backups/pre-480/`. Test hooks `vire._mp.mp`, `vire._mp.setTab('cam'|'props')`. No Node restart needed. Not tested on the Quest (depth-aware fog in particular).
+
+## #481 Realistic cobbles + soft fog
+- COBBLES matte rebuilt: jittered, domain-warped Voronoi (irregular rounded stones, thin dirty joints, polished tops, per-stone brightness) instead of the staggered brick tile. STONE SIZE default 0.8.
+- FOG rebuilt: instanced soft cloud-texture puffs (no hard edges), two drifting layers, centre-weighted, fades at floor. Lit/depth-aware paths unchanged.
+- sw.js cache v13. Only web/js/movieprops.js changed. No Node restart needed. Not yet tested on Quest.
+
+## #482 SURFACES (texture-map ground)
+- GROUND + (VJ TOOLS > MOVIE PROPS) = a Puddle prop with `surf` set. Shader `surfColor()` in movieprops.js: parallax from the displacement map, relief lighting from displacement/normal, AO, roughness, damp darkening, water pooling in the low parts when WETNESS rises, lamp/neon reflections, lit by the 4 nearest lamps/neon; controls WETNESS, COVER, AMBIENT LIGHT, REFLECTION, RIPPLES, RAIN DROPS, size.
+- Surface registry (MovieProps.surfaces; localStorage `vire.surfaces`): built-ins COBBLESTONE and ASPHALT (files in web/surfaces/<name>/diff.jpg, disp.png, rough.jpg, from CyberGrungeRef). Slots: DIFFUSE, DISPLACEMENT, ROUGHNESS, NORMAL (OpenGL), AO. User pictures go to OPFS kind `surf` (`NAME__slot.ext`), per device. TILE SIZE (real metres per picture) and DISPLACEMENT DEPTH per surface.
+- UI: puddle controls > EDIT / ADD SURFACES (mpTab 'surf'): cycle surface, NEW SURFACE (keyboard), DELETE, TILE SIZE, DEPTH, each slot (tap = add picture, CLEAR). Old procedural mattes unchanged (USE A TEXTURE SURFACE / USE A MATTE INSTEAD).
+- sw.js cache v14 (+ surfaces files). Backup `backups/pre-481b/`. No Node restart needed. Desktop-verified only; Quest untested (file picker in VR may not open: add pictures from the desktop page).
+
+## #483 Built-in street prop GLBs
+- web/models/props/: street_lamp_01 (7k tris), street_lamp_02 (6k), covered_car (10.5k), concrete_road_barrier (LOD3, 2.3k), exterior_aircon, exterior_aircon_rusted (9.5k). 230-480 KB each, WebP textures (EXT_texture_webp), real-world size. Source .blend zips (Poly Haven style) in CyberGrungeRef; unzipped build copies in tools/propbuild; exported with Blender 5.1 (decimate, 512/1024 px maps).
+- movieprops.js: `GLB_BUILTIN` map; they appear first in the GLB prop's MODEL list (all devices, no file picker), load at real size (user-added GLBs still fit to 1.2 m). sw.js cache v15 + the 6 files. Test page web/_test/glbview.html. No Node restart needed.
+
+## #484 Model folder tidy
+- Removed unused web/models/neon_sign.glb, neon_sign_ktx.glb (only neon_sign_glass is loaded) and plastic_crate.glb (never loaded, not deployed). `_ktx` files stay: models.js swaps to them automatically. sw.js cache v16. Live `cly3dj` still has the old files until the next release.
+
+## #485 ALLEY SCENE preset
+- MOVIE PROPS > ALLEY SCENE (`MovieProps.alleyScene()`): replaces the props with a lane in front of the viewer: COBBLESTONE ground 5.5 x 15 m at wetness 55% (shallow water in the low stones, rain rings), street_lamp_01 (left, 6.5 m) and street_lamp_02 (right, 11.5 m) with a LAMP halo placed on each model's bulb mesh, rain box, cold TEAL fog (den 0.3, amb 0.45), covered_car parked 14.5 m down the lane. The real alley / room stays the passthrough background. Everything is a normal prop afterwards (tune from the list).
+- Desktop preview: the studio room (rig children skybox/room group) hides the lane; for tests hide those (see session notes). sw.js cache v17. Quest untested.
+
+## #486 Guide boxes off, neon off in the alley scene
+- MOVIE PROPS page: GUIDE BOXES: ON/OFF (default OFF, `mp.guides`, localStorage `vire.movieprops.guides`) hides the blue edge boxes of FOG / RAIN (the ring and cube handles stay). ALLEY SCENE turns the guide boxes off and switches the room's NEON piece off (VJ TOOLS > NEON: ON/OFF brings it back). sw.js v18. No Node restart.
+
+## #487 Backdrop photo + bluer fog
+- New BACKDROP prop (class Plate, `PLATE_BUILTIN` alley2/alley1/alley3.jpg in web/plates/, from the Mumbai photos in CyberGrungeRef): an unlit photo plane drawn behind everything; PICTURE / ADD PICTURE / BRIGHTNESS / SIZE. ALLEY SCENE adds it 17.5 m down the lane, scaled 14 m high so the photo's vanishing point sits on the 1.6 m eye line. Remove it in passthrough if the real alley should show.
+- Fog fix: LAMP light radius on fog was size*5+0.5 (whole lane turned amber/tan); now size*2.4+0.4, scene fog lit 0.45, amb 0.55, TEAL fog colour #5a9fc4 (cold blue-grey).
+- sw.js v19. 10 s dolly clip rendered from the desktop page with MediaRecorder (canvas.captureStream), converted with ffmpeg: renders/alley_scene_v1_yellowfog.mp4. The browser pane only saved the first download; a later clip did not land.
+
+## #488 Alley distance haze + rising steam
+- Smoke is the MODE: SMOKE (rises) switch on a FOG prop (no separate spawn button). ALLEY SCENE now adds a tall distance-haze FOG (15 x 10 m, 6 m high, den 0.6, centred 14 m down the lane, so the backdrop photo melts into it) and a small SMOKE-mode FOG (1.1 m, 3.2 m high) as steam from a grate at right, 5.5 m ahead. sw.js v20. No Node restart.
+
+## #489 Water manhole GLB + ROAD SCENE
+- web/models/props/water_manhole.glb (290 KB; cover + frame from water_manhole_cover_1k.blend, GN modifiers applied, WebP maps, real size 0.69 m) added to GLB_BUILTIN. MOVIE PROPS > ROAD SCENE = ALLEY SCENE (`alleyScene(true)`) with ASPHALT ground (wet 50%), the manhole set into the road 5 m ahead and the SMOKE-mode steam rising from it. sw.js v21. No Node restart.
+- #489b: ROAD SCENE manhole + steam moved to the right side of the road (x 1.55 m, 5 m ahead).
+
+## #490 / #491 Wall lamp, fog roll, water, record crate
+- street_lamp_02 is a WALL bracket lantern: in the scenes it now hangs on the far right facade of the backdrop photo (x 4.6, 15.5 m, 2.3 m high); a concrete wall tried in #490 was removed (owner: fake). `CONCRETE` stays as a built-in surface (barrier textures, surfaces/concrete/).
+- FOG prop: ROLL TOWARD YOU slider (`flow`, -1..+1 m/s, 0 = off; + toward the local +z / the viewer; puffs wrap along the box and fade at the ends). Scenes: main fog 0.45, haze 0.3.
+- Water: shader water level `wl = wet * 0.65` (was 0.5, a few mm more); scenes cobble wet 0.65, road 0.8, ripples 1.0, rain drops 1.5 (ripple rings show on the pooled water).
+- New CRATE + prop (`CrateProp`): the app's milk crate (models.js makeMilkCrate) with ~60 coloured 12" sleeves; SIZE slider. Scenes place it on the left at 8.6 m. sw.js v23. No Node restart.
+
+## #492 asphalt de-tiling
+Surface shader (`surfColor` in `web/js/movieprops.js`) reads each map twice (second read turned and 2.3x larger, `dtB`) and blends by slow world-space noise (`dtM`), so one crack no longer repeats as parallel "rivulets". Applies to every surface. Cache `vire-app-v24`. No Node restart.
+
+## #493 ground + wall decals
+`Decal` (ground, floor prop, `type 'decal'`) and `WallDecal` (`'walldecal'`) in `web/js/movieprops.js`, subclasses of Graffiti with a lit ShaderMaterial (`DEC_F`): nearest 4 lamps (diffuse + wet specular glints), WETNESS darkens / glosses, RAIN RINGS (ground) or RAIN STREAKS (wall). Any transparent PNG (ADD PNG) or stock `web/graff/decal_*.png` (lane, arrow, tyre, oil, leaves, poster, rust, stickers; `DECAL_GROUND` / `DECAL_WALL`). Props page buttons GROUND DECAL + / WALL DECAL +. Also fixed: `biasMat` was never defined, so NEON and GRAFFITI props threw on spawn; now defined at the top of movieprops.js. Cache `vire-app-v25`. No Node restart.
+
+## #494-#495 backdrop reflection, rivulets, crate float, wet decks
+- Ground shader (`surfColor`) traces the reflected ray to the BACKDROP plate and shows the photo in the wet ground (uPT/uPI/uPOn/uPB, set in Puddle.tick from the visible plate; ripples and roughness blur it).
+- Wall decal rain is now see-through RIVULETS (`DEC_F`): wandering, stop-start runs, fake refraction of the picture behind (uv offset), bead lens at the head, lamp glint. Ground decal keeps RAIN RINGS.
+- CRATE: FLOAT toggle + FLOAT HEIGHT (faked bob / rock / drift, no physics).
+- Decks and records get a wet look (darker, rougher->glossier) when a RAIN prop's box covers the decks (`tickGearWet`, `wetGear` in main.js). The alley scene rain sits down the street, so decks stay dry until a rain prop is moved over them.
+- Cache `vire-app-v26`. No Node restart.
+
+## #494-#495 backdrop reflection, rivulets, crate float, wet decks
+- Ground shader (`surfColor`) traces the reflected ray to the BACKDROP plate and shows the photo in the wet ground (uPT/uPI/uPOn/uPB, set in Puddle.tick from the visible plate; ripples and roughness blur it).
+- Wall decal rain is now clear RIVULETS (`DEC_F`): wandering, stop-start runs, fake refraction of the picture behind, bead lens at the head, no tint (only a darker rim and lamp glints). Ground decal keeps RAIN RINGS.
+- CRATE: FLOAT toggle + FLOAT HEIGHT (faked bob / rock / drift, no physics).
+- Decks and records get a wet look (darker, glossier) when a RAIN prop's box covers the decks (`tickGearWet`, `wetGear` in main.js). The alley scene's rain sits down the street, so decks stay dry until a rain prop is moved over them.
+- Cache `vire-app-v26`. No Node restart.
+
+## #494-#495 backdrop reflection, rivulets, crate float, wet decks
+- Ground shader (`surfColor`) traces the reflected ray to the BACKDROP plate and shows the photo in the wet ground (uPT/uPI/uPOn/uPB, set in Puddle.tick from the visible plate; ripples and roughness blur it).
+- Wall decal rain is clear RIVULETS (`DEC_F`): wandering, stop-start runs, fake refraction of the picture behind, bead lens at the head, no tint (darker rim + lamp glints). RIVULET AMOUNT (density, rainAmt) + RIVULET SPEED sliders (`flow`, accumulated in uTf so changing it never jumps). Ground decal keeps RAIN RINGS.
+- CRATE: FLOAT toggle + FLOAT HEIGHT (faked bob / rock / drift, no physics).
+- Decks and records get a wet look (darker, glossier) when a RAIN prop's box covers the decks (`tickGearWet`, `wetGear` in main.js). The alley scene's rain sits down the street, so decks stay dry until a rain prop is moved over them.
+- Cache `vire-app-v26`. No Node restart.
+- #495c rivulet refraction no longer samples outside the decal: the decal's shape comes from the unbent texture, only colour is bent (it had punched holes).
+- #496 wet decks also get world-space water beads and a wet rim sheen (shader patch per deck / record material, `wetPatch` in main.js).
+
+## #497 random ripples, decks dry again
+- Ground ripples (`height()` in PUD_F) now use 3 drop sizes and re-roll every cycle per cell: whether a drop lands, where, how big, how hard (before: one fixed ring per cell, same spot, same size, repeating). Ground decal rings use the same idea.
+- The wet look on decks / records (#494 tickGearWet, #496 beads) was removed again: it looked fake. Decks and records are not affected by rain props.
+- #497b drop frequency raised (rr > 0.3) and ring size 0.14-0.38 of a cell; test hook `vire._deck` = { pullRecord, placeOnDeck, setMotor, dropNeedleAt, held } puts a library record on a deck from the console.
+- #497c ripple cells made smaller (6.0 / 4.2 / 3.0 per metre, biggest ring about 13 cm radius); the first sizes were far too big.
+- #497d RIPPLE SIZE slider (ground / surface puddles, `ripSz` 0.3-2.5x, default 1; scales the ripple grid so drops and rings grow or shrink together).
