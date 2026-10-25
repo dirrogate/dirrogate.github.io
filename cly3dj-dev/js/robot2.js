@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
 import { AV_LAYER } from './director.js';
 import { synthJoints } from './robot.js';
-import { chromePads } from './ctlhands.js';   // #305
+import { chromePads, driveGloveHand } from './ctlhands.js';   // #305; #469 driveGloveHand
 
 const V = () => new THREE.Vector3();
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -239,7 +239,19 @@ export class RobotAvatar2 {
     const pitch = clamp(Math.asin(clamp(hf.y, -1, 1)), -0.9, 0.5) * 0.25;
     const bq = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, this.yaw, 0, 'YXZ'));
     this.setWorld(this.neckBone, null, rq.clone().multiply(bq).multiply(FACE).multiply(this.neckRestQ));
-    (pose.hands || [null, null]).forEach((h, i) => this.hand(this.hands[i], h, dt));
+    (pose.hands || [null, null]).forEach((h, i) => {
+      const H = this.hands[i]; if (!H) return;
+      // #469 h.skin: joints of the DJ's own drawn hand. Driven exactly like the headset's glove (middle knuckle on the
+      // skin hand's knuckle, no fingertip shift) and sized like it (GLOVE SIZE), so the robot glove lands where the DJ's
+      // glove / 3D hand is. Anything else (desktop demo, older phones) keeps the synthetic hand.
+      if (H.node.userData.s0 == null) H.node.userData.s0 = H.node.scale.clone();
+      if (h && h.skin) { H.node.scale.copy(H.node.userData.s0).multiplyScalar(h.gs || 1); driveGloveHand(this, H, h.joints, dt); }
+      else {
+        H.node.scale.copy(H.node.userData.s0);
+        if (H.node0) { H.node.position.copy(H.node0); H.node0 = null; H.off = null; }   // back from a skin-driven frame
+        this.hand(H, h, dt);
+      }
+    });
     this.scanner(pose, dt);
   }
 

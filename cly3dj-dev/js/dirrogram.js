@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from '../vendor/three/RoomEnvironment.js';
 import { RobotAvatar2, ROBOT_GLB } from './robot2.js';
 import { AV_LAYER } from './director.js';
+import { makeSkinPoser, skinHandEntry, POSE as HAND_POSE } from './ctlhands.js';   // #469 robot hands = the DJ's drawn hands
 import { Laser } from './laser.js';
 import { initMaterials, makeMixer, loadMixerParts, DECK, MIX } from './models.js';
 import { loadDeckTemplate, makeGlbDeck } from './deck-glb.js';
@@ -480,6 +481,7 @@ function netMsg(m, now) {
   }
   if (m.k === 'c') {
     liveCfg.wall = m.wall || null; liveCfg.img = m.img || ''; liveCfg.bcn = m.bcn || null;   // #434, #438
+    if (m.ha && typeof m.ha === 'object') Object.assign(HAND_POSE.adj, m.ha);   // #469 the DJ's HAND FIT / PINCH FIT
     { const h = Array.isArray(m.holo) ? m.holo.map(x => String(x).slice(0, 140)) : []; if (h.join('\n') !== liveCfg.holo.join('\n')) { liveCfg.holo = h; drawScroller(); } }   // #435
     if ((m.scroll || '') !== liveCfg.scroll) { liveCfg.scroll = m.scroll || ''; drawScroller(); }
     if ((m.np || '') !== liveCfg.np) { liveCfg.np = m.np || ''; drawCaption(); if (liveCfg.np) capUntil = T + 10; }   // a new track: NOW SPINNING for 10 s
@@ -515,7 +517,7 @@ function netPose(now) {
   const hd = (B.hd || []).map(([i, kind, v]) => {
     const pa = (A.hd || []).find(x => x[0] === i && x[1] === kind); if (!pa || pa[2].length !== v.length) return [i, kind, v];
     const o = v.slice(), u = pa[2];
-    if (kind === 'c') { for (let j = 0; j < 3; j++) o[j] = u[j] + (v[j] - u[j]) * k; lerpQ(u, 3, v, k, o); }
+    if (kind === 'c' || kind === 'k') { for (let j = 0; j < 3; j++) o[j] = u[j] + (v[j] - u[j]) * k; lerpQ(u, 3, v, k, o); for (let j = 7; j < v.length; j++) o[j] = u[j] + (v[j] - u[j]) * k; }   // #469 'k'
     else for (let j = 0; j < v.length; j++) o[j] = u[j] + (v[j] - u[j]) * k;
     return [i, kind, o];
   });
@@ -536,6 +538,7 @@ function netLaser(now) {
 const live = { msg: null, seen: -1e9, ref: null, w: 0 };
 export function feedPose(m) { netMsg(Object.assign({ k: 'p', t: performance.now() }, m), performance.now()); }   // tests: a fake Quest message
 const _M = new THREE.Matrix4(), _R = new THREE.Quaternion(), _t = V(), _hq = new THREE.Quaternion();
+const poseSkin = makeSkinPoser(), _km = new THREE.Matrix4(), _ks = V();   // #469
 function liveFrame(m) {
   // the DJ's standing spot (eased) maps onto the robot's spot; the Quest DJ looks down -z, the robot down +z
   const hx = m.h[0], hz = m.h[2];
@@ -552,6 +555,12 @@ function liveFrame(m) {
       const joints = new Map(); HAND_SPEC.forEach((n, j) => joints.set(n, P(v[j * 3], v[j * 3 + 1], v[j * 3 + 2])));
       const w = joints.get('wrist'), mp = joints.get('middle-finger-phalanx-proximal'), ip = joints.get('index-finger-phalanx-proximal'), pp = joints.get('pinky-finger-phalanx-proximal');
       hands[side] = { p: w, f: mp.clone().sub(w), s: pp.clone().sub(ip), joints };
+    } else if (kind === 'k' && v.length >= 10) {   // #469 the Quest's drawn hand: pose the same skin hand, its joints drive the robot glove
+      const c = (av.c || []).find(x => x[0] === i) || [i, 0, 0];
+      robotRoot.getWorldScale(_ks);
+      _km.compose(P(v[0], v[1], v[2]), Rq(new THREE.Quaternion(v[3], v[4], v[5], v[6])), _ks);
+      const J = poseSkin(side ? 'right' : 'left', _km, c[1], c[2], v[7], v[8], v[9]);
+      hands[side] = J ? skinHandEntry(J) : null;
     } else {   // controller, as spectator-client.js
       const gp = P(v[0], v[1], v[2]), gq = Rq(new THREE.Quaternion(v[3], v[4], v[5], v[6]));
       const c = (av.c || []).find(x => x[0] === i) || [i, 0, 0];

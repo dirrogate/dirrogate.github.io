@@ -148,7 +148,7 @@ export class DirroHost {
     if (q && q.lp && !this.imgSent.has(q.lp)) { const d = this.env.loopData && this.env.loopData(q.lp); if (d) { this._send({ k: 'i', id: q.lp, d }); this.imgSent.add(q.lp); } }   // a GRAB LOOP sheet, once
     if (this.wall.src === 'tv') this._sendFrame(now, this.env.tvCanvas && this.env.tvCanvas());
     else if (this.wall.src === 'follow' && q && FRAME_M.has(q.m)) this._sendFrame(now, this.env.wallFrame && this.env.wallFrame());
-    const W = this.wall, cfg = { k: 'c', scroll, np: np.a || '', img: this.imgSent.has(this.imgId) ? this.imgId : '', wall: { src: W.src, cols: q && q.m === 'mandel' ? 160 : W.cols, fill: W.fill, glow: W.glow, q: q ? { ...q, lp: this.imgSent.has(q.lp) ? q.lp : '' } : null }, holo: this.holo.map(x => x.t), bcn: this.bcn.L && this.bcn.R ? this.bcn : null }, key = JSON.stringify(cfg);   // #438   // #435 approved HoloSMS
+    const W = this.wall, cfg = { k: 'c', scroll, np: np.a || '', img: this.imgSent.has(this.imgId) ? this.imgId : '', wall: { src: W.src, cols: q && q.m === 'mandel' ? 160 : W.cols, fill: W.fill, glow: W.glow, q: q ? { ...q, lp: this.imgSent.has(q.lp) ? q.lp : '' } : null }, holo: this.holo.map(x => x.t), bcn: this.bcn.L && this.bcn.R ? this.bcn : null, ha: this.env.handFit ? this.env.handFit() : null }, key = JSON.stringify(cfg);   // #469 ha: HAND FIT / PINCH FIT for the robot hands   // #438   // #435 approved HoloSMS
     if ((key !== this.cfgKey && now - this.cfgT > CFG_MS) || now - this.cfgSent > CFG_FORCE_MS) { this.cfgKey = key; this.cfgT = this.cfgSent = now; this.ws.send(key); this._rateB += key.length; }
     if (now - this.sendT < SEND_MS) return;
     this.sendT = now;
@@ -172,8 +172,14 @@ export class DirroHost {
           for (const j of Object.values(h.joints || {})) { if (!j.visible) continue; rig.worldToLocal(j.getWorldPosition(_p)); a.push(r3(_p.x), r3(_p.y), r3(_p.z)); }
           if (a.length >= 75) m.hd.push([st.i, 'h', a]);
         } else if (st.grip) {
-          st.grip.matrixWorld.decompose(_p, _q, _s); rig.worldToLocal(_p); _q.premultiply(_rq);
-          m.hd.push([st.i, 'c', [r3(_p.x), r3(_p.y), r3(_p.z), r4(_q.x), r4(_q.y), r4(_q.z), r4(_q.w)]]);
+          const ch = st.ctlHand;
+          if (ch && ch.ready && ch.root.visible && ch.args) {   // #469 'k': the DRAWN hand's root + thumb, pinch, glove flag (trigger / grip are in av.c)
+            ch.root.matrix.decompose(_p, _q, _s); rig.worldToLocal(_p); _q.premultiply(_rq);
+            m.hd.push([st.i, 'k', [r3(_p.x), r3(_p.y), r3(_p.z), r4(_q.x), r4(_q.y), r4(_q.z), r4(_q.w), ch.args[2], ch.args[3], ch.soft ? 1 : 0]]);
+          } else {
+            st.grip.matrixWorld.decompose(_p, _q, _s); rig.worldToLocal(_p); _q.premultiply(_rq);
+            m.hd.push([st.i, 'c', [r3(_p.x), r3(_p.y), r3(_p.z), r4(_q.x), r4(_q.y), r4(_q.z), r4(_q.w)]]);
+          }
           const b = st.source && st.source.gamepad ? st.source.gamepad.buttons : [];
           if (st.tip) { const t = rig.worldToLocal(st.tip.clone()); c.push([st.i, r3(b[0] ? b[0].value : 0), r3(b[1] ? b[1].value : 0), r3(t.x), r3(t.y), r3(t.z)]); }
         }

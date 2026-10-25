@@ -288,7 +288,15 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
         st.grip.matrixWorld.decompose(_rp, _rq, _rs); rig.worldToLocal(_rp); _rq.premultiply(_riq);
         // #288 + trigger / grip / thumb (as the Quest's hand pose eases them) and which hand, so the phone poses the same hand
         const bt = st.source && st.source.gamepad ? st.source.gamepad.buttons : [], thumb = 0;   // #296 the Quest's hand no longer lowers the thumb on a stick / A / B touch; the phone matches
-        out.push([st.i, 'c', [r3(_rp.x), r3(_rp.y), r3(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), r3(st.tA || 0), r3(st.gA || 0), thumb], hdOf(st)]);
+        const ch = st.ctlHand;
+        if (ch && ch.ready && ch.root.visible && ch.args) {
+          // #469 'k': the DRAWN hand's root (after the pinch slide), the numbers its pose was made from, the glove flag,
+          // then the grip (the phone's CONTROLLER look still draws the Touch Plus there)
+          const g7 = [r3(_rp.x), r3(_rp.y), r3(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w)];
+          ch.root.matrix.decompose(_rp, _rq, _rs); rig.worldToLocal(_rp); _rq.premultiply(_riq);
+          const A = ch.args;
+          out.push([st.i, 'k', [r3(_rp.x), r3(_rp.y), r3(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), A[0], A[1], A[2], A[3], ch.soft ? 1 : 0, ...g7], hdOf(st)]);
+        } else out.push([st.i, 'c', [r3(_rp.x), r3(_rp.y), r3(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), r3(st.tA || 0), r3(st.gA || 0), thumb], hdOf(st)]);
       }
     }
     return out;

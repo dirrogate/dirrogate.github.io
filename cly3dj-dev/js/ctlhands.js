@@ -148,7 +148,7 @@ const _t = new THREE.Vector3(), _d = new THREE.Vector3(), _inv = new THREE.Matri
 function update(h, t, g, th, pin = 0) {
   if (!h.ready) return;
   const key = `${t.toFixed(2)}|${g.toFixed(2)}|${th ? 1 : 0}|${pin.toFixed(2)}`; if (key === h.cur) return; h.cur = key;
-  pose(h, t, g, th, false, pin);
+  pose(h, t, g, th, false, pin); h.args = [t, g, th ? 1 : 0, pin];   // #469 what this pose was made from (sent to the phones)
   // #280 / #289 the blue ball and the touch point follow the thumb tip (6 mm past the tip joint, which is inside the
   // skin), in the hand root's space (= grip space)
   h.holder.updateMatrix();
@@ -290,4 +290,31 @@ export function gloveTips(H, outIndex, outThumb) {
   outIndex.copy(H.tipIdx).applyMatrix4(H.B.Index_Distal.matrixWorld);
   if (outThumb) outThumb.copy(H.tipThumb).applyMatrix4(H.B.Thumb_Distal.matrixWorld);
   return true;
+}
+
+// #469 (owner) the robot hands (DirroDj📹 / Twitch / venue on the Quest, the robot on the camera phone, Dirrogram) are
+// the DJ's own drawn hand: a hidden posed skin hand per side, placed with the drawn hand's matrix (after the pinch slide
+// and the PINCH FIT / HAND FIT values) and posed from the same numbers; its 25 joints drive the robot glove the same
+// way the headset's glove is driven (driveGloveHand). One poser per page; it keeps its own two hands, never drawn.
+const _sp = new THREE.Vector3();
+const SKIN_URL = new URL('../vendor/webxr-input-profiles/generic-hand/', import.meta.url).href;
+export function makeSkinPoser() {
+  const hands = {}, mat = new THREE.MeshBasicMaterial();
+  let fitKey = '';
+  return function poseSkin(handed, M, t, g, th, pin, soft) {   // M: the drawn hand root's world matrix; returns Map of world joints or null
+    let h = hands[handed];
+    if (!h) { h = hands[handed] = createControllerHand(handed, SKIN_URL + handed + '.glb', mat); h.root.matrixAutoUpdate = false; }
+    if (!h.ready) return null;
+    const k = JSON.stringify(POSE.adj); if (k !== fitKey) { fitKey = k; for (const x of Object.values(hands)) if (x.ready) { x.place(); x.cur = ''; } }
+    if (h.soft !== !!soft) { h.soft = !!soft; h.cur = ''; }
+    h.root.matrix.copy(M); h.update(t || 0, g || 0, !!th, pin || 0); h.root.updateMatrixWorld(true);
+    const J = new Map(); for (const n in h.bones) J.set(n, h.bones[n].getWorldPosition(new THREE.Vector3()));
+    return J;
+  };
+}
+// the robot's hand entry from skin joints (p / f / s for the other avatars, joints + skin for robot2)
+export function skinHandEntry(J, gs) {
+  const w = J.get('wrist'), mp = J.get('middle-finger-phalanx-proximal'), ip = J.get('index-finger-phalanx-proximal'), pp = J.get('pinky-finger-phalanx-proximal');
+  if (!w || !mp || !ip || !pp) return null;
+  return { p: w, f: mp.clone().sub(w), s: pp.clone().sub(ip), joints: J, skin: true, gs: gs || (POSE.adj.gs || 94) / 100 };
 }

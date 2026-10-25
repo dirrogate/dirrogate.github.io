@@ -93,13 +93,15 @@ export function makePhoneHands(rig, renderer) {   // #355 renderer: for the NEON
       const S = sides[i]; if (!S) continue;
       const hd = hdc === 'l' ? 'left' : hdc === 'r' ? 'right' : (i === 0 ? 'left' : 'right');
       S.seen = now; S.kind = kind; S.hd = hd;
-      if (kind === 'c') {
+      if (kind === 'c' || kind === 'k') {
         _p.set(a[0], a[1], a[2]); _q.set(a[3], a[4], a[5], a[6]); _m.compose(_p, _q, _s);
-        if (look === 'controller') { const m = ctlModel(S, hd); m.matrix.copy(_m); m.matrixWorldNeedsUpdate = true; m.visible = true; if (S.ctl) S.ctl.root.visible = false; }
+        // #469 'k' = the Quest's drawn hand root (after its pinch slide) + its pose numbers; the grip follows at 12..18
+        const gm = kind === 'k' && a.length >= 19 ? new THREE.Matrix4().compose(new THREE.Vector3(a[12], a[13], a[14]), new THREE.Quaternion(a[15], a[16], a[17], a[18]), _s) : _m;
+        if (look === 'controller') { const m = ctlModel(S, hd); m.matrix.copy(gm); m.matrixWorldNeedsUpdate = true; m.visible = true; if (S.ctl) S.ctl.root.visible = false; }
         else {
           if (S.model) S.model.visible = false;
           const h = hand(S, hd, 'ctl'); h.root.visible = true; h.root.matrix.copy(_m); h.root.matrixWorldNeedsUpdate = true;
-          const t = a[7] || 0, g = a[8] || 0; if (h.soft !== (look === 'glove')) { h.soft = look === 'glove'; h.cur = ''; } h.update(t, g, !!a[9]);   // #301
+          const t = a[7] || 0, g = a[8] || 0; if (h.soft !== (look === 'glove')) { h.soft = look === 'glove'; h.cur = ''; } h.update(t, g, !!a[9], kind === 'k' ? a[10] || 0 : 0);   // #301; #469 pin
           h.holder.visible = look !== 'glove';
           if (look === 'glove') driveGlove(S, h, hd, dt, Math.max(t, g));
         }

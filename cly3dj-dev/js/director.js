@@ -4,6 +4,7 @@
 // reaches the Meta cast when the DJ looks at the wall.
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
+import { skinHandEntry } from './ctlhands.js';   // #469
 
 export const AV_LAYER = 6;   // 1/2 = three's XR eyes, 5 = deck-inst HIDE_LAYER
 const UP = new THREE.Vector3(0, 1, 0);
@@ -227,7 +228,14 @@ export function xrPose(renderer, inputs) {
       const w = joints.get('wrist'), mp = joints.get('middle-finger-phalanx-proximal'), ip = joints.get('index-finger-phalanx-proximal'), pp = joints.get('pinky-finger-phalanx-proximal');
       if (!w || !mp || !ip || !pp) continue;
       hands[i] = { p: w, f: mp.clone().sub(w), s: pp.clone().sub(ip), joints };
-    } else if (st.grip) {
+    } else if (st.ctlHand && st.ctlHand.ready && st.ctlHand.root.visible && st.ctlHand.args) {
+      // #469 (owner) the robot's hand = the drawn hand (3D hand / glove, or the hidden one in CONTROLLER look): its 25
+      // joints, after the pinch slide and HAND FIT / PINCH FIT, so the robot touches what the DJ touches
+      const h = st.ctlHand; h.root.updateMatrixWorld(true);
+      const J = new Map(); for (const n in h.bones) J.set(n, h.bones[n].getWorldPosition(new THREE.Vector3()));
+      const e = skinHandEntry(J); if (e) { hands[i] = e; continue; }
+    }
+    if (!st.isHand && st.grip && !hands[i]) {
       st.grip.updateMatrixWorld();
       const gq = st.grip.getWorldQuaternion(new THREE.Quaternion()), gp = st.grip.getWorldPosition(new THREE.Vector3());
       const gp2 = st.source.gamepad, bt = gp2 && gp2.buttons;

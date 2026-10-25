@@ -15,6 +15,7 @@ import { makeFixedCam } from './fixedcam.js';
 import * as media from './medialib.js';
 import { applyNeon } from './neonenv.js';   // #355
 import { makePhoneHands } from './phonehands.js';   // #288
+import { makeSkinPoser, skinHandEntry } from './ctlhands.js';   // #469 robot hands = the DJ's drawn hands
 import { makeStudio } from './studio.js';   // #380 S8 STUDIO
 
 export function startCamera(ctx) {
@@ -509,6 +510,7 @@ export function startCamera(ctx) {
   }
   const _rq = new THREE.Quaternion(), _hq = new THREE.Quaternion(), _hp = new THREE.Vector3();
   const W = (x, y, z) => rig.localToWorld(new THREE.Vector3(x, y, z));
+  const poseSkin = makeSkinPoser(), _km = new THREE.Matrix4(), _kone = new THREE.Vector3(1, 1, 1);   // #469
   function robotFrame(dt, now) {
     const a = robo.a, liveStu = !!(studio && studio.S && studio.S.on && studio.S.mode !== 'show'), on = !liveStu && !!(a && a.ready && robo.msg && now - robo.seen < 1000);   // #385 no robot over the real DJ
     if (on !== robo.on) {
@@ -527,6 +529,10 @@ export function startCamera(ctx) {
         const joints = new Map(); SPEC.forEach((n, j) => joints.set(n, W(v[j * 3], v[j * 3 + 1], v[j * 3 + 2])));
         const w = joints.get('wrist'), mp = joints.get('middle-finger-phalanx-proximal'), ip = joints.get('index-finger-phalanx-proximal'), pp = joints.get('pinky-finger-phalanx-proximal');
         out[side] = { p: w, f: mp.clone().sub(w), s: pp.clone().sub(ip), joints };
+      } else if (kind === 'k' && v.length >= 12) {   // #469 the Quest's drawn hand: pose the same skin hand, its joints drive the robot glove
+        _km.compose(W(v[0], v[1], v[2]), _rq.clone().multiply(new THREE.Quaternion(v[3], v[4], v[5], v[6])), _kone);
+        const J = poseSkin(side ? 'right' : 'left', _km, v[7], v[8], v[9], v[10], v[11]);
+        out[side] = J ? skinHandEntry(J) : null;
       } else {   // controller: as director.js xrPose
         const gp = W(v[0], v[1], v[2]), gq = _rq.clone().multiply(new THREE.Quaternion(v[3], v[4], v[5], v[6]));
         const c = (av.c || []).find(x => x[0] === i) || [i, 0, 0];

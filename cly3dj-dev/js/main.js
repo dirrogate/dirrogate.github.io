@@ -7371,7 +7371,7 @@ function frameBody() {
   if (fx) fx.postRender();   // #379 the floated gear back in its real place for hands, grabs and saving
 }
 // #427 DIRROGRAM: the show to the audience phones through the relay (dirro-host.js)
-if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr, getBeat: () => tapBeat() || beat, tapBpm: () => (wtapOn() ? 60000 / wtap.iv : 0), laser, micLevel, nowPlaying: dirroNow,
+if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr, handFit: () => (xr ? xr.handFit : null),   // #469 getBeat: () => tapBeat() || beat, tapBpm: () => (wtapOn() ? 60000 / wtap.iv : 0), laser, micLevel, nowPlaying: dirroNow,
   scrollText: () => (scroller && scroller.on ? scroller.text : ''),
   getLed: () => (ledMode === 'card' && cardWall.pic ? { img: true, name: 'card:' + cardWall.name, file: cardWall.file } : { img: !!(led.on && led.img), name: led.name, file: led.name ? led.fileNamed(led.name) : null }),   // #434 (#446 the card's still)   // #434 the LED wall's picture
   tvCanvas: () => (streamer && streamer.active ? streamer.canvas : null),   // #434 the stream / venue-screen picture
