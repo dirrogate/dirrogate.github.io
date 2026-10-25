@@ -6151,7 +6151,7 @@ function drawPropsPage(T) {
     const o = {};
     if (k === 'glb') { if (!mp.lists.glb.length) { toast('Add a .glb first (ADD GLB, on the GLB prop that appears)', 3500); } else o.src = mp.lists.glb[0]; }
     if (k === 'graffiti') o.src = 'graff1.png';
-    if (k === 'alley') { toast('Setting up the alley scene in front of you (replaces the props in the room)...', 3500); mp.alleyScene().then(() => { toast('Alley scene ready: wet cobblestone, two lamps, rain, fog, a covered car down the lane. Tune each prop from the list.', 5000); drawMixScreen(); }); return; }
+    if (k === 'alley') { toast('Setting up the alley scene in front of you (replaces the props in the room)...', 3500); mp.alleyScene().then(() => { if (pieceOn('neon')) setPiece('neon', false); mp.setGuides(false); toast('Alley scene ready: wet cobblestone, two lamps, rain, fog, a covered car down the lane. Tune each prop from the list.', 5000); drawMixScreen(); }); return; }
     const p = mp.spawn(k === 'ground' ? 'puddle' : k, o);
     if (k === 'ground' && p) { p.setSurface(mp.surfNames()[0]); p.setSize(6, 6); p.wet = 0.3; p.refl = 1.2; }
     toast(p && p.floor ? (NAMES[k] || 'GROUND') + ' in front of you. Grip the ring on its post to carry it, trigger the cube to size it.' : NAMES[k] + ' in front of you. Grip the ring to carry it, trigger the cube to size it (or grip with both hands and stretch).', 4200);
@@ -6162,7 +6162,7 @@ function drawPropsPage(T) {
   kinds.forEach(([l, k], i) => btn(L + (i % per) * (bw + gap), y0 + Math.floor(i / per) * (bh + 6), bw, bh, l, false, () => spawn(k), false, P ? 16 : 14));
   const top = y0 + Math.ceil(kinds.length / per) * (bh + 6) + 4;
   // ---- list of props
-  const RH = P ? 33 : 30, listW = P ? R - L : 214, rowsMax = P ? 3 : Math.max(2, Math.floor((H - top - 8 - 2 * RH) / RH));
+  const RH = P ? 33 : 30, listW = P ? R - L : 214, rowsMax = P ? 3 : Math.max(2, Math.floor((H - top - 8 - 3 * RH) / RH));
   const n = items.length, si = Math.max(0, items.indexOf(sel)), start = n <= rowsMax ? 0 : Math.max(0, Math.min(si - Math.floor(rowsMax / 2), n - rowsMax));
   const det = p => p.type === 'puddle' ? p.matte : p.type === 'neon' ? p.text.replace(/\n/g, ' ') : (p.type === 'graffiti' || p.type === 'glb') ? (p.src || '(none)') : '';
   const detP = p => p.type === 'puddle' && p.surf ? p.surf : det(p);
@@ -6175,10 +6175,11 @@ function drawPropsPage(T) {
   if (!n) { g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; wrapText(g, 'Tap a + button to put a prop in front of you.', L + 4, top + 16, listW - 8, 19, 3); }
   const clearArm = performance.now() - propsClearT < 3000;
   btn(L, top + rows * RH + 2, listW, RH - 4, clearArm ? 'TAP AGAIN: CLEAR ALL' : 'CLEAR ALL', clearArm, n ? () => { if (performance.now() - propsClearT < 3000) { propsClearT = 0; mp.clear(); } else propsClearT = performance.now(); drawMixScreen(); } : null, !n, P ? 15 : 13);
+  btn(L, top + (rows + 2) * RH + 2, listW, RH - 4, mp.guides ? 'GUIDE BOXES: ON' : 'GUIDE BOXES: OFF', mp.guides, () => { mp.setGuides(!mp.guides); drawMixScreen(); }, false, P ? 15 : 13);   // #486 the blue boxes only help while placing; off for filming
   btn(L, top + (rows + 1) * RH + 2, listW, RH - 4, mp.placer.on ? 'LASER (B): ON' : 'PLACE LASER (B)', mp.placer.on, () => { mp.placer.toggle(); drawMixScreen(); }, false, P ? 15 : 13);   // #479
   if (!sel) return;
   // ---- the selected prop's controls
-  const cx = P ? L : L + listW + 10, cw = R - cx, cy = P ? top + (rows + 2) * RH + 10 : top, cols = P ? 1 : 2, cg = 6, cellW = (cw - cg * (cols - 1)) / cols, ch = RH - 3;
+  const cx = P ? L : L + listW + 10, cw = R - cx, cy = P ? top + (rows + 3) * RH + 10 : top, cols = P ? 1 : 2, cg = 6, cellW = (cw - cg * (cols - 1)) / cols, ch = RH - 3;
   const logS = s => Math.log(clamp(s, 0.1, 10) / 0.1) / Math.log(100);
   const S = (label, v, txt, set) => ({ s: 1, label, v, txt, set: x => { set(x); mp.save(); } });
   const B = (label, on, act, dim) => ({ b: 1, label, on, act: () => { act(); mp.save(); drawMixScreen(); }, dim });

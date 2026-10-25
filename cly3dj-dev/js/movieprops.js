@@ -685,7 +685,7 @@ const _q2 = new THREE.Quaternion(), _v3 = new THREE.Vector3();
 // env: { rig, camera, renderer, toast }
 export class MovieProps {
   constructor(env) {
-    this.env = env; this.rig = env.rig; this.placer = new Placer(this); this.items = []; this.neons = []; this.selId = null; this.loaded = false; this.lists = { matte: [], glb: [], png: [] }; this.mattes = new Map(); this.surfaces = new Map(); this.stex = new Map(); this.loadSurfaces(); this.saveT = 0; this.depth = null; this.focus = { on: false, dist: 3, ap: 0.5, a: 2, b: 8, time: 3, rack: null }; this.loadCam();
+    this.env = env; this.rig = env.rig; this.placer = new Placer(this); this.items = []; this.neons = []; this.selId = null; this.loaded = false; this.lists = { matte: [], glb: [], png: [] }; this.mattes = new Map(); this.surfaces = new Map(); this.stex = new Map(); this.loadSurfaces(); this.saveT = 0; try { this.guides = localStorage.getItem(KEY + '.guides') === '1'; } catch { this.guides = false; } this.depth = null; this.focus = { on: false, dist: 3, ap: 0.5, a: 2, b: 8, time: 3, rack: null }; this.loadCam();
     if (env.scene) this.placer.attach(env.scene);
     this.refreshLists();
   }
@@ -794,7 +794,8 @@ export class MovieProps {
     const fg = this.spawn('fog'); fg.setSize(7, 16); fg.h = 2.0; fg.col = 1; fg.den = 0.3; fg.amb = 0.45; fg.layout && fg.layout(); put(fg, 0, 8.7);
     this.selected = gr; this.save(); return gr;
   }
-  tick(dt) { this.tickFocus(dt); for (const p of this.items) p.tick(dt); if (this.saveT > 0 && (this.saveT -= dt) <= 0) this.saveNow(); }
+  setGuides(on) { this.guides = !!on; try { localStorage.setItem(KEY + '.guides', on ? '1' : '0'); } catch {} }
+  tick(dt) { this.tickFocus(dt); for (const p of this.items) if (p.edge) p.edge.visible = this.guides; for (const p of this.items) p.tick(dt); if (this.saveT > 0 && (this.saveT -= dt) <= 0) this.saveNow(); }
   save() { this.saveT = 0.6; }
   saveNow() { try { localStorage.setItem(KEY, JSON.stringify(this.items.filter(p => !p.dead).map(p => p.snap()))); } catch {} }
   load() {
