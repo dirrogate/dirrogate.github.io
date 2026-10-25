@@ -25,7 +25,7 @@ export const COLORS = [['PINK', '#ff2d95'], ['CYAN', '#19e6ff'], ['AMBER', '#ffb
 export const PRESETS = ['DIRRO DJ', 'NEON', 'मुंबई', 'चाय', 'होटल', 'संगीत', 'डीजे', 'खुला है', 'प्रेम', 'BAR', 'हेलो मुंबई'];
 export const NEON_FONTS = ['NOTO OUTLINE', 'NOTO SOLID', 'MONOTON'];
 export const FOG_COLORS = [['GREY', '#aab4c0'], ['TEAL', '#5fb8c8'], ['MAGENTA', '#d45cc0'], ['AMBER', '#e0a050'], ['WHITE', '#ffffff']];
-export const MATTES = ['SCATTERED', 'BIG PUDDLE', 'GUTTER', 'CRACKED'];
+export const MATTES = ['SCATTERED', 'BIG PUDDLE', 'GUTTER', 'CRACKED', 'COBBLES'];   // COBBLES: the WET COBBLE ground (tiles, stones tilt the reflections, streaked lamp / neon reflections)
 export const GRAFF_BUILTIN = ['graff1.png', 'graff2.png'];
 export const GRAFF_TINTS = [['OFF', null], ['WHITE', '#ffffff'], ['PINK', '#ff2d95'], ['CYAN', '#19e6ff'], ['AMBER', '#ffb02e'], ['BLACK', '#000000']];
 
@@ -106,7 +106,18 @@ function nz(seed) {   // value noise on a 64 grid, wrapped
     return (h(xi, yi) * (1 - u) + h(xi + 1, yi) * u) * (1 - v) + (h(xi, yi + 1) * (1 - u) + h(xi + 1, yi + 1) * u) * v;
   };
 }
+function makeCobbles() {   // 6 x 8 staggered stones per tile; grey = the stone's rounded top, white = the joints (where the water stands)
+  const S = 240, rh = 30, sw = 40, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d'), im = g.createImageData(S, S);
+  const rnd = (a, b) => { let h = (a * 374761393 + b * 668265263) ^ 0x5bd1e995; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const row = Math.floor(y / rh), xo = (row % 2) * sw / 2, xx = (x + xo) % S, col = Math.floor(xx / sw), u = (xx % sw) / sw - 0.5, v = (y % rh) / rh - 0.5;
+    const jit = 0.8 + rnd(row, col) * 0.2, d = Math.pow(Math.abs(u) / 0.46, 5) + Math.pow(Math.abs(v) / 0.44, 5), dome = Math.max(0, 1 - d) * jit;
+    const b = clamp(1 - dome * 1.05, 0, 1) * 255, i = (y * S + x) * 4; im.data[i] = im.data[i + 1] = im.data[i + 2] = b; im.data[i + 3] = 255;
+  }
+  g.putImageData(im, 0, 0); return c;
+}
 function makeMatte(idx) {
+  if (idx === 4) return makeCobbles();
   const S = 256, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d'), im = g.createImageData(S, S), n1 = nz(11 + idx), n2 = nz(77 + idx);
   const fbm = (x, y) => (n1(x, y) * 0.55 + n1(x * 2.1, y * 2.1) * 0.28 + n2(x * 4.3, y * 4.3) * 0.17);
   for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
@@ -124,7 +135,7 @@ function makeMatte(idx) {
 const PUD_V = `varying vec2 vUv; varying vec3 vW;
 void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`;
 const PUD_F = `precision highp float;
-uniform sampler2D uMatte, uS0, uS1, uS2, uS3; uniform float uWet, uSoft, uInv, uRip, uRain, uRefl, uT, uDark, uSize;
+uniform sampler2D uMatte, uS0, uS1, uS2, uS3; uniform float uWet, uSoft, uInv, uRip, uRain, uRefl, uT, uDark, uSize, uCobble, uStreak, uBump; uniform vec2 uTile, uFocus;
 uniform vec3 uSky, uTint; uniform mat4 uSI[4]; uniform vec4 uSD[4];
 varying vec2 vUv; varying vec3 vW;
 float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
@@ -142,7 +153,7 @@ float height(vec2 p){
   }
   return h;
 }
-vec3 sgn(vec3 R, vec3 nrm, float blur){
+vec3 sgn(vec3 R, float blur, float streak){
   vec3 acc = vec3(0.0);
   for (int i = 0; i < 4; i++) {
     vec4 d = uSD[i]; if (d.z <= 0.0) continue;
@@ -152,23 +163,36 @@ vec3 sgn(vec3 R, vec3 nrm, float blur){
     vec3 H = P + t * Rl; vec2 uv = H.xy / (2.0 * d.xy) + 0.5;
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) continue;
     float lod = 0.5 + blur + log2(1.0 + t);
-    vec4 s = i == 0 ? textureLod(uS0, uv, lod) : i == 1 ? textureLod(uS1, uv, lod) : i == 2 ? textureLod(uS2, uv, lod) : textureLod(uS3, uv, lod);
-    acc += s.rgb * s.a * d.z * 4.0;
+    int nn = streak > 0.0 ? 5 : 1; vec3 sum = vec3(0.0);
+    for (int k = 0; k < 5; k++) {   // wet cobbles: the reflection is smeared along the sign's height (long streaks toward you)
+      if (k >= nn) break; vec2 u2 = vec2(uv.x, uv.y + (nn == 1 ? 0.0 : (float(k) - 2.0) * streak * 0.1));
+      vec4 s = i == 0 ? textureLod(uS0, u2, lod) : i == 1 ? textureLod(uS1, u2, lod) : i == 2 ? textureLod(uS2, u2, lod) : textureLod(uS3, u2, lod);
+      sum += s.rgb * s.a;
+    }
+    acc += sum / float(nn) * d.z * (nn == 1 ? 4.0 : 6.5);
   }
   return acc;
 }
 void main(){
-  float m = texture2D(uMatte, vUv).r; if (uInv > 0.5) m = 1.0 - m;
+  vec2 muv = vUv * uTile; float m = texture2D(uMatte, muv).r; if (uInv > 0.5) m = 1.0 - m;
   float t = 1.0 - uWet;
   float mask = smoothstep(t - uSoft, t + uSoft + 0.001, m);
   vec2 e2 = min(vUv, 1.0 - vUv); float edge = smoothstep(0.0, 0.07, min(e2.x, e2.y));
+  if (uCobble > 0.5) mask = max(mask, uWet * 0.65);   // stone tops are damp too, the joints hold the water
   mask *= edge; if (mask < 0.003) discard;
   vec2 p = vW.xz; float e = 0.01, h0 = height(p), hx = height(p + vec2(e, 0.0)), hy = height(p + vec2(0.0, e));
-  vec3 n = normalize(vec3(-(hx - h0) / e * uRip * 0.35, 1.0, -(hy - h0) / e * uRip * 0.35));
+  vec2 bump = vec2(0.0); float rough = 1.0;
+  if (uCobble > 0.5) {   // every stone is a little dome: its slope tilts the reflection; the tops are rougher than the joints
+    float te = 1.0 / 240.0;
+    bump = vec2(texture2D(uMatte, muv + vec2(te, 0.0)).r - texture2D(uMatte, muv - vec2(te, 0.0)).r, texture2D(uMatte, muv + vec2(0.0, te)).r - texture2D(uMatte, muv - vec2(0.0, te)).r) * uBump;
+    rough = mix(0.4, 1.0, smoothstep(0.3, 0.85, m));
+  }
+  vec3 n = normalize(vec3(-(hx - h0) / e * uRip * 0.35 + bump.x, 1.0, -(hy - h0) / e * uRip * 0.35 + bump.y));
   vec3 V = normalize(vW - cameraPosition), R = reflect(V, n); R.y = max(abs(R.y), 0.03);
-  float fr = 0.18 + 0.82 * pow(1.0 - clamp(dot(n, -V), 0.0, 1.0), 4.0);
+  float fr = (0.18 + 0.82 * pow(1.0 - clamp(dot(n, -V), 0.0, 1.0), 4.0)) * rough;
+  float dist = length(vW - cameraPosition), coc = uFocus.y > 0.0 ? min(6.0, uFocus.y * 10.0 * abs(dist - uFocus.x) / max(dist, 0.3)) : 0.0;
   vec3 sky = uSky * mix(1.6, 0.4, clamp(R.y * 1.5, 0.0, 1.0));
-  vec3 refl = (sky + sgn(R, n, length(n.xz) * 14.0)) * fr * uRefl;
+  vec3 refl = (sky + sgn(R, length(n.xz) * 14.0 + coc * 0.8 + (1.0 - rough) * 4.0, uStreak)) * fr * uRefl;
   refl += uTint * 0.008 + vec3(0.55, 0.65, 0.8) * max(h0, 0.0) * 1.4 * uRip * min(uRain, 1.5);   // bright rim on the drop rings
   float a = mask * uDark;
   gl_FragColor = vec4(refl * mask, a);
@@ -189,21 +213,43 @@ void main(){
 const RAIN_F = `uniform vec3 uCol; varying float vA; void main(){ gl_FragColor = vec4(uCol, vA);
   #include <colorspace_fragment>
 }`;
-const FOG_V = `uniform vec3 uBox; uniform float uT, uSpeed, uSmoke, uSize; attribute vec3 aC; attribute vec3 aP; varying vec2 vUv; varying float vF; varying float vD;
+const DEPTH_GLSL = `uniform sampler2DArray uDepth; uniform float uDOn; uniform float uDLayer; uniform mat4 uDView; uniform mat4 uDProj; uniform mat4 uDInvProj; uniform mat4 uDNorm;
+float realGap(vec3 P) {   // as in laser.js (#413): > 0 = P lies behind the real surface on its depth-camera ray; -1000 = no depth there
+  if (uDOn < 0.5) return -1e3;
+  vec4 pv = uDView * vec4(P, 1.0); vec4 c = uDProj * pv; if (c.w <= 1e-4) return -1e3;
+  vec3 n = c.xyz / c.w; if (abs(n.x) > 1.0 || abs(n.y) > 1.0) return -1e3;
+  vec2 buf = (uDNorm * vec4(n.xy * 0.5 + 0.5, 0.0, 1.0)).xy;
+  float d = min(textureLod(uDepth, vec3(buf, uDLayer), 0.0).r, 0.9999);
+  if (d >= 0.9998) return -1e3;
+  vec4 rv = uDInvProj * vec4(n.xy, d * 2.0 - 1.0, 1.0); rv.xyz /= rv.w;
+  return length(pv.xyz) - length(rv.xyz);
+}
+`;
+const FOG_V = `uniform vec3 uBox; uniform float uT, uSpeed, uSmoke, uSize; uniform vec4 uLP[4]; uniform vec3 uLC[4];
+attribute vec3 aC; attribute vec3 aP; varying vec2 vUv; varying float vF; varying float vD; varying vec3 vL; varying vec3 vW;
 void main(){
   float t = uT * uSpeed; vec3 c = aC;
   c.x += 0.07 * sin(t * 0.7 + aP.x * 6.28); c.z += 0.07 * cos(t * 0.6 + aP.y * 6.28);
   float fade = 1.0;
   if (uSmoke > 0.5) { c.y = fract(aC.y + t * 0.06 * (0.6 + aP.z)); fade = sin(3.14159 * c.y); } else { c.y = aC.y * 0.55; c.x += 0.05 * sin(t * 0.3 + aP.z * 9.0); }
   vec3 ctr = (c - vec3(0.5, 0.0, 0.5)) * uBox;
+  vec3 wc = (modelMatrix * vec4(ctr, 1.0)).xyz, L = vec3(0.0);   // light from the nearest lamps / neon signs, falling off with distance
+  for (int i = 0; i < 4; i++) { float d = length(wc - uLP[i].xyz) / max(uLP[i].w, 0.1); L += uLC[i] / (1.0 + d * d * 2.5); }
+  vL = L;
   vec4 mv = modelViewMatrix * vec4(ctr, 1.0);
   float a = aP.x * 6.28 + t * 0.05 * (aP.z - 0.5), ca = cos(a), sa = sin(a);
   vec2 o = vec2(ca * position.x - sa * position.y, sa * position.x + ca * position.y) * uSize * (0.7 + 0.6 * aP.z);
-  mv.xy += o; vUv = position.xy + 0.5; vF = fade; vD = -mv.z;
+  mv.xy += o; vUv = position.xy + 0.5; vF = fade; vD = -mv.z; vW = (inverse(viewMatrix) * mv).xyz;
   gl_Position = projectionMatrix * mv;
 }`;
-const FOG_F = `uniform sampler2D uTex; uniform vec3 uCol; uniform float uDen; varying vec2 vUv; varying float vF; varying float vD;
-void main(){ vec4 s = texture2D(uTex, vUv); float a = s.a * uDen * vF * smoothstep(0.15, 0.7, vD); gl_FragColor = vec4(uCol * (0.85 + 0.15 * s.r), a);
+const FOG_F = DEPTH_GLSL + `uniform sampler2D uTex; uniform vec3 uCol; uniform float uDen, uAmb, uLit;
+varying vec2 vUv; varying float vF; varying float vD; varying vec3 vL; varying vec3 vW;
+void main(){
+  vec4 s = texture2D(uTex, vUv);
+  float lum = dot(vL, vec3(0.33)) * uLit;
+  float a = s.a * uDen * vF * smoothstep(0.15, 0.7, vD) * (1.0 + 0.7 * lum);
+  float g = realGap(vW); if (g > -900.0) a *= smoothstep(0.0, 0.4, -g);   // soft against real walls, people, hands: fog sits in the room instead of through it
+  gl_FragColor = vec4(uCol * uAmb * (0.85 + 0.15 * s.r) + vL * uLit * (0.6 + 0.4 * uCol), min(a, 0.9));
   #include <colorspace_fragment>
 }`;
 let cloudTex = null;
@@ -217,6 +263,14 @@ function cloud() {
   }
   g.globalCompositeOperation = 'destination-in'; const m = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2); m.addColorStop(0, '#fff'); m.addColorStop(0.7, 'rgba(255,255,255,0.5)'); m.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = m; g.fillRect(0, 0, S, S);
   cloudTex = new THREE.CanvasTexture(c); cloudTex.colorSpace = THREE.SRGBColorSpace; return cloudTex;
+}
+
+// out-of-focus softening for a flat card: the texture is read from a coarser mip level (bias set per frame from the focus pull)
+function biasMat(m) {
+  const u = { value: 0 };
+  m.onBeforeCompile = sh => { sh.uniforms.uBias = u; sh.fragmentShader = 'uniform float uBias;\n' + sh.fragmentShader.replace('#include <map_fragment>', '#ifdef USE_MAP\n vec4 sampledDiffuseColor = texture2D( map, vMapUv, uBias ); diffuseColor *= sampledDiffuseColor;\n#endif'); };
+  m.customProgramCacheKey = () => 'mpBias';
+  return u;
 }
 
 // ------------------------------------------------------------------ base prop (the interface xr.js drives: obj, hit, grab, hold, release, scaleTo, corner / knob)
@@ -284,10 +338,10 @@ class BoxProp extends Prop {
 
 class Puddle extends BoxProp {
   constructor(mp) {
-    super(mp, 'puddle'); this.matte = 'SCATTERED'; this.wet = 0.5; this.soft = 0.06; this.rip = 0.8; this.rain = 0.6; this.refl = 1; this.inv = false; this.dark = 0.6;
+    super(mp, 'puddle'); this.matte = 'SCATTERED'; this.wet = 0.5; this.soft = 0.06; this.rip = 0.8; this.rain = 0.6; this.refl = 1; this.inv = false; this.dark = 0.6; this.stone = 1;
     this.U = {
       uMatte: { value: DUMMY }, uS0: { value: DUMMY }, uS1: { value: DUMMY }, uS2: { value: DUMMY }, uS3: { value: DUMMY }, uWet: { value: 0.5 }, uSoft: { value: 0.06 }, uInv: { value: 0 }, uRip: { value: 0.8 }, uRain: { value: 0.6 },
-      uRefl: { value: 1 }, uT: { value: 0 }, uDark: { value: 0.55 }, uSize: { value: 3 }, uSky: { value: new THREE.Color(0.014, 0.02, 0.032) }, uTint: { value: new THREE.Color(0.1, 0.5, 0.6) },
+      uRefl: { value: 1 }, uT: { value: 0 }, uDark: { value: 0.55 }, uSize: { value: 3 }, uCobble: { value: 0 }, uStreak: { value: 0 }, uBump: { value: 0.9 }, uTile: { value: new THREE.Vector2(1, 1) }, uFocus: { value: new THREE.Vector2(3, 0) }, uSky: { value: new THREE.Color(0.014, 0.02, 0.032) }, uTint: { value: new THREE.Color(0.1, 0.5, 0.6) },
       uSI: { value: [0, 1, 2, 3].map(() => new THREE.Matrix4()) }, uSD: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
     };
     this.mat = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: PUD_V, fragmentShader: PUD_F, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide,
@@ -300,15 +354,17 @@ class Puddle extends BoxProp {
   setMatte(name) { this.matte = name; this.U.uMatte.value = this.mp.matteTex(name, () => { this.U.uMatte.value = this.mp.matteTex(name); }); this.save(); }
   tick(dt) {
     const U = this.U; this.t += dt; U.uT.value = this.t; U.uWet.value = this.wet; U.uSoft.value = this.soft; U.uInv.value = this.inv ? 1 : 0; U.uRip.value = this.rip; U.uRain.value = this.rain; U.uRefl.value = this.refl; U.uDark.value = this.dark;
+    const cob = this.matte === 'COBBLES'; U.uCobble.value = cob ? 1 : 0; U.uStreak.value = cob ? 1 : 0; U.uTile.value.set(cob ? this.w / (0.6 * this.stone) : 1, cob ? this.d / (0.6 * this.stone) : 1);
+    U.uFocus.value.set(this.mp.focus.dist, this.mp.focus.on ? this.mp.focus.ap : 0);
     this.obj.updateWorldMatrix(true, false); _v.setFromMatrixPosition(this.obj.matrixWorld);
     const list = this.mp.neonsNear(_v, 4);
     for (let i = 0; i < 4; i++) {
       const n = list[i], d = U.uSD.value[i];
-      if (n) { n.obj.updateWorldMatrix(true, false); U.uSI.value[i].copy(n.obj.matrixWorld).invert(); d.set(n.hw, n.hh, n.lit(), 0); U['uS' + i].value = n.tex; } else { d.set(0, 0, 0, 0); U['uS' + i].value = DUMMY; }
+      if (n) { const r = n.refObj(), hh = n.refHalf(); r.updateWorldMatrix(true, false); U.uSI.value[i].copy(r.matrixWorld).invert(); d.set(hh[0], hh[1], n.lit(), 0); U['uS' + i].value = n.tex; } else { d.set(0, 0, 0, 0); U['uS' + i].value = DUMMY; }
     }
   }
-  snap() { return { ...this.base(), w: this.w, d: this.d, matte: this.matte, wet: this.wet, rip: this.rip, rain: this.rain, refl: this.refl, inv: this.inv, soft: this.soft, dark: this.dark }; }
-  apply(d) { for (const k of ['wet', 'rip', 'rain', 'refl', 'inv', 'soft', 'dark']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.setSize(d.w || 3, d.d || 3); if (d.matte) this.setMatte(d.matte); }
+  snap() { return { ...this.base(), w: this.w, d: this.d, matte: this.matte, wet: this.wet, rip: this.rip, rain: this.rain, refl: this.refl, inv: this.inv, soft: this.soft, dark: this.dark, stone: this.stone }; }
+  apply(d) { for (const k of ['wet', 'rip', 'rain', 'refl', 'inv', 'soft', 'dark', 'stone']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.setSize(d.w || 3, d.d || 3); if (d.matte) this.setMatte(d.matte); }
 }
 
 class Rain extends BoxProp {
@@ -332,11 +388,12 @@ class Rain extends BoxProp {
 
 class Fog extends BoxProp {
   constructor(mp) {
-    super(mp, 'fog'); this.w = 4; this.d = 4; this.h = 2.5; this.den = 0.5; this.smoke = false; this.col = 0; this.speed = 1;
+    super(mp, 'fog'); this.w = 4; this.d = 4; this.h = 2.5; this.den = 0.4; this.smoke = false; this.col = 0; this.speed = 1; this.amb = 0.3; this.lit = 1; this.dep = true;
     const N = 30, base = new THREE.PlaneGeometry(1, 1), geo = new THREE.InstancedBufferGeometry(); geo.index = base.index; geo.setAttribute('position', base.attributes.position); geo.instanceCount = N;
     const aC = new Float32Array(N * 3), aP = new Float32Array(N * 3); for (let i = 0; i < N * 3; i++) { aC[i] = Math.random(); aP[i] = Math.random(); }
     geo.setAttribute('aC', new THREE.InstancedBufferAttribute(aC, 3)); geo.setAttribute('aP', new THREE.InstancedBufferAttribute(aP, 3));
-    this.U = { uBox: { value: new THREE.Vector3(4, 2.5, 4) }, uT: { value: 0 }, uSpeed: { value: 1 }, uSmoke: { value: 0 }, uSize: { value: 2 }, uTex: { value: cloud() }, uCol: { value: new THREE.Color(FOG_COLORS[0][1]) }, uDen: { value: 0.5 } };
+    this.U = { uBox: { value: new THREE.Vector3(4, 2.5, 4) }, uT: { value: 0 }, uSpeed: { value: 1 }, uSmoke: { value: 0 }, uSize: { value: 2 }, uTex: { value: cloud() }, uCol: { value: new THREE.Color(FOG_COLORS[0][1]) }, uDen: { value: 0.5 }, uAmb: { value: 0.5 }, uLit: { value: 1 }, uLP: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, -99, 0, 1)) }, uLC: { value: [0, 1, 2, 3].map(() => new THREE.Vector3()) },
+      uDepth: { value: null }, uDOn: { value: 0 }, uDLayer: { value: 0 }, uDView: { value: new THREE.Matrix4() }, uDProj: { value: new THREE.Matrix4() }, uDInvProj: { value: new THREE.Matrix4() }, uDNorm: { value: new THREE.Matrix4() } };
     this.mat = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: FOG_V, fragmentShader: FOG_F, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
     this.mesh = new THREE.Mesh(geo, this.mat); this.mesh.frustumCulled = false; this.mesh.renderOrder = 5; noRay(this.mesh); this.obj.add(this.mesh);
     const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({ color: 0x39a8ff, transparent: true, opacity: 0.35, toneMapped: false }));
@@ -345,18 +402,23 @@ class Fog extends BoxProp {
     this.layout();
   }
   tick(dt) {
-    const U = this.U; this.t += dt; U.uT.value = this.t; U.uSpeed.value = this.speed; U.uSmoke.value = this.smoke ? 1 : 0; U.uDen.value = this.den * 0.9; U.uCol.value.set(FOG_COLORS[this.col % FOG_COLORS.length][1]);
+    const U = this.U; this.t += dt; U.uT.value = this.t; U.uSpeed.value = this.speed; U.uSmoke.value = this.smoke ? 1 : 0; U.uDen.value = this.den * 0.9; U.uCol.value.set(FOG_COLORS[this.col % FOG_COLORS.length][1]); U.uAmb.value = this.amb; U.uLit.value = this.lit;
+    this.obj.updateWorldMatrix(true, false); _v.setFromMatrixPosition(this.obj.matrixWorld); _v.y += this.h * 0.3;
+    const L = this.mp.neonsNear(_v, 4);
+    for (let i = 0; i < 4; i++) { const n = L[i]; if (n) { const li = n.light(); U.uLP.value[i].set(li.pos.x, li.pos.y, li.pos.z, li.r); U.uLC.value[i].set(li.col.r, li.col.g, li.col.b).multiplyScalar(li.k * 0.5); } else { U.uLP.value[i].set(0, -99, 0, 1); U.uLC.value[i].set(0, 0, 0); } }
+    const D = this.dep ? this.mp.depth : null; U.uDOn.value = D ? 1 : 0;
+    if (D) { U.uDepth.value = D.tex; U.uDLayer.value = D.layer; U.uDView.value.copy(D.view); U.uDProj.value.copy(D.proj); U.uDInvProj.value.copy(D.invProj); U.uDNorm.value.copy(D.norm); }
     U.uBox.value.set(this.w, this.h, this.d); U.uSize.value = clamp(0.35 * Math.max(this.w, this.d) + 0.5, 0.8, 3.6);
   }
-  snap() { return { ...this.base(), w: this.w, d: this.d, h: this.h, den: this.den, smoke: this.smoke, col: this.col, speed: this.speed }; }
-  apply(d) { for (const k of ['den', 'smoke', 'col', 'speed', 'h']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.setSize(d.w || 4, d.d || 4); }
+  snap() { return { ...this.base(), w: this.w, d: this.d, h: this.h, den: this.den, smoke: this.smoke, col: this.col, speed: this.speed, amb: this.amb, lit: this.lit, dep: this.dep }; }
+  apply(d) { for (const k of ['den', 'smoke', 'col', 'speed', 'h', 'amb', 'lit', 'dep']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.setSize(d.w || 4, d.d || 4); }
 }
 
 // wall props: a flat card (neon, graffiti) or a model, sized as a whole by the cube
 class NeonSign extends Prop {
   constructor(mp) {
     super(mp, 'neon', false); this.text = 'DIRRO DJ'; this.font = 0; this.vert = false; this.col = 0; this.frame = false; this.flick = 0.3; this.glow = 1; this.hw = 0.5; this.hh = 0.15; this.tex = DUMMY; this.fl = 1; this.seq = 0;
-    this.mat = new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, opacity: 1 });
+    this.mat = new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, opacity: 1 }); this.bias = biasMat(this.mat);
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat); this.mesh.renderOrder = 4; noRay(this.mesh); this.obj.add(this.mesh);
     mp.neons.push(this); this.mesh.visible = false; this.render();
   }
@@ -370,22 +432,55 @@ class NeonSign extends Prop {
   }
   set(k, v) { this[k] = v; if (['text', 'font', 'vert', 'col', 'frame'].includes(k)) this.render(); this.save(); }
   lit() { return this.mesh.visible ? this.fl * this.glow : 0; }
+  refObj() { return this.obj; }
+  refHalf() { return [this.hw, this.hh]; }
+  light() { this.obj.updateWorldMatrix(true, false); return { pos: _v3.setFromMatrixPosition(this.obj.matrixWorld).clone(), r: Math.max(this.hw, this.hh) * this.obj.scale.x * 4 + 0.5, col: new THREE.Color(COLORS[this.col % COLORS.length][1]), k: this.lit() * 0.9 }; }
   tick(dt) {
     this.t += dt;
     if (this.flick > 0) {   // buzzing tube: now and then a short dip, a stutter
       const r = Math.sin(this.t * 37) * Math.sin(this.t * 11.3 + 1.7), dip = r > 0.93 - this.flick * 0.12 ? 0.35 : 1; this.fl += (dip - this.fl) * Math.min(1, dt * 40);
     } else this.fl = 1;
-    this.mat.opacity = clamp(this.fl * (0.55 + 0.45 * this.glow), 0, 1.5);
+    this.mat.opacity = clamp(this.fl * (0.55 + 0.45 * this.glow), 0, 1.5); this.bias.value = this.mp.cocFor(this.obj);
   }
   dispose() { const i = this.mp.neons.indexOf(this); if (i >= 0) this.mp.neons.splice(i, 1); super.dispose(); }
   snap() { return { ...this.base(), text: this.text, font: this.font, vert: this.vert, col: this.col, frame: this.frame, flick: this.flick, glow: this.glow }; }
   apply(d) { for (const k of ['text', 'font', 'vert', 'col', 'frame', 'flick', 'glow']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.render(); }
 }
 
+class Lamp extends Prop {   // a warm glow (street lamp, window, bulb): a halo card that always faces the viewer, lights the fog and is reflected in the wet ground
+  constructor(mp) {
+    super(mp, 'lamp', false); this.col = 2; this.bright = 1; this.flick = 0; this.size = 0.7; this.fl = 1; this.tex = DUMMY; this.hw = this.hh = 0.35;
+    this.mat = new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }); this.mat.fog = false;
+    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat); this.mesh.renderOrder = 4; noRay(this.mesh); this.obj.add(this.mesh);
+    mp.neons.push(this); this.paint(); this.ringAt.set(-0.45, -0.45, 0); this.cubeAt.set(0.45, 0.45, 0); this.placeHandles();
+  }
+  paint() {
+    const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), col = COLORS[this.col % COLORS.length][1], gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.07, mix(col, 0.8)); gr.addColorStop(0.22, col); gr.addColorStop(0.5, col + '55'); gr.addColorStop(1, col + '00'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; const old = this.tex; this.tex = t; this.mat.map = t; this.mat.needsUpdate = true; if (old && old !== DUMMY) old.dispose();
+  }
+  set(k, v) { this[k] = v; if (k === 'col') this.paint(); this.save(); }
+  lit() { return this.bright * this.fl * 0.6; }
+  refObj() { return this.mesh; }
+  refHalf() { return [0.5, 0.5]; }
+  light() { this.obj.updateWorldMatrix(true, false); return { pos: _v3.setFromMatrixPosition(this.obj.matrixWorld).clone(), r: this.size * this.obj.scale.x * 5 + 0.5, col: new THREE.Color(COLORS[this.col % COLORS.length][1]), k: this.bright * this.fl * 1.3 }; }
+  tick(dt) {
+    this.t += dt;
+    if (this.flick > 0) { const r = Math.sin(this.t * 31) * Math.sin(this.t * 9.7 + 0.6), dip = r > 0.9 - this.flick * 0.1 ? 0.4 : 1; this.fl += (dip - this.fl) * Math.min(1, dt * 30); } else this.fl = 1;
+    const coc = this.mp.cocFor(this.obj), sz = this.size * (1 + coc * 0.32);   // out of focus: a bigger, fainter disc (bokeh)
+    this.mesh.scale.set(sz, sz, 1); this.mat.opacity = clamp(this.bright * this.fl / (1 + coc * 0.45), 0, 2);
+    const cam = this.mp.viewCam(); cam.updateMatrixWorld(); this.obj.updateWorldMatrix(true, false);
+    cam.getWorldQuaternion(_q2); this.obj.getWorldQuaternion(_q); this.mesh.quaternion.copy(_q.invert().multiply(_q2));   // always faces the viewer
+  }
+  dispose() { const i = this.mp.neons.indexOf(this); if (i >= 0) this.mp.neons.splice(i, 1); super.dispose(); }
+  snap() { return { ...this.base(), col: this.col, bright: this.bright, flick: this.flick, size: this.size }; }
+  apply(d) { for (const k of ['col', 'bright', 'flick', 'size']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.paint(); }
+}
+
 class Graffiti extends Prop {
   constructor(mp) {
     super(mp, 'graffiti', false); this.src = 'graff1.png'; this.tint = 1; this.bright = 1; this.opac = 1; this.glow = false; this.hw = 0.5; this.hh = 0.5; this.seq = 0;
-    this.mat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    this.mat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }); this.bias = biasMat(this.mat);
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat); this.mesh.renderOrder = 3; noRay(this.mesh); this.obj.add(this.mesh); this.mesh.visible = false; this.load();
   }
   async load() {
@@ -401,6 +496,7 @@ class Graffiti extends Prop {
     const asp = c.width / c.height, h = 1, w = asp; this.hw = w / 2; this.hh = h / 2; this.mesh.scale.set(w, h, 1); this.mesh.visible = true;
     this.ringAt.set(-this.hw - 0.07, -this.hh - 0.07, 0); this.cubeAt.set(this.hw + 0.07, this.hh + 0.07, 0); this.placeHandles(); this.look();
   }
+  tick() { this.bias.value = this.mp.cocFor(this.obj); }
   look() { const m = this.mat; m.blending = this.glow ? THREE.AdditiveBlending : THREE.NormalBlending; m.opacity = clamp(this.opac, 0, 1); m.color.setScalar(this.bright); m.needsUpdate = true; }
   set(k, v) { this[k] = v; if (k === 'src') this.tint = v === 'graff1.png' ? 1 : 0; if (k === 'src' || k === 'tint') this.load(); else this.look(); this.save(); }
   snap() { return { ...this.base(), src: this.src, tint: this.tint, bright: this.bright, opac: this.opac, glow: this.glow }; }
@@ -521,18 +617,34 @@ const _q2 = new THREE.Quaternion(), _v3 = new THREE.Vector3();
 // env: { rig, camera, renderer, toast }
 export class MovieProps {
   constructor(env) {
-    this.env = env; this.rig = env.rig; this.placer = new Placer(this); this.items = []; this.neons = []; this.selId = null; this.loaded = false; this.lists = { matte: [], glb: [], png: [] }; this.mattes = new Map(); this.saveT = 0;
+    this.env = env; this.rig = env.rig; this.placer = new Placer(this); this.items = []; this.neons = []; this.selId = null; this.loaded = false; this.lists = { matte: [], glb: [], png: [] }; this.mattes = new Map(); this.saveT = 0; this.depth = null; this.focus = { on: false, dist: 3, ap: 0.5, a: 2, b: 8, time: 3, rack: null }; this.loadCam();
     if (env.scene) this.placer.attach(env.scene);
     this.refreshLists();
   }
   props() { return this.items.filter(p => !p.dead); }
+  setDepth(D) { this.depth = D || null; }   // RealDepth.laserData() while the headset gives a depth map, else null (fog then ignores the real room)
+  viewCam() { return this.env.renderer.xr.isPresenting ? this.env.renderer.xr.getCamera() : this.env.camera; }
+  // out of focus: how many mip levels / how big a disc, for something at this object's distance (0 when FOCUS is off)
+  cocFor(o) {
+    const f = this.focus; if (!f.on) return 0; const cam = this.viewCam(); cam.updateMatrixWorld(); o.updateWorldMatrix(true, false);
+    const d = _v2.setFromMatrixPosition(o.matrixWorld).distanceTo(_v3.setFromMatrixPosition(cam.matrixWorld)); return Math.min(6, f.ap * 10 * Math.abs(d - f.dist) / Math.max(d, 0.3));
+  }
+  rack(toB) {   // pull the focus from A to B (or back) over RACK TIME
+    const f = this.focus; f.rack = { t: 0, from: toB ? f.a : f.b, to: toB ? f.b : f.a }; f.on = true; f.dist = f.rack.from;
+  }
+  tickFocus(dt) {
+    const r = this.focus.rack; if (!r) return; r.t += dt; const k = clamp(r.t / Math.max(0.2, this.focus.time), 0, 1), e = k * k * (3 - 2 * k);
+    this.focus.dist = Math.exp(Math.log(r.from) * (1 - e) + Math.log(r.to) * e); if (k >= 1) { this.focus.rack = null; this.saveCam(); }
+  }
+  saveCam() { try { const f = this.focus; localStorage.setItem(KEY + '.cam', JSON.stringify({ on: f.on, dist: f.dist, ap: f.ap, a: f.a, b: f.b, time: f.time })); } catch {} }
+  loadCam() { try { const d = JSON.parse(localStorage.getItem(KEY + '.cam') || 'null'); if (d) Object.assign(this.focus, d, { rack: null }); } catch {} }
   get sel() { return this.items.find(p => p === this.selected) || null; }
   select(p) { this.selected = p; }
   async refreshLists() { for (const k of Object.keys(this.lists)) this.lists[k] = await listFiles(k); this.listCb && this.listCb(); }
   matteTex(name, cb) {
     let e = this.mattes.get(name); if (e) return e.tex;
     const i = MATTES.indexOf(name);
-    if (i >= 0) { const t = new THREE.CanvasTexture(makeMatte(i)); t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; this.mattes.set(name, { tex: t }); return t; }
+    if (i >= 0) { const t = new THREE.CanvasTexture(makeMatte(i)); t.wrapS = t.wrapT = i === 4 ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping; t.anisotropy = 4; this.mattes.set(name, { tex: t }); return t; }
     this.mattes.set(name, { tex: DUMMY });   // uploaded picture: loads async, the puddle picks it up through cb
     getFile('matte', name).then(async f => {
       if (!f) return; const b = await createImageBitmap(f), c = document.createElement('canvas'); c.width = Math.min(1024, b.width); c.height = Math.min(1024, b.height);
@@ -550,14 +662,14 @@ export class MovieProps {
     return { p: new THREE.Vector3(l.x, floor ? 0.01 : Math.max(1.0, l.y - 0.25), l.z), yaw };
   }
   spawn(type, opt = {}) {
-    const P = { puddle: Puddle, rain: Rain, fog: Fog, neon: NeonSign, graffiti: Graffiti, glb: GlbProp }[type]; if (!P) return null;
+    const P = { puddle: Puddle, rain: Rain, fog: Fog, neon: NeonSign, graffiti: Graffiti, glb: GlbProp, lamp: Lamp }[type]; if (!P) return null;
     const p = new P(this), s = this.spot(p.floor); p.obj.position.copy(s.p); p.obj.rotation.set(0, s.yaw, 0); p.placeHandles();
     if (type === 'glb' && opt.src) p.load(opt.src); if (type === 'graffiti' && opt.src) { p.src = opt.src; p.tint = opt.src === 'graff1.png' ? 1 : 0; p.load(); }
     this.items.push(p); this.selected = p; this.save(); return p;
   }
   remove(p) { const i = this.items.indexOf(p); if (i >= 0) this.items.splice(i, 1); p.dispose(); if (this.selected === p) this.selected = this.items[this.items.length - 1] || null; this.save(); }
   clear() { for (const p of this.items.splice(0)) p.dispose(); this.selected = null; this.save(); }
-  tick(dt) { for (const p of this.items) p.tick(dt); if (this.saveT > 0 && (this.saveT -= dt) <= 0) this.saveNow(); }
+  tick(dt) { this.tickFocus(dt); for (const p of this.items) p.tick(dt); if (this.saveT > 0 && (this.saveT -= dt) <= 0) this.saveNow(); }
   save() { this.saveT = 0.6; }
   saveNow() { try { localStorage.setItem(KEY, JSON.stringify(this.items.filter(p => !p.dead).map(p => p.snap()))); } catch {} }
   load() {

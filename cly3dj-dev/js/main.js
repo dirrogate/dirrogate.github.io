@@ -929,7 +929,7 @@ function camCalStep() {   // per frame while on: a trigger press = one sample at
   }
 }
 function stepRealWorld(dt) {
-  if (!arMode || !renderer.xr.isPresenting) { if (realDepth) realDepth.clear(); if (laser) laser.setDepth(null); return; }
+  if (!arMode || !renderer.xr.isPresenting) { if (realDepth) realDepth.clear(); if (laser) laser.setDepth(null); if (mprops) mprops.setDepth(null); return; }
   const hasD = renderer.xr.hasDepthSensing && renderer.xr.hasDepthSensing();
   const occ = hasD ? renderer.xr.getDepthSensingMesh() : null;
   let rdOk = false;
@@ -943,6 +943,7 @@ function stepRealWorld(dt) {
   }
   if (occ) { if (!occ.userData.vireOcc) patchOcclusion(occ); occ.visible = !rdOk && settings.occlusion !== false; }   // fallback only
   if (laser) laser.setDepth(rdOk && settings.roomHits !== false && laser.on ? realDepth.laserData() : null);   // beams stop at real hands / people
+  if (mprops) mprops.setDepth(rdOk && settings.roomHits !== false ? realDepth.laserData() : null);   // #480 MOVIE PROPS fog is soft against real walls / people
   if (!laser || !laser.on) return;
   roomT += dt; if (roomT < 0.1) return; roomT = 0;
   const frame = renderer.xr.getFrame(), ref = renderer.xr.getReferenceSpace();
@@ -6103,13 +6104,28 @@ function drawLooperPage(page, T) {
   }
 }
 // #478 VJ TOOLS > MOVIE PROPS: spawn row, list of the props in the room (tap = select, X = remove) and the selected prop's controls
-let propsClearT = 0;
+let propsClearT = 0, mpTab = 'props';
 function drawPropsPage(T) {
   const { g, W, H, P, L, R, btn, head, note } = T;
-  const y0 = head('MOVIE PROPS', 'vj');
+  const y0 = head('MOVIE PROPS', 'vj', mprops ? { label: mpTab === 'cam' ? 'PROPS' : 'FOCUS', on: mpTab === 'cam', act: () => { mpTab = mpTab === 'cam' ? 'props' : 'cam'; drawMixScreen(); } } : null);
   if (!mprops) { note('Movie props are made on the headset / desktop page.', y0 + 10); return; }
   const mp = mprops, sel = mp.sel, items = mp.props();
-  const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', glb: 'GLB' };
+  if (mpTab === 'cam') {   // #480 FOCUS PULL: the virtual layer goes soft away from the focus distance (the real passthrough picture stays sharp)
+    const f = mp.focus, CR = P ? 36 : 32, cc = P ? 1 : 2, cg = 6, cw = (R - L - cg * (cc - 1)) / cc, chh = CR - 3, pc = v => Math.round(v * 100) + '%', logD = d => Math.log(clamp(d, 0.3, 30) / 0.3) / Math.log(100), sv = () => mp.saveCam();
+    const cells = [
+      { b: 1, label: f.on ? 'FOCUS PULL: ON' : 'FOCUS PULL: OFF', on: f.on, act: () => { f.on = !f.on; f.rack = null; sv(); drawMixScreen(); } },
+      { s: 1, label: 'DISTANCE', v: logD(f.dist), txt: f.dist.toFixed(1) + ' m', set: v => { f.dist = 0.3 * Math.pow(100, v); f.rack = null; f.on = true; sv(); } },
+      { s: 1, label: 'APERTURE', v: f.ap, txt: pc(f.ap), set: v => { f.ap = v; sv(); } },
+      { b: 1, label: 'FOCUS ON SELECTED PROP', act: () => { const p = mp.sel; if (!p) return; const c = mp.viewCam(); c.updateMatrixWorld(); p.obj.updateWorldMatrix(true, false); f.dist = clamp(new THREE.Vector3().setFromMatrixPosition(p.obj.matrixWorld).distanceTo(new THREE.Vector3().setFromMatrixPosition(c.matrixWorld)), 0.3, 30); f.on = true; f.rack = null; sv(); drawMixScreen(); }, dim: !sel },
+      { b: 1, label: `SET A (${f.a.toFixed(1)} m)`, act: () => { f.a = f.dist; sv(); drawMixScreen(); } }, { b: 1, label: `SET B (${f.b.toFixed(1)} m)`, act: () => { f.b = f.dist; sv(); drawMixScreen(); } },
+      { s: 1, label: 'RACK TIME', v: (f.time - 0.5) / 19.5, txt: f.time.toFixed(1) + ' s', set: v => { f.time = 0.5 + v * 19.5; sv(); } },
+      { b: 1, label: 'RACK A > B', on: !!(f.rack && f.rack.to === f.b), act: () => { mp.rack(true); drawMixScreen(); } }, { b: 1, label: 'RACK B > A', on: !!(f.rack && f.rack.to === f.a), act: () => { mp.rack(false); drawMixScreen(); } },
+    ];
+    cells.forEach((c, i) => { const x = L + (i % cc) * (cw + cg), y = y0 + 4 + Math.floor(i / cc) * CR; if (c.s) tSlider(g, x, y, cw, chh, c.label, c.v, c.txt, c.set); else btn(x, y, cw, chh, c.label, c.on, c.act, c.dim, P ? 15 : 13); });
+    note('Neon, graffiti, lamp halos and the puddle reflections go soft the further they are from the focus distance; lamps open into bigger, fainter discs. The real passthrough picture cannot be blurred, so keep APERTURE low for a natural look.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 14);
+    return;
+  }
+  const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', glb: 'GLB', lamp: 'LAMP' };
   const spawn = k => {
     const o = {};
     if (k === 'glb') { if (!mp.lists.glb.length) { toast('Add a .glb first (ADD GLB, on the GLB prop that appears)', 3500); } else o.src = mp.lists.glb[0]; }
@@ -6118,12 +6134,12 @@ function drawPropsPage(T) {
     toast(p && p.floor ? NAMES[k] + ' in front of you. Grip the ring on its post to carry it, trigger the cube to size it.' : NAMES[k] + ' in front of you. Grip the ring to carry it, trigger the cube to size it (or grip with both hands and stretch).', 4200);
     drawMixScreen();
   };
-  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti']];
-  const per = P ? 3 : 6, gap = 6, bw = (R - L - gap * (per - 1)) / per, bh = P ? 44 : 34;
+  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['LAMP +', 'lamp']];
+  const per = P ? 4 : 7, gap = 6, bw = (R - L - gap * (per - 1)) / per, bh = P ? 44 : 34;
   kinds.forEach(([l, k], i) => btn(L + (i % per) * (bw + gap), y0 + Math.floor(i / per) * (bh + 6), bw, bh, l, false, () => spawn(k), false, P ? 16 : 14));
   const top = y0 + Math.ceil(kinds.length / per) * (bh + 6) + 4;
   // ---- list of props
-  const RH = P ? 36 : 30, listW = P ? R - L : 214, rowsMax = P ? 3 : Math.max(2, Math.floor((H - top - 8 - 2 * RH) / RH));
+  const RH = P ? 33 : 30, listW = P ? R - L : 214, rowsMax = P ? 3 : Math.max(2, Math.floor((H - top - 8 - 2 * RH) / RH));
   const n = items.length, si = Math.max(0, items.indexOf(sel)), start = n <= rowsMax ? 0 : Math.max(0, Math.min(si - Math.floor(rowsMax / 2), n - rowsMax));
   const det = p => p.type === 'puddle' ? p.matte : p.type === 'neon' ? p.text.replace(/\n/g, ' ') : (p.type === 'graffiti' || p.type === 'glb') ? (p.src || '(none)') : '';
   for (let r = 0; r < rowsMax && start + r < n; r++) {
@@ -6152,22 +6168,27 @@ function drawPropsPage(T) {
     const names = [...MATTES, ...mp.lists.matte];
     cells.push(B('MATTE: ' + sel.matte, false, () => sel.setMatte(cyc(names, sel.matte))), B(sel.inv ? 'INVERT: ON' : 'INVERT', sel.inv, () => { sel.inv = !sel.inv; }),
       B('ADD MATTE PICTURE', false, () => mp.pickFile('matte', 'image/*', nm => { sel.setMatte(nm); drawMixScreen(); })),
-      B('USE ' + MATTES[0], false, () => sel.setMatte(MATTES[0]), sel.matte === MATTES[0]),
+      B('WET COBBLES', sel.matte === 'COBBLES', () => { sel.setMatte('COBBLES'); sel.refl = Math.max(sel.refl, 1.2); }),
       S('WETNESS', sel.wet, pc(sel.wet), v => { sel.wet = v; }), S('RIPPLES', sel.rip, pc(sel.rip), v => { sel.rip = v; }),
       S('RAIN DROPS', sel.rain / 2, pc(sel.rain / 2), v => { sel.rain = v * 2; }), S('REFLECTION', sel.refl / 2, pc(sel.refl / 2), v => { sel.refl = v * 2; }),
-      S('DARKEN', sel.dark, pc(sel.dark), v => { sel.dark = v; }), sizeBox());
+      S('DARKEN', sel.dark, pc(sel.dark), v => { sel.dark = v; }), ...(sel.matte === 'COBBLES' ? [S('STONE SIZE', (sel.stone - 0.4) / 2.6, Math.round(sel.stone * 10) + ' cm', v => { sel.stone = 0.4 + v * 2.6; })] : []), sizeBox());
   } else if (sel.type === 'rain') {
     cells.push(S('AMOUNT', sel.amt, pc(sel.amt), v => { sel.amt = v; }), S('SPEED', (sel.speed - 2) / 12, sel.speed.toFixed(1) + ' m/s', v => { sel.speed = 2 + v * 12; }),
       S('STREAK LENGTH', sel.len / 1.5, Math.round(sel.len * 100) + ' cm', v => { sel.len = v * 1.5; }), S('WIND', (sel.wind + 1) / 2, sel.wind.toFixed(2), v => { sel.wind = v * 2 - 1; }), heightS(), sizeBox());
   } else if (sel.type === 'fog') {
     cells.push(S('DENSITY', sel.den, pc(sel.den), v => { sel.den = v; }), S('DRIFT', (sel.speed - 0.2) / 3, sel.speed.toFixed(1) + 'x', v => { sel.speed = 0.2 + v * 3; }), heightS(), sizeBox(),
-      B('COLOR: ' + FOG_COLORS[sel.col % FOG_COLORS.length][0], false, () => { sel.col = (sel.col + 1) % FOG_COLORS.length; }), B(sel.smoke ? 'MODE: SMOKE (rises)' : 'MODE: FOG (low)', sel.smoke, () => { sel.smoke = !sel.smoke; }));
+      B('COLOR: ' + FOG_COLORS[sel.col % FOG_COLORS.length][0], false, () => { sel.col = (sel.col + 1) % FOG_COLORS.length; }), B(sel.smoke ? 'MODE: SMOKE (rises)' : 'MODE: FOG (low)', sel.smoke, () => { sel.smoke = !sel.smoke; }),
+      S('AMBIENT', sel.amb, pc(sel.amb), v => { sel.amb = v; }), B(sel.lit ? 'LIT BY LAMPS / NEON: ON' : 'LIT BY LAMPS / NEON: OFF', !!sel.lit, () => { sel.lit = sel.lit ? 0 : 1; }),
+      B(sel.dep ? 'DEPTH-AWARE (real room): ON' : 'DEPTH-AWARE (real room): OFF', sel.dep, () => { sel.dep = !sel.dep; }));
   } else if (sel.type === 'neon') {
     cells.push(B('EDIT TEXT', false, () => openKbd('NEON TEXT', sel.text, false, 40, t => sel.set('text', t.trim() || ' '), 'props')),
       B('PRESET ▶', false, () => sel.set('text', cyc(PRESETS, sel.text))), B('FONT: ' + NEON_FONTS[sel.font], false, () => sel.set('font', (sel.font + 1) % NEON_FONTS.length)),
       B(sel.vert ? 'VERTICAL' : 'HORIZONTAL', sel.vert, () => sel.set('vert', !sel.vert)), B('COLOR: ' + COLORS[sel.col][0], false, () => sel.set('col', (sel.col + 1) % COLORS.length)),
       B(sel.frame ? 'FRAME: ON' : 'FRAME', sel.frame, () => sel.set('frame', !sel.frame)),
       S('FLICKER', sel.flick, pc(sel.flick), v => { sel.flick = v; }), S('GLOW', sel.glow / 1.5, pc(sel.glow / 1.5), v => { sel.glow = v * 1.5; }), sizeUni());
+  } else if (sel.type === 'lamp') {
+    cells.push(B('COLOR: ' + COLORS[sel.col % COLORS.length][0], false, () => sel.set('col', (sel.col + 1) % COLORS.length)), S('BRIGHTNESS', sel.bright / 2, pc(sel.bright / 2), v => { sel.bright = v * 2; }),
+      S('FLICKER', sel.flick, pc(sel.flick), v => { sel.flick = v; }), sizeUni());
   } else if (sel.type === 'graffiti') {
     const names = [...GRAFF_BUILTIN, ...mp.lists.png];
     cells.push(B('PICTURE: ' + sel.src, false, () => sel.set('src', cyc(names, sel.src))), B('ADD PNG', false, () => mp.pickFile('png', 'image/png,image/webp,image/*', nm => { sel.set('src', nm); drawMixScreen(); })),
@@ -8374,7 +8395,7 @@ try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media
 window.vire = { THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._loop = { loopClip, loopCopy, loopPaste, loopUndo, loopUndoDo, loopDeleteBank, looper, loopSlots, loopUI, pressLooper, clearLooper, loopSlotTap, loopRegion, loopNudge, loopSaveBank, loopLoadBank, loopOpenBanks, stepLooper, releaseLooper };   // #470 test hook
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
-window.vire._mp = { get mp() { return mprops; } };   // #478 test hook
+window.vire._mp = { get mp() { return mprops; }, setTab: t => { mpTab = t; } };   // #478 test hook
 window.vire._laser = { laser, laserTap, camCal, camCalStart, camCalStop };   // #415 camCal test hook   // #406 test hook
 window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, milkSleeveHit, layoutMilkSleeves, gpSummon, goproReset, gopro2, setDomeEv, get plJump() { return plJump; }, msFly };   // #394 / #395 test hooks   // #392 / #393 test hooks
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138
