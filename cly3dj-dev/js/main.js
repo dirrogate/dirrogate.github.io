@@ -10,7 +10,8 @@ import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeN
 import { makeLedWall, LedPlayer, LED } from './ledwall.js';
 import { WallFx, LOOP, RP_DEF, MP_DEF, FX_W, FX_H, PX_DEF, pxSize, OUT_W, OUT_H } from './wallfx.js';   // #439 MANDEL / RETRO-SCENE on the LED wall (and the phones)
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose, AV_LAYER } from './director.js';
-import { Streamer, SOURCES as STREAM_SRC, streamKey, STUDIO_MODES } from './stream.js';   // #380 STUDIO_MODES
+import { Streamer, SOURCES as STREAM_SRC, streamKey, STUDIO_MODES } from './stream.js';
+import { onRelayFallback } from './net-link.js';   // #467 note on the tablet when a handshake falls back to ntfy.sh   // #380 STUDIO_MODES
 import { KEY_LABEL } from './keycol.js';   // #347 key colour names   // #331 LIVE STREAM (Twitch)
 import { GoPro, ZOOMS as GOPRO_ZOOMS } from './gopro.js';
 import { RealDepth } from './realdepth.js';
@@ -1158,6 +1159,29 @@ const mixScreen = new Screen(768, 304);
 const mixScreenP = new Screen(304, 768); mixScreenP.texture.center.set(0.5, 0.5);
 let scrDir = 'up';
 const scr = () => (scrDir === 'up' ? mixScreen : mixScreenP), portrait = () => scrDir !== 'up';
+// #467 a small note strip on the tablet, over whatever page is open, for a few seconds (toast() is a desktop-only overlay,
+// invisible in the headset). Drawn at commit time, so every page gets it without each page knowing; cleared by a redraw.
+const tabNote = { text: '', until: 0, t: 0 };
+function tabletNote(text, ms = 5000) {
+  tabNote.text = text; tabNote.until = performance.now() + ms; toast(text, ms);
+  clearTimeout(tabNote.t); tabNote.t = setTimeout(() => { tabNote.text = ''; try { drawMixScreen(); } catch {} }, ms + 50);
+  try { drawMixScreen(); } catch {}   // (the phone's camera role has no tablet to draw)
+}
+function drawTabNote(s) {
+  const g = s.g, W = s.canvas.width, H = s.canvas.height, P = W < H;
+  const fs = P ? 13 : 15, bh = fs + 14, y = Math.round(H * (P ? 0.5 : 0.62)) - bh / 2;
+  g.save(); g.font = `600 ${fs}px system-ui, sans-serif`;
+  let t = tabNote.text; const max = W - 40; while (t.length > 4 && g.measureText(t).width > max - 24) t = t.slice(0, -2);
+  if (t !== tabNote.text) t = t.slice(0, -1) + '…';
+  const bw = Math.min(max, g.measureText(t).width + 24), x = (W - bw) / 2;
+  g.fillStyle = 'rgba(40, 26, 4, 0.92)'; g.strokeStyle = '#ffb020'; g.lineWidth = 1.5;
+  g.beginPath(); g.roundRect ? g.roundRect(x, y, bw, bh, 7) : g.rect(x, y, bw, bh); g.fill(); g.stroke();
+  g.fillStyle = '#ffd27a'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, W / 2, y + bh / 2 + 1);
+  g.restore();
+}
+for (const sc of [mixScreen, mixScreenP]) { const c0 = sc.commit.bind(sc); sc.commit = () => { if (tabNote.text && performance.now() < tabNote.until) drawTabNote(sc); c0(); }; }
+// #467 a WebRTC handshake (spectator phone, DirroTV) had to go through ntfy.sh because our relay hub didn't carry it
+onRelayFallback((what, how) => { tabletNote(`NTFY.SH FALLBACK · ${what}`, 6000); toast(`${what}: handshake ${how} via ntfy.sh (backup relay; relay.dirrodj.club hub not reached)`, 6000); });
 const vpPer = () => (scrDir === 'up' ? 8 : vpFolder === 'Pano' ? 8 : 10);   // #379 portrait PANO: 4 rows, the PANO SPIN slider under them   // thumbnails a page on the Video page (#206 portrait: 5 rows, a third tab row)
 function stepScrDir() {
   const dir = tabletDir(scrDir); if (dir === scrDir) return;

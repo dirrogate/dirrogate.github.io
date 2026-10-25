@@ -1,6 +1,7 @@
 // Spectator link (CLAUDE.md #158): a direct WebRTC data link between the Quest (host) and the phone
-// camera (spectator). The one-time handshake goes through ntfy.sh, a free public pub/sub relay: each side
-// listens on its own topic (Server-Sent Events) and posts to the other's. The offer and answer carry all
+// camera (spectator). The one-time handshake goes through a relay: #467 our own hub on relay.dirrodj.club first,
+// ntfy.sh (a free public pub/sub relay) as the fallback (see 'signalling' below): each side
+// listens on its own topic and posts to the other's. The offer and answer carry all
 // their network candidates in one message each (no trickle), so the handshake is two small posts. After it,
 // all traffic is phone <-> Quest on the local network. (The PeerJS cloud relay was tried first: it accepts
 // connections but no longer forwards messages, 29 Sep 2026.)
@@ -8,7 +9,6 @@
 // #185: a third, 'file' (reliable, binary): media library pushes from the phone, 64 KB chunks with backpressure.
 // #188: a fourth, 'prev' (unordered, no retransmits, binary): the phone's small preview JPEGs for the headset.
 
-const RELAY = 'https://ntfy.sh/';
 const ICE = [{ urls: 'stun:stun.l.google.com:19302' }];
 export const ID_PREFIX = 'cly3dj-v1-';
 
@@ -36,41 +36,136 @@ export function opusStereo(sdp) {
     ? `a=fmtp:${pt} ${p.replace(/;?(stereo|sprop-stereo|maxaveragebitrate)=[^;]*/g, '')};stereo=1;sprop-stereo=1;maxaveragebitrate=160000\r\n` : line);
 }
 
-// Signalling: listen on our topic, post to theirs. Reconnects by itself (EventSource does).
+// ---------------------------------------------------------------- signalling (#467)
+// Our own hub first: the SigHub Durable Object on the Cloudflare relay (cloudflare-relay/worker.js, /s/<topic>). A page listens on its
+// topic over a WebSocket; a message is POSTed to the other side's topic and the hub says how many listeners it reached. When it
+// reaches nobody (hub down, not deployed, blocked, or the other side is an older page that only listens on ntfy.sh), the same
+// message goes through ntfy.sh in the #360 parts format. Every page listens on BOTH, so a hub page and an ntfy-only page still
+// meet. Each message carries a mid, so one that arrives both ways counts once. Using ntfy.sh calls the fallback hook
+// (main.js: a small note on the tablet).
+const NTFY = 'https://ntfy.sh/';
+const SIG_DEFAULT = 'https://relay.dirrodj.club';
+const SIG_KEY = 'vire.sigRelay';   // localStorage: 'off' = ntfy.sh only (for tests); 'https://host' = another hub
+function sigBase() {
+  let v = ''; try { v = localStorage.getItem(SIG_KEY) || ''; } catch {}
+  if (v === 'off') return '';
+  return (v || SIG_DEFAULT).trim().replace(/^ws/i, 'http').replace(/\/+$/, '');
+}
+const HUB_WAIT = 3000;   // listening: wait this long for the hub before calling ntfy.sh alone 'ready'
+const POST_WAIT = 4000;  // sending: the hub's answer to a post, at most
+const PING_MS = 20000;   // keeps the hub socket fresh (answered by the hub without waking it)
+
+let fbHook = null; const fbLast = new Map();
+export function onRelayFallback(fn) { fbHook = fn; }   // fn(what, how): how = 'sent' | 'received'
+function fellBack(what, how) {
+  console.info(`[net-link] ${what}: handshake ${how} via ntfy.sh (fallback)`);
+  const now = Date.now(); if (now - (fbLast.get(what) || 0) < 20000) return; fbLast.set(what, now);   // one note per link per 20 s
+  try { fbHook && fbHook(what, how); } catch {}
+}
+async function hubPost(dst, body) {   // -> listeners reached; 0 when the hub is off, down, old (no /s/ route) or nobody listens
+  const base = sigBase(); if (!base) return 0;
+  const ac = typeof AbortController === 'function' ? new AbortController() : null, t = ac && setTimeout(() => ac.abort(), POST_WAIT);
+  try {
+    const r = await fetch(base + '/s/' + encodeURIComponent(dst), { method: 'POST', body, signal: ac ? ac.signal : undefined });   // text body: no CORS preflight
+    if (!r.ok) return 0;
+    const j = await r.json(); return j && j.n > 0 ? j.n : 0;
+  } catch { return 0; } finally { if (t) clearTimeout(t); }
+}
+async function ntfyPost(dst, txt, mid) {   // #360 parts (older pages read these too); throws when ntfy.sh can't be reached
+  let z = 0, body = txt; try { body = await zip(txt); z = 1; } catch {}
+  const n = Math.ceil(body.length / PART);
+  const rs = await Promise.all(Array.from({ length: n }, (_, i) =>
+    fetch(NTFY + encodeURIComponent(dst), { method: 'POST', body: JSON.stringify({ part: 1, mid, i, n, z, d: body.slice(i * PART, (i + 1) * PART) }) })));
+  const bad = rs.find(r => !r.ok); if (bad) throw new Error('ntfy.sh ' + bad.status);
+}
+// one message to a topic: the hub, else ntfy.sh. Returns 'hub' | 'ntfy'; throws when neither got it out.
+async function deliver(dst, txt, what) {
+  const mid = token();
+  if (await hubPost(dst, JSON.stringify({ mid, m: txt }))) return 'hub';
+  await ntfyPost(dst, txt, mid); if (sigBase()) fellBack(what, 'sent'); return 'ntfy';   // (hub switched off on purpose: no note)
+}
+
+// Listen on our topic (hub WebSocket + ntfy.sh SSE), post to theirs. Both reconnect by themselves.
+// onStatus: 'relay' = ready to talk (hub up, or ntfy.sh up and the hub not there after HUB_WAIT), 'relay-retry' = neither is up.
 class Relay {
-  constructor(id, onMsg, onStatus) {
-    this.id = id; this.onMsg = onMsg; this.onStatus = onStatus || (() => {}); this.closed = false; this.seen = new Set();
-    const es = this.es = new EventSource(RELAY + encodeURIComponent(id) + '/sse');
-    es.onopen = () => this.onStatus('relay');
-    es.onerror = () => { if (!this.closed) this.onStatus('relay-retry'); };
+  constructor(id, onMsg, onStatus, what = 'Link') {
+    Object.assign(this, { id, onMsg, onStatus: onStatus || (() => {}), what, closed: false, seen: new Set(), ntSeen: new Set(), parts: new Map(),
+      ws: null, hubUp: false, ntUp: false, tries: 0, fbReady: false, hubT: 0, pingT: 0, waitT: 0 });
+    this.listenNtfy();
+    if (sigBase()) this.listenHub();
+  }
+  dup(mid) {
+    if (!mid) return false;
+    if (this.seen.has(mid)) return true;
+    this.seen.add(mid); if (this.seen.size > 300) this.seen.delete(this.seen.values().next().value);
+    return false;
+  }
+  got(m, mid, viaNtfy) {
+    if (this.closed || this.dup(mid)) return;
+    if (viaNtfy) fellBack(this.what, 'received');
+    this.onMsg(m);
+  }
+  fallbackReady() {   // ntfy.sh is up and the hub is not: talk through ntfy.sh
+    if (this.closed || this.hubUp || !this.ntUp || this.fbReady) return;
+    this.fbReady = true; this.onStatus('relay');
+  }
+  listenHub() {
+    if (this.closed) return;
+    let ws; try { ws = this.ws = new WebSocket(sigBase().replace(/^http/i, 'ws') + '/s/' + encodeURIComponent(this.id)); } catch { this.hubLost(); return; }
+    ws.onopen = () => {
+      if (this.ws !== ws) return;
+      this.tries = 0; this.hubUp = true; this.fbReady = false; this.onStatus('relay');
+      clearInterval(this.pingT); this.pingT = setInterval(() => { try { ws.send('{"k":"ping"}'); } catch {} }, PING_MS);
+    };
+    ws.onmessage = e => {
+      if (typeof e.data !== 'string' || e.data.startsWith('{"k":"pong"')) return;
+      let w, m; try { w = JSON.parse(e.data); m = JSON.parse(w.m); } catch { return; }
+      this.got(m, w.mid, false);
+    };
+    ws.onclose = () => { if (this.ws !== ws) return; this.ws = null; clearInterval(this.pingT); this.hubUp = false; this.hubLost(); };
+  }
+  hubLost() {
+    if (this.closed) return;
+    if (this.ntUp) this.fallbackReady(); else this.onStatus('relay-retry');
+    const d = Math.min(15000, 1000 * 2 ** Math.min(this.tries++, 4));   // 1, 2, 4, 8, 15 s
+    clearTimeout(this.hubT); this.hubT = setTimeout(() => this.listenHub(), d);
+  }
+  listenNtfy() {
+    let es; try { es = this.es = new EventSource(NTFY + encodeURIComponent(this.id) + '/sse'); } catch { return; }
+    es.onopen = () => {
+      this.ntUp = true;
+      if (!sigBase()) { this.onStatus('relay'); return; }   // hub switched off: ntfy.sh is the only way (no note)
+      clearTimeout(this.waitT); this.waitT = setTimeout(() => this.fallbackReady(), HUB_WAIT);
+    };
+    es.onerror = () => { this.ntUp = false; if (!this.closed && !this.hubUp) this.onStatus('relay-retry'); };
     es.onmessage = e => {
       let n, m; try { n = JSON.parse(e.data); m = JSON.parse(n.message); } catch { return; }
-      if (n.id && this.seen.has(n.id)) return; this.seen.add(n.id);
+      if (n.id) { if (this.ntSeen.has(n.id)) return; this.ntSeen.add(n.id); }
       if (m && m.part) { this.part(m); return; }
-      this.onMsg(m);
+      this.got(m, null, !!sigBase());   // an old-style single message (no mid)
     };
-    this.parts = new Map();
   }
   // #360 ntfy.sh turns a message over 4096 bytes into a file attachment (its text never arrives). An offer / answer
   // with the #238 video slot is ~3.3 KB on desktop Chrome and bigger on Android (more codecs + candidates), so every
-  // signalling message is gzipped, base64'd and sent in parts of at most PART chars, put back together here.
+  // ntfy.sh message is gzipped, base64'd and sent in parts of at most PART chars, put back together here.
   async part(m) {
     const k = m.mid; let e = this.parts.get(k);
     if (!e) { e = { got: new Array(m.n), have: 0, t: setTimeout(() => this.parts.delete(k), 30000) }; this.parts.set(k, e); }
     if (e.got[m.i] == null) { e.got[m.i] = m.d; e.have++; }
     if (e.have < m.n) return;
     clearTimeout(e.t); this.parts.delete(k);
-    try { const txt = m.z ? await unzip(e.got.join('')) : e.got.join(''); this.onMsg(JSON.parse(txt)); } catch (err) { console.warn('relay message', err); }
+    let msg; try { const txt = m.z ? await unzip(e.got.join('')) : e.got.join(''); msg = JSON.parse(txt); } catch (err) { console.warn('relay message', err); return; }
+    this.got(msg, k, !!sigBase());
   }
   async send(type, dst, payload) {
-    const txt = JSON.stringify({ type, src: this.id, payload });
-    let z = 0, body = txt; try { body = await zip(txt); z = 1; } catch {}
-    const n = Math.ceil(body.length / PART), mid = token();
-    for (let i = 0; i < n; i++)
-      fetch(RELAY + encodeURIComponent(dst), { method: 'POST', body: JSON.stringify({ part: 1, mid, i, n, z, d: body.slice(i * PART, (i + 1) * PART) }) })
-        .catch(() => this.onStatus('relay-retry'));
+    try { await deliver(dst, JSON.stringify({ type, src: this.id, payload }), this.what); }
+    catch { this.onStatus('relay-retry'); }
   }
-  close() { this.closed = true; try { this.es.close(); } catch {} }
+  close() {
+    this.closed = true; clearTimeout(this.hubT); clearTimeout(this.waitT); clearInterval(this.pingT);
+    try { this.es && this.es.close(); } catch {}
+    const ws = this.ws; this.ws = null; try { ws && ws.close(); } catch {}
+  }
 }
 
 // One peer connection with the two channels.
@@ -185,7 +280,7 @@ export function hostLink(code, handlers) {
       link.pipe = pipe;
     }
     if (pipe && m.src === pipe.remote) { try { await pipe.signal(m); } catch (e) { handlers.onStatus && handlers.onStatus('error: ' + e.message); } }
-  }, handlers.onStatus);
+  }, handlers.onStatus, 'Spectator phone');
   const link = { get pipe() { return pipe; }, set pipe(p) {}, send: (l, o) => !!pipe && pipe.send(l, o), get isOpen() { return !!pipe && pipe.isOpen; }, get fileOpen() { return !!pipe && pipe.fileOpen; },
     sendBin: buf => pipe ? pipe.sendBin(buf) : Promise.reject(new Error('not connected')),   // #206 media sync, Quest to phone
     get studioOk() { return !!pipe && pipe.isOpen && pipe.studioOk; },   // #380 the phone page has the studio slots
@@ -200,7 +295,7 @@ export function spectatorLink(code, handlers) {
   let pipe = null;
   const relay = new Relay(me, async m => { if (pipe && m.src === pipe.remote) { try { await pipe.signal(m); } catch (e) { handlers.onStatus && handlers.onStatus('error: ' + e.message); } } },
     s => { handlers.onStatus && handlers.onStatus(s); if (s === 'relay' && !pipe) { pipe = new Pipe(relay, ID_PREFIX + code, handlers); pipe.call().catch(e => handlers.onStatus && handlers.onStatus('error: ' + e.message));
-      const p0 = pipe; setTimeout(() => { if (pipe === p0 && !p0.isOpen && p0.pc.connectionState !== 'connecting') handlers.onStatus && handlers.onStatus('quest-offline'); }, 12000); } });
+      const p0 = pipe; setTimeout(() => { if (pipe === p0 && !p0.isOpen && p0.pc.connectionState !== 'connecting') handlers.onStatus && handlers.onStatus('quest-offline'); }, 12000); } }, 'Quest');
   return { send: (l, o) => !!pipe && pipe.send(l, o), get isOpen() { return !!pipe && pipe.isOpen; }, get fileOpen() { return !!pipe && pipe.fileOpen; },
     sendBin: buf => pipe ? pipe.sendBin(buf) : Promise.reject(new Error('not connected')),
     sendPrev: buf => !!pipe && pipe.sendPrev(buf),
@@ -234,12 +329,11 @@ function preferH264(tx) {   // hardware encoders / decoders speak H.264 (Twitch 
 
 // Quest, pairing: hand the key to whichever TV shows this code
 export async function tvPairSend(code, key) {
-  const r = await fetch(RELAY + encodeURIComponent(TV_PAIR(code)), { method: 'POST', body: JSON.stringify({ type: 'PAIR', key }) });
-  if (!r.ok) throw new Error('relay ' + r.status);
+  await deliver(TV_PAIR(code), JSON.stringify({ type: 'PAIR', key }), 'DirroTV pairing');   // #467 hub first, ntfy.sh as the fallback
 }
 // TV, pairing: wait for the key (only a well-formed key from a PAIR message counts)
 export function tvPairListen(code, onKey, onStatus) {
-  const relay = new Relay(TV_PAIR(code), m => { if (m && m.type === 'PAIR' && typeof m.key === 'string' && KEY_OK.test(m.key)) onKey(m.key); }, onStatus);
+  const relay = new Relay(TV_PAIR(code), m => { if (m && m.type === 'PAIR' && typeof m.key === 'string' && KEY_OK.test(m.key)) onKey(m.key); }, onStatus, 'Quest (pairing)');
   return { close: () => relay.close() };
 }
 
@@ -262,7 +356,7 @@ export function tvConnect(key, h) {
       await pc.setLocalDescription(await pc.createOffer()); await gather(pc);
       if (!closed) relay.send('OFFER', TV_HOST(key), { sdp: pc.localDescription.toJSON() });
     } catch (e) { h.onStatus && h.onStatus('error: ' + e.message); }
-  });
+  }, 'Quest (DirroTV)');
   return {
     get pc() { return pc; },
     ctl: o => { if (ctl && ctl.readyState === 'open') { ctl.send(JSON.stringify(o)); return true; } return false; },
@@ -302,7 +396,7 @@ export function tvHost(key, h) {
       await p.setLocalDescription(await p.createAnswer()); await gather(p);
       if (p === pc) relay.send('ANSWER', m.src, { sdp: p.localDescription.toJSON() });
     } catch (e) { h.onStatus && h.onStatus('error: ' + e.message); }
-  }, s => { h.onStatus && h.onStatus(s); if (s === 'relay') onReady(); });
+  }, s => { h.onStatus && h.onStatus(s); if (s === 'relay') onReady(); }, 'DirroTV');
   const link = {
     ready, get pc() { return pc; }, get isUp() { return !!pc && pc.connectionState === 'connected'; },
     ctl: o => { if (ctl && ctl.readyState === 'open') { ctl.send(JSON.stringify(o)); return true; } return false; },
