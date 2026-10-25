@@ -602,7 +602,7 @@ function nextLedMode(m) {   // OFF > CLIPS > VIDVINYL ('decks') > MANDEL > RETRO
   return 'off';
 }
 function clipsMode() { if (isLive(ledMode) && spect && spect.liveCam && !streamPhone()) spect.liveCam(false); ledMode = 'clips'; led.kind = null; fxTex = null; }   // #238 a clip from the LED list ends LIVE
-const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED VIDVINYL', mandel: 'LED MANDEL', retro: 'LED RETRO-SCENE', card: 'LED CARD', vdancer: 'LED VECTOR-DANCER', meta: 'LED METABALLS', cam: 'LED AVACAM', live: 'LED LIVE', solo: 'LED SOLO', screen: 'LED PHONE SCREEN' };
+const LED_LABEL = { off: 'LED OFF', clips: 'LED CLIPS', decks: 'LED VIDVINYL', mandel: 'LED MANDEL', retro: 'LED RETRO-SCENE', card: 'LED CARD', vdancer: 'LED VECTOR-DANCER', meta: 'LED METABALLS', cam: 'LED DIRRODJ', live: 'LED LIVE', solo: 'LED SOLO', screen: 'LED PHONE SCREEN' };
 let phoneScreen = false;   // #358 the spectator phone is sharing its screen (its video slot carries it)
 function onPhoneScreen(on) {
   phoneScreen = on;
@@ -4851,7 +4851,7 @@ function drawDjCamTab(btn, y0) {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   const on = ledMode === 'cam';
   const top = [
-    ['LED AVACAM', on, () => setLedMode(on ? 'off' : 'cam')],   // #240 was LED CAM
+    ['LED DIRRODJ', on, () => setLedMode(on ? 'off' : 'cam')],   // #240 was LED CAM
     ['MIRROR', djSet.mirror, () => setDjMirror(!djSet.mirror)],
     ['AVATAR', djSet.avatar, () => setDjAvatar(!djSet.avatar)],
     [djSet.style === 'human' ? 'STYLE: HUMAN' : 'STYLE: ROBOT', false, () => setDjStyle(djSet.style === 'human' ? 'robot' : 'human')],
@@ -4865,7 +4865,7 @@ function drawDjCamTab(btn, y0) {
   const ty = y0b + 50 + Math.ceil(keys.length / pp) * 42 + 18;
   g.fillStyle = '#8c96a8'; g.font = '500 16px system-ui'; g.textAlign = 'left';
   const av = !avatar ? 'no avatar' : avatar.status === 'ready' ? 'avatar ready' : 'avatar ' + avatar.status;
-  const lines = [`${av} · ${on && djcam ? `cam ${djcam.ms.toFixed(1)} ms a frame (every 3rd headset frame)` : 'LED wall not on AVACAM'}`,
+  const lines = [`${av} · ${on && djcam ? `cam ${djcam.ms.toFixed(1)} ms a frame (every 3rd headset frame)` : 'LED wall not on DirroDJ'}`,
     'Look at the LED wall to put the camera in the Meta cast.'];
   lines.forEach((t, i) => fitText2(g, t, 12, Math.min(H - 12, ty + i * 24), W - 24));
 }
@@ -6172,7 +6172,7 @@ function drawToolsPage() {
       ['PICTURES', ledMode === 'clips' && !!led.img, () => setLedMode('clips', 'image'), !nOf('image')],
       ['MANDEL', ledMode === 'mandel', () => setLedMode('mandel'), false],
       ['RETRO-SCENE', ledMode === 'retro' || ledMode === 'vdancer' || ledMode === 'meta', () => { if (!isFxMode(ledMode) || ledMode === 'mandel') setLedMode('retro'); setTools('retro'); }, false],
-      ['AVACAM', ledMode === 'cam', () => setLedMode('cam'), !djcam || !pieceOn('ledwall')],
+      ['DIRRODJ', ledMode === 'cam', () => setLedMode('cam'), !djcam || !pieceOn('ledwall')],
       ['LIVE', isLive(ledMode), () => setLedMode('live'), !livePossible() || !pieceOn('ledwall')]];
     const tile = (x, y, w, h, [label, on, act, dim]) => {
       if (label !== 'RETRO-SCENE') { btn(x, y, w, h, label, on, dim ? null : act, dim, P ? 19 : 17); return; }
@@ -6399,7 +6399,7 @@ function drawToolsPage() {
         () => btn(x, y, w, h, chalkLbl(), !!(chalkboard && chalkboard.on), chalkTap, !chalkboard, fs),   // tap = out / away, double-tap = back to its spot
         () => btn(x, y, w, h, portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), portalsTap, !portals, fs),
         () => btn(x, y, w, h, 'PORTALS SETUP', false, portals ? () => setTools('portals') : null, !portals, fs),
-        () => btn(x, y, w, h, ledMode === 'cam' ? 'LED AVACAM: ON' : 'LED AVACAM', ledMode === 'cam', () => setLedMode(ledMode === 'cam' ? 'off' : 'cam'), false, fs),
+        () => btn(x, y, w, h, ledMode === 'cam' ? 'LED DIRRODJ: ON' : 'LED DIRRODJ', ledMode === 'cam', () => setLedMode(ledMode === 'cam' ? 'off' : 'cam'), false, fs),
         () => btn(x, y, w, h, 'CAM FIT', false, () => setTools('streamfit'), !streamer, fs),
         () => btn(x, y, w, h, 'PHONE CAM', !!(streamer && streamer.source === 'pcam'), openPhoneCam, !streamer, fs),
         () => btn(x, y, w, h, perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false, fs),
