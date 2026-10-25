@@ -35,6 +35,7 @@ import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.j
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
+import { MovieProps, COLORS, PRESETS, NEON_FONTS, FOG_COLORS, MATTES, GRAFF_BUILTIN, GRAFF_TINTS, removeFile } from './movieprops.js';   // #478 VJ TOOLS > MOVIE PROPS
 import { FX, USER_LAYER } from './fx.js';   // #379 VISUALS > FX: FLOAT and WATER
 import * as store from './storage.js';
 import * as loopDb from './loopbank.js';   // #470 loop slots and banks in private storage
@@ -68,6 +69,7 @@ const dirroMark = { want: '', t0: 0, prev: {} };   // #438 MARK LEFT / RIGHT: th
 let spect = null, spectErrShown = false;   // #158 spectator host (declared early: drawMixScreen reads it, #164)
 function saveSettings() { try { localStorage.setItem('vire.settings', JSON.stringify(settings)); } catch {} }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+let mprops = null;   // #478 MOVIE PROPS: puddles, rain, fog, GLBs, neon signs, graffiti
 let fx = null;   // #379 FLOAT / WATER (made next to the XR setup, once everything it looks at exists)
 const DECK_NAMES = ['A', 'B'];
 
@@ -5568,6 +5570,7 @@ function setTools(p) {
     else if (pcamAutoReh) { pcamAutoReh = false; if (!streamer.live && !monOn) streamer.setRehearse(false); }
   }
   if (p === 'pcamcrop') setTools.fitIv = setInterval(() => { if (toolsPage === 'pcamcrop') drawMixScreen(); }, 200);
+  if (p === 'props') setTools.fitIv = setInterval(() => { if (toolsPage === 'props') drawMixScreen(); }, 700);   // #478 prop list / names
   if (p === 'looper') setTools.fitIv = setInterval(() => { if (toolsPage === 'looper') drawMixScreen(); }, 100);   // #470 playhead, REC clock, armed blink
   if (p === 'perfcap') setTools.fitIv = setInterval(() => { if (toolsPage === 'perfcap') drawMixScreen(); }, 1000);   // #387 the clock and size
   if (p === 'studiokey') setTools.fitIv = setInterval(() => { if (toolsPage === 'studiokey') drawMixScreen(); }, 400);   // #385 the S8 KEY numbers and preview   // #353 the CROP picture, ~5 a second
@@ -5833,7 +5836,7 @@ const PINCH_FIT_DEF = {
   lh: { label: 'HAND LIFT', lo: -20, hi: 60, v: 10, unit: 'mm' }, lg: { label: 'GLOVE LIFT', lo: -20, hi: 60, v: 15, unit: 'mm' },
   pa: { label: 'PINCH TILT', lo: -60, hi: 60, v: 0, unit: '°' }, pt: { label: 'PINCH TURN', lo: -90, hi: 90, v: 0, unit: '°' },
 };
-const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'LED WALL', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'DIRROTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER' };   // #363 up-button names; #376
+const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'LED WALL', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'DIRROTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -6099,6 +6102,89 @@ function drawLooperPage(page, T) {
     logo(x, y, w, Math.max(40, H - 28 - y));
   }
 }
+// #478 VJ TOOLS > MOVIE PROPS: spawn row, list of the props in the room (tap = select, X = remove) and the selected prop's controls
+let propsClearT = 0;
+function drawPropsPage(T) {
+  const { g, W, H, P, L, R, btn, head, note } = T;
+  const y0 = head('MOVIE PROPS', 'vj');
+  if (!mprops) { note('Movie props are made on the headset / desktop page.', y0 + 10); return; }
+  const mp = mprops, sel = mp.sel, items = mp.props();
+  const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', glb: 'GLB' };
+  const spawn = k => {
+    const o = {};
+    if (k === 'glb') { if (!mp.lists.glb.length) { toast('Add a .glb first (ADD GLB, on the GLB prop that appears)', 3500); } else o.src = mp.lists.glb[0]; }
+    if (k === 'graffiti') o.src = 'graff1.png';
+    const p = mp.spawn(k, o);
+    toast(p && p.floor ? NAMES[k] + ' in front of you. Grip the ring on its post to carry it, trigger the cube to size it.' : NAMES[k] + ' in front of you. Grip the ring to carry it, trigger the cube to size it (or grip with both hands and stretch).', 4200);
+    drawMixScreen();
+  };
+  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti']];
+  const per = P ? 3 : 6, gap = 6, bw = (R - L - gap * (per - 1)) / per, bh = P ? 44 : 34;
+  kinds.forEach(([l, k], i) => btn(L + (i % per) * (bw + gap), y0 + Math.floor(i / per) * (bh + 6), bw, bh, l, false, () => spawn(k), false, P ? 16 : 14));
+  const top = y0 + Math.ceil(kinds.length / per) * (bh + 6) + 4;
+  // ---- list of props
+  const RH = P ? 36 : 30, listW = P ? R - L : 214, rowsMax = P ? 3 : Math.max(2, Math.floor((H - top - 8 - RH) / RH));
+  const n = items.length, si = Math.max(0, items.indexOf(sel)), start = n <= rowsMax ? 0 : Math.max(0, Math.min(si - Math.floor(rowsMax / 2), n - rowsMax));
+  const det = p => p.type === 'puddle' ? p.matte : p.type === 'neon' ? p.text.replace(/\n/g, ' ') : (p.type === 'graffiti' || p.type === 'glb') ? (p.src || '(none)') : '';
+  for (let r = 0; r < rowsMax && start + r < n; r++) {
+    const p = items[start + r], y = top + r * RH;
+    btn(L, y, listW - 40, RH - 4, `${NAMES[p.type]} ${det(p)}`.trim(), p === sel, () => { mp.select(p); drawMixScreen(); }, false, P ? 15 : 13);
+    btn(L + listW - 36, y, 36, RH - 4, '✕', false, () => { mp.remove(p); drawMixScreen(); }, false, 15);
+  }
+  const rows = Math.min(rowsMax, Math.max(n, 1));
+  if (!n) { g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; wrapText(g, 'Tap a + button to put a prop in front of you.', L + 4, top + 16, listW - 8, 19, 3); }
+  const clearArm = performance.now() - propsClearT < 3000;
+  btn(L, top + rows * RH + 2, listW, RH - 4, clearArm ? 'TAP AGAIN: CLEAR ALL' : 'CLEAR ALL', clearArm, n ? () => { if (performance.now() - propsClearT < 3000) { propsClearT = 0; mp.clear(); } else propsClearT = performance.now(); drawMixScreen(); } : null, !n, P ? 15 : 13);
+  if (!sel) return;
+  // ---- the selected prop's controls
+  const cx = P ? L : L + listW + 10, cw = R - cx, cy = P ? top + (rows + 1) * RH + 10 : top, cols = P ? 1 : 2, cg = 6, cellW = (cw - cg * (cols - 1)) / cols, ch = RH - 3;
+  const logS = s => Math.log(clamp(s, 0.1, 10) / 0.1) / Math.log(100);
+  const S = (label, v, txt, set) => ({ s: 1, label, v, txt, set: x => { set(x); mp.save(); } });
+  const B = (label, on, act, dim) => ({ b: 1, label, on, act: () => { act(); mp.save(); drawMixScreen(); }, dim });
+  const pc = v => Math.round(v * 100) + '%';
+  const cyc = (arr, i, d = 1) => arr[(arr.indexOf(i) + d + arr.length) % arr.length];
+  const cells = [];
+  const sizeBox = () => S('SIZE', (Math.max(sel.w, sel.d) - 0.5) / 13.5, `${sel.w.toFixed(1)}x${sel.d.toFixed(1)}`, v => { const m = Math.max(sel.w, sel.d), k = (0.5 + v * 13.5) / m; sel.setSize(sel.w * k, sel.d * k); });
+  const sizeUni = () => S('SIZE', logS(sel.obj.scale.x), sel.obj.scale.x.toFixed(2) + 'x', v => sel.scaleTo(0.1 * Math.pow(100, v)));
+  const heightS = () => S('HEIGHT', (sel.h - 0.5) / 5.5, sel.h.toFixed(1) + ' m', v => { sel.h = 0.5 + v * 5.5; sel.layout(); });
+  if (sel.type === 'puddle') {
+    const names = [...MATTES, ...mp.lists.matte];
+    cells.push(B('MATTE: ' + sel.matte, false, () => sel.setMatte(cyc(names, sel.matte))), B(sel.inv ? 'INVERT: ON' : 'INVERT', sel.inv, () => { sel.inv = !sel.inv; }),
+      B('ADD MATTE PICTURE', false, () => mp.pickFile('matte', 'image/*', nm => { sel.setMatte(nm); drawMixScreen(); })),
+      B('USE ' + MATTES[0], false, () => sel.setMatte(MATTES[0]), sel.matte === MATTES[0]),
+      S('WETNESS', sel.wet, pc(sel.wet), v => { sel.wet = v; }), S('RIPPLES', sel.rip, pc(sel.rip), v => { sel.rip = v; }),
+      S('RAIN DROPS', sel.rain / 2, pc(sel.rain / 2), v => { sel.rain = v * 2; }), S('REFLECTION', sel.refl / 2, pc(sel.refl / 2), v => { sel.refl = v * 2; }),
+      S('DARKEN', sel.dark, pc(sel.dark), v => { sel.dark = v; }), sizeBox());
+  } else if (sel.type === 'rain') {
+    cells.push(S('AMOUNT', sel.amt, pc(sel.amt), v => { sel.amt = v; }), S('SPEED', (sel.speed - 2) / 12, sel.speed.toFixed(1) + ' m/s', v => { sel.speed = 2 + v * 12; }),
+      S('STREAK LENGTH', sel.len / 1.5, Math.round(sel.len * 100) + ' cm', v => { sel.len = v * 1.5; }), S('WIND', (sel.wind + 1) / 2, sel.wind.toFixed(2), v => { sel.wind = v * 2 - 1; }), heightS(), sizeBox());
+  } else if (sel.type === 'fog') {
+    cells.push(S('DENSITY', sel.den, pc(sel.den), v => { sel.den = v; }), S('DRIFT', (sel.speed - 0.2) / 3, sel.speed.toFixed(1) + 'x', v => { sel.speed = 0.2 + v * 3; }), heightS(), sizeBox(),
+      B('COLOR: ' + FOG_COLORS[sel.col % FOG_COLORS.length][0], false, () => { sel.col = (sel.col + 1) % FOG_COLORS.length; }), B(sel.smoke ? 'MODE: SMOKE (rises)' : 'MODE: FOG (low)', sel.smoke, () => { sel.smoke = !sel.smoke; }));
+  } else if (sel.type === 'neon') {
+    cells.push(B('EDIT TEXT', false, () => openKbd('NEON TEXT', sel.text, false, 40, t => sel.set('text', t.trim() || ' '), 'props')),
+      B('PRESET ▶', false, () => sel.set('text', cyc(PRESETS, sel.text))), B('FONT: ' + NEON_FONTS[sel.font], false, () => sel.set('font', (sel.font + 1) % NEON_FONTS.length)),
+      B(sel.vert ? 'VERTICAL' : 'HORIZONTAL', sel.vert, () => sel.set('vert', !sel.vert)), B('COLOR: ' + COLORS[sel.col][0], false, () => sel.set('col', (sel.col + 1) % COLORS.length)),
+      B(sel.frame ? 'FRAME: ON' : 'FRAME', sel.frame, () => sel.set('frame', !sel.frame)),
+      S('FLICKER', sel.flick, pc(sel.flick), v => { sel.flick = v; }), S('GLOW', sel.glow / 1.5, pc(sel.glow / 1.5), v => { sel.glow = v * 1.5; }), sizeUni());
+  } else if (sel.type === 'graffiti') {
+    const names = [...GRAFF_BUILTIN, ...mp.lists.png];
+    cells.push(B('PICTURE: ' + sel.src, false, () => sel.set('src', cyc(names, sel.src))), B('ADD PNG', false, () => mp.pickFile('png', 'image/png,image/webp,image/*', nm => { sel.set('src', nm); drawMixScreen(); })),
+      B('TINT: ' + GRAFF_TINTS[sel.tint % GRAFF_TINTS.length][0], false, () => sel.set('tint', (sel.tint + 1) % GRAFF_TINTS.length)), B(sel.glow ? 'GLOW (adds light): ON' : 'GLOW', sel.glow, () => sel.set('glow', !sel.glow)),
+      S('BRIGHTNESS', sel.bright / 1.5, pc(sel.bright / 1.5), v => { sel.bright = v * 1.5; sel.look(); }), S('OPACITY', sel.opac, pc(sel.opac), v => { sel.opac = v; sel.look(); }), sizeUni());
+  } else if (sel.type === 'glb') {
+    const names = mp.lists.glb;
+    cells.push(B(sel.src ? 'MODEL: ' + sel.src : 'MODEL: (none)', false, () => { if (names.length) sel.load(cyc(names, sel.src || names[names.length - 1])); }, !names.length),
+      B('ADD GLB', false, () => mp.pickFile('glb', '.glb,model/gltf-binary', nm => { sel.load(nm); drawMixScreen(); })), sizeUni());
+    if (sel.src) cells.push(B('FORGET FILE', false, () => { removeFile('glb', sel.src).then(() => mp.refreshLists()); }));
+  }
+  cells.push(B('REMOVE', false, () => mp.remove(sel)));
+  const maxRows = Math.max(1, Math.floor((H - cy - 4) / RH));
+  cells.slice(0, maxRows * cols).forEach((c, i) => {
+    const x = cx + (i % cols) * (cellW + cg), y = cy + Math.floor(i / cols) * RH;
+    if (c.s) tSlider(g, x, y, cellW, ch, c.label, c.v, c.txt, c.set); else btn(x, y, cellW, ch, c.label, c.on, c.act, c.dim, P ? 15 : 13);
+  });
+}
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   VP_HIT.length = 0;
@@ -6133,6 +6219,7 @@ function drawToolsPage() {
   const note = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; return wrapText(g, s, L + 4, y, R - L - 8, 20, 5); };
   const lockBtn = (x, y, w, h) => btn(x, y, w, h, gearLock ? 'GEAR LOCKDOWN: ON' : 'GEAR LOCKDOWN: OFF', gearLock, () => { gearLock = !gearLock; toast(gearLock ? 'Gear locked' : 'Gear unlocked: decks and mixer can be moved and turned', 2400); drawMixScreen(); }, false, 18);   // #378 DJ TOOLS
   const page = toolsPage;
+  if (page === 'props') { drawPropsPage({ g, W, H, P, L, R, btn, head, note }); return; }   // #478
   if (page === 'looper' || page === 'loopbanks') { drawLooperPage(page, { g, W, H, P, L, R, btn, head, note }); return; }   // #470
   if (page === 'home') {
     const y0 = head('TOOLS', 'mixer');
@@ -6858,8 +6945,9 @@ function drawToolsPage() {
         () => btn(x, y, w, h, 'PHONE CAM', !!(streamer && streamer.source === 'pcam'), openPhoneCam, !streamer, fs),
         () => btn(x, y, w, h, perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false, fs),
         () => btn(x, y, w, h, laser && laser.on ? 'LASER: ON' : 'LASER', !!(laser && laser.on), () => setTools('laser'), !laser, fs),   // #406
+        () => btn(x, y, w, h, mprops && mprops.props().length ? `MOVIE PROPS (${mprops.props().length})` : 'MOVIE PROPS', !!(mprops && mprops.props().length), () => setTools('props'), !mprops, fs),   // #478
         () => btn(x, y, w, h, settings.occlusion !== false ? 'REAL OCCLUSION: ON' : 'REAL OCCLUSION: OFF', settings.occlusion !== false, () => { settings.occlusion = settings.occlusion === false; saveSettings(); const c = document.getElementById('cOccl'); if (c) c.checked = settings.occlusion; drawMixScreen(); }, false, fs)][i]();   // #411 passthrough: real things hide virtual ones
-      const NT = 15, cols = P ? 2 : 5, gap = P ? 8 : 6, bh = P ? 58 : 50, bw = (R - L - gap * (cols - 1)) / cols;   // #390 13 buttons: 5 across in landscape (#406 14 with LASER)
+      const NT = 16, cols = P ? 2 : 5, gap = P ? 8 : 6, bh = P ? 58 : 50, bw = (R - L - gap * (cols - 1)) / cols;   // #390 13 buttons: 5 across in landscape (#406 14 with LASER)
       for (let i = 0; i < NT; i++) tile(L + (i % cols) * (bw + gap), y0 + 4 + Math.floor(i / cols) * (bh + gap), bw, bh, i);
       ledCells(L, y0 + 4 + Math.ceil(NT / cols) * (bh + gap) + 4, R - L, P);
     };
@@ -7825,6 +7913,7 @@ function frameBody() {
   if (portals) portals.tick();   // #345 #346
   if (domeBoot) { domeBoot = false; if (dome.on && !CAMERA_ROLE) setDome(true); }   // #346 a dome left on last time: load its sky once everything is up
   if (skySpin.speed > 0 && skybox.group.visible) { skySpin.ang = (skySpin.ang + skySpin.speed * DEG * dt) % (2 * Math.PI); applySkyTurn(); }   // #379 PANO SPIN
+  if (mprops) mprops.tick(dt);   // #478
   if (fx) fx.preRender(dt);   // #379 FLOAT goes on here (every camera below sees it) and comes off after the frame; WATER uniforms
   if ((ledMode === 'cam' || (streamer && streamer.wantsCam) || (gopro && gopro.aiming) || (gopro2 && gopro2.aiming)) && djcam) stepDjCam(dt);   // #220 (#331 also while the stream shows AVACAM)
   stepArmSleeves();   // #347
@@ -7907,13 +7996,16 @@ if (!CAMERA_ROLE) {
     waterHome: () => { const g = cases.caseA.group; return { p: new THREE.Vector3(g.position.x, 0.12, g.position.z), yaw: g.rotation.y }; },
     isDeck: o => o === deckGroups[0] || o === deckGroups[1], afterFloat: () => { if (deckInst) deckInst.update(); },
   });
+  mprops = new MovieProps({ rig, camera, renderer, toast });   // #478
+  mprops.listCb = () => { if (toolsPage === 'props') drawMixScreen(); };
+  try { mprops.load(); } catch (e) { console.warn('movie props load', e); }
 }
 // ------------------------------------------------------------------ XR input (hands + controllers)
 const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or controllers to drive
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack, gearLocked, gearLockMsg, snapYaw: isDeckKey,   // #378
   REC, DECK, CRATE, ARM,
-  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
+  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : []), ...(mprops ? mprops.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
   scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
@@ -8280,6 +8372,7 @@ try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media
 window.vire = { THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._loop = { loopClip, loopCopy, loopPaste, loopUndo, loopUndoDo, loopDeleteBank, looper, loopSlots, loopUI, pressLooper, clearLooper, loopSlotTap, loopRegion, loopNudge, loopSaveBank, loopLoadBank, loopOpenBanks, stepLooper, releaseLooper };   // #470 test hook
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
+window.vire._mp = { get mp() { return mprops; } };   // #478 test hook
 window.vire._laser = { laser, laserTap, camCal, camCalStart, camCalStop };   // #415 camCal test hook   // #406 test hook
 window.vire._wb = { boardTools, milkLabels, plToMilk, stepPlJump, milkSleeveHit, layoutMilkSleeves, gpSummon, goproReset, gopro2, setDomeEv, get plJump() { return plJump; }, msFly };   // #394 / #395 test hooks   // #392 / #393 test hooks
 window.__vireStage = 'ready'; window.__vireReady = true;   // #138

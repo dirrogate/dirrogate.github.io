@@ -10,12 +10,12 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v10';   // #477 trim range -12..+24 dB
+const CACHE = 'vire-app-v11';   // #478 MOVIE PROPS
 const NET_WAIT = 2500, OFFLINE_HOLD = 30000;
 const APP = [
   'index.html', 'spectator.html', 'venue.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png',
   ...['artfetch', 'loopbank', 'inklabel', 'whiteboard', 'audio', 'beat', 'bump-worker', 'camtest', 'chat', 'deck-glb', 'deck-inst', 'deck-worklet', 'decode-worker', 'director', 'env', 'fakelight', 'fixedcam', 'fixlook',
-    'facetwall', 'flightcase', 'fx', 'dirro-host', 'dirrogram', 'wallfx', 'wallfx-worker', 'gopro', 'laser', 'realdepth', 'camfit', 'id3', 'layout', 'ledwall', 'library', 'lookmatch', 'main', 'medialib', 'merge', 'mic-worklet', 'models', 'neon', 'net-link',
+    'facetwall', 'flightcase', 'fx', 'dirro-host', 'dirrogram', 'wallfx', 'wallfx-worker', 'gopro', 'laser', 'realdepth', 'camfit', 'id3', 'layout', 'ledwall', 'library', 'lookmatch', 'main', 'medialib', 'merge', 'mic-worklet', 'models', 'movieprops', 'neon', 'net-link',
     'keycol', 'neonenv', 'pcampack', 'perfcap', 'sleeves', 'phonelib', 'portal', 'robot', 'robot2', 'skybox', 'spectator-client', 'spectator-host', 'spectator', 'storage', 'stream', 'studio', 'textures', 'tools', 'venue', 'videovinyl', 'vset', 'xr'].map(n => `js/${n}.js`),
   ...['flight_case_kit', 'flight_case_kit_ktx', 'milk_crate', 'milk_crate_ktx', 'mixer_parts', 'neon_sign', 'neon_sign_glass', 'neon_sign_glass_ktx',
     'neon_sign_ktx', 'record_crate', 'record_crate_ktx', 'turntable', 'avatar/robot', 'avatar/avatar_robot', 'avatar/avatar_robot_v2', 'avatar/dirroface'].map(n => `models/${n}.glb`),
@@ -25,7 +25,7 @@ const APP = [
   'vendor/three/libs/ktx-parse.module.js', 'vendor/three/libs/zstddec.module.js', 'vendor/three/libs/motion-controllers.module.js',
   'vendor/three/libs/basis/basis_transcoder.js', 'vendor/three/libs/basis/basis_transcoder.wasm',
   'vendor/three/webxr/XRControllerModelFactory.js', 'vendor/three/webxr/XRHandModelFactory.js', 'vendor/three/webxr/XRHandMeshModel.js', 'vendor/three/webxr/XRHandPrimitiveModel.js',
-  'vendor/webxr-input-profiles/profilesList.json',
+  'vendor/webxr-input-profiles/profilesList.json', 'fonts/Monoton.woff2', 'fonts/NotoDevanagariBold.woff2', 'fonts/NotoDevanagariBoldLatin.woff2', 'graff/graff1.png', 'graff/graff2.png',
   ...['generic-hand', 'meta-quest-touch-plus', 'meta-quest-touch-pro', 'oculus-touch-v3'].flatMap(p => ['profile.json', 'left.glb', 'right.glb'].map(f => `vendor/webxr-input-profiles/${p}/${f}`)),
 ];
 const SCOPE = self.registration.scope, PAGE = SCOPE + 'index.html';
