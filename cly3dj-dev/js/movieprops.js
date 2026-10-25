@@ -26,6 +26,13 @@ export const PRESETS = ['DIRRO DJ', 'NEON', 'मुंबई', 'चाय', 'ह
 export const NEON_FONTS = ['NOTO OUTLINE', 'NOTO SOLID', 'MONOTON'];
 export const FOG_COLORS = [['GREY', '#aab4c0'], ['TEAL', '#5fb8c8'], ['MAGENTA', '#d45cc0'], ['AMBER', '#e0a050'], ['WHITE', '#ffffff']];
 export const MATTES = ['SCATTERED', 'BIG PUDDLE', 'GUTTER', 'CRACKED', 'COBBLES'];   // COBBLES: the WET COBBLE ground (tiles, stones tilt the reflections, streaked lamp / neon reflections)
+// #482 SURFACES: a ground made from texture maps. Each surface has slots for the maps (any can stay empty) plus its real-world tile size and displacement depth.
+export const SURF_SLOTS = [['diff', 'DIFFUSE'], ['disp', 'DISPLACEMENT'], ['rough', 'ROUGHNESS'], ['nor', 'NORMAL'], ['ao', 'AO']];
+const SURF_BUILTIN = {
+  COBBLESTONE: { tile: 1.0, disp: 1.0, slots: { diff: 'surfaces/cobblestone/diff.jpg', disp: 'surfaces/cobblestone/disp.png', rough: 'surfaces/cobblestone/rough.jpg' } },
+  ASPHALT: { tile: 1.6, disp: 0.6, slots: { diff: 'surfaces/asphalt/diff.jpg', disp: 'surfaces/asphalt/disp.png', rough: 'surfaces/asphalt/rough.jpg' } },
+};
+const SKEY = 'vire.surfaces';
 export const GRAFF_BUILTIN = ['graff1.png', 'graff2.png'];
 export const GRAFF_TINTS = [['OFF', null], ['WHITE', '#ffffff'], ['PINK', '#ff2d95'], ['CYAN', '#19e6ff'], ['AMBER', '#ffb02e'], ['BLACK', '#000000']];
 
@@ -143,12 +150,15 @@ function makeMatte(idx) {
 }
 
 // ------------------------------------------------------------------ puddle shader
-const PUD_V = `varying vec2 vUv; varying vec3 vW;
-void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`;
+const PUD_V = `varying vec2 vUv; varying vec3 vW, vLV, vTx, vTy, vNn;
+void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w;
+  vLV = (inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz - position;
+  vTx = normalize(mat3(modelMatrix) * vec3(1.0, 0.0, 0.0)); vTy = normalize(mat3(modelMatrix) * vec3(0.0, 1.0, 0.0)); vNn = normalize(mat3(modelMatrix) * vec3(0.0, 0.0, 1.0)); }`;
 const PUD_F = `precision highp float;
 uniform sampler2D uMatte, uS0, uS1, uS2, uS3; uniform float uWet, uSoft, uInv, uRip, uRain, uRefl, uT, uDark, uSize, uCobble, uStreak, uBump; uniform vec2 uTile, uFocus;
 uniform vec3 uSky, uTint; uniform mat4 uSI[4]; uniform vec4 uSD[4];
-varying vec2 vUv; varying vec3 vW;
+uniform float uSurf, uTileM, uDispAmt, uCover, uAmb, uHasD, uHasR, uHasN, uHasA, uHasC; uniform sampler2D uDiff, uDisp, uRoughT, uNormT, uAOT; uniform vec2 uWD; uniform vec4 uLP[4]; uniform vec3 uLC[4];
+varying vec2 vUv; varying vec3 vW, vLV, vTx, vTy, vNn;
 float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float height(vec2 p){
   float h = 0.012 * sin(p.x * 9.0 + uT * 1.3) * sin(p.y * 8.0 - uT * 1.1) + 0.008 * sin((p.x + p.y) * 17.0 - uT * 2.1);
@@ -184,7 +194,39 @@ vec3 sgn(vec3 R, float blur, float streak){
   }
   return acc;
 }
+// #482 a ground from texture maps: parallax + displacement-lit relief, damp / wet darkening, water pooling in the low parts, reflections of lamps and neon, lit by the 4 nearest lamps
+vec4 surfColor(){
+  vec2 e2 = min(vUv, 1.0 - vUv); float edge = smoothstep(0.0, 0.05, min(e2.x, e2.y)); if (edge < 0.003) discard;
+  vec2 uv = vUv * uTile; float depthM = 0.04 * uDispAmt;
+  vec3 lv = vec3(vLV.x * uWD.x, vLV.y * uWD.y, max(vLV.z, 0.08));
+  if (uHasD > 0.5) uv -= clamp(lv.xy / lv.z, vec2(-3.0), vec2(3.0)) * (1.0 - texture2D(uDisp, uv).r) * depthM / uTileM;
+  vec3 alb = uHasC > 0.5 ? texture2D(uDiff, uv).rgb : vec3(0.18);
+  float h = uHasD > 0.5 ? texture2D(uDisp, uv).r : 0.5;
+  float rg = uHasR > 0.5 ? texture2D(uRoughT, uv).r : 0.7, ao = uHasA > 0.5 ? texture2D(uAOT, uv).r : 1.0;
+  vec2 tilt = vec2(0.0);
+  if (uHasD > 0.5) { float te = 1.0 / 1024.0; tilt -= vec2(texture2D(uDisp, uv + vec2(te, 0.0)).r - texture2D(uDisp, uv - vec2(te, 0.0)).r, texture2D(uDisp, uv + vec2(0.0, te)).r - texture2D(uDisp, uv - vec2(0.0, te)).r) * depthM / (2.0 * te * uTileM); }
+  if (uHasN > 0.5) { vec3 nt = texture2D(uNormT, uv).xyz * 2.0 - 1.0; tilt += nt.xy / max(nt.z, 0.3) * 0.6; }
+  float wl = uWet * 0.5, wm = uHasD > 0.5 ? (1.0 - smoothstep(wl - 0.04, wl + 0.04, h)) * step(0.02, uWet) : 0.0;
+  vec2 pr = vW.xz; float e = 0.01, h0 = height(pr), hx = height(pr + vec2(e, 0.0)), hy = height(pr + vec2(0.0, e));
+  vec2 rt = vec2(-(hx - h0) / e, -(hy - h0) / e) * uRip * 0.35;
+  vec3 N = normalize(vNn + (vTx * tilt.x + vTy * tilt.y) * (1.0 - wm) + vec3(rt.x, 0.0, rt.y) * wm);
+  alb *= (1.0 - 0.45 * uWet) * (1.0 - 0.6 * wm);
+  float r = mix(rg * (1.0 - 0.7 * uWet), 0.03, wm);
+  vec3 Lt = vec3(0.55, 0.65, 0.9) * uAmb;
+  for (int i = 0; i < 4; i++) { if (uLP[i].y < -50.0) continue; vec3 d = uLP[i].xyz - vW; float dd = dot(d, d); Lt += uLC[i] * (1.0 / (1.0 + dd * 0.25)) * (max(dot(N, normalize(d)), 0.0) * 0.85 + 0.15) * 4.0; }
+  vec3 dif = alb * Lt * ao;
+  vec3 V = normalize(vW - cameraPosition), R = reflect(V, N); R.y = max(abs(R.y), 0.03);
+  float ndv = clamp(dot(N, -V), 0.0, 1.0), gloss = 1.0 - r, fr = (0.03 + 0.97 * pow(1.0 - ndv, 5.0)) * (0.25 + 0.75 * gloss) * 2.2;
+  float dist = length(vW - cameraPosition), coc = uFocus.y > 0.0 ? min(6.0, uFocus.y * 10.0 * abs(dist - uFocus.x) / max(dist, 0.3)) : 0.0;
+  vec3 sky = uSky * mix(1.6, 0.4, clamp(R.y * 1.5, 0.0, 1.0));
+  vec3 refl = (sky + sgn(R, r * 6.0 + coc * 0.8 + length(N.xz) * 8.0, step(0.55, gloss))) * fr * uRefl * ao;
+  refl += vec3(0.55, 0.65, 0.8) * max(h0, 0.0) * 1.4 * uRip * min(uRain, 1.5) * wm;
+  return vec4((dif * uCover + refl) * edge, uCover * edge);
+}
 void main(){
+  if (uSurf > 0.5) { gl_FragColor = surfColor();
+  #include <colorspace_fragment>
+  return; }
   vec2 muv = vUv * uTile; float m = texture2D(uMatte, muv).r; if (uInv > 0.5) m = 1.0 - m;
   float t = 1.0 - uWet;
   float mask = smoothstep(t - uSoft, t + uSoft + 0.001, m);
@@ -345,10 +387,10 @@ class BoxProp extends Prop {
 
 class Puddle extends BoxProp {
   constructor(mp) {
-    super(mp, 'puddle'); this.matte = 'SCATTERED'; this.wet = 0.5; this.soft = 0.06; this.rip = 0.8; this.rain = 0.6; this.refl = 1; this.inv = false; this.dark = 0.6; this.stone = 0.8;
+    super(mp, 'puddle'); this.matte = 'SCATTERED'; this.wet = 0.5; this.soft = 0.06; this.rip = 0.8; this.rain = 0.6; this.refl = 1; this.inv = false; this.dark = 0.6; this.stone = 0.8; this.surf = ''; this.cover = 1; this.amb = 0.12; this.sdirty = true;
     this.U = {
       uMatte: { value: DUMMY }, uS0: { value: DUMMY }, uS1: { value: DUMMY }, uS2: { value: DUMMY }, uS3: { value: DUMMY }, uWet: { value: 0.5 }, uSoft: { value: 0.06 }, uInv: { value: 0 }, uRip: { value: 0.8 }, uRain: { value: 0.6 },
-      uRefl: { value: 1 }, uT: { value: 0 }, uDark: { value: 0.55 }, uSize: { value: 3 }, uCobble: { value: 0 }, uStreak: { value: 0 }, uBump: { value: 1.1 }, uTile: { value: new THREE.Vector2(1, 1) }, uFocus: { value: new THREE.Vector2(3, 0) }, uSky: { value: new THREE.Color(0.014, 0.02, 0.032) }, uTint: { value: new THREE.Color(0.1, 0.5, 0.6) },
+      uRefl: { value: 1 }, uT: { value: 0 }, uDark: { value: 0.55 }, uSize: { value: 3 }, uCobble: { value: 0 }, uStreak: { value: 0 }, uBump: { value: 1.1 }, uTile: { value: new THREE.Vector2(1, 1) }, uSurf: { value: 0 }, uTileM: { value: 1 }, uDispAmt: { value: 1 }, uCover: { value: 1 }, uAmb: { value: 0.12 }, uHasD: { value: 0 }, uHasR: { value: 0 }, uHasN: { value: 0 }, uHasA: { value: 0 }, uHasC: { value: 0 }, uDiff: { value: DUMMY }, uDisp: { value: DUMMY }, uRoughT: { value: DUMMY }, uNormT: { value: DUMMY }, uAOT: { value: DUMMY }, uWD: { value: new THREE.Vector2(1, 1) }, uLP: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, -99, 0, 1)) }, uLC: { value: [0, 1, 2, 3].map(() => new THREE.Color()) }, uFocus: { value: new THREE.Vector2(3, 0) }, uSky: { value: new THREE.Color(0.014, 0.02, 0.032) }, uTint: { value: new THREE.Color(0.1, 0.5, 0.6) },
       uSI: { value: [0, 1, 2, 3].map(() => new THREE.Matrix4()) }, uSD: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
     };
     this.mat = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: PUD_V, fragmentShader: PUD_F, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide,
@@ -359,9 +401,22 @@ class Puddle extends BoxProp {
     this.layout(); this.setMatte(this.matte);
   }
   setMatte(name) { this.matte = name; this.U.uMatte.value = this.mp.matteTex(name, () => { this.U.uMatte.value = this.mp.matteTex(name); }); this.save(); }
+  setSurface(name) { this.surf = name || ''; this.sdirty = true; this.save(); }
+  surfSync() {   // (re)bind the maps of the chosen surface; maps still loading come in through the callback
+    this.sdirty = false; const U = this.U, S = this.mp.surfaces.get(this.surf); if (!S) { U.uSurf.value = 0; return; }
+    U.uSurf.value = 1; U.uTileM.value = S.tile; U.uDispAmt.value = S.disp;
+    const bind = (slot, tu, hf) => { const t = this.mp.surfTex(this.surf, slot, () => { this.sdirty = true; }); U[tu].value = t || DUMMY; U[hf].value = t ? 1 : 0; };
+    bind('diff', 'uDiff', 'uHasC'); bind('disp', 'uDisp', 'uHasD'); bind('rough', 'uRoughT', 'uHasR'); bind('nor', 'uNormT', 'uHasN'); bind('ao', 'uAOT', 'uHasA');
+  }
   tick(dt) {
     const U = this.U; this.t += dt; U.uT.value = this.t; U.uWet.value = this.wet; U.uSoft.value = this.soft; U.uInv.value = this.inv ? 1 : 0; U.uRip.value = this.rip; U.uRain.value = this.rain; U.uRefl.value = this.refl; U.uDark.value = this.dark;
-    const cob = this.matte === 'COBBLES'; U.uCobble.value = cob ? 1 : 0; U.uStreak.value = cob ? 1 : 0; U.uTile.value.set(cob ? this.w / (0.9 * this.stone) : 1, cob ? this.d / (0.9 * this.stone) : 1);
+    if (this.sdirty) this.surfSync();
+    if (U.uSurf.value > 0.5) {
+      U.uCover.value = this.cover; U.uAmb.value = this.amb; U.uWD.value.set(this.w, this.d); U.uTile.value.set(this.w / U.uTileM.value, this.d / U.uTileM.value);
+      const Lx = this.mp.neonsNear(_v.setFromMatrixPosition(this.obj.matrixWorld), 4);
+      for (let i = 0; i < 4; i++) { const n = Lx[i]; if (n) { const li = n.light(); U.uLP.value[i].set(li.pos.x, li.pos.y, li.pos.z, li.r); U.uLC.value[i].set(li.col.r, li.col.g, li.col.b).multiplyScalar(li.k * 0.5); } else U.uLP.value[i].set(0, -99, 0, 1); }
+    }
+    const cob = this.matte === 'COBBLES' && !this.surf; U.uCobble.value = cob ? 1 : 0; U.uStreak.value = cob ? 1 : 0; if (U.uSurf.value < 0.5) U.uTile.value.set(cob ? this.w / (0.9 * this.stone) : 1, cob ? this.d / (0.9 * this.stone) : 1);
     U.uFocus.value.set(this.mp.focus.dist, this.mp.focus.on ? this.mp.focus.ap : 0);
     this.obj.updateWorldMatrix(true, false); _v.setFromMatrixPosition(this.obj.matrixWorld);
     const list = this.mp.neonsNear(_v, 4);
@@ -370,8 +425,8 @@ class Puddle extends BoxProp {
       if (n) { const r = n.refObj(), hh = n.refHalf(); r.updateWorldMatrix(true, false); U.uSI.value[i].copy(r.matrixWorld).invert(); d.set(hh[0], hh[1], n.lit(), 0); U['uS' + i].value = n.tex; } else { d.set(0, 0, 0, 0); U['uS' + i].value = DUMMY; }
     }
   }
-  snap() { return { ...this.base(), w: this.w, d: this.d, matte: this.matte, wet: this.wet, rip: this.rip, rain: this.rain, refl: this.refl, inv: this.inv, soft: this.soft, dark: this.dark, stone: this.stone }; }
-  apply(d) { for (const k of ['wet', 'rip', 'rain', 'refl', 'inv', 'soft', 'dark', 'stone']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.setSize(d.w || 3, d.d || 3); if (d.matte) this.setMatte(d.matte); }
+  snap() { return { ...this.base(), w: this.w, d: this.d, matte: this.matte, wet: this.wet, rip: this.rip, rain: this.rain, refl: this.refl, inv: this.inv, soft: this.soft, dark: this.dark, stone: this.stone, surf: this.surf, cover: this.cover, amb: this.amb }; }
+  apply(d) { for (const k of ['wet', 'rip', 'rain', 'refl', 'inv', 'soft', 'dark', 'stone', 'cover', 'amb']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.setSize(d.w || 3, d.d || 3); if (d.matte) this.setMatte(d.matte); if (d.surf) this.setSurface(d.surf); }
 }
 
 class Rain extends BoxProp {
@@ -624,7 +679,7 @@ const _q2 = new THREE.Quaternion(), _v3 = new THREE.Vector3();
 // env: { rig, camera, renderer, toast }
 export class MovieProps {
   constructor(env) {
-    this.env = env; this.rig = env.rig; this.placer = new Placer(this); this.items = []; this.neons = []; this.selId = null; this.loaded = false; this.lists = { matte: [], glb: [], png: [] }; this.mattes = new Map(); this.saveT = 0; this.depth = null; this.focus = { on: false, dist: 3, ap: 0.5, a: 2, b: 8, time: 3, rack: null }; this.loadCam();
+    this.env = env; this.rig = env.rig; this.placer = new Placer(this); this.items = []; this.neons = []; this.selId = null; this.loaded = false; this.lists = { matte: [], glb: [], png: [] }; this.mattes = new Map(); this.surfaces = new Map(); this.stex = new Map(); this.loadSurfaces(); this.saveT = 0; this.depth = null; this.focus = { on: false, dist: 3, ap: 0.5, a: 2, b: 8, time: 3, rack: null }; this.loadCam();
     if (env.scene) this.placer.attach(env.scene);
     this.refreshLists();
   }
@@ -658,6 +713,41 @@ export class MovieProps {
       const g = c.getContext('2d'); g.drawImage(b, 0, 0, c.width, c.height); const t = new THREE.CanvasTexture(c); this.mattes.set(name, { tex: t }); if (cb) cb();
     }).catch(() => {});
     return DUMMY;
+  }
+  // ---- surfaces (built-ins + the ones you make). Slot value: a path under surfaces/ (shipped with the app) or a file name in the app's private storage (kind 'surf')
+  loadSurfaces() {
+    this.surfaces.clear(); for (const [k, v] of Object.entries(SURF_BUILTIN)) this.surfaces.set(k, { tile: v.tile, disp: v.disp, slots: { ...v.slots }, builtin: true });
+    let st = {}; try { st = JSON.parse(localStorage.getItem(SKEY) || '{}'); } catch {}
+    for (const [k, v] of Object.entries(st)) { const b = this.surfaces.get(k); if (b) { b.tile = v.tile ?? b.tile; b.disp = v.disp ?? b.disp; Object.assign(b.slots, v.slots || {}); } else this.surfaces.set(k, { tile: v.tile || 1, disp: v.disp ?? 1, slots: { ...(v.slots || {}) }, builtin: false }); }
+  }
+  saveSurfaces() { try { const o = {}; for (const [k, v] of this.surfaces) o[k] = { tile: v.tile, disp: v.disp, slots: v.slots }; localStorage.setItem(SKEY, JSON.stringify(o)); } catch {} }
+  surfNames() { return [...this.surfaces.keys()]; }
+  addSurface(name) { name = (name || '').trim().toUpperCase().replace(/[^A-Z0-9 _-]/g, '').slice(0, 24); if (!name || this.surfaces.has(name)) return null; this.surfaces.set(name, { tile: 1, disp: 1, slots: {}, builtin: false }); this.saveSurfaces(); return name; }
+  removeSurface(name) { const S = this.surfaces.get(name); if (!S || S.builtin) return; for (const v of Object.values(S.slots)) if (!v.startsWith('surfaces/')) removeFile('surf', v); this.surfaces.delete(name); this.saveSurfaces(); for (const p of this.items) if (p.surf === name) p.setSurface(''); }
+  setSlot(name, slot, file) {   // file = a picked File, or null to clear
+    const S = this.surfaces.get(name); if (!S) return Promise.resolve();
+    const old = S.slots[slot]; const done = () => { for (const k of [...this.stex.keys()]) if (k.startsWith(name + '|' + slot + '|')) this.stex.delete(k); this.saveSurfaces(); for (const p of this.items) if (p.surf === name) p.sdirty = true; };
+    if (!file) { if (old && !old.startsWith('surfaces/')) removeFile('surf', old); delete S.slots[slot]; if (SURF_BUILTIN[name] && SURF_BUILTIN[name].slots[slot]) S.slots[slot] = null; done(); return Promise.resolve(); }
+    const ext = (file.name.match(/\.[a-z0-9]+$/i) || ['.png'])[0].toLowerCase(), fn = (name + '__' + slot + ext).replace(/[^A-Za-z0-9_.-]/g, '_');
+    return putFile('surf', new File([file], fn)).then(() => { S.slots[slot] = fn; done(); });
+  }
+  touchSurf(name) { for (const p of this.items) if (p.surf === name) p.sdirty = true; }
+  pickSurf(name, slot, done) {   // a file picker for one map slot of a surface
+    const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*';
+    i.onchange = async () => { const f = i.files && i.files[0]; if (!f) return; try { await this.setSlot(name, slot, f); done(); } catch (e) { this.env.toast('Could not add that picture: ' + (e.message || e), 3500); } };
+    i.click();
+  }
+  surfTex(name, slot, cb) {   // null = nothing in that slot (yet)
+    const S = this.surfaces.get(name), v = S && S.slots[slot]; if (!v) return null;
+    const key = name + '|' + slot + '|' + v, hit = this.stex.get(key); if (hit !== undefined) return hit;
+    this.stex.set(key, null);
+    const fin = t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; if (slot === 'diff') t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; this.stex.set(key, t); if (cb) cb(); };
+    if (v.startsWith('surfaces/')) new THREE.TextureLoader().load(v, fin, undefined, () => {});
+    else getFile('surf', v).then(async f => {
+      if (!f) return; const b = await createImageBitmap(f), c = document.createElement('canvas'), k = Math.min(1, 2048 / Math.max(b.width, b.height)); c.width = Math.round(b.width * k); c.height = Math.round(b.height * k);
+      c.getContext('2d').drawImage(b, 0, 0, c.width, c.height); fin(new THREE.CanvasTexture(c));
+    }).catch(() => {});
+    return null;
   }
   neonsNear(P, n) { return this.neons.filter(s => s.mesh.visible && !s.dead).map(s => [s, s.obj.getWorldPosition(_v2).distanceToSquared(P)]).sort((a, b) => a[1] - b[1]).slice(0, n).map(x => x[0]); }
   // where a new prop appears: 1.3 m in front of the viewer on the floor (floor props) or at chest height (wall props)

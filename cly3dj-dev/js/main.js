@@ -35,7 +35,7 @@ import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.j
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
-import { MovieProps, COLORS, PRESETS, NEON_FONTS, FOG_COLORS, MATTES, GRAFF_BUILTIN, GRAFF_TINTS, removeFile } from './movieprops.js';   // #478 VJ TOOLS > MOVIE PROPS
+import { MovieProps, SURF_SLOTS, COLORS, PRESETS, NEON_FONTS, FOG_COLORS, MATTES, GRAFF_BUILTIN, GRAFF_TINTS, removeFile } from './movieprops.js';   // #478 VJ TOOLS > MOVIE PROPS
 import { FX, USER_LAYER } from './fx.js';   // #379 VISUALS > FX: FLOAT and WATER
 import * as store from './storage.js';
 import * as loopDb from './loopbank.js';   // #470 loop slots and banks in private storage
@@ -6104,10 +6104,11 @@ function drawLooperPage(page, T) {
   }
 }
 // #478 VJ TOOLS > MOVIE PROPS: spawn row, list of the props in the room (tap = select, X = remove) and the selected prop's controls
-let propsClearT = 0, mpTab = 'props';
+const pcs = v => Math.round(v * 100) + '%';
+let propsClearT = 0, mpTab = 'props', mpSurfName = '', surfDelT = 0;
 function drawPropsPage(T) {
   const { g, W, H, P, L, R, btn, head, note } = T;
-  const y0 = head('MOVIE PROPS', 'vj', mprops ? { label: mpTab === 'cam' ? 'PROPS' : 'FOCUS', on: mpTab === 'cam', act: () => { mpTab = mpTab === 'cam' ? 'props' : 'cam'; drawMixScreen(); } } : null);
+  const y0 = head('MOVIE PROPS', 'vj', mprops ? { label: mpTab !== 'props' ? 'PROPS' : 'FOCUS', on: mpTab === 'cam', act: () => { mpTab = mpTab !== 'props' ? 'props' : 'cam'; drawMixScreen(); } } : null);
   if (!mprops) { note('Movie props are made on the headset / desktop page.', y0 + 10); return; }
   const mp = mprops, sel = mp.sel, items = mp.props();
   if (mpTab === 'cam') {   // #480 FOCUS PULL: the virtual layer goes soft away from the focus distance (the real passthrough picture stays sharp)
@@ -6125,26 +6126,48 @@ function drawPropsPage(T) {
     note('Neon, graffiti, lamp halos and the puddle reflections go soft the further they are from the focus distance; lamps open into bigger, fainter discs. The real passthrough picture cannot be blurred, so keep APERTURE low for a natural look.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 14);
     return;
   }
+  if (mpTab === 'surf') {   // #482 SURFACES: pick / make a surface and fill its map slots
+    const names = mp.surfNames(); if (!mpSurfName || !mp.surfaces.has(mpSurfName)) mpSurfName = names[0];
+    const nm = mpSurfName, S = mp.surfaces.get(nm), CR = P ? 34 : 31, cc = P ? 1 : 2, cg = 6, cw = (R - L - cg * (cc - 1)) / cc, chh = CR - 3, ts = () => { mp.saveSurfaces(); mp.touchSurf(nm); }, delArm = performance.now() - surfDelT < 3000;
+    const short = f => !f ? '(empty)' : f.startsWith('surfaces/') ? f.split('/').pop() : f.replace(/^.*__/, '');
+    const cells = [
+      { b: 1, label: 'DONE: BACK TO PROPS', act: () => { mpTab = 'props'; drawMixScreen(); } },
+      { b: 1, label: 'SURFACE: ' + nm + (S.builtin ? '' : ' (yours)'), act: () => { mpSurfName = names[(names.indexOf(nm) + 1) % names.length]; drawMixScreen(); } },
+      { b: 1, label: 'NEW SURFACE', act: () => openKbd('NEW SURFACE NAME', '', false, 24, t => { const n = mp.addSurface(t); if (n) mpSurfName = n; else toast('Name is empty or already used', 2500); }, 'props') },
+      { b: 1, label: delArm ? 'TAP AGAIN: DELETE' : 'DELETE SURFACE', on: delArm, dim: S.builtin, act: () => { if (performance.now() - surfDelT < 3000) { surfDelT = 0; mp.removeSurface(nm); mpSurfName = ''; } else surfDelT = performance.now(); drawMixScreen(); } },
+      { s: 1, label: 'TILE SIZE (real metres)', v: (S.tile - 0.2) / 3.8, txt: S.tile.toFixed(2) + ' m', set: v => { S.tile = 0.2 + v * 3.8; ts(); } },
+      { s: 1, label: 'DISPLACEMENT DEPTH', v: S.disp / 2, txt: pcs(S.disp / 2), set: v => { S.disp = v * 2; ts(); } },
+    ];
+    for (const [k, lab] of SURF_SLOTS) {
+      cells.push({ b: 1, label: lab + ': ' + short(S.slots[k]), on: !!S.slots[k], act: () => mp.pickSurf(nm, k, () => drawMixScreen()) });
+      if (S.slots[k]) cells.push({ b: 1, label: 'CLEAR ' + lab, act: () => { mp.setSlot(nm, k, null).then(() => drawMixScreen()); } });
+    }
+    cells.forEach((c, i) => { const x = L + (i % cc) * (cw + cg), y = y0 + 4 + Math.floor(i / cc) * CR; if (c.s) tSlider(g, x, y, cw, chh, c.label, c.v, c.txt, c.set); else btn(x, y, cw, chh, c.label, c.on, c.act, c.dim, P ? 15 : 13); });
+    note('Each slot takes a picture (jpg / png). Diffuse = colour, displacement = height (white high), roughness, normal (OpenGL style) and AO are optional. Added from this device; set TILE SIZE to how many metres one picture covers.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 12);
+    return;
+  }
   const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', glb: 'GLB', lamp: 'LAMP' };
   const spawn = k => {
     const o = {};
     if (k === 'glb') { if (!mp.lists.glb.length) { toast('Add a .glb first (ADD GLB, on the GLB prop that appears)', 3500); } else o.src = mp.lists.glb[0]; }
     if (k === 'graffiti') o.src = 'graff1.png';
-    const p = mp.spawn(k, o);
-    toast(p && p.floor ? NAMES[k] + ' in front of you. Grip the ring on its post to carry it, trigger the cube to size it.' : NAMES[k] + ' in front of you. Grip the ring to carry it, trigger the cube to size it (or grip with both hands and stretch).', 4200);
+    const p = mp.spawn(k === 'ground' ? 'puddle' : k, o);
+    if (k === 'ground' && p) { p.setSurface(mp.surfNames()[0]); p.setSize(6, 6); p.wet = 0.3; p.refl = 1.2; }
+    toast(p && p.floor ? (NAMES[k] || 'GROUND') + ' in front of you. Grip the ring on its post to carry it, trigger the cube to size it.' : NAMES[k] + ' in front of you. Grip the ring to carry it, trigger the cube to size it (or grip with both hands and stretch).', 4200);
     drawMixScreen();
   };
-  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['LAMP +', 'lamp']];
-  const per = P ? 4 : 7, gap = 6, bw = (R - L - gap * (per - 1)) / per, bh = P ? 44 : 34;
+  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['LAMP +', 'lamp'], ['GROUND +', 'ground']];
+  const per = P ? 4 : 8, gap = 6, bw = (R - L - gap * (per - 1)) / per, bh = P ? 44 : 34;
   kinds.forEach(([l, k], i) => btn(L + (i % per) * (bw + gap), y0 + Math.floor(i / per) * (bh + 6), bw, bh, l, false, () => spawn(k), false, P ? 16 : 14));
   const top = y0 + Math.ceil(kinds.length / per) * (bh + 6) + 4;
   // ---- list of props
   const RH = P ? 33 : 30, listW = P ? R - L : 214, rowsMax = P ? 3 : Math.max(2, Math.floor((H - top - 8 - 2 * RH) / RH));
   const n = items.length, si = Math.max(0, items.indexOf(sel)), start = n <= rowsMax ? 0 : Math.max(0, Math.min(si - Math.floor(rowsMax / 2), n - rowsMax));
   const det = p => p.type === 'puddle' ? p.matte : p.type === 'neon' ? p.text.replace(/\n/g, ' ') : (p.type === 'graffiti' || p.type === 'glb') ? (p.src || '(none)') : '';
+  const detP = p => p.type === 'puddle' && p.surf ? p.surf : det(p);
   for (let r = 0; r < rowsMax && start + r < n; r++) {
     const p = items[start + r], y = top + r * RH;
-    btn(L, y, listW - 40, RH - 4, `${NAMES[p.type]} ${det(p)}`.trim(), p === sel, () => { mp.select(p); drawMixScreen(); }, false, P ? 15 : 13);
+    btn(L, y, listW - 40, RH - 4, `${p.type === 'puddle' && p.surf ? 'GROUND' : NAMES[p.type]} ${detP(p)}`.trim(), p === sel, () => { mp.select(p); drawMixScreen(); }, false, P ? 15 : 13);
     btn(L + listW - 36, y, 36, RH - 4, '✕', false, () => { mp.remove(p); drawMixScreen(); }, false, 15);
   }
   const rows = Math.min(rowsMax, Math.max(n, 1));
@@ -6164,13 +6187,20 @@ function drawPropsPage(T) {
   const sizeBox = () => S('SIZE', (Math.max(sel.w, sel.d) - 0.5) / 13.5, `${sel.w.toFixed(1)}x${sel.d.toFixed(1)}`, v => { const m = Math.max(sel.w, sel.d), k = (0.5 + v * 13.5) / m; sel.setSize(sel.w * k, sel.d * k); });
   const sizeUni = () => S('SIZE', logS(sel.obj.scale.x), sel.obj.scale.x.toFixed(2) + 'x', v => sel.scaleTo(0.1 * Math.pow(100, v)));
   const heightS = () => S('HEIGHT', (sel.h - 0.5) / 5.5, sel.h.toFixed(1) + ' m', v => { sel.h = 0.5 + v * 5.5; sel.layout(); });
-  if (sel.type === 'puddle') {
+  if (sel.type === 'puddle' && sel.surf) {   // #482 ground from a surface
+    const sn = mp.surfNames();
+    cells.push(B('SURFACE: ' + sel.surf, false, () => sel.setSurface(sn[(sn.indexOf(sel.surf) + 1) % sn.length])), B('EDIT / ADD SURFACES', false, () => { mpSurfName = sel.surf; mpTab = 'surf'; }),
+      S('WETNESS', sel.wet, pc(sel.wet), v => { sel.wet = v; }), S('COVER (hides real floor)', sel.cover, pc(sel.cover), v => { sel.cover = v; }), S('AMBIENT LIGHT', sel.amb / 0.5, pc(sel.amb / 0.5), v => { sel.amb = v * 0.5; }),
+      S('REFLECTION', sel.refl / 2, pc(sel.refl / 2), v => { sel.refl = v * 2; }), S('RIPPLES', sel.rip, pc(sel.rip), v => { sel.rip = v; }), S('RAIN DROPS', sel.rain / 2, pc(sel.rain / 2), v => { sel.rain = v * 2; }),
+      B('USE A MATTE INSTEAD', false, () => sel.setSurface('')), sizeBox());
+  } else if (sel.type === 'puddle') {
     const names = [...MATTES, ...mp.lists.matte];
     cells.push(B('MATTE: ' + sel.matte, false, () => sel.setMatte(cyc(names, sel.matte))), B(sel.inv ? 'INVERT: ON' : 'INVERT', sel.inv, () => { sel.inv = !sel.inv; }),
       B('ADD MATTE PICTURE', false, () => mp.pickFile('matte', 'image/*', nm => { sel.setMatte(nm); drawMixScreen(); })),
       B('WET COBBLES', sel.matte === 'COBBLES', () => { sel.setMatte('COBBLES'); sel.refl = Math.max(sel.refl, 1.2); }),
       S('WETNESS', sel.wet, pc(sel.wet), v => { sel.wet = v; }), S('RIPPLES', sel.rip, pc(sel.rip), v => { sel.rip = v; }),
       S('RAIN DROPS', sel.rain / 2, pc(sel.rain / 2), v => { sel.rain = v * 2; }), S('REFLECTION', sel.refl / 2, pc(sel.refl / 2), v => { sel.refl = v * 2; }),
+      B('USE A TEXTURE SURFACE', false, () => sel.setSurface(mp.surfNames()[0])),
       S('DARKEN', sel.dark, pc(sel.dark), v => { sel.dark = v; }), ...(sel.matte === 'COBBLES' ? [S('STONE SIZE', (sel.stone - 0.4) / 2.6, Math.round(sel.stone * 10) + ' cm', v => { sel.stone = 0.4 + v * 2.6; })] : []), sizeBox());
   } else if (sel.type === 'rain') {
     cells.push(S('AMOUNT', sel.amt, pc(sel.amt), v => { sel.amt = v; }), S('SPEED', (sel.speed - 2) / 12, sel.speed.toFixed(1) + ' m/s', v => { sel.speed = 2 + v * 12; }),
