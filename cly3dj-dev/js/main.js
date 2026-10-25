@@ -5893,7 +5893,7 @@ function drawLooperPage(page, T) {
   };
   if (page === 'loopbanks') {
     const B = loopUI.banks, y0 = tbY + tbH + 8, rh = P ? 46 : 34;
-    if (!B || !B.length) { txt(!B ? 'READING THE BANKS...' : 'NO BANKS YET. FILL THE SLOTS, THEN SAVE BANK.', L + 4, y0 + 10, 1.5, AM.txt); if (loopUndo.length) gad(R - 96, H - (P ? 62 : 32), 96, 26, `UNDO ${loopUndo.length}`, false, loopUndoDo, false, AM.amb); return; }
+    if (!B || !B.length) { txt(!B ? 'READING THE BANKS...' : 'NO BANKS YET. FILL THE SLOTS, THEN SAVE BANK.', L + 4, y0 + 10, 1.5, AM.txt); if (loopUndo.length) gad(R - 96, H - (P ? 62 : 32), 96, 26, 'UNDO', false, loopUndoDo, false, AM.amb); return; }
     const per = Math.floor((H - y0 - (P ? 70 : 40)) / (rh + 4)), pages = Math.ceil(B.length / per), pg = clamp(loopUI.bankPg || 0, 0, pages - 1);
     B.slice(pg * per, pg * per + per).forEach((b, i) => {
       const y = y0 + i * (rh + 4), del = loopUI.bankDel === b.name, dw = del ? 110 : 0;
@@ -5906,7 +5906,7 @@ function drawLooperPage(page, T) {
     });
     const by = H - (P ? 62 : 32);
     if (pages > 1) { gad(L, by, 60, 26, '<', false, () => { loopUI.bankPg = Math.max(0, pg - 1); }, pg === 0); gad(L + 64, by, 60, 26, '>', false, () => { loopUI.bankPg = pg + 1; }, pg >= pages - 1); }
-    gad(R - 96, by, 96, 26, loopUndo.length ? `UNDO ${loopUndo.length}` : 'UNDO', false, loopUndoDo, !loopUndo.length, AM.amb);   // #473
+    gad(R - 96, by, 96, 26, 'UNDO', false, loopUndoDo, !loopUndo.length, AM.amb);   // #473
     { const hs = 'TAP = LOAD INTO THE 4 SLOTS. HOLD = DELETE.', x0 = L + (pages > 1 ? 136 : 4), hp = lmFit(hs, R - 104 - x0, 1.25); txt(hs, x0, by + (26 - 7 * hp) / 2, hp, AM.dimT); }
     return;
   }
@@ -6007,7 +6007,7 @@ function drawLooperPage(page, T) {
   const zoomTo = f => { const c = loopUI.sel === 'in' ? Ld.a : Ld.b, s = (v1 - v0) * f; setView(c - s / 2, c + s / 2); };
   const viewGads = [[P ? 'SHOW RNG' : 'SHOW RANGE', () => { const m = (Ld.b - Ld.a) * 0.06; setView(Ld.a - m, Ld.b + m); }], ['SHOW ALL', () => setView(0, len)], ['ZOOM', () => zoomTo(0.25)], ['TELE', () => zoomTo(4)]];
   const markGads = [['IN', loopUI.sel === 'in', () => { loopUI.sel = 'in'; }], ['OUT', loopUI.sel === 'out', () => { loopUI.sel = 'out'; }], ['RANGE ALL', false, () => loopRegion(0, Ld.len)]];
-  const undoG = (x, y, w, h) => gad(x, y, w, h, loopUndo.length ? `UNDO ${loopUndo.length}` : 'UNDO', false, loopUndoDo, !loopUndo.length, AM.amb);
+  const undoG = (x, y, w, h) => gad(x, y, w, h, 'UNDO', false, loopUndoDo, !loopUndo.length, AM.amb);
   const nudgeGads = [['-10MS', () => loopNudge(-10)], ['-1MS', () => loopNudge(-1)], ['+1MS', () => loopNudge(1)], ['+10MS', () => loopNudge(10)]];
   if (!P) {
     const gy = sy, rH = 26, gH = 3 * rH + 2 * gap + 8, x0 = 8;
