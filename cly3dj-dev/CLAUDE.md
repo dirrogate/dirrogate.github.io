@@ -1240,3 +1240,6 @@ Surface shader (`surfColor` in `web/js/movieprops.js`) reads each map twice (sec
 - #497b drop frequency raised (rr > 0.3) and ring size 0.14-0.38 of a cell; test hook `vire._deck` = { pullRecord, placeOnDeck, setMotor, dropNeedleAt, held } puts a library record on a deck from the console.
 - #497c ripple cells made smaller (6.0 / 4.2 / 3.0 per metre, biggest ring about 13 cm radius); the first sizes were far too big.
 - #497d RIPPLE SIZE slider (ground / surface puddles, `ripSz` 0.3-2.5x, default 1; scales the ripple grid so drops and rings grow or shrink together).
+
+## #498 GUIDES also hide the ring / cube handles
+The cyan ring (carry) and grey cube (size) on every movie prop are DJ-only handles. The GUIDES toggle (was GUIDE BOXES) on the MOVIE PROPS page now hides them together with the blue boxes (`MovieProps.tick`). Grabbing with the B-button laser does not need them. Cache `vire-app-v27`. No Node restart.
