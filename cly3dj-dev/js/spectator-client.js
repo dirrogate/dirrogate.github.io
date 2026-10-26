@@ -19,6 +19,7 @@ import { makeSkinPoser, skinHandEntry } from './ctlhands.js';   // #469 robot ha
 import { makeStudio } from './studio.js';   // #380 S8 STUDIO
 
 export function startCamera(ctx) {
+  const VJ = new URLSearchParams(location.search).get('vj') === '1';   // #500 DirroVJ (dirrovj.html): the laptop VJ desk, phase 1 = the S8 STUDIO on a laptop
   const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, scroller, skybox, envLight, key } = ctx;
   const vs = makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key });   // #184 live green-screen key
   const look = makeLookMatch({ THREE, renderer, scene, rig, key }); vs.setLook(look);   // #187 Look match
@@ -119,6 +120,13 @@ export function startCamera(ctx) {
       </div></div>`);
   const $ = s => document.querySelector(s);
   const ov = $('#spO'), hint = $('#spHint');
+  if (VJ) {   // #500 DirroVJ start page: no AR; the webcam (fixed camera) is optional, only for LIVE DJ! / LIVE KEY!
+    document.title = 'DirroVJ';
+    $('#spS h1').innerHTML = 'Dirro<span>VJ</span>';
+    $('#spS p').textContent = 'The VJ desk: makes the TV picture (put this window full screen on the club screen) and the Twitch stream, with the Quest\'s master sound over Wi-Fi. On the Quest: Settings, Spectator camera On, read the code, then TOOLS > STREAM > S8 STUDIO.';
+    $('#spAR').hidden = true;
+    $('#spFix').textContent = 'Webcam (optional, for LIVE DJ! / LIVE KEY!)';
+  }
 
   // ---------------------------------------------------------------- link
   let link = null, linkState = '';

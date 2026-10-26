@@ -323,7 +323,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       twRes = r.headers.get('Location');
       await pc.setRemoteDescription({ type: 'answer', sdp: opusStereo(body) });
       const set = async (s, o) => { try { const p = s.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}]; Object.assign(p.encodings[0], o); await s.setParameters(p); } catch {} };
-      await set(vt.sender, { maxBitrate: 3500000, maxFramerate: 30 }); await set(at.sender, { maxBitrate: 160000, priority: 'high', networkPriority: 'high' });
+      await set(vt.sender, { maxBitrate: 3500000, maxFramerate: 30 }); await set(at.sender, { maxBitrate: 192000, priority: 'high', networkPriority: 'high' });
       twSender = at.sender; twTry = 0; twSet('live');
       clearInterval(twIv); twIv = setInterval(twStats, 2000);
     } catch (e) { twClose(); twSet('error', e.message || String(e)); }
