@@ -284,7 +284,17 @@ export function startCamera(ctx) {
     onChange: () => { $('#spS').style.display = fixed.on ? 'none' : ''; sendCst(true); } });
   // #214 look without AR (fixed mode): camera grade from the video, 360 photo as light, manual key light; set from the Quest's LOOK tab
   const flook = makeFixLook({ THREE, scene, key, envLight, look, getVideo: () => fixed.video });
-  const studio = makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fixed, led, getLink: () => link, questNow });   // #380 S8 STUDIO: this phone makes the TV picture and the Twitch stream
+  const studio = makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fixed, led, getLink: () => link, questNow, vj: VJ,
+    prepLocal: O => {   // #504 DirroVJ's own SHOW render: no room, sky, markers or reticle; the Quest's OBJECTS toggles for gear / robot / neon
+      const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
+      hide(room); hide(skybox.group); hide(head); hide(reticle); if (!rig.visible) { rig.visible = true; undo.push({ set visible(v) { rig.visible = false; } }); }
+      if (O.neon === false) hide(neon);
+      if (deckInst) for (const p of deckInst.pairs) if (p.im.frustumCulled) p.im.frustumCulled = false;   // the deck bodies are instanced: their bounds are stale, so the show camera culled them
+      if (O.robot === false && robo.a) hide(robo.a.root);
+      if (O.gear === false) for (const c of rig.children) if (!(robo.a && c === robo.a.root)) hide(c);
+      if (deckInst) deckInst.update();   // the instanced deck parts copy the decks only while they are shown: refresh now that the rig is visible
+      return () => { for (const o of undo) o.visible = true; if (deckInst) deckInst.update(); };
+    } });   // #380 S8 STUDIO: this phone makes the TV picture and the Twitch stream
   flook.onChange = () => sendCst(true);
   if (ctx.crateRemote) ctx.crateRemote.setAsk(key => { if (link && link.isOpen) link.send('ctl', { k: 'cover?', key }); });   // #218 covers from the Quest
   let flErr = '';
@@ -818,7 +828,7 @@ export function startCamera(ctx) {
     }
     // mirror: gear nodes and records at the Quest's time minus DELAY
     applyCaseSizes(now);
-    const rt = questNow() - DELAY;
+    const rt = questNow() - DELAY - studio.sceneLag;   // #504 TRIM holds DirroVJ's own render back (lip sync with the sound)
     for (const e of nodes.values()) blendTo(e.s, rt, e.o, true);
     for (const R of recs.values()) {
       blendTo(R.s, rt, R.r.group, false); R.r.group.visible = R.s.length > 0 && now - (R.seen || 0) < 1500;

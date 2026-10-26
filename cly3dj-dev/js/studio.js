@@ -19,7 +19,7 @@ const COPY_FS = 'uniform sampler2D map; varying vec2 vUv; void main() { gl_FragC
 const STRIP_FS = `uniform sampler2D q; uniform float H, bh; varying vec2 vUv;
 void main() { float i = floor(gl_FragCoord.x); float y = 12.0 + i * bh + bh * 0.5;
   float v = texture2D(q, vec2(${((STU.SX + STU.SW / 2) / STU.PW).toFixed(6)}, 1.0 - y / H)).r; gl_FragColor = vec4(v, v, v, 1.0); }`;
-const COMP_FS = `uniform sampler2D q, cam, bgT; uniform float qMode, camMode, bgMode, t; uniform vec4 bgUv, qFit; uniform vec4 crop;
+const COMP_FS = `uniform sampler2D q, cam, bgT, loc; uniform float qMode, camMode, bgMode, locMode, t; uniform vec4 bgUv, qFit; uniform vec4 crop;
 uniform float thr, soft, spill, cmatch, camGain; uniform vec3 tint; varying vec2 vUv;
 uniform float keyCol;
 float keyOf(vec3 c) {
@@ -34,6 +34,11 @@ vec3 despill(vec3 c, float k) {
   return c;
 }
 vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
+vec3 rrt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
+vec3 aces(vec3 c) {
+  const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
+  const mat3 O = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
+  c *= 1.0 / 0.6; return clamp(O * rrt(I * c), 0.0, 1.0); }
 void main() {
   vec2 uv = vUv; vec3 c;
   // 1. backdrop
@@ -52,6 +57,12 @@ void main() {
       c = mix(c, clamp(k, 0.0, 1.0), a);
     }
   }
+  // 2b. #504 RENDER: LAPTOP: this laptop's own render of the scene (linear, premultiplied, tone-mapped here as the Quest does)
+  if (locMode > 0.5) {
+    vec4 g = texture2D(loc, uv); float a = clamp(g.a, 0.0, 1.0);
+    vec3 gc = srgb(aces(g.rgb / max(a, 0.001))), L = srgb(aces(g.rgb)) * (1.0 - smoothstep(0.0, 0.05, a));   // additive light (neon, lasers) leaves alpha at 0
+    c = min(mix(c, gc, a) + L, 1.0);
+  }
   // 3. the Quest's scene
   if (qMode > 0.5 && qMode < 1.5) {
     vec3 s = texture2D(q, vec2(uv.x * ${(STU.CW / STU.PW).toFixed(6)}, uv.y)).rgb;
@@ -65,7 +76,7 @@ void main() {
   gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
 }`;
 
-export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fixed, led, getLink, questNow, onState }) {
+export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fixed, led, getLink, questNow, onState, vj, prepLocal }) {   // #504 vj: DirroVJ (can draw SHOW itself); prepLocal(O): hide what the shot leaves out, returns undo
   const S = { on: false, mode: 'show', bd: 'none', snd: true, trim: 0, mon: false, src: 'show', paused: false, gest: false,
     D: null, hold: null, fps: 0, qfps: 0, note: '', tw: 'off', twMsg: '', kbps: 0, W: 1280, H: 720 };
   // ---- media in
@@ -106,11 +117,12 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   const stripRT = new THREE.WebGLRenderTarget(32, 1, { depthBuffer: false }), stripBuf = new Uint8Array(32 * 4);
   const stripMat = new THREE.ShaderMaterial({ uniforms: { q: { value: qTex }, H: { value: 720 }, bh: { value: 24 } }, vertexShader: VS, fragmentShader: STRIP_FS, depthTest: false, depthWrite: false }), stripSc = quad(stripMat);
   const half = renderer.extensions.has('EXT_color_buffer_half_float') || renderer.extensions.has('EXT_color_buffer_float');
+  let locRT = null; const locCam = new THREE.PerspectiveCamera(50, 16 / 9, 0.05, 60); locCam.updateMatrixWorld = () => {};   // #504
   let domeRT = null; const domeCam = new THREE.PerspectiveCamera(50, 16 / 9, 0.05, 60); domeCam.updateMatrixWorld = () => {};
   const clipTex = led.video ? new THREE.VideoTexture(led.video) : null; if (clipTex) { clipTex.colorSpace = THREE.NoColorSpace; clipTex.generateMipmaps = false; }
   const U = { q: { value: qTex }, cam: { value: null }, bgT: { value: null }, qMode: { value: 0 }, camMode: { value: 0 }, bgMode: { value: 0 }, t: { value: 0 },
     bgUv: { value: new THREE.Vector4(0, 0, 1, 1) }, qFit: { value: new THREE.Vector4(0, 0, 1, 1) }, crop: { value: new THREE.Vector4() },
-    thr: { value: 0.1 }, soft: { value: 0.1 }, spill: { value: 0.7 }, cmatch: { value: 0.4 }, tint: { value: new THREE.Vector3(1, 1, 1) }, keyCol: { value: 0 }, camGain: { value: 1 } };
+    loc: { value: null }, locMode: { value: 0 }, thr: { value: 0.1 }, soft: { value: 0.1 }, spill: { value: 0.7 }, cmatch: { value: 0.4 }, tint: { value: new THREE.Vector3(1, 1, 1) }, keyCol: { value: 0 }, camGain: { value: 1 } };
   const compMat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: COMP_FS, depthTest: false, depthWrite: false }), compSc = quad(compMat);
   // ---- the screen: 1280 x 720 drawing buffer, shown full screen with bars (the HDMI picture), the page's own UI hidden
   document.head.insertAdjacentHTML('beforeend', `<style>
@@ -168,7 +180,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   function onMsg(m) {
     if (m.k === 'stu') {
       const was = S.on;
-      Object.assign(S, { on: !!m.on, mode: m.mode || 'show', bd: m.bd || 'none', snd: m.snd !== false, trim: +m.trim || 0, mon: !!m.mon, src: m.src || 'show', clipWant: m.clip || '' });
+      Object.assign(S, { on: !!m.on, mode: m.mode || 'show', bd: m.bd || 'none', snd: m.snd !== false, trim: +m.trim || 0, mon: !!m.mon, src: m.src || 'show', clipWant: m.clip || '', local: !!m.local, O: m.O || null });   // #504
       if (S.on && !was) { S.paused = false; if (S.bd === 'dome') vs.ensure().catch(() => {}); }
       if (!S.on && was) { twStop('studio off'); }
       if (S.on && S.bd === 'dome') { vs.ensure().catch(() => {}); vs.playPano && vs.playPano(true); }
@@ -267,6 +279,22 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
           U.bgT.value = clipTex; U.bgUv.value.set((1 - w) / 2, (1 - h) / 2, w, h); U.bgMode.value = 1;
         }
       }
+      // #504 RENDER: LAPTOP: the scene from the show camera, at the mirror's own time (questNow - 70 ms - TRIM)
+      U.locMode.value = 0;
+      if (vj && S.mode === 'show' && S.local && S.src === 'show') {
+        const p = poseAt((Math.round(questNow() - 70 - S.trim)) & 0xFFFFFF);
+        if (p) {
+          if (!locRT || locRT.width !== S.W || locRT.height !== S.H) { if (locRT) locRT.dispose(); locRT = new THREE.WebGLRenderTarget(S.W, S.H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 }); }
+          rig.updateMatrixWorld(); locCam.matrixWorld.compose(new THREE.Vector3().fromArray(p.p), new THREE.Quaternion().fromArray(p.q), new THREE.Vector3(1, 1, 1)).premultiply(rig.matrixWorld);
+          locCam.matrixWorldInverse.copy(locCam.matrixWorld).invert(); locCam.matrixWorld.decompose(locCam.position, locCam.quaternion, locCam.scale);
+          if (locCam.fov !== p.fov || locCam.aspect !== S.W / S.H) { locCam.fov = p.fov; locCam.aspect = S.W / S.H; locCam.updateProjectionMatrix(); }
+          locCam.layers.mask = camera.layers.mask | (1 << 6);   // + the robot's layer (avLayer 6, as on the Quest)
+          const undo = prepLocal ? prepLocal(S.O || {}) : null, cc = renderer.getClearColor(new THREE.Color()), ca = renderer.getClearAlpha(), bg = scene.background;
+          try { scene.background = null; renderer.setClearColor(0x000000, 0); renderer.setRenderTarget(locRT); renderer.clear(); renderer.render(scene, locCam); }
+          finally { renderer.setClearColor(cc, ca); scene.background = bg; if (undo) undo(); }
+          U.loc.value = locRT.texture; U.locMode.value = 1; S.lrFps = (S.lrFps || 0) + 1;
+        }
+      }
       // the Quest's frame
       U.qMode.value = haveQ ? (packed ? 1 : 2) : 0;
       if (haveQ && !packed) { const a = qv.videoWidth / qv.videoHeight, oa = S.W / S.H; if (a > oa) U.qFit.value.set(0, (1 - oa / a) / 2, 1, oa / a); else U.qFit.value.set((1 - a / oa) / 2, 0, a / oa, 1); }
@@ -290,7 +318,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   function status(now, haveQ, note) {
     S.note = note;
     const L = getLink();
-    if (L && L.isOpen) L.send('ctl', { k: 'sst', run: !!(S.on && !S.paused && haveQ), fps: S.fps, qfps: S.qfps, hold: S.hold, d: S.D != null ? Math.round(S.D) : null, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps, note,
+    if (L && L.isOpen) L.send('ctl', { k: 'sst', lr: vj ? 1 : 0, run: !!(S.on && !S.paused && haveQ), fps: S.fps, qfps: S.qfps, hold: S.hold, d: S.D != null ? Math.round(S.D) : null, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps, note,
       clip: led.on && led.video && !led.video.paused ? led.name : '', cam: fixed.on && fixed.camInfo ? { ...fixed.camInfo(), rate: camRate } : null });
     stEl.textContent = `DirroVJ  ${({ show: 'SHOW', dj: 'LIVE DJ!', key: 'LIVE KEY!', cam: 'WEBCAM' })[S.mode]}  ·  backdrop ${S.bd.toUpperCase()}  ·  out ${S.fps} fps  ·  Quest ${S.qfps} fps\n` +
       `camera ${camRate} fps  ·  Quest frames ${S.D != null ? Math.round(S.D) + ' ms' : '-'} late  ·  camera held ${S.hold != null ? S.hold + ' ms' : '-'}  ·  trim ${S.trim} ms  ·  sound ${aTrack && S.snd ? 'on' : 'off'}\n` +
@@ -349,5 +377,5 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   }
   function twStop(msg, err) { twClose(); twSet(err ? 'error' : 'off', msg || ''); }
   // the sound follows the Quest's SOUND switch (it simply stops sending); the element is never muted after START STUDIO
-  return { S, onMsg, onScp, onTrack, onLink, frame, get on() { return S.on && !S.paused; }, get mon() { return S.on && !S.paused && S.mon; }, resume() { S.paused = false; apply(); } };
+  return { S, _U: U /* #504 test hook */, get sceneLag() { return vj && S.on && !S.paused && S.mode === 'show' && S.local ? S.trim : 0; }, onMsg, onScp, onTrack, onLink, frame, get on() { return S.on && !S.paused; }, get mon() { return S.on && !S.paused && S.mon; }, resume() { S.paused = false; apply(); } };
 }

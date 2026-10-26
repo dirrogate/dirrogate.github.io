@@ -6620,9 +6620,10 @@ function drawToolsPage() {
     g.font = '500 14px system-ui'; g.fillStyle = '#8c96a8';
     const nl = wrapText(g, sub, L + 2, y0 + (P ? 40 : 36), R - L - 4, 18, P ? 3 : 2), y1 = y0 + (P ? 44 : 40) + Math.max(1, nl) * 18;
     const w3 = (R - L - 2 * gap) / 3, w4 = (R - L - 3 * gap) / 4, w5 = (R - L - 4 * gap) / 5, fs = P ? 18 : 15;
-    btn(L, y1, w3, bh, U.on ? 'DIRROVJ: ON' : 'DIRROVJ: OFF', U.on, () => S.setStudio('on', !U.on), false, fs);
-    btn(L + w3 + gap, y1, w3, bh, U.snd ? 'SOUND: ON' : 'SOUND: OFF', U.snd, () => S.setStudio('snd', !U.snd), false, fs);
-    btn(L + 2 * (w3 + gap), y1, w3, bh, 'BACK: ' + S.showOpt.backdrop.toUpperCase(), S.showOpt.backdrop !== 'none', () => { S.nextBackdrop(); S._stuSync(); }, false, fs);
+    btn(L, y1, w4, bh, U.on ? 'DIRROVJ: ON' : 'DIRROVJ: OFF', U.on, () => S.setStudio('on', !U.on), false, fs);
+    btn(L + w4 + gap, y1, w4, bh, U.snd ? 'SOUND: ON' : 'SOUND: OFF', U.snd, () => S.setStudio('snd', !U.snd), false, fs);
+    btn(L + 2 * (w4 + gap), y1, w4, bh, 'BACK: ' + S.showOpt.backdrop.toUpperCase(), S.showOpt.backdrop !== 'none', () => { S.nextBackdrop(); S._stuSync(); }, false, fs);
+    btn(L + 3 * (w4 + gap), y1, w4, bh, U.local ? (s8 && !s8.lr ? 'RENDER: QUEST*' : 'RENDER: LAPTOP') : 'RENDER: QUEST', U.local && !!(s8 && s8.lr), () => S.setStudio('local', !U.local), false, fs);   // #504 * = the linked page can't draw SHOW (phone): the Quest renders
     const y2 = y1 + bh + gap;
     Object.entries(STUDIO_MODES).forEach(([k, label], i) => btn(L + i * (w4 + gap), y2, w4, bh + (P ? 12 : 0), label, U.mode === k, () => S.setStudio('mode', k), false, P ? 22 : 17));
     const y3 = y2 + bh + (P ? 12 : 0) + gap;
