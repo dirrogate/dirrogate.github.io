@@ -796,7 +796,7 @@ function recSave(type) {
   const blob = new Blob(rec.chunks, { type: (type || 'video/webm').split(';')[0] }); rec.chunks = [];
   if (!blob.size) { toast('Nothing recorded'); return; }
   const ext = /mp4/.test(blob.type) ? 'mp4' : 'webm', d = new Date(), p = n => String(n).padStart(2, '0');
-  const name = `cly3dj-dirrogram-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
+  const name = `dirrodj-dirrogram-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 60000);
   toast(`Saved ${name} (${(blob.size / 1048576).toFixed(1)} MB)`);

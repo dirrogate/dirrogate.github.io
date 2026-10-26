@@ -8309,6 +8309,7 @@ function syncSettingsUI() {
   $('#sGlow').value = settings.glow; $('#sShadows').value = settings.shadows; $('#sMicRoute').value = settings.micRoute; showMicRoute();
   $('#sEnv').value = settings.env; $('#sEnvMix').value = settings.envMix; $('#envMixVal').textContent = settings.envMix + '%';
   $('#sSpect').value = settings.spect; $('#rowSpect').hidden = settings.spect !== 'on'; $('#spectCode').textContent = spectCode();
+  { const u = f => new URL(f, location.href).href.replace(/[?#].*$/, ''); $('#spectUrlP').textContent = u('spectator.html'); $('#spectUrlV').textContent = u('dirrovj.html'); }   // #511 the full address (cabin.dirrodj.club/cly3dj/... or the dev folder)
   $('#sDeckModel').value = settings.deckModel; $('#sRecWeight').value = settings.recWeight; $('#sSlipmat').value = settings.slipmat; $('#cPll').checked = !!settings.pll;
   $('#bEnvImg').hidden = settings.env !== 'image'; $('#rowEnvMix').hidden = settings.env === 'studio';
   $('#sArRefl').value = settings.arRefl; $('#arReflVal').textContent = settings.arRefl + '%';
