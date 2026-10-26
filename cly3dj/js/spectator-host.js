@@ -10,11 +10,11 @@ const RATE = 30;                     // state packets per second (the phone inte
 const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _f = new THREE.Vector3();
 const r3 = v => Math.round(v * 1000) / 1000, r4 = v => Math.round(v * 10000) / 10000;
 const CAL_TEXT = {
-  lens: ['Spectator calibration 1/2', 'Touch the phone\'s BACK CAMERA LENS', 'with the controller tip (blue ball),', 'then pull the trigger.'],
-  x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
+  lens: ['Camera phone calibration 1/2', 'Touch the phone\'s BACK CAMERA LENS', 'with the controller tip (blue ball),', 'then pull the trigger.'],
+  x: ['Camera phone calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
-export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getScroll, onLive, getVV, getSpiders, getAv, getLook, getHandFit, getSky, onMedia, onCam, onPreview, perf, coverFor, onScreen, onStudio }) {   // #380 onStudio(what, msg): the S8 studio's link / status   // #358 onScreen: the phone shares / stops sharing its screen
+export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, getSleeves, onVj, artBlobs, getLed, getScroll, onLive, getVV, getSpiders, getAv, getLook, getHandFit, getSky, onMedia, onCam, onPreview, perf, coverFor, onScreen, onStudio }) {   // #380 onStudio(what, msg): the S8 studio's link / status   // #358 onScreen: the phone shares / stops sharing its screen
   // #209 PerfCap: every mirror message also goes to the PerfCap recorder while it records (phone or not)
   const out = { send(ch, m) { if (link.isOpen) link.send(ch, m); if (perf && perf.on) perf.write(ch, m); } };
   let perfMarks = false;   // #209 PerfCap MARKS mode: each trigger press records a floor mark
@@ -22,7 +22,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   let mr = true;   // #164/#167: MR GUI (default on for setting up)
   let lastPing = 0, ledT = 0, ledKey = '', skyKey = '', scrollKey = '', scrollT = 0;   // #169: the phone pings every second; silent for 3.5 s = not connected (a closed page can leave the channel 'open' for ~30 s)
   const status = s => { const el = document.getElementById('spectStatus'); if (el) el.textContent = label(s); };
-  const label = s => ({ relay: 'Waiting for the phone (code ' + code + ')', 'relay-retry': 'No internet for the handshake, retrying…',
+  const label = s => ({ relay: 'Waiting for the phone or DirroVJ (code ' + code + ')', 'relay-retry': 'No internet for the handshake, retrying…',
     connected: 'Phone connected', disconnected: 'Phone disconnected', failed: 'Phone link failed' }[s] || s);
   const layout = () => ({ k: 'layout', layout: stage.snapshot(), rig: rig.position.toArray().map(r3) });
 
@@ -143,7 +143,10 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     const recs = new Set(getRecords().map(r => r.group)), next = new Map();
     const roots = [...Object.entries(stage.items).filter(([k]) => k !== 'preview').map(([k, v]) => [k, v.obj]), ...Object.entries(stage.cases).map(([k, c]) => [k, c.group])];
     const walk = (o, id) => { if (recs.has(o) || o.userData.noMirror) return;   // #195 noMirror: headset-only parts (preview lid, tablet corner)
-      next.set(id, reg.get(id)?.o === o ? reg.get(id) : { o, last: null }); o.children.forEach((c, i) => walk(c, id + '.' + i)); };
+      next.set(id, reg.get(id)?.o === o ? reg.get(id) : { o, last: null }); kids(o).forEach((c, i) => walk(c, id + '.' + i)); };
+    // #505 numbered without what moves between parents on its own (records, 45 adapters) or stays on the headset, so a 45 adapter
+    // put back in its recess (appended last) can't shift the other parts' numbers; the phone / DirroVJ number the same way
+    const kids = o => o.children.filter(c => !recs.has(c) && !c.userData.noMirror && !c.userData.mirrorSkip);
     for (const [k, o] of roots) walk(o, k);
     reg = next;
   }
@@ -217,6 +220,24 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     for (const uid of [...live.keys()]) if (!seen.has(uid)) { live.delete(uid); out.send('ctl', { k: 'recdel', uid }); }
     return rows;
   }
+  // ---- #503 sleeves out of the crate (in a hand, lying on the case, sliding back): sent once (cover key, title, artist, size),
+  // then followed like records: pose in rig space + the record inside (how far it rides out, shown or not)
+  const slvUid = new WeakMap(); let slvNext = 1; const slvLive = new Set();
+  function sleevesTick() {
+    if (!getSleeves) return undefined;
+    const rows = [], seen = new Set();
+    _ri.copy(rig.matrixWorld).invert();
+    for (const it of getSleeves()) {
+      const sl = it.sl; let uid = slvUid.get(sl);
+      if (!uid) { uid = slvNext++; slvUid.set(sl, uid); }
+      seen.add(uid);
+      if (!slvLive.has(uid)) { slvLive.add(uid); out.send('ctl', { k: 'slv', uid, key: it.key, title: it.title, artist: it.artist, size: it.size }); }
+      sl.g.updateMatrixWorld(); _rm.multiplyMatrices(_ri, sl.g.matrixWorld); _rm.decompose(_rp, _rq, _rs);
+      rows.push([uid, r4(_rp.x), r4(_rp.y), r4(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), r4(sl.disc.position.y), sl.disc.visible ? 1 : 0, sl.g.visible ? 1 : 0]);
+    }
+    for (const uid of [...slvLive]) if (!seen.has(uid)) { slvLive.delete(uid); out.send('ctl', { k: 'slvdel', uid }); }
+    return rows;
+  }
   // ---- #218 the record crate on the phone: the view (sent when it changes), the lid screen (JPEG, at most every
   // 0.4 s) and covers (256 px JPEG, when the phone asks; PerfCap takes get each cover once too)
   let crateMsg = null, crateSent = '', scrCanvas = null, scrDirty = false, scrT = 0, scrBusy = false, lastScr = null;
@@ -259,7 +280,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     const have = new Set();
     for (let i = 0; i < keys.length; i += 500) {
       const part = keys.slice(i, i + 500);
-      const got = await new Promise((res, rej) => { haveWait = res; link.send('ctl', { k: 'covhave?', keys: part }); setTimeout(() => { if (haveWait === res) { haveWait = null; rej(new Error('the phone did not answer (reload Cly3DJ on the phone)')); } }, 15000); });
+      const got = await new Promise((res, rej) => { haveWait = res; link.send('ctl', { k: 'covhave?', keys: part }); setTimeout(() => { if (haveWait === res) { haveWait = null; rej(new Error('the phone did not answer (reload DirroDJ on the phone)')); } }, 15000); });
       for (const k of got) have.add(k);
     }
     const st = { i: 0, n: keys.length, sent: 0 };
@@ -351,7 +372,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   // both lists: [{ f, n, size, q: on the Quest, p: on the phone, get? }] sorted by folder then name
   async function syncList(getExtras) {
     if (!link.isOpen) throw new Error('phone not connected');
-    const phoneItems = await new Promise((res, rej) => { listWait = res; link.send('ctl', { k: 'mls?' }); setTimeout(() => { if (listWait === res) { listWait = null; rej(new Error('the phone did not send its list (reload Cly3DJ on the phone)')); } }, 10000); });
+    const phoneItems = await new Promise((res, rej) => { listWait = res; link.send('ctl', { k: 'mls?' }); setTimeout(() => { if (listWait === res) { listWait = null; rej(new Error('the phone did not send its list (reload DirroDJ on the phone)')); } }, 10000); });
     const all = new Map();
     for (const [f, n, size] of await mediaList()) all.set(f + '/' + n, { f, n, size, q: true, p: false });
     for (const e of (getExtras ? await getExtras() : [])) { const k = e.f + '/' + e.n; if (!all.has(k)) all.set(k, { ...e, q: true, p: false }); }
@@ -363,7 +384,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   async function syncCopy(items, onStep) {
     if (sync.on) return sync;
     if (!link.isOpen) throw new Error('phone not connected');
-    if (!link.fileOpen) throw new Error('reload Cly3DJ on the phone, then Connect again');
+    if (!link.fileOpen) throw new Error('reload DirroDJ on the phone, then Connect again');
     const list = items.filter(it => it.q !== it.p);
     Object.assign(sync, { on: true, i: 0, n: list.length, name: '', dir: '', pct: 0, done: 0, skipped: 0, err: '' }); onStep && onStep(sync);
     const tick = setInterval(() => { if (sync.dir === 'in' && rx) sync.pct = Math.round(rx.got / rx.size * 100); onStep && onStep(sync); }, 500);
@@ -401,7 +422,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     onTrack: t => { onLive && onLive(t); },   // #238 LIVE CAM
     onBinary: onBin,
     onState: s => status(s),
-    onOpen: () => { crateSent = ''; if (lastScr) scrDirty = true; link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; scrollKey = ''; spKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); onStudio && onStudio('open'); },
+    onOpen: () => { crateSent = ''; if (lastScr) scrDirty = true; link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; scrollKey = ''; spKey = ''; full = true; live.clear(); slvLive.clear(); toast && toast('Phone / DirroVJ connected', 2500); status('connected'); onStudio && onStudio('open'); },
     onClose: () => { onStudio && onStudio('close'); onLive && onLive(null); onScreen && onScreen(false); if (rx) { rx.abort(); rx = null; } camState = null; onCam && onCam(null); status('disconnected'); calStep = null; ghost(false); panel.visible = false; frustum.visible = false; },
     onMessage: m => {
       if (m.k === 'qgo' || m.k === 'qok') { resolveWait(m.f, m.n, m.k, m); return; }   // #206 media sync, Quest to phone
@@ -409,6 +430,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       if (m.k === 'cst') { camState = m; onCam && onCam(m); return; }
       if (m.k === 'sst') { onStudio && onStudio('sst', m); return; }   // #380 the S8 studio's status (once a second)
       if (m.k === 'screen') { onScreen && onScreen(!!m.on); return; }   // #358   // #188 the phone's camera / key / look state
+      if (m.k === 'vjsine') { onVj && onVj(m); return; }   // #507 DirroVJ scroller desk (main.js checks the pairing)
       if (m.k === 'cover?') { onCoverAsk(m.key); return; }   // #218
       if (m.k === 'covhave') { if (haveWait) { const w = haveWait; haveWait = null; w(m.keys || []); } return; }
       if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }
@@ -426,7 +448,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
             : ['Fixed camera calibration', `Touch MARK ${m.n} on the floor`, 'with the controller tip (blue ball),', 'then pull the trigger.'];
           ghost(true); say(t); showImg(m.img); toast && toast(t.slice(1).join(' '), 6000);
         }
-        else if (m.step === 'done') { calStep = null; ghost(false); showImg(null); say(['Spectator camera calibrated', m.px != null ? 'Match: ' + m.px + ' px' : m.err != null ? 'Match: ' + m.err + ' cm' : '', 'The blue outline shows what it films.'], '#40d080'); doneT = 3; }
+        else if (m.step === 'done') { calStep = null; ghost(false); showImg(null); say(['Camera calibrated', m.px != null ? 'Match: ' + m.px + ' px' : m.err != null ? 'Match: ' + m.err + ' cm' : '', 'The blue outline shows what it films.'], '#40d080'); doneT = 3; }
         else { calStep = null; ghost(false); panel.visible = false; showImg(null); }
       } else if (m.k === 'cam') {
         pcam = m; pcamT = performance.now();   // #347 kept for the Quest's PHONE CAM source (pose, full-video fov / size)
@@ -467,7 +489,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     else if (now - settleT > 1000) { settleT = now; const n = settled(now); if (n.length) out.send('ctl', { k: 'full', t: Math.round(now), n }); }
     out.send('state', { k: 's', n: seq++, t: Math.round(now), xr: renderer.xr.isPresenting ? 1 : 0,
       h: [r3(_p.x), r3(_p.y), r3(_p.z), r4(_q.x), r4(_q.y), r4(_q.z), r4(_q.w)],
-      cs: caseSizes(false), g: nodeDiffs(false), r: recordsTick(), vv: vvTick(), sp: spTick(), hd: renderer.xr.isPresenting ? handsTick() : [], av: getAv ? getAv() : undefined, cl: getLook ? getLook() : undefined, ha: getHandFit ? getHandFit() : undefined });   // #291 ha: the hand fit   // #288 cl: how the DJ's controllers look   // #278 av: robot on the phone
+      cs: caseSizes(false), g: nodeDiffs(false), r: recordsTick(), sv: sleevesTick(), vv: vvTick(), sp: spTick(), hd: renderer.xr.isPresenting ? handsTick() : [], av: getAv ? getAv() : undefined, cl: getLook ? getLook() : undefined, ha: getHandFit ? getHandFit() : undefined });   // #291 ha: the hand fit   // #288 cl: how the DJ's controllers look   // #278 av: robot on the phone
   }
   // #167: one switch. ON = viewfinder outline here + helpers and menus on the phone; OFF = everything hidden
   // (the phone shows only camera + gear: start its screen recorder by hand)
@@ -489,6 +511,6 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     syncList, syncCopy, get sync() { return sync; },
     // #209 PerfCap: a take starts with a full snapshot (layout, every part, every record with its grooves / labels)
     crate, crateScreen, prepCovers,   // #218
-    perfBegin() { full = true; spKey = ''; live.clear(); ledKey = ''; skyKey = ''; scrollKey = ''; crateSent = ''; scrDirty = !!scrCanvas; perfCov.clear(); if (crateMsg) crate(crateMsg); if (perf && perf.on) { perf.write('ctl', layout()); perf.write('ctl', { k: 'mr', on: mr }); } },
+    perfBegin() { full = true; spKey = ''; live.clear(); slvLive.clear(); ledKey = ''; skyKey = ''; scrollKey = ''; crateSent = ''; scrDirty = !!scrCanvas; perfCov.clear(); if (crateMsg) crate(crateMsg); if (perf && perf.on) { perf.write('ctl', layout()); perf.write('ctl', { k: 'mr', on: mr }); } },
     get perfMarks() { return perfMarks; }, set perfMarks(v) { perfMarks = !!v; } };
 }

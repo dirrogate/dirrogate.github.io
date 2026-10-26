@@ -63,6 +63,7 @@ if (params.get('xml')) { settings.source = 'pc'; settings.xml = params.get('xml'
 if (settings.env === 'camera') settings.env = 'studio'; // camera snapshots removed (CLAUDE.md #39)
 // #114: Recording-friendly mode removed (always 90 Hz, 'interactive' audio); the owner records with the Quest
 // recorder's mic off, so the voice goes through the mixer; wired headphones, so no echo cancelling by default
+if (!settings.mig503) { settings.pieces = { ...(settings.pieces || {}), neon: false }; settings.mig503 = 1; saveSettings(); }   // #503 neon logo off by default (owner); NEON on the pieces list brings it back
 if (!settings.mig114) { delete settings.perf; settings.micRoute = 'app'; settings.micEcho = false; settings.mig114 = 1; saveSettings(); }
 let dirro = null, dirroRoomT = 0, smsPg = 0;
 const dirroMark = { want: '', t0: 0, prev: {} };   // #438 MARK LEFT / RIGHT: the next trigger press records the controller tip   // #435 smsPg: HOLOSMS page   // #427 DirroHost, set up at the end of start-up
@@ -1033,7 +1034,7 @@ let chalkTapT = 0;
 const chalkLbl = () => chalkboard && chalkboard.on ? 'WHITEBOARD: ON' : 'WHITEBOARD';   // #395
 function openPhoneCam() {   // #389 from VJ TOOLS and SHOWTIME! OBJECTS: pick PHONE CAM and open its setup page (says why when the phone isn't there)
   const S = streamer; if (!S) { toast('Streaming runs on the headset', 2500); return; }
-  if (S.stu.on) { toast('S8 STUDIO is on: use LIVE DJ! or LIVE KEY! on the S8 STUDIO page', 3500); return; }
+  if (S.stu.on) { toast('DirroVJ is on: use LIVE DJ!, LIVE KEY! or WEBCAM on the DIRROVJ page', 3500); return; }
   const why = pcamReady(); if (why) { toast(why, 3500); return; }
   S.setSource('pcam'); setTools('pcam');
 }
@@ -1281,7 +1282,7 @@ let toastTimer;
 const perf = makePerfCap({ toast: (m, ms) => toast(m, ms) });
 setInterval(() => { if (perf.on && toolsPage === 'perfcap') drawMixScreen(); }, 1000);
 async function perfToggle() {
-  if (!spect) { toast('PerfCap needs Settings > Spectator camera On (it records what the phone would mirror)', 4000); return; }
+  if (!spect) { toast('PerfCap needs Settings > Phone / DirroVJ link On (it records what the phone would mirror)', 4000); return; }
   if (perf.on) await perf.stop(); else { await perf.start(); spect.perfBegin && spect.perfBegin(); }
   drawMixScreen();
 }
@@ -1298,6 +1299,7 @@ $('#helpBtn').onclick = () => { const h = $('#help'); h.style.display = h.style.
 const engine = new AudioEngine();
 // #331 LIVE STREAM: master bus (never CUE) + a picture source, straight to Twitch from the headset (stream.js)
 streamer = CAMERA_ROLE ? null : new Streamer({
+  smsList: () => (dirro && dirro.sms) || [],   // #507 HoloSMS for DirroVJ's scroller desk
   engine, renderer, djcam, scene, camera,   // #333 scene / camera for the MR headset picture
   // #336 SHOW / VIDEOWALL
   avLayer: AV_LAYER, showCam: () => djcam && djcam.cam, scroller: () => scroller, chat: () => chat,   // #340
@@ -1442,14 +1444,14 @@ function behindDj(o, cam) {
 // why PHONE CAM can't start yet ('' = the phone is connected); the finer states (fixed camera, calibrated) are in pcamStatus
 function pcamReady() {
   const cs = spect && spect.cam;
-  return !spect ? 'Spectator camera is off: Settings > Spectator camera On, connect the phone.' : !cs ? 'Phone not connected: open the DirroDJ camera page on it.' : '';
+  return !spect ? 'Phone / DirroVJ link is off: Settings > Phone / DirroVJ link On, connect the phone.' : !cs ? 'Phone not connected: open the DirroDJ camera page on it.' : '';
 }
 function pcamStatus(S) {   // #374 shared by the PHONE CAM page and the SHOWTIME! OBJECTS block
   const C = S.pc_, cs = spect && spect.cam, pc6 = spect && spect.phoneCam, lat = S.delay != null ? Math.round(S.delay) : null;
   const v = livePossible() ? liveVideo : null, packed = v && v.videoWidth && Math.abs(v.videoWidth / v.videoHeight - 1920 / 720) < 0.06;
   return [
-    !spect ? 'Spectator camera is off: Settings > Spectator camera On, connect the phone.' : !cs ? 'Phone not connected.' : !cs.fixed ? 'Phone is in AR mode: start it in Fixed camera (tripod) mode.' : !pc6 ? 'Phone not calibrated: Calibrate on the phone (or NUDGE > CALIBRATE).' : `Phone fixed camera, calibrated${cs.fpx != null ? ' ' + cs.fpx + ' px' : ''}.`,
-    S.source !== 'pcam' ? 'Pick PHONE CAM in SHOWTIME! (STREAM > OBJECTS) to use it.' : v && v.videoWidth ? `Video ${v.videoWidth} x ${v.videoHeight}${packed ? ' (colour + matte)' : ''}${S.pkMsg ? ' · ' + S.pkMsg : ''}` : 'Waiting for the phone video (the preview starts it).',
+    !spect ? 'Phone / DirroVJ link is off: Settings > Phone / DirroVJ link On, connect the phone.' : !cs ? 'Phone not connected.' : !cs.fixed ? 'Phone is in AR mode: start it in Fixed camera (tripod) mode.' : !pc6 ? 'Phone not calibrated: Calibrate on the phone (or NUDGE > CALIBRATE).' : `Phone fixed camera, calibrated${cs.fpx != null ? ' ' + cs.fpx + ' px' : ''}.`,
+    S.source !== 'pcam' ? 'Pick PHONE CAM in SHOWTIME! (TWITCH > OBJECTS) to use it.' : v && v.videoWidth ? `Video ${v.videoWidth} x ${v.videoHeight}${packed ? ' (colour + matte)' : ''}${S.pkMsg ? ' · ' + S.pkMsg : ''}` : 'Waiting for the phone video (the preview starts it).',
     lat != null ? `Video ${lat} ms late (measured)${C.lat ? ', gear, hands and stream sound held back ' + Math.round(S.latMs) + ' ms' : ''}.` : `Delay not measured: LATENCY MATCH uses ${C.manual} ms.`,
   ];
 }
@@ -1461,7 +1463,7 @@ function handsHides(hide, O, force) {   // force: PHONE CAM always shows your ow
   for (const st of xr.inputs) { hide(st.hand); hide(st.grip); if (st.ctlHand) hide(st.ctlHand.root); }
   if (xr.glove) hide(xr.glove.root);
 }
-const tvLbl = S => S.stu.on ? (S.stuRun ? 'S8 STUDIO: ON' : 'S8 STUDIO') : S.tvUp ? 'DIRROTV: ON' : 'DIRROTV';   // #380 the STREAM page's screen button
+const tvLbl = S => S.stu.on ? (S.stuRun ? 'DIRROVJ: ON' : 'DIRROVJ') : S.tvUp ? 'DIRROTV: ON' : 'DIRROTV';   // #380 the STREAM page's screen button
 let tvDigits = '', tvForgetArm = 0;   // #376 the code being typed on the tablet; double-tap guard for FORGET TV
 let pcamAutoReh = false;   // #374 the PHONE CAM page started the off-air shot for its preview (so leaving the page stops it again)
 function pcamPrep(cam) {
@@ -1675,6 +1677,13 @@ function phoneArt(track) {   // camera role: fetchArt from the phone's cover sto
 const crateRemote = {   // handed to spectator-client.js (camera role)
   setAsk(fn) { phoneCovers.ask = fn; },
   spiders(a) { spidersApply(a); },   // #262
+  sleeveMake(m) {   // #503 a sleeve the Quest has out of the crate: the same jacket (cover from the phone's store or the Quest, title / artist on the back)
+    const r = { title: m.title || '', artist: m.artist || '', size: m.size === 7 ? 7 : 12, sides: { A: { id: m.key || 'none', missing: !m.key }, B: null } };
+    const sl = makeSleeve(r);
+    if (m.key) phoneArt(r.sides.A).then(a => { if (a && !sl.gone) drawSleeveArt(sl); });
+    return sl;
+  },
+  sleeveDrop(sl) { disposeSleeve(sl); },
   onCrate(m) {
     const list = new Array(m.n);
     for (const [i, key, title, artist, bpm, missing, size] of m.items) list[i] = { title, artist, bpm, missing: !!missing, size: size === 7 ? 7 : 12, sides: { A: { id: key || 'none', missing: !key }, B: null } };
@@ -2961,6 +2970,7 @@ function sleeveFollow(sl) {   // the held sleeve toward the hand, stopped by the
 // where it is (no physics, like the sleeves). Tidy-up at VR start puts them home.
 const _spv = new THREE.Vector3(), _sps = new THREE.Vector3(), _spm = new THREE.Matrix4();
 const spiders = decks.map(d => d.g.userData.spider ? { d, g: d.g.userData.spider, h: d.g.userData.spiderH || 0.003, anchor: null, off: null, on: null, home: d } : null).filter(Boolean);
+for (const s of spiders) s.g.userData.mirrorSkip = true;   // #505 the 45 adapters change parent (recess, spindle, hand): mirrored by 'sp', left out of the node numbering
 for (const s of spiders) s.d.recess = s;
 function spiderGrabTest(P) {
   for (const s of spiders) { if (s.anchor || (s.on && s.on.record)) continue; s.g.getWorldPosition(_spv); if (_spv.distanceTo(P) < 0.035) return s; }   // #260 not from under a record
@@ -3784,7 +3794,7 @@ function effBpm(d) { return trackBpm(d) * d.speed * (1 + d.pitch); }
 function doSync() {
   const [a, b] = decks;
   const ba = trackBpm(a), bb = trackBpm(b);
-  if (!ba || !bb) { flashSync('red'); toast(`LOCK needs a BPM on both decks (no BPM on deck ${!ba && !bb ? 'A or B' : !ba ? 'A' : 'B'}: tap BEAT 1 on the beat)`, 2600); return; }
+  if (!ba || !bb) { flashSync('red'); toast(`LOCK needs a BPM on both decks (no BPM on deck ${!ba && !bb ? 'A or B' : !ba ? 'A' : 'B'}: the MP3 has no BPM tag and Rekordbox has none)`, 2600); return; }
   const target = (effBpm(a) + effBpm(b)) / 2;
   const pa = target / (ba * a.speed) - 1, pb = target / (bb * b.speed) - 1;
   if (Math.abs(pa) > a.range + 1e-6 || Math.abs(pb) > b.range + 1e-6) {
@@ -3809,7 +3819,7 @@ function stepSync(dt) {
     if (a0 != null && a1 != null) {
       engine.post({ type: 'phase', lead: lastTouched, beat1: [a0, a1], bpm: [trackBpm(decks[0]), trackBpm(decks[1])], maxE: LOCK_NUDGE_MAX });
       toast(`LOCK ${target.toFixed(2)} BPM · aligning deck ${DECK_NAMES[1 - lastTouched]} to ${DECK_NAMES[lastTouched]}`, 1800);
-    } else toast(`LOCK ${target.toFixed(2)} BPM · tempo only (tap BEAT 1 on ${a0 == null && a1 == null ? 'both decks' : 'deck ' + DECK_NAMES[a0 == null ? 0 : 1]} to align beats)`, 3000);
+    } else toast(`LOCK ${target.toFixed(2)} BPM · tempo only, match the beats by ear`, 2200);
   }
 }
 function flashSync(color) { syncFlash = { t: 0.9, color }; }
@@ -4956,10 +4966,10 @@ function drawCamTab(btn, y0) {
   }));
   g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = cs ? '#8c96a8' : '#c9a040';
   const pcTxt = '';   // #387 PerfCap's time and size are on its own page
-  const stTxt = pcTxt + (!cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone and start its camera.'
+  const stTxt = pcTxt + (!cs ? 'Phone not connected: Settings > Phone / DirroVJ link On, then Connect on the phone and start its camera.'
     : cs.fixed ? `Phone ${cs.fps} fps · fixed camera (${cs.fcam === 'user' ? 'selfie' : 'main'}) · ${cs.fcal ? 'calibrating' : cs.cal ? 'calibrated' + (cs.fpx != null ? ' ' + cs.fpx + ' px' : '') : 'not calibrated: Calibrate on the phone'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : '')   // #213
     : `Phone ${cs.fps} fps${cs.late ? ` (${cs.late} late/s)` : ''} · ${cs.ar ? 'camera on' : 'camera not started'} · ${cs.cal ? 'calibrated' : 'not calibrated'}${cs.can ? '' : ' · no camera access'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : ''));
-  const extra = cs ? (cs.fixed ? 'Fixed camera: the key settings drive the PHONE CAM green screen (STREAM > PHONE CAM SETUP)' : [cs.auto, cs.look].filter(Boolean).join(' · ')) : '';
+  const extra = cs ? (cs.fixed ? 'Fixed camera: the key settings drive the PHONE CAM green screen (TWITCH > PHONE CAM SETUP)' : [cs.auto, cs.look].filter(Boolean).join(' · ')) : '';
   if (P) {   // portrait: the status lines wrap under the steppers
     let y = ry + CAM_ROWS.flat().length * 42 + 24;
     y += wrapText(g, stTxt, 12, y, W - 24, 20, 5) * 20 + 8;
@@ -5118,7 +5128,7 @@ function drawLookTab(btn, y0) {
   let y = ry + rows * 42 + (P ? 22 : 14);
   g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = F ? '#8c96a8' : '#c9a040';
   const photo = F ? (F.env ? (F.envOK ? F.env.split('/').pop() : (F.envMsg || 'loading…')) : 'none (PANO tab: pick one, LIGHT PHONE)') : '';
-  const txt = !cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone.'
+  const txt = !cs ? 'Phone not connected: Settings > Phone / DirroVJ link On, then Connect on the phone.'
     : !F ? 'Start Fixed camera on the phone (tripod mode): this page sets its look. AR mode uses the CAMERA tab.'
     : `${F.cam === 'user' ? 'Selfie' : 'Main'} camera (saved for it) · 360 light photo: ${photo}` + (lightBusy ? ` · sending ${lightBusy}` : '') + (cs.flErr ? ' · ' + cs.flErr : '');
   if (P) wrapText(g, txt, 12, y, W - 24, 20, 5); else { wrapText(g, txt, 12, y, W - 24, 20, 2); }
@@ -5130,7 +5140,7 @@ let syncItems = null, syncMsg = '', syncPg = 0, syncAll = false;
 const prep = { on: false, i: 0, n: 0, sent: 0, stop: false };
 async function prepCovers() {
   if (prep.on) { prep.stop = true; return; }
-  if (!spect || !spect.prepCovers) { syncMsg = 'Spectator camera is off: Settings > Spectator camera On, then Connect on the phone.'; drawMixScreen(); return; }
+  if (!spect || !spect.prepCovers) { syncMsg = 'Phone / DirroVJ link is off: Settings > Phone / DirroVJ link On, then Connect on the phone.'; drawMixScreen(); return; }
   const tracks = new Map();
   for (const r of currentList()) { const t = r && !r.missing && (r.sides.A || r.sides.B); if (t && !t.missing) { const k = coverKey(t); coverTracks.set(k, t); tracks.set(k, t); } }
   Object.assign(prep, { on: true, i: 0, n: tracks.size, sent: 0, stop: false }); drawMixScreen();
@@ -5148,7 +5158,7 @@ function syncExtras() {   // the Quest's VideoVinyl clips stored with its songs 
 }
 async function syncLoad() {
   syncMsg = 'Reading both libraries…'; drawMixScreen();
-  if (!spect || !spect.syncList) { syncItems = null; syncMsg = 'Spectator camera is off: Settings > Spectator camera On, then Connect on the phone.'; drawMixScreen(); return; }
+  if (!spect || !spect.syncList) { syncItems = null; syncMsg = 'Phone / DirroVJ link is off: Settings > Phone / DirroVJ link On, then Connect on the phone.'; drawMixScreen(); return; }
   try { syncItems = await spect.syncList(syncExtras); syncMsg = ''; for (const k of [...syncSel]) if (!syncItems.some(i => i.f + '/' + i.n === k && i.q !== i.p)) syncSel.delete(k); }
   catch (e) { syncItems = null; syncMsg = e.message; }
   drawMixScreen();
@@ -5751,11 +5761,11 @@ async function pressRecord() {
 // #231 built-in example records (web/examples/, streamed like songs from the PC), in Unsorted and the Collection.
 // "Sleeve Art Demo": every ID3 picture type the app reads (tools/make_sleeve_demo.py builds it). Long press +
 // DELETE hides one for good on this device (vire.hiddenExamples).
-const EXAMPLES = [{ id: 'sleeve', title: 'Sleeve Art Demo', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3' },
+const EXAMPLES = [{ id: 'sleeve', title: 'Sleeve Art Demo', artist: 'DirroDJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3' },
   // #232 the same pictures in one file: front cover, back cover, and an 'Other' picture described 'Label B'
-  { id: 'sleeve1', title: 'Sleeve Art Demo (One File)', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo (One File).mp3', b: null },
+  { id: 'sleeve1', title: 'Sleeve Art Demo (One File)', artist: 'DirroDJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo (One File).mp3', b: null },
   // #257 a test 7" single (45s list) until 45s can be pressed
-  { id: 'single45', title: 'Test 45 (Sleeve Art Demo)', artist: 'Cly3DJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3', size: 7 }];
+  { id: 'single45', title: 'Test 45 (Sleeve Art Demo)', artist: 'DirroDJ', bpm: 120, key: 'Am', a: 'examples/Sleeve Art Demo_a.mp3', b: 'examples/Sleeve Art Demo_b.mp3', size: 7 }];
 function hiddenExamples() { try { return JSON.parse(localStorage.getItem('vire.hiddenExamples') || '[]'); } catch { return []; } }
 function addExamples(L) {
   const hide = hiddenExamples();
@@ -5785,7 +5795,7 @@ function addPressings(L, list) {
   for (const p of list) {
     const id = 'pr_' + p.id, s = p.src || {};
     if (L.tracks.has(id)) continue;
-    const t = { id, name: p.title, title: p.title, side: null, split: false, artist: s.kind === 'song' ? (s.artist || 'Pressed') : 'Pressed on Cly3DJ', album: '', genre: '', key: '', bpm: s.bpm || 0, duration: 0,
+    const t = { id, name: p.title, title: p.title, side: null, split: false, artist: s.kind === 'song' ? (s.artist || 'Pressed') : 'Pressed on DirroDJ', album: '', genre: '', key: '', bpm: s.bpm || 0, duration: 0,
       location: 'press:' + p.id, url: s.url || null, opfs: s.opfs || null, missing: false, cues: [], unsorted: true, press: p };
     if (s.kind === 'video') t.pressVideo = s.video;
     const r = { id: 'r' + id, title: p.title, artist: t.artist, sides: { A: t, B: null }, bpm: t.bpm, key: '', genre: '', duration: 0, missing: false, paired: false, unsorted: true, pressed: true, size: p.size === 7 ? 7 : 12 };
@@ -5837,7 +5847,7 @@ const PINCH_FIT_DEF = {
   lh: { label: 'HAND LIFT', lo: -20, hi: 60, v: 10, unit: 'mm' }, lg: { label: 'GLOVE LIFT', lo: -20, hi: 60, v: 15, unit: 'mm' },
   pa: { label: 'PINCH TILT', lo: -60, hi: 60, v: 0, unit: '°' }, pt: { label: 'PINCH TURN', lo: -90, hi: 90, v: 0, unit: '°' },
 };
-const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'LED WALL', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'DIRROTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376
+const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'LED WALL', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -6286,24 +6296,24 @@ function drawToolsPage() {
   if (page === 'looper' || page === 'loopbanks') { drawLooperPage(page, { g, W, H, P, L, R, btn, head, note }); return; }   // #470
   if (page === 'home') {
     const y0 = head('TOOLS', 'mixer');
-    const stLbl = streamer && streamer.live ? '● LIVE ' + streamer.elapsed() : 'STREAM';   // #331
+    const stLbl = streamer && streamer.live ? '● LIVE ' + streamer.elapsed() : 'TWITCH';   // #331
     if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
       btn(L, y0 + 224, R - L, 96, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
       btn(L, y0 + 332, R - L, 80, streamer ? tvLbl(streamer) : 'DIRROTV', !!(streamer && (streamer.tvUp || streamer.stuRun)), () => setTools('tv'), !streamer, 24);   // #389 was CHALKBOARD (now on VJ TOOLS)
       btn(L, y0 + 424, R - L, 72, dirroLbl(), !!(dirro && dirro.on), () => setTools('dirro'), !dirro, 24);   // #427
-      note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall, neon, whiteboard, portals, cameras. STREAM: go live on Twitch (master mix only, never the cue). DIRROTV: the Fire Stick TV. DIRROGRAM: the show on the audience\'s phones.', y0 + 520); }   // #363 was under the CHALKBOARD button
+      note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, LED wall, neon, whiteboard, portals, cameras. TWITCH: go live (master mix only, never the cue). DIRROTV: screens in the venue (any TV with a browser: Fire Stick, smart TV, laptop). DIRROGRAM: the show on the audience\'s phones.', y0 + 520); }   // #363 was under the CHALKBOARD button
     else { const bw = (R - L - 48) / 5; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 24); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 24);   // #427 five across
       btn(L + 2 * (bw + 12), y0 + 8, bw, 130, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 24);
       btn(L + 3 * (bw + 12), y0 + 8, bw, 130, streamer ? tvLbl(streamer) : 'DIRROTV', !!(streamer && (streamer.tvUp || streamer.stuRun)), () => setTools('tv'), !streamer, 21);   // #389 was CHALKBOARD (now on VJ TOOLS)
       btn(L + 4 * (bw + 12), y0 + 8, bw, 130, dirroLbl(), !!(dirro && dirro.on), () => setTools('dirro'), !dirro, 21);   // #427
-      note('DJ TOOLS: Record Maker, milk crate.  VJ TOOLS: Scroller, LED wall, neon, whiteboard, portals, cameras.  STREAM: Twitch.  DIRROTV: the Fire Stick TV.  DIRROGRAM: the show on the audience\'s phones.', y0 + 160); }
+      note('DJ TOOLS: Record Maker, milk crate.  VJ TOOLS: Scroller, LED wall, neon, whiteboard, portals, cameras.  TWITCH: go live.  DIRROTV: screens in the venue (any TV with a browser).  DIRROGRAM: the show on the audience\'s phones.', y0 + 160); }
     return;
   }
   if (page === 'stream') {   // #331 LIVE STREAM to Twitch
     const y0 = head('LIVE STREAM · TWITCH', 'home'), S = streamer;   // #389 CHAT left the header (it is the CHAT ▸ button in the row below)
     if (!S) { note('Streaming runs on the headset (not on the phone).', y0 + 20); return; }
     const st = S.state, live = st === 'live';
-    const line = (live ? `● LIVE  ${S.elapsed()}  ·  ${(S.kbps / 1000).toFixed(1)} Mb/s` : st === 'connecting' ? S.msg || 'Connecting…' : st === 'error' ? S.msg : 'OFF AIR') + (S.stu.on ? '  ·  VIA S8 ' + STUDIO_MODES[S.stu.mode] : '');   // #380
+    const line = (live ? `● LIVE  ${S.elapsed()}  ·  ${(S.kbps / 1000).toFixed(1)} Mb/s` : st === 'connecting' ? S.msg || 'Connecting…' : st === 'error' ? S.msg : 'OFF AIR') + (S.stu.on ? '  ·  VIA DIRROVJ ' + STUDIO_MODES[S.stu.mode] : '');   // #380
     g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '800 24px system-ui';
     g.fillStyle = live ? '#ff3b3b' : st === 'connecting' ? '#f1b650' : st === 'error' ? '#f1b650' : '#8c96a8';
     if (P) wrapText(g, line, L + 4, y0 + 18, R - L - 8, 28, 2); else fitText2(g, line, L + 4, y0 + 18, R - L - 8);
@@ -6405,14 +6415,14 @@ function drawToolsPage() {
       return;
     }
     let ny = ry + bh + (P ? 48 : 16); if (S.source === 'headset') ny = handsRow(ry + bh + (P ? 48 : 8)) + (P ? 22 : 18);   // #375
-    note(P ? 'DOME is the sky dome (VISUALS > PANO > SKY); it and the VISUALS picture behind are one at a time, and NONE is the BACK button on the STREAM page. The LED wall shows the scroller when it is in shot; when it is not, the scroller is a flat band. HEADSET CAM turns ROBO-BODY (the full robot avatar) and the LED wall off while it is the camera. GoPro: a prop other cameras film, hidden from its own camera. NEON is the heaviest object. FULL / LEAN / FIRST PERSON set several toggles at once.' : (S.source === 'headset' ? 'HEADSET CAM: ROBO-BODY and the LED wall are off. HANDS: REAL = nothing drawn on your hands. DOME: VISUALS > PANO > SKY.' : 'DOME: VISUALS > PANO > SKY, one at a time with the VISUALS picture (NONE = BACK on STREAM). The scroller rides the LED wall when it is in shot.'), ny);
+    note(P ? 'DOME is the sky dome (VISUALS > PANO > SKY); it and the VISUALS picture behind are one at a time, and NONE is the BACK button on the STREAM page. The LED wall shows the scroller when it is in shot; when it is not, the scroller is a flat band. HEADSET CAM turns ROBO-BODY (the full robot avatar) and the LED wall off while it is the camera. GoPro: a prop other cameras film, hidden from its own camera. NEON is the heaviest object. FULL / LEAN / FIRST PERSON set several toggles at once.' : (S.source === 'headset' ? 'HEADSET CAM: ROBO-BODY and the LED wall are off. HANDS: REAL = nothing drawn on your hands. DOME: VISUALS > PANO > SKY.' : 'DOME: VISUALS > PANO > SKY, one at a time with the VISUALS picture (NONE = BACK on TWITCH). The scroller rides the LED wall when it is in shot.'), ny);
     return;
   }
   if (page === 'chat') {   // #340 Twitch chat (read-only)
     const y0 = head('TWITCH CHAT · #' + (chat ? chat.channel : ''), 'stream'); if (!chat) return;
     const S = streamer, bw = P ? (R - L - 16) / 3 : 150, bh = P ? 48 : 36;
     btn(L, y0, bw, bh, chatPanel && chatPanel.on ? 'PANEL: ON' : 'PANEL', !!(chatPanel && chatPanel.on), chatPanelTap, !chatPanel, 16);
-    btn(L + bw + 8, y0, bw, bh, 'ON STREAM', !!(S && S.showOpt.chat), S ? () => S.setShowOpt('chat', !S.showOpt.chat) : null, !S, 16);
+    btn(L + bw + 8, y0, bw, bh, 'ON TWITCH', !!(S && S.showOpt.chat), S ? () => S.setShowOpt('chat', !S.showOpt.chat) : null, !S, 16);
     btn(L + 2 * (bw + 8), y0, bw, bh, 'RECONNECT', false, () => { chat.stop(); chat.tries = 0; chat.start(); drawMixScreen(); }, false, 16);
     // #341 CHALKBOARD (a slate with chalks on its ledge; #377 its own object, not the chat panel) and WIPE (tap twice)
     const yb2 = y0 + bh + (P ? 8 : 6), bw2 = P ? (R - L - 8) / 2 : 150, wipeArm = performance.now() - (chalkWipeT || 0) < 2500;
@@ -6423,7 +6433,7 @@ function drawToolsPage() {
     if (P) g.fillText(st, L + 4, y0 + bh + 16); else g.fillText(st, L + 3 * (bw + 8) + 6, y0 + bh / 2);
     g.textBaseline = 'alphabetic';
     const cy = y0 + 2 * bh + (P ? 40 : 14);
-    if (!chat.msgs.some(m => !m.sys)) note('No messages yet. Read-only: replies from the headset need a Twitch login (later). PANEL: a chat screen in the room, grip / pinch to move it, double-tap PANEL = back to its spot. ON STREAM: chat on the right of SHOWTIME!.', cy + 60);
+    if (!chat.msgs.some(m => !m.sys)) note('No messages yet. Read-only: replies from the headset need a Twitch login (later). PANEL: a chat screen in the room, grip / pinch to move it, double-tap PANEL = back to its spot. ON TWITCH: chat on the right of SHOWTIME!.', cy + 60);
     else drawChat(g, L, cy, R - L, H - cy - (P ? 28 : 6), chat.msgs, { fs: P ? 17 : 16, bg: '#0a0c12', onEmote: chatRedraw });
     return;
   }
@@ -6438,7 +6448,7 @@ function drawToolsPage() {
     let shown = false;
     if (C.matte && S.active && S.source === 'pcam' && S.pkFrames) { g.drawImage(S.canvas, tx, ty, tw, th); shown = true; }
     else if (v && v.videoWidth && v.readyState >= 2) { try { if (packed) g.drawImage(v, 0, 0, v.videoWidth * 1280 / 1920, v.videoHeight, tx, ty, tw, th); else g.drawImage(v, tx, ty, tw, th); shown = true; } catch {} }
-    if (!shown) { g.fillStyle = '#8c96a8'; g.font = '600 14px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(S.source !== 'pcam' ? 'Pick PHONE CAM on STREAM' : 'Turn PREVIEW on to see the phone', tx + tw / 2, ty + th / 2); g.textBaseline = 'alphabetic'; }
+    if (!shown) { g.fillStyle = '#8c96a8'; g.font = '600 14px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(S.source !== 'pcam' ? 'Pick PHONE CAM on TWITCH' : 'Turn PREVIEW on to see the phone', tx + tw / 2, ty + th / 2); g.textBaseline = 'alphabetic'; }
     const gl = K ? K.gl || 0 : 0, gr = K ? K.gr || 0 : 0, gt = K ? K.gt || 0 : 0, gb = K ? K.gb || 0 : 0;
     const bx = tx + gl * tw, by = ty + gt * th, bw = tw * (1 - gl - gr), bh = th * (1 - gt - gb);
     g.fillStyle = 'rgba(0,0,0,0.62)';   // cut away = darkened
@@ -6547,12 +6557,12 @@ function drawToolsPage() {
     return;
   }
   if (page === 'studiokey') {   // #385 S8 KEY: the keying of LIVE KEY! on the tablet (it was only on the S8's own screen). Same remote as the PHONE CAM page: 'cset' key / auto
-    const y0 = head(P ? 'KEY' : 'S8 KEY (LIVE KEY!)', 'studio'), S = streamer; if (!S) return;
+    const y0 = head(P ? 'KEY' : 'DIRROVJ KEY (LIVE KEY!)', 'studio'), S = streamer; if (!S) return;
     const cs = spect && spect.cam, K = cs && cs.K, keySend = (key, v) => { if (spect && spect.camSet && K) { K[key] = v; spect.camSet({ what: 'key', key, v }); } };
     const r2 = v => Math.round(v * 100) / 100, cl = (v, a, b) => Math.min(b, Math.max(a, v)), pc = v => Math.round(v * 100) + '%';
     const toggles = [
       [P ? 'KEY: ' + KEY_LABEL[(K && K.col) || 0] : 'KEY ' + ['GRN', 'BLUE', 'MAG'][(K && K.col) || 0], false, K ? () => { keySend('col', (((K.col || 0) + 1) % 3)); drawMixScreen(); } : null, !K],
-      ['AUTO KEY', false, K ? () => { spect.camSet({ what: 'auto' }); toast('Auto key: point the S8 at the EMPTY key screen', 3000); } : null, !K],
+      ['AUTO KEY', false, K ? () => { spect.camSet({ what: 'auto' }); toast('Auto key: point the DirroVJ camera at the EMPTY key screen', 3000); } : null, !K],
       ['PREVIEW', monOn, () => setMonitor(!monOn)],
       [STUDIO_MODES.key || 'LIVE KEY!', S.stu.mode === 'key', () => S.setStudio('mode', 'key')],
     ];
@@ -6578,10 +6588,10 @@ function drawToolsPage() {
       const h2 = Math.round(w * 9 / 16); g.fillStyle = '#000'; g.fillRect(x, y, w, h2);
       const im = monOn && S.stuRun ? pvTex.image : null;
       if (im) { try { g.drawImage(im, x, y, w, h2); } catch {} }
-      else { g.fillStyle = '#8c96a8'; g.font = '600 13px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(monOn ? 'waiting for the S8' : 'PREVIEW shows the S8 picture', x + w / 2, y + h2 / 2); g.textBaseline = 'alphabetic'; }
+      else { g.fillStyle = '#8c96a8'; g.font = '600 13px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(monOn ? 'waiting for DirroVJ' : 'PREVIEW shows the DirroVJ picture', x + w / 2, y + h2 / 2); g.textBaseline = 'alphabetic'; }
       g.strokeStyle = '#2a3142'; g.lineWidth = 1; g.strokeRect(x + 0.5, y + 0.5, w - 1, h2 - 1);
     };
-    const info = !K ? 'The S8 is not linked: open the camera page on it, connect, Fixed camera.' : 'AUTO KEY: point the S8 at the EMPTY green screen. STRENGTH: higher cuts more green. SOFTNESS: the edge. SPILL: green off your skin. DOME MATCH: tints you to the dome picture. CROP: cuts stands and the room past the cloth. PREVIEW shows the result.';
+    const info = !K ? 'DirroVJ is not linked: open it, connect, start its camera.' : 'AUTO KEY: point the DirroVJ camera at the EMPTY green screen. STRENGTH: higher cuts more green. SOFTNESS: the edge. SPILL: green off your skin. DOME MATCH: tints you to the dome picture. CROP: cuts stands and the room past the cloth. PREVIEW shows the result.';
     const text = (x, y, w, lh, max) => { g.textAlign = 'left'; g.font = '500 13px system-ui'; g.fillStyle = '#8c96a8'; wrapText(g, info, x, y, w, lh, max); };
     if (P) {
       const tw = (R - L - 8) / 2;
@@ -6601,22 +6611,30 @@ function drawToolsPage() {
     return;
   }
   if (page === 'studio') {   // #380 S8 STUDIO: the S8 makes the TV picture and the Twitch stream; the Quest sends the scene with its matte and the sound
-    const y0 = head('S8 STUDIO', 'stream', streamer ? { label: P ? 'TV ▸' : 'FIRE STICK ▸', on: false, act: () => setTools('tv') } : null), S = streamer;
-    if (!S) { note('The studio is run from the headset (not on the phone).', y0 + 20); return; }
+    const y0 = head('DIRROVJ', 'stream', streamer ? { label: P ? 'TV ▸' : 'DIRROTV ▸', on: false, act: () => setTools('tv') } : null), S = streamer;
+    if (!S) { note('DirroVJ is run from the headset.', y0 + 20); return; }
     const U = S.stu, s8 = S.s8 && performance.now() - S.s8.at < 3500 ? S.s8 : null, gap = P ? 8 : 6, bh = P ? 54 : 30;
-    const title = !U.on ? 'Studio off: Twitch and the Fire Stick TV go from the Quest' : !S.stuLink ? 'S8 not linked' : !S.stuRun ? 'The S8 page is too old: reload it' : s8 && s8.run ? 'S8 studio running' : 'Waiting for the S8…';
+    const title = !U.on ? 'DirroVJ off: Twitch and the DirroTV screens go from the Quest' : !S.stuLink ? 'DirroVJ not linked' : !S.stuRun ? 'The DirroVJ page is too old: reload it' : s8 && s8.run ? 'DirroVJ running' : 'Waiting for DirroVJ…';   // #501 was S8 STUDIO
     g.textAlign = 'left'; g.font = `700 ${P ? 21 : 18}px system-ui`; g.fillStyle = s8 && s8.run ? '#7dff9a' : '#dfe6f2';
     fitText2(g, title, L + 2, y0 + 20, R - L - 4);
     const tw = s8 ? (s8.tw === 'live' ? `TWITCH LIVE ${((s8.kbps || 0) / 1000).toFixed(1)} Mb/s` : s8.tw === 'connecting' ? 'Twitch connecting' : 'Twitch off') : '';
-    const sub = U.on && s8 ? `out ${s8.fps || 0} fps · Quest frames ${s8.qfps || 0} fps · camera held ${s8.hold != null ? s8.hold + ' ms' : '-'} · ${tw}${s8.note ? ' · ' + s8.note : ''}` : U.on ? (S.stuMsg || 'Open the camera page on the S8, connect, Fixed camera, Calibrate.') : 'Turn the studio on with the S8 linked (Fixed camera, calibrated).';
+    const sub = U.on && s8 ? `out ${s8.fps || 0} fps · Quest frames ${s8.qfps || 0} fps · camera held ${s8.hold != null ? s8.hold + ' ms' : '-'} · ${tw}${s8.tv && s8.tv !== 'off' ? ' · DirroTV ' + (s8.tv === 'live' ? 'ON (from DirroVJ)' : 'waiting for the TV') : ''}${s8.note ? ' · ' + s8.note : ''}` : U.on ? (S.stuMsg || 'Open dirrovj.html (laptop) or the camera page (phone) and connect. LIVE DJ! / KEY! need the camera calibrated; WEBCAM does not.') : 'Turn DirroVJ on with the laptop or phone linked.';
     g.font = '500 14px system-ui'; g.fillStyle = '#8c96a8';
     const nl = wrapText(g, sub, L + 2, y0 + (P ? 40 : 36), R - L - 4, 18, P ? 3 : 2), y1 = y0 + (P ? 44 : 40) + Math.max(1, nl) * 18;
     const w3 = (R - L - 2 * gap) / 3, w4 = (R - L - 3 * gap) / 4, w5 = (R - L - 4 * gap) / 5, fs = P ? 18 : 15;
-    btn(L, y1, w3, bh, U.on ? 'STUDIO: ON' : 'STUDIO: OFF', U.on, () => S.setStudio('on', !U.on), false, fs);
-    btn(L + w3 + gap, y1, w3, bh, U.snd ? 'SOUND: ON' : 'SOUND: OFF', U.snd, () => S.setStudio('snd', !U.snd), false, fs);
-    btn(L + 2 * (w3 + gap), y1, w3, bh, 'BACK: ' + S.showOpt.backdrop.toUpperCase(), S.showOpt.backdrop !== 'none', () => { S.nextBackdrop(); S._stuSync(); }, false, fs);
-    const y2 = y1 + bh + gap;
-    Object.entries(STUDIO_MODES).forEach(([k, label], i) => btn(L + i * (w3 + gap), y2, w3, bh + (P ? 12 : 0), label, U.mode === k, () => S.setStudio('mode', k), false, P ? 22 : 17));
+    btn(L, y1, w4, bh, U.on ? 'DIRROVJ: ON' : 'DIRROVJ: OFF', U.on, () => S.setStudio('on', !U.on), false, fs);
+    btn(L + w4 + gap, y1, w4, bh, U.snd ? 'SOUND: ON' : 'SOUND: OFF', U.snd, () => S.setStudio('snd', !U.snd), false, fs);
+    btn(L + 2 * (w4 + gap), y1, w4, bh, 'BACK: ' + S.showOpt.backdrop.toUpperCase(), S.showOpt.backdrop !== 'none', () => { S.nextBackdrop(); S._stuSync(); }, false, fs);
+    btn(L + 3 * (w4 + gap), y1, w4, bh, U.local ? (s8 && !s8.lr ? 'RENDER: QUEST*' : 'RENDER: LAPTOP') : 'RENDER: QUEST', U.local && !!(s8 && s8.lr), () => S.setStudio('local', !U.local), false, fs);   // #504 * = the linked page can't draw SHOW (phone): the Quest renders
+    let y2 = y1 + bh + gap;
+    if (S.vjAsk || (U.on && S.vjLost)) {   // #506 pairing question / heartbeat lost
+      const red = !S.vjAsk; g.font = `700 ${P ? 17 : 15}px system-ui`; g.fillStyle = red ? '#ff6a6a' : '#ffd040'; g.textAlign = 'left';
+      fitText2(g, red ? 'DirroVJ silent for 10 s.' : `${S.vjName || 'A device'} (${S.vjAsk}) wants the show.`, L + 2, y2 + bh * 0.62, R - L - 2 * (w4 + gap) - 6);
+      if (red) btn(R - 2 * w4 - gap, y2, 2 * w4 + gap, bh, 'TAKE BACK', true, () => S.takeBack(), false, fs);
+      else { btn(R - 2 * w4 - gap, y2, w4, bh, 'ALLOW', true, () => S.allowVj(true), false, fs); btn(R - w4, y2, w4, bh, 'DENY', false, () => S.allowVj(false), false, fs); }
+      y2 += bh + gap;
+    } else if (U.on) { btn(R - w4, y2, w4, bh, 'TAKE BACK', false, () => S.takeBack(), false, fs); g.font = '500 13px system-ui'; g.fillStyle = '#8c96a8'; g.textAlign = 'left'; fitText2(g, 'TAKE BACK: DirroVJ off; if it was live, Twitch restarts from the Quest.', L + 2, y2 + bh * 0.62, R - L - w4 - 10); y2 += bh + gap; }
+    Object.entries(STUDIO_MODES).forEach(([k, label], i) => btn(L + i * (w4 + gap), y2, w4, bh + (P ? 12 : 0), label, U.mode === k, () => S.setStudio('mode', k), false, P ? 22 : 17));
     const y3 = y2 + bh + (P ? 12 : 0) + gap;
     const fs5 = P ? 15 : 14;
     btn(L, y3, w5, bh, 'DELAY −10', false, () => S.setStudio('trim', U.trim - 10), false, fs5);
@@ -6631,8 +6649,8 @@ function drawToolsPage() {
         ['GAIN −', false, () => S.setStudio('gain', U.gain - 0.1)], [`GAIN ×${U.gain.toFixed(1)}`, false, () => S.setStudio('gain', 1)], ['GAIN +', false, () => S.setStudio('gain', U.gain + 0.1)]];
       if (P) { items.slice(0, 4).forEach(([l, on, a], i) => btn(L + i * (w4 + gap), yL, w4, bh, l, on, a, false, fsL)); items.slice(4).forEach(([l, on, a], i) => btn(L + i * (w3 + gap), yL + bh + gap, w3, bh, l, on, a, false, fsL)); }
       else { const w7 = (R - L - 6 * gap) / 7; items.forEach(([l, on, a], i) => btn(L + i * (w7 + gap), yL, w7, bh, l, on, a, false, fsL)); }
-      const camLine = ci ? `S8 camera: ${ci.rate || ci.fps || '?'} fps${ci.ev != null ? ', EV ' + ci.ev + (ci.evMax != null ? ' (max ' + ci.evMax + ')' : '') : ', no EV control in Chrome'}${ci.rate && ci.rate < 22 ? ' · too dark for 25: more light, or EV / GAIN up' : ''}` : '';
-      if (P) { note((camLine ? camLine + '. ' : '') + 'SHOW: Quest camera (SHOWTIME! pick), S8 backdrop. LIVE DJ!: S8 films you in your room. LIVE KEY!: keyed over the backdrop. TRIM + holds the camera back more. GO LIVE goes out from the S8.', yL + 2 * (bh + gap) + 20); }
+      const camLine = ci ? `DirroVJ camera: ${ci.rate || ci.fps || '?'} fps${ci.ev != null ? ', EV ' + ci.ev + (ci.evMax != null ? ' (max ' + ci.evMax + ')' : '') : ', no EV control in Chrome'}${ci.rate && ci.rate < 22 ? ' · too dark for 25: more light, or EV / GAIN up' : ''}` : '';
+      if (P) { note((camLine ? camLine + '. ' : '') + 'SHOW: Quest camera (SHOWTIME! pick), DirroVJ backdrop. LIVE DJ!: the camera films you in your room. LIVE KEY!: keyed over the backdrop. WEBCAM: the camera picture as it is (you or the crowd). TRIM + holds the camera back more. GO LIVE goes out from DirroVJ.', yL + 2 * (bh + gap) + 20); }
       else if (camLine) { g.fillStyle = ci.rate && ci.rate < 22 ? '#f1b650' : '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, camLine, L + 4, yL + bh + 18, R - L - 8); }
     }
     return;
@@ -6820,7 +6838,7 @@ function drawToolsPage() {
     return;
   }
   if (page === 'tv') {   // #376 CLY3DTV: the venue screen (venue.html). The TV shows a 6-digit code, it is typed here; then switches, sound, status
-    const y0 = head('DIRROTV', 'stream', streamer ? { label: P ? 'S8 ▸' : 'S8 STUDIO ▸', on: false, act: () => setTools('studio') } : null), S = streamer;   // #380
+    const y0 = head('DIRROTV', 'stream', streamer ? { label: P ? 'VJ ▸' : 'DIRROVJ ▸', on: false, act: () => setTools('studio') } : null), S = streamer;   // #380
     if (!S) { note('DIRROTV runs on the headset (not on the phone).', y0 + 20); return; }
     const st = S.tvState(), gap = 8, bh = P ? 56 : 40, T = S.tvSet;
     const title = { unpaired: 'No TV paired yet', pairing: 'Looking for the TV...', waiting: 'Paired, waiting for the TV', up: 'TV connected', off: 'TV is switched off' }[st];
@@ -6931,7 +6949,7 @@ function drawToolsPage() {
     g.fillStyle = '#000'; g.fillRect(L, y0, pw, ph);
     if (run && S.mrFrames) g.drawImage(S.canvas, L, y0, pw, ph);
     else { g.fillStyle = '#8c96a8'; g.font = '600 15px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillText(S.source !== 'headset' ? 'Pick HEADSET CAM on STREAM' : !F.gear ? 'GEAR OFF: raw camera' : 'Press TEST to see it', L + pw / 2, y0 + ph / 2); g.textBaseline = 'alphabetic'; }
+      g.fillText(S.source !== 'headset' ? 'Pick HEADSET CAM on TWITCH' : !F.gear ? 'GEAR OFF: raw camera' : 'Press TEST to see it', L + pw / 2, y0 + ph / 2); g.textBaseline = 'alphabetic'; }
     if (camCal.on) {   // #415 the crosshair to put the controller tip on
       const t = CAL_TARGETS[Math.min(camCal.k, CAL_TARGETS.length - 1)], cx = L + t[0] * pw, cy = y0 + t[1] * ph;
       g.strokeStyle = '#000'; g.lineWidth = 5; g.beginPath(); g.moveTo(cx - 16, cy); g.lineTo(cx + 16, cy); g.moveTo(cx, cy - 16); g.lineTo(cx, cy + 16); g.stroke();
@@ -7166,7 +7184,7 @@ function drawToolsPage() {
     const sy = y0 + (P ? 292 : 122);
     g.fillStyle = perf.on ? '#fff' : '#8c96a8'; g.font = '600 17px system-ui'; g.textAlign = 'left';
     const sz = perf.P.bytes < 1048576 ? Math.round(perf.P.bytes / 1024) + ' KB' : (perf.P.bytes / 1048576).toFixed(1) + ' MB';
-    g.fillText(perf.on ? `Recording ${fmt((Date.now() - perf.P.wall) / 1000)} · ${sz}` : spect ? 'Not recording' : 'Needs Settings > Spectator camera On', L + 4, sy);
+    g.fillText(perf.on ? `Recording ${fmt((Date.now() - perf.P.wall) / 1000)} · ${sz}` : spect ? 'Not recording' : 'Needs Settings > Phone / DirroVJ link On', L + 4, sy);
     note('Records what the gear does during the set, so a video you film on a tripod can be rendered later with the gear drawn in. No phone needs to be connected. 1: MARKS, touch each taped floor mark with a controller tip and pull the trigger. 2: start the camera, then ● PERFCAP, then knock the controller on the table twice. 3: play. 4: knock twice again, stop. 5: SAVE TAKE.', sy + 22);
     return;
   }
@@ -7450,7 +7468,7 @@ function drawToolsPage() {
     return;
   }
   if (page === 'card') {   // #445 the stream's CARD: the main card (always the first slot), or any picture / animated GIF from IMAGES (sponsor, theme night, a QR code)
-    const S = streamer, y0 = head('STREAM CARD', 'stream');
+    const S = streamer, y0 = head('TWITCH CARD', 'stream');
     if (!S) { note('The card is part of the stream, which runs on the headset.', y0 + 20); return; }
     const COLS = P ? 2 : 4, PER = P ? 10 : 8, CW = (R - L - (COLS - 1) * 8) / COLS, TH = P ? 64 : 76, CH = TH + 20, cur = S.cardPic ? S.cardPic.name : '';
     const list = [{ main: true }, ...pickItems], pages = Math.max(1, Math.ceil(list.length / PER)); pickPg = Math.min(pickPg, pages - 1);
@@ -7458,7 +7476,7 @@ function drawToolsPage() {
       const cx = L + (i % COLS) * (CW + 8), cy = y0 + Math.floor(i / COLS) * (CH + 6), on = it.main ? !cur : it.name === cur;
       g.fillStyle = '#121824'; g.fillRect(cx, cy, CW, TH);
       if (it.main) {
-        g.textAlign = 'right'; g.textBaseline = 'middle'; g.font = '800 26px system-ui'; g.fillStyle = '#fff'; g.fillText('Cly', cx + CW / 2 + 2, cy + TH / 2 - 8); g.textAlign = 'left'; g.fillStyle = '#e0202a'; g.fillText('3DJ', cx + CW / 2 + 3, cy + TH / 2 - 8);
+        g.textAlign = 'right'; g.textBaseline = 'middle'; g.font = '800 26px system-ui'; g.fillStyle = '#fff'; g.fillText('Dirro', cx + CW / 2 + 2, cy + TH / 2 - 8); g.textAlign = 'left'; g.fillStyle = '#e0202a'; g.fillText('DJ', cx + CW / 2 + 3, cy + TH / 2 - 8);
         g.textAlign = 'center'; g.font = '600 12px system-ui'; g.fillStyle = '#b9a3ff'; g.fillText('LIVE ON VINYL + TWITCH QR', cx + CW / 2, cy + TH - 12); g.textBaseline = 'alphabetic';
       } else {
         const t = vpThumb('Images', it.name);
@@ -7539,7 +7557,7 @@ function drawMixScreen() {
       SP_HIT.push({ x: 18, y: y - 8, w: mw + 9, h: h + 16, act: () => spect.setMR(!sp.mr) });
     }
     { const S = streamer, bw3 = (W - 40 - 3 * 6) / 4, by3 = H - 96;   // #389 STREAM, CLY3DTV, STUDIO on a row above TOOLS / RESET MIX; #439 + WALL
-      [[S && S.live ? '● LIVE' : 'STREAM', !!(S && S.live), () => setTools('stream'), !S], ['DIRROTV', !!(S && S.tvUp), () => setTools('tv'), !S], ['STUDIO', !!(S && S.stu.on), () => setTools('studio'), !S], ['WALL ⁺¹', ledMode !== 'off', () => setTools('wall'), false]].forEach(([l, o, a, dim], i) => {
+      [[S && S.live ? '● LIVE' : 'TWITCH', !!(S && S.live), () => setTools('stream'), !S], ['DIRROTV', !!(S && S.tvUp), () => setTools('tv'), !S], ['DIRROVJ', !!(S && S.stu.on), () => setTools('studio'), !S], ['WALL ⁺¹', ledMode !== 'off', () => setTools('wall'), false]].forEach(([l, o, a, dim], i) => {
         const bx3 = 20 + i * (bw3 + 6); drawTopBtn(g, bx3, by3, bw3, 36, l, o, dim, 15); if (!dim) SP_HIT.push({ x: bx3 - 3, y: by3 - 4, w: bw3 + 6, h: 44, act: a }); });
     }
     drawTopBtn(g, 20, H - 52, 80, 36, 'TOOLS', !!(scroller && scroller.on));   // #224
@@ -7563,9 +7581,9 @@ function drawMixScreen() {
     const S = streamer, tb = (label, on, act, dim, w) => { drawTopBtn(g, x, y, w, h, label, on, dim); if (!dim) SP_HIT.push({ x: x - 3, y: y - 8, w: w + 6, h: h + 14, act }); x += w + gap; };
     tb('TOOLS', !!(scroller && scroller.on), () => setTools('home'), false, 80);
     drawResetMix(g, x, y, 100, h); x += 100 + gap;   // #254
-    tb(S && S.live ? '● LIVE' : 'STREAM', !!(S && S.live), () => setTools('stream'), !S, 82);
+    tb(S && S.live ? '● LIVE' : 'TWITCH', !!(S && S.live), () => setTools('stream'), !S, 82);
     tb('DIRROTV', !!(S && S.tvUp), () => setTools('tv'), !S, 88);
-    tb('STUDIO', !!(S && S.stu.on), () => setTools('studio'), !S, 80);
+    tb('DIRROVJ', !!(S && S.stu.on), () => setTools('studio'), !S, 80);
     tb('WALL ⁺¹', ledMode !== 'off', () => setTools('wall'), false, 72);   // #439 the LED WALL page, one tap from the mixer
     drawLoopMainBtn(g, x, y, 74, h, 17); SP_HIT.push({ x: x - 3, y: y - 8, w: 80, h: h + 14, act: () => setTools('looper') }); x += 74 + gap;   // #470 LOOP: state colour, opens the LOOPER page
     if (testState.fps) {   // #258 live frame rate (kept for the console: window.vire)
@@ -7944,7 +7962,7 @@ function frameBody() {
   if (ledMode === 'decks') ledwall.userData.setDecks(deckVid[0].tex, deckVid[1].tex, ...deckGains(mixVal));
   if (spect) {   // #158 spectator camera (nothing when off / no phone)
     try { spect.tick(dt); }   // #217: a spectator error must never stop the headset's frame (it froze on a record pull)
-    catch (e) { if (!spectErrShown) { spectErrShown = true; console.error(e); toast('Spectator link error (headset keeps running): ' + e.message, 5000); } }
+    catch (e) { if (!spectErrShown) { spectErrShown = true; console.error(e); toast('Phone / DirroVJ link error (headset keeps running): ' + e.message, 5000); } }
   }
   for (const gp of [gopro, gopro2]) if (gp) {   // #337 (#389 both cameras)
     gp.tick(dt);
@@ -8291,6 +8309,7 @@ function syncSettingsUI() {
   $('#sGlow').value = settings.glow; $('#sShadows').value = settings.shadows; $('#sMicRoute').value = settings.micRoute; showMicRoute();
   $('#sEnv').value = settings.env; $('#sEnvMix').value = settings.envMix; $('#envMixVal').textContent = settings.envMix + '%';
   $('#sSpect').value = settings.spect; $('#rowSpect').hidden = settings.spect !== 'on'; $('#spectCode').textContent = spectCode();
+  { const u = f => new URL(f, location.href).href.replace(/[?#].*$/, ''); $('#spectUrlP').textContent = u('spectator.html'); $('#spectUrlV').textContent = u('dirrovj.html'); }   // #511 the full address (cabin.dirrodj.club/cly3dj/... or the dev folder)
   $('#sDeckModel').value = settings.deckModel; $('#sRecWeight').value = settings.recWeight; $('#sSlipmat').value = settings.slipmat; $('#cPll').checked = !!settings.pll;
   $('#bEnvImg').hidden = settings.env !== 'image'; $('#rowEnvMix').hidden = settings.env === 'studio';
   $('#sArRefl').value = settings.arRefl; $('#arReflVal').textContent = settings.arRefl + '%';
@@ -8414,6 +8433,10 @@ async function applySpect() {
     if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, perf, getInputs: () => xr && xr.inputs,
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => ({ ...led.state(), curve: ledwall.userData.curveDeg() }),   /* #358 */ onScreen: onPhoneScreen, getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
       getSpiders: spidersState,   // #262
+      onVj: m => {   // #507 DirroVJ's scroller desk: an approved line onto the Quest's sine scroller (only from a DirroVJ the DJ allowed)
+        if (!streamer || !streamer.vjAllowed || !m.t) return; const c = cleanText(String(m.t), 120); if (c.trim()) { scroller.start(c); toast('DirroVJ: on the sine scroller', 1500); }
+      },
+      getSleeves: () => sleeves.filter(s => !s.gone).map(s => { const t = s.rec.sides.A || s.rec.sides.B; return { sl: s, key: t ? coverKey(t) : '', title: s.rec.title || '', artist: s.rec.artist || '', size: s.rec.size === 7 ? 7 : 12 }; }),   // #503 sleeves out of the crate, mirrored
       getAv: phoneRobotState,   // #278
       getLook: () => xr ? xr.getCtlLook() : '3dhands',   // #288
       getHandFit: () => xr ? xr.handFit : undefined,   // #291
@@ -8423,7 +8446,7 @@ async function applySpect() {
       onCam: m => { if (m && pvWanted && !m.pv && spect) spect.camSet({ what: 'preview', v: true }); if (videoPage && vpFolder === 'Camera') drawMixScreen(); },   // a reconnected phone gets PREVIEW back
       onPreview: onPreviewFrame,
       onStudio: (w, m) => { if (streamer) streamer.onStudio(w, m); } });   // #380 S8 STUDIO
-  } catch (e) { toast('Spectator camera failed to start: ' + e.message, 4000); }
+  } catch (e) { toast('Phone / DirroVJ link failed to start: ' + e.message, 4000); }
 }
 syncSettingsUI();
 if (!CAMERA_ROLE) applySpect();
@@ -8445,5 +8468,5 @@ window.__vireStage = 'ready'; window.__vireReady = true;   // #138
 if (CAMERA_ROLE) {
   $('#start').style.display = 'none'; const hud = document.getElementById('hud'); if (hud) hud.style.display = 'none';
   import('./spectator-client.js').then(m => m.startCamera({ THREE, renderer, scene, camera, rig, room, stage, cases, decks, deckInst, neon,
-    newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, scroller, skybox, envLight, key, crateRemote })).catch(e => { document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;top:0;left:0;right:0;color:#fbb;background:#300;padding:8px;z-index:99">Spectator failed: ${e.message}</pre>`); });
+    newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, scroller, skybox, envLight, key, crateRemote })).catch(e => { document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;top:0;left:0;right:0;color:#fbb;background:#300;padding:8px;z-index:99">${new URLSearchParams(location.search).get('vj') === '1' ? 'DirroVJ' : 'Camera page'} failed: ${e.message}</pre>`); });
 }

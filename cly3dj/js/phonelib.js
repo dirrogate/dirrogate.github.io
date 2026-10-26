@@ -54,7 +54,7 @@ export function makePhoneLibrary({ getLink, onChange }) {
   async function load() {
     items = await media.list(folder); sel = new Set([...sel].filter(n => items.some(i => i.name === n)));
     await render(true);
-    const u = await media.usage(); $('#lbUse').textContent = u ? `Phone storage for Cly3DJ: ${mb(u.usage || 0)} used of ${mb(u.quota || 0)} available` : '';
+    const u = await media.usage(); $('#lbUse').textContent = u ? `Phone storage for DirroDJ: ${mb(u.usage || 0)} used of ${mb(u.quota || 0)} available` : '';
   }
   async function render(thumbs) {
     for (const b of document.querySelectorAll('#lbTabs button')) b.classList.toggle('on', b.dataset.f === folder);
@@ -127,7 +127,7 @@ export function makePhoneLibrary({ getLink, onChange }) {
   }
   $('#lbPush').onclick = async () => {
     const l = linked(); if (!l || busy) return;
-    if (!l.fileOpen) { say('This Quest page is older: reload Cly3DJ on the Quest, then Connect again.'); return; }
+    if (!l.fileOpen) { say('This Quest page is older: reload DirroDJ on the Quest, then Connect again.'); return; }
     busy = true; render();
     let lock = null; try { lock = await navigator.wakeLock.request('screen'); } catch {}
     const list = items.filter(i => sel.has(i.name));

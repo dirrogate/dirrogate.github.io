@@ -19,6 +19,7 @@ import { makeSkinPoser, skinHandEntry } from './ctlhands.js';   // #469 robot ha
 import { makeStudio } from './studio.js';   // #380 S8 STUDIO
 
 export function startCamera(ctx) {
+  const VJ = new URLSearchParams(location.search).get('vj') === '1';   // #500 DirroVJ (dirrovj.html): the laptop VJ desk, phase 1 = the S8 STUDIO on a laptop
   const { THREE, renderer, scene, camera, rig, room, stage, deckInst, neon, newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, scroller, skybox, envLight, key } = ctx;
   const vs = makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key });   // #184 live green-screen key
   const look = makeLookMatch({ THREE, renderer, scene, rig, key }); vs.setLook(look);   // #187 Look match
@@ -78,8 +79,8 @@ export function startCamera(ctx) {
   </style>`);
   document.body.insertAdjacentHTML('beforeend', `
     <div id="spS"><div class="box">
-      <h1>Cly<span>3DJ</span> camera</h1>
-      <p>Films the DJ with the virtual gear. On the Quest: Settings, Spectator camera On, then read the code shown there.</p>
+      <h1>Dirro<span>DJ</span> camera</h1>
+      <p>Films the DJ with the virtual gear. On the Quest: Settings, Phone / DirroVJ link On, then read the code shown there.</p>
       <input id="spCode" inputmode="numeric" maxlength="5" placeholder="00000">
       <button id="spConnect">Connect</button><div id="spSt"></div><button id="spAR" disabled>Start camera (AR)</button><button id="spFix" disabled>Fixed camera: tripod, no AR</button>
       <label style="display:flex;gap:8px;align-items:center;margin-top:8px;color:#8b909a;font-size:14px">Fixed camera uses <select id="spFixCam" style="font:600 14px system-ui;background:#1c2230;color:#e6e8ec;border:1px solid #2e3850;border-radius:8px;padding:6px"><option value="environment">main camera</option><option value="user">selfie camera</option></select></label><button id="spCamTest">Camera access test (no Quest needed)</button>
@@ -119,13 +120,21 @@ export function startCamera(ctx) {
       </div></div>`);
   const $ = s => document.querySelector(s);
   const ov = $('#spO'), hint = $('#spHint');
+  if (VJ) {   // #500 DirroVJ start page: no AR; the webcam (fixed camera) is optional, only for LIVE DJ! / LIVE KEY!
+    document.title = 'DirroVJ';
+    $('#spS h1').innerHTML = 'Dirro<span>VJ</span>';
+    $('#spS p').textContent = 'The VJ desk for the cabin laptop. It shows the Quest\'s SHOW shots or this laptop\'s webcam, with the Quest\'s overlays and master sound, on the club screen (HDMI) and on Twitch. On the Quest: Settings > Phone / DirroVJ link On and read the code there. Then on the tablet: DIRROVJ (main menu), turn it on.';
+    $('#spAR').hidden = true;
+    $('#spConnect').insertAdjacentHTML('afterend', '<button id="spDesk">Open the VJ desk (control window)</button>'); $('#spDesk').onclick = () => window.open('./vjdesk.html', 'dirrovj-desk', 'width=1180,height=780');   // #507
+    $('#spFix').textContent = 'Start webcam (optional: the WEBCAM source, aim it at the DJ or the crowd)';   // #501
+  }
 
   // ---------------------------------------------------------------- link
   let link = null, linkState = '';
   const stats = { rtt: 0, off: null, pkts: 0, pps: 0, age: 0, last: 0, xr: 0 };
   try { $('#spCode').value = localStorage.getItem('vire.spectJoin') || ''; } catch {}
   const st = t => { $('#spSt').textContent = t; };
-  const STATUS = { relay: 'Relay reached, calling the Quest…', 'relay-retry': 'No internet for the handshake, retrying…', 'quest-offline': 'Quest not found: is its Spectator camera On, same code?',
+  const STATUS = { relay: 'Relay reached, calling the Quest…', 'relay-retry': 'No internet for the handshake, retrying…', 'quest-offline': 'Quest not found: is its Phone / DirroVJ link On, same code?',
     connecting: 'Connecting to the Quest…', connected: 'Connected to the Quest', disconnected: 'Link lost', failed: 'Link failed (are both on the same Wi-Fi?)' };
   $('#spConnect').onclick = () => {
     const code = $('#spCode').value.trim();
@@ -276,7 +285,17 @@ export function startCamera(ctx) {
     onChange: () => { $('#spS').style.display = fixed.on ? 'none' : ''; sendCst(true); } });
   // #214 look without AR (fixed mode): camera grade from the video, 360 photo as light, manual key light; set from the Quest's LOOK tab
   const flook = makeFixLook({ THREE, scene, key, envLight, look, getVideo: () => fixed.video });
-  const studio = makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fixed, led, getLink: () => link, questNow });   // #380 S8 STUDIO: this phone makes the TV picture and the Twitch stream
+  const studio = makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fixed, led, getLink: () => link, questNow, vj: VJ,
+    prepLocal: O => {   // #504 DirroVJ's own SHOW render: no room, sky, markers or reticle; the Quest's OBJECTS toggles for gear / robot / neon
+      const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
+      hide(room); hide(skybox.group); hide(head); hide(reticle); if (!rig.visible) { rig.visible = true; undo.push({ set visible(v) { rig.visible = false; } }); }
+      if (O.neon === false) hide(neon);
+      if (deckInst) for (const p of deckInst.pairs) if (p.im.frustumCulled) p.im.frustumCulled = false;   // the deck bodies are instanced: their bounds are stale, so the show camera culled them
+      if (O.robot === false && robo.a) hide(robo.a.root);
+      if (O.gear === false) for (const c of rig.children) if (!(robo.a && c === robo.a.root)) hide(c);
+      if (deckInst) deckInst.update();   // the instanced deck parts copy the decks only while they are shown: refresh now that the rig is visible
+      return () => { for (const o of undo) o.visible = true; if (deckInst) deckInst.update(); };
+    } });   // #380 S8 STUDIO: this phone makes the TV picture and the Twitch stream
   flook.onChange = () => sendCst(true);
   if (ctx.crateRemote) ctx.crateRemote.setAsk(key => { if (link && link.isOpen) link.send('ctl', { k: 'cover?', key }); });   // #218 covers from the Quest
   let flErr = '';
@@ -396,7 +415,7 @@ export function startCamera(ctx) {
     const parts = id.split('.'), key = parts[0];
     let o = stage.items[key]?.obj || stage.cases[key]?.group;
     if (!o && /^milk[2-6]$/.test(key)) { o = newMilk(key); stage.items[key] = { obj: o, base: 0 }; }
-    for (let i = 1; o && i < parts.length; i++) o = o.children[+parts[i]];
+    for (let i = 1; o && i < parts.length; i++) o = o.children.filter(c => !c.userData.noMirror && !c.userData.mirrorSkip && !c.userData.mirrorRec)[+parts[i]];   // #505 same numbering as the Quest
     return o || null;
   }
   function addSample(S, t, s) {
@@ -453,6 +472,20 @@ export function startCamera(ctx) {
   async function onRecArt(m) {
     const R = recs.get(m.uid); if (!R) return;
     try { R.r.labelImgs[m.side] = await createImageBitmap(new Blob([u8of(m.img)], { type: m.mime || 'image/jpeg' })); if (!R.r.disposed) R.r.redraw(m.side); } catch {}
+  }
+  // #503 sleeves out of the crate: built by main.js (the same jacket as on the Quest), moved like the records
+  const slvs = new Map();   // uid -> { sl, s: samples, discY, discV, v, seen }
+  function onSlv(m) {
+    if (slvs.has(m.uid) || !ctx.crateRemote || !ctx.crateRemote.sleeveMake) return;
+    let sl; try { sl = ctx.crateRemote.sleeveMake(m); } catch (e) { console.warn('sleeve mirror', e); return; }
+    rig.add(sl.g); sl.g.visible = false;
+    slvs.set(m.uid, { sl, s: [] });
+  }
+  function onSlvDel(uid) { const S = slvs.get(uid); if (!S) return; rig.remove(S.sl.g); ctx.crateRemote.sleeveDrop(S.sl); slvs.delete(uid); }
+  function slvSample(a, t) {
+    const S = slvs.get(a[0]); if (!S) return;
+    addSample(S.s, t, { p: new THREE.Vector3(a[1], a[2], a[3]), q: new THREE.Quaternion(a[4], a[5], a[6], a[7]) });
+    S.discY = a[8]; S.discV = !!a[9]; S.v = !!a[10]; S.seen = performance.now();
   }
   function onRecDel(uid) { const R = recs.get(uid); if (!R) return; rig.remove(R.r.group); R.r.dispose(); recs.delete(uid); }
   function recSample(a, t) {
@@ -563,6 +596,7 @@ export function startCamera(ctx) {
       if (m.cs) onCaseSizes(m.cs);
       if (m.g) for (const a of m.g) nodeSample(a, m.t);
       if (m.r) for (const a of m.r) recSample(a, m.t);
+      if (m.sv) for (const a of m.sv) slvSample(a, m.t);   // #503
       // #288 (owner): no more depth-only cut-outs; the phone draws the DJ's hands as the Quest does (3D hands / glove / controllers)
       if (m.ha) { phoneHands.fit(m.ha); const nn = m.ha.neon !== 0; if (nn !== roboNeon) { roboNeon = nn; if (robo.a) applyNeon(robo.a.root, renderer, nn); } }   // #291 (#355 NEON CHROME on the phone robot too)
       if (m.hd && !robo.on) phoneHands.update(m.hd, m.cl, Math.min(0.1, (performance.now() - (onMsg.lastHd || 0)) / 1000)), onMsg.lastHd = performance.now();
@@ -579,6 +613,9 @@ export function startCamera(ctx) {
     else if (m.k === 'cover') { if (ctx.crateRemote) ctx.crateRemote.onCover(m); }
     else if (m.k === 'covhave?') { if (ctx.crateRemote) ctx.crateRemote.coverHave(m.keys || []).then(keys => { if (link && link.isOpen) link.send('ctl', { k: 'covhave', keys }); }); }
     else if (m.k === 'recdel') onRecDel(m.uid);
+    else if (m.k === 'slv') onSlv(m);   // #503
+    else if (m.k === 'vjsms') studio.onVjSms(m);   // #507 HoloSMS for the scroller desk
+    else if (m.k === 'slvdel') onSlvDel(m.uid);
     else if (m.k === 'calpt') { if (!(fixed.on && fixed.onCalPoint(m))) onCalPoint(m); }   // #208 fixed camera taps first
     else if (m.k === 'calskip') { if (fixed.on) fixed.calSkip(); }   // #211 the Quest's grip skips an auto point
     else if (m.k === 'led') { if (m.curve != null) led.wall.userData.setCurve(m.curve);   /* #358 the Quest's LED curve */ led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000); if (liveOn && !led.on) showLiveCard(true); }   // #176 (#238 the LIVE card stays up)
@@ -793,12 +830,23 @@ export function startCamera(ctx) {
     }
     // mirror: gear nodes and records at the Quest's time minus DELAY
     applyCaseSizes(now);
-    const rt = questNow() - DELAY;
+    // #505 the Quest moves each deck's slipmats into their own pivot inside the platter on its first frame (main.js #275). The mirror
+    // finds parts by their place in the tree, so without the same pivot here every part after the mats was off by one (mats hidden,
+    // other parts in each other's places). Same pivot, same order; redone if a model upgrade swaps the platter.
+    for (const d of ctx.decks || []) {
+      const u = d && d.g && d.g.userData; if (!u || !u.platter || !u.slipmat || !u.slipmat.length) continue;
+      if (!u.matPivot || u.matPivot.parent !== u.platter) { u.matPivot = new THREE.Group(); u.platter.add(u.matPivot); u.platter.updateMatrixWorld(true); for (const m of u.slipmat) u.matPivot.attach(m); }
+    }
+    const rt = questNow() - DELAY - studio.sceneLag;   // #504 TRIM holds DirroVJ's own render back (lip sync with the sound)
     for (const e of nodes.values()) blendTo(e.s, rt, e.o, true);
     for (const R of recs.values()) {
       blendTo(R.s, rt, R.r.group, false); R.r.group.visible = R.s.length > 0 && now - (R.seen || 0) < 1500;
       if (R.meshX !== undefined) { R.r.mesh.rotation.x = R.meshX; R.r.mesh.position.y = R.meshY; }
       R.r.disc.position.x = R.discX || 0;   // #262 a 45 off-centre on the bare spindle
+    }
+    for (const S of slvs.values()) {   // #503
+      blendTo(S.s, rt, S.sl.g, false); S.sl.g.visible = S.s.length > 0 && S.v !== false && now - (S.seen || 0) < 1500;
+      S.sl.disc.position.y = S.discY || 0; S.sl.disc.visible = S.discV !== false;
     }
     handsTimeout();
     robotFrame(dt, now);   // #278
@@ -841,5 +889,5 @@ export function startCamera(ctx) {
     } else lastXT = 0;
     fpsN++; if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; late = lateN; lateN = 0; sendCst(); }
   });
-  window.spect = { studio /* #380 test hook */, _robo: { robo, onAvatar, robotFrame } /* #278 test hook */, _ph: phoneHands /* #288 */, vs, look, renderPreview, fixed, flook, _live: { fixedFrame: liveFixed, get on() { return liveOn; }, get track() { return liveTrack; } } /* #238 test hook */, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
+  window.spect = { studio /* #380 test hook */, _robo: { robo, onAvatar, robotFrame } /* #278 test hook */, _ph: phoneHands /* #288 */, slvs /* #503 test hook */, vs, look, renderPreview, fixed, flook, _live: { fixedFrame: liveFixed, get on() { return liveOn; }, get track() { return liveTrack; } } /* #238 test hook */, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
 }

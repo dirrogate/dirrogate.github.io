@@ -1,6 +1,6 @@
 {
-  "name": "Cly3DJ",
-  "short_name": "Cly3DJ",
+  "name": "DirroDJ",
+  "short_name": "DirroDJ",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

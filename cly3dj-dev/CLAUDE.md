@@ -1330,3 +1330,5 @@ The cyan ring (carry) and grey cube (size) on every movie prop are DJ-only handl
 
 ## #499 LOCK messages without BEAT 1
 Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is LOOP, deck A's is BPM TAP). LOCK is therefore tempo only (meet-halfway pitch glide); the phase nudge in `stepSync` can't run because no beat 1 is ever tapped. Toasts no longer tell the DJ to tap BEAT 1. BPM comes from the ID3 tag, else the Rekordbox AverageBpm; no BPM = LOCK refuses. No Node restart.
+- #512 follow-up: dirroclub_website/gram/ is the copy that gets uploaded (it holds its own gram/); synced gram/js/dirrogram.js and dirro-host.js into it. Keep the two gram copies equal.
+- (27 Oct) The outer ViRe_Custom/gram/ copy moved to _to_delete/gram_outer_512/ (owner OK'd). The ONLY Dirrogram deploy folder is now dirroclub_website/gram/: edit it there (keep its js/dirrogram.js equal to web/js/dirrogram.js), then the owner zips and uploads the whole dirroclub_website folder.

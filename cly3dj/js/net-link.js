@@ -33,7 +33,7 @@ function recvMids(sdp) {
 // #380 ask for full-band stereo Opus at 160 kbit/s (the receiver's description decides what the sender encodes)
 export function opusStereo(sdp) {
   return sdp.replace(/a=fmtp:(\d+) (.*)\r?\n/g, (line, pt, p) => new RegExp(`a=rtpmap:${pt} opus/`, 'i').test(sdp)
-    ? `a=fmtp:${pt} ${p.replace(/;?(stereo|sprop-stereo|maxaveragebitrate)=[^;]*/g, '')};stereo=1;sprop-stereo=1;maxaveragebitrate=160000\r\n` : line);
+    ? `a=fmtp:${pt} ${p.replace(/;?(stereo|sprop-stereo|maxaveragebitrate)=[^;]*/g, '')};stereo=1;sprop-stereo=1;maxaveragebitrate=192000\r\n` : line);
 }
 
 // ---------------------------------------------------------------- signalling (#467)
@@ -261,8 +261,11 @@ class Pipe {
     await this.stv.sender.replaceTrack(v || null);
     if (this.sta) await this.sta.sender.replaceTrack(a || null);
     const set = async (s, o) => { try { const p = s.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}]; Object.assign(p.encodings[0], o); await s.setParameters(p); } catch (e) { console.warn('studio params', e); } };
-    if (v) await set(this.stv.sender, { maxBitrate: kbps * 1000, maxFramerate: 30, priority: 'medium', networkPriority: 'medium' });   // below 'state' / 'ctl' (high), so the gear data still goes first
-    if (a && this.sta) await set(this.sta.sender, { maxBitrate: 160000, priority: 'high', networkPriority: 'high' });
+    if (v) await set(this.stv.sender, { maxBitrate: kbps * 1000, maxFramerate: 30, priority: 'medium', networkPriority: 'medium' });
+    // #502 the packed frame (colour | stamp strip | matte) must keep its size: a downscaled pack (seen on the PC: 1920 x 720 sent, 1280 x 480 arrived) blurs
+    // the stamp and the matte, and the receiver took it for an opaque picture. Drop frames instead.
+    if (v) try { const p = this.stv.sender.getParameters(); p.degradationPreference = 'maintain-resolution'; await this.stv.sender.setParameters(p); } catch (e) { console.warn('studio degradation', e); }   // below 'state' / 'ctl' (high), so the gear data still goes first
+    if (a && this.sta) await set(this.sta.sender, { maxBitrate: 192000, priority: 'high', networkPriority: 'high' });
     return true;
   }
   get fileOpen() { return !!(this.ch.file && this.ch.file.readyState === 'open'); }
@@ -390,7 +393,7 @@ export function tvHost(key, h) {
         const kind = tx.receiver.track.kind; tx.direction = 'sendonly';
         try { tx.sender.setStreams(stream); } catch {}   // one stream: the browser keeps picture and sound in step
         if (kind === 'video') { vtx = tx; preferH264(tx); const t = await h.video(); if (t) await tx.sender.replaceTrack(t); await rate(tx.sender, 6000000, 30); }
-        else if (kind === 'audio') { atx = tx; const t = h.audio ? await h.audio() : null; if (t) await tx.sender.replaceTrack(t); await rate(tx.sender, 160000); }
+        else if (kind === 'audio') { atx = tx; const t = h.audio ? await h.audio() : null; if (t) await tx.sender.replaceTrack(t); await rate(tx.sender, 192000); }   // #500 192 kbit/s
       }
       if (p !== pc) return;
       await p.setLocalDescription(await p.createAnswer()); await gather(p);

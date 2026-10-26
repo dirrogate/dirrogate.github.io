@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Cly3DJ</title>
+<title>DirroDJ</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0b0d12">
 <link rel="icon" href="icon-192.png">
@@ -52,7 +52,7 @@
 <body>
 <div id="start">
   <div class="box">
-    <h1>Cly<span>3DJ</span></h1>
+    <h1>Dirro<span>DJ</span></h1>
     <p>Two decks, one mixer, your crate.</p>
     <div class="btns">
       <button class="big" id="bDesktop">Desktop</button>
@@ -143,7 +143,7 @@
       <div class="note">Kept on this headset only and sent only to Twitch. Go live from the mixer tablet: TOOLS &gt; STREAM. The channel name is only used to read its chat (no login). The stream carries the master mix (and the MIC when it goes through the mixer), never the cue.</div>
     </section>
     <section class="settings">
-      <h2>Passthrough &amp; spectator camera</h2>
+      <h2>Passthrough, camera phone &amp; DirroVJ</h2>
       <label>Controllers look like
         <select id="sHands">
           <option value="3dhands">3D hands (index fingertip = the blue ball)</option>
@@ -151,14 +151,14 @@
           <option value="controller">Controllers</option>
         </select>
       </label>
-      <label>Spectator camera
+      <label>Phone / DirroVJ link
         <select id="sSpect">
           <option value="off">Off</option>
-          <option value="on">On: a phone can join and film</option>
+          <option value="on">On: the camera phone or DirroVJ can join</option>
         </select>
       </label>
       <div id="rowSpect" hidden>
-        <div class="note">Phone: open spectator.html next to this page and enter code <b id="spectCode"></b>. Needs internet for the first handshake only. <span id="spectStatus"></span></div>
+        <div class="note">Camera phone: open <b id="spectUrlP" style="word-break:break-all"></b><br>DirroVJ (laptop): open <b id="spectUrlV" style="word-break:break-all"></b><br>Then enter code <b id="spectCode"></b>. Needs internet for the first handshake only. <span id="spectStatus"></span></div>
       </div>
     </section>
     <section class="settings">
