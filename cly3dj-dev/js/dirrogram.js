@@ -766,9 +766,40 @@ $('bPfx').onclick = async () => {   // #439
   if (people.fx) toast(['', 'Your friend in op-art rings', 'Neon outline on the kick', 'Echo trails of every move', 'Hologram', 'A window onto the LED wall', 'Drawn in LED cells'][people.fx]);
 };
 // #437 RECORD: what is on screen (camera picture, the show, the people cutout; never the buttons) plus the phone's
-// microphone (the club sound), up to 30 s, saved straight to the phone. MP4 where the phone can make it (iPhone,
+// microphone (the club sound), up to 45 s (#512, was 30), saved straight to the phone. MP4 where the phone can make it (iPhone,
 // newer Android Chrome), else WebM. No watermark (owner: the scene carries the branding).
-const rec = { on: false, mr: null, chunks: [], t0: 0, mic: null, timer: 0, vs: null };
+const rec = { on: false, mr: null, chunks: [], t0: 0, mic: null, timer: 0, vs: null, ms: 0, tapT: 0 };
+const REC_MAX = 45;   // #512 seconds
+// #512 Chrome writes WebM without a duration (it is a live format), and Android galleries then guess a length, often the
+// recorder's maximum: a 10 s clip showed as 30 s on the phone, fine on the PC. Before saving, the real duration (ms) is written into
+// the file's Segment > Info (Duration, float64), replacing one if there is any. MP4 files are left as they are.
+async function webmDuration(blob, ms) {
+  try {
+    const b = new Uint8Array(await blob.arrayBuffer());
+    const idAt = p => { const f = b[p]; const n = f >= 0x80 ? 1 : f >= 0x40 ? 2 : f >= 0x20 ? 3 : 4; let v = 0; for (let i = 0; i < n; i++) v = v * 256 + b[p + i]; return [v, n]; };
+    const szAt = p => { const f = b[p]; let n = 1; while (n <= 8 && !(f & (0x80 >> (n - 1)))) n++; let v = f & (0xff >> n), unk = v === (0xff >> n); for (let i = 1; i < n; i++) { v = v * 256 + b[p + i]; if (b[p + i] !== 0xff) unk = false; } return [v, n, unk]; };
+    let p = 0; const [h, hn] = idAt(p); if (h !== 0x1A45DFA3) return blob;
+    const [hs, hsn] = szAt(p + hn); p += hn + hsn + hs;
+    const [sg, sgn] = idAt(p); if (sg !== 0x18538067) return blob;
+    const [ss, ssn, sunk] = szAt(p + sgn); p += sgn + ssn; const segEnd = sunk ? b.length : p + ss;
+    while (p < segEnd) {
+      const [id, idn] = idAt(p), [sz, szn, unk] = szAt(p + idn), d0 = p + idn + szn;
+      if (unk) return blob;
+      if (id === 0x1549A966) {   // Info
+        let q = d0, scale = 1e6, durAt = -1, durLen = 0;
+        while (q < d0 + sz) { const [cid, cn] = idAt(q), [cs, csn] = szAt(q + cn), cd = q + cn + csn; if (cid === 0x2AD7B1) { let v = 0; for (let i = 0; i < cs; i++) v = v * 256 + b[cd + i]; scale = v || 1e6; } if (cid === 0x4489) { durAt = cd; durLen = cs; } q = cd + cs; }
+        const val = ms * 1e6 / scale;
+        if (durAt >= 0) { const dv = new DataView(b.buffer, durAt, durLen); if (durLen === 8) dv.setFloat64(0, val); else dv.setFloat32(0, val); return new Blob([b], { type: blob.type }); }
+        const el = new Uint8Array(11); el[0] = 0x44; el[1] = 0x89; el[2] = 0x88; new DataView(el.buffer).setFloat64(3, val);
+        const ns = sz + 11, size = new Uint8Array(8); size[0] = 0x01; let v = ns; for (let i = 7; i >= 1; i--) { size[i] = v % 256; v = Math.floor(v / 256); }
+        return new Blob([b.subarray(0, p + idn), size, b.subarray(d0, d0 + sz), el, b.subarray(d0 + sz)], { type: blob.type });
+      }
+      if (id === 0x1F43B675) return blob;   // reached the clusters without an Info
+      p = d0 + sz;
+    }
+  } catch (e) {}
+  return blob;
+}
 function recMime() {
   if (!window.MediaRecorder) return '';
   for (const m of ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']) if (MediaRecorder.isTypeSupported(m)) return m;
@@ -785,23 +816,24 @@ async function recStart() {
   mr.start(1000); rec.mr = mr; rec.on = true; rec.t0 = performance.now();
   $('bRec').classList.add('recOn'); recTick(); rec.timer = setInterval(recTick, 250);
 }
-function recTick() { const s = (performance.now() - rec.t0) / 1000; $('bRec').textContent = `\u25a0 ${Math.floor(s)} s`; if (s >= 30) recStop(); }
+function recTick() { const s = (performance.now() - rec.t0) / 1000; $('bRec').textContent = `\u25a0 ${Math.floor(s)} / ${REC_MAX} s`; if (s >= REC_MAX) recStop(); }
 function recStop() {
-  if (!rec.on) return; rec.on = false; clearInterval(rec.timer);
+  if (!rec.on) return; rec.on = false; clearInterval(rec.timer); rec.ms = performance.now() - rec.t0;
   try { rec.mr.stop(); } catch (e) {}
   $('bRec').classList.remove('recOn'); $('bRec').textContent = '\u25cf REC';
 }
-function recSave(type) {
+async function recSave(type) {
   if (rec.vs) { for (const t of rec.vs.getTracks()) t.stop(); rec.vs = null; }   // the microphone stays open for the next clip
-  const blob = new Blob(rec.chunks, { type: (type || 'video/webm').split(';')[0] }); rec.chunks = [];
+  let blob = new Blob(rec.chunks, { type: (type || 'video/webm').split(';')[0] }); rec.chunks = [];
   if (!blob.size) { toast('Nothing recorded'); return; }
+  if (/webm/.test(blob.type)) blob = await webmDuration(blob, rec.ms);   // #512
   const ext = /mp4/.test(blob.type) ? 'mp4' : 'webm', d = new Date(), p = n => String(n).padStart(2, '0');
-  const name = `dirrodj-dirrogram-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
+  const name = `dirrogram-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 60000);
-  toast(`Saved ${name} (${(blob.size / 1048576).toFixed(1)} MB)`);
+  toast(`Saved ${name} (${Math.round(rec.ms / 1000)} s, ${(blob.size / 1048576).toFixed(1)} MB)`);
 }
-$('bRec').onclick = () => { if (rec.on) recStop(); else recStart(); };
+$('bRec').onclick = () => { const t = performance.now(); if (t - rec.tapT < 700) return; rec.tapT = t; if (rec.on) recStop(); else if (!rec.mr || rec.mr.state === 'inactive') recStart(); };   // #512 a double tap must not stop and start a new clip
 document.addEventListener('visibilitychange', () => { if (document.hidden) recStop(); });   // the phone locked or switched app: keep what was filmed
 // #435 HoloSMS: up to 140 characters to the DJ's tablet; the DJ decides what reaches the hologram scroller
 $('bSms').onclick = () => { show('panel', false); const box = $('sms'), on = box.classList.contains('hide'); show('sms', on); if (on) setTimeout(() => $('smsIn').focus(), 50); };
