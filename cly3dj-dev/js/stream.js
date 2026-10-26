@@ -202,7 +202,7 @@ export class Streamer {
     if (k === 'gain') v = Math.max(1, Math.min(2.5, Math.round(v * 10) / 10));
     const was = this.stu.on; this.stu[k] = v; ls.set(STUK, JSON.stringify(this.stu));
     if (k === 'on') {
-      if (v && !was) { if (this.source === 'pcam' || this.source === 'phone') this.setSource('show'); this._tvClose(); this.tvMsg = 'S8 STUDIO is on: the S8 is the screen now.'; }
+      if (v && !was) { if (this.source === 'pcam' || this.source === 'phone') this.setSource('show'); this._tvClose(); this.tvMsg = 'DirroVJ is on: paired TVs switch to DirroVJ by themselves.'; }
       if (!v && was) { if (this.stuTw && this.live) this.stop(); this._stuDetach(); if (this.tvSet.key && this.tvSet.on) this._tvOpen(); }
     }
     if (this.stu.on && this.stu.mode === 'show' && (k === 'mode' || (k === 'on' && v)) && !['show', 'headset'].includes(this.source)) this.setSource('show');   // SHOW = the SHOWTIME! shot (CARD / AVACAM stay one tap away on STREAM)
@@ -271,7 +271,8 @@ export class Streamer {
     { const list = (this.env.smsList && this.env.smsList()) || [], sent = this._smsSent || (this._smsSent = new Set()), items = list.filter(m => !sent.has(m.id)).slice(0, 10).map(m => [m.id, m.t]);   // #507 HoloSMS to the scroller desk
       if (items.length) { for (const [id] of items) sent.add(id); L.ctl({ k: 'vjsms', items }); } }
     const O = this.showOpt;
-    L.ctl({ k: 'stu', on: true, mode: this.stu.mode, bd: O.backdrop === 'visuals' && O.wall && this.source === 'show' ? 'none' : O.backdrop, snd: !!this.stu.snd, ch: chatChannel.get(), local: !!this.stu.local, O: { gear: !!O.gear, robot: !!O.robot, neon: !!O.neon }, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
+    L.ctl({ k: 'stu', on: true, mode: this.stu.mode, bd: O.backdrop === 'visuals' && O.wall && this.source === 'show' ? 'none' : O.backdrop, snd: !!this.stu.snd, ch: chatChannel.get(), tv: this.tvSet.key && this.tvSet.on ? this.tvSet.key : '', tvA: !!this.tvSet.audio,   // #509 DirroVJ answers the paired TVs while it is on (sent only after ALLOW)
+      local: !!this.stu.local, O: { gear: !!O.gear, robot: !!O.robot, neon: !!O.neon }, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
   }
   _ledClip() { const c = this.env.ledClip && this.env.ledClip(); return c || ''; }
   get s8HasClip() { const c = this._ledClip(); return !!c && !!this.s8 && this.s8.clip === c; }

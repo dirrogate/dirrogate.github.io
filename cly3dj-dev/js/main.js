@@ -6618,7 +6618,7 @@ function drawToolsPage() {
     g.textAlign = 'left'; g.font = `700 ${P ? 21 : 18}px system-ui`; g.fillStyle = s8 && s8.run ? '#7dff9a' : '#dfe6f2';
     fitText2(g, title, L + 2, y0 + 20, R - L - 4);
     const tw = s8 ? (s8.tw === 'live' ? `TWITCH LIVE ${((s8.kbps || 0) / 1000).toFixed(1)} Mb/s` : s8.tw === 'connecting' ? 'Twitch connecting' : 'Twitch off') : '';
-    const sub = U.on && s8 ? `out ${s8.fps || 0} fps · Quest frames ${s8.qfps || 0} fps · camera held ${s8.hold != null ? s8.hold + ' ms' : '-'} · ${tw}${s8.note ? ' · ' + s8.note : ''}` : U.on ? (S.stuMsg || 'Open dirrovj.html (laptop) or the camera page (phone) and connect. LIVE DJ! / KEY! need the camera calibrated; WEBCAM does not.') : 'Turn DirroVJ on with the laptop or phone linked.';
+    const sub = U.on && s8 ? `out ${s8.fps || 0} fps · Quest frames ${s8.qfps || 0} fps · camera held ${s8.hold != null ? s8.hold + ' ms' : '-'} · ${tw}${s8.tv && s8.tv !== 'off' ? ' · DirroTV ' + (s8.tv === 'live' ? 'ON (from DirroVJ)' : 'waiting for the TV') : ''}${s8.note ? ' · ' + s8.note : ''}` : U.on ? (S.stuMsg || 'Open dirrovj.html (laptop) or the camera page (phone) and connect. LIVE DJ! / KEY! need the camera calibrated; WEBCAM does not.') : 'Turn DirroVJ on with the laptop or phone linked.';
     g.font = '500 14px system-ui'; g.fillStyle = '#8c96a8';
     const nl = wrapText(g, sub, L + 2, y0 + (P ? 40 : 36), R - L - 4, 18, P ? 3 : 2), y1 = y0 + (P ? 44 : 40) + Math.max(1, nl) * 18;
     const w3 = (R - L - 2 * gap) / 3, w4 = (R - L - 3 * gap) / 4, w5 = (R - L - 4 * gap) / 5, fs = P ? 18 : 15;

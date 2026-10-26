@@ -11,7 +11,7 @@
 // late each frame is, and shows the camera frame filmed at the frame's own time from a short ring of camera frames (up to 12, ~400 ms).
 // The sound arrives in step with the Quest's picture (one WebRTC stream), so it needs nothing. TRIM (tablet) nudges the camera.
 import { STU, readStamp, stampBlock } from './stream.js';
-import { opusStereo } from './net-link.js';
+import { opusStereo, tvHost } from './net-link.js';
 import { makeDesk } from './vjdesk.js';   // #507 DirroVJ desk (buses, fractal, scroller desk, line in)
 
 const TWITCH_WHIP = 'https://g.webrtc.live-video.net:4443/v2/offer', KEYK = 'vire.s8twitchKey', RING = 12;
@@ -188,6 +188,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       Object.assign(S, { on: !!m.on, mode: m.mode || 'show', bd: m.bd || 'none', snd: m.snd !== false, trim: +m.trim || 0, mon: !!m.mon, src: m.src || 'show', clipWant: m.clip || '', local: !!m.local, O: m.O || null });   // #504
       if (S.on && !was) { S.paused = false; if (S.bd === 'dome') vs.ensure().catch(() => {}); }
       if (!S.on && was) { twStop('studio off'); }
+      tvFollow(vj && S.on ? m.tv || '' : '', !!m.tvA);   // #509
       if (S.on && S.bd === 'dome') { vs.ensure().catch(() => {}); vs.playPano && vs.playPano(true); }
       if (m.cam) {   // #382 LOW LIGHT from the tablet: 25 fps hold, exposure compensation (the camera's own gain), the studio's GAIN
         U.camGain.value = Math.max(1, Math.min(3, +m.cam.gain || 1));
@@ -314,6 +315,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       outN++;
     } finally { renderer.setRenderTarget(prevRT); renderer.xr.enabled = prevXR; renderer.autoClear = ac; }
     if (twTrack && twTrack.requestFrame) twTrack.requestFrame();
+    if (tvTrack && tvTrack.requestFrame) tvTrack.requestFrame();   // #509
     if (now - fpsT > 1000) { S.fps = outN; S.qfps = qN; camRate = camN; outN = qN = camN = 0; fpsT = now; status(now, haveQ, needNote(haveQ, packed)); }
     return true;
   }
@@ -330,7 +332,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   function status(now, haveQ, note) {
     S.note = note;
     const L = getLink();
-    if (L && L.isOpen) L.send('ctl', { k: 'sst', vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, run: !!(S.on && !S.paused && haveQ), fps: S.fps, qfps: S.qfps, hold: S.hold, d: S.D != null ? Math.round(S.D) : null, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps, note,
+    if (L && L.isOpen) L.send('ctl', { k: 'sst', vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, tv: S.tv || 'off', run: !!(S.on && !S.paused && haveQ), fps: S.fps, qfps: S.qfps, hold: S.hold, d: S.D != null ? Math.round(S.D) : null, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps, note,
       clip: led.on && led.video && !led.video.paused ? led.name : '', cam: fixed.on && fixed.camInfo ? { ...fixed.camInfo(), rate: camRate } : null });
     stEl.textContent = `DirroVJ  ${({ show: 'SHOW', dj: 'LIVE DJ!', key: 'LIVE KEY!', cam: 'WEBCAM' })[S.mode]}  ·  backdrop ${S.bd.toUpperCase()}  ·  out ${S.fps} fps  ·  Quest ${S.qfps} fps\n` +
       `camera ${camRate} fps  ·  Quest frames ${S.D != null ? Math.round(S.D) + ' ms' : '-'} late  ·  camera held ${S.hold != null ? S.hold + ' ms' : '-'}  ·  trim ${S.trim} ms  ·  sound ${aTrack && S.snd ? 'on' : 'off'}\n` +
@@ -341,6 +343,22 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   // ---- Twitch (WHIP, as the Quest does it in stream.js): this screen's picture + the Quest's master sound
   let twPc = null, twTrack = null, twRes = null, twTry = 0, twLb = 0, twLt = 0, twIv = 0;
   function twSet(s, msg = '') { S.tw = s; S.twMsg = msg; }
+  // ---- #509 DirroTV from DirroVJ: while DirroVJ is on, the Quest stops answering its paired TVs and hands DirroVJ the TV key; the TVs keep
+  // calling that key, so they land here: this screen's picture + the sound Twitch gets. DirroVJ off: this host closes, the Quest answers again.
+  let tvH = null, tvKey = '', tvTrack = null, tvAud = true, tvAudSent = null;
+  function tvFollow(key, aud) {
+    tvAud = aud;
+    if (key === tvKey) { if (tvH && tvAudSent !== tvAud) { tvAudSent = tvAud; tvH.setAudio(tvAud ? twAudio() : null).catch(() => {}); } return; }
+    if (tvH) { tvH.close(); tvH = null; } tvKey = key; S.tv = key ? 'waiting' : 'off';
+    if (!key) { if (tvTrack) { tvTrack.stop(); tvTrack = null; } return; }
+    tvH = tvHost(key, {
+      video: async () => { if (!tvTrack || tvTrack.readyState !== 'live') { tvTrack = cv.captureStream(0).getVideoTracks()[0]; tvTrack.contentHint = 'motion'; } return tvTrack; },
+      audio: async () => (tvAudSent = tvAud) ? twAudio() : null,
+      onCtlOpen: () => { tvH && tvH.ctl({ t: 'hi', audio: !!tvAud }); },
+      onUp: () => { S.tv = 'live'; }, onDown: () => { S.tv = 'waiting'; },
+    });
+  }
+  setInterval(() => { if (tvH && tvAud) { const a = twAudio(); if (a && tvH.isUp) tvH.setAudio(a).catch(() => {}); } }, 5000);   // the sound after a Quest reconnect / LINE IN
   const twAudio = () => (desk && desk.audioTrack()) || (aTrack && aTrack.readyState === 'live' ? aTrack : null);   // #507 LINE IN wins when picked
   async function twStart() {
     if (twPc) return;
