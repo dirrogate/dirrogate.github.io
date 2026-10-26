@@ -125,6 +125,7 @@ export function startCamera(ctx) {
     $('#spS h1').innerHTML = 'Dirro<span>VJ</span>';
     $('#spS p').textContent = 'The VJ desk for the cabin laptop. It shows the Quest\'s SHOW shots or this laptop\'s webcam, with the Quest\'s overlays and master sound, on the club screen (HDMI) and on Twitch. On the Quest: Settings > Phone / DirroVJ link On and read the code there. Then on the tablet: TOOLS > STREAM > DIRROVJ, turn it on.';
     $('#spAR').hidden = true;
+    $('#spConnect').insertAdjacentHTML('afterend', '<button id="spDesk">Open the VJ desk (control window)</button>'); $('#spDesk').onclick = () => window.open('./vjdesk.html', 'dirrovj-desk', 'width=1180,height=780');   // #507
     $('#spFix').textContent = 'Start webcam (optional: the WEBCAM source, aim it at the DJ or the crowd)';   // #501
   }
 
@@ -613,6 +614,7 @@ export function startCamera(ctx) {
     else if (m.k === 'covhave?') { if (ctx.crateRemote) ctx.crateRemote.coverHave(m.keys || []).then(keys => { if (link && link.isOpen) link.send('ctl', { k: 'covhave', keys }); }); }
     else if (m.k === 'recdel') onRecDel(m.uid);
     else if (m.k === 'slv') onSlv(m);   // #503
+    else if (m.k === 'vjsms') studio.onVjSms(m);   // #507 HoloSMS for the scroller desk
     else if (m.k === 'slvdel') onSlvDel(m.uid);
     else if (m.k === 'calpt') { if (!(fixed.on && fixed.onCalPoint(m))) onCalPoint(m); }   // #208 fixed camera taps first
     else if (m.k === 'calskip') { if (fixed.on) fixed.calSkip(); }   // #211 the Quest's grip skips an auto point

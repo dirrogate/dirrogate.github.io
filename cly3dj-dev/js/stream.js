@@ -12,7 +12,7 @@
 // doesn't swim against the picture. GEAR OFF sends the raw camera as before.
 // The key is kept on this headset only (localStorage 'vire.twitchKey') and goes nowhere but the Twitch endpoint.
 import * as THREE from 'three';
-import { drawChat } from './chat.js';
+import { drawChat, chatChannel } from './chat.js';
 import { tvHost, tvNewKey, tvPairSend } from './net-link.js';   // #376 Cly3DTV
 
 const TVK = 'vire.tv';
@@ -268,8 +268,10 @@ export class Streamer {
     if (!L.ok) { this.stuMsg = 'The S8 page is too old for the studio: reload it on the S8.'; return; }
     if (!this.vjAllowed) { this.stuMsg = this.vjAsk ? 'Allow this ' + (this.vjName || 'device') + ' on the DIRROVJ page first.' : 'Waiting for DirroVJ to say hello (reload its page if this stays).'; if (this.stuAtt) { this.stuAtt = false; if (L.ok) L.set(null, null).catch(() => {}); L.ctl({ k: 'stu', on: false }); } return; }   // #506 nothing goes out before the DJ allows it
     if (!this.stuAtt) this._stuAttach();
+    { const list = (this.env.smsList && this.env.smsList()) || [], sent = this._smsSent || (this._smsSent = new Set()), items = list.filter(m => !sent.has(m.id)).slice(0, 10).map(m => [m.id, m.t]);   // #507 HoloSMS to the scroller desk
+      if (items.length) { for (const [id] of items) sent.add(id); L.ctl({ k: 'vjsms', items }); } }
     const O = this.showOpt;
-    L.ctl({ k: 'stu', on: true, mode: this.stu.mode, bd: O.backdrop === 'visuals' && O.wall && this.source === 'show' ? 'none' : O.backdrop, snd: !!this.stu.snd, local: !!this.stu.local, O: { gear: !!O.gear, robot: !!O.robot, neon: !!O.neon }, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
+    L.ctl({ k: 'stu', on: true, mode: this.stu.mode, bd: O.backdrop === 'visuals' && O.wall && this.source === 'show' ? 'none' : O.backdrop, snd: !!this.stu.snd, ch: chatChannel.get(), local: !!this.stu.local, O: { gear: !!O.gear, robot: !!O.robot, neon: !!O.neon }, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
   }
   _ledClip() { const c = this.env.ledClip && this.env.ledClip(); return c || ''; }
   get s8HasClip() { const c = this._ledClip(); return !!c && !!this.s8 && this.s8.clip === c; }

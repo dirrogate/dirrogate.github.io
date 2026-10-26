@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DirroVJ desk</title>
+<!-- #507 DirroVJ control window: talks to the DirroVJ output window (same browser) over BroadcastChannel 'dirrovj' -->
+<style>
+  :root { --bg:#0b0d12; --panel:#141924; --line:#2e3850; --fg:#e6e8ec; --mute:#8c96a8; --red:#e0202a; --blue:#39a8ff; --green:#7dff9a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui,sans-serif; }
+  header { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:22px; font-weight:800; letter-spacing:.03em; } header h1 span { color:var(--red); }
+  #st { color:var(--mute); font-size:13px; }
+  main { display:grid; grid-template-columns:minmax(300px,1.1fr) minmax(280px,1fr); gap:14px; padding:14px 16px; }
+  @media (max-width:760px) { main { grid-template-columns:1fr; } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  h2 { margin:0 0 10px; font-size:13px; letter-spacing:.08em; color:var(--mute); text-transform:uppercase; }
+  button, select, input[type=text] { font:600 14px system-ui,sans-serif; color:var(--fg); background:#1c2230; border:1px solid var(--line); border-radius:9px; padding:9px 12px; }
+  button.on { border-color:var(--blue); background:#16304a; color:#fff; } button.red { background:#7a1016; border-color:var(--red); }
+  .row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:6px 0; }
+  .lbl { width:28px; font-weight:800; color:var(--mute); }
+  #pv { width:100%; aspect-ratio:16/9; background:#000; border-radius:8px; border:1px solid var(--line); object-fit:contain; display:block; }
+  input[type=range] { flex:1; min-width:120px; }
+  #xf { width:100%; }
+  .q { display:flex; gap:8px; align-items:flex-start; padding:7px 0; border-bottom:1px solid #1f2636; }
+  .q .t { flex:1; } .q .w { color:var(--mute); font-size:12px; } .q.sent { opacity:.45; }
+  .tag { font:700 10px system-ui; padding:2px 6px; border-radius:6px; background:#22304a; color:#9cc8ff; margin-right:6px; } .tag.sms { background:#3a2440; color:#f2a7f0; }
+  #queue { max-height:46vh; overflow:auto; }
+  .note { color:var(--mute); font-size:12px; margin-top:6px; }
+</style>
+</head>
+<body>
+<header><h1>Dirro<span>VJ</span> desk</h1><div id="st">Looking for the DirroVJ output window…</div></header>
+<main>
+  <div>
+    <section>
+      <h2>Program</h2>
+      <img id="pv" alt="">
+      <div class="row" id="busA"><span class="lbl">A</span></div>
+      <div class="row"><input type="range" id="xf" min="0" max="1" step="0.01" value="0"></div>
+      <div class="row" id="busB"><span class="lbl">B</span></div>
+      <div class="row"><button id="cut">CUT</button><button id="auto">AUTO</button><select id="fadeMs"><option value="800">0.8 s</option><option value="2000" selected>2 s</option><option value="5000">5 s</option></select></div>
+      <div class="note">QUEST = the picture DirroVJ gets from the Quest (SHOW, LIVE DJ!, KEY, WEBCAM mode as picked on the tablet) with its overlays. WEBCAM = this laptop's webcam as it is (start it on the DirroVJ page). LED CLIP = DirroVJ's copy of the LED clip.</div>
+    </section>
+    <section style="margin-top:14px">
+      <h2>Amiga fractal</h2>
+      <div class="row"><button data-pal="green">GREEN</button><button data-pal="island">ISLAND</button></div>
+      <div class="row"><span style="width:70px">Speed</span><input type="range" id="frSpeed" min="0" max="3" step="0.05"></div>
+      <div class="row"><span style="width:70px">Height</span><input type="range" id="frHeight" min="0.2" max="2.5" step="0.05"></div>
+      <div class="row"><span style="width:70px">Zoom</span><input type="range" id="frZoom" min="0" max="3" step="0.05"></div>
+      <div class="row"><span style="width:70px">React</span><input type="range" id="frReact" min="0" max="1.5" step="0.05"></div>
+      <div class="note">REACT lifts the landscape on the bass of the Quest's sound. Nothing follows the beat on its own.</div>
+    </section>
+  </div>
+  <div>
+    <section>
+      <h2>Scroller desk</h2>
+      <div class="row"><input type="text" id="say" maxlength="120" placeholder="Type a line for the sine scroller" style="flex:1"><button id="sayB">SEND</button></div>
+      <div id="chatSt" class="note"></div>
+      <div id="queue"></div>
+      <div class="note">APPROVE puts the line on the Quest's sine scroller (headset, DirroTV and the stream). The DJ can still switch the scroller off on the Quest.</div>
+    </section>
+    <section style="margin-top:14px">
+      <h2>Sound for Twitch</h2>
+      <div class="row"><button id="aQ">QUEST (Wi-Fi)</button><button id="aL">LINE IN</button><select id="dev" style="flex:1"></select></div>
+      <div id="aSt" class="note"></div>
+    </section>
+  </div>
+</main>
+<script>
+const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
+const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'LED CLIP', black: 'BLACK' };
+let S = null, lastSeen = 0;
+for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = document.createElement('button'); b.textContent = NAMES[k]; b.dataset.bus = bus; b.dataset.src = k; b.onclick = () => send({ k: 'bus', bus, v: k }); $(bus === 'a' ? 'busA' : 'busB').append(b); }
+$('xf').oninput = e => send({ k: 'x', v: +e.target.value });
+$('cut').onclick = () => send({ k: 'cut' }); $('auto').onclick = () => send({ k: 'auto', ms: +$('fadeMs').value });
+for (const b of document.querySelectorAll('[data-pal]')) b.onclick = () => send({ k: 'fr', v: { pal: b.dataset.pal } });
+for (const [id, key] of [['frSpeed', 'speed'], ['frHeight', 'height'], ['frZoom', 'zoom'], ['frReact', 'react']]) $(id).oninput = e => send({ k: 'fr', v: { [key]: +e.target.value } });
+const say = () => { const t = $('say').value.trim(); if (t) { send({ k: 'say', t }); $('say').value = ''; } };
+$('sayB').onclick = say; $('say').onkeydown = e => { if (e.key === 'Enter') say(); };
+$('aQ').onclick = () => send({ k: 'audio', v: 'quest' }); $('aL').onclick = () => send({ k: 'audio', v: 'line', dev: $('dev').value });
+$('dev').onchange = () => { if (S && S.D.audio === 'line') send({ k: 'audio', v: 'line', dev: $('dev').value }); };
+document.addEventListener('keydown', e => { if (e.target.tagName === 'INPUT') return; if (e.code === 'Space') { e.preventDefault(); send({ k: 'auto', ms: +$('fadeMs').value }); } if (e.key === 'c' || e.key === 'C') send({ k: 'cut' }); });
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+function render() {
+  const D = S.D;
+  for (const b of document.querySelectorAll('[data-bus]')) b.classList.toggle('on', D[b.dataset.bus] === b.dataset.src);
+  if (document.activeElement !== $('xf')) $('xf').value = D.x;
+  for (const b of document.querySelectorAll('[data-pal]')) b.classList.toggle('on', D.fr.pal === b.dataset.pal);
+  for (const [id, key] of [['frSpeed', 'speed'], ['frHeight', 'height'], ['frZoom', 'zoom'], ['frReact', 'react']]) if (document.activeElement !== $(id)) $(id).value = D.fr[key];
+  $('aQ').classList.toggle('on', D.audio === 'quest'); $('aL').classList.toggle('on', D.audio === 'line');
+  const cur = $('dev').value; $('dev').innerHTML = S.devs.map(([id, l]) => `<option value="${esc(id)}">${esc(l)}</option>`).join(''); if (cur) $('dev').value = cur; else if (D.lineDev) $('dev').value = D.lineDev;
+  $('aSt').textContent = D.lineErr ? 'Line in: ' + D.lineErr : D.audio === 'line' ? 'Twitch gets this laptop\'s input (takes effect on the next GO LIVE or within a second if live).' : 'Twitch gets the Quest\'s master sound over the link.';
+  $('chatSt').textContent = D.ch ? `Twitch chat #${D.ch}: ${D.chat}` : 'Twitch chat: waiting for the channel from the Quest (DirroVJ on).';
+  $('queue').innerHTML = S.queue.map(q => `<div class="q${q.sent ? ' sent' : ''}"><div class="t"><span class="tag${q.src === 'sms' ? ' sms' : ''}">${q.src === 'sms' ? 'HOLOSMS' : 'CHAT'}</span><span class="w">${esc(q.who)}</span><br>${esc(q.t)}</div>`
+    + `<button data-ok="${q.id}">${q.sent ? 'AGAIN' : 'APPROVE'}</button><button data-no="${q.id}">✕</button></div>`).join('') || '<div class="note">Nothing waiting.</div>';
+  for (const b of document.querySelectorAll('[data-ok]')) b.onclick = () => send({ k: 'approve', id: +b.dataset.ok });
+  for (const b of document.querySelectorAll('[data-no]')) b.onclick = () => send({ k: 'reject', id: +b.dataset.no });
+}
+bc.onmessage = e => {
+  const m = e.data || {}; lastSeen = Date.now();
+  if (m.k === 'state') { S = m; render(); $('st').textContent = 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'; }
+  else if (m.k === 'pv') $('pv').src = m.img;
+};
+send({ k: 'hello' });
+setInterval(() => { send({ k: 'hello' }); if (Date.now() - lastSeen > 4000) $('st').textContent = 'No DirroVJ output window: open dirrovj.html in this browser, connect it and start DirroVJ.'; }, 2000);
+</script>
+</body>
+</html>

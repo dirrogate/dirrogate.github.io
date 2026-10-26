@@ -14,7 +14,7 @@ const CAL_TEXT = {
   x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
-export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, getSleeves, artBlobs, getLed, getScroll, onLive, getVV, getSpiders, getAv, getLook, getHandFit, getSky, onMedia, onCam, onPreview, perf, coverFor, onScreen, onStudio }) {   // #380 onStudio(what, msg): the S8 studio's link / status   // #358 onScreen: the phone shares / stops sharing its screen
+export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, getSleeves, onVj, artBlobs, getLed, getScroll, onLive, getVV, getSpiders, getAv, getLook, getHandFit, getSky, onMedia, onCam, onPreview, perf, coverFor, onScreen, onStudio }) {   // #380 onStudio(what, msg): the S8 studio's link / status   // #358 onScreen: the phone shares / stops sharing its screen
   // #209 PerfCap: every mirror message also goes to the PerfCap recorder while it records (phone or not)
   const out = { send(ch, m) { if (link.isOpen) link.send(ch, m); if (perf && perf.on) perf.write(ch, m); } };
   let perfMarks = false;   // #209 PerfCap MARKS mode: each trigger press records a floor mark
@@ -430,6 +430,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       if (m.k === 'cst') { camState = m; onCam && onCam(m); return; }
       if (m.k === 'sst') { onStudio && onStudio('sst', m); return; }   // #380 the S8 studio's status (once a second)
       if (m.k === 'screen') { onScreen && onScreen(!!m.on); return; }   // #358   // #188 the phone's camera / key / look state
+      if (m.k === 'vjsine') { onVj && onVj(m); return; }   // #507 DirroVJ scroller desk (main.js checks the pairing)
       if (m.k === 'cover?') { onCoverAsk(m.key); return; }   // #218
       if (m.k === 'covhave') { if (haveWait) { const w = haveWait; haveWait = null; w(m.keys || []); } return; }
       if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }

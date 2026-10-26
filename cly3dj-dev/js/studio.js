@@ -12,6 +12,7 @@
 // The sound arrives in step with the Quest's picture (one WebRTC stream), so it needs nothing. TRIM (tablet) nudges the camera.
 import { STU, readStamp, stampBlock } from './stream.js';
 import { opusStereo } from './net-link.js';
+import { makeDesk } from './vjdesk.js';   // #507 DirroVJ desk (buses, fractal, scroller desk, line in)
 
 const TWITCH_WHIP = 'https://g.webrtc.live-video.net:4443/v2/offer', KEYK = 'vire.s8twitchKey', RING = 12;
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
@@ -117,6 +118,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   const stripRT = new THREE.WebGLRenderTarget(32, 1, { depthBuffer: false }), stripBuf = new Uint8Array(32 * 4);
   const stripMat = new THREE.ShaderMaterial({ uniforms: { q: { value: qTex }, H: { value: 720 }, bh: { value: 24 } }, vertexShader: VS, fragmentShader: STRIP_FS, depthTest: false, depthWrite: false }), stripSc = quad(stripMat);
   const half = renderer.extensions.has('EXT_color_buffer_half_float') || renderer.extensions.has('EXT_color_buffer_float');
+  let compRT = null;   // #507
   let locRT = null; const locCam = new THREE.PerspectiveCamera(50, 16 / 9, 0.05, 60); locCam.updateMatrixWorld = () => {};   // #504
   let domeRT = null; const domeCam = new THREE.PerspectiveCamera(50, 16 / 9, 0.05, 60); domeCam.updateMatrixWorld = () => {};
   const clipTex = led.video ? new THREE.VideoTexture(led.video) : null; if (clipTex) { clipTex.colorSpace = THREE.NoColorSpace; clipTex.generateMipmaps = false; }
@@ -124,6 +126,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     bgUv: { value: new THREE.Vector4(0, 0, 1, 1) }, qFit: { value: new THREE.Vector4(0, 0, 1, 1) }, crop: { value: new THREE.Vector4() },
     loc: { value: null }, locMode: { value: 0 }, thr: { value: 0.1 }, soft: { value: 0.1 }, spill: { value: 0.7 }, cmatch: { value: 0.4 }, tint: { value: new THREE.Vector3(1, 1, 1) }, keyCol: { value: 0 }, camGain: { value: 1 } };
   const compMat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: COMP_FS, depthTest: false, depthWrite: false }), compSc = quad(compMat);
+  const desk = vj ? makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio: () => aTrack }) : null;   // #507
   // ---- the screen: 1280 x 720 drawing buffer, shown full screen with bars (the HDMI picture), the page's own UI hidden
   document.head.insertAdjacentHTML('beforeend', `<style>
     body.stuOn #spO, body.stuOn #fxO, body.stuOn #fxTap, body.stuOn #spS, body.stuOn .fxMark { display:none !important; }
@@ -140,7 +143,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   document.body.insertAdjacentHTML('beforeend', `<div id="stuO"><div class="st" id="stuSt" hidden></div>
     <div class="go" id="stuGo"><div style="font:800 30px system-ui">Dirro<span style="color:#e0202a">VJ</span></div>
       <div style="max-width:80vw;color:#b7c0d0">The Quest turned DirroVJ on. Tap to start: full screen, sound to the TV, screen kept awake.</div><button id="stuStart">START DIRROVJ</button></div>
-    <div class="bar" id="stuBar" hidden><button class="q" id="stuBack">Camera view (pause studio here)</button><button class="q" id="stuHide">Hide</button></div></div>
+    <div class="bar" id="stuBar" hidden><button class="q" id="stuBack">Camera view (pause studio here)</button><button class="q" id="stuDesk">VJ desk</button><button class="q" id="stuHide">Hide</button></div></div>
     <button id="stuRes" hidden style="position:fixed;right:10px;top:10px;z-index:50;font:700 15px system-ui,sans-serif;color:#fff;background:#b0141e;border:1px solid #e0202a;border-radius:10px;padding:10px 14px">▶ BACK TO STUDIO</button>`);
   const $ = id => document.getElementById(id), ov = $('stuO'), stEl = $('stuSt'), goEl = $('stuGo'), barEl = $('stuBar');
   let uiT = 0, lock = null;
@@ -148,6 +151,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   $('stuBack').onclick = () => { S.paused = true; apply(); };
   $('stuRes').onclick = () => { S.paused = false; apply(); };
   $('stuHide').onclick = () => { uiT = 0; stEl.hidden = barEl.hidden = true; };
+  $('stuDesk').hidden = !vj; $('stuDesk').onclick = () => window.open('./vjdesk.html', 'dirrovj-desk', 'width=1180,height=780');   // #507
   ov.addEventListener('click', e => { if (e.target === ov) showUi(); });
   function showUi() { uiT = performance.now() + 6000; stEl.hidden = barEl.hidden = false; }
   function full() {
@@ -180,6 +184,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   function onMsg(m) {
     if (m.k === 'stu') {
       const was = S.on;
+      if (desk) desk.onStu(m);   // #507 the Twitch channel for the scroller desk
       Object.assign(S, { on: !!m.on, mode: m.mode || 'show', bd: m.bd || 'none', snd: m.snd !== false, trim: +m.trim || 0, mon: !!m.mon, src: m.src || 'show', clipWant: m.clip || '', local: !!m.local, O: m.O || null });   // #504
       if (S.on && !was) { S.paused = false; if (S.bd === 'dome') vs.ensure().catch(() => {}); }
       if (!S.on && was) { twStop('studio off'); }
@@ -302,7 +307,11 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       U.qMode.value = haveQ ? (packed ? 1 : 2) : 0;
       if (haveQ && !packed) { const a = qv.videoWidth / qv.videoHeight, oa = S.W / S.H; if (a > oa) U.qFit.value.set(0, (1 - oa / a) / 2, 1, oa / a); else U.qFit.value.set((1 - a / oa) / 2, 0, a / oa, 1); }
       U.t.value = now / 1000;
-      renderer.setRenderTarget(null); renderer.render(compSc, oc); outN++;
+      if (desk) {   // #507 the composite is one source; the desk mixes the program picture onto the screen
+        if (!compRT || compRT.width !== S.W || compRT.height !== S.H) { if (compRT) compRT.dispose(); compRT = new THREE.WebGLRenderTarget(S.W, S.H, { depthBuffer: false }); }
+        renderer.setRenderTarget(compRT); renderer.render(compSc, oc); desk.output(compRT.texture, now, S.W, S.H);
+      } else { renderer.setRenderTarget(null); renderer.render(compSc, oc); }
+      outN++;
     } finally { renderer.setRenderTarget(prevRT); renderer.xr.enabled = prevXR; renderer.autoClear = ac; }
     if (twTrack && twTrack.requestFrame) twTrack.requestFrame();
     if (now - fpsT > 1000) { S.fps = outN; S.qfps = qN; camRate = camN; outN = qN = camN = 0; fpsT = now; status(now, haveQ, needNote(haveQ, packed)); }
@@ -332,6 +341,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   // ---- Twitch (WHIP, as the Quest does it in stream.js): this screen's picture + the Quest's master sound
   let twPc = null, twTrack = null, twRes = null, twTry = 0, twLb = 0, twLt = 0, twIv = 0;
   function twSet(s, msg = '') { S.tw = s; S.twMsg = msg; }
+  const twAudio = () => (desk && desk.audioTrack()) || (aTrack && aTrack.readyState === 'live' ? aTrack : null);   // #507 LINE IN wins when picked
   async function twStart() {
     if (twPc) return;
     let key = ''; try { key = localStorage.getItem(KEYK) || ''; } catch {}
@@ -340,7 +350,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     try {
       if (!twTrack || twTrack.readyState !== 'live') { twTrack = cv.captureStream(0).getVideoTracks()[0]; twTrack.contentHint = 'motion'; }
       const pc = twPc = new RTCPeerConnection({ bundlePolicy: 'max-bundle' });
-      const at = pc.addTransceiver(aTrack && aTrack.readyState === 'live' ? aTrack : 'audio', { direction: 'sendonly' });
+      const aSrc = twAudio(); const at = pc.addTransceiver(aSrc || 'audio', { direction: 'sendonly' });
       const vt = pc.addTransceiver(twTrack, { direction: 'sendonly' });
       try {
         const caps = RTCRtpSender.getCapabilities('video').codecs, h = caps.filter(c => /h264/i.test(c.mimeType)).sort((a, b) => (/42e01f/.test(b.sdpFmtpLine) ? 1 : 0) - (/42e01f/.test(a.sdpFmtpLine) ? 1 : 0));
@@ -364,7 +374,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   async function twStats() {
     if (!twPc) return;
     try { let b = 0; (await twPc.getStats()).forEach(s => { if (s.type === 'outbound-rtp') b += s.bytesSent || 0; }); const t = performance.now(); if (twLt) S.kbps = Math.round((b - twLb) * 8 / (t - twLt)); twLb = b; twLt = t; } catch {}
-    if (twSender && aTrack && twSender.track !== aTrack && aTrack.readyState === 'live') twSender.replaceTrack(aTrack).catch(() => {});   // the Quest's sound came back after a reconnect
+    { const a = twAudio(); if (twSender && a && twSender.track !== a) twSender.replaceTrack(a).catch(() => {}); }   // the Quest's sound came back after a reconnect (#507 or LINE IN was picked)
   }
   function twLost(why) {
     if (twTry >= 3) { twStop('connection lost (' + why + ')', true); return; }
@@ -380,5 +390,5 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   }
   function twStop(msg, err) { twClose(); twSet(err ? 'error' : 'off', msg || ''); }
   // the sound follows the Quest's SOUND switch (it simply stops sending); the element is never muted after START STUDIO
-  return { S, _U: U /* #504 test hook */, get sceneLag() { return vj && S.on && !S.paused && S.mode === 'show' && S.local ? S.trim : 0; }, onMsg, onScp, onTrack, onLink, frame, get on() { return S.on && !S.paused; }, get mon() { return S.on && !S.paused && S.mon; }, resume() { S.paused = false; apply(); } };
+  return { S, _U: U /* #504 test hook */, desk, onVjSms: m => { if (desk) desk.onVjSms(m); }, get sceneLag() { return vj && S.on && !S.paused && S.mode === 'show' && S.local ? S.trim : 0; }, onMsg, onScp, onTrack, onLink, frame, get on() { return S.on && !S.paused; }, get mon() { return S.on && !S.paused && S.mon; }, resume() { S.paused = false; apply(); } };
 }

@@ -1299,6 +1299,7 @@ $('#helpBtn').onclick = () => { const h = $('#help'); h.style.display = h.style.
 const engine = new AudioEngine();
 // #331 LIVE STREAM: master bus (never CUE) + a picture source, straight to Twitch from the headset (stream.js)
 streamer = CAMERA_ROLE ? null : new Streamer({
+  smsList: () => (dirro && dirro.sms) || [],   // #507 HoloSMS for DirroVJ's scroller desk
   engine, renderer, djcam, scene, camera,   // #333 scene / camera for the MR headset picture
   // #336 SHOW / VIDEOWALL
   avLayer: AV_LAYER, showCam: () => djcam && djcam.cam, scroller: () => scroller, chat: () => chat,   // #340
@@ -8431,6 +8432,9 @@ async function applySpect() {
     if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, perf, getInputs: () => xr && xr.inputs,
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => ({ ...led.state(), curve: ledwall.userData.curveDeg() }),   /* #358 */ onScreen: onPhoneScreen, getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
       getSpiders: spidersState,   // #262
+      onVj: m => {   // #507 DirroVJ's scroller desk: an approved line onto the Quest's sine scroller (only from a DirroVJ the DJ allowed)
+        if (!streamer || !streamer.vjAllowed || !m.t) return; const c = cleanText(String(m.t), 120); if (c.trim()) { scroller.start(c); toast('DirroVJ: on the sine scroller', 1500); }
+      },
       getSleeves: () => sleeves.filter(s => !s.gone).map(s => { const t = s.rec.sides.A || s.rec.sides.B; return { sl: s, key: t ? coverKey(t) : '', title: s.rec.title || '', artist: s.rec.artist || '', size: s.rec.size === 7 ? 7 : 12 }; }),   // #503 sleeves out of the crate, mirrored
       getAv: phoneRobotState,   // #278
       getLook: () => xr ? xr.getCtlLook() : '3dhands',   // #288
