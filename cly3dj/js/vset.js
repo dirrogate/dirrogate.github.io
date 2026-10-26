@@ -226,7 +226,7 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
   }
   async function setOn(on) {
     if (on && !S.can) return 'This AR session has no camera access (restart the camera and allow it).';
-    if (on && !(await ensure())) return 'Pick the panorama first (start screen: Virtual set panorama).';
+    if (on && !(await ensure())) return 'No panorama here yet: put the Quest\'s panorama in the Library (Library > sync with the Quest).';
     S.on = on; if (!on) binding = null; apply();
     return on ? (sameAsQuest() ? 'Virtual set on.' : 'Virtual set on (note: a different picture from the Quest\'s).') : 'Virtual set off: normal camera view.';
   }
