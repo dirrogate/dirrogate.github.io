@@ -45,12 +45,15 @@
     </section>
     <section style="margin-top:14px">
       <h2>Amiga fractal</h2>
-      <div class="row"><button data-pal="green">GREEN</button><button data-pal="island">ISLAND</button></div>
+      <div class="row"><button data-ft="mandel">MANDEL</button><button data-ft="julia">JULIA</button><button data-ft="ship">SHIP</button><button data-ft="multi">MULTI</button></div>
+      <div class="row"><button data-pal="green">GREEN</button><button data-pal="island">ISLAND</button><button data-pal="lava">LAVA</button><button data-pal="ice">ICE</button><button data-pal="copper">COPPER</button><button data-pal="neon">NEON</button></div>
       <div class="row"><span style="width:70px">Speed</span><input type="range" id="frSpeed" min="0" max="3" step="0.05"></div>
       <div class="row"><span style="width:70px">Height</span><input type="range" id="frHeight" min="0.2" max="2.5" step="0.05"></div>
       <div class="row"><span style="width:70px">Zoom</span><input type="range" id="frZoom" min="0" max="3" step="0.05"></div>
+      <div class="row"><span style="width:70px">Beat</span><input type="range" id="frBeat" min="0" max="2" step="0.05"><button id="pump">PUMP</button><span id="kick" style="width:14px;height:14px;border-radius:50%;background:#333;display:inline-block"></span></div>
       <div class="row"><span style="width:70px">React</span><input type="range" id="frReact" min="0" max="1.5" step="0.05"></div>
-      <div class="note">REACT lifts the landscape on the bass of the Quest's sound. Nothing follows the beat on its own.</div>
+      <div class="row"><span style="width:70px">Cycle</span><input type="range" id="frCycle" min="0" max="3" step="0.05"></div>
+      <div class="note">BEAT: each kick in the Quest's sound shoots the peaks up (the dot flashes); PUMP or P = a hit by hand. REACT: the whole landscape swells with the bass. CYCLE: rolls the colours like Amiga palette cycling (LAVA, ICE, COPPER, NEON).</div>
     </section>
   </div>
   <div>
@@ -76,19 +79,23 @@ for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = do
 $('xf').oninput = e => send({ k: 'x', v: +e.target.value });
 $('cut').onclick = () => send({ k: 'cut' }); $('auto').onclick = () => send({ k: 'auto', ms: +$('fadeMs').value });
 for (const b of document.querySelectorAll('[data-pal]')) b.onclick = () => send({ k: 'fr', v: { pal: b.dataset.pal } });
-for (const [id, key] of [['frSpeed', 'speed'], ['frHeight', 'height'], ['frZoom', 'zoom'], ['frReact', 'react']]) $(id).oninput = e => send({ k: 'fr', v: { [key]: +e.target.value } });
+for (const b of document.querySelectorAll('[data-ft]')) b.onclick = () => send({ k: 'fr', v: { type: b.dataset.ft } });
+$('pump').onclick = () => send({ k: 'pump' });
+for (const [id, key] of [['frSpeed', 'speed'], ['frHeight', 'height'], ['frZoom', 'zoom'], ['frReact', 'react'], ['frBeat', 'beat'], ['frCycle', 'cycle']]) $(id).oninput = e => send({ k: 'fr', v: { [key]: +e.target.value } });
 const say = () => { const t = $('say').value.trim(); if (t) { send({ k: 'say', t }); $('say').value = ''; } };
 $('sayB').onclick = say; $('say').onkeydown = e => { if (e.key === 'Enter') say(); };
 $('aQ').onclick = () => send({ k: 'audio', v: 'quest' }); $('aL').onclick = () => send({ k: 'audio', v: 'line', dev: $('dev').value });
 $('dev').onchange = () => { if (S && S.D.audio === 'line') send({ k: 'audio', v: 'line', dev: $('dev').value }); };
-document.addEventListener('keydown', e => { if (e.target.tagName === 'INPUT') return; if (e.code === 'Space') { e.preventDefault(); send({ k: 'auto', ms: +$('fadeMs').value }); } if (e.key === 'c' || e.key === 'C') send({ k: 'cut' }); });
+document.addEventListener('keydown', e => { if (e.target.tagName === 'INPUT') return; if (e.code === 'Space') { e.preventDefault(); send({ k: 'auto', ms: +$('fadeMs').value }); } if (e.key === 'c' || e.key === 'C') send({ k: 'cut' }); if (e.key === 'p' || e.key === 'P') send({ k: 'pump' }); });
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 function render() {
   const D = S.D;
   for (const b of document.querySelectorAll('[data-bus]')) b.classList.toggle('on', D[b.dataset.bus] === b.dataset.src);
   if (document.activeElement !== $('xf')) $('xf').value = D.x;
   for (const b of document.querySelectorAll('[data-pal]')) b.classList.toggle('on', D.fr.pal === b.dataset.pal);
-  for (const [id, key] of [['frSpeed', 'speed'], ['frHeight', 'height'], ['frZoom', 'zoom'], ['frReact', 'react']]) if (document.activeElement !== $(id)) $(id).value = D.fr[key];
+  for (const b of document.querySelectorAll('[data-ft]')) b.classList.toggle('on', (D.fr.type || 'mandel') === b.dataset.ft);
+  if (D.kick !== render.kick) { render.kick = D.kick; $('kick').style.background = '#ff3040'; setTimeout(() => { $('kick').style.background = '#333'; }, 120); }
+  for (const [id, key] of [['frSpeed', 'speed'], ['frHeight', 'height'], ['frZoom', 'zoom'], ['frReact', 'react'], ['frBeat', 'beat'], ['frCycle', 'cycle']]) if (document.activeElement !== $(id)) $(id).value = D.fr[key];
   $('aQ').classList.toggle('on', D.audio === 'quest'); $('aL').classList.toggle('on', D.audio === 'line');
   const cur = $('dev').value; $('dev').innerHTML = S.devs.map(([id, l]) => `<option value="${esc(id)}">${esc(l)}</option>`).join(''); if (cur) $('dev').value = cur; else if (D.lineDev) $('dev').value = D.lineDev;
   $('aSt').textContent = D.lineErr ? 'Line in: ' + D.lineErr : D.audio === 'line' ? 'Twitch gets this laptop\'s input (takes effect on the next GO LIVE or within a second if live).' : 'Twitch gets the Quest\'s master sound over the link.';
