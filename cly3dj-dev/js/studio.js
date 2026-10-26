@@ -195,10 +195,13 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   }
   function onScp(m) { poses.push(m); if (poses.length > 60) poses.shift(); }
   function poseAt(t) { let best = null, bd = 1e9; for (const p of poses) { const d = Math.abs(((t - p.t) % 16777216 + 16777216 + 8388608) % 16777216 - 8388608); if (d < bd) { bd = d; best = p; } } return best; }
+  // #506 who this is, for the Quest's pairing (kept on this device)
+  const vid = (() => { try { let v = localStorage.getItem('vire.vjId'); if (!v) { const a = new Uint32Array(2); crypto.getRandomValues(a); v = (a[0].toString(36) + a[1].toString(36)).slice(0, 10); localStorage.setItem('vire.vjId', v); } return v; } catch { return 'nostore'; } })();
   function onLink(open) {
     if (!open) { S.linkLost = performance.now(); qTrack = aTrack = null; }
-    else S.linkLost = 0;
+    else { S.linkLost = 0; const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'sst', hello: 1, vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, run: false }); }   // #506 say hello so the Quest can ask the DJ
   }
+  setInterval(() => { if (S.on) return; const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'sst', hello: 1, vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, run: false }); }, 3000);   // #506 also while the studio is off (heartbeat + pairing)
   // ---- stamp read-back (async, 32 x 1 pixels): how late the Quest's frames are, in its clock
   let stripBusy = false;
   function readStampNow() {
@@ -318,7 +321,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   function status(now, haveQ, note) {
     S.note = note;
     const L = getLink();
-    if (L && L.isOpen) L.send('ctl', { k: 'sst', lr: vj ? 1 : 0, run: !!(S.on && !S.paused && haveQ), fps: S.fps, qfps: S.qfps, hold: S.hold, d: S.D != null ? Math.round(S.D) : null, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps, note,
+    if (L && L.isOpen) L.send('ctl', { k: 'sst', vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, run: !!(S.on && !S.paused && haveQ), fps: S.fps, qfps: S.qfps, hold: S.hold, d: S.D != null ? Math.round(S.D) : null, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps, note,
       clip: led.on && led.video && !led.video.paused ? led.name : '', cam: fixed.on && fixed.camInfo ? { ...fixed.camInfo(), rate: camRate } : null });
     stEl.textContent = `DirroVJ  ${({ show: 'SHOW', dj: 'LIVE DJ!', key: 'LIVE KEY!', cam: 'WEBCAM' })[S.mode]}  ·  backdrop ${S.bd.toUpperCase()}  ·  out ${S.fps} fps  ·  Quest ${S.qfps} fps\n` +
       `camera ${camRate} fps  ·  Quest frames ${S.D != null ? Math.round(S.D) + ' ms' : '-'} late  ·  camera held ${S.hold != null ? S.hold + ' ms' : '-'}  ·  trim ${S.trim} ms  ·  sound ${aTrack && S.snd ? 'on' : 'off'}\n` +

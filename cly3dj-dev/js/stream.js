@@ -23,7 +23,7 @@ const TVK = 'vire.tv';
 // Modes: 'show' (the SHOWTIME! camera pick: GOPRO / FRONT / FADERS; HEADSET CAM goes as it is, opaque), 'dj' (LIVE DJ!) and 'key' (LIVE KEY!):
 // both drawn from the S8's calibrated pose. Studio ON closes the Fire Stick screen (#376) and GO LIVE goes through the S8; OFF = everything as before.
 const STUK = 'vire.studio';
-export const STUDIO_DEF = { on: false, mode: 'show', snd: true, local: true, trim: 0,   // #504 local: DirroVJ draws the SHOW scene itself (RENDER: LAPTOP)
+export const STUDIO_DEF = { on: false, mode: 'show', snd: true, local: false, trim: 0,   // #504 local: DirroVJ draws the SHOW scene itself (RENDER: LAPTOP)
   fps25: true, ev: 1, gain: 1.2 };   // #382 LOW LIGHT: the S8 camera held at 25 fps, exposure compensation (EV), the studio's GAIN
 export const STUDIO_MODES = { show: 'SHOW', dj: 'LIVE DJ!', key: 'LIVE KEY!', cam: 'WEBCAM' };   // #501 WEBCAM: DirroVJ's webcam picture as it is (aimed at the DJ or the crowd), overlays from the Quest on top
 export const STU = { PW: 1920, CW: 1280, SX: 1284, SW: 8, MX: 1296, MW: 624, BITS: 28 };   // packed frame layout (studio.js reads the same)
@@ -184,7 +184,9 @@ export class Streamer {
     this.tvSet = { key: '', on: true, audio: true, ...(lsJ(TVK) || {}) }; this.tvLink = null; this.tvUp = false; this.tvMsg = ''; this.tvPairing = 0; this.tvKbps = 0; this.tvFps = 0;
     if (this.tvSet.key && this.tvSet.on) this._tvOpen();
     this.pk = null; this.pkNew = false; this.pkMsg = ''; this.delay = null; this.grade = new THREE.Vector3(1, 1, 1); this.gradeT = 0;   // #347
-    this.stu = { ...STUDIO_DEF, ...(lsJ(STUK) || {}) }; this.s8 = null; this.stuAtt = false; this.stuTw = false; this.stuMsg = ''; this.stuFrames = 0; this.stuH = 720;   // #380
+    this.stu = { ...STUDIO_DEF, ...(lsJ(STUK) || {}) }; if (!this.stu.q506) { this.stu.local = false; this.stu.q506 = 1; }   // #506 RENDER: QUEST is the default (owner)
+    try { this.vjOk = new Set(JSON.parse(localStorage.getItem('vire.vjOk') || '[]')); } catch { this.vjOk = new Set(); }   // #506 DirroVJs / phones allowed to receive the show
+    this.vjAsk = null; this.vjLost = false; this.s8 = null; this.stuAtt = false; this.stuTw = false; this.stuMsg = ''; this.stuFrames = 0; this.stuH = 720;   // #380
   }
   // ---- #380 S8 STUDIO ----
   get stuLink() { const L = this.env.studio && this.env.studio(); return L && L.open ? L : null; }
@@ -208,6 +210,20 @@ export class Streamer {
     if (k === 'snd' && this.stuAtt) this._stuAttach(true);
     this.layerOk = false; this._stuSync(true); this.env.onChange && this.env.onChange();
   }
+  // ---- #506 override: pairing (the tablet allows a new DirroVJ / phone before it gets picture, sound or the stream key), heartbeat, TAKE BACK
+  get vjAllowed() { const s = this.s8; return !!(s && s.vid && this.vjOk.has(s.vid)); }
+  allowVj(yes) {
+    const id = this.vjAsk; this.vjAsk = null; if (!id) return;
+    if (yes) { this.vjOk.add(id); try { localStorage.setItem('vire.vjOk', JSON.stringify([...this.vjOk].slice(-12))); } catch {} this._stuSync(true); }
+    else this.vjDenied = id;
+    this.env.onChange && this.env.onChange();
+  }
+  forgetVjs() { this.vjOk.clear(); try { localStorage.removeItem('vire.vjOk'); } catch {} if (this.stuAtt) this._stuDetach(); this.env.onChange && this.env.onChange(); }
+  takeBack() {   // DirroVJ off; if it was on Twitch, the Quest goes live itself (DirroVJ stops its own stream when told, or a minute after it lost the link)
+    const wasLive = this.stuTw && (this.live || this.state === 'connecting');
+    this.vjLost = false; this.setStudio('on', false);
+    if (wasLive) setTimeout(() => this.start(), 1500);
+  }
   onStudio(what, m) {   // from the spectator host: 'open' | 'close' | 'sst' (the S8's status, once a second)
     if (what === 'open') { this.stuAtt = false; this._stuSync(true); }
     else if (what === 'close') {
@@ -215,7 +231,8 @@ export class Streamer {
       if (this.stuTw && this.live) this._set('error', 'The S8 link dropped (the S8 keeps Twitch up for a minute: reconnect it)');
       this._stuIdle();
     } else if (what === 'sst') {
-      this.s8 = { ...m, at: performance.now() };
+      this.s8 = { ...m, at: performance.now() }; this.vjLost = false;
+      if (m.vid && !this.vjOk.has(m.vid) && this.vjDenied !== m.vid && this.vjAsk !== m.vid) { this.vjAsk = m.vid; this.vjName = m.vj ? 'DirroVJ' : 'Camera phone'; }   // #506
       if (this.stuTw) {
         const tw = m.tw || 'off';
         if (tw === 'live') { if (this.state !== 'live') { this.t0 = this.t0 || performance.now(); this._set('live', ''); } this.kbps = m.kbps || 0; }
@@ -249,6 +266,7 @@ export class Streamer {
     if (!this.stu.on) return;
     if (!L) { this.stuMsg = 'S8 not linked: open the camera page on the S8 and connect.'; return; }
     if (!L.ok) { this.stuMsg = 'The S8 page is too old for the studio: reload it on the S8.'; return; }
+    if (!this.vjAllowed) { this.stuMsg = this.vjAsk ? 'Allow this ' + (this.vjName || 'device') + ' on the DIRROVJ page first.' : 'Waiting for DirroVJ to say hello (reload its page if this stays).'; if (this.stuAtt) { this.stuAtt = false; if (L.ok) L.set(null, null).catch(() => {}); L.ctl({ k: 'stu', on: false }); } return; }   // #506 nothing goes out before the DJ allows it
     if (!this.stuAtt) this._stuAttach();
     const O = this.showOpt;
     L.ctl({ k: 'stu', on: true, mode: this.stu.mode, bd: O.backdrop === 'visuals' && O.wall && this.source === 'show' ? 'none' : O.backdrop, snd: !!this.stu.snd, local: !!this.stu.local, O: { gear: !!O.gear, robot: !!O.robot, neon: !!O.neon }, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
@@ -907,6 +925,7 @@ export class Streamer {
 
   tick(now = performance.now()) {   // from the frame loop, after the DJ CAM render
     if (this.stu.on && now - (this._stuT || 0) > 1000) { this._stuT = now; this._stuSync(); }   // #380
+    if (this.stu.on && this.vjAllowed && this.s8 && now - this.s8.at > 10000 && !this.vjLost) { this.vjLost = true; this.env.onChange && this.env.onChange(); }   // #506 heartbeat: no status for 10 s
     if (this.source === 'headset' && (this.testing || ((this.live || this.stuShow) && this.fit.gear))) {
       this._headPose(now);
       // no frame callbacks (immersive session, video not composited): take a new picture ~30 times a second, 45 ms old
@@ -1010,6 +1029,7 @@ export class Streamer {
     if (!key) { this._set('error', 'No Twitch stream key: enter it on the start page'); return; }
     if (this.stu.on) {   // #380 the S8 goes live: it gets the key over the link (encrypted, DTLS) and keeps it
       if (!this.stuRun) { this._set('error', this.stuMsg || 'S8 not linked'); return; }
+      if (!this.vjAllowed) { this._set('error', 'Allow DirroVJ on the DIRROVJ page first'); return; }   // #506 the key never goes to a device the DJ hasn't allowed
       this.stuTw = true; this.t0 = 0; this.stuLink.ctl({ k: 'stuLive', on: true, key }); this._set('connecting', 'The S8 is connecting to Twitch…');
       setTimeout(() => { if (this.stuTw && this.state === 'connecting') { this.stuTw = false; this._set('error', 'The S8 did not answer (is its page open?)'); } }, 20000);
       return;

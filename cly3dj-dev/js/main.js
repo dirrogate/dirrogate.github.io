@@ -6625,7 +6625,14 @@ function drawToolsPage() {
     btn(L + w4 + gap, y1, w4, bh, U.snd ? 'SOUND: ON' : 'SOUND: OFF', U.snd, () => S.setStudio('snd', !U.snd), false, fs);
     btn(L + 2 * (w4 + gap), y1, w4, bh, 'BACK: ' + S.showOpt.backdrop.toUpperCase(), S.showOpt.backdrop !== 'none', () => { S.nextBackdrop(); S._stuSync(); }, false, fs);
     btn(L + 3 * (w4 + gap), y1, w4, bh, U.local ? (s8 && !s8.lr ? 'RENDER: QUEST*' : 'RENDER: LAPTOP') : 'RENDER: QUEST', U.local && !!(s8 && s8.lr), () => S.setStudio('local', !U.local), false, fs);   // #504 * = the linked page can't draw SHOW (phone): the Quest renders
-    const y2 = y1 + bh + gap;
+    let y2 = y1 + bh + gap;
+    if (S.vjAsk || (U.on && S.vjLost)) {   // #506 pairing question / heartbeat lost
+      const red = !S.vjAsk; g.font = `700 ${P ? 17 : 15}px system-ui`; g.fillStyle = red ? '#ff6a6a' : '#ffd040'; g.textAlign = 'left';
+      fitText2(g, red ? 'DirroVJ silent for 10 s.' : `${S.vjName || 'A device'} (${S.vjAsk}) wants the show.`, L + 2, y2 + bh * 0.62, R - L - 2 * (w4 + gap) - 6);
+      if (red) btn(R - 2 * w4 - gap, y2, 2 * w4 + gap, bh, 'TAKE BACK', true, () => S.takeBack(), false, fs);
+      else { btn(R - 2 * w4 - gap, y2, w4, bh, 'ALLOW', true, () => S.allowVj(true), false, fs); btn(R - w4, y2, w4, bh, 'DENY', false, () => S.allowVj(false), false, fs); }
+      y2 += bh + gap;
+    } else if (U.on) { btn(R - w4, y2, w4, bh, 'TAKE BACK', false, () => S.takeBack(), false, fs); g.font = '500 13px system-ui'; g.fillStyle = '#8c96a8'; g.textAlign = 'left'; fitText2(g, 'TAKE BACK: DirroVJ off; if it was live, Twitch restarts from the Quest.', L + 2, y2 + bh * 0.62, R - L - w4 - 10); y2 += bh + gap; }
     Object.entries(STUDIO_MODES).forEach(([k, label], i) => btn(L + i * (w4 + gap), y2, w4, bh + (P ? 12 : 0), label, U.mode === k, () => S.setStudio('mode', k), false, P ? 22 : 17));
     const y3 = y2 + bh + (P ? 12 : 0) + gap;
     const fs5 = P ? 15 : 14;
