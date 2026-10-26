@@ -79,7 +79,7 @@ export function startCamera(ctx) {
   </style>`);
   document.body.insertAdjacentHTML('beforeend', `
     <div id="spS"><div class="box">
-      <h1>Cly<span>3DJ</span> camera</h1>
+      <h1>Dirro<span>DJ</span> camera</h1>
       <p>Films the DJ with the virtual gear. On the Quest: Settings, Phone / DirroVJ link On, then read the code shown there.</p>
       <input id="spCode" inputmode="numeric" maxlength="5" placeholder="00000">
       <button id="spConnect">Connect</button><div id="spSt"></div><button id="spAR" disabled>Start camera (AR)</button><button id="spFix" disabled>Fixed camera: tripod, no AR</button>
@@ -123,7 +123,7 @@ export function startCamera(ctx) {
   if (VJ) {   // #500 DirroVJ start page: no AR; the webcam (fixed camera) is optional, only for LIVE DJ! / LIVE KEY!
     document.title = 'DirroVJ';
     $('#spS h1').innerHTML = 'Dirro<span>VJ</span>';
-    $('#spS p').textContent = 'The VJ desk for the cabin laptop. It shows the Quest\'s SHOW shots or this laptop\'s webcam, with the Quest\'s overlays and master sound, on the club screen (HDMI) and on Twitch. On the Quest: Settings > Phone / DirroVJ link On and read the code there. Then on the tablet: TOOLS > STREAM > DIRROVJ, turn it on.';
+    $('#spS p').textContent = 'The VJ desk for the cabin laptop. It shows the Quest\'s SHOW shots or this laptop\'s webcam, with the Quest\'s overlays and master sound, on the club screen (HDMI) and on Twitch. On the Quest: Settings > Phone / DirroVJ link On and read the code there. Then on the tablet: DIRROVJ (main menu), turn it on.';
     $('#spAR').hidden = true;
     $('#spConnect').insertAdjacentHTML('afterend', '<button id="spDesk">Open the VJ desk (control window)</button>'); $('#spDesk').onclick = () => window.open('./vjdesk.html', 'dirrovj-desk', 'width=1180,height=780');   // #507
     $('#spFix').textContent = 'Start webcam (optional: the WEBCAM source, aim it at the DJ or the crowd)';   // #501

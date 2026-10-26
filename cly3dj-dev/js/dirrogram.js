@@ -24,7 +24,7 @@ const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 // ---------------------------------------------------------------- settings (per phone)
 const KEY = 'dirro.set';
 const DEF = { exp: 0, night: 1, dist: 6, robotX: -2.3, robotZ: 0, lift: 0, fov: 64, bpm: 124,
-  scroll: 'WELCOME TO THE DIRROGRAM  ✦  CLY3DJ LIVE ON VINYL  ✦  TWITCH.TV/DIRROGATE  ✦  FILM IT, SHARE IT  ✦', np: 'Cly3DJ · live vinyl set' };
+  scroll: 'WELCOME TO THE DIRROGRAM  ✦  DIRRODJ LIVE ON VINYL  ✦  TWITCH.TV/DIRROGATE  ✦  FILM IT, SHARE IT  ✦', np: 'DirroDJ · live vinyl set' };
 const S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
 const DEV = Q.get('dev') === '1';   // #451 ?dev=1 brings the SCROLLER / NOW SPINNING test fields back

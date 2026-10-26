@@ -80,7 +80,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     const t0 = performance.now();
     // #382 LOW LIGHT 25 (owner, dark clubs): a phone camera in a dim room slows itself to ~15 fps to gather light (the S8 / M33 / laptop
     // tests all showed 10-17). Asking for at least 24 fps holds it at 25; the picture gets darker, which EV + (exposure compensation, the
-    // camera's own gain) and the studio's GAIN make up for.
+    // camera's own gain) and DirroVJ's GAIN make up for.
     const fr = lowLight.fps25 ? { ideal: 25, min: 24 } : { ideal: 30 };
     const want = (exact, f) => ({ audio: false, video: { facingMode: exact ? { exact: facing } : facing, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: f } });
     const byDev = f => ({ audio: false, video: { deviceId: { exact: S.dev }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: f } });

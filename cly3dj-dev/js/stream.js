@@ -228,7 +228,7 @@ export class Streamer {
     if (what === 'open') { this.stuAtt = false; this._stuSync(true); }
     else if (what === 'close') {
       this.stuAtt = false; this.s8 = null;
-      if (this.stuTw && this.live) this._set('error', 'The S8 link dropped (the S8 keeps Twitch up for a minute: reconnect it)');
+      if (this.stuTw && this.live) this._set('error', 'The DirroVJ link dropped (DirroVJ keeps Twitch up for a minute: reconnect it)');
       this._stuIdle();
     } else if (what === 'sst') {
       this.s8 = { ...m, at: performance.now() }; this.vjLost = false;
@@ -236,8 +236,8 @@ export class Streamer {
       if (this.stuTw) {
         const tw = m.tw || 'off';
         if (tw === 'live') { if (this.state !== 'live') { this.t0 = this.t0 || performance.now(); this._set('live', ''); } this.kbps = m.kbps || 0; }
-        else if (tw === 'connecting') { if (this.state !== 'connecting') this._set('connecting', m.twMsg || 'The S8 is connecting to Twitch…'); }
-        else if (tw === 'error') { this.stuTw = false; this.t0 = 0; this._set('error', 'S8: ' + (m.twMsg || 'Twitch failed')); }
+        else if (tw === 'connecting') { if (this.state !== 'connecting') this._set('connecting', m.twMsg || 'DirroVJ is connecting to Twitch…'); }
+        else if (tw === 'error') { this.stuTw = false; this.t0 = 0; this._set('error', 'DirroVJ: ' + (m.twMsg || 'Twitch failed')); }
         else if (tw === 'off' && this.live) { this.stuTw = false; this.t0 = 0; this._set('off', ''); }
       }
     }
@@ -258,14 +258,14 @@ export class Streamer {
       let a = null;
       if (this.stu.snd) { const e = this.env.engine; if (e) { if (!e.ctx) await e.init({ latencyHint: 'interactive' }); await e.resume(); a = e.streamTrack(); } }
       if (await L.set(v, a, 4500)) { this.stuAtt = true; this.stuTrack = v; this.stuMsg = ''; }
-    } catch (e) { this.stuMsg = 'Studio: ' + e.message; }
+    } catch (e) { this.stuMsg = 'DirroVJ: ' + e.message; }
     finally { this._stuBusy = false; }
   }
   _stuSync(now) {   // keep the S8 told (mode, backdrop, sound, trim) and the tracks attached
     const L = this.stuLink;
     if (!this.stu.on) return;
-    if (!L) { this.stuMsg = 'S8 not linked: open the camera page on the S8 and connect.'; return; }
-    if (!L.ok) { this.stuMsg = 'The S8 page is too old for the studio: reload it on the S8.'; return; }
+    if (!L) { this.stuMsg = 'DirroVJ not linked: open dirrovj.html on the laptop (or the camera page on a phone) and connect.'; return; }
+    if (!L.ok) { this.stuMsg = 'The DirroVJ page is too old: reload it.'; return; }
     if (!this.vjAllowed) { this.stuMsg = this.vjAsk ? 'Allow this ' + (this.vjName || 'device') + ' on the DIRROVJ page first.' : 'Waiting for DirroVJ to say hello (reload its page if this stays).'; if (this.stuAtt) { this.stuAtt = false; if (L.ok) L.set(null, null).catch(() => {}); L.ctl({ k: 'stu', on: false }); } return; }   // #506 nothing goes out before the DJ allows it
     if (!this.stuAtt) this._stuAttach();
     { const list = (this.env.smsList && this.env.smsList()) || [], sent = this._smsSent || (this._smsSent = new Set()), items = list.filter(m => !sent.has(m.id)).slice(0, 10).map(m => [m.id, m.t]);   // #507 HoloSMS to the scroller desk
@@ -314,7 +314,7 @@ export class Streamer {
       if (H !== this.stuH) { this.stuH = H; this._sizeCanvas(STU.PW, H); }
       this._stuPack(null, performance.now()); return;
     }
-    if (!c6 || !c6.ff || !rig) { this.stuMsg = !c6 ? 'S8 not calibrated: Fixed camera on the S8, then Calibrate.' : 'The S8 is in AR mode: use Fixed camera.'; this._stuPack(null, performance.now()); return; }
+    if (!c6 || !c6.ff || !rig) { this.stuMsg = !c6 ? 'DirroVJ camera not calibrated: start the camera on the DirroVJ page, then Calibrate.' : 'The camera phone is in AR mode: use Fixed camera.'; this._stuPack(null, performance.now()); return; }
     this.stuMsg = '';
     const asp = c6.vw && c6.vh ? c6.vw / c6.vh : 16 / 9, W = STU.CW, H = Math.round(W / asp / 2) * 2;
     if (H !== this.stuH) { this.stuH = H; this._sizeCanvas(STU.PW, H); }
@@ -493,8 +493,8 @@ export class Streamer {
     const gr = g.createRadialGradient(640, 300, 40, 640, 360, 780); gr.addColorStop(0, '#1b2233'); gr.addColorStop(1, '#05070c');
     g.fillStyle = gr; g.fillRect(0, 0, W, H);
     g.textBaseline = 'middle'; g.font = '800 150px system-ui,sans-serif';
-    g.textAlign = 'right'; g.fillStyle = '#ffffff'; g.fillText('Cly', 640, 250);
-    g.textAlign = 'left'; g.fillStyle = '#e0202a'; g.fillText('3DJ', 640, 250);
+    g.textAlign = 'right'; g.fillStyle = '#ffffff'; g.fillText('Dirro', 640, 250);
+    g.textAlign = 'left'; g.fillStyle = '#e0202a'; g.fillText('DJ', 640, 250);
     const blink = Math.floor(now / 700) % 2 === 0;
     g.fillStyle = blink ? '#e0202a' : '#5a1014'; g.beginPath(); g.arc(560, 400, 18, 0, Math.PI * 2); g.fill();
     g.fillStyle = '#ffffff'; g.font = '700 54px system-ui,sans-serif'; g.fillText('LIVE  ON VINYL', 595, 402);
@@ -920,8 +920,8 @@ export class Streamer {
     }
     if (O.logo) {
       g.font = '800 40px system-ui,sans-serif'; g.textBaseline = 'middle'; g.textAlign = 'right';
-      const x = W - 28, y = 48, w3 = g.measureText('3DJ').width;
-      g.fillStyle = '#e0202a'; g.fillText('3DJ', x, y); g.fillStyle = '#ffffff'; g.fillText('Cly', x - w3, y);
+      const x = W - 28, y = 48, w3 = g.measureText('DJ').width;
+      g.fillStyle = '#e0202a'; g.fillText('DJ', x, y); g.fillStyle = '#ffffff'; g.fillText('Dirro', x - w3, y);
     }
     g.textBaseline = 'alphabetic';
   }
@@ -1031,10 +1031,10 @@ export class Streamer {
     const key = streamKey.get();
     if (!key) { this._set('error', 'No Twitch stream key: enter it on the start page'); return; }
     if (this.stu.on) {   // #380 the S8 goes live: it gets the key over the link (encrypted, DTLS) and keeps it
-      if (!this.stuRun) { this._set('error', this.stuMsg || 'S8 not linked'); return; }
+      if (!this.stuRun) { this._set('error', this.stuMsg || 'DirroVJ not linked'); return; }
       if (!this.vjAllowed) { this._set('error', 'Allow DirroVJ on the DIRROVJ page first'); return; }   // #506 the key never goes to a device the DJ hasn't allowed
-      this.stuTw = true; this.t0 = 0; this.stuLink.ctl({ k: 'stuLive', on: true, key }); this._set('connecting', 'The S8 is connecting to Twitch…');
-      setTimeout(() => { if (this.stuTw && this.state === 'connecting') { this.stuTw = false; this._set('error', 'The S8 did not answer (is its page open?)'); } }, 20000);
+      this.stuTw = true; this.t0 = 0; this.stuLink.ctl({ k: 'stuLive', on: true, key }); this._set('connecting', 'DirroVJ is connecting to Twitch…');
+      setTimeout(() => { if (this.stuTw && this.state === 'connecting') { this.stuTw = false; this._set('error', 'DirroVJ did not answer (is its page open?)'); } }, 20000);
       return;
     }
     this._set('connecting', 'Connecting to Twitch…');

@@ -10,8 +10,8 @@ const RATE = 30;                     // state packets per second (the phone inte
 const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _f = new THREE.Vector3();
 const r3 = v => Math.round(v * 1000) / 1000, r4 = v => Math.round(v * 10000) / 10000;
 const CAL_TEXT = {
-  lens: ['Spectator calibration 1/2', 'Touch the phone\'s BACK CAMERA LENS', 'with the controller tip (blue ball),', 'then pull the trigger.'],
-  x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
+  lens: ['Camera phone calibration 1/2', 'Touch the phone\'s BACK CAMERA LENS', 'with the controller tip (blue ball),', 'then pull the trigger.'],
+  x: ['Camera phone calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
 export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, getSleeves, onVj, artBlobs, getLed, getScroll, onLive, getVV, getSpiders, getAv, getLook, getHandFit, getSky, onMedia, onCam, onPreview, perf, coverFor, onScreen, onStudio }) {   // #380 onStudio(what, msg): the S8 studio's link / status   // #358 onScreen: the phone shares / stops sharing its screen
@@ -280,7 +280,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     const have = new Set();
     for (let i = 0; i < keys.length; i += 500) {
       const part = keys.slice(i, i + 500);
-      const got = await new Promise((res, rej) => { haveWait = res; link.send('ctl', { k: 'covhave?', keys: part }); setTimeout(() => { if (haveWait === res) { haveWait = null; rej(new Error('the phone did not answer (reload Cly3DJ on the phone)')); } }, 15000); });
+      const got = await new Promise((res, rej) => { haveWait = res; link.send('ctl', { k: 'covhave?', keys: part }); setTimeout(() => { if (haveWait === res) { haveWait = null; rej(new Error('the phone did not answer (reload DirroDJ on the phone)')); } }, 15000); });
       for (const k of got) have.add(k);
     }
     const st = { i: 0, n: keys.length, sent: 0 };
@@ -372,7 +372,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   // both lists: [{ f, n, size, q: on the Quest, p: on the phone, get? }] sorted by folder then name
   async function syncList(getExtras) {
     if (!link.isOpen) throw new Error('phone not connected');
-    const phoneItems = await new Promise((res, rej) => { listWait = res; link.send('ctl', { k: 'mls?' }); setTimeout(() => { if (listWait === res) { listWait = null; rej(new Error('the phone did not send its list (reload Cly3DJ on the phone)')); } }, 10000); });
+    const phoneItems = await new Promise((res, rej) => { listWait = res; link.send('ctl', { k: 'mls?' }); setTimeout(() => { if (listWait === res) { listWait = null; rej(new Error('the phone did not send its list (reload DirroDJ on the phone)')); } }, 10000); });
     const all = new Map();
     for (const [f, n, size] of await mediaList()) all.set(f + '/' + n, { f, n, size, q: true, p: false });
     for (const e of (getExtras ? await getExtras() : [])) { const k = e.f + '/' + e.n; if (!all.has(k)) all.set(k, { ...e, q: true, p: false }); }
@@ -384,7 +384,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   async function syncCopy(items, onStep) {
     if (sync.on) return sync;
     if (!link.isOpen) throw new Error('phone not connected');
-    if (!link.fileOpen) throw new Error('reload Cly3DJ on the phone, then Connect again');
+    if (!link.fileOpen) throw new Error('reload DirroDJ on the phone, then Connect again');
     const list = items.filter(it => it.q !== it.p);
     Object.assign(sync, { on: true, i: 0, n: list.length, name: '', dir: '', pct: 0, done: 0, skipped: 0, err: '' }); onStep && onStep(sync);
     const tick = setInterval(() => { if (sync.dir === 'in' && rx) sync.pct = Math.round(rx.got / rx.size * 100); onStep && onStep(sync); }, 500);
