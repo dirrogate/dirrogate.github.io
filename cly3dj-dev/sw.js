@@ -10,7 +10,7 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v41';   // #512 Dirrogram clips: 45 s, real WebM duration, dirrogram-<date>
+const CACHE = 'vire-app-v42';   // #513 DIRROTV page shows the real venue.html address
 const NET_WAIT = 2500, OFFLINE_HOLD = 30000;
 const APP = [
   'index.html', 'spectator.html', 'dirrovj.html', 'vjdesk.html', 'venue.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png',

@@ -5847,6 +5847,8 @@ const PINCH_FIT_DEF = {
   lh: { label: 'HAND LIFT', lo: -20, hi: 60, v: 10, unit: 'mm' }, lg: { label: 'GLOVE LIFT', lo: -20, hi: 60, v: 15, unit: 'mm' },
   pa: { label: 'PINCH TILT', lo: -60, hi: 60, v: 0, unit: '°' }, pt: { label: 'PINCH TURN', lo: -90, hi: 90, v: 0, unit: '°' },
 };
+// #513 the TV's address, from where this page runs (cabin.dirrodj.club/ = the cly3dj-dev folder on Cloudflare; github.io/cly3dj/ ...); no 'https://'
+const venueUrl = () => new URL('venue.html', location.href).href.replace(/[?#].*$/, '').replace(/^https?:\/\//, '');
 const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'LED WALL', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
@@ -6849,7 +6851,7 @@ function drawToolsPage() {
     if (!P && (st === 'unpaired' || st === 'pairing')) {   // #378 landscape is 768 x 304: the keypad goes to the right, so PAIR is not pushed off the bottom
       const wl = 330, kx = L + wl + 16, kwid = R - kx, ready = tvDigits.length === 6 && st !== 'pairing';
       g.fillStyle = '#dfe6f2'; g.font = '500 14px system-ui';
-      const n2 = wrapText(g, 'On the TV open dirrodj.club/tv (DirroTV). It shows a 6-digit code: type it on the keypad.', L + 2, yb + 14, wl - 4, 18, 2), yk = yb + n2 * 18 + 10, bwd = (wl - 30) / 6;
+      const n2 = wrapText(g, 'On the TV open ' + venueUrl() + ' (DirroTV). It shows a 6-digit code: type it on the keypad.', L + 2, yb + 14, wl - 4, 18, 2), yk = yb + n2 * 18 + 10, bwd = (wl - 30) / 6;
       for (let i = 0; i < 6; i++) {
         const x = L + i * (bwd + 6); g.fillStyle = '#10151f'; g.fillRect(x, yk, bwd, 38); g.strokeStyle = tvDigits[i] ? '#39a8ff' : '#2a3142'; g.lineWidth = 2; g.strokeRect(x + 1, yk + 1, bwd - 2, 36);
         if (tvDigits[i]) { g.fillStyle = '#ffffff'; g.font = '700 24px system-ui'; g.textAlign = 'center'; g.fillText(tvDigits[i], x + bwd / 2, yk + 27); }
@@ -6864,7 +6866,7 @@ function drawToolsPage() {
     }
     if (st === 'unpaired' || st === 'pairing') {
       g.fillStyle = '#dfe6f2'; g.font = '500 14px system-ui';
-      const n2 = wrapText(g, 'On the TV open dirrodj.club/tv (DirroTV). It shows a 6-digit code: type it here.', L + 2, yb + 14, R - L - 4, 18, 2), yk = yb + n2 * 18 + 12;
+      const n2 = wrapText(g, 'On the TV open ' + venueUrl() + ' (DirroTV). It shows a 6-digit code: type it here.', L + 2, yb + 14, R - L - 4, 18, 2), yk = yb + n2 * 18 + 12;
       const bwd = Math.min(54, (R - L - 30) / 6), bx = L + ((R - L) - (6 * bwd + 30)) / 2;
       for (let i = 0; i < 6; i++) {
         const x = bx + i * (bwd + 6); g.fillStyle = '#10151f'; g.fillRect(x, yk, bwd, 44); g.strokeStyle = tvDigits[i] ? '#39a8ff' : '#2a3142'; g.lineWidth = 2; g.strokeRect(x + 1, yk + 1, bwd - 2, 42);
