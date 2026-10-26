@@ -3794,7 +3794,7 @@ function effBpm(d) { return trackBpm(d) * d.speed * (1 + d.pitch); }
 function doSync() {
   const [a, b] = decks;
   const ba = trackBpm(a), bb = trackBpm(b);
-  if (!ba || !bb) { flashSync('red'); toast(`LOCK needs a BPM on both decks (no BPM on deck ${!ba && !bb ? 'A or B' : !ba ? 'A' : 'B'}: tap BEAT 1 on the beat)`, 2600); return; }
+  if (!ba || !bb) { flashSync('red'); toast(`LOCK needs a BPM on both decks (no BPM on deck ${!ba && !bb ? 'A or B' : !ba ? 'A' : 'B'}: the MP3 has no BPM tag and Rekordbox has none)`, 2600); return; }
   const target = (effBpm(a) + effBpm(b)) / 2;
   const pa = target / (ba * a.speed) - 1, pb = target / (bb * b.speed) - 1;
   if (Math.abs(pa) > a.range + 1e-6 || Math.abs(pb) > b.range + 1e-6) {
@@ -3819,7 +3819,7 @@ function stepSync(dt) {
     if (a0 != null && a1 != null) {
       engine.post({ type: 'phase', lead: lastTouched, beat1: [a0, a1], bpm: [trackBpm(decks[0]), trackBpm(decks[1])], maxE: LOCK_NUDGE_MAX });
       toast(`LOCK ${target.toFixed(2)} BPM · aligning deck ${DECK_NAMES[1 - lastTouched]} to ${DECK_NAMES[lastTouched]}`, 1800);
-    } else toast(`LOCK ${target.toFixed(2)} BPM · tempo only (tap BEAT 1 on ${a0 == null && a1 == null ? 'both decks' : 'deck ' + DECK_NAMES[a0 == null ? 0 : 1]} to align beats)`, 3000);
+    } else toast(`LOCK ${target.toFixed(2)} BPM · tempo only, match the beats by ear`, 2200);
   }
 }
 function flashSync(color) { syncFlash = { t: 0.9, color }; }
