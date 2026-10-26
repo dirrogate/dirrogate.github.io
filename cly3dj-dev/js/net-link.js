@@ -261,7 +261,10 @@ class Pipe {
     await this.stv.sender.replaceTrack(v || null);
     if (this.sta) await this.sta.sender.replaceTrack(a || null);
     const set = async (s, o) => { try { const p = s.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}]; Object.assign(p.encodings[0], o); await s.setParameters(p); } catch (e) { console.warn('studio params', e); } };
-    if (v) await set(this.stv.sender, { maxBitrate: kbps * 1000, maxFramerate: 30, priority: 'medium', networkPriority: 'medium' });   // below 'state' / 'ctl' (high), so the gear data still goes first
+    if (v) await set(this.stv.sender, { maxBitrate: kbps * 1000, maxFramerate: 30, priority: 'medium', networkPriority: 'medium' });
+    // #502 the packed frame (colour | stamp strip | matte) must keep its size: a downscaled pack (seen on the PC: 1920 x 720 sent, 1280 x 480 arrived) blurs
+    // the stamp and the matte, and the receiver took it for an opaque picture. Drop frames instead.
+    if (v) try { const p = this.stv.sender.getParameters(); p.degradationPreference = 'maintain-resolution'; await this.stv.sender.setParameters(p); } catch (e) { console.warn('studio degradation', e); }   // below 'state' / 'ctl' (high), so the gear data still goes first
     if (a && this.sta) await set(this.sta.sender, { maxBitrate: 192000, priority: 'high', networkPriority: 'high' });
     return true;
   }

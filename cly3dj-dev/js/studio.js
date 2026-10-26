@@ -126,8 +126,8 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     #stuO [hidden] { display:none !important; }
   </style>`);
   document.body.insertAdjacentHTML('beforeend', `<div id="stuO"><div class="st" id="stuSt" hidden></div>
-    <div class="go" id="stuGo"><div style="font:800 30px system-ui">Cly<span style="color:#e0202a">3DJ</span> S8 STUDIO</div>
-      <div style="max-width:80vw;color:#b7c0d0">The Quest turned the studio on. Tap to start: full screen, sound to the TV, screen kept awake.</div><button id="stuStart">START STUDIO</button></div>
+    <div class="go" id="stuGo"><div style="font:800 30px system-ui">Dirro<span style="color:#e0202a">VJ</span></div>
+      <div style="max-width:80vw;color:#b7c0d0">The Quest turned DirroVJ on. Tap to start: full screen, sound to the TV, screen kept awake.</div><button id="stuStart">START DIRROVJ</button></div>
     <div class="bar" id="stuBar" hidden><button class="q" id="stuBack">Camera view (pause studio here)</button><button class="q" id="stuHide">Hide</button></div></div>
     <button id="stuRes" hidden style="position:fixed;right:10px;top:10px;z-index:50;font:700 15px system-ui,sans-serif;color:#fff;background:#b0141e;border:1px solid #e0202a;border-radius:10px;padding:10px 14px">▶ BACK TO STUDIO</button>`);
   const $ = id => document.getElementById(id), ov = $('stuO'), stEl = $('stuSt'), goEl = $('stuGo'), barEl = $('stuBar');
@@ -221,7 +221,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       if (qBlind) { qNew = true; qLast = now; }
     }
     if ((qPoll || qBlind) && qNew) qTex.needsUpdate = true;
-    const packed = qv.videoWidth === STU.PW, haveQ = qv.readyState >= 2 && qv.videoWidth > 0 && now - qLast < 1500;
+    const packed = qv.videoWidth === STU.PW || (qv.videoHeight > 0 && qv.videoWidth / qv.videoHeight > 2.2) /* #502 a pack that arrived scaled down is still a pack (colour | strip | matte, ~2.67:1) */, haveQ = qv.readyState >= 2 && qv.videoWidth > 0 && now - qLast < 1500;
     const prevRT = renderer.getRenderTarget(), prevXR = renderer.xr.enabled, ac = renderer.autoClear;
     renderer.xr.enabled = false; renderer.autoClear = true;
     try {
@@ -238,7 +238,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       if (needCam) {
         const target = questNow() - (S.D != null ? S.D : 150) - S.trim; let bi = -1, bd = 1e9;
         for (let i = 0; i < RING; i++) { if (ringT[i] < -1e8 || !ring[i]) continue; const d = Math.abs(ringT[i] - target); if (d < bd) { bd = d; bi = i; } }
-        if (bi >= 0) { U.cam.value = ring[bi].texture; U.camMode.value = S.mode === 'key' ? 2 : 1;   // #501 WEBCAM = the picture as it is, like LIVE DJ! S.hold = Math.round(questNow() - ringT[bi]); S.holdShort = ringT[bi] > target + 40 ? 0 : bd > 40 ? 1 : 0; }
+        if (bi >= 0) { U.cam.value = ring[bi].texture; U.camMode.value = S.mode === 'key' ? 2 : 1; /* #501 WEBCAM = the picture as it is, like LIVE DJ! */ S.hold = Math.round(questNow() - ringT[bi]); S.holdShort = ringT[bi] > target + 40 ? 0 : bd > 40 ? 1 : 0; }
         const K = vs.K; U.thr.value = K.thr; U.soft.value = K.soft; U.spill.value = K.spill; U.cmatch.value = S.bd === 'dome' ? (K.cmatch || 0) : 0; U.keyCol.value = K.col || 0;
         U.crop.value.set(K.gl || 0, K.gr || 0, K.gt || 0, K.gb || 0);
         if (vs.mat && vs.mat.uniforms.panoTint) U.tint.value.copy(vs.mat.uniforms.panoTint.value);
