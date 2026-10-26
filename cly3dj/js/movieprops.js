@@ -956,7 +956,7 @@ export class MovieProps {
     this.selected = gr; this.save(); return gr;
   }
   setGuides(on) { this.guides = !!on; try { localStorage.setItem(KEY + '.guides', on ? '1' : '0'); } catch {} }
-  tick(dt) { this.tickFocus(dt); for (const p of this.items) if (p.edge) p.edge.visible = this.guides; for (const p of this.items) p.tick(dt); if (this.saveT > 0 && (this.saveT -= dt) <= 0) this.saveNow(); }
+  tick(dt) { this.tickFocus(dt); for (const p of this.items) { if (p.edge) p.edge.visible = this.guides; if (p.handles) p.handles.visible = this.guides; } for (const p of this.items) p.tick(dt); if (this.saveT > 0 && (this.saveT -= dt) <= 0) this.saveNow(); }
   save() { this.saveT = 0.6; }
   saveNow() { try { localStorage.setItem(KEY, JSON.stringify(this.items.filter(p => !p.dead).map(p => p.snap()))); } catch {} }
   load() {

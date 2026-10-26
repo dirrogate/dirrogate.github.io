@@ -6176,7 +6176,7 @@ function drawPropsPage(T) {
   if (!n) { g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; wrapText(g, 'Tap a + button to put a prop in front of you.', L + 4, top + 16, listW - 8, 19, 3); }
   const clearArm = performance.now() - propsClearT < 3000;
   btn(L, top + rows * RH + 2, listW, RH - 4, clearArm ? 'TAP AGAIN: CLEAR ALL' : 'CLEAR ALL', clearArm, n ? () => { if (performance.now() - propsClearT < 3000) { propsClearT = 0; mp.clear(); } else propsClearT = performance.now(); drawMixScreen(); } : null, !n, P ? 15 : 13);
-  btn(L, top + (rows + 2) * RH + 2, listW, RH - 4, mp.guides ? 'GUIDE BOXES: ON' : 'GUIDE BOXES: OFF', mp.guides, () => { mp.setGuides(!mp.guides); drawMixScreen(); }, false, P ? 15 : 13);   // #486 the blue boxes only help while placing; off for filming
+  btn(L, top + (rows + 2) * RH + 2, listW, RH - 4, mp.guides ? 'GUIDES (boxes + ring / cube handles): ON' : 'GUIDES (boxes + ring / cube handles): OFF', mp.guides, () => { mp.setGuides(!mp.guides); drawMixScreen(); }, false, P ? 15 : 13);   // #486 the blue boxes only help while placing; off for filming
   btn(L, top + (rows + 1) * RH + 2, listW, RH - 4, mp.placer.on ? 'LASER (B): ON' : 'PLACE LASER (B)', mp.placer.on, () => { mp.placer.toggle(); drawMixScreen(); }, false, P ? 15 : 13);   // #479
   if (!sel) return;
   // ---- the selected prop's controls
