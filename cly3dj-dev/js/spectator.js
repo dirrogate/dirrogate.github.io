@@ -16,7 +16,7 @@ const COL = { deckA: 0x39a8ff, deckB: 0x39a8ff, mixer: 0xffc040, crate: 0x40d080
 let link = null, stats = { rtt: 0, off: null, pkts: 0, pps: 0, age: 0, last: 0, xr: 0 }, linkState = '';
 try { $('#code').value = localStorage.getItem('vire.spectJoin') || ''; } catch {}
 const st = t => { $('#st').textContent = t; };
-const STATUS = { relay: 'Relay reached, calling the Quest…', 'relay-retry': 'No internet for the handshake, retrying…', 'quest-offline': 'Quest not found: is its Spectator camera On, same code?',
+const STATUS = { relay: 'Relay reached, calling the Quest…', 'relay-retry': 'No internet for the handshake, retrying…', 'quest-offline': 'Quest not found: is its Phone / DirroVJ link On, same code?',
   connecting: 'Connecting to the Quest…', connected: 'Connected to the Quest', disconnected: 'Link lost', failed: 'Link failed (are both on the same Wi-Fi?)' };
 $('#bConnect').onclick = () => {
   const code = $('#code').value.trim();

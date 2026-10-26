@@ -51,12 +51,12 @@ const VBR = { card: 600, avacam: 2500, show: 3500, headset: 3000, phone: 2000, p
 // gear from the AVACAM camera (BOOTH angle) drawn on a see-through background, and flat overlays (scroller, now
 // playing, logo). VIDEOWALL = the visuals and overlays only (no 3D render). Toggles saved as 'vire.showOpts'.
 // #372 backdrop: 'none' | 'visuals' | 'dome' (one at a time); object toggles wall (3D LED wall), gopro (the prop), panel (chat panel), chalk (chalkboard), neon
-export const SHOW_DEF = { backdrop: 'visuals', robot: true, gear: true, wall: false, gopro: true, panel: true, chalk: true, neon: true, scroll: true, np: true, logo: true, chat: false, handsReal: false };   // #375 handsReal: HEADSET CAM / PHONE CAM leave your hands bare (no drawn hands, glove or sleeves)
+export const SHOW_DEF = { backdrop: 'visuals', robot: true, gear: true, wall: false, gopro: true, panel: true, chalk: true, neon: false, scroll: true, np: true, logo: true, chat: false, handsReal: false };   // #375 handsReal: HEADSET CAM / PHONE CAM leave your hands bare (no drawn hands, glove or sleeves)
 export const BACKDROPS = ['none', 'visuals', 'dome'];
 export const SHOW_PRESETS = {   // #372 FULL = everything on air, LEAN = visuals + robot only (cheap), FIRST PERSON = the DJ's own view (gear, no robot)
-  full: { backdrop: 'visuals', robot: true, gear: true, wall: true, gopro: true, panel: true, chalk: true, neon: true },
+  full: { backdrop: 'visuals', robot: true, gear: true, wall: true, gopro: true, panel: true, chalk: true, neon: false },   // #503 neon off in every preset (owner); its own toggle still turns it on
   lean: { backdrop: 'visuals', robot: true, gear: false, wall: false, gopro: false, panel: false, chalk: false, neon: false },
-  first: { backdrop: 'visuals', robot: false, gear: true, wall: false, gopro: true, panel: true, chalk: true, neon: true },
+  first: { backdrop: 'visuals', robot: false, gear: true, wall: false, gopro: true, panel: true, chalk: true, neon: false },
 };
 // #372 migration of saved 'vire.showOpts': the old 'visuals' on / off becomes the backdrop; settings saved before the object
 // toggles existed keep what they did (wall, off; neon, GoPro, panel and chalkboard followed GEAR / ROBOT: with both off,
@@ -65,6 +65,7 @@ export function migrateShowOpts(s) {
   s = { ...(s || {}) };
   if ('visuals' in s) { if (!('backdrop' in s)) s.backdrop = s.visuals ? 'visuals' : 'none'; delete s.visuals; }
   if (!('wall' in s) && s.gear === false && s.robot === false) Object.assign(s, { wall: false, gopro: false, panel: false, chalk: false, neon: false });
+  if (!s.neon503) { s.neon = false; s.neon503 = 1; }   // #503 the neon logo starts off once (it stood in front of the hands); its toggle still works
   return s;
 }   // #340 CHAT: Twitch chat on the right   // #338 VISUALS: the background on / off   // video kbit/s caps per source
 const ABR = 160;   // Opus stereo kbit/s

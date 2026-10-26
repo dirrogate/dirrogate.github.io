@@ -63,6 +63,7 @@ if (params.get('xml')) { settings.source = 'pc'; settings.xml = params.get('xml'
 if (settings.env === 'camera') settings.env = 'studio'; // camera snapshots removed (CLAUDE.md #39)
 // #114: Recording-friendly mode removed (always 90 Hz, 'interactive' audio); the owner records with the Quest
 // recorder's mic off, so the voice goes through the mixer; wired headphones, so no echo cancelling by default
+if (!settings.mig503) { settings.pieces = { ...(settings.pieces || {}), neon: false }; settings.mig503 = 1; saveSettings(); }   // #503 neon logo off by default (owner); NEON on the pieces list brings it back
 if (!settings.mig114) { delete settings.perf; settings.micRoute = 'app'; settings.micEcho = false; settings.mig114 = 1; saveSettings(); }
 let dirro = null, dirroRoomT = 0, smsPg = 0;
 const dirroMark = { want: '', t0: 0, prev: {} };   // #438 MARK LEFT / RIGHT: the next trigger press records the controller tip   // #435 smsPg: HOLOSMS page   // #427 DirroHost, set up at the end of start-up
@@ -1281,7 +1282,7 @@ let toastTimer;
 const perf = makePerfCap({ toast: (m, ms) => toast(m, ms) });
 setInterval(() => { if (perf.on && toolsPage === 'perfcap') drawMixScreen(); }, 1000);
 async function perfToggle() {
-  if (!spect) { toast('PerfCap needs Settings > Spectator camera On (it records what the phone would mirror)', 4000); return; }
+  if (!spect) { toast('PerfCap needs Settings > Phone / DirroVJ link On (it records what the phone would mirror)', 4000); return; }
   if (perf.on) await perf.stop(); else { await perf.start(); spect.perfBegin && spect.perfBegin(); }
   drawMixScreen();
 }
@@ -1442,13 +1443,13 @@ function behindDj(o, cam) {
 // why PHONE CAM can't start yet ('' = the phone is connected); the finer states (fixed camera, calibrated) are in pcamStatus
 function pcamReady() {
   const cs = spect && spect.cam;
-  return !spect ? 'Spectator camera is off: Settings > Spectator camera On, connect the phone.' : !cs ? 'Phone not connected: open the DirroDJ camera page on it.' : '';
+  return !spect ? 'Phone / DirroVJ link is off: Settings > Phone / DirroVJ link On, connect the phone.' : !cs ? 'Phone not connected: open the DirroDJ camera page on it.' : '';
 }
 function pcamStatus(S) {   // #374 shared by the PHONE CAM page and the SHOWTIME! OBJECTS block
   const C = S.pc_, cs = spect && spect.cam, pc6 = spect && spect.phoneCam, lat = S.delay != null ? Math.round(S.delay) : null;
   const v = livePossible() ? liveVideo : null, packed = v && v.videoWidth && Math.abs(v.videoWidth / v.videoHeight - 1920 / 720) < 0.06;
   return [
-    !spect ? 'Spectator camera is off: Settings > Spectator camera On, connect the phone.' : !cs ? 'Phone not connected.' : !cs.fixed ? 'Phone is in AR mode: start it in Fixed camera (tripod) mode.' : !pc6 ? 'Phone not calibrated: Calibrate on the phone (or NUDGE > CALIBRATE).' : `Phone fixed camera, calibrated${cs.fpx != null ? ' ' + cs.fpx + ' px' : ''}.`,
+    !spect ? 'Phone / DirroVJ link is off: Settings > Phone / DirroVJ link On, connect the phone.' : !cs ? 'Phone not connected.' : !cs.fixed ? 'Phone is in AR mode: start it in Fixed camera (tripod) mode.' : !pc6 ? 'Phone not calibrated: Calibrate on the phone (or NUDGE > CALIBRATE).' : `Phone fixed camera, calibrated${cs.fpx != null ? ' ' + cs.fpx + ' px' : ''}.`,
     S.source !== 'pcam' ? 'Pick PHONE CAM in SHOWTIME! (STREAM > OBJECTS) to use it.' : v && v.videoWidth ? `Video ${v.videoWidth} x ${v.videoHeight}${packed ? ' (colour + matte)' : ''}${S.pkMsg ? ' · ' + S.pkMsg : ''}` : 'Waiting for the phone video (the preview starts it).',
     lat != null ? `Video ${lat} ms late (measured)${C.lat ? ', gear, hands and stream sound held back ' + Math.round(S.latMs) + ' ms' : ''}.` : `Delay not measured: LATENCY MATCH uses ${C.manual} ms.`,
   ];
@@ -1675,6 +1676,13 @@ function phoneArt(track) {   // camera role: fetchArt from the phone's cover sto
 const crateRemote = {   // handed to spectator-client.js (camera role)
   setAsk(fn) { phoneCovers.ask = fn; },
   spiders(a) { spidersApply(a); },   // #262
+  sleeveMake(m) {   // #503 a sleeve the Quest has out of the crate: the same jacket (cover from the phone's store or the Quest, title / artist on the back)
+    const r = { title: m.title || '', artist: m.artist || '', size: m.size === 7 ? 7 : 12, sides: { A: { id: m.key || 'none', missing: !m.key }, B: null } };
+    const sl = makeSleeve(r);
+    if (m.key) phoneArt(r.sides.A).then(a => { if (a && !sl.gone) drawSleeveArt(sl); });
+    return sl;
+  },
+  sleeveDrop(sl) { disposeSleeve(sl); },
   onCrate(m) {
     const list = new Array(m.n);
     for (const [i, key, title, artist, bpm, missing, size] of m.items) list[i] = { title, artist, bpm, missing: !!missing, size: size === 7 ? 7 : 12, sides: { A: { id: key || 'none', missing: !key }, B: null } };
@@ -4956,7 +4964,7 @@ function drawCamTab(btn, y0) {
   }));
   g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = cs ? '#8c96a8' : '#c9a040';
   const pcTxt = '';   // #387 PerfCap's time and size are on its own page
-  const stTxt = pcTxt + (!cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone and start its camera.'
+  const stTxt = pcTxt + (!cs ? 'Phone not connected: Settings > Phone / DirroVJ link On, then Connect on the phone and start its camera.'
     : cs.fixed ? `Phone ${cs.fps} fps · fixed camera (${cs.fcam === 'user' ? 'selfie' : 'main'}) · ${cs.fcal ? 'calibrating' : cs.cal ? 'calibrated' + (cs.fpx != null ? ' ' + cs.fpx + ' px' : '') : 'not calibrated: Calibrate on the phone'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : '')   // #213
     : `Phone ${cs.fps} fps${cs.late ? ` (${cs.late} late/s)` : ''} · ${cs.ar ? 'camera on' : 'camera not started'} · ${cs.cal ? 'calibrated' : 'not calibrated'}${cs.can ? '' : ' · no camera access'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : ''));
   const extra = cs ? (cs.fixed ? 'Fixed camera: the key settings drive the PHONE CAM green screen (STREAM > PHONE CAM SETUP)' : [cs.auto, cs.look].filter(Boolean).join(' · ')) : '';
@@ -5118,7 +5126,7 @@ function drawLookTab(btn, y0) {
   let y = ry + rows * 42 + (P ? 22 : 14);
   g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = F ? '#8c96a8' : '#c9a040';
   const photo = F ? (F.env ? (F.envOK ? F.env.split('/').pop() : (F.envMsg || 'loading…')) : 'none (PANO tab: pick one, LIGHT PHONE)') : '';
-  const txt = !cs ? 'Phone not connected: Settings > Spectator camera On, then Connect on the phone.'
+  const txt = !cs ? 'Phone not connected: Settings > Phone / DirroVJ link On, then Connect on the phone.'
     : !F ? 'Start Fixed camera on the phone (tripod mode): this page sets its look. AR mode uses the CAMERA tab.'
     : `${F.cam === 'user' ? 'Selfie' : 'Main'} camera (saved for it) · 360 light photo: ${photo}` + (lightBusy ? ` · sending ${lightBusy}` : '') + (cs.flErr ? ' · ' + cs.flErr : '');
   if (P) wrapText(g, txt, 12, y, W - 24, 20, 5); else { wrapText(g, txt, 12, y, W - 24, 20, 2); }
@@ -5130,7 +5138,7 @@ let syncItems = null, syncMsg = '', syncPg = 0, syncAll = false;
 const prep = { on: false, i: 0, n: 0, sent: 0, stop: false };
 async function prepCovers() {
   if (prep.on) { prep.stop = true; return; }
-  if (!spect || !spect.prepCovers) { syncMsg = 'Spectator camera is off: Settings > Spectator camera On, then Connect on the phone.'; drawMixScreen(); return; }
+  if (!spect || !spect.prepCovers) { syncMsg = 'Phone / DirroVJ link is off: Settings > Phone / DirroVJ link On, then Connect on the phone.'; drawMixScreen(); return; }
   const tracks = new Map();
   for (const r of currentList()) { const t = r && !r.missing && (r.sides.A || r.sides.B); if (t && !t.missing) { const k = coverKey(t); coverTracks.set(k, t); tracks.set(k, t); } }
   Object.assign(prep, { on: true, i: 0, n: tracks.size, sent: 0, stop: false }); drawMixScreen();
@@ -5148,7 +5156,7 @@ function syncExtras() {   // the Quest's VideoVinyl clips stored with its songs 
 }
 async function syncLoad() {
   syncMsg = 'Reading both libraries…'; drawMixScreen();
-  if (!spect || !spect.syncList) { syncItems = null; syncMsg = 'Spectator camera is off: Settings > Spectator camera On, then Connect on the phone.'; drawMixScreen(); return; }
+  if (!spect || !spect.syncList) { syncItems = null; syncMsg = 'Phone / DirroVJ link is off: Settings > Phone / DirroVJ link On, then Connect on the phone.'; drawMixScreen(); return; }
   try { syncItems = await spect.syncList(syncExtras); syncMsg = ''; for (const k of [...syncSel]) if (!syncItems.some(i => i.f + '/' + i.n === k && i.q !== i.p)) syncSel.delete(k); }
   catch (e) { syncItems = null; syncMsg = e.message; }
   drawMixScreen();
@@ -7166,7 +7174,7 @@ function drawToolsPage() {
     const sy = y0 + (P ? 292 : 122);
     g.fillStyle = perf.on ? '#fff' : '#8c96a8'; g.font = '600 17px system-ui'; g.textAlign = 'left';
     const sz = perf.P.bytes < 1048576 ? Math.round(perf.P.bytes / 1024) + ' KB' : (perf.P.bytes / 1048576).toFixed(1) + ' MB';
-    g.fillText(perf.on ? `Recording ${fmt((Date.now() - perf.P.wall) / 1000)} · ${sz}` : spect ? 'Not recording' : 'Needs Settings > Spectator camera On', L + 4, sy);
+    g.fillText(perf.on ? `Recording ${fmt((Date.now() - perf.P.wall) / 1000)} · ${sz}` : spect ? 'Not recording' : 'Needs Settings > Phone / DirroVJ link On', L + 4, sy);
     note('Records what the gear does during the set, so a video you film on a tripod can be rendered later with the gear drawn in. No phone needs to be connected. 1: MARKS, touch each taped floor mark with a controller tip and pull the trigger. 2: start the camera, then ● PERFCAP, then knock the controller on the table twice. 3: play. 4: knock twice again, stop. 5: SAVE TAKE.', sy + 22);
     return;
   }
@@ -8414,6 +8422,7 @@ async function applySpect() {
     if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, perf, getInputs: () => xr && xr.inputs,
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => ({ ...led.state(), curve: ledwall.userData.curveDeg() }),   /* #358 */ onScreen: onPhoneScreen, getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
       getSpiders: spidersState,   // #262
+      getSleeves: () => sleeves.filter(s => !s.gone).map(s => { const t = s.rec.sides.A || s.rec.sides.B; return { sl: s, key: t ? coverKey(t) : '', title: s.rec.title || '', artist: s.rec.artist || '', size: s.rec.size === 7 ? 7 : 12 }; }),   // #503 sleeves out of the crate, mirrored
       getAv: phoneRobotState,   // #278
       getLook: () => xr ? xr.getCtlLook() : '3dhands',   // #288
       getHandFit: () => xr ? xr.handFit : undefined,   // #291
@@ -8423,7 +8432,7 @@ async function applySpect() {
       onCam: m => { if (m && pvWanted && !m.pv && spect) spect.camSet({ what: 'preview', v: true }); if (videoPage && vpFolder === 'Camera') drawMixScreen(); },   // a reconnected phone gets PREVIEW back
       onPreview: onPreviewFrame,
       onStudio: (w, m) => { if (streamer) streamer.onStudio(w, m); } });   // #380 S8 STUDIO
-  } catch (e) { toast('Spectator camera failed to start: ' + e.message, 4000); }
+  } catch (e) { toast('Phone / DirroVJ link failed to start: ' + e.message, 4000); }
 }
 syncSettingsUI();
 if (!CAMERA_ROLE) applySpect();

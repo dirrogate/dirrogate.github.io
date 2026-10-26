@@ -80,7 +80,7 @@ export function startCamera(ctx) {
   document.body.insertAdjacentHTML('beforeend', `
     <div id="spS"><div class="box">
       <h1>Cly<span>3DJ</span> camera</h1>
-      <p>Films the DJ with the virtual gear. On the Quest: Settings, Spectator camera On, then read the code shown there.</p>
+      <p>Films the DJ with the virtual gear. On the Quest: Settings, Phone / DirroVJ link On, then read the code shown there.</p>
       <input id="spCode" inputmode="numeric" maxlength="5" placeholder="00000">
       <button id="spConnect">Connect</button><div id="spSt"></div><button id="spAR" disabled>Start camera (AR)</button><button id="spFix" disabled>Fixed camera: tripod, no AR</button>
       <label style="display:flex;gap:8px;align-items:center;margin-top:8px;color:#8b909a;font-size:14px">Fixed camera uses <select id="spFixCam" style="font:600 14px system-ui;background:#1c2230;color:#e6e8ec;border:1px solid #2e3850;border-radius:8px;padding:6px"><option value="environment">main camera</option><option value="user">selfie camera</option></select></label><button id="spCamTest">Camera access test (no Quest needed)</button>
@@ -123,7 +123,7 @@ export function startCamera(ctx) {
   if (VJ) {   // #500 DirroVJ start page: no AR; the webcam (fixed camera) is optional, only for LIVE DJ! / LIVE KEY!
     document.title = 'DirroVJ';
     $('#spS h1').innerHTML = 'Dirro<span>VJ</span>';
-    $('#spS p').textContent = 'The VJ desk: makes the TV picture (put this window full screen on the club screen) and the Twitch stream, with the Quest\'s master sound over Wi-Fi. On the Quest: Settings, Spectator camera On, read the code, then TOOLS > STREAM > S8 STUDIO.';
+    $('#spS p').textContent = 'The VJ desk for the cabin laptop. It shows the Quest\'s SHOW shots or this laptop\'s webcam, with the Quest\'s overlays and master sound, on the club screen (HDMI) and on Twitch. On the Quest: Settings > Phone / DirroVJ link On and read the code there. Then on the tablet: TOOLS > STREAM > DIRROVJ, turn it on.';
     $('#spAR').hidden = true;
     $('#spFix').textContent = 'Start webcam (optional: the WEBCAM source, aim it at the DJ or the crowd)';   // #501
   }
@@ -133,7 +133,7 @@ export function startCamera(ctx) {
   const stats = { rtt: 0, off: null, pkts: 0, pps: 0, age: 0, last: 0, xr: 0 };
   try { $('#spCode').value = localStorage.getItem('vire.spectJoin') || ''; } catch {}
   const st = t => { $('#spSt').textContent = t; };
-  const STATUS = { relay: 'Relay reached, calling the Quest…', 'relay-retry': 'No internet for the handshake, retrying…', 'quest-offline': 'Quest not found: is its Spectator camera On, same code?',
+  const STATUS = { relay: 'Relay reached, calling the Quest…', 'relay-retry': 'No internet for the handshake, retrying…', 'quest-offline': 'Quest not found: is its Phone / DirroVJ link On, same code?',
     connecting: 'Connecting to the Quest…', connected: 'Connected to the Quest', disconnected: 'Link lost', failed: 'Link failed (are both on the same Wi-Fi?)' };
   $('#spConnect').onclick = () => {
     const code = $('#spCode').value.trim();
@@ -462,6 +462,20 @@ export function startCamera(ctx) {
     const R = recs.get(m.uid); if (!R) return;
     try { R.r.labelImgs[m.side] = await createImageBitmap(new Blob([u8of(m.img)], { type: m.mime || 'image/jpeg' })); if (!R.r.disposed) R.r.redraw(m.side); } catch {}
   }
+  // #503 sleeves out of the crate: built by main.js (the same jacket as on the Quest), moved like the records
+  const slvs = new Map();   // uid -> { sl, s: samples, discY, discV, v, seen }
+  function onSlv(m) {
+    if (slvs.has(m.uid) || !ctx.crateRemote || !ctx.crateRemote.sleeveMake) return;
+    let sl; try { sl = ctx.crateRemote.sleeveMake(m); } catch (e) { console.warn('sleeve mirror', e); return; }
+    rig.add(sl.g); sl.g.visible = false;
+    slvs.set(m.uid, { sl, s: [] });
+  }
+  function onSlvDel(uid) { const S = slvs.get(uid); if (!S) return; rig.remove(S.sl.g); ctx.crateRemote.sleeveDrop(S.sl); slvs.delete(uid); }
+  function slvSample(a, t) {
+    const S = slvs.get(a[0]); if (!S) return;
+    addSample(S.s, t, { p: new THREE.Vector3(a[1], a[2], a[3]), q: new THREE.Quaternion(a[4], a[5], a[6], a[7]) });
+    S.discY = a[8]; S.discV = !!a[9]; S.v = !!a[10]; S.seen = performance.now();
+  }
   function onRecDel(uid) { const R = recs.get(uid); if (!R) return; rig.remove(R.r.group); R.r.dispose(); recs.delete(uid); }
   function recSample(a, t) {
     const R = recs.get(a[0]); if (!R) return;
@@ -571,6 +585,7 @@ export function startCamera(ctx) {
       if (m.cs) onCaseSizes(m.cs);
       if (m.g) for (const a of m.g) nodeSample(a, m.t);
       if (m.r) for (const a of m.r) recSample(a, m.t);
+      if (m.sv) for (const a of m.sv) slvSample(a, m.t);   // #503
       // #288 (owner): no more depth-only cut-outs; the phone draws the DJ's hands as the Quest does (3D hands / glove / controllers)
       if (m.ha) { phoneHands.fit(m.ha); const nn = m.ha.neon !== 0; if (nn !== roboNeon) { roboNeon = nn; if (robo.a) applyNeon(robo.a.root, renderer, nn); } }   // #291 (#355 NEON CHROME on the phone robot too)
       if (m.hd && !robo.on) phoneHands.update(m.hd, m.cl, Math.min(0.1, (performance.now() - (onMsg.lastHd || 0)) / 1000)), onMsg.lastHd = performance.now();
@@ -587,6 +602,8 @@ export function startCamera(ctx) {
     else if (m.k === 'cover') { if (ctx.crateRemote) ctx.crateRemote.onCover(m); }
     else if (m.k === 'covhave?') { if (ctx.crateRemote) ctx.crateRemote.coverHave(m.keys || []).then(keys => { if (link && link.isOpen) link.send('ctl', { k: 'covhave', keys }); }); }
     else if (m.k === 'recdel') onRecDel(m.uid);
+    else if (m.k === 'slv') onSlv(m);   // #503
+    else if (m.k === 'slvdel') onSlvDel(m.uid);
     else if (m.k === 'calpt') { if (!(fixed.on && fixed.onCalPoint(m))) onCalPoint(m); }   // #208 fixed camera taps first
     else if (m.k === 'calskip') { if (fixed.on) fixed.calSkip(); }   // #211 the Quest's grip skips an auto point
     else if (m.k === 'led') { if (m.curve != null) led.wall.userData.setCurve(m.curve);   /* #358 the Quest's LED curve */ led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000); if (liveOn && !led.on) showLiveCard(true); }   // #176 (#238 the LIVE card stays up)
@@ -808,6 +825,10 @@ export function startCamera(ctx) {
       if (R.meshX !== undefined) { R.r.mesh.rotation.x = R.meshX; R.r.mesh.position.y = R.meshY; }
       R.r.disc.position.x = R.discX || 0;   // #262 a 45 off-centre on the bare spindle
     }
+    for (const S of slvs.values()) {   // #503
+      blendTo(S.s, rt, S.sl.g, false); S.sl.g.visible = S.s.length > 0 && S.v !== false && now - (S.seen || 0) < 1500;
+      S.sl.disc.position.y = S.discY || 0; S.sl.disc.visible = S.discV !== false;
+    }
     handsTimeout();
     robotFrame(dt, now);   // #278
     phoneHands.frame(now, robo.on);   // #288
@@ -849,5 +870,5 @@ export function startCamera(ctx) {
     } else lastXT = 0;
     fpsN++; if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; late = lateN; lateN = 0; sendCst(); }
   });
-  window.spect = { studio /* #380 test hook */, _robo: { robo, onAvatar, robotFrame } /* #278 test hook */, _ph: phoneHands /* #288 */, vs, look, renderPreview, fixed, flook, _live: { fixedFrame: liveFixed, get on() { return liveOn; }, get track() { return liveTrack; } } /* #238 test hook */, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
+  window.spect = { studio /* #380 test hook */, _robo: { robo, onAvatar, robotFrame } /* #278 test hook */, _ph: phoneHands /* #288 */, slvs /* #503 test hook */, vs, look, renderPreview, fixed, flook, _live: { fixedFrame: liveFixed, get on() { return liveOn; }, get track() { return liveTrack; } } /* #238 test hook */, _ghost: on => ghost(on), get rotDir() { return rotDir; }, get late() { return late; }, get pvOn() { return pvOn; }, stats, nodes, recs, cal, solve, rig, hands, get link() { return link; }, _set: v => Object.assign(cal, v) };
 }

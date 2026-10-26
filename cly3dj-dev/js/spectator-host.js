@@ -14,7 +14,7 @@ const CAL_TEXT = {
   x: ['Spectator calibration 2/2', 'Touch the TAPE X on the floor', 'with the controller tip (blue ball),', 'then pull the trigger.'],
 };
 
-export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, artBlobs, getLed, getScroll, onLive, getVV, getSpiders, getAv, getLook, getHandFit, getSky, onMedia, onCam, onPreview, perf, coverFor, onScreen, onStudio }) {   // #380 onStudio(what, msg): the S8 studio's link / status   // #358 onScreen: the phone shares / stops sharing its screen
+export function startHost({ code, stage, rig, scene, renderer, camera, toast, getInputs, getRecords, getSleeves, artBlobs, getLed, getScroll, onLive, getVV, getSpiders, getAv, getLook, getHandFit, getSky, onMedia, onCam, onPreview, perf, coverFor, onScreen, onStudio }) {   // #380 onStudio(what, msg): the S8 studio's link / status   // #358 onScreen: the phone shares / stops sharing its screen
   // #209 PerfCap: every mirror message also goes to the PerfCap recorder while it records (phone or not)
   const out = { send(ch, m) { if (link.isOpen) link.send(ch, m); if (perf && perf.on) perf.write(ch, m); } };
   let perfMarks = false;   // #209 PerfCap MARKS mode: each trigger press records a floor mark
@@ -22,7 +22,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   let mr = true;   // #164/#167: MR GUI (default on for setting up)
   let lastPing = 0, ledT = 0, ledKey = '', skyKey = '', scrollKey = '', scrollT = 0;   // #169: the phone pings every second; silent for 3.5 s = not connected (a closed page can leave the channel 'open' for ~30 s)
   const status = s => { const el = document.getElementById('spectStatus'); if (el) el.textContent = label(s); };
-  const label = s => ({ relay: 'Waiting for the phone (code ' + code + ')', 'relay-retry': 'No internet for the handshake, retrying…',
+  const label = s => ({ relay: 'Waiting for the phone or DirroVJ (code ' + code + ')', 'relay-retry': 'No internet for the handshake, retrying…',
     connected: 'Phone connected', disconnected: 'Phone disconnected', failed: 'Phone link failed' }[s] || s);
   const layout = () => ({ k: 'layout', layout: stage.snapshot(), rig: rig.position.toArray().map(r3) });
 
@@ -217,6 +217,24 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     for (const uid of [...live.keys()]) if (!seen.has(uid)) { live.delete(uid); out.send('ctl', { k: 'recdel', uid }); }
     return rows;
   }
+  // ---- #503 sleeves out of the crate (in a hand, lying on the case, sliding back): sent once (cover key, title, artist, size),
+  // then followed like records: pose in rig space + the record inside (how far it rides out, shown or not)
+  const slvUid = new WeakMap(); let slvNext = 1; const slvLive = new Set();
+  function sleevesTick() {
+    if (!getSleeves) return undefined;
+    const rows = [], seen = new Set();
+    _ri.copy(rig.matrixWorld).invert();
+    for (const it of getSleeves()) {
+      const sl = it.sl; let uid = slvUid.get(sl);
+      if (!uid) { uid = slvNext++; slvUid.set(sl, uid); }
+      seen.add(uid);
+      if (!slvLive.has(uid)) { slvLive.add(uid); out.send('ctl', { k: 'slv', uid, key: it.key, title: it.title, artist: it.artist, size: it.size }); }
+      sl.g.updateMatrixWorld(); _rm.multiplyMatrices(_ri, sl.g.matrixWorld); _rm.decompose(_rp, _rq, _rs);
+      rows.push([uid, r4(_rp.x), r4(_rp.y), r4(_rp.z), r4(_rq.x), r4(_rq.y), r4(_rq.z), r4(_rq.w), r4(sl.disc.position.y), sl.disc.visible ? 1 : 0, sl.g.visible ? 1 : 0]);
+    }
+    for (const uid of [...slvLive]) if (!seen.has(uid)) { slvLive.delete(uid); out.send('ctl', { k: 'slvdel', uid }); }
+    return rows;
+  }
   // ---- #218 the record crate on the phone: the view (sent when it changes), the lid screen (JPEG, at most every
   // 0.4 s) and covers (256 px JPEG, when the phone asks; PerfCap takes get each cover once too)
   let crateMsg = null, crateSent = '', scrCanvas = null, scrDirty = false, scrT = 0, scrBusy = false, lastScr = null;
@@ -401,7 +419,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     onTrack: t => { onLive && onLive(t); },   // #238 LIVE CAM
     onBinary: onBin,
     onState: s => status(s),
-    onOpen: () => { crateSent = ''; if (lastScr) scrDirty = true; link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; scrollKey = ''; spKey = ''; full = true; live.clear(); toast && toast('Spectator phone connected', 2500); status('connected'); onStudio && onStudio('open'); },
+    onOpen: () => { crateSent = ''; if (lastScr) scrDirty = true; link.send('ctl', layout()); link.send('ctl', { k: 'mr', on: mr }); ledT = 0; ledKey = ''; skyKey = ''; scrollKey = ''; spKey = ''; full = true; live.clear(); slvLive.clear(); toast && toast('Phone / DirroVJ connected', 2500); status('connected'); onStudio && onStudio('open'); },
     onClose: () => { onStudio && onStudio('close'); onLive && onLive(null); onScreen && onScreen(false); if (rx) { rx.abort(); rx = null; } camState = null; onCam && onCam(null); status('disconnected'); calStep = null; ghost(false); panel.visible = false; frustum.visible = false; },
     onMessage: m => {
       if (m.k === 'qgo' || m.k === 'qok') { resolveWait(m.f, m.n, m.k, m); return; }   // #206 media sync, Quest to phone
@@ -426,7 +444,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
             : ['Fixed camera calibration', `Touch MARK ${m.n} on the floor`, 'with the controller tip (blue ball),', 'then pull the trigger.'];
           ghost(true); say(t); showImg(m.img); toast && toast(t.slice(1).join(' '), 6000);
         }
-        else if (m.step === 'done') { calStep = null; ghost(false); showImg(null); say(['Spectator camera calibrated', m.px != null ? 'Match: ' + m.px + ' px' : m.err != null ? 'Match: ' + m.err + ' cm' : '', 'The blue outline shows what it films.'], '#40d080'); doneT = 3; }
+        else if (m.step === 'done') { calStep = null; ghost(false); showImg(null); say(['Camera calibrated', m.px != null ? 'Match: ' + m.px + ' px' : m.err != null ? 'Match: ' + m.err + ' cm' : '', 'The blue outline shows what it films.'], '#40d080'); doneT = 3; }
         else { calStep = null; ghost(false); panel.visible = false; showImg(null); }
       } else if (m.k === 'cam') {
         pcam = m; pcamT = performance.now();   // #347 kept for the Quest's PHONE CAM source (pose, full-video fov / size)
@@ -467,7 +485,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     else if (now - settleT > 1000) { settleT = now; const n = settled(now); if (n.length) out.send('ctl', { k: 'full', t: Math.round(now), n }); }
     out.send('state', { k: 's', n: seq++, t: Math.round(now), xr: renderer.xr.isPresenting ? 1 : 0,
       h: [r3(_p.x), r3(_p.y), r3(_p.z), r4(_q.x), r4(_q.y), r4(_q.z), r4(_q.w)],
-      cs: caseSizes(false), g: nodeDiffs(false), r: recordsTick(), vv: vvTick(), sp: spTick(), hd: renderer.xr.isPresenting ? handsTick() : [], av: getAv ? getAv() : undefined, cl: getLook ? getLook() : undefined, ha: getHandFit ? getHandFit() : undefined });   // #291 ha: the hand fit   // #288 cl: how the DJ's controllers look   // #278 av: robot on the phone
+      cs: caseSizes(false), g: nodeDiffs(false), r: recordsTick(), sv: sleevesTick(), vv: vvTick(), sp: spTick(), hd: renderer.xr.isPresenting ? handsTick() : [], av: getAv ? getAv() : undefined, cl: getLook ? getLook() : undefined, ha: getHandFit ? getHandFit() : undefined });   // #291 ha: the hand fit   // #288 cl: how the DJ's controllers look   // #278 av: robot on the phone
   }
   // #167: one switch. ON = viewfinder outline here + helpers and menus on the phone; OFF = everything hidden
   // (the phone shows only camera + gear: start its screen recorder by hand)
@@ -489,6 +507,6 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     syncList, syncCopy, get sync() { return sync; },
     // #209 PerfCap: a take starts with a full snapshot (layout, every part, every record with its grooves / labels)
     crate, crateScreen, prepCovers,   // #218
-    perfBegin() { full = true; spKey = ''; live.clear(); ledKey = ''; skyKey = ''; scrollKey = ''; crateSent = ''; scrDirty = !!scrCanvas; perfCov.clear(); if (crateMsg) crate(crateMsg); if (perf && perf.on) { perf.write('ctl', layout()); perf.write('ctl', { k: 'mr', on: mr }); } },
+    perfBegin() { full = true; spKey = ''; live.clear(); slvLive.clear(); ledKey = ''; skyKey = ''; scrollKey = ''; crateSent = ''; scrDirty = !!scrCanvas; perfCov.clear(); if (crateMsg) crate(crateMsg); if (perf && perf.on) { perf.write('ctl', layout()); perf.write('ctl', { k: 'mr', on: mr }); } },
     get perfMarks() { return perfMarks; }, set perfMarks(v) { perfMarks = !!v; } };
 }
