@@ -1033,7 +1033,7 @@ let chalkTapT = 0;
 const chalkLbl = () => chalkboard && chalkboard.on ? 'WHITEBOARD: ON' : 'WHITEBOARD';   // #395
 function openPhoneCam() {   // #389 from VJ TOOLS and SHOWTIME! OBJECTS: pick PHONE CAM and open its setup page (says why when the phone isn't there)
   const S = streamer; if (!S) { toast('Streaming runs on the headset', 2500); return; }
-  if (S.stu.on) { toast('S8 STUDIO is on: use LIVE DJ! or LIVE KEY! on the S8 STUDIO page', 3500); return; }
+  if (S.stu.on) { toast('DirroVJ is on: use LIVE DJ!, LIVE KEY! or WEBCAM on the DIRROVJ page', 3500); return; }
   const why = pcamReady(); if (why) { toast(why, 3500); return; }
   S.setSource('pcam'); setTools('pcam');
 }
@@ -1461,7 +1461,7 @@ function handsHides(hide, O, force) {   // force: PHONE CAM always shows your ow
   for (const st of xr.inputs) { hide(st.hand); hide(st.grip); if (st.ctlHand) hide(st.ctlHand.root); }
   if (xr.glove) hide(xr.glove.root);
 }
-const tvLbl = S => S.stu.on ? (S.stuRun ? 'S8 STUDIO: ON' : 'S8 STUDIO') : S.tvUp ? 'DIRROTV: ON' : 'DIRROTV';   // #380 the STREAM page's screen button
+const tvLbl = S => S.stu.on ? (S.stuRun ? 'DIRROVJ: ON' : 'DIRROVJ') : S.tvUp ? 'DIRROTV: ON' : 'DIRROTV';   // #380 the STREAM page's screen button
 let tvDigits = '', tvForgetArm = 0;   // #376 the code being typed on the tablet; double-tap guard for FORGET TV
 let pcamAutoReh = false;   // #374 the PHONE CAM page started the off-air shot for its preview (so leaving the page stops it again)
 function pcamPrep(cam) {
@@ -5837,7 +5837,7 @@ const PINCH_FIT_DEF = {
   lh: { label: 'HAND LIFT', lo: -20, hi: 60, v: 10, unit: 'mm' }, lg: { label: 'GLOVE LIFT', lo: -20, hi: 60, v: 15, unit: 'mm' },
   pa: { label: 'PINCH TILT', lo: -60, hi: 60, v: 0, unit: '°' }, pt: { label: 'PINCH TURN', lo: -90, hi: 90, v: 0, unit: '°' },
 };
-const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'LED WALL', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'DIRROTV', studio: 'S8 STUDIO', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376
+const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'LED WALL', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'STREAM', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'S8 KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -6303,7 +6303,7 @@ function drawToolsPage() {
     const y0 = head('LIVE STREAM · TWITCH', 'home'), S = streamer;   // #389 CHAT left the header (it is the CHAT ▸ button in the row below)
     if (!S) { note('Streaming runs on the headset (not on the phone).', y0 + 20); return; }
     const st = S.state, live = st === 'live';
-    const line = (live ? `● LIVE  ${S.elapsed()}  ·  ${(S.kbps / 1000).toFixed(1)} Mb/s` : st === 'connecting' ? S.msg || 'Connecting…' : st === 'error' ? S.msg : 'OFF AIR') + (S.stu.on ? '  ·  VIA S8 ' + STUDIO_MODES[S.stu.mode] : '');   // #380
+    const line = (live ? `● LIVE  ${S.elapsed()}  ·  ${(S.kbps / 1000).toFixed(1)} Mb/s` : st === 'connecting' ? S.msg || 'Connecting…' : st === 'error' ? S.msg : 'OFF AIR') + (S.stu.on ? '  ·  VIA DIRROVJ ' + STUDIO_MODES[S.stu.mode] : '');   // #380
     g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '800 24px system-ui';
     g.fillStyle = live ? '#ff3b3b' : st === 'connecting' ? '#f1b650' : st === 'error' ? '#f1b650' : '#8c96a8';
     if (P) wrapText(g, line, L + 4, y0 + 18, R - L - 8, 28, 2); else fitText2(g, line, L + 4, y0 + 18, R - L - 8);
@@ -6547,7 +6547,7 @@ function drawToolsPage() {
     return;
   }
   if (page === 'studiokey') {   // #385 S8 KEY: the keying of LIVE KEY! on the tablet (it was only on the S8's own screen). Same remote as the PHONE CAM page: 'cset' key / auto
-    const y0 = head(P ? 'KEY' : 'S8 KEY (LIVE KEY!)', 'studio'), S = streamer; if (!S) return;
+    const y0 = head(P ? 'KEY' : 'DIRROVJ KEY (LIVE KEY!)', 'studio'), S = streamer; if (!S) return;
     const cs = spect && spect.cam, K = cs && cs.K, keySend = (key, v) => { if (spect && spect.camSet && K) { K[key] = v; spect.camSet({ what: 'key', key, v }); } };
     const r2 = v => Math.round(v * 100) / 100, cl = (v, a, b) => Math.min(b, Math.max(a, v)), pc = v => Math.round(v * 100) + '%';
     const toggles = [
@@ -6601,22 +6601,22 @@ function drawToolsPage() {
     return;
   }
   if (page === 'studio') {   // #380 S8 STUDIO: the S8 makes the TV picture and the Twitch stream; the Quest sends the scene with its matte and the sound
-    const y0 = head('S8 STUDIO', 'stream', streamer ? { label: P ? 'TV ▸' : 'FIRE STICK ▸', on: false, act: () => setTools('tv') } : null), S = streamer;
+    const y0 = head('DIRROVJ', 'stream', streamer ? { label: P ? 'TV ▸' : 'FIRE STICK ▸', on: false, act: () => setTools('tv') } : null), S = streamer;
     if (!S) { note('The studio is run from the headset (not on the phone).', y0 + 20); return; }
     const U = S.stu, s8 = S.s8 && performance.now() - S.s8.at < 3500 ? S.s8 : null, gap = P ? 8 : 6, bh = P ? 54 : 30;
-    const title = !U.on ? 'Studio off: Twitch and the Fire Stick TV go from the Quest' : !S.stuLink ? 'S8 not linked' : !S.stuRun ? 'The S8 page is too old: reload it' : s8 && s8.run ? 'S8 studio running' : 'Waiting for the S8…';
+    const title = !U.on ? 'DirroVJ off: Twitch and the Fire Stick TV go from the Quest' : !S.stuLink ? 'DirroVJ not linked' : !S.stuRun ? 'The DirroVJ page is too old: reload it' : s8 && s8.run ? 'DirroVJ running' : 'Waiting for DirroVJ…';   // #501 was S8 STUDIO
     g.textAlign = 'left'; g.font = `700 ${P ? 21 : 18}px system-ui`; g.fillStyle = s8 && s8.run ? '#7dff9a' : '#dfe6f2';
     fitText2(g, title, L + 2, y0 + 20, R - L - 4);
     const tw = s8 ? (s8.tw === 'live' ? `TWITCH LIVE ${((s8.kbps || 0) / 1000).toFixed(1)} Mb/s` : s8.tw === 'connecting' ? 'Twitch connecting' : 'Twitch off') : '';
-    const sub = U.on && s8 ? `out ${s8.fps || 0} fps · Quest frames ${s8.qfps || 0} fps · camera held ${s8.hold != null ? s8.hold + ' ms' : '-'} · ${tw}${s8.note ? ' · ' + s8.note : ''}` : U.on ? (S.stuMsg || 'Open the camera page on the S8, connect, Fixed camera, Calibrate.') : 'Turn the studio on with the S8 linked (Fixed camera, calibrated).';
+    const sub = U.on && s8 ? `out ${s8.fps || 0} fps · Quest frames ${s8.qfps || 0} fps · camera held ${s8.hold != null ? s8.hold + ' ms' : '-'} · ${tw}${s8.note ? ' · ' + s8.note : ''}` : U.on ? (S.stuMsg || 'Open dirrovj.html (laptop) or the camera page (phone) and connect. LIVE DJ! / KEY! need the camera calibrated; WEBCAM does not.') : 'Turn DirroVJ on with the laptop or phone linked.';
     g.font = '500 14px system-ui'; g.fillStyle = '#8c96a8';
     const nl = wrapText(g, sub, L + 2, y0 + (P ? 40 : 36), R - L - 4, 18, P ? 3 : 2), y1 = y0 + (P ? 44 : 40) + Math.max(1, nl) * 18;
     const w3 = (R - L - 2 * gap) / 3, w4 = (R - L - 3 * gap) / 4, w5 = (R - L - 4 * gap) / 5, fs = P ? 18 : 15;
-    btn(L, y1, w3, bh, U.on ? 'STUDIO: ON' : 'STUDIO: OFF', U.on, () => S.setStudio('on', !U.on), false, fs);
+    btn(L, y1, w3, bh, U.on ? 'DIRROVJ: ON' : 'DIRROVJ: OFF', U.on, () => S.setStudio('on', !U.on), false, fs);
     btn(L + w3 + gap, y1, w3, bh, U.snd ? 'SOUND: ON' : 'SOUND: OFF', U.snd, () => S.setStudio('snd', !U.snd), false, fs);
     btn(L + 2 * (w3 + gap), y1, w3, bh, 'BACK: ' + S.showOpt.backdrop.toUpperCase(), S.showOpt.backdrop !== 'none', () => { S.nextBackdrop(); S._stuSync(); }, false, fs);
     const y2 = y1 + bh + gap;
-    Object.entries(STUDIO_MODES).forEach(([k, label], i) => btn(L + i * (w3 + gap), y2, w3, bh + (P ? 12 : 0), label, U.mode === k, () => S.setStudio('mode', k), false, P ? 22 : 17));
+    Object.entries(STUDIO_MODES).forEach(([k, label], i) => btn(L + i * (w4 + gap), y2, w4, bh + (P ? 12 : 0), label, U.mode === k, () => S.setStudio('mode', k), false, P ? 22 : 17));
     const y3 = y2 + bh + (P ? 12 : 0) + gap;
     const fs5 = P ? 15 : 14;
     btn(L, y3, w5, bh, 'DELAY −10', false, () => S.setStudio('trim', U.trim - 10), false, fs5);
@@ -6632,7 +6632,7 @@ function drawToolsPage() {
       if (P) { items.slice(0, 4).forEach(([l, on, a], i) => btn(L + i * (w4 + gap), yL, w4, bh, l, on, a, false, fsL)); items.slice(4).forEach(([l, on, a], i) => btn(L + i * (w3 + gap), yL + bh + gap, w3, bh, l, on, a, false, fsL)); }
       else { const w7 = (R - L - 6 * gap) / 7; items.forEach(([l, on, a], i) => btn(L + i * (w7 + gap), yL, w7, bh, l, on, a, false, fsL)); }
       const camLine = ci ? `S8 camera: ${ci.rate || ci.fps || '?'} fps${ci.ev != null ? ', EV ' + ci.ev + (ci.evMax != null ? ' (max ' + ci.evMax + ')' : '') : ', no EV control in Chrome'}${ci.rate && ci.rate < 22 ? ' · too dark for 25: more light, or EV / GAIN up' : ''}` : '';
-      if (P) { note((camLine ? camLine + '. ' : '') + 'SHOW: Quest camera (SHOWTIME! pick), S8 backdrop. LIVE DJ!: S8 films you in your room. LIVE KEY!: keyed over the backdrop. TRIM + holds the camera back more. GO LIVE goes out from the S8.', yL + 2 * (bh + gap) + 20); }
+      if (P) { note((camLine ? camLine + '. ' : '') + 'SHOW: Quest camera (SHOWTIME! pick), DirroVJ backdrop. LIVE DJ!: the camera films you in your room. LIVE KEY!: keyed over the backdrop. WEBCAM: the camera picture as it is (you or the crowd). TRIM + holds the camera back more. GO LIVE goes out from DirroVJ.', yL + 2 * (bh + gap) + 20); }
       else if (camLine) { g.fillStyle = ci.rate && ci.rate < 22 ? '#f1b650' : '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, camLine, L + 4, yL + bh + 18, R - L - 8); }
     }
     return;
@@ -6820,7 +6820,7 @@ function drawToolsPage() {
     return;
   }
   if (page === 'tv') {   // #376 CLY3DTV: the venue screen (venue.html). The TV shows a 6-digit code, it is typed here; then switches, sound, status
-    const y0 = head('DIRROTV', 'stream', streamer ? { label: P ? 'S8 ▸' : 'S8 STUDIO ▸', on: false, act: () => setTools('studio') } : null), S = streamer;   // #380
+    const y0 = head('DIRROTV', 'stream', streamer ? { label: P ? 'VJ ▸' : 'DIRROVJ ▸', on: false, act: () => setTools('studio') } : null), S = streamer;   // #380
     if (!S) { note('DIRROTV runs on the headset (not on the phone).', y0 + 20); return; }
     const st = S.tvState(), gap = 8, bh = P ? 56 : 40, T = S.tvSet;
     const title = { unpaired: 'No TV paired yet', pairing: 'Looking for the TV...', waiting: 'Paired, waiting for the TV', up: 'TV connected', off: 'TV is switched off' }[st];

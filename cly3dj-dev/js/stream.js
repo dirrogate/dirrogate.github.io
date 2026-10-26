@@ -24,7 +24,7 @@ const TVK = 'vire.tv';
 // both drawn from the S8's calibrated pose. Studio ON closes the Fire Stick screen (#376) and GO LIVE goes through the S8; OFF = everything as before.
 const STUK = 'vire.studio';
 export const STUDIO_DEF = { on: false, mode: 'show', snd: true, trim: 0, fps25: true, ev: 1, gain: 1.2 };   // #382 LOW LIGHT: the S8 camera held at 25 fps, exposure compensation (EV), the studio's GAIN
-export const STUDIO_MODES = { show: 'SHOW', dj: 'LIVE DJ!', key: 'LIVE KEY!' };
+export const STUDIO_MODES = { show: 'SHOW', dj: 'LIVE DJ!', key: 'LIVE KEY!', cam: 'WEBCAM' };   // #501 WEBCAM: DirroVJ's webcam picture as it is (aimed at the DJ or the crowd), overlays from the Quest on top
 export const STU = { PW: 1920, CW: 1280, SX: 1284, SW: 8, MX: 1296, MW: 624, BITS: 28 };   // packed frame layout (studio.js reads the same)
 // timestamp strip: 28 blocks down x 1284..1292: 1, 0 (sync), 24 bits of the Quest's clock in ms (low bit first), 2 bits of the bit count (a check)
 export function stampBits(t) {
@@ -284,6 +284,11 @@ export class Streamer {
   _stuPhoneTick(now) {
     if (this.busy || now - this.showT < 33) return; this.showT = now;
     const r = this.env.renderer, c6 = this.env.phoneCam && this.env.phoneCam(), rig = this.env.rig;
+    if (this.stu.mode === 'cam') {   // #501 WEBCAM: no gear and no calibration; only the overlays (scroller, now playing, logo, chat) with their matte
+      this.stuMsg = ''; const asp = c6 && c6.vw && c6.vh ? c6.vw / c6.vh : 16 / 9, H = Math.round(STU.CW / asp / 2) * 2;
+      if (H !== this.stuH) { this.stuH = H; this._sizeCanvas(STU.PW, H); }
+      this._stuPack(null, performance.now()); return;
+    }
     if (!c6 || !c6.ff || !rig) { this.stuMsg = !c6 ? 'S8 not calibrated: Fixed camera on the S8, then Calibrate.' : 'The S8 is in AR mode: use Fixed camera.'; this._stuPack(null, performance.now()); return; }
     this.stuMsg = '';
     const asp = c6.vw && c6.vh ? c6.vw / c6.vh : 16 / 9, W = STU.CW, H = Math.round(W / asp / 2) * 2;

@@ -125,7 +125,7 @@ export function startCamera(ctx) {
     $('#spS h1').innerHTML = 'Dirro<span>VJ</span>';
     $('#spS p').textContent = 'The VJ desk: makes the TV picture (put this window full screen on the club screen) and the Twitch stream, with the Quest\'s master sound over Wi-Fi. On the Quest: Settings, Spectator camera On, read the code, then TOOLS > STREAM > S8 STUDIO.';
     $('#spAR').hidden = true;
-    $('#spFix').textContent = 'Webcam (optional, for LIVE DJ! / LIVE KEY!)';
+    $('#spFix').textContent = 'Start webcam (optional: the WEBCAM source, aim it at the DJ or the crowd)';   // #501
   }
 
   // ---------------------------------------------------------------- link

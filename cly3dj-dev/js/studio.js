@@ -226,7 +226,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     renderer.xr.enabled = false; renderer.autoClear = true;
     try {
       // camera into the ring
-      const needCam = (S.mode === 'dj' || S.mode === 'key') && fixed.on && fixed.video.videoWidth;
+      const needCam = (S.mode === 'dj' || S.mode === 'key' || S.mode === 'cam') && fixed.on && fixed.video.videoWidth;
       if (needCam && (camNew || !fixed.video.requestVideoFrameCallback)) {
         camNew = false; cTex.needsUpdate = true; ringI = (ringI + 1) % RING; const rt = ringRT(ringI);
         renderer.setRenderTarget(rt); renderer.render(copySc, oc); ringT[ringI] = fixed.video.requestVideoFrameCallback ? camQt : questNow() - 40;
@@ -238,14 +238,14 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       if (needCam) {
         const target = questNow() - (S.D != null ? S.D : 150) - S.trim; let bi = -1, bd = 1e9;
         for (let i = 0; i < RING; i++) { if (ringT[i] < -1e8 || !ring[i]) continue; const d = Math.abs(ringT[i] - target); if (d < bd) { bd = d; bi = i; } }
-        if (bi >= 0) { U.cam.value = ring[bi].texture; U.camMode.value = S.mode === 'dj' ? 1 : 2; S.hold = Math.round(questNow() - ringT[bi]); S.holdShort = ringT[bi] > target + 40 ? 0 : bd > 40 ? 1 : 0; }
+        if (bi >= 0) { U.cam.value = ring[bi].texture; U.camMode.value = S.mode === 'key' ? 2 : 1;   // #501 WEBCAM = the picture as it is, like LIVE DJ! S.hold = Math.round(questNow() - ringT[bi]); S.holdShort = ringT[bi] > target + 40 ? 0 : bd > 40 ? 1 : 0; }
         const K = vs.K; U.thr.value = K.thr; U.soft.value = K.soft; U.spill.value = K.spill; U.cmatch.value = S.bd === 'dome' ? (K.cmatch || 0) : 0; U.keyCol.value = K.col || 0;
         U.crop.value.set(K.gl || 0, K.gr || 0, K.gt || 0, K.gb || 0);
         if (vs.mat && vs.mat.uniforms.panoTint) U.tint.value.copy(vs.mat.uniforms.panoTint.value);
       } else S.hold = null;
       // backdrop (not for LIVE DJ!, whose camera covers it; not when the Quest's frame is opaque)
       U.bgMode.value = 0;
-      if (S.mode !== 'dj' && !(haveQ && !packed)) {
+      if (S.mode !== 'dj' && S.mode !== 'cam' && !(haveQ && !packed)) {
         if (S.bd === 'dome' && skybox.tex) {
           let ok = false;
           if (S.mode === 'key') {   // from this camera (its full video's field of view)
@@ -280,6 +280,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   function needNote(haveQ, packed) {
     if (S.linkLost) return 'Quest link lost: reconnect (Twitch stays up for a minute)';
     if (!haveQ) return 'no picture from the Quest yet';
+    if (S.mode === 'cam' && !fixed.on) return 'WEBCAM: start the webcam on this page (Webcam button)';   // #501
     if ((S.mode === 'dj' || S.mode === 'key') && !fixed.on) return 'start Fixed camera on this phone for LIVE DJ! / LIVE KEY!';
     if (S.mode !== 'show' && S.holdShort) return 'the camera can\'t wait that long (over ' + RING + ' frames)';
     if (S.bd === 'dome' && S.mode !== 'dj' && !skybox.tex) return 'no panorama on this phone: copy it over (Library sync) for DOME';
@@ -291,7 +292,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     const L = getLink();
     if (L && L.isOpen) L.send('ctl', { k: 'sst', run: !!(S.on && !S.paused && haveQ), fps: S.fps, qfps: S.qfps, hold: S.hold, d: S.D != null ? Math.round(S.D) : null, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps, note,
       clip: led.on && led.video && !led.video.paused ? led.name : '', cam: fixed.on && fixed.camInfo ? { ...fixed.camInfo(), rate: camRate } : null });
-    stEl.textContent = `S8 STUDIO  ${({ show: 'SHOW', dj: 'LIVE DJ!', key: 'LIVE KEY!' })[S.mode]}  ·  backdrop ${S.bd.toUpperCase()}  ·  out ${S.fps} fps  ·  Quest ${S.qfps} fps\n` +
+    stEl.textContent = `DirroVJ  ${({ show: 'SHOW', dj: 'LIVE DJ!', key: 'LIVE KEY!', cam: 'WEBCAM' })[S.mode]}  ·  backdrop ${S.bd.toUpperCase()}  ·  out ${S.fps} fps  ·  Quest ${S.qfps} fps\n` +
       `camera ${camRate} fps  ·  Quest frames ${S.D != null ? Math.round(S.D) + ' ms' : '-'} late  ·  camera held ${S.hold != null ? S.hold + ' ms' : '-'}  ·  trim ${S.trim} ms  ·  sound ${aTrack && S.snd ? 'on' : 'off'}\n` +
       `Twitch: ${S.tw}${S.twMsg ? ' (' + S.twMsg + ')' : ''}${S.tw === 'live' ? '  ' + (S.kbps / 1000).toFixed(1) + ' Mb/s' : ''}${note ? '\n' + note : ''}`;
     if (S.linkLost && S.tw !== 'off' && now - S.linkLost > 60000) twStop('the Quest link was gone for a minute');
