@@ -20,7 +20,12 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
   S.devs = [];
   const keyOf = f => S.dev ? 'vire.fixcam.d.' + S.dev.slice(0, 24) : 'vire.fixcam.' + (f === 'user' ? 'selfie' : 'main');
   const loadPose = f => { try { const p = JSON.parse(localStorage.getItem(keyOf(f))); if (p && p.p && p.e && p.fov) return p; } catch {} return null; };
-  const savePose = () => { try { localStorage.setItem(keyOf(S.facing), JSON.stringify(S.pose)); } catch {} };
+  const savePose = () => { S.placed = true; try { localStorage.setItem(keyOf(S.facing), JSON.stringify(S.pose)); } catch {} };
+  // #515 no calibration needed to film: until this camera is calibrated (or nudged into place) it is a plain picture with
+  // nothing drawn over it and no pose sent to the Quest. Gear on / off hides the gear on a calibrated camera too (filming the room).
+  S.plain = (() => { try { return localStorage.getItem('vire.fixcam.plain') === '1'; } catch { return false; } })();
+  S.placed = false;
+  const gearOn = () => !!S.cal || (S.placed && !S.plain);
   let saved = null;   // scene state to restore on exit
   const lowLight = { fps25: true, ev: 1, ...(() => { try { return JSON.parse(localStorage.getItem('vire.fixcam.low')) || {}; } catch { return {}; } })() };   // #382
 
@@ -59,7 +64,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     </div>
     <div class="bar">
       <button id="fxCal">Calibrate</button><button id="fxSolve" hidden>Solve</button><button id="fxSkip" hidden>Skip point</button><button id="fxRescan" hidden>New points</button><button id="fxOwn" hidden>Mark my own</button><button id="fxUndo" hidden>Undo mark</button><button id="fxCancel" hidden>Cancel</button>
-      <button id="fxNud">Nudge</button><button id="fxCamB">Main camera</button><select id="fxDev" hidden></select><button id="fxLock">Lock exposure</button><button id="fxEm">Exp −</button><button id="fxEp">Exp +</button>
+      <button id="fxGear" hidden>Gear on</button><button id="fxNud">Nudge</button><button id="fxCamB">Main camera</button><select id="fxDev" hidden></select><button id="fxLock">Lock exposure</button><button id="fxEm">Exp −</button><button id="fxEp">Exp +</button>
       <button id="fxSwap">Swap test</button><button id="fxHide">Hide UI</button><button id="fxExit">Exit</button>
     </div></div><div id="fxTap" hidden></div>`);
   const $ = s => document.querySelector(s), ov = $('#fxO'), tap = $('#fxTap'), hint = $('#fxHint');
@@ -95,6 +100,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     try { S.caps = S.track.getCapabilities ? S.track.getCapabilities() : {}; S.set = S.track.getSettings(); } catch { S.caps = {}; S.set = {}; }
     S.lock = false;
     await applyEv();   // #382
+    { const L = loadPose(facing); S.placed = !!L; S.err = L && L.rms != null ? L.rms : null; }   // #515 (rms kept with the pose: still calibrated after a reload)
     S.pose = loadPose(facing) || (S.dev ? null : S.pose) || defaultPose();
     $('#fxCamB').textContent = S.dev ? 'Main / selfie' : facing === 'user' ? 'Selfie camera' : 'Main camera';
     await listDevs(); route();
@@ -114,7 +120,7 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
   async function pickDev(id) {
     if (S.cal) calCancel();
     setDev(id); try { await open(S.facing); } catch (e) { say('Camera: ' + e.message); }
-    say(S.pose && loadPose(S.facing) ? '' : 'Not calibrated for this camera yet: press Calibrate.');
+    say('');   // #515 no nag: an uncalibrated camera is simply a plain picture
   }
   const devName = () => { const d = S.dev && S.devs.find(x => x.deviceId === S.dev); return d ? (d.label || 'camera').replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)/i, '').slice(0, 28) : ''; };
 
@@ -193,6 +199,7 @@ void main(){
   // what the Quest needs for the blue outline of the view: pose (rig space) + the visible crop's fov / aspect
   function camState() {
     if (!S.on || !S.crop || !S.pose) return null;
+    if (!gearOn()) return { plain: 1, vw: S.vw, vh: S.vh };   // #515 plain camera: size only, no pose (the Quest draws no gear over it)
     const c = S.crop, fovV = 2 * Math.atan(Math.tan(S.pose.fov * DEG / 2) * c.h / S.vh);
     // #347 ff / vw / vh: the FULL video's vertical fov and size, so the Quest's PHONE CAM can draw the gear exactly over
     // the whole frame the phone sends (the crop above only matches this phone's own screen)
@@ -206,7 +213,7 @@ void main(){
     scene.background = tex; room.visible = false; scene.environmentIntensity = 0.6;
     rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0); rig.visible = true;   // fixed mode works in the Quest's rig space directly
     S.on = true; ov.hidden = false; ov.classList.remove('hide'); route();
-    say(S.pose && loadPose(facing) ? '' : 'Not calibrated yet: press Calibrate.');
+    say('');   // #515
     onChange && onChange();
     return '';
   }
@@ -444,7 +451,7 @@ void main(){
       for (let i = 0; i < pts.length; i++) { const q = solvePose(pts.filter((_, j) => j !== i), pix.filter((_, j) => j !== i), S.vw, S.vh, C.lens); if (q && (!best || q.rms < best.rms)) { best = q; bi = i; } }
       if (best && best.rms < r.rms * 0.45) { dropped = bi + 1; pts = pts.filter((_, j) => j !== bi); pix = pix.filter((_, j) => j !== bi); r = best; }
     }
-    S.pose = r.pose; S.err = r.rms; savePose();
+    S.pose = r.pose; S.err = r.rms; S.pose.rms = +r.rms.toFixed(2); savePose(); ui();
     tap.hidden = true; S.cal = null; clearMarks(); mag.hidden = true; route();
     frame();
     // show where the solved camera puts each mark (green squares) against the taps (yellow rings)
@@ -550,6 +557,7 @@ void main(){
   $('#fxEm').onclick = () => expStep(-1); $('#fxEp').onclick = () => expStep(1);
   $('#fxSwap').onclick = swapTest; $('#fxExit').onclick = stop;
   $('#fxHide').onclick = () => ov.classList.add('hide');
+  $('#fxGear').onclick = () => { S.plain = !S.plain; try { localStorage.setItem('vire.fixcam.plain', S.plain ? '1' : '0'); } catch {} ui(); onChange && onChange(); };   // #515
   tap.addEventListener('dblclick', () => ov.classList.remove('hide'));
   document.addEventListener('pointerdown', e => { if (S.on && ov.classList.contains('hide') && !S.cal) ov.classList.remove('hide'); });
   function ui() {
@@ -560,15 +568,16 @@ void main(){
     if (C) { $('#fxSolve').disabled = C.pts.length < 4; $('#fxUndo').disabled = !C.pix.length; }
     $('#fxNud').classList.toggle('on', !$('#fxNudge').hidden); $('#fxLock').classList.toggle('on', S.lock);
     $('#fxLock').textContent = S.lock ? 'Exposure locked' : 'Lock exposure';
+    $('#fxGear').hidden = !!C || !S.placed; $('#fxGear').textContent = S.plain ? 'Gear off' : 'Gear on'; $('#fxGear').classList.toggle('on', !S.plain);   // #515
     const c = S.caps || {}; $('#fxEm').disabled = $('#fxEp').disabled = !c.exposureCompensation;
   }
   function info(extra) {
     if (!S.on) return;
     const P = S.pose, ec = S.set && S.set.exposureCompensation;
-    $('#fxInfo').textContent = `${S.dev ? devName() || 'camera' : S.facing === 'user' ? 'selfie' : 'main'} ${S.vw}x${S.vh}` + (P ? ` · zoom ${P.fov.toFixed(1)}°` : '') + (P && P.k ? ` · lens k1 ${P.k[0]}` + (U.on ? ' (corrected)' : '') : '') + (S.err != null ? ` · cal ${S.err.toFixed(1)} px` : ' · not calibrated')
+    $('#fxInfo').textContent = `${S.dev ? devName() || 'camera' : S.facing === 'user' ? 'selfie' : 'main'} ${S.vw}x${S.vh}` + (P ? ` · zoom ${P.fov.toFixed(1)}°` : '') + (P && P.k ? ` · lens k1 ${P.k[0]}` + (U.on ? ' (corrected)' : '') : '') + (!S.placed ? ' · plain camera (Calibrate to draw the gear over it)' : (S.err != null ? ` · cal ${S.err.toFixed(1)} px` : ' · placed by hand') + (S.plain ? ' · gear off' : ''))
       + (ec != null ? ` · exp ${ec > 0 ? '+' : ''}${(+ec).toFixed(1)}` : '') + (S.swap ? ` · swap ${S.swap}` : '') + (extra ? ' · ' + extra : '');
   }
-  return { S, video, raw, start, stop, frame, camState, setLowLight, camInfo, lowLight, onCalPoint, nudge, setCoarse, resetView, calCancel, get coarse() { return coarse; }, calSkip, calStart, calRescan, detect, info, get on() { return S.on; } };
+  return { S, video, raw, get gear() { return S.on && gearOn(); }, start, stop, frame, camState, setLowLight, camInfo, lowLight, onCalPoint, nudge, setCoarse, resetView, calCancel, get coarse() { return coarse; }, calSkip, calStart, calRescan, detect, info, get on() { return S.on; } };
 }
 
 // ---------------------------------------------------------------- pose solve

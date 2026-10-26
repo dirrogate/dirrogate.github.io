@@ -666,6 +666,7 @@ export function startCamera(ctx) {
   const lineMat = new THREE.LineBasicMaterial({ color: 0x39e0ff, transparent: true, opacity: 0.25, depthTest: false, depthWrite: false });
   let ghosted = false, outlines = [];
   const _gm = new THREE.Matrix4(), _gb = new THREE.Box3(), _gs = new THREE.Vector3(), _gc = new THREE.Vector3();
+  const plainSc = new THREE.Scene();   // #515
   function ghost(on) {
     if (on === ghosted) return; ghosted = on;
     for (const l of outlines) { l.parent && l.parent.remove(l); l.geometry.dispose(); } outlines = [];
@@ -878,7 +879,7 @@ export function startCamera(ctx) {
     vs.frame(frame);   // #184: camera picture for the key / preview
     if (frame) renderer.setRenderTarget(xrRT);   // #204 back to the AR layer
     const stuDrew = !frame && studio.frame(now);   // #380 S8 STUDIO draws the screen (the TV / Twitch picture) instead of the mirror
-    if (!stuDrew) renderer.render(scene, camera);
+    if (!stuDrew) { if (fixed.on && !fixed.gear) { plainSc.background = scene.background; renderer.render(plainSc, camera); } else renderer.render(scene, camera); }   // #515 plain camera: the picture only
     if (stuDrew) { /* no LIVE CAM while the studio runs */ }
     else if (liveDue) liveAR(now);   // #238
     else if (liveLink && fixed.on && now - liveT > 32) liveFixed(now);   // #238 fixed mode at ~30 fps

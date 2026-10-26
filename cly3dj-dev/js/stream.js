@@ -310,11 +310,11 @@ export class Streamer {
     if (this.busy || now - this.showT < 33) return; this.showT = now;
     const r = this.env.renderer, c6 = this.env.phoneCam && this.env.phoneCam(), rig = this.env.rig;
     if (this.stu.mode === 'cam') {   // #501 WEBCAM: no gear and no calibration; only the overlays (scroller, now playing, logo, chat) with their matte
-      this.stuMsg = ''; const asp = c6 && c6.vw && c6.vh ? c6.vw / c6.vh : 16 / 9, H = Math.round(STU.CW / asp / 2) * 2;
+      this.stuMsg = ''; const ps = c6 || (this.env.phoneSize && this.env.phoneSize()), asp = ps && ps.vw && ps.vh ? ps.vw / ps.vh : 16 / 9, H = Math.round(STU.CW / asp / 2) * 2;
       if (H !== this.stuH) { this.stuH = H; this._sizeCanvas(STU.PW, H); }
       this._stuPack(null, performance.now()); return;
     }
-    if (!c6 || !c6.ff || !rig) { this.stuMsg = !c6 ? 'DirroVJ camera not calibrated: start the camera on the DirroVJ page, then Calibrate.' : 'The camera phone is in AR mode: use Fixed camera.'; this._stuPack(null, performance.now()); return; }
+    if (!c6 || !c6.ff || !rig) { this.stuMsg = !c6 ? 'Plain camera: no gear drawn over it (Calibrate the DirroVJ camera for that, or use WEBCAM).' : 'The camera phone is in AR mode: use Fixed camera.'; this._stuPack(null, performance.now()); return; }
     this.stuMsg = '';
     const asp = c6.vw && c6.vh ? c6.vw / c6.vh : 16 / 9, W = STU.CW, H = Math.round(W / asp / 2) * 2;
     if (H !== this.stuH) { this.stuH = H; this._sizeCanvas(STU.PW, H); }
@@ -685,7 +685,7 @@ export class Streamer {
     const asp = cam6 && cam6.vw ? cam6.vw / cam6.vh : packed ? 16 / 9 : v.videoWidth / v.videoHeight;
     const W = 1280, H = Math.round(W / asp / 2) * 2;
     this._sizeCanvas(W, H);
-    this.pkMsg = !cam6 ? 'phone not calibrated in fixed camera mode: gear not drawn' : !cam6.ff ? 'phone in AR mode: switch it to fixed camera' : '';
+    this.pkMsg = !cam6 ? 'plain camera: gear not drawn' : !cam6.ff ? 'phone in AR mode: switch it to fixed camera' : '';
     if (!this.pk || this.pk.W !== W || this.pk.H !== H) {
       if (this.pk) { this.pk.rt.dispose(); this.pk.out.dispose(); this.pk.bgRT.dispose(); }
       const half = r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float');

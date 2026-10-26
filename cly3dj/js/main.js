@@ -1347,7 +1347,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     else if (isLive(ledMode)) spect.liveCam(true, ledMode === 'solo'); else spect.liveCam(false);
   },
   // #347 PHONE CAM
-  rig, phoneVideo: () => (livePossible() ? liveVideo : null), phoneCam: () => (spect ? spect.phoneCam : null), skyGroup: () => skybox.group,
+  rig, phoneVideo: () => (livePossible() ? liveVideo : null), phoneCam: () => (spect ? spect.phoneCam : null), phoneSize: () => (spect ? spect.phoneSize : null) /* #515 */, skyGroup: () => skybox.group,
   lightInfo: () => {
     const kd = key.position.clone().sub(key.target.position).normalize().applyQuaternion(rig.getWorldQuaternion(new THREE.Quaternion()));
     const sk = skyKeyLight && streamer && streamer.pc_.light ? skyKeyLight : null;
@@ -1450,7 +1450,7 @@ function pcamStatus(S) {   // #374 shared by the PHONE CAM page and the SHOWTIME
   const C = S.pc_, cs = spect && spect.cam, pc6 = spect && spect.phoneCam, lat = S.delay != null ? Math.round(S.delay) : null;
   const v = livePossible() ? liveVideo : null, packed = v && v.videoWidth && Math.abs(v.videoWidth / v.videoHeight - 1920 / 720) < 0.06;
   return [
-    !spect ? 'Phone / DirroVJ link is off: Settings > Phone / DirroVJ link On, connect the phone.' : !cs ? 'Phone not connected.' : !cs.fixed ? 'Phone is in AR mode: start it in Fixed camera (tripod) mode.' : !pc6 ? 'Phone not calibrated: Calibrate on the phone (or NUDGE > CALIBRATE).' : `Phone fixed camera, calibrated${cs.fpx != null ? ' ' + cs.fpx + ' px' : ''}.`,
+    !spect ? 'Phone / DirroVJ link is off: Settings > Phone / DirroVJ link On, connect the phone.' : !cs ? 'Phone not connected.' : !cs.fixed ? 'Phone is in AR mode: start it in Fixed camera (tripod) mode.' : !pc6 ? 'Plain camera (not calibrated, or gear off on the phone): the picture shows, no gear over it. Calibrate on the phone to draw the gear.' : `Phone fixed camera, calibrated${cs.fpx != null ? ' ' + cs.fpx + ' px' : ''}.`,
     S.source !== 'pcam' ? 'Pick PHONE CAM in SHOWTIME! (TWITCH > OBJECTS) to use it.' : v && v.videoWidth ? `Video ${v.videoWidth} x ${v.videoHeight}${packed ? ' (colour + matte)' : ''}${S.pkMsg ? ' · ' + S.pkMsg : ''}` : 'Waiting for the phone video (the preview starts it).',
     lat != null ? `Video ${lat} ms late (measured)${C.lat ? ', gear, hands and stream sound held back ' + Math.round(S.latMs) + ' ms' : ''}.` : `Delay not measured: LATENCY MATCH uses ${C.manual} ms.`,
   ];
@@ -4967,7 +4967,7 @@ function drawCamTab(btn, y0) {
   g.textAlign = 'left'; g.font = '500 15px system-ui'; g.fillStyle = cs ? '#8c96a8' : '#c9a040';
   const pcTxt = '';   // #387 PerfCap's time and size are on its own page
   const stTxt = pcTxt + (!cs ? 'Phone not connected: Settings > Phone / DirroVJ link On, then Connect on the phone and start its camera.'
-    : cs.fixed ? `Phone ${cs.fps} fps · fixed camera (${cs.fcam === 'user' ? 'selfie' : 'main'}) · ${cs.fcal ? 'calibrating' : cs.cal ? 'calibrated' + (cs.fpx != null ? ' ' + cs.fpx + ' px' : '') : 'not calibrated: Calibrate on the phone'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : '')   // #213
+    : cs.fixed ? `Phone ${cs.fps} fps · fixed camera (${cs.fcam === 'user' ? 'selfie' : 'main'}) · ${cs.fcal ? 'calibrating' : cs.cal ? 'calibrated' + (cs.fpx != null ? ' ' + cs.fpx + ' px' : '') : 'plain camera, not calibrated'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : '')   // #213
     : `Phone ${cs.fps} fps${cs.late ? ` (${cs.late} late/s)` : ''} · ${cs.ar ? 'camera on' : 'camera not started'} · ${cs.cal ? 'calibrated' : 'not calibrated'}${cs.can ? '' : ' · no camera access'}` + (pvWanted ? (performance.now() - pvLast < 2000 ? ' · preview live' : ' · preview waiting') : ''));
   const extra = cs ? (cs.fixed ? 'Fixed camera: the key settings drive the PHONE CAM green screen (TWITCH > PHONE CAM SETUP)' : [cs.auto, cs.look].filter(Boolean).join(' · ')) : '';
   if (P) {   // portrait: the status lines wrap under the steppers
