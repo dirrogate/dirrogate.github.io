@@ -143,7 +143,10 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     const recs = new Set(getRecords().map(r => r.group)), next = new Map();
     const roots = [...Object.entries(stage.items).filter(([k]) => k !== 'preview').map(([k, v]) => [k, v.obj]), ...Object.entries(stage.cases).map(([k, c]) => [k, c.group])];
     const walk = (o, id) => { if (recs.has(o) || o.userData.noMirror) return;   // #195 noMirror: headset-only parts (preview lid, tablet corner)
-      next.set(id, reg.get(id)?.o === o ? reg.get(id) : { o, last: null }); o.children.forEach((c, i) => walk(c, id + '.' + i)); };
+      next.set(id, reg.get(id)?.o === o ? reg.get(id) : { o, last: null }); kids(o).forEach((c, i) => walk(c, id + '.' + i)); };
+    // #505 numbered without what moves between parents on its own (records, 45 adapters) or stays on the headset, so a 45 adapter
+    // put back in its recess (appended last) can't shift the other parts' numbers; the phone / DirroVJ number the same way
+    const kids = o => o.children.filter(c => !recs.has(c) && !c.userData.noMirror && !c.userData.mirrorSkip);
     for (const [k, o] of roots) walk(o, k);
     reg = next;
   }

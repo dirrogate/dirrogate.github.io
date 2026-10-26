@@ -414,7 +414,7 @@ export function startCamera(ctx) {
     const parts = id.split('.'), key = parts[0];
     let o = stage.items[key]?.obj || stage.cases[key]?.group;
     if (!o && /^milk[2-6]$/.test(key)) { o = newMilk(key); stage.items[key] = { obj: o, base: 0 }; }
-    for (let i = 1; o && i < parts.length; i++) o = o.children[+parts[i]];
+    for (let i = 1; o && i < parts.length; i++) o = o.children.filter(c => !c.userData.noMirror && !c.userData.mirrorSkip && !c.userData.mirrorRec)[+parts[i]];   // #505 same numbering as the Quest
     return o || null;
   }
   function addSample(S, t, s) {
@@ -828,6 +828,13 @@ export function startCamera(ctx) {
     }
     // mirror: gear nodes and records at the Quest's time minus DELAY
     applyCaseSizes(now);
+    // #505 the Quest moves each deck's slipmats into their own pivot inside the platter on its first frame (main.js #275). The mirror
+    // finds parts by their place in the tree, so without the same pivot here every part after the mats was off by one (mats hidden,
+    // other parts in each other's places). Same pivot, same order; redone if a model upgrade swaps the platter.
+    for (const d of ctx.decks || []) {
+      const u = d && d.g && d.g.userData; if (!u || !u.platter || !u.slipmat || !u.slipmat.length) continue;
+      if (!u.matPivot || u.matPivot.parent !== u.platter) { u.matPivot = new THREE.Group(); u.platter.add(u.matPivot); u.platter.updateMatrixWorld(true); for (const m of u.slipmat) u.matPivot.attach(m); }
+    }
     const rt = questNow() - DELAY - studio.sceneLag;   // #504 TRIM holds DirroVJ's own render back (lip sync with the sound)
     for (const e of nodes.values()) blendTo(e.s, rt, e.o, true);
     for (const R of recs.values()) {

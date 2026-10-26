@@ -2969,6 +2969,7 @@ function sleeveFollow(sl) {   // the held sleeve toward the hand, stopped by the
 // where it is (no physics, like the sleeves). Tidy-up at VR start puts them home.
 const _spv = new THREE.Vector3(), _sps = new THREE.Vector3(), _spm = new THREE.Matrix4();
 const spiders = decks.map(d => d.g.userData.spider ? { d, g: d.g.userData.spider, h: d.g.userData.spiderH || 0.003, anchor: null, off: null, on: null, home: d } : null).filter(Boolean);
+for (const s of spiders) s.g.userData.mirrorSkip = true;   // #505 the 45 adapters change parent (recess, spindle, hand): mirrored by 'sp', left out of the node numbering
 for (const s of spiders) s.d.recess = s;
 function spiderGrabTest(P) {
   for (const s of spiders) { if (s.anchor || (s.on && s.on.record)) continue; s.g.getWorldPosition(_spv); if (_spv.distanceTo(P) < 0.035) return s; }   // #260 not from under a record
