@@ -36,7 +36,8 @@ import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
 import { MovieProps, SURF_SLOTS, PLATE_BUILTIN, COLORS, PRESETS, NEON_FONTS, FOG_COLORS, MATTES, GRAFF_BUILTIN, DECAL_GROUND, DECAL_WALL, GRAFF_TINTS, removeFile } from './movieprops.js';   // #478 VJ TOOLS > MOVIE PROPS
-import { FX, USER_LAYER } from './fx.js';   // #379 VISUALS > FX: FLOAT and WATER
+import { FX, USER_LAYER } from './fx.js';
+import { makeRgbdGrab } from './rgbdgrab.js';   // #520 GRAB RGB-D for DirroComics (asked from the VJ desk)   // #379 VISUALS > FX: FLOAT and WATER
 import * as store from './storage.js';
 import * as loopDb from './loopbank.js';   // #470 loop slots and banks in private storage
 import { EnvLight } from './env.js';
@@ -892,7 +893,7 @@ void main() {
 // #413 the depth map lifted back into the room through the depth camera's own projection / pose (RealDepth): lines up
 // close to the headset, unlike three's screen-space copy (#411 owner: real hand / controller ~5 cm above the drawn one).
 // three's own occluder stays as the fallback if the depth info can't be read. The laser gets the same depth view.
-let realDepth = null, rdBinding = null, rdSession = null;
+let realDepth = null, rdBinding = null, rdSession = null, rgbd = null;   // #520 rgbd: GRAB RGB-D
 // #415 HEADSET CAM AUTO FIT (CAM FIT page): 9 crosshairs on the camera picture; the controller's front tip on each + trigger
 const camCal = { on: false, k: 0, samples: [], prev: {}, msg: '', handsWas: false };
 const _ccM = new THREE.Matrix4(), _ccH = new THREE.Matrix4(), _ccV = new THREE.Vector3();
@@ -930,7 +931,7 @@ function camCalStep() {   // per frame while on: a trigger press = one sample at
   }
 }
 function stepRealWorld(dt) {
-  if (!arMode || !renderer.xr.isPresenting) { if (realDepth) realDepth.clear(); if (laser) laser.setDepth(null); if (mprops) mprops.setDepth(null); return; }
+  if (!arMode || !renderer.xr.isPresenting) { if (realDepth) realDepth.clear(); if (laser) laser.setDepth(null); if (mprops) mprops.setDepth(null); if (rgbd) rgbd.tick(performance.now(), false); return; }
   const hasD = renderer.xr.hasDepthSensing && renderer.xr.hasDepthSensing();
   const occ = hasD ? renderer.xr.getDepthSensingMesh() : null;
   let rdOk = false;
@@ -942,6 +943,7 @@ function stepRealWorld(dt) {
     rdOk = realDepth.update(vp && vp.views, rdBinding, renderer.xr.getDepthTexture());
     realDepth.on = settings.occlusion !== false;
   }
+  if (rgbd) rgbd.tick(performance.now(), rdOk);   // #520 while this frame's depth texture is valid
   if (occ) { if (!occ.userData.vireOcc) patchOcclusion(occ); occ.visible = !rdOk && settings.occlusion !== false; }   // fallback only
   if (laser) laser.setDepth(rdOk && settings.roomHits !== false && laser.on ? realDepth.laserData() : null);   // beams stop at real hands / people
   if (mprops) mprops.setDepth(rdOk && settings.roomHits !== false ? realDepth.laserData() : null);   // #480 MOVIE PROPS fog is soft against real walls / people
@@ -8436,6 +8438,13 @@ async function applySpect() {
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => ({ ...led.state(), curve: ledwall.userData.curveDeg() }),   /* #358 */ onScreen: onPhoneScreen, getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
       getSpiders: spidersState,   // #262
       onVj: m => {   // #507 DirroVJ's scroller desk: an approved line onto the Quest's sine scroller (only from a DirroVJ the DJ allowed)
+        if (m.k === 'cxgrab') {   // #520 GRAB RGB-D (DirroComics): only for a DirroVJ the DJ allowed
+          if (!streamer || !streamer.vjAllowed) { if (spect) spect.cxSay('allow this DirroVJ on the Quest\'s DIRROVJ page first'); return; }
+          if (!rgbd) rgbd = makeRgbdGrab({ renderer, getDepth: () => (realDepth && realDepth.ok ? realDepth : null), getFit: () => streamer && streamer.fit,
+            getCamVideo: () => (streamer && streamer.camVideo && streamer.camStream && streamer.camStream.active && streamer.camVideo.videoWidth ? streamer.camVideo : null),
+            say: t => spect && spect.cxSay(t), sendFile: (b, n) => spect.sendCx(b, n), toast });
+          rgbd.start(m); return;
+        }
         if (!streamer || !streamer.vjAllowed || !m.t) return; const c = cleanText(String(m.t), 120); if (c.trim()) { scroller.start(c); toast('DirroVJ: on the sine scroller', 1500); }
       },
       getSleeves: () => sleeves.filter(s => !s.gone).map(s => { const t = s.rec.sides.A || s.rec.sides.B; return { sl: s, key: t ? coverKey(t) : '', title: s.rec.title || '', artist: s.rec.artist || '', size: s.rec.size === 7 ? 7 : 12 }; }),   // #503 sleeves out of the crate, mirrored

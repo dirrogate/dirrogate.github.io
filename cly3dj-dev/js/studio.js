@@ -408,5 +408,5 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   }
   function twStop(msg, err) { twClose(); twSet(err ? 'error' : 'off', msg || ''); }
   // the sound follows the Quest's SOUND switch (it simply stops sending); the element is never muted after START STUDIO
-  return { S, _U: U /* #504 test hook */, desk, onVjSms: m => { if (desk) desk.onVjSms(m); }, get sceneLag() { return vj && S.on && !S.paused && S.mode === 'show' && S.local ? S.trim : 0; }, onMsg, onScp, onTrack, onLink, frame, get on() { return S.on && !S.paused; }, get mon() { return S.on && !S.paused && S.mon; }, resume() { S.paused = false; apply(); } };
+  return { S, _U: U /* #504 test hook */, desk, onVjSms: m => { if (desk) desk.onVjSms(m); }, onCx: m => { if (desk) desk.onCx(m); },   /* #520 GRAB RGB-D */ get sceneLag() { return vj && S.on && !S.paused && S.mode === 'show' && S.local ? S.trim : 0; }, onMsg, onScp, onTrack, onLink, frame, get on() { return S.on && !S.paused; }, get mon() { return S.on && !S.paused && S.mon; }, resume() { S.paused = false; apply(); } };
 }

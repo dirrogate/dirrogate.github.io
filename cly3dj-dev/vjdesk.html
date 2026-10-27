@@ -53,7 +53,7 @@
   <div>
     <section>
       <h2>Program</h2>
-      <img id="pv" alt="">
+      <div style="position:relative"><img id="pv" alt=""><div id="pvWait" hidden style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;color:#b7c0d0;font-size:13px">No program picture yet: DirroVJ starts drawing when the Quest turns it on.</div></div>
       <div class="row" id="busA"><span class="lbl">A</span></div>
       <div class="row"><input type="range" id="xf" min="0" max="1" step="0.01" value="0"></div>
       <div class="row" id="busB"><span class="lbl">B</span></div>
@@ -100,7 +100,7 @@
   </div>
   <div class="row">
     <button id="cxImp">IMPORT…</button><input type="file" id="cxFile" multiple accept="image/*,video/*" hidden>
-    <button id="cxGrabQ" title="A still of the Quest picture (the studio composite)">GRAB QUEST</button><button id="cxGrabW" title="A still from this laptop's webcam">GRAB WEBCAM</button>
+    <button id="cxGrabQ" title="A still of the Quest picture (the studio composite)">GRAB QUEST</button><button id="cxGrabW" title="A still from this laptop's webcam">GRAB WEBCAM</button><button id="cxGrabD" title="5 s of the Quest's headset camera with its real depth (passthrough on). Comes back as an RGB+D panel.">GRAB RGB-D</button><button id="cxGrabDs" title="One still of the Quest's headset camera with its real depth">RGB-D STILL</button>
     <span class="sp">New panels: stereo</span><select id="cxSbsDef"><option value="auto">auto</option><option value="off">off</option><option value="full">full SBS</option><option value="half">half SBS</option></select>
     <span class="sp">style</span><select id="cxStyDef"></select>
     <span id="cxMsg" class="note" style="margin:0"></span>
@@ -124,7 +124,7 @@
       <div class="row"><label class="kv"><span class="sl">Style</span><select id="cxSty"></select></label><label class="kv"><span class="sl">Dots</span><input type="range" data-pk="dots" min="6" max="26" step="1"></label><label class="kv"><span class="sl">Ink</span><input type="range" data-pk="ink" min="0" max="1.5" step="0.05"></label></div>
       <div class="row"><label class="kv"><span class="sl">Bright</span><input type="range" data-pk="bright" min="-0.45" max="0.45" step="0.01"></label><label class="kv"><span class="sl">Contrast</span><input type="range" data-pk="contrast" min="0.5" max="2.6" step="0.05"></label></div>
       <div class="row"><label class="kv"><span class="sl">Frame X</span><input type="range" data-pk="fx" min="0" max="1" step="0.01"></label><label class="kv"><span class="sl">Y</span><input type="range" data-pk="fy" min="0" max="1" step="0.01"></label><label class="kv"><span class="sl">Zoom</span><input type="range" data-pk="zoom" min="1" max="3.5" step="0.02"></label></div>
-      <div class="row"><label class="kv"><span class="sl">Stereo</span><select id="cxSbs"><option value="0">flat</option><option value="1">full SBS</option><option value="2">half SBS</option></select></label><button id="cxSwap" title="If depth looks inside out">SWAP EYES</button><label class="kv"><span class="sl">Converge</span><input type="range" data-pk="conv" min="-0.08" max="0.08" step="0.002" title="SBS: moves the zero plane (set it so the DJ shows no red / cyan fringe). Flat: how much depth, spread by the depth map or the Flat depth shape. + = white at the screen, the rest behind; - = black at the screen, the rest in front. Past about 8 px the dots can lock onto their neighbours."></label><label class="kv"><span class="sl">Flat depth</span><select id="cxDm" title="ANAGLYPH depth for a flat (not side by side) picture"><option value="0">on screen</option><option value="1">behind</option><option value="2">ground</option></select><span id="cxDmN" class="sp"></span></label><label class="kv"><span class="sl">Pop</span><input type="range" data-pk="pop" min="0" max="16" step="1" title="How far balloons and SFX float in front (px)"></label></div>
+      <div class="row"><label class="kv"><span class="sl">Stereo</span><select id="cxSbs"><option value="0">flat</option><option value="1">full SBS</option><option value="2">half SBS</option><option value="3">RGB+D</option></select></label><button id="cxSwap" title="If depth looks inside out">SWAP EYES</button><label class="kv"><span class="sl">Converge</span><input type="range" data-pk="conv" min="-0.08" max="0.08" step="0.002" title="SBS: moves the zero plane (set it so the DJ shows no red / cyan fringe). Flat: how much depth, spread by the depth map or the Flat depth shape. + = white at the screen, the rest behind; - = black at the screen, the rest in front. Past about 8 px the dots can lock onto their neighbours."></label><label class="kv"><span class="sl">Flat depth</span><select id="cxDm" title="ANAGLYPH depth for a flat (not side by side) picture"><option value="0">on screen</option><option value="1">behind</option><option value="2">ground</option></select><span id="cxDmN" class="sp"></span></label><label class="kv"><span class="sl">Pop</span><input type="range" data-pk="pop" min="0" max="16" step="1" title="How far balloons and SFX float in front (px)"></label></div>
       <div id="cxItems"></div>
       <div class="row"><button data-add="cap">+ CAPTION</button><button data-add="speech">+ SPEECH</button><button data-add="thought">+ THOUGHT</button><button data-add="shout">+ SHOUT</button><button data-add="sfx">+ SFX</button></div>
     </div>
@@ -133,7 +133,7 @@
 <script>
 const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
 const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'LED CLIP', comic: 'DIRROCOMICS', black: 'BLACK' };   // #516
-let S = null, lastSeen = 0;
+let S = null, lastSeen = 0, realT = 0;   // #519 realT: last state from a real DirroVJ
 for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = document.createElement('button'); b.textContent = NAMES[k]; b.dataset.bus = bus; b.dataset.src = k; b.onclick = () => send({ k: 'bus', bus, v: k }); $(bus === 'a' ? 'busA' : 'busB').append(b); }
 $('xf').oninput = e => send({ k: 'x', v: +e.target.value });
 $('cut').onclick = () => send({ k: 'cut' }); $('auto').onclick = () => send({ k: 'auto', ms: +$('fadeMs').value });
@@ -177,6 +177,7 @@ for (const id of ['cxSty', 'cxStyDef']) $(id).innerHTML = STY.map(([v, l]) => `<
 $('cxImp').onclick = () => $('cxFile').click();
 $('cxFile').onchange = e => { const fs = [...e.target.files]; if (fs.length) cx('add', { files: fs.map(f => ({ blob: f, name: f.name })) }); e.target.value = ''; $('cxMsg').textContent = 'Importing ' + fs.length + '…'; };
 $('cxGrabQ').onclick = () => cx('grab', { src: 'quest' }); $('cxGrabW').onclick = () => cx('grab', { src: 'webcam' });
+$('cxGrabD').onclick = () => cx('grab', { src: 'rgbd' }); $('cxGrabDs').onclick = () => cx('grab', { src: 'rgbds' });   // #520
 $('cxPrev').onclick = () => cx('prev'); $('cxNext').onclick = () => cx('next');
 $('cxAna').onclick = () => cx('cfg', { v: { ana: !(CX && CX.cfg.ana) } }); $('cxSplit').onclick = () => cx('cfg', { v: { split: !(CX && CX.cfg.split) } });
 $('cxAuto').onchange = e => cx('cfg', { v: { auto: +e.target.value } });
@@ -234,8 +235,8 @@ function renderCx() {
   $('cxInfo').textContent = `#${P.indexOf(p) + 1} · ${p.name || ''} · ${p.w}×${p.h}`;
   if (document.activeElement !== $('cxSty')) $('cxSty').value = p.style; if (document.activeElement !== $('cxSbs')) $('cxSbs').value = String(p.sbs | 0);
   $('cxSwap').classList.toggle('on', !!p.swap); if (document.activeElement !== $('cxDm')) $('cxDm').value = String(p.dmode ?? 2);
-  $('cxDm').disabled = !!p.sbs || !!p.depth; $('cxDmN').textContent = p.depth ? 'depth map' : '';
-  $('cxDep').hidden = !!p.sbs; $('cxLive').disabled = p.kind !== 'video'; $('cxLive').classList.toggle('on', !!p.live); $('cxDOpen').classList.toggle('on', !$('cxDEd').hidden);
+  $('cxDm').disabled = !!p.sbs || !!p.depth; $('cxDmN').textContent = p.sbs === 3 ? 'recorded depth' + (p.depth ? ' + painted' : '') : p.depth ? 'depth map' : '';
+  $('cxDep').hidden = p.sbs === 1 || p.sbs === 2; $('cxLive').disabled = p.kind !== 'video' || p.sbs === 1 || p.sbs === 2; $('cxLive').classList.toggle('on', !!p.live); $('cxDOpen').classList.toggle('on', !$('cxDEd').hidden);
   if (DE.id && DE.id !== p.id) deClose();
   for (const r of document.querySelectorAll('[data-pk]')) if (document.activeElement !== r) r.value = p[r.dataset.pk];
   const focusIn = $('cxItems').contains(document.activeElement);
@@ -259,12 +260,13 @@ async function deOpen(p) {
   const url = URL.createObjectURL(f); let el;
   if (p.kind === 'video') { el = document.createElement('video'); el.muted = true; el.src = url; await new Promise(ok => { el.onloadeddata = ok; setTimeout(ok, 6000); }); el.currentTime = Math.min(0.5, (el.duration || 1) / 3); await new Promise(ok => { el.onseeked = ok; setTimeout(ok, 1500); }); }
   else { el = new Image(); await new Promise(ok => { el.onload = ok; el.onerror = ok; el.src = url; }); }
-  const k = Math.min(1, 1024 / Math.max(p.w, p.h)), W = Math.max(1, Math.round(p.w * k)), H = Math.max(1, Math.round(p.h * k));
-  const pic = document.createElement('canvas'); pic.width = W; pic.height = H; try { pic.getContext('2d').drawImage(el, 0, 0, W, H); } catch {} URL.revokeObjectURL(url);
+  const rgbd = p.sbs === 3, pw = rgbd ? p.w / 2 : p.w, k = Math.min(1, 1024 / Math.max(pw, p.h)), W = Math.max(1, Math.round(pw * k)), H = Math.max(1, Math.round(p.h * k));
+  const pic = document.createElement('canvas'); pic.width = W; pic.height = H; try { pic.getContext('2d').drawImage(el, 0, 0, pw, p.h, 0, 0, W, H); } catch {} URL.revokeObjectURL(url);   // #520 RGB+D: the picture half
   if (DE.id !== p.id) return;
   DE.img = pic; DE.dc = document.createElement('canvas'); DE.dc.width = W; DE.dc.height = H; const g = DE.dc.getContext('2d');
   const df = p.depth ? await cxRead(p.depth) : null;
   if (df) { const u = URL.createObjectURL(df), im = new Image(); await new Promise(ok => { im.onload = ok; im.onerror = ok; im.src = u; }); g.drawImage(im, 0, 0, W, H); URL.revokeObjectURL(u); }
+  else if (rgbd) { g.fillStyle = '#000'; g.fillRect(0, 0, W, H); }   // RGB+D: the recorded depth is already there; paint only what should come FRONT
   else rampTo(g, W, H);
   $('cxDC').width = W; $('cxDC').height = H; $('cxDEd').hidden = false; deShow();
   $('cxDSt').textContent = p.depth ? (p.kind === 'video' ? 'Painted on a frame near the start of the clip.' : '') : 'No depth map yet: it starts as a ground ramp and saves itself when you paint, PEOPLE, FILL or SOFTEN.';
@@ -322,7 +324,15 @@ $('cxPeople').onclick = async () => {
 };
 bc.onmessage = e => {
   const m = e.data || {}; lastSeen = Date.now();
-  if (m.k === 'state') { S = m; render(); CX = m.C || null; renderCx(); $('st').textContent = 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'; }
+  if (m.k === 'state') {
+    if (m.test && Date.now() - realT < 4000) return;   // #519 the DirroComics test page steps aside when a real DirroVJ answers
+    if (!m.test) realT = Date.now();
+    S = m; render(); CX = m.C || null; renderCx();
+    $('st').textContent = m.test ? 'Connected to the DirroComics TEST page: only the DirroComics section works here (no buses, fractal or program picture). Open dirrovj.html for the real desk.'
+      : m.live ? 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'
+      : 'Connected to DirroVJ, waiting for the Quest: the program picture starts when the Quest turns DirroVJ on (tablet: TWITCH > DIRROVJ). Buses still switch; DirroComics editing works.';
+    $('pvWait').hidden = !!m.live || !!m.test;
+  }
   else if (m.k === 'pv') $('pv').src = m.img;
   else if (m.k === 'cxpv') { if (m.id === cxSel) { if (m.blob) { const u = URL.createObjectURL(m.blob); if (cxPvUrl) URL.revokeObjectURL(cxPvUrl); cxPvUrl = u; $('cxPv').src = u; } else if (m.img) $('cxPv').src = m.img; } }   // #516, #518 a blob now
   else if (m.k === 'cxlist') { cxThumbs = m.thumbs || {}; cxListN++; renderCx(); }

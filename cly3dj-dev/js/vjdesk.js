@@ -116,7 +116,9 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio }
   const ledTex = led.video ? new THREE.VideoTexture(led.video) : null; if (ledTex) { ledTex.colorSpace = THREE.NoColorSpace; ledTex.generateMipmaps = false; }
   const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 } };
   const mMat = new THREE.ShaderMaterial({ uniforms: mU, vertexShader: VS, fragmentShader: MIX_FS, depthTest: false, depthWrite: false }), mSc = quad(mMat);
-  const comics = makeComics({ THREE, renderer, fixed, send: m => bc.postMessage(m), onChange: () => post() }); let comicTex = null;   // #516
+  const comics = makeComics({ THREE, renderer, fixed, send: m => bc.postMessage(m), onChange: () => post(),   // #516
+    requestRgbd: still => { const L = getLink(); if (!L || !L.isOpen) return 'no Quest link (connect DirroVJ to the Quest first)'; L.send('ctl', { k: 'cxgrab', still: !!still, ms: 5000 }); return ''; } });   // #520
+  let comicTex = null;
 
   // ---- fractal flight: zoom in toward a target and out again (ping-pong), orbit round it; REACT lifts the heights on the bass
   const F = { z: 0, dir: 1, a: 0, ti: 0, j: 0, type: '', c: new THREE.Vector2(-0.6, 0) };
@@ -161,7 +163,9 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio }
   }
   // ---- the program picture: called by studio.js with its composite, draws to the screen
   let lastT = 0, pvT = 0; const pv = document.createElement('canvas'); pv.width = 256; pv.height = 144;
+  let outT = 0;   // #519 last program frame: the desk says when DirroVJ is waiting for the Quest
   function output(questTex, now, W, H) {
+    outT = now;
     const dt = Math.min(0.1, lastT ? (now - lastT) / 1000 : 0.016); lastT = now;
     if (D.fadeTo != null) { const step = dt * 1000 / Math.max(50, D.fadeMs); D.x += Math.sign(D.fadeTo - D.x) * step; if (Math.abs(D.fadeTo - D.x) <= step) { D.x = D.fadeTo; D.fadeTo = null; post(); } }
     const used = (D.x < 1 ? [D.a] : []).concat(D.x > 0 ? [D.b] : []);
@@ -208,7 +212,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio }
   const bc = new BroadcastChannel('dirrovj'); let peers = 0, postT = 0;
   async function post() {
     const now = performance.now(); if (now - postT < 60) { clearTimeout(post.t); post.t = setTimeout(post, 70); return; } postT = now;
-    bc.postMessage({ k: 'state', D: { ...D, fr: { ...D.fr } }, queue, devs: await devices(), sources: SOURCES, C: comics.state() });
+    bc.postMessage({ k: 'state', D: { ...D, fr: { ...D.fr } }, queue, devs: await devices(), sources: SOURCES, C: comics.state(), live: performance.now() - outT < 1500 });
   }
   bc.onmessage = e => {
     const m = e.data || {}; peers = 1;
@@ -226,5 +230,8 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio }
     else if (m.k === 'audio') setAudio(m.v, m.dev);
   };
   setInterval(() => { if (peers) post(); }, 1500);
-  return { D, output, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null), queue, comics, _F: F };
+  // #519 the Quest hasn't turned DirroVJ on (no program frames): keep DirroComics editing alive (desk preview, grabs, AUTO).
+  // tick() draws only into its own render targets, never to the screen, so it doesn't fight the camera page's own drawing.
+  let idleT = 0; setInterval(() => { const now = performance.now(); if (now - outT < 1000 || !peers) return; const dt = idleT ? Math.min(0.25, (now - idleT) / 1000) : 0.12; idleT = now; try { comics.tick(null, now, dt); } catch (e) { console.warn('comics idle', e); } }, 120);
+  return { D, output, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null), queue, comics, onCx: m => { if (m.blob) comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
 }

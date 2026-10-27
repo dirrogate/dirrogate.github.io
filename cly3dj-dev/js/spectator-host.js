@@ -430,7 +430,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       if (m.k === 'cst') { camState = m; onCam && onCam(m); return; }
       if (m.k === 'sst') { onStudio && onStudio('sst', m); return; }   // #380 the S8 studio's status (once a second)
       if (m.k === 'screen') { onScreen && onScreen(!!m.on); return; }   // #358   // #188 the phone's camera / key / look state
-      if (m.k === 'vjsine') { onVj && onVj(m); return; }   // #507 DirroVJ scroller desk (main.js checks the pairing)
+      if (m.k === 'vjsine' || m.k === 'cxgrab') { onVj && onVj(m); return; }   // #507 DirroVJ scroller desk, #520 GRAB RGB-D (main.js checks the pairing)
       if (m.k === 'cover?') { onCoverAsk(m.key); return; }   // #218
       if (m.k === 'covhave') { if (haveWait) { const w = haveWait; haveWait = null; w(m.keys || []); } return; }
       if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }
@@ -499,7 +499,13 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     mr = on; if (!on) frustum.visible = false; out.send('ctl', { k: 'mr', on });
     say(on ? ['MR GUI ON', 'Viewfinder here, menus + helpers on the phone.'] : ['MR GUI OFF', 'Phone is clean: start its screen recorder,', 'then clap once.'], on ? '#39a8ff' : '#ff5060'); doneT = 2.5;
   }
-  return { tick, close: () => { link.close(); scene.remove(panel); rig.remove(frustum); },
+  // #520 GRAB RGB-D: the recorded file back to DirroVJ ('cxput', then 64 KB chunks on 'file'; one at a time, not during a media sync)
+  async function sendCx(blob, name) {
+    if (!link.isOpen || !link.fileOpen) throw new Error('DirroVJ link not ready'); if (sync.on) throw new Error('a media sync is running');
+    link.send('ctl', { k: 'cxput', n: name, size: blob.size, type: blob.type });
+    for (let pos = 0; pos < blob.size; pos += CH) await link.sendBin(await blob.slice(pos, Math.min(blob.size, pos + CH)).arrayBuffer());
+  }
+  return { tick, close: () => { link.close(); scene.remove(panel); rig.remove(frustum); }, sendCx, cxSay: t => link.send('ctl', { k: 'cxst', t }),   // #520
     ui: () => ({ mr, phone: link.isOpen && performance.now() - lastPing < 3500 }), setMR,
     liveCam: (on, solo = false, o = {}) => link.send('ctl', { k: 'live', on: !!on, solo: !!solo, pcam: !!o.pcam, green: !!o.green }),   // #347 o: PHONE CAM plain / green-screen packed
     helpers: [frustum, panel],   // #347 hidden from the PHONE CAM render

@@ -47,8 +47,10 @@ export function startCamera(ctx) {
       link.send('ctl', { k: 'qgo', f: m.f, n: m.n, off: r.off });
     }).catch(e => st('Sync: ' + e.message));
   }
+  let cxrx = null;   // #520 GRAB RGB-D file from the Quest (whole file in memory, a few MB)
   function onSyncBin(buf, label) {
     if (label !== 'file') return;
+    if (cxrx) { cxrx.parts.push(buf); cxrx.got += buf.byteLength; if (cxrx.got >= cxrx.size) { const r = cxrx; cxrx = null; studio.onCx({ blob: new Blob(r.parts, { type: r.type }), name: r.n }); } return; }
     const r = qrx; if (!r) return;
     if (r.write(buf)) {
       qrx = null;
@@ -616,6 +618,8 @@ export function startCamera(ctx) {
     else if (m.k === 'recdel') onRecDel(m.uid);
     else if (m.k === 'slv') onSlv(m);   // #503
     else if (m.k === 'vjsms') studio.onVjSms(m);   // #507 HoloSMS for the scroller desk
+    else if (m.k === 'cxput') { cxrx = { n: m.n, size: m.size, type: m.type || '', parts: [], got: 0 }; studio.onCx({ t: 'receiving ' + m.n + '…' }); if (!m.size) { cxrx = null; } }   // #520
+    else if (m.k === 'cxst') studio.onCx({ t: m.t });
     else if (m.k === 'slvdel') onSlvDel(m.uid);
     else if (m.k === 'calpt') { if (!(fixed.on && fixed.onCalPoint(m))) onCalPoint(m); }   // #208 fixed camera taps first
     else if (m.k === 'calskip') { if (fixed.on) fixed.calSkip(); }   // #211 the Quest's grip skips an auto point
