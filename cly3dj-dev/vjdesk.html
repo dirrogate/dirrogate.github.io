@@ -60,6 +60,12 @@
       <div class="row"><button id="cut">CUT</button><button id="auto">AUTO</button><select id="fadeMs"><option value="800">0.8 s</option><option value="2000" selected>2 s</option><option value="5000">5 s</option></select></div>
       <div class="note">QUEST = the picture DirroVJ gets from the Quest (SHOW, LIVE DJ!, KEY, WEBCAM mode as picked on the tablet) with its overlays. WEBCAM = this laptop's webcam as it is (start it on the DirroVJ page). LED CLIP = DirroVJ's copy of the LED clip.</div>
     </section>
+    <section style="margin-top:14px" id="shS">
+      <h2>SHOWTIME! <span class="note" style="text-transform:none;letter-spacing:0">the Quest's camera (the QUEST bus)</span></h2>
+      <div class="row" id="shCam"></div>
+      <div class="row" id="shObj"></div>
+      <div class="note" id="shN">Same buttons as the tablet's SHOWTIME! page; whatever is tapped last wins, the tablet stays in charge.</div>
+    </section>
     <section style="margin-top:14px">
       <h2>Amiga fractal</h2>
       <div class="row"><button data-ft="mandel">MANDEL</button><button data-ft="julia">JULIA</button><button data-ft="ship">SHIP</button><button data-ft="multi">MULTI</button></div>
@@ -105,6 +111,8 @@
     <span class="sp">style</span><select id="cxStyDef"></select>
     <span id="cxMsg" class="note" style="margin:0"></span>
   </div>
+  <div class="row" id="cxIssueRow"><b class="sp" style="color:#f2c94c">ISSUE</b><button id="cxSave" title="The whole issue (panels, pictures, clips, depth maps, text) as one .dirrocomic file in Downloads">SAVE ISSUE</button><button id="cxOpen" title="Open a .dirrocomic file: it replaces the strip on DirroVJ">OPEN ISSUE…</button><input type="file" id="cxOpenF" accept=".dirrocomic,.zip" hidden><button id="cxNew" title="Start an empty strip with the next issue number">NEW ISSUE</button>
+    <span class="sp" style="margin-left:14px">EXPORT</span><button id="cxMp4" title="The strip playing through as on the club screen (slides, video panels at their length). Real time: keep the DirroVJ window visible.">MP4</button><select id="cxHold" title="Seconds per still panel"><option value="3">3 s</option><option value="4" selected>4 s</option><option value="6">6 s</option><option value="8">8 s</option></select><select id="cxRes"><option value="720">720p</option><option value="1080">1080p</option></select><button id="cxPdf" title="Newspaper strip pages: 4 panels in a row per page">PDF STRIP</button><button id="cxStop" title="Stop the running export">STOP</button></div>
   <div id="cxStrip"></div>
   <div id="cxEd" hidden>
     <div>
@@ -322,12 +330,62 @@ $('cxPeople').onclick = async () => {
     deShow(); deSave(true); $('cxDSt').textContent = n ? `PEOPLE: ${Math.round(n * 100 / (w * h))}% of the picture painted ${t === 255 ? 'FRONT' : 'in the picked tone'}.` : 'PEOPLE: nobody found (the model likes people fairly large in the frame).';
   } catch (e) { $('cxDSt').textContent = 'PEOPLE failed: ' + (e.message || e); }
 };
+
+// ---- #522 issues (.dirrocomic) and exports (MP4, PDF). The desk zips straight from DirroVJ's storage folder; exports are made
+// on the DirroVJ page (it has the renderer) and come back here as a file to download.
+function cxDownload(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 120000); }
+const cxSay = t => { $('cxMsg').textContent = t; clearTimeout(cxMsgT); cxMsgT = setTimeout(() => { $('cxMsg').textContent = ''; }, 8000); };
+function cxBase() { return ('DirroComics ' + ((CX && CX.cfg.issue) || '') + ' ' + new Date().toISOString().slice(0, 10)).trim().replace(/[^\w#\- ]+/g, '').replace(/\s+/g, '_'); }
+$('cxSave').onclick = async () => {
+  if (!CX || !CX.panels.length) { cxSay('Nothing to save: the strip is empty'); return; }
+  try {
+    cxSay('SAVE ISSUE: collecting the files…'); const { zipFiles } = await import('./js/cxfiles.js');
+    const P = CX.panels, files = [], seen = new Set(); let missing = 0;
+    const manifest = { format: 'dirrocomic', v: 1, saved: new Date().toISOString(), app: 'DirroDJ', cfg: CX.cfg, cur: CX.cur, panels: P.map(p => ({ ...p, thumb: cxThumbs[p.id] || '' })) };
+    files.push({ name: 'manifest.json', blob: new Blob([JSON.stringify(manifest, null, 1)], { type: 'application/json' }) });
+    for (const p of P) for (const n of [p.file, p.depth]) if (n && !seen.has(n)) { seen.add(n); const f = await cxRead(n); if (f) files.push({ name: 'media/' + n, blob: f }); else missing++; }
+    const z = await zipFiles(files, (i, n) => cxSay(`SAVE ISSUE: ${i} / ${n}…`));
+    cxDownload(new Blob([z], { type: 'application/zip' }), cxBase() + '.dirrocomic');
+    cxSay(`Saved ${P.length} panels, ${(z.size / 1e6).toFixed(1)} MB to Downloads${missing ? ` (${missing} file${missing === 1 ? '' : 's'} missing from storage)` : ''}`);
+  } catch (e) { cxSay('SAVE ISSUE failed: ' + (e.message || e)); }
+};
+$('cxOpen').onclick = () => $('cxOpenF').click();
+$('cxOpenF').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const { unzipFiles } = await import('./js/cxfiles.js'), m = await unzipFiles(f), mf = m.get('manifest.json');
+    if (!mf) throw new Error('no manifest: not a .dirrocomic'); const man = JSON.parse(await mf.text());
+    if (man.format !== 'dirrocomic' || !Array.isArray(man.panels)) throw new Error('not a .dirrocomic');
+    if (CX && CX.panels.length && !confirm(`Open "${(man.cfg && man.cfg.issue) || f.name}" (${man.panels.length} panels)?\n\nIt replaces the strip on DirroVJ. SAVE ISSUE first if you want to keep the current one.`)) return;
+    let i = 0; const media = [...m].filter(([n]) => n.startsWith('media/'));
+    for (const [n, b] of media) { cxSay(`OPEN ISSUE: ${++i} / ${media.length}…`); await cxWrite(n.slice(6), b); }
+    cxSel = null; cx('load', { cfg: man.cfg || {}, cur: man.cur || 0, panels: man.panels });
+  } catch (err) { cxSay('OPEN ISSUE failed: ' + (err.message || err)); }
+};
+$('cxNew').onclick = () => {
+  if (!CX) return; const next = String(CX.cfg.issue || 'ISSUE #0').replace(/\d+(?!.*\d)/, d => String(+d + 1)), issue = /\d/.test(next) ? next : 'ISSUE #1';
+  if (CX.panels.length && !confirm(`Start ${issue} with an empty strip?\n\nThe current strip is cleared from DirroVJ. SAVE ISSUE first if you want to keep it.`)) return;
+  cxSel = null; cx('load', { cfg: { ...CX.cfg, issue }, cur: 0, panels: [] });
+};
+$('cxMp4').onclick = () => cx('mp4', { hold: +$('cxHold').value, res: +$('cxRes').value });
+$('cxPdf').onclick = () => cx('pdf'); $('cxStop').onclick = () => cx('expstop');
+// ---- #523 SHOWTIME! remote: camera pick + objects, sent to the Quest through DirroVJ; lit from the Quest's own state (D.sh)
+const SH_CAMS = [['gopro', 'GOPRO'], ['gopro2', 'GOPRO2'], ['front', 'FRONT'], ['faders', 'FADERS'], ['headset', 'HEADSET CAM']];
+const SH_OBJ = [['wall', 'LED WALL'], ['neon', 'NEON'], ['panel', 'CHAT PANEL'], ['chalk', 'WHITEBOARD'], ['gear', 'GEAR'], ['robot', 'ROBO-BODY'], ['dome', 'DOME'], ['scroll', 'SCROLLER'], ['np', 'NOW PLAYING'], ['logo', 'LOGO']];
+for (const [k, l] of SH_CAMS) { const b = document.createElement('button'); b.textContent = l; b.dataset.sh = k; b.onclick = () => send({ k: 'show', cam: k }); $('shCam').append(b); }
+for (const [k, l] of SH_OBJ) { const b = document.createElement('button'); b.textContent = l; b.dataset.so = k; b.onclick = () => { const sh = S && S.D.sh; send({ k: 'show', opt: k, v: !(sh && sh.o && sh.o[k]) }); }; $('shObj').append(b); }
+function renderShow() {
+  const sh = S && S.D && S.D.sh;
+  for (const b of document.querySelectorAll('[data-sh]')) { b.classList.toggle('on', !!sh && sh.cam === b.dataset.sh); b.disabled = !sh || (b.dataset.sh === 'gopro' && !sh.gp) || (b.dataset.sh === 'gopro2' && !sh.gp2); }
+  for (const b of document.querySelectorAll('[data-so]')) { b.classList.toggle('on', !!sh && !!sh.o && !!sh.o[b.dataset.so]); b.disabled = !sh; }
+  $('shN').textContent = sh ? 'Same buttons as the tablet\'s SHOWTIME! page; whatever is tapped last wins, the tablet stays in charge.' : 'Waiting for the Quest: these light up once the Quest has turned DirroVJ on (and allowed this laptop).';
+}
 bc.onmessage = e => {
   const m = e.data || {}; lastSeen = Date.now();
   if (m.k === 'state') {
     if (m.test && Date.now() - realT < 4000) return;   // #519 the DirroComics test page steps aside when a real DirroVJ answers
     if (!m.test) realT = Date.now();
-    S = m; render(); CX = m.C || null; renderCx();
+    S = m; render(); CX = m.C || null; renderCx(); renderShow();   // #523
     $('st').textContent = m.test ? 'Connected to the DirroComics TEST page: only the DirroComics section works here (no buses, fractal or program picture). Open dirrovj.html for the real desk.'
       : m.live ? 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'
       : 'Connected to DirroVJ, waiting for the Quest: the program picture starts when the Quest turns DirroVJ on (tablet: TWITCH > DIRROVJ). Buses still switch; DirroComics editing works.';
@@ -335,6 +393,7 @@ bc.onmessage = e => {
   }
   else if (m.k === 'pv') $('pv').src = m.img;
   else if (m.k === 'cxpv') { if (m.id === cxSel) { if (m.blob) { const u = URL.createObjectURL(m.blob); if (cxPvUrl) URL.revokeObjectURL(cxPvUrl); cxPvUrl = u; $('cxPv').src = u; } else if (m.img) $('cxPv').src = m.img; } }   // #516, #518 a blob now
+  else if (m.k === 'cxfile') { if (m.blob) cxDownload(m.blob, m.name || 'dirrocomics'); }   // #522 an export, ready
   else if (m.k === 'cxlist') { cxThumbs = m.thumbs || {}; cxListN++; renderCx(); }
   else if (m.k === 'cxmsg') { $('cxMsg').textContent = m.t; clearTimeout(cxMsgT); cxMsgT = setTimeout(() => { $('cxMsg').textContent = ''; }, 6000); }
 };

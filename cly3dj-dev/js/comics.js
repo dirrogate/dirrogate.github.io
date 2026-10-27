@@ -293,7 +293,7 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
   }
   function draw(rt) { renderer.setRenderTarget(rt); renderer.render(pageSc, oc); }
   let playing = new Set();
-  function pauseOthers(want) { for (const [id, r] of res) if (!want.has(id) && r.el && r.el.pause && !r.el.paused) r.el.pause(); playing = want; }
+  function pauseOthers(want) { if (exp) for (const id of exp.want) want.add(id); for (const [id, r] of res) if (!want.has(id) && r.el && r.el.pause && !r.el.paused) r.el.pause(); playing = want; }   // #522 an export keeps its panels playing
   // ---- called every program frame by vjdesk.js
   function tick(questTex, now, dt) {
     lastQ = questTex;
@@ -320,6 +320,113 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
     if (!panels.length) return; i = Math.max(0, Math.min(panels.length - 1, i | 0));
     if (Math.abs(i - pos) > 1.5) pos = i + (i > pos ? -1 : 1);   // a far jump slides in from the neighbour
     cur = i; autoT = 0; changed(false);
+  }
+
+  // ---- #522 issues and exports ----------------------------------------------------------------------------------------
+  let exp = null;   // the running export (MP4 / PDF): its panels stay loaded and playing
+  async function loadIssue(m) {   // the desk has already written the issue's media / depth files into this folder
+    if (exp) { send({ k: 'cxmsg', t: 'Wait for the export to finish first' }); return; }
+    for (const id of [...res.keys()]) dropRes(id);
+    panels.length = 0; for (const p of m.panels || []) panels.push({ ...PANEL_DEF, ...p });
+    Object.assign(cfg, CFG_DEF, m.cfg || {});
+    cur = pos = Math.min(Math.max(0, m.cur | 0), Math.max(0, panels.length - 1)); changed(true);
+    const d = await dir; let gone = 0;
+    if (d) {   // files no panel uses any more (the old issue's): out of storage
+      const keep = new Set(['strip.json']); for (const p of panels) { keep.add(p.file); if (p.depth) keep.add(p.depth); }
+      const old = []; for await (const [n, h] of d.entries()) if (h.kind === 'file' && !keep.has(n) && !/\.crswap$/.test(n)) old.push(n);
+      for (const n of old) { try { await d.removeEntry(n); gone++; } catch {} }
+    }
+    send({ k: 'cxmsg', t: (panels.length ? `Opened ${cfg.issue || 'the issue'}: ${panels.length} panel${panels.length === 1 ? '' : 's'}` : `New issue: ${cfg.issue || ''}, empty strip`) + (gone ? ` (${gone} old file${gone === 1 ? '' : 's'} cleared)` : '') });
+  }
+  async function ready(p, ms = 8000) {   // media (and depth map) loaded for a panel
+    const r = resOf(p), t0 = performance.now();
+    while (!r.tex && performance.now() - t0 < ms) await new Promise(ok => setTimeout(ok, 100));
+    if (p.depth) { depthOf(p, r); const t1 = performance.now(); while (!r.dtex && performance.now() - t1 < 3000) await new Promise(ok => setTimeout(ok, 100)); }
+    return r;
+  }
+  const fileBase = () => ('DirroComics ' + (cfg.issue || '') + ' ' + new Date().toISOString().slice(0, 10)).trim().replace(/[^\w#\- ]+/g, '').replace(/\s+/g, '_');
+  // MP4: the page as on the club screen, each panel held (video panels for their length, up to 20 s), sliding to the next
+  async function exportMp4(m) {
+    if (exp) { send({ k: 'cxmsg', t: 'An export is already running' }); return; } if (!panels.length) { send({ k: 'cxmsg', t: 'No panels to export' }); return; }
+    const big = +m.res === 1080, W = big ? 1920 : 1280, H = big ? 1080 : 720, hold = Math.max(1, Math.min(20, +m.hold || 4)), tr = 0.8;
+    exp = { kind: 'mp4', want: new Set(panels.map(p => p.id)), stop: false };
+    send({ k: 'cxmsg', t: 'MP4: loading the panels…' });
+    for (const p of panels) await ready(p);
+    const segs = []; let total = 0;
+    panels.forEach((p, i) => { const r = res.get(p.id), d = p.kind === 'video' && r && r.el && isFinite(r.el.duration) && r.el.duration > 0 ? Math.min(20, Math.max(hold, r.el.duration)) : hold; segs.push({ i, t0: total, hold: d }); total += d + (i < panels.length - 1 ? tr : 0); });
+    const rt = mkRT(W, H), buf = new Uint8Array(W * H * 4), c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d'), img = g.createImageData(W, H);
+    const types = ['video/mp4;codecs=avc1.640028', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+    const type = types.find(x => window.MediaRecorder && MediaRecorder.isTypeSupported(x)) || '';
+    const track = c.captureStream(0).getVideoTracks()[0], rec = new MediaRecorder(new MediaStream([track]), { mimeType: type || undefined, videoBitsPerSecond: big ? 12e6 : 8e6 }), chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    const stopped = new Promise(ok => { rec.onstop = ok; });
+    let busy = false, lastSec = -1, segOn = -1; const t0 = performance.now(); rec.start(500);
+    await new Promise(fin => {
+      const step = () => {
+        const now = performance.now(), tt = (now - t0) / 1000;
+        if (exp.stop || tt >= total) { fin(); return; }
+        let at = 0;
+        for (const s of segs) {
+          if (tt < s.t0) break;
+          if (tt < s.t0 + s.hold) { at = s.i; if (segOn !== s.i) { segOn = s.i; const r = res.get(panels[s.i].id); if (r && r.el && r.el.play) { try { r.el.currentTime = 0; } catch {} r.el.play().catch(() => {}); } } }
+          else { const k = Math.min(1, (tt - s.t0 - s.hold) / tr); at = s.i + k * k * (3 - 2 * k); }
+        }
+        if (!busy) {
+          layout(at, now); draw(rt); renderer.setRenderTarget(null); busy = true;
+          renderer.readRenderTargetPixelsAsync(rt, 0, 0, W, H, buf).then(() => {
+            busy = false; for (let y = 0; y < H; y++) img.data.set(buf.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
+            g.putImageData(img, 0, 0); track.requestFrame();
+          }).catch(() => { busy = false; });
+        }
+        const sec = Math.floor(tt); if (sec !== lastSec && sec % 2 === 0) { lastSec = sec; send({ k: 'cxmsg', t: `MP4: recording ${sec} / ${Math.round(total)} s. Keep the DirroVJ window visible.` }); }
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+    rec.stop(); await stopped; rt.dispose();
+    const early = exp.stop, blob = new Blob(chunks, { type: rec.mimeType || type || 'video/webm' }), ext = /mp4/.test(blob.type) ? 'mp4' : 'webm'; exp = null;
+    if (!blob.size) { send({ k: 'cxmsg', t: 'MP4: nothing was recorded' }); return; }
+    send({ k: 'cxfile', name: fileBase() + '.' + ext, blob });
+    send({ k: 'cxmsg', t: `MP4 ready: ${(blob.size / 1e6).toFixed(1)} MB, ${Math.round(total)} s${ext === 'webm' ? ' (this browser records WebM, not MP4)' : ''}${early ? ' (stopped early)' : ''}` });
+  }
+  // PDF: newspaper strip pages, 4 panels in a row per page, masthead and footer; panels rendered at 2x as on the screen (anaglyph too if on)
+  async function exportPdf() {
+    if (exp) { send({ k: 'cxmsg', t: 'An export is already running' }); return; } if (!panels.length) { send({ k: 'cxmsg', t: 'No panels to export' }); return; }
+    exp = { kind: 'pdf', want: new Set(panels.map(p => p.id)), stop: false };
+    try {
+      const { pdfFromJpegs } = await import('./cxfiles.js');
+      const S = 2, rt = mkRT(REF.W * S, REF.H * S), pw = (REF.pw + 10) * S, ph = (REF.ph + 10) * S, buf = new Uint8Array(pw * ph * 4), shots = [];
+      for (let i = 0; i < panels.length; i++) {
+        if (exp.stop) throw new Error('stopped');
+        send({ k: 'cxmsg', t: `PDF: panel ${i + 1} / ${panels.length}…` });
+        const p = panels[i], r = await ready(p);
+        if (p.kind === 'video' && r.el) { try { r.el.pause(); r.el.currentTime = Math.min(0.5, (r.el.duration || 1) / 3); await new Promise(ok => { r.el.onseeked = ok; setTimeout(ok, 1500); }); } catch {} if (r.tex) r.tex.needsUpdate = true; }
+        layout(i, performance.now() + 1e6); draw(rt); renderer.setRenderTarget(null);
+        renderer.readRenderTargetPixels(rt, (REF.x - 5) * S, (REF.H - REF.top - REF.ph - 5) * S, pw, ph, buf);   // the panel and its frame only
+        const c = document.createElement('canvas'); c.width = pw; c.height = ph; const g = c.getContext('2d'), im = g.createImageData(pw, ph);
+        for (let y = 0; y < ph; y++) im.data.set(buf.subarray((ph - 1 - y) * pw * 4, (ph - y) * pw * 4), y * pw * 4);
+        g.putImageData(im, 0, 0); shots.push(c);
+      }
+      rt.dispose();
+      const PW = 1000, PH = Math.round(PW * ph / pw), GAP = 36, M = 60, TOP = 150, FOOT = 90, W = M * 2 + PW * 4 + GAP * 3, H = M + TOP + PH + FOOT + 30;
+      const pages = [], N = Math.ceil(shots.length / 4), paper = '#f3ead4', ink = '#181514';
+      for (let k = 0; k < N; k++) {
+        send({ k: 'cxmsg', t: `PDF: page ${k + 1} / ${N}…` });
+        const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
+        g.fillStyle = paper; g.fillRect(0, 0, W, H); g.fillStyle = ink; g.textBaseline = 'alphabetic';
+        g.font = `110px ${FONT.sfx}`; g.textAlign = 'left'; g.fillText('DIRROCOMICS', M, M + 100);
+        g.font = `40px ${FONT.cap}`; g.textAlign = 'right'; g.fillText((cfg.issue || '') + '  ·  10 CENTS', W - M, M + 90);
+        g.fillRect(M, M + 122, W - M * 2, 7);
+        for (let j = 0; j < 4; j++) { const s = shots[k * 4 + j]; if (s) g.drawImage(s, M + j * (PW + GAP), M + TOP, PW, PH); }
+        g.font = `34px ${FONT.cap}`; g.textAlign = 'left'; g.fillText(`PAGE ${k + 1} / ${N}`, M, H - 40);
+        g.textAlign = 'right'; g.fillText(cfg.foot || '', W - M, H - 40);
+        const jpeg = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.9));
+        pages.push({ jpeg, w: W, h: H, pw: 842, ph: 842 * H / W });   // A4 landscape width, strip height
+      }
+      const pdf = await pdfFromJpegs(pages, { title: 'DirroComics ' + (cfg.issue || ''), author: 'DirroDJ' });
+      send({ k: 'cxfile', name: fileBase() + '.pdf', blob: pdf });
+      send({ k: 'cxmsg', t: `PDF ready: ${N} page${N === 1 ? '' : 's'}, ${(pdf.size / 1e6).toFixed(1)} MB` });
+    } finally { exp = null; }
   }
   // ---- grabs: the Quest picture (the studio composite) or this laptop's webcam
   function grab(src) {
@@ -362,6 +469,10 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
     else if (op === 'cfg') { for (const k of Object.keys(CFG_DEF)) if (m.v && k in m.v) cfg[k] = m.v[k]; changed(false); }
     else if (op === 'watch') { watchId = m.id || null; watchT = performance.now(); }
     else if (op === 'list') sendList();
+    else if (op === 'load') loadIssue(m);   // #522 OPEN ISSUE / NEW ISSUE
+    else if (op === 'mp4') exportMp4(m).catch(e => { exp = null; send({ k: 'cxmsg', t: 'MP4 failed: ' + e.message }); });
+    else if (op === 'pdf') exportPdf(m).catch(e => { exp = null; send({ k: 'cxmsg', t: 'PDF failed: ' + e.message }); });
+    else if (op === 'expstop') { if (exp) exp.stop = true; }
   }
   function state() { return { cfg: { ...cfg }, cur, ver, panels: panels.map(({ thumb, ...p }) => p), REF, store }; }
   return { tick, render, onMsg, state, sendList, get used() { return panels.length > 0; }, _panels: panels, _cfg: cfg, _res: res, _slots: slots };

@@ -981,6 +981,26 @@ function goproTap(id = 'gopro') {   // #389 for GOPRO and GOPRO2: tap = on / bac
   if (!gp.on && streamer && (streamer.source === 'headset' || streamer.source === 'pcam')) streamer.setSource('show');   // #402 the GoPro becomes the camera from any page
   setDjPreset(gp.on ? 'front' : id);
 }
+// #523 SHOWTIME! from DirroVJ's desk: the same camera pick and OBJECTS toggles as the tablet's SHOWTIME! page (the tablet stays in charge;
+// whatever was tapped last wins). Only from a DirroVJ the DJ allowed. The state goes back in the 'stu' message (showState below).
+const VJ_SHOW_OPTS = ['wall', 'neon', 'panel', 'chalk', 'gear', 'robot', 'scroll', 'np', 'logo', 'chat'];
+function vjShow(m) {
+  const S = streamer; if (!S) return; let what = '';
+  if (m.cam) {
+    const k = m.cam;
+    if ((k === 'gopro' && gopro) || (k === 'gopro2' && gopro2)) { if (S.source === 'headset' || S.source === 'pcam') S.setSource('show'); if (djSet.preset !== k) goproPick(k); what = k.toUpperCase(); }
+    else if (k === 'headset') { S.setSource('headset'); what = 'HEADSET CAM'; }
+    else if (k === 'front' || k === 'faders') { if (S.source === 'headset' || S.source === 'pcam') S.setSource('show'); setDjPreset(k); what = k.toUpperCase(); }
+  }
+  if (m.opt === 'dome') { S.setShowOpt('backdrop', m.v ? 'dome' : 'visuals'); what = 'DOME ' + (m.v ? 'on' : 'off'); }
+  else if (m.opt && VJ_SHOW_OPTS.includes(m.opt)) { S.setShowOpt(m.opt, !!m.v); what = m.opt.toUpperCase() + (m.v ? ' on' : ' off'); }
+  if (what) { drawMixScreen(); toast('DirroVJ: SHOWTIME! ' + what, 1200); }
+}
+function vjShowState() {
+  const S = streamer; if (!S) return null; const O = S.showOpt, o = {};
+  for (const k of VJ_SHOW_OPTS) o[k] = !!O[k]; o.dome = O.backdrop === 'dome';
+  return { cam: S.source === 'headset' || S.source === 'pcam' ? S.source : djSet.preset, o, gp: !!gopro, gp2: !!gopro2 };
+}
 function goproPick(id) {   // #389 the SHOWTIME! camera row: select it; double-tap = back to its start spot
   const gp = id === 'gopro2' ? gopro2 : gopro; if (!gp) return; const now = performance.now();
   if (now - goproTapT < 700 && goproTapId === id && djSet.preset === id) { goproTapT = 0; gp.reset(); setDjPreset(id); toast((id === 'gopro2' ? 'GOPRO2' : 'GOPRO') + ' back at its start', 1500); return; }
@@ -1305,6 +1325,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
   engine, renderer, djcam, scene, camera,   // #333 scene / camera for the MR headset picture
   // #336 SHOW / VIDEOWALL
   avLayer: AV_LAYER, showCam: () => djcam && djcam.cam, scroller: () => scroller, chat: () => chat,   // #340
+  showState: () => vjShowState(),   // #523 SHOWTIME! state for DirroVJ's desk
   showPrep: () => {   // #372 the SHOWTIME! 3D layer: each prop is in or out by its own toggle; no XR hands, nothing behind
     const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } }, O = streamer.showOpt;
     hide(room);
@@ -8438,6 +8459,7 @@ async function applySpect() {
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => ({ ...led.state(), curve: ledwall.userData.curveDeg() }),   /* #358 */ onScreen: onPhoneScreen, getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
       getSpiders: spidersState,   // #262
       onVj: m => {   // #507 DirroVJ's scroller desk: an approved line onto the Quest's sine scroller (only from a DirroVJ the DJ allowed)
+        if (m.k === 'vjshow') { if (streamer && streamer.vjAllowed) vjShow(m); return; }   // #523 SHOWTIME! from the VJ desk (allowed DirroVJ only)
         if (m.k === 'cxgrab') {   // #520 GRAB RGB-D (DirroComics): only for a DirroVJ the DJ allowed
           if (!streamer || !streamer.vjAllowed) { if (spect) spect.cxSay('allow this DirroVJ on the Quest\'s DIRROVJ page first'); return; }
           if (!rgbd) rgbd = makeRgbdGrab({ renderer, getDepth: () => (realDepth && realDepth.ok ? realDepth : null), getFit: () => streamer && streamer.fit,

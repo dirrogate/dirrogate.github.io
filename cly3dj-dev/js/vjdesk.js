@@ -186,7 +186,10 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio }
     if (what !== 'status') { const m = chat.msgs[chat.msgs.length - 1]; if (m && !m.sys && m !== chat._last) { chat._last = m; enqueue('chat', m.name || '', (m.toks || []).map(k => k.t).join('')); } }
     post();
   });
-  function onStu(m) { if (m.ch && m.ch !== D.ch) { D.ch = m.ch; chat.stop(); chat.start(m.ch); post(); } }
+  function onStu(m) {
+    if ('sh' in m && JSON.stringify(m.sh) !== JSON.stringify(D.sh)) { D.sh = m.sh; post(); }   // #523 SHOWTIME! state from the Quest
+    if (m.ch && m.ch !== D.ch) { D.ch = m.ch; chat.stop(); chat.start(m.ch); post(); }
+  }
   function onVjSms(m) { for (const [id, t] of m.items || []) enqueue('sms', 'HoloSMS', t, 'sms:' + id); }
   function approve(id, t) {
     const q = id != null ? queue.find(x => x.id === id) : null, text = q ? q.t : t; if (!text) return;
@@ -218,6 +221,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio }
     const m = e.data || {}; peers = 1;
     if (m.k === 'hello') { post(); if (!m.again) comics.sendList(); }
     else if (m.k === 'cx') comics.onMsg(m);   // #516 DirroComics
+    else if (m.k === 'show') { const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'vjshow', cam: m.cam || '', opt: m.opt || '', v: !!m.v }); else bc.postMessage({ k: 'cxmsg', t: 'SHOWTIME!: no Quest link' }); }   // #523
     else if (m.k === 'bus') { if (SOURCES.includes(m.v)) D[m.bus === 'b' ? 'b' : 'a'] = m.v; post(); }
     else if (m.k === 'x') { D.x = Math.max(0, Math.min(1, +m.v)); D.fadeTo = null; post(); }
     else if (m.k === 'cut') { D.x = D.x < 0.5 ? 1 : 0; D.fadeTo = null; post(); }
