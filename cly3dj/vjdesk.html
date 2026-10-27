@@ -28,6 +28,27 @@
   .tag { font:700 10px system-ui; padding:2px 6px; border-radius:6px; background:#22304a; color:#9cc8ff; margin-right:6px; } .tag.sms { background:#3a2440; color:#f2a7f0; }
   #queue { max-height:46vh; overflow:auto; }
   .note { color:var(--mute); font-size:12px; margin-top:6px; }
+  /* #516 DirroComics */
+  #cxStrip { display:flex; gap:8px; overflow-x:auto; padding:8px 2px; min-height:118px; }
+  .cxC { flex:0 0 auto; width:164px; border:2px solid var(--line); border-radius:8px; padding:2px; cursor:pointer; position:relative; background:#0f131c; }
+  .cxC img { width:156px; height:88px; object-fit:cover; display:block; border-radius:5px; background:#000; }
+  .cxC .n { font:700 11px system-ui; color:var(--mute); padding:2px 4px; display:flex; justify-content:space-between; }
+  .cxC.sel { border-color:var(--blue); } .cxC.air { box-shadow:0 0 0 2px var(--red) inset; } .cxC.air .n b { color:var(--red); }
+  #cxEd { display:grid; grid-template-columns:minmax(320px,640px) 1fr; gap:14px; margin-top:8px; }
+  @media (max-width:1000px) { #cxEd { grid-template-columns:1fr; } }
+  #cxPv { width:100%; aspect-ratio:16/9; background:#f3ead4; border-radius:8px; border:1px solid var(--line); display:block; cursor:crosshair; }
+  .sl { width:64px; color:var(--mute); font-size:12px; text-align:right; } .sp { color:var(--mute); font-size:12px; }
+  #cxEd input[type=range] { min-width:90px; }
+  /* #524 STAR IN IT */
+  #cxStars { display:flex; gap:8px; overflow-x:auto; padding:4px 2px; } .stC { flex:0 0 auto; width:250px; display:flex; gap:8px; border:1px solid #5a4a14; background:#1a170c; border-radius:8px; padding:6px; font-size:12px; }
+  .stC img { width:54px; height:72px; object-fit:cover; border-radius:5px; background:#000; } .stC b { color:#f2c94c; } .stC.wd { opacity:.45; } .stC .ln { color:var(--mute); }
+  .stB { font:800 10px system-ui; padding:2px 6px; border-radius:6px; background:#333; color:#ccc; } .stB.yes { background:#174a24; color:#7dff9a; } .stB.no { background:#4a1717; color:#ff8a8a; } .stB.asked { background:#3a3214; color:#f2c94c; }
+  .kv { display:inline-flex; align-items:center; gap:6px; flex:1 1 210px; } .kv input[type=range] { flex:1; }
+  .cxI { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:6px; border:1px solid #1f2636; border-radius:8px; margin:6px 0; }
+  .cxI .ty { font:800 11px system-ui; width:64px; color:#f2c94c; } .cxI textarea { flex:1; min-width:220px; height:38px; font:14px system-ui; color:var(--fg); background:#1c2230; border:1px solid var(--line); border-radius:8px; padding:6px; resize:vertical; }
+  .cxI input[type=range] { min-width:70px; max-width:120px; } .cxI button.arm { border-color:#f2c94c; background:#3a3214; }
+  #cxDep { margin-top:10px; } #cxDC { width:100%; display:block; border-radius:8px; border:1px solid var(--line); cursor:crosshair; touch-action:none; background:#000; }
+  [data-tone].on { border-color:#f2c94c; background:#3a3214; }
 </style>
 </head>
 <body>
@@ -36,12 +57,18 @@
   <div>
     <section>
       <h2>Program</h2>
-      <img id="pv" alt="">
+      <div style="position:relative"><img id="pv" alt=""><div id="pvWait" hidden style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;color:#b7c0d0;font-size:13px">No program picture yet: DirroVJ starts drawing when the Quest turns it on.</div></div>
       <div class="row" id="busA"><span class="lbl">A</span></div>
       <div class="row"><input type="range" id="xf" min="0" max="1" step="0.01" value="0"></div>
       <div class="row" id="busB"><span class="lbl">B</span></div>
       <div class="row"><button id="cut">CUT</button><button id="auto">AUTO</button><select id="fadeMs"><option value="800">0.8 s</option><option value="2000" selected>2 s</option><option value="5000">5 s</option></select></div>
       <div class="note">QUEST = the picture DirroVJ gets from the Quest (SHOW, LIVE DJ!, KEY, WEBCAM mode as picked on the tablet) with its overlays. WEBCAM = this laptop's webcam as it is (start it on the DirroVJ page). LED CLIP = DirroVJ's copy of the LED clip.</div>
+    </section>
+    <section style="margin-top:14px" id="shS">
+      <h2>SHOWTIME! <span class="note" style="text-transform:none;letter-spacing:0">the Quest's camera (the QUEST bus)</span></h2>
+      <div class="row" id="shCam"></div>
+      <div class="row" id="shObj"></div>
+      <div class="note" id="shN">Same buttons as the tablet's SHOWTIME! page; whatever is tapped last wins, the tablet stays in charge.</div>
     </section>
     <section style="margin-top:14px">
       <h2>Amiga fractal</h2>
@@ -71,10 +98,55 @@
     </section>
   </div>
 </main>
+<section id="cxS" style="margin:0 16px 16px">
+  <h2>DirroComics <span class="note" style="text-transform:none;letter-spacing:0">put DIRROCOMICS on bus A or B to show the page</span></h2>
+  <div class="row">
+    <input type="text" id="cxIssue" maxlength="40" placeholder="ISSUE #1" style="width:150px" title="Masthead issue line">
+    <input type="text" id="cxFoot" maxlength="60" placeholder="Footer text" style="width:220px" title="Footer, right side">
+    <button id="cxAna" title="Red / cyan. Red lens on the LEFT eye">ANAGLYPH</button>
+    <button id="cxSplit" title="Side by side panels: each eye gets its own dot angle, so the dots don't fuse at the screen">SPLIT SCREENS</button>
+    <span class="sp">Auto</span><select id="cxAuto"><option value="0">off</option><option value="8">8 s</option><option value="15">15 s</option><option value="30">30 s</option><option value="60">60 s</option></select>
+    <button id="cxPrev">◀ PREV</button><b id="cxAir" style="min-width:70px;text-align:center"></b><button id="cxNext">NEXT ▶</button>
+  </div>
+  <div class="row">
+    <button id="cxImp">IMPORT…</button><input type="file" id="cxFile" multiple accept="image/*,video/*" hidden>
+    <button id="cxGrabQ" title="A still of the Quest picture (the studio composite)">GRAB QUEST</button><button id="cxGrabW" title="A still from this laptop's webcam">GRAB WEBCAM</button><button id="cxGrabD" title="5 s of the Quest's headset camera with its real depth (passthrough on). Comes back as an RGB+D panel.">GRAB RGB-D</button><button id="cxGrabDs" title="One still of the Quest's headset camera with its real depth">RGB-D STILL</button>
+    <span class="sp">New panels: stereo</span><select id="cxSbsDef"><option value="auto">auto</option><option value="off">off</option><option value="full">full SBS</option><option value="half">half SBS</option></select>
+    <span class="sp">style</span><select id="cxStyDef"></select>
+    <span id="cxMsg" class="note" style="margin:0"></span>
+  </div>
+  <div class="row" id="cxIssueRow"><b class="sp" style="color:#f2c94c">ISSUE</b><button id="cxSave" title="The whole issue (panels, pictures, clips, depth maps, text) as one .dirrocomic file in Downloads">SAVE ISSUE</button><button id="cxOpen" title="Open a .dirrocomic file: it replaces the strip on DirroVJ">OPEN ISSUE…</button><input type="file" id="cxOpenF" accept=".dirrocomic,.zip" hidden><button id="cxNew" title="Start an empty strip with the next issue number">NEW ISSUE</button>
+    <span class="sp" style="margin-left:14px">EXPORT</span><button id="cxMp4" title="The strip playing through as on the club screen (slides, video panels at their length). Real time: keep the DirroVJ window visible.">MP4</button><select id="cxHold" title="Seconds per still panel"><option value="3">3 s</option><option value="4" selected>4 s</option><option value="6">6 s</option><option value="8">8 s</option></select><select id="cxRes"><option value="720">720p</option><option value="1080">1080p</option></select><button id="cxPdf" title="Newspaper strip pages: 4 panels in a row per page">PDF STRIP</button><span class="sp" style="margin-left:14px">INSTAGRAM</span><button id="cxReel" title="#525 A 9:16 MP4 (1080 x 1920) of the strip scrolling down, cover first; hold time as for MP4. Real time: keep the DirroVJ window visible.">REEL 9:16</button><button id="cxCar" title="#525 A zip of 4:5 JPEGs (1080 x 1350): a cover + one slide per panel, 20 slides max per post">CAROUSEL 4:5</button><button id="cxStop" title="Stop the running export">STOP</button><button id="cxClog" title="The relay's consent log for this room (opt-ins, YES / NO, withdrawals), checked and downloaded as JSON lines">CONSENT LOG</button></div>
+  <div id="cxStars"></div>
+  <div id="cxStrip"></div>
+  <div id="cxEd" hidden>
+    <div>
+      <img id="cxPv" alt="">
+      <div class="note" id="cxArmN">The selected panel (not necessarily on air). POS / TAIL on a text item, then click here to place it.</div>
+      <div id="cxDep">
+        <div class="row"><b class="sp" style="color:#f2c94c">DEPTH MAP</b><span class="sp">white = front, black = back (ANAGLYPH, flat panels)</span><button id="cxDOpen">EDIT DEPTH</button><button id="cxLive" title="Video panels: MediaPipe finds the people in every frame and puts them in front">LIVE PEOPLE</button><span id="cxDSt" class="note" style="margin:0"></span></div>
+        <div id="cxDEd" hidden>
+          <canvas id="cxDC" width="640" height="360"></canvas>
+          <div class="row"><button data-tone="255" class="on">FRONT</button><button data-tone="170">NEAR</button><button data-tone="85">FAR</button><button data-tone="0">BACK</button><label class="kv"><span class="sl">Brush</span><input type="range" id="cxBrush" min="4" max="160" step="1" value="40"></label></div>
+          <div class="row"><button id="cxPeople" title="MediaPipe finds the people and paints them in the tone picked above">PEOPLE</button><button id="cxRamp" title="Back at the top, near at the bottom">GROUND RAMP</button><button id="cxFill" title="The whole map in the tone picked above">FILL</button><button id="cxSoft" title="Blur the map a little: softer edges, fewer tears">SOFTEN</button><button id="cxDImp" title="A grayscale depth image (white = near), e.g. from the Quest or a depth tool">IMPORT DEPTH…</button><input type="file" id="cxDFile" accept="image/*" hidden><button id="cxDClr" class="red">REMOVE</button><select id="cxDView"><option value="mix">picture + depth</option><option value="depth">depth only</option><option value="pic">picture</option></select></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="row"><button id="cxGo">PUT ON AIR</button><button id="cxL" title="Move earlier">◀</button><button id="cxR" title="Move later">▶</button><button id="cxDup" title="Same picture, new panel (for a different line)">DUPLICATE</button><button id="cxDel" class="red">DELETE</button><span id="cxInfo" class="note" style="margin:0"></span></div>
+      <div class="row"><label class="kv"><span class="sl">Style</span><select id="cxSty"></select></label><label class="kv"><span class="sl">Dots</span><input type="range" data-pk="dots" min="6" max="26" step="1"></label><label class="kv"><span class="sl">Ink</span><input type="range" data-pk="ink" min="0" max="1.5" step="0.05"></label></div>
+      <div class="row"><label class="kv"><span class="sl">Bright</span><input type="range" data-pk="bright" min="-0.45" max="0.45" step="0.01"></label><label class="kv"><span class="sl">Contrast</span><input type="range" data-pk="contrast" min="0.5" max="2.6" step="0.05"></label></div>
+      <div class="row"><label class="kv"><span class="sl">Frame X</span><input type="range" data-pk="fx" min="0" max="1" step="0.01"></label><label class="kv"><span class="sl">Y</span><input type="range" data-pk="fy" min="0" max="1" step="0.01"></label><label class="kv"><span class="sl">Zoom</span><input type="range" data-pk="zoom" min="1" max="3.5" step="0.02"></label></div>
+      <div class="row"><label class="kv"><span class="sl">Stereo</span><select id="cxSbs"><option value="0">flat</option><option value="1">full SBS</option><option value="2">half SBS</option><option value="3">RGB+D</option></select></label><button id="cxSwap" title="If depth looks inside out">SWAP EYES</button><label class="kv"><span class="sl">Converge</span><input type="range" data-pk="conv" min="-0.08" max="0.08" step="0.002" title="SBS: moves the zero plane (set it so the DJ shows no red / cyan fringe). Flat: how much depth, spread by the depth map or the Flat depth shape. + = white at the screen, the rest behind; - = black at the screen, the rest in front. Past about 8 px the dots can lock onto their neighbours."></label><label class="kv"><span class="sl">Flat depth</span><select id="cxDm" title="ANAGLYPH depth for a flat (not side by side) picture"><option value="0">on screen</option><option value="1">behind</option><option value="2">ground</option></select><span id="cxDmN" class="sp"></span></label><label class="kv"><span class="sl">Pop</span><input type="range" data-pk="pop" min="0" max="16" step="1" title="How far balloons and SFX float in front (px)"></label></div>
+      <div id="cxItems"></div>
+      <div class="row"><button data-add="cap">+ CAPTION</button><button data-add="speech">+ SPEECH</button><button data-add="thought">+ THOUGHT</button><button data-add="shout">+ SHOUT</button><button data-add="sfx">+ SFX</button></div>
+    </div>
+  </div>
+</section>
 <script>
 const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
-const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'LED CLIP', black: 'BLACK' };
-let S = null, lastSeen = 0;
+const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'LED CLIP', comic: 'DIRROCOMICS', black: 'BLACK' };   // #516
+let S = null, lastSeen = 0, realT = 0;   // #519 realT: last state from a real DirroVJ
 for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = document.createElement('button'); b.textContent = NAMES[k]; b.dataset.bus = bus; b.dataset.src = k; b.onclick = () => send({ k: 'bus', bus, v: k }); $(bus === 'a' ? 'busA' : 'busB').append(b); }
 $('xf').oninput = e => send({ k: 'x', v: +e.target.value });
 $('cut').onclick = () => send({ k: 'cut' }); $('auto').onclick = () => send({ k: 'auto', ms: +$('fadeMs').value });
@@ -86,7 +158,7 @@ const say = () => { const t = $('say').value.trim(); if (t) { send({ k: 'say', t
 $('sayB').onclick = say; $('say').onkeydown = e => { if (e.key === 'Enter') say(); };
 $('aQ').onclick = () => send({ k: 'audio', v: 'quest' }); $('aL').onclick = () => send({ k: 'audio', v: 'line', dev: $('dev').value });
 $('dev').onchange = () => { if (S && S.D.audio === 'line') send({ k: 'audio', v: 'line', dev: $('dev').value }); };
-document.addEventListener('keydown', e => { if (e.target.tagName === 'INPUT') return; if (e.code === 'Space') { e.preventDefault(); send({ k: 'auto', ms: +$('fadeMs').value }); } if (e.key === 'c' || e.key === 'C') send({ k: 'cut' }); if (e.key === 'p' || e.key === 'P') send({ k: 'pump' }); });
+document.addEventListener('keydown', e => { if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return; if (e.key === 'ArrowRight') { e.preventDefault(); cx('next'); } if (e.key === 'ArrowLeft') { e.preventDefault(); cx('prev'); } if (e.code === 'Space') { e.preventDefault(); send({ k: 'auto', ms: +$('fadeMs').value }); } if (e.key === 'c' || e.key === 'C') send({ k: 'cut' }); if (e.key === 'p' || e.key === 'P') send({ k: 'pump' }); });
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 function render() {
   const D = S.D;
@@ -105,13 +177,263 @@ function render() {
   for (const b of document.querySelectorAll('[data-ok]')) b.onclick = () => send({ k: 'approve', id: +b.dataset.ok });
   for (const b of document.querySelectorAll('[data-no]')) b.onclick = () => send({ k: 'reject', id: +b.dataset.no });
 }
+// ---- #516 DirroComics: strip, editor, placement on the preview
+const STY = [['halftone', 'HALFTONE'], ['hatch', 'HATCH'], ['benday', 'BEN-DAY'], ['poster', 'POSTER'], ['photo', 'PHOTO']];
+const ITEM = { cap: 'CAPTION', speech: 'SPEECH', thought: 'THOUGHT', shout: 'SHOUT', sfx: 'SFX' };
+const ITEM_DEF = { cap: { x: 0.24, y: 0.08, s: 30, w: 0.42 }, speech: { x: 0.3, y: 0.22, tx: 0.46, ty: 0.42, s: 32, w: 0.3 }, thought: { x: 0.3, y: 0.2, tx: 0.48, ty: 0.42, s: 30, w: 0.28 },
+  shout: { x: 0.68, y: 0.22, tx: 0.55, ty: 0.42, s: 36, w: 0.28 }, sfx: { x: 0.72, y: 0.82, s: 120, r: -8 } };
+let CX = null, cxSel = null, cxThumbs = {}, cxListN = 0, cxArm = null, cxItems = [], cxItemsKey = '', cxStripKey = '', cxMsgT = 0;
+const cx = (op, o = {}) => send({ k: 'cx', op, ...o });
+const selP = () => CX && CX.panels.find(p => p.id === cxSel);
+const cxSet = v => { if (cxSel) cx('set', { id: cxSel, v }); const p = selP(); if (p) Object.assign(p, v); };
+for (const id of ['cxSty', 'cxStyDef']) $(id).innerHTML = STY.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+$('cxImp').onclick = () => $('cxFile').click();
+$('cxFile').onchange = e => { const fs = [...e.target.files]; if (fs.length) cx('add', { files: fs.map(f => ({ blob: f, name: f.name })) }); e.target.value = ''; $('cxMsg').textContent = 'Importing ' + fs.length + '…'; };
+$('cxGrabQ').onclick = () => cx('grab', { src: 'quest' }); $('cxGrabW').onclick = () => cx('grab', { src: 'webcam' });
+$('cxGrabD').onclick = () => cx('grab', { src: 'rgbd' }); $('cxGrabDs').onclick = () => cx('grab', { src: 'rgbds' });   // #520
+$('cxPrev').onclick = () => cx('prev'); $('cxNext').onclick = () => cx('next');
+$('cxAna').onclick = () => cx('cfg', { v: { ana: !(CX && CX.cfg.ana) } }); $('cxSplit').onclick = () => cx('cfg', { v: { split: !(CX && CX.cfg.split) } });
+$('cxAuto').onchange = e => cx('cfg', { v: { auto: +e.target.value } });
+$('cxSbsDef').onchange = e => cx('cfg', { v: { sbsDef: e.target.value } }); $('cxStyDef').onchange = e => cx('cfg', { v: { styleDef: e.target.value } });
+$('cxIssue').oninput = e => cx('cfg', { v: { issue: e.target.value } }); $('cxFoot').oninput = e => cx('cfg', { v: { foot: e.target.value } });
+$('cxGo').onclick = () => cxSel && cx('go', { id: cxSel });
+$('cxL').onclick = () => cxSel && cx('move', { id: cxSel, d: -1 }); $('cxR').onclick = () => cxSel && cx('move', { id: cxSel, d: 1 });
+$('cxDup').onclick = () => cxSel && cx('dup', { id: cxSel });
+$('cxDel').onclick = () => { const p = selP(); if (p && confirm('Delete panel ' + (CX.panels.indexOf(p) + 1) + '?')) { cx('del', { id: cxSel }); cxSel = null; } };
+$('cxSty').onchange = e => cxSet({ style: e.target.value }); $('cxDm').onchange = e => cxSet({ dmode: +e.target.value });   // #517 $('cxSbs').onchange = e => cxSet({ sbs: +e.target.value });
+$('cxSwap').onclick = () => { const p = selP(); if (p) cxSet({ swap: !p.swap }); };
+for (const r of document.querySelectorAll('[data-pk]')) r.oninput = e => cxSet({ [r.dataset.pk]: +e.target.value });
+for (const b of document.querySelectorAll('[data-add]')) b.onclick = () => { if (!cxSel) return; const t = b.dataset.add; cxItems.push({ t, text: t === 'sfx' ? 'KRRSSHH!' : t === 'cap' ? 'MEANWHILE, IN THE BOOTH…' : '', ...ITEM_DEF[t] }); cxItemsKey = ''; sendItems(); renderItems(true); };
+function sendItems() { cxSet({ items: cxItems.map(i => ({ ...i })) }); }
+function renderItems(force) {
+  const key = cxSel + '|' + cxItems.map(i => i.t).join(',') + '|' + ((CX && CX.stars) || []).map(s => s.cid + (s.wd ? 'w' : '')).join(',');   // #524 new guests in the speaker list if (!force && key === cxItemsKey) return; cxItemsKey = key;
+  $('cxItems').innerHTML = cxItems.map((it, i) => `<div class="cxI" data-i="${i}"><span class="ty">${ITEM[it.t] || it.t}</span>
+    <textarea data-f="text" placeholder="${it.t === 'sfx' ? 'POW!' : 'Text'}">${esc(it.text || '')}</textarea>
+    <span class="sp">size</span><input type="range" data-f="s" min="14" max="${it.t === 'sfx' ? 220 : 70}" step="1" value="${it.s || 30}">
+    ${it.t === 'sfx' ? `<span class="sp">tilt</span><input type="range" data-f="r" min="-35" max="35" step="1" value="${it.r ?? -8}">` : `<span class="sp">width</span><input type="range" data-f="w" min="0.1" max="0.8" step="0.01" value="${it.w || 0.3}">`}
+    <button data-arm="pos">POS</button>${['speech', 'thought', 'shout'].includes(it.t) ? '<button data-arm="tail">TAIL</button>' + starSel(it) : ''}<button data-del="1">✕</button></div>`).join('');
+  for (const row of $('cxItems').children) {
+    const i = +row.dataset.i;
+    for (const el of row.querySelectorAll('[data-f]')) el.oninput = e => {
+      const f = el.dataset.f, it = cxItems[i];
+      if (f === 'star') { const st = CX.stars.find(x => x.dev === e.target.value); it.star = st ? st.dev : ''; it.who = st ? st.name : ''; it.ok = ''; delete it.ask; delete it.cid; if (!it.star) delete it.star; }   // #524
+      else it[f] = f === 'text' ? e.target.value : +e.target.value;
+      if (f === 'text' && it.star && it.text !== it.askText) it.ok = '';   // a changed line needs a new YES
+      sendItems(); starBadges();
+    };
+    const ab = row.querySelector('[data-ask]'); if (ab) ab.onclick = () => { sendItems(); setTimeout(() => cx('ask', { id: cxSel, i }), 150); };
+    for (const b of row.querySelectorAll('[data-arm]')) b.onclick = () => { cxArm = cxArm && cxArm.i === i && cxArm.what === b.dataset.arm ? null : { i, what: b.dataset.arm }; armUi(); };
+    row.querySelector('[data-del]').onclick = () => { cxItems.splice(i, 1); cxArm = null; sendItems(); renderItems(true); };
+  }
+  armUi();
+}
+// #524 the speaker of a balloon: nobody (the DJ / the robot / no one in particular) or a guest from STAR IN IT; a guest's line needs ASK and their YES
+function starSel(it) {
+  const S = (CX && CX.stars || []).filter(s => !s.wd || s.dev === it.star);
+  return `<select data-f="star" title="Who says this? A guest's line only shows after their YES"><option value="">speaker: anyone</option>${S.map(s => `<option value="${esc(s.dev)}"${s.dev === it.star ? ' selected' : ''}>⭐ ${esc(s.name)}</option>`).join('')}</select><span class="stB" data-st="1"></span><button data-ask="1" title="Send this exact line to the guest's phone for YES / NO">ASK</button>`;
+}
+function starBadges() {
+  for (const row of $('cxItems').children) {
+    const it = cxItems[+row.dataset.i], b = row.querySelector('[data-st]'), ab = row.querySelector('[data-ask]'); if (!b || !it) continue;
+    const st = !it.star ? '' : it.ok === 'yes' && it.askText === it.text ? 'yes' : it.ok === 'no' && it.askText === it.text ? 'no' : it.ok === 'asked' && it.askText === it.text ? 'asked' : 'new';
+    b.className = 'stB ' + st; b.textContent = { '': '', yes: 'YES · on screen', no: 'NO · hidden', asked: 'ASKED · waiting', new: 'not asked · hidden' }[st]; b.hidden = !st; ab.hidden = !it.star; ab.disabled = !it.text || st === 'asked' || st === 'yes';
+  }
+}
+let cxStarKey = '', cxStarImgs = {};
+function renderStars() {
+  const L = (CX && CX.stars) || [], key = L.map(s => s.cid + (s.wd ? 'w' : '')).join(',') + '|' + Object.keys(cxStarImgs).length; if (key === cxStarKey) return; cxStarKey = key;
+  $('cxStars').innerHTML = L.slice().reverse().map(s => `<div class="stC${s.wd ? ' wd' : ''}"><img src="${cxStarImgs[s.cid] || ''}" alt=""><div><b>⭐ ${esc(s.name)}</b> · ${esc(s.genre)}${s.wd ? ' · WITHDRAWN' : ''}<div class="ln">${(s.lines || []).map(l => '“' + esc(l) + '”').join('<br>')}</div><div class="ln">receipt ${esc(s.cid)}</div>${s.wd ? '' : `<button data-sp="${esc(s.cid)}" style="margin-top:4px;padding:4px 8px;font-size:12px">ADD AS PANEL</button>`}</div></div>`).join('');
+  for (const b of document.querySelectorAll('[data-sp]')) b.onclick = () => cx('starpanel', { cid: b.dataset.sp });
+}
+$('cxClog').onclick = () => cx('clog');
+function armUi() {
+  for (const b of document.querySelectorAll('#cxItems [data-arm]')) { const i = +b.closest('.cxI').dataset.i; b.classList.toggle('arm', !!cxArm && cxArm.i === i && cxArm.what === b.dataset.arm); }
+  $('cxArmN').textContent = cxArm ? `Click the picture to place the ${ITEM[cxItems[cxArm.i] && cxItems[cxArm.i].t] || 'item'}${cxArm.what === 'tail' ? "'s tail tip" : ''}.` : 'The selected panel (not necessarily on air). POS / TAIL on a text item, then click here to place it.';
+}
+$('cxPv').onclick = e => {
+  if (!cxArm || !CX || !cxItems[cxArm.i]) return; const R = CX.REF, b = e.target.getBoundingClientRect();
+  const X = (e.clientX - b.left) / b.width * R.W, Y = (e.clientY - b.top) / b.height * R.H, qx = (X - R.x) / R.pw, qy = (Y - R.top) / R.ph;
+  const it = cxItems[cxArm.i], r = v => Math.round(Math.max(-0.05, Math.min(1.05, v)) * 1000) / 1000;
+  if (cxArm.what === 'tail') { it.tx = r(qx); it.ty = r(qy); } else { const dx = r(qx) - it.x, dy = r(qy) - it.y; it.x = r(qx); it.y = r(qy); if (it.tx != null && !e.shiftKey) { it.tx = r(it.tx + dx); it.ty = r(it.ty + dy); } }
+  sendItems(); if (!e.altKey) { cxArm = null; armUi(); }
+};
+function renderCx() {
+  if (!CX) return; const C = CX.cfg, P = CX.panels;
+  if (cxSel && !P.some(p => p.id === cxSel)) cxSel = null;
+  if (!cxSel && P.length) cxSel = P[Math.min(CX.cur, P.length - 1)].id;
+  $('cxAna').classList.toggle('on', !!C.ana); $('cxSplit').classList.toggle('on', !!C.split);
+  for (const [id, v] of [['cxIssue', C.issue], ['cxFoot', C.foot], ['cxAuto', String(C.auto)], ['cxSbsDef', C.sbsDef], ['cxStyDef', C.styleDef]]) if (document.activeElement !== $(id)) $(id).value = v ?? '';
+  $('cxAir').textContent = P.length ? `${CX.cur + 1} / ${P.length}` : '0 / 0';
+  const sk = [P.map(p => p.id + ':' + p.sbs).join(','), CX.cur, cxSel, Object.keys(cxThumbs).length, cxListN].join('|');
+  if (sk !== cxStripKey) {
+    cxStripKey = sk;
+    $('cxStrip').innerHTML = P.map((p, i) => `<div class="cxC${p.id === cxSel ? ' sel' : ''}${i === CX.cur ? ' air' : ''}" data-id="${p.id}" title="${esc(p.name || '')}"><img src="${cxThumbs[p.id] || ''}" alt=""><div class="n"><b>${i + 1}${i === CX.cur ? ' · ON AIR' : ''}</b><span>${p.kind === 'video' ? 'VIDEO ' : ''}${p.sbs ? 'SBS' : ''}</span></div></div>`).join('') || '<div class="note">No panels yet: IMPORT pictures or clips (side by side clips from the Quest work as they are), or GRAB.</div>';
+    for (const c of $('cxStrip').children) if (c.dataset.id) { c.onclick = () => { if (cxSel !== c.dataset.id) { cxSel = c.dataset.id; cxArm = null; cxItemsKey = ''; $('cxPv').removeAttribute('src'); cx('watch', { id: cxSel }); } renderCx(); }; c.ondblclick = () => cx('go', { id: c.dataset.id }); }
+  }
+  const p = selP(); $('cxEd').hidden = !p; if (!p) return;
+  $('cxInfo').textContent = `#${P.indexOf(p) + 1} · ${p.name || ''} · ${p.w}×${p.h}`;
+  if (document.activeElement !== $('cxSty')) $('cxSty').value = p.style; if (document.activeElement !== $('cxSbs')) $('cxSbs').value = String(p.sbs | 0);
+  $('cxSwap').classList.toggle('on', !!p.swap); if (document.activeElement !== $('cxDm')) $('cxDm').value = String(p.dmode ?? 2);
+  $('cxDm').disabled = !!p.sbs || !!p.depth; $('cxDmN').textContent = p.sbs === 3 ? 'recorded depth' + (p.depth ? ' + painted' : '') : p.depth ? 'depth map' : '';
+  $('cxDep').hidden = p.sbs === 1 || p.sbs === 2; $('cxLive').disabled = p.kind !== 'video' || p.sbs === 1 || p.sbs === 2; $('cxLive').classList.toggle('on', !!p.live); $('cxDOpen').classList.toggle('on', !$('cxDEd').hidden);
+  if (DE.id && DE.id !== p.id) deClose();
+  for (const r of document.querySelectorAll('[data-pk]')) if (document.activeElement !== r) r.value = p[r.dataset.pk];
+  const focusIn = $('cxItems').contains(document.activeElement);
+  if (!focusIn && JSON.stringify(p.items || []) !== JSON.stringify(cxItems)) { cxItems = (p.items || []).map(i => ({ ...i })); renderItems(false); for (const row of $('cxItems').children) { const it = cxItems[+row.dataset.i]; for (const el of row.querySelectorAll('[data-f]')) el.value = it[el.dataset.f] ?? el.value; } }
+  else renderItems(false);
+}
+setInterval(() => { if (cxSel) cx('watch', { id: cxSel }); }, 1500);
+
+// ---- #518 depth map editor (white = front). The desk opens the panel's picture from the same OPFS folder as DirroVJ and
+// saves <id>.d.png there; DirroVJ reloads it (dver). Brush in four tones, PEOPLE (MediaPipe selfie segmentation), ramp, fill, soften, import.
+let cxPvUrl = null;
+const DE = { id: null, img: null, dc: null, tone: 255, last: null, seg: null, saveT: 0 };
+async function cxDir() { return (await navigator.storage.getDirectory()).getDirectoryHandle((CX && CX.store) || 'vire-comics', { create: true }); }
+async function cxRead(name) { try { return await (await (await cxDir()).getFileHandle(name)).getFile(); } catch { return null; } }
+async function cxWrite(name, blob) { const h = await (await cxDir()).getFileHandle(name, { create: true }), w = await h.createWritable(); await w.write(blob); await w.close(); }
+function rampTo(g, w, h) { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#000'); gr.addColorStop(1, '#c8c8c8'); g.fillStyle = gr; g.fillRect(0, 0, w, h); }
+function deClose() { DE.id = null; DE.img = DE.dc = null; $('cxDEd').hidden = true; $('cxDOpen').classList.remove('on'); }
+async function deOpen(p) {
+  DE.id = p.id; $('cxDSt').textContent = 'Loading the picture…';
+  const f = await cxRead(p.file); if (!f || DE.id !== p.id) { $('cxDSt').textContent = f ? '' : 'Picture not found in storage'; return; }
+  const url = URL.createObjectURL(f); let el;
+  if (p.kind === 'video') { el = document.createElement('video'); el.muted = true; el.src = url; await new Promise(ok => { el.onloadeddata = ok; setTimeout(ok, 6000); }); el.currentTime = Math.min(0.5, (el.duration || 1) / 3); await new Promise(ok => { el.onseeked = ok; setTimeout(ok, 1500); }); }
+  else { el = new Image(); await new Promise(ok => { el.onload = ok; el.onerror = ok; el.src = url; }); }
+  const rgbd = p.sbs === 3, pw = rgbd ? p.w / 2 : p.w, k = Math.min(1, 1024 / Math.max(pw, p.h)), W = Math.max(1, Math.round(pw * k)), H = Math.max(1, Math.round(p.h * k));
+  const pic = document.createElement('canvas'); pic.width = W; pic.height = H; try { pic.getContext('2d').drawImage(el, 0, 0, pw, p.h, 0, 0, W, H); } catch {} URL.revokeObjectURL(url);   // #520 RGB+D: the picture half
+  if (DE.id !== p.id) return;
+  DE.img = pic; DE.dc = document.createElement('canvas'); DE.dc.width = W; DE.dc.height = H; const g = DE.dc.getContext('2d');
+  const df = p.depth ? await cxRead(p.depth) : null;
+  if (df) { const u = URL.createObjectURL(df), im = new Image(); await new Promise(ok => { im.onload = ok; im.onerror = ok; im.src = u; }); g.drawImage(im, 0, 0, W, H); URL.revokeObjectURL(u); }
+  else if (rgbd) { g.fillStyle = '#000'; g.fillRect(0, 0, W, H); }   // RGB+D: the recorded depth is already there; paint only what should come FRONT
+  else rampTo(g, W, H);
+  $('cxDC').width = W; $('cxDC').height = H; $('cxDEd').hidden = false; deShow();
+  $('cxDSt').textContent = p.depth ? (p.kind === 'video' ? 'Painted on a frame near the start of the clip.' : '') : 'No depth map yet: it starts as a ground ramp and saves itself when you paint, PEOPLE, FILL or SOFTEN.';
+}
+function deShow() {
+  if (!DE.dc) return; const c = $('cxDC'), g = c.getContext('2d'), v = $('cxDView').value;
+  g.globalAlpha = 1; g.filter = 'none';
+  if (v === 'depth') g.drawImage(DE.dc, 0, 0);
+  else { g.filter = 'grayscale(1)'; g.drawImage(DE.img, 0, 0); g.filter = 'none'; if (v === 'mix') { g.globalAlpha = 0.6; g.drawImage(DE.dc, 0, 0); g.globalAlpha = 1; } }
+}
+function deSave(now) {
+  clearTimeout(DE.saveT); const p = selP(); if (!p || !DE.dc || p.id !== DE.id) return;
+  DE.saveT = setTimeout(() => { const id = p.id, name = id + '.d.png'; DE.dc.toBlob(async b => { if (!b) return; try { await cxWrite(name, b); cx('set', { id, v: { depth: name, dver: Date.now() } }); } catch (e) { $('cxDSt').textContent = 'Could not save the depth map: ' + e.message; } }, 'image/png'); }, now ? 0 : 250);
+}
+for (const b of document.querySelectorAll('[data-tone]')) b.onclick = () => { DE.tone = +b.dataset.tone; for (const x of document.querySelectorAll('[data-tone]')) x.classList.toggle('on', x === b); };
+$('cxDOpen').onclick = () => { const p = selP(); if (!p) return; if (!$('cxDEd').hidden) { deClose(); return; } $('cxDOpen').classList.add('on'); deOpen(p); };
+$('cxLive').onclick = () => { const p = selP(); if (p && p.kind === 'video') cxSet({ live: !p.live }); renderCx(); };
+$('cxDView').onchange = deShow;
+const dePt = e => { const c = $('cxDC'), b = c.getBoundingClientRect(); return [(e.clientX - b.left) / b.width * c.width, (e.clientY - b.top) / b.height * c.height, c.width / b.width]; };
+function deStroke(e) {
+  if (!DE.dc) return; const [x, y, k] = dePt(e), g = DE.dc.getContext('2d'), t = DE.tone;
+  g.strokeStyle = g.fillStyle = `rgb(${t},${t},${t})`; g.lineWidth = +$('cxBrush').value * k; g.lineCap = g.lineJoin = 'round';
+  g.beginPath(); if (DE.last) { g.moveTo(DE.last[0], DE.last[1]); g.lineTo(x, y); g.stroke(); } else { g.arc(x, y, g.lineWidth / 2, 0, 7); g.fill(); }
+  DE.last = [x, y]; deShow();
+}
+$('cxDC').onpointerdown = e => { if (!DE.dc) return; $('cxDC').setPointerCapture(e.pointerId); DE.last = null; deStroke(e); };
+$('cxDC').onpointermove = e => { if (DE.last && e.buttons) deStroke(e); };
+$('cxDC').onpointerup = $('cxDC').onpointercancel = () => { if (DE.last) { DE.last = null; deSave(); } };
+$('cxFill').onclick = () => { if (!DE.dc) return; const g = DE.dc.getContext('2d'), t = DE.tone; g.fillStyle = `rgb(${t},${t},${t})`; g.fillRect(0, 0, DE.dc.width, DE.dc.height); deShow(); deSave(); };
+$('cxRamp').onclick = () => { if (!DE.dc) return; rampTo(DE.dc.getContext('2d'), DE.dc.width, DE.dc.height); deShow(); deSave(); };
+$('cxSoft').onclick = () => { if (!DE.dc) return; const t = document.createElement('canvas'); t.width = DE.dc.width; t.height = DE.dc.height; t.getContext('2d').drawImage(DE.dc, 0, 0); const g = DE.dc.getContext('2d'); g.filter = `blur(${Math.max(2, DE.dc.width / 200)}px)`; g.drawImage(t, 0, 0); g.filter = 'none'; deShow(); deSave(); };
+$('cxDClr').onclick = () => { const p = selP(); if (!p || !p.depth) { deClose(); return; } if (!confirm('Remove this panel\'s depth map?')) return; cxSet({ depth: '', dver: Date.now() }); deClose(); renderCx(); };
+$('cxDImp').onclick = () => $('cxDFile').click();
+$('cxDFile').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f || !DE.dc) return; const u = URL.createObjectURL(f), im = new Image(); await new Promise(ok => { im.onload = ok; im.onerror = ok; im.src = u; }); URL.revokeObjectURL(u);
+  const g = DE.dc.getContext('2d'); g.filter = 'grayscale(1)'; g.drawImage(im, 0, 0, DE.dc.width, DE.dc.height); g.filter = 'none'; deShow(); deSave(true);
+};
+async function deSeg() {
+  if (DE.seg) return DE.seg; const base = new URL('./vendor/mediapipe/', location.href).href;
+  const { FilesetResolver, ImageSegmenter } = await import(base + 'vision_bundle.mjs'), fs = await FilesetResolver.forVisionTasks(base + 'wasm');
+  const mk = d => ImageSegmenter.createFromOptions(fs, { baseOptions: { modelAssetPath: base + 'selfie_segmentation.tflite', delegate: d }, runningMode: 'IMAGE', outputCategoryMask: false, outputConfidenceMasks: true });
+  try { DE.seg = await mk('GPU'); } catch { DE.seg = await mk('CPU'); } return DE.seg;
+}
+$('cxPeople').onclick = async () => {
+  if (!DE.dc) return; $('cxDSt').textContent = 'PEOPLE: loading MediaPipe…';
+  try {
+    const s = await deSeg(); $('cxDSt').textContent = 'PEOPLE: looking…';
+    const r = s.segment(DE.img), m = r.confidenceMasks && r.confidenceMasks[0]; if (!m) throw new Error('no mask');
+    const w = m.width, h = m.height, f = m.getAsFloat32Array(), t = DE.tone, tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
+    const tg = tmp.getContext('2d'), id = tg.createImageData(w, h); let n = 0;
+    for (let i = 0; i < w * h; i++) { const a = Math.max(0, Math.min(1, (f[i] - 0.35) / 0.3)); id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = t; id.data[i * 4 + 3] = a * 255; if (a > 0.5) n++; }
+    tg.putImageData(id, 0, 0); DE.dc.getContext('2d').drawImage(tmp, 0, 0, DE.dc.width, DE.dc.height); m.close(); if (r.close) r.close();
+    deShow(); deSave(true); $('cxDSt').textContent = n ? `PEOPLE: ${Math.round(n * 100 / (w * h))}% of the picture painted ${t === 255 ? 'FRONT' : 'in the picked tone'}.` : 'PEOPLE: nobody found (the model likes people fairly large in the frame).';
+  } catch (e) { $('cxDSt').textContent = 'PEOPLE failed: ' + (e.message || e); }
+};
+
+// ---- #522 issues (.dirrocomic) and exports (MP4, PDF). The desk zips straight from DirroVJ's storage folder; exports are made
+// on the DirroVJ page (it has the renderer) and come back here as a file to download.
+function cxDownload(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 120000); }
+const cxSay = t => { $('cxMsg').textContent = t; clearTimeout(cxMsgT); cxMsgT = setTimeout(() => { $('cxMsg').textContent = ''; }, 8000); };
+function cxBase() { return ('DirroComics ' + ((CX && CX.cfg.issue) || '') + ' ' + new Date().toISOString().slice(0, 10)).trim().replace(/[^\w#\- ]+/g, '').replace(/\s+/g, '_'); }
+$('cxSave').onclick = async () => {
+  if (!CX || !CX.panels.length) { cxSay('Nothing to save: the strip is empty'); return; }
+  try {
+    cxSay('SAVE ISSUE: collecting the files…'); const { zipFiles } = await import('./js/cxfiles.js');
+    const P = CX.panels, files = [], seen = new Set(); let missing = 0;
+    const manifest = { format: 'dirrocomic', v: 1, saved: new Date().toISOString(), app: 'DirroDJ', cfg: CX.cfg, cur: CX.cur, panels: P.map(p => ({ ...p, thumb: cxThumbs[p.id] || '' })), stars: (CX.stars || []).map(s => ({ ...s, img: cxStarImgs[s.cid] || '' })) };   // #524 the cast and their receipts travel with the issue
+    files.push({ name: 'manifest.json', blob: new Blob([JSON.stringify(manifest, null, 1)], { type: 'application/json' }) });
+    for (const p of P) for (const n of [p.file, p.depth]) if (n && !seen.has(n)) { seen.add(n); const f = await cxRead(n); if (f) files.push({ name: 'media/' + n, blob: f }); else missing++; }
+    const z = await zipFiles(files, (i, n) => cxSay(`SAVE ISSUE: ${i} / ${n}…`));
+    cxDownload(new Blob([z], { type: 'application/zip' }), cxBase() + '.dirrocomic');
+    cxSay(`Saved ${P.length} panels, ${(z.size / 1e6).toFixed(1)} MB to Downloads${missing ? ` (${missing} file${missing === 1 ? '' : 's'} missing from storage)` : ''}`);
+  } catch (e) { cxSay('SAVE ISSUE failed: ' + (e.message || e)); }
+};
+$('cxOpen').onclick = () => $('cxOpenF').click();
+$('cxOpenF').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const { unzipFiles } = await import('./js/cxfiles.js'), m = await unzipFiles(f), mf = m.get('manifest.json');
+    if (!mf) throw new Error('no manifest: not a .dirrocomic'); const man = JSON.parse(await mf.text());
+    if (man.format !== 'dirrocomic' || !Array.isArray(man.panels)) throw new Error('not a .dirrocomic');
+    if (CX && CX.panels.length && !confirm(`Open "${(man.cfg && man.cfg.issue) || f.name}" (${man.panels.length} panels)?\n\nIt replaces the strip on DirroVJ. SAVE ISSUE first if you want to keep the current one.`)) return;
+    let i = 0; const media = [...m].filter(([n]) => n.startsWith('media/'));
+    for (const [n, b] of media) { cxSay(`OPEN ISSUE: ${++i} / ${media.length}…`); await cxWrite(n.slice(6), b); }
+    cxSel = null; cx('load', { cfg: man.cfg || {}, cur: man.cur || 0, panels: man.panels, stars: man.stars || [] });
+  } catch (err) { cxSay('OPEN ISSUE failed: ' + (err.message || err)); }
+};
+$('cxNew').onclick = () => {
+  if (!CX) return; const next = String(CX.cfg.issue || 'ISSUE #0').replace(/\d+(?!.*\d)/, d => String(+d + 1)), issue = /\d/.test(next) ? next : 'ISSUE #1';
+  if (CX.panels.length && !confirm(`Start ${issue} with an empty strip?\n\nThe current strip is cleared from DirroVJ. SAVE ISSUE first if you want to keep it.`)) return;
+  cxSel = null; cx('load', { cfg: { ...CX.cfg, issue }, cur: 0, panels: [], stars: (CX.stars || []).map(s => ({ ...s, img: cxStarImgs[s.cid] || '' })) });   // #524 the night's cast stays
+};
+$('cxMp4').onclick = () => cx('mp4', { hold: +$('cxHold').value, res: +$('cxRes').value });
+$('cxPdf').onclick = () => cx('pdf'); $('cxReel').onclick = () => cx('reel', { hold: +$('cxHold').value }); $('cxCar').onclick = () => cx('carousel');   /* #525 */ $('cxStop').onclick = () => cx('expstop');
+// ---- #523 SHOWTIME! remote: camera pick + objects, sent to the Quest through DirroVJ; lit from the Quest's own state (D.sh)
+const SH_CAMS = [['gopro', 'GOPRO'], ['gopro2', 'GOPRO2'], ['front', 'FRONT'], ['faders', 'FADERS'], ['headset', 'HEADSET CAM']];
+const SH_OBJ = [['wall', 'LED WALL'], ['neon', 'NEON'], ['panel', 'CHAT PANEL'], ['chalk', 'WHITEBOARD'], ['gear', 'GEAR'], ['robot', 'ROBO-BODY'], ['dome', 'DOME'], ['scroll', 'SCROLLER'], ['np', 'NOW PLAYING'], ['logo', 'LOGO']];
+for (const [k, l] of SH_CAMS) { const b = document.createElement('button'); b.textContent = l; b.dataset.sh = k; b.onclick = () => send({ k: 'show', cam: k }); $('shCam').append(b); }
+for (const [k, l] of SH_OBJ) { const b = document.createElement('button'); b.textContent = l; b.dataset.so = k; b.onclick = () => { const sh = S && S.D.sh; send({ k: 'show', opt: k, v: !(sh && sh.o && sh.o[k]) }); }; $('shObj').append(b); }
+function renderShow() {
+  const sh = S && S.D && S.D.sh;
+  for (const b of document.querySelectorAll('[data-sh]')) { b.classList.toggle('on', !!sh && sh.cam === b.dataset.sh); b.disabled = !sh || (b.dataset.sh === 'gopro' && !sh.gp) || (b.dataset.sh === 'gopro2' && !sh.gp2); }
+  for (const b of document.querySelectorAll('[data-so]')) { b.classList.toggle('on', !!sh && !!sh.o && !!sh.o[b.dataset.so]); b.disabled = !sh; }
+  $('shN').textContent = sh ? 'Same buttons as the tablet\'s SHOWTIME! page; whatever is tapped last wins, the tablet stays in charge.' : 'Waiting for the Quest: these light up once the Quest has turned DirroVJ on (and allowed this laptop).';
+}
 bc.onmessage = e => {
   const m = e.data || {}; lastSeen = Date.now();
-  if (m.k === 'state') { S = m; render(); $('st').textContent = 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'; }
+  if (m.k === 'state') {
+    if (m.test && Date.now() - realT < 4000) return;   // #519 the DirroComics test page steps aside when a real DirroVJ answers
+    if (!m.test) realT = Date.now();
+    S = m; render(); CX = m.C || null; renderCx(); renderShow(); if (CX) { renderStars(); starBadges(); }   // #523, #524
+    $('st').textContent = m.test ? 'Connected to the DirroComics TEST page: only the DirroComics section works here (no buses, fractal or program picture). Open dirrovj.html for the real desk.'
+      : m.live ? 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'
+      : 'Connected to DirroVJ, waiting for the Quest: the program picture starts when the Quest turns DirroVJ on (tablet: TWITCH > DIRROVJ). Buses still switch; DirroComics editing works.';
+    $('pvWait').hidden = !!m.live || !!m.test;
+  }
   else if (m.k === 'pv') $('pv').src = m.img;
+  else if (m.k === 'cxpv') { if (m.id === cxSel) { if (m.blob) { const u = URL.createObjectURL(m.blob); if (cxPvUrl) URL.revokeObjectURL(cxPvUrl); cxPvUrl = u; $('cxPv').src = u; } else if (m.img) $('cxPv').src = m.img; } }   // #516, #518 a blob now
+  else if (m.k === 'cxfile') { if (m.blob) cxDownload(m.blob, m.name || 'dirrocomics'); }   // #522 an export, ready
+  else if (m.k === 'cxlist') { cxThumbs = m.thumbs || {}; cxStarImgs = m.starImgs || cxStarImgs; cxListN++; renderCx(); }
+  else if (m.k === 'cxmsg') { $('cxMsg').textContent = m.t; clearTimeout(cxMsgT); cxMsgT = setTimeout(() => { $('cxMsg').textContent = ''; }, 6000); }
 };
 send({ k: 'hello' });
-setInterval(() => { send({ k: 'hello' }); if (Date.now() - lastSeen > 4000) $('st').textContent = 'No DirroVJ output window: open dirrovj.html in this browser, connect it and start DirroVJ.'; }, 2000);
+setInterval(() => { send({ k: 'hello', again: true }); if (Date.now() - lastSeen > 4000) $('st').textContent = 'No DirroVJ output window: open dirrovj.html in this browser, connect it and start DirroVJ.'; }, 2000);
+</script>
+<script type="module">/* #527 DirroComics storyboard (AI) */
+import { initStoryboard } from './js/storyboard.js';
+window.SB = initStoryboard({ $, esc, cx, cxRead, get CX() { return CX; }, thumbs: () => cxThumbs });
 </script>
 </body>
 </html>

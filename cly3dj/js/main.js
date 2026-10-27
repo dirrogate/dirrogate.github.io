@@ -36,7 +36,8 @@ import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
 import { MovieProps, SURF_SLOTS, PLATE_BUILTIN, COLORS, PRESETS, NEON_FONTS, FOG_COLORS, MATTES, GRAFF_BUILTIN, DECAL_GROUND, DECAL_WALL, GRAFF_TINTS, removeFile } from './movieprops.js';   // #478 VJ TOOLS > MOVIE PROPS
-import { FX, USER_LAYER } from './fx.js';   // #379 VISUALS > FX: FLOAT and WATER
+import { FX, USER_LAYER } from './fx.js';
+import { makeRgbdGrab } from './rgbdgrab.js';   // #520 GRAB RGB-D for DirroComics (asked from the VJ desk)   // #379 VISUALS > FX: FLOAT and WATER
 import * as store from './storage.js';
 import * as loopDb from './loopbank.js';   // #470 loop slots and banks in private storage
 import { EnvLight } from './env.js';
@@ -892,7 +893,8 @@ void main() {
 // #413 the depth map lifted back into the room through the depth camera's own projection / pose (RealDepth): lines up
 // close to the headset, unlike three's screen-space copy (#411 owner: real hand / controller ~5 cm above the drawn one).
 // three's own occluder stays as the fallback if the depth info can't be read. The laser gets the same depth view.
-let realDepth = null, rdBinding = null, rdSession = null;
+let realDepth = null, rdBinding = null, rdSession = null, rgbd = null;   // #520 rgbd: GRAB RGB-D
+const cxQ = []; let cxQn = 0;   // #524 STAR IN IT messages from the relay waiting for DirroVJ (stream.js _stuSync sends them while it is linked and allowed)
 // #415 HEADSET CAM AUTO FIT (CAM FIT page): 9 crosshairs on the camera picture; the controller's front tip on each + trigger
 const camCal = { on: false, k: 0, samples: [], prev: {}, msg: '', handsWas: false };
 const _ccM = new THREE.Matrix4(), _ccH = new THREE.Matrix4(), _ccV = new THREE.Vector3();
@@ -930,7 +932,7 @@ function camCalStep() {   // per frame while on: a trigger press = one sample at
   }
 }
 function stepRealWorld(dt) {
-  if (!arMode || !renderer.xr.isPresenting) { if (realDepth) realDepth.clear(); if (laser) laser.setDepth(null); if (mprops) mprops.setDepth(null); return; }
+  if (!arMode || !renderer.xr.isPresenting) { if (realDepth) realDepth.clear(); if (laser) laser.setDepth(null); if (mprops) mprops.setDepth(null); if (rgbd) rgbd.tick(performance.now(), false); return; }
   const hasD = renderer.xr.hasDepthSensing && renderer.xr.hasDepthSensing();
   const occ = hasD ? renderer.xr.getDepthSensingMesh() : null;
   let rdOk = false;
@@ -942,6 +944,7 @@ function stepRealWorld(dt) {
     rdOk = realDepth.update(vp && vp.views, rdBinding, renderer.xr.getDepthTexture());
     realDepth.on = settings.occlusion !== false;
   }
+  if (rgbd) rgbd.tick(performance.now(), rdOk);   // #520 while this frame's depth texture is valid
   if (occ) { if (!occ.userData.vireOcc) patchOcclusion(occ); occ.visible = !rdOk && settings.occlusion !== false; }   // fallback only
   if (laser) laser.setDepth(rdOk && settings.roomHits !== false && laser.on ? realDepth.laserData() : null);   // beams stop at real hands / people
   if (mprops) mprops.setDepth(rdOk && settings.roomHits !== false ? realDepth.laserData() : null);   // #480 MOVIE PROPS fog is soft against real walls / people
@@ -978,6 +981,26 @@ function goproTap(id = 'gopro') {   // #389 for GOPRO and GOPRO2: tap = on / bac
   goproTapT = now; goproTapId = id; goproTapWas = gp.on;
   if (!gp.on && streamer && (streamer.source === 'headset' || streamer.source === 'pcam')) streamer.setSource('show');   // #402 the GoPro becomes the camera from any page
   setDjPreset(gp.on ? 'front' : id);
+}
+// #523 SHOWTIME! from DirroVJ's desk: the same camera pick and OBJECTS toggles as the tablet's SHOWTIME! page (the tablet stays in charge;
+// whatever was tapped last wins). Only from a DirroVJ the DJ allowed. The state goes back in the 'stu' message (showState below).
+const VJ_SHOW_OPTS = ['wall', 'neon', 'panel', 'chalk', 'gear', 'robot', 'scroll', 'np', 'logo', 'chat'];
+function vjShow(m) {
+  const S = streamer; if (!S) return; let what = '';
+  if (m.cam) {
+    const k = m.cam;
+    if ((k === 'gopro' && gopro) || (k === 'gopro2' && gopro2)) { if (S.source === 'headset' || S.source === 'pcam') S.setSource('show'); if (djSet.preset !== k) goproPick(k); what = k.toUpperCase(); }
+    else if (k === 'headset') { S.setSource('headset'); what = 'HEADSET CAM'; }
+    else if (k === 'front' || k === 'faders') { if (S.source === 'headset' || S.source === 'pcam') S.setSource('show'); setDjPreset(k); what = k.toUpperCase(); }
+  }
+  if (m.opt === 'dome') { S.setShowOpt('backdrop', m.v ? 'dome' : 'visuals'); what = 'DOME ' + (m.v ? 'on' : 'off'); }
+  else if (m.opt && VJ_SHOW_OPTS.includes(m.opt)) { S.setShowOpt(m.opt, !!m.v); what = m.opt.toUpperCase() + (m.v ? ' on' : ' off'); }
+  if (what) { drawMixScreen(); toast('DirroVJ: SHOWTIME! ' + what, 1200); }
+}
+function vjShowState() {
+  const S = streamer; if (!S) return null; const O = S.showOpt, o = {};
+  for (const k of VJ_SHOW_OPTS) o[k] = !!O[k]; o.dome = O.backdrop === 'dome';
+  return { cam: S.source === 'headset' || S.source === 'pcam' ? S.source : djSet.preset, o, gp: !!gopro, gp2: !!gopro2 };
 }
 function goproPick(id) {   // #389 the SHOWTIME! camera row: select it; double-tap = back to its start spot
   const gp = id === 'gopro2' ? gopro2 : gopro; if (!gp) return; const now = performance.now();
@@ -1303,6 +1326,8 @@ streamer = CAMERA_ROLE ? null : new Streamer({
   engine, renderer, djcam, scene, camera,   // #333 scene / camera for the MR headset picture
   // #336 SHOW / VIDEOWALL
   avLayer: AV_LAYER, showCam: () => djcam && djcam.cam, scroller: () => scroller, chat: () => chat,   // #340
+  showState: () => vjShowState(),   // #523 SHOWTIME! state for DirroVJ's desk
+  cxQueue: () => cxQ,   // #524 STAR IN IT messages for DirroVJ
   showPrep: () => {   // #372 the SHOWTIME! 3D layer: each prop is in or out by its own toggle; no XR hands, nothing behind
     const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } }, O = streamer.showOpt;
     hide(room);
@@ -8015,6 +8040,7 @@ if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr
   wallFrame: () => (ledMode === 'vdancer' ? fxBig : ledMode === 'clips' && led.video ? led.video : isLive(ledMode) || ledMode === 'screen' ? liveVideo : ledMode === 'decks' ? deckVid[0].v : streamer && streamer.active ? streamer.canvas : null),
   sineText: t => { const c = cleanText(t, 120); if (c.trim()) { scroller.start(c); toast('On the sine scroller', 1500); } },   // #435 a HoloSMS on the Quest's own scroller
   onSms: t => toast('HoloSMS: ' + (t.length > 46 ? t.slice(0, 45) + '…' : t), 2500),
+  onStar: m => { cxQ.push({ id: ++cxQn, m }); if (cxQ.length > 200) cxQ.splice(0, cxQ.length - 200); if (m.k === 'star') toast('⭐ ' + (m.name || 'A guest') + ' joined the DirroComics cast', 2500); },   // #524 queued for DirroVJ
   onChange: () => { if (toolsPage === 'dirro' || toolsPage === 'home' || toolsPage === 'holosms' || toolsPage === 'wall') drawMixScreen(); } });
 renderer.setAnimationLoop(frame);
 // #220 DJ CAM: pose the avatar (headset: head + hands; desktop: a demo DJ), then render the camera into the LED wall
@@ -8436,6 +8462,19 @@ async function applySpect() {
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => ({ ...led.state(), curve: ledwall.userData.curveDeg() }),   /* #358 */ onScreen: onPhoneScreen, getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
       getSpiders: spidersState,   // #262
       onVj: m => {   // #507 DirroVJ's scroller desk: an approved line onto the Quest's sine scroller (only from a DirroVJ the DJ allowed)
+        if (m.k === 'vjshow') { if (streamer && streamer.vjAllowed) vjShow(m); return; }   // #523 SHOWTIME! from the VJ desk (allowed DirroVJ only)
+        if (m.k === 'vjask' || m.k === 'vjclog') {   // #524 a line for a guest / the consent log, to the relay
+          if (!streamer || !streamer.vjAllowed) return;
+          const ok = dirro && dirro.relay(m.k === 'vjask' ? { k: 'ask', dev: m.dev, ask: m.ask, text: m.text, who: m.who, kind: m.kind, media: m.media, panel: m.panel } : { k: 'clog' });
+          if (!ok && spect) spect.cxSay('DIRROGRAM is off or the relay is not connected on the Quest'); return;
+        }
+        if (m.k === 'cxgrab') {   // #520 GRAB RGB-D (DirroComics): only for a DirroVJ the DJ allowed
+          if (!streamer || !streamer.vjAllowed) { if (spect) spect.cxSay('allow this DirroVJ on the Quest\'s DIRROVJ page first'); return; }
+          if (!rgbd) rgbd = makeRgbdGrab({ renderer, getDepth: () => (realDepth && realDepth.ok ? realDepth : null), getFit: () => streamer && streamer.fit,
+            getCamVideo: () => (streamer && streamer.camVideo && streamer.camStream && streamer.camStream.active && streamer.camVideo.videoWidth ? streamer.camVideo : null),
+            say: t => spect && spect.cxSay(t), sendFile: (b, n) => spect.sendCx(b, n), toast });
+          rgbd.start(m); return;
+        }
         if (!streamer || !streamer.vjAllowed || !m.t) return; const c = cleanText(String(m.t), 120); if (c.trim()) { scroller.start(c); toast('DirroVJ: on the sine scroller', 1500); }
       },
       getSleeves: () => sleeves.filter(s => !s.gone).map(s => { const t = s.rec.sides.A || s.rec.sides.B; return { sl: s, key: t ? coverKey(t) : '', title: s.rec.title || '', artist: s.rec.artist || '', size: s.rec.size === 7 ? 7 : 12 }; }),   // #503 sleeves out of the crate, mirrored

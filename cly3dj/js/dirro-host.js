@@ -126,11 +126,13 @@ export class DirroHost {
         if (m.n !== this.fans || o !== this.colo || i !== this.coloIn) { this.fans = m.n; this.colo = o; this.coloIn = i; this._changed(); }
       }
       else if (m.k === 'sms' && m.t) { this.sms.unshift({ id: m.id, t: String(m.t).slice(0, 140), at: m.at || Date.now(), holo: false, sine: false }); if (this.sms.length > 60) this.sms.length = 60; this.smsNew++; if (this.env.onSms) this.env.onSms(m.t); this._changed(); }   // #435
+      else if (m.k === 'star' || m.k === 'ans' || m.k === 'wd' || m.k === 'clog') { if (this.env.onStar) this.env.onStar(m); if (m.k === 'star') this._changed(); }   // #524 STAR IN IT: on to DirroVJ (main.js)
       else if (m.k === 'pong') { const r = performance.now() - m.c; this.rtt = this.rtt ? this.rtt + (r - this.rtt) * 0.3 : r; }
     };
     ws.onclose = () => { if (this.ws !== ws) return; this.ws = null; this.state = 'retrying'; this.retry++; this.retryT = performance.now() + Math.min(15000, 1000 * Math.pow(1.6, this.retry)); this._changed(); };
     ws.onerror = () => { this.err = 'relay not reachable'; };
   }
+  relay(o) { this._send(o); return !!(this.ws && this.ws.readyState === 1); }   // #524 DirroVJ's questions / log request, through this link
   _send(o) { if (!this.ws || this.ws.readyState !== 1) return; const s = JSON.stringify(o); if (this.ws.bufferedAmount > 256 * 1024) return; this.ws.send(s); this.sent++; this._rateB += s.length; }
 
   tick(now) {

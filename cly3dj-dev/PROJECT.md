@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 25 Oct 2026 (decision log up to #464 in `ViRe_Custom/CLAUDE.md`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 27 Oct 2026 (decision log up to #529 in `ViRe_Custom/CLAUDE.md`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -12,13 +12,13 @@ Owner: Clyde DeSouza (c3souza).
 - **Decision log:** `ViRe_Custom/CLAUDE.md`, numbered entries, append only (one line per change: what, why, numbers, where in the code).
 - **Overview copy on disk:** `ViRe_Custom/PROJECT.md` (same text as this file).
 - **Hosting (Cloudflare, since 24 Oct 2026, #463):**
-  - **Performing address (private, not published, #464):** `https://cabin.dirrodj.club/` (gigs `/cly3dj/`, rehearsals `/cly3dj-dev/`), a custom domain on the Pages project `dirrogate-github-io` (`https://dirrogate-github-io.pages.dev/` still works but keeps separate browser storage; use only cabin on the Quest, phone and TV). DirroTV for venues: `https://dirrodj.club/tv` forwards to `cabin.dirrodj.club/cly3dj/venue.html`. The Pages project = a Cloudflare Pages project linked to the GitHub repo below; it rebuilds on every push, so the DJ app is at `https://dirrogate-github-io.pages.dev/cly3dj-dev/` (and `/cly3dj/`). This is what the Quest opens at a gig.
-  - **Public site:** `https://dirrodj.club` = the static website from `ViRe_Custom/dirroclub_website/` (uploaded to Cloudflare by the owner). The audience page Dirrogram is `https://dirrodj.club/gram` (`ViRe_Custom/gram/`, the old `dirrogram.html` as `index.html`; deploy zip `gram-cloudflare-deploy.zip`). The short link `https://dirrodj.club/<ROOM>` forwards to `/gram/#room=<ROOM>` (`dirroclub_website/404.html`, plus the same 3-line script in its `index.html`).
+  - **Performing address (private, not published, #464, corrected #513):** `https://cabin.dirrodj.club/`. The Cloudflare Pages project behind it (`dirrogate-github-io`) publishes the `cly3dj-dev` folder of the GitHub repo below as the site ROOT and rebuilds on every push, so the live addresses are `cabin.dirrodj.club/` (the DJ app on the Quest), `/dirrovj.html` (DirroVJ on the laptop), `/vjdesk.html`, `/spectator.html` (camera phone), `/venue.html` (DirroTV). There is no `/cly3dj/` or `/cly3dj-dev/` path on cabin: Cloudflare answers unknown paths with the start page, which then fails to load its modules. `https://dirrogate-github-io.pages.dev/` still works but keeps separate browser storage; use only cabin on the Quest, phones, laptop and TV.
+  - **Public site:** `https://dirrodj.club` = the static website from `ViRe_Custom/dirroclub_website/` (uploaded to Cloudflare by the owner). The audience page Dirrogram is `https://dirrodj.club/gram` (`ViRe_Custom/dirroclub_website/gram/`, the ONLY Dirrogram deploy folder since #512: `index.html` = `web/dirrogram.html`, `js/dirrogram.js` = `web/js/dirrogram.js`, keep them equal). After any gram change the owner uploads the WHOLE `dirroclub_website` folder. The short link `https://dirrodj.club/<ROOM>` forwards to `/gram/#room=<ROOM>` (`dirroclub_website/404.html`, plus the same 3-line script in its `index.html`).
   - **Dirrogram relay:** Cloudflare Worker + Durable Object `dirrogramclubworker` at `wss://relay.dirrodj.club` (`ViRe_Custom/cloudflare-relay/worker.js`, `wrangler.toml`; deploy with `npx wrangler deploy` in that folder). One Durable Object per room key (class `Room`, SQLite-backed, Workers Free plan, location hint `apac`). Replaced the Pinggy tunnel and the relay inside the owner's Node server (#429) for shows.
   - Pinggy (`univdemo.a.pinggy.link`) is no longer used for shows; the Node server at `localhost:8000/vire/` stays for testing on the PC.
 - **Source of the Pages build (GitHub):** repo `dirrogate/dirrogate.github.io`, local clone `Documents/GitHub/dirrogate.github.io`.
   - Test builds: `dirrogate.github.io/cly3dj-dev/` (also holds a copy of `CLAUDE.md`).
-  - Release: `dirrogate.github.io/cly3dj/` (everything in dev except `CLAUDE.md`).
+  - Release: `dirrogate.github.io/cly3dj/` (everything in dev except `CLAUDE.md` and `PROJECT.md`). Only on GitHub Pages (`dirrogate.github.io/cly3dj/`), not on cabin.
   - Phone camera page: `…/spectator.html` in either folder.
   - Venue screen page: `…/venue.html` (DirroTV, was Cly3DTV), opened on a Fire Stick / phone with HDMI / smart TV (#376).
 - **Release flow (owner's rule):** edit in `web/`, copy the changed files to `cly3dj-dev/` and commit there (author "Clyde DeSouza <cly3desouza@gmail.com>", with the Claude co-author lines), then ASK before copying to `cly3dj/`.
@@ -55,6 +55,9 @@ Owner: Clyde DeSouza (c3souza).
 - `movieprops.js` (#478 to #497): MOVIE PROPS (VJ TOOLS) for filming mode: wet ground surfaces from texture maps, puddles, rain, fog / steam / haze, street lamps with halos, GLB props, neon, graffiti, ground and wall decals (PNG with transparency, lit, rain rings / rivulets), backdrop photo with its reflection in the wet ground, record crate (can float), ALLEY and ROAD scene presets, B-button placement laser.
 - `robot2.js`, `director.js`: robot avatar and AVACAM. `spectator-host.js` (Quest) / `spectator-client.js` + `phonehands.js` (phone).
 - `textures.js`, `models.js`: records, grooves, labels, sleeves, procedural parts.
+- DirroVJ (laptop, #500 to #515): `studio.js` (the studio: Quest pack + camera composite, Twitch, DirroTV from DirroVJ), `vjdesk.js` (output side of the VJ desk: buses A / B, crossfader, FRACTAL landscape, WEBCAM, LED CLIP, DIRROCOMICS, scroller desk, LINE IN), `vjdesk.html` (the desk window, BroadcastChannel 'dirrovj'), `dirrovj.html` (start page = `index.html?role=camera&vj=1`).
+- DirroComics (#516 to #528): `comics.js` (the comic page as a bus source: panels, inking shaders, anaglyph, text, OPFS storage, issues, MP4 / PDF / REEL / CAROUSEL exports, STAR cast and the YES gate), `cxfiles.js` (zip and PDF writers), `rgbdgrab.js` (Quest: GRAB RGB-D), `storyboard.js` (desk: AI storyboard with Gemini / Claude API), fonts in `web/fonts/`, mark in `web/img/dirrocomics-mark.png`.
+- Dirrogram (audience phones): `dirrogram.js` + `dirrogram.html` (copied into `dirroclub_website/gram/`), `dirro-host.js` (Quest side). Relay: `cloudflare-relay/worker.js` (rooms, HoloSMS, STAR IN IT consent log).
 
 ## The DJ setup
 
@@ -122,7 +125,7 @@ Sources: OFF, CLIPS, VIDVINYL, AVACAM, LIVE, SOLO plus the effect modes MANDEL, 
 - **Cost (measured on the PC, #334, #372):** live render-time readout (`djcam.ms`) shown on the SHOWTIME! OBJECTS page. Toggles save GPU rendering time.
 - **YouTube:** not started (no browser ingest found; may need a relay).
 
-## S8 STUDIO (#380, 18 Oct, built, not yet on the devices)
+## S8 STUDIO (#380, 18 Oct; became DirroVJ in #500 / #501, see below)
 
 - The S8 (spectator page, fixed tripod camera, Chrome 101) is the studio: it makes the TV picture (HDMI, full screen) and the Twitch stream. The Quest only draws the scene and sends it packed with its matte (1920 x 720: colour 1280, timestamp strip, matte 624 at x 1296) plus the master sound over the spectator link, 4.5 Mbit/s.
 - Modes on TOOLS > STREAM > S8 STUDIO: SHOW (the SHOWTIME! camera pick; HEADSET CAM, CARD, AVACAM go as finished pictures), LIVE DJ! (S8 camera = your real room, gear over you), LIVE KEY! (S8 camera keyed over the backdrop). Backdrop NONE / DOME (the S8's own panorama copy) / VISUALS (the S8's own LED clip copy, else the Quest bakes it in).
@@ -139,6 +142,23 @@ Sources: OFF, CLIPS, VIDVINYL, AVACAM, LIVE, SOLO plus the effect modes MANDEL, 
 ## Spectator phone camera
 
 A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited in (AR or fixed tripod, look matching, virtual set, PerfCap). Details: `spectator-camera-plan.md`, `fixed-cam-switcher-plan.md`, `perfcap-plan.md`, `avatar-stage-plan.md`, `club-switcher-plan.md`. Since #288 the phone draws the DJ's hands like the Quest (3D hands / glove / controllers) instead of cut-outs; realistic hand textures are a later idea. In SHOWTIME! (#372), PHONE CAM receives the calibrated front/back phone feed and Quest overlays decks and selected objects via `pcamPrep`.
+
+## DirroVJ (#500 to #515, 26 to 27 Oct)
+
+- The laptop page that makes the audience picture (was S8 STUDIO): `cabin.dirrodj.club/dirrovj.html`, paired to the Quest with the 5-digit code, ALLOW / DENY on the tablet's DIRROVJ page (nothing is sent before ALLOW), heartbeat with TAKE BACK. RENDER: QUEST (default, the Quest's packed frame) or LAPTOP (the laptop draws the mirror scene). Modes SHOW, LIVE DJ!, LIVE KEY!, WEBCAM; a camera without calibration is a plain camera (#515).
+- VJ desk (`vjdesk.html`, #507): buses A / B with QUEST, FRACTAL (Amiga-style landscape, four formulas, six palettes, BEAT from the kick), WEBCAM, LED CLIP, DIRROCOMICS, BLACK; CUT / AUTO; scroller desk (Twitch chat + HoloSMS, APPROVE); LINE IN; SHOWTIME! camera and object buttons (#523).
+- DirroTV follows DirroVJ when it is on (#509). Names cleaned up (#510): DirroVJ, DirroVJ camera, DirroTV screens, TWITCH.
+
+## DirroComics (#516 to #528, 27 Oct)
+
+- A live comic strip drawn by DirroVJ as a bus source (1950s / 60s newsprint, CyberGrunge meets Steampunk). Details and owner decisions: project doc `dirrocomics-plan.md`; user steps: section 8 of `DirroVJ_DirroDJ_User_Manual.docx`.
+- Built: page with peeks, five inking styles, captions / balloons / SFX, black and white ANAGLYPH with depth (SBS, RGB+D, painted depth maps, MediaPipe PEOPLE, LIVE PEOPLE), GRAB QUEST / WEBCAM / RGB-D, issues (.dirrocomic), MP4, PDF STRIP, Instagram REEL 9:16 and CAROUSEL 4:5 (posted by hand), STAR IN IT (Dirrogram card, YES / NO per line, hash-chained consent log on the relay, WITHDRAW), terms text on the Dirrogram, AI storyboard (Gemini free tier or Claude API, 8 to 12 panels), the owner's DirroComics mark.
+
+## Status (27 Oct)
+
+- Release (cly3dj) = dev up to #528 (released in #529, 27 Oct). cabin.dirrodj.club serves cly3dj-dev, which already had all of it.
+- Owner to do: deploy the relay (`cloudflare-relay`: `npx wrangler deploy`) for STAR IN IT; upload the whole `dirroclub_website` folder (Dirrogram changed: STAR, terms, title); keys for the AI storyboard (Gemini and / or Claude API); a lawyer's read of the terms.
+- Not yet tried with the real kit: DirroVJ with a live Quest at a venue, GRAB RGB-D on the headset, SHOWTIME! from the desk, STAR IN IT on real phones, REEL / CAROUSEL posted from the phone, the storyboard against the real APIs, LINE IN with a real interface.
 
 ## Status (25 Oct)
 
@@ -175,6 +195,7 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 
 ## Next steps
 
+00. (27 Oct) DirroComics next phases (project doc `dirrocomics-plan.md`): controller-painted masks, cinegraphs, HoloSMS into balloons, Dirrogram vertical view and a star's own copy, gang cards, a 3-minute limit for guest uploads, archive pages, consent-log timestamp, strip in the Quest scene. Terms: an AI-processing line before guest photos go to the storyboard AI.
 0. Open after 18 Oct (owner: no changes until asked, #405): edge stair-stepping and an interlace-like line flicker at the far left of the LEFT eye only (right eye clear). Suspects: fixed foveation 0.5 (owner's rule: don't change it), the dome's 1-tap / 4-tap switch on video panos flipping where foveation tiles change, the lens / display. Owner to check: dome off, still pano, LED wall off, other Quest apps. Offered, not built: soft blend instead of the hard 4-tap switch (about free), the same adaptive 4-tap on the LED wall video (small cost). Tablet already has mipmaps + 4x anisotropy; a bigger canvas would cost CPU on every redraw, so no.
 1. Owner tests #372 / #373 SHOWTIME! modular redesign:
    - Stream page: BACKDROP cycle (NONE / VISUALS / DOME), OBJECTS ▸ navigation.

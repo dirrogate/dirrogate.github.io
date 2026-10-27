@@ -463,11 +463,12 @@ function netConnect() {
   if (!NET.relay || !NET.room) return;
   let ws; try { ws = new WebSocket(`${NET.relay}/r/${encodeURIComponent(NET.room)}?role=fan`); } catch (e) { NET.state = 'error'; return; }
   NET.ws = ws; NET.state = 'connecting';
-  ws.onopen = () => { NET.state = 'open'; NET.retry = 0; ws.send(JSON.stringify({ k: 'ping', c: performance.now() })); };
+  ws.onopen = () => { NET.state = 'open'; NET.retry = 0; ws.send(JSON.stringify({ k: 'ping', c: performance.now() })); ws.send(JSON.stringify({ k: 'hi', dev: STAR_DEV })); };   // #524 hi: this phone's device id (questions for it come here)
   ws.onclose = () => { if (NET.ws !== ws) return; NET.ws = null; NET.state = 'retrying'; NET.retry++; NET.retryT = performance.now() + Math.min(10000, 800 * Math.pow(1.6, NET.retry)); };
   ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (x) { return; } netMsg(m, performance.now()); };
 }
 function netMsg(m, now) {
+  if (STAR_K.has(m.k)) { starMsg(m); return; }   // #524
   if (m.k === 'smsok') { toast('Sent! It goes up if the DJ picks it.'); return; }   // #435
   if (m.k === 'smsw') { toast(`One message every 3 minutes: next one in ${m.s >= 60 ? Math.floor(m.s / 60) + ' min ' + (m.s % 60) + ' s' : m.s + ' s'}`); return; }
   if (m.k === 'pong') { const r = now - m.c; NET.rtt = NET.rtt ? NET.rtt + (r - NET.rtt) * 0.25 : r; return; }
@@ -683,14 +684,15 @@ function frame() {
       renderer.render(ovScene, bgCam);
     }
   }
+  if (globalThis.cxSnap) { const f = globalThis.cxSnap; globalThis.cxSnap = null; f(); }   // #524 STAR photo: read the canvas in the frame it was drawn
 }
 
 // ---------------------------------------------------------------- UI
 let toastT = 0;
 function toast(s) { const t = $('toast'); t.textContent = s; t.style.opacity = 1; clearTimeout(toastT); toastT = setTimeout(() => { t.style.opacity = 0; }, 1800); }
-const show = (id, on) => { $(id).classList.toggle('hide', !on); if (on && (id === 'aimMenu' || id === 'panel' || id === 'sms')) overBar(); };
+const show = (id, on) => { $(id).classList.toggle('hide', !on); if (on && (id === 'aimMenu' || id === 'panel' || id === 'sms' || id === 'star' || id === 'ask')) overBar(); };
 // #438 the boxes over the button bar sit above its real height (it wraps onto two rows on a phone)
-function overBar() { const h = $('bar').offsetHeight || 50; for (const id of ['aimMenu', 'panel', 'sms']) $(id).style.bottom = `calc(env(safe-area-inset-bottom) + ${h + 28}px)`; }
+function overBar() { const h = $('bar').offsetHeight || 50; for (const id of ['aimMenu', 'panel', 'sms', 'star', 'ask']) $(id).style.bottom = `calc(env(safe-area-inset-bottom) + ${h + 28}px)`; }
 window.addEventListener('resize', () => overBar());
 function aim() {
   BCN.fix = null; BCN.step = 0;   // #438 a plain AIM ends a beacon placement
@@ -870,3 +872,53 @@ drawCaption(); drawPromo(); drawScroller(); resize();
 buildBooth().then(() => robotReady).then(() => { window.__dirroReady = true; });
 renderer.setAnimationLoop(frame);
 window.dirro = { get wfx() { return wfx; }, wallFx, /* #439 */ BCN, bcnSolve, bcnStage, liveCfg, rec, recStart, recStop, NET, people, setPeople, S, stage, booth, robot, laser, camera, scene, renderer, place, feedPose, live, beat, wall, scroller, set aim(v) { aimF = v; place(); }, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, set pitch(v) { pitch = v; } };
+
+// ---------------------------------------------------------------- #524 ⭐ in DirroComics (STAR IN IT)
+// The guest makes a card (photo from this view, comic name, genre, up to two lines of their own), confirms age and the terms,
+// and the relay logs the opt-in (hash chain) before the DJ's DirroVJ gets the card. Any line written for them comes back here
+// as YES / NO (logged too); MY CONSENTS shows this phone's records and WITHDRAW.
+const STAR_DEV = (() => { try { let d = localStorage.getItem('vire.dirro.dev'); if (!d) { d = 'd' + [...crypto.getRandomValues(new Uint8Array(12))].map(x => x.toString(36).padStart(2, '0')).join(''); localStorage.setItem('vire.dirro.dev', d); } return d; } catch (e) { return 'd' + Math.random().toString(36).slice(2, 14) + Date.now().toString(36); } })();
+const TERMS = 'This event is recorded and may be sent to streaming platforms and Instagram. Patrons and Stars grant usage rights to reproduce the content featuring them on club screen, streams, and DirroComics and its reprints in media';   // #525 owner's wording, also shown on the start screen (general terms)
+const STAR_K = new Set(['starok', 'starx', 'ask', 'ansok', 'ansx', 'wdok', 'mine']);
+let stImg = '', askQ = [], askCur = null, termsVer = 'T2';
+(async () => { try { const b = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(TERMS))); termsVer = 'T2-' + [...b.slice(0, 8)].map(x => x.toString(16).padStart(2, '0')).join(''); } catch (e) {} })();
+$('stTerms').textContent = TERMS; { const gt = document.getElementById('gTerms'); if (gt) gt.textContent = TERMS; }   // #525 general terms on the start screen
+const rcpt = r => { try { const l = JSON.parse(localStorage.getItem('vire.dirro.rcpt') || '[]'); l.push(r); localStorage.setItem('vire.dirro.rcpt', JSON.stringify(l.slice(-100))); } catch (e) {} };
+const netOpen = () => NET.ws && NET.ws.readyState === 1;
+$('bStar').onclick = () => { show('panel', false); show('sms', false); const on = $('star').classList.contains('hide'); show('star', on); if (on) $('stList').classList.add('hide'); };
+$('stCancel').onclick = () => show('star', false);
+$('stSnap').onclick = () => {   // the next drawn frame of this view (camera + show + PEOPLE / FX), 480 px wide, under ~55 KB
+  globalThis.cxSnap = () => {
+    const W = 480, H = Math.round(W * canvas.height / canvas.width), c = document.createElement('canvas'); c.width = W; c.height = H; c.getContext('2d').drawImage(canvas, 0, 0, W, H);
+    let q = 0.75, d = c.toDataURL('image/jpeg', q); while (d.length > 55000 && q > 0.3) { q -= 0.1; d = c.toDataURL('image/jpeg', q); }
+    stImg = d; $('stPic').src = d;
+  };
+};
+$('stSend').onclick = () => {
+  const name = $('stName').value.replace(/\s+/g, ' ').trim().slice(0, 24), lines = [$('stL1').value, $('stL2').value].map(l => l.replace(/\s+/g, ' ').trim().slice(0, 100)).filter(Boolean);
+  if (!stImg) { toast('TAKE PHOTO first'); return; } if (!name) { toast('Give yourself a comic name'); return; }
+  if (!$('stAge').checked) { toast('Only for people 18 or older'); return; } if (!$('stOk').checked) { toast('Tick the terms to join'); return; }
+  if (!netOpen()) { toast('Not connected to the show yet'); return; }
+  NET.ws.send(JSON.stringify({ k: 'star', dev: STAR_DEV, name, genre: $('stGenre').value, lines, img: stImg, terms: termsVer, age: true })); toast('Sending your card…');
+};
+$('stMine').onclick = () => { if (!netOpen()) { toast('Not connected to the show yet'); return; } NET.ws.send(JSON.stringify({ k: 'mine', dev: STAR_DEV })); };
+function nextAsk() { if (askCur || !askQ.length) return; askCur = askQ.shift(); $('askWho').textContent = askCur.who || 'you'; $('askText').textContent = askCur.text; show('star', false); show('ask', true); }
+function answer(yes) { if (!askCur) return; if (netOpen()) NET.ws.send(JSON.stringify({ k: 'ans', dev: STAR_DEV, ask: askCur.ask, yes })); else toast('Not connected: answer again when you are back'); askCur = null; show('ask', false); setTimeout(nextAsk, 300); }
+$('askYes').onclick = () => answer(true); $('askNo').onclick = () => answer(false);
+const fmtT = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+function starMsg(m) {
+  if (m.k === 'starok') { rcpt({ type: 'OPT_IN', cid: m.cid, at: m.at, name: m.name }); toast(`You're in the cast, ${m.name}! Receipt ${m.cid}`); show('star', false); return; }
+  if (m.k === 'starx' || m.k === 'ansx') { toast(m.e || 'Not sent'); return; }
+  if (m.k === 'ask') { if (!askQ.some(a => a.ask === m.ask) && (!askCur || askCur.ask !== m.ask)) askQ.push(m); nextAsk(); return; }
+  if (m.k === 'ansok') { rcpt({ type: m.yes ? 'LINE_YES' : 'LINE_NO', cid: m.cid, at: m.at, text: m.text }); toast((m.yes ? 'YES sent' : 'NO sent') + `, receipt ${m.cid}`); return; }
+  if (m.k === 'wdok') { rcpt({ type: 'WITHDRAW', cid: m.cid, at: m.at }); toast(`Withdrawn, receipt ${m.cid}. Your panels come out of future reprints.`); $('stList').classList.add('hide'); return; }
+  if (m.k === 'mine') {
+    const L = $('stList'), esc = s => String(s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+    const wd = m.items.some(i => i.type === 'WITHDRAW') && !m.items.slice(m.items.findIndex(i => i.type === 'WITHDRAW')).some(i => i.type === 'OPT_IN');
+    L.innerHTML = (m.items.length ? m.items.map(i => `<div class="it"><b>${{ OPT_IN: 'Joined the cast', LINE_YES: 'YES', LINE_NO: 'NO', WITHDRAW: 'Withdrawn' }[i.type] || i.type}</b> ${fmtT(i.at)}${i.name ? ' · ' + esc(i.name) : ''}${i.text ? '<br>“' + esc(i.text) + '”' : ''}<br><span class="c">receipt ${i.cid}</span></div>`).join('')
+      : '<div class="it">Nothing yet from this phone.</div>') + (m.items.length && !wd ? '<div class="smsRow"><span></span><button class="btn ghost" id="stWd">WITHDRAW</button></div>' : '');
+    L.classList.remove('hide');
+    const b = $('stWd'); if (b) b.onclick = () => { if (confirm('Withdraw from DirroComics? Your panels come out of future reprints and the archive.') && netOpen()) NET.ws.send(JSON.stringify({ k: 'wd', dev: STAR_DEV })); };
+  }
+}
+
