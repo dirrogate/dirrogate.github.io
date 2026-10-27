@@ -114,7 +114,7 @@
       <div class="row"><label class="kv"><span class="sl">Style</span><select id="cxSty"></select></label><label class="kv"><span class="sl">Dots</span><input type="range" data-pk="dots" min="6" max="26" step="1"></label><label class="kv"><span class="sl">Ink</span><input type="range" data-pk="ink" min="0" max="1.5" step="0.05"></label></div>
       <div class="row"><label class="kv"><span class="sl">Bright</span><input type="range" data-pk="bright" min="-0.45" max="0.45" step="0.01"></label><label class="kv"><span class="sl">Contrast</span><input type="range" data-pk="contrast" min="0.5" max="2.6" step="0.05"></label></div>
       <div class="row"><label class="kv"><span class="sl">Frame X</span><input type="range" data-pk="fx" min="0" max="1" step="0.01"></label><label class="kv"><span class="sl">Y</span><input type="range" data-pk="fy" min="0" max="1" step="0.01"></label><label class="kv"><span class="sl">Zoom</span><input type="range" data-pk="zoom" min="1" max="3.5" step="0.02"></label></div>
-      <div class="row"><label class="kv"><span class="sl">Stereo</span><select id="cxSbs"><option value="0">flat</option><option value="1">full SBS</option><option value="2">half SBS</option></select></label><button id="cxSwap" title="If depth looks inside out">SWAP EYES</button><label class="kv"><span class="sl">Converge</span><input type="range" data-pk="conv" min="-0.08" max="0.08" step="0.002" title="Move the zero plane: set it so the DJ shows no red / cyan fringe"></label><label class="kv"><span class="sl">Pop</span><input type="range" data-pk="pop" min="0" max="16" step="1" title="How far balloons and SFX float in front (px)"></label></div>
+      <div class="row"><label class="kv"><span class="sl">Stereo</span><select id="cxSbs"><option value="0">flat</option><option value="1">full SBS</option><option value="2">half SBS</option></select></label><button id="cxSwap" title="If depth looks inside out">SWAP EYES</button><label class="kv"><span class="sl">Converge</span><input type="range" data-pk="conv" min="-0.08" max="0.08" step="0.002" title="Move the zero plane: set it so the DJ shows no red / cyan fringe"></label><label class="kv"><span class="sl">Flat depth</span><select id="cxDm" title="ANAGLYPH depth for a flat (not side by side) picture"><option value="0">on screen</option><option value="1">behind</option><option value="2">ground</option></select></label><label class="kv"><span class="sl">Depth</span><input type="range" data-pk="deep" min="0" max="10" step="0.5" title="px behind the screen; past about 8 the dots can lock onto their neighbours"></label><label class="kv"><span class="sl">Pop</span><input type="range" data-pk="pop" min="0" max="16" step="1" title="How far balloons and SFX float in front (px)"></label></div>
       <div id="cxItems"></div>
       <div class="row"><button data-add="cap">+ CAPTION</button><button data-add="speech">+ SPEECH</button><button data-add="thought">+ THOUGHT</button><button data-add="shout">+ SHOUT</button><button data-add="sfx">+ SFX</button></div>
     </div>
@@ -176,7 +176,7 @@ $('cxGo').onclick = () => cxSel && cx('go', { id: cxSel });
 $('cxL').onclick = () => cxSel && cx('move', { id: cxSel, d: -1 }); $('cxR').onclick = () => cxSel && cx('move', { id: cxSel, d: 1 });
 $('cxDup').onclick = () => cxSel && cx('dup', { id: cxSel });
 $('cxDel').onclick = () => { const p = selP(); if (p && confirm('Delete panel ' + (CX.panels.indexOf(p) + 1) + '?')) { cx('del', { id: cxSel }); cxSel = null; } };
-$('cxSty').onchange = e => cxSet({ style: e.target.value }); $('cxSbs').onchange = e => cxSet({ sbs: +e.target.value });
+$('cxSty').onchange = e => cxSet({ style: e.target.value }); $('cxDm').onchange = e => cxSet({ dmode: +e.target.value });   // #517 $('cxSbs').onchange = e => cxSet({ sbs: +e.target.value });
 $('cxSwap').onclick = () => { const p = selP(); if (p) cxSet({ swap: !p.swap }); };
 for (const r of document.querySelectorAll('[data-pk]')) r.oninput = e => cxSet({ [r.dataset.pk]: +e.target.value });
 for (const b of document.querySelectorAll('[data-add]')) b.onclick = () => { if (!cxSel) return; const t = b.dataset.add; cxItems.push({ t, text: t === 'sfx' ? 'KRRSSHH!' : t === 'cap' ? 'MEANWHILE, IN THE BOOTH…' : '', ...ITEM_DEF[t] }); cxItemsKey = ''; sendItems(); renderItems(true); };
@@ -223,7 +223,8 @@ function renderCx() {
   const p = selP(); $('cxEd').hidden = !p; if (!p) return;
   $('cxInfo').textContent = `#${P.indexOf(p) + 1} · ${p.name || ''} · ${p.w}×${p.h}`;
   if (document.activeElement !== $('cxSty')) $('cxSty').value = p.style; if (document.activeElement !== $('cxSbs')) $('cxSbs').value = String(p.sbs | 0);
-  $('cxSwap').classList.toggle('on', !!p.swap);
+  $('cxSwap').classList.toggle('on', !!p.swap); if (document.activeElement !== $('cxDm')) $('cxDm').value = String(p.dmode ?? 2);
+  $('cxDm').disabled = !!p.sbs;
   for (const r of document.querySelectorAll('[data-pk]')) if (document.activeElement !== r) r.value = p[r.dataset.pk];
   const focusIn = $('cxItems').contains(document.activeElement);
   if (!focusIn && JSON.stringify(p.items || []) !== JSON.stringify(cxItems)) { cxItems = (p.items || []).map(i => ({ ...i })); renderItems(false); for (const row of $('cxItems').children) { const it = cxItems[+row.dataset.i]; for (const el of row.querySelectorAll('[data-f]')) el.value = it[el.dataset.f] ?? el.value; } }

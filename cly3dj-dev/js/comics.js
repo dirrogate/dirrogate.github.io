@@ -9,13 +9,13 @@
 const REF = { W: 1920, H: 1080, pw: 1120, ph: 850, top: 128, gap: 30 }; REF.x = (REF.W - REF.pw) / 2;
 const STYLES = ['halftone', 'hatch', 'benday', 'poster', 'photo'];
 const FONT = { sfx: 'ComicBangers', cap: 'ComicType', bal: 'ComicNeueBold' };
-const PANEL_DEF = { sbs: 0, swap: false, conv: 0, pop: 7, style: 'halftone', dots: 12, ink: 0.6, bright: 0, contrast: 1.15, fx: 0.5, fy: 0.5, zoom: 1, items: [] };
+const PANEL_DEF = { sbs: 0, swap: false, conv: 0, pop: 7, dmode: 2, deep: 6, style: 'halftone', dots: 12, ink: 0.6, bright: 0, contrast: 1.15, fx: 0.5, fy: 0.5, zoom: 1, items: [] };
 const CFG_DEF = { issue: 'ISSUE #1', foot: 'DIRRODJ PRESENTS', ana: false, auto: 0, sbsDef: 'auto', styleDef: 'halftone', split: true };
 
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
 const COPY_FS = 'uniform sampler2D t; varying vec2 vUv; void main() { gl_FragColor = vec4(texture2D(t, vUv).rgb, 1.0); }';
 const PAGE_FS = `uniform sampler2D m0, m1, m2, m3, o0, o1, o2, o3, chr;
-uniform vec4 R[4], A[4], B[4], C[4], E[4];
+uniform vec4 R[4], A[4], B[4], C[4], E[4], G[4];   // #517 G: flat depth mode (0 screen, 1 behind, 2 ground), depth px
 uniform vec3 paper, inkc; uniform float ana; varying vec2 vUv;
 // R: panel rect (ref px, y down). A: sbs (0 off, 1 full, 2 half), swap, conv, light. B: fx, fy, zoom, style. C: bright, contrast, eye aspect, active.
 // E: dot pitch (ref px), ink lines, pop (ref px), split screens
@@ -65,13 +65,19 @@ float shade(sampler2D m, vec2 q, vec4 Rr, vec4 Aa, vec4 Bb, vec4 Cc, vec4 Ee, fl
   else ink = 1.0 - l;   // PHOTO
   return max(ink, lines);
 }
-void slot(sampler2D m, sampler2D o, vec4 Rr, vec4 Aa, vec4 Bb, vec4 Cc, vec4 Ee, vec2 p, inout float iL, inout float iR) {
+void slot(sampler2D m, sampler2D o, vec4 Rr, vec4 Aa, vec4 Bb, vec4 Cc, vec4 Ee, vec4 Gg, vec2 p, inout float iL, inout float iR) {
   if (Cc.w < 0.5) return;
   if (p.x < Rr.x - 5.0 || p.y < Rr.y - 5.0 || p.x > Rr.x + Rr.z + 5.0 || p.y > Rr.y + Rr.w + 5.0) return;
   vec2 q = (p - Rr.xy) / Rr.zw; float lt = Aa.w;
   if (q.x < 0.0 || q.y < 0.0 || q.x > 1.0 || q.y > 1.0) { iL = lt; iR = lt; return; }   // the panel's frame
-  float a = shade(m, q, Rr, Aa, Bb, Cc, Ee, 0.0);
-  float b = (ana > 0.5 && Aa.x > 0.5) ? shade(m, q, Rr, Aa, Bb, Cc, Ee, 1.0) : a;
+  float a, b;
+  if (ana > 0.5 && Aa.x < 0.5 && Gg.x > 0.5) {   // #517 a flat picture gets 2.5D depth: the whole picture (and its dots) moved behind the frame, or a ground ramp
+    float d = Gg.x < 1.5 ? Gg.y : Gg.y * (1.0 - q.y); vec2 sh = vec2(d * 0.5 / Rr.z, 0.0);
+    a = shade(m, q + sh, Rr, Aa, Bb, Cc, Ee, 0.0); b = shade(m, q - sh, Rr, Aa, Bb, Cc, Ee, 0.0);
+  } else {
+    a = shade(m, q, Rr, Aa, Bb, Cc, Ee, 0.0);
+    b = (ana > 0.5 && Aa.x > 0.5) ? shade(m, q, Rr, Aa, Bb, Cc, Ee, 1.0) : a;
+  }
   vec4 z = texture2D(o, q); a = mix(a, z.r, z.g); b = mix(b, z.r, z.g);   // captions: zero parallax
   float off = ana > 0.5 ? Ee.z * 0.5 / Rr.z : 0.0;   // POP = total disparity: each eye moves half
   vec4 pl = texture2D(o, vec2(q.x - off, q.y)), pr = texture2D(o, vec2(q.x + off, q.y));   // balloons / SFX: in front
@@ -80,8 +86,8 @@ void slot(sampler2D m, sampler2D o, vec4 Rr, vec4 Aa, vec4 Bb, vec4 Cc, vec4 Ee,
 }
 void main() {
   vec2 p = vec2(vUv.x * 1920.0, (1.0 - vUv.y) * 1080.0); float iL = 0.0, iR = 0.0;
-  slot(m0, o0, R[0], A[0], B[0], C[0], E[0], p, iL, iR); slot(m1, o1, R[1], A[1], B[1], C[1], E[1], p, iL, iR);
-  slot(m2, o2, R[2], A[2], B[2], C[2], E[2], p, iL, iR); slot(m3, o3, R[3], A[3], B[3], C[3], E[3], p, iL, iR);
+  slot(m0, o0, R[0], A[0], B[0], C[0], E[0], G[0], p, iL, iR); slot(m1, o1, R[1], A[1], B[1], C[1], E[1], G[1], p, iL, iR);
+  slot(m2, o2, R[2], A[2], B[2], C[2], E[2], G[2], p, iL, iR); slot(m3, o3, R[3], A[3], B[3], C[3], E[3], G[3], p, iL, iR);
   vec4 h = texture2D(chr, vec2(vUv.x, 1.0 - vUv.y)); iL = mix(iL, h.r, h.g); iR = mix(iR, h.r, h.g);
   vec3 col = ana > 0.5 ? vec3(paper.r * (1.0 - iL), paper.g * (1.0 - iR), paper.b * (1.0 - iR)) : mix(paper, inkc, iL);
   gl_FragColor = vec4(col, 1.0);
@@ -95,7 +101,7 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
   const blank = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); blank.needsUpdate = true;   // paper while a picture loads
   const v4 = () => [0, 1, 2, 3].map(() => new THREE.Vector4());
   const U = { m0: { value: blank }, m1: { value: blank }, m2: { value: blank }, m3: { value: blank }, o0: { value: blank }, o1: { value: blank }, o2: { value: blank }, o3: { value: blank }, chr: { value: blank },
-    R: { value: v4() }, A: { value: v4() }, B: { value: v4() }, C: { value: v4() }, E: { value: v4() },
+    R: { value: v4() }, A: { value: v4() }, B: { value: v4() }, C: { value: v4() }, E: { value: v4() }, G: { value: v4() },
     paper: { value: new THREE.Vector3(243 / 255, 234 / 255, 212 / 255) }, inkc: { value: new THREE.Vector3(24 / 255, 21 / 255, 20 / 255) }, ana: { value: 0 } };
   const pageSc = quad(new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: PAGE_FS, depthTest: false, depthWrite: false }));
   const copyU = { t: { value: null } }, copySc = quad(new THREE.ShaderMaterial({ uniforms: copyU, vertexShader: VS, fragmentShader: COPY_FS, depthTest: false, depthWrite: false }));
@@ -254,6 +260,7 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
       U.B.value[s].set(p.fx ?? 0.5, p.fy ?? 0.5, p.zoom || 1, Math.max(0, STYLES.indexOf(p.style)));
       C.set(p.bright || 0, p.contrast ?? 1.15, eyeAspect(p), 1);
       U.E.value[s].set(p.dots || 12, p.ink ?? 0.6, p.pop ?? 7, cfg.split ? 1 : 0);
+      U.G.value[s].set(p.dmode ?? 2, Math.min(12, p.deep ?? 6), 0, 0);   // #517
       if (r.el && r.el.play && r.el.paused) r.el.play().catch(() => {});
     }
     chrome(Math.round(at)); U.chr.value = hTex; U.ana.value = cfg.ana ? 1 : 0;
