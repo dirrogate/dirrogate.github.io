@@ -431,5 +431,9 @@ bc.onmessage = e => {
 send({ k: 'hello' });
 setInterval(() => { send({ k: 'hello', again: true }); if (Date.now() - lastSeen > 4000) $('st').textContent = 'No DirroVJ output window: open dirrovj.html in this browser, connect it and start DirroVJ.'; }, 2000);
 </script>
+<script type="module">/* #527 DirroComics storyboard (AI) */
+import { initStoryboard } from './js/storyboard.js';
+window.SB = initStoryboard({ $, esc, cx, cxRead, get CX() { return CX; }, thumbs: () => cxThumbs });
+</script>
 </body>
 </html>

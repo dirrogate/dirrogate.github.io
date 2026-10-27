@@ -615,6 +615,12 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
     }
     else if (op === 'move' && p) { const i = panels.indexOf(p), j = i + (m.d < 0 ? -1 : 1); if (j >= 0 && j < panels.length) { const onAir = panels[cur]; panels.splice(i, 1); panels.splice(j, 0, p); cur = pos = panels.indexOf(onAir); changed(true); } }
     else if (op === 'del' && p) { const onAir = panels[cur], i = panels.indexOf(p); panels.splice(i, 1); dropRes(p.id); if (!panels.some(x => x.file === p.file)) removeFile(p.file); /* dup shares the file */ if (p.depth && !panels.some(x => x.depth === p.depth)) removeFile(p.depth); cur = pos = Math.max(0, onAir === p ? Math.min(i, panels.length - 1) : panels.indexOf(onAir)); changed(true); }
+    else if (op === 'sbadd') {   // #527 a storyboard panel: the source's media (shared file), new framing / style / text, at the end of the strip
+      const sp = panels.find(x => x.id === m.src); if (!sp) { send({ k: 'cxmsg', t: 'Storyboard: source panel not found' }); return; }
+      const q = JSON.parse(JSON.stringify(sp)), v = m.v || {}; q.id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); q.items = [];
+      for (const k of ['fx', 'fy', 'zoom', 'style', 'items']) if (k in v) q[k] = k === 'items' ? (Array.isArray(v.items) ? v.items.slice(0, 12) : []) : v[k];
+      panels.push(q); changed(true);
+    }
     else if (op === 'dup' && p) { const q = JSON.parse(JSON.stringify(p)); q.id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); panels.splice(panels.indexOf(p) + 1, 0, q); changed(true); }   // same media file, new text
     else if (op === 'go') go(p ? panels.indexOf(p) : m.i);
     else if (op === 'next') go(cur + 1 >= panels.length ? 0 : cur + 1);
