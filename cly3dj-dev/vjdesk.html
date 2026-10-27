@@ -43,6 +43,8 @@
   .cxI { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:6px; border:1px solid #1f2636; border-radius:8px; margin:6px 0; }
   .cxI .ty { font:800 11px system-ui; width:64px; color:#f2c94c; } .cxI textarea { flex:1; min-width:220px; height:38px; font:14px system-ui; color:var(--fg); background:#1c2230; border:1px solid var(--line); border-radius:8px; padding:6px; resize:vertical; }
   .cxI input[type=range] { min-width:70px; max-width:120px; } .cxI button.arm { border-color:#f2c94c; background:#3a3214; }
+  #cxDep { margin-top:10px; } #cxDC { width:100%; display:block; border-radius:8px; border:1px solid var(--line); cursor:crosshair; touch-action:none; background:#000; }
+  [data-tone].on { border-color:#f2c94c; background:#3a3214; }
 </style>
 </head>
 <body>
@@ -108,13 +110,21 @@
     <div>
       <img id="cxPv" alt="">
       <div class="note" id="cxArmN">The selected panel (not necessarily on air). POS / TAIL on a text item, then click here to place it.</div>
+      <div id="cxDep">
+        <div class="row"><b class="sp" style="color:#f2c94c">DEPTH MAP</b><span class="sp">white = front, black = back (ANAGLYPH, flat panels)</span><button id="cxDOpen">EDIT DEPTH</button><button id="cxLive" title="Video panels: MediaPipe finds the people in every frame and puts them in front">LIVE PEOPLE</button><span id="cxDSt" class="note" style="margin:0"></span></div>
+        <div id="cxDEd" hidden>
+          <canvas id="cxDC" width="640" height="360"></canvas>
+          <div class="row"><button data-tone="255" class="on">FRONT</button><button data-tone="170">NEAR</button><button data-tone="85">FAR</button><button data-tone="0">BACK</button><label class="kv"><span class="sl">Brush</span><input type="range" id="cxBrush" min="4" max="160" step="1" value="40"></label></div>
+          <div class="row"><button id="cxPeople" title="MediaPipe finds the people and paints them in the tone picked above">PEOPLE</button><button id="cxRamp" title="Back at the top, near at the bottom">GROUND RAMP</button><button id="cxFill" title="The whole map in the tone picked above">FILL</button><button id="cxSoft" title="Blur the map a little: softer edges, fewer tears">SOFTEN</button><button id="cxDImp" title="A grayscale depth image (white = near), e.g. from the Quest or a depth tool">IMPORT DEPTH…</button><input type="file" id="cxDFile" accept="image/*" hidden><button id="cxDClr" class="red">REMOVE</button><select id="cxDView"><option value="mix">picture + depth</option><option value="depth">depth only</option><option value="pic">picture</option></select></div>
+        </div>
+      </div>
     </div>
     <div>
       <div class="row"><button id="cxGo">PUT ON AIR</button><button id="cxL" title="Move earlier">◀</button><button id="cxR" title="Move later">▶</button><button id="cxDup" title="Same picture, new panel (for a different line)">DUPLICATE</button><button id="cxDel" class="red">DELETE</button><span id="cxInfo" class="note" style="margin:0"></span></div>
       <div class="row"><label class="kv"><span class="sl">Style</span><select id="cxSty"></select></label><label class="kv"><span class="sl">Dots</span><input type="range" data-pk="dots" min="6" max="26" step="1"></label><label class="kv"><span class="sl">Ink</span><input type="range" data-pk="ink" min="0" max="1.5" step="0.05"></label></div>
       <div class="row"><label class="kv"><span class="sl">Bright</span><input type="range" data-pk="bright" min="-0.45" max="0.45" step="0.01"></label><label class="kv"><span class="sl">Contrast</span><input type="range" data-pk="contrast" min="0.5" max="2.6" step="0.05"></label></div>
       <div class="row"><label class="kv"><span class="sl">Frame X</span><input type="range" data-pk="fx" min="0" max="1" step="0.01"></label><label class="kv"><span class="sl">Y</span><input type="range" data-pk="fy" min="0" max="1" step="0.01"></label><label class="kv"><span class="sl">Zoom</span><input type="range" data-pk="zoom" min="1" max="3.5" step="0.02"></label></div>
-      <div class="row"><label class="kv"><span class="sl">Stereo</span><select id="cxSbs"><option value="0">flat</option><option value="1">full SBS</option><option value="2">half SBS</option></select></label><button id="cxSwap" title="If depth looks inside out">SWAP EYES</button><label class="kv"><span class="sl">Converge</span><input type="range" data-pk="conv" min="-0.08" max="0.08" step="0.002" title="Move the zero plane: set it so the DJ shows no red / cyan fringe"></label><label class="kv"><span class="sl">Flat depth</span><select id="cxDm" title="ANAGLYPH depth for a flat (not side by side) picture"><option value="0">on screen</option><option value="1">behind</option><option value="2">ground</option></select></label><label class="kv"><span class="sl">Depth</span><input type="range" data-pk="deep" min="0" max="10" step="0.5" title="px behind the screen; past about 8 the dots can lock onto their neighbours"></label><label class="kv"><span class="sl">Pop</span><input type="range" data-pk="pop" min="0" max="16" step="1" title="How far balloons and SFX float in front (px)"></label></div>
+      <div class="row"><label class="kv"><span class="sl">Stereo</span><select id="cxSbs"><option value="0">flat</option><option value="1">full SBS</option><option value="2">half SBS</option></select></label><button id="cxSwap" title="If depth looks inside out">SWAP EYES</button><label class="kv"><span class="sl">Converge</span><input type="range" data-pk="conv" min="-0.08" max="0.08" step="0.002" title="SBS: moves the zero plane (set it so the DJ shows no red / cyan fringe). Flat: how much depth, spread by the depth map or the Flat depth shape. + = white at the screen, the rest behind; - = black at the screen, the rest in front. Past about 8 px the dots can lock onto their neighbours."></label><label class="kv"><span class="sl">Flat depth</span><select id="cxDm" title="ANAGLYPH depth for a flat (not side by side) picture"><option value="0">on screen</option><option value="1">behind</option><option value="2">ground</option></select><span id="cxDmN" class="sp"></span></label><label class="kv"><span class="sl">Pop</span><input type="range" data-pk="pop" min="0" max="16" step="1" title="How far balloons and SFX float in front (px)"></label></div>
       <div id="cxItems"></div>
       <div class="row"><button data-add="cap">+ CAPTION</button><button data-add="speech">+ SPEECH</button><button data-add="thought">+ THOUGHT</button><button data-add="shout">+ SHOUT</button><button data-add="sfx">+ SFX</button></div>
     </div>
@@ -224,18 +234,97 @@ function renderCx() {
   $('cxInfo').textContent = `#${P.indexOf(p) + 1} · ${p.name || ''} · ${p.w}×${p.h}`;
   if (document.activeElement !== $('cxSty')) $('cxSty').value = p.style; if (document.activeElement !== $('cxSbs')) $('cxSbs').value = String(p.sbs | 0);
   $('cxSwap').classList.toggle('on', !!p.swap); if (document.activeElement !== $('cxDm')) $('cxDm').value = String(p.dmode ?? 2);
-  $('cxDm').disabled = !!p.sbs;
+  $('cxDm').disabled = !!p.sbs || !!p.depth; $('cxDmN').textContent = p.depth ? 'depth map' : '';
+  $('cxDep').hidden = !!p.sbs; $('cxLive').disabled = p.kind !== 'video'; $('cxLive').classList.toggle('on', !!p.live); $('cxDOpen').classList.toggle('on', !$('cxDEd').hidden);
+  if (DE.id && DE.id !== p.id) deClose();
   for (const r of document.querySelectorAll('[data-pk]')) if (document.activeElement !== r) r.value = p[r.dataset.pk];
   const focusIn = $('cxItems').contains(document.activeElement);
   if (!focusIn && JSON.stringify(p.items || []) !== JSON.stringify(cxItems)) { cxItems = (p.items || []).map(i => ({ ...i })); renderItems(false); for (const row of $('cxItems').children) { const it = cxItems[+row.dataset.i]; for (const el of row.querySelectorAll('[data-f]')) el.value = it[el.dataset.f] ?? el.value; } }
   else renderItems(false);
 }
 setInterval(() => { if (cxSel) cx('watch', { id: cxSel }); }, 1500);
+
+// ---- #518 depth map editor (white = front). The desk opens the panel's picture from the same OPFS folder as DirroVJ and
+// saves <id>.d.png there; DirroVJ reloads it (dver). Brush in four tones, PEOPLE (MediaPipe selfie segmentation), ramp, fill, soften, import.
+let cxPvUrl = null;
+const DE = { id: null, img: null, dc: null, tone: 255, last: null, seg: null, saveT: 0 };
+async function cxDir() { return (await navigator.storage.getDirectory()).getDirectoryHandle((CX && CX.store) || 'vire-comics', { create: true }); }
+async function cxRead(name) { try { return await (await (await cxDir()).getFileHandle(name)).getFile(); } catch { return null; } }
+async function cxWrite(name, blob) { const h = await (await cxDir()).getFileHandle(name, { create: true }), w = await h.createWritable(); await w.write(blob); await w.close(); }
+function rampTo(g, w, h) { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#000'); gr.addColorStop(1, '#c8c8c8'); g.fillStyle = gr; g.fillRect(0, 0, w, h); }
+function deClose() { DE.id = null; DE.img = DE.dc = null; $('cxDEd').hidden = true; $('cxDOpen').classList.remove('on'); }
+async function deOpen(p) {
+  DE.id = p.id; $('cxDSt').textContent = 'Loading the picture…';
+  const f = await cxRead(p.file); if (!f || DE.id !== p.id) { $('cxDSt').textContent = f ? '' : 'Picture not found in storage'; return; }
+  const url = URL.createObjectURL(f); let el;
+  if (p.kind === 'video') { el = document.createElement('video'); el.muted = true; el.src = url; await new Promise(ok => { el.onloadeddata = ok; setTimeout(ok, 6000); }); el.currentTime = Math.min(0.5, (el.duration || 1) / 3); await new Promise(ok => { el.onseeked = ok; setTimeout(ok, 1500); }); }
+  else { el = new Image(); await new Promise(ok => { el.onload = ok; el.onerror = ok; el.src = url; }); }
+  const k = Math.min(1, 1024 / Math.max(p.w, p.h)), W = Math.max(1, Math.round(p.w * k)), H = Math.max(1, Math.round(p.h * k));
+  const pic = document.createElement('canvas'); pic.width = W; pic.height = H; try { pic.getContext('2d').drawImage(el, 0, 0, W, H); } catch {} URL.revokeObjectURL(url);
+  if (DE.id !== p.id) return;
+  DE.img = pic; DE.dc = document.createElement('canvas'); DE.dc.width = W; DE.dc.height = H; const g = DE.dc.getContext('2d');
+  const df = p.depth ? await cxRead(p.depth) : null;
+  if (df) { const u = URL.createObjectURL(df), im = new Image(); await new Promise(ok => { im.onload = ok; im.onerror = ok; im.src = u; }); g.drawImage(im, 0, 0, W, H); URL.revokeObjectURL(u); }
+  else rampTo(g, W, H);
+  $('cxDC').width = W; $('cxDC').height = H; $('cxDEd').hidden = false; deShow();
+  $('cxDSt').textContent = p.depth ? (p.kind === 'video' ? 'Painted on a frame near the start of the clip.' : '') : 'No depth map yet: it starts as a ground ramp and saves itself when you paint, PEOPLE, FILL or SOFTEN.';
+}
+function deShow() {
+  if (!DE.dc) return; const c = $('cxDC'), g = c.getContext('2d'), v = $('cxDView').value;
+  g.globalAlpha = 1; g.filter = 'none';
+  if (v === 'depth') g.drawImage(DE.dc, 0, 0);
+  else { g.filter = 'grayscale(1)'; g.drawImage(DE.img, 0, 0); g.filter = 'none'; if (v === 'mix') { g.globalAlpha = 0.6; g.drawImage(DE.dc, 0, 0); g.globalAlpha = 1; } }
+}
+function deSave(now) {
+  clearTimeout(DE.saveT); const p = selP(); if (!p || !DE.dc || p.id !== DE.id) return;
+  DE.saveT = setTimeout(() => { const id = p.id, name = id + '.d.png'; DE.dc.toBlob(async b => { if (!b) return; try { await cxWrite(name, b); cx('set', { id, v: { depth: name, dver: Date.now() } }); } catch (e) { $('cxDSt').textContent = 'Could not save the depth map: ' + e.message; } }, 'image/png'); }, now ? 0 : 250);
+}
+for (const b of document.querySelectorAll('[data-tone]')) b.onclick = () => { DE.tone = +b.dataset.tone; for (const x of document.querySelectorAll('[data-tone]')) x.classList.toggle('on', x === b); };
+$('cxDOpen').onclick = () => { const p = selP(); if (!p) return; if (!$('cxDEd').hidden) { deClose(); return; } $('cxDOpen').classList.add('on'); deOpen(p); };
+$('cxLive').onclick = () => { const p = selP(); if (p && p.kind === 'video') cxSet({ live: !p.live }); renderCx(); };
+$('cxDView').onchange = deShow;
+const dePt = e => { const c = $('cxDC'), b = c.getBoundingClientRect(); return [(e.clientX - b.left) / b.width * c.width, (e.clientY - b.top) / b.height * c.height, c.width / b.width]; };
+function deStroke(e) {
+  if (!DE.dc) return; const [x, y, k] = dePt(e), g = DE.dc.getContext('2d'), t = DE.tone;
+  g.strokeStyle = g.fillStyle = `rgb(${t},${t},${t})`; g.lineWidth = +$('cxBrush').value * k; g.lineCap = g.lineJoin = 'round';
+  g.beginPath(); if (DE.last) { g.moveTo(DE.last[0], DE.last[1]); g.lineTo(x, y); g.stroke(); } else { g.arc(x, y, g.lineWidth / 2, 0, 7); g.fill(); }
+  DE.last = [x, y]; deShow();
+}
+$('cxDC').onpointerdown = e => { if (!DE.dc) return; $('cxDC').setPointerCapture(e.pointerId); DE.last = null; deStroke(e); };
+$('cxDC').onpointermove = e => { if (DE.last && e.buttons) deStroke(e); };
+$('cxDC').onpointerup = $('cxDC').onpointercancel = () => { if (DE.last) { DE.last = null; deSave(); } };
+$('cxFill').onclick = () => { if (!DE.dc) return; const g = DE.dc.getContext('2d'), t = DE.tone; g.fillStyle = `rgb(${t},${t},${t})`; g.fillRect(0, 0, DE.dc.width, DE.dc.height); deShow(); deSave(); };
+$('cxRamp').onclick = () => { if (!DE.dc) return; rampTo(DE.dc.getContext('2d'), DE.dc.width, DE.dc.height); deShow(); deSave(); };
+$('cxSoft').onclick = () => { if (!DE.dc) return; const t = document.createElement('canvas'); t.width = DE.dc.width; t.height = DE.dc.height; t.getContext('2d').drawImage(DE.dc, 0, 0); const g = DE.dc.getContext('2d'); g.filter = `blur(${Math.max(2, DE.dc.width / 200)}px)`; g.drawImage(t, 0, 0); g.filter = 'none'; deShow(); deSave(); };
+$('cxDClr').onclick = () => { const p = selP(); if (!p || !p.depth) { deClose(); return; } if (!confirm('Remove this panel\'s depth map?')) return; cxSet({ depth: '', dver: Date.now() }); deClose(); renderCx(); };
+$('cxDImp').onclick = () => $('cxDFile').click();
+$('cxDFile').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f || !DE.dc) return; const u = URL.createObjectURL(f), im = new Image(); await new Promise(ok => { im.onload = ok; im.onerror = ok; im.src = u; }); URL.revokeObjectURL(u);
+  const g = DE.dc.getContext('2d'); g.filter = 'grayscale(1)'; g.drawImage(im, 0, 0, DE.dc.width, DE.dc.height); g.filter = 'none'; deShow(); deSave(true);
+};
+async function deSeg() {
+  if (DE.seg) return DE.seg; const base = new URL('./vendor/mediapipe/', location.href).href;
+  const { FilesetResolver, ImageSegmenter } = await import(base + 'vision_bundle.mjs'), fs = await FilesetResolver.forVisionTasks(base + 'wasm');
+  const mk = d => ImageSegmenter.createFromOptions(fs, { baseOptions: { modelAssetPath: base + 'selfie_segmentation.tflite', delegate: d }, runningMode: 'IMAGE', outputCategoryMask: false, outputConfidenceMasks: true });
+  try { DE.seg = await mk('GPU'); } catch { DE.seg = await mk('CPU'); } return DE.seg;
+}
+$('cxPeople').onclick = async () => {
+  if (!DE.dc) return; $('cxDSt').textContent = 'PEOPLE: loading MediaPipe…';
+  try {
+    const s = await deSeg(); $('cxDSt').textContent = 'PEOPLE: looking…';
+    const r = s.segment(DE.img), m = r.confidenceMasks && r.confidenceMasks[0]; if (!m) throw new Error('no mask');
+    const w = m.width, h = m.height, f = m.getAsFloat32Array(), t = DE.tone, tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
+    const tg = tmp.getContext('2d'), id = tg.createImageData(w, h); let n = 0;
+    for (let i = 0; i < w * h; i++) { const a = Math.max(0, Math.min(1, (f[i] - 0.35) / 0.3)); id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = t; id.data[i * 4 + 3] = a * 255; if (a > 0.5) n++; }
+    tg.putImageData(id, 0, 0); DE.dc.getContext('2d').drawImage(tmp, 0, 0, DE.dc.width, DE.dc.height); m.close(); if (r.close) r.close();
+    deShow(); deSave(true); $('cxDSt').textContent = n ? `PEOPLE: ${Math.round(n * 100 / (w * h))}% of the picture painted ${t === 255 ? 'FRONT' : 'in the picked tone'}.` : 'PEOPLE: nobody found (the model likes people fairly large in the frame).';
+  } catch (e) { $('cxDSt').textContent = 'PEOPLE failed: ' + (e.message || e); }
+};
 bc.onmessage = e => {
   const m = e.data || {}; lastSeen = Date.now();
   if (m.k === 'state') { S = m; render(); CX = m.C || null; renderCx(); $('st').textContent = 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'; }
   else if (m.k === 'pv') $('pv').src = m.img;
-  else if (m.k === 'cxpv') { if (m.id === cxSel) $('cxPv').src = m.img; }   // #516
+  else if (m.k === 'cxpv') { if (m.id === cxSel) { if (m.blob) { const u = URL.createObjectURL(m.blob); if (cxPvUrl) URL.revokeObjectURL(cxPvUrl); cxPvUrl = u; $('cxPv').src = u; } else if (m.img) $('cxPv').src = m.img; } }   // #516, #518 a blob now
   else if (m.k === 'cxlist') { cxThumbs = m.thumbs || {}; cxListN++; renderCx(); }
   else if (m.k === 'cxmsg') { $('cxMsg').textContent = m.t; clearTimeout(cxMsgT); cxMsgT = setTimeout(() => { $('cxMsg').textContent = ''; }, 6000); }
 };

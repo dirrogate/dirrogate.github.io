@@ -202,7 +202,8 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio }
     onAudio && onAudio(); post();
   }
   let onAudio = null;
-  async function devices() { try { return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput').map(d => [d.deviceId, d.label || 'Input']); } catch { return []; } }
+  let devCache = null, devT = 0;   // #518 the input list is asked for at most every 5 s (it was every state post)
+  async function devices() { const now = performance.now(); if (devCache && now - devT < 5000) return devCache; devT = now; try { devCache = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput').map(d => [d.deviceId, d.label || 'Input']); } catch { devCache = []; } return devCache; }
   // ---- the control window
   const bc = new BroadcastChannel('dirrovj'); let peers = 0, postT = 0;
   async function post() {
