@@ -125,6 +125,16 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
     fontsOk = true; for (const r of res.values()) if (r.ov) r.ov.key = ''; chromeKey = '';
   })();
 
+  // ---- #528 the DirroComics mark (owner's image, img/dirrocomics-mark.png: black on transparent), tinted per ink colour
+  let mark = null; const markTint = new Map();
+  { const im = new Image(); im.onload = () => { mark = im; chromeKey = ''; }; im.onerror = () => console.warn('DirroComics mark not found'); im.src = new URL('../img/dirrocomics-mark.png', import.meta.url).href; }
+  function markOf(color) {
+    if (markTint.has(color)) return markTint.get(color);
+    const c = document.createElement('canvas'); c.width = mark.naturalWidth; c.height = mark.naturalHeight; const g = c.getContext('2d');
+    g.drawImage(mark, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = color; g.fillRect(0, 0, c.width, c.height);
+    markTint.set(color, c); return c;
+  }
+
   // ---- storage (OPFS)
   const dir = (async () => { try { return await (await navigator.storage.getDirectory()).getDirectoryHandle(store, { create: true }); } catch { return null; } })();
   async function writeFile(name, blob) { const d = await dir; if (!d) return; const h = await d.getFileHandle(name, { create: true }), w = await h.createWritable(); await w.write(blob); await w.close(); }
@@ -254,12 +264,10 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
   const hTex = new THREE.CanvasTexture(hc); hTex.minFilter = hTex.magFilter = THREE.LinearFilter; hTex.generateMipmaps = false; hTex.colorSpace = THREE.NoColorSpace;   // #518 straight to the GPU
   let chromeKey = '';
   function chrome(idx) {
-    const key = [fontsOk, cfg.issue, cfg.foot, idx, panels.length].join('|'); if (key === chromeKey) return; chromeKey = key;
+    const key = [fontsOk, !!mark, cfg.issue, cfg.foot, idx, panels.length].join('|'); if (key === chromeKey) return; chromeKey = key;
     const g = hc.getContext('2d'); g.clearRect(0, 0, REF.W, REF.H); g.fillStyle = '#000'; g.strokeStyle = '#000'; g.textBaseline = 'alphabetic';
     g.font = `86px ${FONT.sfx}`; g.textAlign = 'left'; g.fillText('DIRROCOMICS', 40, 96); const tw = g.measureText('DIRROCOMICS').width;
-    const gx = 40 + tw + 52, gy = 62, R = 27;   // gear (steampunk)
-    for (let k = 0; k < 10; k++) { const a = 2 * Math.PI * k / 10; g.save(); g.translate(gx + R * Math.cos(a), gy + R * Math.sin(a)); g.rotate(a); g.fillRect(-7, -7, 14, 14); g.restore(); }
-    g.beginPath(); g.arc(gx, gy, R * 0.92, 0, 7); g.fill(); g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.arc(gx, gy, R * 0.36, 0, 7); g.fill(); g.globalCompositeOperation = 'source-over';
+    gearAt(g, 40 + tw + 52, 62, 27);   // #528 the DirroComics mark (the gear until it has loaded)
     g.font = `32px ${FONT.cap}`; g.textAlign = 'right'; g.fillText((cfg.issue || '') + '  ·  10 CENTS', REF.W - 40, 88);
     g.fillRect(40, 108, REF.W - 80, 6);
     g.font = `27px ${FONT.cap}`; g.textAlign = 'left'; g.fillText(panels.length ? `PANEL ${String(idx + 1).padStart(2, '0')} / ${String(panels.length).padStart(2, '0')}` : 'NO PANELS YET', 40, REF.H - 34);
@@ -403,7 +411,7 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
         send({ k: 'cxmsg', t: `PDF: page ${k + 1} / ${N}…` });
         const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
         g.fillStyle = paper; g.fillRect(0, 0, W, H); g.fillStyle = ink; g.textBaseline = 'alphabetic';
-        g.font = `110px ${FONT.sfx}`; g.textAlign = 'left'; g.fillText('DIRROCOMICS', M, M + 100);
+        g.font = `110px ${FONT.sfx}`; g.textAlign = 'left'; g.fillText('DIRROCOMICS', M, M + 100); gearAt(g, M + g.measureText('DIRROCOMICS').width + 62, M + 60, 30);   // #528
         g.font = `40px ${FONT.cap}`; g.textAlign = 'right'; g.fillText((cfg.issue || '') + '  ·  10 CENTS', W - M, M + 90);
         g.fillRect(M, M + 122, W - M * 2, 7);
         for (let j = 0; j < 4; j++) { const s = shots[k * 4 + j]; if (s) g.drawImage(s, M + j * (PW + GAP), M + TOP, PW, PH); }
@@ -445,7 +453,8 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
   // (Instagram's limit), so a long strip is split into posts, each with its own cover.
   const PAPER = '#f3ead4', INK = '#181514', PAN_AR = (REF.ph + 10) / (REF.pw + 10), CREDIT = 'BY CLY3DJ / DIRRODJ';
   const dateLine = () => new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
-  function gearAt(g, gx, gy, R) {
+  function gearAt(g, gx, gy, R) {   // #528 the owner's DirroComics mark, drawn in the current fill colour; the old gear only as a fallback
+    if (mark) { const d = R * 2.5; g.drawImage(markOf(String(g.fillStyle)), gx - d / 2, gy - d / 2, d, d); return; }
     for (let k = 0; k < 10; k++) { const a = 2 * Math.PI * k / 10; g.save(); g.translate(gx + R * Math.cos(a), gy + R * Math.sin(a)); g.rotate(a); g.fillRect(-R * 0.26, -R * 0.26, R * 0.52, R * 0.52); g.restore(); }
     g.beginPath(); g.arc(gx, gy, R * 0.92, 0, 7); g.arc(gx, gy, R * 0.36, 0, 7, true); g.fill('evenodd');
   }
