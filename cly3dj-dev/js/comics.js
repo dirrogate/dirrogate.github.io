@@ -396,19 +396,7 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
     exp = { kind: 'pdf', want: new Set(panels.map(p => p.id)), stop: false };
     try {
       const { pdfFromJpegs } = await import('./cxfiles.js');
-      const S = 2, rt = mkRT(REF.W * S, REF.H * S), pw = (REF.pw + 10) * S, ph = (REF.ph + 10) * S, buf = new Uint8Array(pw * ph * 4), shots = [];
-      for (let i = 0; i < panels.length; i++) {
-        if (exp.stop) throw new Error('stopped');
-        send({ k: 'cxmsg', t: `PDF: panel ${i + 1} / ${panels.length}…` });
-        const p = panels[i], r = await ready(p);
-        if (p.kind === 'video' && r.el) { try { r.el.pause(); r.el.currentTime = Math.min(0.5, (r.el.duration || 1) / 3); await new Promise(ok => { r.el.onseeked = ok; setTimeout(ok, 1500); }); } catch {} if (r.tex) r.tex.needsUpdate = true; }
-        layout(i, performance.now() + 1e6); draw(rt); renderer.setRenderTarget(null);
-        renderer.readRenderTargetPixels(rt, (REF.x - 5) * S, (REF.H - REF.top - REF.ph - 5) * S, pw, ph, buf);   // the panel and its frame only
-        const c = document.createElement('canvas'); c.width = pw; c.height = ph; const g = c.getContext('2d'), im = g.createImageData(pw, ph);
-        for (let y = 0; y < ph; y++) im.data.set(buf.subarray((ph - 1 - y) * pw * 4, (ph - y) * pw * 4), y * pw * 4);
-        g.putImageData(im, 0, 0); shots.push(c);
-      }
-      rt.dispose();
+      const shots = await shotsOf(2, 'PDF'), pw = shots[0].width, ph = shots[0].height;   // #525 shared with the Instagram files
       const PW = 1000, PH = Math.round(PW * ph / pw), GAP = 36, M = 60, TOP = 150, FOOT = 90, W = M * 2 + PW * 4 + GAP * 3, H = M + TOP + PH + FOOT + 30;
       const pages = [], N = Math.ceil(shots.length / 4), paper = '#f3ead4', ink = '#181514';
       for (let k = 0; k < N; k++) {
@@ -428,6 +416,166 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
       send({ k: 'cxfile', name: fileBase() + '.pdf', blob: pdf });
       send({ k: 'cxmsg', t: `PDF ready: ${N} page${N === 1 ? '' : 's'}, ${(pdf.size / 1e6).toFixed(1)} MB` });
     } finally { exp = null; }
+  }
+  // ---- #525 every panel and its frame as on the screen (anaglyph too if on), S x the reference size; videos at ~0.5 s
+  async function shotsOf(S, label) {
+    const rt = mkRT(REF.W * S, REF.H * S), pw = (REF.pw + 10) * S, ph = (REF.ph + 10) * S, buf = new Uint8Array(pw * ph * 4), shots = [];
+    try {
+      for (let i = 0; i < panels.length; i++) {
+        if (exp && exp.stop) throw new Error('stopped');
+        send({ k: 'cxmsg', t: `${label}: panel ${i + 1} / ${panels.length}…` });
+        const p = panels[i], r = await ready(p);
+        if (p.kind === 'video' && r.el) { try { r.el.pause(); r.el.currentTime = Math.min(0.5, (r.el.duration || 1) / 3); await new Promise(ok => { r.el.onseeked = ok; setTimeout(ok, 1500); }); } catch {} if (r.tex) r.tex.needsUpdate = true; }
+        layout(i, performance.now() + 1e6); draw(rt); renderer.setRenderTarget(null);
+        renderer.readRenderTargetPixels(rt, (REF.x - 5) * S, (REF.H - REF.top - REF.ph - 5) * S, pw, ph, buf);   // the panel and its frame only
+        shots.push(toCanvas(buf, pw, ph));
+      }
+    } finally { rt.dispose(); }
+    return shots;
+  }
+  function toCanvas(buf, w, h, c) {   // GL rows (bottom first) -> a 2D canvas
+    if (!c) { c = document.createElement('canvas'); c.width = w; c.height = h; }
+    const g = c.getContext('2d'), im = g.createImageData(w, h);
+    for (let y = 0; y < h; y++) im.data.set(buf.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4);
+    g.putImageData(im, 0, 0); return c;
+  }
+
+  // ---- #525 Instagram files, posted by hand from the phone. REEL: 9:16 MP4 (1080 x 1920), the strip scrolling down like a
+  // webtoon, cover first. CAROUSEL: 4:5 JPEGs (1080 x 1350), a cover + one slide per panel, zipped; at most 20 slides per post
+  // (Instagram's limit), so a long strip is split into posts, each with its own cover.
+  const PAPER = '#f3ead4', INK = '#181514', PAN_AR = (REF.ph + 10) / (REF.pw + 10), CREDIT = 'BY CLY3DJ / DIRRODJ';
+  const dateLine = () => new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
+  function gearAt(g, gx, gy, R) {
+    for (let k = 0; k < 10; k++) { const a = 2 * Math.PI * k / 10; g.save(); g.translate(gx + R * Math.cos(a), gy + R * Math.sin(a)); g.rotate(a); g.fillRect(-R * 0.26, -R * 0.26, R * 0.52, R * 0.52); g.restore(); }
+    g.beginPath(); g.arc(gx, gy, R * 0.92, 0, 7); g.arc(gx, gy, R * 0.36, 0, 7, true); g.fill('evenodd');
+  }
+  function mastSmall(g, W) {   // slide / reel header: DIRROCOMICS + gear left, issue right, rule
+    g.fillStyle = INK; g.textBaseline = 'alphabetic'; g.font = `84px ${FONT.sfx}`; g.textAlign = 'left'; g.fillText('DIRROCOMICS', 40, 104);
+    gearAt(g, 40 + g.measureText('DIRROCOMICS').width + 46, 72, 24);
+    g.font = `32px ${FONT.cap}`; g.textAlign = 'right'; g.fillText(cfg.issue || '', W - 40, 98);
+    g.fillRect(40, 124, W - 80, 6);
+  }
+  function wrapLines(g, text, maxw, max) {
+    const out = []; let line = '';
+    for (const w of String(text).split(/\s+/)) { const t = line ? line + ' ' + w : w; if (g.measureText(t).width > maxw && line) { out.push(line); line = w; } else line = t; }
+    if (line) out.push(line); if (out.length > max) { out.length = max; out[max - 1] += '…'; } return out;
+  }
+  function castNames() {   // guests who are in this issue (their photo panel, or a line they said YES to)
+    const on = st => panels.some(p => p.star === st.dev || (p.items || []).some(it => it && it.star === st.dev && it.ok === 'yes' && it.askText === it.text));
+    return stars.filter(st => !st.wd && on(st)).map(st => st.name);
+  }
+  function drawCover(g, W, H, shot, o = {}) {
+    g.fillStyle = PAPER; g.fillRect(0, 0, W, H); g.fillStyle = INK; g.textBaseline = 'alphabetic';
+    const fs = Math.round(W * 0.15); g.font = `${fs}px ${FONT.sfx}`; const tw = g.measureText('DIRROCOMICS').width, R = fs * 0.3, gap = fs * 0.22, x0 = (W - tw - gap - R * 2) / 2, top = H > 1500 ? 200 : 70;
+    g.textAlign = 'left'; g.fillText('DIRROCOMICS', x0, top + fs * 0.85); gearAt(g, x0 + tw + gap + R, top + fs * 0.48, R);
+    g.font = `38px ${FONT.cap}`; g.textAlign = 'center'; g.fillText([cfg.issue, dateLine(), '10 CENTS'].filter(Boolean).join('  ·  ') + (o.parts > 1 ? `  ·  PART ${o.part} / ${o.parts}` : ''), W / 2, top + fs + 46);
+    g.fillRect(40, top + fs + 72, W - 80, 7);
+    const cast = castNames(); g.font = `36px ${FONT.cap}`;
+    const castL = cast.length ? wrapLines(g, 'STARRING ' + cast.join(', '), W - 120, 2) : [];
+    const bottom = 70 + 74 + castL.length * 46 + (o.swipe ? 56 : 0) + (H > 1500 ? 260 : 0);   // reels: keep clear of Instagram's caption area
+    const PW = W - 80, PH = Math.round(PW * PAN_AR), y0 = top + fs + 96, py = Math.round(y0 + Math.max(0, (H - bottom - y0 - PH) / 2));
+    if (shot) g.drawImage(shot, 40, py, PW, PH); else { g.lineWidth = 6; g.strokeRect(43, py + 3, PW - 6, PH - 6); }
+    let y = py + PH + 70; g.fillStyle = INK; g.textAlign = 'center';
+    for (const l of castL) { g.fillText(l, W / 2, y); y += 46; }
+    g.font = `64px ${FONT.sfx}`; g.fillText(CREDIT, W / 2, y + 30); y += 30;
+    if (o.swipe) { g.font = `32px ${FONT.cap}`; g.fillText('SWIPE FOR THE STRIP  >', W / 2, y + 60); }
+  }
+  function drawSlide(g, W, H, shot, i, n) {
+    g.fillStyle = PAPER; g.fillRect(0, 0, W, H); mastSmall(g, W);
+    const PW = W - 80, PH = Math.round(PW * PAN_AR), py = Math.round(150 + (H - 110 - 150 - PH) / 2);
+    g.drawImage(shot, 40, py, PW, PH);
+    g.fillStyle = INK; g.font = `30px ${FONT.cap}`; g.textAlign = 'left'; g.fillText(`PANEL ${String(i + 1).padStart(2, '0')} / ${String(n).padStart(2, '0')}`, 40, H - 48);
+    g.textAlign = 'right'; g.fillText(cfg.foot || '', W - 40, H - 48);
+  }
+  const jpegOf = c => new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.92));
+  async function exportCarousel() {
+    if (exp) { send({ k: 'cxmsg', t: 'An export is already running' }); return; } if (!panels.length) { send({ k: 'cxmsg', t: 'No panels to export' }); return; }
+    exp = { kind: 'carousel', want: new Set(panels.map(p => p.id)), stop: false };
+    try {
+      const shots = await shotsOf(2, 'CAROUSEL'), { zipFiles } = await import('./cxfiles.js');
+      const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
+      const per = 19, parts = Math.ceil(shots.length / per), files = [], cover = shots[Math.min(cur, shots.length - 1)];
+      for (let k = 0; k < parts; k++) {
+        const dirn = parts > 1 ? `post ${k + 1}/` : '';
+        drawCover(g, W, H, cover, { part: k + 1, parts, swipe: true }); files.push({ name: dirn + '01_cover.jpg', blob: await jpegOf(c) });
+        for (let j = k * per; j < Math.min(shots.length, (k + 1) * per); j++) {
+          if (exp.stop) throw new Error('stopped');
+          send({ k: 'cxmsg', t: `CAROUSEL: slide ${j + 1} / ${shots.length}…` });
+          drawSlide(g, W, H, shots[j], j, shots.length); files.push({ name: dirn + String(j - k * per + 2).padStart(2, '0') + '.jpg', blob: await jpegOf(c) });
+        }
+      }
+      const zip = await zipFiles(files);
+      send({ k: 'cxfile', name: fileBase() + '_carousel.zip', blob: zip });
+      send({ k: 'cxmsg', t: `CAROUSEL ready: ${files.length} slides${parts > 1 ? ` in ${parts} posts (20 slides max per post)` : ''}, ${(zip.size / 1e6).toFixed(1)} MB. Unzip on the phone, post the JPEGs in order.` });
+    } finally { exp = null; }
+  }
+  async function exportReel(m) {
+    if (exp) { send({ k: 'cxmsg', t: 'An export is already running' }); return; } if (!panels.length) { send({ k: 'cxmsg', t: 'No panels to export' }); return; }
+    exp = { kind: 'reel', want: new Set(panels.map(p => p.id)), stop: false };
+    const rts = [];
+    try {
+      const hold = Math.max(1, Math.min(20, +m.hold || 4)), tr = 0.8, cov = 2.5;
+      send({ k: 'cxmsg', t: 'REEL: loading the panels…' });
+      for (const p of panels) await ready(p);
+      const still = await shotsOf(1, 'REEL');   // the panels off focus (peeks, cover)
+      const segs = []; let total = cov;
+      panels.forEach((p, i) => { const r = res.get(p.id), d = p.kind === 'video' && r && r.el && isFinite(r.el.duration) && r.el.duration > 0 ? Math.min(20, Math.max(hold, r.el.duration)) : hold; segs.push({ i, t0: total, hold: d }); total += d + (i < panels.length - 1 ? tr : 0); });
+      total += 0.5;
+      const W = 1080, H = 1920, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
+      const PW = W - 80, PH = Math.round(PW * PAN_AR), TOPB = 150, FOOT = 1640, Y0 = Math.round((TOPB + FOOT) / 2 - PH / 2), STEP = PH + 40;   // FOOT: above Instagram's caption area
+      const pw = REF.pw + 10, ph = REF.ph + 10; for (let j = 0; j < 2; j++) rts.push({ rt: mkRT(REF.W, REF.H), buf: new Uint8Array(pw * ph * 4), c: null });
+      const coverShot = still[Math.min(cur, still.length - 1)];
+      const types = ['video/mp4;codecs=avc1.640028', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+      const type = types.find(x => window.MediaRecorder && MediaRecorder.isTypeSupported(x)) || '';
+      const track = c.captureStream(0).getVideoTracks()[0], rec = new MediaRecorder(new MediaStream([track]), { mimeType: type || undefined, videoBitsPerSecond: 10e6 }), chunks = [];
+      rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+      const stopped = new Promise(ok => { rec.onstop = ok; });
+      function compose(at, live) {
+        g.fillStyle = PAPER; g.fillRect(0, 0, W, H);
+        g.save(); g.beginPath(); g.rect(0, TOPB, W, FOOT - TOPB); g.clip();
+        for (let k = Math.floor(at) - 2; k <= Math.floor(at) + 2; k++) {
+          const img = live.get(k) || still[k]; if (!img) continue;
+          const y = Math.round(Y0 + (k - at) * STEP); if (y > FOOT || y + PH < TOPB) continue;
+          g.drawImage(img, 40, y, PW, PH);
+          const dim = 0.3 * Math.min(1, Math.abs(k - at)); if (dim > 0.002) { g.globalAlpha = dim; g.fillStyle = PAPER; g.fillRect(40, y, PW, PH); g.globalAlpha = 1; }
+        }
+        g.restore(); mastSmall(g, W);
+        g.fillStyle = INK; g.font = `30px ${FONT.cap}`; g.textAlign = 'left'; const n = Math.round(at);
+        g.fillText(`PANEL ${String(n + 1).padStart(2, '0')} / ${String(panels.length).padStart(2, '0')}`, 40, FOOT + 50);
+        g.textAlign = 'right'; g.fillText(cfg.foot || '', W - 40, FOOT + 50);
+      }
+      let busy = false, lastSec = -1, segOn = -1; const t0 = performance.now(); rec.start(500);
+      await new Promise(fin => {
+        const step = () => {
+          const now = performance.now(), tt = (now - t0) / 1000;
+          if (exp.stop || tt >= total) { fin(); return; }
+          if (tt < cov) { if (!busy) { drawCover(g, W, H, coverShot, {}); track.requestFrame(); } requestAnimationFrame(step); return; }
+          let at = 0;
+          for (const s of segs) {
+            if (tt < s.t0) break;
+            if (tt < s.t0 + s.hold) { at = s.i; if (segOn !== s.i) { segOn = s.i; const r = res.get(panels[s.i].id); if (r && r.el && r.el.play) { try { r.el.currentTime = 0; } catch {} r.el.play().catch(() => {}); } } }
+            else { const k = Math.min(1, (tt - s.t0 - s.hold) / tr); at = s.i + k * k * (3 - 2 * k); }
+          }
+          if (!busy) {   // the panel(s) in focus rendered live (video plays), the rest from the stills
+            busy = true; const f0 = Math.floor(at), focus = at - f0 > 0.001 && f0 + 1 < panels.length ? [f0, f0 + 1] : [f0], jobs = [];
+            focus.forEach((f, j) => {
+              const R = rts[j]; layout(f, now); draw(R.rt);
+              jobs.push(renderer.readRenderTargetPixelsAsync(R.rt, REF.x - 5, REF.H - REF.top - REF.ph - 5, pw, ph, R.buf).then(() => { R.c = toCanvas(R.buf, pw, ph, R.c); return [f, R.c]; }));
+            });
+            renderer.setRenderTarget(null);
+            Promise.all(jobs).then(done => { compose(at, new Map(done)); track.requestFrame(); busy = false; }).catch(() => { busy = false; });
+          }
+          const sec = Math.floor(tt); if (sec !== lastSec && sec % 2 === 0) { lastSec = sec; send({ k: 'cxmsg', t: `REEL: recording ${sec} / ${Math.round(total)} s. Keep the DirroVJ window visible.` }); }
+          requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      });
+      rec.stop(); await stopped;
+      const early = exp.stop, blob = new Blob(chunks, { type: rec.mimeType || type || 'video/webm' }), ext = /mp4/.test(blob.type) ? 'mp4' : 'webm';
+      if (!blob.size) { send({ k: 'cxmsg', t: 'REEL: nothing was recorded' }); return; }
+      send({ k: 'cxfile', name: fileBase() + '_reel.' + ext, blob });
+      send({ k: 'cxmsg', t: `REEL ready: ${(blob.size / 1e6).toFixed(1)} MB, ${Math.round(total)} s, 1080 x 1920${ext === 'webm' ? ' (this browser records WebM: convert to MP4 before posting)' : ''}${early ? ' (stopped early)' : ''}` });
+    } finally { for (const R of rts) R.rt.dispose(); exp = null; }
   }
   // ---- grabs: the Quest picture (the studio composite) or this laptop's webcam
   function grab(src) {
@@ -480,6 +628,8 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
     else if (op === 'clog') { const e = relayAsk ? relayAsk({ k: 'vjclog' }) : 'not available'; send({ k: 'cxmsg', t: e ? 'CONSENT LOG: ' + e : 'CONSENT LOG: asked the relay…' }); }
     else if (op === 'mp4') exportMp4(m).catch(e => { exp = null; send({ k: 'cxmsg', t: 'MP4 failed: ' + e.message }); });
     else if (op === 'pdf') exportPdf(m).catch(e => { exp = null; send({ k: 'cxmsg', t: 'PDF failed: ' + e.message }); });
+    else if (op === 'reel') exportReel(m).catch(e => { exp = null; send({ k: 'cxmsg', t: 'REEL failed: ' + e.message }); });   // #525
+    else if (op === 'carousel') exportCarousel(m).catch(e => { exp = null; send({ k: 'cxmsg', t: 'CAROUSEL failed: ' + e.message }); });
     else if (op === 'expstop') { if (exp) exp.stop = true; }
   }
   function state() { return { cfg: { ...cfg }, cur, ver, panels: panels.map(({ thumb, ...p }) => p), REF, store, stars: stars.map(({ img, ...s }) => s) }; }

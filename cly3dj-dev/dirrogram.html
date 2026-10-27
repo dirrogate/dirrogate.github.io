@@ -16,6 +16,7 @@
     background: radial-gradient(ellipse at 50% 35%, #1a1030 0%, #05040a 70%); text-align: center; padding: 24px; z-index: 5; }
   #start h1 { margin: 0; font-size: 44px; letter-spacing: 0.08em; font-weight: 800; }
   #start h1 .w { color: #fff; } #start h1 .r { color: #ff2a3c; }
+  #start .terms { font-size: 11.5px; opacity: 0.6; max-width: 330px; line-height: 1.4; }   /* #525 */
   #start .sub { font-size: 15px; opacity: 0.75; max-width: 320px; line-height: 1.45; }
   .btn { appearance: none; border: 0; border-radius: 999px; padding: 14px 30px; font: 700 17px system-ui, sans-serif; letter-spacing: 0.06em;
     color: #08090c; background: #39e6ff; box-shadow: 0 0 24px #39e6ff88; cursor: pointer; }
@@ -74,6 +75,7 @@
   <h1><span class="w">CLY</span><span class="r">3DJ</span></h1>
   <div class="sub">The Dirrogram: lasers, DIRRODJ and the LED wall over your camera. Point it at the booth.</div>
   <button class="btn" id="go">START</button>
+  <div id="gTerms" class="terms"></div>
   <div id="err"></div>
 </div>
 <div id="aim" class="hide"></div>
@@ -100,7 +102,7 @@
 </div>
 <div id="star" class="hide sheet">
   <div class="smsT">⭐ in DirroComics!</div>
-  <div class="stHelp">Be a character in tonight's comic. Your photo and comic name can appear on the club screen, the stream and the night's issue. Before any words are put in your mouth, they come to this phone first for YES or NO.</div>
+  <div class="stHelp">Be a character in tonight's comic. Your photo and comic name can appear on the club screen, streams, Instagram and the night's issue. Before any words are put in your mouth, they come to this phone first for YES or NO.</div>
   <div class="stRow"><img id="stPic" alt=""><button class="btn ghost" id="stSnap">TAKE PHOTO</button><span class="stTip">Uses what your camera shows now (PEOPLE and FX too)</span></div>
   <input id="stName" maxlength="24" placeholder="Comic name, e.g. NEON NINA">
   <select id="stGenre"><option>NOIR</option><option>ACTION</option><option>HORROR</option><option>DRAMA</option><option>SCI-FI</option><option>ROMANCE</option></select>
@@ -108,6 +110,7 @@
   <input id="stL2" maxlength="100" placeholder="Another line (optional)">
   <label class="stChk"><input type="checkbox" id="stAge"> I'm 18 or older</label>
   <label class="stChk"><input type="checkbox" id="stOk"> <span id="stTerms"></span></label>
+  <div class="stHelp">You can withdraw at any time under MY CONSENTS: your panels then come out of future reprints. Copies already shared stay as they are.</div>
   <div class="smsRow"><button class="btn ghost" id="stMine">MY CONSENTS</button><span></span><button class="btn ghost" id="stCancel">CANCEL</button><button class="btn" id="stSend">I'M IN</button></div>
   <div id="stList" class="hide"></div>
 </div>

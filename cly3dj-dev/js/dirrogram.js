@@ -878,11 +878,11 @@ window.dirro = { get wfx() { return wfx; }, wallFx, /* #439 */ BCN, bcnSolve, bc
 // and the relay logs the opt-in (hash chain) before the DJ's DirroVJ gets the card. Any line written for them comes back here
 // as YES / NO (logged too); MY CONSENTS shows this phone's records and WITHDRAW.
 const STAR_DEV = (() => { try { let d = localStorage.getItem('vire.dirro.dev'); if (!d) { d = 'd' + [...crypto.getRandomValues(new Uint8Array(12))].map(x => x.toString(36).padStart(2, '0')).join(''); localStorage.setItem('vire.dirro.dev', d); } return d; } catch (e) { return 'd' + Math.random().toString(36).slice(2, 14) + Date.now().toString(36); } })();
-const TERMS = 'DirroDJ may use my photo, my comic name and the lines I say YES to in DirroComics: on the club screen, in streams, in the night\'s issue and its reprints. I keep my rights. I can withdraw at any time under MY CONSENTS; my panels then come out of future reprints. Copies already shared stay as they are.';
+const TERMS = 'This event is recorded and may be sent to streaming platforms and Instagram. Patrons and Stars grant usage rights to reproduce the content featuring them on club screen, streams, and DirroComics and its reprints in media';   // #525 owner's wording, also shown on the start screen (general terms)
 const STAR_K = new Set(['starok', 'starx', 'ask', 'ansok', 'ansx', 'wdok', 'mine']);
-let stImg = '', askQ = [], askCur = null, termsVer = 'T1';
-(async () => { try { const b = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(TERMS))); termsVer = 'T1-' + [...b.slice(0, 8)].map(x => x.toString(16).padStart(2, '0')).join(''); } catch (e) {} })();
-$('stTerms').textContent = TERMS;
+let stImg = '', askQ = [], askCur = null, termsVer = 'T2';
+(async () => { try { const b = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(TERMS))); termsVer = 'T2-' + [...b.slice(0, 8)].map(x => x.toString(16).padStart(2, '0')).join(''); } catch (e) {} })();
+$('stTerms').textContent = TERMS; { const gt = document.getElementById('gTerms'); if (gt) gt.textContent = TERMS; }   // #525 general terms on the start screen
 const rcpt = r => { try { const l = JSON.parse(localStorage.getItem('vire.dirro.rcpt') || '[]'); l.push(r); localStorage.setItem('vire.dirro.rcpt', JSON.stringify(l.slice(-100))); } catch (e) {} };
 const netOpen = () => NET.ws && NET.ws.readyState === 1;
 $('bStar').onclick = () => { show('panel', false); show('sms', false); const on = $('star').classList.contains('hide'); show('star', on); if (on) $('stList').classList.add('hide'); };
