@@ -94,8 +94,8 @@ const PAPER_FS = 'uniform vec3 paper; void main() { gl_FragColor = vec4(paper, 1
 const CHROME_FS = `uniform sampler2D chr; uniform vec3 paper, inkc; uniform float ana; varying vec2 vUv;
 void main() { vec4 h = texture2D(chr, vUv); if (h.a < 0.004) discard; float ink = 1.0 - h.r; gl_FragColor = vec4(ana > 0.5 ? paper * (1.0 - ink) : mix(paper, inkc, ink), h.a); }`;
 
-export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vire-comics', requestRgbd }) {   // #520 requestRgbd(still): asks the Quest for GRAB RGB-D
-  const cfg = { ...CFG_DEF }, panels = []; let cur = 0, pos = 0, ver = 1, autoT = 0, watchId = null, watchT = 0, pvT = 0, grabReq = null, lastQ = null;
+export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vire-comics', requestRgbd, relayAsk }) {   // #524 relayAsk(o): vjask / vjclog to the Quest   // #520 requestRgbd(still): asks the Quest for GRAB RGB-D
+  const cfg = { ...CFG_DEF }, panels = [], stars = []; /* #524 stars: STAR IN IT cards {cid, seq, at, dev, name, genre, lines, img, media, wd} */ let cur = 0, pos = 0, ver = 1, autoT = 0, watchId = null, watchT = 0, pvT = 0, grabReq = null, lastQ = null;
   const res = new Map();   // panel id -> { kind, el, tex, url, ea, ov: { tex, key } }
   const quad = mat => { const sc = new THREE.Scene(), m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); m.frustumCulled = false; sc.add(m); return sc; };
   const oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -130,10 +130,10 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
   async function writeFile(name, blob) { const d = await dir; if (!d) return; const h = await d.getFileHandle(name, { create: true }), w = await h.createWritable(); await w.write(blob); await w.close(); }
   async function readFile(name) { const d = await dir; if (!d) return null; try { return await (await d.getFileHandle(name)).getFile(); } catch { return null; } }
   async function removeFile(name) { const d = await dir; if (d) try { await d.removeEntry(name); } catch {} }
-  let saveT = 0; function save() { clearTimeout(saveT); saveT = setTimeout(() => writeFile('strip.json', new Blob([JSON.stringify({ cfg, panels, cur })], { type: 'application/json' })).catch(() => {}), 400); }
+  let saveT = 0; function save() { clearTimeout(saveT); saveT = setTimeout(() => writeFile('strip.json', new Blob([JSON.stringify({ cfg, panels, cur, stars })], { type: 'application/json' })).catch(() => {}), 400); }
   (async () => {
     const f = await readFile('strip.json'); if (!f) return;
-    try { const j = JSON.parse(await f.text()); Object.assign(cfg, j.cfg || {}); for (const p of j.panels || []) { const q = { ...PANEL_DEF, ...p }; if (!q.sbs && !q.conv && q.deep) q.conv = Math.min(0.08, q.deep / 150); delete q.deep; panels.push(q); } /* #518 'deep' (#517) became CONVERGE */ cur = pos = Math.min(Math.max(0, j.cur | 0), Math.max(0, panels.length - 1)); } catch {}
+    try { const j = JSON.parse(await f.text()); Object.assign(cfg, j.cfg || {}); for (const p of j.panels || []) { const q = { ...PANEL_DEF, ...p }; if (!q.sbs && !q.conv && q.deep) q.conv = Math.min(0.08, q.deep / 150); delete q.deep; panels.push(q); } /* #518 'deep' (#517) became CONVERGE */ for (const st of j.stars || []) stars.push(st);   /* #524 */ cur = pos = Math.min(Math.max(0, j.cur | 0), Math.max(0, panels.length - 1)); } catch {}
     changed(true);
   })();
   function changed(list) { ver++; chromeKey = ''; save(); onChange && onChange(); if (list) sendList(); }
@@ -155,7 +155,7 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
     try { g.drawImage(el, 0, 0, ew, h, (160 - ew * k) / 2, (90 - h * k) / 2, ew * k, h * k); } catch {}
     return c.toDataURL('image/jpeg', 0.6);
   }
-  async function addMedia(blob, name) {
+  async function addMedia(blob, name, extra) {   // #524 extra: fields for the new panel (a STAR photo: star = the guest's device id)
     const kind = /^video\//.test(blob.type) || /\.(mp4|webm|mov|m4v)$/i.test(name) ? 'video' : 'image';
     const ext = kind === 'video' ? ((name.match(/\.(mp4|webm|mov|m4v)$/i) || [, 'mp4'])[1].toLowerCase()) : ((name.match(/\.(png|webp|jpe?g|gif)$/i) || [, 'jpg'])[1].toLowerCase());
     const id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), file = id + '.' + ext;
@@ -166,7 +166,7 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
     p.thumb = thumbOf(pr.el, pr.w, pr.h, auto);
     URL.revokeObjectURL(pr.url);
     await writeFile(file, blob).catch(() => send({ k: 'cxmsg', t: 'Storage full? ' + name + ' not saved' }));
-    panels.push(p); changed(true);
+    if (extra) Object.assign(p, extra); panels.push(p); changed(true);
     send({ k: 'cxmsg', t: 'Added ' + name + (auto ? [' (side by side)', ' (half side by side)', ' (RGB+D: picture + depth)'][auto - 1] : '') });
   }
   function eyeAspect(p) { const w = p.w || 16, h = p.h || 9; return p.sbs === 1 || p.sbs === 3 ? w / 2 / h : w / h; }
@@ -243,7 +243,7 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
     const g = r.ov.c.getContext('2d'); g.clearRect(0, 0, REF.pw, OH);
     for (const [top, zero] of [[0, true], [REF.ph + 8, false]]) {
       g.save(); g.beginPath(); g.rect(0, top, REF.pw, REF.ph); g.clip(); g.translate(0, top);
-      for (const it of p.items || []) if (it && it.text && (it.t === 'cap') === zero) drawItem(g, it);
+      for (const it of p.items || []) if (it && it.text && (it.t === 'cap') === zero && (!it.star || (it.ok === 'yes' && it.askText === it.text))) drawItem(g, it);   // #524 a guest's line only after their YES to exactly this text
       g.restore();
     }
     if (!r.ov.tex) { r.ov.tex = new THREE.CanvasTexture(r.ov.c); r.ov.tex.minFilter = r.ov.tex.magFilter = THREE.LinearFilter; r.ov.tex.generateMipmaps = false; r.ov.tex.colorSpace = THREE.NoColorSpace; r.ov.tex.premultiplyAlpha = false; }
@@ -328,6 +328,7 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
     if (exp) { send({ k: 'cxmsg', t: 'Wait for the export to finish first' }); return; }
     for (const id of [...res.keys()]) dropRes(id);
     panels.length = 0; for (const p of m.panels || []) panels.push({ ...PANEL_DEF, ...p });
+    stars.length = 0; for (const st of m.stars || []) stars.push(st);   // #524 the issue's cast travels with it
     Object.assign(cfg, CFG_DEF, m.cfg || {});
     cur = pos = Math.min(Math.max(0, m.cur | 0), Math.max(0, panels.length - 1)); changed(true);
     const d = await dir; let gone = 0;
@@ -446,7 +447,7 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
     c.toBlob(b => { if (b) addMedia(b, (src === 'webcam' ? 'webcam-' : 'quest-') + new Date().toTimeString().slice(0, 8).replace(/:/g, '') + '.jpg'); }, 'image/jpeg', 0.92);
   }
   // ---- desk messages
-  function sendList() { send({ k: 'cxlist', ver, thumbs: Object.fromEntries(panels.map(p => [p.id, p.thumb || ''])) }); }
+  function sendList() { send({ k: 'cxlist', ver, thumbs: Object.fromEntries(panels.map(p => [p.id, p.thumb || ''])), starImgs: Object.fromEntries(stars.map(s => [s.cid, s.img || ''])) }); }
   function onMsg(m) {
     const op = m.op, p = m.id ? panels.find(x => x.id === m.id) : null;
     if (op === 'add') { for (const f of m.files || []) addMedia(f.blob, f.name || 'file'); }
@@ -456,6 +457,10 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
     else if (op === 'grab') grabReq = m.src === 'webcam' ? 'webcam' : 'quest';
     else if (op === 'set' && p) {
       const v = m.v || {};
+      if (Array.isArray(v.items)) for (const it of v.items) {   // #524 an answer that came in while the desk had an older copy wins
+        const was = it && it.ask && (p.items || []).find(x => x && x.ask === it.ask);
+        if (was && (was.ok === 'yes' || was.ok === 'no') && it.ok === 'asked' && it.text === was.askText) { it.ok = was.ok; it.cid = was.cid; }
+      }
       for (const k of Object.keys(PANEL_DEF)) if (k in v) p[k] = k === 'items' ? (Array.isArray(v.items) ? v.items.slice(0, 12) : p.items) : v[k];
       if ('sbs' in v && res.get(p.id)) { const r = res.get(p.id); if (r.el) p.thumb = thumbOf(r.el, p.w, p.h, p.sbs); }
       changed('sbs' in v);
@@ -470,10 +475,46 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
     else if (op === 'watch') { watchId = m.id || null; watchT = performance.now(); }
     else if (op === 'list') sendList();
     else if (op === 'load') loadIssue(m);   // #522 OPEN ISSUE / NEW ISSUE
+    else if (op === 'starpanel') { const st = stars.find(x => x.cid === m.cid); if (st && !st.wd && st.img) fetch(st.img).then(r => r.blob()).then(b => addMedia(b, 'star-' + st.name.replace(/[^\w-]+/g, '_') + '.jpg', { star: st.dev, starCid: st.cid })); }   // #524
+    else if (op === 'ask' && p) askLine(p, m.i);
+    else if (op === 'clog') { const e = relayAsk ? relayAsk({ k: 'vjclog' }) : 'not available'; send({ k: 'cxmsg', t: e ? 'CONSENT LOG: ' + e : 'CONSENT LOG: asked the relay…' }); }
     else if (op === 'mp4') exportMp4(m).catch(e => { exp = null; send({ k: 'cxmsg', t: 'MP4 failed: ' + e.message }); });
     else if (op === 'pdf') exportPdf(m).catch(e => { exp = null; send({ k: 'cxmsg', t: 'PDF failed: ' + e.message }); });
     else if (op === 'expstop') { if (exp) exp.stop = true; }
   }
-  function state() { return { cfg: { ...cfg }, cur, ver, panels: panels.map(({ thumb, ...p }) => p), REF, store }; }
-  return { tick, render, onMsg, state, sendList, get used() { return panels.length > 0; }, _panels: panels, _cfg: cfg, _res: res, _slots: slots };
+  function state() { return { cfg: { ...cfg }, cur, ver, panels: panels.map(({ thumb, ...p }) => p), REF, store, stars: stars.map(({ img, ...s }) => s) }; }
+  // ---- #524 STAR IN IT: cards from guests' phones (logged by the relay first), YES / NO on lines, withdrawals, the consent log
+  async function sha(blob) { const b = new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer())); return [...b].map(x => x.toString(16).padStart(2, '0')).join(''); }
+  async function askLine(p, i) {
+    const it = p.items && p.items[i], st = it && stars.find(x => x.dev === it.star && !x.wd);
+    if (!it || !st || !it.text) { send({ k: 'cxmsg', t: 'ASK: pick a guest as the speaker and write the line first' }); return; }
+    const ask = 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), f = await readFile(p.file), media = f ? await sha(f) : '';
+    it.ask = ask; it.ok = 'asked'; it.askText = it.text; delete it.cid; changed(false);
+    const e = relayAsk ? relayAsk({ k: 'vjask', dev: st.dev, ask, text: it.text, who: st.name, kind: it.t, media, panel: p.id }) : 'not available';
+    send({ k: 'cxmsg', t: e ? 'ASK: ' + e : `ASK: sent to ${st.name}'s phone` });
+  }
+  async function onStar(m) {
+    if (m.k === 'star') {
+      if (stars.some(x => x.cid === m.cid)) return;
+      stars.push({ cid: m.cid, seq: m.seq, at: m.at, dev: m.dev, name: m.name, genre: m.genre, lines: m.lines || [], img: m.img, media: m.media, wd: false });
+      changed(true); send({ k: 'cxmsg', t: `⭐ ${m.name} joined the cast (${m.genre})` });
+    } else if (m.k === 'ans') {
+      let n = 0; for (const p of panels) for (const it of p.items || []) if (it && it.ask === m.ask) { it.ok = m.yes ? 'yes' : 'no'; it.cid = m.cid; n++; if (res.get(p.id)) res.get(p.id).ov.key = ''; }
+      const st = stars.find(x => x.dev === m.dev); if (n) changed(false); send({ k: 'cxmsg', t: `${st ? st.name : 'A guest'} said ${m.yes ? 'YES' : 'NO'}` });
+    } else if (m.k === 'wd') {   // their panels and their lines come out; the card stays, marked, for the record
+      let gone = 0, lines = 0;
+      for (const st of stars) if (st.dev === m.dev) { st.wd = true; st.wdCid = m.cid; }
+      for (const p of panels) { const n = (p.items || []).length; p.items = (p.items || []).filter(it => !(it && it.star === m.dev)); lines += n - p.items.length; }
+      for (let i = panels.length - 1; i >= 0; i--) if (panels[i].star === m.dev) { const p = panels[i]; panels.splice(i, 1); dropRes(p.id); if (!panels.some(x => x.file === p.file)) removeFile(p.file); gone++; }
+      cur = pos = Math.min(cur, Math.max(0, panels.length - 1)); for (const r of res.values()) r.ov.key = '';
+      changed(true); send({ k: 'cxmsg', t: `A guest withdrew: ${gone} panel${gone === 1 ? '' : 's'} and ${lines} line${lines === 1 ? '' : 's'} removed` });
+    } else if (m.k === 'clog') {   // check the chain, then hand the desk a JSON-lines file
+      const items = m.items || [], enc = new TextEncoder(); let ok = true, prev = 'GENESIS';
+      for (const x of items) { const h = [...new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(x.prev + x.rec)))].map(v => v.toString(16).padStart(2, '0')).join(''); if (x.prev !== prev || h !== x.hash) { ok = false; break; } prev = x.hash; }
+      const body = items.map(x => JSON.stringify({ seq: x.seq, rec: JSON.parse(x.rec), prev: x.prev, hash: x.hash })).join('\n') + '\n';
+      send({ k: 'cxfile', name: 'DirroComics_consent_' + new Date().toISOString().slice(0, 10) + '.jsonl', blob: new Blob([body], { type: 'application/jsonl' }) });
+      send({ k: 'cxmsg', t: `CONSENT LOG: ${items.length} records, chain ${ok ? 'OK' : 'BROKEN'}${items.length ? ', last hash ' + items[items.length - 1].hash.slice(0, 16) + '…' : ''}` });
+    }
+  }
+  return { tick, render, onMsg, state, sendList, get used() { return panels.length > 0; }, _panels: panels, _cfg: cfg, _res: res, _slots: slots, onStar, _stars: stars };
 }

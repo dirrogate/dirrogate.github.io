@@ -620,6 +620,7 @@ export function startCamera(ctx) {
     else if (m.k === 'vjsms') studio.onVjSms(m);   // #507 HoloSMS for the scroller desk
     else if (m.k === 'cxput') { cxrx = { n: m.n, size: m.size, type: m.type || '', parts: [], got: 0 }; studio.onCx({ t: 'receiving ' + m.n + '…' }); if (!m.size) { cxrx = null; } }   // #520
     else if (m.k === 'cxst') studio.onCx({ t: m.t });
+    else if (m.k === 'vjstar') { for (const x of m.items || []) studio.onCx({ star: x }); }   // #524 STAR IN IT from the relay, via the Quest
     else if (m.k === 'slvdel') onSlvDel(m.uid);
     else if (m.k === 'calpt') { if (!(fixed.on && fixed.onCalPoint(m))) onCalPoint(m); }   // #208 fixed camera taps first
     else if (m.k === 'calskip') { if (fixed.on) fixed.calSkip(); }   // #211 the Quest's grip skips an auto point

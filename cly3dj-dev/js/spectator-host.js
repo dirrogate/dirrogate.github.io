@@ -430,7 +430,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       if (m.k === 'cst') { camState = m; onCam && onCam(m); return; }
       if (m.k === 'sst') { onStudio && onStudio('sst', m); return; }   // #380 the S8 studio's status (once a second)
       if (m.k === 'screen') { onScreen && onScreen(!!m.on); return; }   // #358   // #188 the phone's camera / key / look state
-      if (m.k === 'vjsine' || m.k === 'cxgrab' || m.k === 'vjshow') { onVj && onVj(m); return; }   // #523 vjshow: SHOWTIME! from the desk   // #507 DirroVJ scroller desk, #520 GRAB RGB-D (main.js checks the pairing)
+      if (m.k === 'vjsine' || m.k === 'cxgrab' || m.k === 'vjshow' || m.k === 'vjask' || m.k === 'vjclog') { onVj && onVj(m); return; }   // #523 vjshow: SHOWTIME! from the desk, #524 vjask / vjclog   // #507 DirroVJ scroller desk, #520 GRAB RGB-D (main.js checks the pairing)
       if (m.k === 'cover?') { onCoverAsk(m.key); return; }   // #218
       if (m.k === 'covhave') { if (haveWait) { const w = haveWait; haveWait = null; w(m.keys || []); } return; }
       if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }

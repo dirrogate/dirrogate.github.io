@@ -894,6 +894,7 @@ void main() {
 // close to the headset, unlike three's screen-space copy (#411 owner: real hand / controller ~5 cm above the drawn one).
 // three's own occluder stays as the fallback if the depth info can't be read. The laser gets the same depth view.
 let realDepth = null, rdBinding = null, rdSession = null, rgbd = null;   // #520 rgbd: GRAB RGB-D
+const cxQ = []; let cxQn = 0;   // #524 STAR IN IT messages from the relay waiting for DirroVJ (stream.js _stuSync sends them while it is linked and allowed)
 // #415 HEADSET CAM AUTO FIT (CAM FIT page): 9 crosshairs on the camera picture; the controller's front tip on each + trigger
 const camCal = { on: false, k: 0, samples: [], prev: {}, msg: '', handsWas: false };
 const _ccM = new THREE.Matrix4(), _ccH = new THREE.Matrix4(), _ccV = new THREE.Vector3();
@@ -1326,6 +1327,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
   // #336 SHOW / VIDEOWALL
   avLayer: AV_LAYER, showCam: () => djcam && djcam.cam, scroller: () => scroller, chat: () => chat,   // #340
   showState: () => vjShowState(),   // #523 SHOWTIME! state for DirroVJ's desk
+  cxQueue: () => cxQ,   // #524 STAR IN IT messages for DirroVJ
   showPrep: () => {   // #372 the SHOWTIME! 3D layer: each prop is in or out by its own toggle; no XR hands, nothing behind
     const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } }, O = streamer.showOpt;
     hide(room);
@@ -8038,6 +8040,7 @@ if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr
   wallFrame: () => (ledMode === 'vdancer' ? fxBig : ledMode === 'clips' && led.video ? led.video : isLive(ledMode) || ledMode === 'screen' ? liveVideo : ledMode === 'decks' ? deckVid[0].v : streamer && streamer.active ? streamer.canvas : null),
   sineText: t => { const c = cleanText(t, 120); if (c.trim()) { scroller.start(c); toast('On the sine scroller', 1500); } },   // #435 a HoloSMS on the Quest's own scroller
   onSms: t => toast('HoloSMS: ' + (t.length > 46 ? t.slice(0, 45) + '…' : t), 2500),
+  onStar: m => { cxQ.push({ id: ++cxQn, m }); if (cxQ.length > 200) cxQ.splice(0, cxQ.length - 200); if (m.k === 'star') toast('⭐ ' + (m.name || 'A guest') + ' joined the DirroComics cast', 2500); },   // #524 queued for DirroVJ
   onChange: () => { if (toolsPage === 'dirro' || toolsPage === 'home' || toolsPage === 'holosms' || toolsPage === 'wall') drawMixScreen(); } });
 renderer.setAnimationLoop(frame);
 // #220 DJ CAM: pose the avatar (headset: head + hands; desktop: a demo DJ), then render the camera into the LED wall
@@ -8460,6 +8463,11 @@ async function applySpect() {
       getSpiders: spidersState,   // #262
       onVj: m => {   // #507 DirroVJ's scroller desk: an approved line onto the Quest's sine scroller (only from a DirroVJ the DJ allowed)
         if (m.k === 'vjshow') { if (streamer && streamer.vjAllowed) vjShow(m); return; }   // #523 SHOWTIME! from the VJ desk (allowed DirroVJ only)
+        if (m.k === 'vjask' || m.k === 'vjclog') {   // #524 a line for a guest / the consent log, to the relay
+          if (!streamer || !streamer.vjAllowed) return;
+          const ok = dirro && dirro.relay(m.k === 'vjask' ? { k: 'ask', dev: m.dev, ask: m.ask, text: m.text, who: m.who, kind: m.kind, media: m.media, panel: m.panel } : { k: 'clog' });
+          if (!ok && spect) spect.cxSay('DIRROGRAM is off or the relay is not connected on the Quest'); return;
+        }
         if (m.k === 'cxgrab') {   // #520 GRAB RGB-D (DirroComics): only for a DirroVJ the DJ allowed
           if (!streamer || !streamer.vjAllowed) { if (spect) spect.cxSay('allow this DirroVJ on the Quest\'s DIRROVJ page first'); return; }
           if (!rgbd) rgbd = makeRgbdGrab({ renderer, getDepth: () => (realDepth && realDepth.ok ? realDepth : null), getFit: () => streamer && streamer.fit,

@@ -44,6 +44,18 @@
   #sms textarea { width: 100%; box-sizing: border-box; background: #141824; color: #e8ecf2; border: 1px solid rgba(255,255,255,0.2); border-radius: 10px; padding: 10px; font: 16px system-ui, sans-serif; resize: none; user-select: text; -webkit-user-select: text; touch-action: auto; }
   #sms .smsRow { display: flex; align-items: center; gap: 8px; margin-top: 8px; } #sms .smsRow span { flex: 1; opacity: 0.7; font-size: 13px; }
   #sms .btn { padding: 10px 18px; font-size: 14px; }
+  /* #524 STAR IN IT sheets */
+  .sheet { position: fixed; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 76px); max-width: 420px; margin: 0 auto; z-index: 6; max-height: 72vh; overflow: auto;
+    background: rgba(8, 10, 16, 0.94); border: 1px solid #f2c94c88; border-radius: 16px; padding: 12px 14px; color: #e8ecf2; }
+  .sheet .smsT { font-weight: 700; letter-spacing: 0.06em; color: #f2c94c; margin-bottom: 8px; }
+  .sheet .stHelp { font-size: 13px; opacity: 0.8; margin: 4px 0 10px; line-height: 1.4; }
+  .sheet input:not([type=checkbox]), .sheet select { width: 100%; box-sizing: border-box; background: #141824; color: #e8ecf2; border: 1px solid rgba(255,255,255,0.2); border-radius: 10px; padding: 10px; font: 16px system-ui, sans-serif; margin: 4px 0; user-select: text; -webkit-user-select: text; touch-action: auto; }
+  .sheet .stRow { display: flex; align-items: center; gap: 10px; } .sheet .stTip { font-size: 12px; opacity: 0.65; flex: 1; }
+  #stPic { width: 64px; height: 86px; object-fit: cover; border-radius: 8px; background: #141824; border: 1px solid rgba(255,255,255,0.2); }
+  .sheet .stChk { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; margin: 8px 0; line-height: 1.35; } .sheet .stChk input { margin-top: 2px; width: 18px; height: 18px; flex: none; }
+  .sheet .smsRow { display: flex; align-items: center; gap: 8px; margin-top: 8px; } .sheet .smsRow span { flex: 1; } .sheet .btn { padding: 10px 16px; font-size: 14px; }
+  #askText { font: 700 20px system-ui, sans-serif; margin: 8px 0; padding: 10px; border-radius: 10px; background: #141824; }
+  #stList { margin-top: 10px; font-size: 13px; } #stList .it { padding: 6px 0; border-top: 1px solid rgba(255,255,255,0.12); } #stList .c { opacity: 0.6; font-family: ui-monospace, monospace; }
   #bRec { color: #ff3b4e; border-color: #ff3b4e88; }
   #bRec.recOn { background: #e0102a; color: #fff; border-color: #ff6b7a; box-shadow: 0 0 18px #ff2a3c; }
   #aimMenu { position: fixed; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 84px); display: flex; gap: 14px; justify-content: center; align-items: flex-start; z-index: 5; flex-wrap: wrap; padding: 0 12px; }
@@ -73,6 +85,7 @@
   <button class="btn ghost" id="bPeople">PEOPLE</button>
   <button class="btn ghost" id="bPfx">FX⁺⁺</button>
   <button class="btn ghost" id="bSms">HOLO SMS</button>
+  <button class="btn ghost" id="bStar">⭐ STAR</button>
   <button class="btn ghost" id="bSet">SETTINGS</button>
 </div>
 <div id="panel" class="hide"></div>
@@ -84,6 +97,25 @@
   <div class="smsT">HoloSMS to the DJ</div>
   <textarea id="smsIn" maxlength="140" rows="3" placeholder="Your message for the hologram scroller (the DJ picks which ones go up)"></textarea>
   <div class="smsRow"><span id="smsN">0 / 140</span><button class="btn ghost" id="smsCancel">CANCEL</button><button class="btn" id="smsSend">SEND</button></div>
+</div>
+<div id="star" class="hide sheet">
+  <div class="smsT">⭐ in DirroComics!</div>
+  <div class="stHelp">Be a character in tonight's comic. Your photo and comic name can appear on the club screen, the stream and the night's issue. Before any words are put in your mouth, they come to this phone first for YES or NO.</div>
+  <div class="stRow"><img id="stPic" alt=""><button class="btn ghost" id="stSnap">TAKE PHOTO</button><span class="stTip">Uses what your camera shows now (PEOPLE and FX too)</span></div>
+  <input id="stName" maxlength="24" placeholder="Comic name, e.g. NEON NINA">
+  <select id="stGenre"><option>NOIR</option><option>ACTION</option><option>HORROR</option><option>DRAMA</option><option>SCI-FI</option><option>ROMANCE</option></select>
+  <input id="stL1" maxlength="100" placeholder="A line you'd say (optional)">
+  <input id="stL2" maxlength="100" placeholder="Another line (optional)">
+  <label class="stChk"><input type="checkbox" id="stAge"> I'm 18 or older</label>
+  <label class="stChk"><input type="checkbox" id="stOk"> <span id="stTerms"></span></label>
+  <div class="smsRow"><button class="btn ghost" id="stMine">MY CONSENTS</button><span></span><button class="btn ghost" id="stCancel">CANCEL</button><button class="btn" id="stSend">I'M IN</button></div>
+  <div id="stList" class="hide"></div>
+</div>
+<div id="ask" class="hide sheet">
+  <div class="smsT">⭐ A line for <span id="askWho"></span></div>
+  <div id="askText"></div>
+  <div class="stHelp">YES: it can be used exactly as written. NO: it's dropped. If the line is changed later, it comes back to you as a new question.</div>
+  <div class="smsRow"><span></span><button class="btn ghost" id="askNo">NO</button><button class="btn" id="askYes">YES</button></div>
 </div>
 <div id="net" class="hide"></div>
 <div id="toast" style="opacity:0"></div>

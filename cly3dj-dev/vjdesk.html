@@ -39,6 +39,10 @@
   #cxPv { width:100%; aspect-ratio:16/9; background:#f3ead4; border-radius:8px; border:1px solid var(--line); display:block; cursor:crosshair; }
   .sl { width:64px; color:var(--mute); font-size:12px; text-align:right; } .sp { color:var(--mute); font-size:12px; }
   #cxEd input[type=range] { min-width:90px; }
+  /* #524 STAR IN IT */
+  #cxStars { display:flex; gap:8px; overflow-x:auto; padding:4px 2px; } .stC { flex:0 0 auto; width:250px; display:flex; gap:8px; border:1px solid #5a4a14; background:#1a170c; border-radius:8px; padding:6px; font-size:12px; }
+  .stC img { width:54px; height:72px; object-fit:cover; border-radius:5px; background:#000; } .stC b { color:#f2c94c; } .stC.wd { opacity:.45; } .stC .ln { color:var(--mute); }
+  .stB { font:800 10px system-ui; padding:2px 6px; border-radius:6px; background:#333; color:#ccc; } .stB.yes { background:#174a24; color:#7dff9a; } .stB.no { background:#4a1717; color:#ff8a8a; } .stB.asked { background:#3a3214; color:#f2c94c; }
   .kv { display:inline-flex; align-items:center; gap:6px; flex:1 1 210px; } .kv input[type=range] { flex:1; }
   .cxI { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:6px; border:1px solid #1f2636; border-radius:8px; margin:6px 0; }
   .cxI .ty { font:800 11px system-ui; width:64px; color:#f2c94c; } .cxI textarea { flex:1; min-width:220px; height:38px; font:14px system-ui; color:var(--fg); background:#1c2230; border:1px solid var(--line); border-radius:8px; padding:6px; resize:vertical; }
@@ -112,7 +116,8 @@
     <span id="cxMsg" class="note" style="margin:0"></span>
   </div>
   <div class="row" id="cxIssueRow"><b class="sp" style="color:#f2c94c">ISSUE</b><button id="cxSave" title="The whole issue (panels, pictures, clips, depth maps, text) as one .dirrocomic file in Downloads">SAVE ISSUE</button><button id="cxOpen" title="Open a .dirrocomic file: it replaces the strip on DirroVJ">OPEN ISSUE…</button><input type="file" id="cxOpenF" accept=".dirrocomic,.zip" hidden><button id="cxNew" title="Start an empty strip with the next issue number">NEW ISSUE</button>
-    <span class="sp" style="margin-left:14px">EXPORT</span><button id="cxMp4" title="The strip playing through as on the club screen (slides, video panels at their length). Real time: keep the DirroVJ window visible.">MP4</button><select id="cxHold" title="Seconds per still panel"><option value="3">3 s</option><option value="4" selected>4 s</option><option value="6">6 s</option><option value="8">8 s</option></select><select id="cxRes"><option value="720">720p</option><option value="1080">1080p</option></select><button id="cxPdf" title="Newspaper strip pages: 4 panels in a row per page">PDF STRIP</button><button id="cxStop" title="Stop the running export">STOP</button></div>
+    <span class="sp" style="margin-left:14px">EXPORT</span><button id="cxMp4" title="The strip playing through as on the club screen (slides, video panels at their length). Real time: keep the DirroVJ window visible.">MP4</button><select id="cxHold" title="Seconds per still panel"><option value="3">3 s</option><option value="4" selected>4 s</option><option value="6">6 s</option><option value="8">8 s</option></select><select id="cxRes"><option value="720">720p</option><option value="1080">1080p</option></select><button id="cxPdf" title="Newspaper strip pages: 4 panels in a row per page">PDF STRIP</button><button id="cxStop" title="Stop the running export">STOP</button><button id="cxClog" title="The relay's consent log for this room (opt-ins, YES / NO, withdrawals), checked and downloaded as JSON lines">CONSENT LOG</button></div>
+  <div id="cxStars"></div>
   <div id="cxStrip"></div>
   <div id="cxEd" hidden>
     <div>
@@ -201,20 +206,46 @@ for (const r of document.querySelectorAll('[data-pk]')) r.oninput = e => cxSet({
 for (const b of document.querySelectorAll('[data-add]')) b.onclick = () => { if (!cxSel) return; const t = b.dataset.add; cxItems.push({ t, text: t === 'sfx' ? 'KRRSSHH!' : t === 'cap' ? 'MEANWHILE, IN THE BOOTH…' : '', ...ITEM_DEF[t] }); cxItemsKey = ''; sendItems(); renderItems(true); };
 function sendItems() { cxSet({ items: cxItems.map(i => ({ ...i })) }); }
 function renderItems(force) {
-  const key = cxSel + '|' + cxItems.map(i => i.t).join(','); if (!force && key === cxItemsKey) return; cxItemsKey = key;
+  const key = cxSel + '|' + cxItems.map(i => i.t).join(',') + '|' + ((CX && CX.stars) || []).map(s => s.cid + (s.wd ? 'w' : '')).join(',');   // #524 new guests in the speaker list if (!force && key === cxItemsKey) return; cxItemsKey = key;
   $('cxItems').innerHTML = cxItems.map((it, i) => `<div class="cxI" data-i="${i}"><span class="ty">${ITEM[it.t] || it.t}</span>
     <textarea data-f="text" placeholder="${it.t === 'sfx' ? 'POW!' : 'Text'}">${esc(it.text || '')}</textarea>
     <span class="sp">size</span><input type="range" data-f="s" min="14" max="${it.t === 'sfx' ? 220 : 70}" step="1" value="${it.s || 30}">
     ${it.t === 'sfx' ? `<span class="sp">tilt</span><input type="range" data-f="r" min="-35" max="35" step="1" value="${it.r ?? -8}">` : `<span class="sp">width</span><input type="range" data-f="w" min="0.1" max="0.8" step="0.01" value="${it.w || 0.3}">`}
-    <button data-arm="pos">POS</button>${['speech', 'thought', 'shout'].includes(it.t) ? '<button data-arm="tail">TAIL</button>' : ''}<button data-del="1">✕</button></div>`).join('');
+    <button data-arm="pos">POS</button>${['speech', 'thought', 'shout'].includes(it.t) ? '<button data-arm="tail">TAIL</button>' + starSel(it) : ''}<button data-del="1">✕</button></div>`).join('');
   for (const row of $('cxItems').children) {
     const i = +row.dataset.i;
-    for (const el of row.querySelectorAll('[data-f]')) el.oninput = e => { const f = el.dataset.f; cxItems[i][f] = f === 'text' ? e.target.value : +e.target.value; sendItems(); };
+    for (const el of row.querySelectorAll('[data-f]')) el.oninput = e => {
+      const f = el.dataset.f, it = cxItems[i];
+      if (f === 'star') { const st = CX.stars.find(x => x.dev === e.target.value); it.star = st ? st.dev : ''; it.who = st ? st.name : ''; it.ok = ''; delete it.ask; delete it.cid; if (!it.star) delete it.star; }   // #524
+      else it[f] = f === 'text' ? e.target.value : +e.target.value;
+      if (f === 'text' && it.star && it.text !== it.askText) it.ok = '';   // a changed line needs a new YES
+      sendItems(); starBadges();
+    };
+    const ab = row.querySelector('[data-ask]'); if (ab) ab.onclick = () => { sendItems(); setTimeout(() => cx('ask', { id: cxSel, i }), 150); };
     for (const b of row.querySelectorAll('[data-arm]')) b.onclick = () => { cxArm = cxArm && cxArm.i === i && cxArm.what === b.dataset.arm ? null : { i, what: b.dataset.arm }; armUi(); };
     row.querySelector('[data-del]').onclick = () => { cxItems.splice(i, 1); cxArm = null; sendItems(); renderItems(true); };
   }
   armUi();
 }
+// #524 the speaker of a balloon: nobody (the DJ / the robot / no one in particular) or a guest from STAR IN IT; a guest's line needs ASK and their YES
+function starSel(it) {
+  const S = (CX && CX.stars || []).filter(s => !s.wd || s.dev === it.star);
+  return `<select data-f="star" title="Who says this? A guest's line only shows after their YES"><option value="">speaker: anyone</option>${S.map(s => `<option value="${esc(s.dev)}"${s.dev === it.star ? ' selected' : ''}>⭐ ${esc(s.name)}</option>`).join('')}</select><span class="stB" data-st="1"></span><button data-ask="1" title="Send this exact line to the guest's phone for YES / NO">ASK</button>`;
+}
+function starBadges() {
+  for (const row of $('cxItems').children) {
+    const it = cxItems[+row.dataset.i], b = row.querySelector('[data-st]'), ab = row.querySelector('[data-ask]'); if (!b || !it) continue;
+    const st = !it.star ? '' : it.ok === 'yes' && it.askText === it.text ? 'yes' : it.ok === 'no' && it.askText === it.text ? 'no' : it.ok === 'asked' && it.askText === it.text ? 'asked' : 'new';
+    b.className = 'stB ' + st; b.textContent = { '': '', yes: 'YES · on screen', no: 'NO · hidden', asked: 'ASKED · waiting', new: 'not asked · hidden' }[st]; b.hidden = !st; ab.hidden = !it.star; ab.disabled = !it.text || st === 'asked' || st === 'yes';
+  }
+}
+let cxStarKey = '', cxStarImgs = {};
+function renderStars() {
+  const L = (CX && CX.stars) || [], key = L.map(s => s.cid + (s.wd ? 'w' : '')).join(',') + '|' + Object.keys(cxStarImgs).length; if (key === cxStarKey) return; cxStarKey = key;
+  $('cxStars').innerHTML = L.slice().reverse().map(s => `<div class="stC${s.wd ? ' wd' : ''}"><img src="${cxStarImgs[s.cid] || ''}" alt=""><div><b>⭐ ${esc(s.name)}</b> · ${esc(s.genre)}${s.wd ? ' · WITHDRAWN' : ''}<div class="ln">${(s.lines || []).map(l => '“' + esc(l) + '”').join('<br>')}</div><div class="ln">receipt ${esc(s.cid)}</div>${s.wd ? '' : `<button data-sp="${esc(s.cid)}" style="margin-top:4px;padding:4px 8px;font-size:12px">ADD AS PANEL</button>`}</div></div>`).join('');
+  for (const b of document.querySelectorAll('[data-sp]')) b.onclick = () => cx('starpanel', { cid: b.dataset.sp });
+}
+$('cxClog').onclick = () => cx('clog');
 function armUi() {
   for (const b of document.querySelectorAll('#cxItems [data-arm]')) { const i = +b.closest('.cxI').dataset.i; b.classList.toggle('arm', !!cxArm && cxArm.i === i && cxArm.what === b.dataset.arm); }
   $('cxArmN').textContent = cxArm ? `Click the picture to place the ${ITEM[cxItems[cxArm.i] && cxItems[cxArm.i].t] || 'item'}${cxArm.what === 'tail' ? "'s tail tip" : ''}.` : 'The selected panel (not necessarily on air). POS / TAIL on a text item, then click here to place it.';
@@ -341,7 +372,7 @@ $('cxSave').onclick = async () => {
   try {
     cxSay('SAVE ISSUE: collecting the files…'); const { zipFiles } = await import('./js/cxfiles.js');
     const P = CX.panels, files = [], seen = new Set(); let missing = 0;
-    const manifest = { format: 'dirrocomic', v: 1, saved: new Date().toISOString(), app: 'DirroDJ', cfg: CX.cfg, cur: CX.cur, panels: P.map(p => ({ ...p, thumb: cxThumbs[p.id] || '' })) };
+    const manifest = { format: 'dirrocomic', v: 1, saved: new Date().toISOString(), app: 'DirroDJ', cfg: CX.cfg, cur: CX.cur, panels: P.map(p => ({ ...p, thumb: cxThumbs[p.id] || '' })), stars: (CX.stars || []).map(s => ({ ...s, img: cxStarImgs[s.cid] || '' })) };   // #524 the cast and their receipts travel with the issue
     files.push({ name: 'manifest.json', blob: new Blob([JSON.stringify(manifest, null, 1)], { type: 'application/json' }) });
     for (const p of P) for (const n of [p.file, p.depth]) if (n && !seen.has(n)) { seen.add(n); const f = await cxRead(n); if (f) files.push({ name: 'media/' + n, blob: f }); else missing++; }
     const z = await zipFiles(files, (i, n) => cxSay(`SAVE ISSUE: ${i} / ${n}…`));
@@ -359,13 +390,13 @@ $('cxOpenF').onchange = async e => {
     if (CX && CX.panels.length && !confirm(`Open "${(man.cfg && man.cfg.issue) || f.name}" (${man.panels.length} panels)?\n\nIt replaces the strip on DirroVJ. SAVE ISSUE first if you want to keep the current one.`)) return;
     let i = 0; const media = [...m].filter(([n]) => n.startsWith('media/'));
     for (const [n, b] of media) { cxSay(`OPEN ISSUE: ${++i} / ${media.length}…`); await cxWrite(n.slice(6), b); }
-    cxSel = null; cx('load', { cfg: man.cfg || {}, cur: man.cur || 0, panels: man.panels });
+    cxSel = null; cx('load', { cfg: man.cfg || {}, cur: man.cur || 0, panels: man.panels, stars: man.stars || [] });
   } catch (err) { cxSay('OPEN ISSUE failed: ' + (err.message || err)); }
 };
 $('cxNew').onclick = () => {
   if (!CX) return; const next = String(CX.cfg.issue || 'ISSUE #0').replace(/\d+(?!.*\d)/, d => String(+d + 1)), issue = /\d/.test(next) ? next : 'ISSUE #1';
   if (CX.panels.length && !confirm(`Start ${issue} with an empty strip?\n\nThe current strip is cleared from DirroVJ. SAVE ISSUE first if you want to keep it.`)) return;
-  cxSel = null; cx('load', { cfg: { ...CX.cfg, issue }, cur: 0, panels: [] });
+  cxSel = null; cx('load', { cfg: { ...CX.cfg, issue }, cur: 0, panels: [], stars: (CX.stars || []).map(s => ({ ...s, img: cxStarImgs[s.cid] || '' })) });   // #524 the night's cast stays
 };
 $('cxMp4').onclick = () => cx('mp4', { hold: +$('cxHold').value, res: +$('cxRes').value });
 $('cxPdf').onclick = () => cx('pdf'); $('cxStop').onclick = () => cx('expstop');
@@ -385,7 +416,7 @@ bc.onmessage = e => {
   if (m.k === 'state') {
     if (m.test && Date.now() - realT < 4000) return;   // #519 the DirroComics test page steps aside when a real DirroVJ answers
     if (!m.test) realT = Date.now();
-    S = m; render(); CX = m.C || null; renderCx(); renderShow();   // #523
+    S = m; render(); CX = m.C || null; renderCx(); renderShow(); if (CX) { renderStars(); starBadges(); }   // #523, #524
     $('st').textContent = m.test ? 'Connected to the DirroComics TEST page: only the DirroComics section works here (no buses, fractal or program picture). Open dirrovj.html for the real desk.'
       : m.live ? 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'
       : 'Connected to DirroVJ, waiting for the Quest: the program picture starts when the Quest turns DirroVJ on (tablet: TWITCH > DIRROVJ). Buses still switch; DirroComics editing works.';
@@ -394,7 +425,7 @@ bc.onmessage = e => {
   else if (m.k === 'pv') $('pv').src = m.img;
   else if (m.k === 'cxpv') { if (m.id === cxSel) { if (m.blob) { const u = URL.createObjectURL(m.blob); if (cxPvUrl) URL.revokeObjectURL(cxPvUrl); cxPvUrl = u; $('cxPv').src = u; } else if (m.img) $('cxPv').src = m.img; } }   // #516, #518 a blob now
   else if (m.k === 'cxfile') { if (m.blob) cxDownload(m.blob, m.name || 'dirrocomics'); }   // #522 an export, ready
-  else if (m.k === 'cxlist') { cxThumbs = m.thumbs || {}; cxListN++; renderCx(); }
+  else if (m.k === 'cxlist') { cxThumbs = m.thumbs || {}; cxStarImgs = m.starImgs || cxStarImgs; cxListN++; renderCx(); }
   else if (m.k === 'cxmsg') { $('cxMsg').textContent = m.t; clearTimeout(cxMsgT); cxMsgT = setTimeout(() => { $('cxMsg').textContent = ''; }, 6000); }
 };
 send({ k: 'hello' });

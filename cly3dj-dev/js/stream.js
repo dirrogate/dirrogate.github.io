@@ -270,6 +270,8 @@ export class Streamer {
     if (!this.stuAtt) this._stuAttach();
     { const list = (this.env.smsList && this.env.smsList()) || [], sent = this._smsSent || (this._smsSent = new Set()), items = list.filter(m => !sent.has(m.id)).slice(0, 10).map(m => [m.id, m.t]);   // #507 HoloSMS to the scroller desk
       if (items.length) { for (const [id] of items) sent.add(id); L.ctl({ k: 'vjsms', items }); } }
+    { const q = (this.env.cxQueue && this.env.cxQueue()) || [], items = q.filter(x => !x.sent).slice(0, 6);   // #524 STAR IN IT: cards, answers, withdrawals, the log, to DirroVJ (a few per second: cards carry a photo)
+      if (items.length) { for (const x of items) x.sent = 1; L.ctl({ k: 'vjstar', items: items.map(x => x.m) }); } }
     const O = this.showOpt;
     L.ctl({ k: 'stu', on: true, sh: this.env.showState ? this.env.showState() : null, mode: this.stu.mode, bd: O.backdrop === 'visuals' && O.wall && this.source === 'show' ? 'none' : O.backdrop, snd: !!this.stu.snd, ch: chatChannel.get(), tv: this.tvSet.key && this.tvSet.on ? this.tvSet.key : '', tvA: !!this.tvSet.audio,   // #509 DirroVJ answers the paired TVs while it is on (sent only after ALLOW)
       local: !!this.stu.local, O: { gear: !!O.gear, robot: !!O.robot, neon: !!O.neon }, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
