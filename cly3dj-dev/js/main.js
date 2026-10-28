@@ -1253,7 +1253,8 @@ const TAB_CORNER = new THREE.Vector3(0.095, 0.035, 0);   // xr.js resize zone ce
   const silver = new THREE.MeshPhysicalMaterial({ color: 0xd9dde3, metalness: 1, roughness: 1, roughnessMap: new THREE.CanvasTexture(R), anisotropy: 0.6,
     normalMap: new THREE.CanvasTexture(NC), normalScale: new THREE.Vector2(2.2, 2.2), alphaMap: new THREE.CanvasTexture(L), alphaTest: 0.5 });
   const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.016, 0.016), silver);
-  plate.position.set(0.1 - 0.008, 0.04 - 0.008, TABLET_T / 2 + 0.0013); plate.userData.noMirror = true; plate.name = 'tabletCorner'; plate.raycast = () => {};
+  plate.position.set(0.1 - 0.008, 0.04 - 0.008, TABLET_T / 2 + 0.0013); plate.userData.noMirror = true; plate.name = 'tabletCorner'; plate.userData.tabletCorner = true;
+  if (TABLET.children[0]) TABLET.children[0].userData.tabletBody = true;
   TABLET.add(plate); }
 const _tm = new THREE.Matrix4(), _tp = new THREE.Vector3(), _tq = new THREE.Quaternion(), _ts = new THREE.Vector3();
 function tabletHold(world) {   // world pose from the hand -> mixer-local
@@ -1266,6 +1267,16 @@ function tabletRelease() {
   saveTablet(); return snap;
 }
 function tabletDock() { tabletFreeScale = TABLET.scale.x; TABLET.position.copy(TDOCK.p); TABLET.quaternion.copy(TDOCK.q); TABLET.scale.setScalar(1); saveTablet(); }
+function tabletPopOut() {   // #532 Desktop mode: pop out in front of the mixer facing the desktop camera, ready to drag-resize
+  const s = tabletFreeScale > 1.05 ? tabletFreeScale : 1.85;
+  TABLET.position.set(0.12, 0.32, 0.32);
+  mixer.updateMatrixWorld(true);
+  const wp = TABLET.getWorldPosition(new THREE.Vector3()), cp = camera.position.clone();
+  const m = new THREE.Matrix4().lookAt(cp, wp, new THREE.Vector3(0, 1, 0));
+  const wq = new THREE.Quaternion().setFromRotationMatrix(m);
+  TABLET.quaternion.copy(mixer.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(wq));
+  tabletScale(s); saveTablet();
+}
 mixer.userData.screen.material.map = mixScreen.texture; mixer.userData.screen.material.needsUpdate = true;
 const crateScreen = new Screen(1024, 960);   // same shape as the lid monitor (flush lid, 32 x 30 cm LCD)
 const CS = { head: 74, foot: 66, rows: 13, rh: 62 };   // crate screen layout (CLAUDE.md #61, #70)
@@ -3875,8 +3886,14 @@ function interactive() { return [deckGroups[0], deckGroups[1], mixer, crateRig, 
 // instanced parts (the mixer knobs, #84): a hit on instance i stands for that knob's proxy object
 function hitTarget(hit) { const o = hit.object, ids = o.userData.knobIds; return ids && hit.instanceId !== undefined ? mixer.userData.controls[ids[hit.instanceId]] : o; }
 function controlOf(o) {
-  while (o) { const u = o.userData; if (u && (u.control || u.record || u.crateSleeves || u.crateScreen || u.mixScreen || u.crateDisc || u.crateCover || u.platterOf || u.lid || u.move || u.resize)) return o; o = o.parent; }
+  while (o) { const u = o.userData; if (u && (u.control || u.record || u.crateSleeves || u.crateScreen || u.mixScreen || u.tabletCorner || u.tabletBody || u.crateDisc || u.crateCover || u.platterOf || u.lid || u.move || u.resize)) return o; o = o.parent; }
   return null;
+}
+function isTabletCornerHit(hit, obj) {   // #532 top-right corner L-handle or top-right bezel of the remote tablet
+  if (!hit || !obj) return false;
+  if (obj.userData.tabletCorner) return true;
+  if (obj.userData.tabletBody) { const tl = TABLET.worldToLocal(hit.point.clone()); return tl.x > 0.065 && tl.y > 0.018; }
+  return false;
 }
 function deckGroupOf(o) { while (o) { if (o === deckGroups[0]) return decks[0]; if (o === deckGroups[1]) return decks[1]; o = o.parent; } return null; }
 function inCrate(o) { while (o) { if (o === crateRig) return true; o = o.parent; } return false; }
@@ -4395,6 +4412,12 @@ function pointerDown(p) {
     activePointers.add(p); return true;
   }
   if (u.lid) { p.drag = { kind: 'lid', y0: p.y, a0: lidSt.a, moved: false }; activePointers.add(p); return true; }
+  if (p.mouse && isTabletCornerHit(hit, obj)) {   // #532 Desktop mode: click top-right corner to pop out / dock, drag to resize
+    p.drag = { kind: 'tabletCorner', x0: p.x, y0: p.y, s0: TABLET.scale.x, wasDocked: tabletDocked(), moved: false };
+    p.tip = tabletDocked() ? 'Click to pop out remote tablet · Drag to resize' : 'Drag to resize remote tablet · Click to dock';
+    activePointers.add(p); return true;
+  }
+  if (u.tabletBody) return false;
   if (u.mixScreen) { mixScreenPress(hit.uv); p.drag = { kind: 'screen' }; activePointers.add(p); return true; }   // #222 the release ends a long press
   if (u.crateScreen) { if (crateLidOpen()) { crateScreenPress(hit.uv); p.drag = { kind: 'crateScreen' }; activePointers.add(p); } return true; }   // #226 the release ends a long press
   if (u.crateDisc) { pullSelected(p.space); layoutSleeves(); return true; }
@@ -4450,6 +4473,13 @@ function pointerMove(p) {
   const dr = p.drag; if (!dr) return;
   p.tip = '';
   if (dr.kind === 'screen') { if (screenDrag) { const h = castRay(p.ray, [mixer.userData.screen])[0]; if (h) mixScreenDrag(h.uv); } return; }   // #422
+  if (dr.kind === 'tabletCorner') {   // #532 left-click drag on top-right corner resizes the popped-out remote tablet
+    if (!dr.moved && Math.hypot(p.x - dr.x0, p.y - dr.y0) < 4) return;
+    if (!dr.moved) { dr.moved = true; if (dr.wasDocked) { tabletPopOut(); dr.s0 = TABLET.scale.x; } }
+    tabletScale(dr.s0 + ((p.x - dr.x0) - (p.y - dr.y0)) * 0.006);
+    p.tip = `Remote tablet ${Math.round(TABLET.scale.x * 100)}% (click top-right corner to dock / pop out)`;
+    return;
+  }
   if (dr.kind === 'lid') { // mouse: drag down pulls the lid toward you and shut, up lifts it open
     if (!dr.moved && Math.abs(p.y - dr.y0) < 4) return;
     if (!dr.moved) { dr.moved = true; lidGrab(); }
@@ -4521,6 +4551,7 @@ function pointerUp(p) {
   if (dr.kind === 'move') { stage.endMove(dr.st); settleStack(dr.target); if (dr.target.startsWith('milk')) releaseMilk(dr.target, null); }
   if (dr.kind === 'resize') stage.save();
   if (dr.kind === 'screen') mixScreenRelease();   // #222
+  if (dr.kind === 'tabletCorner') { if (!dr.moved) { if (dr.wasDocked) tabletPopOut(); else tabletDock(); } else saveTablet(); }   // #532
   if (dr.kind === 'crateScreen') crateScreenRelease();   // #226
   p.drag = null; activePointers.delete(p);
 }
@@ -4548,10 +4579,12 @@ canvas.addEventListener('pointercancel', mouseUp);
 function hover(e) {
   const hit = castRay(mouse.ray, interactive())[0];
   const obj = hit && controlOf(hitTarget(hit));
-  canvas.style.cursor = obj ? (obj.userData.move ? 'move' : 'pointer') : held ? 'copy' : 'default';
+  const tabCorner = isTabletCornerHit(hit, obj);
+  canvas.style.cursor = tabCorner ? (tabletDocked() ? 'pointer' : 'nesw-resize') : obj && !obj.userData.tabletBody ? (obj.userData.move ? 'move' : 'pointer') : held ? 'copy' : 'default';
   hoverDeck = hit ? deckGroupOf(hit.object) : null;
   const c = obj && obj.userData.control;
-  if (c && c.mixer && mixVal[c.id] !== undefined) showTip(mixLabel(c.id), e.clientX, e.clientY);
+  if (tabCorner) showTip(tabletDocked() ? 'Remote tablet: click to pop out · left-click drag to resize' : 'Remote tablet: left-click drag to resize · click to dock back into mixer', e.clientX, e.clientY);
+  else if (c && c.mixer && mixVal[c.id] !== undefined) showTip(mixLabel(c.id), e.clientX, e.clientY);
   else if (c && c.deck && c.id === 'pitch') { const d = deckOf(c.deck); showTip(`${d.name} pitch ${(d.pitch * 100).toFixed(2)}%`, e.clientX, e.clientY); }
   else if (c && c.id === 'looper') showTip('LOOP: press = sample the CUE channel (red), again = loop it (green), again = stop (amber blinks), again = play. Hold 0.8 s = clear. Edit IN / OUT and slots on the tablet: LOOP', e.clientX, e.clientY);
   else if (c && c.id === 'bpmtap') showTip('TAP: tap on the beat to measure BPM (counter above shows BPM; embeds into track); hold to clear', e.clientX, e.clientY);

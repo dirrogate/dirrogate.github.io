@@ -7,6 +7,7 @@
 // LINE IN: an audio input on this laptop replaces the Quest's sound for Twitch. No beat sync anywhere: the VJ fades and rides by hand.
 import { TwitchChat } from './chat.js';
 import { makeComics } from './comics.js';   // #516 DirroComics
+import * as media from './medialib.js';   // #532 IMAGES / VIDEOS / PANOS clip decks
 
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
 const MIX_FS = `uniform sampler2D tA, tB; uniform vec4 fA, fB; uniform float kA, kB, x; varying vec2 vUv;
@@ -101,8 +102,8 @@ const FRACTALS = {   // #508 per formula: start centre and span, zoom targets
 const PALS = ['green', 'island', 'lava', 'ice', 'copper', 'neon'];
 const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'black'];   // #516 comic = DirroComics page
 
-export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio }) {
-  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off' };
+export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
+  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', clip: '', pano: '' };
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
   const queue = []; let qid = 1;
   const quad = mat => { const sc = new THREE.Scene(), m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); m.frustumCulled = false; sc.add(m); return sc; };
@@ -114,6 +115,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio }
   const rMat = new THREE.ShaderMaterial({ uniforms: rU, vertexShader: VS, fragmentShader: R_FS, depthTest: false, depthWrite: false }), rSc = quad(rMat);
   const camTex = new THREE.VideoTexture(fixed.video); camTex.colorSpace = THREE.NoColorSpace; camTex.generateMipmaps = false;
   const ledTex = led.video ? new THREE.VideoTexture(led.video) : null; if (ledTex) { ledTex.colorSpace = THREE.NoColorSpace; ledTex.generateMipmaps = false; }
+  const ledImgTex = new THREE.Texture(); ledImgTex.colorSpace = THREE.NoColorSpace; ledImgTex.generateMipmaps = false; ledImgTex.minFilter = ledImgTex.magFilter = THREE.LinearFilter; let lastLedImg = null;
   const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 } };
   const mMat = new THREE.ShaderMaterial({ uniforms: mU, vertexShader: VS, fragmentShader: MIX_FS, depthTest: false, depthWrite: false }), mSc = quad(mMat);
   const comics = makeComics({ THREE, renderer, fixed, send: m => bc.postMessage(m), onChange: () => post(),   // #516
@@ -159,7 +161,15 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio }
     if (name === 'fractal') { U.value = fRT.texture; cover(320, 256, W, H, fit); return 1; }
     if (name === 'comic') { if (!comicTex) return 0; U.value = comicTex; cover(1920, 1080, W, H, fit); return 1; }   // #516
     if (name === 'webcam') { const v = fixed.video; if (!fixed.on || !v.videoWidth) return 0; U.value = camTex; cover(v.videoWidth, v.videoHeight, W, H, fit); return 1; }
-    if (name === 'led') { const v = led.video; if (!ledTex || !led.on || !v || !v.videoWidth) return 0; U.value = ledTex; cover(v.videoWidth, v.videoHeight, W, H, fit); return 1; }
+    if (name === 'led') {
+      if (!led.on) return 0;
+      if (led.img && led.curImage) {
+        if (lastLedImg !== led.curImage) { lastLedImg = led.curImage; ledImgTex.image = lastLedImg; ledImgTex.needsUpdate = true; }
+        U.value = ledImgTex; cover(lastLedImg.width, lastLedImg.height, W, H, fit); return 1;
+      }
+      const v = led.video; if (!ledTex || !v || !v.videoWidth) return 0;
+      U.value = ledTex; cover(v.videoWidth, v.videoHeight, W, H, fit); return 1;
+    }
     return 0;
   }
   // ---- the program picture: called by studio.js with its composite, draws to the screen
@@ -216,12 +226,31 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio }
   const bc = new BroadcastChannel('dirrovj'); let peers = 0, postT = 0;
   async function post() {
     const now = performance.now(); if (now - postT < 60) { clearTimeout(post.t); post.t = setTimeout(post, 70); return; } postT = now;
-    bc.postMessage({ k: 'state', D: { ...D, fr: { ...D.fr } }, queue, devs: await devices(), sources: SOURCES, C: comics.state(), live: outT > 0 && performance.now() - outT < 3000 });
+    bc.postMessage({ k: 'state', D: { ...D, fr: { ...D.fr } }, tw: studioCtl && studioCtl.twState ? studioCtl.twState() : null, queue, devs: await devices(), sources: SOURCES, C: comics.state(), live: outT > 0 && performance.now() - outT < 3000 });
   }
   bc.onmessage = e => {
     const m = e.data || {}; peers = 1;
     if (m.k === 'hello') { post(); if (!m.again) comics.sendList(); }
     else if (m.k === 'cx') comics.onMsg(m);   // #516 DirroComics
+    else if (m.k === 'tw') { if (studioCtl) { if (m.op === 'key') studioCtl.setTwKey(m.key); else studioCtl.twToggle(m.key); } post(); }   // #532 Twitch key + GO LIVE on the VJ desk
+    else if (m.k === 'media') {   // #532 IMAGES / VIDEOS / PANOS clip decks
+      const { folder, name } = m; if (!folder || !name) return;
+      if (folder === 'Images' || folder === 'Video') {
+        media.getFile(folder, name).then(f => {
+          if (!f) return;
+          led.play(f, true); D.clip = folder + '/' + name;
+          if (studioCtl && studioCtl.setVisuals) studioCtl.setVisuals();
+          if (D.a !== 'led' && D.b !== 'led') D[D.x < 0.5 ? 'a' : 'b'] = 'led';
+          post();
+        }).catch(() => {});
+      } else if (folder === 'Pano' || folder === 'Video pano') {
+        D.pano = folder + '/' + name;
+        if (studioCtl && studioCtl.pickPano) studioCtl.pickPano(folder, name);
+        if (D.a !== 'quest' && D.b !== 'quest') D[D.x < 0.5 ? 'a' : 'b'] = 'quest';
+        const L = getLink(); if (L && L.isOpen && D.sh && D.sh.o && !D.sh.o.dome) L.send('ctl', { k: 'vjshow', cam: '', opt: 'dome', v: true });
+        post();
+      }
+    }
     else if (m.k === 'show') {
       if (m.cam === 'pcam' && !fixed.on && fixed.start) fixed.start().catch(() => {});
       if (m.cam) { const act = D.x < 0.5 ? 'a' : 'b'; if (D[act] === 'webcam') { D[act] = 'quest'; post(); } }
@@ -242,5 +271,5 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio }
   // #519 the Quest hasn't turned DirroVJ on (no program frames): keep DirroComics editing alive (desk preview, grabs, AUTO).
   // tick() draws only into its own render targets, never to the screen, so it doesn't fight the camera page's own drawing.
   let idleT = 0; setInterval(() => { const now = performance.now(); if (now - outT < 1000 || !peers) return; const dt = idleT ? Math.min(0.25, (now - idleT) / 1000) : 0.12; idleT = now; try { comics.tick(null, now, dt); } catch (e) { console.warn('comics idle', e); } }, 120);
-  return { D, output, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null), queue, comics, onCx: m => { if (m.star) { comics.onStar(m.star); return; } if (m.blob) comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
+  return { D, post, output, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null), queue, comics, onCx: m => { if (m.star) { comics.onStar(m.star); return; } if (m.blob) comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
 }
