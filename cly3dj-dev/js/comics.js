@@ -34,30 +34,6 @@ vec2 euv(vec2 q, float eye) {
   return vec2(e.x, 1.0 - e.y);
 }
 float L(vec2 q, float eye) { return clamp((lum(texture2D(m, euv(q, eye)).rgb) - 0.5) * C.y + 0.5 + C.x, 0.0, 1.0); }
-float dots(float cover, vec2 d, float pitch) { float r = pitch * sqrt(clamp(cover, 0.0, 1.0) / 3.14159) * 1.08; return clamp(r - length(d) + 0.5, 0.0, 1.0) * clamp(r * 1.5, 0.0, 1.0); }
-float lineInk(vec2 sp, float a, float pitch, float w) { float s = dot(sp, vec2(cos(a), sin(a))) / pitch; return clamp(w - abs(fract(s) - 0.5) * pitch + 0.5, 0.0, 1.0) * clamp(w * 3.0, 0.0, 1.0); }
-float shade(vec2 q, float eye) {
-  float l = L(q, eye); vec2 dq = 1.3 / R.zw;
-  float lines = smoothstep(0.07, 0.17, length(vec2(L(q + vec2(dq.x, 0.0), eye) - l, L(q + vec2(0.0, dq.y), eye) - l))) * E.y;
-  vec2 sp = q * R.zw; float pitch = max(E.x, 3.0), st = B.w, ink;
-  bool split = E.w > 0.5 && A.x > 0.5 && A.x < 2.5;
-  if (st < 0.5) {   // HALFTONE: darkness read at each cell's centre so the dots stay round
-    float a = split ? (eye < 0.5 ? 0.2618 : 1.3090) : 0.7854, c = cos(a), sn = sin(a);
-    vec2 r = vec2(c * sp.x + sn * sp.y, -sn * sp.x + c * sp.y) / pitch, cc = floor(r) + 0.5, d = (r - cc) * pitch;
-    vec2 cp = cc * pitch; vec2 cq = vec2(c * cp.x - sn * cp.y, sn * cp.x + c * cp.y) / R.zw;
-    ink = max(dots(1.0 - L(cq, eye), d, pitch), smoothstep(0.10, 0.04, l));
-  } else if (st < 1.5) {   // HATCH
-    float a = split ? (eye < 0.5 ? 1.0821 : 2.0595) : 1.0821;
-    ink = max(lineInk(sp, a, pitch, (1.0 - l) * 0.475 * pitch), lineInk(sp, a + 1.309, pitch, clamp((0.3 - l) * 1.6, 0.0, 1.0) * pitch * 0.5));
-    ink = max(ink, smoothstep(0.08, 0.03, l));
-  } else if (st < 2.5) {   // BEN-DAY
-    float a = split ? (eye < 0.5 ? 0.0 : 0.7854) : 0.0, c = cos(a), sn = sin(a);
-    vec2 r = vec2(c * sp.x + sn * sp.y, -sn * sp.x + c * sp.y) / pitch, d = (r - floor(r) - 0.5) * pitch;
-    ink = l < 0.16 ? 1.0 : dots(l > 0.70 ? 0.0 : (l > 0.42 ? 0.22 : 0.55), d, pitch);
-  } else if (st < 3.5) ink = smoothstep(0.47, 0.39, l);   // POSTER
-  else ink = 1.0 - l;   // PHOTO
-  return max(ink, lines);
-}
 float gray(vec2 q) {   // nearness 0..1 (white = front): painted map, RGB+D's recorded depth, LIVE PEOPLE
   vec2 uv = euv(q, 0.0); bool rgbd = A.x > 2.5;
   float g = G.z > 0.5 ? texture2D(dm, rgbd ? vec2(uv.x * 2.0, uv.y) : uv).r : (rgbd ? texture2D(m, vec2(uv.x + 0.5, uv.y)).r : 0.0);
@@ -70,15 +46,46 @@ float disp(vec2 q) {   // ref px, + = behind the screen. CONVERGE (G.y) spreads 
   float g = gray(q); if (G.x > 1.5 && G.x < 2.5 && G.z < 0.5 && A.x < 2.5) g = max(g, clamp(q.y, 0.0, 1.0));
   return G.y >= 0.0 ? G.y * (1.0 - g) : G.y * g;
 }
+float dots(float cover, vec2 d, float pitch) { float r = pitch * sqrt(clamp(cover, 0.0, 1.0) / 3.14159) * 1.08; return clamp(r - length(d) + 0.5, 0.0, 1.0) * clamp(r * 1.5, 0.0, 1.0); }
+float lineInk(vec2 sp, float a, float pitch, float w) { float s = dot(sp, vec2(cos(a), sin(a))) / pitch; return clamp(w - abs(fract(s) - 0.5) * pitch + 0.5, 0.0, 1.0) * clamp(w * 3.0, 0.0, 1.0); }
+float shade(vec2 q, vec2 q0, float eye, float hasD) {
+  float l = L(q, eye), es = eye * 2.0 - 1.0; vec2 dq = 1.3 / R.zw;
+  float lines = smoothstep(0.07, 0.17, length(vec2(L(q + vec2(dq.x, 0.0), eye) - l, L(q + vec2(0.0, dq.y), eye) - l))) * E.y;
+  vec2 sp = q * R.zw, sp0 = q0 * R.zw; float pitch = max(E.x, 3.0), st = B.w, ink;
+  bool split = E.w > 0.5 && A.x > 0.5 && A.x < 2.5 && hasD < 0.5;
+  if (st < 0.5) {   // #535 HALFTONE: cell-centre darkness & stereo disparity so every dot stays 100% circular at its 3D depth
+    float a = split ? (eye < 0.5 ? 0.2618 : 1.3090) : 0.7854, c = cos(a), sn = sin(a);
+    vec2 r = vec2(c * sp.x + sn * sp.y, -sn * sp.x + c * sp.y) / pitch, cc = floor(r) + 0.5;
+    vec2 cp = vec2(c * cc.x - sn * cc.y, sn * cc.x + c * cc.y) * pitch, cq = cp / R.zw;
+    vec2 d = (hasD > 0.5 ? sp0 - vec2(es * 0.5 * disp(cq), 0.0) : sp) - cp;
+    ink = max(dots(1.0 - L(cq, eye), d, pitch), smoothstep(0.10, 0.04, l));
+  } else if (st < 1.5) {   // #535 HATCH: band-centre stereo disparity so hatch strokes sit in 3D depth without shearing across their width
+    float a = split ? (eye < 0.5 ? 1.0821 : 2.0595) : 1.0821;
+    vec2 n1 = vec2(cos(a), sin(a)); float s1 = (floor(dot(sp, n1) / pitch) + 0.5) * pitch;
+    vec2 hq = (sp + (s1 - dot(sp, n1)) * n1) / R.zw;
+    vec2 hp = hasD > 0.5 ? sp0 - vec2(es * 0.5 * disp(hq), 0.0) : sp;
+    ink = max(lineInk(hp, a, pitch, (1.0 - l) * 0.475 * pitch), lineInk(hp, a + 1.309, pitch, clamp((0.3 - l) * 1.6, 0.0, 1.0) * pitch * 0.5));
+    ink = max(ink, smoothstep(0.08, 0.03, l));
+  } else if (st < 2.5) {   // #535 BEN-DAY: cell-centre tone & stereo disparity so dots stay round and float at 3D depth
+    float a = split ? (eye < 0.5 ? 0.0 : 0.7854) : 0.0, c = cos(a), sn = sin(a);
+    vec2 r = vec2(c * sp.x + sn * sp.y, -sn * sp.x + c * sp.y) / pitch, cc = floor(r) + 0.5;
+    vec2 cp = vec2(c * cc.x - sn * cc.y, sn * cc.x + c * cc.y) * pitch, cq = cp / R.zw;
+    vec2 d = (hasD > 0.5 ? sp0 - vec2(es * 0.5 * disp(cq), 0.0) : sp) - cp;
+    float lc = L(cq, eye);
+    ink = l < 0.16 ? 1.0 : dots(lc > 0.70 ? 0.0 : (lc > 0.42 ? 0.22 : 0.55), d, pitch);
+  } else if (st < 3.5) ink = smoothstep(0.47, 0.39, l);   // POSTER
+  else ink = 1.0 - l;   // PHOTO
+  return max(ink, lines);
+}
 void main() {
   vec2 q = (vP - R.xy) / R.zw; float lt = A.w, iL, iR;
   if (q.x < 0.0 || q.y < 0.0 || q.x > 1.0 || q.y > 1.0) { iL = lt; iR = lt; }   // the frame
   else {
-    vec2 qa = q, qb = q; float eb = 0.0; bool two = false;
+    vec2 qa = q, qb = q; float hasD = 0.0; bool two = false;
     if (ana > 0.5 && (A.x < 0.5 || A.x > 2.5) && (G.x > 0.5 || live > 0.5 || A.x > 2.5)) {   // flat / RGB+D: backward warp per eye, one refinement step
-      float k = 0.5 / R.z, d = disp(q); qa = q + vec2(disp(q + vec2(d * k, 0.0)) * k, 0.0); qb = q - vec2(disp(q - vec2(d * k, 0.0)) * k, 0.0); two = true;
-    } else if (ana > 0.5 && A.x > 0.5 && A.x < 2.5) { eb = 1.0; two = true; }   // SBS: each eye its half
-    float a = shade(qa, 0.0), b = a; if (two) b = shade(qb, eb);
+      float k = 0.5 / R.z, d = disp(q); qa = q + vec2(disp(q + vec2(d * k, 0.0)) * k, 0.0); qb = q - vec2(disp(q - vec2(d * k, 0.0)) * k, 0.0); two = true; hasD = 1.0;
+    } else if (ana > 0.5 && A.x > 0.5 && A.x < 2.5) { two = true; if (G.z > 0.5 || live > 0.5) hasD = 1.0; }   // SBS: each eye its half
+    float a = shade(qa, q, 0.0, hasD), b = a; if (two) b = shade(qb, q, 1.0, hasD);
     float OH = R.w * 2.0 + 8.0;   // text canvas: captions rows 0..ph (zero parallax), balloons / SFX rows ph+8.. (POP)
     vec4 z = texture2D(o, vec2(q.x, 1.0 - q.y * R.w / OH)); a = mix(a, 1.0 - z.r, z.a); b = mix(b, 1.0 - z.r, z.a);
     float off = ana > 0.5 ? E.z * 0.5 / R.z : 0.0, pv = 1.0 - (R.w + 8.0 + q.y * R.w) / OH;

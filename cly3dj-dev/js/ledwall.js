@@ -69,9 +69,10 @@ export class LedPlayer {
       return;
     }
     const v = document.createElement('video');
-    v.muted = true; v.playsInline = true; v.preload = 'auto'; v.crossOrigin = 'anonymous';
+    v.muted = true; v.autoplay = true; v.playsInline = true; v.preload = 'auto'; v.crossOrigin = 'anonymous';
     v.src = URL.createObjectURL(file); v._url = v.src;
     v.addEventListener('ended', () => onEnded && onEnded());
+    v.addEventListener('loadeddata', () => { if (this.video === v && v.paused) v.play().catch(() => {}); }, { once: true });
     if (at > 0) v.addEventListener('loadedmetadata', () => { try { v.currentTime = at % (v.duration || Infinity); } catch {} }, { once: true });
     v.play().catch(() => {});
     this.video = v; this.name = file.name;

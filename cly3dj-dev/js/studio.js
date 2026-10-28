@@ -120,9 +120,8 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   const half = renderer.extensions.has('EXT_color_buffer_half_float') || renderer.extensions.has('EXT_color_buffer_float');
   let compRT = null;   // #507
   let locRT = null; const locCam = new THREE.PerspectiveCamera(50, 16 / 9, 0.05, 60); locCam.updateMatrixWorld = () => {};   // #504
-  let domeRT = null; const domeCam = new THREE.PerspectiveCamera(50, 16 / 9, 0.05, 60); domeCam.updateMatrixWorld = () => {};
-  const clipTex = new THREE.Texture(); clipTex.colorSpace = THREE.NoColorSpace; clipTex.generateMipmaps = false; clipTex.minFilter = clipTex.magFilter = THREE.LinearFilter;
-  const imgTex = new THREE.Texture(); imgTex.flipY = false; imgTex.colorSpace = THREE.NoColorSpace; imgTex.generateMipmaps = false; imgTex.minFilter = imgTex.magFilter = THREE.LinearFilter; let lastImg = null;
+  let domeRT = null, domeFrameT = -1; const domeCam = new THREE.PerspectiveCamera(50, 16 / 9, 0.05, 60); domeCam.updateMatrixWorld = () => {};
+  let clipTex = null, lastClipVid = null, imgTex = null, lastImg = null;
   const getTwKey = () => { try { return localStorage.getItem(KEYK) || localStorage.getItem('vire.twitchKey') || ''; } catch { return ''; } };
   const setTwKey = k => { k = String(k || '').trim(); try { localStorage.setItem(KEYK, k); if (k) localStorage.setItem('vire.twitchKey', k); } catch {} };
   const U = { q: { value: qTex }, cam: { value: null }, bgT: { value: null }, qMode: { value: 0 }, camMode: { value: 0 }, bgMode: { value: 0 }, t: { value: 0 },
@@ -131,7 +130,12 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   const compMat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: COMP_FS, depthTest: false, depthWrite: false }), compSc = quad(compMat);
   function renderDome(W, H, now) {
     if (!skybox.tex) return null;
-    if (skybox.tex.isVideoTexture && skybox.tex.image && skybox.tex.image.readyState >= 2) skybox.tex.needsUpdate = true;
+    if (now != null && domeFrameT === now && domeRT && domeRT.width === W && domeRT.height === H) return domeRT.texture;
+    domeFrameT = now ?? -1;
+    if (skybox.tex.isVideoTexture && skybox.tex.image) {
+      if (skybox.tex.image.paused) skybox.tex.image.play().catch(() => {});
+      if (skybox.tex.image.readyState >= 2) skybox.tex.needsUpdate = true;
+    }
     const p = poseAt((questNow() - (S.D != null ? S.D : 120)) & 0xFFFFFF);
     if (p) {
       rig.updateMatrixWorld();
@@ -140,7 +144,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     } else {
       domeCam.matrixWorld.compose(
         new THREE.Vector3(0, skybox.height || 1.5, 0),
-        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -(S.panoYaw || 0) * Math.PI / 180),
+        new THREE.Quaternion(),
         new THREE.Vector3(1, 1, 1)
       );
       domeCam.fov = 65; domeCam.aspect = W / H;
@@ -167,7 +171,8 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     },
     setPanoYaw: deg => {
       S.panoYaw = Math.max(0, Math.min(360, +deg || 0));
-      if (vs && vs.onSky) vs.onSky({ turn: S.panoYaw });
+      if (vs && vs.S && vs.S.sky) vs.S.sky.turn = S.panoYaw;
+      if (skybox && skybox.setTurn) skybox.setTurn(S.panoYaw * Math.PI / 180);
     },
     renderDome,
   };
@@ -251,9 +256,16 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     try { w.focus(); } catch {}
     return w;
   }
+  let keepAc = null;
   function startVj() {
     S.on = true; S.gest = true; S.paused = false;
     au.play().catch(() => {}); qv.play().catch(() => {});
+    try {   // #535 silent WebAudio keep-alive so overlapping windows (vjdesk.html covering dirrovj.html) don't throttle timers or video decoding
+      if (!keepAc) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) { keepAc = new AC(); const g = keepAc.createGain(), o = keepAc.createOscillator(); g.gain.value = 0.00001; o.connect(g); g.connect(keepAc.destination); o.start(); }
+      } else if (keepAc.state === 'suspended') keepAc.resume().catch(() => {});
+    } catch {}
     apply(); frame(performance.now()); syncScreenWin();
   }
   $('stuStart').onclick = () => { S.gest = true; goEl.hidden = true; full(); au.play().catch(() => {}); qv.play().catch(() => {}); showUi(); };
@@ -375,34 +387,40 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
         U.crop.value.set(K.gl || 0, K.gr || 0, K.gt || 0, K.gb || 0);
         if (vs.mat && vs.mat.uniforms.panoTint) U.tint.value.copy(vs.mat.uniforms.panoTint.value);
       } else S.hold = null;
+      const needComp = !desk || ((desk.D.x < 1 && desk.D.a === 'quest') || (desk.D.x > 0 && desk.D.b === 'quest'));
       // backdrop (not for LIVE DJ!, whose camera covers it; not when the Quest's frame is opaque)
       U.bgMode.value = 0;
-      if (S.mode !== 'dj' && S.mode !== 'cam' && !(haveQ && !packed)) {
+      if (needComp && S.mode !== 'dj' && S.mode !== 'cam' && !(haveQ && !packed)) {
         if (S.bd === 'dome' && skybox.tex) {
-          if (skybox.tex.isVideoTexture && skybox.tex.image && skybox.tex.image.readyState >= 2) skybox.tex.needsUpdate = true;
-          let ok = false;
           if (S.mode === 'key') {   // from this camera (its full video's field of view)
+            if (skybox.tex.isVideoTexture && skybox.tex.image && skybox.tex.image.readyState >= 2) skybox.tex.needsUpdate = true;
             const c = fixed.camState && fixed.camState(); camera.updateMatrixWorld();
-            domeCam.matrixWorld.copy(camera.matrixWorld); if (c && c.ff) { domeCam.fov = c.ff; domeCam.aspect = c.vw / c.vh; } else { domeCam.fov = camera.fov; domeCam.aspect = S.W / S.H; } ok = true;
-          } else {   // SHOW: from the Quest's show camera, the pose that goes with the frame on screen (or this page's camera when standalone)
-            const p = poseAt((questNow() - (S.D != null ? S.D : 120)) & 0xFFFFFF);
-            if (p) { rig.updateMatrixWorld(); domeCam.matrixWorld.compose(new THREE.Vector3().fromArray(p.p), new THREE.Quaternion().fromArray(p.q), new THREE.Vector3(1, 1, 1)).premultiply(rig.matrixWorld); domeCam.fov = p.fov; domeCam.aspect = S.W / S.H; ok = true; }
-            else { camera.updateMatrixWorld(); domeCam.matrixWorld.copy(camera.matrixWorld); domeCam.fov = camera.fov || 50; domeCam.aspect = S.W / S.H; ok = true; }
-          }
-          if (ok) {
+            domeCam.matrixWorld.copy(camera.matrixWorld); if (c && c.ff) { domeCam.fov = c.ff; domeCam.aspect = c.vw / c.vh; } else { domeCam.fov = camera.fov; domeCam.aspect = S.W / S.H; }
             domeCam.matrixWorldInverse.copy(domeCam.matrixWorld).invert(); domeCam.updateProjectionMatrix();
             if (!domeRT || domeRT.width !== S.W || domeRT.height !== S.H) { if (domeRT) domeRT.dispose(); domeRT = new THREE.WebGLRenderTarget(S.W, S.H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, depthBuffer: false }); }
             const sv = skybox.group.visible, cc = renderer.getClearColor(new THREE.Color()), ca = renderer.getClearAlpha(); skybox.group.visible = true; skybox.setStereo(false);
             renderer.setRenderTarget(domeRT); renderer.setClearColor(0x000000, 1); renderer.clear(); renderer.render(skybox.group, domeCam); skybox.group.visible = sv; renderer.setClearColor(cc, ca);
-            U.bgT.value = domeRT.texture; U.bgMode.value = 2;
+            domeFrameT = now; U.bgT.value = domeRT.texture; U.bgMode.value = 2;
+          } else {   // SHOW: reuses renderDome (cached per frame so QUEST + LED CLIP never render the dome twice)
+            const dt = renderDome(S.W, S.H, now);
+            if (dt) { U.bgT.value = dt; U.bgMode.value = 2; }
           }
         } else if (S.bd === 'visuals' && led.on && ((led.img && led.curImage) || (led.video && led.video.videoWidth))) {
           let tw = 0, th = 0, tex = null;
           if (led.img && led.curImage) {
-            if (lastImg !== led.curImage) { lastImg = led.curImage; imgTex.image = lastImg; imgTex.needsUpdate = true; }
+            if (lastImg !== led.curImage) {
+              lastImg = led.curImage;
+              if (imgTex) imgTex.dispose();
+              imgTex = new THREE.Texture(lastImg); imgTex.flipY = false; imgTex.colorSpace = THREE.NoColorSpace; imgTex.generateMipmaps = false; imgTex.minFilter = imgTex.magFilter = THREE.LinearFilter; imgTex.needsUpdate = true;
+            }
             tw = lastImg.width; th = lastImg.height; tex = imgTex;
           } else {
-            if (clipTex.image !== led.video) clipTex.image = led.video;
+            if (led.video.paused) led.video.play().catch(() => {});
+            if (lastClipVid !== led.video) {
+              lastClipVid = led.video;
+              if (clipTex) clipTex.dispose();
+              clipTex = new THREE.VideoTexture(led.video); clipTex.colorSpace = THREE.NoColorSpace; clipTex.generateMipmaps = false; clipTex.minFilter = clipTex.magFilter = THREE.LinearFilter;
+            }
             if (led.video.readyState >= 2) clipTex.needsUpdate = true;
             tw = led.video.videoWidth; th = led.video.videoHeight; tex = clipTex;
           }
@@ -412,7 +430,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       }
       // #504 RENDER: LAPTOP: the scene from the show camera, at the mirror's own time (questNow - 70 ms - TRIM)
       U.locMode.value = 0;
-      if (vj && S.mode === 'show' && S.local && S.src === 'show') {
+      if (needComp && vj && S.mode === 'show' && S.local && S.src === 'show') {
         const p = poseAt((Math.round(questNow() - 70 - S.trim)) & 0xFFFFFF);
         if (p) {
           if (!locRT || locRT.width !== S.W || locRT.height !== S.H) { if (locRT) locRT.dispose(); locRT = new THREE.WebGLRenderTarget(S.W, S.H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 }); }
@@ -432,7 +450,8 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       U.t.value = now / 1000;
       if (desk) {   // #507 the composite is one source; the desk mixes the program picture onto the screen
         if (!compRT || compRT.width !== S.W || compRT.height !== S.H) { if (compRT) compRT.dispose(); compRT = new THREE.WebGLRenderTarget(S.W, S.H, { depthBuffer: false }); }
-        renderer.setRenderTarget(compRT); renderer.render(compSc, oc); desk.output(compRT.texture, now, S.W, S.H);
+        if (needComp) { renderer.setRenderTarget(compRT); renderer.render(compSc, oc); }
+        desk.output(compRT.texture, now, S.W, S.H);
       } else { renderer.setRenderTarget(null); renderer.render(compSc, oc); }
       outN++;
     } finally { renderer.setRenderTarget(prevRT); renderer.xr.enabled = prevXR; renderer.autoClear = ac; }

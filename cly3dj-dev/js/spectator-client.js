@@ -817,7 +817,7 @@ export function startCamera(ctx) {
   const clock = new THREE.Clock();
   let infoT = 0, camT = 0, found = false, lookT = 0, lastLoopT = 0;
   const _m = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _s = new THREE.Vector3();
-  if (VJ) setInterval(() => { const now = performance.now(); if (now - lastLoopT > 70) { try { if (scroller) scroller.tick(0.05); studio.frame(now); } catch {} } }, 50);   // #531 keep Program + Desk preview + Projector window live when dirrovj.html is behind another window
+  if (VJ) setInterval(() => { const now = performance.now(); if (now - lastLoopT > 38) { try { if (scroller) scroller.tick(0.033); studio.frame(now); } catch {} } }, 33);   // #531 / #535 keep Program + Desk preview + Projector window at 30 fps when dirrovj.html is occluded behind another window
   renderer.setAnimationLoop((t, frame) => {
     const dt = Math.min(0.05, clock.getDelta()), now = lastLoopT = performance.now();
     // #204 three.js binds the AR layer's framebuffer once, just before this callback. Anything that calls

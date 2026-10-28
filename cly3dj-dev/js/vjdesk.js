@@ -11,7 +11,8 @@ import * as media from './medialib.js';   // #532 IMAGES / VIDEOS / PANOS clip d
 
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
 const MIX_FS = `uniform sampler2D tA, tB; uniform vec4 fA, fB; uniform float kA, kB, x; varying vec2 vUv;
-vec3 src(sampler2D t, vec4 f, float k) { if (k < 0.5) return vec3(0.0); return texture2D(t, f.xy + vUv * f.zw).rgb; }
+vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
+vec3 src(sampler2D t, vec4 f, float k) { if (k < 0.5) return vec3(0.0); vec3 c = texture2D(t, f.xy + vUv * f.zw).rgb; return k > 1.5 ? clamp(srgb(c), 0.0, 1.0) : c; }
 void main() { gl_FragColor = vec4(mix(src(tA, fA, kA), src(tB, fB, kB), x), 1.0); }`;
 // heights (r), colour detail (g), inside the set (b). Four formulas; inside the set the height comes from an orbit trap (how close the
 // orbit passes the axes and the origin), so the old flat plateau becomes ridges, domes and swirls (#508)
@@ -114,8 +115,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   const rU = { hT: { value: hRT.texture }, ro: { value: new THREE.Vector3() }, cx: { value: new THREE.Vector3() }, cy: { value: new THREE.Vector3() }, cz: { value: new THREE.Vector3() }, HS: { value: 0.25 }, pal: { value: 0 }, pump: { value: 0 }, cyc: { value: 0 }, flash: { value: 0 }, res: { value: new THREE.Vector2(320, 256) } };
   const rMat = new THREE.ShaderMaterial({ uniforms: rU, vertexShader: VS, fragmentShader: R_FS, depthTest: false, depthWrite: false }), rSc = quad(rMat);
   const camTex = new THREE.VideoTexture(fixed.video); camTex.colorSpace = THREE.NoColorSpace; camTex.generateMipmaps = false;
-  const ledTex = new THREE.Texture(); ledTex.colorSpace = THREE.NoColorSpace; ledTex.generateMipmaps = false; ledTex.minFilter = ledTex.magFilter = THREE.LinearFilter;
-  const ledImgTex = new THREE.Texture(); ledImgTex.flipY = false; ledImgTex.colorSpace = THREE.NoColorSpace; ledTex.generateMipmaps = false; ledImgTex.generateMipmaps = false; ledImgTex.minFilter = ledImgTex.magFilter = THREE.LinearFilter; let lastLedImg = null;
+  let ledTex = null, lastLedVid = null, ledImgTex = null, lastLedImg = null;
   const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 } };
   const mMat = new THREE.ShaderMaterial({ uniforms: mU, vertexShader: VS, fragmentShader: MIX_FS, depthTest: false, depthWrite: false }), mSc = quad(mMat);
   const comics = makeComics({ THREE, renderer, fixed, send: m => bc.postMessage(m), onChange: () => post(),   // #516
@@ -165,15 +165,24 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       if (D.ledKind === 'pano') {
         const dt = studioCtl && studioCtl.renderDome ? studioCtl.renderDome(W, H, now) : null;
         if (!dt) return 0;
-        U.value = dt; fit.set(0, 0, 1, 1); return 1;
+        U.value = dt; fit.set(0, 0, 1, 1); return 2;
       }
       if (!led.on) return 0;
       if (led.img && led.curImage) {
-        if (lastLedImg !== led.curImage) { lastLedImg = led.curImage; ledImgTex.image = lastLedImg; ledImgTex.needsUpdate = true; }
+        if (lastLedImg !== led.curImage) {
+          lastLedImg = led.curImage;
+          if (ledImgTex) ledImgTex.dispose();
+          ledImgTex = new THREE.Texture(lastLedImg); ledImgTex.flipY = false; ledImgTex.colorSpace = THREE.NoColorSpace; ledImgTex.generateMipmaps = false; ledImgTex.minFilter = ledImgTex.magFilter = THREE.LinearFilter; ledImgTex.needsUpdate = true;
+        }
         U.value = ledImgTex; cover(lastLedImg.width, lastLedImg.height, W, H, fit); return 1;
       }
       const v = led.video; if (!v || !v.videoWidth) return 0;
-      if (ledTex.image !== v) ledTex.image = v;
+      if (v.paused) v.play().catch(() => {});
+      if (lastLedVid !== v) {
+        lastLedVid = v;
+        if (ledTex) ledTex.dispose();
+        ledTex = new THREE.VideoTexture(v); ledTex.colorSpace = THREE.NoColorSpace; ledTex.generateMipmaps = false; ledTex.minFilter = ledTex.magFilter = THREE.LinearFilter;
+      }
       if (v.readyState >= 2) ledTex.needsUpdate = true;
       U.value = ledTex; cover(v.videoWidth, v.videoHeight, W, H, fit); return 1;
     }
@@ -189,7 +198,9 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     const used = (D.x < 1 ? [D.a] : []).concat(D.x > 0 ? [D.b] : []);
     if (used.includes('fractal')) fractal(dt, now);
     comics.tick(questTex, now, dt); comicTex = used.includes('comic') ? comics.render(W, H) : null;   // #516
-    mU.kA.value = bind(D.a, mU.tA, mU.fA.value, W, H, questTex, now); mU.kB.value = bind(D.b, mU.tB, mU.fB.value, W, H, questTex, now); mU.x.value = D.x;
+    mU.kA.value = D.x < 1 ? bind(D.a, mU.tA, mU.fA.value, W, H, questTex, now) : 0;
+    mU.kB.value = D.x > 0 ? bind(D.b, mU.tB, mU.fB.value, W, H, questTex, now) : 0;
+    mU.x.value = D.x;
     renderer.setRenderTarget(null); renderer.render(mSc, oc);
     if (peers && now - pvT > 250) { pvT = now; try { pv.getContext('2d').drawImage(renderer.domElement, 0, 0, 256, 144); bc.postMessage({ k: 'pv', img: pv.toDataURL('image/jpeg', 0.6) }); } catch {} }
   }
