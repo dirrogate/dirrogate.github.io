@@ -21,7 +21,7 @@ const STRIP_FS = `uniform sampler2D q; uniform float H, bh; varying vec2 vUv;
 void main() { float i = floor(gl_FragCoord.x); float y = 12.0 + i * bh + bh * 0.5;
   float v = texture2D(q, vec2(${((STU.SX + STU.SW / 2) / STU.PW).toFixed(6)}, 1.0 - y / H)).r; gl_FragColor = vec4(v, v, v, 1.0); }`;
 const COMP_FS = `uniform sampler2D q, cam, bgT, loc; uniform float qMode, camMode, bgMode, locMode, t; uniform vec4 bgUv, qFit; uniform vec4 crop;
-uniform float thr, soft, spill, cmatch, camGain; uniform vec3 tint; varying vec2 vUv;
+uniform float thr, soft, spill, cmatch, camGain, showMatte; uniform vec3 tint; varying vec2 vUv;
 uniform float keyCol;
 float keyOf(vec3 c) {
   if (keyCol < 0.5) return (c.g - max(c.r, c.b)) / max(c.g, 0.15);
@@ -55,7 +55,7 @@ void main() {
       float a = 1.0 - smoothstep(thr, thr + soft, keyOf(k));
       if (uv.x < crop.x || uv.x > 1.0 - crop.y || uv.y > 1.0 - crop.z || uv.y < crop.w) a = 0.0;   // garbage matte (crop)
       k = despill(k, spill) * mix(vec3(1.0), tint, cmatch);
-      c = mix(c, clamp(k, 0.0, 1.0), a);
+      c = showMatte > 0.5 ? vec3(a) : mix(c, clamp(k, 0.0, 1.0), a);
     }
   }
   // 2b. #504 RENDER: LAPTOP: this laptop's own render of the scene (linear, premultiplied, tone-mapped here as the Quest does)
@@ -124,7 +124,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   const clipTex = led.video ? new THREE.VideoTexture(led.video) : null; if (clipTex) { clipTex.colorSpace = THREE.NoColorSpace; clipTex.generateMipmaps = false; }
   const U = { q: { value: qTex }, cam: { value: null }, bgT: { value: null }, qMode: { value: 0 }, camMode: { value: 0 }, bgMode: { value: 0 }, t: { value: 0 },
     bgUv: { value: new THREE.Vector4(0, 0, 1, 1) }, qFit: { value: new THREE.Vector4(0, 0, 1, 1) }, crop: { value: new THREE.Vector4() },
-    loc: { value: null }, locMode: { value: 0 }, thr: { value: 0.1 }, soft: { value: 0.1 }, spill: { value: 0.7 }, cmatch: { value: 0.4 }, tint: { value: new THREE.Vector3(1, 1, 1) }, keyCol: { value: 0 }, camGain: { value: 1 } };
+    loc: { value: null }, locMode: { value: 0 }, thr: { value: 0.1 }, soft: { value: 0.1 }, spill: { value: 0.7 }, cmatch: { value: 0.4 }, tint: { value: new THREE.Vector3(1, 1, 1) }, keyCol: { value: 0 }, camGain: { value: 1 }, showMatte: { value: 0 } };
   const compMat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: COMP_FS, depthTest: false, depthWrite: false }), compSc = quad(compMat);
   const desk = vj ? makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio: () => aTrack }) : null;   // #507
   // ---- the screen: 1280 x 720 drawing buffer, shown full screen with bars (the HDMI picture), the page's own UI hidden
@@ -183,15 +183,17 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   const poses = [];
   function onMsg(m) {
     if (m.k === 'stu') {
-      const was = S.on;
+      const was = S.on, wasMode = S.mode;
       if (desk) desk.onStu(m);   // #507 the Twitch channel for the scroller desk
       Object.assign(S, { on: !!m.on, mode: m.mode || 'show', bd: m.bd || 'none', snd: m.snd !== false, trim: +m.trim || 0, mon: !!m.mon, src: m.src || 'show', clipWant: m.clip || '', local: !!m.local, O: m.O || null });   // #504
       if (S.on && !was) { S.paused = false; if (S.bd === 'dome') vs.ensure().catch(() => {}); }
       if (!S.on && was) { twStop('studio off'); }
+      if (vj && S.on && S.mode !== 'show' && (wasMode === 'show' || !was) && !fixed.on && fixed.start) fixed.start().catch(() => {});   // #530 auto-start laptop webcam when WEBCAM is triggered
       tvFollow(vj && S.on ? m.tv || '' : '', !!m.tvA);   // #509
       if (S.on && S.bd === 'dome') { vs.ensure().catch(() => {}); vs.playPano && vs.playPano(true); }
-      if (m.cam) {   // #382 LOW LIGHT from the tablet: 25 fps hold, exposure compensation (the camera's own gain), the studio's GAIN
-        U.camGain.value = Math.max(1, Math.min(3, +m.cam.gain || 1));
+      if (m.cam) {   // #382 LOW LIGHT + #530 WEBCAM exposure/matte from the tablet
+        U.camGain.value = Math.max(0.25, Math.min(4, (+m.cam.gain || 1) * Math.pow(2, +m.cam.expo || 0)));
+        U.showMatte.value = m.cam.matte ? 1 : 0;
         const L = fixed.lowLight; if (L && fixed.setLowLight && (!!m.cam.fps25 !== L.fps25 || +m.cam.ev !== L.ev)) fixed.setLowLight({ fps25: !!m.cam.fps25, ev: +m.cam.ev });
       }
       apply();
@@ -322,11 +324,10 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   function needNote(haveQ, packed) {
     if (S.linkLost) return 'Quest link lost: reconnect (Twitch stays up for a minute)';
     if (!haveQ) return 'no picture from the Quest yet';
-    if (S.mode === 'cam' && !fixed.on) return 'WEBCAM: start the webcam on this page (Webcam button)';   // #501
-    if ((S.mode === 'dj' || S.mode === 'key') && !fixed.on) return 'start Fixed camera on this phone for LIVE DJ! / LIVE KEY!';
+    if (S.mode !== 'show' && !fixed.on) return 'WEBCAM: start the webcam on this page (Webcam button)';   // #501 / #530
     if (S.mode !== 'show' && S.holdShort) return 'the camera can\'t wait that long (over ' + RING + ' frames)';
-    if (S.bd === 'dome' && S.mode !== 'dj' && !skybox.tex) return 'no panorama on this phone: copy it over (Library sync) for DOME';
-    if (S.bd === 'visuals' && S.mode === 'key' && !(led.on && led.video)) return 'VISUALS: this phone has no copy of the LED clip (gradient instead)';
+    if (S.bd === 'dome' && S.mode !== 'dj' && S.mode !== 'cam' && !skybox.tex) return 'no panorama on this device: copy it over (Library sync) for DOME';
+    if (S.bd === 'visuals' && S.mode === 'key' && !(led.on && led.video)) return 'VISUALS: this device has no copy of the LED clip (gradient instead)';
     return packed ? '' : 'the Quest sends a finished picture (shown as it is)';
   }
   function status(now, haveQ, note) {
@@ -334,7 +335,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     const L = getLink();
     if (L && L.isOpen) L.send('ctl', { k: 'sst', vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, tv: S.tv || 'off', run: !!(S.on && !S.paused && haveQ), fps: S.fps, qfps: S.qfps, hold: S.hold, d: S.D != null ? Math.round(S.D) : null, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps, note,
       clip: led.on && led.video && !led.video.paused ? led.name : '', cam: fixed.on && fixed.camInfo ? { ...fixed.camInfo(), rate: camRate } : null });
-    stEl.textContent = `DirroVJ  ${({ show: 'SHOW', dj: 'LIVE DJ!', key: 'LIVE KEY!', cam: 'WEBCAM' })[S.mode]}  ·  backdrop ${S.bd.toUpperCase()}  ·  out ${S.fps} fps  ·  Quest ${S.qfps} fps\n` +
+    stEl.textContent = `DirroVJ  ${({ show: 'SHOW', dj: 'WEBCAM', key: 'WEBCAM (KEY)', cam: 'WEBCAM' })[S.mode]}  ·  backdrop ${S.bd.toUpperCase()}  ·  out ${S.fps} fps  ·  Quest ${S.qfps} fps\n` +
       `camera ${camRate} fps  ·  Quest frames ${S.D != null ? Math.round(S.D) + ' ms' : '-'} late  ·  camera held ${S.hold != null ? S.hold + ' ms' : '-'}  ·  trim ${S.trim} ms  ·  sound ${aTrack && S.snd ? 'on' : 'off'}\n` +
       `Twitch: ${S.tw}${S.twMsg ? ' (' + S.twMsg + ')' : ''}${S.tw === 'live' ? '  ' + (S.kbps / 1000).toFixed(1) + ' Mb/s' : ''}${note ? '\n' + note : ''}`;
     if (S.linkLost && S.tw !== 'off' && now - S.linkLost > 60000) twStop('the Quest link was gone for a minute');

@@ -222,8 +222,12 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio }
     const m = e.data || {}; peers = 1;
     if (m.k === 'hello') { post(); if (!m.again) comics.sendList(); }
     else if (m.k === 'cx') comics.onMsg(m);   // #516 DirroComics
-    else if (m.k === 'show') { const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'vjshow', cam: m.cam || '', opt: m.opt || '', v: !!m.v }); else bc.postMessage({ k: 'cxmsg', t: 'SHOWTIME!: no Quest link' }); }   // #523
-    else if (m.k === 'bus') { if (SOURCES.includes(m.v)) D[m.bus === 'b' ? 'b' : 'a'] = m.v; post(); }
+    else if (m.k === 'show') {
+      if (m.cam === 'pcam' && !fixed.on && fixed.start) fixed.start().catch(() => {});
+      if (m.cam) { const act = D.x < 0.5 ? 'a' : 'b'; if (D[act] === 'webcam') { D[act] = 'quest'; post(); } }
+      const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'vjshow', cam: m.cam || '', opt: m.opt || '', v: !!m.v }); else bc.postMessage({ k: 'cxmsg', t: 'SHOWTIME!: no Quest link' });
+    }   // #523 / #530
+    else if (m.k === 'bus') { if (SOURCES.includes(m.v)) { if (m.v === 'webcam' && !fixed.on && fixed.start) fixed.start().catch(() => {}); D[m.bus === 'b' ? 'b' : 'a'] = m.v; } post(); }
     else if (m.k === 'x') { D.x = Math.max(0, Math.min(1, +m.v)); D.fadeTo = null; post(); }
     else if (m.k === 'cut') { D.x = D.x < 0.5 ? 1 : 0; D.fadeTo = null; post(); }
     else if (m.k === 'auto') { D.fadeMs = +m.ms || D.fadeMs; D.fadeTo = D.x < 0.5 ? 1 : 0; post(); }

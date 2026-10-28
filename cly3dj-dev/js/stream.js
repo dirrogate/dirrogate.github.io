@@ -25,7 +25,7 @@ const TVK = 'vire.tv';
 const STUK = 'vire.studio';
 export const STUDIO_DEF = { on: false, mode: 'show', snd: true, local: false, trim: 0,   // #504 local: DirroVJ draws the SHOW scene itself (RENDER: LAPTOP)
   fps25: true, ev: 1, gain: 1.2 };   // #382 LOW LIGHT: the S8 camera held at 25 fps, exposure compensation (EV), the studio's GAIN
-export const STUDIO_MODES = { show: 'SHOW', dj: 'LIVE DJ!', key: 'LIVE KEY!', cam: 'WEBCAM' };   // #501 WEBCAM: DirroVJ's webcam picture as it is (aimed at the DJ or the crowd), overlays from the Quest on top
+export const STUDIO_MODES = { show: 'SHOW', cam: 'WEBCAM' };   // #530 WEBCAM unifies WEBCAM / LIVE DJ! / LIVE KEY! (keying follows GREEN SCREEN, 3D gear follows GEAR)
 export const STU = { PW: 1920, CW: 1280, SX: 1284, SW: 8, MX: 1296, MW: 624, BITS: 28 };   // packed frame layout (studio.js reads the same)
 // timestamp strip: 28 blocks down x 1284..1292: 1, 0 (sync), 24 bits of the Quest's clock in ms (low bit first), 2 bits of the bit count (a check)
 export function stampBits(t) {
@@ -46,26 +46,27 @@ export const TWITCH_WHIP = 'https://g.webrtc.live-video.net:4443/v2/offer';
 // address, remake the rows (the text is what the code says; a phone opens it as a link).
 const QR_TEXT = 'https://www.twitch.tv/dirrogate', QR_SHOW = 'twitch.tv/dirrogate';
 const QR_ROWS = '11111110010100100011001111111|10000010001110001110101000001|10111010010100110111101011101|10111010010001001010001011101|10111010011000000110101011101|10000010110100011001101000001|11111110101010101010101111111|00000000001011011111100000000|10010110101100101000110100000|10001001011111011110101001001|11110111001101110111110001110|10011000101001001001010110110|11100011100100110100011001011|00000101111111111111100100000|00101111111111100010011001111|01101101011000010100101001010|11000110111001000100110100010|01010001000011111100111101001|10010110001110111100100100011|00000001010110100110001000011|10111110010100011001111110100|00000000111110110101100010111|11111110000000001100101010010|10000010110010111010100011101|10111010010110001100111110010|10111010111001000101101011101|10111010000011001110010011101|10000010001000011111100010010|11111110110001001100100110010'.split('|');
-export const SOURCES = { card: 'CARD', avacam: 'DirroDj📹', show: 'SHOWTIME!', headset: 'HEADSET CAM', phone: 'PHONE', pcam: 'PHONE CAM' };   // #347 PHONE CAM   // #338 VIDEOWALL gone: SHOWTIME! with ROBOT and GEAR off is the same
+export const SOURCES = { card: 'CARD', avacam: 'DirroDj📹', show: 'SHOWTIME!', headset: 'HEADSET CAM', phone: 'PHONE', pcam: 'WEBCAM' };   // #530 WEBCAM (was PHONE CAM)   // #338 VIDEOWALL gone: SHOWTIME! with ROBOT and GEAR off is the same
 const VBR = { card: 600, avacam: 2500, show: 3500, headset: 3000, phone: 2000, pcam: 3500 };
-// #336 SHOW = three layers: the LED wall's visuals full frame (clip / image / VidVinyl / phone LIVE), the robot DJ and
-// gear from the AVACAM camera (BOOTH angle) drawn on a see-through background, and flat overlays (scroller, now
-// playing, logo). VIDEOWALL = the visuals and overlays only (no 3D render). Toggles saved as 'vire.showOpts'.
-// #372 backdrop: 'none' | 'visuals' | 'dome' (one at a time); object toggles wall (3D LED wall), gopro (the prop), panel (chat panel), chalk (chalkboard), neon
-export const SHOW_DEF = { backdrop: 'visuals', robot: true, gear: true, wall: false, gopro: true, panel: true, chalk: true, neon: false, scroll: true, np: true, logo: true, chat: false, handsReal: false };   // #375 handsReal: HEADSET CAM / PHONE CAM leave your hands bare (no drawn hands, glove or sleeves)
+// #336 SHOW = three layers: the visuals backdrop full frame (clip / image / VidVinyl / phone LIVE), the robot DJ and
+// gear from the DJ CAM drawn on a see-through background, and flat overlays (scroller, now playing, logo).
+// Toggles saved as 'vire.showOpts'.
+// #372 backdrop: 'none' | 'visuals' | 'dome' (one at a time); object toggles gopro (the prop), panel (chat panel), chalk (chalkboard), neon
+export const SHOW_DEF = { backdrop: 'visuals', robot: true, gear: true, wall: false, gopro: true, panel: true, chalk: true, neon: false, scroll: true, np: true, logo: true, chat: false, handsReal: false };   // #375 handsReal: HEADSET CAM / WEBCAM leave your hands bare (no drawn hands, glove or sleeves)
 export const BACKDROPS = ['none', 'visuals', 'dome'];
 export const SHOW_PRESETS = {   // #372 FULL = everything on air, LEAN = visuals + robot only (cheap), FIRST PERSON = the DJ's own view (gear, no robot)
-  full: { backdrop: 'visuals', robot: true, gear: true, wall: true, gopro: true, panel: true, chalk: true, neon: false },   // #503 neon off in every preset (owner); its own toggle still turns it on
+  full: { backdrop: 'visuals', robot: true, gear: true, wall: false, gopro: true, panel: true, chalk: true, neon: false },   // #503 neon off in every preset (owner); its own toggle still turns it on
   lean: { backdrop: 'visuals', robot: true, gear: false, wall: false, gopro: false, panel: false, chalk: false, neon: false },
   first: { backdrop: 'visuals', robot: false, gear: true, wall: false, gopro: true, panel: true, chalk: true, neon: false },
 };
 // #372 migration of saved 'vire.showOpts': the old 'visuals' on / off becomes the backdrop; settings saved before the object
-// toggles existed keep what they did (wall, off; neon, GoPro, panel and chalkboard followed GEAR / ROBOT: with both off,
+// toggles existed keep what they did (neon, GoPro, panel and chalkboard followed GEAR / ROBOT: with both off,
 // nothing 3D was drawn, so the new object toggles start off too)
 export function migrateShowOpts(s) {
   s = { ...(s || {}) };
   if ('visuals' in s) { if (!('backdrop' in s)) s.backdrop = s.visuals ? 'visuals' : 'none'; delete s.visuals; }
   if (!('wall' in s) && s.gear === false && s.robot === false) Object.assign(s, { wall: false, gopro: false, panel: false, chalk: false, neon: false });
+  s.wall = false;   // #530 3D LED wall removed; visuals are always the 2D backdrop
   if (!s.neon503) { s.neon = false; s.neon503 = 1; }   // #503 the neon logo starts off once (it stood in front of the hands); its toggle still works
   return s;
 }   // #340 CHAT: Twitch chat on the right   // #338 VISUALS: the background on / off   // video kbit/s caps per source
@@ -185,6 +186,7 @@ export class Streamer {
     if (this.tvSet.key && this.tvSet.on) this._tvOpen();
     this.pk = null; this.pkNew = false; this.pkMsg = ''; this.delay = null; this.grade = new THREE.Vector3(1, 1, 1); this.gradeT = 0;   // #347
     this.stu = { ...STUDIO_DEF, ...(lsJ(STUK) || {}) }; if (!this.stu.q506) { this.stu.local = false; this.stu.q506 = 1; }   // #506 RENDER: QUEST is the default (owner)
+    if (this.stu.mode === 'dj' || this.stu.mode === 'key') { if (this.stu.mode === 'key') { this.pc_.green = true; ls.set(PCAMK, JSON.stringify(this.pc_)); } this.stu.mode = 'cam'; ls.set(STUK, JSON.stringify(this.stu)); }   // #530 unified WEBCAM
     try { this.vjOk = new Set(JSON.parse(localStorage.getItem('vire.vjOk') || '[]')); } catch { this.vjOk = new Set(); }   // #506 DirroVJs / phones allowed to receive the show
     this.vjAsk = null; this.vjLost = false; this.s8 = null; this.stuAtt = false; this.stuTw = false; this.stuMsg = ''; this.stuFrames = 0; this.stuH = 720;   // #380
   }
@@ -196,7 +198,10 @@ export class Streamer {
   get stuLocal() { return this.stuShow && !!this.stu.local && !!(this.s8 && this.s8.lr) && this.source === 'show' && this.show3d; }
   setStudio(k, v) {
     if (!(k in STUDIO_DEF)) return;
-    if (k === 'mode' && !STUDIO_MODES[v]) return;
+    if (k === 'mode') {
+      if (v === 'dj' || v === 'key') { if (v === 'key') this.setPcam('green', true); v = 'cam'; }
+      if (!STUDIO_MODES[v]) return;
+    }
     if (k === 'trim') v = Math.max(-300, Math.min(300, Math.round(v)));
     if (k === 'ev') v = Math.max(-2, Math.min(3, Math.round(v * 2) / 2));
     if (k === 'gain') v = Math.max(1, Math.min(2.5, Math.round(v * 10) / 10));
@@ -272,9 +277,9 @@ export class Streamer {
       if (items.length) { for (const [id] of items) sent.add(id); L.ctl({ k: 'vjsms', items }); } }
     { const q = (this.env.cxQueue && this.env.cxQueue()) || [], items = q.filter(x => !x.sent).slice(0, 6);   // #524 STAR IN IT: cards, answers, withdrawals, the log, to DirroVJ (a few per second: cards carry a photo)
       if (items.length) { for (const x of items) x.sent = 1; L.ctl({ k: 'vjstar', items: items.map(x => x.m) }); } }
-    const O = this.showOpt;
-    L.ctl({ k: 'stu', on: true, sh: this.env.showState ? this.env.showState() : null, mode: this.stu.mode, bd: O.backdrop === 'visuals' && O.wall && this.source === 'show' ? 'none' : O.backdrop, snd: !!this.stu.snd, ch: chatChannel.get(), tv: this.tvSet.key && this.tvSet.on ? this.tvSet.key : '', tvA: !!this.tvSet.audio,   // #509 DirroVJ answers the paired TVs while it is on (sent only after ALLOW)
-      local: !!this.stu.local, O: { gear: !!O.gear, robot: !!O.robot, neon: !!O.neon }, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
+    const O = this.showOpt, stuMode = this.stu.mode === 'cam' ? (this.pc_.green ? 'key' : 'cam') : 'show';
+    L.ctl({ k: 'stu', on: true, sh: this.env.showState ? this.env.showState() : null, mode: stuMode, bd: O.backdrop, snd: !!this.stu.snd, ch: chatChannel.get(), tv: this.tvSet.key && this.tvSet.on ? this.tvSet.key : '', tvA: !!this.tvSet.audio,   // #509 DirroVJ answers the paired TVs while it is on (sent only after ALLOW)
+      local: !!this.stu.local, O: { gear: !!O.gear, robot: !!O.robot, neon: !!O.neon }, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain, expo: this.pc_.expo || 0, matte: !!this.pc_.matte }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
   }
   _ledClip() { const c = this.env.ledClip && this.env.ledClip(); return c || ''; }
   get s8HasClip() { const c = this._ledClip(); return !!c && !!this.s8 && this.s8.clip === c; }
@@ -289,7 +294,7 @@ export class Streamer {
     const lg = lc.getContext('2d'), mg = mc.getContext('2d'), g = this.g;
     lg.globalCompositeOperation = 'source-over'; lg.globalAlpha = 1; lg.clearRect(0, 0, W, H);
     // VISUALS that only the Quest has (VidVinyl, AVACAM, a still, or a clip the S8 hasn't got): drawn here, so the frame is opaque and the S8 shows it as it is
-    if (this.stu.mode === 'show' && O.backdrop === 'visuals' && !O.wall && !this.s8HasClip) {   // #402 not while the 3D wall is in the shot
+    if (this.stu.mode === 'show' && O.backdrop === 'visuals' && !this.s8HasClip) {
       const gr = lg.createRadialGradient(W / 2, H * 0.45, 40, W / 2, H / 2, W * 0.65); gr.addColorStop(0, '#141a28'); gr.addColorStop(1, '#030409'); lg.fillStyle = gr; lg.fillRect(0, 0, W, H);
       for (const L of (this.env.wallSource && this.env.wallSource()) || []) { if (!L || !L.el || L.gain === 0) continue; lg.globalAlpha = L.gain == null ? 1 : Math.min(1, L.gain); lg.globalCompositeOperation = L.add ? 'lighter' : 'source-over'; this._cover(lg, L.el, W, H, L.flip); }
       lg.globalAlpha = 1; lg.globalCompositeOperation = 'source-over'; this.stuBaked = true;
@@ -307,17 +312,16 @@ export class Streamer {
     if (this.canvasTrack && this.sending) this.canvasTrack.requestFrame();
     this.stuFrames++;
   }
-  // LIVE DJ! / LIVE KEY!: the scene drawn from the S8's calibrated pose on a see-through background (no camera picture here: the S8 adds it)
+  // #530 WEBCAM on DirroVJ: overlays only when GEAR is off or camera is uncalibrated; 3D gear + hands from calibrated camera pose when GEAR is on
   _stuPhoneTick(now) {
     if (this.busy || now - this.showT < 33) return; this.showT = now;
     const r = this.env.renderer, c6 = this.env.phoneCam && this.env.phoneCam(), rig = this.env.rig;
-    if (this.stu.mode === 'cam') {   // #501 WEBCAM: no gear and no calibration; only the overlays (scroller, now playing, logo, chat) with their matte
-      this.stuMsg = ''; const ps = c6 || (this.env.phoneSize && this.env.phoneSize()), asp = ps && ps.vw && ps.vh ? ps.vw / ps.vh : 16 / 9, H = Math.round(STU.CW / asp / 2) * 2;
+    this.stuMsg = '';
+    if (!this.showOpt.gear || !c6 || !c6.ff || !rig) {
+      const ps = c6 || (this.env.phoneSize && this.env.phoneSize()), asp = ps && ps.vw && ps.vh ? ps.vw / ps.vh : 16 / 9, H = Math.round(STU.CW / asp / 2) * 2;
       if (H !== this.stuH) { this.stuH = H; this._sizeCanvas(STU.PW, H); }
       this._stuPack(null, performance.now()); return;
     }
-    if (!c6 || !c6.ff || !rig) { this.stuMsg = !c6 ? 'Plain camera: no gear drawn over it (Calibrate the DirroVJ camera for that, or use WEBCAM).' : 'The camera phone is in AR mode: use Fixed camera.'; this._stuPack(null, performance.now()); return; }
-    this.stuMsg = '';
     const asp = c6.vw && c6.vh ? c6.vw / c6.vh : 16 / 9, W = STU.CW, H = Math.round(W / asp / 2) * 2;
     if (H !== this.stuH) { this.stuH = H; this._sizeCanvas(STU.PW, H); }
     if (!this.sp || this.sp.W !== W || this.sp.H !== H) {
@@ -363,19 +367,20 @@ export class Streamer {
     const r3 = x => Math.round(x * 1000) / 1000, r4 = x => Math.round(x * 10000) / 10000;
     L.state({ k: 'scp', t: Math.round(stamp) & 0xFFFFFF, p: _v1.toArray().map(r3), q: _q1.toArray().map(r4), fov: cam.fov, asp: W / H });
   }
-  setPcam(k, v) {   // #347 PHONE CAM SETUP
+  setPcam(k, v) {   // #347 / #530 WEBCAM SETUP
     if (!(k in PCAM_DEF)) return; this.pc_[k] = v; ls.set(PCAMK, JSON.stringify(this.pc_));
     if (k === 'green' && this.active && this.source === 'pcam') this.env.phoneLive && this.env.phoneLive(true, this._pcamOpts());
     if (k === 'lat' || k === 'trim' || k === 'manual') this._audioDelay();
+    if (this.stu.on) this._stuSync(true);
     this.env.onChange && this.env.onChange();
   }
   _pcamOpts() { return this.source === 'pcam' ? { pcam: true, green: !!this.pc_.green } : {}; }
   get latMs() { return Math.max(0, (this.delay != null ? this.delay : this.pc_.manual) + this.pc_.trim); }   // the delay used by LATENCY MATCH
   _audioDelay() { const e = this.env.engine; if (e && e.setStreamDelay) e.setStreamDelay(this.active && this.source === 'pcam' && this.pc_.lat ? this.latMs / 1000 : 0); }
-  setShowOpt(k, v) { if (k in SHOW_DEF) { this.showOpt[k] = v; ls.set(SHOWO, JSON.stringify(this.showOpt)); this.env.onChange && this.env.onChange(); } }
-  applyPreset(name) { const p = SHOW_PRESETS[name]; if (!p) return; Object.assign(this.showOpt, p); ls.set(SHOWO, JSON.stringify(this.showOpt)); this.env.onChange && this.env.onChange(); }
+  setShowOpt(k, v) { if (k in SHOW_DEF) { this.showOpt[k] = v; ls.set(SHOWO, JSON.stringify(this.showOpt)); if (this.stu.on) this._stuSync(true); this.env.onChange && this.env.onChange(); } }
+  applyPreset(name) { const p = SHOW_PRESETS[name]; if (!p) return; Object.assign(this.showOpt, p); ls.set(SHOWO, JSON.stringify(this.showOpt)); if (this.stu.on) this._stuSync(true); this.env.onChange && this.env.onChange(); }
   nextBackdrop() { this.setShowOpt('backdrop', BACKDROPS[(BACKDROPS.indexOf(this.showOpt.backdrop) + 1) % BACKDROPS.length]); }
-  get show3d() { const O = this.showOpt; return this.source === 'show' && !!(O.robot || O.gear || O.wall || O.gopro || O.panel || O.chalk || O.neon || O.backdrop === 'dome'); }
+  get show3d() { const O = this.showOpt; return this.source === 'show' && !!(O.robot || O.gear || O.gopro || O.panel || O.chalk || O.neon || O.backdrop === 'dome'); }
   get running() { return this.live || this.testing || this.stuShow; }
   get active() { return this.live || this.rehearse || this.stuRun; }   // #380 the S8 studio keeps the shot running
   get sending() { return this.live || this.tvUp || this.stuRun; }   // #376 the canvas track is fed for Twitch and / or the venue screen   // #339 REHEARSAL: the chosen source is drawn for the tablet MONITOR without going live
@@ -628,7 +633,7 @@ export class Streamer {
   _pcamWaiting() {
     const g = this.g, W = this.canvas.width, H = this.canvas.height;
     g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H); g.fillStyle = '#8c96a8'; g.font = '600 30px system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText('PHONE CAM: ' + this.pkMsg, W / 2, H / 2); g.textBaseline = 'alphabetic';
+    g.fillText('WEBCAM: ' + this.pkMsg, W / 2, H / 2); g.textBaseline = 'alphabetic';
     this._overlays(g, W, H); if (this.canvasTrack && this.sending) this.canvasTrack.requestFrame();
   }
   // LATENCY MATCH: the fast movers (hands, controllers, glove, sleeves) keep ~1 s of their local poses; the PHONE CAM
@@ -804,9 +809,9 @@ export class Streamer {
     const ly = this.ly, cam = ly.cam;
     cam.matrixWorld.copy(src.matrixWorld); cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
     if (cam.fov !== src.fov) { cam.fov = src.fov; cam.updateProjectionMatrix(); }
-    // layer 0 holds every prop (gear, wall, neon, ...): showPrep hides the ones that are switched off; the robot has its own layer
-    cam.layers.mask = ((O.gear || O.wall || O.gopro || O.panel || O.chalk || O.neon || O.backdrop === 'dome') ? 1 : 0) | (O.robot && this.env.avLayer != null ? 1 << this.env.avLayer : 0);
-    this._wallShot = !!(O.wall && this.env.wallInShot && this.env.wallInShot(cam));   // #372 scroller: on the 3D wall when it is in shot, else flat
+    // layer 0 holds every prop (gear, neon, ...): showPrep hides the ones that are switched off; the robot has its own layer
+    cam.layers.mask = ((O.gear || O.gopro || O.panel || O.chalk || O.neon || O.backdrop === 'dome') ? 1 : 0) | (O.robot && this.env.avLayer != null ? 1 << this.env.avLayer : 0);
+    this._wallShot = false;
     if (this.stuLocal) { const st = performance.now(); this._stuPose(cam, W, H, st); this.layerOk = false; this._stuPack(null, st); return; }   // #504 no scene render here: DirroVJ draws it
     const sc = this.env.scene, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled, prevSh = r.shadowMap.autoUpdate, prevCol = r.getClearColor(_c1), prevA = r.getClearAlpha();
     const undo = this.env.showPrep ? this.env.showPrep() : null;
@@ -840,7 +845,7 @@ export class Streamer {
     }
     const g = this.g, W = this.canvas.width, H = this.canvas.height, O = this.showOpt;
     // 1. visuals
-    const bg = (O.backdrop === 'visuals' && !(this.source === 'show' && O.wall) && this.env.wallSource && this.env.wallSource()) || [];   // #402 the 3D LED wall is in the scene: no flat copy of its visuals behind it
+    const bg = (O.backdrop === 'visuals' && this.env.wallSource && this.env.wallSource()) || [];
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     const gr = g.createRadialGradient(W / 2, H * 0.45, 40, W / 2, H / 2, W * 0.65); gr.addColorStop(0, '#141a28'); gr.addColorStop(1, '#030409');
     g.fillStyle = gr; g.fillRect(0, 0, W, H);

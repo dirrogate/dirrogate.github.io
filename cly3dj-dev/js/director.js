@@ -271,48 +271,33 @@ export function demoPose(rig, gear, t) {
   ] };
 }
 
-// The DJ CAM: renders the stage (with the avatar) from a preset angle into a 16:9 texture for the LED wall
+// The DJ CAM: renders the stage (with the avatar) from the active GoPro angle into a 16:9 texture
 export const CAM_PRESETS = {
-  // #338 (owner): only FRONT, FADERS and GOPRO (the movable camera, main.js; was the BOOTH angle). The other aims below stay
-  // in aimAt for old saved settings but are no longer offered.
-  front: { label: 'FRONT', fov: 38 }, faders: { label: 'FADERS', fov: 40 }, gopro: { label: 'GOPRO', fov: 46 }, gopro2: { label: 'GOPRO2', fov: 62 },
+  // #530 gemini_argon_: FRONT and FADERS removed; only the two movable GoPro angles remain here
+  gopro: { label: 'GOPRO', fov: 46 }, gopro2: { label: 'GOPRO2', fov: 62 },
 };
 export class DjCam {
   constructor(renderer, rig) {
     this.renderer = renderer; this.rig = rig;
-    this.cam = new THREE.PerspectiveCamera(38, 16 / 9, 0.05, 40); this.cam.layers.enable(AV_LAYER); rig.add(this.cam);
+    this.cam = new THREE.PerspectiveCamera(46, 16 / 9, 0.05, 40); this.cam.layers.enable(AV_LAYER); rig.add(this.cam);
     const half = renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float');
     this.rt = new THREE.WebGLRenderTarget(1024, 576, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 });
     this.rt.texture.name = 'djcam';
-    // #250 (owner: AVACAM flickers most, wall above and tilted down): the sharp rendered picture shown smaller than
-    // its 1024 px on the wall, at an angle, sparkled and crawled with every head movement (no mipmaps). Mipmaps
-    // (made after each render, every 3rd frame) + anisotropic filtering smooth it like a real screen seen from afar.
-    this.rt.texture.generateMipmaps = true; this.rt.texture.minFilter = THREE.LinearMipmapLinearFilter;
-    this.rt.texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-    this.preset = 'front'; this.n = 0; this.t = 0; this.lastMs = 0; this.ms = 0;
+    this.rt.texture.generateMipmaps = false; this.rt.texture.minFilter = THREE.LinearFilter;
+    this.preset = 'gopro'; this.n = 0; this.t = 0; this.lastMs = 0; this.ms = 0;
   }
-  aimAt(gear, dj) {   // rig-local positions
-    // #252 (owner: AVACAM still erratic when the head moves): the aim followed the DJ's head depth raw, so every lean
-    // swung the whole picture. Now it follows a slow average of it (~2 s), like an operator reframing, not shaking.
+  aimAt(gear, dj) {   // fallback rig-local positions if no GoPro object is active
     const now = performance.now(), k = this.zT ? Math.min(1, (now - this.zT) / 2000) : 1; this.zT = now;
     this.zs = this.zs == null ? dj.z : this.zs + (dj.z - this.zs) * k;
-    const m = gear.mixer, A = gear.deckA, Bk = gear.deckB, c = gear.crate, top = gear.top, z = this.zs;
+    const m = gear.mixer, top = gear.top, z = this.zs;
     const P = {
-      front: [[m.x, 1.55, m.z - 1.65], [m.x, 1.22, (m.z + z) / 2]],
-      wide: [[m.x + 1.5, 1.95, m.z - 1.8], [m.x, 1.1, (m.z + z) / 2]],
-      low: [[m.x - 0.35, top - 0.05, m.z - 0.75], [m.x, 1.4, z]],
-      gopro: [[m.x, top + 0.3, m.z - 0.55], [m.x, top + 0.36, z]],   // #336 / #338 the GoPro's start spot (used only when there is no GoPro object)
-      platters: [[A.x - 0.62, top + 0.1, A.z - 0.12], [Bk.x, top - 0.02, Bk.z + 0.05]],
-      faders: [[m.x, top + 0.42, m.z - 0.42], [m.x, top - 0.02, m.z + 0.05]],
-      crate: [[c.x - 0.35, 1.45, c.z - 0.75], [c.x, 0.55, c.z]],
-      top: [[m.x, 2.7, m.z + 0.35], [m.x, top, m.z + 0.08]],
-    }[this.preset] || null;
-    if (!P) return;
-    const tw = this.t, sway = 0.006;   // a hint of hand-held drift
-    this.cam.position.set(P[0][0] + sway * Math.sin(tw * 0.53), P[0][1] + sway * Math.sin(tw * 0.71), P[0][2]);
+      gopro: [[m.x, top + 0.3, m.z - 0.55], [m.x, top + 0.36, z]],
+      gopro2: [[m.x, top + 1.4, m.z], [m.x, top, m.z]],
+    }[this.preset] || [[m.x, top + 0.3, m.z - 0.55], [m.x, top + 0.36, z]];
+    this.cam.position.set(P[0][0], P[0][1], P[0][2]);
     this.cam.updateMatrixWorld();
     this.cam.lookAt(this.rig.localToWorld(new THREE.Vector3(...P[1])));
-    const fov = (CAM_PRESETS[this.preset] || CAM_PRESETS.front).fov; if (this.cam.fov !== fov) { this.cam.fov = fov; this.cam.updateProjectionMatrix(); }
+    const fov = (CAM_PRESETS[this.preset] || CAM_PRESETS.gopro).fov; if (this.cam.fov !== fov) { this.cam.fov = fov; this.cam.updateProjectionMatrix(); }
   }
   // every: render one frame in `every` (90 Hz headset / 3 = 30 fps). prep() hides what the cam mustn't see and returns
   // an undo function.

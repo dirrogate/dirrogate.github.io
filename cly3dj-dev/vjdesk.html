@@ -400,9 +400,9 @@ $('cxNew').onclick = () => {
 };
 $('cxMp4').onclick = () => cx('mp4', { hold: +$('cxHold').value, res: +$('cxRes').value });
 $('cxPdf').onclick = () => cx('pdf'); $('cxReel').onclick = () => cx('reel', { hold: +$('cxHold').value }); $('cxCar').onclick = () => cx('carousel');   /* #525 */ $('cxStop').onclick = () => cx('expstop');
-// ---- #523 SHOWTIME! remote: camera pick + objects, sent to the Quest through DirroVJ; lit from the Quest's own state (D.sh)
-const SH_CAMS = [['gopro', 'GOPRO'], ['gopro2', 'GOPRO2'], ['front', 'FRONT'], ['faders', 'FADERS'], ['headset', 'HEADSET CAM']];
-const SH_OBJ = [['wall', 'LED WALL'], ['neon', 'NEON'], ['panel', 'CHAT PANEL'], ['chalk', 'WHITEBOARD'], ['gear', 'GEAR'], ['robot', 'ROBO-BODY'], ['dome', 'DOME'], ['scroll', 'SCROLLER'], ['np', 'NOW PLAYING'], ['logo', 'LOGO']];
+// ---- #523 / #530 SHOWTIME! remote: camera pick + objects, sent to the Quest through DirroVJ; lit from the Quest's own state (D.sh)
+const SH_CAMS = [['gopro', 'GOPRO'], ['gopro2', 'GOPRO2'], ['pcam', 'WEBCAM'], ['headset', 'HEADSET CAM']];
+const SH_OBJ = [['neon', 'NEON'], ['panel', 'CHAT PANEL'], ['chalk', 'WHITEBOARD'], ['gear', 'GEAR'], ['robot', 'ROBO-BODY'], ['dome', 'DOME'], ['scroll', 'SCROLLER'], ['np', 'NOW PLAYING'], ['logo', 'LOGO']];
 for (const [k, l] of SH_CAMS) { const b = document.createElement('button'); b.textContent = l; b.dataset.sh = k; b.onclick = () => send({ k: 'show', cam: k }); $('shCam').append(b); }
 for (const [k, l] of SH_OBJ) { const b = document.createElement('button'); b.textContent = l; b.dataset.so = k; b.onclick = () => { const sh = S && S.D.sh; send({ k: 'show', opt: k, v: !(sh && sh.o && sh.o[k]) }); }; $('shObj').append(b); }
 function renderShow() {

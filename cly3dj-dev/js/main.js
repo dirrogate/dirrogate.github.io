@@ -7,7 +7,7 @@ import { AudioEngine, PITCH_RANGE } from './audio.js';
 import { REC, REC7, dimsOf, timeToRadius, radiusToTime, Screen, fitText, drawRecordSide, recordMaterial, setRecordSide, grooveAnisoMap } from './textures.js';
 import { setupXR } from './xr.js';
 import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeNeon } from './neon.js';
-import { makeLedWall, LedPlayer, LED } from './ledwall.js';
+import { LedPlayer, LED } from './ledwall.js';
 import { WallFx, LOOP, RP_DEF, MP_DEF, FX_W, FX_H, PX_DEF, pxSize, OUT_W, OUT_H } from './wallfx.js';   // #439 MANDEL / RETRO-SCENE on the LED wall (and the phones)
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose, AV_LAYER } from './director.js';
 import { Streamer, SOURCES as STREAM_SRC, streamKey, STUDIO_MODES } from './stream.js';
@@ -265,25 +265,22 @@ function milks() { return [milk, ...Object.values(extraMilk)].filter(m => m.pare
 // #235 stage pieces the DJ can switch off to save work (TOOLS: LED wall and neon sign in VJ TOOLS, the first milk
 // crate in DJ TOOLS). Off = hidden, not hit by rays or hands, no shadow blob, nothing lands on it, and its per-frame
 // work stops (LED videos / camera / scroller, neon flicker). It keeps its place in the saved layout.
-function pieceObj(k) { return k === 'ledwall' ? ledwall : k === 'neon' ? neon : milk; }
+function pieceObj(k) { return k === 'neon' ? neon : milk; }
 function pieceOn(k) { return !(settings.pieces && settings.pieces[k] === false); }
 function applyPiece(k) {
-  const o = pieceObj(k), on = pieceOn(k);
+  const o = pieceObj(k), on = pieceOn(k); if (!o) return;
   o.visible = on;
   o.traverse(m => {
     if (!m.isMesh && !m.isSprite && !m.isPoints && !m.isLine) return;
     if (!on && !m.userData.pieceOff) { m.userData.pieceOff = Object.prototype.hasOwnProperty.call(m, 'raycast') ? { own: m.raycast } : { own: null }; m.raycast = () => {}; }
     else if (on && m.userData.pieceOff) { const r = m.userData.pieceOff.own; if (r) m.raycast = r; else delete m.raycast; delete m.userData.pieceOff; }
   });
-  // #236 LED wall off: clips keep running silently (not decoded) and the scroller keeps its text, both for the phone;
-  // DECKS and CAM only ever show on the Quest, so those stop
   // #248 (owner): a switched-off milk crate leaves the scene altogether, so nothing at all can bump into it, land in
   // it or carry it along (it was only hidden); it comes back to the same spot when switched on
   if (k === 'milk') {
     if (!on && o.parent) { o.userData.homeParent = o.parent; o.parent.remove(o); }
     else if (on && !o.parent && o.userData.homeParent) o.userData.homeParent.add(o);
   }
-  if (k === 'ledwall') { led.setSilent(!on); if (!on && (ledMode === 'decks' || ledMode === 'cam' || isLive(ledMode) || ledMode === 'screen')) setLedMode('off'); }
 }
 function setPiece(k, on) { settings.pieces = { ...(settings.pieces || {}), [k]: on }; saveSettings(); applyPiece(k); drawMixScreen(); }
 // #124: Blender-baked crate body; crates already in the scene switch over when it arrives, the procedural body stays
@@ -313,7 +310,6 @@ wallGlow.renderOrder = 2; wallGlow.raycast = () => {}; neon.add(wallGlow);
 let arMode = false;
 const GLOW_BACK = 0.05;   // passthrough: the glow lands 5 cm behind the tubes, so hang the sign ~5 cm off your real wall
 function stepWallGlow() {
-  ledwall.userData.tick();   // #222 LED wall turn + picture fit (Quest and phone)
   studioWall.visible = settings.glow !== 'off';
   if (settings.glow === 'off') { wallGlow.visible = false; return; }
   const s = neon.scale.x; let d;   // tubes-to-wall distance, metres
@@ -378,7 +374,7 @@ function stackTops(key) {   // [{ top, key }] of everything under the footprint 
   const out = [];
   for (const k in cases) { const c = cases[k], g = c.group; if (rectsOverlap(me, footprint(g, c.W, c.D))) out.push({ top: g.position.y + c.H, key: k }); }
   for (const [k, it] of Object.entries(stage.items)) {
-    if (k === key || k === 'neon' || k === 'ledwall') continue;
+    if (k === key || k === 'neon') continue;
     const g = it.obj; let fp, top;
     if (STACK_KEYS.test(k)) { const r2 = k === 'crate'; fp = footprint(g, r2 ? CRATE.W : MILK.W, r2 ? CRATE.D : MILK.D); top = g.position.y + (r2 ? CRATE.H : MILK.H); }
     else { const b = localBoxOf(g); fp = footprint(g, b.max.x - b.min.x, b.max.z - b.min.z, (b.max.x + b.min.x) / 2, (b.max.z + b.min.z) / 2); top = g.position.y + b.max.y; }
@@ -424,33 +420,17 @@ function applyShadows(xrLight = false) {
 }
 setGlowMode(glowMat, settings.glow);
 applyShadows(false);   // desktop default: per the Shadows setting (blob by default = no shadow map)
-// LED wall (#176): moves like the neon sign; wheel / two hands resize it; size kept in 'vire.ledScale'
-const ledwall = makeLedWall(); rig.add(ledwall);
-try { const s = parseFloat(localStorage.getItem('vire.ledScale')); if (s > 0) ledwall.scale.setScalar(clamp(s, 0.4, 8)); } catch (e) {}   // #358 up to 8x (12.8 m wide)
-try { const c = parseFloat(localStorage.getItem('vire.ledCurve')); if (c > 0) ledwall.userData.setCurve(c); } catch (e) {}   // #358 curved LED wall (degrees of arc)
-const ledBase = (r = ledwall.rotation.z) => ((Math.abs(Math.round(r / (Math.PI / 2))) % 2 ? LED.W : LED.H) / 2 + LED.BEZ) * ledwall.scale.x;   // #222 portrait: half the width is the half-height
-function ledTurned() {   // #222 let go after a twist: settle on portrait / landscape, keep it off the floor, save
-  const t = ledwall.userData.settle(); stage.items.ledwall.base = ledBase(t);
-  if (ledwall.position.y < stage.items.ledwall.base) ledwall.position.y = stage.items.ledwall.base;
-  toast(Math.abs(Math.round(t / (Math.PI / 2))) % 2 ? 'LED wall: portrait' : 'LED wall: landscape', 1500);
-  setTimeout(() => stage.save(), 500);
-}
-function ledTilted() { toast('LED wall: tilted ' + Math.round(ledwall.rotation.x * 180 / Math.PI) + ' deg', 1500); setTimeout(() => stage.save(), 300); }   // #248
-function toggleLedPortrait() { ledwall.userData.turnTo(ledwall.userData.portrait() ? 0 : Math.PI / 2); setTimeout(ledTurned, 450); }
-function setLedScale(s) { s = clamp(s, 0.4, 8); ledwall.scale.setScalar(s); if (stage) stage.items.ledwall.base = ledBase(); return s; }
-function setLedCurve(deg) { ledwall.userData.setCurve(deg); try { localStorage.setItem('vire.ledCurve', String(ledwall.userData.curveDeg())); } catch (e) {} }   // #358
-function saveLedScale() { try { localStorage.setItem('vire.ledScale', String(ledwall.scale.x)); } catch (e) {} }
-const led = new LedPlayer(ledwall);
-const scroller = new Scroller(ledwall, LED);   // #224 VJ TOOLS scroller over the LED wall (#236 the phone draws its own copy)
-// #220 DJ CAM: a virtual camera on the LED wall, with an avatar copying the DJ's head and hands (Quest only, no phone)
-const djSet = (() => { try { return { preset: 'front', mirror: true, avatar: true, style: 'robot', ...JSON.parse(localStorage.getItem('vire.djcam') || '{}') }; } catch { return { preset: 'front', mirror: true, avatar: true, style: 'robot' }; } })();
+// #530 2D visuals playlist player and sine-wave scroller (3D LED wall removed; visuals drive BACK: VISUALS and Dirrogram)
+const led = new LedPlayer();
+const scroller = new Scroller();
+// #220 DJ CAM: virtual camera (GOPRO / GOPRO2 angles) with an avatar copying the DJ's head and hands
+const djSet = (() => { try { return { preset: 'gopro', mirror: true, avatar: true, style: 'robot', ...JSON.parse(localStorage.getItem('vire.djcam') || '{}') }; } catch { return { preset: 'gopro', mirror: true, avatar: true, style: 'robot' }; } })();
 function saveDjSet() { try { localStorage.setItem('vire.djcam', JSON.stringify(djSet)); } catch {} }
 const djcam = CAMERA_ROLE ? null : new DjCam(renderer, rig);
 let streamer = null;   // #331 set up once the audio engine exists (below)
-const streamPhone = () => !!(streamer && streamer.active && (streamer.source === 'phone' || streamer.source === 'pcam'));   // the stream holds the phone's LIVE picture (#347 or PHONE CAM)
-const pcamOpts = () => (streamer && streamer.active && streamer.source === 'pcam' ? streamer._pcamOpts() : {});   // #347 keep the PHONE CAM video when the LED wall asks for LIVE
-if (djSet.preset === 'booth') djSet.preset = 'gopro';   // #338 BOOTH became the GOPRO angle
-if (!CAM_PRESETS[djSet.preset]) djSet.preset = 'front';   // #338 only FRONT, FADERS, GOPRO are left
+const streamPhone = () => !!(streamer && streamer.active && (streamer.source === 'phone' || streamer.source === 'pcam'));   // the stream holds the phone's LIVE picture (#347 or WEBCAM)
+const pcamOpts = () => (streamer && streamer.active && streamer.source === 'pcam' ? streamer._pcamOpts() : {});   // #347 keep the WEBCAM video when visuals ask for LIVE
+if (!CAM_PRESETS[djSet.preset]) djSet.preset = 'gopro';   // #530 only GOPRO and GOPRO2 are in CAM_PRESETS
 if (djcam) djcam.preset = djSet.preset;
 // #221 avatar styles: ROBOT (Blender model models/avatar/robot.glb, robot.js, default) or HUMAN (the Ready Player Me GLB, loaded when first picked)
 const avatars = {};
@@ -557,7 +537,7 @@ function setPreview(on) {
 led.onChange = () => drawMixScreen();
 // #177 VideoVinyl + LED wall modes. LED WALL cycles OFF -> CLIPS (if videos were picked) -> DECKS -> CAM (#220) -> OFF.
 let ledMode = 'off';
-if (!CAMERA_ROLE) for (const k of ['ledwall', 'neon', 'milk']) applyPiece(k);   // #235 pieces switched off last time stay off
+if (!CAMERA_ROLE) for (const k of ['neon', 'milk']) applyPiece(k);   // #235 pieces switched off last time stay off
 const deckVid = [new DeckVideo(), new DeckVideo()];
 let vvIndex = new Map();          // headset: title key -> OPFS path of the video
 const vvPC = new Map();           // PC: title key -> Promise<url|null> (HEAD videos/<title>.mp4)
@@ -811,19 +791,15 @@ function setLedMode(m, kind) {
   }
   if (!isFxMode(m)) fxTex = null;
   if (m === 'vdancer') vdLoad(); else if (vd.vid && !vd.vid.paused) vd.vid.pause();   // #442
-  if (!pieceOn('ledwall') && (m === 'decks' || m === 'cam' || isLive(m))) m = 'off';   // #236 switched off: only clips run (for the phone)
   if (isLive(m) && !livePossible()) m = 'off';   // #238 needs the phone linked
-  if (m === 'screen' && !(phoneScreen && livePossible() && pieceOn('ledwall'))) m = 'off';   // #358
+  if (m === 'screen' && !(phoneScreen && livePossible())) m = 'off';   // #358
   if (m !== 'clips' && led.on) led.stop();
   if (m === 'cam' && !djcam) m = 'off';
   if (isLive(ledMode) && !isLive(m) && spect && spect.liveCam && !streamPhone()) spect.liveCam(false);   // #331 unless the stream uses it
   ledMode = m;
   if (m === 'clips') led.playRandom();
-  else if (m === 'off') ledwall.userData.setVideo(null);
-  else if (m === 'cam') ledwall.userData.setCam(djcam.rt.texture, djSet.mirror);   // #220
-  else if (isLive(m)) { spect.liveCam(true, m === 'solo', pcamOpts()); ledwall.userData.setVideo(liveVideo); }
-  else if (m === 'screen') ledwall.userData.setVideo(liveVideo);   // #358 the phone's shared screen   // #238 (#239 SOLO: camera only)
-  else if (isFxMode(m)) { ledFx.t0 = performance.now(); ledFx.s = 'dancer'; ledFx.sBar = ledFx.autoBar = ledFx.bar; fxTex = ledwall.userData.setCanvas(fxBig); fxPaint(); }   // #439
+  else if (isLive(m)) spect.liveCam(true, m === 'solo', pcamOpts());
+  else if (isFxMode(m)) { ledFx.t0 = performance.now(); ledFx.s = 'dancer'; ledFx.sBar = ledFx.autoBar = ledFx.bar; fxPaint(); }   // #439
   drawMixScreen();
 }
 function setNeonScale(s) { s = clamp(s, 0.3, 4); neon.scale.setScalar(s); neon.userData.setLodScale(s); if (stage) stage.items.neon.base = NEON.R * s; return s; }
@@ -842,11 +818,10 @@ const stage = new Stage(rig, {
   milk: { obj: milk, base: 0 },
   ...Object.fromEntries(Object.entries(extraMilk).map(([k, m]) => [k, { obj: m, base: 0 }])),
   neon: { obj: neon, base: NEON.R * neon.scale.x },
-  ledwall: { obj: ledwall, base: ledBase() },
 }, cases, {
   // #348 (owner) reset: the blue milk crate just right of the DJ's feet (the DJ stands at rig (0.05, 0, 0.62)), long side
   // along the case, and the record crate standing on it, its front turned to the DJ: everything within reach of the case
-  items: { deckA: [-DECK_X, 0.898, 0, 0], deckB: [DECK_X, 0.898, 0, 0], mixer: [0, 0.88, 0, 0], crate: [0.55, MILK.H, 0.62, -Math.PI / 2], milk: [0.55, 0, 0.62, 0], milk2: [-1.0, 0, 0.68, 0.35], milk3: [-1.47, 0, 0.3, 0.2], milk4: [-1.47, 0, 0.83, 0.2], milk5: [-1.0, 0, 1.21, 0.35], milk6: [-1.47, 0, 1.36, 0.2], neon: [0, 1.45, -0.5, 0], ledwall: [-2.0, 1.6, -0.55, 0] },
+  items: { deckA: [-DECK_X, 0.898, 0, 0], deckB: [DECK_X, 0.898, 0, 0], mixer: [0, 0.88, 0, 0], crate: [0.55, MILK.H, 0.62, -Math.PI / 2], milk: [0.55, 0, 0.62, 0], milk2: [-1.0, 0, 0.68, 0.35], milk3: [-1.47, 0, 0.3, 0.2], milk4: [-1.47, 0, 0.83, 0.2], milk5: [-1.0, 0, 1.21, 0.35], milk6: [-1.47, 0, 1.36, 0.2], neon: [0, 1.45, -0.5, 0] },
   cases: { caseA: [0, 0, 0, 0, 1.3, 0.52, 0.88] },
 });
 const MOVABLE = new Proxy({}, { get: (_, k) => stage.object(k) });
@@ -975,23 +950,33 @@ const gpActive = () => gopro && gopro.on ? gopro : gopro2 && gopro2.on ? gopro2 
 let goproTapT = 0, goproTapWas = false, goproTapId = '';
 // #338 GOPRO is an AVACAM angle: picking it brings the GoPro out (FRONT / FADERS put it away). STREAM page GOPRO button:
 // tap = GOPRO angle on / back to FRONT; double-tap (within 0.35 s) on either button = the GoPro back to its start spot, on.
-function goproTap(id = 'gopro') {   // #389 for GOPRO and GOPRO2: tap = on / back to FRONT, double-tap = back to its start spot, on
+function goproTap(id = 'gopro') {   // #389 / #530 for GOPRO and GOPRO2: tap = select (or switch between GOPRO and GOPRO2), double-tap = back to its start spot, on
   const gp = id === 'gopro2' ? gopro2 : gopro; if (!gp) return; const now = performance.now();
-  if (now - goproTapT < 700 && goproTapId === id) { goproTapT = 0; gp.reset(); setDjPreset(id); toast((id === 'gopro2' ? 'GOPRO2' : 'GOPRO') + ' back at its start', 1500); return; }
+  if (now - goproTapT < 700 && goproTapId === id) { goproTapT = 0; gp.reset(); if (streamer) { if (streamer.source === 'headset' || streamer.source === 'pcam') streamer.setSource('show'); if (streamer.stu.on && streamer.stu.mode !== 'show') streamer.setStudio('mode', 'show'); } setDjPreset(id); toast((id === 'gopro2' ? 'GOPRO2' : 'GOPRO') + ' back at its start', 1500); return; }
   goproTapT = now; goproTapId = id; goproTapWas = gp.on;
-  if (!gp.on && streamer && (streamer.source === 'headset' || streamer.source === 'pcam')) streamer.setSource('show');   // #402 the GoPro becomes the camera from any page
-  setDjPreset(gp.on ? 'front' : id);
+  const inShow = !streamer || (streamer.source !== 'headset' && streamer.source !== 'pcam' && (!streamer.stu.on || streamer.stu.mode === 'show'));
+  if (!inShow && streamer) { if (streamer.source === 'headset' || streamer.source === 'pcam') streamer.setSource('show'); if (streamer.stu.on && streamer.stu.mode !== 'show') streamer.setStudio('mode', 'show'); }
+  setDjPreset(inShow && gp.on ? (id === 'gopro' ? 'gopro2' : 'gopro') : id);
 }
-// #523 SHOWTIME! from DirroVJ's desk: the same camera pick and OBJECTS toggles as the tablet's SHOWTIME! page (the tablet stays in charge;
+// #523 / #530 SHOWTIME! from DirroVJ's desk: the same camera pick and OBJECTS toggles as the tablet's SHOWTIME! page (the tablet stays in charge;
 // whatever was tapped last wins). Only from a DirroVJ the DJ allowed. The state goes back in the 'stu' message (showState below).
-const VJ_SHOW_OPTS = ['wall', 'neon', 'panel', 'chalk', 'gear', 'robot', 'scroll', 'np', 'logo', 'chat'];
+const VJ_SHOW_OPTS = ['neon', 'panel', 'chalk', 'gear', 'robot', 'scroll', 'np', 'logo', 'chat'];
 function vjShow(m) {
   const S = streamer; if (!S) return; let what = '';
   if (m.cam) {
     const k = m.cam;
-    if ((k === 'gopro' && gopro) || (k === 'gopro2' && gopro2)) { if (S.source === 'headset' || S.source === 'pcam') S.setSource('show'); if (djSet.preset !== k) goproPick(k); what = k.toUpperCase(); }
-    else if (k === 'headset') { S.setSource('headset'); what = 'HEADSET CAM'; }
-    else if (k === 'front' || k === 'faders') { if (S.source === 'headset' || S.source === 'pcam') S.setSource('show'); setDjPreset(k); what = k.toUpperCase(); }
+    if ((k === 'gopro' && gopro) || (k === 'gopro2' && gopro2)) {
+      if (S.source === 'headset' || S.source === 'pcam') S.setSource('show');
+      if (S.stu.on && S.stu.mode !== 'show') S.setStudio('mode', 'show');
+      if (djSet.preset !== k) goproPick(k); else setDjPreset(k);
+      what = k.toUpperCase();
+    } else if (k === 'headset') {
+      if (S.stu.on && S.stu.mode !== 'show') S.setStudio('mode', 'show');
+      S.setSource('headset'); what = 'HEADSET CAM';
+    } else if (k === 'pcam') {
+      if (S.stu.on) S.setStudio('mode', 'cam'); else S.setSource('pcam');
+      what = 'WEBCAM';
+    }
   }
   if (m.opt === 'dome') { S.setShowOpt('backdrop', m.v ? 'dome' : 'visuals'); what = 'DOME ' + (m.v ? 'on' : 'off'); }
   else if (m.opt && VJ_SHOW_OPTS.includes(m.opt)) { S.setShowOpt(m.opt, !!m.v); what = m.opt.toUpperCase() + (m.v ? ' on' : ' off'); }
@@ -1000,16 +985,18 @@ function vjShow(m) {
 function vjShowState() {
   const S = streamer; if (!S) return null; const O = S.showOpt, o = {};
   for (const k of VJ_SHOW_OPTS) o[k] = !!O[k]; o.dome = O.backdrop === 'dome';
-  return { cam: S.source === 'headset' || S.source === 'pcam' ? S.source : djSet.preset, o, gp: !!gopro, gp2: !!gopro2 };
+  const isWeb = S.source === 'pcam' || (S.stu.on && S.stu.mode !== 'show');
+  return { cam: isWeb ? 'pcam' : S.source === 'headset' ? 'headset' : djSet.preset, o, gp: !!gopro, gp2: !!gopro2 };
 }
 function goproPick(id) {   // #389 the SHOWTIME! camera row: select it; double-tap = back to its start spot
   const gp = id === 'gopro2' ? gopro2 : gopro; if (!gp) return; const now = performance.now();
+  if (streamer && streamer.stu.on && streamer.stu.mode !== 'show') streamer.setStudio('mode', 'show');
   if (now - goproTapT < 700 && goproTapId === id && djSet.preset === id) { goproTapT = 0; gp.reset(); setDjPreset(id); toast((id === 'gopro2' ? 'GOPRO2' : 'GOPRO') + ' back at its start', 1500); return; }
   goproTapT = now; goproTapId = id; setDjPreset(id);
 }
 function goproReset(id) {   // #404 long press on a GOPRO button: back to its start spot, and it is the camera
   const gp = id === 'gopro2' ? gopro2 : gopro; if (!gp) return;
-  if (streamer && (streamer.source === 'headset' || streamer.source === 'pcam')) streamer.setSource('show');
+  if (streamer) { if (streamer.source === 'headset' || streamer.source === 'pcam') streamer.setSource('show'); if (streamer.stu.on && streamer.stu.mode !== 'show') streamer.setStudio('mode', 'show'); }
   gp.reset(); setDjPreset(id); toast((id === 'gopro2' ? 'GOPRO2' : 'GOPRO') + ' back at its start', 1500); drawMixScreen();
 }
 // #404 (owner: GOPRO2 hangs too high to reach) the A button on the right controller brings the GoPro that is the camera to
@@ -1055,11 +1042,19 @@ if (chat && chatChannel.get()) chat.start();
 // board back to its start spot and size
 let chalkTapT = 0;
 const chalkLbl = () => chalkboard && chalkboard.on ? 'WHITEBOARD: ON' : 'WHITEBOARD';   // #395
-function openPhoneCam() {   // #389 from VJ TOOLS and SHOWTIME! OBJECTS: pick PHONE CAM and open its setup page (says why when the phone isn't there)
+function openPhoneCam(openSetup = false) {   // #389 / #530 from SHOWTIME! and VJ TOOLS: select WEBCAM (DirroVJ or phone/webcam link); tap again or VJ TOOLS opens WEBCAM SETUP
   const S = streamer; if (!S) { toast('Streaming runs on the headset', 2500); return; }
-  if (S.stu.on) { toast('DirroVJ is on: use LIVE DJ!, LIVE KEY! or WEBCAM on the DIRROVJ page', 3500); return; }
-  const why = pcamReady(); if (why) { toast(why, 3500); return; }
-  S.setSource('pcam'); setTools('pcam');
+  if (S.stu.on) {
+    const was = S.stu.mode !== 'show';
+    S.setStudio('mode', 'cam');
+    if (gopro) gopro.setOn(false); if (gopro2) gopro2.setOn(false);
+    if (openSetup || was) setTools('pcam'); else drawMixScreen();
+    return;
+  }
+  const why = pcamReady(); if (why) { toast(why, 3500); if (openSetup) setTools('pcam'); return; }
+  const was = S.source === 'pcam';
+  S.setSource('pcam');
+  if (openSetup || was) setTools('pcam'); else drawMixScreen();
 }
 function chalkTap() {   // #377 the chalkboard object: tap = out / away; double-tap = back to its start spot and size, out
   if (!chalkboard) return; const now = performance.now();
@@ -1332,7 +1327,6 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } }, O = streamer.showOpt;
     hide(room);
     if (spect && spect.helpers) spect.helpers.forEach(hide);   // #385 the blue camera outline and the calibration panel are for the headset, never in the picture
-    if (!O.wall) hide(ledwall);   // the 3D wall (with the scroller on it) only when asked for; the flat backdrop is the 2D layer
     if (O.backdrop !== 'dome') hide(skybox.group);
     propHides(hide, O, true);
     if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand) hide(st.ctlHand.root); }
@@ -1340,29 +1334,19 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     const bg = scene.background; scene.background = null;
     return () => { for (const o of undo) o.visible = true; scene.background = bg; };
   },
-  mrPrep: () => {   // #372 HEADSET CAM: you are the robot and the real room is the picture, so the robot and the 3D LED wall are out of this render only; the OBJECTS toggles decide the rest (and keep their values)
+  mrPrep: () => {   // #372 HEADSET CAM: you are the robot and the real room is the picture, so the robot is out of this render only; the OBJECTS toggles decide the rest (and keep their values)
     const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
-    hide(ledwall); if (avatar && avatar.root) hide(avatar.root);
+    if (avatar && avatar.root) hide(avatar.root);
     if (spect && spect.helpers) spect.helpers.forEach(hide);   // #385
     propHides(hide, streamer.showOpt, false); handsHides(hide, streamer.showOpt);   // #375
     return () => { for (const o of undo) o.visible = true; };
   },
-  wallInShot: cam => {   // #372 is the 3D LED wall switched on, in front of this camera and facing it (its picture, and the scroller on it, are then drawn by the 3D layer)
-    if (!ledwall.visible) return false;
-    ledwall.updateWorldMatrix(true, false);
-    _wsN.set(0, 0, 1).transformDirection(ledwall.matrixWorld); _wsP.setFromMatrixPosition(ledwall.matrixWorld);
-    _wsC.setFromMatrixPosition(cam.matrixWorld);
-    if (_wsN.dot(_wsC.sub(_wsP)) <= 0) return false;   // seen from behind: the screen faces away
-    _wsM.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse); _wsF.setFromProjectionMatrix(_wsM);
-    return _wsF.intersectsBox(_wsB.setFromObject(ledwall));
-  },
-  wallSource: () => {   // what the LED wall is showing, as 2D drawables (the stream draws them full frame)
-    // #338 what the VISUALS pages are playing, whatever the LED wall itself shows (AVACAM, off, switched off)
+  wallSource: () => {   // what the visuals backdrop is showing, as 2D drawables (the stream draws them full frame)
     if (ledMode === 'decks') { const [gA, gB] = deckGains(mixVal); return [{ el: deckVid[0].v, gain: gA }, { el: deckVid[1].v, gain: gB, add: true }]; }
     if (isLive(ledMode) || ledMode === 'screen') return [{ el: liveVideo }];   // #358 the phone's screen too
     if (isFxMode(ledMode)) return [{ el: fxBig }];   // #439 MANDEL / RETRO-SCENE, with the LED grid
     if (ledMode === 'clips' && led.video) return [{ el: led.video }];
-    if (ledMode === 'clips' && led.img && ledwall.userData.curImage && !led.silent) return [{ el: ledwall.userData.curImage, flip: true }];
+    if (ledMode === 'clips' && led.img && led.curImage && !led.silent) return [{ el: led.curImage }];
     return streamClip();   // #337 the stream decodes the clip itself (follows the playlist, or runs the LED LIST on its own)
   },
   phoneTrack: () => (livePossible() ? liveTrack : null),
@@ -1404,7 +1388,6 @@ const SHOW_LINK = {
   chalk: { get: () => !!(chalkboard && chalkboard.on), set: v => { if (chalkboard) { chalkboard.setOn(v); chalkboard.save(); } } },
   panel: { get: () => !!(chatPanel && chatPanel.on), set: v => { if (chatPanel) { chatPanel.setOn(v); chatPanel.save(); } } },
   neon: { get: () => pieceOn('neon'), set: v => setPiece('neon', v) },
-  wall: { get: () => pieceOn('ledwall'), set: v => setPiece('ledwall', v) },   // #402 the LED wall: on = the 3D wall is in the SHOWTIME! shot and the flat VISUALS backdrop steps aside
 };
 if (streamer) {
   const rawSet = streamer.setShowOpt.bind(streamer);
@@ -1420,10 +1403,19 @@ if (streamer) {
     rawSet(k, v);
   };
   const rawSource = streamer.setSource.bind(streamer);
-  streamer.setSource = async (src, ...a) => {   // #402 one camera choice: HEADSET CAM / PHONE CAM put the GoPro away (FRONT), so no page shows GOPRO: ON while it isn't the shot
+  streamer.setSource = async (src, ...a) => {   // #402 / #530 one camera choice: HEADSET CAM / WEBCAM put the GoPro away, SHOW brings the active GoPro back out
     const r = await rawSource(src, ...a);
-    if ((src === 'headset' || src === 'pcam') && (djSet.preset === 'gopro' || djSet.preset === 'gopro2')) setDjPreset('front');
+    const gpOn = src === 'show' && (!streamer.stu.on || streamer.stu.mode === 'show');
+    if (gopro) gopro.setOn(gpOn && djSet.preset === 'gopro');
+    if (gopro2) gopro2.setOn(gpOn && djSet.preset === 'gopro2');
     return r;
+  };
+  const rawStudio = streamer.setStudio.bind(streamer);
+  streamer.setStudio = (k, v) => {
+    rawStudio(k, v);
+    const gpOn = streamer.source === 'show' && (!streamer.stu.on || streamer.stu.mode === 'show');
+    if (gopro) gopro.setOn(gpOn && djSet.preset === 'gopro');
+    if (gopro2) gopro2.setOn(gpOn && djSet.preset === 'gopro2');
   };
 }
 function syncShowFromRoom() {   // the room's switches into SHOWTIME! (only writes when something differs)
@@ -1434,7 +1426,6 @@ function syncShowFromRoom() {   // the room's switches into SHOWTIME! (only writ
   else if (!dome.on && O.backdrop === 'dome') raw('backdrop', 'visuals');
 }
 let streamOnChangeLast = 'off';
-const _wsN = new THREE.Vector3(), _wsP = new THREE.Vector3(), _wsC = new THREE.Vector3(), _wsM = new THREE.Matrix4(), _wsF = new THREE.Frustum(), _wsB = new THREE.Box3();   // #372 wallInShot scratch
 // #347 PHONE CAM render: what the phone's camera must not see (room, sky, helpers, the GoPro), plus the forearm sleeves
 // and, with LIGHT MATCH and a panorama, the key light from the panorama's brightest area (as Full VR does)
 const _yAxis = new THREE.Vector3(0, 1, 0);
@@ -1466,17 +1457,25 @@ function behindDj(o, cam) {
   const od = -_bdV.z, hd = -_bdH.z, was = _bdState.get(o) || false, behind = was ? od > hd - 0.05 : od > hd + 0.15;
   _bdState.set(o, behind); return behind;
 }
-// why PHONE CAM can't start yet ('' = the phone is connected); the finer states (fixed camera, calibrated) are in pcamStatus
+// why WEBCAM can't start yet ('' = the webcam / phone is connected); the finer states (fixed camera, calibrated) are in pcamStatus
 function pcamReady() {
   const cs = spect && spect.cam;
-  return !spect ? 'Phone / DirroVJ link is off: Settings > Phone / DirroVJ link On, connect the phone.' : !cs ? 'Phone not connected: open the DirroDJ camera page on it.' : '';
+  return !spect ? 'Phone / DirroVJ link is off: Settings > Phone / DirroVJ link On, connect the webcam or phone.' : !cs ? 'Webcam / phone not connected: open dirrovj.html or the camera page.' : '';
 }
-function pcamStatus(S) {   // #374 shared by the PHONE CAM page and the SHOWTIME! OBJECTS block
+function pcamStatus(S) {   // #374 / #530 shared by the WEBCAM SETUP page and the SHOWTIME! OBJECTS block
   const C = S.pc_, cs = spect && spect.cam, pc6 = spect && spect.phoneCam, lat = S.delay != null ? Math.round(S.delay) : null;
+  if (S.stu.on) {
+    const s8 = S.s8 && performance.now() - S.s8.at < 3500 ? S.s8 : null, ci = s8 && s8.cam;
+    return [
+      !S.stuLink ? 'DirroVJ not linked: open dirrovj.html on the laptop and connect.' : !S.vjAllowed ? 'Allow DirroVJ on the DIRROVJ page first.' : ci ? `DirroVJ webcam running (${ci.rate || ci.fps || '?'} fps)${pc6 ? ', calibrated (3D gear active when GEAR is on)' : ', uncalibrated (2D overlays + keying)'}.` : 'DirroVJ linked: webcam starts automatically when WEBCAM is active.',
+      S.stu.mode === 'show' ? 'Pick WEBCAM in SHOWTIME! (or on the VJ desk) to put the webcam on air.' : `${C.green ? 'GREEN SCREEN on: keyed over BACK: ' + S.showOpt.backdrop.toUpperCase() : 'GREEN SCREEN off: raw webcam + overlays'}${S.showOpt.gear && pc6 ? ' + 3D gear' : ''}.`,
+      `Delay trim: ${S.stu.trim >= 0 ? '+' : ''}${S.stu.trim} ms${s8 && s8.hold != null ? ' · camera held ' + s8.hold + ' ms' : ''}.`,
+    ];
+  }
   const v = livePossible() ? liveVideo : null, packed = v && v.videoWidth && Math.abs(v.videoWidth / v.videoHeight - 1920 / 720) < 0.06;
   return [
-    !spect ? 'Phone / DirroVJ link is off: Settings > Phone / DirroVJ link On, connect the phone.' : !cs ? 'Phone not connected.' : !cs.fixed ? 'Phone is in AR mode: start it in Fixed camera (tripod) mode.' : !pc6 ? 'Plain camera (not calibrated, or gear off on the phone): the picture shows, no gear over it. Calibrate on the phone to draw the gear.' : `Phone fixed camera, calibrated${cs.fpx != null ? ' ' + cs.fpx + ' px' : ''}.`,
-    S.source !== 'pcam' ? 'Pick PHONE CAM in SHOWTIME! (TWITCH > OBJECTS) to use it.' : v && v.videoWidth ? `Video ${v.videoWidth} x ${v.videoHeight}${packed ? ' (colour + matte)' : ''}${S.pkMsg ? ' · ' + S.pkMsg : ''}` : 'Waiting for the phone video (the preview starts it).',
+    !spect ? 'Phone / DirroVJ link is off: Settings > Phone / DirroVJ link On, connect the webcam or phone.' : !cs ? 'Webcam / phone not connected.' : !cs.fixed ? 'Camera is in AR mode: start it in Fixed camera / Webcam mode.' : !pc6 ? 'Plain webcam (not calibrated, or gear off): the picture shows, no 3D gear over it. Calibrate to draw the gear.' : `Fixed camera, calibrated${cs.fpx != null ? ' ' + cs.fpx + ' px' : ''}.`,
+    S.source !== 'pcam' ? 'Pick WEBCAM in SHOWTIME! (TWITCH > OBJECTS) to use it.' : v && v.videoWidth ? `Video ${v.videoWidth} x ${v.videoHeight}${packed ? ' (colour + matte)' : ''}${S.pkMsg ? ' · ' + S.pkMsg : ''}` : 'Waiting for the webcam video (the preview starts it).',
     lat != null ? `Video ${lat} ms late (measured)${C.lat ? ', gear, hands and stream sound held back ' + Math.round(S.latMs) + ' ms' : ''}.` : `Delay not measured: LATENCY MATCH uses ${C.manual} ms.`,
   ];
 }
@@ -1494,9 +1493,8 @@ let pcamAutoReh = false;   // #374 the PHONE CAM page started the off-air shot f
 function pcamPrep(cam) {
   const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
   hide(room); hide(skybox.group); hide(skyShadow);
-  hide(ledwall);   // #374 never in this shot: it would paint over the DJ (its picture is the VISUALS backdrop anyway)
-  if (streamer) {   // #372 PHONE CAM: the phone's picture with the objects chosen on OBJECTS drawn over it
-    propHides(hide, streamer.showOpt, false); handsHides(hide, streamer.showOpt, true);   // #377 PHONE CAM: natural hands, nothing drawn on them (3D / robot hands were too hard to line up)
+  if (streamer) {   // #372 WEBCAM: the camera picture with the objects chosen on OBJECTS drawn over it
+    propHides(hide, streamer.showOpt, false); handsHides(hide, streamer.showOpt, true);   // #377 WEBCAM: natural hands, nothing drawn on them (3D / robot hands were too hard to line up)
     for (const o of [neon, chatPanel && chatPanel.obj, chalkboard && chalkboard.obj, gopro && gopro.obj, gopro2 && gopro2.obj]) if (behindDj(o, cam)) hide(o);   // #374 props behind the DJ are left out
   }
   if (spect && spect.helpers) spect.helpers.forEach(hide);
@@ -3873,7 +3871,7 @@ const shown = o => { for (; o; o = o.parent) if (!o.visible) return false; retur
 function castRay(ray, objects) { raycaster.ray.copy(ray); raycaster.near = 0; raycaster.far = 20; return raycaster.intersectObjects(objects, true).filter(h => shown(h.object)); }
 function rayPlaneY(ray, y) { return ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -y), new THREE.Vector3()); }
 function mouseRay(e) { ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); raycaster.setFromCamera(ndc, camera); return raycaster.ray.clone(); }
-function interactive() { return [deckGroups[0], deckGroups[1], mixer, crateRig, ...milks(), neon, ledwall, cases.caseA.group, ...loose.filter(l => !l.inMilk).map(l => l.rec.group)]; }
+function interactive() { return [deckGroups[0], deckGroups[1], mixer, crateRig, ...milks(), neon, cases.caseA.group, ...loose.filter(l => !l.inMilk).map(l => l.rec.group)]; }
 // instanced parts (the mixer knobs, #84): a hit on instance i stands for that knob's proxy object
 function hitTarget(hit) { const o = hit.object, ids = o.userData.knobIds; return ids && hit.instanceId !== undefined ? mixer.userData.controls[ids[hit.instanceId]] : o; }
 function controlOf(o) {
@@ -4358,7 +4356,7 @@ function scratchIdle() { // a still hand holds the record still
   }
 }
 
-const NAMES = { preview: 'the camera preview', neon: 'the neon sign', ledwall: 'the LED wall', deckA: 'turntable A', deckB: 'turntable B', mixer: 'the mixer', crate: 'the record crate', caseA: 'flight case 1', caseB: 'flight case 2' };
+const NAMES = { preview: 'the camera preview', neon: 'the neon sign', deckA: 'turntable A', deckB: 'turntable B', mixer: 'the mixer', crate: 'the record crate', caseA: 'flight case 1', caseB: 'flight case 2' };
 // Resize from a bottom handle. P = new handle position in world (horizontal change), dH = height change.
 function resizeCase(dr, P, dH) {
   const c = cases[dr.key], g = c.group, h = dr.h;
@@ -4563,17 +4561,12 @@ function hover(e) {
   else if (c && c.id === 'arm') showTip('Tonearm: click to cue to start / lift and park; drag to move it (drag while playing to scrape across the record)', e.clientX, e.clientY);
   else if (obj && obj.userData.lid && obj.userData.lidHandle && lidShut()) showTip('Handle: drag to carry the crate (Shift-drag to turn it)', e.clientX, e.clientY);
   else if (obj && obj.userData.lid) showTip('Crate lid: click to open / close, or drag up and down to swing it (O)', e.clientX, e.clientY);
-  else if (obj && obj.userData.move === 'ledwall') showTip('LED wall: drag to move, Shift-drag to rotate, wheel to resize (headset: grab it with both hands and pull apart)', e.clientX, e.clientY);
   else if (obj && obj.userData.move === 'neon') showTip('Neon sign: drag to move, Shift-drag to rotate, wheel to resize (headset: grab both centre bars and pull apart)', e.clientX, e.clientY);
   else if (obj && obj.userData.move) showTip(`Drag to move ${NAMES[obj.userData.move] || (obj.userData.move.startsWith('milk') ? 'the milk crate' : 'it')}, Shift-drag to rotate`, e.clientX, e.clientY);
   else if (obj && obj.userData.resize) showTip('Drag to resize the case; Shift-drag up/down for height', e.clientX, e.clientY);
   else showTip('');
 }
 
-canvas.addEventListener('dblclick', e => {   // #222 desktop: double-click the LED wall = portrait / landscape
-  mouseSync(e); const hit = castRay(mouse.ray, interactive())[0], obj = hit && controlOf(hitTarget(hit));
-  if (obj && obj.userData.move === 'ledwall') toggleLedPortrait();
-});
 canvas.addEventListener('wheel', e => {
   if (mouse.drag && mouse.drag.kind === 'move') { // rotate while moving
     e.preventDefault(); e.stopImmediatePropagation();
@@ -4588,7 +4581,6 @@ canvas.addEventListener('wheel', e => {
   const obj = hit && controlOf(hitTarget(hit));
   if (!obj) return;
   const u = obj.userData;
-  if (u.move === 'ledwall') { e.preventDefault(); e.stopImmediatePropagation(); setLedScale(ledwall.scale.x * (e.deltaY < 0 ? 1.05 : 1 / 1.05)); saveLedScale(); stage.save(); showTip(`LED wall ${(LED.W * ledwall.scale.x * 100).toFixed(0)} cm wide`, e.clientX, e.clientY); return; }
   if (u.move === 'neon') { e.preventDefault(); e.stopImmediatePropagation(); setNeonScale(neon.scale.x * (e.deltaY < 0 ? 1.05 : 1 / 1.05)); saveNeonScale(); showTip(`Neon sign ${(NEON.DIA * neon.scale.x * 100).toFixed(0)} cm across`, e.clientX, e.clientY); return; }
   if (u.crateScreen || u.crateSleeves || u.crateCover) { e.preventDefault(); e.stopImmediatePropagation(); if (crateLidOpen()) crateSelect(Math.sign(e.deltaY)); return; }
   if (u.record && !u.loose) {   // #105 spindle twist on desktop: wheel over the spindle (#106), 5 ms a notch (Shift: 1 ms)
@@ -5053,8 +5045,8 @@ async function lightPhone(folder, name) {
   vpFolder = 'Look'; vpLoad();
 }
 // #220 DJ CAM tab: the LED wall's virtual camera (angle, mirror) and the avatar
-function setDjPreset(k) { djSet.preset = k; if (djcam) djcam.preset = k; if (gopro) gopro.setOn(k === 'gopro'); if (gopro2) gopro2.setOn(k === 'gopro2'); saveDjSet(); drawMixScreen(); }   // #338 the GOPRO angle = the GoPro object out
-function setDjMirror(on) { djSet.mirror = on; saveDjSet(); if (ledMode === 'cam') ledwall.userData.setCam(djcam.rt.texture, on); drawMixScreen(); }
+function setDjPreset(k) { djSet.preset = k; if (djcam) djcam.preset = k; const gpOn = !streamer || (streamer.source === 'show' && (!streamer.stu.on || streamer.stu.mode === 'show')); if (gopro) gopro.setOn(gpOn && k === 'gopro'); if (gopro2) gopro2.setOn(gpOn && k === 'gopro2'); saveDjSet(); drawMixScreen(); }   // #338 / #530 the GOPRO angle = the GoPro object out
+function setDjMirror(on) { djSet.mirror = on; saveDjSet(); drawMixScreen(); }
 function setDjAvatar(on) { djSet.avatar = on; saveDjSet(); if (avatar) avatar.root.visible = on; drawMixScreen(); }
 // #278 (avatar-stage-plan.md step 1): the robot DJ on the spectator phone. The phone already gets the head and the
 // hands / controllers every state tick (rig-local); this adds the mic level, which hand is which and the controllers'
@@ -5874,7 +5866,7 @@ const PINCH_FIT_DEF = {
 };
 // #513 the TV's address, from where this page runs (cabin.dirrodj.club/ = the cly3dj-dev folder on Cloudflare; github.io/cly3dj/ ...); no 'https://'
 const venueUrl = () => new URL('venue.html', location.href).href.replace(/[?#].*$/, '').replace(/^https?:\/\//, '');
-const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'LED WALL', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'PHONE CAM', portals: 'PORTALS', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376
+const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -6391,39 +6383,39 @@ function drawToolsPage() {
     }
     return;
   }
-  if (page === 'showobj') {   // #372 SHOWTIME! objects: what the 3D layer films, presets, and what it costs
+  if (page === 'showobj') {   // #372 / #530 SHOWTIME! objects: camera pick (GOPRO, GOPRO2, WEBCAM, HEADSET CAM), what the 3D layer films, and what it costs
     const y0 = head(P ? 'OBJECTS' : 'SHOWTIME! OBJECTS', 'stream'), S = streamer;
     if (!S) { note('Streaming runs on the headset (not on the phone).', y0 + 20); return; }
-    const O = S.showOpt, gOn = !!(gopro && gopro.on), bh = P ? 52 : 30, gap = P ? 8 : 5, cols = P ? 3 : 5,   // #378 landscape is 768 x 304: compact rows, no captions
-       bw = (R - L - gap * (cols - 1)) / cols;
-    // camera pick: GOPRO / FRONT / FADERS are the DJ camera angles, HEADSET CAM and PHONE CAM their own pictures (#372)
-    const cams = [['gopro', 'GOPRO', !gopro], ['gopro2', 'GOPRO2', !gopro2], ['front', 'FRONT', false], ['faders', 'FADERS', false], ['headset', P ? 'HEADSET' : 'HEADSET CAM', false]];   // #389 PHONE CAM is in the objects row; GOPRO2 where it was
-    const camOn = k => (k === 'headset' || k === 'pcam') ? S.source === k : (k === 'gopro' || k === 'gopro2') ? djSet.preset === k : (S.source === 'show' || S.source === 'avacam') && djSet.preset === k;   // #389 GOPRO / GOPRO2 / FRONT / FADERS; #402 a GoPro lights up exactly when it is out (as on STREAM)
+    const O = S.showOpt, bh = P ? 52 : 30, gap = P ? 8 : 5;
+    const isWeb = S.source === 'pcam' || (S.stu.on && S.stu.mode !== 'show');
+    // #530 camera pick: GOPRO, GOPRO2, WEBCAM (external laptop or phone), HEADSET CAM
+    const cams = [['gopro', 'GOPRO', !gopro], ['gopro2', 'GOPRO2', !gopro2], ['pcam', 'WEBCAM', false], ['headset', P ? 'HEADSET' : 'HEADSET CAM', false]];
+    const colsCam = P ? 2 : 4, bwCam = (R - L - gap * (colsCam - 1)) / colsCam;
+    const camOn = k => k === 'pcam' ? isWeb : k === 'headset' ? (!isWeb && S.source === 'headset') : (!isWeb && S.source !== 'headset' && djSet.preset === k);
     g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; if (P) g.fillText('CAMERA', L + 2, y0 + 8);
     const camPick = k => {
-      if (k === 'pcam') { openPhoneCam(); return; }   // #374 / #389
-      if (k === 'gopro' || k === 'gopro2') { if (S.source === 'headset' || S.source === 'pcam') S.setSource('show'); goproPick(k); drawMixScreen(); return; }   // #389 double-tap = back to its start
-      if (k === 'headset') S.setSource(k);
-      else {
+      if (k === 'pcam') { openPhoneCam(false); return; }   // #374 / #389 / #530
+      if (k === 'gopro' || k === 'gopro2') {
         if (S.source === 'headset' || S.source === 'pcam') S.setSource('show');
-        setDjPreset(k);
+        if (S.stu.on && S.stu.mode !== 'show') S.setStudio('mode', 'show');
+        goproPick(k); drawMixScreen(); return;
       }
+      if (k === 'headset') { if (S.stu.on && S.stu.mode !== 'show') S.setStudio('mode', 'show'); S.setSource(k); }
       drawMixScreen();
     };
-    cams.forEach(([k, label, off], i) => { btn(L + (i % cols) * (bw + gap), y0 + (P ? 14 : 6) + Math.floor(i / cols) * (bh + gap), bw, bh, label, camOn(k), (off && k !== 'pcam') ? null : () => camPick(k), off, P ? 16 : 15); if ((k === 'gopro' || k === 'gopro2') && !off) VP_HIT[VP_HIT.length - 1].long = () => goproReset(k); });   // #404 long press = reset   // PHONE CAM stays tappable when greyed: it says why
-    const cy2 = y0 + (P ? 14 : 6) + Math.ceil(cams.length / cols) * (bh + gap) + (P ? 6 : 0);
+    cams.forEach(([k, label, off], i) => { btn(L + (i % colsCam) * (bwCam + gap), y0 + (P ? 14 : 6) + Math.floor(i / colsCam) * (bh + gap), bwCam, bh, label, camOn(k), (off && k !== 'pcam') ? null : () => camPick(k), off, P ? 16 : 15); if ((k === 'gopro' || k === 'gopro2') && !off) VP_HIT[VP_HIT.length - 1].long = () => goproReset(k); });
+    const cy2 = y0 + (P ? 14 : 6) + Math.ceil(cams.length / colsCam) * (bh + gap) + (P ? 6 : 0);
     g.fillStyle = '#8c96a8'; if (P) g.fillText('OBJECTS', L + 2, cy2 + 8);
-    const items = [['wall', 'LED WALL', false], ['pcam', 'PHONE CAM', !!pcamReady()], ['neon', 'NEON', false], ['panel', 'CHAT PANEL', false], ['chalk', 'WHITEBOARD', false], ['gear', 'GEAR', false], ['robot', 'ROBO-BODY', S.source === 'headset' || S.source === 'pcam'], ['dome', 'DOME', false]];
-    // #377 DOME is an object here (the sky dome from VISUALS > PANO > SKY). It is the backdrop's 'dome' choice: on = DOME, off = the VISUALS picture behind (they
-    // are one at a time, the dome would hide it); on the PHONE CAM shot it is what you are keyed over, so it needs GREEN SCREEN. NONE stays on the STREAM page's BACK button.
+    const items = [['neon', 'NEON', false], ['panel', 'CHAT PANEL', false], ['chalk', 'WHITEBOARD', false], ['gear', 'GEAR', false], ['robot', 'ROBO-BODY', S.source === 'headset' || isWeb], ['dome', 'DOME', false]];
+    const colsObj = P ? 3 : 6, bwObj = (R - L - gap * (colsObj - 1)) / colsObj;
     const domeTap = () => { if (O.backdrop === 'dome') S.setShowOpt('backdrop', 'visuals'); else { S.setShowOpt('backdrop', 'dome'); if (!skybox.tex) toast('DOME needs a sky: VISUALS > PANO > SKY', 3200); } drawMixScreen(); };
-    items.forEach(([k, label, off], i) => { const on = k === 'dome' ? O.backdrop === 'dome' : k === 'pcam' ? S.source === 'pcam' : !!O[k]; if (k === 'pcam') { btn(L + (i % cols) * (bw + gap), cy2 + (P ? 14 : 0) + Math.floor(i / cols) * (bh + gap), bw, bh, label, on, openPhoneCam, off, P ? 16 : 14); return; } btn(L + (i % cols) * (bw + gap), cy2 + (P ? 14 : 0) + Math.floor(i / cols) * (bh + gap), bw, bh, label, !off && on, off ? null : k === 'dome' ? domeTap : () => S.setShowOpt(k, !O[k]), off, P ? 16 : 15); });   // greyed: the GoPro prop while it is the camera; the wall and robot under HEADSET CAM
-    const ry = cy2 + (P ? 14 : 0) + Math.ceil(items.length / cols) * (bh + gap) + (P ? 6 : 4), pw = ((P ? R - L : (R - L) * 0.6) - 2 * gap) / 3;
+    items.forEach(([k, label, off], i) => { const on = k === 'dome' ? O.backdrop === 'dome' : !!O[k]; btn(L + (i % colsObj) * (bwObj + gap), cy2 + (P ? 14 : 0) + Math.floor(i / colsObj) * (bh + gap), bwObj, bh, label, !off && on, off ? null : k === 'dome' ? domeTap : () => S.setShowOpt(k, !O[k]), off, P ? 16 : 15); });
+    const ry = cy2 + (P ? 14 : 0) + Math.ceil(items.length / colsObj) * (bh + gap) + (P ? 6 : 4);
     const ms = djcam ? djcam.ms : 0;
     g.fillStyle = '#8c96a8'; g.font = '600 15px system-ui'; g.textAlign = 'left';
     const line = `Render time of the DJ camera: ${ms.toFixed(1)} ms${S.source === 'show' && !S.show3d ? '  (nothing 3D on: nearly free)' : ''}`;
-    if (P) g.fillText(line, L + 2, ry + bh + 28); else { g.font = '600 14px system-ui'; g.fillText(`DJ camera ${ms.toFixed(1)} ms`, L + 2, ry + bh / 2 + 5); }   // landscape: on the presets' row
-    // #375 HANDS on the shot (HEADSET CAM and PHONE CAM): REAL HANDS = nothing drawn on your hands; 3D HANDS / ROBOT GLOVE = the controller look (also what you see in the headset)
+    if (P) g.fillText(line, L + 2, ry + bh + 28); else { g.font = '600 14px system-ui'; g.fillText(`DJ camera ${ms.toFixed(1)} ms`, L + 2, ry + bh / 2 + 5); }
+    // #375 HANDS on the shot (HEADSET CAM and WEBCAM): REAL HANDS = nothing drawn on your hands; 3D HANDS / ROBOT GLOVE = the controller look (also what you see in the headset)
     const handsRow = yy => {
       const look = xr ? xr.getCtlLook() : null, real = !!O.handsReal, hw = (R - L - 2 * gap) / 3;
       g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; if (P) g.fillText('HANDS ON THE SHOT', L + 2, yy);
@@ -6432,17 +6424,17 @@ function drawToolsPage() {
         .forEach(([lb, on, act, off], i) => btn(L + i * (hw + gap), yy + (P ? 6 : 0), hw, bh, lb, on, off ? null : act, off, P ? 15 : 14));
       return yy + (P ? 6 : 0) + bh;
     };
-    if (S.source === 'pcam') {   // #374 PHONE CAM block: where it stands, its main switches, and its settings page
+    if (isWeb) {   // #374 / #530 WEBCAM block: status, main switches, and WEBCAM SETUP page
       const C = S.pc_, st = pcamStatus(S), yb = ry + bh + (P ? 44 : 20);
       g.fillStyle = '#dfe6f2'; g.font = '500 14px system-ui'; g.textAlign = 'left';
       const nl = wrapText(g, st[0] + ' ' + st[1], L + 2, yb, R - L - 4, 18, P ? 2 : 1), by = yb + nl * 18 + 2, bw4 = (R - L - 3 * gap) / 4;
       [['GREEN SCREEN', C.green, () => S.setPcam('green', !C.green)], ['LATENCY MATCH', C.lat, () => S.setPcam('lat', !C.lat)], ['LIGHT MATCH', C.light, () => S.setPcam('light', !C.light)], ['SETUP ▸', false, () => setTools('pcam')]]
         .forEach(([lb, on, act], i) => btn(L + i * (bw4 + gap), by, bw4, bh, lb, on, act, false, P ? 14 : 13));
-      note(P ? 'PHONE CAM: your own hands show (no 3D or robot hands: they were too hard to line up). The LED wall and ROBO-BODY are off and props behind you (neon, chalkboard, GoPro) are left out, because the phone picture is flat and they would paint over your head. BACKDROP shows only with GREEN SCREEN on.' : 'PHONE CAM: your own hands; no LED wall or ROBO-BODY; props behind you are left out.', by + bh + (P ? 22 : 18));
+      note(P ? 'WEBCAM: works with DirroVJ on a laptop or a linked phone/webcam. GREEN SCREEN keys you over the BACK setting (VISUALS, DOME or none). Tap WEBCAM again or SETUP ▸ for key colour, strength, softness, spill and crop.' : 'WEBCAM: GREEN SCREEN keys you over BACK (VISUALS / DOME). Tap SETUP ▸ for key controls.', by + bh + (P ? 22 : 18));
       return;
     }
     let ny = ry + bh + (P ? 48 : 16); if (S.source === 'headset') ny = handsRow(ry + bh + (P ? 48 : 8)) + (P ? 22 : 18);   // #375
-    note(P ? 'DOME is the sky dome (VISUALS > PANO > SKY); it and the VISUALS picture behind are one at a time, and NONE is the BACK button on the STREAM page. The LED wall shows the scroller when it is in shot; when it is not, the scroller is a flat band. HEADSET CAM turns ROBO-BODY (the full robot avatar) and the LED wall off while it is the camera. GoPro: a prop other cameras film, hidden from its own camera. NEON is the heaviest object. FULL / LEAN / FIRST PERSON set several toggles at once.' : (S.source === 'headset' ? 'HEADSET CAM: ROBO-BODY and the LED wall are off. HANDS: REAL = nothing drawn on your hands. DOME: VISUALS > PANO > SKY.' : 'DOME: VISUALS > PANO > SKY, one at a time with the VISUALS picture (NONE = BACK on TWITCH). The scroller rides the LED wall when it is in shot.'), ny);
+    note(P ? 'DOME is the sky dome (VISUALS > PANO > SKY); it and the VISUALS backdrop behind are one at a time, and NONE is the BACK button on the STREAM page. HEADSET CAM turns ROBO-BODY (the full robot avatar) off while it is the camera. GoPro: a prop other cameras film, hidden from its own camera. NEON is the heaviest object.' : (S.source === 'headset' ? 'HEADSET CAM: ROBO-BODY is off. HANDS: REAL = nothing drawn on your hands. DOME: VISUALS > PANO > SKY.' : 'DOME: VISUALS > PANO > SKY, one at a time with the VISUALS backdrop (NONE = BACK on TWITCH).'), ny);
     return;
   }
   if (page === 'chat') {   // #340 Twitch chat (read-only)
@@ -6474,8 +6466,9 @@ function drawToolsPage() {
     g.fillStyle = '#000'; g.fillRect(tx, ty, tw, th);
     let shown = false;
     if (C.matte && S.active && S.source === 'pcam' && S.pkFrames) { g.drawImage(S.canvas, tx, ty, tw, th); shown = true; }
+    else if (S.stuRun && monOn && pvTex.image) { try { g.drawImage(pvTex.image, tx, ty, tw, th); shown = true; } catch {} }
     else if (v && v.videoWidth && v.readyState >= 2) { try { if (packed) g.drawImage(v, 0, 0, v.videoWidth * 1280 / 1920, v.videoHeight, tx, ty, tw, th); else g.drawImage(v, tx, ty, tw, th); shown = true; } catch {} }
-    if (!shown) { g.fillStyle = '#8c96a8'; g.font = '600 14px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(S.source !== 'pcam' ? 'Pick PHONE CAM on TWITCH' : 'Turn PREVIEW on to see the phone', tx + tw / 2, ty + th / 2); g.textBaseline = 'alphabetic'; }
+    if (!shown) { g.fillStyle = '#8c96a8'; g.font = '600 14px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText((S.source !== 'pcam' && !(S.stu.on && S.stu.mode !== 'show')) ? 'Pick WEBCAM in SHOWTIME!' : 'Turn PREVIEW on to see the webcam', tx + tw / 2, ty + th / 2); g.textBaseline = 'alphabetic'; }
     const gl = K ? K.gl || 0 : 0, gr = K ? K.gr || 0 : 0, gt = K ? K.gt || 0 : 0, gb = K ? K.gb || 0 : 0;
     const bx = tx + gl * tw, by = ty + gt * th, bw = tw * (1 - gl - gr), bh = th * (1 - gt - gb);
     g.fillStyle = 'rgba(0,0,0,0.62)';   // cut away = darkened
@@ -6515,9 +6508,9 @@ function drawToolsPage() {
     }
     return;
   }
-  if (page === 'pcam') {   // #347 PHONE CAM SETUP: the tripod phone's video with the gear / hands drawn from its view
-    const y0 = head(P ? 'PHONE' : 'PHONE CAM SETUP', 'showobj'), S = streamer;   // #374 back to SHOWTIME! OBJECTS
-     if (!S) { note('Streaming runs on the headset.', y0 + 20); return; }
+  if (page === 'pcam') {   // #347 / #530 WEBCAM SETUP: unified keying, grading and delay controls for DirroVJ laptop webcam or phone/webcam link
+    const y0 = head(P ? 'WEBCAM' : 'WEBCAM SETUP', 'showobj'), S = streamer;   // #374 back to SHOWTIME! OBJECTS
+    if (!S) { note('Streaming runs on the headset.', y0 + 20); return; }
     const C = S.pc_, cs = spect && spect.cam, K = cs && cs.K, keySend = (key, v) => { if (spect && spect.camSet) { if (K) K[key] = v; spect.camSet({ what: 'key', key, v }); } };
     const r2 = v => Math.round(v * 100) / 100;
     const toggles = [
@@ -6526,7 +6519,7 @@ function drawToolsPage() {
       [P ? (C.light ? 'LIGHT MATCH: ON' : 'LIGHT MATCH') : (C.light ? 'LIGHT: ON' : 'LIGHT'), C.light, () => S.setPcam('light', !C.light)],
       [P ? (C.lat ? 'LATENCY: ON' : 'LATENCY MATCH') : (C.lat ? 'LATENCY: ON' : 'LATENCY'), C.lat, () => S.setPcam('lat', !C.lat)],
       [P ? 'KEY: ' + KEY_LABEL[(K && K.col) || 0] : 'KEY ' + ['GRN', 'BLUE', 'MAG'][(K && K.col) || 0], false, K ? () => { keySend('col', (((K.col || 0) + 1) % 3)); drawMixScreen(); } : null, !K],
-      ['AUTO KEY', false, K ? () => { spect.camSet({ what: 'auto' }); toast('Auto key: point the phone at the empty key screen', 3000); } : null, !K],
+      ['AUTO KEY', false, K ? () => { spect.camSet({ what: 'auto' }); toast('Auto key: point the webcam at the empty key screen', 3000); } : null, !K],
       [K && (K.gl || K.gr || K.gt || K.gb) ? 'CROP: ON' : 'CROP', !!(K && (K.gl || K.gr || K.gt || K.gb)), () => setTools('pcamcrop')],   // #353 garbage matte page
       ['PREVIEW', monOn, () => setMonitor(!monOn)],
     ];
@@ -6539,7 +6532,9 @@ function drawToolsPage() {
       ['WRAP', Math.round(C.wrap * 100) + '%', d => S.setPcam('wrap', Math.min(1, Math.max(0, r2(C.wrap + d * 0.1))))],
       ['KEY GLOW', Math.round(C.glow * 100) + '%', d => S.setPcam('glow', Math.min(1, Math.max(0, r2(C.glow + d * 0.1))))],
       ['EXPOSURE', (C.expo > 0 ? '+' : '') + C.expo.toFixed(1), d => S.setPcam('expo', Math.min(1, Math.max(-1, r2(C.expo + d * 0.1))))],
-      [lat != null ? 'DELAY TRIM' : 'DELAY', lat != null ? `${lat}${C.trim >= 0 ? '+' : ''}${C.trim} ms` : `${C.manual} ms`, d => lat != null ? S.setPcam('trim', C.trim + d * 10) : S.setPcam('manual', Math.max(0, C.manual + d * 10))],
+      S.stu.on
+        ? ['DELAY TRIM', `${S.stu.trim >= 0 ? '+' : ''}${S.stu.trim} ms`, d => S.setStudio('trim', S.stu.trim + d * 10)]
+        : [lat != null ? 'DELAY TRIM' : 'DELAY', lat != null ? `${lat}${C.trim >= 0 ? '+' : ''}${C.trim} ms` : `${C.manual} ms`, d => lat != null ? S.setPcam('trim', C.trim + d * 10) : S.setPcam('manual', Math.max(0, C.manual + d * 10))],
     ];
     const cell = ([label, val, act], x, y, w, h) => {
       g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
@@ -6552,13 +6547,15 @@ function drawToolsPage() {
     const st = pcamStatus(S);   // #374 shared with the OBJECTS page
     if (C.green && C.light) { const h = S.lampHint(); if (h) st.push(h); }
     if (C.green && S.showOpt.backdrop === 'dome' && !skybox.tex) st.push('BACK DOME: no sky picked yet (VISUALS > PANO > SKY).');
-    const help = 'CROP: the garbage matte (cut away stands and the room past the cloth). GREEN SCREEN off: the phone video is the background and the gear and chalkboard are drawn over it (your hands are your own, nothing is drawn on them). On: you are keyed over the BACK setting (VISUALS, DOME or none). The LED wall is off in this shot, and props behind you are left out so they never cut your head. LIGHT MATCH grades you toward the panorama (pick it with SKY) and lights the gear from it.';
+    const help = 'CROP: the garbage matte (cut away stands and the room past the cloth). GREEN SCREEN off: the webcam video is the background and overlays (plus 3D gear if calibrated and GEAR is on) are drawn over it. On: you are keyed over the BACK setting (VISUALS, DOME or none). LIGHT MATCH grades you toward the panorama (pick it with SKY) and lights the gear from it.';
     // #374 a small live preview of what goes out (the stream picture, redrawn about 5 times a second by the page's timer)
     const pcamPrev = (x, y, w) => {
-      const asp = S.canvas.width / S.canvas.height || 16 / 9, h = Math.round(w / asp), live2 = S.source === 'pcam' && S.active && S.pkFrames;
+      const asp = S.canvas.width / S.canvas.height || 16 / 9, h = Math.round(w / asp);
+      const stuIm = S.stuRun && monOn ? pvTex.image : null, live2 = S.source === 'pcam' && S.active && S.pkFrames;
       g.fillStyle = '#000'; g.fillRect(x, y, w, h);
-      if (live2) g.drawImage(S.canvas, x, y, w, h);
-      else { g.fillStyle = '#8c96a8'; g.font = '600 13px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(S.source !== 'pcam' ? 'PHONE CAM is not the camera' : 'waiting for the phone', x + w / 2, y + h / 2); g.textBaseline = 'alphabetic'; }
+      if (stuIm) { try { g.drawImage(stuIm, x, y, w, h); } catch {} }
+      else if (live2) g.drawImage(S.canvas, x, y, w, h);
+      else { g.fillStyle = '#8c96a8'; g.font = '600 13px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText((S.source !== 'pcam' && !(S.stu.on && S.stu.mode !== 'show')) ? 'WEBCAM is not active' : S.stu.on ? 'Turn PREVIEW on to see DirroVJ' : 'waiting for the webcam', x + w / 2, y + h / 2); g.textBaseline = 'alphabetic'; }
       g.strokeStyle = '#2a3142'; g.lineWidth = 1; g.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
     };
     const text = (x, y, w, lh, max, fs) => {
@@ -6661,14 +6658,15 @@ function drawToolsPage() {
       else { btn(R - 2 * w4 - gap, y2, w4, bh, 'ALLOW', true, () => S.allowVj(true), false, fs); btn(R - w4, y2, w4, bh, 'DENY', false, () => S.allowVj(false), false, fs); }
       y2 += bh + gap;
     } else if (U.on) { btn(R - w4, y2, w4, bh, 'TAKE BACK', false, () => S.takeBack(), false, fs); g.font = '500 13px system-ui'; g.fillStyle = '#8c96a8'; g.textAlign = 'left'; fitText2(g, 'TAKE BACK: DirroVJ off; if it was live, Twitch restarts from the Quest.', L + 2, y2 + bh * 0.62, R - L - w4 - 10); y2 += bh + gap; }
-    Object.entries(STUDIO_MODES).forEach(([k, label], i) => btn(L + i * (w4 + gap), y2, w4, bh + (P ? 12 : 0), label, U.mode === k, () => S.setStudio('mode', k), false, P ? 22 : 17));
+    const w2 = (R - L - gap) / 2;
+    Object.entries(STUDIO_MODES).forEach(([k, label], i) => btn(L + i * (w2 + gap), y2, w2, bh + (P ? 12 : 0), label, U.mode === k, () => S.setStudio('mode', k), false, P ? 22 : 17));
     const y3 = y2 + bh + (P ? 12 : 0) + gap;
     const fs5 = P ? 15 : 14;
     btn(L, y3, w5, bh, 'DELAY −10', false, () => S.setStudio('trim', U.trim - 10), false, fs5);
     btn(L + w5 + gap, y3, w5, bh, `TRIM ${U.trim > 0 ? '+' : ''}${U.trim} ms`, false, U.trim ? () => S.setStudio('trim', 0) : null, false, fs5);
     btn(L + 2 * (w5 + gap), y3, w5, bh, 'DELAY +10', false, () => S.setStudio('trim', U.trim + 10), false, fs5);
     btn(L + 3 * (w5 + gap), y3, w5, bh, P ? 'CAMERA ▸' : 'SHOW CAMERA ▸', false, () => setTools('showobj'), false, fs5);
-    btn(L + 4 * (w5 + gap), y3, w5, bh, 'KEY ▸', U.mode === 'key', () => setTools('studiokey'), false, fs5);   // #385 the keying controls
+    btn(L + 4 * (w5 + gap), y3, w5, bh, P ? 'KEY ▸' : 'WEBCAM SETUP ▸', S.pc_.green, () => setTools('pcam'), false, fs5);   // #385 / #530 unified WEBCAM SETUP page
     { // #382 LOW LIGHT (dark clubs): hold the S8 camera at 25 fps, raise its exposure (EV, the camera's own gain) and the studio's GAIN
       const yL = y3 + bh + gap, ci = s8 && s8.cam, fsL = P ? 16 : 14;
       const ev = (U.ev > 0 ? '+' : '') + U.ev.toFixed(1);
@@ -6677,7 +6675,7 @@ function drawToolsPage() {
       if (P) { items.slice(0, 4).forEach(([l, on, a], i) => btn(L + i * (w4 + gap), yL, w4, bh, l, on, a, false, fsL)); items.slice(4).forEach(([l, on, a], i) => btn(L + i * (w3 + gap), yL + bh + gap, w3, bh, l, on, a, false, fsL)); }
       else { const w7 = (R - L - 6 * gap) / 7; items.forEach(([l, on, a], i) => btn(L + i * (w7 + gap), yL, w7, bh, l, on, a, false, fsL)); }
       const camLine = ci ? `DirroVJ camera: ${ci.rate || ci.fps || '?'} fps${ci.ev != null ? ', EV ' + ci.ev + (ci.evMax != null ? ' (max ' + ci.evMax + ')' : '') : ', no EV control in Chrome'}${ci.rate && ci.rate < 22 ? ' · too dark for 25: more light, or EV / GAIN up' : ''}` : '';
-      if (P) { note((camLine ? camLine + '. ' : '') + 'SHOW: Quest camera (SHOWTIME! pick), DirroVJ backdrop. LIVE DJ!: the camera films you in your room. LIVE KEY!: keyed over the backdrop. WEBCAM: the camera picture as it is (you or the crowd). TRIM + holds the camera back more. GO LIVE goes out from DirroVJ.', yL + 2 * (bh + gap) + 20); }
+      if (P) { note((camLine ? camLine + '. ' : '') + 'SHOW: Quest camera (GOPRO / GOPRO2 / HEADSET CAM), DirroVJ backdrop. WEBCAM: the DirroVJ camera (with GREEN SCREEN keying, 3D gear when calibrated, and Quest overlays). TRIM + holds the camera back more. GO LIVE goes out from DirroVJ.', yL + 2 * (bh + gap) + 20); }
       else if (camLine) { g.fillStyle = ci.rate && ci.rate < 22 ? '#f1b650' : '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, camLine, L + 4, yL + bh + 18, R - L - 8); }
     }
     return;
@@ -6821,8 +6819,8 @@ function drawToolsPage() {
       ['PICTURES', ledMode === 'clips' && !!led.img, () => setLedMode('clips', 'image'), !nOf('image')],
       ['MANDEL', ledMode === 'mandel', () => setLedMode('mandel'), false],
       ['RETRO-SCENE', ledMode === 'retro' || ledMode === 'vdancer' || ledMode === 'meta', () => { if (!isFxMode(ledMode) || ledMode === 'mandel') setLedMode('retro'); setTools('retro'); }, false],
-      ['DirroDj📹', ledMode === 'cam', () => setLedMode('cam'), !djcam || !pieceOn('ledwall')],
-      ['LIVE', isLive(ledMode), () => setLedMode('live'), !livePossible() || !pieceOn('ledwall')]];
+      ['DirroDj📹', ledMode === 'cam', () => setLedMode('cam'), !djcam],
+      ['LIVE', isLive(ledMode), () => setLedMode('live'), !livePossible()]];
     const tile = (x, y, w, h, [label, on, act, dim]) => {
       if (label !== 'RETRO-SCENE') { btn(x, y, w, h, label, on, dim ? null : act, dim, P ? 19 : 17); return; }
       btn(x, y, w, h, '', on, act, false);
@@ -7017,47 +7015,32 @@ function drawToolsPage() {
   }
   if (page === 'dj' || page === 'vj') {
     const y0 = head(page === 'dj' ? 'DJ TOOLS' : 'VJ TOOLS', 'home');
-    const ledCells = (x, y, w, stacked) => {   // #358 LED CURVE and LED SIZE steppers
-      const cells = [['LED CURVE', `${ledwall.userData.curveDeg()}°`, d => setLedCurve(ledwall.userData.curveDeg() + d * 10)],
-        ['LED SIZE', `${(LED.W * ledwall.scale.x).toFixed(1)} m wide`, d => { setLedScale(ledwall.scale.x * (d > 0 ? 1.15 : 1 / 1.15)); saveLedScale(); if (stage) stage.save(); }]];
-      const cw = stacked ? w : (w - 12) / 2, ch = stacked ? 56 : 52;
-      cells.forEach(([label, val, act], i) => {
-        const cx = stacked ? x : x + i * (cw + 12), cy = stacked ? y + i * (ch + 8) : y, bw = 52;
-        g.fillStyle = '#8c96a8'; g.font = '700 13px system-ui'; g.textAlign = 'left'; g.fillText(label, cx + 2, cy + 12);
-        btn(cx, cy + 16, bw, ch - 16, '−', false, () => { act(-1); drawMixScreen(); });
-        g.fillStyle = '#fff'; g.font = '700 18px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, cx + cw / 2, cy + 16 + (ch - 16) / 2); g.textBaseline = 'alphabetic';
-        btn(cx + cw - bw, cy + 16, bw, ch - 16, '+', false, () => { act(1); drawMixScreen(); });
-      });
-    };
     // #235 switches for stage pieces (off = hidden and no per-frame work), green = on
     // #276 controllers seen as 3D hands holding them, or bare controllers
     const ctlBtn = (x, y, w, h) => { let X = null; try { X = xr; } catch (e) {}   // xr is set up further down the file
       const cur = X ? X.getCtlLook() : '3dhands', NEXT = { '3dhands': 'glove', glove: 'controller', controller: '3dhands' };   // #287 three looks, tap to cycle
       btn(x, y, w, h, `CONTROLLERS: ${{ '3dhands': '3D HANDS', glove: 'GLOVE', controller: 'CONTROLLER' }[cur]}`, cur !== 'controller', () => { if (X) X.setCtlLook(NEXT[cur]); const el = document.getElementById('sHands'); if (el && X) el.value = X.getCtlLook(); drawMixScreen(); }, false, P ? 18 : 20); };
-    const avBtn = (x, y, w, h) => btn(x, y, w, h, `AVATAR: ${djSet.avatar ? 'ON' : 'OFF'}`, djSet.avatar, () => setDjAvatar(!djSet.avatar), false, P ? 18 : 20);   // #363 the robot DJ (AVACAM / SHOWTIME!) on / off
+    const avBtn = (x, y, w, h) => btn(x, y, w, h, `AVATAR: ${djSet.avatar ? 'ON' : 'OFF'}`, djSet.avatar, () => setDjAvatar(!djSet.avatar), false, P ? 18 : 20);   // #363 the robot DJ (SHOWTIME!) on / off
     const sw = (x, y, w, h, label, k) => { const on = pieceOn(k); btn(x, y, w, h, `${label}: ${on ? 'ON' : 'OFF'}`, on, () => setPiece(k, !on), false, P ? 18 : 20); };
-    // #389 VJ TOOLS is now the home of the stage extras: 12 buttons in a grid and the LED steppers under them
+    // #389 / #530 VJ TOOLS: 14 stage & visual extras in a clean grid
     const vjPage = y0 => {
-      const fs = P ? 19 : 16, tile = (x, y, w, h, i) => [
+      const fs = P ? 19 : 16, isWeb = !!(streamer && (streamer.source === 'pcam' || (streamer.stu.on && streamer.stu.mode !== 'show'))), tile = (x, y, w, h, i) => [
         () => btn(x, y, w, h, scroller.on ? 'SCROLLER (ON)' : 'SCROLLER', scroller.on, () => setTools('scroller'), false, fs),
         () => btn(x, y, w, h, 'VISUALS', false, () => setVideoPage(true), false, fs),
         () => btn(x, y, w, h, 'FX', false, openFxPage, false, fs),   // #390 the FX tab of VISUALS
-        () => sw(x, y, w, h, 'LED WALL', 'ledwall'),
         () => sw(x, y, w, h, 'NEON', 'neon'),
         () => avBtn(x, y, w, h),
         () => btn(x, y, w, h, chalkLbl(), !!(chalkboard && chalkboard.on), chalkTap, !chalkboard, fs),   // tap = out / away, double-tap = back to its spot
         () => btn(x, y, w, h, portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), portalsTap, !portals, fs),
         () => btn(x, y, w, h, 'PORTALS SETUP', false, portals ? () => setTools('portals') : null, !portals, fs),
-        () => btn(x, y, w, h, ledMode === 'cam' ? 'LED DirroDj📹: ON' : 'LED DirroDj📹', ledMode === 'cam', () => setLedMode(ledMode === 'cam' ? 'off' : 'cam'), false, fs),
         () => btn(x, y, w, h, 'CAM FIT', false, () => setTools('streamfit'), !streamer, fs),
-        () => btn(x, y, w, h, 'PHONE CAM', !!(streamer && streamer.source === 'pcam'), openPhoneCam, !streamer, fs),
+        () => btn(x, y, w, h, 'WEBCAM', isWeb, () => openPhoneCam(true), !streamer, fs),
         () => btn(x, y, w, h, perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false, fs),
         () => btn(x, y, w, h, laser && laser.on ? 'LASER: ON' : 'LASER', !!(laser && laser.on), () => setTools('laser'), !laser, fs),   // #406
         () => btn(x, y, w, h, mprops && mprops.props().length ? `MOVIE PROPS (${mprops.props().length})` : 'MOVIE PROPS', !!(mprops && mprops.props().length), () => setTools('props'), !mprops, fs),   // #478
         () => btn(x, y, w, h, settings.occlusion !== false ? 'REAL OCCLUSION: ON' : 'REAL OCCLUSION: OFF', settings.occlusion !== false, () => { settings.occlusion = settings.occlusion === false; saveSettings(); const c = document.getElementById('cOccl'); if (c) c.checked = settings.occlusion; drawMixScreen(); }, false, fs)][i]();   // #411 passthrough: real things hide virtual ones
-      const NT = 16, cols = P ? 2 : 5, gap = P ? 8 : 6, bh = P ? 58 : 50, bw = (R - L - gap * (cols - 1)) / cols;   // #390 13 buttons: 5 across in landscape (#406 14 with LASER)
-      for (let i = 0; i < NT; i++) tile(L + (i % cols) * (bw + gap), y0 + 4 + Math.floor(i / cols) * (bh + gap), bw, bh, i);
-      ledCells(L, y0 + 4 + Math.ceil(NT / cols) * (bh + gap) + 4, R - L, P);
+      const NT = 14, cols = P ? 2 : 5, gap = P ? 8 : 6, bh = P ? 66 : 68, bw = (R - L - gap * (cols - 1)) / cols;
+      for (let i = 0; i < NT; i++) tile(L + (i % cols) * (bw + gap), y0 + 6 + Math.floor(i / cols) * (bh + gap), bw, bh, i);
     };
     if (P) {
       if (page === 'dj') { const lw = (R - L - 8) * 0.42; btn(L, y0 + 8, R - L - lw - 8, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 22); drawLoopMainBtn(g, R - lw, y0 + 8, lw, 80, 22); VP_HIT.push({ x: R - lw, y: y0 + 8, w: lw, h: 80, act: () => setTools('looper') }); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');   // #470 LOOPER
@@ -7929,7 +7912,7 @@ function frameBody() {
   stepLoose(dt);
   stepMilkCrates(dt);
   stepWallGlow(); stepBlobs();
-  if (ledwall.visible || (streamer && streamer.active && streamer.source === 'show')) scroller.tick(dt);   // #342 also during PREVIEW   // #224 (#338 also for SHOWTIME! with the wall off) (#236 switched off: it keeps running for the phone, nothing drawn here)
+  scroller.tick(dt);
   // label relief (#94): on within arm's length of your eyes (0.65 m), off again past 0.8 m
   camera.getWorldPosition(_eyeB);
   for (const r of [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)]) {
@@ -7986,7 +7969,6 @@ function frameBody() {
   for (const lb of milkLabels()) lb.tick();   // #394 label ink: upload / save
   stepPlJump(dt);   // #394 playlist records jumping into a milk crate
   stepScrDir();    // #198 portrait menu
-  if (ledMode === 'decks') ledwall.userData.setDecks(deckVid[0].tex, deckVid[1].tex, ...deckGains(mixVal));
   if (spect) {   // #158 spectator camera (nothing when off / no phone)
     try { spect.tick(dt); }   // #217: a spectator error must never stop the headset's frame (it froze on a record pull)
     catch (e) { if (!spectErrShown) { spectErrShown = true; console.error(e); toast('Phone / DirroVJ link error (headset keeps running): ' + e.message, 5000); } }
@@ -8045,13 +8027,12 @@ if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr
 renderer.setAnimationLoop(frame);
 // #220 DJ CAM: pose the avatar (headset: head + hands; desktop: a demo DJ), then render the camera into the LED wall
 const _djT0 = performance.now();
-const DJ_HIDE_NEON = new Set(['front', 'low', 'faders']);   // #338 the GOPRO sees what is in front of it
+const DJ_HIDE_NEON = new Set(['low']);   // #338 the GOPRO sees what is in front of it
 function djGear() {
   return { deckA: deckGroups[0].position, deckB: deckGroups[1].position, mixer: mixer.position, crate: crateRig.position, top: deckGroups[0].position.y + DECK.H };
 }
-function djPrep() {   // what the camera must not see: the LED wall itself, XR hand / controller models and occluders
+function djPrep() {   // what the camera must not see: XR hand / controller models and occluders
   const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
-  if (ledMode === 'cam') hide(ledwall);   // #372 only when the wall itself shows AVACAM (it would film itself); otherwise the wall is in the shot like any prop
   if (streamer ? !streamer.showOpt.neon : DJ_HIDE_NEON.has(djSet.preset) && !gpActive()) hide(neon);   // #372 the OBJECTS toggle decides (its back faces FRONT / FADERS / low, which is accepted when it is on); no streamer (phone): the old rule, #337 the GoPro sees what it sees
   if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand) hide(st.ctlHand.root); }
   if (xr && xr.glove) hide(xr.glove.root);   // #287 the DJ CAM robot has its own gloves
@@ -8084,7 +8065,7 @@ addEventListener('resize', () => {
 });
 
 // ------------------------------------------------------------------ #379 VISUALS > FX: FLOAT and WATER (fx.js)
-const FX_LABEL = { deckA: 'DECK A', deckB: 'DECK B', mixer: 'MIXER', crate: 'RECORD CASE', milk: 'MILK CRATE', neon: 'NEON SIGN', ledwall: 'LED WALL' };
+const FX_LABEL = { deckA: 'DECK A', deckB: 'DECK B', mixer: 'MIXER', crate: 'RECORD CASE', milk: 'MILK CRATE', neon: 'NEON SIGN' };
 const _fxT = new THREE.Vector3();
 function fxCandidates() {   // what a FLOAT ball can sit on (and what can ride on floated gear)
   const out = [];
@@ -8125,7 +8106,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease, spiderGrabTest, spiderGrab, spiderRelease,
   crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, holdLooper, crateSelect, crateWalkStep, drawCrateScreen, layoutSleeves, crateDisc,
   onA: st => gpSummon(st),   // #404 right controller A: the camera GoPro to that hand
-  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, ledwall, setLedScale, saveLedScale, LED, ledTurned, ledTilted, toast, mixScreenRelease, mixScreenDrag,
+  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, toast, mixScreenRelease, mixScreenDrag,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
 });
@@ -8459,7 +8440,7 @@ async function applySpect() {
   try {
     const m = await import('./spectator-host.js');
     if (settings.spect === 'on' && !spect) spect = m.startHost({ code: spectCode(), stage, rig, scene, renderer, camera, toast, perf, getInputs: () => xr && xr.inputs,
-      getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => ({ ...led.state(), curve: ledwall.userData.curveDeg() }),   /* #358 */ onScreen: onPhoneScreen, getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
+      getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => ({ ...led.state(), curve: 0 }),   /* #358 */ onScreen: onPhoneScreen, getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
       getSpiders: spidersState,   // #262
       onVj: m => {   // #507 DirroVJ's scroller desk: an approved line onto the Quest's sine scroller (only from a DirroVJ the DJ allowed)
         if (m.k === 'vjshow') { if (streamer && streamer.vjAllowed) vjShow(m); return; }   // #523 SHOWTIME! from the VJ desk (allowed DirroVJ only)
@@ -8497,7 +8478,7 @@ if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
 try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media.getFile('Images', cn).then(f => { if (f) { streamer.setCardPic(f); cardWallSet(f, false); } }).catch(() => {}); } catch (e) {}   // #445 the CARD picture of last time
-window.vire = { THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, ledwall, setLedScale, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._deck = { pullRecord, placeOnDeck, setMotor, dropNeedleAt, get held() { return held; } };   // #497 test hook: put a record on a deck from the console
 window.vire._loop = { loopClip, loopCopy, loopPaste, loopUndo, loopUndoDo, loopDeleteBank, looper, loopSlots, loopUI, pressLooper, clearLooper, loopSlotTap, loopRegion, loopNudge, loopSaveBank, loopLoadBank, loopOpenBanks, stepLooper, releaseLooper };   // #470 test hook
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
