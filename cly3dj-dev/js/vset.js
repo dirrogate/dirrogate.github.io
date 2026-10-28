@@ -194,11 +194,10 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
       const L = layoutOf(video.videoWidth, video.videoHeight) || { layout: 'mono', swap: false };
       const c = leftEyeCanvas(snap, L.layout, L.swap, 2048); S.envCanvas = c; S.light = brightestDir(c); panoColour(c);
       skybox.setVideo(video, L.layout, L.swap); skybox.setHeight(S.sky.h); S.file = f; S.loaded = true;
-      if (!S.on) video.pause();
+      if (!S.on && !S.domeOn) video.pause();
       return;
     }
-    const bmp = await createImageBitmap(f), L = layoutOf(bmp.width, bmp.height);
-    if (!L) { bmp.close(); throw new Error('not a 360 panorama (2:1, 1:1 or 4:1)'); }
+    const bmp = await createImageBitmap(f), L = layoutOf(bmp.width, bmp.height) || { layout: 'mono', swap: false };
     const c = leftEyeCanvas(bmp, L.layout, L.swap, 2048); bmp.close();
     S.envCanvas = c; S.light = brightestDir(c); panoColour(c);
     await skybox.load(f, L.layout, L.swap); skybox.setHeight(S.sky.h);
@@ -211,7 +210,7 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
   function apply() {
     const on = S.on && S.loaded;
     skybox.group.visible = on; skybox.setStereo(false);
-    if (vid) { if (on) vid.play().catch(() => {}); else vid.pause(); }
+    if (vid) { if (on || S.domeOn) vid.play().catch(() => {}); else vid.pause(); }
     if (!on) quad.visible = false;
     const turn = S.sky.turn * DEG;
     skybox.setTurn(turn); scene.environmentRotation.set(0, on ? turn : 0, 0);
@@ -231,7 +230,7 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
     return on ? (sameAsQuest() ? 'Virtual set on.' : 'Virtual set on (note: a different picture from the Quest\'s).') : 'Virtual set off: normal camera view.';
   }
   function onSky(m) {   // from the Quest: { h, turn, type, key, file, media }
-    const typeChanged = m.type !== S.sky.type;
+    const typeChanged = m.type != null && m.type !== S.sky.type;
     Object.assign(S.sky, m);
     skybox.setHeight(S.sky.h);
     if (m.media && m.media !== mediaId) {   // #185 the Quest chose a library item: use this phone's copy of it
@@ -247,7 +246,7 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
   }
   function onEnd() { const was = S.on; S.on = false; binding = null; quad.visible = false; if (was) apply(); }
   return { S, K, quad, mat, autoKey, setLook: l => { look = l; }, frame, pick, setOn, onSky, setKey, onSession, onEnd, apply,
-    ensure, playPano: on => { if (vid) { if (on) vid.play().catch(() => {}); else if (!S.on) vid.pause(); } },   // #380 the S8 studio's DOME (without the AR virtual set)
+    ensure, playPano: on => { S.domeOn = !!on; if (vid) { if (on) vid.play().catch(() => {}); else if (!S.on) vid.pause(); } },   // #380 / #533 the studio's DOME (without the AR virtual set)
     setMatte: v => { mat.uniforms.matte.value = v ? 1 : 0; }, sameAsQuest };
 }
 

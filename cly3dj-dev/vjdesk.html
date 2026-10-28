@@ -129,7 +129,7 @@
     <div class="vjBankScroll"><div class="vjGrid" id="gridVideos"></div></div>
   </div>
   <div class="vjBank">
-    <div class="vjBankHead"><h3>PANOS</h3><span class="note" id="vjPanoNote" style="margin:0">Click a 360° panorama or video pano to load it into the DOME backdrop</span><button class="vjImp" id="impPanos">+ IMPORT PANOS…</button><input type="file" id="filePanos" multiple accept="image/*,video/*" hidden></div>
+    <div class="vjBankHead"><h3>PANOS</h3><span class="note" id="vjPanoNote" style="margin:0">Click a 360° panorama or video pano to play it on LED CLIP (and BACK: DOME)</span><button class="vjImp" id="impPanos">+ IMPORT PANOS…</button><input type="file" id="filePanos" multiple accept="image/*,video/*" hidden></div>
     <div class="vjBankScroll"><div class="vjGrid" id="gridPanos"></div></div>
   </div>
 </div>
@@ -235,7 +235,7 @@ function render() {
   $('twBtn').textContent = tw.state === 'live' ? 'TWITCH: ON (STOP)' : tw.state === 'connecting' ? 'TWITCH: CONNECTING…' : 'TWITCH ON/OFF';
   $('twSt').textContent = tw.state === 'live' ? `LIVE · ${(tw.kbps / 1000).toFixed(1)} Mb/s` : tw.msg ? tw.msg : '';
   if (tw.key && document.activeElement !== $('twKey') && !$('twKey').value) $('twKey').value = tw.key;
-  if (window.updateVjDecks) window.updateVjDecks(D.clip || '', D.pano || '');
+  if (window.updateVjDecks) window.updateVjDecks(D.media || D.clip || D.pano || '', false);
   const cur = $('dev').value; $('dev').innerHTML = S.devs.map(([id, l]) => `<option value="${esc(id)}">${esc(l)}</option>`).join(''); if (cur) $('dev').value = cur; else if (D.lineDev) $('dev').value = D.lineDev;
   $('aSt').textContent = D.lineErr ? 'Line in: ' + D.lineErr : D.audio === 'line' ? 'Twitch gets this laptop\'s input (takes effect on the next GO LIVE or within a second if live).' : 'Twitch gets the Quest\'s master sound over the link.';
   $('chatSt').textContent = D.ch ? `Twitch chat #${D.ch}: ${D.chat}` : 'Twitch chat: waiting for the channel from the Quest (DirroVJ on).';
@@ -515,14 +515,17 @@ const BANKS = [
   { id: 'Videos', grid: 'gridVideos', imp: 'impVideos', file: 'fileVideos', folders: ['Video'] },
   { id: 'Panos', grid: 'gridPanos', imp: 'impPanos', file: 'filePanos', folders: ['Pano', 'Video pano'] },
 ];
-let actClip = '', actPano = '';
+let actMedia = '', lastMediaPickT = 0;
 
 async function thumbUrlFor(folder, name) {
   const key = folder + '/' + name;
   if (thumbUrls.has(key)) return thumbUrls.get(key);
   thumbUrls.set(key, '');
   let b = await media.getThumb(folder, name);
-  if (!b) b = await media.ensureThumb(folder, name);
+  if (!b) {
+    const f = await media.getFile(folder, name);
+    if (f) { b = await media.makeThumb(f, folder).catch(() => null); if (b) await media.putThumb(folder, name, b).catch(() => {}); }
+  }
   if (b) { const u = URL.createObjectURL(b); thumbUrls.set(key, u); return u; }
   return '';
 }
@@ -548,21 +551,15 @@ async function loadBank(b) {
 function renderBank(b) {
   const el = $(b.grid); if (!el) return;
   const items = b.items || [], cols = Math.max(MIN_COLS, Math.ceil(items.length / ROWS));
-  const actKey = b.id === 'Panos' ? actPano : actClip;
   let html = '';
   for (let c = 0; c < cols; c++) {
-    let colAct = false;
-    for (let r = 0; r < ROWS; r++) {
-      const it = items[c * ROWS + r];
-      if (it && (it.folder + '/' + it.name) === actKey) colAct = true;
-    }
-    html += `<div class="vjColHead${colAct ? ' act' : ''}" data-vjcol="${c}">Column ${c + 1}</div>`;
+    html += `<div class="vjColHead" data-vjcol="${c}">Column ${c + 1}</div>`;
     for (let r = 0; r < ROWS; r++) {
       const idx = c * ROWS + r, it = items[idx];
       if (it) {
-        const key = it.folder + '/' + it.name, u = thumbUrls.get(key) || '', isAct = key === actKey;
+        const key = it.folder + '/' + it.name, u = thumbUrls.get(key) || '';
         const short = it.name.replace(/\.[^.]+$/, '');
-        html += `<div class="vjCell${isAct ? ' act' : ''}" data-vjkey="${esc(key)}" data-folder="${esc(it.folder)}" data-name="${esc(it.name)}" title="${esc(it.name)} (click to play)">`
+        html += `<div class="vjCell" data-vjkey="${esc(key)}" data-folder="${esc(it.folder)}" data-name="${esc(it.name)}" title="${esc(it.name)} (click to play)">`
           + `<img src="${u}" alt=""><div class="vjCap">${esc(short)}</div></div>`;
       } else {
         html += `<div class="vjCell empty" data-empty="${esc(b.id)}" title="Empty slot — click to import into ${esc(b.id)}"><div class="vjCap"></div></div>`;
@@ -574,30 +571,36 @@ function renderBank(b) {
     if (cell.dataset.vjkey) {
       cell.onclick = () => {
         const folder = cell.dataset.folder, name = cell.dataset.name, key = folder + '/' + name;
-        if (b.id === 'Panos') actPano = key; else actClip = key;
+        actMedia = key; lastMediaPickT = Date.now();
         send({ k: 'media', folder, name });
-        updateVjDecks(actClip, actPano);
+        updateVjDecks(actMedia, true);
       };
     } else {
       cell.onclick = () => $(b.file).click();
     }
   }
+  updateVjDecks(actMedia, true);
 }
 
-function updateVjDecks(clip, pano) {
-  actClip = clip || actClip; actPano = pano || actPano;
+function updateVjDecks(mediaKey, fromClick) {
+  if (!fromClick && Date.now() - lastMediaPickT < 1500) return;
+  if (mediaKey) actMedia = mediaKey;
+  document.querySelectorAll('#vjDecks .vjCell.act, #vjDecks .vjColHead.act').forEach(x => x.classList.remove('act'));
+  if (!actMedia) return;
+  let matched = false;
   for (const b of BANKS) {
     const el = $(b.grid); if (!el) continue;
-    const actKey = b.id === 'Panos' ? actPano : actClip;
-    const actCols = new Set();
-    const cells = el.querySelectorAll('.vjCell[data-vjkey]');
-    cells.forEach(c => {
-      const on = c.dataset.vjkey === actKey;
-      c.classList.toggle('act', on);
-    });
     const allCells = [...el.querySelectorAll('.vjCell')];
-    allCells.forEach((c, idx) => { if (c.classList.contains('act')) actCols.add(Math.floor(idx / ROWS)); });
-    el.querySelectorAll('.vjColHead').forEach((h, c) => h.classList.toggle('act', actCols.has(c)));
+    const heads = el.querySelectorAll('.vjColHead');
+    for (let idx = 0; idx < allCells.length; idx++) {
+      const c = allCells[idx];
+      if (!matched && c.dataset.vjkey === actMedia) {
+        matched = true;
+        c.classList.add('act');
+        const colIdx = Math.floor(idx / ROWS);
+        if (heads[colIdx]) heads[colIdx].classList.add('act');
+      }
+    }
   }
 }
 window.updateVjDecks = updateVjDecks;

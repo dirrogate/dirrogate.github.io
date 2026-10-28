@@ -103,7 +103,7 @@ const PALS = ['green', 'island', 'lava', 'ice', 'copper', 'neon'];
 const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'black'];   // #516 comic = DirroComics page
 
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
-  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', clip: '', pano: '' };
+  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip' };
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
   const queue = []; let qid = 1;
   const quad = mat => { const sc = new THREE.Scene(), m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); m.frustumCulled = false; sc.add(m); return sc; };
@@ -114,8 +114,8 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   const rU = { hT: { value: hRT.texture }, ro: { value: new THREE.Vector3() }, cx: { value: new THREE.Vector3() }, cy: { value: new THREE.Vector3() }, cz: { value: new THREE.Vector3() }, HS: { value: 0.25 }, pal: { value: 0 }, pump: { value: 0 }, cyc: { value: 0 }, flash: { value: 0 }, res: { value: new THREE.Vector2(320, 256) } };
   const rMat = new THREE.ShaderMaterial({ uniforms: rU, vertexShader: VS, fragmentShader: R_FS, depthTest: false, depthWrite: false }), rSc = quad(rMat);
   const camTex = new THREE.VideoTexture(fixed.video); camTex.colorSpace = THREE.NoColorSpace; camTex.generateMipmaps = false;
-  const ledTex = led.video ? new THREE.VideoTexture(led.video) : null; if (ledTex) { ledTex.colorSpace = THREE.NoColorSpace; ledTex.generateMipmaps = false; }
-  const ledImgTex = new THREE.Texture(); ledImgTex.colorSpace = THREE.NoColorSpace; ledImgTex.generateMipmaps = false; ledImgTex.minFilter = ledImgTex.magFilter = THREE.LinearFilter; let lastLedImg = null;
+  const ledTex = new THREE.Texture(); ledTex.colorSpace = THREE.NoColorSpace; ledTex.generateMipmaps = false; ledTex.minFilter = ledTex.magFilter = THREE.LinearFilter;
+  const ledImgTex = new THREE.Texture(); ledImgTex.flipY = false; ledImgTex.colorSpace = THREE.NoColorSpace; ledTex.generateMipmaps = false; ledImgTex.generateMipmaps = false; ledImgTex.minFilter = ledImgTex.magFilter = THREE.LinearFilter; let lastLedImg = null;
   const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 } };
   const mMat = new THREE.ShaderMaterial({ uniforms: mU, vertexShader: VS, fragmentShader: MIX_FS, depthTest: false, depthWrite: false }), mSc = quad(mMat);
   const comics = makeComics({ THREE, renderer, fixed, send: m => bc.postMessage(m), onChange: () => post(),   // #516
@@ -156,18 +156,25 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     renderer.setRenderTarget(fRT); renderer.render(rSc, oc);
   }
   function cover(tw, th, W, H, out) { if (!tw || !th) return out.set(0, 0, 1, 1); const k = Math.max(W / tw, H / th), w = W / (tw * k), h = H / (th * k); return out.set((1 - w) / 2, (1 - h) / 2, w, h); }
-  function bind(name, U, fit, W, H, questTex) {   // a bus's texture and its cover crop
+  function bind(name, U, fit, W, H, questTex, now) {   // a bus's texture and its cover crop
     if (name === 'quest') { U.value = questTex; fit.set(0, 0, 1, 1); return 1; }
     if (name === 'fractal') { U.value = fRT.texture; cover(320, 256, W, H, fit); return 1; }
     if (name === 'comic') { if (!comicTex) return 0; U.value = comicTex; cover(1920, 1080, W, H, fit); return 1; }   // #516
     if (name === 'webcam') { const v = fixed.video; if (!fixed.on || !v.videoWidth) return 0; U.value = camTex; cover(v.videoWidth, v.videoHeight, W, H, fit); return 1; }
     if (name === 'led') {
+      if (D.ledKind === 'pano') {
+        const dt = studioCtl && studioCtl.renderDome ? studioCtl.renderDome(W, H, now) : null;
+        if (!dt) return 0;
+        U.value = dt; fit.set(0, 0, 1, 1); return 1;
+      }
       if (!led.on) return 0;
       if (led.img && led.curImage) {
         if (lastLedImg !== led.curImage) { lastLedImg = led.curImage; ledImgTex.image = lastLedImg; ledImgTex.needsUpdate = true; }
         U.value = ledImgTex; cover(lastLedImg.width, lastLedImg.height, W, H, fit); return 1;
       }
-      const v = led.video; if (!ledTex || !v || !v.videoWidth) return 0;
+      const v = led.video; if (!v || !v.videoWidth) return 0;
+      if (ledTex.image !== v) ledTex.image = v;
+      if (v.readyState >= 2) ledTex.needsUpdate = true;
       U.value = ledTex; cover(v.videoWidth, v.videoHeight, W, H, fit); return 1;
     }
     return 0;
@@ -182,7 +189,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     const used = (D.x < 1 ? [D.a] : []).concat(D.x > 0 ? [D.b] : []);
     if (used.includes('fractal')) fractal(dt, now);
     comics.tick(questTex, now, dt); comicTex = used.includes('comic') ? comics.render(W, H) : null;   // #516
-    mU.kA.value = bind(D.a, mU.tA, mU.fA.value, W, H, questTex); mU.kB.value = bind(D.b, mU.tB, mU.fB.value, W, H, questTex); mU.x.value = D.x;
+    mU.kA.value = bind(D.a, mU.tA, mU.fA.value, W, H, questTex, now); mU.kB.value = bind(D.b, mU.tB, mU.fB.value, W, H, questTex, now); mU.x.value = D.x;
     renderer.setRenderTarget(null); renderer.render(mSc, oc);
     if (peers && now - pvT > 250) { pvT = now; try { pv.getContext('2d').drawImage(renderer.domElement, 0, 0, 256, 144); bc.postMessage({ k: 'pv', img: pv.toDataURL('image/jpeg', 0.6) }); } catch {} }
   }
@@ -233,20 +240,21 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if (m.k === 'hello') { post(); if (!m.again) comics.sendList(); }
     else if (m.k === 'cx') comics.onMsg(m);   // #516 DirroComics
     else if (m.k === 'tw') { if (studioCtl) { if (m.op === 'key') studioCtl.setTwKey(m.key); else studioCtl.twToggle(m.key); } post(); }   // #532 Twitch key + GO LIVE on the VJ desk
-    else if (m.k === 'media') {   // #532 IMAGES / VIDEOS / PANOS clip decks
+    else if (m.k === 'media') {   // #532 / #533 IMAGES / VIDEOS / PANOS clip decks
       const { folder, name } = m; if (!folder || !name) return;
+      D.media = folder + '/' + name;
+      const actBus = D.x <= 0.5 ? 'a' : 'b';
       if (folder === 'Images' || folder === 'Video') {
+        D.ledKind = 'clip'; D[actBus] = 'led'; post();
         media.getFile(folder, name).then(f => {
           if (!f) return;
-          led.play(f, true); D.clip = folder + '/' + name;
+          led.play(f, true);
           if (studioCtl && studioCtl.setVisuals) studioCtl.setVisuals();
-          if (D.a !== 'led' && D.b !== 'led') D[D.x < 0.5 ? 'a' : 'b'] = 'led';
           post();
         }).catch(() => {});
       } else if (folder === 'Pano' || folder === 'Video pano') {
-        D.pano = folder + '/' + name;
+        D.ledKind = 'pano'; D[actBus] = 'led';
         if (studioCtl && studioCtl.pickPano) studioCtl.pickPano(folder, name);
-        if (D.a !== 'quest' && D.b !== 'quest') D[D.x < 0.5 ? 'a' : 'b'] = 'quest';
         const L = getLink(); if (L && L.isOpen && D.sh && D.sh.o && !D.sh.o.dome) L.send('ctl', { k: 'vjshow', cam: '', opt: 'dome', v: true });
         post();
       }

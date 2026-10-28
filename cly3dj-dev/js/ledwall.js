@@ -14,7 +14,7 @@ export class LedPlayer {
     const self = this;
     this.curImage = null;
     this.wall = { userData: { get curImage() { return self.curImage; }, setImage: b => { self.curImage = b; }, setVideo() {}, setDecks() {}, setCanvas: () => null, setCam() {}, setCurve() {}, curveDeg: () => 0, curveRad: () => 0, portrait: () => false, tick() {} } };
-    this.files = []; this.video = null; this.name = null; this.on = false; this.onChange = null; this.order = 'random'; this.silent = false; this.clk = null; this.kind = null;
+    this.files = []; this.video = null; this.name = null; this.on = false; this.onChange = null; this.order = 'random'; this.silent = false; this.clk = null; this.kind = null; this.vjLocal = false; this._qKey = '';
   }
   // #439 the WALL page's CLIPS / PICTURES tiles: the playlist's videos only ('video') or pictures only ('image'); null = both
   pool() { return this.kind ? this.files.filter(f => (this.kind === 'image') === isImage(f)) : this.files; }
@@ -25,7 +25,7 @@ export class LedPlayer {
     const onEnded = this._ended || null;
     this.silent = s;
     if (!f) return;
-    if (img) { if (!s) createImageBitmap(f).then(b => { if (this.name === f.name && this.img && !this.silent) this.curImage = b; }).catch(() => {}); else this.curImage = null; return; }
+    if (img) { if (!s) createImageBitmap(f, { imageOrientation: 'flipY' }).then(b => { if (this.name === f.name && this.img && !this.silent) this.curImage = b; }).catch(() => {}); else this.curImage = null; return; }
     this._open(f, loop ? null : onEnded, t, dur); if (loop) this._loop(true);
   }
   _loop(on) { if (this.video) this.video.loop = on; if (this.clk) { this.clk.loop = on; this._arm(); } }
@@ -51,12 +51,12 @@ export class LedPlayer {
     const i = F.findIndex(f => f.name === this.name), f = F[(i + 1) % F.length];
     this.on = true; this._open(f, () => this.next()); this.onChange && this.onChange(); return true;
   }
-  play(file, loop = false) { this.on = true; this._open(file, loop ? null : () => this.next()); if (loop) this._loop(true); this.onChange && this.onChange(); }
+  play(file, loop = false) { this.vjLocal = !!loop; this.on = true; this._open(file, loop ? null : () => this.next()); if (loop) this._loop(true); this.onChange && this.onChange(); }
   _open(file, onEnded, at = 0, dur = null) {
     this._close(); this._ended = onEnded;
     if (isImage(file)) {   // #185 still image
       const name = file.name; this.name = name; this.img = true;
-      if (!this.silent) createImageBitmap(file).then(b => { if (this.name === name && this.img && !this.silent) this.curImage = b; }).catch(() => {});
+      if (!this.silent) createImageBitmap(file, { imageOrientation: 'flipY' }).then(b => { if (this.name === name && this.img && !this.silent) this.curImage = b; }).catch(() => {});
       if (onEnded) this.imgT = setTimeout(() => { if (this.name === name) onEnded(); }, IMG_SECONDS * 1000);
       return;
     }
@@ -88,11 +88,14 @@ export class LedPlayer {
     this.on = true; this._open(f, () => this.next()); this.onChange && this.onChange();
     return true;
   }
-  stop() { this.on = false; this._close(); this.onChange && this.onChange(); }
+  stop() { this.vjLocal = false; this.on = false; this._close(); this.onChange && this.onChange(); }
   // follower: match the host's clip and time (seek only when more than 0.3 s out, so playback stays smooth)
   follow(on, name, t) {
-    if (!on || !name) { if (this.video) this._close(); this.on = false; return; }
-    const f = this.fileNamed(name); if (!f) { if (this.video) this._close(); return; }
+    const qk = (on ? 1 : 0) + '|' + (name || ''), chg = qk !== this._qKey; this._qKey = qk;
+    if (!on || !name) { if (this.vjLocal) return; if (this.video || this.img) this._close(); this.on = false; return; }
+    if (this.vjLocal && !chg) return;
+    const f = this.fileNamed(name); if (!f) { if (this.vjLocal) return; if (this.video || this.img) this._close(); return; }
+    this.vjLocal = false;
     if (this.name !== name) { this._open(f, null); if (this.video) this.video.loop = true; }
     this.on = true;
     const v = this.video; if (v && v.readyState >= 1 && Math.abs(v.currentTime - t) > 0.3) v.currentTime = t;

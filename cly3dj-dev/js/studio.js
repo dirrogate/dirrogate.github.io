@@ -121,14 +121,36 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   let compRT = null;   // #507
   let locRT = null; const locCam = new THREE.PerspectiveCamera(50, 16 / 9, 0.05, 60); locCam.updateMatrixWorld = () => {};   // #504
   let domeRT = null; const domeCam = new THREE.PerspectiveCamera(50, 16 / 9, 0.05, 60); domeCam.updateMatrixWorld = () => {};
-  const clipTex = led.video ? new THREE.VideoTexture(led.video) : null; if (clipTex) { clipTex.colorSpace = THREE.NoColorSpace; clipTex.generateMipmaps = false; }
-  const imgTex = new THREE.Texture(); imgTex.colorSpace = THREE.NoColorSpace; imgTex.generateMipmaps = false; imgTex.minFilter = imgTex.magFilter = THREE.LinearFilter; let lastImg = null;
+  const clipTex = new THREE.Texture(); clipTex.colorSpace = THREE.NoColorSpace; clipTex.generateMipmaps = false; clipTex.minFilter = clipTex.magFilter = THREE.LinearFilter;
+  const imgTex = new THREE.Texture(); imgTex.flipY = false; imgTex.colorSpace = THREE.NoColorSpace; imgTex.generateMipmaps = false; imgTex.minFilter = imgTex.magFilter = THREE.LinearFilter; let lastImg = null;
   const getTwKey = () => { try { return localStorage.getItem(KEYK) || localStorage.getItem('vire.twitchKey') || ''; } catch { return ''; } };
   const setTwKey = k => { k = String(k || '').trim(); try { localStorage.setItem(KEYK, k); if (k) localStorage.setItem('vire.twitchKey', k); } catch {} };
   const U = { q: { value: qTex }, cam: { value: null }, bgT: { value: null }, qMode: { value: 0 }, camMode: { value: 0 }, bgMode: { value: 0 }, t: { value: 0 },
     bgUv: { value: new THREE.Vector4(0, 0, 1, 1) }, qFit: { value: new THREE.Vector4(0, 0, 1, 1) }, crop: { value: new THREE.Vector4() },
     loc: { value: null }, locMode: { value: 0 }, thr: { value: 0.1 }, soft: { value: 0.1 }, spill: { value: 0.7 }, cmatch: { value: 0.4 }, tint: { value: new THREE.Vector3(1, 1, 1) }, keyCol: { value: 0 }, camGain: { value: 1 }, showMatte: { value: 0 } };
   const compMat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: COMP_FS, depthTest: false, depthWrite: false }), compSc = quad(compMat);
+  function renderDome(W, H, now) {
+    if (!skybox.tex) return null;
+    if (skybox.tex.isVideoTexture && skybox.tex.image && skybox.tex.image.readyState >= 2) skybox.tex.needsUpdate = true;
+    const p = poseAt((questNow() - (S.D != null ? S.D : 120)) & 0xFFFFFF);
+    if (p) {
+      rig.updateMatrixWorld();
+      domeCam.matrixWorld.compose(new THREE.Vector3().fromArray(p.p), new THREE.Quaternion().fromArray(p.q), new THREE.Vector3(1, 1, 1)).premultiply(rig.matrixWorld);
+      domeCam.fov = p.fov; domeCam.aspect = W / H;
+    } else {
+      domeCam.matrixWorld.compose(
+        new THREE.Vector3(0, skybox.height || 1.5, 0),
+        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (now || performance.now()) * 0.00018),
+        new THREE.Vector3(1, 1, 1)
+      );
+      domeCam.fov = 65; domeCam.aspect = W / H;
+    }
+    domeCam.matrixWorldInverse.copy(domeCam.matrixWorld).invert(); domeCam.updateProjectionMatrix();
+    if (!domeRT || domeRT.width !== W || domeRT.height !== H) { if (domeRT) domeRT.dispose(); domeRT = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, depthBuffer: false }); }
+    const sv = skybox.group.visible, cc = renderer.getClearColor(new THREE.Color()), ca = renderer.getClearAlpha(); skybox.group.visible = true; skybox.setStereo(false);
+    renderer.setRenderTarget(domeRT); renderer.setClearColor(0x000000, 1); renderer.clear(); renderer.render(skybox.group, domeCam); skybox.group.visible = sv; renderer.setClearColor(cc, ca);
+    return domeRT.texture;
+  }
   const studioCtl = {
     twState: () => ({ state: S.tw, msg: S.twMsg, kbps: S.kbps, key: getTwKey() }),
     setTwKey,
@@ -137,12 +159,13 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       if (S.tw === 'live' || S.tw === 'connecting') twStop('');
       else { if (!S.on) startVj(); twStart(); }
     },
-    setVisuals: () => { if (S.bd === 'none') S.bd = 'visuals'; },
+    setVisuals: () => { S.vjBd = 'visuals'; if (S.bd === 'none' || S.bd === 'dome') S.bd = 'visuals'; if (vs && vs.playPano) vs.playPano(false); },
     pickPano: (folder, name) => {
-      S.bd = 'dome';
+      S.vjBd = 'dome'; S.bd = 'dome';
+      if (vs && vs.playPano) vs.playPano(true);
       if (vs && vs.onSky) vs.onSky({ media: folder + '/' + name });
-      setTimeout(() => { if (vs && vs.playPano) vs.playPano(true); }, 250);
     },
+    renderDome,
   };
   const desk = vj ? makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio: () => aTrack, studioCtl }) : null;   // #507 / #532
   // ---- the screen: 1280 x 720 drawing buffer, shown full screen with bars (the HDMI picture), the page's own UI hidden
@@ -267,7 +290,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     if (m.k === 'stu') {
       const was = S.on, wasMode = S.mode;
       if (desk) desk.onStu(m);   // #507 the Twitch channel for the scroller desk
-      Object.assign(S, { qOn: !!m.on, on: vj ? (S.on || !!m.on) : !!m.on, mode: m.mode || 'show', bd: m.bd || 'none', snd: m.snd !== false, trim: +m.trim || 0, mon: !!m.mon, src: m.src || 'show', clipWant: m.clip || '', local: !!m.local, O: m.O || null });   // #504 / #531
+      Object.assign(S, { qOn: !!m.on, on: vj ? (S.on || !!m.on) : !!m.on, mode: m.mode || 'show', bd: m.bd && m.bd !== 'none' ? m.bd : (S.vjBd || m.bd || 'none'), snd: m.snd !== false, trim: +m.trim || 0, mon: !!m.mon, src: m.src || 'show', clipWant: m.clip || '', local: !!m.local, O: m.O || null });   // #504 / #531 / #533
       if (S.on && !was) { S.paused = false; if (S.bd === 'dome') vs.ensure().catch(() => {}); }
       if (!m.on && S.qOn) { twStop('studio off'); }
       if (vj && S.on && S.mode !== 'show' && (wasMode === 'show' || !was) && !fixed.on && fixed.start) fixed.start().then(() => syncScreenWin()).catch(() => {});   // #530 auto-start laptop webcam when WEBCAM is triggered
@@ -352,6 +375,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       U.bgMode.value = 0;
       if (S.mode !== 'dj' && S.mode !== 'cam' && !(haveQ && !packed)) {
         if (S.bd === 'dome' && skybox.tex) {
+          if (skybox.tex.isVideoTexture && skybox.tex.image && skybox.tex.image.readyState >= 2) skybox.tex.needsUpdate = true;
           let ok = false;
           if (S.mode === 'key') {   // from this camera (its full video's field of view)
             const c = fixed.camState && fixed.camState(); camera.updateMatrixWorld();
@@ -368,12 +392,16 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
             renderer.setRenderTarget(domeRT); renderer.setClearColor(0x000000, 1); renderer.clear(); renderer.render(skybox.group, domeCam); skybox.group.visible = sv; renderer.setClearColor(cc, ca);
             U.bgT.value = domeRT.texture; U.bgMode.value = 2;
           }
-        } else if (S.bd === 'visuals' && led.on && ((led.img && led.curImage) || (clipTex && led.video && led.video.videoWidth))) {
+        } else if (S.bd === 'visuals' && led.on && ((led.img && led.curImage) || (led.video && led.video.videoWidth))) {
           let tw = 0, th = 0, tex = null;
           if (led.img && led.curImage) {
             if (lastImg !== led.curImage) { lastImg = led.curImage; imgTex.image = lastImg; imgTex.needsUpdate = true; }
             tw = lastImg.width; th = lastImg.height; tex = imgTex;
-          } else { tw = led.video.videoWidth; th = led.video.videoHeight; tex = clipTex; }
+          } else {
+            if (clipTex.image !== led.video) clipTex.image = led.video;
+            if (led.video.readyState >= 2) clipTex.needsUpdate = true;
+            tw = led.video.videoWidth; th = led.video.videoHeight; tex = clipTex;
+          }
           const k = Math.max(S.W / tw, S.H / th), w = S.W / (tw * k), h = S.H / (th * k);
           U.bgT.value = tex; U.bgUv.value.set((1 - w) / 2, (1 - h) / 2, w, h); U.bgMode.value = 1;
         }
