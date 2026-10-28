@@ -143,15 +143,80 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   document.body.insertAdjacentHTML('beforeend', `<div id="stuO"><div class="st" id="stuSt" hidden></div>
     <div class="go" id="stuGo"><div style="font:800 30px system-ui">Dirro<span style="color:#e0202a">VJ</span></div>
       <div style="max-width:80vw;color:#b7c0d0">The Quest turned DirroVJ on. Tap to start: full screen, sound to the TV, screen kept awake.</div><button id="stuStart">START DIRROVJ</button></div>
-    <div class="bar" id="stuBar" hidden><button class="q" id="stuBack">Camera view (pause studio here)</button><button class="q" id="stuDesk">VJ desk</button><button class="q" id="stuHide">Hide</button></div></div>
+    <div class="bar" id="stuBar" hidden><button class="q" id="stuBack">Camera view (pause studio here)</button><button class="q" id="stuDesk">VJ desk</button><button class="q" id="stuScreen">Webcam / Projector window</button><button class="q" id="stuHide">Hide</button></div></div>
     <button id="stuRes" hidden style="position:fixed;right:10px;top:10px;z-index:50;font:700 15px system-ui,sans-serif;color:#fff;background:#b0141e;border:1px solid #e0202a;border-radius:10px;padding:10px 14px">▶ BACK TO STUDIO</button>`);
   const $ = id => document.getElementById(id), ov = $('stuO'), stEl = $('stuSt'), goEl = $('stuGo'), barEl = $('stuBar');
-  let uiT = 0, lock = null;
+  let uiT = 0, lock = null, deskWin = null, scrWin = null, scrTrack = null, scrStream = null, scrMode = 'pgm', scrMir = false, needScreenWin = false;
+  const cv = renderer.domElement;
+  function openDesk() {
+    try { deskWin = window.open('./vjdesk.html', 'dirrovj-desk', 'popup=yes,width=1180,height=820,left=40,top=40'); if (deskWin) deskWin.focus(); } catch {}
+    return deskWin;
+  }
+  function syncScreenWin() {
+    if (!scrWin || scrWin.closed) return;
+    const doc = scrWin.document, v = doc && doc.getElementById('vjScreenVid'); if (!v) return;
+    if (!scrTrack || scrTrack.readyState !== 'live') { try { scrTrack = cv.captureStream(0).getVideoTracks()[0]; scrTrack.contentHint = 'motion'; scrStream = new MediaStream([scrTrack]); } catch {} }
+    const wantCam = scrMode === 'cam' && fixed.on && fixed.video && fixed.video.srcObject;
+    const target = wantCam ? fixed.video.srcObject : scrStream;
+    if (target && v.srcObject !== target) { v.srcObject = target; v.play().catch(() => {}); }
+    if (!wantCam && scrTrack && scrTrack.requestFrame) { try { scrTrack.requestFrame(); } catch {} }
+    v.style.transform = scrMir ? 'scaleX(-1)' : '';
+    const bP = doc.getElementById('bPgm'), bC = doc.getElementById('bCam'), bM = doc.getElementById('bMir');
+    if (bP) bP.classList.toggle('on', scrMode === 'pgm');
+    if (bC) bC.classList.toggle('on', scrMode === 'cam');
+    if (bM) bM.classList.toggle('on', scrMir);
+  }
+  function openScreenWin(openerWin) {
+    if (scrWin && !scrWin.closed) { syncScreenWin(); try { scrWin.focus(); } catch {} needScreenWin = false; return scrWin; }
+    let w = null;
+    try { w = (openerWin || window).open('', 'dirrovj-screen', 'popup=yes,width=960,height=540,left=180,top=100'); } catch {}
+    if (!w) { needScreenWin = true; return null; }
+    needScreenWin = false; scrWin = w;
+    const doc = w.document;
+    if (!doc.getElementById('vjScreenVid')) {
+      doc.open();
+      doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>DirroVJ — Webcam / Projector</title><style>
+        *{box-sizing:border-box}body{margin:0;background:#000;color:#e6e8ec;font:600 13px system-ui,sans-serif;overflow:hidden;user-select:none}
+        video{width:100vw;height:100vh;object-fit:contain;display:block;background:#000}
+        #vjBar{position:fixed;top:12px;right:12px;display:flex;gap:8px;align-items:center;background:rgba(11,13,18,.82);border:1px solid #2e3850;border-radius:10px;padding:6px 10px;transition:opacity .25s;z-index:10}
+        body.idle #vjBar{opacity:0;pointer-events:none}body.idle{cursor:none}
+        button{font:600 13px system-ui,sans-serif;color:#e6e8ec;background:#1c2230;border:1px solid #2e3850;border-radius:8px;padding:7px 11px;cursor:pointer}
+        button.on{border-color:#39a8ff;background:#16304a;color:#fff}button.fs{background:#b0141e;border-color:#e0202a;color:#fff}
+        .hint{color:#8c96a8;font-size:12px;margin-right:4px}
+      </style></head><body>
+      <video id="vjScreenVid" autoplay playsinline muted></video>
+      <div id="vjBar"><span class="hint">Drag to 2nd monitor / projector · Double-click = Full Screen</span>
+        <button id="bPgm" class="on" title="Show the DirroVJ Program mix (A/B crossfader: Webcam, Fractal, Quest SHOWTIME!, DirroComics)">PROGRAM MIX</button>
+        <button id="bCam" title="Show this laptop's raw webcam only">WEBCAM ONLY</button>
+        <button id="bMir" title="Flip horizontally">MIRROR</button>
+        <button id="bFull" class="fs">⛶ FULL SCREEN</button>
+      </div></body></html>`);
+      doc.close();
+      const toggleFs = () => { try { if (doc.fullscreenElement) doc.exitFullscreen(); else doc.documentElement.requestFullscreen(); } catch {} };
+      doc.getElementById('bFull').onclick = toggleFs;
+      doc.getElementById('vjScreenVid').ondblclick = toggleFs;
+      doc.getElementById('bPgm').onclick = () => { scrMode = 'pgm'; syncScreenWin(); };
+      doc.getElementById('bCam').onclick = () => { scrMode = 'cam'; if (!fixed.on && fixed.start) fixed.start().then(() => syncScreenWin()).catch(() => {}); syncScreenWin(); };
+      doc.getElementById('bMir').onclick = () => { scrMir = !scrMir; syncScreenWin(); };
+      w.addEventListener('keydown', e => { if (e.key === 'f' || e.key === 'F') toggleFs(); });
+      let idleT = 0; const wake = () => { doc.body.classList.remove('idle'); clearTimeout(idleT); idleT = setTimeout(() => doc.body.classList.add('idle'), 2600); };
+      w.addEventListener('mousemove', wake); w.addEventListener('mousedown', wake); wake();
+    }
+    frame(performance.now()); syncScreenWin();
+    try { w.focus(); } catch {}
+    return w;
+  }
+  function startVj() {
+    S.on = true; S.gest = true; S.paused = false;
+    au.play().catch(() => {}); qv.play().catch(() => {});
+    apply(); frame(performance.now()); syncScreenWin();
+  }
   $('stuStart').onclick = () => { S.gest = true; goEl.hidden = true; full(); au.play().catch(() => {}); qv.play().catch(() => {}); showUi(); };
   $('stuBack').onclick = () => { S.paused = true; apply(); };
   $('stuRes').onclick = () => { S.paused = false; apply(); };
   $('stuHide').onclick = () => { uiT = 0; stEl.hidden = barEl.hidden = true; };
-  $('stuDesk').hidden = !vj; $('stuDesk').onclick = () => window.open('./vjdesk.html', 'dirrovj-desk', 'width=1180,height=780');   // #507
+  $('stuDesk').hidden = !vj; $('stuDesk').onclick = () => openDesk();   // #507
+  $('stuScreen').hidden = !vj; $('stuScreen').onclick = () => openScreenWin();   // #531
   ov.addEventListener('click', e => { if (e.target === ov) showUi(); });
   function showUi() { uiT = performance.now() + 6000; stEl.hidden = barEl.hidden = false; }
   function full() {
@@ -159,9 +224,8 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     try { screen.orientation.lock('landscape').catch(() => {}); } catch {}
     try { if (navigator.wakeLock && !lock) navigator.wakeLock.request('screen').then(l => { lock = l; l.addEventListener('release', () => { lock = null; }); }).catch(() => {}); } catch {}
   }
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.on && S.gest) full(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.on && S.gest && !vj) full(); });
   let saved = null;
-  const cv = renderer.domElement;
   function apply() {   // enter / leave the studio screen
     const want = S.on && !S.paused; $('stuRes').hidden = !(S.on && S.paused);
     if (want && !saved) {
@@ -185,11 +249,11 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     if (m.k === 'stu') {
       const was = S.on, wasMode = S.mode;
       if (desk) desk.onStu(m);   // #507 the Twitch channel for the scroller desk
-      Object.assign(S, { on: !!m.on, mode: m.mode || 'show', bd: m.bd || 'none', snd: m.snd !== false, trim: +m.trim || 0, mon: !!m.mon, src: m.src || 'show', clipWant: m.clip || '', local: !!m.local, O: m.O || null });   // #504
+      Object.assign(S, { qOn: !!m.on, on: vj ? (S.on || !!m.on) : !!m.on, mode: m.mode || 'show', bd: m.bd || 'none', snd: m.snd !== false, trim: +m.trim || 0, mon: !!m.mon, src: m.src || 'show', clipWant: m.clip || '', local: !!m.local, O: m.O || null });   // #504 / #531
       if (S.on && !was) { S.paused = false; if (S.bd === 'dome') vs.ensure().catch(() => {}); }
-      if (!S.on && was) { twStop('studio off'); }
-      if (vj && S.on && S.mode !== 'show' && (wasMode === 'show' || !was) && !fixed.on && fixed.start) fixed.start().catch(() => {});   // #530 auto-start laptop webcam when WEBCAM is triggered
-      tvFollow(vj && S.on ? m.tv || '' : '', !!m.tvA);   // #509
+      if (!m.on && S.qOn) { twStop('studio off'); }
+      if (vj && S.on && S.mode !== 'show' && (wasMode === 'show' || !was) && !fixed.on && fixed.start) fixed.start().then(() => syncScreenWin()).catch(() => {});   // #530 auto-start laptop webcam when WEBCAM is triggered
+      tvFollow(vj && m.on ? m.tv || '' : '', !!m.tvA);   // #509
       if (S.on && S.bd === 'dome') { vs.ensure().catch(() => {}); vs.playPano && vs.playPano(true); }
       if (m.cam) {   // #382 LOW LIGHT + #530 WEBCAM exposure/matte from the tablet
         U.camGain.value = Math.max(0.25, Math.min(4, (+m.cam.gain || 1) * Math.pow(2, +m.cam.expo || 0)));
@@ -209,7 +273,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     if (!open) { S.linkLost = performance.now(); qTrack = aTrack = null; }
     else { S.linkLost = 0; const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'sst', hello: 1, vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, run: false }); }   // #506 say hello so the Quest can ask the DJ
   }
-  setInterval(() => { if (S.on) return; const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'sst', hello: 1, vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, run: false }); }, 3000);   // #506 also while the studio is off (heartbeat + pairing)
+  setInterval(() => { if (S.qOn) return; const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'sst', hello: 1, vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, run: false }); }, 3000);   // #506 also while the studio is off (heartbeat + pairing)
   // ---- stamp read-back (async, 32 x 1 pixels): how late the Quest's frames are, in its clock
   let stripBusy = false;
   function readStampNow() {
@@ -228,7 +292,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   // ---- one frame; true = the studio drew the screen (the page skips its mirror render)
   let fpsT = 0;
   function frame(now) {
-    if (!S.on || S.paused) return false;
+    if ((!S.on && !vj) || S.paused) return false;
     if (now - (S.drawT || 0) < 30) return true;   // ~30 fps is all the inputs have (a 60 Hz screen would draw every picture twice)
     S.drawT = now;
     if (uiT && now > uiT) { uiT = 0; stEl.hidden = barEl.hidden = true; }
@@ -249,7 +313,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     renderer.xr.enabled = false; renderer.autoClear = true;
     try {
       // camera into the ring
-      const needCam = (S.mode === 'dj' || S.mode === 'key' || S.mode === 'cam') && fixed.on && fixed.video.videoWidth;
+      const needCam = ((S.mode === 'dj' || S.mode === 'key' || S.mode === 'cam') || (vj && !haveQ && !S.local)) && fixed.on && fixed.video.videoWidth;
       if (needCam && (camNew || !fixed.video.requestVideoFrameCallback)) {
         camNew = false; cTex.needsUpdate = true; ringI = (ringI + 1) % RING; const rt = ringRT(ringI);
         renderer.setRenderTarget(rt); renderer.render(copySc, oc); ringT[ringI] = fixed.video.requestVideoFrameCallback ? camQt : questNow() - 40;
@@ -318,6 +382,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     } finally { renderer.setRenderTarget(prevRT); renderer.xr.enabled = prevXR; renderer.autoClear = ac; }
     if (twTrack && twTrack.requestFrame) twTrack.requestFrame();
     if (tvTrack && tvTrack.requestFrame) tvTrack.requestFrame();   // #509
+    if (scrTrack && scrTrack.requestFrame) scrTrack.requestFrame();   // #531
     if (now - fpsT > 1000) { S.fps = outN; S.qfps = qN; camRate = camN; outN = qN = camN = 0; fpsT = now; status(now, haveQ, needNote(haveQ, packed)); }
     return true;
   }
@@ -409,5 +474,5 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   }
   function twStop(msg, err) { twClose(); twSet(err ? 'error' : 'off', msg || ''); }
   // the sound follows the Quest's SOUND switch (it simply stops sending); the element is never muted after START STUDIO
-  return { S, _U: U /* #504 test hook */, desk, onVjSms: m => { if (desk) desk.onVjSms(m); }, onCx: m => { if (desk) desk.onCx(m); },   /* #520 GRAB RGB-D */ get sceneLag() { return vj && S.on && !S.paused && S.mode === 'show' && S.local ? S.trim : 0; }, onMsg, onScp, onTrack, onLink, frame, get on() { return S.on && !S.paused; }, get mon() { return S.on && !S.paused && S.mon; }, resume() { S.paused = false; apply(); } };
+  return { S, _U: U /* #504 test hook */, desk, onVjSms: m => { if (desk) desk.onVjSms(m); }, onCx: m => { if (desk) desk.onCx(m); },   /* #520 GRAB RGB-D */ get sceneLag() { return vj && S.on && !S.paused && S.mode === 'show' && S.local ? S.trim : 0; }, onMsg, onScp, onTrack, onLink, frame, openDesk, openScreenWin, syncScreenWin, startVj, get needScreenWin() { return needScreenWin; }, get on() { return (S.on || vj) && !S.paused; }, get mon() { return S.on && !S.paused && S.mon; }, resume() { S.paused = false; apply(); } };
 }

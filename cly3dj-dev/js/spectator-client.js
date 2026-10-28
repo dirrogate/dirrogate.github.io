@@ -61,7 +61,7 @@ export function startCamera(ctx) {
   const DELAY = 70;   // ms the mirror runs behind the Quest, so there are always two samples to blend
   // ---------------------------------------------------------------- UI (built here; index.html's own UI is hidden)
   document.head.insertAdjacentHTML('beforeend', `<style>
-    #spS { position:fixed; inset:0; overflow:auto; z-index:30; background:radial-gradient(ellipse at 50% 30%,#182030 0%,#0b0d12 75%); color:#e6e8ec; font:15px/1.45 system-ui,sans-serif; }
+    #spS { position:fixed; inset:0; overflow:auto; z-index:38; background:radial-gradient(ellipse at 50% 30%,#182030 0%,#0b0d12 75%); color:#e6e8ec; font:15px/1.45 system-ui,sans-serif; }
     #spS .box { max-width:460px; margin:0 auto; padding:24px 16px; }
     #spS h1 { font-size:34px; margin:0 0 2px; font-weight:800; letter-spacing:.04em; } #spS h1 span { color:#e0202a; letter-spacing:-.01em; }
     #spS p { color:#8b909a; margin:0 0 18px; }
@@ -126,9 +126,12 @@ export function startCamera(ctx) {
   if (VJ) {   // #500 DirroVJ start page: no AR; the webcam (fixed camera) is optional, only for LIVE DJ! / LIVE KEY!
     document.title = 'DirroVJ';
     $('#spS h1').innerHTML = 'Dirro<span>VJ</span>';
-    $('#spS p').textContent = 'The VJ desk for the cabin laptop. It shows the Quest\'s SHOW shots or this laptop\'s webcam, with the Quest\'s overlays and master sound, on the club screen (HDMI) and on Twitch. On the Quest: Settings > Phone / DirroVJ link On and read the code there. Then on the tablet: DIRROVJ (main menu), turn it on.';
+    $('#spS p').textContent = 'The VJ desk for the cabin laptop. Clicking Connect automatically spawns the DirroVJ desk window, launches the Webcam / Projector window (for your 2nd monitor / projector), and starts the webcam. On the Quest: Settings > Phone / DirroVJ link On and read the code there.';
     $('#spAR').hidden = true;
-    $('#spConnect').insertAdjacentHTML('afterend', '<button id="spDesk">Open the VJ desk (control window)</button>'); $('#spDesk').onclick = () => window.open('./vjdesk.html', 'dirrovj-desk', 'width=1180,height=780');   // #507
+    $('#spFix').disabled = false;
+    $('#spConnect').insertAdjacentHTML('afterend', '<button id="spDesk">Open the VJ desk (control window)</button><button id="spScreen">Open Webcam / Projector window (2nd monitor / full screen)</button>');
+    $('#spDesk').onclick = () => studio.openDesk();   // #507
+    $('#spScreen').onclick = () => studio.openScreenWin();   // #531
     $('#spFix').textContent = 'Start webcam (optional: the WEBCAM source, aim it at the DJ or the crowd)';   // #501
   }
 
@@ -141,14 +144,19 @@ export function startCamera(ctx) {
     connecting: 'Connecting to the Quest…', connected: 'Connected to the Quest', disconnected: 'Link lost', failed: 'Link failed (are both on the same Wi-Fi?)' };
   $('#spConnect').onclick = () => {
     const code = $('#spCode').value.trim();
-    if (!/^\d{5}$/.test(code)) { st('Enter the 5-digit code from the Quest'); return; }
+    if (VJ) {   // #531 spawn the VJ desk + separate Webcam / Projector window and start the webcam immediately on Connect
+      studio.openDesk();
+      studio.openScreenWin();
+      if (!fixed.on) fixed.start($('#spFixCam').value).then(() => studio.syncScreenWin()).catch(() => {});
+    }
+    if (!/^\d{5}$/.test(code)) { st(VJ ? 'VJ desk + webcam launched. Enter the 5-digit code from the Quest to link the headset.' : 'Enter the 5-digit code from the Quest'); return; }
     try { localStorage.setItem('vire.spectJoin', code); } catch {}
     if (link) link.close();
     st('Reaching the relay…');
     link = spectatorLink(code, {
       onStatus: s => { linkState = s; st(STATUS[s] || s); },
       onState: s => { linkState = s; st(STATUS[s] || s); },
-      onOpen: () => { studio.onLink(true); linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; $('#spFix').disabled = false; lib.onLinkOpen(); sendCst(true); },
+      onOpen: () => { studio.onLink(true); linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; $('#spFix').disabled = false; lib.onLinkOpen(); sendCst(true); if (VJ) { studio.startVj(); studio.syncScreenWin(); } },
       onClose: () => { studio.onLink(false); linkState = 'disconnected'; st(STATUS.disconnected); if (liveOn) { liveOn = false; liveStop(); showLiveCard(false); } },
       onMessage: onMsg,
       onTrack: t => studio.onTrack(t),   // #380 the Quest's studio picture and sound
@@ -285,7 +293,7 @@ export function startCamera(ctx) {
   }
   // #208 fixed camera mode (tripod, no AR): fixedcam.js
   const fixed = makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLink: () => link,
-    onChange: () => { $('#spS').style.display = fixed.on ? 'none' : ''; sendCst(true); } });
+    onChange: () => { if (!VJ || fixed.manual) $('#spS').style.display = fixed.on ? 'none' : ''; sendCst(true); if (typeof studio !== 'undefined' && studio) studio.syncScreenWin(); } });
   // #214 look without AR (fixed mode): camera grade from the video, 360 photo as light, manual key light; set from the Quest's LOOK tab
   const flook = makeFixLook({ THREE, scene, key, envLight, look, getVideo: () => fixed.video });
   const studio = makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fixed, led, getLink: () => link, questNow, vj: VJ,
@@ -302,7 +310,7 @@ export function startCamera(ctx) {
   flook.onChange = () => sendCst(true);
   if (ctx.crateRemote) ctx.crateRemote.setAsk(key => { if (link && link.isOpen) link.send('ctl', { k: 'cover?', key }); });   // #218 covers from the Quest
   let flErr = '';
-  $('#spFix').onclick = async () => { const err = await fixed.start($('#spFixCam').value); if (err) st(err); };
+  $('#spFix').onclick = async () => { fixed.manual = true; const err = await fixed.start($('#spFixCam').value); if (err) st(err); };
   function fixedPreview(now) {   // the program picture (the canvas just drawn), 480 px on its long side, as a JPEG
     pvT = now; if (pvBusy) return;
     const c = renderer.domElement, k = 480 / Math.max(c.width, c.height), W = Math.round(c.width * k / 2) * 2, H = Math.round(c.height * k / 2) * 2;
@@ -807,10 +815,11 @@ export function startCamera(ctx) {
   }
   // ---------------------------------------------------------------- loop (replaces main.js's frame())
   const clock = new THREE.Clock();
-  let infoT = 0, camT = 0, found = false, lookT = 0;
+  let infoT = 0, camT = 0, found = false, lookT = 0, lastLoopT = 0;
   const _m = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _s = new THREE.Vector3();
+  if (VJ) setInterval(() => { const now = performance.now(); if (now - lastLoopT > 70) { try { if (scroller) scroller.tick(0.05); studio.frame(now); } catch {} } }, 50);   // #531 keep Program + Desk preview + Projector window live when dirrovj.html is behind another window
   renderer.setAnimationLoop((t, frame) => {
-    const dt = Math.min(0.05, clock.getDelta()), now = performance.now();
+    const dt = Math.min(0.05, clock.getDelta()), now = lastLoopT = performance.now();
     // #204 three.js binds the AR layer's framebuffer once, just before this callback. Anything that calls
     // renderer.resetState() or setRenderTarget() in between (the camera-picture copy in vset.js, Look match's sample)
     // unbinds it, and the AR frame was then drawn into the hidden canvas instead: the

@@ -52,7 +52,7 @@
 </style>
 </head>
 <body>
-<header><h1>Dirro<span>VJ</span> desk</h1><div id="st">Looking for the DirroVJ output window…</div></header>
+<header><h1>Dirro<span>VJ</span> desk</h1><div id="st">Looking for the DirroVJ output window…</div><button id="openScreen" style="margin-left:auto" title="Open the Webcam / Projector output in a separate window (drag to a 2nd monitor or projector and make full screen)">🎥 Webcam / Projector window</button></header>
 <main>
   <div>
     <section>
@@ -418,17 +418,24 @@ bc.onmessage = e => {
     if (!m.test) realT = Date.now();
     S = m; render(); CX = m.C || null; renderCx(); renderShow(); if (CX) { renderStars(); starBadges(); }   // #523, #524
     $('st').textContent = m.test ? 'Connected to the DirroComics TEST page: only the DirroComics section works here (no buses, fractal or program picture). Open dirrovj.html for the real desk.'
-      : m.live ? 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'
-      : 'Connected to DirroVJ, waiting for the Quest: the program picture starts when the Quest turns DirroVJ on (tablet: TWITCH > DIRROVJ). Buses still switch; DirroComics editing works.';
-    $('pvWait').hidden = !!m.live || !!m.test;
+      : (m.live || $('pv').getAttribute('src')) ? 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'
+      : 'Connected to DirroVJ, starting program output…';
+    $('pvWait').hidden = !!m.live || !!m.test || !!$('pv').getAttribute('src');
   }
-  else if (m.k === 'pv') $('pv').src = m.img;
+  else if (m.k === 'pv') { $('pv').src = m.img; $('pvWait').hidden = true; }
   else if (m.k === 'cxpv') { if (m.id === cxSel) { if (m.blob) { const u = URL.createObjectURL(m.blob); if (cxPvUrl) URL.revokeObjectURL(cxPvUrl); cxPvUrl = u; $('cxPv').src = u; } else if (m.img) $('cxPv').src = m.img; } }   // #516, #518 a blob now
   else if (m.k === 'cxfile') { if (m.blob) cxDownload(m.blob, m.name || 'dirrocomics'); }   // #522 an export, ready
   else if (m.k === 'cxlist') { cxThumbs = m.thumbs || {}; cxStarImgs = m.starImgs || cxStarImgs; cxListN++; renderCx(); }
   else if (m.k === 'cxmsg') { $('cxMsg').textContent = m.t; clearTimeout(cxMsgT); cxMsgT = setTimeout(() => { $('cxMsg').textContent = ''; }, 6000); }
 };
 send({ k: 'hello' });
+function popScreenWin() {
+  try { if (window.opener && window.opener.spect && window.opener.spect.studio) return window.opener.spect.studio.openScreenWin(window); } catch {}
+}
+$('openScreen').onclick = popScreenWin;
+document.addEventListener('click', () => {
+  try { if (window.opener && window.opener.spect && window.opener.spect.studio && window.opener.spect.studio.needScreenWin) window.opener.spect.studio.openScreenWin(window); } catch {}
+}, { capture: true });
 setInterval(() => { send({ k: 'hello', again: true }); if (Date.now() - lastSeen > 4000) $('st').textContent = 'No DirroVJ output window: open dirrovj.html in this browser, connect it and start DirroVJ.'; }, 2000);
 </script>
 <script type="module">/* #527 DirroComics storyboard (AI) */
