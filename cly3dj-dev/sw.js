@@ -10,7 +10,7 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v61';   // #534 gemini_argon_ Manual 0-360 pano angle bar + DirroComics RGB+D 50% depth overlay & opacity slider
+const CACHE = 'vire-app-v62';   // #534 gemini_argon_ Manual 0-360 pano angle bar + DirroComics RGB+D 50% depth overlay & opacity slider
 const NET_WAIT = 2500, OFFLINE_HOLD = 30000;
 const APP = [
   'index.html', 'spectator.html', 'dirrovj.html', 'vjdesk.html', 'venue.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png',

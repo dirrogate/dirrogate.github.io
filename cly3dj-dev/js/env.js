@@ -63,6 +63,8 @@ export class EnvLight {
     this.rt = rt; this.scene.environment = rt.texture; this.scene.environmentIntensity = this.intensity;
   }
   setImage(source) { // HTMLImageElement | ImageBitmap | HTMLCanvasElement | null
+    if (source === this._lastSrc) return;
+    this._lastSrc = source;
     if (this.sphereMat.map) this.sphereMat.map.dispose();
     if (this.skyTex) { this.skyTex.dispose(); this.skyTex = null; }
     if (!source) { this.sphere.visible = false; this.sphereMat.map = null; this.rebuild(); return; }

@@ -192,13 +192,13 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
     if (media.isVideoName(f.name)) {   // #185 video panorama (from the library)
       const { video, snap } = await openPanoVideo(f); vid = video;
       const L = layoutOf(video.videoWidth, video.videoHeight) || { layout: 'mono', swap: false };
-      const c = leftEyeCanvas(snap, L.layout, L.swap, 2048); S.envCanvas = c; S.light = brightestDir(c); panoColour(c);
+      const c = leftEyeCanvas(snap, L.layout, L.swap, 512); S.envCanvas = c; S.light = brightestDir(c); panoColour(c);
       skybox.setVideo(video, L.layout, L.swap); skybox.setHeight(S.sky.h); S.file = f; S.loaded = true;
       if (!S.on && !S.domeOn) video.pause();
       return;
     }
     const bmp = await createImageBitmap(f), L = layoutOf(bmp.width, bmp.height) || { layout: 'mono', swap: false };
-    const c = leftEyeCanvas(bmp, L.layout, L.swap, 2048); bmp.close();
+    const c = leftEyeCanvas(bmp, L.layout, L.swap, 512); bmp.close();
     S.envCanvas = c; S.light = brightestDir(c); panoColour(c);
     await skybox.load(f, L.layout, L.swap); skybox.setHeight(S.sky.h);
     S.file = f; S.loaded = true;

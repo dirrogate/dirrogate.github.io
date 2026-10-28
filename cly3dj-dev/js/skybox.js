@@ -116,12 +116,12 @@ export class Skybox {
     });
     this.setStereo(false);
   }
-  // Rebuild the flattened sphere for a new camera height (32k vertices, a few ms).
+  // Rebuild the flattened sphere for a new camera height (#536: 64 x 32 segments = 2,145 vertices, 15x lighter than 256 x 128).
   setHeight(h) {
     h = Math.max(0.2, h);
     if (this.geo && Math.abs(h - this.height) < 1e-4) { this.group.position.y = h; return; }
     this.height = h;
-    const g = new THREE.SphereGeometry(this.radius, 256, 128), pos = g.getAttribute('position'), v = new THREE.Vector3();
+    const g = new THREE.SphereGeometry(this.radius, 64, 32), pos = g.getAttribute('position'), v = new THREE.Vector3();
     const y1 = -h * 1.5;   // below this the sphere lies flat on the floor; between it and the horizon it curves down smoothly
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i); if (v.y >= 0) continue;
@@ -143,9 +143,10 @@ export class Skybox {
   // src: an ImageBitmap already sized with fit() and made with imageOrientation 'flipY'. It is closed once it is on
   // the GPU, so the full-size picture doesn't also sit in memory.
   async load(file, layout, swap = false) {
-    const full = await createImageBitmap(file), [w, h] = this.fit(full.width, full.height);
-    const bmp = await createImageBitmap(full, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high', imageOrientation: 'flipY' });
-    full.close(); this.setImage(bmp, layout, swap);
+    const full = await createImageBitmap(file, { imageOrientation: 'flipY' }), [w, h] = this.fit(full.width, full.height);
+    const bmp = (w === full.width && h === full.height) ? full : await createImageBitmap(full, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
+    if (bmp !== full) full.close();
+    this.setImage(bmp, layout, swap);
   }
   setImage(bmp, layout, swap = false) {
     if (this.tex) { this.tex.dispose(); this.tex = null; }
@@ -213,7 +214,7 @@ export async function openPanoVideo(file) {
   v._url = URL.createObjectURL(file); v.src = v._url;
   await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('this video does not play here')); });
   await v.play().catch(() => {});
-  const W = Math.min(2048, v.videoWidth), c = document.createElement('canvas'); c.width = W; c.height = Math.round(W * v.videoHeight / v.videoWidth);
+  const W = Math.min(512, v.videoWidth), c = document.createElement('canvas'); c.width = W; c.height = Math.round(W * v.videoHeight / v.videoWidth);
   c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
   return { video: v, snap: c };
 }
