@@ -60,8 +60,7 @@ float shade(vec2 q, float eye) {
 }
 float gray(vec2 q) {   // nearness 0..1 (white = front): painted map, RGB+D's recorded depth, LIVE PEOPLE
   vec2 uv = euv(q, 0.0); bool rgbd = A.x > 2.5;
-  float g = G.z > 0.5 ? texture2D(dm, rgbd ? vec2(uv.x * 2.0, uv.y) : uv).r : 0.0;
-  if (rgbd) g = max(g, texture2D(m, vec2(uv.x + 0.5, uv.y)).r);
+  float g = G.z > 0.5 ? texture2D(dm, rgbd ? vec2(uv.x * 2.0, uv.y) : uv).r : (rgbd ? texture2D(m, vec2(uv.x + 0.5, uv.y)).r : 0.0);
   if (live > 0.5) g = max(g, texture2D(lm, vec2(uv.x, 1.0 - uv.y)).r);
   return g;
 }

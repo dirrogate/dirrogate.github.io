@@ -45,6 +45,10 @@
   .vjCap { position:relative; z-index:1; height:16px; padding:0 4px; font:600 10px/16px system-ui,sans-serif; color:#b9c2d0; background:#1c212c; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .vjCell.act { border:2px solid #55ff88; box-shadow:0 0 0 1px #196b30 inset; }
   .vjCell.act .vjCap { background:#38d864; color:#04190a; font-weight:800; }
+  .vjCell.hasPanoBar img { inset:0 0 26px 0; height:calc(100% - 26px); }
+  .vjPanoBar { position:relative; z-index:2; width:calc(100% - 6px); height:10px; margin:0 3px; min-width:0 !important; flex:0 0 10px !important; accent-color:#55ff88; cursor:ew-resize; background:transparent; }
+  .panoYawRow { display:flex; align-items:center; gap:8px; margin-top:4px; padding:3px 8px; background:#0b0e16; border:1px solid #1e2536; border-radius:6px; }
+  .panoYawRow input[type=range] { height:12px; accent-color:#39a8ff; margin:0; }
   .row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:6px 0; }
   .lbl { width:28px; font-weight:800; color:var(--mute); }
   #pv { width:100%; aspect-ratio:16/9; background:#000; border-radius:8px; border:1px solid var(--line); object-fit:contain; display:block; }
@@ -58,7 +62,11 @@
   /* #516 DirroComics */
   #cxStrip { display:flex; gap:8px; overflow-x:auto; padding:8px 2px; min-height:118px; }
   .cxC { flex:0 0 auto; width:164px; border:2px solid var(--line); border-radius:8px; padding:2px; cursor:pointer; position:relative; background:#0f131c; }
+  .cxC .cxTh { position:relative; width:156px; height:88px; border-radius:5px; overflow:hidden; background:#000; }
   .cxC img { width:156px; height:88px; object-fit:cover; display:block; border-radius:5px; background:#000; }
+  .cxC img.cxDTh { position:absolute; inset:0; pointer-events:none; mix-blend-mode:normal; }
+  .cxC .cxOpRow { display:flex; align-items:center; gap:4px; padding:2px 4px 0; font:700 10px system-ui; color:#f2c94c; }
+  .cxC .cxOpRow input[type=range] { min-width:0; width:100%; height:10px; margin:0; accent-color:#f2c94c; cursor:ew-resize; }
   .cxC .n { font:700 11px system-ui; color:var(--mute); padding:2px 4px; display:flex; justify-content:space-between; }
   .cxC.sel { border-color:var(--blue); } .cxC.air { box-shadow:0 0 0 2px var(--red) inset; } .cxC.air .n b { color:var(--red); }
   #cxEd { display:grid; grid-template-columns:minmax(320px,640px) 1fr; gap:14px; margin-top:8px; }
@@ -129,8 +137,9 @@
     <div class="vjBankScroll"><div class="vjGrid" id="gridVideos"></div></div>
   </div>
   <div class="vjBank">
-    <div class="vjBankHead"><h3>PANOS</h3><span class="note" id="vjPanoNote" style="margin:0">Click a 360° panorama or video pano to play it on LED CLIP (and BACK: DOME)</span><button class="vjImp" id="impPanos">+ IMPORT PANOS…</button><input type="file" id="filePanos" multiple accept="image/*,video/*" hidden></div>
+    <div class="vjBankHead"><h3>PANOS</h3><span class="note" id="vjPanoNote" style="margin:0">Click a 360° panorama or video pano to play it on LED CLIP (and BACK: DOME) · drag bar for 0°–360° view angle</span><button class="vjImp" id="impPanos">+ IMPORT PANOS…</button><input type="file" id="filePanos" multiple accept="image/*,video/*" hidden></div>
     <div class="vjBankScroll"><div class="vjGrid" id="gridPanos"></div></div>
+    <div class="panoYawRow"><span class="sp">0°</span><input type="range" id="panoYaw" min="0" max="360" step="1" value="0" title="Panorama view angle (0° leftmost to 360° rightmost)"><span class="sp" id="panoYawVal" style="min-width:68px;text-align:right">0° / 360°</span></div>
   </div>
 </div>
 <section style="margin:0 16px 14px">
@@ -172,11 +181,11 @@
       <img id="cxPv" alt="">
       <div class="note" id="cxArmN">The selected panel (not necessarily on air). POS / TAIL on a text item, then click here to place it.</div>
       <div id="cxDep">
-        <div class="row"><b class="sp" style="color:#f2c94c">DEPTH MAP</b><span class="sp">white = front, black = back (ANAGLYPH, flat panels)</span><button id="cxDOpen">EDIT DEPTH</button><button id="cxLive" title="Video panels: MediaPipe finds the people in every frame and puts them in front">LIVE PEOPLE</button><span id="cxDSt" class="note" style="margin:0"></span></div>
+        <div class="row"><b class="sp" style="color:#f2c94c">DEPTH MAP</b><span class="sp">white = front, black = back (ANAGLYPH, flat &amp; RGB+D panels)</span><button id="cxDOpen">EDIT DEPTH</button><button id="cxLive" title="Video panels: MediaPipe finds the people in every frame and puts them in front">LIVE PEOPLE</button><span id="cxDSt" class="note" style="margin:0"></span></div>
         <div id="cxDEd" hidden>
           <canvas id="cxDC" width="640" height="360"></canvas>
-          <div class="row"><button data-tone="255" class="on">FRONT</button><button data-tone="170">NEAR</button><button data-tone="85">FAR</button><button data-tone="0">BACK</button><label class="kv"><span class="sl">Brush</span><input type="range" id="cxBrush" min="4" max="160" step="1" value="40"></label></div>
-          <div class="row"><button id="cxPeople" title="MediaPipe finds the people and paints them in the tone picked above">PEOPLE</button><button id="cxRamp" title="Back at the top, near at the bottom">GROUND RAMP</button><button id="cxFill" title="The whole map in the tone picked above">FILL</button><button id="cxSoft" title="Blur the map a little: softer edges, fewer tears">SOFTEN</button><button id="cxDImp" title="A grayscale depth image (white = near), e.g. from the Quest or a depth tool">IMPORT DEPTH…</button><input type="file" id="cxDFile" accept="image/*" hidden><button id="cxDClr" class="red">REMOVE</button><select id="cxDView"><option value="mix">picture + depth</option><option value="depth">depth only</option><option value="pic">picture</option></select></div>
+          <div class="row"><label class="kv" style="max-width:260px"><span class="sl" id="cxDOpLbl">Overlay 50%</span><input type="range" id="cxDOp" min="0" max="1" step="0.02" value="0.5" title="Depth map overlay opacity on top of the picture"></label><button data-tone="255" class="on">FRONT</button><button data-tone="170">NEAR</button><button data-tone="85">FAR</button><button data-tone="0">BACK</button><label class="kv"><span class="sl">Brush</span><input type="range" id="cxBrush" min="4" max="160" step="1" value="40"></label></div>
+          <div class="row"><button id="cxPeople" title="MediaPipe finds the people and paints them in the tone picked above">PEOPLE</button><button id="cxRamp" title="RGB+D: restore recorded depth · Flat: back at the top, near at the bottom">GROUND RAMP / RESET</button><button id="cxFill" title="The whole map in the tone picked above">FILL</button><button id="cxSoft" title="Blur the map a little: softer edges, fewer tears">SOFTEN</button><button id="cxDImp" title="A grayscale depth image (white = near), e.g. from the Quest or a depth tool">IMPORT DEPTH…</button><input type="file" id="cxDFile" accept="image/*" hidden><button id="cxDClr" class="red">REMOVE</button><select id="cxDView"><option value="mix">picture + depth</option><option value="depth">depth only</option><option value="pic">picture</option></select></div>
         </div>
       </div>
     </div>
@@ -235,6 +244,11 @@ function render() {
   $('twBtn').textContent = tw.state === 'live' ? 'TWITCH: ON (STOP)' : tw.state === 'connecting' ? 'TWITCH: CONNECTING…' : 'TWITCH ON/OFF';
   $('twSt').textContent = tw.state === 'live' ? `LIVE · ${(tw.kbps / 1000).toFixed(1)} Mb/s` : tw.msg ? tw.msg : '';
   if (tw.key && document.activeElement !== $('twKey') && !$('twKey').value) $('twKey').value = tw.key;
+  if (D.panoYaw != null && document.activeElement !== $('panoYaw') && !(document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('vjPanoBar'))) {
+    $('panoYaw').value = D.panoYaw;
+    $('panoYawVal').textContent = Math.round(D.panoYaw) + '° / 360°';
+    document.querySelectorAll('.vjPanoBar').forEach(r => { r.value = D.panoYaw; });
+  }
   if (window.updateVjDecks) window.updateVjDecks(D.media || D.clip || D.pano || '', false);
   const cur = $('dev').value; $('dev').innerHTML = S.devs.map(([id, l]) => `<option value="${esc(id)}">${esc(l)}</option>`).join(''); if (cur) $('dev').value = cur; else if (D.lineDev) $('dev').value = D.lineDev;
   $('aSt').textContent = D.lineErr ? 'Line in: ' + D.lineErr : D.audio === 'line' ? 'Twitch gets this laptop\'s input (takes effect on the next GO LIVE or within a second if live).' : 'Twitch gets the Quest\'s master sound over the link.';
@@ -249,7 +263,13 @@ const STY = [['halftone', 'HALFTONE'], ['hatch', 'HATCH'], ['benday', 'BEN-DAY']
 const ITEM = { cap: 'CAPTION', speech: 'SPEECH', thought: 'THOUGHT', shout: 'SHOUT', sfx: 'SFX' };
 const ITEM_DEF = { cap: { x: 0.24, y: 0.08, s: 30, w: 0.42 }, speech: { x: 0.3, y: 0.22, tx: 0.46, ty: 0.42, s: 32, w: 0.3 }, thought: { x: 0.3, y: 0.2, tx: 0.48, ty: 0.42, s: 30, w: 0.28 },
   shout: { x: 0.68, y: 0.22, tx: 0.55, ty: 0.42, s: 36, w: 0.28 }, sfx: { x: 0.72, y: 0.82, s: 120, r: -8 } };
-let CX = null, cxSel = null, cxThumbs = {}, cxListN = 0, cxArm = null, cxItems = [], cxItemsKey = '', cxStripKey = '', cxMsgT = 0;
+let CX = null, cxSel = null, cxThumbs = {}, cxDThumbs = {}, cxListN = 0, cxArm = null, cxItems = [], cxItemsKey = '', cxStripKey = '', cxMsgT = 0;
+$('panoYaw').oninput = e => {
+  const v = +e.target.value || 0;
+  $('panoYawVal').textContent = Math.round(v) + '° / 360°';
+  document.querySelectorAll('.vjPanoBar').forEach(r => { r.value = v; });
+  send({ k: 'panoYaw', v });
+};
 const cx = (op, o = {}) => send({ k: 'cx', op, ...o });
 const selP = () => CX && CX.panels.find(p => p.id === cxSel);
 const cxSet = v => { if (cxSel) cx('set', { id: cxSel, v }); const p = selP(); if (p) Object.assign(p, v); };
@@ -324,6 +344,40 @@ $('cxPv').onclick = e => {
   if (cxArm.what === 'tail') { it.tx = r(qx); it.ty = r(qy); } else { const dx = r(qx) - it.x, dy = r(qy) - it.y; it.x = r(qx); it.y = r(qy); if (it.tx != null && !e.shiftKey) { it.tx = r(it.tx + dx); it.ty = r(it.ty + dy); } }
   sendItems(); if (!e.altKey) { cxArm = null; armUi(); }
 };
+function setDepthOp(v) {
+  DE.op = Math.max(0, Math.min(1, +v));
+  const pct = Math.round(DE.op * 100) + '%';
+  if ($('cxDOp') && document.activeElement !== $('cxDOp')) $('cxDOp').value = DE.op;
+  if ($('cxDOpLbl')) $('cxDOpLbl').textContent = 'Overlay ' + pct;
+  document.querySelectorAll('.cxDTh').forEach(im => { im.style.opacity = DE.op; });
+  document.querySelectorAll('.cxCardOp').forEach(r => { if (document.activeElement !== r) r.value = DE.op; });
+  document.querySelectorAll('.cxOpPct').forEach(s => { s.textContent = pct; });
+  deShow();
+}
+async function ensureDepthThumb(p) {
+  if (!p || (p.sbs !== 3 && !p.depth)) return;
+  const verKey = (p.depth || '') + ':' + (p.dver || 0) + ':' + p.sbs;
+  if (cxDThumbs[p.id] && cxDThumbs[p.id + ':v'] === verKey) return;
+  cxDThumbs[p.id + ':v'] = verKey;
+  const f = await cxRead(p.depth || p.file); if (!f) return;
+  const url = URL.createObjectURL(f); let el;
+  if (!p.depth && p.kind === 'video') {
+    el = document.createElement('video'); el.muted = true; el.src = url;
+    await new Promise(ok => { el.onloadeddata = ok; setTimeout(ok, 5000); });
+    el.currentTime = Math.min(0.5, (el.duration || 1) / 3);
+    await new Promise(ok => { el.onseeked = ok; setTimeout(ok, 1200); });
+  } else {
+    el = new Image(); await new Promise(ok => { el.onload = ok; el.onerror = ok; el.src = url; });
+  }
+  const c = document.createElement('canvas'); c.width = 160; c.height = 90; const g = c.getContext('2d');
+  const w = p.depth ? (el.naturalWidth || el.videoWidth || p.w) : p.w, h = p.depth ? (el.naturalHeight || el.videoHeight || p.h) : p.h;
+  const sx = p.depth ? 0 : w / 2, sw = p.depth ? w : w / 2, k = Math.max(160 / Math.max(1, sw), 90 / Math.max(1, h));
+  g.fillStyle = '#000'; g.fillRect(0, 0, 160, 90);
+  try { g.drawImage(el, sx, 0, sw, h, (160 - sw * k) / 2, (90 - h * k) / 2, sw * k, h * k); } catch {}
+  URL.revokeObjectURL(url);
+  cxDThumbs[p.id] = c.toDataURL('image/jpeg', 0.65);
+  const dIm = document.querySelector(`img[data-dth="${CSS.escape(p.id)}"]`); if (dIm) dIm.src = cxDThumbs[p.id];
+}
 function renderCx() {
   if (!CX) return; const C = CX.cfg, P = CX.panels;
   if (cxSel && !P.some(p => p.id === cxSel)) cxSel = null;
@@ -331,19 +385,41 @@ function renderCx() {
   $('cxAna').classList.toggle('on', !!C.ana); $('cxSplit').classList.toggle('on', !!C.split);
   for (const [id, v] of [['cxIssue', C.issue], ['cxFoot', C.foot], ['cxAuto', String(C.auto)], ['cxSbsDef', C.sbsDef], ['cxStyDef', C.styleDef]]) if (document.activeElement !== $(id)) $(id).value = v ?? '';
   $('cxAir').textContent = P.length ? `${CX.cur + 1} / ${P.length}` : '0 / 0';
-  const sk = [P.map(p => p.id + ':' + p.sbs).join(','), CX.cur, cxSel, Object.keys(cxThumbs).length, cxListN].join('|');
+  const sk = [P.map(p => p.id + ':' + p.sbs + ':' + (p.dver || 0)).join(','), CX.cur, cxSel, Object.keys(cxThumbs).length, cxListN].join('|');
   if (sk !== cxStripKey) {
     cxStripKey = sk;
-    $('cxStrip').innerHTML = P.map((p, i) => `<div class="cxC${p.id === cxSel ? ' sel' : ''}${i === CX.cur ? ' air' : ''}" data-id="${p.id}" title="${esc(p.name || '')}"><img src="${cxThumbs[p.id] || ''}" alt=""><div class="n"><b>${i + 1}${i === CX.cur ? ' · ON AIR' : ''}</b><span>${p.kind === 'video' ? 'VIDEO ' : ''}${p.sbs ? 'SBS' : ''}</span></div></div>`).join('') || '<div class="note">No panels yet: IMPORT pictures or clips (side by side clips from the Quest work as they are), or GRAB.</div>';
-    for (const c of $('cxStrip').children) if (c.dataset.id) { c.onclick = () => { if (cxSel !== c.dataset.id) { cxSel = c.dataset.id; cxArm = null; cxItemsKey = ''; $('cxPv').removeAttribute('src'); cx('watch', { id: cxSel }); } renderCx(); }; c.ondblclick = () => cx('go', { id: c.dataset.id }); }
+    $('cxStrip').innerHTML = P.map((p, i) => {
+      const hasD = p.sbs === 3 || !!p.depth;
+      return `<div class="cxC${p.id === cxSel ? ' sel' : ''}${i === CX.cur ? ' air' : ''}" data-id="${p.id}" title="${esc(p.name || '')}">`
+        + `<div class="cxTh"><img src="${cxThumbs[p.id] || ''}" alt="">${hasD ? `<img class="cxDTh" data-dth="${esc(p.id)}" src="${cxDThumbs[p.id] || ''}" style="opacity:${DE.op}" alt="">` : ''}</div>`
+        + (hasD ? `<div class="cxOpRow" title="Grayscale depth map overlay opacity (default 50%)"><span>DEPTH</span><input type="range" class="cxCardOp" data-opid="${esc(p.id)}" min="0" max="1" step="0.02" value="${DE.op}"><span class="cxOpPct">${Math.round(DE.op * 100)}%</span></div>` : '')
+        + `<div class="n"><b>${i + 1}${i === CX.cur ? ' · ON AIR' : ''}</b><span>${p.kind === 'video' ? 'VIDEO ' : ''}${p.sbs === 3 ? 'RGB+D' : p.sbs ? 'SBS' : ''}</span></div></div>`;
+    }).join('') || '<div class="note">No panels yet: IMPORT pictures or clips (side by side clips from the Quest work as they are), or GRAB.</div>';
+    for (const c of $('cxStrip').children) if (c.dataset.id) {
+      c.onclick = () => { if (cxSel !== c.dataset.id) { cxSel = c.dataset.id; DE.closedId = null; cxArm = null; cxItemsKey = ''; $('cxPv').removeAttribute('src'); cx('watch', { id: cxSel }); } renderCx(); };
+      c.ondblclick = () => cx('go', { id: c.dataset.id });
+    }
+    for (const r of $('cxStrip').querySelectorAll('.cxCardOp')) {
+      r.onclick = e => e.stopPropagation();
+      r.onpointerdown = e => e.stopPropagation();
+      r.oninput = e => {
+        e.stopPropagation();
+        const pid = r.dataset.opid;
+        if (pid && cxSel !== pid) { cxSel = pid; DE.closedId = null; cxArm = null; cxItemsKey = ''; $('cxPv').removeAttribute('src'); cx('watch', { id: cxSel }); renderCx(); }
+        setDepthOp(e.target.value);
+      };
+    }
+    for (const p of P) if (p.sbs === 3 || p.depth) ensureDepthThumb(p);
   }
   const p = selP(); $('cxEd').hidden = !p; if (!p) return;
   $('cxInfo').textContent = `#${P.indexOf(p) + 1} · ${p.name || ''} · ${p.w}×${p.h}`;
   if (document.activeElement !== $('cxSty')) $('cxSty').value = p.style; if (document.activeElement !== $('cxSbs')) $('cxSbs').value = String(p.sbs | 0);
   $('cxSwap').classList.toggle('on', !!p.swap); if (document.activeElement !== $('cxDm')) $('cxDm').value = String(p.dmode ?? 2);
   $('cxDm').disabled = !!p.sbs || !!p.depth; $('cxDmN').textContent = p.sbs === 3 ? 'recorded depth' + (p.depth ? ' + painted' : '') : p.depth ? 'depth map' : '';
-  $('cxDep').hidden = p.sbs === 1 || p.sbs === 2; $('cxLive').disabled = p.kind !== 'video' || p.sbs === 1 || p.sbs === 2; $('cxLive').classList.toggle('on', !!p.live); $('cxDOpen').classList.toggle('on', !$('cxDEd').hidden);
+  $('cxDep').hidden = p.sbs === 1 || p.sbs === 2; $('cxLive').disabled = p.kind !== 'video' || p.sbs === 1 || p.sbs === 2; $('cxLive').classList.toggle('on', !!p.live);
   if (DE.id && DE.id !== p.id) deClose();
+  if (p.sbs === 3 && !DE.id && DE.closedId !== p.id) deOpen(p);
+  $('cxDOpen').classList.toggle('on', !$('cxDEd').hidden);
   for (const r of document.querySelectorAll('[data-pk]')) if (document.activeElement !== r) r.value = p[r.dataset.pk];
   const focusIn = $('cxItems').contains(document.activeElement);
   if (!focusIn && JSON.stringify(p.items || []) !== JSON.stringify(cxItems)) { cxItems = (p.items || []).map(i => ({ ...i })); renderItems(false); for (const row of $('cxItems').children) { const it = cxItems[+row.dataset.i]; for (const el of row.querySelectorAll('[data-f]')) el.value = it[el.dataset.f] ?? el.value; } }
@@ -354,41 +430,51 @@ setInterval(() => { if (cxSel) cx('watch', { id: cxSel }); }, 1500);
 // ---- #518 depth map editor (white = front). The desk opens the panel's picture from the same OPFS folder as DirroVJ and
 // saves <id>.d.png there; DirroVJ reloads it (dver). Brush in four tones, PEOPLE (MediaPipe selfie segmentation), ramp, fill, soften, import.
 let cxPvUrl = null;
-const DE = { id: null, img: null, dc: null, tone: 255, last: null, seg: null, saveT: 0 };
+const DE = { id: null, closedId: null, img: null, rec: null, dc: null, op: 0.5, tone: 255, last: null, seg: null, saveT: 0 };
+$('cxDOp').oninput = e => setDepthOp(e.target.value);
 async function cxDir() { return (await navigator.storage.getDirectory()).getDirectoryHandle((CX && CX.store) || 'vire-comics', { create: true }); }
 async function cxRead(name) { try { return await (await (await cxDir()).getFileHandle(name)).getFile(); } catch { return null; } }
 async function cxWrite(name, blob) { const h = await (await cxDir()).getFileHandle(name, { create: true }), w = await h.createWritable(); await w.write(blob); await w.close(); }
 function rampTo(g, w, h) { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#000'); gr.addColorStop(1, '#c8c8c8'); g.fillStyle = gr; g.fillRect(0, 0, w, h); }
-function deClose() { DE.id = null; DE.img = DE.dc = null; $('cxDEd').hidden = true; $('cxDOpen').classList.remove('on'); }
+function deClose() { DE.id = null; DE.img = DE.rec = DE.dc = null; $('cxDEd').hidden = true; $('cxDOpen').classList.remove('on'); }
 async function deOpen(p) {
-  DE.id = p.id; $('cxDSt').textContent = 'Loading the picture…';
+  DE.id = p.id; $('cxDOpen').classList.add('on'); $('cxDSt').textContent = 'Loading the picture…';
   const f = await cxRead(p.file); if (!f || DE.id !== p.id) { $('cxDSt').textContent = f ? '' : 'Picture not found in storage'; return; }
   const url = URL.createObjectURL(f); let el;
   if (p.kind === 'video') { el = document.createElement('video'); el.muted = true; el.src = url; await new Promise(ok => { el.onloadeddata = ok; setTimeout(ok, 6000); }); el.currentTime = Math.min(0.5, (el.duration || 1) / 3); await new Promise(ok => { el.onseeked = ok; setTimeout(ok, 1500); }); }
   else { el = new Image(); await new Promise(ok => { el.onload = ok; el.onerror = ok; el.src = url; }); }
   const rgbd = p.sbs === 3, pw = rgbd ? p.w / 2 : p.w, k = Math.min(1, 1024 / Math.max(pw, p.h)), W = Math.max(1, Math.round(pw * k)), H = Math.max(1, Math.round(p.h * k));
-  const pic = document.createElement('canvas'); pic.width = W; pic.height = H; try { pic.getContext('2d').drawImage(el, 0, 0, pw, p.h, 0, 0, W, H); } catch {} URL.revokeObjectURL(url);   // #520 RGB+D: the picture half
+  const pic = document.createElement('canvas'); pic.width = W; pic.height = H; try { pic.getContext('2d').drawImage(el, 0, 0, pw, p.h, 0, 0, W, H); } catch {}
+  let rec = null;
+  if (rgbd) {
+    rec = document.createElement('canvas'); rec.width = W; rec.height = H;
+    try { rec.getContext('2d').drawImage(el, pw, 0, pw, p.h, 0, 0, W, H); } catch {}
+  }
+  URL.revokeObjectURL(url);   // #520 / #534 RGB+D: picture half + recorded depth half
   if (DE.id !== p.id) return;
-  DE.img = pic; DE.dc = document.createElement('canvas'); DE.dc.width = W; DE.dc.height = H; const g = DE.dc.getContext('2d');
+  DE.img = pic; DE.rec = rec; DE.dc = document.createElement('canvas'); DE.dc.width = W; DE.dc.height = H; const g = DE.dc.getContext('2d');
   const df = p.depth ? await cxRead(p.depth) : null;
   if (df) { const u = URL.createObjectURL(df), im = new Image(); await new Promise(ok => { im.onload = ok; im.onerror = ok; im.src = u; }); g.drawImage(im, 0, 0, W, H); URL.revokeObjectURL(u); }
-  else if (rgbd) { g.fillStyle = '#000'; g.fillRect(0, 0, W, H); }   // RGB+D: the recorded depth is already there; paint only what should come FRONT
+  else if (rgbd && rec) { g.drawImage(rec, 0, 0); }   // #534 RGB+D: start from the Quest's recorded grayscale depth map so the VJ can paint/enhance it
   else rampTo(g, W, H);
   $('cxDC').width = W; $('cxDC').height = H; $('cxDEd').hidden = false; deShow();
-  $('cxDSt').textContent = p.depth ? (p.kind === 'video' ? 'Painted on a frame near the start of the clip.' : '') : 'No depth map yet: it starts as a ground ramp and saves itself when you paint, PEOPLE, FILL or SOFTEN.';
+  $('cxDSt').textContent = rgbd && !p.depth ? 'Quest RGB+D depth map overlaid at 50%: paint FRONT / NEAR / FAR / BACK or SOFTEN to enhance it.' : p.depth ? (p.kind === 'video' ? 'Painted on a frame near the start of the clip.' : '') : 'No depth map yet: it starts as a ground ramp and saves itself when you paint, PEOPLE, FILL or SOFTEN.';
 }
 function deShow() {
   if (!DE.dc) return; const c = $('cxDC'), g = c.getContext('2d'), v = $('cxDView').value;
   g.globalAlpha = 1; g.filter = 'none';
   if (v === 'depth') g.drawImage(DE.dc, 0, 0);
-  else { g.filter = 'grayscale(1)'; g.drawImage(DE.img, 0, 0); g.filter = 'none'; if (v === 'mix') { g.globalAlpha = 0.6; g.drawImage(DE.dc, 0, 0); g.globalAlpha = 1; } }
+  else { g.drawImage(DE.img, 0, 0); if (v === 'mix') { g.globalAlpha = DE.op; g.drawImage(DE.dc, 0, 0); g.globalAlpha = 1; } }
 }
 function deSave(now) {
   clearTimeout(DE.saveT); const p = selP(); if (!p || !DE.dc || p.id !== DE.id) return;
+  const tc = document.createElement('canvas'); tc.width = 160; tc.height = 90; tc.getContext('2d').drawImage(DE.dc, 0, 0, 160, 90);
+  cxDThumbs[p.id] = tc.toDataURL('image/jpeg', 0.65);
+  const dIm = document.querySelector(`img[data-dth="${CSS.escape(p.id)}"]`); if (dIm) dIm.src = cxDThumbs[p.id];
   DE.saveT = setTimeout(() => { const id = p.id, name = id + '.d.png'; DE.dc.toBlob(async b => { if (!b) return; try { await cxWrite(name, b); cx('set', { id, v: { depth: name, dver: Date.now() } }); } catch (e) { $('cxDSt').textContent = 'Could not save the depth map: ' + e.message; } }, 'image/png'); }, now ? 0 : 250);
 }
 for (const b of document.querySelectorAll('[data-tone]')) b.onclick = () => { DE.tone = +b.dataset.tone; for (const x of document.querySelectorAll('[data-tone]')) x.classList.toggle('on', x === b); };
-$('cxDOpen').onclick = () => { const p = selP(); if (!p) return; if (!$('cxDEd').hidden) { deClose(); return; } $('cxDOpen').classList.add('on'); deOpen(p); };
+$('cxDOpen').onclick = () => { const p = selP(); if (!p) return; if (!$('cxDEd').hidden) { DE.closedId = p.id; deClose(); return; } DE.closedId = null; $('cxDOpen').classList.add('on'); deOpen(p); };
 $('cxLive').onclick = () => { const p = selP(); if (p && p.kind === 'video') cxSet({ live: !p.live }); renderCx(); };
 $('cxDView').onchange = deShow;
 const dePt = e => { const c = $('cxDC'), b = c.getBoundingClientRect(); return [(e.clientX - b.left) / b.width * c.width, (e.clientY - b.top) / b.height * c.height, c.width / b.width]; };
@@ -402,7 +488,7 @@ $('cxDC').onpointerdown = e => { if (!DE.dc) return; $('cxDC').setPointerCapture
 $('cxDC').onpointermove = e => { if (DE.last && e.buttons) deStroke(e); };
 $('cxDC').onpointerup = $('cxDC').onpointercancel = () => { if (DE.last) { DE.last = null; deSave(); } };
 $('cxFill').onclick = () => { if (!DE.dc) return; const g = DE.dc.getContext('2d'), t = DE.tone; g.fillStyle = `rgb(${t},${t},${t})`; g.fillRect(0, 0, DE.dc.width, DE.dc.height); deShow(); deSave(); };
-$('cxRamp').onclick = () => { if (!DE.dc) return; rampTo(DE.dc.getContext('2d'), DE.dc.width, DE.dc.height); deShow(); deSave(); };
+$('cxRamp').onclick = () => { if (!DE.dc) return; const g = DE.dc.getContext('2d'); if (DE.rec) g.drawImage(DE.rec, 0, 0); else rampTo(g, DE.dc.width, DE.dc.height); deShow(); deSave(); };
 $('cxSoft').onclick = () => { if (!DE.dc) return; const t = document.createElement('canvas'); t.width = DE.dc.width; t.height = DE.dc.height; t.getContext('2d').drawImage(DE.dc, 0, 0); const g = DE.dc.getContext('2d'); g.filter = `blur(${Math.max(2, DE.dc.width / 200)}px)`; g.drawImage(t, 0, 0); g.filter = 'none'; deShow(); deSave(); };
 $('cxDClr').onclick = () => { const p = selP(); if (!p || !p.depth) { deClose(); return; } if (!confirm('Remove this panel\'s depth map?')) return; cxSet({ depth: '', dver: Date.now() }); deClose(); renderCx(); };
 $('cxDImp').onclick = () => $('cxDFile').click();
@@ -551,6 +637,7 @@ async function loadBank(b) {
 function renderBank(b) {
   const el = $(b.grid); if (!el) return;
   const items = b.items || [], cols = Math.max(MIN_COLS, Math.ceil(items.length / ROWS));
+  const yaw0 = +($('panoYaw') && $('panoYaw').value) || 0;
   let html = '';
   for (let c = 0; c < cols; c++) {
     html += `<div class="vjColHead" data-vjcol="${c}">Column ${c + 1}</div>`;
@@ -559,8 +646,11 @@ function renderBank(b) {
       if (it) {
         const key = it.folder + '/' + it.name, u = thumbUrls.get(key) || '';
         const short = it.name.replace(/\.[^.]+$/, '');
-        html += `<div class="vjCell" data-vjkey="${esc(key)}" data-folder="${esc(it.folder)}" data-name="${esc(it.name)}" title="${esc(it.name)} (click to play)">`
-          + `<img src="${u}" alt=""><div class="vjCap">${esc(short)}</div></div>`;
+        const isPano = b.id === 'Panos';
+        html += `<div class="vjCell${isPano ? ' hasPanoBar' : ''}" data-vjkey="${esc(key)}" data-folder="${esc(it.folder)}" data-name="${esc(it.name)}" title="${esc(it.name)} (click to play)">`
+          + `<img src="${u}" alt="">`
+          + (isPano ? `<input type="range" class="vjPanoBar" min="0" max="360" step="1" value="${yaw0}" title="Panorama view angle: 0° (left) to 360° (right)">` : '')
+          + `<div class="vjCap">${esc(short)}</div></div>`;
       } else {
         html += `<div class="vjCell empty" data-empty="${esc(b.id)}" title="Empty slot — click to import into ${esc(b.id)}"><div class="vjCap"></div></div>`;
       }
@@ -575,6 +665,24 @@ function renderBank(b) {
         send({ k: 'media', folder, name });
         updateVjDecks(actMedia, true);
       };
+      const bar = cell.querySelector('.vjPanoBar');
+      if (bar) {
+        bar.onclick = e => e.stopPropagation();
+        bar.onpointerdown = e => e.stopPropagation();
+        bar.oninput = e => {
+          e.stopPropagation();
+          const v = +e.target.value || 0, folder = cell.dataset.folder, name = cell.dataset.name, key = folder + '/' + name;
+          if ($('panoYaw')) $('panoYaw').value = v;
+          if ($('panoYawVal')) $('panoYawVal').textContent = Math.round(v) + '° / 360°';
+          document.querySelectorAll('.vjPanoBar').forEach(r => { if (r !== bar) r.value = v; });
+          if (actMedia !== key) {
+            actMedia = key; lastMediaPickT = Date.now();
+            send({ k: 'media', folder, name });
+            updateVjDecks(actMedia, true);
+          }
+          send({ k: 'panoYaw', v });
+        };
+      }
     } else {
       cell.onclick = () => $(b.file).click();
     }

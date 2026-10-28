@@ -103,7 +103,7 @@ const PALS = ['green', 'island', 'lava', 'ice', 'copper', 'neon'];
 const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'black'];   // #516 comic = DirroComics page
 
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
-  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip' };
+  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0 };
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
   const queue = []; let qid = 1;
   const quad = mat => { const sc = new THREE.Scene(), m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); m.frustumCulled = false; sc.add(m); return sc; };
@@ -259,6 +259,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
         post();
       }
     }
+    else if (m.k === 'panoYaw') { D.panoYaw = Math.max(0, Math.min(360, +m.v || 0)); if (studioCtl && studioCtl.setPanoYaw) studioCtl.setPanoYaw(D.panoYaw); post(); }
     else if (m.k === 'show') {
       if (m.cam === 'pcam' && !fixed.on && fixed.start) fixed.start().catch(() => {});
       if (m.cam) { const act = D.x < 0.5 ? 'a' : 'b'; if (D[act] === 'webcam') { D[act] = 'quest'; post(); } }

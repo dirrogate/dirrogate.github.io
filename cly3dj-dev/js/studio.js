@@ -140,7 +140,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     } else {
       domeCam.matrixWorld.compose(
         new THREE.Vector3(0, skybox.height || 1.5, 0),
-        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (now || performance.now()) * 0.00018),
+        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -(S.panoYaw || 0) * Math.PI / 180),
         new THREE.Vector3(1, 1, 1)
       );
       domeCam.fov = 65; domeCam.aspect = W / H;
@@ -163,7 +163,11 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     pickPano: (folder, name) => {
       S.vjBd = 'dome'; S.bd = 'dome';
       if (vs && vs.playPano) vs.playPano(true);
-      if (vs && vs.onSky) vs.onSky({ media: folder + '/' + name });
+      if (vs && vs.onSky) vs.onSky({ media: folder + '/' + name, turn: S.panoYaw || 0 });
+    },
+    setPanoYaw: deg => {
+      S.panoYaw = Math.max(0, Math.min(360, +deg || 0));
+      if (vs && vs.onSky) vs.onSky({ turn: S.panoYaw });
     },
     renderDome,
   };
