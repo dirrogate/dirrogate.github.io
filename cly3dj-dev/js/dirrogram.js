@@ -71,7 +71,7 @@ const people = { on: false, mask: new PersonMask(), fb: null, fx: 0 };
 // 1 OP-ART: filled with rings from their middle, pulsing on the beat, outlined; 2 NEON: a glowing outline on the kick;
 // 3 ECHO: fading copies of their last second of moves; 4 HOLO: the cyan scanline look of the hologram scroller.
 // Cyan and pink swap every 4 beats.
-const PFX = ['', 'OP-ART', 'NEON', 'ECHO', 'HOLO', 'WALL WINDOW', 'LED SELF'];   // 5 WALL WINDOW: the person is a window onto the LED wall; 6 LED SELF: the person drawn in LED cells (#448)
+const PFX = ['', 'OP-ART', 'NEON', 'ECHO', 'HOLO', 'CYCLO WINDOW', 'LED SELF'];   // 5 CYCLO WINDOW: the person is a window onto the Cyclo; 6 LED SELF: the person drawn in LED cells (#448, #537)
 const ovScene = new THREE.Scene();
 const ovMat = new THREE.ShaderMaterial({
   uniforms: { uVid: { value: null }, uMask: { value: null }, uFb: { value: null }, uK: bgMat.uniforms.uK, uGain: bgMat.uniforms.uGain, uPx: { value: new THREE.Vector2(1e-3, 1e-3) },
@@ -765,7 +765,7 @@ $('bPeople').onclick = () => setPeople(!people.on);
 $('bPfx').onclick = async () => {   // #439
   people.fx = (people.fx + 1) % PFX.length; $('bPfx').textContent = people.fx ? 'FX\u207a\u207a: ' + PFX[people.fx] : 'FX\u207a\u207a';
   if (people.fx && !people.on) await setPeople(true);
-  if (people.fx) toast(['', 'Your friend in op-art rings', 'Neon outline on the kick', 'Echo trails of every move', 'Hologram', 'A window onto the LED wall', 'Drawn in LED cells'][people.fx]);
+  if (people.fx) toast(['', 'Your friend in op-art rings', 'Neon outline on the kick', 'Echo trails of every move', 'Hologram', 'A window onto the Cyclo', 'Drawn in LED cells'][people.fx]);
 };
 // #437 RECORD: what is on screen (camera picture, the show, the people cutout; never the buttons) plus the phone's
 // microphone (the club sound), up to 45 s (#512, was 30), saved straight to the phone. MP4 where the phone can make it (iPhone,

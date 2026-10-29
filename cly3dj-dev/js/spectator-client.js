@@ -90,8 +90,8 @@ export function startCamera(ctx) {
       <!-- #514 the Library (synced with the Quest) gives the panorama and the videos: the two old pickers stay in the page, hidden -->
       <button id="spPano" hidden>Virtual set panorama (same picture as the Quest)…</button><input type="file" id="spPanoF" accept="image/*" hidden>
       <div id="spPanoSt" hidden style="color:#8b909a;font-size:13px;margin-top:6px">For the green-screen virtual set: pick the same 360 picture the Quest shows. Kept on this phone.</div>
-      <button id="spLed" hidden>Videos: LED wall clips + VideoVinyls (same files as the Quest)…</button><input type="file" id="spLedF" accept="video/*" multiple hidden>
-      <div id="spLedList" hidden style="color:#8b909a;font-size:13px;margin-top:6px">Optional: pick the same videos as on the Quest so the LED wall plays here too.</div>
+      <button id="spLed" hidden>Videos: Cyclo clips + VideoVinyls (same files as the Quest)…</button><input type="file" id="spLedF" accept="video/*" multiple hidden>
+      <div id="spLedList" hidden style="color:#8b909a;font-size:13px;margin-top:6px">Optional: pick the same videos as on the Quest so the Cyclo plays here too.</div>
       </div></div>
     <div id="spO" hidden>
       <div class="info" id="spInfo">…</div>

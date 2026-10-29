@@ -97,7 +97,7 @@
       <div class="row"><input type="range" id="xf" min="0" max="1" step="0.01" value="0"></div>
       <div class="row" id="busB"><span class="lbl">B</span></div>
       <div class="row"><button id="cut">CUT</button><button id="auto">AUTO</button><select id="fadeMs"><option value="800">0.8 s</option><option value="2000" selected>2 s</option><option value="5000">5 s</option></select></div>
-      <div class="note">QUEST = the picture DirroVJ gets from the Quest (SHOW, LIVE DJ!, KEY, WEBCAM mode as picked on the tablet) with its overlays. WEBCAM = this laptop's webcam as it is (start it on the DirroVJ page). LED CLIP = DirroVJ's copy of the LED clip.</div>
+      <div class="note">QUEST = the picture DirroVJ gets from the Quest (SHOW, LIVE DJ!, KEY, WEBCAM mode as picked on the tablet) with its overlays. WEBCAM = this laptop's webcam as it is (start it on the DirroVJ page). CYCLO = DirroVJ's copy of the Cyclo clip.</div>
     </section>
   </div>
   <div>
@@ -129,15 +129,15 @@
 </main>
 <div id="vjDecks">
   <div class="vjBank">
-    <div class="vjBankHead"><h3>IMAGES</h3><span class="note" id="vjImgNote" style="margin:0">Click a thumbnail to show it on LED CLIP (and BACK: VISUALS)</span><button class="vjImp" id="impImages">+ IMPORT IMAGES…</button><input type="file" id="fileImages" multiple accept="image/*" hidden></div>
+    <div class="vjBankHead"><h3>IMAGES</h3><span class="note" id="vjImgNote" style="margin:0">Click a thumbnail to show it on CYCLO (and BACK: VISUALS)</span><button class="vjImp" id="impImages">+ IMPORT IMAGES…</button><input type="file" id="fileImages" multiple accept="image/*" hidden></div>
     <div class="vjBankScroll"><div class="vjGrid" id="gridImages"></div></div>
   </div>
   <div class="vjBank">
-    <div class="vjBankHead"><h3>VIDEOS</h3><span class="note" id="vjVidNote" style="margin:0">Click a thumbnail to play it on LED CLIP (and BACK: VISUALS)</span><button class="vjImp" id="impVideos">+ IMPORT VIDEOS…</button><input type="file" id="fileVideos" multiple accept="video/*" hidden></div>
+    <div class="vjBankHead"><h3>VIDEOS</h3><span class="note" id="vjVidNote" style="margin:0">Click a thumbnail to play it on CYCLO (and BACK: VISUALS)</span><button class="vjImp" id="impVideos">+ IMPORT VIDEOS…</button><input type="file" id="fileVideos" multiple accept="video/*" hidden></div>
     <div class="vjBankScroll"><div class="vjGrid" id="gridVideos"></div></div>
   </div>
   <div class="vjBank">
-    <div class="vjBankHead"><h3>PANOS</h3><span class="note" id="vjPanoNote" style="margin:0">Click a 360° panorama or video pano to play it on LED CLIP (and BACK: DOME) · drag bar for 0°–360° view angle</span><button class="vjImp" id="impPanos">+ IMPORT PANOS…</button><input type="file" id="filePanos" multiple accept="image/*,video/*" hidden></div>
+    <div class="vjBankHead"><h3>PANOS</h3><span class="note" id="vjPanoNote" style="margin:0">Click a 360° panorama or video pano to play it on CYCLO (and BACK: DOME) · drag bar for 0°–360° view angle</span><button class="vjImp" id="impPanos">+ IMPORT PANOS…</button><input type="file" id="filePanos" multiple accept="image/*,video/*" hidden></div>
     <div class="vjBankScroll"><div class="vjGrid" id="gridPanos"></div></div>
     <div class="panoYawRow"><span class="sp">0°</span><input type="range" id="panoYaw" min="0" max="360" step="1" value="0" title="Panorama view angle (0° leftmost to 360° rightmost)"><span class="sp" id="panoYawVal" style="min-width:68px;text-align:right">0° / 360°</span></div>
   </div>
@@ -202,7 +202,7 @@
 </section>
 <script>
 const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
-const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'LED CLIP', comic: 'DIRROCOMICS', black: 'BLACK' };   // #516
+const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'DIRROCOMICS', black: 'BLACK' };   // #516, #537
 let S = null, lastSeen = 0, realT = 0;   // #519 realT: last state from a real DirroVJ
 for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = document.createElement('button'); b.textContent = NAMES[k]; b.dataset.bus = bus; b.dataset.src = k; b.onclick = () => send({ k: 'bus', bus, v: k }); $(bus === 'a' ? 'busA' : 'busB').append(b); }
 $('xf').oninput = e => send({ k: 'x', v: +e.target.value });

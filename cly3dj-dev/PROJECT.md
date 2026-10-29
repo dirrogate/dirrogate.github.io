@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 29 Oct 2026 (decision log up to #531 in `ViRe_Custom/CLAUDE.md`; #530–#531 added by `gemini_argon_`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 29 Oct 2026 (decision log up to #537 in `ViRe_Custom/CLAUDE.md`; #530–#536 added by `gemini_argon_`, #537 added by `Gemini_flash8_`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -154,8 +154,11 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 - A live comic strip drawn by DirroVJ as a bus source (1950s / 60s newsprint, CyberGrunge meets Steampunk). Details and owner decisions: project doc `dirrocomics-plan.md`; user steps: section 8 of `DirroVJ_DirroDJ_User_Manual.docx`.
 - Built: page with peeks, five inking styles, captions / balloons / SFX, black and white ANAGLYPH with depth (SBS, RGB+D, painted depth maps, MediaPipe PEOPLE, LIVE PEOPLE), GRAB QUEST / WEBCAM / RGB-D, issues (.dirrocomic), MP4, PDF STRIP, Instagram REEL 9:16 and CAROUSEL 4:5 (posted by hand), STAR IN IT (Dirrogram card, YES / NO per line, hash-chained consent log on the relay, WITHDRAW), terms text on the Dirrogram, AI storyboard (Gemini free tier or Claude API, 8 to 12 panels), the owner's DirroComics mark.
 
-## Status (29 Oct — gemini_argon_)
+## Status (29 Oct — Gemini_flash8_)
 
+- Gemini_flash8_ (#537, in `cly3dj-dev`, waiting for the owner's go before copying to `cly3dj`):
+  - **Gemini_flash8_ Rename LED / LED WALL to CYCLO across UI (#537):** Renamed all user-facing `LED`, `LED WALL`, and `LED CLIP` labels, buttons, notes and toasts across the app to `CYCLO` (`main.js`, `vjdesk.html`, `index.html`, `spectator-client.js`, `dirrogram.html`, `dirrogram.js`). Mixer modes display `CYCLO OFF`, `CYCLO CLIPS`, `CYCLO VIDVINYL`, `CYCLO MANDEL`, etc., header and navigation shortcuts are `CYCLO` and `CYCLO ⁺¹`, playlist controls are `CYCLO NOW`, `+ CYCLO`, `CYCLO LIST`, and VJ Desk A/B monitors display `CYCLO`.
+  - **Gemini_flash8_ Remove MR GUI from tablet remote mixer screen (#537):** Safely removed the spectator AR debug/viewfinder button `MR GUI` from Deck A's top row in both portrait and landscape orientations (`main.js`), decluttering the mixer interface.
 - gemini_argon_ (#530–#536, in `cly3dj-dev`, waiting for the owner's go before copying to `cly3dj`):
   - **gemini_argon_ 3D LED wall removed (#530):** `makeLedWall()` and the 3D `ledwall` mesh / curve / tilt / portrait / VR grab-turn-scale handlers are removed (`ledwall.js`, `tools.js`, `xr.js`, `main.js`, `stream.js`, `vjdesk.html`). `LedPlayer`, `WallFx`, `DeckVideo` and `Scroller` (now pure 2D canvas) drive `BACK: VISUALS` (the 2D visual backdrop across SHOWTIME!, DirroTV, Dirrogram and Twitch).
   - **gemini_argon_ SHOWTIME! cameras trimmed to 4 (#530):** `FRONT` and `FADERS` removed from `CAM_PRESETS` (`director.js`, `main.js`, `vjdesk.html`), leaving `GOPRO`, `GOPRO2`, `WEBCAM` and `HEADSET CAM` (default `'gopro'`). `SHOWTIME! OBJECTS` has 6 object toggles (`NEON`, `CHAT PANEL`, `WHITEBOARD`, `GEAR`, `ROBO-BODY`, `DOME`).
