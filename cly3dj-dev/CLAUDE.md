@@ -1514,3 +1514,11 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - ⟳ mark: `btnLabel()` draws it in the upper right for any label ending in `⟳` (`drawCycMark()`, drawn with canvas strokes, not a font glyph, same reasoning as #516 / #441's `+1`).
 - Factory sky: `web/img/sky_factory.jpg` (owner's sci-fi corridor, full 6144 x 3072, mono 2:1). `ensureSky(true)` (the DOME) falls back to it when no sky has been picked (`useFactorySky()`): loaded only into the skybox texture (lighting copy, `vire.envimage` and OPFS untouched); any real sky (`useSkyFile` / `useSkyVideo`) clears `skyFactory` and replaces it.
 - Check: `node --check` on `main.js`, `sw.js`. `sw.js` v64 (+ `img/sky_factory.jpg`). Not tried in the browser pane or on the Quest yet. No Node restart. Backup `backups/pre-538/`.
+
+
+## #539 Avatar pick on DJ TOOLS: ROBOT / DIRROFACE / DIRROCROW (owner, 1 Nov)
+- Found: the avatar choice was never removed from the code. #221's ROBOT / HUMAN switch (`djSet.style`, `useAvatarStyle()`) was still there, but its only button (STYLE on the old AVACAM / DJ CAM tab, `drawDjCamTab`) has had no way in since #389, when that tab started opening SHOWTIME! OBJECTS (see the VISUALS line under #389: "ROBOT / HUMAN STYLE controls have no UI now").
+- `main.js`: `AVATAR_STYLES` = `robot` (RobotAvatar2, `ROBOT_GLB`), `face` (`models/avatar/dirroface.glb`), `crow` (`models/avatar/dirrocrow.glb`). Both Dirro GLBs use the same Ready Player Me rig (67 bones, `mouthOpen` / `mouthSmile` morphs), so they run on `director.js` `Avatar` with no changes there. Each loads the first time it is picked. A saved `style: 'human'` becomes `face`. `nextDjStyle()` steps through them in order and shows a toast. NEON CHROME still applies only to the robot.
+- DJ TOOLS: new `AVATAR: <name>` button (tap to step through) next to `AVATAR: ON / OFF`. Portrait: own row under GEAR LOCKDOWN / TURNTABLE FEEL, note moved down. Landscape (304 px tall, no room for a new row): both buttons share the GEAR LOCKDOWN / TURNTABLE FEEL row. The old DJ CAM tab STYLE button steps through the same three.
+- Not changed: ROBOT ON PHONE (spectator) and the GLOVE controller look still always use the robot.
+- `sw.js` v65 (+ `models/avatar/dirrocrow.glb`). Check: `node --check` on `main.js`, `sw.js`. Not tried in the browser or on the Quest yet.

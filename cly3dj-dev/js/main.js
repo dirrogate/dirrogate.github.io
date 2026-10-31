@@ -433,18 +433,26 @@ const pcamOpts = () => (streamer && streamer.active && streamer.source === 'pcam
 if (!CAM_PRESETS[djSet.preset]) djSet.preset = 'gopro';   // #530 only GOPRO and GOPRO2 are in CAM_PRESETS
 if (djcam) djcam.preset = djSet.preset;
 // #221 avatar styles: ROBOT (Blender model models/avatar/robot.glb, robot.js, default) or HUMAN (the Ready Player Me GLB, loaded when first picked)
+// #539 (owner) pick the avatar on DJ TOOLS: ROBOT, DIRROFACE or DIRROCROW. The two Dirro GLBs share the Ready Player Me
+// rig (67 bones, mouthOpen morph), so both run on director.js Avatar. Old saved 'human' = DIRROFACE.
+const AVATAR_STYLES = { robot: { label: 'ROBOT' }, face: { label: 'DIRROFACE', url: 'models/avatar/dirroface.glb' }, crow: { label: 'DIRROCROW', url: 'models/avatar/dirrocrow.glb' } };
+const AVATAR_ORDER = ['robot', 'face', 'crow'];
+if (djSet.style === 'human') djSet.style = 'face';
+if (!AVATAR_STYLES[djSet.style]) djSet.style = 'robot';
 const avatars = {};
 let avatar = null;
 function useAvatarStyle(st) {
   if (CAMERA_ROLE) return;
+  if (!AVATAR_STYLES[st]) st = 'robot';
   if (!avatars[st]) {
-    if (st === 'human') { const a = new Avatar(rig); avatars.human = a; a.load('models/avatar/dirroface.glb').catch(e => { a.status = 'failed: ' + e.message; console.warn('avatar not loaded', e); }); }
+    const S = AVATAR_STYLES[st];
+    if (S.url) { const a = new Avatar(rig); avatars[st] = a; a.load(S.url).catch(e => { a.status = 'failed: ' + e.message; console.warn('avatar not loaded', S.url, e); }); }
     else { const a = new RobotAvatar2(rig); avatars.robot = a; a.load(ROBOT_GLB).then(() => robotNeon()).catch(e => { a.status = 'failed: ' + e.message; console.warn('robot avatar not loaded', e); }); }   // #355 NEON CHROME
   }
   for (const a of Object.values(avatars)) a.root.visible = false;
   avatar = avatars[st]; avatar.root.visible = djSet.avatar;
 }
-useAvatarStyle(djSet.style === 'human' ? 'human' : 'robot');
+useAvatarStyle(djSet.style);
 // #188 / #195 / #196 camera preview: the spectator phone's picture (small JPEGs, ~6 a second) while grading from the
 // mixer's CAMERA tab. #196 (owner): a thin screen (3 mm) that lives inside the 7 mm tablet and slides up out of its top
 // edge when PREVIEW goes on, and back down inside when it goes off (eased, like the deck lamps). Headset only (noMirror).
@@ -5127,6 +5135,7 @@ function phoneRobotState() {
 }
 function setPhoneRobot(on) { djSet.phoneRobot = on; saveDjSet(); drawMixScreen(); toast(on ? 'Robot on the phone: on (shows while the headset is in VR)' : 'Robot on the phone: off', 2500); }
 function setDjStyle(st) { djSet.style = st; saveDjSet(); useAvatarStyle(st); drawMixScreen(); }
+function nextDjStyle() { const i = AVATAR_ORDER.indexOf(djSet.style); const st = AVATAR_ORDER[(i + 1) % AVATAR_ORDER.length]; setDjStyle(st); toast('Avatar: ' + AVATAR_STYLES[st].label, 1800); }   // #539
 function drawDjCamTab(btn, y0) {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   const on = ledMode === 'cam';
@@ -5134,7 +5143,7 @@ function drawDjCamTab(btn, y0) {
     ['CYCLO DirroDj📹', on, toggleDjCam],   // #240, #537 was LED CAM; #538 off = back to what the Cyclo showed, not CYCLO OFF
     ['MIRROR', djSet.mirror, () => setDjMirror(!djSet.mirror)],
     ['AVATAR', djSet.avatar, () => setDjAvatar(!djSet.avatar)],
-    [djSet.style === 'human' ? 'STYLE: HUMAN' : 'STYLE: ROBOT', false, () => setDjStyle(djSet.style === 'human' ? 'robot' : 'human')],
+    ['STYLE: ' + (AVATAR_STYLES[djSet.style] || AVATAR_STYLES.robot).label, false, nextDjStyle],   // #539 ROBOT / DIRROFACE / DIRROCROW
     ['ROBOT ON PHONE', !!djSet.phoneRobot, () => setPhoneRobot(!djSet.phoneRobot)],   // #278
   ];
   const per = P ? 3 : top.length, bw = (W - 16 - (per - 1) * 6) / per, tr = Math.ceil(top.length / per);   // #278: five across (#349 portrait: 3 + 2)
@@ -7094,6 +7103,7 @@ function drawToolsPage() {
       const cur = X ? X.getCtlLook() : '3dhands', NEXT = { '3dhands': 'glove', glove: 'controller', controller: '3dhands' };   // #287 three looks, tap to cycle
       btn(x, y, w, h, `CONTROLLERS: ${{ '3dhands': '3D HANDS', glove: 'GLOVE', controller: 'CONTROLLER' }[cur]}`, cur !== 'controller', () => { if (X) X.setCtlLook(NEXT[cur]); const el = document.getElementById('sHands'); if (el && X) el.value = X.getCtlLook(); drawMixScreen(); }, false, P ? 18 : 20); };
     const avBtn = (x, y, w, h) => btn(x, y, w, h, `AVATAR: ${djSet.avatar ? 'ON' : 'OFF'}`, djSet.avatar, () => setDjAvatar(!djSet.avatar), false, P ? 18 : 20);   // #363 the robot DJ (SHOWTIME!) on / off
+    const styleBtn = (x, y, w, h) => btn(x, y, w, h, `AVATAR: ${(AVATAR_STYLES[djSet.style] || AVATAR_STYLES.robot).label}`, djSet.style !== 'robot', nextDjStyle, false, P ? 18 : 20);   // #539 tap to cycle ROBOT / DIRROFACE / DIRROCROW
     const sw = (x, y, w, h, label, k) => { const on = pieceOn(k); btn(x, y, w, h, `${label}: ${on ? 'ON' : 'OFF'}`, on, () => setPiece(k, !on), false, P ? 18 : 20); };
     // #389 / #530 VJ TOOLS: 14 stage & visual extras in a clean grid
     const vjPage = y0 => {
@@ -7119,13 +7129,16 @@ function drawToolsPage() {
       if (page === 'dj') { const lw = (R - L - 8) * 0.42; btn(L, y0 + 8, R - L - lw - 8, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 22); drawLoopMainBtn(g, R - lw, y0 + 8, lw, 80, 22); VP_HIT.push({ x: R - lw, y: y0 + 8, w: lw, h: 80, act: () => setTools('looper') }); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');   // #470 LOOPER
         ctlBtn(L, y0 + 176, (R - L - 8) * 0.62, 64); btn(L + (R - L - 8) * 0.62 + 8, y0 + 176, (R - L - 8) * 0.38, 64, 'HAND FIT', false, () => setTools('handfit'), false, 18);   // #291
         lockBtn(L, y0 + 252, (R - L - 8) * 0.55, 64); btn(L + (R - L - 8) * 0.55 + 8, y0 + 252, (R - L - 8) * 0.45, 64, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 17);   // #378, #423
-        note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until you switch it off (then decks turn in 45 degree steps). RECORD MAKER: press your own record. MILK CRATE: the first milk crate. CONTROLLERS: 3D hands holding them, or the bare controllers.', y0 + 332); }
+        avBtn(L, y0 + 328, (R - L - 8) * 0.38, 64); styleBtn(L + (R - L - 8) * 0.38 + 8, y0 + 328, (R - L - 8) * 0.62, 64);   // #539
+        note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until you switch it off (then decks turn in 45 degree steps). RECORD MAKER: press your own record. MILK CRATE: the first milk crate. CONTROLLERS: 3D hands holding them, or the bare controllers. AVATAR: tap to pick ROBOT, DIRROFACE or DIRROCROW.', y0 + 408); }
       else vjPage(y0);   // #389
     } else {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
       if (page === 'dj') { const mw = 236, lw = 170; btn(L, y0 + 8, mw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 22); drawLoopMainBtn(g, L + mw + 8, y0 + 8, lw, 80, 22); VP_HIT.push({ x: L + mw + 8, y: y0 + 8, w: lw, h: 80, act: () => setTools('looper') }); sw(L + mw + lw + 16, y0 + 8, R - (L + mw + lw + 16), 80, 'MILK CRATE', 'milk');   // #470 LOOPER
         ctlBtn(L, y0 + 96, (R - L - 8) * 0.66, 50); btn(L + (R - L - 8) * 0.66 + 8, y0 + 96, (R - L - 8) * 0.34, 50, 'HAND FIT', false, () => setTools('handfit'), false, 20);   // #291
-        lockBtn(L, y0 + 154, (R - L - 8) * 0.62, 46); btn(L + (R - L - 8) * 0.62 + 8, y0 + 154, (R - L - 8) * 0.38, 46, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 18);   // #378, #423
+        { const rw = R - L - 24, xa = L + rw * 0.34 + 8, xb = xa + rw * 0.22 + 8, xc = xb + rw * 0.16 + 8;   // #539 the avatar pair shares this row (the landscape screen is only 304 px tall)
+          lockBtn(L, y0 + 154, rw * 0.34, 46); btn(xa, y0 + 154, rw * 0.22, 46, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 18);   // #378, #423
+          avBtn(xb, y0 + 154, rw * 0.16, 46); styleBtn(xc, y0 + 154, rw * 0.28, 46); }
         note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until it is switched off. RECORD MAKER: press your own record. CONTROLLERS: 3D hands or bare controllers.', y0 + 218); }
       else vjPage(y0);   // #389
     }
