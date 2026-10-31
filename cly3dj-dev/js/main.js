@@ -784,6 +784,7 @@ function showLoop(L) {   // #441 a grabbed loop on the Cyclo (RETRO-SCENE shows 
   ledFx.s = 'loop'; ledFx.li = Math.max(0, grab.loops.indexOf(L)); ledFx.loop = L; ledFx.loopT0 = performance.now(); ledFx.sBar = ledFx.bar; drawMixScreen();
 }
 const retroIcon = new Image(); retroIcon.onload = () => { if (toolsPage === 'wall') drawMixScreen(); }; retroIcon.src = 'retroscene.png';   // the owner's RETRO SCENE disk
+var ledPreCam, ledLastOn, ledLastVis, ledLastBack;   // #538 (see toggleDjCam / cycloOffCycle below); var with no value: setLedMode may run before this line
 function setLedMode(m, kind) {
   if (m === 'clips') {   // #439 kind: 'video' = CLIPS, 'image' = PICTURES (the WALL page's tiles); none = the whole LED LIST
     led.kind = kind || null;
@@ -796,12 +797,41 @@ function setLedMode(m, kind) {
   if (m !== 'clips' && led.on) led.stop();
   if (m === 'cam' && !djcam) m = 'off';
   if (isLive(ledMode) && !isLive(m) && spect && spect.liveCam && !streamPhone()) spect.liveCam(false);   // #331 unless the stream uses it
+  if (m === 'cam' && ledMode !== 'cam') ledPreCam = { m: ledMode, kind: led.kind };   // #538 what DirroDJ📹 goes back to
+  if (m !== 'off') ledLastOn = { m, kind: m === 'clips' ? led.kind : null };   // #538 the OFF ⟳ cycle comes back ON to this
+  if (m !== 'off' && m !== 'cam') ledLastVis = ledLastOn;
   ledMode = m;
   if (m === 'clips') led.playRandom();
   else if (isLive(m)) spect.liveCam(true, m === 'solo', pcamOpts());
   else if (isFxMode(m)) { ledFx.t0 = performance.now(); ledFx.s = 'dancer'; ledFx.sBar = ledFx.autoBar = ledFx.bar; fxPaint(); }   // #439
   drawMixScreen();
 }
+// #538 (owner) DirroDJ📹 switches only the DirroDJ avatar camera on the Cyclo: off goes back to what the Cyclo showed
+// before (or the last visual), never CYCLO OFF. The CYCLO page's OFF ⟳ steps: ON (any source) > OFF with the background
+// visuals > DOME only > back ON to the last state (and the backdrop it had).
+function restoreLed(s, fb) {
+  if (s && s.m !== 'off') { if (s.m === 'clips') setLedMode('clips', s.kind || undefined); else setLedMode(s.m); }
+  if ((!s || ledMode !== s.m) && fb && ledMode !== fb) setLedMode(fb);
+}
+function toggleDjCam() {
+  if (ledMode !== 'cam') { if (!djcam) { toast('DirroDJ📹: no avatar camera yet', 2000); return; } setLedMode('cam'); return; }
+  const p = ledPreCam && ledPreCam.m !== 'cam' && ledPreCam.m !== 'off' ? ledPreCam : ledLastVis; ledPreCam = null;
+  restoreLed(p, 'mandel');
+}
+function setBackdrop(v) { if (streamer) streamer.setShowOpt('backdrop', v); else setDome(v === 'dome'); }
+function curBackdrop() { return streamer && streamer.showOpt ? streamer.showOpt.backdrop : dome.on ? 'dome' : 'visuals'; }
+function cycloOffCycle() {
+  if (ledMode !== 'off') {
+    ledLastBack = curBackdrop(); setLedMode('off'); setBackdrop('visuals');
+    toast('CYCLO OFF: background visuals', 1800);
+  } else if (!dome.on) { setBackdrop('dome'); toast('DOME only', 1800); }
+  else {
+    setBackdrop(ledLastBack && ledLastBack !== 'dome' ? ledLastBack : 'visuals'); ledLastBack = null;
+    restoreLed(ledLastOn, 'mandel'); toast(LED_LABEL[ledMode], 1800);
+  }
+  drawMixScreen();
+}
+function cycloOffLabel() { return (ledMode !== 'off' ? 'OFF' : dome.on ? 'DOME ONLY' : 'OFF: BG VISUALS') + ' ⟳'; }
 function setNeonScale(s) { s = clamp(s, 0.3, 4); neon.scale.setScalar(s); neon.userData.setLodScale(s); if (stage) stage.items.neon.base = NEON.R * s; return s; }
 function saveNeonScale() { try { localStorage.setItem('vire.neonScale', String(neon.scale.x)); } catch (e) {} }
 try { const s = parseFloat(localStorage.getItem('vire.neonScale')); if (s > 0) { neon.scale.setScalar(clamp(s, 0.3, 4)); neon.userData.setLodScale(neon.scale.x); } } catch (e) {}
@@ -5101,7 +5131,7 @@ function drawDjCamTab(btn, y0) {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   const on = ledMode === 'cam';
   const top = [
-    ['CYCLO DirroDj📹', on, () => setLedMode(on ? 'off' : 'cam')],   // #240, #537 was LED CAM
+    ['CYCLO DirroDj📹', on, toggleDjCam],   // #240, #537 was LED CAM; #538 off = back to what the Cyclo showed, not CYCLO OFF
     ['MIRROR', djSet.mirror, () => setDjMirror(!djSet.mirror)],
     ['AVATAR', djSet.avatar, () => setDjAvatar(!djSet.avatar)],
     [djSet.style === 'human' ? 'STYLE: HUMAN' : 'STYLE: ROBOT', false, () => setDjStyle(djSet.style === 'human' ? 'robot' : 'human')],
@@ -5358,7 +5388,7 @@ function drawVideoPage() {
   const hasList = vpFolder === 'Video' || vpFolder === 'Images';   // #222 the LED playlist, one tap away
   if (hasList) btn(P ? 124 : 522, by, P ? 70 : 92, bh, `CYCLO LIST ${led.files.length}`, false, () => { vpBack = vpFolder; vpFolder = 'LedList'; vpLoad(); });
   const mw = P && hasList ? 78 : 140;
-  btn(W - (P ? 26 : 8) - mw, by, mw, bh, LED_LABEL[ledMode], ledMode !== 'off', () => setLedMode(nextLedMode(ledMode)));   // #238 + LIVE
+  btn(W - (P ? 26 : 8) - mw, by, mw, bh, LED_LABEL[ledMode] + ' ⟳', ledMode !== 'off', () => setLedMode(nextLedMode(ledMode)));   // #238 + LIVE; #538 ⟳ = taps step through the states
 }
 // #379 tablet slider: tap (or keep tapping) anywhere along it to set the value
 function tSlider(g, x, y, w, h, label, v, txt, set, dim, lwMax = 110) {   // #423 lwMax: room for a longer label
@@ -5713,6 +5743,10 @@ function btnLabel(g, label, x, y, w, h, fs0 = 17, weight = 700) {
     label = label.slice(0, -2).trimEnd(); btnLabel(g, label, x, y, w - 6, h, fs0, weight);
     g.save(); g.font = '700 11px system-ui'; g.textAlign = 'right'; g.textBaseline = 'top'; g.fillText('+1', x + w - 3, y + 2); g.restore(); return;
   }
+  if (label.endsWith('⟳')) {   // #538 a small cycle mark in the upper right: tapping steps through states (drawn, not a font glyph)
+    label = label.slice(0, -1).trimEnd(); btnLabel(g, label, x, y, w - 8, h, fs0, weight);
+    drawCycMark(g, x + w - 9, y + 9, 5.5); return;
+  }
   const pad = 8, room = w - pad, f = n => { g.font = `${weight} ${n}px system-ui`; }, wid = t => g.measureText(t).width;
   const one = Math.max(12, Math.round(fs0 * 0.8));
   for (let n = fs0; n >= one; n--) { f(n); if (wid(label) <= room) { g.fillText(label, x + w / 2, y + h / 2 + 1); return; } }
@@ -5729,6 +5763,14 @@ function btnLabel(g, label, x, y, w, h, fs0 = 17, weight = 700) {
   _lblOver.push(label); fitText2Center(g, label, x + w / 2, y + h / 2 + 1, room);
 }
 function fitText2Center(g, s, x, y, w) { let t = s; while (t.length > 3 && g.measureText(t).width > w) t = t.slice(0, -2); if (t !== s) t = t.slice(0, -1) + '…'; g.fillText(t, x, y); }
+function drawCycMark(g, cx, cy, r) {   // #538 ⟳: an open clockwise ring with an arrow head, in the label colour
+  g.save(); g.strokeStyle = g.fillStyle; g.lineWidth = 2; g.lineCap = 'round';
+  const a0 = -Math.PI * 0.35, a1 = Math.PI * 1.35;
+  g.beginPath(); g.arc(cx, cy, r, a0, a1); g.stroke();
+  const ex = cx + r * Math.cos(a1), ey = cy + r * Math.sin(a1), tx = -Math.sin(a1), ty = Math.cos(a1), nx = Math.cos(a1), ny = Math.sin(a1), s = 3.6;
+  g.beginPath(); g.moveTo(ex + tx * s, ey + ty * s); g.lineTo(ex - nx * s * 0.9, ey - ny * s * 0.9); g.lineTo(ex + nx * s * 0.9, ey + ny * s * 0.9); g.closePath(); g.fill();
+  g.restore();
+}
 function makerSourceText() {
   if (maker.kind === 'song') return maker.song ? `Song: ${maker.song.title}${maker.song.artist ? '  ·  ' + maker.song.artist : ''}` : 'Song: pick one (SONG…)';
   if (maker.kind === 'clip') return maker.video ? `Clip: ${maker.video.replace(/\.[^.]+$/, '')} (its sound, and it plays on the record)` : 'Clip: pick one (CLIP…)';
@@ -6845,14 +6887,12 @@ function drawToolsPage() {
   }
   if (page === 'wall') {   // #439 LED WALL: one tap a source. It drives the 3D wall, the stream's / DIRROTV's VIDEOWALL and the Dirrogram phones (FOLLOW)
     const y0 = head('CYCLO', 'mixer'), d = dirro, LK = d ? d.wall : null, cyc = (arr, v, dir) => arr[(arr.indexOf(v) + dir + arr.length) % arr.length];
-    const nOf = k => { const o = led.kind; led.kind = k; const n = led.pool().length; led.kind = o; return n; };
-    const tiles = [
-      ['OFF', ledMode === 'off', () => setLedMode('off'), false],
-      ['CLIPS', (ledMode === 'clips' && !led.img) || (ledMode === 'retro' && ledFx.s === 'loop'), () => (nOf('video') ? setLedMode('clips', 'video') : showLoop(grab.loops[0])), !nOf('video') && !grab.loops.length],
-      ['PICTURES', ledMode === 'clips' && !!led.img, () => setLedMode('clips', 'image'), !nOf('image')],
+    const tiles = [   // #538 OFF ⟳ cycles (OFF + background visuals > DOME only > back ON); CLIPS and PICTURES gave way to VISUALS⁺¹ (the clips and pictures live there)
+      [cycloOffLabel(), ledMode === 'off', cycloOffCycle, false],
+      ['VISUALS ⁺¹', false, () => { setTools(null); setVideoPage(true); }, false],
       ['MANDEL', ledMode === 'mandel', () => setLedMode('mandel'), false],
       ['RETRO-SCENE', ledMode === 'retro' || ledMode === 'vdancer' || ledMode === 'meta', () => { if (!isFxMode(ledMode) || ledMode === 'mandel') setLedMode('retro'); setTools('retro'); }, false],
-      ['DirroDj📹', ledMode === 'cam', () => setLedMode('cam'), !djcam],
+      ['DirroDj📹', ledMode === 'cam', toggleDjCam, !djcam],   // #538 on / off for the avatar camera only; the Cyclo keeps running
       ['LIVE', isLive(ledMode), () => setLedMode('live'), !livePossible()]];
     const tile = (x, y, w, h, [label, on, act, dim]) => {
       if (label !== 'RETRO-SCENE') { btn(x, y, w, h, label, on, dim ? null : act, dim, P ? 19 : 17); return; }
@@ -6877,15 +6917,15 @@ function drawToolsPage() {
     if (P) {
       const tw = (R - L - 6) / 2, th = 66;
       tiles.forEach((t, i) => tile(L + (i % 2) * (tw + 6), y0 + 2 + Math.floor(i / 2) * (th + 6), tw, th, t));
-      const [al, ao, aa] = acts[1]; btn(L + tw + 6, y0 + 2 + 3 * (th + 6), tw, th, al, ao, aa, false, 17);
-      let y = y0 + 2 + 4 * (th + 6) + 4;
-      btn(L, y, R - L, 54, acts[0][0], acts[0][1], acts[0][2], false, 22); y += 60;
+      let y = y0 + 2 + Math.ceil(tiles.length / 2) * (th + 6);   // #538 six tiles: GRAB LOOP and AUTO share the next row
+      btn(L, y, tw, 54, acts[0][0], acts[0][1], acts[0][2], false, 20);
+      const [al, ao, aa] = acts[1]; btn(L + tw + 6, y, tw, 54, al, ao, aa, false, 17); y += 60;
       btn(L, y, tw, 44, acts[2][0], acts[2][1], acts[2][2], acts[2][3], 16); tapB(L + tw + 6, y, tw, 44, 18); y += 52;
       steps.forEach(([l, v, dn, up]) => { stp(L, y, R - L, 40, l, v, dn, up); y += 46; });
       pxSlider(L, y, R - L, 38); y += 44;
       note(info, y + 14);
     } else {
-      const tw = (R - L - 6 * 6) / 7, th = 80;
+      const tw = (R - L - 6 * (tiles.length - 1)) / tiles.length, th = 80;   // #538 six tiles across
       tiles.forEach((t, i) => tile(L + i * (tw + 6), y0 + 2, tw, th, t));
       const aw = (R - L - 12) / 3, a4 = (R - L - 18) / 4;
       acts.forEach(([l, on, a, dim], i) => btn(L + i * (a4 + 6), y0 + 88, a4, 38, l, on, dim ? null : a, dim, 16)); tapB(L + 3 * (a4 + 6), y0 + 88, a4, 38, 16);
@@ -8204,6 +8244,7 @@ function skyLayoutFor(w, h) {
 }
 // Use a picked (or stored) image file: the lighting copy (left eye, <= 2048 wide) and, for panoramas, the full-size sky.
 async function useSkyFile(f, fresh) {
+  skyFactory = false;   // #538 a real sky replaces the factory one
   const bmp = await createImageBitmap(f), L = skyLayoutFor(bmp.width, bmp.height);
   let c;
   if (L) c = leftEyeCanvas(bmp, L.layout, L.swap, 2048);
@@ -8220,12 +8261,23 @@ async function useSkyFile(f, fresh) {
   skyInfo(dims, L); applySky();
 }
 async function ensureSky(force) {   // full-size panorama from storage, loaded when first shown (#346 force: for the DOME, whatever the light setting)
-  if (skybox.tex || (settings.env !== 'image' && !force)) return;
+  if ((skybox.tex && !skyFactory) || (settings.env !== 'image' && !force)) return;
   if (settings.skyMedia) {   // #185 chosen from the media library (mixer Video page)
     const i = settings.skyMedia.indexOf('/'), folder = settings.skyMedia.slice(0, i), f = await media.getFile(folder, settings.skyMedia.slice(i + 1));
     if (f) { if (folder === 'Video pano') await useSkyVideo(f); else await useSkyFile(f, false); return; }
   }
-  const f = await loadPano(); if (f) await useSkyFile(f, false);
+  const f = await loadPano(); if (f) { await useSkyFile(f, false); return; }
+  if (force && !skybox.tex) await useFactorySky();   // #538 nothing picked yet: the DOME starts with the factory sky
+}
+// #538 (owner) factory sky: img/sky_factory.jpg (the owner's sci-fi corridor, 2:1 mono). Only the dome / skybox texture: the
+// lighting copy and the saved sky are left alone, and any sky the DJ picks (VISUALS > PANO > SKY, start page) replaces it.
+var skyFactory;   // var with no value: ensureSky may run before this line
+async function useFactorySky() {
+  try {
+    const r = await fetch('img/sky_factory.jpg'); if (!r.ok) throw new Error('HTTP ' + r.status);
+    const b = await r.blob(); if (skybox.tex) return;   // a real sky arrived meanwhile
+    closeSkyVideo(); await skybox.load(b, 'mono', false); skybox.setHeight(settings.skyH); skyFactory = true; applySky();
+  } catch (e) { console.warn('factory sky', e); }
 }
 // #185 sky from the library: a still (Pano) or a looping video panorama (Video pano)
 let skyVid = null;
@@ -8240,7 +8292,7 @@ async function useSkyMedia(folder, name) {
   toast('Sky: ' + name, 2000);
 }
 async function useSkyVideo(f) {
-  closeSkyVideo();
+  closeSkyVideo(); skyFactory = false;   // #538
   const { video, snap } = await openPanoVideo(f); skyVid = video;
   const L = skyLayoutFor(video.videoWidth, video.videoHeight) || { layout: 'mono', swap: false };
   const c = leftEyeCanvas(snap, L.layout, L.swap, 2048);
