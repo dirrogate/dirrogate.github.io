@@ -1538,3 +1538,21 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
     - Grab box and corner detection updated to match the new trim and handle coordinates.
 - `sw.js` bumped to `v66`.
 - Backup created in `backups/pre-540/`. Syntax check passed (`node --check`).
+
+
+## #541 Kinematic Halloween Pumpkin Prop with Sphere Collider (owner, 1 Nov)
+- Incorporated `web/models/props/halloween_pumpkin.glb` into the MOVIE PROPS system as a built-in prop with kinematic gear collision.
+- `web/js/movieprops.js`:
+  - Added `'halloween_pumpkin.glb'` to `GLB_BUILTIN`.
+  - Added realistic scaling for the pumpkin (~36 cm wide, natural table/flightcase size).
+  - Implemented kinematic sphere collision (`sphereObbPush` and `depenKinematic`):
+    - Pumpkin has a sphere collider (radius matching the pumpkin body).
+    - When moving or held by hand (or with the placement laser), it performs 3-pass separating-axis penetration tests against all gear OBBs (flight cases, turntables, mixer).
+    - Prevents the pumpkin from cutting through the flight case surface or mixer/decks, allowing it to rest and slide smoothly on top of the main flight case.
+- `web/js/main.js`:
+  - Added `PUMPKIN +` button to VJ TOOLS > MOVIE PROPS spawn bar for quick one-tap spawning.
+  - Linked `MovieProps` with `getColliders()` supplying `sleeveColliders` (gear and flightcase OBBs).
+- `web/sw.js`:
+  - Added `models/props/halloween_pumpkin.glb` to pre-cached offline assets.
+  - Bumped cache to `vire-app-v67`.
+- Backup created in `backups/pre-541/`.

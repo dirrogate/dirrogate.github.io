@@ -10,8 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v66';   // #540 redcastle curved portal (weathered concrete + rusty iron trim & handles)
-// was v65: #539 DJ TOOLS avatar pick (ROBOT / DIRROFACE / DIRROCROW), models/avatar/dirrocrow.glb
+const CACHE = 'vire-app-v67';   // #541 kinematic halloween_pumpkin.glb prop (sphere collider vs flight case & gear)
+// was v66: #540 redcastle curved portal (weathered concrete + rusty iron trim & handles)
 const NET_WAIT = 2500, OFFLINE_HOLD = 30000;
 const APP = [
   'index.html', 'spectator.html', 'dirrovj.html', 'vjdesk.html', 'venue.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png',
@@ -26,7 +26,7 @@ const APP = [
   'vendor/three/libs/ktx-parse.module.js', 'vendor/three/libs/zstddec.module.js', 'vendor/three/libs/motion-controllers.module.js',
   'vendor/three/libs/basis/basis_transcoder.js', 'vendor/three/libs/basis/basis_transcoder.wasm',
   'vendor/three/webxr/XRControllerModelFactory.js', 'vendor/three/webxr/XRHandModelFactory.js', 'vendor/three/webxr/XRHandMeshModel.js', 'vendor/three/webxr/XRHandPrimitiveModel.js',
-  'vendor/webxr-input-profiles/profilesList.json', 'fonts/Monoton.woff2', 'fonts/ComicBangers.woff2', 'fonts/ComicType.woff2', 'fonts/ComicNeueBold.woff2', 'fonts/NotoDevanagariBold.woff2', 'fonts/NotoDevanagariBoldLatin.woff2', 'graff/graff1.png', 'graff/graff2.png', 'graff/decal_lane.png', 'graff/decal_arrow.png', 'graff/decal_tyre.png', 'graff/decal_oil.png', 'graff/decal_leaves.png', 'graff/decal_poster.png', 'graff/decal_rust.png', 'graff/decal_stickers.png', 'plates/alley1.jpg', 'plates/alley2.jpg', 'plates/alley3.jpg', 'surfaces/cobblestone/diff.jpg', 'surfaces/cobblestone/disp.png', 'surfaces/cobblestone/rough.jpg', 'surfaces/concrete/diff.jpg', 'surfaces/concrete/disp.png', 'surfaces/asphalt/diff.jpg', 'surfaces/asphalt/disp.png', 'surfaces/asphalt/rough.jpg', 'models/props/street_lamp_01.glb', 'models/props/street_lamp_02.glb', 'models/props/covered_car.glb', 'models/props/concrete_road_barrier.glb', 'models/props/exterior_aircon.glb', 'models/props/exterior_aircon_rusted.glb', 'models/props/water_manhole.glb',
+  'vendor/webxr-input-profiles/profilesList.json', 'fonts/Monoton.woff2', 'fonts/ComicBangers.woff2', 'fonts/ComicType.woff2', 'fonts/ComicNeueBold.woff2', 'fonts/NotoDevanagariBold.woff2', 'fonts/NotoDevanagariBoldLatin.woff2', 'graff/graff1.png', 'graff/graff2.png', 'graff/decal_lane.png', 'graff/decal_arrow.png', 'graff/decal_tyre.png', 'graff/decal_oil.png', 'graff/decal_leaves.png', 'graff/decal_poster.png', 'graff/decal_rust.png', 'graff/decal_stickers.png', 'plates/alley1.jpg', 'plates/alley2.jpg', 'plates/alley3.jpg', 'surfaces/cobblestone/diff.jpg', 'surfaces/cobblestone/disp.png', 'surfaces/cobblestone/rough.jpg', 'surfaces/concrete/diff.jpg', 'surfaces/concrete/disp.png', 'surfaces/asphalt/diff.jpg', 'surfaces/asphalt/disp.png', 'surfaces/asphalt/rough.jpg', 'models/props/street_lamp_01.glb', 'models/props/street_lamp_02.glb', 'models/props/covered_car.glb', 'models/props/concrete_road_barrier.glb', 'models/props/exterior_aircon.glb', 'models/props/exterior_aircon_rusted.glb', 'models/props/water_manhole.glb', 'models/props/halloween_pumpkin.glb',
   ...['generic-hand', 'meta-quest-touch-plus', 'meta-quest-touch-pro', 'oculus-touch-v3'].flatMap(p => ['profile.json', 'left.glb', 'right.glb'].map(f => `vendor/webxr-input-profiles/${p}/${f}`)),
 ];
 const SCOPE = self.registration.scope, PAGE = SCOPE + 'index.html';
