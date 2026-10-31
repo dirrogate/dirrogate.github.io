@@ -1993,7 +1993,12 @@ async function pumpArt() {
         let head;
         const part = async (a, b) => {
           if (track.opfs) return (await store.readFile(track.opfs)).slice(a, b).arrayBuffer();
-          const r = await fetch(track.url, { headers: { Range: `bytes=${a}-${b - 1}` } });
+          let r = await fetch(track.url, { headers: { Range: `bytes=${a}-${b - 1}` } });
+          if (!r.ok && /^Collection\//i.test(track.url)) {
+            const alt = track.url.replace(/^Collection\//i, 'Halloween/');
+            const r2 = await fetch(alt, { headers: { Range: `bytes=${a}-${b - 1}` } });
+            if (r2.ok) { track.url = alt; r = r2; }
+          }
           return r.arrayBuffer();
         };
         head = new Uint8Array(await part(0, 10));
@@ -2016,7 +2021,12 @@ function fetchSide(track) {
     let bytes;
     if (track.opfs) bytes = await (await store.readFile(track.opfs)).arrayBuffer();
     else {
-      const r = await fetch(track.url);
+      let r = await fetch(track.url);
+      if (!r.ok && /^Collection\//i.test(track.url)) {
+        const alt = track.url.replace(/^Collection\//i, 'Halloween/');
+        const r2 = await fetch(alt);
+        if (r2.ok) { track.url = alt; r = r2; }
+      }
       if (!r.ok) throw new Error(`HTTP ${r.status} for ${decodeURIComponent(track.url)}`);
       bytes = await r.arrayBuffer();
     }

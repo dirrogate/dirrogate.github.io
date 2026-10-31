@@ -1571,3 +1571,13 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
     - Updated `loadLibrary()` to support `window._customXmlText` (from Windows Explorer) and fallback search in `SONGSXML/`.
   - `web/index.html`: Added `#bBrowseXml` ("Select XML file..."), `#bBrowseXmlFolder` ("Select XML folder..."), and hidden file/folder inputs.
   - `web/sw.js`: Bumped cache to `vire-app-v68`.
+
+## #543 Pumpkin GLB PBR Material Fix & Halloween Art Path Fallback (owner, 1 Nov)
+- Fixed Pumpkin GLB Color (`halloween_pumpkin.glb`):
+  - Model previously used deprecated `KHR_materials_pbrSpecularGlossiness` extension which modern Three.js GLTFLoader ignores, omitting the diffuse color texture (leaving the pumpkin untextured/white).
+  - Converted material to standard glTF 2.0 `pbrMetallicRoughness` with `baseColorTexture` pointing directly to texture 0 (the original orange diffuse texture), roughness 0.65, metallic 0.05.
+  - Set emissive glowing eyes/mouth (`[1.0, 0.5, 0.05]`) with emissiveTexture index 2.
+- Halloween Album & Record Center Label Art:
+  - Verified all 26 Halloween mp3s contain embedded ID3v2 APIC tags (Front cover type 3, Center media label type 6, Back cover type 4).
+  - Added seamless fallback in `fetchArt` and `fetchSide` in `main.js`: if a track's URL starts with `Collection/` and the collection folder is missing, automatically falls back to `Halloween/` so standalone Halloween sets load full sleeve and center label artwork.
+  - Bumped `sw.js` cache to `vire-app-v69`.

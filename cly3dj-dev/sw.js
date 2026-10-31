@@ -10,7 +10,7 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v68';   // #542 dynamic XML selector from SONGSXML folder & local file picker
+const CACHE = 'vire-app-v69';   // #543 pumpkin GLB PBR material fix (vibrant orange diffuse map) + Halloween art fallback
 // was v66: #540 redcastle curved portal (weathered concrete + rusty iron trim & handles)
 const NET_WAIT = 2500, OFFLINE_HOLD = 30000;
 const APP = [
