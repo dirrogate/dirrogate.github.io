@@ -10,8 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v65';   // #539 DJ TOOLS avatar pick (ROBOT / DIRROFACE / DIRROCROW), models/avatar/dirrocrow.glb
-// was v64: #538 CYCLO OFF ⟳ cycle, VISUALS⁺¹ tile, DirroDJ📹 toggle, factory dome sky (img/sky_factory.jpg)
+const CACHE = 'vire-app-v66';   // #540 redcastle curved portal (weathered concrete + rusty iron trim & handles)
+// was v65: #539 DJ TOOLS avatar pick (ROBOT / DIRROFACE / DIRROCROW), models/avatar/dirrocrow.glb
 const NET_WAIT = 2500, OFFLINE_HOLD = 30000;
 const APP = [
   'index.html', 'spectator.html', 'dirrovj.html', 'vjdesk.html', 'venue.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png',

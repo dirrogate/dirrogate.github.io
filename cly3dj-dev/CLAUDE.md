@@ -1522,3 +1522,19 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - DJ TOOLS: new `AVATAR: <name>` button (tap to step through) next to `AVATAR: ON / OFF`. Portrait: own row under GEAR LOCKDOWN / TURNTABLE FEEL, note moved down. Landscape (304 px tall, no room for a new row): both buttons share the GEAR LOCKDOWN / TURNTABLE FEEL row. The old DJ CAM tab STYLE button steps through the same three.
 - Not changed: ROBOT ON PHONE (spectator) and the GLOVE controller look still always use the robot.
 - `sw.js` v65 (+ `models/avatar/dirrocrow.glb`). Check: `node --check` on `main.js`, `sw.js`. Not tried in the browser or on the Quest yet.
+
+
+## #540 Redcastle Curved-Edge Portal: Weathered Concrete + Rusty Wrought-Iron Trim (owner, 1 Nov)
+- Replaced the rectangular portal frame with a curved-edge portal opening (rounded corners) designed to match the architectural concrete and arches in `redcastle2_1.jpg`.
+- `web/js/portal.js`:
+  - **Shader discard shape:** Updated `FRAG` shader discard logic to use exact 2D signed distance for rounded rectangle corners: `float rr = min(0.20, 0.45 * min(h.x, h.y)); vec2 d = q - h + rr; if (length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - rr < 0.0) discard;`. Cuts seamlessly through FacetWall and the sky dome.
+  - **Trim model:** Built procedural 3D rounded-corner looped geometries (`createFrameGeo`):
+    - Inner band: rusty forged wrought iron (`ironMat`, `ironTex`, width 2.6 cm, depth 4.2 cm) with decorative forged iron corner rivets.
+    - Outer surround: weathered dark castle concrete / stone (`stoneMat`, `stoneTex`, width 8.5 cm, depth 3.4 cm) blending directly into the castle's masonry.
+  - **Sizing handles:** Replaced garish silver tabs with forged rusty wrought-iron hardware positioned along the outer edge:
+    - Right side iron bar = width sizing (`'x'`).
+    - Top iron bar = height sizing (`'y'`).
+    - Top-right corner forged iron ring = dual-axis sizing (`'xy'`).
+    - Grab box and corner detection updated to match the new trim and handle coordinates.
+- `sw.js` bumped to `v66`.
+- Backup created in `backups/pre-540/`. Syntax check passed (`node --check`).
