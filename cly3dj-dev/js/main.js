@@ -1892,9 +1892,30 @@ async function loadLibrary() {
       resolve = store.opfsResolver(index);
       vvIndex = new Map(index.filter(f => VIDEO_EXT.test(f.path)).map(f => [vvKey(baseName(f.path)), f.path]));   // #177
     } else {
-      const tryXml = [settings.xml, ...['rekordbox.xml', 'ViRE_rekordbox.xml'].filter(x => x !== settings.xml)];
-      for (const x of tryXml) { const r = await fetch(x); if (r.ok) { text = await r.text(); from = x; break; } }
-      if (!text) throw new Error('no library XML found on the PC');
+      let customText = window._customXmlText;
+      if (customText) {
+        text = customText;
+        from = window._customXmlName || 'chosen XML';
+      } else {
+        const tryXml = [
+          settings.xml,
+          settings.xml ? `SONGSXML/${settings.xml}` : null,
+          'SONGSXML/ViRE_Halloween.xml',
+          'ViRE_Halloween.xml',
+          'SONGSXML/ViRE_1Rekordbox.xml',
+          'ViRE_1Rekordbox.xml',
+          'SONGSXML/rekordbox.xml',
+          'rekordbox.xml',
+          'ViRE_rekordbox.xml'
+        ].filter(Boolean);
+        for (const x of tryXml) {
+          try {
+            const r = await fetch(x);
+            if (r.ok) { text = await r.text(); from = x; break; }
+          } catch {}
+        }
+        if (!text) throw new Error('no library XML found on the PC');
+      }
       resolve = store.pcResolver;
     }
     lib = text ? parseLibrary(text, resolve) : emptyLibrary();
@@ -8456,7 +8477,20 @@ async function showStorage() {
 $('#sHands').addEventListener('change', e => { if (xr) { xr.setCtlLook(e.target.value); drawMixScreen(); } });   // #286 (owner) 3D hands / controllers from the start page
 for (const [id, k] of [['#sSource', 'source'], ['#sXml', 'xml'], ['#sEnv', 'env'], ['#sGlow', 'glow'], ['#sShadows', 'shadows'], ['#sMicRoute', 'micRoute'],
   ['#sDeckModel', 'deckModel'], ['#sRecWeight', 'recWeight'], ['#sSlipmat', 'slipmat'], ['#sSpect', 'spect'], ['#sSky', 'sky']]) {
-  $(id).onchange = e => {
+  $(id).onchange = async e => {
+    if (k === 'xml') {
+      if (e.target.value.startsWith('folder:')) {
+        const fname = e.target.value.replace('folder:', '');
+        const f = window._folderXmlFiles && window._folderXmlFiles.get(fname);
+        if (f) {
+          window._customXmlText = await f.text();
+          window._customXmlName = f.name;
+        }
+      } else if (!window._customXmlName || window._customXmlName !== e.target.value) {
+        window._customXmlText = null;
+        window._customXmlName = null;
+      }
+    }
     settings[k] = e.target.value; saveSettings(); syncSettingsUI();
     if (k === 'deckModel' || k === 'recWeight' || k === 'slipmat') sendPhysics();
     if (k === 'glow') setGlowMode(glowMat, settings.glow);
@@ -8466,6 +8500,83 @@ for (const [id, k] of [['#sSource', 'source'], ['#sXml', 'xml'], ['#sEnv', 'env'
     if (k === 'sky') ensureSky().then(applySky);
     if (k === 'source' || k === 'xml') loadLibrary();
     if (k === 'env') { if (settings.env === 'image' && !envImageStored()) $('#fEnv').click(); applyEnv(); }
+  };
+}
+
+async function refreshXmlList() {
+  const sel = $('#sXml');
+  if (!sel) return;
+  try {
+    const res = await fetch('SONGSXML/index.json');
+    if (res.ok) {
+      const list = await res.json();
+      for (const item of list) {
+        const val = 'SONGSXML/' + item;
+        if (![...sel.options].some(o => o.value === val)) {
+          const opt = document.createElement('option');
+          opt.value = val;
+          opt.textContent = `${item} (SONGSXML)`;
+          sel.insertBefore(opt, sel.firstChild);
+        }
+      }
+    }
+  } catch {}
+  if (settings.xml && [...sel.options].some(o => o.value === settings.xml)) {
+    sel.value = settings.xml;
+  }
+}
+refreshXmlList();
+
+if ($('#bBrowseXml')) {
+  $('#bBrowseXml').onclick = () => $('#fXml').click();
+  $('#fXml').onchange = async e => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      window._customXmlText = await file.text();
+      window._customXmlName = file.name;
+      let opt = [...$('#sXml').options].find(o => o.value === file.name);
+      if (!opt) {
+        opt = document.createElement('option');
+        opt.value = file.name;
+        opt.textContent = `${file.name} (Local file)`;
+        $('#sXml').appendChild(opt);
+      }
+      $('#sXml').value = opt.value;
+      settings.xml = opt.value;
+      saveSettings();
+      toast(`Loaded ${file.name}`);
+      loadLibrary();
+    } catch (err) {
+      toast('Failed to read XML: ' + err.message);
+    }
+  };
+}
+
+if ($('#bBrowseXmlFolder')) {
+  $('#bBrowseXmlFolder').onclick = () => $('#fXmlFolder').click();
+  $('#fXmlFolder').onchange = async e => {
+    const files = [...(e.target.files || [])].filter(f => /\.xml$/i.test(f.name));
+    if (!files.length) {
+      toast('No .xml files found in selected folder');
+      return;
+    }
+    window._folderXmlFiles = new Map(files.map(f => [f.name, f]));
+    $('#sXml').innerHTML = '';
+    for (const f of files) {
+      const opt = document.createElement('option');
+      opt.value = 'folder:' + f.name;
+      opt.textContent = f.webkitRelativePath || f.name;
+      $('#sXml').appendChild(opt);
+    }
+    const first = files[0];
+    $('#sXml').value = 'folder:' + first.name;
+    window._customXmlText = await first.text();
+    window._customXmlName = first.name;
+    settings.xml = 'folder:' + first.name;
+    saveSettings();
+    toast(`Found ${files.length} XMLs. Loaded ${first.name}`);
+    loadLibrary();
   };
 }
 $('#cPll').onchange = e => { settings.pll = e.target.checked; saveSettings(); sendPhysics(); };

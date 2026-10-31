@@ -71,9 +71,19 @@
       </label>
       <label id="rowXml">Library file
         <select id="sXml">
-          <option value="rekordbox.xml">rekordbox.xml (full Rekordbox export)</option>
-          <option value="ViRE_rekordbox.xml">ViRE_rekordbox.xml (Rekopy)</option>
+          <option value="SONGSXML/ViRE_Halloween.xml">SONGSXML/ViRE_Halloween.xml (Halloween Playlist)</option>
+          <option value="SONGSXML/ViRE_1Rekordbox.xml">SONGSXML/ViRE_1Rekordbox.xml (Full ViRE 1 Collection)</option>
+          <option value="SONGSXML/rekordbox.xml">SONGSXML/rekordbox.xml (Rekordbox export)</option>
+          <option value="ViRE_Halloween.xml">ViRE_Halloween.xml (Root)</option>
+          <option value="ViRE_1Rekordbox.xml">ViRE_1Rekordbox.xml (Root)</option>
+          <option value="rekordbox.xml">rekordbox.xml (Root)</option>
         </select>
+        <div class="imp" style="margin-top: 6px; display: flex; gap: 6px;">
+          <button type="button" class="small" id="bBrowseXml">Select XML file...</button>
+          <button type="button" class="small" id="bBrowseXmlFolder">Select XML folder...</button>
+        </div>
+        <input type="file" id="fXml" accept=".xml" hidden>
+        <input type="file" id="fXmlFolder" webkitdirectory directory hidden>
       </label>
       <div id="rowImport" hidden>
         <div class="imp">

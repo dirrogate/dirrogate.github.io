@@ -1556,3 +1556,18 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
   - Added `models/props/halloween_pumpkin.glb` to pre-cached offline assets.
   - Bumped cache to `vire-app-v67`.
 - Backup created in `backups/pre-541/`.
+
+## #542 Halloween Playlist XML, SONGSXML Folder Auto-Listing & Local XML Pickers (owner, 1 Nov)
+- Curated 26 Halloween tracks from `ViRE_1Rekordbox.xml` into a standalone Rekordbox XML: `ViRE_Halloween.xml` (308 MB audio total).
+  - Main playlist: `Halloween (All Tracks)` (26 tracks).
+  - Sub-playlists: `Halloween - Pop & Rave Anthems` (10 tracks), `Halloween - Dark Melodic & Techno` (9 tracks), `Halloween - Psy & Goa Terrors` (7 tracks).
+  - Created standalone `Halloween/` folder with all 26 mp3 tracks and `ViRE_Halloween.xml` for offline / standalone Quest import without quota overflow.
+- Dynamic XML Selector & Local Explorer File/Folder Pickers:
+  - Created `web/SONGSXML/` folder with `ViRE_Halloween.xml`, `ViRE_1Rekordbox.xml`, `rekordbox.xml`, and auto-manifest `index.json`.
+  - `web/js/main.js`:
+    - `refreshXmlList()` dynamically queries `SONGSXML/index.json` on startup and populates `<select id="sXml">`.
+    - Added `#bBrowseXml` button: opens Windows Explorer to pick any `.xml` file on PC, reads via FileReader, adds to dropdown, and immediately loads it.
+    - Added `#bBrowseXmlFolder` button: opens Windows Explorer folder picker (`webkitdirectory`), scans all `.xml` files in that folder, populates `#sXml`, and immediately loads the chosen XML.
+    - Updated `loadLibrary()` to support `window._customXmlText` (from Windows Explorer) and fallback search in `SONGSXML/`.
+  - `web/index.html`: Added `#bBrowseXml` ("Select XML file..."), `#bBrowseXmlFolder` ("Select XML folder..."), and hidden file/folder inputs.
+  - `web/sw.js`: Bumped cache to `vire-app-v68`.

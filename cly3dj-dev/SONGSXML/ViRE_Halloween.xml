@@ -1,0 +1,388 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0">
+  <PRODUCT Name="rekordbox" Version="7.2.19" Company="AlphaTheta" />
+  <COLLECTION Entries="26">
+    <TRACK TrackID="223849556" Name="Thriller" Artist="Michael Jackson" Composer="" Album="Thriller" Grouping="" Genre="synthpop; pop" Kind="MP3 File" Size="14436432" TotalTime="357" DiscNumber="0" TrackNumber="0" Year="0" AverageBpm="118.93" DateAdded="2025-11-02" BitRate="320" SampleRate="48000" Comments="118.93 - 0★ - Dbm" PlayCount="1" Rating="0" Location="Collection/223849556%20-%20Thriller%20Long%20Mix.mp3" Remixer="" Tonality="Dbm" Label="" Mix="118.93 - 0★ - Dbm">
+      <TEMPO Inizio="0.267" Bpm="118.93" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="0.772" Bpm="118.93" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="92.087" Bpm="118.93" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="191.474" Bpm="118.93" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="290.861" Bpm="118.93" Metro="4/4" Battito="1" />
+      </TRACK>
+    <TRACK TrackID="187074595" Name="You Spin Me Round (Like a Record) - Murder Mix" Artist="Dead Or Alive" Composer="" Album="That's The Way I Like It: The Best of Dead Or Alive" Grouping="" Genre="hi-nrg; synthpop" Kind="MP3 File" Size="19796601" TotalTime="481" DiscNumber="1" TrackNumber="18" Year="2010" AverageBpm="128.47" DateAdded="2025-09-13" BitRate="320" SampleRate="44100" Comments="128.47 - 0★ - F#m" PlayCount="2" Rating="0" Location="Collection/187074595%20-%2018.%20You%20Spin%20Me%20Round%20(Like%20a%20Record)%20-%20Murder%20Mix.mp3" Remixer="" Tonality="F#m" Label="Sony Music UK" Mix="128.47 - 0★ - F#m">
+      <TEMPO Inizio="0.410" Bpm="128.47" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="83.074" Bpm="128.47" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="152.194" Bpm="128.47" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="205.435" Bpm="128.47" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="257.741" Bpm="128.47" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="258.676" Bpm="128.47" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="327.796" Bpm="128.47" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="346.009" Bpm="128.47" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="346.477" Bpm="128.47" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="415.597" Bpm="128.47" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="468.838" Bpm="128.47" Metro="4/4" Battito="4" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="2.252" Num="0" Red="255" Green="55" Blue="111" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="65.769" Num="1" Red="69" Green="172" Blue="219" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="95.658" Num="2" Red="125" Green="193" Blue="61" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="155.437" Num="3" Red="170" Green="114" Blue="255" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="245.106" Num="4" Red="48" Green="210" Blue="110" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="334.774" Num="5" Red="224" Green="100" Blue="27" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="2.252" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="65.769" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="95.658" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="155.437" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="245.106" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="334.774" Num="-1" />
+      </TRACK>
+    <TRACK TrackID="20945488" Name="Murder On The Dancefloor - PNAU Remix" Artist="Sophie Ellis-Bextor, PNAU" Composer="" Album="Murder On The Dancefloor (PNAU Remix)" Grouping="" Genre="Disco" Kind="MP3 File" Size="23390745" TotalTime="260" DiscNumber="0" TrackNumber="1" Year="2024" AverageBpm="116.00" DateAdded="2025-11-12" BitRate="320" SampleRate="44100" Comments="116 - 0★ - Dbm | Genres:null" PlayCount="0" Rating="0" Location="Collection/20945488%20-%20Murder%20On%20The%20Dancefloor%20-%20PNAU%20Remix.mp3" Remixer="" Tonality="Dbm" Label="" Mix="116 - 0★ - Dbm | Genres:null">
+      <TEMPO Inizio="0.169" Bpm="116.00" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="3.273" Bpm="116.00" Metro="4/4" Battito="3" />
+      </TRACK>
+    <TRACK TrackID="235503807" Name="Killer" Artist="Adamski; Seal" Composer="" Album="Doctor Adamski’s Musical Pharmacy" Grouping="" Genre="acid house" Kind="MP3 File" Size="10852558" TotalTime="250" DiscNumber="1" TrackNumber="6" Year="1990" AverageBpm="119.98" DateAdded="2025-09-13" BitRate="320" SampleRate="44100" Comments="119.98 - 0★ - Bbm" PlayCount="0" Rating="0" Location="Collection/235503807%20-%206.%20Killer.mp3" Remixer="" Tonality="Bbm" Label="UMC (Universal Music Catalogue)" Mix="119.98 - 0★ - Bbm">
+      <TEMPO Inizio="0.124" Bpm="119.98" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="0.625" Bpm="119.98" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="31.629" Bpm="119.98" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="62.633" Bpm="119.98" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="93.637" Bpm="119.98" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="125.141" Bpm="119.98" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="156.145" Bpm="119.98" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="187.149" Bpm="119.98" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="218.153" Bpm="119.98" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="249.157" Bpm="119.98" Metro="4/4" Battito="3" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="2.099" Num="0" Red="255" Green="55" Blue="111" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="50.106" Num="1" Red="69" Green="172" Blue="219" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="66.109" Num="2" Red="125" Green="193" Blue="61" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="82.111" Num="3" Red="170" Green="114" Blue="255" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="130.117" Num="4" Red="48" Green="210" Blue="110" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="146.119" Num="5" Red="224" Green="100" Blue="27" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="178.123" Num="6" Red="48" Green="90" Blue="255" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="210.128" Num="7" Red="195" Green="175" Blue="4" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="2.099" Num="-1" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="50.106" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="66.109" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="82.111" Num="-1" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="130.117" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="146.119" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="178.123" Num="-1" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="210.128" Num="-1" />
+      </TRACK>
+    <TRACK TrackID="155803859" Name="Twilight Zone" Artist="2 Unlimited" Composer="" Album="Get Ready" Grouping="" Genre="eurodance; hip house" Kind="MP3 File" Size="10292775" TotalTime="246" DiscNumber="1" TrackNumber="2" Year="1992" AverageBpm="127.86" DateAdded="2025-09-13" BitRate="320" SampleRate="44100" Comments="127.86 - 0★ - Bbm" PlayCount="1" Rating="0" Location="Collection/155803859%20-%202.%20Twilight%20Zone.mp3" Remixer="" Tonality="Bbm" Label="Byte Records" Mix="127.86 - 0★ - Bbm">
+      <TEMPO Inizio="0.242" Bpm="127.86" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="0.712" Bpm="127.86" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="24.645" Bpm="127.86" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="57.494" Bpm="127.86" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="90.343" Bpm="127.86" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="123.192" Bpm="127.86" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="157.918" Bpm="127.86" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="192.644" Bpm="127.86" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="225.493" Bpm="127.86" Metro="4/4" Battito="3" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="1.154" Num="0" Red="255" Green="55" Blue="111" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="16.172" Num="1" Red="69" Green="172" Blue="219" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="31.188" Num="2" Red="125" Green="193" Blue="61" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="76.240" Num="3" Red="170" Green="114" Blue="255" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="113.783" Num="4" Red="48" Green="210" Blue="110" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="136.308" Num="5" Red="224" Green="100" Blue="27" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="181.359" Num="6" Red="48" Green="90" Blue="255" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="211.393" Num="7" Red="195" Green="175" Blue="4" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="1.154" Num="-1" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="16.172" Num="-1" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="31.188" Num="-1" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="76.240" Num="-1" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="113.783" Num="-1" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="136.308" Num="-1" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="181.359" Num="-1" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="211.393" Num="-1" />
+      </TRACK>
+    <TRACK TrackID="49076836" Name="It's a Sin - Disco Mix; 2018 Remaster [2018 Remastered Version]" Artist="Pet Shop Boys" Composer="" Album="Actually: Further Listening 1987 - 1988 (2018 Remaster)" Grouping="" Genre="synthpop; new wave" Kind="MP3 File" Size="18563822" TotalTime="461" DiscNumber="2" TrackNumber="15" Year="1987" AverageBpm="127.12" DateAdded="2025-09-13" BitRate="320" SampleRate="44100" Comments="127.12 - 0★ - Cm" PlayCount="1" Rating="0" Location="Collection/49076836%20-%2015.%20It's%20a%20Sin%20-%20Disco%20Mix;%202018%20Remaster%20[2018%20Remastered%20Version].mp3" Remixer="" Tonality="Cm" Label="Rhino" Mix="127.12 - 0★ - Cm">
+      <TEMPO Inizio="0.247" Bpm="127.12" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="62.080" Bpm="127.12" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="244.273" Bpm="127.12" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="421.274" Bpm="127.12" Metro="4/4" Battito="3" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="3.053" Num="0" Red="255" Green="55" Blue="111" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="33.261" Num="1" Red="69" Green="172" Blue="219" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="108.781" Num="2" Red="125" Green="193" Blue="61" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="123.885" Num="3" Red="170" Green="114" Blue="255" />
+      <POSITION_MARK Name="Energy 5" Type="0" Start="259.820" Num="4" Red="48" Green="210" Blue="110" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="290.031" Num="5" Red="224" Green="100" Blue="27" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="305.135" Num="6" Red="48" Green="90" Blue="255" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="3.053" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="33.261" Num="-1" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="108.781" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="123.885" Num="-1" />
+      <POSITION_MARK Name="Energy 5" Type="0" Start="259.820" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="290.031" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="305.135" Num="-1" />
+      </TRACK>
+    <TRACK TrackID="177927189" Name="Professional Widow" Artist="Tori Amos" Composer="" Album="Tori Amos - Professional Widow" Grouping="" Genre="pop, funk" Kind="MP3 File" Size="14102562" TotalTime="350" DiscNumber="0" TrackNumber="0" Year="2025" AverageBpm="128.00" DateAdded="2025-11-14" BitRate="320" SampleRate="44100" Comments="128 - 0★ - Dm" PlayCount="0" Rating="0" Location="Collection/177927189%20-%20Tori%20Amos%20-%20Professional%20Widow%20_Editlab_%20-%20EditLab.mp3" Remixer="" Tonality="Dm" Label="" Mix="128 - 0★ - Dm">
+      <TEMPO Inizio="0.073" Bpm="128.00" Metro="4/4" Battito="1" />
+      </TRACK>
+    <TRACK TrackID="244703891" Name="Exterminate (feat. Niki Haris) (Endzeit 12)" Artist="SNAP!, Niki Harris" Composer="" Album="SNAP! The Power Greatest Hits" Grouping="" Genre="Disco" Kind="MP3 File" Size="35163735" TotalTime="406" DiscNumber="0" TrackNumber="3" Year="2009" AverageBpm="125.98" DateAdded="2025-11-12" BitRate="128" SampleRate="44100" Comments="125.98 - 0★ - Am | Genres:null" PlayCount="0" Rating="0" Location="Collection/244703891%20-%20Exterminate%20(feat.%20Niki%20Haris)%20(Endzeit%2012).mp3" Remixer="" Tonality="Am" Label="" Mix="125.98 - 0★ - Am | Genres:null">
+      <TEMPO Inizio="0.125" Bpm="125.98" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="6.317" Bpm="125.98" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="26.797" Bpm="125.98" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="45.372" Bpm="125.98" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="63.947" Bpm="125.98" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="82.522" Bpm="125.98" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="103.002" Bpm="125.98" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="121.577" Bpm="125.98" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="140.152" Bpm="125.98" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="160.632" Bpm="125.98" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="179.207" Bpm="125.98" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="197.782" Bpm="125.98" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="211.118" Bpm="125.98" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="231.598" Bpm="125.98" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="250.173" Bpm="125.98" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="268.748" Bpm="125.98" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="289.228" Bpm="125.98" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="307.803" Bpm="125.98" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="326.378" Bpm="125.98" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="344.953" Bpm="125.98" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="365.433" Bpm="125.98" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="384.008" Bpm="125.98" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="402.583" Bpm="125.98" Metro="4/4" Battito="3" />
+      </TRACK>
+    <TRACK TrackID="44848890" Name="Two Tribes - Carnage Mix" Artist="Frankie Goes To Hollywood" Composer="" Album="Reload! Frankie: The Whole 12 Inches" Grouping="" Genre="synthpop; hi-nrg" Kind="MP3 File" Size="19829714" TotalTime="476" DiscNumber="1" TrackNumber="4" Year="1994" AverageBpm="130.23" DateAdded="2025-09-13" BitRate="320" SampleRate="44100" Comments="130.23 - 0★ - Dm" PlayCount="3" Rating="0" Location="Collection/44848890%20-%204.%20Two%20Tribes%20-%20Carnage%20Mix.mp3" Remixer="" Tonality="Dm" Label="ZTT Records" Mix="130.23 - 0★ - Dm">
+      <TEMPO Inizio="0.113" Bpm="130.23" Metro="4/4" Battito="2" />
+      <POSITION_MARK Name="Energy 3" Type="0" Start="0.091" Num="0" Red="255" Green="55" Blue="111" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="29.577" Num="1" Red="69" Green="172" Blue="219" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="73.807" Num="2" Red="125" Green="193" Blue="61" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="141.994" Num="3" Red="170" Green="114" Blue="255" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="191.752" Num="4" Red="48" Green="210" Blue="110" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="243.353" Num="5" Red="224" Green="100" Blue="27" />
+      <POSITION_MARK Name="Energy 3" Type="0" Start="0.091" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="29.577" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="73.807" Num="-1" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="141.994" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="191.752" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="243.353" Num="-1" />
+      </TRACK>
+    <TRACK TrackID="105910946" Name="Sadeness - Part I / Meditation Mix" Artist="Enigma" Composer="" Album="Sadeness (Part I)" Grouping="" Genre="new age; gregorian chant" Kind="MP3 File" Size="7714373" TotalTime="181" DiscNumber="1" TrackNumber="1" Year="1990" AverageBpm="95.67" DateAdded="2025-09-13" BitRate="320" SampleRate="44100" Comments="95.67 - 0★ - Am" PlayCount="0" Rating="0" Location="Collection/105910946%20-%204.%20Sadeness%20-%20Part%20I%20-%20Meditation%20Mix.mp3" Remixer="" Tonality="Am" Label="Virgin" Mix="95.67 - 0★ - Am">
+      <TEMPO Inizio="0.292" Bpm="95.67" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="1.547" Bpm="95.67" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="26.005" Bpm="95.67" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="55.480" Bpm="95.67" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="84.328" Bpm="95.67" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="108.786" Bpm="95.67" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="133.244" Bpm="95.67" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="162.092" Bpm="95.67" Metro="4/4" Battito="2" />
+      <POSITION_MARK Name="Energy 3" Type="0" Start="8.420" Num="0" Red="255" Green="55" Blue="111" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="18.455" Num="1" Red="69" Green="172" Blue="219" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="28.489" Num="2" Red="125" Green="193" Blue="61" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="78.659" Num="3" Red="170" Green="114" Blue="255" />
+      <POSITION_MARK Name="Energy 3" Type="0" Start="98.727" Num="4" Red="48" Green="210" Blue="110" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="108.760" Num="5" Red="224" Green="100" Blue="27" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="138.862" Num="6" Red="48" Green="90" Blue="255" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="148.897" Num="7" Red="195" Green="175" Blue="4" />
+      <POSITION_MARK Name="Energy 3" Type="0" Start="8.420" Num="-1" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="18.455" Num="-1" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="28.489" Num="-1" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="78.659" Num="-1" />
+      <POSITION_MARK Name="Energy 3" Type="0" Start="98.727" Num="-1" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="108.760" Num="-1" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="138.862" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="148.897" Num="-1" />
+      </TRACK>
+    <TRACK TrackID="167981150" Name="Angel In The Dark" Artist="Anyma; Massano; Nathan Nicholson" Composer="" Album="The End Of Genesys" Grouping="" Genre="melodic techno; melodic house; techno; stutter house" Kind="MP3 File" Size="8373305" TotalTime="199" DiscNumber="0" TrackNumber="0" Year="2025" AverageBpm="128.00" DateAdded="2025-09-25" BitRate="320" SampleRate="44100" Comments="128 - 0★ - 04A | 128 - 04A - 7" PlayCount="1" Rating="0" Location="Collection/167981150%20-%2013.%20Angel%20In%20The%20Dark.mp3" Remixer="" Tonality="Fm" Label="" Mix="128 - 0★ - 04A | 128 - 04A - 7">
+      <TEMPO Inizio="0.141" Bpm="128.00" Metro="4/4" Battito="4" />
+      <POSITION_MARK Name="Energy 2" Type="0" Start="0.141" Num="0" Red="255" Green="55" Blue="111" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="15.141" Num="1" Red="69" Green="172" Blue="219" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="30.141" Num="2" Red="125" Green="193" Blue="61" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="60.141" Num="3" Red="170" Green="114" Blue="255" />
+      <POSITION_MARK Name="Energy 3" Type="0" Start="75.141" Num="4" Red="48" Green="210" Blue="110" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="120.141" Num="5" Red="224" Green="100" Blue="27" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="135.141" Num="6" Red="48" Green="90" Blue="255" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="165.141" Num="7" Red="195" Green="175" Blue="4" />
+      <POSITION_MARK Name="Energy 2" Type="0" Start="0.141" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="15.141" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="30.141" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="60.141" Num="-1" />
+      <POSITION_MARK Name="Energy 3" Type="0" Start="75.141" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="120.141" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="135.141" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="165.141" Num="-1" />
+      </TRACK>
+    <TRACK TrackID="98004435" Name="Voices In My Head" Artist="Anyma, Argy, Son of Son" Composer="" Album="The End Of Genesys" Grouping="" Genre="" Kind="MP3 File" Size="5950872" TotalTime="146" DiscNumber="1" TrackNumber="2" Year="2025" AverageBpm="128.00" DateAdded="2025-12-30" BitRate="320" SampleRate="44100" Comments="128 - 5★ - Dm" PlayCount="3" Rating="255" Location="Collection/98004435%20-%20Voices%20In%20My%20Head%20-%20Anyma,%20Argy,%20Son%20of%20Son.mp3" Remixer="" Tonality="Dm" Label="" Mix="128 - 5★ - Dm">
+      <TEMPO Inizio="0.109" Bpm="128.00" Metro="4/4" Battito="1" />
+      </TRACK>
+    <TRACK TrackID="242478180" Name="Voodoo" Artist="Ben Böhmer; Tinlicker" Composer="" Album="Perfect Mistakes" Grouping="" Genre="melodic house; progressive house; melodic techno" Kind="MP3 File" Size="10097976" TotalTime="233" DiscNumber="0" TrackNumber="0" Year="2022" AverageBpm="124.00" DateAdded="2025-09-24" BitRate="320" SampleRate="44100" Comments="124 - 3★ - 08B | 124.0 - 08B - 6" PlayCount="0" Rating="153" Location="Collection/242478180%20-%202.%20Voodoo.mp3" Remixer="" Tonality="C" Label="" Mix="124 - 3★ - 08B | 124.0 - 08B - 6">
+      <TEMPO Inizio="0.040" Bpm="124.00" Metro="4/4" Battito="1" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="0.040" Num="0" Red="255" Green="55" Blue="111" />
+      <POSITION_MARK Name="Energy 5" Type="0" Start="15.524" Num="1" Red="69" Green="172" Blue="219" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="46.492" Num="2" Red="125" Green="193" Blue="61" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="92.943" Num="3" Red="170" Green="114" Blue="255" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="108.427" Num="4" Red="48" Green="210" Blue="110" />
+      <POSITION_MARK Name="Energy 2" Type="0" Start="123.911" Num="5" Red="224" Green="100" Blue="27" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="154.879" Num="6" Red="48" Green="90" Blue="255" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="0.040" Num="-1" />
+      <POSITION_MARK Name="Energy 5" Type="0" Start="15.524" Num="-1" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="46.492" Num="-1" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="92.943" Num="-1" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="108.427" Num="-1" />
+      <POSITION_MARK Name="Energy 2" Type="0" Start="123.911" Num="-1" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="154.879" Num="-1" />
+      </TRACK>
+    <TRACK TrackID="165622732" Name="Wicked Game" Artist="KREAM" Composer="" Album="Wicked Game" Grouping="" Genre="" Kind="MP3 File" Size="7136359" TotalTime="175" DiscNumber="1" TrackNumber="1" Year="2024" AverageBpm="128.00" DateAdded="2025-12-30" BitRate="320" SampleRate="44100" Comments="127.66 - 4★ - Em" PlayCount="1" Rating="204" Location="Collection/165622732%20-%20Wicked%20Game%20-%20KREAM.mp3" Remixer="" Tonality="Em" Label="" Mix="127.66 - 4★ - Em">
+      <TEMPO Inizio="0.066" Bpm="128.00" Metro="4/4" Battito="1" />
+      </TRACK>
+    <TRACK TrackID="157865642" Name="Welcome The Night" Artist="Silver Panda, Sevenn" Composer="" Album="Welcome The Night" Grouping="" Genre="" Kind="MP3 File" Size="8061706" TotalTime="198" DiscNumber="1" TrackNumber="1" Year="2023" AverageBpm="124.00" DateAdded="2025-12-30" BitRate="320" SampleRate="44100" Comments="124 - 4★ - Bm" PlayCount="3" Rating="204" Location="Collection/157865642%20-%20Welcome%20The%20Night%20-%20Silver%20Panda,%20Sevenn.mp3" Remixer="" Tonality="Bm" Label="" Mix="124 - 4★ - Bm">
+      <TEMPO Inizio="0.044" Bpm="124.00" Metro="4/4" Battito="1" />
+      </TRACK>
+    <TRACK TrackID="199788823" Name="Oblivion" Artist="Massano, CamelPhat, Nu-La" Composer="" Album="Natural" Grouping="" Genre="" Kind="MP3 File" Size="8988417" TotalTime="219" DiscNumber="1" TrackNumber="2" Year="2025" AverageBpm="125.00" DateAdded="2025-12-30" BitRate="320" SampleRate="44100" Comments="125 - 4★ - Am" PlayCount="2" Rating="204" Location="Collection/199788823%20-%20Oblivion%20-%20Massano,%20CamelPhat,%20Nu-La.mp3" Remixer="" Tonality="Am" Label="" Mix="125 - 4★ - Am">
+      <TEMPO Inizio="0.050" Bpm="125.00" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="125.809" Bpm="125.00" Metro="4/4" Battito="3" />
+      </TRACK>
+    <TRACK TrackID="112621037" Name="No Shelter" Artist="Kennedy One" Composer="" Album="No Shelter" Grouping="" Genre="" Kind="MP3 File" Size="9663943" TotalTime="238" DiscNumber="1" TrackNumber="1" Year="2025" AverageBpm="124.00" DateAdded="2025-12-30" BitRate="320" SampleRate="44100" Comments="124 - 3★ - Cm" PlayCount="2" Rating="153" Location="Collection/112621037%20-%20No%20Shelter%20-%20Kennedy%20One.mp3" Remixer="" Tonality="Cm" Label="" Mix="124 - 3★ - Cm">
+      <TEMPO Inizio="0.024" Bpm="124.00" Metro="4/4" Battito="1" />
+      </TRACK>
+    <TRACK TrackID="257898430" Name="Dark Moon" Artist="Paul Oakenfold" Composer="" Album="Dark Moon" Grouping="" Genre="trance" Kind="MP3 File" Size="6752848" TotalTime="160" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="126.00" DateAdded="2025-09-25" BitRate="320" SampleRate="44100" Comments="126 - 0★ - 09A | 126 - 09A - 6" PlayCount="1" Rating="0" Location="Collection/257898430%20-%201.%20Dark%20Moon.mp3" Remixer="" Tonality="Em" Label="" Mix="126 - 0★ - 09A | 126 - 09A - 6">
+      <TEMPO Inizio="0.050" Bpm="126.00" Metro="4/4" Battito="1" />
+      <POSITION_MARK Name="Energy 2" Type="0" Start="0.050" Num="0" Red="255" Green="55" Blue="111" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="22.907" Num="1" Red="69" Green="172" Blue="219" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="38.145" Num="2" Red="125" Green="193" Blue="61" />
+      <POSITION_MARK Name="Energy 2" Type="0" Start="53.383" Num="3" Red="170" Green="114" Blue="255" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="68.621" Num="4" Red="48" Green="210" Blue="110" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="99.098" Num="5" Red="224" Green="100" Blue="27" />
+      <POSITION_MARK Name="Energy 8" Type="0" Start="131.479" Num="6" Red="48" Green="90" Blue="255" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="137.193" Num="7" Red="195" Green="175" Blue="4" />
+      <POSITION_MARK Name="Energy 2" Type="0" Start="0.050" Num="-1" />
+      <POSITION_MARK Name="Energy 4" Type="0" Start="22.907" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="38.145" Num="-1" />
+      <POSITION_MARK Name="Energy 2" Type="0" Start="53.383" Num="-1" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="68.621" Num="-1" />
+      <POSITION_MARK Name="Energy 7" Type="0" Start="99.098" Num="-1" />
+      <POSITION_MARK Name="Energy 8" Type="0" Start="131.479" Num="-1" />
+      <POSITION_MARK Name="Energy 6" Type="0" Start="137.193" Num="-1" />
+      </TRACK>
+    <TRACK TrackID="164202839" Name="Rave - Remix" Artist="Adam Beyer; Layton Giordani; Sam Paganini" Composer="" Album="Rave (Remix)" Grouping="" Genre="minimal techno; techno; acid techno" Kind="MP3 File" Size="9981399" TotalTime="239" DiscNumber="1" TrackNumber="1" Year="2022" AverageBpm="131.00" DateAdded="2025-12-08" BitRate="320" SampleRate="44100" Comments="131 - 3★ - Bbm" PlayCount="5" Rating="153" Location="Collection/164202839%20-%201.%20Rave%20-%20Remix.mp3" Remixer="" Tonality="Bbm" Label="Drumcode" Mix="131 - 3★ - Bbm">
+      <TEMPO Inizio="0.052" Bpm="131.00" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="164.938" Bpm="131.00" Metro="4/4" Battito="1" />
+      </TRACK>
+    <TRACK TrackID="97212178" Name="5★ Lord Of Terror" Artist="Graf X" Composer="" Album="Psy Core Trance Psychedelic" Grouping="" Genre="Goa, Psychedelic Trance" Kind="MP3 File" Size="10250032" TotalTime="253" DiscNumber="0" TrackNumber="85" Year="2020" AverageBpm="140.00" DateAdded="2025-10-07" BitRate="320" SampleRate="44100" Comments="140 - 5★ - Gm" PlayCount="2" Rating="255" Location="Collection/97212178%20-%20085.%20Graf%20X%20-%20Lord%20Of%20Terror.mp3" Remixer="" Tonality="Gm" Label="" Mix="140 - 5★ - Gm">
+      <TEMPO Inizio="0.051" Bpm="140.00" Metro="4/4" Battito="1" />
+      </TRACK>
+    <TRACK TrackID="36589448" Name="5★ Ghost on the Highway" Artist="Mindfield" Composer="" Album="Psy Core Trance Psychedelic" Grouping="" Genre="Goa Trance" Kind="MP3 File" Size="16447190" TotalTime="407" DiscNumber="0" TrackNumber="1" Year="2020" AverageBpm="141.97" DateAdded="2025-10-07" BitRate="320" SampleRate="44100" Comments="141.97 - 5★ - Dm" PlayCount="1" Rating="255" Location="Collection/36589448%20-%20A1.%20Mindfield%20%E2%80%93%20Ghosts%20On%20The%20Highway.mp3" Remixer="" Tonality="Dm" Label="" Mix="141.97 - 5★ - Dm">
+      <TEMPO Inizio="0.280" Bpm="141.97" Metro="4/4" Battito="2" />
+      </TRACK>
+    <TRACK TrackID="214761585" Name="Poison" Artist="Astrix" Composer="" Album="Artcore" Grouping="" Genre="" Kind="MP3 File" Size="18191405" TotalTime="452" DiscNumber="0" TrackNumber="0" Year="2004" AverageBpm="145.00" DateAdded="2026-01-06" BitRate="320" SampleRate="44100" Comments="145 - 5★ - Ebm" PlayCount="2" Rating="255" Location="Collection/214761585%20-%20Poison.mp3" Remixer="" Tonality="Ebm" Label="" Mix="145 - 5★ - Ebm">
+      <TEMPO Inizio="0.185" Bpm="145.00" Metro="4/4" Battito="4" />
+      </TRACK>
+    <TRACK TrackID="157185911" Name="Death Wish - DJ Nemesis Remix" Artist="Electro Sun" Composer="" Album="Orientation Vol.3" Grouping="" Genre="" Kind="MP3 File" Size="15935048" TotalTime="394" DiscNumber="0" TrackNumber="0" Year="2007" AverageBpm="146.00" DateAdded="2026-01-06" BitRate="320" SampleRate="44100" Comments="146 - 4★ - Ebm" PlayCount="0" Rating="204" Location="Collection/157185911%20-%20Death%20Wish%20-%20DJ%20Nemesis%20Remix.mp3" Remixer="" Tonality="Ebm" Label="" Mix="146 - 4★ - Ebm">
+      <TEMPO Inizio="0.368" Bpm="146.00" Metro="4/4" Battito="1" />
+      </TRACK>
+    <TRACK TrackID="154927078" Name="Dark Sun" Artist="Myrah" Composer="" Album="Freaky Fiction X" Grouping="" Genre="" Kind="MP3 File" Size="17035978" TotalTime="422" DiscNumber="0" TrackNumber="0" Year="2019" AverageBpm="145.00" DateAdded="2026-01-06" BitRate="320" SampleRate="44100" Comments="145 - 4★ - Ebm" PlayCount="1" Rating="204" Location="Collection/154927078%20-%20Dark%20Sun.mp3" Remixer="" Tonality="E" Label="" Mix="145 - 4★ - Ebm">
+      <TEMPO Inizio="0.036" Bpm="145.00" Metro="4/4" Battito="1" />
+      </TRACK>
+    <TRACK TrackID="148099903" Name="Water Margin" Artist="Lunar Asylum" Composer="" Album="Psy Core Trance Psychedelic" Grouping="" Genre="Goa" Kind="MP3 File" Size="19210428" TotalTime="475" DiscNumber="0" TrackNumber="4" Year="2020" AverageBpm="149.85" DateAdded="2025-10-07" BitRate="320" SampleRate="44100" Comments="149.85 - 3★ - Dm | ..::ZAiK_iNT::.." PlayCount="0" Rating="153" Location="Collection/148099903%20-%2004.%20Lunar%20Asylum%20-%20Water%20Margin.mp3" Remixer="" Tonality="Dm" Label="" Mix="149.85 - 3★ - Dm | ..::ZAiK_iNT::..">
+      <TEMPO Inizio="0.248" Bpm="149.85" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="0.649" Bpm="149.85" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="11.060" Bpm="149.85" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="29.479" Bpm="149.85" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="49.900" Bpm="149.85" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="66.317" Bpm="149.85" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="86.738" Bpm="149.85" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="105.157" Bpm="149.85" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="125.578" Bpm="149.85" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="143.997" Bpm="149.85" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="164.418" Bpm="149.85" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="182.837" Bpm="149.85" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="203.258" Bpm="149.85" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="219.675" Bpm="149.85" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="240.096" Bpm="149.85" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="258.515" Bpm="149.85" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="278.936" Bpm="149.85" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="297.355" Bpm="149.85" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="317.776" Bpm="149.85" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="334.193" Bpm="149.85" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="354.614" Bpm="149.85" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="373.033" Bpm="149.85" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="393.454" Bpm="149.85" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="411.873" Bpm="149.85" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="432.294" Bpm="149.85" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="448.711" Bpm="149.85" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="471.134" Bpm="149.85" Metro="4/4" Battito="2" />
+      </TRACK>
+    <TRACK TrackID="203657283" Name="5★ Virus" Artist="Adula" Composer="" Album="Psy Core Trance Psychedelic" Grouping="" Genre="Goa" Kind="MP3 File" Size="20432913" TotalTime="508" DiscNumber="0" TrackNumber="5" Year="2020" AverageBpm="145.88" DateAdded="2025-10-07" BitRate="320" SampleRate="44100" Comments="145.88 - 5★ - Dm | ..::ZAiK_iNT::.." PlayCount="1" Rating="255" Location="Collection/203657283%20-%2005.%20Adula%20-%20Virus.mp3" Remixer="" Tonality="Dm" Label="" Mix="145.88 - 5★ - Dm | ..::ZAiK_iNT::..">
+      <TEMPO Inizio="0.123" Bpm="145.88" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="26.445" Bpm="145.88" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="59.759" Bpm="145.88" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="86.081" Bpm="145.88" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="119.395" Bpm="145.88" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="152.709" Bpm="145.88" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="181.910" Bpm="145.88" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="215.224" Bpm="145.88" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="247.304" Bpm="145.88" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="280.618" Bpm="145.88" Metro="4/4" Battito="2" />
+      <TEMPO Inizio="313.932" Bpm="145.88" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="340.254" Bpm="145.88" Metro="4/4" Battito="3" />
+      <TEMPO Inizio="373.568" Bpm="145.88" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="406.882" Bpm="145.88" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="436.083" Bpm="145.88" Metro="4/4" Battito="4" />
+      <TEMPO Inizio="469.397" Bpm="145.88" Metro="4/4" Battito="1" />
+      <TEMPO Inizio="502.711" Bpm="145.88" Metro="4/4" Battito="2" />
+      </TRACK>
+    </COLLECTION>
+  <PLAYLISTS>
+    <NODE Type="0" Name="ROOT" Count="4">
+      <NODE Name="Halloween (All Tracks)" Type="1" KeyType="0" Entries="26">
+        <TRACK Key="223849556" />
+        <TRACK Key="187074595" />
+        <TRACK Key="20945488" />
+        <TRACK Key="235503807" />
+        <TRACK Key="155803859" />
+        <TRACK Key="49076836" />
+        <TRACK Key="177927189" />
+        <TRACK Key="244703891" />
+        <TRACK Key="44848890" />
+        <TRACK Key="105910946" />
+        <TRACK Key="167981150" />
+        <TRACK Key="98004435" />
+        <TRACK Key="242478180" />
+        <TRACK Key="165622732" />
+        <TRACK Key="157865642" />
+        <TRACK Key="199788823" />
+        <TRACK Key="112621037" />
+        <TRACK Key="257898430" />
+        <TRACK Key="164202839" />
+        <TRACK Key="97212178" />
+        <TRACK Key="36589448" />
+        <TRACK Key="214761585" />
+        <TRACK Key="157185911" />
+        <TRACK Key="154927078" />
+        <TRACK Key="148099903" />
+        <TRACK Key="203657283" />
+        </NODE>
+      <NODE Name="Halloween - Pop &amp; Rave Anthems" Type="1" KeyType="0" Entries="10">
+        <TRACK Key="223849556" />
+        <TRACK Key="187074595" />
+        <TRACK Key="20945488" />
+        <TRACK Key="235503807" />
+        <TRACK Key="155803859" />
+        <TRACK Key="49076836" />
+        <TRACK Key="177927189" />
+        <TRACK Key="244703891" />
+        <TRACK Key="44848890" />
+        <TRACK Key="105910946" />
+        </NODE>
+      <NODE Name="Halloween - Dark Melodic &amp; Techno" Type="1" KeyType="0" Entries="9">
+        <TRACK Key="167981150" />
+        <TRACK Key="98004435" />
+        <TRACK Key="242478180" />
+        <TRACK Key="165622732" />
+        <TRACK Key="157865642" />
+        <TRACK Key="199788823" />
+        <TRACK Key="112621037" />
+        <TRACK Key="257898430" />
+        <TRACK Key="164202839" />
+        </NODE>
+      <NODE Name="Halloween - Psy &amp; Goa Terrors" Type="1" KeyType="0" Entries="7">
+        <TRACK Key="97212178" />
+        <TRACK Key="36589448" />
+        <TRACK Key="214761585" />
+        <TRACK Key="157185911" />
+        <TRACK Key="154927078" />
+        <TRACK Key="148099903" />
+        <TRACK Key="203657283" />
+        </NODE>
+      </NODE>
+    </PLAYLISTS>
+  </DJ_PLAYLISTS>
