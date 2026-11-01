@@ -28,14 +28,14 @@
   .twKeyRow { display:flex; align-items:center; gap:8px; margin-top:10px; padding:8px 10px; background:#0f131c; border:1px solid var(--line); border-radius:9px; }
   .twKeyRow label { font:800 13px system-ui,sans-serif; color:var(--gold); letter-spacing:.04em; white-space:nowrap; }
   #twKey { flex:1; min-width:140px; background:#fff; color:#111; border:1px solid #8c96a8; border-radius:4px; padding:6px 10px; font:600 13px ui-monospace,monospace; cursor:text; }
-  /* #532 VJ clip banks (IMAGES / VIDEOS / PANOS, 3 rows x 15+ columns with horizontal scrollbar) */
+  /* #532 VJ clip banks (IMAGES / VIDEOS / PANOS, 2 rows (#549, was 3) x 15+ columns with horizontal scrollbar) */
   #vjDecks { margin:0 16px 14px; background:#07090d; border:1px solid var(--line); border-radius:12px; padding:8px 10px 12px; }
   .vjBank { margin-bottom:10px; } .vjBank:last-child { margin-bottom:0; }
   .vjBankHead { display:flex; align-items:center; gap:10px; padding:4px 4px 6px; }
   .vjBankHead h3 { margin:0; font:800 16px/1.1 system-ui,sans-serif; color:var(--gold); letter-spacing:.05em; text-transform:uppercase; }
   .vjBankHead .vjImp { padding:4px 10px; font-size:12px; border-radius:6px; margin-left:auto; }
   .vjBankScroll { overflow-x:scroll; overflow-y:hidden; padding-bottom:6px; border:1px solid #1e2536; border-radius:6px; background:#050608; }
-  .vjGrid { display:grid; grid-auto-flow:column; grid-template-rows:20px repeat(3, 66px); grid-auto-columns:108px; gap:2px; width:max-content; padding:2px; }
+  .vjGrid { display:grid; grid-auto-flow:column; grid-template-rows:20px repeat(2, 66px); grid-auto-columns:108px; gap:2px; width:max-content; padding:2px; }
   .vjColHead { background:#2a2e39; color:#c8d0de; font:700 11px/20px system-ui,sans-serif; text-align:center; border-radius:2px; user-select:none; }
   .vjColHead.act { background:#2ea852; color:#041809; font-weight:800; }
   .vjCell { position:relative; background:#0d1017; border:1px solid #1d2331; border-radius:3px; overflow:hidden; cursor:pointer; display:flex; flex-direction:column; justify-content:flex-end; user-select:none; }
@@ -604,7 +604,7 @@ import { initStoryboard } from './js/storyboard.js';
 import * as media from './js/medialib.js';
 window.SB = initStoryboard({ $, esc, cx, cxRead, get CX() { return CX; }, thumbs: () => cxThumbs });
 
-const MIN_COLS = 15, ROWS = 3, thumbUrls = new Map();
+const MIN_COLS = 15, ROWS = 2, thumbUrls = new Map();   // #549 ROWS was 3
 const BANKS = [
   { id: 'Images', grid: 'gridImages', imp: 'impImages', file: 'fileImages', folders: ['Images'] },
   { id: 'Videos', grid: 'gridVideos', imp: 'impVideos', file: 'fileVideos', folders: ['Video'] },
