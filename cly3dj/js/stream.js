@@ -233,8 +233,9 @@ export class Streamer {
     if (what === 'open') { this.stuAtt = false; this._stuSync(true); }
     else if (what === 'close') {
       this.stuAtt = false; this.s8 = null;
-      if (this.stuTw && this.live) this._set('error', 'The DirroVJ link dropped (DirroVJ keeps Twitch up for a minute: reconnect it)');
+      if (this.stuTw && this.live) this._set('error', 'The DirroVJ link dropped: DirroVJ stays on Twitch by itself (stop it on the desk, or reconnect and press END here)');   // #556
       this._stuIdle();
+    } else if (what === 'ack') { if (m.tok && m.tok === this._stuTok) this._stuAck = m.tok;   // #556 DirroVJ got GO LIVE
     } else if (what === 'sst') {
       this.s8 = { ...m, at: performance.now() }; this.vjLost = false;
       if (m.vid && !this.vjOk.has(m.vid) && this.vjDenied !== m.vid && this.vjAsk !== m.vid) { this.vjAsk = m.vid; this.vjName = m.vj ? 'DirroVJ' : 'Camera phone'; }   // #506
@@ -242,7 +243,7 @@ export class Streamer {
         const tw = m.tw || 'off';
         if (tw === 'live') { if (this.state !== 'live') { this.t0 = this.t0 || performance.now(); this._set('live', ''); } this.kbps = m.kbps || 0; }
         else if (tw === 'connecting') { if (this.state !== 'connecting') this._set('connecting', m.twMsg || 'DirroVJ is connecting to Twitch…'); }
-        else if (tw === 'error') { this.stuTw = false; this.t0 = 0; this._set('error', 'DirroVJ: ' + (m.twMsg || 'Twitch failed')); }
+        else if (tw === 'error') { this.t0 = 0; this._stuFallback('DirroVJ: ' + (m.twMsg || 'Twitch failed')); }   // #556 the Quest tries itself
         else if (tw === 'off' && this.live) { this.stuTw = false; this.t0 = 0; this._set('off', ''); }
       }
     }
@@ -1038,10 +1039,14 @@ export class Streamer {
     const key = streamKey.get();
     if (!key) { this._set('error', 'No Twitch stream key: enter it on the start page'); return; }
     if (this.stu.on) {   // #380 the S8 goes live: it gets the key over the link (encrypted, DTLS) and keeps it
-      if (!this.stuRun) { this._set('error', this.stuMsg || 'DirroVJ not linked'); return; }
-      if (!this.vjAllowed) { this._set('error', 'Allow DirroVJ on the DIRROVJ page first'); return; }   // #506 the key never goes to a device the DJ hasn't allowed
-      this.stuTw = true; this.t0 = 0; this.stuLink.ctl({ k: 'stuLive', on: true, key }); this._set('connecting', 'DirroVJ is connecting to Twitch…');
-      setTimeout(() => { if (this.stuTw && this.state === 'connecting') { this.stuTw = false; this._set('error', 'DirroVJ did not answer (is its page open?)'); } }, 20000);
+      // #556 DirroVJ streams first, the Quest is the fallback: DirroVJ must answer 'stuAck' within 3 s and be live within 20 s, else the
+      // Quest switches DirroVJ off (as TAKE BACK) and goes live itself. Not linked / not allowed = the Quest goes live itself at once.
+      if (!this.stuRun || !this.vjAllowed) { this._stuFallback(!this.stuRun ? 'DirroVJ not linked' : 'DirroVJ not allowed'); return; }   // #506 the key never goes to a device the DJ hasn't allowed
+      if (this.s8 && this.s8.tw === 'live') { this.stuTw = true; this.t0 = this.t0 || performance.now(); this._set('live', ''); return; }   // the desk is already live: adopt it
+      const tok = this._stuTok = (this._stuTok || 0) + 1; this._stuAck = 0;
+      this.stuTw = true; this.t0 = 0; this.stuLink.ctl({ k: 'stuLive', on: true, key, ack: tok }); this._set('connecting', 'Asking DirroVJ to go live…');
+      setTimeout(() => { if (this.stuTw && this._stuTok === tok && this._stuAck !== tok) this._stuFallback('DirroVJ did not answer in 3 s'); }, 3000);
+      setTimeout(() => { if (this.stuTw && this._stuTok === tok && this.state === 'connecting') this._stuFallback('DirroVJ could not reach Twitch in 20 s'); }, 20000);
       return;
     }
     this._set('connecting', 'Connecting to Twitch…');
@@ -1055,6 +1060,14 @@ export class Streamer {
       this.t0 = performance.now(); this.retries = 0; this._lb = null;
       this._set('live', '');
     } catch (e) { this._teardown(); this._set('error', e.message || String(e)); }
+  }
+
+  _stuFallback(why) {   // #556 the Quest takes Twitch over: tell DirroVJ to stand down (never two streams on one key), DirroVJ off, then go live here
+    const L = this.stuLink; if (L && (this.stuTw || this._stuAck)) L.ctl({ k: 'stuLive', on: false });
+    this.stuTw = false; this._stuTok = (this._stuTok || 0) + 1; this.vjFell = why;
+    if (this.stu.on) this.setStudio('on', false);
+    this._set('connecting', why + ': the Quest goes live itself…');
+    setTimeout(() => { if (!this.live && this.state === 'connecting') this.start(); }, 900);
   }
 
   async _connect(key) {
