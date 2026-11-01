@@ -20,6 +20,41 @@ const KEY = 'vire.movieprops', POST_H = 0.26;
 const YAX = new THREE.Vector3(0, 1, 0), _r = new THREE.Ray(), _inv = new THREE.Matrix4(), _bx = new THREE.Box3();
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _m = new THREE.Matrix4(), _e = new THREE.Euler();
+// Helper structures for kinematic sphere vs gear OBB collisions (#541)
+const _gearObb = { c: new THREE.Vector3(), a: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()], h: [0, 0, 0] };
+function fillObb(matrixWorld, box, out) {
+  const e = matrixWorld.elements, c = box.getCenter(_v2).applyMatrix4(matrixWorld);
+  out.c.copy(c);
+  for (let i = 0; i < 3; i++) {
+    out.a[i].set(e[i * 4], e[i * 4 + 1], e[i * 4 + 2]);
+    const L = out.a[i].length(); if (L > 1e-6) out.a[i].multiplyScalar(1 / L);
+    out.h[i] = (box.max.getComponent(i) - box.min.getComponent(i)) / 2 * L;
+  }
+}
+function sphereObbPush(sc, radius, obb) {
+  const d = _v.subVectors(sc, obb.c);
+  const lx = d.dot(obb.a[0]), ly = d.dot(obb.a[1]), lz = d.dot(obb.a[2]);
+  const cx = Math.max(-obb.h[0], Math.min(obb.h[0], lx));
+  const cy = Math.max(-obb.h[1], Math.min(obb.h[1], ly));
+  const cz = Math.max(-obb.h[2], Math.min(obb.h[2], lz));
+  const diffX = lx - cx, diffY = ly - cy, diffZ = lz - cz;
+  const distSq = diffX * diffX + diffY * diffY + diffZ * diffZ;
+  if (distSq > radius * radius) return null;
+  let px = 0, py = 0, pz = 0;
+  if (distSq > 1e-8) {
+    const dist = Math.sqrt(distSq), pen = radius - dist;
+    px = diffX * (pen / dist); py = diffY * (pen / dist); pz = diffZ * (pen / dist);
+  } else {
+    const dx = obb.h[0] - Math.abs(lx), dy = obb.h[1] - Math.abs(ly), dz = obb.h[2] - Math.abs(lz);
+    if (dx <= dy && dx <= dz) px = Math.sign(lx || 1) * (dx + radius);
+    else if (dy <= dx && dy <= dz) py = Math.sign(ly || 1) * (dy + radius);
+    else pz = Math.sign(lz || 1) * (dz + radius);
+  }
+  return _v.set(0, 0, 0)
+    .addScaledVector(obb.a[0], px)
+    .addScaledVector(obb.a[1], py)
+    .addScaledVector(obb.a[2], pz);
+}
 function userOnly(o) { o.traverse(c => { c.layers.set(USER_LAYER); if (c.isMesh) { c.raycast = () => {}; c.castShadow = c.receiveShadow = false; } }); }
 function noRay(o) { o.traverse(c => { if (c.isMesh || c.isLine || c.isPoints) c.raycast = () => {}; }); }
 
@@ -44,6 +79,7 @@ function biasMat(m) {
 const SKEY = 'vire.surfaces';
 // #483 ready-made street props (real-world size, lightweight GLB: decimated, WebP textures)
 export const GLB_BUILTIN = {
+  'halloween_pumpkin.glb': 'models/props/halloween_pumpkin.glb',
   'street_lamp_01.glb': 'models/props/street_lamp_01.glb', 'street_lamp_02.glb': 'models/props/street_lamp_02.glb', 'covered_car.glb': 'models/props/covered_car.glb',
   'concrete_road_barrier.glb': 'models/props/concrete_road_barrier.glb', 'exterior_aircon.glb': 'models/props/exterior_aircon.glb', 'exterior_aircon_rusted.glb': 'models/props/exterior_aircon_rusted.glb', 'water_manhole.glb': 'models/props/water_manhole.glb',
 };
@@ -725,7 +761,7 @@ class CrateProp extends Prop {   // #491 a milk crate packed with 12-inch record
 }
 
 class GlbProp extends Prop {
-  constructor(mp) { super(mp, 'glb', false); this.src = ''; this.hw = 0.3; this.state = 'empty'; }
+  constructor(mp) { super(mp, 'glb', false); this.src = ''; this.hw = 0.3; this.state = 'empty'; this.sphereR = 0; }
   async load(name) {
     this.src = name; this.state = 'loading'; const bi = GLB_BUILTIN[name]; let f = null;
     if (bi) { try { f = await (await fetch(bi)).blob(); } catch {} } else f = await getFile('glb', name);
@@ -733,11 +769,58 @@ class GlbProp extends Prop {
     try {
       const gltf = await new GLTFLoader().parseAsync(await f.arrayBuffer(), ''); if (this.dead) return;
       const root = gltf.scene, box = new THREE.Box3().setFromObject(root), sz = box.getSize(new THREE.Vector3()), ctr = box.getCenter(new THREE.Vector3());
-      const k = GLB_BUILTIN[name] ? 1 : 1.2 / Math.max(sz.x, sz.y, sz.z, 1e-3), inner = new THREE.Group(); inner.add(root); root.position.set(-ctr.x, -box.min.y, -ctr.z); inner.scale.setScalar(k); noRay(inner);
+      const isPumpkin = /pumpkin/i.test(name);
+      // Realistic scale: pumpkin is ~36 cm across; others default to 1 m or BUILTIN 1:1
+      const k = isPumpkin ? 0.36 / Math.max(sz.x, sz.z, 1e-3) : (GLB_BUILTIN[name] ? 1 : 1.2 / Math.max(sz.x, sz.y, sz.z, 1e-3));
+      const inner = new THREE.Group(); inner.add(root); root.position.set(-ctr.x, -box.min.y, -ctr.z); inner.scale.setScalar(k); noRay(inner);
       inner.traverse(o => { if (o.isMesh) { o.frustumCulled = false; } });
       if (this.inner) this.obj.remove(this.inner); this.inner = inner; this.obj.add(inner);
-      const hx = sz.x * k / 2 + 0.08, hz = sz.z * k / 2 + 0.08; this.ringAt.set(hx, 0.04, hz); this.cubeAt.set(-hx, sz.y * k + 0.04, -hz); this.box = new THREE.Box3(new THREE.Vector3(-sz.x * k / 2, 0, -sz.z * k / 2), new THREE.Vector3(sz.x * k / 2, sz.y * k, sz.z * k / 2)); this.state = 'ok'; this.placeHandles();
+      const hx = sz.x * k / 2 + 0.08, hz = sz.z * k / 2 + 0.08; this.ringAt.set(hx, 0.04, hz); this.cubeAt.set(-hx, sz.y * k + 0.04, -hz);
+      this.box = new THREE.Box3(new THREE.Vector3(-sz.x * k / 2, 0, -sz.z * k / 2), new THREE.Vector3(sz.x * k / 2, sz.y * k, sz.z * k / 2));
+      // Kinematic sphere collider radius (e.g. pumpkin sphere collider)
+      this.sphereR = isPumpkin ? (sz.y * k * 0.48) : 0;
+      this.state = 'ok'; this.placeHandles();
     } catch (e) { console.warn('glb prop', e); this.state = 'failed'; this.mp.env.toast('That GLB could not be read (compressed formats other than plain / KTX2 are not supported)', 4000); }
+  }
+  depenKinematic(worldPos) {
+    if (this.sphereR <= 0) return false;
+    const colliders = (this.mp.env.getColliders && this.mp.env.getColliders()) || [];
+    if (!colliders.length) return false;
+    const r = this.sphereR * Math.max(0.1, this.obj.scale.x);
+    // Sphere center in world coordinates: origin is at the base of the mesh
+    const sc = _v2.copy(worldPos).addScaledVector(YAX, r);
+    let hit = false;
+    for (let pass = 0; pass < 3; pass++) {
+      let moved = false;
+      for (const C of colliders) {
+        fillObb(C.o.matrixWorld, C.b, _gearObb);
+        const maxBoxDim = Math.hypot(_gearObb.h[0], _gearObb.h[1], _gearObb.h[2]);
+        if (_gearObb.c.distanceTo(sc) > r + maxBoxDim + 0.02) continue;
+        const push = sphereObbPush(sc, r, _gearObb);
+        if (push) {
+          sc.add(push);
+          worldPos.add(push);
+          hit = moved = true;
+        }
+      }
+      if (!moved) break;
+    }
+    return hit;
+  }
+  hold(world) {
+    const rig = this.mp.rig; rig.updateMatrixWorld();
+    _m.copy(rig.matrixWorld).invert().multiply(world);
+    _m.decompose(_p, _q, _s);
+    if (this.sphereR > 0) {
+      // Kinematic collision against flightcase / decks / mixer
+      const worldPos = _v.copy(_p).applyMatrix4(rig.matrixWorld);
+      this.depenKinematic(worldPos);
+      rig.worldToLocal(worldPos);
+      this.obj.position.copy(worldPos);
+    } else {
+      this.obj.position.copy(_p);
+    }
+    this.obj.quaternion.copy(_q);
   }
   localBox() { return this.box || super.localBox(); }
   snap() { return { ...this.base(), src: this.src }; }
@@ -819,6 +902,7 @@ class Placer {
           _m.copy(this.rm).multiply(this.off); _m.decompose(_p, _q, _s);
           _q.copy(this.q0).premultiply(new THREE.Quaternion().setFromAxisAngle(YAX, this.yawAdd));
           // follow the hand's position only; the stick sets the turn
+          if (p.depenKinematic) p.depenKinematic(_p);
           _v.copy(_p); rig.worldToLocal(_v); p.obj.position.copy(_v);
           rig.getWorldQuaternion(_q2).invert(); p.obj.quaternion.copy(_q2.multiply(_q));
         }

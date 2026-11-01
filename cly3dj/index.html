@@ -30,7 +30,7 @@
   .settings select, .settings input[type=password], .settings input[type=text] { font:14px system-ui,sans-serif; color:var(--fg); background:#1c2230; border:1px solid #2e3850; border-radius:8px; padding:8px; min-width:0; }
   .imp { display:flex; gap:8px; flex-wrap:wrap; margin-left:160px; }
   .note { color:var(--dim); font-size:12px; margin:6px 0 0 160px; }
-  button.small { font:600 13px system-ui,sans-serif; color:var(--fg); background:#1c2230; border:1px solid #2e3850; border-radius:8px; padding:8px 12px; cursor:pointer; }
+  button.small { white-space:nowrap; font:600 13px system-ui,sans-serif; color:var(--fg); background:#1c2230; border:1px solid #2e3850; border-radius:8px; padding:8px 12px; cursor:pointer; }
   .settings [hidden] { display:none; }
   .chk { color:var(--dim); font-size:12px; margin-left:10px; display:inline-flex; gap:6px; align-items:center; }
   .credit { margin-top:10px; color:#5d6574; font-size:11px; }
@@ -71,9 +71,19 @@
       </label>
       <label id="rowXml">Library file
         <select id="sXml">
-          <option value="rekordbox.xml">rekordbox.xml (full Rekordbox export)</option>
-          <option value="ViRE_rekordbox.xml">ViRE_rekordbox.xml (Rekopy)</option>
+          <option value="SONGSXML/ViRE_Halloween.xml">SONGSXML/ViRE_Halloween.xml (Halloween Playlist)</option>
+          <option value="SONGSXML/ViRE_1Rekordbox.xml">SONGSXML/ViRE_1Rekordbox.xml (Full ViRE 1 Collection)</option>
+          <option value="SONGSXML/rekordbox.xml">SONGSXML/rekordbox.xml (Rekordbox export)</option>
+          <option value="ViRE_Halloween.xml">ViRE_Halloween.xml (Root)</option>
+          <option value="ViRE_1Rekordbox.xml">ViRE_1Rekordbox.xml (Root)</option>
+          <option value="rekordbox.xml">rekordbox.xml (Root)</option>
         </select>
+        <div class="imp" style="grid-column: 1 / -1; margin-top: 2px; flex-wrap: nowrap;">
+          <button type="button" class="small" id="bBrowseXml">Select XML file...</button>
+          <button type="button" class="small" id="bBrowseXmlFolder">Select XML folder...</button>
+        </div>
+        <input type="file" id="fXml" accept=".xml" hidden>
+        <input type="file" id="fXmlFolder" webkitdirectory directory hidden>
       </label>
       <div id="rowImport" hidden>
         <div class="imp">
@@ -81,7 +91,8 @@
           <button class="small" id="bImpFiles">Import files…</button>
           <button class="small" id="bImpClear">Clear</button>
         </div>
-        <div class="note">Pick your Rekordbox or Rekopy XML together with the music (for example the Music/Collections folder). They are copied into this browser's storage once and play offline after that.</div>
+        <label id="rowHxml" hidden>Playlist XML <select id="sHxml"></select></label>
+        <div class="note">Pick your Rekordbox, Rekopy or AI-made playlist XML together with the music, or import the XML first with Import files and then pick your Music/Collection folder. Only the songs the playlist XMLs name are copied (no separate folders needed); songs already here are skipped. They play offline after that.</div>
         <input type="file" id="fFolder" webkitdirectory multiple hidden>
         <input type="file" id="fFiles" multiple accept="audio/*,.mp3,.m4a,.wav,.aiff,.flac,.xml" hidden>
         <div id="impStatus" class="note"></div>
@@ -210,9 +221,9 @@
       </label>
     </section>
     <section class="settings">
-      <h2>Visuals: LED wall, neon &amp; media</h2>
-      <label>LED wall videos <span><button class="small" id="bLedPick">Choose videos… (up to 5)</button></span></label>
-      <div class="note" id="ledList">None picked. Pick them each session; they play muted on the LED wall (LED WALL button on the mixer, deck B side).</div>
+      <h2>Visuals: Cyclo, neon &amp; media</h2>
+      <label>Cyclo videos <span><button class="small" id="bLedPick">Choose videos… (up to 5)</button></span></label>
+      <div class="note" id="ledList">None picked. Pick them each session; they play muted on the Cyclo (CYCLO button on the mixer, deck B side).</div>
       <input type="file" id="fLed" accept="video/*" multiple hidden>
       <label>Picture &amp; video library <span><button class="small" id="bMediaAdd">Add pictures / videos…</button></span></label>
       <div class="note" id="mediaAddInfo">From this Quest's own files (Downloads, Pictures, Movies). 360 pictures and videos (2:1) go to PANO, the rest to IMAGES / VIDEO, ready on the mixer's VISUALS page.</div>
@@ -225,7 +236,7 @@
         </select>
       </label>
       <div class="note">Passthrough: hang the sign about 5 cm off your real wall. Full VR: it lights the studio wall behind the decks.</div>
-      <div class="note">The LED wall and the neon sign can be switched off (to save work) on the mixer: TOOLS &gt; VJ TOOLS.</div>
+      <div class="note">The Cyclo and the neon sign can be switched off (to save work) on the mixer: TOOLS &gt; VJ TOOLS.</div>
     </section>
     </div>
     <div class="credit" id="credit"></div>
