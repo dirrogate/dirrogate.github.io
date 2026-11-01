@@ -70,7 +70,10 @@
   .tbH i { position:absolute; left:0; right:0; top:-8px; height:16px; border-radius:5px; background:linear-gradient(#f1f4f8,#a9b2c1 60%,#7d8697); box-shadow:0 2px 6px rgba(0,0,0,.7), inset 0 1px 0 #fff; }
   .tbH::after { content:''; position:absolute; left:50%; margin-left:-4px; width:8px; top:7px; height:11px; border-radius:0 0 3px 3px; background:linear-gradient(90deg,#5d6578,#c9d0db,#5d6578); }
   .tbLbl { position:absolute; left:0; right:0; text-align:center; font:800 11px/14px system-ui,sans-serif; color:var(--mute); pointer-events:none; letter-spacing:.04em; } .tbLbl.t { top:3px; } .tbLbl.b { bottom:3px; }
-  .tbar.gold .tbFill { background:var(--gold); }
+  /* #560 mini horizontal T-bar (DANCER speed): same black slot + red groove as the program T-bar */
+  .tbar.h.mini { height:24px; border-radius:6px; flex:none; }
+  .tbar.h.mini .tbSlot { left:9px; right:9px; height:4px; margin-top:-2px; } .tbar.h.mini .tbFill { left:9px; height:4px; margin-top:-2px; }
+  .tbar.h.mini .tbH { top:3px; bottom:3px; } .tbar.h.mini .tbH i { left:-5px; width:10px; border-radius:3px; }
   /* #553 horizontal T-bar (A / B program fader between the bus rows): left = A, right = B */
   .tbar.h { flex:1 1 auto; width:100%; height:46px; cursor:grab; }
   .tbar.h .tbSlot { left:36px; right:36px; top:50%; bottom:auto; width:auto; height:6px; margin:-3px 0 0 0; }
@@ -119,7 +122,7 @@
   .dzCamW { flex:0 0 auto; display:flex; gap:8px; align-items:flex-start; }
   .dzZoomW { display:flex; flex-direction:column; align-items:center; gap:3px; }
   #dzZoomT { height:150px; flex:none; width:50px; }
-  .dzSpd { display:flex; flex-direction:column; align-items:stretch; gap:1px; margin-top:2px; } .dzSpd input[type=range] { min-width:0; width:100%; height:12px; margin:0; accent-color:#ff4fb4; cursor:ew-resize; }
+  .dzSpd { display:flex; flex-direction:column; align-items:stretch; gap:1px; margin-top:2px; } 
   .dzSpd span { font:700 10px system-ui,sans-serif; color:var(--mute); text-align:center; letter-spacing:.04em; }   /* #559 */
   .dzBtnCol { display:flex; flex-direction:column; gap:6px; width:104px; } .dzBtnCol button { width:100%; padding:9px 6px; font-size:13px; }
   .dzL { width:62px; font:800 11px system-ui; color:var(--gold); letter-spacing:.05em; }
@@ -164,8 +167,8 @@
       <div class="dzTop">
         <div class="dzCamW">
           <div class="dzPadW"><div id="dzPad" title="Camera framing. X (left to right) = round her 0 to 360 degrees. Y (bottom to top) = over the top 0 to 360 degrees. Double-click = front, eye level. Works while recording."><div id="dzDot"></div><span class="dzAx x">X</span><span class="dzAx y">Y</span></div><span id="dzXY" class="sp">X 0° · Y 8°</span></div>
-          <div class="dzZoomW"><div class="tbar gold" id="dzZoomT" title="Zoom T-bar: push up = close on her face, pull down = wide. Grab and pull. Works while recording."></div><span id="dzZoomV" class="sp">1.0×</span></div>
-          <div class="dzBtnCol"><button data-dzcam="orbit" title="Slow orbit round her (6° a second) on top of the X-Y framing">ORBIT</button><button data-dzcam="hand" title="Holds the framing with a subtle hand-held drift and shake">HANDHELD</button><button id="dzRec" class="dzRec" title="Record up to 30 s of her picture (960 x 540) into VIDEOS. Pad and zoom keep working while it records.">● REC</button><div class="dzSpd" title="Dance speed 0.25x to 2x. Double-click = 1x."><input type="range" id="dzSpeed" min="0.25" max="2" step="0.05" value="1"><span id="dzSpeedV">SPEED 1.00×</span></div></div>
+          <div class="dzZoomW"><div class="tbar" id="dzZoomT" title="Zoom T-bar: push up = close on her face, pull down = wide. Grab and pull. Works while recording."></div><span id="dzZoomV" class="sp">1.0×</span></div>
+          <div class="dzBtnCol"><button data-dzcam="orbit" title="Slow orbit round her (6° a second) on top of the X-Y framing">ORBIT</button><button data-dzcam="hand" title="Holds the framing with a subtle hand-held drift and shake">HANDHELD</button><button id="dzRec" class="dzRec" title="Record up to 30 s of her picture (960 x 540) into VIDEOS. Pad and zoom keep working while it records.">● REC</button><div class="dzSpd" title="Dance speed 0.25x to 2x. Double-click = 1x."><div class="tbar h mini" id="dzSpeedT"></div><span id="dzSpeedV">SPEED 1.00×</span></div></div>
         </div>
       </div>
       <div id="dzSt" class="note">Not loaded yet: pick DANCER on a bus, a dance or REC.</div>
@@ -280,13 +283,14 @@ let S = null, lastSeen = 0, realT = 0;   // #519 realT: last state from a real D
 for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = document.createElement('button'); b.textContent = NAMES[k]; b.dataset.bus = bus; b.dataset.src = k; b.onclick = () => send({ k: 'bus', bus, v: k }); $(bus === 'a' ? 'busA' : 'busB').append(b); }
 // #552 T-bar: a vision-mixer lever. Grab the handle (or anywhere on the bar) and pull: it moves by how far you pull, it never jumps to the click.
 // top = the value given as topVal. Arrow keys nudge it when focused. set() is ignored while it is held (and briefly after), so state echoes can't fight the hand.
-function makeTBar(el, { onInput, top, bot, topVal = 0, step = 0.02, horiz = false }) {   // #553 horiz: left = 'top' end
+function makeTBar(el, { onInput, top = '', bot = '', topVal = 0, step = 0.02, horiz = false, pad }) {   // #560 pad: px from each end to the travel (36 horizontal, 26 vertical)
+  const P = pad != null ? pad : horiz ? 36 : 26;   // #553 horiz: left = 'top' end
   el.innerHTML = `<span class="tbLbl t">${top}</span><div class="tbSlot"></div><div class="tbFill"></div><div class="tbH"><i></i></div><span class="tbLbl b">${bot}</span>`;
   el.tabIndex = 0; const h = el.querySelector('.tbH'), fill = el.querySelector('.tbFill'); let v = topVal ? 1 : 0, drag = null, relT = 0;
   const frac = () => topVal ? 1 - v : v;
-  function place() { const f = frac(), c = horiz ? `calc(36px + ${f} * (100% - 72px))` : `calc(26px + ${f} * (100% - 52px))`, l = `calc(${f} * (100% - ${horiz ? 72 : 52}px))`; if (horiz) { h.style.left = c; fill.style.width = l; } else { h.style.top = c; fill.style.height = l; } }
+  function place() { const f = frac(), c = `calc(${P}px + ${f} * (100% - ${2 * P}px))`, l = `calc(${f} * (100% - ${2 * P}px))`; if (horiz) { h.style.left = c; fill.style.width = l; } else { h.style.top = c; fill.style.height = l; } }
   function setF(f) { f = Math.max(0, Math.min(1, f)); v = topVal ? 1 - f : f; place(); onInput(v); }
-  el.onpointerdown = e => { el.setPointerCapture(e.pointerId); el.classList.add('drag'); const r = el.getBoundingClientRect(); drag = { y: horiz ? e.clientX : e.clientY, f: frac(), len: horiz ? r.width - 72 : r.height - 52 }; };
+  el.onpointerdown = e => { el.setPointerCapture(e.pointerId); el.classList.add('drag'); const r = el.getBoundingClientRect(); drag = { y: horiz ? e.clientX : e.clientY, f: frac(), len: (horiz ? r.width : r.height) - 2 * P }; };
   el.onpointermove = e => { if (drag) setF(drag.f + ((horiz ? e.clientX : e.clientY) - drag.y) / Math.max(1, drag.len)); };
   el.onpointerup = el.onpointercancel = () => { drag = null; relT = Date.now(); el.classList.remove('drag'); };
   el.onkeydown = e => { const fw = horiz ? ['ArrowRight', 'ArrowLeft'] : ['ArrowDown', 'ArrowUp']; if (fw.includes(e.key)) { e.preventDefault(); e.stopPropagation(); setF(frac() + (e.key === fw[0] ? step : -step)); relT = Date.now(); } };
@@ -663,8 +667,8 @@ function renderShow() {
 const dz = (op, o = {}) => send({ k: 'dz', op, ...o });
 for (const b of document.querySelectorAll('[data-dzstage]')) b.onclick = () => dz('stage', { v: b.dataset.dzstage });
 for (const b of document.querySelectorAll('[data-dzprop]')) b.onclick = () => dz('prop', { id: b.dataset.dzprop, v: !(S && S.D.dz && S.D.dz.props[b.dataset.dzprop]) });
-$('dzSpeed').oninput = e => { const v = +e.target.value; $('dzSpeedV').textContent = 'SPEED ' + v.toFixed(2) + '×'; dz('speed', { v }); };   // #559
-$('dzSpeed').ondblclick = () => { $('dzSpeed').value = 1; $('dzSpeed').oninput({ target: $('dzSpeed') }); };
+const spdT = makeTBar($('dzSpeedT'), { horiz: true, pad: 9, step: 0.02, onInput: v => { const sp = Math.round((0.25 + v * 1.75) * 20) / 20; $('dzSpeedV').textContent = 'SPEED ' + sp.toFixed(2) + '×'; dz('speed', { v: sp }); } });   // #559 / #560 speed 0.25x .. 2x as a mini T-bar
+$('dzSpeedT').ondblclick = () => { $('dzSpeedV').textContent = 'SPEED 1.00×'; dz('speed', { v: 1 }); };
 for (const b of document.querySelectorAll('[data-dzfit]')) b.onclick = () => dz('outfit', { v: b.dataset.dzfit });   // #558
 for (const b of document.querySelectorAll('[data-dzcam]')) b.onclick = () => dz('cam', { v: { mode: b.dataset.dzcam } });
 $('dzRec').onclick = () => dz('rec');
@@ -685,7 +689,7 @@ function renderDz() {
   for (const b of document.querySelectorAll('[data-dzprop]')) b.classList.toggle('on', !!Z.props[b.dataset.dzprop]);
   for (const b of document.querySelectorAll('[data-dzcam]')) b.classList.toggle('on', Z.cam.mode === b.dataset.dzcam);
   for (const b of document.querySelectorAll('[data-dzfit]')) b.classList.toggle('on', (Z.outfit || 'Red') === b.dataset.dzfit);   // #558
-  if (document.activeElement !== $('dzSpeed')) { $('dzSpeed').value = Z.speed || 1; $('dzSpeedV').textContent = 'SPEED ' + (+Z.speed || 1).toFixed(2) + '×'; }   // #559
+  spdT.set(((+Z.speed || 1) - 0.25) / 1.75); if (!$('dzSpeedT').classList.contains('drag')) $('dzSpeedV').textContent = 'SPEED ' + (+Z.speed || 1).toFixed(2) + '×';   // #559 / #560
   $('dzFogRow').hidden = !Z.props.fog;
   for (const [id, key] of [['dzFogDen', 'den'], ['dzFogH', 'h'], ['dzFogSp', 'speed']]) if (document.activeElement !== $(id)) $(id).value = Z.fog[key];
   if (document.activeElement !== $('dzFogCol')) $('dzFogCol').value = Z.fog.col;

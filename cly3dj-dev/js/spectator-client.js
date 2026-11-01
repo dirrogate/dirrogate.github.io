@@ -820,7 +820,14 @@ export function startCamera(ctx) {
   const clock = new THREE.Clock();
   let infoT = 0, camT = 0, found = false, lookT = 0, lastLoopT = 0;
   const _m = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _s = new THREE.Vector3();
-  if (VJ) setInterval(() => { const now = performance.now(); if (now - lastLoopT > 38) { try { if (scroller) scroller.tick(0.033); studio.frame(now); } catch {} } }, 33);   // #531 / #535 keep Program + Desk preview + Projector window at 30 fps when dirrovj.html is occluded behind another window
+  // #531 / #535 / #560 keep Program + Desk preview + Projector window + Twitch / DirroTV at 30 fps while dirrovj.html is hidden (covered by the desk
+  // window, a background tab, the Claude browser pane): a hidden page gets no animation frames and its own timers are cut to about one every
+  // 1-4 s, but a Web Worker's timer keeps ticking, so the worker's 33 ms tick drives the frame. The page's own 33 ms timer stays as a backup.
+  if (VJ) {
+    const vjTick = () => { const now = performance.now(); if (now - lastLoopT > 38) { try { if (scroller) scroller.tick(0.033); studio.frame(now); } catch {} } };
+    setInterval(vjTick, 33);
+    try { const wu = URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 33);'], { type: 'text/javascript' })); const tw = new Worker(wu); tw.onmessage = vjTick; } catch (e) { console.warn('DirroVJ tick worker', e); }
+  }
   renderer.setAnimationLoop((t, frame) => {
     const dt = Math.min(0.05, clock.getDelta()), now = lastLoopT = performance.now();
     // #204 three.js binds the AR layer's framebuffer once, just before this callback. Anything that calls
