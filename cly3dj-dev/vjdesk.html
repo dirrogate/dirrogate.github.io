@@ -207,7 +207,7 @@
   <div class="note">BEAT: each kick in the Quest's sound shoots the peaks up (the dot flashes); PUMP or P = a hit by hand. REACT: the whole landscape swells with the bass. CYCLE: rolls the colours like Amiga palette cycling (LAVA, ICE, COPPER, NEON).</div>
 </section>
 <section id="cxS" style="margin:0 16px 16px">
-  <h2>DirroComics <span class="note" style="text-transform:none;letter-spacing:0">put DIRROCOMICS on bus A or B to show the page</span></h2>
+  <h2>DirroComics <span class="note" style="text-transform:none;letter-spacing:0">put COMICS on bus A or B to show the page</span></h2>
   <div class="row">
     <input type="text" id="cxIssue" maxlength="40" placeholder="ISSUE #1" style="width:150px" title="Masthead issue line">
     <input type="text" id="cxFoot" maxlength="60" placeholder="Footer text" style="width:220px" title="Footer, right side">
@@ -264,7 +264,7 @@
     </section>
 <script>
 const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
-const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'DIRROCOMICS', dancer: 'DANCER', black: 'BLACK' };   // #516, #537, #550
+const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'COMICS', dancer: 'DANCER' };   // #516, #537, #550, #555 BLACK gone, DIRROCOMICS shortened to COMICS (one line per bus)
 let S = null, lastSeen = 0, realT = 0;   // #519 realT: last state from a real DirroVJ
 for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = document.createElement('button'); b.textContent = NAMES[k]; b.dataset.bus = bus; b.dataset.src = k; b.onclick = () => send({ k: 'bus', bus, v: k }); $(bus === 'a' ? 'busA' : 'busB').append(b); }
 // #552 T-bar: a vision-mixer lever. Grab the handle (or anywhere on the bar) and pull: it moves by how far you pull, it never jumps to the click.

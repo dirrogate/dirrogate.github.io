@@ -107,7 +107,7 @@ const FRACTALS = {   // #508 per formula: start centre and span, zoom targets
   multi: { t: 3, c: [0, 0], span: 2.8, tg: [[0.38, 0.0], [-0.19, 0.33], [-0.19, -0.33]] },
 };
 const PALS = ['green', 'island', 'lava', 'ice', 'copper', 'neon'];
-const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'black'];   // #516 comic = DirroComics page, #550 dancer = DirroDancer
+const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer'];   // #516 comic = DirroComics page, #550 dancer = DirroDancer, #555 BLACK removed (owner: never used)
 
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
   const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults() };

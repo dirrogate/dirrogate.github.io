@@ -1657,3 +1657,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Above the full-width clip banks the panels sit in two balanced columns: left = Program, SHOWTIME!; right = Scroller desk, Dancer, Scroller queue. The banks (DANCER CLIPS, IMAGES, VIDEOS, PANOS) stay full width; Amiga fractal, DirroComics and the AI storyboard follow as before.
 - Sound for Twitch (QUEST / LINE IN, TWITCH ON/OFF, input list, TWITCH KEY) is the last panel on the page (`#twS`, full width, after the storyboard, which storyboard.js still inserts right after DirroComics).
 - Checked on the owner's PC pane at 1440 x 1100: columns, banks, page order. sw.js v79. No Node restart. Backup backups/pre554/.
+
+## #555 Bus rows on one line: BLACK removed, DIRROCOMICS shortened to COMICS (owner, 1 Nov: 'We will never have Black')
+- `js/vjdesk.js` SOURCES = quest, fractal, webcam, led, comic, dancer ('black' gone; a bus can no longer be set to it). `vjdesk.html` NAMES: comic shows as COMICS (DirroComics panel note says COMICS too). Bus A and B are now one row of six buttons each: QUEST, FRACTAL, WEBCAM, CYCLO, COMICS, DANCER (38 px rows at a 1440 px desk window).
+- sw.js v80. No Node restart. Backup backups/pre555/.
