@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v87';   // #563 grabs into the banks, bank right-click menu
+const CACHE = 'vire-app-v88';   // #564 SOFT RIM rim / face controls
+// v87:   // #563 grabs into the banks, bank right-click menu
 // v86:   // #562 SOFT RIM stage, skin scattering at every distance
 // v85:   // #560 zoom + speed T-bars in the program T-bar's style; DirroVJ frame tick from a worker
 // v84:   // #559 DANCER speed slider

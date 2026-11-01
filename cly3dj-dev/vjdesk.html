@@ -126,7 +126,8 @@
   .dzSpd span { font:700 10px system-ui,sans-serif; color:var(--mute); text-align:center; letter-spacing:.04em; }   /* #559 */
   .dzBtnCol { display:flex; flex-direction:column; gap:6px; width:104px; } .dzBtnCol button { width:100%; padding:9px 6px; font-size:13px; }
   .dzL { width:62px; font:800 11px system-ui; color:var(--gold); letter-spacing:.05em; }
-  #dzFogRow[hidden] { display:none; }   /* #558 .row's display:flex beat the hidden attribute: the fog sliders showed with FOG off */
+  #dzFogRow[hidden], #dzSoftRow[hidden] { display:none; }
+  #dzSoftRow input[type=color] { width:38px; height:30px; padding:0 2px; border:1px solid var(--line); border-radius:6px; background:#1c2230; cursor:pointer; } #dzSoftRow .kv { flex:1 1 120px; } #dzSoftRow input[type=range] { min-width:70px; }   /* #564 */   /* #558 .row's display:flex beat the hidden attribute: the fog sliders showed with FOG off */
   #dzFogRow .kv { flex:1 1 130px; } #dzFogRow input[type=range] { min-width:70px; }
   button.dzRec { color:#ff8a8a; border-color:#6a1c1c; background:#231010; font-weight:800; }
   button.dzRec.on { color:#fff; background:#b0141e; border-color:var(--red); box-shadow:0 0 10px rgba(224,32,42,.45); }
@@ -179,6 +180,10 @@
       <div id="dzSt" class="note">Not loaded yet: pick DANCER on a bus, a dance or REC.</div>
       <div class="row"><span class="dzL">STAGE</span><button data-dzstage="rim">RIMLIT</button><button data-dzstage="studio">STUDIO</button><button data-dzstage="soft" title="Soft face light, teal and amber rims, navy shadows, film grain (the Unity look)">SOFT RIM</button><button data-dzprop="fog">FOG</button></div>
       <div class="row"><span class="dzL">DANCER</span><button data-dzfit="Red" title="Red halter outfit">RED</button><button data-dzfit="Black" title="Black latex catsuit">CATSUIT</button></div>
+      <div class="row" id="dzSoftRow" hidden><span class="dzL">RIMS</span>
+        <input type="color" id="dzC1" value="#35d6ff" title="Left rim colour"><input type="color" id="dzC2" value="#ffa24a" title="Right rim colour">
+        <label class="kv"><span class="sp">Rim</span><input type="range" id="dzRim" min="0" max="2" step="0.05" value="1" title="Rim strength (double-click = 1)"></label>
+        <label class="kv"><span class="sp">Face</span><input type="range" id="dzFace" min="0" max="2" step="0.05" value="1" title="Soft face-light strength (double-click = 1)"></label></div>
       <div class="row" id="dzFogRow" hidden><span class="dzL">FOG</span>
         <label class="kv"><span class="sp">Density</span><input type="range" id="dzFogDen" min="0" max="1.5" step="0.02"></label>
         <label class="kv"><span class="sp">Height</span><input type="range" id="dzFogH" min="0.1" max="2" step="0.05"></label>
@@ -682,6 +687,8 @@ const ZMIN = 0.4, ZMAX = 8, z2s = z => Math.log(z / ZMIN) / Math.log(ZMAX / ZMIN
 const zoomT = makeTBar($('dzZoomT'), { top: 'IN', bot: 'OUT', topVal: 1, step: 0.01, onInput: v => { const z = s2z(v); $('dzZoomV').textContent = z.toFixed(1) + '×'; dz('cam', { v: { zoom: z } }); } });   // #552 zoom T-bar
 for (const [id, key] of [['dzFogDen', 'den'], ['dzFogH', 'h'], ['dzFogSp', 'speed']]) $(id).oninput = e => dz('fog', { v: { [key]: +e.target.value } });
 $('dzFogCol').onchange = e => dz('fog', { v: { col: e.target.value } });
+for (const [id, k] of [['dzC1', 'c1'], ['dzC2', 'c2']]) $(id).oninput = e => dz('soft', { v: { [k]: e.target.value } });   // #564 SOFT RIM controls
+for (const [id, k] of [['dzRim', 'rim'], ['dzFace', 'face']]) { $(id).oninput = e => dz('soft', { v: { [k]: +e.target.value } }); $(id).ondblclick = () => { $(id).value = 1; dz('soft', { v: { [k]: 1 } }); }; }
 let dzDrag = false, dzDragT = 0;
 function dzDot(x, y) { $('dzDot').style.left = (x / 360 * 150) + 'px'; $('dzDot').style.top = (150 - y / 360 * 150) + 'px'; $('dzXY').textContent = `X ${Math.round(x)}° · Y ${Math.round(y)}°`; }
 function dzPadAt(e) { const r = $('dzPad').getBoundingClientRect(), x = Math.max(0, Math.min(360, (e.clientX - r.left) / r.width * 360)), y = Math.max(0, Math.min(360, (r.bottom - e.clientY) / r.height * 360)); dzDot(x, y); dz('cam', { v: { x, y } }); }
@@ -697,6 +704,8 @@ function renderDz() {
   for (const b of document.querySelectorAll('[data-dzfit]')) b.classList.toggle('on', (Z.outfit || 'Red') === b.dataset.dzfit);   // #558
   spdT.set(((+Z.speed || 1) - 0.25) / 1.75); if (!$('dzSpeedT').classList.contains('drag')) $('dzSpeedV').textContent = 'SPEED ' + (+Z.speed || 1).toFixed(2) + '×';   // #559 / #560
   $('dzFogRow').hidden = !Z.props.fog;
+  $('dzSoftRow').hidden = Z.stage !== 'soft';   // #564
+  if (Z.soft) { for (const [id, k] of [['dzC1', 'c1'], ['dzC2', 'c2'], ['dzRim', 'rim'], ['dzFace', 'face']]) if (document.activeElement !== $(id) && Z.soft[k] != null) $(id).value = Z.soft[k]; }
   for (const [id, key] of [['dzFogDen', 'den'], ['dzFogH', 'h'], ['dzFogSp', 'speed']]) if (document.activeElement !== $(id)) $(id).value = Z.fog[key];
   if (document.activeElement !== $('dzFogCol')) $('dzFogCol').value = Z.fog.col;
   zoomT.set(z2s(Z.cam.zoom)); if (!$('dzZoomT').classList.contains('drag')) $('dzZoomV').textContent = (+Z.cam.zoom).toFixed(1) + '×';

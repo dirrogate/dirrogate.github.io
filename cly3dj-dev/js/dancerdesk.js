@@ -30,11 +30,11 @@ const nz = x => Math.sin(x) * 0.6 + Math.sin(x * 2.3 + 1.7) * 0.3 + Math.sin(x *
 
 export function makeDancer({ S, post, bc, media }) {
   let ready = false, loading = null, renderer, scene, cam, composer, gtao, dancer, rim, studio, camKey, fogG, gl;
-  let soft, faceKey, envRoom, envSoft, bloom, gradeU, motes, floorM;   // #562 SOFT RIM
+  let soft, faceKey, envRoom, envSoft, bloom, gradeU, motes, floorM, rimL, rimR, envT = 0;   // #562 SOFT RIM
   const canvas = document.createElement('canvas'); canvas.width = DZ_W; canvas.height = DZ_H;
   const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.NoColorSpace; tex.generateMipmaps = false; tex.minFilter = tex.magFilter = THREE.LinearFilter;
   const props = {}, propLoad = {};
-  const save = () => { try { localStorage.setItem('vire.dancer', JSON.stringify({ clip: S.clip, stage: S.stage, outfit: S.outfit, speed: S.speed, props: S.props, fog: S.fog, cam: S.cam })); } catch {} };
+  const save = () => { try { localStorage.setItem('vire.dancer', JSON.stringify({ clip: S.clip, stage: S.stage, outfit: S.outfit, speed: S.speed, soft: S.soft, props: S.props, fog: S.fog, cam: S.cam })); } catch {} };
 
   if (!(S.cam.mode in CAMS)) S.cam.mode = 'hand';   // #551 WIDE (and the old close-up) are gone: a saved one becomes HANDHELD
   function ensure() {
@@ -46,7 +46,7 @@ export function makeDancer({ S, post, bc, media }) {
       renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.NeutralToneMapping; renderer.toneMappingExposure = 1; renderer.shadowMap.enabled = true;
       scene = new THREE.Scene(); scene.background = new THREE.Color(0x07060b); scene.fog = new THREE.FogExp2(0x07060b, 0.05);
       const pm = new THREE.PMREMGenerator(renderer); envRoom = scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
-      envSoft = pm.fromScene(softEnvScene(), 0.02).texture; pm.dispose();   // #562 dark room with only the rim and face panels: reflections match the lights
+      envSoft = pm.fromScene(softEnvScene(), 0.02).texture; pm.dispose();   // rebuilt when the rim colours change (softEnv())   // #562 dark room with only the rim and face panels: reflections match the lights
       cam = new THREE.PerspectiveCamera(32, DZ_W / DZ_H, 0.03, 60); scene.add(cam);
       camKey = attachCameraKey(THREE, cam, { intensity: 1.1 }); camKey.visible = false;
       const floor = new THREE.Mesh(new THREE.CircleGeometry(5, 64), new THREE.MeshStandardMaterial({ color: 0x0c0a12, roughness: 0.25, metalness: 0.4 }));
@@ -63,7 +63,7 @@ export function makeDancer({ S, post, bc, media }) {
       RectAreaLightUniformsLib.init();
       soft = new THREE.Group(); soft.visible = false;
       const sp = (c, i, x, y, z, ty) => { const l = new THREE.SpotLight(c, i, 12, 0.5, 0.85, 2); l.position.set(x, y, z); l.target.position.set(0, ty, 0); soft.add(l, l.target); return l; };
-      sp(0x35d6ff, 190, -1.8, 2.5, -2.1, 1.25); sp(0xffa24a, 150, 1.8, 2.3, -2.1, 1.2); sp(0xbfd8ff, 22, 0, 4.2, -0.4, 1.2);
+      rimL = sp(0x35d6ff, 190, -1.8, 2.5, -2.1, 1.25); rimR = sp(0xffa24a, 150, 1.8, 2.3, -2.1, 1.2); sp(0xbfd8ff, 22, 0, 4.2, -0.4, 1.2);
       soft.add(new THREE.HemisphereLight(0x1a3550, 0x05070c, 0.55)); scene.add(soft);
       faceKey = new THREE.RectAreaLight(0xffe6d2, 7, 0.7, 0.5); faceKey.visible = false; scene.add(faceKey);
       motes = makeMotes(); scene.add(motes);
@@ -134,7 +134,7 @@ void main() {
     return clip;
   }
   function applyStage() {
-    if (!rim) return; const st = S.stage, sf = st === 'soft';
+    if (!rim) return; const st = S.stage, sf = st === 'soft'; applySoft();
     rim.group.visible = st === 'rim'; studio.visible = st === 'studio'; soft.visible = faceKey.visible = motes.visible = sf;
     scene.environment = sf ? envSoft : envRoom; scene.environmentIntensity = st === 'rim' ? 0.08 : st === 'studio' ? 0.6 : 0.9;
     renderer.toneMapping = sf ? THREE.AgXToneMapping : THREE.NeutralToneMapping; renderer.toneMappingExposure = sf ? 1.15 : 1;   // #562 AgX: softer highlight roll-off
@@ -143,10 +143,20 @@ void main() {
     bloom.strength = sf ? 0.3 : 0.16; bloom.threshold = sf ? 0.25 : 0.12;
     if (dancer) { const k = dancer.skin; k.uWrap.value = sf ? 0.35 : 0.1; k.uSSSColor.value.setRGB(...(sf ? [0.95, 0.55, 0.45] : [0.92, 0.72, 0.62])); k.uPoreFar.value = sf ? 3.6 : 2.2; k.uDetailStrength.value = sf ? 0.45 : 0.35; }
   }
+  // #564 SOFT RIM controls: rim colours c1 (left) / c2 (right), rim strength and face-light strength (0..2, 1 = as designed)
+  function softK() { const o = S.soft || {}; return { c1: /^#[0-9a-f]{6}$/i.test(o.c1) ? o.c1 : '#35d6ff', c2: /^#[0-9a-f]{6}$/i.test(o.c2) ? o.c2 : '#ffa24a', rim: Math.max(0, Math.min(2, o.rim ?? 1)), face: Math.max(0, Math.min(2, o.face ?? 1)) }; }
+  function applySoft() {
+    if (!rimL) return; const k = softK();
+    rimL.color.set(k.c1); rimR.color.set(k.c2); rimL.intensity = 190 * k.rim; rimR.intensity = 150 * k.rim; faceKey.intensity = 7 * k.face;
+    clearTimeout(envT); envT = setTimeout(() => {   // the reflections follow the new colours (a new dark panel room; a few ms, at most every 0.3 s)
+      const pm = new THREE.PMREMGenerator(renderer), was = envSoft; envSoft = pm.fromScene(softEnvScene(), 0.02).texture; pm.dispose();
+      if (scene.environment === was) scene.environment = envSoft; if (was) was.dispose();
+    }, 300);
+  }
   function softEnvScene() {   // #562 what her skin and the latex reflect on SOFT RIM: black, a teal and an amber panel behind, a soft warm panel in front
     const es = new THREE.Scene(); es.background = new THREE.Color(0x000000);
     const pl = (col, I, w, h, x, y, z) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(I), side: THREE.DoubleSide })); m.position.set(x, y, z); m.lookAt(0, 1.2, 0); es.add(m); };
-    pl(0x35d6ff, 4, 1.2, 3, -2.2, 2, -2.2); pl(0xffa24a, 3.5, 1.2, 3, 2.2, 2, -2.2); pl(0xfff0e6, 1.2, 1.4, 1, 0, 1.8, 2.4); pl(0x16263c, 0.5, 6, 2, 0, 0.3, 3.5);
+    const k = softK(); pl(k.c1, 4 * k.rim, 1.2, 3, -2.2, 2, -2.2); pl(k.c2, 3.5 * k.rim, 1.2, 3, 2.2, 2, -2.2); pl(0xfff0e6, 1.2, 1.4, 1, 0, 1.8, 2.4); pl(0x16263c, 0.5, 6, 2, 0, 0.3, 3.5);
     return es;
   }
   function makeMotes() {   // #562 a few out-of-focus dust motes (soft bokeh discs) drifting near her, SOFT RIM only
@@ -284,6 +294,7 @@ void main() {
   function onMsg(m) {
     const op = m.op;
     if (op === 'clip' && m.name) { S.clip = String(m.name); if (ready && dancer.actions.has(S.clip)) dancer.play(S.clip, 0.8); }
+    else if (op === 'soft') { const v = m.v || {}; S.soft = { ...softK(), ...S.soft }; for (const k of ['c1', 'c2']) if (/^#[0-9a-f]{6}$/i.test(v[k])) S.soft[k] = v[k]; for (const k of ['rim', 'face']) if (k in v) S.soft[k] = Math.max(0, Math.min(2, +v[k])); applySoft(); }   // #564
     else if (op === 'speed') { S.speed = Math.max(0.25, Math.min(2, +m.v || 1)); if (ready) dancer.mixer.timeScale = S.speed; }   // #559
     else if (op === 'outfit') { const v = m.v === 'Black' ? 'Black' : 'Red'; S.outfit = v; if (ready) dancer.setOutfit(v).catch(e => { S.err = 'outfit: ' + e.message; post(); }); }   // #558
     else if (op === 'stage') { S.stage = m.v === 'studio' || m.v === 'soft' ? m.v : 'rim'; applyStage(); }   // #562 + 'soft'
