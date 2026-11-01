@@ -53,7 +53,17 @@
   .lbl { width:28px; font-weight:800; color:var(--mute); }
   #pv { width:100%; aspect-ratio:16/9; background:#000; border-radius:8px; border:1px solid var(--line); object-fit:contain; display:block; }
   input[type=range] { flex:1; min-width:120px; }
-  #xf { width:100%; }
+  /* #552 T-bars (vision mixer style): A / B program fader beside the Program picture, and the DANCER zoom */
+  .pvRow { display:flex; gap:8px; align-items:stretch; } .pvRow #pv { flex:1 1 auto; width:auto; min-width:0; }
+  .tbar { position:relative; flex:0 0 58px; width:58px; border-radius:10px; background:#0b0e16; border:1px solid var(--line); touch-action:none; user-select:none; cursor:grab; outline:none; }
+  .tbar.drag { cursor:grabbing; border-color:#4b5d82; } .tbar:focus-visible { border-color:var(--blue); }
+  .tbSlot { position:absolute; left:50%; top:26px; bottom:26px; width:6px; margin-left:-3px; background:#000; border-radius:3px; box-shadow:inset 0 0 0 1px #232b3e; }
+  .tbFill { position:absolute; left:50%; top:26px; width:6px; margin-left:-3px; border-radius:3px; background:var(--red); opacity:.85; }
+  .tbH { position:absolute; left:5px; right:5px; height:0; pointer-events:none; }
+  .tbH i { position:absolute; left:0; right:0; top:-8px; height:16px; border-radius:5px; background:linear-gradient(#f1f4f8,#a9b2c1 60%,#7d8697); box-shadow:0 2px 6px rgba(0,0,0,.7), inset 0 1px 0 #fff; }
+  .tbH::after { content:''; position:absolute; left:50%; margin-left:-4px; width:8px; top:7px; height:11px; border-radius:0 0 3px 3px; background:linear-gradient(90deg,#5d6578,#c9d0db,#5d6578); }
+  .tbLbl { position:absolute; left:0; right:0; text-align:center; font:800 11px/14px system-ui,sans-serif; color:var(--mute); pointer-events:none; letter-spacing:.04em; } .tbLbl.t { top:3px; } .tbLbl.b { bottom:3px; }
+  .tbar.gold .tbFill { background:var(--gold); }
   .q { display:flex; gap:8px; align-items:flex-start; padding:7px 0; border-bottom:1px solid #1f2636; }
   .q .t { flex:1; } .q .w { color:var(--mute); font-size:12px; } .q.sent { opacity:.45; }
   .tag { font:700 10px system-ui; padding:2px 6px; border-radius:6px; background:#22304a; color:#9cc8ff; margin-right:6px; } .tag.sms { background:#3a2440; color:#f2a7f0; }
@@ -86,8 +96,6 @@
   [data-tone].on { border-color:#f2c94c; background:#3a3214; }
   /* #550 DANCER panel + DANCER CLIPS bank */
   .dzTop { display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap; }
-  .dzPvBox { flex:1 1 220px; min-width:0; }
-  #dzPv { width:100%; max-width:320px; aspect-ratio:16/9; background:#000; border-radius:8px; border:1px solid var(--line); object-fit:cover; display:block; }
   .dzPadW { flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:3px; }
   #dzPad { position:relative; width:150px; height:150px; border-radius:8px; border:1px solid var(--line); background:#0b0e16; cursor:crosshair; touch-action:none; user-select:none;
     background-image:linear-gradient(#1e2536 1px, transparent 1px), linear-gradient(90deg, #1e2536 1px, transparent 1px); background-size:37.5px 37.5px; background-position:-1px -1px; }
@@ -95,7 +103,7 @@
   .dzAx { position:absolute; font:700 10px system-ui; color:var(--mute); pointer-events:none; } .dzAx.x { right:4px; bottom:2px; } .dzAx.y { left:4px; top:2px; }
   .dzCamW { flex:0 0 auto; display:flex; gap:8px; align-items:flex-start; }
   .dzZoomW { display:flex; flex-direction:column; align-items:center; gap:3px; }
-  #dzZoom { writing-mode:vertical-lr; direction:rtl; width:22px; height:150px; min-width:0; flex:none; margin:0; accent-color:var(--gold); cursor:ns-resize; }
+  #dzZoomT { height:150px; flex:none; width:50px; }
   .dzBtnCol { display:flex; flex-direction:column; gap:6px; width:104px; } .dzBtnCol button { width:100%; padding:9px 6px; font-size:13px; }
   .dzL { width:62px; font:800 11px system-ui; color:var(--gold); letter-spacing:.05em; }
   #dzFogRow .kv { flex:1 1 130px; } #dzFogRow input[type=range] { min-width:70px; }
@@ -113,9 +121,8 @@
   <div>
     <section>
       <h2>Program</h2>
-      <div><img id="pv" alt=""></div>
+      <div class="pvRow"><img id="pv" alt=""><div class="tbar" id="xfT" title="T-bar: top = bus A on air, bottom = bus B on air. Grab and pull; the bar doesn't jump to a click."></div></div>
       <div class="row" id="busA"><span class="lbl">A</span></div>
-      <div class="row"><input type="range" id="xf" min="0" max="1" step="0.01" value="0"></div>
       <div class="row" id="busB"><span class="lbl">B</span></div>
       <div class="row"><button id="cut">CUT</button><button id="auto">AUTO</button><select id="fadeMs"><option value="800">0.8 s</option><option value="2000" selected>2 s</option><option value="5000">5 s</option></select></div>
       <div class="note">QUEST = the picture DirroVJ gets from the Quest (SHOW, LIVE DJ!, KEY, WEBCAM mode as picked on the tablet) with its overlays. WEBCAM = this laptop's webcam as it is (start it on the DirroVJ page). CYCLO = DirroVJ's copy of the Cyclo clip.</div>
@@ -129,14 +136,14 @@
     <section style="margin-top:14px" id="dzS">
       <h2>Dancer <span class="note" style="text-transform:none;letter-spacing:0">put DANCER on bus A or B · her dances are in DANCER CLIPS below</span></h2>
       <div class="dzTop">
-        <div class="dzPvBox"><img id="dzPv" alt=""><div id="dzSt" class="note">Not loaded yet: pick DANCER on a bus, a dance, PREVIEW or REC.</div></div>
         <div class="dzCamW">
           <div class="dzPadW"><div id="dzPad" title="Camera framing. X (left to right) = round her 0 to 360 degrees. Y (bottom to top) = over the top 0 to 360 degrees. Double-click = front, eye level. Works while recording."><div id="dzDot"></div><span class="dzAx x">X</span><span class="dzAx y">Y</span></div><span id="dzXY" class="sp">X 0° · Y 8°</span></div>
-          <div class="dzZoomW"><input type="range" id="dzZoom" min="0" max="1" step="0.005" title="Zoom: bottom = wide, top = close on her face. Works while recording."><span id="dzZoomV" class="sp">1.0×</span></div>
+          <div class="dzZoomW"><div class="tbar gold" id="dzZoomT" title="Zoom T-bar: push up = close on her face, pull down = wide. Grab and pull. Works while recording."></div><span id="dzZoomV" class="sp">1.0×</span></div>
           <div class="dzBtnCol"><button data-dzcam="orbit" title="Slow orbit round her (6° a second) on top of the X-Y framing">ORBIT</button><button data-dzcam="hand" title="Holds the framing with a subtle hand-held drift and shake">HANDHELD</button><button id="dzRec" class="dzRec" title="Record up to 30 s of her picture (960 x 540) into VIDEOS. Pad and zoom keep working while it records.">● REC</button></div>
         </div>
       </div>
-      <div class="row"><span class="dzL">STAGE</span><button data-dzstage="rim">RIMLIT</button><button data-dzstage="studio">STUDIO</button><button id="dzPvB" style="margin-left:auto" title="Draw her even when no bus shows her (for setting up the shot)">PREVIEW</button></div>
+      <div id="dzSt" class="note">Not loaded yet: pick DANCER on a bus, a dance or REC.</div>
+      <div class="row"><span class="dzL">STAGE</span><button data-dzstage="rim">RIMLIT</button><button data-dzstage="studio">STUDIO</button></div>
       <div class="row"><span class="dzL">PROPS</span><button data-dzprop="manhole">WATER MANHOLE</button><button data-dzprop="pumpkin">HALLOWEEN PUMPKIN</button><button data-dzprop="fog">FOG</button></div>
       <div class="row" id="dzFogRow" hidden><span class="dzL">FOG</span>
         <label class="kv"><span class="sp">Density</span><input type="range" id="dzFogDen" min="0" max="1.5" step="0.02"></label>
@@ -252,7 +259,22 @@ const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id
 const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'DIRROCOMICS', dancer: 'DANCER', black: 'BLACK' };   // #516, #537, #550
 let S = null, lastSeen = 0, realT = 0;   // #519 realT: last state from a real DirroVJ
 for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = document.createElement('button'); b.textContent = NAMES[k]; b.dataset.bus = bus; b.dataset.src = k; b.onclick = () => send({ k: 'bus', bus, v: k }); $(bus === 'a' ? 'busA' : 'busB').append(b); }
-$('xf').oninput = e => send({ k: 'x', v: +e.target.value });
+// #552 T-bar: a vision-mixer lever. Grab the handle (or anywhere on the bar) and pull: it moves by how far you pull, it never jumps to the click.
+// top = the value given as topVal. Arrow keys nudge it when focused. set() is ignored while it is held (and briefly after), so state echoes can't fight the hand.
+function makeTBar(el, { onInput, top, bot, topVal = 0, step = 0.02 }) {
+  el.innerHTML = `<span class="tbLbl t">${top}</span><div class="tbSlot"></div><div class="tbFill"></div><div class="tbH"><i></i></div><span class="tbLbl b">${bot}</span>`;
+  el.tabIndex = 0; const h = el.querySelector('.tbH'), fill = el.querySelector('.tbFill'); let v = topVal ? 1 : 0, drag = null, relT = 0;
+  const frac = () => topVal ? 1 - v : v;
+  function place() { const f = frac(); h.style.top = `calc(26px + ${f} * (100% - 52px))`; fill.style.height = `calc(${f} * (100% - 52px))`; }
+  function setF(f) { f = Math.max(0, Math.min(1, f)); v = topVal ? 1 - f : f; place(); onInput(v); }
+  el.onpointerdown = e => { el.setPointerCapture(e.pointerId); el.classList.add('drag'); drag = { y: e.clientY, f: frac(), len: el.getBoundingClientRect().height - 52 }; };
+  el.onpointermove = e => { if (drag) setF(drag.f + (e.clientY - drag.y) / Math.max(1, drag.len)); };
+  el.onpointerup = el.onpointercancel = () => { drag = null; relT = Date.now(); el.classList.remove('drag'); };
+  el.onkeydown = e => { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setF(frac() + (e.key === 'ArrowDown' ? step : -step)); relT = Date.now(); } };
+  place();
+  return { set(x) { if (drag || Date.now() - relT < 500) return; v = Math.max(0, Math.min(1, +x || 0)); place(); }, get v() { return v; } };
+}
+const xfT = makeTBar($('xfT'), { top: 'A', bot: 'B', topVal: 0, onInput: v => send({ k: 'x', v }) });
 $('cut').onclick = () => send({ k: 'cut' }); $('auto').onclick = () => send({ k: 'auto', ms: +$('fadeMs').value });
 for (const b of document.querySelectorAll('[data-pal]')) b.onclick = () => send({ k: 'fr', v: { pal: b.dataset.pal } });
 for (const b of document.querySelectorAll('[data-ft]')) b.onclick = () => send({ k: 'fr', v: { type: b.dataset.ft } });
@@ -279,7 +301,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 function render() {
   const D = S.D;
   for (const b of document.querySelectorAll('[data-bus]')) b.classList.toggle('on', D[b.dataset.bus] === b.dataset.src);
-  if (document.activeElement !== $('xf')) $('xf').value = D.x;
+  xfT.set(D.x);   // #552
   for (const b of document.querySelectorAll('[data-pal]')) b.classList.toggle('on', D.fr.pal === b.dataset.pal);
   for (const b of document.querySelectorAll('[data-ft]')) b.classList.toggle('on', (D.fr.type || 'mandel') === b.dataset.ft);
   if (D.kick !== render.kick) { render.kick = D.kick; $('kick').style.background = '#ff3040'; setTimeout(() => { $('kick').style.background = '#333'; }, 120); }
@@ -616,10 +638,9 @@ const dz = (op, o = {}) => send({ k: 'dz', op, ...o });
 for (const b of document.querySelectorAll('[data-dzstage]')) b.onclick = () => dz('stage', { v: b.dataset.dzstage });
 for (const b of document.querySelectorAll('[data-dzprop]')) b.onclick = () => dz('prop', { id: b.dataset.dzprop, v: !(S && S.D.dz && S.D.dz.props[b.dataset.dzprop]) });
 for (const b of document.querySelectorAll('[data-dzcam]')) b.onclick = () => dz('cam', { v: { mode: b.dataset.dzcam } });
-$('dzPvB').onclick = () => dz('pv', { v: !(S && S.D.dz && S.D.dz.pv) });
 $('dzRec').onclick = () => dz('rec');
 const ZMIN = 0.4, ZMAX = 8, z2s = z => Math.log(z / ZMIN) / Math.log(ZMAX / ZMIN), s2z = v => ZMIN * Math.pow(ZMAX / ZMIN, v);   // #551 log zoom bar
-$('dzZoom').oninput = e => { const z = s2z(+e.target.value); $('dzZoomV').textContent = z.toFixed(1) + '×'; dz('cam', { v: { zoom: z } }); };
+const zoomT = makeTBar($('dzZoomT'), { top: 'IN', bot: 'OUT', topVal: 1, step: 0.01, onInput: v => { const z = s2z(v); $('dzZoomV').textContent = z.toFixed(1) + '×'; dz('cam', { v: { zoom: z } }); } });   // #552 zoom T-bar
 for (const [id, key] of [['dzFogDen', 'den'], ['dzFogH', 'h'], ['dzFogSp', 'speed']]) $(id).oninput = e => dz('fog', { v: { [key]: +e.target.value } });
 $('dzFogCol').onchange = e => dz('fog', { v: { col: e.target.value } });
 let dzDrag = false, dzDragT = 0;
@@ -634,17 +655,16 @@ function renderDz() {
   for (const b of document.querySelectorAll('[data-dzstage]')) b.classList.toggle('on', Z.stage === b.dataset.dzstage);
   for (const b of document.querySelectorAll('[data-dzprop]')) b.classList.toggle('on', !!Z.props[b.dataset.dzprop]);
   for (const b of document.querySelectorAll('[data-dzcam]')) b.classList.toggle('on', Z.cam.mode === b.dataset.dzcam);
-  $('dzPvB').classList.toggle('on', !!Z.pv);
   $('dzFogRow').hidden = !Z.props.fog;
   for (const [id, key] of [['dzFogDen', 'den'], ['dzFogH', 'h'], ['dzFogSp', 'speed']]) if (document.activeElement !== $(id)) $(id).value = Z.fog[key];
   if (document.activeElement !== $('dzFogCol')) $('dzFogCol').value = Z.fog.col;
-  if (document.activeElement !== $('dzZoom')) { $('dzZoom').value = z2s(Z.cam.zoom); $('dzZoomV').textContent = (+Z.cam.zoom).toFixed(1) + '×'; }
+  zoomT.set(z2s(Z.cam.zoom)); if (!$('dzZoomT').classList.contains('drag')) $('dzZoomV').textContent = (+Z.cam.zoom).toFixed(1) + '×';
   if (!dzDrag && Date.now() - dzDragT > 600) dzDot(Z.cam.x, Z.cam.y);
   const r = Z.rec || {}; $('dzRec').classList.toggle('on', !!r.on); $('dzRec').textContent = r.on ? `■ ${Math.ceil(30 - r.t)} s` : '● REC';
   $('dzRecT').textContent = r.on ? `REC ${r.t.toFixed(1)} s / 30 s` : (r.msg || 'up to 30 s · 960 x 540 · lands in VIDEOS');
   const onBus = S.D.a === 'dancer' || S.D.b === 'dancer';
-  $('dzSt').textContent = Z.err ? 'DANCER: ' + Z.err : Z.loading ? 'Loading DANCER and her dances…' : !Z.loaded ? 'Not loaded yet: pick DANCER on a bus, a dance, PREVIEW or REC.'
-    : `Dancing: ${Z.clip || '-'} · ${onBus || Z.pv || r.on ? 'drawing' : 'paused (no bus shows her; PREVIEW draws her anyway)'}`;
+  $('dzSt').textContent = Z.err ? 'DANCER: ' + Z.err : Z.loading ? 'Loading DANCER and her dances…' : !Z.loaded ? 'Not loaded yet: pick DANCER on a bus, a dance or REC.'
+    : `Dancing: ${Z.clip || '-'} · ${r.on || S.D.x < 1 && S.D.a === 'dancer' || S.D.x > 0 && S.D.b === 'dancer' ? 'drawing' : onBus ? 'paused until the T-bar brings her bus in' : 'paused (on no bus)'}`;
   if (window.dzClips) window.dzClips(Z.clip);
 }
 bc.onmessage = e => {
@@ -658,7 +678,6 @@ bc.onmessage = e => {
       : 'Connected to DirroVJ, starting program output…';
   }
   else if (m.k === 'pv') { $('pv').src = m.img; }
-  else if (m.k === 'dzpv') { $('dzPv').src = m.img; }   // #550
   else if (m.k === 'cxpv') { if (m.id === cxSel) { if (m.blob) { const u = URL.createObjectURL(m.blob); if (cxPvUrl) URL.revokeObjectURL(cxPvUrl); cxPvUrl = u; $('cxPv').src = u; } else if (m.img) $('cxPv').src = m.img; } }   // #516, #518 a blob now
   else if (m.k === 'cxfile') { if (m.blob) cxDownload(m.blob, m.name || 'dirrocomics'); }   // #522 an export, ready
   else if (m.k === 'cxlist') { cxThumbs = m.thumbs || {}; cxStarImgs = m.starImgs || cxStarImgs; cxListN++; renderCx(); }

@@ -1,5 +1,5 @@
 // #550 DANCER as a VJ Desk bus source (DirroDancer/MIGRATION_PLAN.md phase 2). Loaded by vjdesk.js the first time the desk needs her
-// (a bus picks DANCER, a dance clip is clicked, PREVIEW or REC). She has her own WebGL renderer on a 1280 x 720 canvas (so her post chain,
+// (a bus picks DANCER, a dance clip is clicked, or REC). She has her own WebGL renderer on a 1280 x 720 canvas (so her post chain,
 // tone mapping and shadows never touch the program renderer); vjdesk.js samples that canvas as a texture for bus A / B.
 // Stage RIMLIT / STUDIO, props WATER MANHOLE / HALLOWEEN PUMPKIN / FOG, cameras ORBIT / WIDE / HANDHELD CLOSE-UP with an X-Y pad
 // (X = 0..360 round her, Y = 0..360 over the top), dance clips (Mixamo FBX "Without Skin" or GLB, listed in models/dancer/clips/clips.json),
@@ -202,7 +202,7 @@ export function makeDancer({ S, post, bc, media }) {
   }
 
   // ---- one frame of her (called from the desk's output loop, or its idle timer while previewing / recording)
-  let last = 0, time = 0, pvT = 0, recPostT = 0; const pvc = document.createElement('canvas'); pvc.width = 256; pvc.height = 144;
+  let last = 0, time = 0, recPostT = 0;
   function render(now) {
     if (!ready) return false;
     if (last && now - last < 8) return true;   // already drawn this frame
@@ -215,7 +215,6 @@ export function makeDancer({ S, post, bc, media }) {
       const el = (now - rec.t0) / 1000; S.rec.t = el;
       if (el >= REC_MAX) recStop(); else if (now - recPostT > 500) { recPostT = now; post(); }
     }
-    if (now - pvT > 250) { pvT = now; try { pvc.getContext('2d').drawImage(canvas, 0, 0, 256, 144); bc.postMessage({ k: 'dzpv', img: pvc.toDataURL('image/jpeg', 0.6) }); } catch {} }
     return true;
   }
 
@@ -226,7 +225,6 @@ export function makeDancer({ S, post, bc, media }) {
     else if (op === 'prop' && m.id in S.props) { S.props[m.id] = !!m.v; applyProps(); }
     else if (op === 'fog') { const v = m.v || {}; for (const k of ['den', 'h', 'speed']) if (k in v) S.fog[k] = Math.max(0, Math.min(2, +v[k] || 0)); if (v.col in FOG_COL) S.fog.col = v.col; }
     else if (op === 'cam') { const v = m.v || {}; if (v.mode in CAMS) S.cam.mode = v.mode; for (const k of ['x', 'y']) if (k in v) S.cam[k] = Math.max(0, Math.min(360, +v[k] || 0)); if ('zoom' in v) S.cam.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +v.zoom || 1)); }
-    else if (op === 'pv') S.pv = !!m.v;
     else if (op === 'rec') { if (rec) recStop(); else ensure().then(() => { if (ready && !rec) recStart(); }); }
     save(); post(); ensure();
   }

@@ -1638,3 +1638,12 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Pad and zoom work during REC (everything eases at 4/s, nothing locks while recording). REC's first frame is now her current picture instead of black.
 - Checked on the owner's PC pane: layout (pad, bar, column), a 30 s REC with real drags of the bar (to 5.9x) and the pad (X 119, Y 76) mid-take: the clip shows the new close high angle from then on, auto-stop at 30 s (test clip deleted). No console errors.
 - sw.js v76. No Node restart. Backup backups/pre551/.
+
+## #552 T-bars for the A / B fader and the DANCER zoom; no separate DANCER preview (owner, 1 Nov)
+- Owner: the Program window and its T-bar decide which bus is being built (preview side) and which goes out live, so DANCER framing shows where the T-bar puts her bus; no second preview.
+- `vjdesk.html`: `makeTBar()` = a vision-mixer lever (slot, chrome T handle with a stem, fill from the top to the handle, labels at the ends with headroom so the handle never covers them). Grab the handle or anywhere on the bar and pull: it moves by how far you pull and never jumps to a click (a stray click can't cut the show). Arrow keys nudge it when focused (A / B 2 % a press, zoom 1 %). State echoes from DirroVJ are ignored while it is held and for 0.5 s after.
+  - Program: the T-bar stands right of the Program picture, as tall as it; top = A on air, bottom = B on air (the horizontal #xf slider is gone; CUT / AUTO / SPACE / C unchanged).
+  - DANCER zoom: the vertical range bar is now a gold T-bar 150 px tall, IN at the top (close on her face), OUT at the bottom (wide), same log scale 0.4x to 8x and readout.
+- DANCER preview image, the PREVIEW button and the 4 fps 'dzpv' preview messages are gone (`dancerdesk.js`, `vjdesk.js`). She is drawn only while the T-bar shows her bus (any part of a fade) or REC runs. Status line: 'drawing' / 'paused until the T-bar brings her bus in' / 'paused (on no bus)'.
+- Checked on the owner's PC pane: FRACTAL on A, DANCER on B; pulling the T-bar halfway mixed them and she started drawing; zoom T-bar pushed to 4.6x; a click on the bottom of the A / B track did not move it. No console errors.
+- sw.js v77. No Node restart. Backup backups/pre552/.
