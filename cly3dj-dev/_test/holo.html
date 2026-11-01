@@ -1,0 +1,198 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Holodancer AR test</title>
+<style>
+:root{ --bg:#06070c; --panel:#12141c; --line:#2a2e3c; --fg:#e9ecf3; --dim:#8d94a6; --cue:#35d6ff; --amb:#ffa24a; color-scheme:dark; }
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif;overflow:hidden}
+canvas{display:block}
+#ui{position:fixed;left:0;right:0;bottom:0;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:10px max(16px,env(safe-area-inset-left));background:color-mix(in srgb,var(--panel) 90%,transparent);border-top:1px solid var(--line)}
+button{font:600 13px system-ui,sans-serif;color:var(--fg);background:#1a1e2a;border:1px solid var(--line);border-radius:6px;padding:8px 12px;cursor:pointer}
+button.go{border-color:var(--cue);color:var(--cue)}
+button[aria-pressed="true"]{border-color:var(--amb);color:var(--amb)}
+#read{font:12px ui-monospace,monospace;color:var(--dim);font-variant-numeric:tabular-nums}
+label{color:var(--dim);font-size:12px;display:flex;gap:6px;align-items:center}
+input[type=range]{width:110px;accent-color:var(--cue)}
+#ov{position:fixed;inset:0;pointer-events:none}
+#ov .tag{position:absolute;top:16px;left:16px;font:12px ui-monospace,monospace;color:var(--dim)}
+</style>
+<div id="ui">
+  <button id="ar" class="go">Start AR</button>
+  <button id="play">Pause</button>
+  <button id="gl" aria-pressed="true">Glitch</button>
+  <label>Glitch strength <input id="gs" type="range" min="0" max="1.5" step="0.05" value="1"></label>
+  <label>Scale <input id="sc" type="range" min="0.5" max="1.3" step="0.01" value="1"></label>
+  <span id="read">loading…</span>
+</div>
+<div id="ov"><span class="tag" id="tag"></span></div>
+<video id="vid" muted loop playsinline crossorigin="anonymous" preload="auto" style="display:none"></video>
+
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.js"}}</script>
+<script type="module">
+// Holodancer: one H.264 atlas holds 8 views of the dancer (4x2 colour grid, premultiplied over black)
+// plus 8 alpha mattes in a strip below. A billboard faces the viewer and shows the view nearest
+// to the viewer's angle around her. View changes are covered by a short glitch.
+import * as THREE from 'three';
+import {OrbitControls} from '../vendor/three/OrbitControls.js';
+
+const Q = new URLSearchParams(location.search);
+const SRC = Q.get('v') || 'holo/kitana_holo.mp4';
+const FALLBACK = 'holo/holo_test.mp4';
+// rig used in Blender: 50 mm, 24 mm vertical sensor, 4.4 m away, aimed 1.0 m up; slot 480 x 540
+const DIST = 4.4, AIMH = 1.0, VFOV = 2 * Math.atan(12 / 50);
+const SLOT_H = 2 * DIST * Math.tan(VFOV / 2), SLOT_W = SLOT_H * 480 / 540;
+const NV = 8, STEP = 360 / NV, HYST = 7;   // degrees of hysteresis at view borders
+
+const vid = document.getElementById('vid');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.05, 100);
+cam.position.set(0, 1.5, 4.2);
+const orbit = new OrbitControls(cam, renderer.domElement);
+orbit.target.set(0, 1.0, 0); orbit.enableDamping = true; orbit.update();
+
+// desktop stage (hidden in AR)
+const stage = new THREE.Group(); scene.add(stage);
+const grid = new THREE.GridHelper(10, 20, 0x2a3346, 0x161b26); stage.add(grid);
+scene.background = new THREE.Color(0x06070c);
+
+const tex = new THREE.VideoTexture(vid);
+tex.colorSpace = THREE.NoColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+
+const U = {
+  map: { value: tex }, uView: { value: 0 }, uPrev: { value: 0 }, uG: { value: 0 }, uT: { value: 0 }, uSeed: { value: 0 },
+};
+const mat = new THREE.ShaderMaterial({
+  uniforms: U, transparent: true, premultipliedAlpha: true, depthWrite: false, side: THREE.DoubleSide,
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `
+    uniform sampler2D map; uniform float uView, uPrev, uG, uT, uSeed; varying vec2 vUv;
+    float h(float n){ return fract(sin(n * 91.345 + uSeed * 17.0) * 47453.5453); }
+    vec2 cUv(float v, vec2 p){ float c = mod(v, 4.0), r = floor(v / 4.0); return vec2((c + p.x) * 0.25, 1.0 - (r * 540.0 + (1.0 - p.y) * 540.0) / 1620.0); }
+    vec2 aUv(float v, vec2 p){ return vec2((v + p.x) * 0.125, 1.0 - (1080.0 + (1.0 - p.y) * 540.0) / 1620.0); }
+    vec4 view(float v, vec2 p){
+      if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return vec4(0.0);
+      p.x = clamp(p.x, 0.002, 0.998); p.y = clamp(p.y, 0.002, 0.998);
+      vec3 c = texture2D(map, cUv(v, p)).rgb; float a = texture2D(map, aUv(v, p)).r;
+      a = smoothstep(0.04, 0.96, a);
+      return vec4(min(c, vec3(a)), a);   // premultiplied; keep colour inside the matte
+    }
+    void main(){
+      vec2 p = vUv; float g = uG;
+      float band = floor(p.y * 38.0 + floor(uT * 30.0) * 3.0);
+      float on = step(1.0 - 0.55 * g, h(band));
+      p.x += (h(band + 7.0) - 0.5) * 0.22 * g * on;   // slice tearing
+      float sh = 0.012 * g;                               // RGB split
+      float v = (g > 0.45 && h(band + 3.0) < 0.5) ? uPrev : uView;   // old view bleeds through early in the glitch
+      vec4 r = view(v, p + vec2(sh, 0.0)), m = view(v, p), b = view(v, p - vec2(sh, 0.0));
+      vec4 o = vec4(r.r, m.g, b.b, max(m.a, max(r.a, b.a)) );
+      float scan = 1.0 - 0.35 * g * step(0.5, fract(p.y * 270.0 + uT * 40.0));
+      o.rgb *= scan;
+      o.rgb += vec3(0.1, 0.55, 0.75) * g * on * o.a * 0.35;      // cyan flash on torn slices
+      o *= 1.0 - g * 0.25 * step(0.82, h(band + 11.0));          // drop-outs
+      gl_FragColor = o;
+    }`,
+});
+const holo = new THREE.Group(); scene.add(holo);
+const board = new THREE.Mesh(new THREE.PlaneGeometry(SLOT_W, SLOT_H), mat);
+board.position.y = AIMH; holo.add(board);
+// small floor ring so the placement point reads in AR
+const ring = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.45, 64), new THREE.MeshBasicMaterial({ color: 0x35d6ff, transparent: true, opacity: 0.25, depthWrite: false }));
+ring.rotation.x = -Math.PI / 2; ring.position.y = 0.002; holo.add(ring);
+
+// ---------- view choice ----------
+// Blender cameras: view v sits at azimuth -90 - 45v (degrees, from +X, CCW seen from above; her front faces Blender -Y = three +Z)
+let cur = 0, glitchOn = true, gStrength = 1, gT0 = -1;
+const tmp = new THREE.Vector3();
+function viewFor(viewerWorld) {
+  holo.worldToLocal(tmp.copy(viewerWorld));
+  const bx = tmp.x, by = -tmp.z;                  // three local -> Blender
+  const az = Math.atan2(by, bx) * 180 / Math.PI;
+  const f = ((-90 - az) / STEP % NV + NV) % NV;    // fractional view index
+  return f;
+}
+function pick(f) {
+  // stay on the current view until we are clearly past the border (hysteresis)
+  let d = ((f - cur) % NV + NV) % NV; if (d > NV / 2) d -= NV;
+  if (Math.abs(d) * STEP < STEP / 2 + HYST) return cur;
+  return ((Math.round(f) % NV) + NV) % NV;
+}
+function swap(v, now) {
+  if (v === cur) return;
+  U.uPrev.value = cur; cur = v; U.uView.value = v; U.uSeed.value = Math.random() * 100;
+  gT0 = now;
+}
+
+// ---------- AR ----------
+let session = null, refSpace = null;
+const ctrl = renderer.xr.getController(0); scene.add(ctrl);
+const ctrl1 = renderer.xr.getController(1); scene.add(ctrl1);
+const ray = new THREE.Raycaster(), floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hit = new THREE.Vector3();
+function placeFrom(c) {
+  tmp.set(0, 0, -1).applyQuaternion(c.quaternion);
+  ray.set(c.position, tmp);
+  if (ray.ray.intersectPlane(floor, hit)) holo.position.set(hit.x, 0, hit.z);
+}
+ctrl.addEventListener('select', () => placeFrom(ctrl));
+ctrl1.addEventListener('select', () => placeFrom(ctrl1));
+// squeeze turns her 45 degrees
+for (const c of [ctrl, ctrl1]) c.addEventListener('squeeze', () => { holo.rotation.y += Math.PI / 4; });
+
+document.getElementById('ar').onclick = async () => {
+  vid.play().catch(() => {});
+  if (session) { session.end(); return; }
+  if (!navigator.xr || !(await navigator.xr.isSessionSupported('immersive-ar'))) { read.textContent = 'No immersive-ar here. Open this page in the Quest Browser. Desktop: drag to walk around her.'; return; }
+  session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['local-floor'], optionalFeatures: ['dom-overlay'], domOverlay: { root: document.getElementById('ov') } });
+  renderer.xr.setReferenceSpaceType('local-floor');
+  await renderer.xr.setSession(session);
+  scene.background = null; stage.visible = false;
+  // put her 2.2 m in front of the viewer, facing them
+  const xc = renderer.xr.getCamera(); xc.getWorldPosition(tmp);
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(xc.getWorldQuaternion(new THREE.Quaternion())); fwd.y = 0; fwd.normalize();
+  holo.position.set(tmp.x + fwd.x * 2.2, 0, tmp.z + fwd.z * 2.2);
+  holo.rotation.y = Math.atan2(-fwd.x, -fwd.z);
+  document.getElementById('ar').textContent = 'Exit AR';
+  session.addEventListener('end', () => { session = null; scene.background = new THREE.Color(0x06070c); stage.visible = true; document.getElementById('ar').textContent = 'Start AR'; });
+};
+
+// ---------- UI ----------
+const read = document.getElementById('read');
+document.getElementById('play').onclick = (e) => { if (vid.paused) { vid.play(); e.target.textContent = 'Pause'; } else { vid.pause(); e.target.textContent = 'Play'; } };
+document.getElementById('gl').onclick = (e) => { glitchOn = !glitchOn; e.target.setAttribute('aria-pressed', glitchOn); };
+document.getElementById('gs').oninput = (e) => { gStrength = +e.target.value; };
+document.getElementById('sc').oninput = (e) => { holo.scale.setScalar(+e.target.value); };
+addEventListener('resize', () => { cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+// ---------- load ----------
+function load(src) {
+  vid.src = src; vid.load();
+  vid.play().catch(() => { read.textContent = 'tap Play to start'; });
+}
+vid.addEventListener('error', () => { if (!vid.src.endsWith(FALLBACK)) { console.warn('holo: ' + SRC + ' missing, using test atlas'); load(FALLBACK); } });
+vid.addEventListener('loadedmetadata', () => { read.textContent = `${vid.src.split('/').pop()} ${vid.videoWidth}x${vid.videoHeight} ${vid.duration.toFixed(1)} s`; });
+load(SRC);
+
+// ---------- loop ----------
+const camPos = new THREE.Vector3();
+renderer.setAnimationLoop((t) => {
+  const now = t / 1000;
+  const viewer = renderer.xr.isPresenting ? renderer.xr.getCamera() : cam;
+  viewer.getWorldPosition(camPos);
+  if (!renderer.xr.isPresenting) orbit.update();
+  // billboard: turn the board (yaw only) to face the viewer
+  holo.worldToLocal(tmp.copy(camPos));
+  board.rotation.y = Math.atan2(tmp.x, tmp.z);
+  const f = viewFor(camPos), v = pick(f);
+  swap(v, now);
+  const age = gT0 < 0 ? 9 : now - gT0;
+  U.uG.value = glitchOn ? gStrength * Math.max(0, 1 - age / 0.22) : 0;
+  U.uT.value = now;
+  document.getElementById('tag').textContent = `view ${cur}  (${f.toFixed(2)})`;
+  renderer.render(scene, cam);
+});
+window.__holo = { U, holo, board, viewFor, get cur() { return cur; } };
+</script>
