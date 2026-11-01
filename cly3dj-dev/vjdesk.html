@@ -121,6 +121,7 @@
   #dzZoomT { height:150px; flex:none; width:50px; }
   .dzBtnCol { display:flex; flex-direction:column; gap:6px; width:104px; } .dzBtnCol button { width:100%; padding:9px 6px; font-size:13px; }
   .dzL { width:62px; font:800 11px system-ui; color:var(--gold); letter-spacing:.05em; }
+  #dzFogRow[hidden] { display:none; }   /* #558 .row's display:flex beat the hidden attribute: the fog sliders showed with FOG off */
   #dzFogRow .kv { flex:1 1 130px; } #dzFogRow input[type=range] { min-width:70px; }
   button.dzRec { color:#ff8a8a; border-color:#6a1c1c; background:#231010; font-weight:800; }
   button.dzRec.on { color:#fff; background:#b0141e; border-color:var(--red); box-shadow:0 0 10px rgba(224,32,42,.45); }
@@ -166,8 +167,8 @@
         </div>
       </div>
       <div id="dzSt" class="note">Not loaded yet: pick DANCER on a bus, a dance or REC.</div>
-      <div class="row"><span class="dzL">STAGE</span><button data-dzstage="rim">RIMLIT</button><button data-dzstage="studio">STUDIO</button></div>
-      <div class="row"><span class="dzL">PROPS</span><button data-dzprop="manhole">WATER MANHOLE</button><button data-dzprop="pumpkin">HALLOWEEN PUMPKIN</button><button data-dzprop="fog">FOG</button></div>
+      <div class="row"><span class="dzL">STAGE</span><button data-dzstage="rim">RIMLIT</button><button data-dzstage="studio">STUDIO</button><button data-dzprop="fog">FOG</button></div>
+      <div class="row"><span class="dzL">DANCER</span><button data-dzfit="Red" title="Red halter outfit">RED</button><button data-dzfit="Black" title="Black latex catsuit">CATSUIT</button></div>
       <div class="row" id="dzFogRow" hidden><span class="dzL">FOG</span>
         <label class="kv"><span class="sp">Density</span><input type="range" id="dzFogDen" min="0" max="1.5" step="0.02"></label>
         <label class="kv"><span class="sp">Height</span><input type="range" id="dzFogH" min="0.1" max="2" step="0.05"></label>
@@ -660,6 +661,7 @@ function renderShow() {
 const dz = (op, o = {}) => send({ k: 'dz', op, ...o });
 for (const b of document.querySelectorAll('[data-dzstage]')) b.onclick = () => dz('stage', { v: b.dataset.dzstage });
 for (const b of document.querySelectorAll('[data-dzprop]')) b.onclick = () => dz('prop', { id: b.dataset.dzprop, v: !(S && S.D.dz && S.D.dz.props[b.dataset.dzprop]) });
+for (const b of document.querySelectorAll('[data-dzfit]')) b.onclick = () => dz('outfit', { v: b.dataset.dzfit });   // #558
 for (const b of document.querySelectorAll('[data-dzcam]')) b.onclick = () => dz('cam', { v: { mode: b.dataset.dzcam } });
 $('dzRec').onclick = () => dz('rec');
 const ZMIN = 0.4, ZMAX = 8, z2s = z => Math.log(z / ZMIN) / Math.log(ZMAX / ZMIN), s2z = v => ZMIN * Math.pow(ZMAX / ZMIN, v);   // #551 log zoom bar
@@ -678,6 +680,7 @@ function renderDz() {
   for (const b of document.querySelectorAll('[data-dzstage]')) b.classList.toggle('on', Z.stage === b.dataset.dzstage);
   for (const b of document.querySelectorAll('[data-dzprop]')) b.classList.toggle('on', !!Z.props[b.dataset.dzprop]);
   for (const b of document.querySelectorAll('[data-dzcam]')) b.classList.toggle('on', Z.cam.mode === b.dataset.dzcam);
+  for (const b of document.querySelectorAll('[data-dzfit]')) b.classList.toggle('on', (Z.outfit || 'Red') === b.dataset.dzfit);   // #558
   $('dzFogRow').hidden = !Z.props.fog;
   for (const [id, key] of [['dzFogDen', 'den'], ['dzFogH', 'h'], ['dzFogSp', 'speed']]) if (document.activeElement !== $(id)) $(id).value = Z.fog[key];
   if (document.activeElement !== $('dzFogCol')) $('dzFogCol').value = Z.fog.col;

@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v82';   // #557 lit A / B bus buttons, CUE
+const CACHE = 'vire-app-v83';   // #558 DANCER: RED / CATSUIT, FOG on the STAGE row, PROPS gone
+// v82:   // #557 lit A / B bus buttons, CUE
 // v81:   // #556 desk runs without the Quest; Quest GO LIVE falls back
 // v80:   // #555 bus rows: no BLACK, COMICS
 // v79:   // #554 desk two columns, REC info row gone

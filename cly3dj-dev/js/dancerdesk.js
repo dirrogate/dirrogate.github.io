@@ -32,7 +32,7 @@ export function makeDancer({ S, post, bc, media }) {
   const canvas = document.createElement('canvas'); canvas.width = DZ_W; canvas.height = DZ_H;
   const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.NoColorSpace; tex.generateMipmaps = false; tex.minFilter = tex.magFilter = THREE.LinearFilter;
   const props = {}, propLoad = {};
-  const save = () => { try { localStorage.setItem('vire.dancer', JSON.stringify({ clip: S.clip, stage: S.stage, props: S.props, fog: S.fog, cam: S.cam })); } catch {} };
+  const save = () => { try { localStorage.setItem('vire.dancer', JSON.stringify({ clip: S.clip, stage: S.stage, outfit: S.outfit, props: S.props, fog: S.fog, cam: S.cam })); } catch {} };
 
   if (!(S.cam.mode in CAMS)) S.cam.mode = 'hand';   // #551 WIDE (and the old close-up) are gone: a saved one becomes HANDHELD
   function ensure() {
@@ -79,6 +79,7 @@ export function makeDancer({ S, post, bc, media }) {
       S.clips = list.map(f => f.replace(/\.[^.]+$/, '')).filter(n => dancer.actions.has(n));
       if (!dancer.actions.has(S.clip)) S.clip = S.clips[0] || '';
       if (S.clip) dancer.play(S.clip, 0);
+      if (S.outfit && S.outfit !== 'Red' && dancer.outfits.includes(S.outfit)) await dancer.setOutfit(S.outfit);   // #558 RED / CATSUIT (Black latex)
       applyStage(); applyProps();
       window.__dz = { dancer, scene, cam, canvas, props, S, renderer };   // test hook (PC pane)
       ready = true; S.loaded = true; S.loading = false; post();
@@ -221,6 +222,7 @@ export function makeDancer({ S, post, bc, media }) {
   function onMsg(m) {
     const op = m.op;
     if (op === 'clip' && m.name) { S.clip = String(m.name); if (ready && dancer.actions.has(S.clip)) dancer.play(S.clip, 0.8); }
+    else if (op === 'outfit') { const v = m.v === 'Black' ? 'Black' : 'Red'; S.outfit = v; if (ready) dancer.setOutfit(v).catch(e => { S.err = 'outfit: ' + e.message; post(); }); }   // #558
     else if (op === 'stage') { S.stage = m.v === 'studio' ? 'studio' : 'rim'; applyStage(); }
     else if (op === 'prop' && m.id in S.props) { S.props[m.id] = !!m.v; applyProps(); }
     else if (op === 'fog') { const v = m.v || {}; for (const k of ['den', 'h', 'speed']) if (k in v) S.fog[k] = Math.max(0, Math.min(2, +v[k] || 0)); if (v.col in FOG_COL) S.fog.col = v.col; }

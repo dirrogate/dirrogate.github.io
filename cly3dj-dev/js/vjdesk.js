@@ -11,8 +11,9 @@ import * as media from './medialib.js';   // #532 IMAGES / VIDEOS / PANOS clip d
 import { Scroller } from './tools.js';   // #556 the same bitmap sine scroller as the Quest's, for the program when there is no Quest
 // #550 DANCER: js/dancerdesk.js is imported only when the desk first needs her (its loaders, post chain and the 5 MB GLB stay out of the start)
 function dzDefaults() {
-  const S = { loaded: false, loading: false, err: '', clip: '', clips: [], stage: 'rim', props: { manhole: false, pumpkin: false, fog: false }, fog: { den: 0.5, h: 0.8, speed: 0.6, col: 'cold' }, cam: { mode: 'orbit', x: 0, y: 8, zoom: 1 }, pv: false, rec: { on: false, t: 0, msg: '' } };
-  try { const o = JSON.parse(localStorage.getItem('vire.dancer') || '{}'); for (const k of ['clip', 'stage']) if (typeof o[k] === 'string') S[k] = o[k]; for (const k of ['props', 'fog', 'cam']) if (o[k] && typeof o[k] === 'object') Object.assign(S[k], o[k]); } catch {}
+  const S = { loaded: false, loading: false, err: '', clip: '', clips: [], stage: 'rim', outfit: 'Red', props: { manhole: false, pumpkin: false, fog: false }, fog: { den: 0.5, h: 0.8, speed: 0.6, col: 'cold' }, cam: { mode: 'orbit', x: 0, y: 8, zoom: 1 }, pv: false, rec: { on: false, t: 0, msg: '' } };
+  try { const o = JSON.parse(localStorage.getItem('vire.dancer') || '{}'); for (const k of ['clip', 'stage', 'outfit']) if (typeof o[k] === 'string') S[k] = o[k]; for (const k of ['props', 'fog', 'cam']) if (o[k] && typeof o[k] === 'object') Object.assign(S[k], o[k]); } catch {}
+  S.props.manhole = S.props.pumpkin = false;   // #558 the PROPS row is gone (props stay in dancerdesk.js, switched off)
   return S;
 }
 
