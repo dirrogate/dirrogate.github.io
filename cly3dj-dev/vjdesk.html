@@ -84,6 +84,22 @@
   .cxI input[type=range] { min-width:70px; max-width:120px; } .cxI button.arm { border-color:#f2c94c; background:#3a3214; }
   #cxDep { margin-top:10px; } #cxDC { width:100%; display:block; border-radius:8px; border:1px solid var(--line); cursor:crosshair; touch-action:none; background:#000; }
   [data-tone].on { border-color:#f2c94c; background:#3a3214; }
+  /* #550 DANCER panel + DANCER CLIPS bank */
+  .dzTop { display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap; }
+  .dzPvBox { flex:1 1 220px; min-width:0; }
+  #dzPv { width:100%; max-width:320px; aspect-ratio:16/9; background:#000; border-radius:8px; border:1px solid var(--line); object-fit:cover; display:block; }
+  .dzPadW { flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:3px; }
+  #dzPad { position:relative; width:150px; height:150px; border-radius:8px; border:1px solid var(--line); background:#0b0e16; cursor:crosshair; touch-action:none; user-select:none;
+    background-image:linear-gradient(#1e2536 1px, transparent 1px), linear-gradient(90deg, #1e2536 1px, transparent 1px); background-size:37.5px 37.5px; background-position:-1px -1px; }
+  #dzDot { position:absolute; width:14px; height:14px; margin:-7px 0 0 -7px; border-radius:50%; background:var(--gold); box-shadow:0 0 8px rgba(242,201,76,.7); pointer-events:none; }
+  .dzAx { position:absolute; font:700 10px system-ui; color:var(--mute); pointer-events:none; } .dzAx.x { right:4px; bottom:2px; } .dzAx.y { left:4px; top:2px; }
+  .dzL { width:62px; font:800 11px system-ui; color:var(--gold); letter-spacing:.05em; }
+  #dzFogRow .kv { flex:1 1 130px; } #dzFogRow input[type=range] { min-width:70px; }
+  button.dzRec { color:#ff8a8a; border-color:#6a1c1c; background:#231010; font-weight:800; }
+  button.dzRec.on { color:#fff; background:#b0141e; border-color:var(--red); box-shadow:0 0 10px rgba(224,32,42,.45); }
+  .vjCell.dzClip { justify-content:space-between; background:linear-gradient(160deg,#1a1024,#0d1017 70%); }
+  .vjCell.dzClip .dzIc { flex:1; display:flex; align-items:center; justify-content:center; font-size:26px; opacity:.85; pointer-events:none; }
+  .vjCell.dzAct { border:2px solid #ff4fb4; box-shadow:0 0 0 1px #6b1950 inset; } .vjCell.dzAct .vjCap { background:#ff4fb4; color:#1a0412; font-weight:800; }
   .air { font:700 12px system-ui,sans-serif; padding:4px 8px; border-radius:6px; margin-left:8px; background:#2a3140; color:#c9ced8; white-space:nowrap; } .air.on { background:#1f9d55; color:#fff; }   /* #545 */
 </style>
 </head>
@@ -105,6 +121,26 @@
     <section>
       <h2>Scroller desk</h2>
       <div class="row"><input type="text" id="say" maxlength="120" placeholder="Type a line for the sine scroller" style="flex:1"><button id="sayB">SEND</button></div>
+    </section>
+    <section style="margin-top:14px" id="dzS">
+      <h2>Dancer <span class="note" style="text-transform:none;letter-spacing:0">put DANCER on bus A or B · her dances are in DANCER CLIPS below</span></h2>
+      <div class="dzTop">
+        <div class="dzPvBox"><img id="dzPv" alt=""><div id="dzSt" class="note">Not loaded yet: pick DANCER on a bus, a dance, PREVIEW or REC.</div></div>
+        <div class="dzPadW"><div id="dzPad" title="Camera framing. X (left to right) = round her 0 to 360 degrees. Y (bottom to top) = over the top 0 to 360 degrees. Double-click = front, eye level."><div id="dzDot"></div><span class="dzAx x">X</span><span class="dzAx y">Y</span></div><span id="dzXY" class="sp">X 0° · Y 8°</span></div>
+      </div>
+      <div class="row"><span class="dzL">STAGE</span><button data-dzstage="rim">RIMLIT</button><button data-dzstage="studio">STUDIO</button><button id="dzPvB" style="margin-left:auto" title="Draw her even when no bus shows her (for setting up the shot)">PREVIEW</button></div>
+      <div class="row"><span class="dzL">PROPS</span><button data-dzprop="manhole">WATER MANHOLE</button><button data-dzprop="pumpkin">HALLOWEEN PUMPKIN</button><button data-dzprop="fog">FOG</button></div>
+      <div class="row" id="dzFogRow" hidden><span class="dzL">FOG</span>
+        <label class="kv"><span class="sp">Density</span><input type="range" id="dzFogDen" min="0" max="1.5" step="0.02"></label>
+        <label class="kv"><span class="sp">Height</span><input type="range" id="dzFogH" min="0.1" max="2" step="0.05"></label>
+        <label class="kv"><span class="sp">Drift</span><input type="range" id="dzFogSp" min="0" max="2" step="0.05"></label>
+        <select id="dzFogCol"><option value="cold">COLD</option><option value="warm">WARM</option><option value="violet">VIOLET</option><option value="white">WHITE</option></select></div>
+      <div class="row"><span class="dzL">CAMERA</span><button data-dzcam="orbit">ORBIT</button><button data-dzcam="wide">WIDE</button><button data-dzcam="hand">HANDHELD CLOSE-UP</button></div>
+      <div class="row"><span class="dzL"></span><label class="kv"><span class="sp">Zoom</span><input type="range" id="dzZoom" min="0.4" max="2.5" step="0.05"></label></div>
+      <div class="row"><span class="dzL">REC</span><button id="dzRec" class="dzRec">● REC</button><span id="dzRecT" class="sp">up to 30 s · 960 x 540 · lands in VIDEOS</span></div>
+    </section>
+    <section style="margin-top:14px">
+      <h2>Scroller queue</h2>
       <div id="chatSt" class="note"></div>
       <div id="queue"></div>
       <div class="note">APPROVE puts the line on the Quest's sine scroller (headset, DirroTV and the stream). The DJ can still switch the scroller off on the Quest.</div>
@@ -129,6 +165,10 @@
   </div>
 </main>
 <div id="vjDecks">
+  <div class="vjBank">
+    <div class="vjBankHead"><h3>DANCER CLIPS</h3><span class="note" id="dzClipNote" style="margin:0">Click a dance: DANCER blends to it (0.8 s)</span></div>
+    <div class="vjBankScroll"><div class="vjGrid" id="gridDancer"></div></div>
+  </div>
   <div class="vjBank">
     <div class="vjBankHead"><h3>IMAGES</h3><span class="note" id="vjImgNote" style="margin:0">Click a thumbnail to show it on CYCLO (and BACK: VISUALS)</span><button class="vjImp" id="impImages">+ IMPORT IMAGES…</button><input type="file" id="fileImages" multiple accept="image/*" hidden></div>
     <div class="vjBankScroll"><div class="vjGrid" id="gridImages"></div></div>
@@ -203,7 +243,7 @@
 </section>
 <script>
 const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
-const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'DIRROCOMICS', black: 'BLACK' };   // #516, #537
+const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'DIRROCOMICS', dancer: 'DANCER', black: 'BLACK' };   // #516, #537, #550
 let S = null, lastSeen = 0, realT = 0;   // #519 realT: last state from a real DirroVJ
 for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = document.createElement('button'); b.textContent = NAMES[k]; b.dataset.bus = bus; b.dataset.src = k; b.onclick = () => send({ k: 'bus', bus, v: k }); $(bus === 'a' ? 'busA' : 'busB').append(b); }
 $('xf').oninput = e => send({ k: 'x', v: +e.target.value });
@@ -565,17 +605,53 @@ function renderShow() {
   for (const b of document.querySelectorAll('[data-so]')) { b.classList.toggle('on', !!sh && !!sh.o && !!sh.o[b.dataset.so]); b.disabled = !sh; }
   $('shN').textContent = sh ? 'Same buttons as the tablet\'s SHOWTIME! page; whatever is tapped last wins, the tablet stays in charge.' : 'Waiting for the Quest: these light up once the Quest has turned DirroVJ on (and allowed this laptop).';
 }
+// ---- #550 DANCER panel
+const dz = (op, o = {}) => send({ k: 'dz', op, ...o });
+for (const b of document.querySelectorAll('[data-dzstage]')) b.onclick = () => dz('stage', { v: b.dataset.dzstage });
+for (const b of document.querySelectorAll('[data-dzprop]')) b.onclick = () => dz('prop', { id: b.dataset.dzprop, v: !(S && S.D.dz && S.D.dz.props[b.dataset.dzprop]) });
+for (const b of document.querySelectorAll('[data-dzcam]')) b.onclick = () => dz('cam', { v: { mode: b.dataset.dzcam } });
+$('dzPvB').onclick = () => dz('pv', { v: !(S && S.D.dz && S.D.dz.pv) });
+$('dzRec').onclick = () => dz('rec');
+$('dzZoom').oninput = e => dz('cam', { v: { zoom: +e.target.value } });
+for (const [id, key] of [['dzFogDen', 'den'], ['dzFogH', 'h'], ['dzFogSp', 'speed']]) $(id).oninput = e => dz('fog', { v: { [key]: +e.target.value } });
+$('dzFogCol').onchange = e => dz('fog', { v: { col: e.target.value } });
+let dzDrag = false, dzDragT = 0;
+function dzDot(x, y) { $('dzDot').style.left = (x / 360 * 150) + 'px'; $('dzDot').style.top = (150 - y / 360 * 150) + 'px'; $('dzXY').textContent = `X ${Math.round(x)}° · Y ${Math.round(y)}°`; }
+function dzPadAt(e) { const r = $('dzPad').getBoundingClientRect(), x = Math.max(0, Math.min(360, (e.clientX - r.left) / r.width * 360)), y = Math.max(0, Math.min(360, (r.bottom - e.clientY) / r.height * 360)); dzDot(x, y); dz('cam', { v: { x, y } }); }
+$('dzPad').onpointerdown = e => { dzDrag = true; $('dzPad').setPointerCapture(e.pointerId); dzPadAt(e); };
+$('dzPad').onpointermove = e => { if (dzDrag) dzPadAt(e); };
+$('dzPad').onpointerup = $('dzPad').onpointercancel = () => { dzDrag = false; dzDragT = Date.now(); };
+$('dzPad').ondblclick = () => { dzDot(0, 8); dz('cam', { v: { x: 0, y: 8 } }); };
+function renderDz() {
+  const Z = S && S.D && S.D.dz; if (!Z) return;
+  for (const b of document.querySelectorAll('[data-dzstage]')) b.classList.toggle('on', Z.stage === b.dataset.dzstage);
+  for (const b of document.querySelectorAll('[data-dzprop]')) b.classList.toggle('on', !!Z.props[b.dataset.dzprop]);
+  for (const b of document.querySelectorAll('[data-dzcam]')) b.classList.toggle('on', Z.cam.mode === b.dataset.dzcam);
+  $('dzPvB').classList.toggle('on', !!Z.pv);
+  $('dzFogRow').hidden = !Z.props.fog;
+  for (const [id, key] of [['dzFogDen', 'den'], ['dzFogH', 'h'], ['dzFogSp', 'speed']]) if (document.activeElement !== $(id)) $(id).value = Z.fog[key];
+  if (document.activeElement !== $('dzFogCol')) $('dzFogCol').value = Z.fog.col;
+  if (document.activeElement !== $('dzZoom')) $('dzZoom').value = Z.cam.zoom;
+  if (!dzDrag && Date.now() - dzDragT > 600) dzDot(Z.cam.x, Z.cam.y);
+  const r = Z.rec || {}; $('dzRec').classList.toggle('on', !!r.on); $('dzRec').textContent = r.on ? '■ STOP' : '● REC';
+  $('dzRecT').textContent = r.on ? `REC ${r.t.toFixed(1)} s / 30 s` : (r.msg || 'up to 30 s · 960 x 540 · lands in VIDEOS');
+  const onBus = S.D.a === 'dancer' || S.D.b === 'dancer';
+  $('dzSt').textContent = Z.err ? 'DANCER: ' + Z.err : Z.loading ? 'Loading DANCER and her dances…' : !Z.loaded ? 'Not loaded yet: pick DANCER on a bus, a dance, PREVIEW or REC.'
+    : `Dancing: ${Z.clip || '-'} · ${onBus || Z.pv || r.on ? 'drawing' : 'paused (no bus shows her; PREVIEW draws her anyway)'}`;
+  if (window.dzClips) window.dzClips(Z.clip);
+}
 bc.onmessage = e => {
   const m = e.data || {}; lastSeen = Date.now();
   if (m.k === 'state') {
     if (m.test && Date.now() - realT < 4000) return;   // #519 the DirroComics test page steps aside when a real DirroVJ answers
     if (!m.test) realT = Date.now();
-    S = m; render(); airBadges(m.air); CX = m.C || null; renderCx(); renderShow(); if (CX) { renderStars(); starBadges(); }   // #523, #524
+    S = m; render(); renderDz(); airBadges(m.air); CX = m.C || null; renderCx(); renderShow(); if (CX) { renderStars(); starBadges(); }   // #523, #524
     $('st').textContent = m.test ? 'Connected to the DirroComics TEST page: only the DirroComics section works here (no buses, fractal or program picture). Open dirrovj.html for the real desk.'
       : (m.live || $('pv').getAttribute('src')) ? 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'
       : 'Connected to DirroVJ, starting program output…';
   }
   else if (m.k === 'pv') { $('pv').src = m.img; }
+  else if (m.k === 'dzpv') { $('dzPv').src = m.img; }   // #550
   else if (m.k === 'cxpv') { if (m.id === cxSel) { if (m.blob) { const u = URL.createObjectURL(m.blob); if (cxPvUrl) URL.revokeObjectURL(cxPvUrl); cxPvUrl = u; $('cxPv').src = u; } else if (m.img) $('cxPv').src = m.img; } }   // #516, #518 a blob now
   else if (m.k === 'cxfile') { if (m.blob) cxDownload(m.blob, m.name || 'dirrocomics'); }   // #522 an export, ready
   else if (m.k === 'cxlist') { cxThumbs = m.thumbs || {}; cxStarImgs = m.starImgs || cxStarImgs; cxListN++; renderCx(); }
@@ -734,6 +810,26 @@ for (const b of BANKS) {
   };
   loadBank(b);
 }
+
+// ---- #550 DANCER CLIPS: the dances in models/dancer/clips (clips.json), click = blend to it
+const DZ_MIN_COLS = 6;
+let dzList = [], dzCur = '';
+async function loadDzClips() {
+  try { dzList = (await (await fetch('models/dancer/clips/clips.json', { cache: 'no-cache' })).json()).map(f => f.replace(/\.[^.]+$/, '')); } catch { dzList = []; }
+  const el = $('gridDancer'), cols = Math.max(DZ_MIN_COLS, Math.ceil(dzList.length / ROWS)); let html = '';
+  for (let c = 0; c < cols; c++) {
+    html += `<div class="vjColHead">Column ${c + 1}</div>`;
+    for (let r = 0; r < ROWS; r++) { const n = dzList[c * ROWS + r]; html += n ? `<div class="vjCell dzClip" data-dz="${esc(n)}" title="${esc(n)} (click: DANCER blends to it)"><div class="dzIc">💃</div><div class="vjCap">${esc(n)}</div></div>` : '<div class="vjCell empty" title="Empty: importing dances comes in a later phase"><div class="vjCap"></div></div>'; }
+  }
+  el.innerHTML = html;
+  for (const cell of el.querySelectorAll('[data-dz]')) cell.onclick = () => { send({ k: 'dz', op: 'clip', name: cell.dataset.dz }); window.dzClips(cell.dataset.dz); };
+  window.dzClips(dzCur);
+}
+window.dzClips = name => { dzCur = name || ''; for (const c of document.querySelectorAll('#gridDancer [data-dz]')) c.classList.toggle('dzAct', c.dataset.dz === dzCur); };
+loadDzClips();
+// a DANCER recording landed in VIDEOS: refresh that bank
+const bc2 = new BroadcastChannel('dirrovj');
+bc2.onmessage = e => { const m = e.data || {}; if (m.k === 'dzrec') { const b = BANKS.find(x => x.id === 'Videos'); if (b) loadBank(b); } };
 </script>
 </body>
 </html>

@@ -8,6 +8,12 @@
 import { TwitchChat } from './chat.js';
 import { makeComics } from './comics.js';   // #516 DirroComics
 import * as media from './medialib.js';   // #532 IMAGES / VIDEOS / PANOS clip decks
+// #550 DANCER: js/dancerdesk.js is imported only when the desk first needs her (its loaders, post chain and the 5 MB GLB stay out of the start)
+function dzDefaults() {
+  const S = { loaded: false, loading: false, err: '', clip: '', clips: [], stage: 'rim', props: { manhole: false, pumpkin: false, fog: false }, fog: { den: 0.5, h: 0.8, speed: 0.6, col: 'cold' }, cam: { mode: 'orbit', x: 0, y: 8, zoom: 1 }, pv: false, rec: { on: false, t: 0, msg: '' } };
+  try { const o = JSON.parse(localStorage.getItem('vire.dancer') || '{}'); for (const k of ['clip', 'stage']) if (typeof o[k] === 'string') S[k] = o[k]; for (const k of ['props', 'fog', 'cam']) if (o[k] && typeof o[k] === 'object') Object.assign(S[k], o[k]); } catch {}
+  return S;
+}
 
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
 const MIX_FS = `uniform sampler2D tA, tB; uniform vec4 fA, fB; uniform float kA, kB, x; varying vec2 vUv;
@@ -101,10 +107,10 @@ const FRACTALS = {   // #508 per formula: start centre and span, zoom targets
   multi: { t: 3, c: [0, 0], span: 2.8, tg: [[0.38, 0.0], [-0.19, 0.33], [-0.19, -0.33]] },
 };
 const PALS = ['green', 'island', 'lava', 'ice', 'copper', 'neon'];
-const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'black'];   // #516 comic = DirroComics page
+const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'black'];   // #516 comic = DirroComics page, #550 dancer = DirroDancer
 
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
-  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0 };
+  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults() };
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
   const queue = []; let qid = 1;
   const quad = mat => { const sc = new THREE.Scene(), m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); m.frustumCulled = false; sc.add(m); return sc; };
@@ -122,6 +128,10 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     relayAsk: o => { const L = getLink(); if (!L || !L.isOpen) return 'no Quest link'; L.send('ctl', o); return ''; },   // #524 vjask / vjclog through the Quest
     requestRgbd: still => { const L = getLink(); if (!L || !L.isOpen) return 'no Quest link (connect DirroVJ to the Quest first)'; L.send('ctl', { k: 'cxgrab', still: !!still, ms: 5000 }); return ''; } });   // #520
   let comicTex = null;
+  // #550 DANCER: her own renderer + canvas (js/dancerdesk.js), loaded on first use
+  let dz = null, dzP = null;
+  const dzLoad = () => dzP || (dzP = import('./dancerdesk.js').then(m => { dz = m.makeDancer({ S: D.dz, post: () => post(), bc, media }); dz.ensure(); return dz; }).catch(e => { D.dz.err = 'load: ' + (e.message || e); dzP = null; post(); }));
+  const dzNeed = used => !!dz && (used.includes('dancer') || D.dz.pv || dz.recording);
 
   // ---- fractal flight: zoom in toward a target and out again (ping-pong), orbit round it; REACT lifts the heights on the bass
   const F = { z: 0, dir: 1, a: 0, ti: 0, j: 0, type: '', c: new THREE.Vector2(-0.6, 0) };
@@ -159,6 +169,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   function bind(name, U, fit, W, H, questTex, now) {   // a bus's texture and its cover crop
     if (name === 'quest') { U.value = questTex; fit.set(0, 0, 1, 1); return 1; }
     if (name === 'fractal') { U.value = fRT.texture; cover(320, 256, W, H, fit); return 1; }
+    if (name === 'dancer') { if (!dz || !dz.ready) return 0; U.value = dz.tex; cover(1280, 720, W, H, fit); return 1; }   // #550
     if (name === 'comic') { if (!comicTex) return 0; U.value = comicTex; cover(1920, 1080, W, H, fit); return 1; }   // #516
     if (name === 'webcam') { const v = fixed.video; if (!fixed.on || !v.videoWidth) return 0; U.value = camTex; cover(v.videoWidth, v.videoHeight, W, H, fit); return 1; }
     if (name === 'led') {
@@ -197,6 +208,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if (D.fadeTo != null) { const step = dt * 1000 / Math.max(50, D.fadeMs); D.x += Math.sign(D.fadeTo - D.x) * step; if (Math.abs(D.fadeTo - D.x) <= step) { D.x = D.fadeTo; D.fadeTo = null; post(); } }
     const used = (D.x < 1 ? [D.a] : []).concat(D.x > 0 ? [D.b] : []);
     if (used.includes('fractal')) fractal(dt, now);
+    if (dzNeed(used)) dz.render(now);   // #550 only while a bus shows her, PREVIEW is on or REC runs
     comics.tick(questTex, now, dt); comicTex = used.includes('comic') ? comics.render(W, H) : null;   // #516
     mU.kA.value = D.x < 1 ? bind(D.a, mU.tA, mU.fA.value, W, H, questTex, now) : 0;
     mU.kB.value = D.x > 0 ? bind(D.b, mU.tB, mU.fB.value, W, H, questTex, now) : 0;
@@ -250,6 +262,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     const m = e.data || {}; peers = 1;
     if (m.k === 'hello') { post(); if (!m.again) comics.sendList(); }
     else if (m.k === 'cx') comics.onMsg(m);   // #516 DirroComics
+    else if (m.k === 'dz') { const p = dzLoad(); if (p) p.then(z => z && z.onMsg(m)); }   // #550 DANCER panel and DANCER CLIPS
     else if (m.k === 'tw') { if (studioCtl) { if (m.op === 'key') studioCtl.setTwKey(m.key); else studioCtl.twToggle(m.key); } post(); }   // #532 Twitch key + GO LIVE on the VJ desk
     else if (m.k === 'media') {   // #532 / #533 IMAGES / VIDEOS / PANOS clip decks
       const { folder, name } = m; if (!folder || !name) return;
@@ -276,7 +289,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       if (m.cam) { const act = D.x < 0.5 ? 'a' : 'b'; if (D[act] === 'webcam') { D[act] = 'quest'; post(); } }
       const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'vjshow', cam: m.cam || '', opt: m.opt || '', v: !!m.v }); else bc.postMessage({ k: 'cxmsg', t: 'SHOWTIME!: no Quest link' });
     }   // #523 / #530
-    else if (m.k === 'bus') { if (SOURCES.includes(m.v)) { if (m.v === 'webcam' && !fixed.on && fixed.start) fixed.start().catch(() => {}); D[m.bus === 'b' ? 'b' : 'a'] = m.v; } post(); }
+    else if (m.k === 'bus') { if (SOURCES.includes(m.v)) { if (m.v === 'webcam' && !fixed.on && fixed.start) fixed.start().catch(() => {}); if (m.v === 'dancer') dzLoad(); D[m.bus === 'b' ? 'b' : 'a'] = m.v; } post(); }
     else if (m.k === 'x') { D.x = Math.max(0, Math.min(1, +m.v)); D.fadeTo = null; post(); }
     else if (m.k === 'cut') { D.x = D.x < 0.5 ? 1 : 0; D.fadeTo = null; post(); }
     else if (m.k === 'auto') { D.fadeMs = +m.ms || D.fadeMs; D.fadeTo = D.x < 0.5 ? 1 : 0; post(); }
@@ -288,8 +301,10 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     else if (m.k === 'audio') setAudio(m.v, m.dev);
   };
   setInterval(() => { if (peers) post(); }, 1500);
+  if (D.a === 'dancer' || D.b === 'dancer') dzLoad();
   // #519 the Quest hasn't turned DirroVJ on (no program frames): keep DirroComics editing alive (desk preview, grabs, AUTO).
   // tick() draws only into its own render targets, never to the screen, so it doesn't fight the camera page's own drawing.
-  let idleT = 0; setInterval(() => { const now = performance.now(); if (now - outT < 1000 || !peers) return; const dt = idleT ? Math.min(0.25, (now - idleT) / 1000) : 0.12; idleT = now; try { comics.tick(null, now, dt); } catch (e) { console.warn('comics idle', e); } }, 120);
+  let idleT = 0; setInterval(() => { const now = performance.now(); if (now - outT < 1000 || !peers) return; if (dzNeed([])) try { dz.render(now); } catch (e) { console.warn('dancer idle', e); }   // #550 PREVIEW / REC with no program frames
+    const dt = idleT ? Math.min(0.25, (now - idleT) / 1000) : 0.12; idleT = now; try { comics.tick(null, now, dt); } catch (e) { console.warn('comics idle', e); } }, 120);
   return { D, post, output, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null), queue, comics, onCx: m => { if (m.star) { comics.onStar(m.star); return; } if (m.blob) comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
 }
