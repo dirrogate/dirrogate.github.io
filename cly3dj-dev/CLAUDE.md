@@ -1695,3 +1695,15 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 
 ## #561 Release: cly3dj = cly3dj-dev (#548 to #560) (owner, 1 Nov)
 - Copied everything in cly3dj-dev except CLAUDE.md / PROJECT.md to cly3dj (35 files: DANCER files, dancerdesk.js, FBXLoader + three r169 postprocessing vendor files, the 4 clips + clips.json, vjdesk.html / vjdesk.js, studio.js, stream.js, spectator-host.js, spectator-client.js, sw.js v85). Release commit e90300d, waiting for the owner's push in GitHub Desktop.
+
+## #562 DANCER: SOFT RIM stage (owner's Unity look) and skin scattering at every distance (owner, 1 Nov)
+- Owner's look (refs in `DirroDancer/ref`, esp. `left_soft_face.webp`): sexy silhouette, not black and white: strong coloured rims, soft light on the face, shadows sink into navy, film look.
+- Root cause of much of the plastic look: in `js/dancer.js` the skin's scattering (light wrap) was multiplied by the near-pore fade, so past 2.2 m from the camera the skin was plain PBR. Now the scattering applies at every distance; only the pore normal fades (`poreNear` / `poreFar` options, uniforms `uPoreNear` / `uPoreFar`); program key dirro-skin-v4. (The workshop copy `DirroDancer/dirrodancer.js` is not updated yet.)
+- New STAGE button SOFT RIM (`vjdesk.html`, `dancerdesk.js` stage 'soft'; RIMLIT and STUDIO unchanged):
+  - lights: teal rim (0x35d6ff, 190) back left, amber rim (0xffa24a, 150) back right, dim top, navy hemisphere fill; the group turns with the camera so the rims stay behind her from any angle. A soft RectAreaLight 0.7 x 0.5 m (beauty dish, 0xffe6d2, 7) sits 1 m from her face toward the camera, 0.28 m up, and follows her head (vendored `vendor/three/lights/RectAreaLightUniformsLib.js` + `RectAreaLightTexturesLib.js`, r169). The camera key light stays off on SOFT RIM.
+  - reflections: a dark PMREM environment made of only a teal and an amber panel behind and a soft warm panel in front (turns with the camera via `scene.environmentRotation`), so skin and latex reflect the actual lights instead of the grey RoomEnvironment.
+  - skin on SOFT RIM: wrap 0.35, scatter colour redder (0.95, 0.55, 0.45), pores out to 3.6 m at 0.45.
+  - image: AgX tone mapping, exposure 1.15; grade pass gains uSoft: radial colour fringing, navy lift in the shadows, warm highlights, vignette 0.55, animated fine grain; bloom 0.3 at threshold 0.25; 40 soft bokeh dust motes drifting near her; floor kept dark (env 0.12).
+- Bug found and fixed during the check: a `//` comment placed inside a one-line GLSL block in dancer.js turned her skin black (removed).
+- Checked on the owner's PC pane (DirroVJ page, her canvas captured): RED and CATSUIT, wide and close: teal and amber rims, soft face, latex streaks, bokeh motes; RIMLIT / STUDIO skin normal again. Possible next tweaks: rim spots still light the far floor edges a little; rim colours and face-light strength as desk controls.
+- sw.js v86. No Node restart. Backup backups/pre562/ (with patch562.py).

@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v85';   // #560 zoom + speed T-bars in the program T-bar's style; DirroVJ frame tick from a worker
+const CACHE = 'vire-app-v86';   // #562 SOFT RIM stage, skin scattering at every distance
+// v85:   // #560 zoom + speed T-bars in the program T-bar's style; DirroVJ frame tick from a worker
 // v84:   // #559 DANCER speed slider
 // v83:   // #558 DANCER: RED / CATSUIT, FOG on the STAGE row, PROPS gone
 // v82:   // #557 lit A / B bus buttons, CUE
@@ -35,7 +36,7 @@ const APP = [
   'vendor/three/three.module.js', 'vendor/qrcode/qrcode.mjs', 'dirrogram.html', 'retroscene.png', 'mattes/matte1.mp4', 'vendor/three/OrbitControls.js', 'vendor/three/RoomEnvironment.js',
   'vendor/three/loaders/GLTFLoader.js', 'vendor/three/loaders/KTX2Loader.js', 'vendor/three/utils/BufferGeometryUtils.js', 'vendor/three/utils/WorkerPool.js',
   'vendor/three/libs/meshopt_decoder.module.js', 'vendor/three/math/SimplexNoise.js',   // #548 DANCER (desk)
-  'vendor/three/loaders/FBXLoader.js', 'vendor/three/libs/fflate.module.js', 'vendor/three/curves/NURBSCurve.js', 'vendor/three/curves/NURBSUtils.js',   // #550 Mixamo FBX dances (desk)
+  'vendor/three/loaders/FBXLoader.js', 'vendor/three/lights/RectAreaLightUniformsLib.js', 'vendor/three/lights/RectAreaLightTexturesLib.js', 'vendor/three/libs/fflate.module.js', 'vendor/three/curves/NURBSCurve.js', 'vendor/three/curves/NURBSUtils.js',   // #550 Mixamo FBX dances (desk)
   ...['EffectComposer', 'RenderPass', 'ShaderPass', 'Pass', 'MaskPass', 'UnrealBloomPass', 'OutputPass', 'GTAOPass'].map(n => `vendor/three/postprocessing/${n}.js`),
   ...['CopyShader', 'LuminosityHighPassShader', 'OutputShader', 'GTAOShader', 'PoissonDenoiseShader'].map(n => `vendor/three/shaders/${n}.js`),
   'vendor/three/libs/ktx-parse.module.js', 'vendor/three/libs/zstddec.module.js', 'vendor/three/libs/motion-controllers.module.js',
