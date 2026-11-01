@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v78';   // #553 horizontal program T-bar
+const CACHE = 'vire-app-v79';   // #554 desk two columns, REC info row gone
+// v78:   // #553 horizontal program T-bar
 // v77:   // #552 T-bars, no DANCER preview
 // v76:   // #551 Dancer camera block (pad + zoom bar + ORBIT / HANDHELD / REC)
 // was v75: #550 DANCER bus source (dancerdesk.js, FBXLoader)

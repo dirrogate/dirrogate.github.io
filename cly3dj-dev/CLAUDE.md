@@ -1651,3 +1651,9 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #553 Program T-bar back between the A and B bus rows, horizontal (owner, 1 Nov: more room for the main monitor)
 - `vjdesk.html`: the Program picture is full width again; the A / B T-bar is a horizontal lever in its own row between bus A and bus B (where the old slider was): left = A on air, right = B on air, 46 px tall, chrome vertical grip, red fill from A to the grip, A / B labels at the ends with headroom. `makeTBar()` gained `horiz` (pull left / right; arrow keys Left / Right nudge it when focused and don't reach the DirroComics PREV / NEXT keys). Same pull-not-jump rule. The DANCER zoom T-bar stays vertical.
 - Checked on the owner's PC pane: pulled halfway (FRACTAL on A mixed with DANCER on B, she drew), a click at the B end didn't move it, labels clear. sw.js v78. No Node restart. Backup backups/pre553/.
+
+## #554 VJ desk layout: two columns above the banks, Sound for Twitch last, DANCER REC info row gone (owner, 1 Nov)
+- `vjdesk.html`: the yellow REC label + info row in the Dancer panel is gone; the REC button still counts down, and the save result ('Saved to VIDEOS: …') now ends the Dancer status line.
+- Above the full-width clip banks the panels sit in two balanced columns: left = Program, SHOWTIME!; right = Scroller desk, Dancer, Scroller queue. The banks (DANCER CLIPS, IMAGES, VIDEOS, PANOS) stay full width; Amiga fractal, DirroComics and the AI storyboard follow as before.
+- Sound for Twitch (QUEST / LINE IN, TWITCH ON/OFF, input list, TWITCH KEY) is the last panel on the page (`#twS`, full width, after the storyboard, which storyboard.js still inserts right after DirroComics).
+- Checked on the owner's PC pane at 1440 x 1100: columns, banks, page order. sw.js v79. No Node restart. Backup backups/pre554/.
