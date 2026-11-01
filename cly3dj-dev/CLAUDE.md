@@ -1647,3 +1647,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - DANCER preview image, the PREVIEW button and the 4 fps 'dzpv' preview messages are gone (`dancerdesk.js`, `vjdesk.js`). She is drawn only while the T-bar shows her bus (any part of a fade) or REC runs. Status line: 'drawing' / 'paused until the T-bar brings her bus in' / 'paused (on no bus)'.
 - Checked on the owner's PC pane: FRACTAL on A, DANCER on B; pulling the T-bar halfway mixed them and she started drawing; zoom T-bar pushed to 4.6x; a click on the bottom of the A / B track did not move it. No console errors.
 - sw.js v77. No Node restart. Backup backups/pre552/.
+
+## #553 Program T-bar back between the A and B bus rows, horizontal (owner, 1 Nov: more room for the main monitor)
+- `vjdesk.html`: the Program picture is full width again; the A / B T-bar is a horizontal lever in its own row between bus A and bus B (where the old slider was): left = A on air, right = B on air, 46 px tall, chrome vertical grip, red fill from A to the grip, A / B labels at the ends with headroom. `makeTBar()` gained `horiz` (pull left / right; arrow keys Left / Right nudge it when focused and don't reach the DirroComics PREV / NEXT keys). Same pull-not-jump rule. The DANCER zoom T-bar stays vertical.
+- Checked on the owner's PC pane: pulled halfway (FRACTAL on A mixed with DANCER on B, she drew), a click at the B end didn't move it, labels clear. sw.js v78. No Node restart. Backup backups/pre553/.

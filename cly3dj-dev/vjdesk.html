@@ -64,6 +64,14 @@
   .tbH::after { content:''; position:absolute; left:50%; margin-left:-4px; width:8px; top:7px; height:11px; border-radius:0 0 3px 3px; background:linear-gradient(90deg,#5d6578,#c9d0db,#5d6578); }
   .tbLbl { position:absolute; left:0; right:0; text-align:center; font:800 11px/14px system-ui,sans-serif; color:var(--mute); pointer-events:none; letter-spacing:.04em; } .tbLbl.t { top:3px; } .tbLbl.b { bottom:3px; }
   .tbar.gold .tbFill { background:var(--gold); }
+  /* #553 horizontal T-bar (A / B program fader between the bus rows): left = A, right = B */
+  .tbar.h { flex:1 1 auto; width:100%; height:46px; cursor:grab; }
+  .tbar.h .tbSlot { left:36px; right:36px; top:50%; bottom:auto; width:auto; height:6px; margin:-3px 0 0 0; }
+  .tbar.h .tbFill { left:36px; top:50%; width:0; height:6px; margin:-3px 0 0 0; }
+  .tbar.h .tbH { top:5px; bottom:5px; left:0; right:auto; width:0; height:auto; }
+  .tbar.h .tbH i { top:0; bottom:0; left:-8px; right:auto; width:16px; height:auto; background:linear-gradient(90deg,#f1f4f8,#a9b2c1 60%,#7d8697); box-shadow:0 2px 6px rgba(0,0,0,.7), inset 1px 0 0 #fff; }
+  .tbar.h .tbH::after { display:none; }
+  .tbar.h .tbLbl { top:50%; bottom:auto; transform:translateY(-50%); width:24px; } .tbar.h .tbLbl.t { left:3px; right:auto; } .tbar.h .tbLbl.b { right:3px; left:auto; }
   .q { display:flex; gap:8px; align-items:flex-start; padding:7px 0; border-bottom:1px solid #1f2636; }
   .q .t { flex:1; } .q .w { color:var(--mute); font-size:12px; } .q.sent { opacity:.45; }
   .tag { font:700 10px system-ui; padding:2px 6px; border-radius:6px; background:#22304a; color:#9cc8ff; margin-right:6px; } .tag.sms { background:#3a2440; color:#f2a7f0; }
@@ -121,8 +129,9 @@
   <div>
     <section>
       <h2>Program</h2>
-      <div class="pvRow"><img id="pv" alt=""><div class="tbar" id="xfT" title="T-bar: top = bus A on air, bottom = bus B on air. Grab and pull; the bar doesn't jump to a click."></div></div>
+      <div><img id="pv" alt=""></div>
       <div class="row" id="busA"><span class="lbl">A</span></div>
+      <div class="row"><div class="tbar h" id="xfT" title="T-bar: left = bus A on air, right = bus B on air. Grab and pull; it doesn't jump to a click."></div></div>
       <div class="row" id="busB"><span class="lbl">B</span></div>
       <div class="row"><button id="cut">CUT</button><button id="auto">AUTO</button><select id="fadeMs"><option value="800">0.8 s</option><option value="2000" selected>2 s</option><option value="5000">5 s</option></select></div>
       <div class="note">QUEST = the picture DirroVJ gets from the Quest (SHOW, LIVE DJ!, KEY, WEBCAM mode as picked on the tablet) with its overlays. WEBCAM = this laptop's webcam as it is (start it on the DirroVJ page). CYCLO = DirroVJ's copy of the Cyclo clip.</div>
@@ -261,20 +270,20 @@ let S = null, lastSeen = 0, realT = 0;   // #519 realT: last state from a real D
 for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = document.createElement('button'); b.textContent = NAMES[k]; b.dataset.bus = bus; b.dataset.src = k; b.onclick = () => send({ k: 'bus', bus, v: k }); $(bus === 'a' ? 'busA' : 'busB').append(b); }
 // #552 T-bar: a vision-mixer lever. Grab the handle (or anywhere on the bar) and pull: it moves by how far you pull, it never jumps to the click.
 // top = the value given as topVal. Arrow keys nudge it when focused. set() is ignored while it is held (and briefly after), so state echoes can't fight the hand.
-function makeTBar(el, { onInput, top, bot, topVal = 0, step = 0.02 }) {
+function makeTBar(el, { onInput, top, bot, topVal = 0, step = 0.02, horiz = false }) {   // #553 horiz: left = 'top' end
   el.innerHTML = `<span class="tbLbl t">${top}</span><div class="tbSlot"></div><div class="tbFill"></div><div class="tbH"><i></i></div><span class="tbLbl b">${bot}</span>`;
   el.tabIndex = 0; const h = el.querySelector('.tbH'), fill = el.querySelector('.tbFill'); let v = topVal ? 1 : 0, drag = null, relT = 0;
   const frac = () => topVal ? 1 - v : v;
-  function place() { const f = frac(); h.style.top = `calc(26px + ${f} * (100% - 52px))`; fill.style.height = `calc(${f} * (100% - 52px))`; }
+  function place() { const f = frac(), c = horiz ? `calc(36px + ${f} * (100% - 72px))` : `calc(26px + ${f} * (100% - 52px))`, l = `calc(${f} * (100% - ${horiz ? 72 : 52}px))`; if (horiz) { h.style.left = c; fill.style.width = l; } else { h.style.top = c; fill.style.height = l; } }
   function setF(f) { f = Math.max(0, Math.min(1, f)); v = topVal ? 1 - f : f; place(); onInput(v); }
-  el.onpointerdown = e => { el.setPointerCapture(e.pointerId); el.classList.add('drag'); drag = { y: e.clientY, f: frac(), len: el.getBoundingClientRect().height - 52 }; };
-  el.onpointermove = e => { if (drag) setF(drag.f + (e.clientY - drag.y) / Math.max(1, drag.len)); };
+  el.onpointerdown = e => { el.setPointerCapture(e.pointerId); el.classList.add('drag'); const r = el.getBoundingClientRect(); drag = { y: horiz ? e.clientX : e.clientY, f: frac(), len: horiz ? r.width - 72 : r.height - 52 }; };
+  el.onpointermove = e => { if (drag) setF(drag.f + ((horiz ? e.clientX : e.clientY) - drag.y) / Math.max(1, drag.len)); };
   el.onpointerup = el.onpointercancel = () => { drag = null; relT = Date.now(); el.classList.remove('drag'); };
-  el.onkeydown = e => { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setF(frac() + (e.key === 'ArrowDown' ? step : -step)); relT = Date.now(); } };
+  el.onkeydown = e => { const fw = horiz ? ['ArrowRight', 'ArrowLeft'] : ['ArrowDown', 'ArrowUp']; if (fw.includes(e.key)) { e.preventDefault(); e.stopPropagation(); setF(frac() + (e.key === fw[0] ? step : -step)); relT = Date.now(); } };
   place();
   return { set(x) { if (drag || Date.now() - relT < 500) return; v = Math.max(0, Math.min(1, +x || 0)); place(); }, get v() { return v; } };
 }
-const xfT = makeTBar($('xfT'), { top: 'A', bot: 'B', topVal: 0, onInput: v => send({ k: 'x', v }) });
+const xfT = makeTBar($('xfT'), { top: 'A', bot: 'B', topVal: 0, horiz: true, onInput: v => send({ k: 'x', v }) });
 $('cut').onclick = () => send({ k: 'cut' }); $('auto').onclick = () => send({ k: 'auto', ms: +$('fadeMs').value });
 for (const b of document.querySelectorAll('[data-pal]')) b.onclick = () => send({ k: 'fr', v: { pal: b.dataset.pal } });
 for (const b of document.querySelectorAll('[data-ft]')) b.onclick = () => send({ k: 'fr', v: { type: b.dataset.ft } });
