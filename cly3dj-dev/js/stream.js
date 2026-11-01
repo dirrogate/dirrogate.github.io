@@ -406,7 +406,7 @@ export class Streamer {
     this.env.onChange && this.env.onChange();
   }
   get live() { return this.state === 'live' || this.state === 'connecting'; }
-  get wantsCam() { return this.active && (this.source === 'avacam' || this.show3d) && !(this.stuRun && this.stu.mode !== 'show'); }   // #380 LIVE DJ! / KEY! film from the S8, not the DJ camera   // main.js keeps the DJ CAM (pose, aim, robot) running for us
+  get wantsCam() { return this.active && (this.source === 'avacam' || this.show3d || (this.stuRun && this.source === 'show')) && !(this.stuRun && this.stu.mode !== 'show'); }   // #544 + DirroVJ in SHOWTIME!: its camera (pose for the dome / RENDER: LAPTOP) follows the GoPro pick even with no 3D object on   // #380 LIVE DJ! / KEY! film from the S8, not the DJ camera   // main.js keeps the DJ CAM (pose, aim, robot) running for us
   get needsCamRT() { return this.active && this.source === 'avacam'; }   // only AVACAM uses the DJ CAM's own picture
   hasKey() { return !!streamKey.get(); }
   keyHint() { const k = streamKey.get(); return k ? '••••' + k.slice(-4) : 'no key'; }

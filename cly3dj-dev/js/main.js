@@ -1004,7 +1004,7 @@ function vjShow(m) {
   if (m.cam) {
     const k = m.cam;
     if ((k === 'gopro' && gopro) || (k === 'gopro2' && gopro2)) {
-      if (S.source === 'headset' || S.source === 'pcam') S.setSource('show');
+      if (S.source !== 'show') S.setSource('show');   // #544 from CARD / DirroDj📹 / PHONE too (only HEADSET / WEBCAM switched back before, so the GoPro never came out)
       if (S.stu.on && S.stu.mode !== 'show') S.setStudio('mode', 'show');
       if (djSet.preset !== k) goproPick(k); else setDjPreset(k);
       what = k.toUpperCase();
@@ -1024,7 +1024,7 @@ function vjShowState() {
   const S = streamer; if (!S) return null; const O = S.showOpt, o = {};
   for (const k of VJ_SHOW_OPTS) o[k] = !!O[k]; o.dome = O.backdrop === 'dome';
   const isWeb = S.source === 'pcam' || (S.stu.on && S.stu.mode !== 'show');
-  return { cam: isWeb ? 'pcam' : S.source === 'headset' ? 'headset' : djSet.preset, o, gp: !!gopro, gp2: !!gopro2 };
+  return { cam: isWeb ? 'pcam' : S.source === 'headset' ? 'headset' : S.source === 'show' ? djSet.preset : S.source, o, gp: !!gopro, gp2: !!gopro2 };   // #544 a GoPro button lights only when SHOWTIME! is on air
 }
 function goproPick(id) {   // #389 the SHOWTIME! camera row: select it; double-tap = back to its start spot
   const gp = id === 'gopro2' ? gopro2 : gopro; if (!gp) return; const now = performance.now();
@@ -1886,7 +1886,11 @@ async function loadLibrary() {
       const xmls = index.filter(f => /\.xml$/i.test(f.path));
       if (!xmls.length && !index.some(f => /\.(mp3|m4a|aac|wav|aiff?|flac|ogg)$/i.test(f.path))) throw new Error(index.length ? 'no songs or Rekordbox XML among the imported files' : 'nothing imported yet');
       if (xmls.length) {   // #222 an XML is optional now: songs without one go to 'Unsorted'
-        const pick = xmls.find(f => /(^|\/)rekordbox\.xml$/i.test(f.path)) || xmls[0];
+        // #544 several playlist XMLs on the headset (AI-made playlists next to the main one): the one picked under Music library,
+        // else the one imported last (an old index without times falls back to rekordbox.xml, then the first)
+        const newest = xmls.slice().sort((a, b) => (b.t || 0) - (a.t || 0))[0];
+        const pick = xmls.find(f => f.path === settings.hxml) || (newest && newest.t ? newest : null) || xmls.find(f => /(^|\/)rekordbox\.xml$/i.test(f.path)) || xmls[0];
+        hxmlList(xmls, pick.path);
         text = await (await store.readFile(pick.path)).text(); from = pick.path + ' on this headset';
       } else from = 'songs on this headset (no Rekordbox XML)';
       resolve = store.opfsResolver(index);
@@ -1911,7 +1915,7 @@ async function loadLibrary() {
         for (const x of tryXml) {
           try {
             const r = await fetch(x);
-            if (r.ok) { text = await r.text(); from = x; break; }
+            if (r.ok) { const t = await r.text(); if (/<DJ_PLAYLISTS[\s>]/i.test(t)) { text = t; from = x; break; } }   // #544 a missing file can come back as the start page (Cloudflare Pages)
           } catch {}
         }
         if (!text) throw new Error('no library XML found on the PC');
@@ -6294,7 +6298,9 @@ function drawPropsPage(T) {
   const spawn = k => {
     const o = {};
     if (k === 'pumpkin') { k = 'glb'; o.src = 'halloween_pumpkin.glb'; }
-    if (k === 'glb') { if (!mp.lists.glb.length) { toast('Add a .glb first (ADD GLB, on the GLB prop that appears)', 3500); } else o.src = o.src || mp.lists.glb[0]; }
+    // #544 GLB + is a new, empty GLB prop and opens the file picker for it (it used to load the first model in the list: the pumpkin since #541)
+    if (k === 'glb' && !o.src) { const p = mp.spawn('glb'); mp.pickFile('glb', '.glb,model/gltf-binary', nm => { if (!p.dead && mp.items.includes(p)) p.load(nm); else mp.spawn('glb', { src: nm }); drawMixScreen(); });
+      toast('New GLB prop: pick a .glb file (or choose one with MODEL on its page).', 4000); drawMixScreen(); return; }
     if (k === 'graffiti') o.src = 'graff1.png';
     if (k === 'decal') o.src = DECAL_GROUND[0]; if (k === 'walldecal') o.src = DECAL_WALL[0];
     if (k === 'alley' || k === 'road') { toast('Setting up the alley scene in front of you (replaces the props in the room)...', 3500); mp.alleyScene(k === 'road').then(() => { if (pieceOn('neon')) setPiece('neon', false); mp.setGuides(false); toast('Alley scene ready: wet cobblestone, two lamps, rain, fog, a covered car down the lane. Tune each prop from the list.', 5000); drawMixScreen(); }); return; }
@@ -6383,7 +6389,7 @@ function drawPropsPage(T) {
   } else if (sel.type === 'glb') {
     const names = mp.lists.glb;
     cells.push(B(sel.src ? 'MODEL: ' + sel.src : 'MODEL: (none)', false, () => { if (names.length) sel.load(cyc(names, sel.src || names[names.length - 1])); }, !names.length),
-      B('ADD GLB', false, () => mp.pickFile('glb', '.glb,model/gltf-binary', nm => { sel.load(nm); drawMixScreen(); })), sizeUni());
+      B('ADD GLB', false, () => mp.pickFile('glb', '.glb,model/gltf-binary', nm => { if (!sel.src && mp.items.includes(sel)) sel.load(nm); else mp.spawn('glb', { src: nm }); drawMixScreen(); })), sizeUni());   // #544 adds a new prop; fills this one only while it is empty
     if (sel.src) cells.push(B('FORGET FILE', false, () => { removeFile('glb', sel.src).then(() => mp.refreshLists()); }));
   }
   cells.push(B('REMOVE', false, () => mp.remove(sel)));
@@ -8615,17 +8621,26 @@ $('#bMicAllow').onclick = async () => {
 };
 listMics().catch(() => {});
 if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', () => listMics().catch(() => {}));
-async function runImport(files) {
+async function runImport(files, folder) {   // #544 folder: only the songs the playlist XMLs name
   if (!files || !files.length) return;
   $('#impStatus').textContent = 'Copying…';
   try {
-    const n = await store.importFiles(files, p => { $('#impStatus').textContent = `Copying ${p.done}/${p.count} (${(p.bytes / 1048576).toFixed(0)} of ${(p.total / 1048576).toFixed(0)} MB): ${p.name}`; });
-    toast(`Imported ${n} files`); await showStorage(); await loadLibrary();
+    // #544 the XMLs already on this headset also decide which songs to copy (import an AI playlist XML, then pick Music/Collection)
+    const extra = []; if (folder) for (const f of (await store.loadIndex()).filter(f => /\.xml$/i.test(f.path))) { try { extra.push(await (await store.readFile(f.path)).text()); } catch {} }
+    const n = await store.importFiles(files, p => { $('#impStatus').textContent = `Copying ${p.done}/${p.count} (${(p.bytes / 1048576).toFixed(0)} of ${(p.total / 1048576).toFixed(0)} MB): ${p.name}`; }, extra, !!folder);
+    const xmlNew = [...files].find(f => /\.xml$/i.test(f.name)); if (xmlNew) { settings.hxml = ''; saveSettings(); }   // a new XML becomes the active one (imported last)
+    $('#impStatus').textContent = n.filtered ? `Copied ${n.copied} files (${n.skipped} already here). Only songs named in your playlist XMLs (${n.songs}) were taken from the ${n.picked} picked.` : `Copied ${n.copied} files (${n.skipped} already here).`;
+    toast(`Imported ${n.copied} files`); await showStorage(); await loadLibrary();
   } catch (e) { $('#impStatus').textContent = 'Import failed: ' + e.message; }
 }
+function hxmlList(xmls, cur) {   // #544 headset: choose which imported playlist XML is the library
+  const sel = $('#sHxml'); if (!sel) return; $('#rowHxml').hidden = xmls.length < 2;
+  sel.innerHTML = xmls.map(f => `<option value="${f.path.replace(/"/g, '&quot;')}">${f.path.replace(/</g, '&lt;')}</option>`).join(''); sel.value = cur;
+}
+if ($('#sHxml')) $('#sHxml').onchange = e => { settings.hxml = e.target.value; saveSettings(); loadLibrary(); };
 $('#bImpFolder').onclick = () => $('#fFolder').click();
 $('#bImpFiles').onclick = () => $('#fFiles').click();
-$('#fFolder').onchange = e => runImport(e.target.files);
+$('#fFolder').onchange = e => runImport(e.target.files, true);
 $('#fFiles').onchange = e => runImport(e.target.files);
 $('#bImpClear').onclick = async () => { if (!confirm('Remove all songs imported into this browser?')) return; await store.clearLibrary(); await showStorage(); loadLibrary(); };
 $('#credit').textContent = [deckModel === 'glb' ? 'Turntable: ' + GLB_CREDIT : '', milk.userData.glb ? 'Record crate: ' + MILK_CREDIT : ''].filter(Boolean).join(' · ');

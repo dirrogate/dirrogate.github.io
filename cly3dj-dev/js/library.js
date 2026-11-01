@@ -19,6 +19,8 @@ function num(v, d = 0) { const n = parseFloat(v); return Number.isFinite(n) ? n 
 const defaultResolve = loc => (/^file:/i.test(loc) ? null : { url: loc });
 
 export function parseLibrary(xmlText, resolve = defaultResolve) {
+  // #544 hand / AI-written XMLs often carry a bare '&' in a title ('Simon & Garfunkel'): escape it instead of failing the whole library
+  xmlText = String(xmlText).replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);)/gi, '&amp;');
   const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
   if (doc.querySelector('parsererror')) throw new Error('XML parse error');
 
