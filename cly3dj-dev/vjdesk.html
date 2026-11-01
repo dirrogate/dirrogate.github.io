@@ -119,6 +119,8 @@
   .dzCamW { flex:0 0 auto; display:flex; gap:8px; align-items:flex-start; }
   .dzZoomW { display:flex; flex-direction:column; align-items:center; gap:3px; }
   #dzZoomT { height:150px; flex:none; width:50px; }
+  .dzSpd { display:flex; flex-direction:column; align-items:stretch; gap:1px; margin-top:2px; } .dzSpd input[type=range] { min-width:0; width:100%; height:12px; margin:0; accent-color:#ff4fb4; cursor:ew-resize; }
+  .dzSpd span { font:700 10px system-ui,sans-serif; color:var(--mute); text-align:center; letter-spacing:.04em; }   /* #559 */
   .dzBtnCol { display:flex; flex-direction:column; gap:6px; width:104px; } .dzBtnCol button { width:100%; padding:9px 6px; font-size:13px; }
   .dzL { width:62px; font:800 11px system-ui; color:var(--gold); letter-spacing:.05em; }
   #dzFogRow[hidden] { display:none; }   /* #558 .row's display:flex beat the hidden attribute: the fog sliders showed with FOG off */
@@ -163,7 +165,7 @@
         <div class="dzCamW">
           <div class="dzPadW"><div id="dzPad" title="Camera framing. X (left to right) = round her 0 to 360 degrees. Y (bottom to top) = over the top 0 to 360 degrees. Double-click = front, eye level. Works while recording."><div id="dzDot"></div><span class="dzAx x">X</span><span class="dzAx y">Y</span></div><span id="dzXY" class="sp">X 0° · Y 8°</span></div>
           <div class="dzZoomW"><div class="tbar gold" id="dzZoomT" title="Zoom T-bar: push up = close on her face, pull down = wide. Grab and pull. Works while recording."></div><span id="dzZoomV" class="sp">1.0×</span></div>
-          <div class="dzBtnCol"><button data-dzcam="orbit" title="Slow orbit round her (6° a second) on top of the X-Y framing">ORBIT</button><button data-dzcam="hand" title="Holds the framing with a subtle hand-held drift and shake">HANDHELD</button><button id="dzRec" class="dzRec" title="Record up to 30 s of her picture (960 x 540) into VIDEOS. Pad and zoom keep working while it records.">● REC</button></div>
+          <div class="dzBtnCol"><button data-dzcam="orbit" title="Slow orbit round her (6° a second) on top of the X-Y framing">ORBIT</button><button data-dzcam="hand" title="Holds the framing with a subtle hand-held drift and shake">HANDHELD</button><button id="dzRec" class="dzRec" title="Record up to 30 s of her picture (960 x 540) into VIDEOS. Pad and zoom keep working while it records.">● REC</button><div class="dzSpd" title="Dance speed 0.25x to 2x. Double-click = 1x."><input type="range" id="dzSpeed" min="0.25" max="2" step="0.05" value="1"><span id="dzSpeedV">SPEED 1.00×</span></div></div>
         </div>
       </div>
       <div id="dzSt" class="note">Not loaded yet: pick DANCER on a bus, a dance or REC.</div>
@@ -661,6 +663,8 @@ function renderShow() {
 const dz = (op, o = {}) => send({ k: 'dz', op, ...o });
 for (const b of document.querySelectorAll('[data-dzstage]')) b.onclick = () => dz('stage', { v: b.dataset.dzstage });
 for (const b of document.querySelectorAll('[data-dzprop]')) b.onclick = () => dz('prop', { id: b.dataset.dzprop, v: !(S && S.D.dz && S.D.dz.props[b.dataset.dzprop]) });
+$('dzSpeed').oninput = e => { const v = +e.target.value; $('dzSpeedV').textContent = 'SPEED ' + v.toFixed(2) + '×'; dz('speed', { v }); };   // #559
+$('dzSpeed').ondblclick = () => { $('dzSpeed').value = 1; $('dzSpeed').oninput({ target: $('dzSpeed') }); };
 for (const b of document.querySelectorAll('[data-dzfit]')) b.onclick = () => dz('outfit', { v: b.dataset.dzfit });   // #558
 for (const b of document.querySelectorAll('[data-dzcam]')) b.onclick = () => dz('cam', { v: { mode: b.dataset.dzcam } });
 $('dzRec').onclick = () => dz('rec');
@@ -681,6 +685,7 @@ function renderDz() {
   for (const b of document.querySelectorAll('[data-dzprop]')) b.classList.toggle('on', !!Z.props[b.dataset.dzprop]);
   for (const b of document.querySelectorAll('[data-dzcam]')) b.classList.toggle('on', Z.cam.mode === b.dataset.dzcam);
   for (const b of document.querySelectorAll('[data-dzfit]')) b.classList.toggle('on', (Z.outfit || 'Red') === b.dataset.dzfit);   // #558
+  if (document.activeElement !== $('dzSpeed')) { $('dzSpeed').value = Z.speed || 1; $('dzSpeedV').textContent = 'SPEED ' + (+Z.speed || 1).toFixed(2) + '×'; }   // #559
   $('dzFogRow').hidden = !Z.props.fog;
   for (const [id, key] of [['dzFogDen', 'den'], ['dzFogH', 'h'], ['dzFogSp', 'speed']]) if (document.activeElement !== $(id)) $(id).value = Z.fog[key];
   if (document.activeElement !== $('dzFogCol')) $('dzFogCol').value = Z.fog.col;

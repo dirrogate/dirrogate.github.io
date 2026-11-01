@@ -1682,3 +1682,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - `vjdesk.html`: STAGE row = RIMLIT, STUDIO, FOG (FOG's sliders appear under it when on). The PROPS row (WATER MANHOLE, HALLOWEEN PUMPKIN) is gone; in its place DANCER: RED (red halter) and CATSUIT (the GLB's 'Black' latex outfit variant). Outfit saved with the rest (`vire.dancer`.outfit) and put on when she loads (`dancerdesk.js` op 'outfit', `dancer.setOutfit`). Manhole / pumpkin stay in dancerdesk.js but are forced off at start (`dzDefaults`).
 - Fix (from #550): the fog slider row showed even with FOG off (`.row { display:flex }` beat the `hidden` attribute); `#dzFogRow[hidden] { display:none }`.
 - Checked on the owner's PC pane: CATSUIT put the black latex outfit on her (lit, RED unlit), STAGE row RIMLIT / STUDIO / FOG, no PROPS buttons, fog sliders hidden with FOG off and shown with it on. sw.js v83. No Node restart. Backup backups/pre558/.
+
+## #559 DANCER speed slider under REC (owner, 1 Nov)
+- `vjdesk.html`: a tiny pink slider under the REC button in the camera column, 0.25x to 2x in 0.05 steps, readout 'SPEED 1.00×'; double-click = 1x. `dancerdesk.js` op 'speed' sets her AnimationMixer timeScale (all clips and crossfades), saved in `vire.dancer`.speed and applied when she loads (`vjdesk.js` dzDefaults reads it). Live while recording too.
+- Checked on the owner's PC pane: slider at 0.5 = mixer timeScale 0.5 on the DirroVJ page, readout updated, reset to 1. sw.js v84. No Node restart. Backup backups/pre559/.
