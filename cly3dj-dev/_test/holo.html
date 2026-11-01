@@ -25,7 +25,7 @@ input[type=range]{width:110px;accent-color:var(--cue)}
   <button id="play">Pause</button>
   <button id="gl" aria-pressed="true">Glitch</button>
   <label>Glitch strength <input id="gs" type="range" min="0" max="1.5" step="0.05" value="1"></label>
-  <label>Scale <input id="sc" type="range" min="0.5" max="1.3" step="0.01" value="1"></label>
+  <label>Scale <input id="sc" type="range" min="0.1" max="1.6" step="0.01" value="0.886"></label>
   <span id="read">loading…</span>
 </div>
 <div id="ov"><span class="tag" id="tag"></span><span id="hint">Point at the floor, tap to place her</span><button id="xrExit">Exit</button></div>
@@ -69,13 +69,13 @@ const tex = new THREE.VideoTexture(vid);
 tex.colorSpace = THREE.NoColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
 
 const U = {
-  map: { value: tex }, uView: { value: 0 }, uPrev: { value: 0 }, uG: { value: 0 }, uT: { value: 0 }, uSeed: { value: 0 },
+  map: { value: tex }, uView: { value: 0 }, uPrev: { value: 0 }, uG: { value: 0 }, uT: { value: 0 }, uSeed: { value: 0 }, uOp: { value: 1 },
 };
 const mat = new THREE.ShaderMaterial({
   uniforms: U, transparent: true, premultipliedAlpha: true, depthWrite: false, side: THREE.DoubleSide,
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: `
-    uniform sampler2D map; uniform float uView, uPrev, uG, uT, uSeed; varying vec2 vUv;
+    uniform sampler2D map; uniform float uView, uPrev, uG, uT, uSeed, uOp; varying vec2 vUv;
     float h(float n){ return fract(sin(n * 91.345 + uSeed * 17.0) * 47453.5453); }
     vec2 cUv(float v, vec2 p){ float c = mod(v, 4.0), r = floor(v / 4.0); return vec2((c + p.x) * 0.25, 1.0 - (r * 540.0 + (1.0 - p.y) * 540.0) / 1620.0); }
     vec2 aUv(float v, vec2 p){ return vec2((v + p.x) * 0.125, 1.0 - (1080.0 + (1.0 - p.y) * 540.0) / 1620.0); }
@@ -99,10 +99,12 @@ const mat = new THREE.ShaderMaterial({
       o.rgb *= scan;
       o.rgb += vec3(0.1, 0.55, 0.75) * g * on * o.a * 0.35;      // cyan flash on torn slices
       o *= 1.0 - g * 0.25 * step(0.82, h(band + 11.0));          // drop-outs
-      gl_FragColor = o;
+      gl_FragColor = o * uOp;
     }`,
 });
 const holo = new THREE.Group(); scene.add(holo);
+const START_SCALE = 1.524 / 1.72;   // she is 1.72 m; start her at 5 ft so the preview reads at a glance
+holo.scale.setScalar(START_SCALE);
 const board = new THREE.Mesh(new THREE.PlaneGeometry(SLOT_W, SLOT_H), mat);
 board.position.y = AIMH; holo.add(board);
 // small floor ring so the placement point reads in AR
@@ -200,7 +202,7 @@ document.getElementById('ar').onclick = async () => {
   document.getElementById('ar').textContent = 'Exit AR';
   session.addEventListener('end', () => {
     session = null; hitSrc = null; reticle.visible = false; holo.visible = true; placed = false;
-    holo.position.set(0, 0, 0); holo.rotation.y = 0;
+    holo.position.set(0, 0, 0); holo.rotation.y = 0; holo.scale.setScalar(START_SCALE); document.getElementById('sc').value = START_SCALE;
     scene.background = new THREE.Color(0x06070c); stage.visible = true; ov.classList.remove('xr'); touches.clear();
     document.getElementById('ar').textContent = 'Start AR';
   });
@@ -239,7 +241,13 @@ renderer.setAnimationLoop((t, frame) => {
       reticle.matrix.compose(retPos, retQ, retS.set(1, 1, 1));
       reticle.visible = true;
     } else reticle.visible = false;
+    // before the first tap a see-through 5 ft preview of her rides on the reticle
+    if (!placed) {
+      holo.visible = reticle.visible;
+      if (reticle.visible) { holo.position.copy(retPos); holo.rotation.y = Math.atan2(tmp.x - retPos.x, tmp.z - retPos.z); }
+    }
   }
+  U.uOp.value = (session && !placed) ? 0.5 : 1;
   const viewer = renderer.xr.isPresenting ? renderer.xr.getCamera() : cam;
   viewer.getWorldPosition(camPos);
   if (!renderer.xr.isPresenting) orbit.update();
