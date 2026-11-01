@@ -84,10 +84,11 @@
   .cxI input[type=range] { min-width:70px; max-width:120px; } .cxI button.arm { border-color:#f2c94c; background:#3a3214; }
   #cxDep { margin-top:10px; } #cxDC { width:100%; display:block; border-radius:8px; border:1px solid var(--line); cursor:crosshair; touch-action:none; background:#000; }
   [data-tone].on { border-color:#f2c94c; background:#3a3214; }
+  .air { font:700 12px system-ui,sans-serif; padding:4px 8px; border-radius:6px; margin-left:8px; background:#2a3140; color:#c9ced8; white-space:nowrap; } .air.on { background:#1f9d55; color:#fff; }   /* #545 */
 </style>
 </head>
 <body>
-<header><h1>Dirro<span>VJ</span> desk</h1><div id="st">Looking for the DirroVJ output window…</div><button id="openScreen" style="margin-left:auto" title="Open the Webcam / Projector output in a separate window (drag to a 2nd monitor or projector and make full screen)">🎥 Webcam / Projector window</button></header>
+<header><h1>Dirro<span>VJ</span> desk</h1><div id="st">Looking for the DirroVJ output window…</div><span id="airOn" class="air">QUEST ON AIR</span><span id="airRen" class="air">RENDER: QUEST</span><button id="openScreen" style="margin-left:auto" title="Open the Webcam / Projector output in a separate window (drag to a 2nd monitor or projector and make full screen)">🎥 Webcam / Projector window</button></header>
 <main>
   <div>
     <section>
@@ -569,7 +570,7 @@ bc.onmessage = e => {
   if (m.k === 'state') {
     if (m.test && Date.now() - realT < 4000) return;   // #519 the DirroComics test page steps aside when a real DirroVJ answers
     if (!m.test) realT = Date.now();
-    S = m; render(); CX = m.C || null; renderCx(); renderShow(); if (CX) { renderStars(); starBadges(); }   // #523, #524
+    S = m; render(); airBadges(m.air); CX = m.C || null; renderCx(); renderShow(); if (CX) { renderStars(); starBadges(); }   // #523, #524
     $('st').textContent = m.test ? 'Connected to the DirroComics TEST page: only the DirroComics section works here (no buses, fractal or program picture). Open dirrovj.html for the real desk.'
       : (m.live || $('pv').getAttribute('src')) ? 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'
       : 'Connected to DirroVJ, starting program output…';
@@ -588,6 +589,14 @@ $('openScreen').onclick = popScreenWin;
 document.addEventListener('click', () => {
   try { if (window.opener && window.opener.spect && window.opener.spect.studio && window.opener.spect.studio.needScreenWin) window.opener.spect.studio.openScreenWin(window); } catch {}
 }, { capture: true });
+// #545 who makes the program picture: DIRROVJ ON AIR (green) once the Quest turned DirroVJ on, else the Quest; and who renders SHOW
+function airBadges(a) {
+  const on = $('airOn'), rn = $('airRen'); if (!on || !rn) return;
+  const vjAir = !!(a && a.qOn), lap = !!(a && a.qOn && a.local && a.mode === 'show');
+  on.textContent = vjAir ? 'DIRROVJ ON AIR' : 'QUEST ON AIR (DirroVJ off)'; on.classList.toggle('on', vjAir);
+  rn.textContent = !vjAir ? 'RENDER: -' : a.mode !== 'show' ? 'WEBCAM' : lap ? 'RENDER: LAPTOP' : 'RENDER: QUEST'; rn.classList.toggle('on', vjAir);
+  rn.title = 'RENDER QUEST: the Quest draws the scene and sends it with its matte. RENDER LAPTOP: this laptop draws it from the mirror (sharper, no Wi-Fi video). Switched on the tablet: TWITCH > DIRROVJ.';
+}
 setInterval(() => { send({ k: 'hello', again: true }); if (Date.now() - lastSeen > 4000) $('st').textContent = 'No DirroVJ output window: open dirrovj.html in this browser, connect it and start DirroVJ.'; }, 2000);
 </script>
 <script type="module">/* #527 DirroComics storyboard (AI) + #532 VJ clip banks (IMAGES / VIDEOS / PANOS) */

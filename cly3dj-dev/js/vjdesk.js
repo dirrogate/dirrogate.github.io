@@ -244,7 +244,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   const bc = new BroadcastChannel('dirrovj'); let peers = 0, postT = 0;
   async function post() {
     const now = performance.now(); if (now - postT < 60) { clearTimeout(post.t); post.t = setTimeout(post, 70); return; } postT = now;
-    bc.postMessage({ k: 'state', D: { ...D, fr: { ...D.fr } }, tw: studioCtl && studioCtl.twState ? studioCtl.twState() : null, queue, devs: await devices(), sources: SOURCES, C: comics.state(), live: outT > 0 && performance.now() - outT < 3000 });
+    bc.postMessage({ k: 'state', D: { ...D, fr: { ...D.fr } }, tw: studioCtl && studioCtl.twState ? studioCtl.twState() : null, air: studioCtl && studioCtl.airState ? studioCtl.airState() : null, queue, devs: await devices(), sources: SOURCES, C: comics.state(), live: outT > 0 && performance.now() - outT < 3000 });
   }
   bc.onmessage = e => {
     const m = e.data || {}; peers = 1;
