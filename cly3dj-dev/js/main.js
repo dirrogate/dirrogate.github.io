@@ -6551,7 +6551,7 @@ function drawToolsPage() {
     const O = S.showOpt, bh = P ? 52 : 30, gap = P ? 8 : 5;
     const isWeb = S.source === 'pcam' || (S.stu.on && S.stu.mode !== 'show');
     // #530 camera pick: GOPRO, GOPRO2, WEBCAM (external laptop or phone), HEADSET CAM
-    const cams = [['gopro', 'GOPRO', !gopro], ['gopro2', 'GOPRO2', !gopro2], ['pcam', 'WEBCAM', false], ['headset', P ? 'HEADSET' : 'HEADSET CAM', false]];
+    const cams = [['gopro', 'GOPRO', !gopro], ['gopro2', 'GOPRO2', !gopro2], ['pcam', 'WEBCAM ⟳', false], ['headset', P ? 'HEADSET' : 'HEADSET CAM', false]];   // #547 ⟳: tapped again it steps to the next camera
     const colsCam = P ? 2 : 4, bwCam = (R - L - gap * (colsCam - 1)) / colsCam;
     const camOn = k => k === 'pcam' ? isWeb : k === 'headset' ? (!isWeb && S.source === 'headset') : (!isWeb && S.source !== 'headset' && djSet.preset === k);
     g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; if (P) g.fillText('CAMERA', L + 2, y0 + 8);
@@ -7201,7 +7201,7 @@ function drawToolsPage() {
         () => btn(x, y, w, h, portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), portalsTap, !portals, fs),
         () => btn(x, y, w, h, 'PORTALS SETUP', false, portals ? () => setTools('portals') : null, !portals, fs),
         () => btn(x, y, w, h, 'CAM FIT', false, () => setTools('streamfit'), !streamer, fs),
-        () => { btn(x, y, w, h, 'WEBCAM', isWeb, () => openPhoneCam(true), !streamer, fs); if (streamer) VP_HIT[VP_HIT.length - 1].long = () => setTools('pcam'); },   // #545 long press = WEBCAM SETUP
+        () => { btn(x, y, w, h, 'WEBCAM ⟳', isWeb, () => openPhoneCam(true), !streamer, fs); if (streamer) VP_HIT[VP_HIT.length - 1].long = () => setTools('pcam'); },   // #545 long press = WEBCAM SETUP
         () => btn(x, y, w, h, perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false, fs),
         () => btn(x, y, w, h, laser && laser.on ? 'LASER: ON' : 'LASER', !!(laser && laser.on), () => setTools('laser'), !laser, fs),   // #406
         () => btn(x, y, w, h, mprops && mprops.props().length ? `MOVIE PROPS (${mprops.props().length})` : 'MOVIE PROPS', !!(mprops && mprops.props().length), () => setTools('props'), !mprops, fs),   // #478
