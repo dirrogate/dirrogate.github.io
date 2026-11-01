@@ -133,6 +133,11 @@
   .vjCell.dzClip { justify-content:space-between; background:linear-gradient(160deg,#1a1024,#0d1017 70%); }
   .vjCell.dzClip .dzIc { flex:1; display:flex; align-items:center; justify-content:center; font-size:26px; opacity:.85; pointer-events:none; }
   .vjCell.dzAct { border:2px solid #ff4fb4; box-shadow:0 0 0 1px #6b1950 inset; } .vjCell.dzAct .vjCap { background:#ff4fb4; color:#1a0412; font-weight:800; }
+  /* #563 right-click menu on IMAGES / VIDEOS cells */
+  #bankMenu { position:fixed; z-index:9999; min-width:200px; background:#141924; border:1px solid #4b5d82; border-radius:9px; padding:4px; box-shadow:0 8px 24px rgba(0,0,0,.6); }
+  #bankMenu[hidden] { display:none; } #bankMenu .bmT { font:700 11px system-ui; color:var(--mute); padding:5px 8px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; }
+  #bankMenu button { display:block; width:100%; text-align:left; padding:8px 10px; border:0; border-radius:6px; background:transparent; font:600 13px system-ui; }
+  #bankMenu button:hover { background:#22304a; } #bankMenu button.del:hover { background:#5a1a1e; }
   .air { font:700 12px system-ui,sans-serif; padding:4px 8px; border-radius:6px; margin-left:8px; background:#2a3140; color:#c9ced8; white-space:nowrap; } .air.on { background:#1f9d55; color:#fff; }   /* #545 */
 </style>
 </head>
@@ -207,6 +212,7 @@
     <div class="panoYawRow"><span class="sp">0°</span><input type="range" id="panoYaw" min="0" max="360" step="1" value="0" title="Panorama view angle (0° leftmost to 360° rightmost)"><span class="sp" id="panoYawVal" style="min-width:68px;text-align:right">0° / 360°</span></div>
   </div>
 </div>
+<div id="bankMenu" hidden><div class="bmT" id="bmT"></div><button id="bmCx">Send to DirroComics</button><button id="bmExp">Export</button><button id="bmDel" class="del">Delete</button></div>
 <section style="margin:0 16px 14px">
   <h2>Amiga fractal</h2>
   <div class="row"><button data-ft="mandel">MANDEL</button><button data-ft="julia">JULIA</button><button data-ft="ship">SHIP</button><button data-ft="multi">MULTI</button><span style="width:12px"></span><button data-pal="green">GREEN</button><button data-pal="island">ISLAND</button><button data-pal="lava">LAVA</button><button data-pal="ice">ICE</button><button data-pal="copper">COPPER</button><button data-pal="neon">NEON</button><button id="pump" style="margin-left:auto">PUMP</button><span id="kick" style="width:14px;height:14px;border-radius:50%;background:#333;display:inline-block"></span></div>
@@ -813,6 +819,7 @@ function renderBank(b) {
         send({ k: 'media', folder, name });
         updateVjDecks(actMedia, true);
       };
+      if (b.id === 'Images' || b.id === 'Videos') cell.oncontextmenu = e => { e.preventDefault(); bankMenu(e, b, cell.dataset.folder, cell.dataset.name); };   // #563
       const bar = cell.querySelector('.vjPanoBar');
       if (bar) {
         bar.onclick = e => e.stopPropagation();
@@ -892,7 +899,21 @@ window.dzClips = name => { dzCur = name || ''; for (const c of document.querySel
 loadDzClips();
 // a DANCER recording landed in VIDEOS: refresh that bank
 const bc2 = new BroadcastChannel('dirrovj');
-bc2.onmessage = e => { const m = e.data || {}; if (m.k === 'dzrec') { const b = BANKS.find(x => x.id === 'Videos'); if (b) loadBank(b); } };
+bc2.onmessage = e => { const m = e.data || {}; if (m.k === 'dzrec' || m.k === 'bank') { const b = BANKS.find(x => x.folders.includes(m.folder || 'Video')); if (b) loadBank(b); } };   // #563 grabs refresh their bank too
+// ---- #563 right-click on an IMAGES / VIDEOS cell: Send to DirroComics (a new panel), Export (download the file), Delete
+let bmAt = null;
+function bankMenu(e, b, folder, name) {
+  bmAt = { b, folder, name }; const m = $('bankMenu'); $('bmT').textContent = name; m.hidden = false;
+  const w = m.offsetWidth || 210, h = m.offsetHeight || 140; m.style.left = Math.min(e.clientX, innerWidth - w - 6) + 'px'; m.style.top = Math.min(e.clientY, innerHeight - h - 6) + 'px';
+}
+const bmClose = () => { $('bankMenu').hidden = true; };
+document.addEventListener('pointerdown', e => { if (!$('bankMenu').hidden && !$('bankMenu').contains(e.target)) bmClose(); }, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') bmClose(); });
+addEventListener('scroll', bmClose, true);
+$('bmCx').onclick = async () => { const a = bmAt; bmClose(); if (!a) return; const f = await media.getFile(a.folder, a.name); if (!f) return; cx('add', { files: [{ blob: f, name: a.name }] }); $('cxMsg').textContent = 'Sending ' + a.name + ' to DirroComics…'; };
+$('bmExp').onclick = async () => { const a = bmAt; bmClose(); if (!a) return; const f = await media.getFile(a.folder, a.name); if (!f) return; const u = URL.createObjectURL(f), l = document.createElement('a'); l.href = u; l.download = a.name; document.body.append(l); l.click(); l.remove(); setTimeout(() => URL.revokeObjectURL(u), 30000); };
+$('bmDel').onclick = async () => { const a = bmAt; bmClose(); if (!a || !confirm('Delete ' + a.name + ' from ' + (a.folder === 'Video' ? 'VIDEOS' : 'IMAGES') + '? This removes it from this laptop.')) return;
+  await media.remove(a.folder, a.name); thumbUrls.delete(a.folder + '/' + a.name); await loadBank(a.b); };
 </script>
 </body>
 </html>

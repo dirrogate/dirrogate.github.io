@@ -127,7 +127,14 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   let ledTex = null, lastLedVid = null, ledImgTex = null, lastLedImg = null;
   const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 } };
   const mMat = new THREE.ShaderMaterial({ uniforms: mU, vertexShader: VS, fragmentShader: MIX_FS, depthTest: false, depthWrite: false }), mSc = quad(mMat);
-  const comics = makeComics({ THREE, renderer, fixed, send: m => bc.postMessage(m), onChange: () => post(),   // #516
+  // #563 every DirroComics grab (GRAB QUEST / GRAB WEBCAM stills, GRAB RGB-D clips and stills) also lands in the desk's IMAGES or VIDEOS bank
+  async function toBank(blob, name) {
+    try { const vid = /^video\//.test(blob.type) || /\.(mp4|webm|mov|m4v)$/i.test(name), folder = vid ? 'Video' : 'Images';
+      let n = String(name || (vid ? 'grab.webm' : 'grab.jpg')); if (!/\.[a-z0-9]{2,4}$/i.test(n)) n += vid ? (/mp4/.test(blob.type) ? '.mp4' : '.webm') : (/png/.test(blob.type) ? '.png' : '.jpg');
+      const saved = await media.importFile(folder, new File([blob], n, { type: blob.type })); bc.postMessage({ k: 'bank', folder, name: saved }); bc.postMessage({ k: 'cxmsg', t: 'Grab also saved to ' + (vid ? 'VIDEOS' : 'IMAGES') + ': ' + saved }); }
+    catch (e) { bc.postMessage({ k: 'cxmsg', t: 'Grab not saved to the bank: ' + (e.message || e) }); }
+  }
+  const comics = makeComics({ THREE, renderer, fixed, send: m => bc.postMessage(m), onChange: () => post(), onGrab: toBank,   // #516
     relayAsk: o => { const L = getLink(); if (!L || !L.isOpen) return 'no Quest link'; L.send('ctl', o); return ''; },   // #524 vjask / vjclog through the Quest
     requestRgbd: still => { const L = getLink(); if (!L || !L.isOpen) return 'no Quest link (connect DirroVJ to the Quest first)'; L.send('ctl', { k: 'cxgrab', still: !!still, ms: 5000 }); return ''; } });   // #520
   let comicTex = null;
@@ -351,5 +358,5 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   // tick() draws only into its own render targets, never to the screen, so it doesn't fight the camera page's own drawing.
   let idleT = 0; setInterval(() => { const now = performance.now(); if (now - outT < 1000 || !peers) return; if (dzNeed([])) try { dz.render(now); } catch (e) { console.warn('dancer idle', e); }   // #550 REC with no program frames
     const dt = idleT ? Math.min(0.25, (now - idleT) / 1000) : 0.12; idleT = now; try { comics.tick(null, now, dt); } catch (e) { console.warn('comics idle', e); } }, 120);
-  return { D, post, output, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null) || (autoTrack && autoTrack.readyState === 'live' ? autoTrack : null), queue, comics, onCx: m => { if (m.star) { comics.onStar(m.star); return; } if (m.blob) comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
+  return { D, post, output, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null) || (autoTrack && autoTrack.readyState === 'live' ? autoTrack : null), queue, comics, onCx: m => { if (m.star) { comics.onStar(m.star); return; } if (m.blob) { comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); toBank(m.blob, m.name || 'quest-rgbd'); } else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
 }
