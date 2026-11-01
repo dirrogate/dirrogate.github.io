@@ -633,6 +633,9 @@ export function startCamera(ctx) {
     else if (m.k === 'calpt') { if (!(fixed.on && fixed.onCalPoint(m))) onCalPoint(m); }   // #208 fixed camera taps first
     else if (m.k === 'calskip') { if (fixed.on) fixed.calSkip(); }   // #211 the Quest's grip skips an auto point
     else if (m.k === 'led') { if (m.curve != null) led.wall.userData.setCurve(m.curve);   /* #358 the Quest's LED curve */ led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000); if (liveOn && !led.on) showLiveCard(true); }   // #176 (#238 the LIVE card stays up)
+    else if (m.k === 'camnext') {   // #545 the tablet's WEBCAM, tapped again: next camera (starts the webcam first if it isn't running)
+      (async () => { let n = ''; try { if (!fixed.on) { await fixed.start($('#spFixCam') ? $('#spFixCam').value : 'environment'); n = fixed.camName(); } else n = await fixed.nextCam(); } catch (e) { n = 'camera error: ' + (e.message || e); } if (link && link.isOpen) link.send('ctl', { k: 'camname', n }); sendCst(true); })();
+    }
     else if (m.k === 'live') { const was = liveOn, wasG = liveGreen, wasP = livePcam; liveOn = !!m.on; liveSolo = !!m.solo; livePcam = !!m.pcam; liveGreen = !!m.green; if (liveOn && (!was || wasG !== liveGreen || wasP !== livePcam)) liveStart(); else if (!liveOn) liveStop(); showLiveCard(liveOn); }   // #238 LIVE CAM (#239 SOLO, #347 PHONE CAM pcam / green)   // #238 LIVE CAM (#239 SOLO)
     else if (m.k === 'scroll' && scroller) {   // #236 the Quest's VJ scroller, drawn here from its text, wave and speed
       scroller.wave = m.wave; scroller.speed = m.speed;

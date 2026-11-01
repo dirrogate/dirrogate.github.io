@@ -122,6 +122,15 @@ export function makeFixedCam({ THREE, renderer, scene, camera, rig, room, getLin
     setDev(id); try { await open(S.facing); } catch (e) { say('Camera: ' + e.message); }
     say('');   // #515 no nag: an uncalibrated camera is simply a plain picture
   }
+  // #545 WEBCAM on the tablet, tapped again: the next camera of this device (every camera the browser lists; one camera = main / selfie)
+  async function nextCam() {
+    if (!S.on) return '';
+    await listDevs(); const ids = S.devs.map(d => d.deviceId).filter(Boolean);
+    if (ids.length < 2) { await switchCam(); return camName(); }
+    const cur = S.dev || (S.track && S.track.getSettings ? S.track.getSettings().deviceId : '') || '';
+    await pickDev(ids[(ids.indexOf(cur) + 1) % ids.length]); return camName();
+  }
+  const camName = () => S.dev ? devName() || 'camera' : (S.devs.find(d => S.track && S.track.getSettings && d.deviceId === S.track.getSettings().deviceId) || {}).label || (S.facing === 'user' ? 'selfie camera' : 'main camera');
   const devName = () => { const d = S.dev && S.devs.find(x => x.deviceId === S.dev); return d ? (d.label || 'camera').replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)/i, '').slice(0, 28) : ''; };
 
   // ---------------------------------------------------------------- #499 undistort (radial k1 / k2, principal point at the centre)
@@ -577,7 +586,7 @@ void main(){
     $('#fxInfo').textContent = `${S.dev ? devName() || 'camera' : S.facing === 'user' ? 'selfie' : 'main'} ${S.vw}x${S.vh}` + (P ? ` · zoom ${P.fov.toFixed(1)}°` : '') + (P && P.k ? ` · lens k1 ${P.k[0]}` + (U.on ? ' (corrected)' : '') : '') + (!S.placed ? ' · plain camera (Calibrate to draw the gear over it)' : (S.err != null ? ` · cal ${S.err.toFixed(1)} px` : ' · placed by hand') + (S.plain ? ' · gear off' : ''))
       + (ec != null ? ` · exp ${ec > 0 ? '+' : ''}${(+ec).toFixed(1)}` : '') + (S.swap ? ` · swap ${S.swap}` : '') + (extra ? ' · ' + extra : '');
   }
-  return { S, video, raw, get gear() { return S.on && gearOn(); }, start, stop, frame, camState, setLowLight, camInfo, lowLight, onCalPoint, nudge, setCoarse, resetView, calCancel, get coarse() { return coarse; }, calSkip, calStart, calRescan, detect, info, get on() { return S.on; } };
+  return { S, video, raw, nextCam, camName, get gear() { return S.on && gearOn(); }, start, stop, frame, camState, setLowLight, camInfo, lowLight, onCalPoint, nudge, setCoarse, resetView, calCancel, get coarse() { return coarse; }, calSkip, calStart, calRescan, detect, info, get on() { return S.on; } };
 }
 
 // ---------------------------------------------------------------- pose solve

@@ -157,6 +157,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   }
   const studioCtl = {
     twState: () => ({ state: S.tw, msg: S.twMsg, kbps: S.kbps, key: getTwKey() }),
+    airState: () => ({ qOn: !!S.qOn, local: !!S.local, mode: S.mode }),   // #545 the desk's ON AIR / RENDER badges
     setTwKey,
     twToggle: k => {
       if (k != null && String(k).trim()) setTwKey(k);
