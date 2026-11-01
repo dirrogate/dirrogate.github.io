@@ -93,6 +93,10 @@
     background-image:linear-gradient(#1e2536 1px, transparent 1px), linear-gradient(90deg, #1e2536 1px, transparent 1px); background-size:37.5px 37.5px; background-position:-1px -1px; }
   #dzDot { position:absolute; width:14px; height:14px; margin:-7px 0 0 -7px; border-radius:50%; background:var(--gold); box-shadow:0 0 8px rgba(242,201,76,.7); pointer-events:none; }
   .dzAx { position:absolute; font:700 10px system-ui; color:var(--mute); pointer-events:none; } .dzAx.x { right:4px; bottom:2px; } .dzAx.y { left:4px; top:2px; }
+  .dzCamW { flex:0 0 auto; display:flex; gap:8px; align-items:flex-start; }
+  .dzZoomW { display:flex; flex-direction:column; align-items:center; gap:3px; }
+  #dzZoom { writing-mode:vertical-lr; direction:rtl; width:22px; height:150px; min-width:0; flex:none; margin:0; accent-color:var(--gold); cursor:ns-resize; }
+  .dzBtnCol { display:flex; flex-direction:column; gap:6px; width:104px; } .dzBtnCol button { width:100%; padding:9px 6px; font-size:13px; }
   .dzL { width:62px; font:800 11px system-ui; color:var(--gold); letter-spacing:.05em; }
   #dzFogRow .kv { flex:1 1 130px; } #dzFogRow input[type=range] { min-width:70px; }
   button.dzRec { color:#ff8a8a; border-color:#6a1c1c; background:#231010; font-weight:800; }
@@ -126,7 +130,11 @@
       <h2>Dancer <span class="note" style="text-transform:none;letter-spacing:0">put DANCER on bus A or B · her dances are in DANCER CLIPS below</span></h2>
       <div class="dzTop">
         <div class="dzPvBox"><img id="dzPv" alt=""><div id="dzSt" class="note">Not loaded yet: pick DANCER on a bus, a dance, PREVIEW or REC.</div></div>
-        <div class="dzPadW"><div id="dzPad" title="Camera framing. X (left to right) = round her 0 to 360 degrees. Y (bottom to top) = over the top 0 to 360 degrees. Double-click = front, eye level."><div id="dzDot"></div><span class="dzAx x">X</span><span class="dzAx y">Y</span></div><span id="dzXY" class="sp">X 0° · Y 8°</span></div>
+        <div class="dzCamW">
+          <div class="dzPadW"><div id="dzPad" title="Camera framing. X (left to right) = round her 0 to 360 degrees. Y (bottom to top) = over the top 0 to 360 degrees. Double-click = front, eye level. Works while recording."><div id="dzDot"></div><span class="dzAx x">X</span><span class="dzAx y">Y</span></div><span id="dzXY" class="sp">X 0° · Y 8°</span></div>
+          <div class="dzZoomW"><input type="range" id="dzZoom" min="0" max="1" step="0.005" title="Zoom: bottom = wide, top = close on her face. Works while recording."><span id="dzZoomV" class="sp">1.0×</span></div>
+          <div class="dzBtnCol"><button data-dzcam="orbit" title="Slow orbit round her (6° a second) on top of the X-Y framing">ORBIT</button><button data-dzcam="hand" title="Holds the framing with a subtle hand-held drift and shake">HANDHELD</button><button id="dzRec" class="dzRec" title="Record up to 30 s of her picture (960 x 540) into VIDEOS. Pad and zoom keep working while it records.">● REC</button></div>
+        </div>
       </div>
       <div class="row"><span class="dzL">STAGE</span><button data-dzstage="rim">RIMLIT</button><button data-dzstage="studio">STUDIO</button><button id="dzPvB" style="margin-left:auto" title="Draw her even when no bus shows her (for setting up the shot)">PREVIEW</button></div>
       <div class="row"><span class="dzL">PROPS</span><button data-dzprop="manhole">WATER MANHOLE</button><button data-dzprop="pumpkin">HALLOWEEN PUMPKIN</button><button data-dzprop="fog">FOG</button></div>
@@ -135,9 +143,7 @@
         <label class="kv"><span class="sp">Height</span><input type="range" id="dzFogH" min="0.1" max="2" step="0.05"></label>
         <label class="kv"><span class="sp">Drift</span><input type="range" id="dzFogSp" min="0" max="2" step="0.05"></label>
         <select id="dzFogCol"><option value="cold">COLD</option><option value="warm">WARM</option><option value="violet">VIOLET</option><option value="white">WHITE</option></select></div>
-      <div class="row"><span class="dzL">CAMERA</span><button data-dzcam="orbit">ORBIT</button><button data-dzcam="wide">WIDE</button><button data-dzcam="hand">HANDHELD CLOSE-UP</button></div>
-      <div class="row"><span class="dzL"></span><label class="kv"><span class="sp">Zoom</span><input type="range" id="dzZoom" min="0.4" max="2.5" step="0.05"></label></div>
-      <div class="row"><span class="dzL">REC</span><button id="dzRec" class="dzRec">● REC</button><span id="dzRecT" class="sp">up to 30 s · 960 x 540 · lands in VIDEOS</span></div>
+      <div class="row"><span class="dzL">REC</span><span id="dzRecT" class="sp">up to 30 s · 960 x 540 · lands in VIDEOS</span></div>
     </section>
     <section style="margin-top:14px">
       <h2>Scroller queue</h2>
@@ -612,7 +618,8 @@ for (const b of document.querySelectorAll('[data-dzprop]')) b.onclick = () => dz
 for (const b of document.querySelectorAll('[data-dzcam]')) b.onclick = () => dz('cam', { v: { mode: b.dataset.dzcam } });
 $('dzPvB').onclick = () => dz('pv', { v: !(S && S.D.dz && S.D.dz.pv) });
 $('dzRec').onclick = () => dz('rec');
-$('dzZoom').oninput = e => dz('cam', { v: { zoom: +e.target.value } });
+const ZMIN = 0.4, ZMAX = 8, z2s = z => Math.log(z / ZMIN) / Math.log(ZMAX / ZMIN), s2z = v => ZMIN * Math.pow(ZMAX / ZMIN, v);   // #551 log zoom bar
+$('dzZoom').oninput = e => { const z = s2z(+e.target.value); $('dzZoomV').textContent = z.toFixed(1) + '×'; dz('cam', { v: { zoom: z } }); };
 for (const [id, key] of [['dzFogDen', 'den'], ['dzFogH', 'h'], ['dzFogSp', 'speed']]) $(id).oninput = e => dz('fog', { v: { [key]: +e.target.value } });
 $('dzFogCol').onchange = e => dz('fog', { v: { col: e.target.value } });
 let dzDrag = false, dzDragT = 0;
@@ -631,9 +638,9 @@ function renderDz() {
   $('dzFogRow').hidden = !Z.props.fog;
   for (const [id, key] of [['dzFogDen', 'den'], ['dzFogH', 'h'], ['dzFogSp', 'speed']]) if (document.activeElement !== $(id)) $(id).value = Z.fog[key];
   if (document.activeElement !== $('dzFogCol')) $('dzFogCol').value = Z.fog.col;
-  if (document.activeElement !== $('dzZoom')) $('dzZoom').value = Z.cam.zoom;
+  if (document.activeElement !== $('dzZoom')) { $('dzZoom').value = z2s(Z.cam.zoom); $('dzZoomV').textContent = (+Z.cam.zoom).toFixed(1) + '×'; }
   if (!dzDrag && Date.now() - dzDragT > 600) dzDot(Z.cam.x, Z.cam.y);
-  const r = Z.rec || {}; $('dzRec').classList.toggle('on', !!r.on); $('dzRec').textContent = r.on ? '■ STOP' : '● REC';
+  const r = Z.rec || {}; $('dzRec').classList.toggle('on', !!r.on); $('dzRec').textContent = r.on ? `■ ${Math.ceil(30 - r.t)} s` : '● REC';
   $('dzRecT').textContent = r.on ? `REC ${r.t.toFixed(1)} s / 30 s` : (r.msg || 'up to 30 s · 960 x 540 · lands in VIDEOS');
   const onBus = S.D.a === 'dancer' || S.D.b === 'dancer';
   $('dzSt').textContent = Z.err ? 'DANCER: ' + Z.err : Z.loading ? 'Loading DANCER and her dances…' : !Z.loaded ? 'Not loaded yet: pick DANCER on a bus, a dance, PREVIEW or REC.'

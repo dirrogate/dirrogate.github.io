@@ -22,7 +22,8 @@ const REC_W = 960, REC_H = 540, REC_MAX = 30, D2R = Math.PI / 180;
 const url = p => new URL('../models/' + p, import.meta.url).href;
 const PROPS = { manhole: { file: 'props/water_manhole.glb', w: 0.75, at: [0.75, 0.003, 0.7] }, pumpkin: { file: 'props/halloween_pumpkin.glb', w: 0.36, at: [-0.8, 0, 0.6] } };
 const FOG_COL = { cold: 0x8ea6c8, warm: 0xd6b08c, violet: 0xa98ad8, white: 0xd8dce4 };
-const CAMS = { orbit: { dist: 4.4, ty: 1.0, fov: 32, spin: 6 }, wide: { dist: 7.6, ty: 0.95, fov: 30, spin: 0 }, hand: { dist: 0.8, fov: 40, spin: 0 } };
+const CAMS = { orbit: 1, hand: 1 };   // #551 two presets: ORBIT (slow spin) and HANDHELD (subtle shake); the X-Y pad and ZOOM do the framing
+const ZOOM_MIN = 0.4, ZOOM_MAX = 8, CAM_DIST = 4.4;
 const wrap = a => ((a + 540) % 360) - 180;
 const nz = x => Math.sin(x) * 0.6 + Math.sin(x * 2.3 + 1.7) * 0.3 + Math.sin(x * 5.1 + 0.4) * 0.1;
 
@@ -33,6 +34,7 @@ export function makeDancer({ S, post, bc, media }) {
   const props = {}, propLoad = {};
   const save = () => { try { localStorage.setItem('vire.dancer', JSON.stringify({ clip: S.clip, stage: S.stage, props: S.props, fog: S.fog, cam: S.cam })); } catch {} };
 
+  if (!(S.cam.mode in CAMS)) S.cam.mode = 'hand';   // #551 WIDE (and the old close-up) are gone: a saved one becomes HANDHELD
   function ensure() {
     if (loading) return loading;
     S.loading = true; S.err = ''; post();
@@ -152,30 +154,34 @@ export function makeDancer({ S, post, bc, media }) {
     }
   }
 
-  // ---- cameras: X = round her (0..360), Y = over the top (0..360, past 90 the picture turns upside down like a real crane over her)
-  const C = { az: 0, el: 8, dist: CAMS.orbit.dist, fov: 32, tgt: new THREE.Vector3(0, 1, 0), spin: 0, init: false };
-  const _t = new THREE.Vector3(), _d = new THREE.Vector3(), _u = new THREE.Vector3();
+  // ---- cameras (#551): X = round her (0..360), Y = over the top (0..360, past 90 the picture turns upside down like a crane over her),
+  // ZOOM = distance (4.4 m / zoom: 11 m wide to 0.55 m close). Close in, the aim slides from her middle up to her head and follows it, and the
+  // camera key light comes on. ORBIT adds a slow 6 deg/s spin; HANDHELD stops the spin where it is and adds a subtle hand-held drift and shake.
+  // Everything eases, so pad and zoom moves are usable while REC runs.
+  const C = { az: 0, el: 8, dist: CAM_DIST, tgt: new THREE.Vector3(0, 1, 0), spin: 0, init: false };
+  const _t = new THREE.Vector3(), _d = new THREE.Vector3(), _u = new THREE.Vector3(), _h = new THREE.Vector3();
   function tickCam(dt, t) {
-    const c = S.cam, P = CAMS[c.mode] || CAMS.orbit, hand = c.mode === 'hand';
-    if (P.spin) C.spin = (C.spin + dt * P.spin) % 360;
-    let az = (+c.x || 0) + (P.spin ? C.spin : 0), el = +c.y || 0;
-    if (hand) { dancer.bone.Head.getWorldPosition(_t); _t.y -= 0.02; az += Math.sin(t * 0.21) * 28; el += nz(t * 0.7) * 3; } else _t.set(0, P.ty, 0);
-    const dist = P.dist / Math.max(0.3, +c.zoom || 1);
-    const k = C.init ? 1 - Math.exp(-dt * (hand ? 3 : 5)) : 1; C.init = true;
-    C.az += wrap(az - C.az) * k; C.el += wrap(el - C.el) * k; C.dist += (dist - C.dist) * k; C.fov += (P.fov - C.fov) * k; C.tgt.lerp(_t, k);
+    const c = S.cam, hand = c.mode === 'hand';
+    if (!hand) C.spin = (C.spin + dt * 6) % 360;
+    let az = (+c.x || 0) + C.spin, el = +c.y || 0;
+    const dist = CAM_DIST / Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +c.zoom || 1)), close = Math.min(1, Math.max(0, (2.6 - dist) / 1.8));
+    dancer.bone.Head.getWorldPosition(_h); _t.set(_h.x * close, 1.0 + (_h.y - 0.06 - 1.0) * close, _h.z * close);
+    if (hand) { az += nz(t * 0.23) * 2.2; el += nz(t * 0.31 + 2) * 1.2; }   // slow drift of the operator's body
+    const k = C.init ? 1 - Math.exp(-dt * 4) : 1; C.init = true;
+    C.az += wrap(az - C.az) * k; C.el += wrap(el - C.el) * k; C.dist += (dist - C.dist) * k; C.tgt.lerp(_t, k);
     const a = C.az * D2R, e = C.el * D2R;
     _d.set(Math.cos(e) * Math.sin(a), Math.sin(e), Math.cos(e) * Math.cos(a)); _u.set(-Math.sin(e) * Math.sin(a), Math.cos(e), -Math.sin(e) * Math.cos(a));
     cam.position.copy(C.tgt).addScaledVector(_d, C.dist); cam.up.copy(_u);
-    _t.copy(C.tgt); if (hand) { _t.x += nz(t * 1.9) * 0.012; _t.y += nz(t * 2.3 + 4) * 0.012; }
-    cam.lookAt(_t); if (hand) cam.rotateZ(nz(t * 1.3 + 9) * 0.02);
-    if (Math.abs(cam.fov - C.fov) > 0.01) { cam.fov = C.fov; cam.updateProjectionMatrix(); }
-    camKey.visible = hand;
+    _t.copy(C.tgt); if (hand) { const j = 0.004 + 0.004 * Math.min(1, C.dist / 3); _t.x += nz(t * 1.9) * j; _t.y += nz(t * 2.3 + 4) * j; }
+    cam.lookAt(_t); if (hand) cam.rotateZ(nz(t * 1.3 + 9) * 0.008);
+    if (cam.fov !== 32) { cam.fov = 32; cam.updateProjectionMatrix(); }
+    camKey.visible = close > 0.3;
   }
 
   // ---- REC: her picture, 960 x 540, up to 30 s, into the VIDEOS bank
   let rec = null;
   function recStart() {
-    const c = document.createElement('canvas'); c.width = REC_W; c.height = REC_H; const ctx = c.getContext('2d'); ctx.fillRect(0, 0, REC_W, REC_H);
+    const c = document.createElement('canvas'); c.width = REC_W; c.height = REC_H; const ctx = c.getContext('2d'); ctx.fillRect(0, 0, REC_W, REC_H); if (ready) ctx.drawImage(canvas, 0, 0, REC_W, REC_H);   // #551 first frame = her current picture, not black
     const mime = ['video/mp4;codecs=avc1.42E01F', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
     if (!mime) { S.rec = { on: false, t: 0, msg: 'This browser cannot record video' }; post(); return; }
     const mr = new MediaRecorder(c.captureStream(30), { mimeType: mime, videoBitsPerSecond: 6e6 }), chunks = [];
@@ -219,7 +225,7 @@ export function makeDancer({ S, post, bc, media }) {
     else if (op === 'stage') { S.stage = m.v === 'studio' ? 'studio' : 'rim'; applyStage(); }
     else if (op === 'prop' && m.id in S.props) { S.props[m.id] = !!m.v; applyProps(); }
     else if (op === 'fog') { const v = m.v || {}; for (const k of ['den', 'h', 'speed']) if (k in v) S.fog[k] = Math.max(0, Math.min(2, +v[k] || 0)); if (v.col in FOG_COL) S.fog.col = v.col; }
-    else if (op === 'cam') { const v = m.v || {}; if (v.mode in CAMS) S.cam.mode = v.mode; for (const k of ['x', 'y']) if (k in v) S.cam[k] = Math.max(0, Math.min(360, +v[k] || 0)); if ('zoom' in v) S.cam.zoom = Math.max(0.4, Math.min(2.5, +v.zoom || 1)); }
+    else if (op === 'cam') { const v = m.v || {}; if (v.mode in CAMS) S.cam.mode = v.mode; for (const k of ['x', 'y']) if (k in v) S.cam[k] = Math.max(0, Math.min(360, +v[k] || 0)); if ('zoom' in v) S.cam.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +v.zoom || 1)); }
     else if (op === 'pv') S.pv = !!m.v;
     else if (op === 'rec') { if (rec) recStop(); else ensure().then(() => { if (ready && !rec) recStart(); }); }
     save(); post(); ensure();
