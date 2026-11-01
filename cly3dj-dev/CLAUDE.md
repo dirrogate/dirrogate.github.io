@@ -1692,3 +1692,6 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Fix `js/spectator-client.js` (VJ): a tiny Web Worker posts a tick every 33 ms and drives the same frame step (worker timers are not throttled in hidden pages); the page's own 33 ms timer stays as backup. Re-measured: 31 fps for the whole hidden stretch (22 hidden one-second samples, none under 25).
 - `vjdesk.html`: the DANCER zoom T-bar's groove fill is red like the program T-bar (gold gone). The speed slider is now a mini horizontal T-bar (24 px, black slot, red fill to the grip, chrome grip; pull-not-jump like the others; double-click = 1x), pink range input gone. `makeTBar()` takes `pad` (distance from each end to the travel).
 - Checked on the owner's PC pane: zoom and speed grooves red, speed drag to 1.50x set her speed, reset to 1x; hidden-tab fps as above. sw.js v85. No Node restart. Backup backups/pre560/.
+
+## #561 Release: cly3dj = cly3dj-dev (#548 to #560) (owner, 1 Nov)
+- Copied everything in cly3dj-dev except CLAUDE.md / PROJECT.md to cly3dj (35 files: DANCER files, dancerdesk.js, FBXLoader + three r169 postprocessing vendor files, the 4 clips + clips.json, vjdesk.html / vjdesk.js, studio.js, stream.js, spectator-host.js, spectator-client.js, sw.js v85). Release commit e90300d, waiting for the owner's push in GitHub Desktop.
