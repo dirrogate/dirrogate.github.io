@@ -40,7 +40,7 @@ export class LedPlayer {
     return this.files.length;
   }
   get hasFiles() { return this.files.length > 0; }
-  fileNamed(n) { return this.files.find(f => f.name === n) || null; }
+  fileNamed(n) { return this.files.find(f => f.name === n) || (this.one && this.one.name === n ? this.one : null); }   // #546 one: a clip played with CYCLO NOW that is not in the list
   add(file) { if (!this.files.some(f => f.name === file.name)) this.files.push(file); return this.files.length; }
   // #222 playlist editing (the VIDEO page's LED LIST): remove, move up / down, play in list order or at random
   remove(name) { const i = this.files.findIndex(f => f.name === name); if (i < 0) return; this.files.splice(i, 1); if (this.name === name) { if (this.files.length) this.next(); else this.stop(); } this.onChange && this.onChange(); }
@@ -51,7 +51,7 @@ export class LedPlayer {
     const i = F.findIndex(f => f.name === this.name), f = F[(i + 1) % F.length];
     this.on = true; this._open(f, () => this.next()); this.onChange && this.onChange(); return true;
   }
-  play(file, loop = false) { this.vjLocal = !!loop; this.on = true; this._open(file, loop ? null : () => this.next()); if (loop) this._loop(true); this.onChange && this.onChange(); }
+  play(file, loop = false) { this.one = this.files.some(f => f.name === file.name) ? null : file; this.vjLocal = !!loop; this.on = true; this._open(file, loop ? null : () => this.next()); if (loop) this._loop(true); this.onChange && this.onChange(); }
   _open(file, onEnded, at = 0, dur = null) {
     this._close(); this._ended = onEnded;
     if (isImage(file)) {   // #185 still image

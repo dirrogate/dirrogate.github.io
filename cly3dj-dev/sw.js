@@ -10,7 +10,7 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v71';   // #545 Cyclo OFF black, start-page videos in the library, WEBCAM next camera / local fallback, RENDER switch
+const CACHE = 'vire-app-v72';   // #546 no automatic CYCLO LIST adds
 // was v66: #540 redcastle curved portal (weathered concrete + rusty iron trim & handles)
 const NET_WAIT = 2500, OFFLINE_HOLD = 30000;
 const APP = [

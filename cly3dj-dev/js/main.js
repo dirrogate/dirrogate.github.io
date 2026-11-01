@@ -5073,7 +5073,7 @@ async function vpAct(what) {
     const d = decks[what === 'deckA' ? 0 : 1];
     if (!d.record) { toast(`No record on ${d.name}: put one on first`); return; }
     vvOverride[d.i] = { rec: d.record, name }; toast(`${d.name}: ${name} (until this record comes off)`, 2500);
-  } else if (what === 'lednow') { led.add(f); ledSrc.set(f.name, vpFolder); saveLedList(); led.play(f, led.files.length < 2); clipsMode(); }
+  } else if (what === 'lednow') { ledSrc.set(f.name, vpFolder); led.play(f, !led.files.length); clipsMode(); }   // #546 plays now without joining the CYCLO LIST (+ CYCLO builds the list); with a list it carries on with the list after this clip, else it loops
   else if (what === 'ledadd') { const n = led.add(f); ledSrc.set(f.name, vpFolder); saveLedList(); toast(`CYCLO playlist: ${n} item${n > 1 ? 's' : ''} (CYCLO LIST to see it)`, 2000); }
   drawMixScreen();
 }
@@ -8475,11 +8475,12 @@ $('#fMedia').onchange = async e => {
   const info = $('#mediaAddInfo'), say = t => { info.textContent = t; };
   say(await importMedia(fs, null, say));
 };
-$('#fLed').onchange = async e => {
-  const all = [...(e.target.files || [])], n = led.setFiles(all); e.target.value = '';
-  // #545 the picked videos also go into the VIDEO library (VISUALS > Video slots) and the CYCLO LIST remembers them from there
-  if (n) { $('#ledList').textContent = 'Copying into the VIDEO library…'; try { await importMedia(led.files, 'Video'); for (const f of led.files) ledSrc.set(f.name, 'Video'); saveLedList(); } catch (er) { console.warn('cyclo videos', er); } }
-  $('#ledList').textContent = n ? `${n} video${n > 1 ? 's' : ''}: ${led.files.map(f => f.name).join(' · ')}` + (all.length > 5 ? '  (only the first 5 are used)' : '') : 'No playable videos in that pick (mp4 / webm).';
+$('#fLed').onchange = async e => {   // #546 the start page only adds videos to the VIDEO library; the VJ plays them (CYCLO NOW) or builds the CYCLO LIST (+ CYCLO) on the VISUALS page
+  const all = [...(e.target.files || [])].filter(f => /^video\//.test(f.type) || /\.(mp4|webm|mov|m4v)$/i.test(f.name)); e.target.value = '';
+  if (!all.length) { $('#ledList').textContent = 'No playable videos in that pick (mp4 / webm).'; return; }
+  $('#ledList').textContent = 'Copying into the VIDEO library…';
+  try { const msg = await importMedia(all, 'Video'); $('#ledList').textContent = `${msg}: ${all.map(f => f.name).join(' · ')}. Play them from VISUALS > Video (CYCLO NOW, or + CYCLO to build a playlist).`; }
+  catch (er) { $('#ledList').textContent = 'Could not copy: ' + (er.message || er); }
   drawMixScreen();
 };
 $('#cOccl').onchange = e => { settings.occlusion = e.target.checked; saveSettings(); drawMixScreen(); };   // #411
