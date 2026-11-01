@@ -1,0 +1,273 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Holodancer Live AR</title>
+<style>
+:root{ --bg:#06070c; --panel:#12141c; --line:#2a2e3c; --fg:#e9ecf3; --dim:#8d94a6; --cue:#35d6ff; --amb:#ffa24a; color-scheme:dark; }
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif;overflow:hidden}
+canvas{display:block}
+#ui{position:fixed;left:0;right:0;bottom:0;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:10px max(16px,env(safe-area-inset-left));background:color-mix(in srgb,var(--panel) 90%,transparent);border-top:1px solid var(--line)}
+button{font:600 13px system-ui,sans-serif;color:var(--fg);background:#1a1e2a;border:1px solid var(--line);border-radius:6px;padding:8px 12px;cursor:pointer}
+button.go{border-color:var(--cue);color:var(--cue)}
+button[aria-pressed="true"]{border-color:var(--amb);color:var(--amb)}
+label{color:var(--dim);font-size:12px;display:flex;gap:6px;align-items:center}
+input[type=range]{width:100px;accent-color:var(--cue)}
+#read{font:12px ui-monospace,monospace;color:var(--dim);font-variant-numeric:tabular-nums}
+#ov{position:fixed;inset:0;pointer-events:none;touch-action:none}
+#ov.xr{pointer-events:auto}
+#ov .tag{position:absolute;top:calc(14px + env(safe-area-inset-top));left:14px;font:12px ui-monospace,monospace;color:#cfd6e4;background:rgba(6,7,12,.45);padding:4px 8px;border-radius:6px}
+#hint{position:absolute;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);font:600 15px system-ui,sans-serif;color:#fff;background:rgba(6,7,12,.6);padding:10px 16px;border-radius:20px;white-space:nowrap;display:none}
+#ov.xr #hint{display:block}
+#xrBar{position:absolute;left:0;right:0;bottom:calc(16px + env(safe-area-inset-bottom));display:none;justify-content:center;gap:8px}
+#ov.xr #xrBar{display:flex}
+#status{position:fixed;inset:0;display:grid;place-items:center;color:var(--dim);font:13px ui-monospace,monospace;pointer-events:none}
+#status[hidden]{display:none}
+</style>
+<div id="status">Loading Kitana…</div>
+<div id="ui">
+  <button id="ar" class="go">Start AR</button>
+  <button id="lookRim" aria-pressed="true">Soft rim</button>
+  <button id="lookRoom" aria-pressed="false">Room light</button>
+  <label>Speed <input id="spd" type="range" min="0.25" max="1.25" step="0.05" value="0.5"></label>
+  <span id="read">–</span>
+</div>
+<div id="ov">
+  <span class="tag" id="tag"></span>
+  <span id="hint">Point at the floor, tap to place her</span>
+  <div id="xrBar"><button id="xrRim" aria-pressed="true">Soft rim</button><button id="xrRoom" aria-pressed="false">Room light</button><button id="xrExit">Exit</button></div>
+</div>
+
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.js"}}</script>
+<script type="module">
+// Holodancer Live: the real skinned model + Mixamo dance drawn on the phone, for comparison with the 8-view video.
+// Looks: SOFT RIM (teal / amber rims that stay behind her from wherever you stand, soft face fill)
+//        ROOM LIGHT (WebXR light estimation: ambient from the room + its main light, real contact shadow)
+import * as THREE from 'three';
+import {FBXLoader} from '../vendor/three/loaders/FBXLoader.js';
+import {GLTFLoader} from '../vendor/three/loaders/GLTFLoader.js';
+import {MeshoptDecoder} from '../vendor/three/libs/meshopt_decoder.module.js';
+import {OrbitControls} from '../vendor/three/OrbitControls.js';
+
+const Q = new URLSearchParams(location.search);
+const SRC = Q.get('m') || '../models/dancer/kitana_snake.fbx';
+const HEIGHT = 1.72, START_SCALE = 1.524 / HEIGHT;   // real height; start at 5 ft
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.AgXToneMapping; renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.xr.enabled = true;
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+const BG = new THREE.Color(0x06070c); scene.background = BG;
+const cam = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.05, 100);
+cam.position.set(0, 1.4, 3.6);
+const orbit = new OrbitControls(cam, renderer.domElement); orbit.target.set(0, 0.9, 0); orbit.enableDamping = true; orbit.update();
+const grid = new THREE.GridHelper(10, 20, 0x2a3346, 0x161b26); scene.add(grid);
+
+// ---------- dancer root ----------
+const holo = new THREE.Group(); holo.scale.setScalar(START_SCALE); scene.add(holo);
+const shadowPlane = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.ShadowMaterial({ opacity: 0.38 }));
+shadowPlane.rotation.x = -Math.PI / 2; shadowPlane.receiveShadow = true; holo.add(shadowPlane);
+
+// ---------- lights ----------
+const amb = new THREE.HemisphereLight(0x9fb4d8, 0x0a0c12, 0.15); scene.add(amb);
+const probe = new THREE.LightProbe(); probe.intensity = 0; scene.add(probe);
+const key = new THREE.DirectionalLight(0xffffff, 0); key.castShadow = true;   // room main light (also casts the contact shadow)
+key.shadow.mapSize.set(1024, 1024); Object.assign(key.shadow.camera, { left: -1.2, right: 1.2, top: 1.2, bottom: -1.2, near: 0.1, far: 8 });
+key.shadow.bias = -0.0005; key.shadow.normalBias = 0.02; scene.add(key, key.target);
+function spot(col) { const s = new THREE.SpotLight(col, 0, 8, THREE.MathUtils.degToRad(38), 0.85, 1.6); scene.add(s, s.target); return s; }
+const rimL = spot(0x35d6ff), rimR = spot(0xffa24a);
+const face = new THREE.PointLight(0xffeedd, 0, 5, 1.8); scene.add(face);
+const shadowSun = new THREE.DirectionalLight(0xffffff, 0); shadowSun.castShadow = true;   // soft overhead shadow for SOFT RIM
+shadowSun.shadow.mapSize.set(1024, 1024); Object.assign(shadowSun.shadow.camera, { left: -1.2, right: 1.2, top: 1.2, bottom: -1.2, near: 0.1, far: 8 });
+shadowSun.shadow.radius = 6; scene.add(shadowSun, shadowSun.target);
+
+let look = 'rim';
+function setLook(l) {
+  look = l;
+  for (const id of ['lookRim', 'xrRim']) document.getElementById(id).setAttribute('aria-pressed', l === 'rim');
+  for (const id of ['lookRoom', 'xrRoom']) document.getElementById(id).setAttribute('aria-pressed', l === 'room');
+}
+for (const id of ['lookRim', 'xrRim']) document.getElementById(id).onclick = () => setLook('rim');
+for (const id of ['lookRoom', 'xrRoom']) document.getElementById(id).onclick = () => setLook('room');
+
+// ---------- load ----------
+let mixer = null, action = null, model = null; const mats = [];
+const status = document.getElementById('status');
+// Mixamo's FBX embeds its textures without file types, which three can't decode, so the
+// materials (same names, same UVs) come from her original GLB. FBX UVs are bottom-up: flip the maps.
+const TEX = Q.get('t') || '../models/dancer/kitana_1k.glb';
+const glbMats = new Promise((res) => {
+  const gl = new GLTFLoader(); gl.setMeshoptDecoder(MeshoptDecoder);
+  gl.load(TEX, (g) => { const m = {}; g.scene.traverse((o) => { if (o.isMesh) for (const x of [].concat(o.material)) m[x.name] = x; }); res(m); }, undefined, () => res({}));
+});
+const flip = (t) => { if (!t) return null; const c = t.clone(); c.flipY = true; c.needsUpdate = true; return c; };
+Promise.all([glbMats, new Promise((res, rej) => new FBXLoader().load(SRC, res, (e) => { if (e.total) status.textContent = `Loading Kitana… ${Math.round(e.loaded / e.total * 100)}%`; }, rej))]).then(([G, obj]) => {
+  model = obj;
+  // rebuild as standard PBR with her GLB maps, fix hair / lash cards
+  obj.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false;
+    const list = Array.isArray(o.material) ? o.material : [o.material];
+    const out = list.map((m) => {
+      const n = (m.name || '').toLowerCase(), g = G[m.name] || G[m.name.replace(/\.\d+$/, '')];
+      const s = new THREE.MeshStandardMaterial({ name: m.name, map: flip(g && g.map), normalMap: flip(g && g.normalMap), roughnessMap: flip(g && g.roughnessMap), color: 0xffffff, roughness: 0.55, metalness: 0 });
+      if (g && g.metalnessMap) { s.metalnessMap = flip(g.metalnessMap); s.metalness = g.metalness; }
+      if (g) { s.roughness = g.roughnessMap ? g.roughness : 0.55; if (g.normalScale) s.normalScale.copy(g.normalScale).multiplyScalar(1); s.normalScale.y *= -1; }   // flipped V -> flip normal green
+      if (s.map) s.map.colorSpace = THREE.SRGBColorSpace;
+      if (/body|mouth/.test(n)) { s.roughness = 0.5; }
+      if (/suit/.test(n)) { s.roughness = 0.38; }
+      if (/hair|lash/.test(n)) { s.alphaTest = 0.45; s.alphaToCoverage = true; s.side = THREE.DoubleSide; s.roughness = 0.45; }
+      if (/eyeshadow/.test(n)) { s.transparent = true; s.depthWrite = false; }
+      s.userData.base = { transparent: s.transparent, opacity: 1, depthWrite: s.depthWrite };
+      mats.push(s); return s;
+    });
+    o.material = Array.isArray(o.material) ? out : out[0];
+  });
+  // size to her real height in the first frame, feet on the floor, centred
+  const box = new THREE.Box3().setFromObject(obj), h = box.max.y - box.min.y;
+  obj.scale.multiplyScalar(HEIGHT / h);
+  const b2 = new THREE.Box3().setFromObject(obj), c = b2.getCenter(new THREE.Vector3());
+  obj.position.x -= c.x; obj.position.z -= c.z; obj.position.y -= b2.min.y;
+  holo.add(obj);
+  mixer = new THREE.AnimationMixer(obj);
+  const clip = obj.animations[0];
+  if (clip) { action = mixer.clipAction(clip); action.play(); }
+  mixer.timeScale = +document.getElementById('spd').value;
+  status.hidden = true;
+  let tris = 0; obj.traverse((o) => { if (o.isMesh) tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
+  info = `${Math.round(tris / 1000)}k tris, ${mats.length} mats, clip ${clip ? clip.duration.toFixed(1) : 0} s`;
+}).catch((err) => { status.textContent = 'Load failed: ' + err; console.error(err); });
+let info = '';
+document.getElementById('spd').oninput = (e) => { if (mixer) mixer.timeScale = +e.target.value; };
+
+function ghost(on) {
+  for (const m of mats) {
+    const b = m.userData.base;
+    m.transparent = on ? true : b.transparent; m.opacity = on ? 0.45 : 1; m.depthWrite = on ? false : b.depthWrite;
+    m.needsUpdate = true;
+  }
+  shadowPlane.visible = !on;
+}
+
+// ---------- AR: reticle, tap to place, pinch scale, twist turn, light estimation ----------
+let session = null, hitSrc = null, placed = false, lightProbeXR = null, est = null;
+const ov = document.getElementById('ov'), hint = document.getElementById('hint');
+const reticle = new THREE.Group(); reticle.matrixAutoUpdate = false; reticle.visible = false; scene.add(reticle);
+{
+  const rm = new THREE.MeshBasicMaterial({ color: 0x35d6ff, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+  const r1 = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.19, 48), rm); r1.rotation.x = -Math.PI / 2; reticle.add(r1);
+  const ar = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.08, 3), rm); ar.rotation.x = Math.PI / 2; ar.position.set(0, 0.001, 0.25); reticle.add(ar);
+}
+const retPos = new THREE.Vector3(), retQ = new THREE.Quaternion(), retS = new THREE.Vector3(), tmp = new THREE.Vector3();
+function placeAtReticle() {
+  if (!reticle.visible) return;
+  holo.position.copy(retPos);
+  renderer.xr.getCamera().getWorldPosition(tmp);
+  holo.rotation.y = Math.atan2(tmp.x - retPos.x, tmp.z - retPos.z);
+  if (!placed) ghost(false);
+  placed = true; holo.visible = true;
+  hint.textContent = 'Pinch to scale · twist to turn · tap to move';
+}
+const touches = new Map(); let pinch0 = null, tapT = 0, tapMoved = false;
+function two() { const [a, b] = [...touches.values()]; return { d: Math.hypot(b.x - a.x, b.y - a.y), ang: Math.atan2(b.y - a.y, b.x - a.x) }; }
+ov.addEventListener('beforexrselect', (e) => e.preventDefault());
+ov.addEventListener('pointerdown', (e) => {
+  if (e.target.closest('button')) return;
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touches.size === 1) { tapT = performance.now(); tapMoved = false; }
+  if (touches.size === 2) { const t = two(); pinch0 = { d: t.d, ang: t.ang, s: holo.scale.x, r: holo.rotation.y }; tapMoved = true; }
+});
+ov.addEventListener('pointermove', (e) => {
+  const p = touches.get(e.pointerId); if (!p) return;
+  if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > 12 && touches.size === 1) tapMoved = true;
+  p.x = e.clientX; p.y = e.clientY;
+  if (touches.size === 2 && pinch0 && placed) { const t = two(); holo.scale.setScalar(THREE.MathUtils.clamp(pinch0.s * t.d / pinch0.d, 0.1, 1.6)); holo.rotation.y = pinch0.r - (t.ang - pinch0.ang); }
+});
+function up(e) { if (!touches.has(e.pointerId)) return; touches.delete(e.pointerId); if (touches.size < 2) pinch0 = null; if (touches.size === 0 && !tapMoved && performance.now() - tapT < 350) placeAtReticle(); }
+ov.addEventListener('pointerup', up); ov.addEventListener('pointercancel', up);
+document.getElementById('xrExit').onclick = () => session && session.end();
+
+document.getElementById('ar').onclick = async () => {
+  if (session) { session.end(); return; }
+  if (!navigator.xr || !(await navigator.xr.isSessionSupported('immersive-ar'))) { document.getElementById('read').textContent = 'No AR here: open in Chrome on an ARCore phone. Desktop: drag to walk around her.'; return; }
+  session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay', 'light-estimation'], domOverlay: { root: ov } });
+  renderer.xr.setReferenceSpaceType('local');
+  await renderer.xr.setSession(session);
+  hitSrc = await session.requestHitTestSource({ space: await session.requestReferenceSpace('viewer') });
+  try { lightProbeXR = await session.requestLightProbe(); } catch (e) { lightProbeXR = null; }
+  scene.background = null; grid.visible = false; holo.visible = false; placed = false; ghost(true);
+  ov.classList.add('xr'); hint.textContent = 'Point at the floor, tap to place her';
+  session.addEventListener('end', () => {
+    session = null; hitSrc = null; lightProbeXR = null; est = null; reticle.visible = false;
+    holo.visible = true; placed = false; ghost(false); holo.position.set(0, 0, 0); holo.rotation.y = 0; holo.scale.setScalar(START_SCALE);
+    scene.background = BG; grid.visible = true; ov.classList.remove('xr'); touches.clear();
+  });
+};
+
+addEventListener('resize', () => { cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+// ---------- per-frame lighting ----------
+const her = new THREE.Vector3(), eye = new THREE.Vector3(), toEye = new THREE.Vector3(), side = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
+function light(viewerPos) {
+  const s = holo.scale.x;
+  holo.getWorldPosition(her);
+  toEye.copy(viewerPos).sub(her); toEye.y = 0; if (toEye.lengthSq() < 1e-4) toEye.set(0, 0, 1); toEye.normalize();
+  side.crossVectors(UP, toEye).normalize();
+  const chest = her.clone().addScaledVector(UP, 1.15 * s);
+  const room = look === 'room';
+  // SOFT RIM: two rims behind her (relative to you), slightly above, soft face fill from your side
+  const rimOn = room ? 0 : 1;
+  rimL.position.copy(her).addScaledVector(toEye, -1.6 * s).addScaledVector(side, -1.3 * s).addScaledVector(UP, 2.1 * s); rimL.target.position.copy(chest);
+  rimR.position.copy(her).addScaledVector(toEye, -1.6 * s).addScaledVector(side, 1.3 * s).addScaledVector(UP, 2.1 * s); rimR.target.position.copy(chest);
+  rimL.intensity = rimR.intensity = 55 * rimOn * s * s;
+  face.position.copy(her).addScaledVector(toEye, 1.4 * s).addScaledVector(side, 0.35 * s).addScaledVector(UP, 1.75 * s);
+  face.intensity = 1.6 * rimOn * s * s;
+  shadowSun.position.copy(her).addScaledVector(UP, 4).addScaledVector(toEye, 0.4); shadowSun.target.position.copy(her); shadowSun.intensity = rimOn * 0.25;
+  amb.intensity = room ? 0 : (session ? 0.35 : 0.12);
+  // ROOM LIGHT: phone's estimate of the room (ambient SH + main light), or a neutral stand-in on desktop
+  if (room) {
+    if (est) {
+      probe.sh.fromArray(est.sphericalHarmonicsCoefficients); probe.intensity = 1;
+      const d = est.primaryLightDirection, I = est.primaryLightIntensity;
+      key.position.copy(her).add(tmp.set(d.x, d.y, d.z).normalize().multiplyScalar(4)); key.target.position.copy(her);
+      key.intensity = Math.max(I.x, I.y, I.z) * 1.0; key.color.setRGB(I.x, I.y, I.z).multiplyScalar(1 / Math.max(1e-3, Math.max(I.x, I.y, I.z)));
+    } else {
+      probe.intensity = 0; amb.intensity = 0.9;
+      key.position.copy(her).add(tmp.set(1.2, 3.5, 1.6)); key.target.position.copy(her); key.intensity = 2.2; key.color.set(0xffffff);
+    }
+  } else { probe.intensity = 0; key.intensity = 0; }
+  key.castShadow = room; shadowSun.castShadow = !room;
+}
+
+// ---------- loop ----------
+const clock = new THREE.Clock(); let fpsN = 0, fpsT = 0, fps = 0;
+renderer.setAnimationLoop((t, frame) => {
+  const dt = Math.min(clock.getDelta(), 0.1);
+  if (mixer) mixer.update(dt);
+  const viewer = renderer.xr.isPresenting ? renderer.xr.getCamera() : cam;
+  viewer.getWorldPosition(eye);
+  if (!renderer.xr.isPresenting) orbit.update();
+  if (frame && hitSrc) {
+    const ref = renderer.xr.getReferenceSpace();
+    const res = frame.getHitTestResults(hitSrc);
+    if (res.length) {
+      reticle.matrix.fromArray(res[0].getPose(ref).transform.matrix);
+      reticle.matrix.decompose(retPos, retQ, retS);
+      retQ.setFromAxisAngle(UP, Math.atan2(eye.x - retPos.x, eye.z - retPos.z));
+      reticle.matrix.compose(retPos, retQ, retS.set(1, 1, 1));
+      reticle.visible = true;
+    } else reticle.visible = false;
+    if (!placed) { holo.visible = reticle.visible; if (reticle.visible) { holo.position.copy(retPos); holo.rotation.y = Math.atan2(eye.x - retPos.x, eye.z - retPos.z); } }
+    if (lightProbeXR) { const e = frame.getLightEstimate(lightProbeXR); if (e) est = e; }
+  }
+  light(eye);
+  renderer.render(scene, cam);
+  fpsN++; fpsT += dt; if (fpsT > 0.5) { fps = fpsN / fpsT; fpsN = 0; fpsT = 0; }
+  const tag = `${fps.toFixed(0)} fps · ${look === 'rim' ? 'soft rim' : (est ? 'room light (estimated)' : 'room light')} · ${info}`;
+  document.getElementById('tag').textContent = tag; document.getElementById('read').textContent = tag;
+});
+window.__live = { holo, setLook, get mixer() { return mixer; } };
+</script>
