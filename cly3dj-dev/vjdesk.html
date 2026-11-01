@@ -54,6 +54,13 @@
   #pv { width:100%; aspect-ratio:16/9; background:#000; border-radius:8px; border:1px solid var(--line); object-fit:contain; display:block; }
   input[type=range] { flex:1; min-width:120px; }
   /* #552 T-bars (vision mixer style): A / B program fader beside the Program picture, and the DANCER zoom */
+  /* #557 lit bus buttons: green glow = LIVE (on air), flashing yellow = CUE (the monitor shows that bus while the other is live) */
+  .busLit { width:46px; padding:8px 0; font:900 17px system-ui,sans-serif; letter-spacing:.02em; background:#151a24; border:2px solid #39425a; color:#8c96a8; border-radius:9px; }
+  .busLit.live { background:#0e4a24; border-color:#33e070; color:#eaffef; box-shadow:0 0 12px rgba(51,224,112,.65), inset 0 0 8px rgba(51,224,112,.35); }
+  .busLit.cue { animation:cueFlash .7s steps(1) infinite; }
+  @keyframes cueFlash { 0% { background:#6e5a0c; border-color:#ffd23a; color:#fff8d8; box-shadow:0 0 14px rgba(255,210,58,.8); } 50% { background:#2a2410; border-color:#8a7420; color:#d8c27a; box-shadow:none; } }
+  .pvWrap { position:relative; } .pvTag { position:absolute; left:8px; top:8px; font:800 12px system-ui,sans-serif; padding:3px 8px; border-radius:6px; letter-spacing:.05em; pointer-events:none; background:rgba(14,74,36,.85); color:#eaffef; }
+  .pvTag.cue { background:rgba(110,90,12,.92); color:#fff8d8; } #pv.cue { border:2px solid #ffd23a; }
   .pvRow { display:flex; gap:8px; align-items:stretch; } .pvRow #pv { flex:1 1 auto; width:auto; min-width:0; }
   .tbar { position:relative; flex:0 0 58px; width:58px; border-radius:10px; background:#0b0e16; border:1px solid var(--line); touch-action:none; user-select:none; cursor:grab; outline:none; }
   .tbar.drag { cursor:grabbing; border-color:#4b5d82; } .tbar:focus-visible { border-color:var(--blue); }
@@ -129,10 +136,10 @@
   <div>
     <section>
       <h2>Program</h2>
-      <div><img id="pv" alt=""></div>
-      <div class="row" id="busA"><span class="lbl">A</span></div>
+      <div class="pvWrap"><img id="pv" alt=""><span id="pvTag" class="pvTag">PROGRAM</span></div>
+      <div class="row" id="busA"><button class="busLit" id="litA" title="Green = A is on air. Tap while B is on air: CUE (flashing yellow), the monitor shows A so you can build it. Tap again to leave CUE.">A</button></div>
       <div class="row"><div class="tbar h" id="xfT" title="T-bar: left = bus A on air, right = bus B on air. Grab and pull; it doesn't jump to a click."></div></div>
-      <div class="row" id="busB"><span class="lbl">B</span></div>
+      <div class="row" id="busB"><button class="busLit" id="litB" title="Green = B is on air. Tap while A is on air: CUE (flashing yellow), the monitor shows B so you can build it. Tap again to leave CUE.">B</button></div>
       <div class="row"><button id="cut">CUT</button><button id="auto">AUTO</button><select id="fadeMs"><option value="800">0.8 s</option><option value="2000" selected>2 s</option><option value="5000">5 s</option></select></div>
       <div class="note">QUEST = the picture DirroVJ gets from the Quest (SHOW, LIVE DJ!, KEY, WEBCAM mode as picked on the tablet) with its overlays. WEBCAM = this laptop's webcam as it is (start it on the DirroVJ page). CYCLO = DirroVJ's copy of the Cyclo clip.</div>
     </section>
@@ -284,6 +291,7 @@ function makeTBar(el, { onInput, top, bot, topVal = 0, step = 0.02, horiz = fals
   return { set(x) { if (drag || Date.now() - relT < 500) return; v = Math.max(0, Math.min(1, +x || 0)); place(); }, get v() { return v; } };
 }
 const xfT = makeTBar($('xfT'), { top: 'A', bot: 'B', topVal: 0, horiz: true, onInput: v => send({ k: 'x', v }) });
+$('litA').onclick = () => send({ k: 'cue', bus: 'a' }); $('litB').onclick = () => send({ k: 'cue', bus: 'b' });   // #557
 $('cut').onclick = () => send({ k: 'cut' }); $('auto').onclick = () => send({ k: 'auto', ms: +$('fadeMs').value });
 for (const b of document.querySelectorAll('[data-pal]')) b.onclick = () => send({ k: 'fr', v: { pal: b.dataset.pal } });
 for (const b of document.querySelectorAll('[data-ft]')) b.onclick = () => send({ k: 'fr', v: { type: b.dataset.ft } });
@@ -313,6 +321,8 @@ function render() {
   const D = S.D;
   for (const b of document.querySelectorAll('[data-bus]')) b.classList.toggle('on', D[b.dataset.bus] === b.dataset.src);
   xfT.set(D.x);   // #552
+  for (const [id, b, live] of [['litA', 'a', D.x < 1], ['litB', 'b', D.x > 0]]) { const cue = D.cue === b; $(id).classList.toggle('cue', cue); $(id).classList.toggle('live', live && !cue); }   // #557
+  { const t = $('pvTag'); if (D.cue) { t.textContent = `CUE ${D.cue.toUpperCase()} · on air: ${D.x <= 0 ? 'A' : D.x >= 1 ? 'B' : 'A+B'}`; t.classList.add('cue'); $('pv').classList.add('cue'); } else { t.textContent = 'PROGRAM'; t.classList.remove('cue'); $('pv').classList.remove('cue'); } }
   for (const b of document.querySelectorAll('[data-pal]')) b.classList.toggle('on', D.fr.pal === b.dataset.pal);
   for (const b of document.querySelectorAll('[data-ft]')) b.classList.toggle('on', (D.fr.type || 'mandel') === b.dataset.ft);
   if (D.kick !== render.kick) { render.kick = D.kick; $('kick').style.background = '#ff3040'; setTimeout(() => { $('kick').style.background = '#333'; }, 120); }
@@ -676,7 +686,7 @@ function renderDz() {
   const r = Z.rec || {}; $('dzRec').classList.toggle('on', !!r.on); $('dzRec').textContent = r.on ? `■ ${Math.ceil(30 - r.t)} s` : '● REC';
   const onBus = S.D.a === 'dancer' || S.D.b === 'dancer';
   $('dzSt').textContent = Z.err ? 'DANCER: ' + Z.err : Z.loading ? 'Loading DANCER and her dances…' : !Z.loaded ? 'Not loaded yet: pick DANCER on a bus, a dance or REC.'
-    : `Dancing: ${Z.clip || '-'} · ${r.on || S.D.x < 1 && S.D.a === 'dancer' || S.D.x > 0 && S.D.b === 'dancer' ? 'drawing' : onBus ? 'paused until the T-bar brings her bus in' : 'paused (on no bus)'}` + (!r.on && r.msg ? ' · ' + r.msg : '');   // #554 REC result here (the REC info row is gone)
+    : `Dancing: ${Z.clip || '-'} · ${S.D.cue && S.D[S.D.cue] === 'dancer' ? 'drawing (CUE)' : r.on || S.D.x < 1 && S.D.a === 'dancer' || S.D.x > 0 && S.D.b === 'dancer' ? 'drawing' : onBus ? 'paused (CUE her bus to set her up, or bring it in with the T-bar)' : 'paused (on no bus)'}` + (!r.on && r.msg ? ' · ' + r.msg : '');   // #554 REC result here (the REC info row is gone)
   if (window.dzClips) window.dzClips(Z.clip);
 }
 bc.onmessage = e => {
@@ -689,7 +699,7 @@ bc.onmessage = e => {
       : (m.live || $('pv').getAttribute('src')) ? 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'
       : 'Connected to DirroVJ, starting program output…';
   }
-  else if (m.k === 'pv') { $('pv').src = m.img; }
+  else if (m.k === 'pv') { if (!!m.cue === !!(S && S.D.cue)) $('pv').src = m.img; }   // #557 a CUE picture only while CUE is on, the program only while it is off
   else if (m.k === 'cxpv') { if (m.id === cxSel) { if (m.blob) { const u = URL.createObjectURL(m.blob); if (cxPvUrl) URL.revokeObjectURL(cxPvUrl); cxPvUrl = u; $('cxPv').src = u; } else if (m.img) $('cxPv').src = m.img; } }   // #516, #518 a blob now
   else if (m.k === 'cxfile') { if (m.blob) cxDownload(m.blob, m.name || 'dirrocomics'); }   // #522 an export, ready
   else if (m.k === 'cxlist') { cxThumbs = m.thumbs || {}; cxStarImgs = m.starImgs || cxStarImgs; cxListN++; renderCx(); }

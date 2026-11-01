@@ -111,7 +111,7 @@ const PALS = ['green', 'island', 'lava', 'ice', 'copper', 'neon'];
 const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer'];   // #516 comic = DirroComics page, #550 dancer = DirroDancer, #555 BLACK removed (owner: never used)
 
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
-  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), chDesk: '', audioAuto: false, lsc: '' };
+  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), chDesk: '', audioAuto: false, lsc: '', cue: '' };   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
   try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
   const queue = []; let qid = 1;
@@ -202,13 +202,16 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     return 0;
   }
   // ---- the program picture: called by studio.js with its composite, draws to the screen
-  let lastT = 0, pvT = 0; const pv = document.createElement('canvas'); pv.width = 256; pv.height = 144;
+  let lastT = 0, pvT = 0; const PVW = 480, PVH = 270, pv = document.createElement('canvas'); pv.width = PVW; pv.height = PVH;   // #557 desk monitor 480 x 270 (was 256 x 144)
+  const pvRT = new THREE.WebGLRenderTarget(PVW, PVH, { depthBuffer: false }), pvBuf = new Uint8Array(PVW * PVH * 4), pvImg = new ImageData(PVW, PVH);   // #557 CUE picture
   let outT = 0;   // #519 last program frame: the desk says when DirroVJ is waiting for the Quest
   function output(questTex, now, W, H) {
     outT = now;
     const dt = Math.min(0.1, lastT ? (now - lastT) / 1000 : 0.016); lastT = now;
     if (D.fadeTo != null) { const step = dt * 1000 / Math.max(50, D.fadeMs); D.x += Math.sign(D.fadeTo - D.x) * step; if (Math.abs(D.fadeTo - D.x) <= step) { D.x = D.fadeTo; D.fadeTo = null; post(); } }
-    const used = (D.x < 1 ? [D.a] : []).concat(D.x > 0 ? [D.b] : []);
+    if ((D.cue === 'a' && D.x <= 0) || (D.cue === 'b' && D.x >= 1)) { D.cue = ''; post(); }   // #557 the T-bar reached the cued bus: it is LIVE now, CUE ends
+    const onAir = (D.x < 1 ? [D.a] : []).concat(D.x > 0 ? [D.b] : []), cueSrc = D.cue ? D[D.cue] : '';
+    const used = cueSrc && !onAir.includes(cueSrc) ? onAir.concat([cueSrc]) : onAir;   // a cued source is drawn too (FRACTAL, DANCER, COMICS)
     if (used.includes('fractal')) fractal(dt, now);
     if (dzNeed(used)) dz.render(now);   // #550 only while the T-bar shows her bus, or REC runs
     comics.tick(questTex, now, dt); comicTex = used.includes('comic') ? comics.render(W, H) : null;   // #516
@@ -217,7 +220,16 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     mU.x.value = D.x;
     renderer.setRenderTarget(null); renderer.render(mSc, oc);
     if (lsc.on) { lsc.tick(dt); lscTex.needsUpdate = true; const ac = renderer.autoClear; renderer.autoClear = false; renderer.render(lscSc, oc); renderer.autoClear = ac; }   // #556 local scroller over the program (no Quest)
-    if (peers && now - pvT > 250) { pvT = now; try { pv.getContext('2d').drawImage(renderer.domElement, 0, 0, 256, 144); bc.postMessage({ k: 'pv', img: pv.toDataURL('image/jpeg', 0.6) }); } catch {} }
+    if (peers && now - pvT > 250 && cueSrc) {   // #557 CUE: the cued bus alone into a small target, read back for the desk monitor (Twitch / DirroTV keep the program)
+      pvT = now;
+      try {
+        mU.kA.value = bind(cueSrc, mU.tA, mU.fA.value, W, H, questTex, now); mU.kB.value = 0; mU.x.value = 0;
+        renderer.setRenderTarget(pvRT); renderer.render(mSc, oc); renderer.readRenderTargetPixels(pvRT, 0, 0, PVW, PVH, pvBuf); renderer.setRenderTarget(null);
+        const row = PVW * 4; for (let y = 0; y < PVH; y++) pvImg.data.set(pvBuf.subarray((PVH - 1 - y) * row, (PVH - y) * row), y * row);
+        pv.getContext('2d').putImageData(pvImg, 0, 0); bc.postMessage({ k: 'pv', img: pv.toDataURL('image/jpeg', 0.7), cue: D.cue });
+      } catch (e) { console.warn('cue preview', e); }
+    }
+    if (peers && now - pvT > 250) { pvT = now; try { pv.getContext('2d').drawImage(renderer.domElement, 0, 0, PVW, PVH); bc.postMessage({ k: 'pv', img: pv.toDataURL('image/jpeg', 0.6) }); } catch {} }
   }
   // ---- scroller desk
   function enqueue(src, who, t, id) {
@@ -319,6 +331,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     }   // #523 / #530
     else if (m.k === 'bus') { if (SOURCES.includes(m.v)) { if (m.v === 'webcam' && !fixed.on && fixed.start) fixed.start().catch(() => {}); if (m.v === 'dancer') dzLoad(); D[m.bus === 'b' ? 'b' : 'a'] = m.v; } post(); }
     else if (m.k === 'x') { D.x = Math.max(0, Math.min(1, +m.v)); D.fadeTo = null; post(); }
+    else if (m.k === 'cue') { const b = m.bus === 'a' || m.bus === 'b' ? m.bus : ''; const live = b && ((b === 'a' && D.x <= 0) || (b === 'b' && D.x >= 1)); D.cue = !b || live || D.cue === b ? '' : b; post(); }   // #557 tap = CUE, tap again = out of CUE; the fully live bus can't be cued
     else if (m.k === 'cut') { D.x = D.x < 0.5 ? 1 : 0; D.fadeTo = null; post(); }
     else if (m.k === 'auto') { D.fadeMs = +m.ms || D.fadeMs; D.fadeTo = D.x < 0.5 ? 1 : 0; post(); }
     else if (m.k === 'fr') { Object.assign(D.fr, m.v || {}); try { localStorage.setItem('vire.vjFr', JSON.stringify(D.fr)); } catch {} post(); }

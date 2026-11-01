@@ -392,7 +392,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
         U.crop.value.set(K.gl || 0, K.gr || 0, K.gt || 0, K.gb || 0);
         if (vs.mat && vs.mat.uniforms.panoTint) U.tint.value.copy(vs.mat.uniforms.panoTint.value);
       } else S.hold = null;
-      const needComp = !desk || ((desk.D.x < 1 && desk.D.a === 'quest') || (desk.D.x > 0 && desk.D.b === 'quest'));
+      const needComp = !desk || ((desk.D.x < 1 && desk.D.a === 'quest') || (desk.D.x > 0 && desk.D.b === 'quest') || (desk.D.cue && desk.D[desk.D.cue] === 'quest'));   // #557 + QUEST cued
       // backdrop (not for LIVE DJ!, whose camera covers it; not when the Quest's frame is opaque)
       U.bgMode.value = 0;
       if (needComp && S.mode !== 'dj' && S.mode !== 'cam' && !(haveQ && !packed)) {
