@@ -8,6 +8,7 @@
 import { TwitchChat } from './chat.js';
 import { makeComics } from './comics.js';   // #516 DirroComics
 import * as media from './medialib.js';   // #532 IMAGES / VIDEOS / PANOS clip decks
+import { Scroller } from './tools.js';   // #556 the same bitmap sine scroller as the Quest's, for the program when there is no Quest
 // #550 DANCER: js/dancerdesk.js is imported only when the desk first needs her (its loaders, post chain and the 5 MB GLB stay out of the start)
 function dzDefaults() {
   const S = { loaded: false, loading: false, err: '', clip: '', clips: [], stage: 'rim', props: { manhole: false, pumpkin: false, fog: false }, fog: { den: 0.5, h: 0.8, speed: 0.6, col: 'cold' }, cam: { mode: 'orbit', x: 0, y: 8, zoom: 1 }, pv: false, rec: { on: false, t: 0, msg: '' } };
@@ -110,7 +111,8 @@ const PALS = ['green', 'island', 'lava', 'ice', 'copper', 'neon'];
 const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer'];   // #516 comic = DirroComics page, #550 dancer = DirroDancer, #555 BLACK removed (owner: never used)
 
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
-  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults() };
+  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), chDesk: '', audioAuto: false, lsc: '' };
+  try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
   const queue = []; let qid = 1;
   const quad = mat => { const sc = new THREE.Scene(), m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); m.frustumCulled = false; sc.add(m); return sc; };
@@ -138,7 +140,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   let an = null, anBuf = null, anTrack = null, bass = 0, avg = 0, kickT = 0, pulse = 0, cyc = 0;
   // #508 kicks: bass energy jumping well over its running average (no BPM, no lock: each kick is heard, then the peaks fall back)
   function analyse(dt, now) {
-    const tr = getQuestAudio && getQuestAudio();
+    const tr = liveAudio();   // #556 BEAT listens to whatever sound is live (Quest, LINE IN or the automatic LINE IN)
     if (tr !== anTrack) { anTrack = tr; an = null; if (tr && tr.readyState === 'live') { try { const ac = analyse.ac || (analyse.ac = new AudioContext()); const s = ac.createMediaStreamSource(new MediaStream([tr])); an = ac.createAnalyser(); an.fftSize = 1024; an.smoothingTimeConstant = 0.1; s.connect(an); anBuf = new Uint8Array(an.frequencyBinCount); } catch { an = null; } } }
     if (an) {
       if (analyse.ac && analyse.ac.state === 'suspended') analyse.ac.resume().catch(() => {});
@@ -214,6 +216,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     mU.kB.value = D.x > 0 ? bind(D.b, mU.tB, mU.fB.value, W, H, questTex, now) : 0;
     mU.x.value = D.x;
     renderer.setRenderTarget(null); renderer.render(mSc, oc);
+    if (lsc.on) { lsc.tick(dt); lscTex.needsUpdate = true; const ac = renderer.autoClear; renderer.autoClear = false; renderer.render(lscSc, oc); renderer.autoClear = ac; }   // #556 local scroller over the program (no Quest)
     if (peers && now - pvT > 250) { pvT = now; try { pv.getContext('2d').drawImage(renderer.domElement, 0, 0, 256, 144); bc.postMessage({ k: 'pv', img: pv.toDataURL('image/jpeg', 0.6) }); } catch {} }
   }
   // ---- scroller desk
@@ -227,14 +230,22 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if (what !== 'status') { const m = chat.msgs[chat.msgs.length - 1]; if (m && !m.sys && m !== chat._last) { chat._last = m; enqueue('chat', m.name || '', (m.toks || []).map(k => k.t).join('')); } }
     post();
   });
+  function chatChan() { return D.chQ || D.chDesk || ''; }   // #556 the Quest's channel while it sends one, else the desk's
+  function chatFollow() { const c = chatChan(); if (c !== D.ch) { D.ch = c; chat.stop(); if (c) chat.start(c); post(); } }
   function onStu(m) {
     if ('sh' in m && JSON.stringify(m.sh) !== JSON.stringify(D.sh)) { D.sh = m.sh; post(); }   // #523 SHOWTIME! state from the Quest
-    if (m.ch && m.ch !== D.ch) { D.ch = m.ch; chat.stop(); chat.start(m.ch); post(); }
+    if (m.ch && m.ch !== D.chQ) { D.chQ = m.ch; chatFollow(); }
   }
   function onVjSms(m) { for (const [id, t] of m.items || []) enqueue('sms', 'HoloSMS', t, 'sms:' + id); }
+  // #556 no Quest link: approved lines go to a sine scroller drawn over DirroVJ's own program (all buses, Twitch, DirroTV); CLEAR on the desk stops it
+  const lsc = new Scroller(); lsc.save = () => {};
+  const lscTex = new THREE.CanvasTexture(lsc.canvas); lscTex.colorSpace = THREE.SRGBColorSpace; lscTex.generateMipmaps = false; lscTex.minFilter = THREE.LinearFilter;
+  const lscSc = new THREE.Scene(); { const h = 2 * (1280 * 128 / 768) / 720, m = new THREE.Mesh(new THREE.PlaneGeometry(2, h), new THREE.MeshBasicMaterial({ map: lscTex, transparent: true, depthTest: false, depthWrite: false })); m.position.y = -1 + h / 2 + 0.03; m.frustumCulled = false; lscSc.add(m); }
+  const questLinked = () => { const L = getLink(); return !!(L && L.isOpen); };
   function approve(id, t) {
     const q = id != null ? queue.find(x => x.id === id) : null, text = q ? q.t : t; if (!text) return;
     const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'vjsine', t: text });
+    else { lsc.start(text); D.lsc = text; }
     if (q) { q.sent = Date.now(); queue.splice(queue.indexOf(q), 1); queue.push(q); }
     post();
   }
@@ -250,12 +261,29 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     onAudio && onAudio(); post();
   }
   let onAudio = null;
+  // #556 automatic LINE IN: when the desk is on QUEST sound but no Quest sound has come for 3 s, this laptop's input (the picked one, else the
+  // default) stands in for Twitch, DirroTV and BEAT; it is let go as soon as the Quest's sound is back. The DIRROVJ page may ask once for the mic.
+  let autoTrack = null, autoBusy = false, qGoneT = 0;
+  const qAudio = () => { const t = getQuestAudio && getQuestAudio(); return t && t.readyState === 'live' ? t : null; };
+  const liveAudio = () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null) || qAudio() || (autoTrack && autoTrack.readyState === 'live' ? autoTrack : null);
+  setInterval(async () => {
+    const now = performance.now(), q = qAudio();
+    if (q || D.audio !== 'quest') { qGoneT = 0; if (autoTrack) { autoTrack.stop(); autoTrack = null; D.audioAuto = false; onAudio && onAudio(); post(); } return; }
+    if (!qGoneT) qGoneT = now;
+    if (autoTrack || autoBusy || now - qGoneT < 3000) return;
+    autoBusy = true;
+    try { const s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: D.lineDev ? { ideal: D.lineDev } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } });
+      if (qAudio() || D.audio !== 'quest') s.getTracks().forEach(t => t.stop()); else { autoTrack = s.getAudioTracks()[0]; D.audioAuto = true; D.lineErr = ''; onAudio && onAudio(); post(); } }
+    catch (e) { D.lineErr = 'automatic LINE IN: ' + e.message; qGoneT = now + 27000; post(); }   // try again in 30 s
+    finally { autoBusy = false; }
+  }, 1000);
   let devCache = null, devT = 0;   // #518 the input list is asked for at most every 5 s (it was every state post)
   async function devices() { const now = performance.now(); if (devCache && now - devT < 5000) return devCache; devT = now; try { devCache = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput').map(d => [d.deviceId, d.label || 'Input']); } catch { devCache = []; } return devCache; }
   // ---- the control window
   const bc = new BroadcastChannel('dirrovj'); let peers = 0, postT = 0;
   async function post() {
     const now = performance.now(); if (now - postT < 60) { clearTimeout(post.t); post.t = setTimeout(post, 70); return; } postT = now;
+    D.qlink = questLinked(); if (!D.qlink && D.chQ) { D.chQ = ''; chatFollow(); }   // #556 the Quest's chat channel only counts while it is linked
     bc.postMessage({ k: 'state', D: { ...D, fr: { ...D.fr } }, tw: studioCtl && studioCtl.twState ? studioCtl.twState() : null, air: studioCtl && studioCtl.airState ? studioCtl.airState() : null, queue, devs: await devices(), sources: SOURCES, C: comics.state(), live: outT > 0 && performance.now() - outT < 3000 });
   }
   bc.onmessage = e => {
@@ -299,12 +327,15 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     else if (m.k === 'reject') { const i = queue.findIndex(x => x.id === m.id); if (i >= 0) queue.splice(i, 1); post(); }
     else if (m.k === 'say') approve(null, String(m.t || '').slice(0, 120));
     else if (m.k === 'audio') setAudio(m.v, m.dev);
+    else if (m.k === 'chan') { D.chDesk = String(m.v || '').replace(/^#/, '').trim().toLowerCase().slice(0, 40); try { localStorage.setItem('vire.vjChat', D.chDesk); } catch {} chatFollow(); }   // #556
+    else if (m.k === 'lsc') { lsc.stop(); D.lsc = ''; post(); }   // #556 CLEAR the local scroller
   };
   setInterval(() => { if (peers) post(); }, 1500);
   if (D.a === 'dancer' || D.b === 'dancer') dzLoad();
+  setTimeout(chatFollow, 1500);   // #556 the desk's own chat channel, if no Quest sends one
   // #519 the Quest hasn't turned DirroVJ on (no program frames): keep DirroComics editing alive (desk preview, grabs, AUTO).
   // tick() draws only into its own render targets, never to the screen, so it doesn't fight the camera page's own drawing.
   let idleT = 0; setInterval(() => { const now = performance.now(); if (now - outT < 1000 || !peers) return; if (dzNeed([])) try { dz.render(now); } catch (e) { console.warn('dancer idle', e); }   // #550 REC with no program frames
     const dt = idleT ? Math.min(0.25, (now - idleT) / 1000) : 0.12; idleT = now; try { comics.tick(null, now, dt); } catch (e) { console.warn('comics idle', e); } }, 120);
-  return { D, post, output, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null), queue, comics, onCx: m => { if (m.star) { comics.onStar(m.star); return; } if (m.blob) comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
+  return { D, post, output, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null) || (autoTrack && autoTrack.readyState === 'live' ? autoTrack : null), queue, comics, onCx: m => { if (m.star) { comics.onStar(m.star); return; } if (m.blob) comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
 }

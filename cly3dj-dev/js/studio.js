@@ -157,7 +157,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   }
   const studioCtl = {
     twState: () => ({ state: S.tw, msg: S.twMsg, kbps: S.kbps, key: getTwKey() }),
-    airState: () => ({ qOn: !!S.qOn, local: !!S.local, mode: S.mode }),   // #545 the desk's ON AIR / RENDER badges
+    airState: () => { const L = getLink(); return { qOn: !!S.qOn, local: !!S.local, mode: S.mode, link: !!(L && L.isOpen), tv: S.tv || 'off', tvKnown: !!tvSaved().key }; },   // #545 the desk's ON AIR / RENDER badges, #556 QUEST LINK + DIRROTV
     setTwKey,
     twToggle: k => {
       if (k != null && String(k).trim()) setTwKey(k);
@@ -309,8 +309,9 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       if (desk) desk.onStu(m);   // #507 the Twitch channel for the scroller desk
       Object.assign(S, { qOn: !!m.on, on: vj ? (S.on || !!m.on) : !!m.on, mode: m.mode || 'show', bd: m.bd && m.bd !== 'none' ? m.bd : (S.vjBd || m.bd || 'none'), snd: m.snd !== false, trim: +m.trim || 0, mon: !!m.mon, src: m.src || 'show', clipWant: m.clip || '', local: !!m.local, O: m.O || null });   // #504 / #531 / #533
       if (S.on && !was) { S.paused = false; if (S.bd === 'dome') vs.ensure().catch(() => {}); }
-      if (!m.on && S.qOn) { twStop('studio off'); }
+      // #556 DIRROVJ switched off on the Quest no longer stops Twitch here: only the desk's TWITCH button or the Quest's END ('stuLive' off) does
       if (vj && S.on && S.mode !== 'show' && (wasMode === 'show' || !was) && !fixed.on && fixed.start) fixed.start().then(() => syncScreenWin()).catch(() => {});   // #530 auto-start laptop webcam when WEBCAM is triggered
+      if (vj && m.tv) { try { localStorage.setItem(TVK, JSON.stringify({ key: m.tv, aud: !!m.tvA })); } catch {} }   // #556 kept, so DirroTV still finds DirroVJ without the Quest
       tvFollow(vj && m.on ? m.tv || '' : '', !!m.tvA);   // #509
       if (S.on && S.bd === 'dome') { vs.ensure().catch(() => {}); vs.playPano && vs.playPano(true); }
       if (m.cam) {   // #382 LOW LIGHT + #530 WEBCAM exposure/matte from the tablet
@@ -320,6 +321,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       }
       apply();
     } else if (m.k === 'stuLive') {
+      { const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'stuAck', on: !!m.on, tok: m.ack || 0 }); }   // #556 the Quest goes live itself if this doesn't arrive within 3 s
       if (m.on) { if (m.key) setTwKey(m.key); twStart(); } else twStop('');
     }
   }
@@ -328,9 +330,11 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   // #506 who this is, for the Quest's pairing (kept on this device)
   const vid = (() => { try { let v = localStorage.getItem('vire.vjId'); if (!v) { const a = new Uint32Array(2); crypto.getRandomValues(a); v = (a[0].toString(36) + a[1].toString(36)).slice(0, 10); localStorage.setItem('vire.vjId', v); } return v; } catch { return 'nostore'; } })();
   function onLink(open) {
+    if (vj) tvFollow(open ? '' : tvSaved().key, tvSaved().aud);   // #556 link up: the Quest decides who answers the TVs; link gone: DirroVJ answers the kept key
     if (!open) { S.linkLost = performance.now(); qTrack = aTrack = null; }
     else { S.linkLost = 0; const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'sst', hello: 1, vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, run: false }); }   // #506 say hello so the Quest can ask the DJ
   }
+  setInterval(() => { if (vj) { const L0 = getLink(); if (!(L0 && L0.isOpen) && tvSaved().key && tvKey !== tvSaved().key) tvFollow(tvSaved().key, tvSaved().aud); } }, 3000);   // #556 no Quest: answer DirroTV
   setInterval(() => { if (S.qOn) return; const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'sst', hello: 1, vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, run: false }); }, 3000);   // #506 also while the studio is off (heartbeat + pairing)
   // ---- stamp read-back (async, 32 x 1 pixels): how late the Quest's frames are, in its clock
   let stripBusy = false;
@@ -463,7 +467,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     return true;
   }
   function needNote(haveQ, packed) {
-    if (S.linkLost) return 'Quest link lost: reconnect (Twitch stays up for a minute)';
+    if (S.linkLost) return 'Quest link lost: Twitch and DirroTV stay up from this laptop';
     if (!haveQ) return 'no picture from the Quest yet';
     if (S.mode !== 'show' && !fixed.on) return 'WEBCAM: start the webcam on this page (Webcam button)';   // #501 / #530
     if (S.mode !== 'show' && S.holdShort) return 'the camera can\'t wait that long (over ' + RING + ' frames)';
@@ -479,7 +483,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     stEl.textContent = `DirroVJ  ${({ show: 'SHOW', dj: 'WEBCAM', key: 'WEBCAM (KEY)', cam: 'WEBCAM' })[S.mode]}  ·  backdrop ${S.bd.toUpperCase()}  ·  out ${S.fps} fps  ·  Quest ${S.qfps} fps\n` +
       `camera ${camRate} fps  ·  Quest frames ${S.D != null ? Math.round(S.D) + ' ms' : '-'} late  ·  camera held ${S.hold != null ? S.hold + ' ms' : '-'}  ·  trim ${S.trim} ms  ·  sound ${aTrack && S.snd ? 'on' : 'off'}\n` +
       `Twitch: ${S.tw}${S.twMsg ? ' (' + S.twMsg + ')' : ''}${S.tw === 'live' ? '  ' + (S.kbps / 1000).toFixed(1) + ' Mb/s' : ''}${note ? '\n' + note : ''}`;
-    if (S.linkLost && S.tw !== 'off' && now - S.linkLost > 60000) twStop('the Quest link was gone for a minute');
+    // #556 a lost Quest link no longer stops Twitch after a minute: the desk owns the stream (sound falls back to LINE IN on the desk)
     onState && onState(S);
   }
   // ---- Twitch (WHIP, as the Quest does it in stream.js): this screen's picture + the Quest's master sound
@@ -488,6 +492,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   // ---- #509 DirroTV from DirroVJ: while DirroVJ is on, the Quest stops answering its paired TVs and hands DirroVJ the TV key; the TVs keep
   // calling that key, so they land here: this screen's picture + the sound Twitch gets. DirroVJ off: this host closes, the Quest answers again.
   let tvH = null, tvKey = '', tvTrack = null, tvAud = true, tvAudSent = null;
+  const TVK = 'vire.vjTvKey', tvSaved = () => { try { const o = JSON.parse(localStorage.getItem(TVK) || '{}'); return { key: o.key || '', aud: o.aud !== false }; } catch { return { key: '', aud: true }; } };   // #556
   function tvFollow(key, aud) {
     tvAud = aud;
     if (key === tvKey) { if (tvH && tvAudSent !== tvAud) { tvAudSent = tvAud; tvH.setAudio(tvAud ? twAudio() : null).catch(() => {}); } return; }
