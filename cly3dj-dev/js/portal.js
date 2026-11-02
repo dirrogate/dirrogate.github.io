@@ -20,6 +20,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from '../vendor/three/utils/BufferGeometryUtils.js';
 
 export const MAX_PORTALS = 6;
+export const SLOTS = 12;   // #593 shader slots: up to 6 frames + the SCAN PORTALS cut-outs (scanned walls / floor / ceiling / doors / windows switched OFF)
 const KEY = 'vire.portals', OLD_KEY = 'vire.portal';   // #345 kept one portal under vire.portal
 const HALF0 = new THREE.Vector2(0.3, 0.75);   // a new frame's half-size (metres) -- ~ a floor mirror
 const HMIN = 0.08, HMAX = 2.5;                // half-size limits per side: 16 cm .. 5 m
@@ -49,7 +50,7 @@ export const SHAPE_LABEL = { rect: 'BAY', door: 'DOOR', round: 'ROUND', arch: 'A
 // portalR = corner radius (top, bottom); a doorway's bottom is 0 = square.
 const DECL = `
 #ifdef USE_PORTAL
-  uniform mat4 portalInv[${MAX_PORTALS}]; uniform vec2 portalHalf[${MAX_PORTALS}]; uniform vec2 portalR[${MAX_PORTALS}]; uniform float portalRev[${MAX_PORTALS}]; uniform int portalN; uniform int portalRevN;
+  uniform mat4 portalInv[${SLOTS}]; uniform vec2 portalHalf[${SLOTS}]; uniform vec2 portalR[${SLOTS}]; uniform float portalRev[${SLOTS}]; uniform int portalN; uniform int portalRevN;
   varying vec3 vPortalWP;
 #endif`;
 const VERT = `
@@ -60,7 +61,7 @@ const VERT_SM = VERT.replace('transformed', 'position');   // plain ShaderMateri
 const FRAG = `
 #ifdef USE_PORTAL
   bool inRev = false;
-  for (int i = 0; i < ${MAX_PORTALS}; i++) {
+  for (int i = 0; i < ${SLOTS}; i++) {
     if (i >= portalN) break;
     vec3 pc = (portalInv[i] * vec4(cameraPosition, 1.0)).xyz, pf = (portalInv[i] * vec4(vPortalWP, 1.0)).xyz;
     if (pc.z * pf.z < 0.0) {   // camera and fragment on opposite sides of the window's plane
@@ -330,9 +331,10 @@ export class Portals {
   constructor(rig, home) {
     this.rig = rig; this.home = home; this.on = false; this.n = 1; this.list = []; this.glow = 'off'; this.kinds = []; this.edit = 0; this.scrSrc = { src: 'cyclo', name: '', folder: '' }; this.feed = null;   // #589 one screen feed for all SCREEN frames; feed() -> { tex, w, h } (main.js)   // #585 / #586 kinds per frame
     this._mats = new Set();
-    this._u = { portalInv: { value: Array.from({ length: MAX_PORTALS }, () => new THREE.Matrix4()) },
-      portalHalf: { value: Array.from({ length: MAX_PORTALS }, () => HALF0.clone()) },
-      portalR: { value: Array.from({ length: MAX_PORTALS }, () => new THREE.Vector2()) }, portalRev: { value: new Array(MAX_PORTALS).fill(0) },
+    this.scan = [];   // #593 SCAN PORTALS: [{ M: rig-space pose (Matrix4), half: Vector2 }] cut-outs that show the DOME (like PANO frames)
+    this._u = { portalInv: { value: Array.from({ length: SLOTS }, () => new THREE.Matrix4()) },
+      portalHalf: { value: Array.from({ length: SLOTS }, () => HALF0.clone()) },
+      portalR: { value: Array.from({ length: SLOTS }, () => new THREE.Vector2()) }, portalRev: { value: new Array(SLOTS).fill(0) },
       portalN: { value: 0 }, portalRevN: { value: 0 } };
     this._load();
   }
@@ -359,7 +361,14 @@ export class Portals {
     try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, n: this.n, glow: this.glow, scr: this.scrSrc,
       f: this.list.slice(0, this.n).map((f, i) => ({ p: f.obj.position.toArray(), q: f.obj.quaternion.toArray(), h: f.half.toArray(), k: this.kinds[i], s: f.snapL || '' })) })); } catch {}   // #592 s = the scanned surface it sits on
   }
-  _show() { this.list.forEach((f, i) => { f.obj.visible = this.on && i < this.n; }); this._u.portalN.value = this.on ? this.n : 0; this._u.portalRevN.value = this.revN; }
+  get scanN() { return Math.min(this.scan.length, SLOTS - (this.on ? this.n : 0)); }   // #593
+  _show() { this.list.forEach((f, i) => { f.obj.visible = this.on && i < this.n; }); this._u.portalN.value = (this.on ? this.n : 0) + this.scanN; this._u.portalRevN.value = this.revN + this.scanN; }
+  setScan(list) { this.scan = list || []; this._show(); this._scanUni(); }   // #593
+  _scanUni() {
+    const nf = this.on ? this.n : 0, U = this._u; this.rig.updateMatrixWorld();
+    for (let j = 0; j < this.scanN; j++) { const c = this.scan[j], k = nf + j;
+      U.portalInv.value[k].multiplyMatrices(this.rig.matrixWorld, c.M).invert(); U.portalHalf.value[k].copy(c.half); U.portalR.value[k].set(0, 0); U.portalRev.value[k] = 1; }
+  }
   // #585 the first `doors` frames are doorways (on the floor, open at the bottom), the rest bay windows; TRIM LIGHT colour
   _styles() { this.list.forEach((f, i) => { const k = this.kinds[i] || 'window'; f.setShape(SHAPE_OF(k)); f.rev = k[0] === 'p'; f.setScreen(k[0] === 's'); f.setGlow(this.glow); }); }   // #588 shape from the kind, #589 screen   // #588 shape from the kind
   get doors() { return this.kinds.slice(0, this.n).filter(k => k === 'door' || k === 'pdoor').length; }
@@ -415,8 +424,9 @@ export class Portals {
   }
   // per frame: keep the clip uniforms in step with wherever the frames have been dragged / resized to
   tick() {
+    if (this.scan.length) { this._show(); this._scanUni(); }   // #593 the scan cut-outs follow the rig
     if (!this.on) return;
-    this._u.portalRevN.value = this.revN;
+    this._u.portalRevN.value = this.revN + this.scanN;
     for (let i = 0; i < this.n; i++) {
       const f = this.list[i]; f.obj.updateMatrixWorld();
       this._u.portalInv.value[i].copy(f.obj.matrixWorld).invert(); this._u.portalHalf.value[i].copy(f.half); this._u.portalR.value[i].copy(f.r); this._u.portalRev.value[i] = f.rev ? 1 : 0;

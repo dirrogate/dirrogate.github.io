@@ -1856,3 +1856,12 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Saved per frame: s = the surface label (vire.portals f[i].s). When a scan (re)appears in a session, frames with a label within 0.6 m of a matching surface are put back on it (corrects tracking drift).
 - Snapping fixes placement in the headset; the stream still shows CAM FIT's own error, but as one consistent offset.
 - Logic test in the device VM (fake wall, door frame, ceiling): snap, door fit 0.9 x 2.0 m, skylight facing down. NOT tried on the Quest. sw.js v98. No Node restart. Backup backups/pre592/.
+
+## #593 SCAN PORTALS: switch scanned surfaces OFF, no frames needed (owner, 3 Nov: 'presets without the need to spawn portals... point at a wall and click OFF, it removes the real wall')
+- PORTALS SETUP > SCAN PORTALS › opens a new page (toolsPage 'scanp'): WALLS / DOORS / WINDOWS / CEILING / FLOOR presets (lit = OFF, count of each in the scan), ALL ON, DOME. OFF = the real surface is replaced by the DOME sky (same reverse trick as PANO frames). Turning one OFF switches DOME on.
+- B laser: aiming at a scanned surface (when no prop / frame / GoPro is under the beam), trigger toggles that one surface OFF / ON; a pick overrides its kind's preset. Doors / windows win over the wall behind them.
+- `portal.js`: shader slots SLOTS = 12 (frames still max 6); Portals.scan = [{ M rig pose, half }] cut-outs packed after the frames as rev = 1, square corners; setScan(), scanN, uniforms refreshed every tick (they follow the rig) even with PORTALS off.
+- `roomsnap.js`: floor label; cutout(e) = the outline's bounding box + 2 cm, 5 mm in front of the surface; ray(o, d) = nearest surface hit inside its outline (rig space).
+- Saved in vire.scanPortals { off: { kind: true }, picks: [{ l, p, off }] }; picks are matched to planes by kind + point within 30 cm of the surface and inside its outline (planes have no lasting ids). Room scan runs while PORTALS are on, any surface is OFF, or the page is open.
+- Limit: a door / window inside an OFF wall cannot be kept real (the wall's cut-out covers it); cut-outs are rectangles (the outline's bounding box), so an L-shaped floor is cut as its whole box.
+- Logic test in the device VM (wall, door, ceiling, floor): cut-out sizes / spots, laser picks floor straight down and the door over the wall. NOT tried on the Quest (uniform count with 12 slots on the Quest GPU, look of the cut edges). sw.js v99. No Node restart. Backup backups/pre593/.

@@ -1234,9 +1234,10 @@ let roomSnapT = 0, roomPinGen = 0;
 const _rsEye = new THREE.Vector3(), _rsY = new THREE.Vector3(), _rsP = new THREE.Vector3(), _rsQ = new THREE.Quaternion(), _rsH = new THREE.Vector2();
 function roomEye() { renderer.xr.getCamera().getWorldPosition(_rsEye); rig.updateMatrixWorld(); return rig.worldToLocal(_rsEye); }
 function roomSnapTick(dt) {
-  if (!roomScan || !portals || !portals.on) return;
+  if (!roomScan || !portals || !(portals.on || scanAny() || toolsPage === 'scanp')) return;
   roomSnapT += dt; if (roomSnapT < 0.25) return; roomSnapT = 0;
   roomScan.update(renderer.xr.getFrame(), renderer.xr.getReferenceSpace(), roomEye());
+  if (scanAny() || portals.scan.length) scanApply();   // #593
   if (roomScan.ok && roomScan.gen !== roomPinGen) {   // the scan came in: put saved frames back on their surfaces (tracking may have shifted)
     roomPinGen = roomScan.gen; let n = 0;
     for (const f of portals.active()) { if (!f.snapL || f.held) continue; const e = roomScan.nearest(f.obj.position, [f.snapL], 0.6); if (!e) continue;
@@ -1280,6 +1281,38 @@ function portalsSkylight() {   // SKYLIGHT: the frame picked with FRAME goes fla
   const f = portals.list[i]; renderer.xr.getCamera().getWorldDirection(_rsY); _rsY.y = 0; if (_rsY.lengthSq() < 1e-6) _rsY.set(0, 0, -1);
   roomScan.pose(e, P, _rsY.normalize(), f.obj.position, f.obj.quaternion); f.snapL = 'ceiling'; f._sp = e;
   portals.save(); if (!dome.on) setDome(true); toast('SKYLIGHT: frame ' + (i + 1) + ' on the ceiling above you (PANO: shows the DOME sky)', 2500); drawMixScreen();
+}
+// #593 SCAN PORTALS: the scanned surfaces themselves switch OFF (the DOME shows where they were) without spawning frames.
+// Presets per kind (WALLS / DOORS / WINDOWS / CEILING / FLOOR) plus single surfaces picked with the B laser (trigger).
+// Saved as kinds + picked points (planes have no lasting ids); a pick wins over its kind's preset.
+const SCAN_KINDS = ['wall', 'door', 'window', 'ceiling', 'floor'], SCAN_LBL = { wall: 'WALLS', door: 'DOORS', window: 'WINDOWS', ceiling: 'CEILING', floor: 'FLOOR' };
+const scanP = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.scanPortals') || 'null'); } catch (e) {} return { off: (s && s.off) || {}, picks: (s && s.picks) || [] }; })();
+function scanSave() { try { localStorage.setItem('vire.scanPortals', JSON.stringify(scanP)); } catch (e) {} }
+const scanAny = () => SCAN_KINDS.some(k => scanP.off[k]) || scanP.picks.some(p => p.off);
+function scanPick(e) { for (const p of scanP.picks) if (p.l === e.label && Math.abs(roomScan.dist(e, _rsP.fromArray(p.p))) < 0.3 && roomScan.inside(e, _rsP, 0.05)) return p; return null; }
+const scanIsOff = e => { const p = scanPick(e); return p ? p.off : !!scanP.off[e.label]; };
+function scanApply() {   // rebuild the cut-out list from the scan (every scan update and after every change)
+  if (!portals || !roomScan) return; const list = [];
+  for (const e of roomScan.planes) if (SCAN_KINDS.includes(e.label) && scanIsOff(e)) { const c = { M: new THREE.Matrix4(), half: new THREE.Vector2() }; roomScan.cutout(e, c.M, c.half); list.push(c); }
+  portals.setScan(list);
+  if (list.length && !dome.on) setDome(true);
+}
+function scanKind(k) {   // a preset: all of that kind OFF / back ON (single picks of that kind are cleared)
+  scanP.off[k] = !scanP.off[k]; scanP.picks = scanP.picks.filter(p => p.l !== k); scanSave(); scanApply();
+  const n = roomScan ? roomScan.byLabel(k).length : 0;
+  toast(`${SCAN_LBL[k]}: ${scanP.off[k] ? 'OFF (the DOME shows there)' : 'back ON'}${roomScan && roomScan.ok ? ` · ${n} in the scan` : ' · applies once the room scan is in (Passthrough)'}`, 2500); drawMixScreen();
+}
+function scanAllOn() { scanP.off = {}; scanP.picks = []; scanSave(); scanApply(); toast('SCAN PORTALS: every surface back ON', 1800); drawMixScreen(); }
+const _scO = new THREE.Vector3(), _scD = new THREE.Vector3();
+function scanRay(o, d) {   // the B laser, world space -> the scanned surface it hits (rig space inside)
+  if (!roomScan || !roomScan.ok) return null; rig.updateMatrixWorld();
+  _scO.copy(o); rig.worldToLocal(_scO); _scD.copy(o).add(d); rig.worldToLocal(_scD); _scD.sub(_scO).normalize();
+  return roomScan.ray(_scO, _scD);
+}
+function scanClick(h) {
+  const e = h.e, off = !scanIsOff(e), old = scanPick(e); if (old) scanP.picks.splice(scanP.picks.indexOf(old), 1);
+  if (off !== !!scanP.off[e.label]) scanP.picks.push({ l: e.label, p: h.P.toArray().map(v => +v.toFixed(3)), off });
+  scanSave(); scanApply(); toast(`${e.label.toUpperCase()}: ${off ? 'OFF' : 'ON'}`, 1200); if (toolsPage === 'scanp') drawMixScreen(); return true;
 }
 let wallTapT = 0, portalTapT = 0, portalDefArm = 0, beat = null, domeBoot = true;
 const _laserCam = new THREE.Vector3();   // #406
@@ -6147,7 +6180,7 @@ const PINCH_FIT_DEF = {
 };
 // #513 the TV's address, from where this page runs (cabin.dirrodj.club/ = the cly3dj-dev folder on Cloudflare; github.io/cly3dj/ ...); no 'https://'
 const venueUrl = () => new URL('venue.html', location.href).href.replace(/[?#].*$/, '').replace(/^https?:\/\//, '');
-const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530
+const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', scanp: 'SCAN PORTALS', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -7202,6 +7235,21 @@ function drawToolsPage() {
     note('The TV shows what goes to Twitch (SHOWTIME!, CARD...), or the same picture off air. It shows a small SOUND button only while SOUND TO TV is on: press OK on its remote once to unmute. If the TV is in the same room as the PA, switch the sound off (it would echo). TV OFF closes the link; the TV keeps waiting.', row(0).y + (P ? 3 * (bh + gap) : bh + gap) + 14);
     return;
   }
+  if (page === 'scanp') {   // #593 SCAN PORTALS: switch scanned surfaces OFF (the DOME shows there), by kind or one at a time with the B laser
+    const y0 = head('SCAN PORTALS', 'portals');
+    if (!portals) { note('Scan portals run on the headset.', y0 + 20); return; }
+    const ok = roomScan && roomScan.ok, cnt = k => ok ? roomScan.byLabel(k).length : 0, offN = ok ? roomScan.planes.filter(e => SCAN_KINDS.includes(e.label) && scanIsOff(e)).length : 0;
+    const items = SCAN_KINDS.map(k => [`${SCAN_LBL[k]}: ${scanP.off[k] ? 'OFF' : 'ON'}${ok ? ' · ' + cnt(k) : ''}`, !!scanP.off[k], () => scanKind(k)])
+      .concat([['ALL ON', false, scanAllOn], [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)]]);
+    const cols = P ? 2 : 4, bw = (R - L - (cols - 1) * 8) / cols, bh = P ? 56 : 48;
+    items.forEach(([lb, on, act], i) => btn(L + (i % cols) * (bw + 8), y0 + Math.floor(i / cols) * (bh + 8), bw, bh, lb, on, act, false, P ? 17 : 15));
+    const yt = y0 + Math.ceil(items.length / cols) * (bh + 8) + 14;
+    g.textAlign = 'left'; g.font = `500 ${P ? 14 : 13}px system-ui`;
+    g.fillStyle = ok ? '#7fd88f' : '#f1b650';
+    g.fillText(ok ? `Room scan: ${roomScan.planes.length} surfaces · ${offN} OFF` : 'No room scan yet: Passthrough + Space Setup (mark doors / windows) on the Quest', L + 2, yt);
+    g.fillStyle = '#8c96a8'; wrapText(g, 'Lit = OFF: the real surface is replaced by the DOME sky (pick it on VISUALS > PANO > SKY). One surface at a time: B laser, aim at it, trigger = OFF / back ON (overrides its preset). Saved for next time; matched again when the scan loads.', L + 2, yt + 22, R - L - 4, P ? 19 : 17, 5);
+    return;
+  }
   if (page === 'portals') {   // #346 PORTALS SETUP: the real-world windows, the wall they cut, the sky dome behind it
     const y0 = head(P ? 'PORTALS' : 'PORTALS SETUP', 'vj'), WL = facetWall, PS = portals;
     if (!WL || !PS) { note('Portals run on the headset (not on the phone).', y0 + 20); return; }
@@ -7215,6 +7263,7 @@ function drawToolsPage() {
       [`SCREEN: ${({ cyclo: 'CYCLO', image: 'IMAGE', video: 'VIDEO' })[PS.scrSrc.src] || 'CYCLO'} ⟳`, PS.screenN > 0, pScrStep],   // #589 the one feed every SCREEN frame shows
       [P ? 'SNAP TO SCAN' : 'SNAP SCAN', !!(roomScan && roomScan.ok), portalsSnapScan],   // #592 Space Setup door / window frames
       ['SKYLIGHT', !!(PS.list[PS.edit] && PS.list[PS.edit].snapL === 'ceiling'), portalsSkylight],   // #592 FRAME on the ceiling
+      ['SCAN PORTALS ›', scanAny(), () => setTools('scanp')],   // #593
       [defArm ? 'TAP AGAIN' : 'DEFAULTS', defArm, portalDefaults],
     ];
     const cells = [
@@ -8381,6 +8430,7 @@ if (!CAMERA_ROLE) {
   mprops = new MovieProps({ rig, camera, renderer, toast, scene, getColliders: () => { if (!sleeveColliders.length) refreshSleeveColliders(); return sleeveColliders; } });   // #478, #541 kinematic props
   mprops.listCb = () => { if (toolsPage === 'props') drawMixScreen(); };
   mprops.snap = f => snapPortal(f);   // #592
+  mprops.scanRay = scanRay; mprops.scanClick = scanClick;   // #593
   mprops.extra = () => [...(portals ? portals.active() : []), ...[gopro, gopro2].filter(g => g && g.on)];   // #591 GoPros too   // #586 the B placement laser also picks up portal frames
   try { mprops.load(); } catch (e) { console.warn('movie props load', e); }
 }
