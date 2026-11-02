@@ -117,6 +117,11 @@
   .dzPadW { flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:3px; }
   #dzPad { position:relative; width:150px; height:150px; border-radius:8px; border:1px solid var(--line); background:#0b0e16; cursor:crosshair; touch-action:none; user-select:none;
     background-image:linear-gradient(#1e2536 1px, transparent 1px), linear-gradient(90deg, #1e2536 1px, transparent 1px); background-size:37.5px 37.5px; background-position:-1px -1px; }
+  /* #573 HOLO panel: same pad and zoom bar as DANCER */
+  #hoPad { position:relative; width:150px; height:150px; border-radius:8px; border:1px solid var(--line); background:#0b0e16; cursor:crosshair; touch-action:none; user-select:none;
+    background-image:linear-gradient(#1e2536 1px, transparent 1px), linear-gradient(90deg, #1e2536 1px, transparent 1px); background-size:37.5px 37.5px; background-position:-1px -1px; }
+  #hoDot { position:absolute; width:14px; height:14px; margin:-7px 0 0 -7px; border-radius:50%; background:#35d6ff; box-shadow:0 0 8px rgba(53,214,255,.7); pointer-events:none; }
+  #hoZoomT { height:150px; flex:none; width:50px; } #hoPerf { flex:1 1 160px; min-width:0; } #hoGlRow[hidden] { display:none; } #hoGlRow .kv { flex:1 1 140px; }
   #dzDot { position:absolute; width:14px; height:14px; margin:-7px 0 0 -7px; border-radius:50%; background:var(--gold); box-shadow:0 0 8px rgba(242,201,76,.7); pointer-events:none; }
   .dzAx { position:absolute; font:700 10px system-ui; color:var(--mute); pointer-events:none; } .dzAx.x { right:4px; bottom:2px; } .dzAx.y { left:4px; top:2px; }
   .dzCamW { flex:0 0 auto; display:flex; gap:8px; align-items:flex-start; }
@@ -189,6 +194,19 @@
         <label class="kv"><span class="sp">Height</span><input type="range" id="dzFogH" min="0.1" max="2" step="0.05"></label>
         <label class="kv"><span class="sp">Drift</span><input type="range" id="dzFogSp" min="0" max="2" step="0.05"></label>
         <select id="dzFogCol"><option value="cold">COLD</option><option value="warm">WARM</option><option value="violet">VIOLET</option><option value="white">WHITE</option></select></div>
+    </section>
+    <section style="margin-top:14px" id="hoS">
+      <h2>Holodancer <span class="note" style="text-transform:none;letter-spacing:0">put HOLO on bus A or B · performers rendered by the Holodancer builder</span></h2>
+      <div class="row"><span class="dzL" style="width:auto;margin-right:4px">PERFORMER</span><select id="hoPerf" title="Performers listed in holo/library.json"></select><button id="hoRestart" title="Back to the start of the dance">RESTART</button></div>
+      <div class="dzTop">
+        <div class="dzCamW">
+          <div class="dzPadW"><div id="hoPad" title="Camera. X (left to right) = round her 0 to 360 degrees. Y (bottom to top) = camera height, low to high. Double-click = front, eye level."><div id="hoDot"></div><span class="dzAx x">X</span><span class="dzAx y">Y</span></div><span id="hoXY" class="sp">X 0° · Y 8°</span></div>
+          <div class="dzZoomW"><div class="tbar" id="hoZoomT" title="Zoom T-bar: push up = closer, pull down = wide."></div><span id="hoZoomV" class="sp">1.0×</span></div>
+          <div class="dzBtnCol"><button id="hoOrbit" title="Slow orbit round her (6° a second) on top of the pad">ORBIT</button><button id="hoTears" title="Torn geometry shown as cyan scan lines (depth performers)">HOLO TEARS</button><button id="hoRoom" title="Relight her from above-front using her depth (depth performers)">RELIGHT</button><div class="dzSpd" title="Dance speed 0.25x to 2x. Double-click = 1x."><div class="tbar h mini" id="hoSpeedT"></div><span id="hoSpeedV">SPEED 1.00×</span></div></div>
+        </div>
+      </div>
+      <div class="row" id="hoGlRow" hidden><span class="dzL">GLITCH</span><label class="kv"><span class="sp">View change</span><input type="range" id="hoGlitch" min="0" max="1.5" step="0.05" value="1" title="Glitch when the camera passes to the next view (8-view performers)"></label></div>
+      <div id="hoSt" class="note">Not loaded yet: pick HOLO on a bus or a performer.</div>
     </section>
     <section style="margin-top:14px">
       <h2>Scroller queue</h2>
@@ -289,7 +307,7 @@
     </section>
 <script>
 const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
-const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'COMICS', dancer: 'DANCER' };   // #516, #537, #550, #555 BLACK gone, DIRROCOMICS shortened to COMICS (one line per bus)
+const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'COMICS', dancer: 'DANCER', holo: 'HOLO' };   // #573   // #516, #537, #550, #555 BLACK gone, DIRROCOMICS shortened to COMICS (one line per bus)
 let S = null, lastSeen = 0, realT = 0;   // #519 realT: last state from a real DirroVJ
 for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = document.createElement('button'); b.textContent = NAMES[k]; b.dataset.bus = bus; b.dataset.src = k; b.onclick = () => send({ k: 'bus', bus, v: k }); $(bus === 'a' ? 'busA' : 'busB').append(b); }
 // #552 T-bar: a vision-mixer lever. Grab the handle (or anywhere on the bar) and pull: it moves by how far you pull, it never jumps to the click.
@@ -696,6 +714,42 @@ $('dzPad').onpointerdown = e => { dzDrag = true; $('dzPad').setPointerCapture(e.
 $('dzPad').onpointermove = e => { if (dzDrag) dzPadAt(e); };
 $('dzPad').onpointerup = $('dzPad').onpointercancel = () => { dzDrag = false; dzDragT = Date.now(); };
 $('dzPad').ondblclick = () => { dzDot(0, 8); dz('cam', { v: { x: 0, y: 8 } }); };
+// ---- #573 HOLODANCER panel
+const ho = (op, o = {}) => send({ k: 'holo', op, ...o });
+$('hoPerf').onchange = e => ho('perf', { v: e.target.value });
+$('hoRestart').onclick = () => ho('restart');
+$('hoOrbit').onclick = () => ho('cam', { v: { orbit: !(S && S.D.holo && S.D.holo.cam.orbit) } });
+$('hoTears').onclick = () => ho('tears', { v: !(S && S.D.holo && S.D.holo.tears) });
+$('hoRoom').onclick = () => ho('room', { v: !(S && S.D.holo && S.D.holo.room) });
+$('hoGlitch').oninput = e => ho('glitch', { v: +e.target.value });
+const hoSpdT = makeTBar($('hoSpeedT'), { horiz: true, pad: 9, step: 0.02, onInput: v => { const sp = Math.round((0.25 + v * 1.75) * 20) / 20; $('hoSpeedV').textContent = 'SPEED ' + sp.toFixed(2) + '×'; ho('speed', { v: sp }); } });
+$('hoSpeedT').ondblclick = () => { $('hoSpeedV').textContent = 'SPEED 1.00×'; ho('speed', { v: 1 }); };
+const HZMIN = 0.5, HZMAX = 5, hz2s = z => Math.log(z / HZMIN) / Math.log(HZMAX / HZMIN), hs2z = v => HZMIN * Math.pow(HZMAX / HZMIN, v);
+const hoZoomT = makeTBar($('hoZoomT'), { top: 'IN', bot: 'OUT', topVal: 1, step: 0.01, onInput: v => { const z = hs2z(v); $('hoZoomV').textContent = z.toFixed(1) + '×'; ho('cam', { v: { zoom: z } }); } });
+let hoDrag = false, hoDragT = 0;
+const HEL0 = -15, HEL1 = 70;   // pad Y: camera elevation in degrees
+function hoDot(x, el) { $('hoDot').style.left = (x / 360 * 150) + 'px'; $('hoDot').style.top = (150 - (el - HEL0) / (HEL1 - HEL0) * 150) + 'px'; $('hoXY').textContent = `X ${Math.round(x)}° · Y ${Math.round(el)}°`; }
+function hoPadAt(e) { const r = $('hoPad').getBoundingClientRect(), x = Math.max(0, Math.min(360, (e.clientX - r.left) / r.width * 360)), el = HEL0 + Math.max(0, Math.min(1, (r.bottom - e.clientY) / r.height)) * (HEL1 - HEL0); hoDot(x, el); ho('cam', { v: { az: x, el } }); }
+$('hoPad').onpointerdown = e => { hoDrag = true; $('hoPad').setPointerCapture(e.pointerId); hoPadAt(e); };
+$('hoPad').onpointermove = e => { if (hoDrag) hoPadAt(e); };
+$('hoPad').onpointerup = $('hoPad').onpointercancel = () => { hoDrag = false; hoDragT = Date.now(); };
+$('hoPad').ondblclick = () => { hoDot(0, 8); ho('cam', { v: { az: 0, el: 8 } }); };
+function renderHo() {
+  const Z = S && S.D && S.D.holo; if (!Z) return;
+  const sel = $('hoPerf'), ids = (Z.lib || []).map(p => p.id).join('|');
+  if (sel.dataset.ids !== ids) { sel.dataset.ids = ids; sel.innerHTML = ''; for (const p of Z.lib || []) { const o = document.createElement('option'); o.value = p.id; o.textContent = p.name + (p.layout ? ` (${p.layout === '4d' ? '4-view depth' : '8-view'})` : ''); sel.append(o); } }
+  if (document.activeElement !== sel && Z.perf) sel.value = Z.perf;
+  $('hoOrbit').classList.toggle('on', !!Z.cam.orbit); $('hoTears').classList.toggle('on', !!Z.tears); $('hoRoom').classList.toggle('on', !!Z.room);
+  $('hoGlRow').hidden = Z.layout !== '8b';
+  if (document.activeElement !== $('hoGlitch')) $('hoGlitch').value = Z.glitch;
+  hoSpdT.set(((+Z.speed || 1) - 0.25) / 1.75); if (!$('hoSpeedT').classList.contains('drag')) $('hoSpeedV').textContent = 'SPEED ' + (+Z.speed || 1).toFixed(2) + '×';
+  hoZoomT.set(hz2s(Math.max(HZMIN, Math.min(HZMAX, +Z.cam.zoom || 1)))); if (!$('hoZoomT').classList.contains('drag')) $('hoZoomV').textContent = (+Z.cam.zoom || 1).toFixed(1) + '×';
+  if (!hoDrag && Date.now() - hoDragT > 600) hoDot(Z.cam.az, Z.cam.el);
+  const onAir = S.D.x < 1 && S.D.a === 'holo' || S.D.x > 0 && S.D.b === 'holo', cued = S.D.cue && S.D[S.D.cue] === 'holo', onBus = S.D.a === 'holo' || S.D.b === 'holo';
+  const name = ((Z.lib || []).find(p => p.id === Z.perf) || {}).name || Z.perf || '-';
+  $('hoSt').textContent = Z.err ? 'HOLO: ' + Z.err : !(Z.lib || []).length ? 'No performers yet (holo/library.json is empty or missing).' : Z.loading ? 'Loading ' + name + '…' : !Z.loaded ? 'Not loaded yet: pick HOLO on a bus or a performer.'
+    : `${name} · ${cued ? 'drawing (CUE)' : onAir ? 'drawing' : onBus ? 'paused (CUE its bus to set up, or bring it in with the T-bar)' : 'put HOLO on bus A or B'}`;
+}
 function renderDz() {
   const Z = S && S.D && S.D.dz; if (!Z) return;
   for (const b of document.querySelectorAll('[data-dzstage]')) b.classList.toggle('on', Z.stage === b.dataset.dzstage);
@@ -721,7 +775,7 @@ bc.onmessage = e => {
   if (m.k === 'state') {
     if (m.test && Date.now() - realT < 4000) return;   // #519 the DirroComics test page steps aside when a real DirroVJ answers
     if (!m.test) realT = Date.now();
-    S = m; render(); renderDz(); airBadges(m.air); CX = m.C || null; renderCx(); renderShow(); if (CX) { renderStars(); starBadges(); }   // #523, #524
+    S = m; render(); renderDz(); renderHo(); airBadges(m.air); CX = m.C || null; renderCx(); renderShow(); if (CX) { renderStars(); starBadges(); }   // #523, #524
     $('st').textContent = m.test ? 'Connected to the DirroComics TEST page: only the DirroComics section works here (no buses, fractal or program picture). Open dirrovj.html for the real desk.'
       : (m.live || $('pv').getAttribute('src')) ? 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'
       : 'Connected to DirroVJ, starting program output…';

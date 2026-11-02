@@ -1,0 +1,7 @@
+{
+  "note": "#573 Holodancer performer library: one folder per performer (performer.json + atlas.mp4). The Holodancer builder adds entries here.",
+  "performers": [
+    { "id": "kitana_snake8", "name": "Kitana · Snake Hip Hop", "layout": "8b" },
+    { "id": "kitana_snake4", "name": "Kitana · Snake Hip Hop 5 s test", "layout": "4d" }
+  ]
+}

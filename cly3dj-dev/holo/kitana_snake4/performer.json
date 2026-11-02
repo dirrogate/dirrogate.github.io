@@ -1,0 +1,7 @@
+{
+  "id": "kitana_snake4", "name": "Kitana · Snake Hip Hop 5 s test", "layout": "4d", "views": 4, "slot": [480, 540], "atlas": "atlas.mp4",
+  "rig": { "dist": 4.4, "lens": 50, "sensor": 24, "aimH": 1.0, "az0": -90, "azStep": -90 },
+  "depth": { "near": 3.7, "far": 5.1 },
+  "height": 1.72, "fps": 24, "duration": 5.0, "speed": 0.5, "look": "soft fixed lights shared by all four cameras",
+  "source": "DirroDancer/holo/holo_kitana4.blend frames 200-319"
+}

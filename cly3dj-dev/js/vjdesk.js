@@ -8,6 +8,7 @@
 import { TwitchChat } from './chat.js';
 import { makeComics } from './comics.js';   // #516 DirroComics
 import * as media from './medialib.js';   // #532 IMAGES / VIDEOS / PANOS clip decks
+import { holoDefaults, makeHoloDesk } from './holodesk.js';   // #573 HOLO: Holodancer performers (small modules; the atlas video loads on first use)
 import { Scroller } from './tools.js';   // #556 the same bitmap sine scroller as the Quest's, for the program when there is no Quest
 // #550 DANCER: js/dancerdesk.js is imported only when the desk first needs her (its loaders, post chain and the 5 MB GLB stay out of the start)
 function dzDefaults() {
@@ -109,10 +110,11 @@ const FRACTALS = {   // #508 per formula: start centre and span, zoom targets
   multi: { t: 3, c: [0, 0], span: 2.8, tg: [[0.38, 0.0], [-0.19, 0.33], [-0.19, -0.33]] },
 };
 const PALS = ['green', 'island', 'lava', 'ice', 'copper', 'neon'];
-const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer'];   // #516 comic = DirroComics page, #550 dancer = DirroDancer, #555 BLACK removed (owner: never used)
+const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'holo'];   // #573 holo = Holodancer
+// (was) const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer'];   // #516 comic = DirroComics page, #550 dancer = DirroDancer, #555 BLACK removed (owner: never used)
 
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
-  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), chDesk: '', audioAuto: false, lsc: '', cue: '' };   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
+  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), holo: holoDefaults(), chDesk: '', audioAuto: false, lsc: '', cue: '' };   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
   try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
   const queue = []; let qid = 1;
@@ -141,7 +143,16 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   // #550 DANCER: her own renderer + canvas (js/dancerdesk.js), loaded on first use
   let dz = null, dzP = null;
   const dzLoad = () => dzP || (dzP = import('./dancerdesk.js').then(m => { dz = m.makeDancer({ S: D.dz, post: () => post(), bc, media }); dz.ensure(); return dz; }).catch(e => { D.dz.err = 'load: ' + (e.message || e); dzP = null; post(); }));
-  const dzNeed = used => !!dz && (used.includes('dancer') || dz.recording);   // #552 no own preview: she is drawn where the T-bar shows her, or for REC
+  const dzNeed = used => !!dz && (used.includes('dancer') || dz.recording);
+  // #573 HOLO: drawn with this renderer into its own target, only while the T-bar shows (or CUE) its bus
+  let ho = null;
+  const hoLoad = () => { if (!ho) ho = makeHoloDesk({ THREE, renderer, S: D.holo, post: () => post() }); ho.ensure(); return ho; };
+  const hoNeed = used => !!ho && used.includes('holo');
+  fetch('holo/library.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(j => {
+    if (!j || !Array.isArray(j.performers)) return;
+    D.holo.lib = j.performers.map(p => ({ id: p.id, name: p.name || p.id, path: 'holo/' + p.id + '/performer.json', layout: p.layout || '' }));
+    if (D.a === 'holo' || D.b === 'holo') hoLoad(); post();
+  }).catch(() => {});   // #552 no own preview: she is drawn where the T-bar shows her, or for REC
 
   // ---- fractal flight: zoom in toward a target and out again (ping-pong), orbit round it; REACT lifts the heights on the bass
   const F = { z: 0, dir: 1, a: 0, ti: 0, j: 0, type: '', c: new THREE.Vector2(-0.6, 0) };
@@ -180,6 +191,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if (name === 'quest') { U.value = questTex; fit.set(0, 0, 1, 1); return 1; }
     if (name === 'fractal') { U.value = fRT.texture; cover(320, 256, W, H, fit); return 1; }
     if (name === 'dancer') { if (!dz || !dz.ready) return 0; U.value = dz.tex; cover(1280, 720, W, H, fit); return 1; }   // #550
+    if (name === 'holo') { if (!ho || !ho.ready) return 0; U.value = ho.tex; cover(1280, 720, W, H, fit); return 1; }   // #573
     if (name === 'comic') { if (!comicTex) return 0; U.value = comicTex; cover(1920, 1080, W, H, fit); return 1; }   // #516
     if (name === 'webcam') { const v = fixed.video; if (!fixed.on || !v.videoWidth) return 0; U.value = camTex; cover(v.videoWidth, v.videoHeight, W, H, fit); return 1; }
     if (name === 'led') {
@@ -221,7 +233,8 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     const onAir = (D.x < 1 ? [D.a] : []).concat(D.x > 0 ? [D.b] : []), cueSrc = D.cue ? D[D.cue] : '';
     const used = cueSrc && !onAir.includes(cueSrc) ? onAir.concat([cueSrc]) : onAir;   // a cued source is drawn too (FRACTAL, DANCER, COMICS)
     if (used.includes('fractal')) fractal(dt, now);
-    if (dzNeed(used)) dz.render(now);   // #550 only while the T-bar shows her bus, or REC runs
+    if (dzNeed(used)) dz.render(now);
+    if (hoNeed(used)) ho.render(now);   // #573   // #550 only while the T-bar shows her bus, or REC runs
     comics.tick(questTex, now, dt); comicTex = used.includes('comic') ? comics.render(W, H) : null;   // #516
     mU.kA.value = D.x < 1 ? bind(D.a, mU.tA, mU.fA.value, W, H, questTex, now) : 0;
     mU.kB.value = D.x > 0 ? bind(D.b, mU.tB, mU.fB.value, W, H, questTex, now) : 0;
@@ -310,7 +323,8 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     const m = e.data || {}; peers = 1;
     if (m.k === 'hello') { post(); if (!m.again) comics.sendList(); }
     else if (m.k === 'cx') comics.onMsg(m);   // #516 DirroComics
-    else if (m.k === 'dz') { const p = dzLoad(); if (p) p.then(z => z && z.onMsg(m)); }   // #550 DANCER panel and DANCER CLIPS
+    else if (m.k === 'dz') { const p = dzLoad(); if (p) p.then(z => z && z.onMsg(m)); }
+    else if (m.k === 'holo') hoLoad().onMsg(m);   // #573 HOLO panel   // #550 DANCER panel and DANCER CLIPS
     else if (m.k === 'tw') { if (studioCtl) { if (m.op === 'key') studioCtl.setTwKey(m.key); else studioCtl.twToggle(m.key); } post(); }   // #532 Twitch key + GO LIVE on the VJ desk
     else if (m.k === 'media') {   // #532 / #533 IMAGES / VIDEOS / PANOS clip decks
       const { folder, name } = m; if (!folder || !name) return;
@@ -337,7 +351,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       if (m.cam) { const act = D.x < 0.5 ? 'a' : 'b'; if (D[act] === 'webcam') { D[act] = 'quest'; post(); } }
       const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'vjshow', cam: m.cam || '', opt: m.opt || '', v: !!m.v }); else bc.postMessage({ k: 'cxmsg', t: 'SHOWTIME!: no Quest link' });
     }   // #523 / #530
-    else if (m.k === 'bus') { if (SOURCES.includes(m.v)) { if (m.v === 'webcam' && !fixed.on && fixed.start) fixed.start().catch(() => {}); if (m.v === 'dancer') dzLoad(); D[m.bus === 'b' ? 'b' : 'a'] = m.v; } post(); }
+    else if (m.k === 'bus') { if (SOURCES.includes(m.v)) { if (m.v === 'webcam' && !fixed.on && fixed.start) fixed.start().catch(() => {}); if (m.v === 'dancer') dzLoad(); if (m.v === 'holo') hoLoad(); D[m.bus === 'b' ? 'b' : 'a'] = m.v; } post(); }
     else if (m.k === 'x') { D.x = Math.max(0, Math.min(1, +m.v)); D.fadeTo = null; post(); }
     else if (m.k === 'cue') { const b = m.bus === 'a' || m.bus === 'b' ? m.bus : ''; const live = b && ((b === 'a' && D.x <= 0) || (b === 'b' && D.x >= 1)); D.cue = !b || live || D.cue === b ? '' : b; post(); }   // #557 tap = CUE, tap again = out of CUE; the fully live bus can't be cued
     else if (m.k === 'cut') { D.x = D.x < 0.5 ? 1 : 0; D.fadeTo = null; post(); }
