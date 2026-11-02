@@ -38,9 +38,10 @@ const GLOWS = { off: null, red: 0xff2a2a, cyan: 0x36d8ff, amber: 0xffa53a };
 const GLOW_ORDER = ['off', 'red', 'cyan', 'amber'];
 // #586 REAL WINDOW, REAL DOOR, PANO WINDOW, PANO DOOR; #588 + ROUND (cross grill), ARCH (cross grill), PORTHOLE (no grill), each REAL or PANO.
 // A leading 'p' means PANO (the sky only through it), so the porthole is 'hole' / 'phole'.
-export const KINDS = ['window', 'door', 'round', 'arch', 'hole', 'pwindow', 'pdoor', 'pround', 'parch', 'phole'];
-export const KIND_LABEL = { window: 'REAL WINDOW', door: 'REAL DOOR', round: 'REAL ROUND', arch: 'REAL ARCH', hole: 'REAL PORTHOLE', pwindow: 'PANO WINDOW', pdoor: 'PANO DOOR', pround: 'PANO ROUND', parch: 'PANO ARCH', phole: 'PANO PORTHOLE' };
-export const SHAPE_OF = k => { const b = k[0] === 'p' && k !== 'pane' ? k.slice(1) : k; return b === 'door' ? 'door' : b === 'round' || b === 'arch' || b === 'hole' ? b : 'rect'; };   // #588
+// #589 + SCREEN BAY / SCREEN DOOR / SCREEN PORTHOLE ('s' + shape): the opening shows the shared screen feed (CYCLO, an image or a video).
+export const KINDS = ['window', 'door', 'round', 'arch', 'hole', 'pwindow', 'pdoor', 'pround', 'parch', 'phole', 'swindow', 'sdoor', 'shole'];
+export const KIND_LABEL = { window: 'REAL WINDOW', door: 'REAL DOOR', round: 'REAL ROUND', arch: 'REAL ARCH', hole: 'REAL PORTHOLE', pwindow: 'PANO WINDOW', pdoor: 'PANO DOOR', pround: 'PANO ROUND', parch: 'PANO ARCH', phole: 'PANO PORTHOLE', swindow: 'SCREEN BAY', sdoor: 'SCREEN DOOR', shole: 'SCREEN PORTHOLE' };
+export const SHAPE_OF = k => { const b = /^[ps](window|door|round|arch|hole)$/.test(k) ? k.slice(1) : k; return b === 'door' ? 'door' : b === 'round' || b === 'arch' || b === 'hole' ? b : 'rect'; };   // #588
 export const SHAPE_LABEL = { rect: 'BAY', door: 'DOOR', round: 'ROUND', arch: 'ARCH', hole: 'PORTHOLE' };
 
 // Shared GLSL injected into any material's own shader. World position -> each portal's local space (its inverse world
@@ -126,6 +127,22 @@ function makeTrimMat() {
 }
 
 // ---------- the swept frame ----------
+// #589 the SCREEN panel: fills the opening (same rounded-rect / circle / arch maths as the cut), the shared feed cover-fitted
+const SCREEN_VS = `varying vec2 vP; void main() { vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+const SCREEN_FS = `uniform sampler2D map; uniform vec2 uHalf; uniform vec2 uR; uniform vec4 uCrop; uniform float uHas; uniform float uBright; varying vec2 vP;
+void main() {
+  float rr = vP.y > 0.0 ? uR.x : uR.y; vec2 d = abs(vP) - uHalf + rr;
+  if (length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - rr > 0.0) discard;
+  vec2 uv = uCrop.xy + (vP / uHalf * 0.5 + 0.5) * uCrop.zw;
+  vec3 c = uHas > 0.5 ? texture2D(map, uv).rgb * uBright : vec3(0.008, 0.009, 0.012);
+  float sheen = 0.035 * smoothstep(0.55, 1.0, (vP.y / uHalf.y) * 0.5 + 0.5 - (vP.x / uHalf.x) * 0.25);
+  gl_FragColor = vec4(c + sheen, 1.0);
+  #include <colorspace_fragment>
+}`;
+function makeScreenMat() {
+  return new THREE.ShaderMaterial({ vertexShader: SCREEN_VS, fragmentShader: SCREEN_FS, toneMapped: false,
+    uniforms: { map: { value: null }, uHalf: { value: new THREE.Vector2(0.3, 0.75) }, uR: { value: new THREE.Vector2() }, uCrop: { value: new THREE.Vector4(0, 0, 1, 1) }, uHas: { value: 0 }, uBright: { value: 1 } } });
+}
 // Profile in (s = out from the opening edge, z = toward the viewer), a closed polygon, with the kind of the segment that
 // starts at each point: 0 concrete, 1 iron, 2 iron lip (studs + light line). D = half depth (6 cm deep in all).
 const D = 0.03;
@@ -211,7 +228,7 @@ function buildTrim(hx, hy, rT, rB, closed, hp, grill) {
 // One window: obj (in rig space, scale always 1 -- size is `half`): ONE mesh (trim + handles), one material, one draw.
 class PortalFrame {
   constructor(set) {
-    this.set = set; this.half = HALF0.clone(); this.held = false; this._edge = null; this._g = null; this.door = false; this.rev = false; this.shape = 'rect'; this.r = new THREE.Vector2();   // #588 shape: rect / door / round / arch / hole
+    this.set = set; this.half = HALF0.clone(); this.held = false; this._edge = null; this._g = null; this.door = false; this.rev = false; this.screen = false; this.scr = null; this.shape = 'rect'; this.r = new THREE.Vector2();   // #588 shape: rect / door / round / arch / hole
     this.isPortal = true; this.floor = false; this.tilt = true; this.mp = { save: () => set.save() }; this.flashT = 0;   // #586 MOVIE PROPS placement laser target
     const g = this.obj = new THREE.Group(); g.name = 'portal'; g.visible = false; g.userData.noMirror = true; set.rig.add(g);
     this.mat = makeTrimMat();
@@ -236,6 +253,15 @@ class PortalFrame {
     this.hp.x.set(hx + o, door ? hy * 0.1 : 0, 0); this.hp.y.set(0, hy + o, 0); this.hp.xy.set(hx - rT + dg, hy - rT + dg, 0);
     this.trim.geometry.dispose(); this.trim.geometry = buildTrim(hx, hy, rT, rB, !door, this.hp, sh === 'round' || sh === 'arch' ? grillBoxes(hx, hy, rT, sh === 'arch') : null);
     if (door && !this.held) this.obj.position.y = hy;
+    this._scrFit();
+  }
+  setScreen(on) { on = !!on; if (on === this.screen) return; this.screen = on; this._scrFit(); }   // #589
+  _scrFit() {   // the panel sits 1.2 cm behind the opening plane, inside the iron reveal; one more draw only while it is a screen
+    if (!this.screen) { if (this.scr) this.scr.visible = false; return; }
+    if (!this.scr) { this.scr = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), makeScreenMat()); this.scr.raycast = () => {}; this.scr.renderOrder = -1; this.obj.add(this.scr); }
+    const { x: hx, y: hy } = this.half, U = this.scr.material.uniforms;
+    this.scr.geometry.dispose(); this.scr.geometry = new THREE.PlaneGeometry(2 * hx, 2 * hy); this.scr.position.z = -0.012; this.scr.visible = true;
+    U.uHalf.value.set(hx, hy); U.uR.value.copy(this.r);
   }
 
   hit(P) {   // grab box: the trim frame + slack
@@ -291,7 +317,7 @@ class PortalFrame {
 export class Portals {
   // home(i): { p: Vector3, yaw } in rig space, frame i's start spot (the first in front of the mirror, the rest along the wall)
   constructor(rig, home) {
-    this.rig = rig; this.home = home; this.on = false; this.n = 1; this.list = []; this.glow = 'off'; this.kinds = []; this.edit = 0;   // #585 / #586 kinds per frame
+    this.rig = rig; this.home = home; this.on = false; this.n = 1; this.list = []; this.glow = 'off'; this.kinds = []; this.edit = 0; this.scrSrc = { src: 'cyclo', name: '', folder: '' }; this.feed = null;   // #589 one screen feed for all SCREEN frames; feed() -> { tex, w, h } (main.js)   // #585 / #586 kinds per frame
     this._mats = new Set();
     this._u = { portalInv: { value: Array.from({ length: MAX_PORTALS }, () => new THREE.Matrix4()) },
       portalHalf: { value: Array.from({ length: MAX_PORTALS }, () => HALF0.clone()) },
@@ -307,6 +333,7 @@ export class Portals {
       if (o && o.p && o.q) s = { on: o.on, n: 1, f: [{ p: o.p, q: o.q, h: [HALF0.x * (o.s || 1), HALF0.y * (o.s || 1)] }] }; } catch {} }
     this.n = Math.min(MAX_PORTALS, Math.max(1, (s && s.n) || 1));
     this.glow = s && GLOWS[s.glow] !== undefined ? s.glow : 'off';   // #585
+    if (s && s.scr && s.scr.src) this.scrSrc = { src: s.scr.src, name: s.scr.name || '', folder: s.scr.folder || '' };   // #589
     const doors = (s && s.doors) | 0;   // #585 saved a count of doorways (the first k); #586 a kind per frame
     this.kinds = Array.from({ length: MAX_PORTALS }, (_, i) => (s && s.f && s.f[i] && KINDS.includes(s.f[i].k)) ? s.f[i].k : i < doors ? 'door' : 'window');
     for (let i = 0; i < this.n; i++) {
@@ -318,18 +345,20 @@ export class Portals {
     this.setOn(!!(s && s.on), false);
   }
   save() {
-    try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, n: this.n, glow: this.glow,
+    try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, n: this.n, glow: this.glow, scr: this.scrSrc,
       f: this.list.slice(0, this.n).map((f, i) => ({ p: f.obj.position.toArray(), q: f.obj.quaternion.toArray(), h: f.half.toArray(), k: this.kinds[i] })) })); } catch {}
   }
   _show() { this.list.forEach((f, i) => { f.obj.visible = this.on && i < this.n; }); this._u.portalN.value = this.on ? this.n : 0; this._u.portalRevN.value = this.revN; }
   // #585 the first `doors` frames are doorways (on the floor, open at the bottom), the rest bay windows; TRIM LIGHT colour
-  _styles() { this.list.forEach((f, i) => { const k = this.kinds[i] || 'window'; f.setShape(SHAPE_OF(k)); f.rev = k[0] === 'p'; f.setGlow(this.glow); }); }   // #588 shape from the kind
+  _styles() { this.list.forEach((f, i) => { const k = this.kinds[i] || 'window'; f.setShape(SHAPE_OF(k)); f.rev = k[0] === 'p'; f.setScreen(k[0] === 's'); f.setGlow(this.glow); }); }   // #588 shape from the kind, #589 screen   // #588 shape from the kind
   get doors() { return this.kinds.slice(0, this.n).filter(k => k === 'door' || k === 'pdoor').length; }
   kindOf(i) { return this.kinds[i] || 'window'; }
   setKind(i, k) { if (!KINDS.includes(k)) return; this.kinds[i] = k; this._styles(); this.save(); this.flash(i); }
   stepKind(i, d) { const j = KINDS.indexOf(this.kindOf(i)); this.setKind(i, KINDS[(j + d + KINDS.length) % KINDS.length]); }
   setEdit(i) { this.edit = Math.min(this.n - 1, Math.max(0, i | 0)); this.flash(this.edit); }
   flash(i) { const f = this.list[i]; if (f) f.flashT = performance.now() + 1500; }   // the frame being set up blinks white
+  get screenN() { let n = 0; for (let i = 0; i < this.n; i++) if (this.kindOf(i)[0] === 's') n++; return this.on ? n : 0; }   // #589
+  setScreenSrc(o) { this.scrSrc = { src: o.src || 'cyclo', name: o.name || '', folder: o.folder || '' }; this.save(); }
   get revN() { let n = 0; for (let i = 0; i < this.n; i++) if (this.kindOf(i)[0] === 'p') n++; return this.on ? n : 0; }
   setDoors(k) { for (let i = 0; i < MAX_PORTALS; i++) { const rev = this.kindOf(i)[0] === 'p'; this.kinds[i] = (i < k ? (rev ? 'pdoor' : 'door') : (rev ? 'pwindow' : 'window')); } this._styles(); this.save(); }
   stepGlow(d) { const i = GLOW_ORDER.indexOf(this.glow); this.glow = GLOW_ORDER[((i < 0 ? 0 : i) + d + GLOW_ORDER.length) % GLOW_ORDER.length]; this._styles(); this.save(); }
@@ -380,6 +409,13 @@ export class Portals {
     for (let i = 0; i < this.n; i++) {
       const f = this.list[i]; f.obj.updateMatrixWorld();
       this._u.portalInv.value[i].copy(f.obj.matrixWorld).invert(); this._u.portalHalf.value[i].copy(f.half); this._u.portalR.value[i].copy(f.r); this._u.portalRev.value[i] = f.rev ? 1 : 0;
+      if (f.screen && f.scr) {   // #589 the shared feed, cover-fitted to this opening
+        const F = this.feed && this.feed(), U = f.scr.material.uniforms;
+        if (F && F.tex && F.w && F.h) {
+          U.map.value = F.tex; U.uHas.value = 1; const A = f.half.x / f.half.y, a = F.w / F.h;
+          if (a > A) { const cw = A / a; U.uCrop.value.set((1 - cw) / 2, 0, cw, 1); } else { const ch = a / A; U.uCrop.value.set(0, (1 - ch) / 2, 1, ch); }
+        } else U.uHas.value = 0;
+      }
       if (f.flashT) { const left = f.flashT - performance.now(); if (left > 0) f.setFlash(1.5 + 1.5 * Math.sin(left / 80)); else { f.flashT = 0; f.setGlow(this.glow); } }
     }
   }

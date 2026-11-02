@@ -840,6 +840,66 @@ function cycloOffCycle() {
   drawMixScreen();
 }
 function cycloOffLabel() { return (ledMode !== 'off' ? 'OFF' : dome.on ? 'DOME ONLY' : 'OFF: BG VISUALS') + ' ⟳'; }
+// #589 SCREEN portal frames: one shared feed. CYCLO = what the Cyclo shows (redrawn from the same 2D layers the stream uses,
+// 640x360 at ~20 fps, no extra decoding), IMAGE = a still from the library, VIDEO = a library clip, looped and muted (one decoder
+// for every screen). Closed again as soon as no SCREEN frame is out.
+var pfeed = null, pScrLast = null;
+function pScrMem() { if (!pScrLast) { try { pScrLast = JSON.parse(localStorage.getItem('vire.portalScr') || 'null'); } catch (e) {} pScrLast = pScrLast || { image: null, video: null }; } return pScrLast; }
+function pScrSet(src, name, folder) {
+  if (!portals) return; const m = pScrMem();
+  if (src !== 'cyclo') { m[src] = { name, folder }; try { localStorage.setItem('vire.portalScr', JSON.stringify(m)); } catch (e) {} }
+  portals.setScreenSrc({ src, name, folder });
+  toast(portals.screenN ? `Portal screens: ${src === 'cyclo' ? 'CYCLO' : name}` : `Portal screens set to ${src === 'cyclo' ? 'CYCLO' : name}. Make a frame a SCREEN on PORTALS SETUP (TYPE) to see it.`, 3000);
+  drawMixScreen();
+}
+function pScrStep() {
+  if (!portals) return; const order = ['cyclo', 'image', 'video'], next = order[(order.indexOf(portals.scrSrc.src) + 1) % 3], m = pScrMem()[next];
+  if (next !== 'cyclo' && !(m && m.name)) { portals.setScreenSrc({ src: next }); toast(`No ${next} picked yet: VISUALS > ${next === 'image' ? 'Images' : 'Video'}, pick one, → PORTAL`, 3500); drawMixScreen(); return; }
+  pScrSet(next, m ? m.name : '', m ? m.folder : '');
+}
+function portalFeed() {
+  const S = portals.scrSrc, P = pfeed || (pfeed = { cv: null, g: null, tex: null, t: 0, key: '', mtex: null, w: 0, h: 0, el: null, url: '', img: null });
+  if (S.src === 'cyclo' || !S.name) {
+    if (S.src !== 'cyclo') return null;
+    if (P.key !== 'cyclo') { pfeedMediaClose(); P.key = 'cyclo'; }
+    if (!P.cv) { P.cv = document.createElement('canvas'); P.cv.width = 640; P.cv.height = 360; P.g = P.cv.getContext('2d'); P.tex = new THREE.CanvasTexture(P.cv); P.tex.colorSpace = THREE.SRGBColorSpace; }
+    const now = performance.now();
+    if (now - P.t > 50) {
+      P.t = now; const g = P.g, W = 640, H = 360, ws = streamer && streamer.env && streamer.env.wallSource, layers = (ws && ws()) || [];
+      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.fillStyle = '#050507'; g.fillRect(0, 0, W, H);
+      for (const L of layers) {
+        if (!L || !L.el || L.gain === 0) continue; const el = L.el, ew = el.videoWidth || el.width || 0, eh = el.videoHeight || el.height || 0; if (!ew || !eh) continue;
+        const k = Math.max(W / ew, H / eh), dw = ew * k, dh = eh * k;
+        g.globalAlpha = L.gain == null ? 1 : Math.min(1, L.gain); g.globalCompositeOperation = L.add ? 'lighter' : 'source-over';
+        try { if (L.flip) { g.save(); g.translate(0, H); g.scale(1, -1); g.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh); g.restore(); } else g.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh); } catch (e) {}
+      }
+      g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; P.tex.needsUpdate = true;
+    }
+    return { tex: P.tex, w: 640, h: 360 };
+  }
+  const key = S.src + ':' + (S.folder || '') + '/' + S.name;
+  if (P.key !== key) { pfeedMediaClose(); P.key = key; loadPortalMedia(S, key); }
+  return P.mtex && P.w ? { tex: P.mtex, w: P.w, h: P.h } : null;
+}
+async function loadPortalMedia(S, key) {
+  const f = await media.getFile(S.folder || (S.src === 'video' ? 'Video' : 'Images'), S.name).catch(() => null);
+  if (!f) { if (pfeed && pfeed.key === key) toast('Portal screen: ' + S.name + ' is not in this headset\'s library', 3000); return; }
+  if (!pfeed || pfeed.key !== key) return;
+  if (S.src === 'image') {
+    const b = await createImageBitmap(f, { imageOrientation: 'flipY' }).catch(() => null); if (!b) return;
+    if (!pfeed || pfeed.key !== key) { b.close(); return; }
+    const t = new THREE.Texture(b); t.flipY = false; t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; pfeed.img = b; pfeed.mtex = t; pfeed.w = b.width; pfeed.h = b.height;
+  } else {
+    const v = document.createElement('video'); v.muted = true; v.loop = true; v.playsInline = true; v.autoplay = true; pfeed.url = URL.createObjectURL(f); v.src = pfeed.url; pfeed.el = v;
+    v.addEventListener('loadeddata', () => { if (!pfeed || pfeed.el !== v) return; const t = new THREE.VideoTexture(v); t.colorSpace = THREE.SRGBColorSpace; pfeed.mtex = t; pfeed.w = v.videoWidth; pfeed.h = v.videoHeight; v.play().catch(() => {}); }, { once: true });
+    v.play().catch(() => {});
+  }
+}
+function pfeedMediaClose() {
+  if (!pfeed) return; if (pfeed.mtex) { pfeed.mtex.dispose(); pfeed.mtex = null; } if (pfeed.img) { try { pfeed.img.close(); } catch (e) {} pfeed.img = null; }
+  if (pfeed.el) { pfeed.el.pause(); pfeed.el.removeAttribute('src'); pfeed.el.load(); pfeed.el = null; } if (pfeed.url) { URL.revokeObjectURL(pfeed.url); pfeed.url = ''; } pfeed.w = pfeed.h = 0;
+}
+setInterval(() => { if (pfeed && pfeed.key && (!portals || !portals.screenN)) { pfeedMediaClose(); pfeed.key = ''; } }, 1000);   // no SCREEN frame out: stop decoding
 function setNeonScale(s) { s = clamp(s, 0.3, 4); neon.scale.setScalar(s); neon.userData.setLodScale(s); if (stage) stage.items.neon.base = NEON.R * s; return s; }
 function saveNeonScale() { try { localStorage.setItem('vire.neonScale', String(neon.scale.x)); } catch (e) {} }
 try { const s = parseFloat(localStorage.getItem('vire.neonScale')); if (s > 0) { neon.scale.setScalar(clamp(s, 0.3, 4)); neon.userData.setLodScale(neon.scale.x); } } catch (e) {}
@@ -5067,6 +5127,7 @@ async function vpAct(what) {
   if (what === 'sky') return useSkyMedia(vpFolder, name).catch(e => toast('Sky: ' + e.message, 4000));
   if (what === 'light') return lightPhone(vpFolder, name);   // #214
   const lpItem = vpItems.find(i => i.name === name && i.loopId);   // #441 a grabbed loop: only the Cyclo
+  if (what === 'portal') { if (lpItem) { toast('A grabbed loop plays on the Cyclo: set SCREEN to CYCLO', 2500); return; } pScrSet(vpFolder === 'Images' ? 'image' : 'video', name, vpFolder); return; }   // #589
   if (lpItem) { const L = grab.loops.find(x => x.id === lpItem.loopId); if (what === 'lednow' || what === 'ledadd') { if (L) showLoop(L); } else toast('A grabbed loop plays on the Cyclo (CYCLO NOW)', 2500); return; }
   const f = await media.getFile(vpFolder, name); if (!f) return;
   if (what === 'deckA' || what === 'deckB') {
@@ -5460,8 +5521,8 @@ function drawVideoPage() {
   btn(bx, by, 44, bh, '‹', false, () => { vpPg = Math.max(0, vpPg - 1); drawMixScreen(); }, vpPg === 0);
   btn(bx + 48, by, 44, bh, '›', false, () => { vpPg = Math.min(pages - 1, vpPg + 1); drawMixScreen(); }, vpPg >= pages - 1);
   const T = { Pano: [['SKY', 'sky'], ['SKY OFF', 'skyoff'], ['LIGHT PHONE', 'light']], 'Video pano': [['SKY', 'sky'], ['SKY OFF', 'skyoff'], ['LIGHT PHONE', 'light']],
-    Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['CYCLO NOW', 'lednow'], ['+ CYCLO', 'ledadd']], Images: [['CYCLO NOW', 'lednow'], ['+ CYCLO', 'ledadd']] }[vpFolder];
-  const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : 86, ty = P ? H - 106 : by;
+    Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['CYCLO NOW', 'lednow'], ['+ CYCLO', 'ledadd'], ['→ PORTAL', 'portal']], Images: [['CYCLO NOW', 'lednow'], ['+ CYCLO', 'ledadd'], ['→ PORTAL', 'portal']] }[vpFolder];   // #589 → PORTAL: the SCREEN frames' feed
+  const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : T.length > 4 ? 76 : 86, ty = P ? H - 106 : by;   // #589 five targets on Video
   let x = P ? 8 : 108;
   for (const [label, what] of T) { const dim = (!vpSel && what !== 'skyoff'); btn(x, ty, tw, bh, label, false, dim ? null : () => vpAct(what), dim); x += tw + 6; }
   if (vpFolder === 'Pano') {   // #379 PANO SPIN 0 to 5 (degrees a second); landscape: between the SKY buttons and the LED button, portrait: a row of its own
@@ -7089,6 +7150,7 @@ function drawToolsPage() {
       [WL.mode === 'screen' ? 'SCREEN' : 'FRACTAL', false, () => { WL.toggleMode(); drawMixScreen(); }],
       [WL.beat ? 'BEAT: ON' : 'BEAT', WL.beat, () => { WL.setBeat(!WL.beat); drawMixScreen(); }],
       [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)],
+      [`SCREEN: ${({ cyclo: 'CYCLO', image: 'IMAGE', video: 'VIDEO' })[PS.scrSrc.src] || 'CYCLO'} ⟳`, PS.screenN > 0, pScrStep],   // #589 the one feed every SCREEN frame shows
       [defArm ? 'TAP AGAIN' : 'DEFAULTS', defArm, portalDefaults],
     ];
     const cells = [
@@ -7101,7 +7163,7 @@ function drawToolsPage() {
       ['FRACTAL SPEED', `${WL.val('speed')}x`, d => WL.step('speed', d)],
       ['COLOUR CYCLE', `${WL.val('cycle')}x`, d => WL.step('cycle', d)],
       ['FRAME', `${PS.edit + 1} of ${PS.n}`, d => PS.setEdit(PS.edit + d)],   // #586 which frame TYPE sets (it blinks white)
-      [`TYPE · ${PS.kindOf(PS.edit)[0] === 'p' ? 'PANO (SKY)' : 'REAL (ROOM)'}`, SHAPE_LABEL[SHAPE_OF(PS.kindOf(PS.edit))], d => { PS.stepKind(PS.edit, d); if (PS.kindOf(PS.edit)[0] === 'p' && !dome.on) setDome(true); }],   // #585 doorway / #586 PANO frames
+      [`TYPE · ${PS.kindOf(PS.edit)[0] === 'p' ? 'PANO (SKY)' : PS.kindOf(PS.edit)[0] === 's' ? 'SCREEN' : 'REAL (ROOM)'}`, SHAPE_LABEL[SHAPE_OF(PS.kindOf(PS.edit))], d => { PS.stepKind(PS.edit, d); if (PS.kindOf(PS.edit)[0] === 'p' && !dome.on) setDome(true); }],   // #585 doorway / #586 PANO frames
       ['TRIM LIGHT', PS.glow.toUpperCase(), d => PS.stepGlow(d)],
     ];
     const cell = ([label, val, act], x, y, w, h) => {
@@ -7123,13 +7185,13 @@ function drawToolsPage() {
     if (P) {
       const tw = (R - L - 8) / 2;
       toggles.forEach(([lb, on, act], i) => btn(L + (i % 2) * (tw + 8), y0 + Math.floor(i / 2) * 52, tw, 46, lb, on, act, false, 17));
-      const y1 = y0 + 3 * 52 + 6;
+      const y1 = y0 + Math.ceil(toggles.length / 2) * 52 + 6;   // #589 7 toggles
       const cellsP = cells.concat([['DOME TURN', `${dome.turn}°`, d => setDomeTurn((dome.turn + d * 15 + 360) % 360)]]);   // #586 portrait: DOME TURN as a 15 deg stepper
       cellsP.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 54, tw, 50));   // #585 rows of 54 px
       text(L + 4, y1 + 6 * 54 + 16, R - L - 8, 18, 3, 14, helpP);
     } else {
-      const tw = (R - L - 30) / 6;
-      toggles.forEach(([lb, on, act], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, false, 15));
+      const tw = (R - L - 6 * (toggles.length - 1)) / toggles.length;
+      toggles.forEach(([lb, on, act], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, false, 14));
       const cw = (R - L - 24) / 4, y1 = y0 + 48;
       cells.forEach((c, i) => cell(c, L + (i % 4) * (cw + 8), y1 + Math.floor(i / 4) * 48, cw, 44));
       tSlider(g, L + 3 * (cw + 8), y1 + 2 * 48 + 4, cw, 40, 'TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on, 52);   // #389 (#586 third row, right of FRAME / TYPE / TRIM LIGHT)
@@ -8165,7 +8227,7 @@ function frameBody() {
       toast(`Beacon ${k === 'L' ? 'LEFT' : 'RIGHT'} marked`, 2000); xr.buzz && xr.buzz(st, 0.6, 60); break;
     }
   }
-  if (portals) portals.tick();   // #345 #346
+  if (portals) { if (!portals.feed) portals.feed = portalFeed; portals.tick(); }   // #345 #346 (#589 screen feed)
   if (domeBoot) { domeBoot = false; if (dome.on && !CAMERA_ROLE) setDome(true); }   // #346 a dome left on last time: load its sky once everything is up
   if (skySpin.speed > 0 && skybox.group.visible) { skySpin.ang = (skySpin.ang + skySpin.speed * DEG * dt) % (2 * Math.PI); applySkyTurn(); }   // #379 PANO SPIN
   if (mprops) mprops.tick(dt);   // #478
