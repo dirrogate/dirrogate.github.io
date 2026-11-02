@@ -916,6 +916,7 @@ class Placer {
       else if (this.mode === 'move') {
         if (sy) { _p.setFromMatrixPosition(this.off); const k = sy * dt * (0.8 - _p.z * 0.8); this.off.setPosition(_p.x, _p.y, clamp(_p.z + k, -25, -0.15)); }
         _m.copy(this.rm).multiply(this.off); p.hold(_m);
+        if (p.isPortal && this.mp.snap) this.mp.snap(p);   // #592 near a scanned wall / ceiling it lies flat on it and slides along
         len = Math.max(0.1, _v2.copy(p.obj.getWorldPosition(_v3)).sub(this.o).length());
       } else { this.sizeStep(p); len = Math.max(0.1, _v2.copy(p.obj.getWorldPosition(_v3)).sub(this.o).length()); }
     } else {

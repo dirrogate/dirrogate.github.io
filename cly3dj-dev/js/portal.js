@@ -100,14 +100,22 @@ const detailTex = (() => {
   g.putImageData(d, 0, 0);
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.NoColorSpace; return t;
 })();
+// #597 FRAME LOOK: one grade for every frame's concrete / iron, after lighting, so the frames sit in the passthrough room's
+// colour. uGradeA = (exposure multiplier, contrast, saturation, -), uGradeB = white-balance multipliers (warmth / tint)
+const GRADE = { uGradeA: { value: new THREE.Vector4(1, 1, 1, 0) }, uGradeB: { value: new THREE.Vector3(1, 1, 1) } };
+export const GRADE0 = { ev: 0, con: 1, sat: 1, warm: 0, tint: 0 };
+function applyGrade(G) {
+  GRADE.uGradeA.value.set(Math.pow(2, G.ev), G.con, G.sat, 0);
+  GRADE.uGradeB.value.set(1 + 0.12 * G.warm, 1 - 0.08 * G.tint, 1 - 0.12 * G.warm).multiplyScalar(1 / (1 - 0.04 * G.tint));
+}
 function makeTrimMat() {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0 });
   m.userData.uGlow = { value: new THREE.Color(0, 0, 0) };
   m.onBeforeCompile = sh => {
-    sh.uniforms.uDetail = { value: detailTex }; sh.uniforms.uGlow = m.userData.uGlow;
+    sh.uniforms.uDetail = { value: detailTex }; sh.uniforms.uGlow = m.userData.uGlow; sh.uniforms.uGradeA = GRADE.uGradeA; sh.uniforms.uGradeB = GRADE.uGradeB;   // #597
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aKind; attribute float aSeg; varying float vKind; varying float vSeg; varying vec2 vUm;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvKind = aKind; vSeg = aSeg; vUm = uv;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform sampler2D uDetail; uniform vec3 uGlow; varying float vKind; varying float vSeg; varying vec2 vUm; vec3 tD; float lipLine, stud;')
+    sh.fragmentShader = sh.fragmentShader.replace('#include <tonemapping_fragment>', `{ vec3 c = gl_FragColor.rgb * uGradeA.x * uGradeB; float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = max(mix(vec3(l), c, uGradeA.z), 0.0); gl_FragColor.rgb = 0.18 * pow(c / 0.18 + 1e-5, vec3(uGradeA.y)); }   // #597 FRAME LOOK\n#include <tonemapping_fragment>`).replace('#include <common>', '#include <common>\nuniform vec4 uGradeA; uniform vec3 uGradeB;\nuniform sampler2D uDetail; uniform vec3 uGlow; varying float vKind; varying float vSeg; varying vec2 vUm; vec3 tD; float lipLine, stud;')
       .replace('#include <map_fragment>', `
         tD = texture2D(uDetail, vUm * 2.0).rgb;   // 0.5 m tile
         float isIron = step(0.5, vKind), isLip = step(1.5, vKind);
@@ -122,7 +130,7 @@ function makeTrimMat() {
       .replace('#include <metalnessmap_fragment>', `float metalnessFactor = step(0.5, vKind) * 0.6 * (1.0 - tD.b);`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\ntotalEmissiveRadiance += uGlow * lipLine;`);
   };
-  m.customProgramCacheKey = () => 'portalTrim587';
+  m.customProgramCacheKey = () => 'portalTrim597';
   return m;
 }
 
@@ -238,7 +246,7 @@ function buildTrim(hx, hy, rT, rB, closed, hp, grill) {
 // One window: obj (in rig space, scale always 1 -- size is `half`): ONE mesh (trim + handles), one material, one draw.
 class PortalFrame {
   constructor(set) {
-    this.set = set; this.half = HALF0.clone(); this.held = false; this._edge = null; this._g = null; this.door = false; this.rev = false; this.screen = false; this.scr = null; this.shape = 'rect'; this.r = new THREE.Vector2();   // #588 shape: rect / door / round / arch / hole
+    this.set = set; this.half = HALF0.clone(); this.held = false; this._edge = null; this._g = null; this.door = false; this.rev = false; this.screen = false; this.scr = null; this.shape = 'rect'; this.r = new THREE.Vector2(); this.snapL = '';   // #588 shape: rect / door / round / arch / hole
     this.isPortal = true; this.floor = false; this.tilt = true; this.mp = { save: () => set.save() }; this.flashT = 0;   // #586 MOVIE PROPS placement laser target
     const g = this.obj = new THREE.Group(); g.name = 'portal'; g.visible = false; g.userData.noMirror = true; set.rig.add(g);
     this.mat = makeTrimMat();
@@ -324,10 +332,12 @@ class PortalFrame {
   placeHandles() { if (this.door) this._floor(); }
 }
 
+export { HMIN, HMAX };
 export class Portals {
   // home(i): { p: Vector3, yaw } in rig space, frame i's start spot (the first in front of the mirror, the rest along the wall)
   constructor(rig, home) {
     this.rig = rig; this.home = home; this.on = false; this.n = 1; this.list = []; this.glow = 'off'; this.kinds = []; this.edit = 0; this.scrSrc = { src: 'cyclo', name: '', folder: '' }; this.feed = null;   // #589 one screen feed for all SCREEN frames; feed() -> { tex, w, h } (main.js)   // #585 / #586 kinds per frame
+    this.grade = { ...GRADE0 };   // #597 FRAME LOOK
     this._mats = new Set();
     this._u = { portalInv: { value: Array.from({ length: MAX_PORTALS }, () => new THREE.Matrix4()) },
       portalHalf: { value: Array.from({ length: MAX_PORTALS }, () => HALF0.clone()) },
@@ -343,20 +353,21 @@ export class Portals {
       if (o && o.p && o.q) s = { on: o.on, n: 1, f: [{ p: o.p, q: o.q, h: [HALF0.x * (o.s || 1), HALF0.y * (o.s || 1)] }] }; } catch {} }
     this.n = Math.min(MAX_PORTALS, Math.max(1, (s && s.n) || 1));
     this.glow = s && GLOWS[s.glow] !== undefined ? s.glow : 'off';   // #585
+    if (s && s.grade) Object.assign(this.grade, s.grade); applyGrade(this.grade);   // #597
     if (s && s.scr && s.scr.src) this.scrSrc = { src: s.scr.src, name: s.scr.name || '', folder: s.scr.folder || '' };   // #589
     const doors = (s && s.doors) | 0;   // #585 saved a count of doorways (the first k); #586 a kind per frame
     this.kinds = Array.from({ length: MAX_PORTALS }, (_, i) => (s && s.f && s.f[i] && KINDS.includes(s.f[i].k)) ? s.f[i].k : i < doors ? 'door' : 'window');
     for (let i = 0; i < this.n; i++) {
       const f = this._frame(i), d = s && s.f && s.f[i];
-      if (d && d.p && d.q) { f.obj.position.fromArray(d.p); f.obj.quaternion.fromArray(d.q); if (d.h) f.half.fromArray(d.h); f._fit(); }
+      if (d && d.p && d.q) { f.obj.position.fromArray(d.p); f.obj.quaternion.fromArray(d.q); if (d.h) f.half.fromArray(d.h); f.snapL = d.s || ''; f._fit(); }
       else f.place(this.home(i, this.n));
     }
     this._styles();
     this.setOn(!!(s && s.on), false);
   }
   save() {
-    try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, n: this.n, glow: this.glow, scr: this.scrSrc,
-      f: this.list.slice(0, this.n).map((f, i) => ({ p: f.obj.position.toArray(), q: f.obj.quaternion.toArray(), h: f.half.toArray(), k: this.kinds[i] })) })); } catch {}
+    try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, n: this.n, glow: this.glow, scr: this.scrSrc, grade: this.grade,
+      f: this.list.slice(0, this.n).map((f, i) => ({ p: f.obj.position.toArray(), q: f.obj.quaternion.toArray(), h: f.half.toArray(), k: this.kinds[i], s: f.snapL || '' })) })); } catch {}   // #592 s = the scanned surface it sits on
   }
   _show() { this.list.forEach((f, i) => { f.obj.visible = this.on && i < this.n; }); this._u.portalN.value = this.on ? this.n : 0; this._u.portalRevN.value = this.revN; }
   // #585 the first `doors` frames are doorways (on the floor, open at the bottom), the rest bay windows; TRIM LIGHT colour
@@ -372,6 +383,7 @@ export class Portals {
   get revN() { let n = 0; for (let i = 0; i < this.n; i++) if (this.kindOf(i)[0] === 'p') n++; return this.on ? n : 0; }
   setDoors(k) { for (let i = 0; i < MAX_PORTALS; i++) { const rev = this.kindOf(i)[0] === 'p'; this.kinds[i] = (i < k ? (rev ? 'pdoor' : 'door') : (rev ? 'pwindow' : 'window')); } this._styles(); this.save(); }
   stepGlow(d) { const i = GLOW_ORDER.indexOf(this.glow); this.glow = GLOW_ORDER[((i < 0 ? 0 : i) + d + GLOW_ORDER.length) % GLOW_ORDER.length]; this._styles(); this.save(); }
+  setGrade(k, v) { if (k === 'reset') Object.assign(this.grade, GRADE0); else this.grade[k] = v; applyGrade(this.grade); this.save(); }   // #597
   setOn(on, save = true) { this.on = !!on; this._show(); if (save) this.save(); }
   // more frames: the new ones start at their spots across the wall; fewer: the extra ones are put away (kept for later)
   setCount(n) {
@@ -379,7 +391,7 @@ export class Portals {
     for (let i = this.n; i < n; i++) { const f = this._frame(i); f.half.copy(HALF0); f._fit(); f.place(this.home(i, n)); }
     this.n = n; this.edit = Math.min(this.edit, n - 1); this._styles(); this._show(); this.save();
   }
-  reset() { for (let i = 0; i < this.n; i++) { const f = this._frame(i); f.half.copy(HALF0); f._fit(); f.place(this.home(i, this.n)); } this._styles(); this.save(); }
+  reset() { for (let i = 0; i < this.n; i++) { const f = this._frame(i); f.snapL = ''; f.half.copy(HALF0); f._fit(); f.place(this.home(i, this.n)); } this._styles(); this.save(); }
   // Cut the portals into every mesh under obj (FacetWall's group, the sky dome, any loaded room/cabin glb). Idempotent
   // per material -- call it again any time a new glb finishes loading and it just adds its materials to the registry.
   // { sky: true } = the sky dome: PANO frames show it only through themselves (#586)
