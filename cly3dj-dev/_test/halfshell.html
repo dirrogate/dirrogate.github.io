@@ -1,0 +1,81 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Holodancer half shell</title>
+<style>
+:root{ --panel:#12141c; --line:#2a2e3c; --fg:#e9ecf3; --dim:#8d94a6; --cue:#35d6ff; --amb:#ffa24a; color-scheme:dark; }
+html,body{height:100%;margin:0;background:#06070c;color:var(--fg);font:14px system-ui,sans-serif;overflow:hidden}
+canvas{display:block}
+#ui{position:fixed;left:0;right:0;bottom:0;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:10px max(16px,env(safe-area-inset-left));background:color-mix(in srgb,var(--panel) 90%,transparent);border-top:1px solid var(--line)}
+button{font:600 13px system-ui,sans-serif;color:var(--fg);background:#1a1e2a;border:1px solid var(--line);border-radius:6px;padding:8px 12px;cursor:pointer}
+button.go{border-color:var(--cue);color:var(--cue)} button[aria-pressed="true"]{border-color:var(--amb);color:var(--amb)}
+#read{font:12px ui-monospace,monospace;color:var(--dim)}
+#ov{position:fixed;inset:0;pointer-events:none;touch-action:none} #ov.xr{pointer-events:auto}
+#tag{position:absolute;top:calc(12px + env(safe-area-inset-top));left:12px;font:12px ui-monospace,monospace;background:rgba(6,7,12,.5);padding:4px 8px;border-radius:6px}
+#hint{position:absolute;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);font:600 15px system-ui,sans-serif;color:#fff;background:rgba(6,7,12,.6);padding:10px 16px;border-radius:20px;white-space:nowrap;display:none}
+#ov.xr #hint{display:block}
+#xrBar{position:absolute;left:0;right:0;bottom:calc(16px + env(safe-area-inset-bottom));display:none;justify-content:center;gap:8px} #ov.xr #xrBar{display:flex}
+</style>
+<div id="ui"><button id="ar" class="go">Start AR</button><button id="half" aria-pressed="true">Half shell</button><button id="tears" aria-pressed="true">Holo tears</button><span id="read">loading…</span></div>
+<div id="ov"><span id="tag"></span><span id="hint">Point at the floor, tap to place her</span><div id="xrBar"><button id="xrHalf" aria-pressed="true">Half shell</button><button id="xrExit">Exit</button></div></div>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.js"}}</script>
+<script type="module">
+// #579 Half-shell test: only the front camera's displaced depth mesh (what a 1-view Quest stereo capture gives). Walk round her
+// (Android AR, or drag on a PC): from behind, the holoprojector behind her scans her back. ?p=<performer.json> (4-view depth).
+import * as THREE from 'three';
+import {OrbitControls} from '../vendor/three/OrbitControls.js';
+import {makeHoloPlayer} from '../js/holoplayer.js';
+const Q = new URLSearchParams(location.search), MOBILE = /Android|iPhone|iPad/i.test(navigator.userAgent);
+const src = Q.get('p') || '../holo/kitana_snake4/performer.json', START = 1.524 / 1.72;
+const renderer = new THREE.WebGLRenderer({ antialias: !MOBILE, alpha: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1 : 1.5)); renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true; renderer.xr.setFramebufferScaleFactor(+(Q.get('fs') || 0.6)); document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene(), BG = new THREE.Color(0x06070c); scene.background = BG;
+const grid = new THREE.GridHelper(10, 20, 0x2a3346, 0x161b26); scene.add(grid);
+const cam = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.05, 100); cam.position.set(2.6, 1.5, -3.2);
+const orbit = new OrbitControls(cam, renderer.domElement); orbit.target.set(0, 0.9, 0); orbit.enableDamping = true;
+const holo = new THREE.Group(); holo.scale.setScalar(START); scene.add(holo);
+const player = makeHoloPlayer({ THREE, grid: MOBILE ? [96, 108] : [160, 180] }); holo.add(player.group);
+let half = true; player.set('half', true);
+const setHalf = v => { half = v; player.set('half', v); for (const id of ['half', 'xrHalf']) document.getElementById(id).setAttribute('aria-pressed', v); };
+for (const id of ['half', 'xrHalf']) document.getElementById(id).onclick = () => setHalf(!half);
+let tears = true; document.getElementById('tears').onclick = e => { tears = !tears; player.set('tears', tears); e.target.setAttribute('aria-pressed', tears); };
+player.load(src).then(m => { read.textContent = `${m.name} · ${m.layout}`; }).catch(e => { read.textContent = 'load failed: ' + e.message; });
+const read = document.getElementById('read');
+// ---- AR: reticle, tap = place (facing you), pinch = scale, twist = turn
+let session = null, hitSrc = null, placed = false; const ov = document.getElementById('ov'), hint = document.getElementById('hint');
+const reticle = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.19, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x35d6ff, transparent: true, opacity: 0.9, depthWrite: false })); reticle.matrixAutoUpdate = false; reticle.visible = false; scene.add(reticle);
+const rp = new THREE.Vector3(), rq = new THREE.Quaternion(), rs = new THREE.Vector3(), eye = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
+function place() { if (!reticle.visible) return; holo.position.copy(rp); holo.rotation.y = Math.atan2(eye.x - rp.x, eye.z - rp.z); placed = true; holo.visible = true; hint.textContent = 'Walk round her · pinch to scale · twist to turn · tap to move'; }
+const touches = new Map(); let pinch0 = null, tapT = 0, moved = false;
+const two = () => { const [a, b] = [...touches.values()]; return { d: Math.hypot(b.x - a.x, b.y - a.y), ang: Math.atan2(b.y - a.y, b.x - a.x) }; };
+ov.addEventListener('beforexrselect', e => e.preventDefault());
+ov.addEventListener('pointerdown', e => { if (e.target.closest('button')) return; touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (touches.size === 1) { tapT = performance.now(); moved = false; } if (touches.size === 2) { const t = two(); pinch0 = { d: t.d, ang: t.ang, s: holo.scale.x, r: holo.rotation.y }; moved = true; } });
+ov.addEventListener('pointermove', e => { const p = touches.get(e.pointerId); if (!p) return; if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > 12 && touches.size === 1) moved = true; p.x = e.clientX; p.y = e.clientY; if (touches.size === 2 && pinch0 && placed) { const t = two(); holo.scale.setScalar(THREE.MathUtils.clamp(pinch0.s * t.d / pinch0.d, 0.1, 1.6)); holo.rotation.y = pinch0.r - (t.ang - pinch0.ang); } });
+const up = e => { if (!touches.has(e.pointerId)) return; touches.delete(e.pointerId); if (touches.size < 2) pinch0 = null; if (!touches.size && !moved && performance.now() - tapT < 350) place(); };
+ov.addEventListener('pointerup', up); ov.addEventListener('pointercancel', up);
+document.getElementById('xrExit').onclick = () => session && session.end();
+document.getElementById('ar').onclick = async () => {
+  player.video.play().catch(() => {});
+  if (!navigator.xr || !(await navigator.xr.isSessionSupported('immersive-ar').catch(() => false))) { read.textContent = 'No WebXR AR here (Android Chrome needed). Drag to walk round her.'; return; }
+  session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay'], domOverlay: { root: ov } });
+  renderer.xr.setReferenceSpaceType('local'); await renderer.xr.setSession(session);
+  hitSrc = await session.requestHitTestSource({ space: await session.requestReferenceSpace('viewer') });
+  scene.background = null; grid.visible = false; holo.visible = false; placed = false; ov.classList.add('xr');
+  session.addEventListener('end', () => { session = null; hitSrc = null; reticle.visible = false; holo.visible = true; holo.position.set(0, 0, 0); holo.rotation.y = 0; holo.scale.setScalar(START); scene.background = BG; grid.visible = true; ov.classList.remove('xr'); touches.clear(); });
+};
+addEventListener('resize', () => { cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+const clock = new THREE.Clock(); let n = 0, acc = 0, fps = 0;
+renderer.setAnimationLoop((t, frame) => {
+  const dt = clock.getDelta(), viewer = renderer.xr.isPresenting ? renderer.xr.getCamera() : cam;
+  if (!renderer.xr.isPresenting) orbit.update();
+  viewer.updateMatrixWorld(); viewer.getWorldPosition(eye);
+  if (frame && hitSrc) {
+    const r = frame.getHitTestResults(hitSrc);
+    if (r.length) { reticle.matrix.fromArray(r[0].getPose(renderer.xr.getReferenceSpace()).transform.matrix); reticle.matrix.decompose(rp, rq, rs); rq.setFromAxisAngle(UP, 0); reticle.matrix.compose(rp, rq, rs.set(1, 1, 1)); reticle.visible = true; } else reticle.visible = false;
+    if (!placed) { holo.visible = reticle.visible; if (reticle.visible) { holo.position.copy(rp); holo.rotation.y = Math.atan2(eye.x - rp.x, eye.z - rp.z); } }
+  }
+  player.update(eye, t / 1000, viewer);
+  renderer.render(scene, cam);
+  n++; acc += dt; if (acc > 0.5) { fps = n / acc; n = 0; acc = 0; }
+  document.getElementById('tag').textContent = `${fps.toFixed(0)} fps · ${half ? 'half shell (front capture + holoprojector)' : 'all 4 views'}`;
+});
+window.__hs = { player, holo, cam, orbit };
+</script>

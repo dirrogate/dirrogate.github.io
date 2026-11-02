@@ -18,10 +18,10 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
   const tex = new THREE.VideoTexture(video);
   tex.colorSpace = THREE.NoColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
   const shared = {
-    uCut: { value: 0.06 }, uGraze: { value: 0.15 }, uTint: { value: 0 }, uT: { value: 0 }, uTears: { value: 1 },
+    uCut: { value: 0.06 }, uGraze: { value: 0.15 }, uTint: { value: 0 }, uT: { value: 0 }, uTears: { value: 1 }, uBand: { value: 0 }, uBehind: { value: 0 },
     uRoom: { value: 0 }, uAmb: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uKey: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uL: { value: new THREE.Vector3(0, 1, 0) },
   };
-  const P = { meta: null, layout: '', views: [], board: null, bU: null, cur: 0, gT0: -1, glitch: 1, ready: false, err: '', base: '' };
+  const P = { half: false, back: null, proj: null, meta: null, layout: '', views: [], board: null, bU: null, cur: 0, gT0: -1, glitch: 1, ready: false, err: '', base: '' };
   const tmp = new THREE.Vector3(), local = new THREE.Vector3();
 
   // ---------- 4d: depth shells ----------
@@ -81,6 +81,61 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
       gl_FragColor = vec4(mix(vec3(0.07, 0.08, 0.10), line, scan), a);
     }`;
 
+  // ---------- #579 half shell: only the front camera's displaced depth mesh (as a 1-view stereo capture would give). From behind or
+  // the side its back faces are the holoprojector's picture: cyan scan lines, a bright band sweeping top to bottom, a ghost of her
+  // colours; a projector prop behind her throws a light cone (with the same band) onto her back. Nothing of it shows from the front.
+  const FS4B = COMMON4 + `
+    uniform float uBand, uBehind;
+    void main(){
+      if (uBehind < 0.01 || vOcc < 0.999 || occ() < 0.06 || vJump > 0.35) discard;
+      float y = vUv.y;
+      float band = exp(-pow((y - uBand) / 0.035, 2.0));
+      float lines = 0.3 + 0.7 * step(0.5, fract(y * 150.0 - uT * 2.0));
+      float flick = 0.85 + 0.15 * sin(uT * 31.0 + y * 20.0);
+      vec3 c = vec3(0.12, 0.78, 1.0) * (0.22 * lines + 1.5 * band) * flick + col() * 0.28;
+      gl_FragColor = vec4(c, clamp(0.4 * lines + 0.9 * band, 0.0, 0.95) * uBehind);
+    }`;
+  const VSBEAM = 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
+  const FSBEAM = `
+    uniform float uBand, uBehind, uT, uH; uniform vec3 uApex; varying vec3 vP;
+    void main(){
+      float s = clamp((vP.z - uApex.z) / (-uApex.z), 0.0, 1.0);          // 0 at the lens, 1 at her
+      float yb = mix(uApex.y, uBand * uH, s);
+      float band = exp(-pow((vP.y - yb) / (0.015 + 0.05 * s), 2.0));
+      float a = (0.012 + 0.6 * band) * uBehind * smoothstep(0.0, 0.12, s);   // faint cone, bright scanning plane
+      gl_FragColor = vec4(vec3(0.15, 0.8, 1.0), a);
+    }`;
+  function buildHalf(R, H) {
+    const v0 = P.views[0]; if (!v0) return;
+    const un = Object.assign({}, v0.un);
+    const mb = new THREE.ShaderMaterial({ uniforms: un, vertexShader: VS4, fragmentShader: FS4B, side: THREE.BackSide, transparent: true, depthWrite: false });
+    mb.extensions = { derivatives: true };
+    P.back = new THREE.Mesh(v0.mesh.geometry, mb); P.back.frustumCulled = false; P.back.visible = false; P.back.renderOrder = 1;
+    v0.mesh.parent.add(P.back);
+    // projector behind her (her front faces +Z), aimed at her, and the light cone from its lens to a frame round her
+    const apex = new THREE.Vector3(0, Math.max(2.1, H * 1.25), -1.9), w = 0.55, g = new THREE.BufferGeometry();
+    const c = [[-w, 0, 0], [w, 0, 0], [w, H * 1.04, 0], [-w, H * 1.04, 0]], pos = [];
+    for (let i = 0; i < 4; i++) { const a = c[i], b = c[(i + 1) % 4]; pos.push(apex.x, apex.y, apex.z, ...a, ...b); }
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    const beam = new THREE.Mesh(g, new THREE.ShaderMaterial({ uniforms: { uBand: shared.uBand, uBehind: shared.uBehind, uT: shared.uT, uH: { value: H * 1.04 }, uApex: { value: apex } }, vertexShader: VSBEAM, fragmentShader: FSBEAM, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+    beam.frustumCulled = false; beam.renderOrder = 3;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.36), new THREE.MeshBasicMaterial({ color: 0x1b1f28 }));
+    body.position.copy(apex).add(new THREE.Vector3(0, 0, -0.19));
+    body.lookAt(0, H * 0.5, 0);
+    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.055, 24), new THREE.MeshBasicMaterial({ color: 0x8ff0ff, toneMapped: false }));
+    lens.position.copy(apex); lens.lookAt(0, H * 0.5, 0);
+    P.proj = new THREE.Group(); P.proj.add(beam, body, lens); P.proj.visible = false; group.add(P.proj);
+  }
+  function halfStep(t) {
+    const dz = tmp.copy(local).setY(0).normalize().z;   // 1 = straight in front of her, -1 = straight behind
+    const behind = Math.max(0, Math.min(1, (0.3 - dz) / 0.6));
+    shared.uBehind.value = behind; shared.uBand.value = 1 - ((t / 2.6) % 1);
+    P.views.forEach((o, i) => { o.mesh.visible = i === 0; o.tear.visible = i === 0; o.un.uKeep.value = 1; o.mat.polygonOffsetFactor = 0; o.mat.polygonOffsetUnits = 0; });
+    if (P.back) P.back.visible = behind > 0.01;
+    if (P.proj) P.proj.visible = behind > 0.02;
+    P.cur = 0;
+  }
+
   // ---------- 8b: billboard ----------
   const VS8 = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
   const FS8 = `
@@ -111,7 +166,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
 
   function clear() {
     for (const c of [...group.children]) { group.remove(c); c.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); }
-    P.views = []; P.board = null; P.bU = null; P.ready = false;
+    P.views = []; P.board = null; P.bU = null; P.ready = false; P.back = null; P.proj = null;
   }
   function rigOf(m) {
     const r = Object.assign({ dist: 4.4, lens: 50, sensor: 24, aimH: 1.0, az0: -90, azStep: m.layout === '8b' ? -45 : -90 }, m.rig || {});
@@ -136,6 +191,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
         pivot.add(mesh, tear); group.add(pivot);
         P.views.push({ v, mesh, tear, un, mat, dir: new THREE.Vector3(Math.cos(az), 0, -Math.sin(az)) });
       }
+      buildHalf(R, m.height || 1.72);   // #579 (shown only in half-shell mode)
     } else {
       const H = 2 * R.dist * R.tv, W = H * (R.th / R.tv);
       P.bU = { map: { value: tex }, uView: { value: 0 }, uPrev: { value: 0 }, uG: { value: 0 }, uT: { value: 0 }, uSeed: { value: 0 }, uOp: { value: 1 } };
@@ -165,6 +221,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     group.worldToLocal(local.copy(eye));
     const R = P.rig;
     if (P.layout === '4d') {
+      if (P.half) { halfStep(t); if (viewer && shared.uRoom.value > 0) shared.uL.value.copy(P.lightW || tmp.set(0.6, 1, 0.8)).normalize().transformDirection(viewer.matrixWorldInverse); return; }   // #579
       local.y = 0; local.normalize();
       const ranked = P.views.map(o => ({ o, d: o.dir.dot(local) })).sort((a, b) => b.d - a.d);
       const gap = ranked[0].d - ranked[1].d;
@@ -190,7 +247,8 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     }
   }
   function set(k, v) {
-    if (k === 'tears') shared.uTears.value = v ? 1 : 0;
+    if (k === 'half') { P.half = !!v; if (!P.half) { if (P.back) P.back.visible = false; if (P.proj) P.proj.visible = false; } }   // #579 front shell only + holoprojector
+    else if (k === 'tears') shared.uTears.value = v ? 1 : 0;
     else if (k === 'cut') shared.uCut.value = +v;
     else if (k === 'graze') shared.uGraze.value = +v;
     else if (k === 'tint') shared.uTint.value = v ? 1 : 0;
