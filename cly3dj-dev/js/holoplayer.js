@@ -18,7 +18,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
   const tex = new THREE.VideoTexture(video);
   tex.colorSpace = THREE.NoColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
   const shared = {
-    uCut: { value: 0.06 }, uGraze: { value: 0.15 }, uTint: { value: 0 }, uT: { value: 0 }, uTears: { value: 1 }, uBand: { value: 0 }, uBehind: { value: 0 }, uBeam: { value: 0 }, uFat: { value: 3 },
+    uCut: { value: 0.06 }, uGraze: { value: 0.15 }, uTint: { value: 0 }, uT: { value: 0 }, uTears: { value: 1 }, uBand: { value: 0 }, uBehind: { value: 0 }, uBeam: { value: 0 },
     uRoom: { value: 0 }, uAmb: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uKey: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uL: { value: new THREE.Vector3(0, 1, 0) },
   };
   const P = { half: false, back: null, proj: null, meta: null, layout: '', views: [], board: null, bU: null, cur: 0, gT0: -1, glitch: 1, ready: false, err: '', base: '' };
@@ -26,50 +26,32 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
 
   // ---------- 4d: depth shells ----------
   const VS4 = `
-    uniform sampler2D map; uniform float uView, uZn, uZf, uTh, uTv, uFat; uniform vec2 uStep;
-    varying vec2 vUv, vCuv; varying float vZ, vOcc, vJump; varying vec3 vPos, vN;
+    uniform sampler2D map; uniform float uView, uZn, uZf, uTh, uTv; uniform vec2 uStep;
+    varying vec2 vUv; varying float vZ, vOcc, vJump; varying vec3 vPos, vN;
     float dep(vec2 p){ return texture2D(map, vec2((uView + clamp(p.x, 0.001, 0.999)) * 0.25, clamp(p.y, 0.001, 0.999) * 0.5)).r; }
-    // #583 fatten: the nearest clean depth within uFat texels (compression smears the outline toward 0, i.e. far / empty, so the
-    // largest value nearby is the clean one). The outline grows by uFat texels; src = where that depth (and its colour) came from.
-    float dd(vec2 p, out vec2 src){
-      vec2 r = vec2(uFat / 480.0, uFat / 540.0); float b = dep(p); src = p;
-      for (int i = 0; i < 8; i++) {
-        float a = float(i) * 0.785398; vec2 q = p + r * vec2(cos(a), sin(a)); float v = dep(q);
-        if (v > b + 0.02) { b = v; src = q; }
-      }
-      return b;
-    }
     float zOf(float s){ return mix(uZf, uZn, clamp((s - 0.1) / 0.9, 0.0, 1.0)); }
     vec3 Pc(vec2 p, float z){ return vec3((p.x * 2.0 - 1.0) * uTh * z, (p.y * 2.0 - 1.0) * uTv * z, -z); }
     void main(){
       vUv = uv;
-      vec2 src, t2;
-      float s = dd(uv, src); vCuv = src;
-      vOcc = step(0.06, s);
+      float s = dep(uv);
+      vec2 e = vec2(2.0 / 480.0, 2.0 / 540.0);
+      float mn = min(min(dep(uv + vec2(e.x, 0.0)), dep(uv - vec2(e.x, 0.0))), min(dep(uv + vec2(0.0, e.y)), dep(uv - vec2(0.0, e.y))));
+      vOcc = step(0.06, s) * step(0.06, mn);
       float z = vOcc > 0.5 ? zOf(s) : uZf;
       vec2 dx = vec2(uStep.x, 0.0), dy = vec2(0.0, uStep.y);
-      float sL = dd(uv - dx, t2), sR = dd(uv + dx, t2), sD = dd(uv - dy, t2), sU = dd(uv + dy, t2);
+      float sL = dep(uv - dx), sR = dep(uv + dx), sD = dep(uv - dy), sU = dep(uv + dy);
       float zL = sL > 0.06 ? zOf(sL) : z, zR = sR > 0.06 ? zOf(sR) : z, zD = sD > 0.06 ? zOf(sD) : z, zU = sU > 0.06 ? zOf(sU) : z;
       vJump = max(max(abs(zL - z), abs(zR - z)), max(abs(zD - z), abs(zU - z)));
       vN = normalize(normalMatrix * normalize(cross(Pc(uv + dx, zR) - Pc(uv - dx, zL), Pc(uv + dy, zU) - Pc(uv - dy, zD))));
       vZ = z;
       vec4 mv = modelViewMatrix * vec4(Pc(uv, z), 1.0); vPos = mv.xyz;
-      // #583 her outer rim (a neighbour is empty): no tear streaks and no grazing cut there, so the fattened outline stays soft
-      float rim = 1.0 - step(0.06, min(min(sL, sR), min(sD, sU)));
-      // a rim point far behind its nearest neighbour is video-compression smear, not her: drop it (no streak toward the backdrop)
-      float zN = min(min(zL, zR), min(zD, zU));
-      if (rim > 0.5) { if (z - zN > 0.12) vOcc = 0.0; vJump = 0.0; vN = normalize(mix(vN, normalize(-mv.xyz), 0.7)); }
       gl_Position = projectionMatrix * mv;
     }`;
   const COMMON4 = `
-    uniform sampler2D map; uniform float uView, uCut, uGraze, uTint, uT, uKeep, uRoom, uTears, uFat; uniform vec3 uAmb, uKey, uL;
-    varying vec2 vUv, vCuv; varying float vZ, vOcc, vJump; varying vec3 vPos, vN;
-    float d1(vec2 p){ p = clamp(p, 0.002, 0.998); return texture2D(map, vec2((uView + p.x) * 0.25, p.y * 0.5)).r; }
-    vec3 c1(vec2 p){ p = clamp(p, 0.002, 0.998); return texture2D(map, vec2((uView + p.x) * 0.25, 0.5 + p.y * 0.5)).rgb; }
-    // #583 colour: this pixel if it is inside her, else from where the fattened depth came from (no dark fringe from the black backdrop)
-    vec3 col(){ float a = d1(vUv), b = d1(vCuv); return a > 0.06 && a > b - 0.04 ? c1(vUv) : c1(vCuv); }
-    float occ(){ vec2 r = vec2(uFat / 480.0, uFat / 540.0);
-      return max(max(d1(vUv), max(d1(vUv + vec2(r.x, 0.0)), d1(vUv - vec2(r.x, 0.0)))), max(d1(vUv + vec2(0.0, r.y)), d1(vUv - vec2(0.0, r.y)))); }
+    uniform sampler2D map; uniform float uView, uCut, uGraze, uTint, uT, uKeep, uRoom, uTears; uniform vec3 uAmb, uKey, uL;
+    varying vec2 vUv; varying float vZ, vOcc, vJump; varying vec3 vPos, vN;
+    vec3 col(){ vec2 p = clamp(vUv, 0.002, 0.998); return texture2D(map, vec2((uView + p.x) * 0.25, 0.5 + p.y * 0.5)).rgb; }
+    float occ(){ vec2 p = clamp(vUv, 0.002, 0.998); return texture2D(map, vec2((uView + p.x) * 0.25, p.y * 0.5)).r; }
     vec3 nrm(){ vec3 n = normalize(vN); return dot(n, -vPos) < 0.0 ? -n : n; }
     float torn(vec3 n){ return max(step(uCut, vJump), step(abs(dot(n, normalize(-vPos))), uGraze)); }
     float b2(vec2 a){ a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
@@ -325,8 +307,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     }
   }
   function set(k, v) {
-    if (k === 'fat') shared.uFat.value = Math.max(0, Math.min(8, +v || 0));   // #583 outline growth in texels (0 = none)
-    else if (k === 'half') { P.half = !!v; if (!P.half) { if (P.back) P.back.visible = false; if (P.proj) P.proj.visible = false; } }   // #579 front shell only + holoprojector
+    if (k === 'half') { P.half = !!v; if (!P.half) { if (P.back) P.back.visible = false; if (P.proj) P.proj.visible = false; } }   // #579 front shell only + holoprojector
     else if (k === 'tears') shared.uTears.value = v ? 1 : 0;
     else if (k === 'cut') shared.uCut.value = +v;
     else if (k === 'graze') shared.uGraze.value = +v;

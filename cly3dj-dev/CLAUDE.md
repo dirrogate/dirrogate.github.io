@@ -1778,7 +1778,5 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #582 Holoprojector 1 m behind her (owner, 2 Nov)
 - `js/holoplayer.js`: the projector's lens sits 1.0 m behind her at life size (was 1.9 m), still at waist height. The ray fan and its scan maths follow the lens, so nothing else changed.
 
-## #583 Fatter edges on the depth hologram (owner, 2 Nov)
-- `js/holoplayer.js`: the depth shell no longer erodes her outline. Each grid point takes the nearest clean depth within `uFat` texels (default 3; video compression smears the outline toward "empty"). Her colour comes from that same spot, so the outline grows without a black fringe. Arms are fuller and the face isn't clipped at the edges. Adjust with `player.set('fat', 0..8)`; 0 matches the old look.
-- Her outer rim (a grid neighbour is empty) gets no tear streaks and no grazing cut, and its normal leans toward the viewer. A rim point more than 12 cm behind its nearest neighbour is compression smear, so it is dropped. That removes the cyan streaks that trailed off her sides toward the backdrop; interior tears (arm over torso) are unchanged.
-- Checked on the owner's PC pane in halfshell.html: front (full arms, soft thin cyan rim, no streaks), 45° in 4-view mode (same hand-over as before), behind (projector scan intact). No Node restart. Backup backups/pre583/.
+## #583 Fatter edges: tried and reverted (owner, 2 Nov)
+- Dilating the depth outline (uFat) made her sides look torn with scan-line fringes. Owner asked to go back: `js/holoplayer.js` restored from backups/pre583/ (the #582 version). No Node restart.
