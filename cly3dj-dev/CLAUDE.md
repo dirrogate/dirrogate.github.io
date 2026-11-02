@@ -1751,3 +1751,11 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 
 ## #576 Holo tears no longer leave holes in AR (owner, 2 Nov)
 - The torn-geometry pass was additive: between the scan lines and over dark colours it added nothing, so AR showed the camera through her. Now normal blending: a gap between her own parts (depth jump < 35 cm, e.g. an arm over her torso) is filled solid dark grey (0.07 / 0.08 / 0.10) with the cyan scan lines over it; long spikes off her outline stay lines only. `js/holoplayer.js` and `_test/holo4.html`. `_test/holoview.html?bg=<hex>` shows a performer on a light background to check for see-through holes.
+
+## #577 bank Delete wording (owner, 2 Nov)
+- IMAGES / VIDEOS right-click Delete now asks "Delete <name> from this bank (VIDEOS)? The original file on your computer is not touched." (it only removes the desk's own OPFS copy).
+
+## #578 DANCER CLIPS holds Holodancer performers too; PERFORMER list gone (owner, 2 Nov)
+- `vjdesk.html`: one bank: DANCER dances (clips.json) with a ᯓ🏃🏻‍♀️‍➡️ corner badge (click = she blends to it, as before) and Holodancer performers (holo/library.json via DirroVJ state) with ④ (4-view depth) or ⑧ (8-view) and a cyan ✦ cell (click = HOLO plays it; if HOLO is on neither bus it goes on the bus that is off air). Active performer cell cyan, active dance pink.
+- Holodancer panel: PERFORMER row removed; RESTART moved next to SEND TO DIRROGRAM. The bank's module script gets the library through window.setHoLib and the desk state through window.deskState.
+- Checked on the owner's PC pane: 4 dances + 2 performers in the bank, clicking ④ loaded it, lit the cell and put HOLO on bus B. No Node restart. Backup backups/pre578/.
