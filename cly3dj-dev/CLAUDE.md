@@ -1809,3 +1809,9 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #587 Portal frame: one draw call, thinner (owner, 2 Nov: '7 draw calls and 2,200 triangles is too much; less thickness'; no real lights)
 - `js/portal.js`: one mesh per frame (trim + handles merged), one MeshStandardMaterial with a small shader patch: a 256 px data texture (concrete grain + joints / hammered iron / rust mask), aKind attribute (concrete, iron, iron lip) sets colour, roughness and metalness; studs and the TRIM LIGHT line are painted on the lip by the shader (emissive colour, no light objects). Profile 6 cm deep, 8.5 cm wide (RIM 0.085), 5 segments per corner. ~456 triangles a window, ~312 a doorway, 1 draw call. Handles sit on the concrete face; the corner ring on the top-right diagonal.
 - sw.js v93. Backups backups/pre586/ (portal.after585b.js = the #585 version).
+
+## PLAN (owner, 2 Nov): Portal Zones, Android first (nothing built yet; project doc claude/portal-zones-plan.md)
+- Dirrogram today is camera + gyro on every phone (no WebXR, no position tracking, AIM / AIM WITH BEACON alignment).
+- Step 1 (approved): Android AR mode for Dirrogram: WebXR immersive-ar where supported (hit-test, dom-overlay, camera-access for recordings / DirroComics or a switch back to camera mode to capture), floor reticle, two floor taps to align to the venue frame, RE-ALIGN; camera + gyro stays the fallback (iPhone, no ARCore).
+- Then: venue frame on the Quest (MARK FLOOR POINT A / B), SET PORTAL ZONE (PANO doorway + world + audio, saved per venue relative to A / B), zone entry on Android (inside test, doorway flips to REAL from inside, zone audio on the relay clock), later live zone audio from the VJ desk.
+- iPhone parked: 8th Wall SLAM binary licence checked (fits a free experience; cover-charge grey area), own options A / B / C in the doc.
