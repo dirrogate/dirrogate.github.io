@@ -64,6 +64,7 @@ export class DirroHost {
     this.wall = { ...WALL_DEF }; try { const o = JSON.parse(ls(K_WALL) || '{}'); if (o.src && !o.v) { o.src = 'follow'; o.v = 2; } Object.assign(this.wall, o); } catch (e) { }   // #439 once: AUTO -> FOLLOW
     this.imgName = ''; this.imgId = ''; this.imgSent = new Set(); this.frameT = 0; this.frames = 0;
     this.sms = []; this.holo = []; this.smsNew = 0;
+    this.hdc = null;   // #575 Holodancer from DirroVJ: { id, src, sp, dur, t0 } (t0 = dance time 0 on this Quest's performance.now clock)
     this.bcn = {}; try { this.bcn = JSON.parse(ls(K_BCN) || '{}') || {}; } catch (e) { }   // #438 DirroBeacons: L / R = [x, y, z] in rig space (crowd's left / right)   // #435 HoloSMS: messages in (newest first, 60 kept), the ones you put on the hologram scroller (6 at most)
   }
   // #438 DirroBeacons: two real, visible lights (or any two landmarks) marked with the controller tip; the phones aim at
@@ -83,6 +84,14 @@ export class DirroHost {
   }
   smsSine(id) { const m = this.sms.find(x => x.id === id); if (m && this.env.sineText) { this.env.sineText(m.t); m.sine = true; this._changed(); } }
   smsDelete(id) { this.sms = this.sms.filter(x => x.id !== id); const n = this.holo.length; this.holo = this.holo.filter(x => x.id !== id); if (n !== this.holo.length) { this.cfgKey = ''; this.cfgT = 0; } this._changed(); }
+  setHolo(m) {   // #575 DirroVJ's SEND TO DIRROGRAM: performer.json (https only) + where the dance is now
+    const src = typeof m.src === 'string' && /^https:\/\/[\w.-]+(:\d+)?\/[\w./%~-]*performer\.json$/.test(m.src) ? m.src : '';
+    if (!m.on || !src) { if (this.hdc) { this.hdc = null; this.cfgKey = ''; this.cfgT = 0; } return; }
+    const sp = Math.max(0.25, Math.min(2, +m.sp || 1)), dur = Math.max(0.5, Math.min(600, +m.dur || 0)), t0 = performance.now() - Math.max(0, +m.pos || 0) * 1000 / sp;
+    const id = String(m.id || '').replace(/[^\w-]/g, '').slice(0, 40), h = this.hdc;
+    if (h && h.src === src && h.sp === sp && Math.abs(h.t0 - t0) < 120) return;   // steady config: the phones run their own clock between updates
+    this.hdc = { id, src, sp, dur: Math.round(dur * 100) / 100, t0: Math.round(t0) };
+  }
   holoClear() { for (const m of this.holo) m.holo = false; this.holo = []; this.cfgKey = ''; this.cfgT = 0; this._changed(); }
   setWall(k, v) { this.wall[k] = v; ls(K_WALL, JSON.stringify(this.wall)); this.cfgKey = ''; this.cfgT = 0; this._changed(); }
   // #434 the picture on the Quest's LED wall, once per connection: fitted (cover) into 512 x 288, JPEG under ~60 KB
@@ -150,7 +159,7 @@ export class DirroHost {
     if (q && q.lp && !this.imgSent.has(q.lp)) { const d = this.env.loopData && this.env.loopData(q.lp); if (d) { this._send({ k: 'i', id: q.lp, d }); this.imgSent.add(q.lp); } }   // a GRAB LOOP sheet, once
     if (this.wall.src === 'tv') this._sendFrame(now, this.env.tvCanvas && this.env.tvCanvas());
     else if (this.wall.src === 'follow' && q && FRAME_M.has(q.m)) this._sendFrame(now, this.env.wallFrame && this.env.wallFrame());
-    const W = this.wall, cfg = { k: 'c', scroll, np: np.a || '', img: this.imgSent.has(this.imgId) ? this.imgId : '', wall: { src: W.src, cols: q && q.m === 'mandel' ? 160 : W.cols, fill: W.fill, glow: W.glow, q: q ? { ...q, lp: this.imgSent.has(q.lp) ? q.lp : '' } : null }, holo: this.holo.map(x => x.t), bcn: this.bcn.L && this.bcn.R ? this.bcn : null, ha: this.env.handFit ? this.env.handFit() : null }, key = JSON.stringify(cfg);   // #469 ha: HAND FIT / PINCH FIT for the robot hands   // #438   // #435 approved HoloSMS
+    const W = this.wall, cfg = { k: 'c', scroll, np: np.a || '', img: this.imgSent.has(this.imgId) ? this.imgId : '', wall: { src: W.src, cols: q && q.m === 'mandel' ? 160 : W.cols, fill: W.fill, glow: W.glow, q: q ? { ...q, lp: this.imgSent.has(q.lp) ? q.lp : '' } : null }, holo: this.holo.map(x => x.t), hdc: this.hdc, bcn: this.bcn.L && this.bcn.R ? this.bcn : null, ha: this.env.handFit ? this.env.handFit() : null }, key = JSON.stringify(cfg);   // #469 ha: HAND FIT / PINCH FIT for the robot hands   // #438   // #435 approved HoloSMS
     if ((key !== this.cfgKey && now - this.cfgT > CFG_MS) || now - this.cfgSent > CFG_FORCE_MS) { this.cfgKey = key; this.cfgT = this.cfgSent = now; this.ws.send(key); this._rateB += key.length; }
     if (now - this.sendT < SEND_MS) return;
     this.sendT = now;

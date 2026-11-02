@@ -14,7 +14,7 @@ import {OrbitControls} from '../vendor/three/OrbitControls.js';
 import {makeHoloPlayer} from '../js/holoplayer.js';
 const src = new URLSearchParams(location.search).get('p') || '../holo/kitana_snake4/performer.json';
 const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); renderer.setSize(innerWidth, innerHeight); document.body.prepend(renderer.domElement);
-const scene = new THREE.Scene(); scene.background = new THREE.Color(0x06070c); scene.add(new THREE.GridHelper(10, 20, 0x2a3346, 0x161b26));
+const scene = new THREE.Scene(); scene.background = new THREE.Color('#' + (new URLSearchParams(location.search).get('bg') || '06070c'));   // ?bg=ffffff: check for see-through holes as AR would show them scene.add(new THREE.GridHelper(10, 20, 0x2a3346, 0x161b26));
 const cam = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.05, 100); cam.position.set(0, 1.3, 4.2);
 const orbit = new OrbitControls(cam, renderer.domElement); orbit.target.set(0, 0.95, 0); orbit.enableDamping = true;
 const player = makeHoloPlayer({ THREE }); scene.add(player.group);

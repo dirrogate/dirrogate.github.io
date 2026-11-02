@@ -148,6 +148,17 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   let ho = null;
   const hoLoad = () => { if (!ho) ho = makeHoloDesk({ THREE, renderer, S: D.holo, post: () => post() }); ho.ensure(); return ho; };
   const hoNeed = used => !!ho && used.includes('holo');
+  // #575 SEND TO DIRROGRAM: every 2 s (and on a change) the performer + where the dance is, through the Quest link; the Quest puts it
+  // in the config the relay keeps for the phones (dirro-host.js setHolo), the phones keep in step on the Quest clock they already track
+  let hoSent = false;
+  function holoGram() {
+    const H = D.holo, L = getLink(), open = !!(L && L.isOpen);
+    if (!open) { hoSent = false; return; }
+    if (!H.gram || !ho || !ho.ready || !ho.player.meta) { if (hoSent) { L.send('ctl', { k: 'vjholo', on: false }); hoSent = false; } return; }
+    L.send('ctl', { k: 'vjholo', on: true, id: H.perf, src: H.pub.replace(/\/?$/, '/') + H.perf + '/performer.json', pos: ho.t, sp: H.speed, dur: ho.player.meta.duration || ho.player.video.duration || 0 });
+    hoSent = true;
+  }
+  setInterval(holoGram, 2000);
   fetch('holo/library.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(j => {
     if (!j || !Array.isArray(j.performers)) return;
     D.holo.lib = j.performers.map(p => ({ id: p.id, name: p.name || p.id, path: 'holo/' + p.id + '/performer.json', layout: p.layout || '' }));
@@ -324,7 +335,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if (m.k === 'hello') { post(); if (!m.again) comics.sendList(); }
     else if (m.k === 'cx') comics.onMsg(m);   // #516 DirroComics
     else if (m.k === 'dz') { const p = dzLoad(); if (p) p.then(z => z && z.onMsg(m)); }
-    else if (m.k === 'holo') hoLoad().onMsg(m);   // #573 HOLO panel   // #550 DANCER panel and DANCER CLIPS
+    else if (m.k === 'holo') { hoLoad().onMsg(m); if (m.op === 'gram' || m.op === 'perf' || m.op === 'speed' || m.op === 'restart') setTimeout(holoGram, m.op === 'perf' ? 1500 : 50); }   // #573 HOLO panel, #575 tell the phones at once   // #550 DANCER panel and DANCER CLIPS
     else if (m.k === 'tw') { if (studioCtl) { if (m.op === 'key') studioCtl.setTwKey(m.key); else studioCtl.twToggle(m.key); } post(); }   // #532 Twitch key + GO LIVE on the VJ desk
     else if (m.k === 'media') {   // #532 / #533 IMAGES / VIDEOS / PANOS clip decks
       const { folder, name } = m; if (!folder || !name) return;

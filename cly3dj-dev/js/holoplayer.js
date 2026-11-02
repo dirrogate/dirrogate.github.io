@@ -74,7 +74,11 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
       if (torn(n) < 0.5) discard;
       float scan = step(0.55, fract(gl_FragCoord.y * 0.2 - uT * 5.0));
       float flick = 0.65 + 0.35 * sin(uT * 37.0 + vZ * 40.0);
-      gl_FragColor = vec4(mix(col(), vec3(0.15, 0.8, 1.0), 0.8) * scan * flick * 0.8, 1.0);
+      float inner = 1.0 - step(0.35, vJump);   // #576 a gap between her own parts (arm over torso): solid dark fill, so AR shows no holes
+      vec3 line = mix(col(), vec3(0.15, 0.8, 1.0), 0.8) * flick;
+      float a = max(inner, scan * 0.85);
+      if (a < 0.01) discard;
+      gl_FragColor = vec4(mix(vec3(0.07, 0.08, 0.10), line, scan), a);
     }`;
 
   // ---------- 8b: billboard ----------
@@ -122,7 +126,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
       for (let v = 0; v < R.n; v++) {
         const un = { map: { value: tex }, uView: { value: v }, uZn: { value: d.near }, uZf: { value: d.far }, uTh: { value: R.th }, uTv: { value: R.tv }, uKeep: { value: 1 }, uStep: { value: new THREE.Vector2(1 / grid[0], 1 / grid[1]) }, ...shared };
         const mat = new THREE.ShaderMaterial({ uniforms: un, vertexShader: VS4, fragmentShader: FS4, polygonOffset: true });
-        const mt = new THREE.ShaderMaterial({ uniforms: un, vertexShader: VS4, fragmentShader: FS4T, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+        const mt = new THREE.ShaderMaterial({ uniforms: un, vertexShader: VS4, fragmentShader: FS4T, transparent: true, depthWrite: false });
         mat.extensions = mt.extensions = { derivatives: true };
         const mesh = new THREE.Mesh(geo, mat), tear = new THREE.Mesh(geo, mt);
         mesh.frustumCulled = tear.frustumCulled = false; tear.renderOrder = 2;

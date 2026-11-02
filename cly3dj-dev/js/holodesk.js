@@ -4,8 +4,12 @@
 import { makeHoloPlayer } from './holoplayer.js';
 
 export function holoDefaults() {
-  const S = { lib: [], perf: '', loaded: false, loading: false, err: '', cam: { az: 0, el: 8, zoom: 1, orbit: false }, tears: true, glitch: 1, speed: 1, room: false, layout: '' };
+  // #575 gram: SEND TO DIRROGRAM; pub: where the phones fetch performers (https; this page's holo/ when it is served over https)
+  const here = new URL('holo/', location.href).href;
+  const S = { lib: [], perf: '', loaded: false, loading: false, err: '', cam: { az: 0, el: 8, zoom: 1, orbit: false }, tears: true, glitch: 1, speed: 1, room: false, layout: '',
+    gram: false, pub: /^https:/.test(here) ? here : 'https://dirrogate.github.io/cly3dj-dev/holo/' };
   try { const o = JSON.parse(localStorage.getItem('vire.holo') || '{}'); if (typeof o.perf === 'string') S.perf = o.perf; if (o.cam) Object.assign(S.cam, o.cam);
+    if (typeof o.pub === 'string' && /^https:\/\//.test(o.pub)) S.pub = o.pub;
     for (const k of ['tears', 'room']) if (typeof o[k] === 'boolean') S[k] = o[k]; for (const k of ['glitch', 'speed']) if (+o[k] >= 0) S[k] = +o[k]; } catch {}
   S.cam.orbit = false;
   return S;
@@ -18,7 +22,7 @@ export function makeHoloDesk({ THREE, renderer, S, post }) {
   const cam = new THREE.PerspectiveCamera(32, W / H, 0.05, 60);
   const player = makeHoloPlayer({ THREE, grid: [160, 180] });
   scene.add(player.group);
-  const save = () => { try { localStorage.setItem('vire.holo', JSON.stringify({ perf: S.perf, cam: S.cam, tears: S.tears, glitch: S.glitch, speed: S.speed, room: S.room })); } catch {} };
+  const save = () => { try { localStorage.setItem('vire.holo', JSON.stringify({ perf: S.perf, cam: S.cam, tears: S.tears, glitch: S.glitch, speed: S.speed, room: S.room, pub: S.pub })); } catch {} };
   const apply = () => { player.set('tears', S.tears); player.set('glitch', S.glitch); player.set('speed', S.speed); player.set('room', S.room); };
   let orbitAz = 0, lastT = 0, loadSeq = 0;
 
@@ -55,6 +59,8 @@ export function makeHoloDesk({ THREE, renderer, S, post }) {
     else if (m.op === 'glitch') S.glitch = Math.max(0, Math.min(1.5, +m.v || 0));
     else if (m.op === 'speed') S.speed = Math.max(0.25, Math.min(2, +m.v || 1));
     else if (m.op === 'restart') { player.video.currentTime = 0; player.video.play().catch(() => {}); }
+    else if (m.op === 'gram') S.gram = !!m.v;   // #575
+    else if (m.op === 'pub') { const u = String(m.v || '').trim(); if (/^https:\/\/[\w.-]+(:\d+)?\//.test(u)) S.pub = u.replace(/\/?$/, '/'); }
     apply(); save(); post();
   }
   return { ensure, render, onMsg, pick, player, get tex() { return rt.texture; }, get ready() { return player.ready; }, get t() { return player.video.currentTime; } };

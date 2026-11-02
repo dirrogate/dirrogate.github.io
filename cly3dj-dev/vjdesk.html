@@ -206,6 +206,8 @@
         </div>
       </div>
       <div class="row" id="hoGlRow" hidden><span class="dzL">GLITCH</span><label class="kv"><span class="sp">View change</span><input type="range" id="hoGlitch" min="0" max="1.5" step="0.05" value="1" title="Glitch when the camera passes to the next view (8-view performers)"></label></div>
+      <div class="row"><button id="hoGram" title="Send this performer to the Dirrogram phones through the Quest (the Quest must be linked and this DirroVJ allowed on it). The phones stand her on their stage and keep in step with this desk.">SEND TO DIRROGRAM</button><input type="text" id="hoPub" spellcheck="false" style="flex:1;min-width:140px" title="Public (https) address of the performer library the phones load from (the deployed site's holo/ folder)"></div>
+      <div id="hoGramSt" class="note"></div>
       <div id="hoSt" class="note">Not loaded yet: pick HOLO on a bus or a performer.</div>
     </section>
     <section style="margin-top:14px">
@@ -722,6 +724,8 @@ $('hoOrbit').onclick = () => ho('cam', { v: { orbit: !(S && S.D.holo && S.D.holo
 $('hoTears').onclick = () => ho('tears', { v: !(S && S.D.holo && S.D.holo.tears) });
 $('hoRoom').onclick = () => ho('room', { v: !(S && S.D.holo && S.D.holo.room) });
 $('hoGlitch').oninput = e => ho('glitch', { v: +e.target.value });
+$('hoGram').onclick = () => ho('gram', { v: !(S && S.D.holo && S.D.holo.gram) });   // #575
+$('hoPub').onchange = e => ho('pub', { v: e.target.value });
 const hoSpdT = makeTBar($('hoSpeedT'), { horiz: true, pad: 9, step: 0.02, onInput: v => { const sp = Math.round((0.25 + v * 1.75) * 20) / 20; $('hoSpeedV').textContent = 'SPEED ' + sp.toFixed(2) + '×'; ho('speed', { v: sp }); } });
 $('hoSpeedT').ondblclick = () => { $('hoSpeedV').textContent = 'SPEED 1.00×'; ho('speed', { v: 1 }); };
 const HZMIN = 0.5, HZMAX = 5, hz2s = z => Math.log(z / HZMIN) / Math.log(HZMAX / HZMIN), hs2z = v => HZMIN * Math.pow(HZMAX / HZMIN, v);
@@ -741,6 +745,8 @@ function renderHo() {
   if (document.activeElement !== sel && Z.perf) sel.value = Z.perf;
   $('hoOrbit').classList.toggle('on', !!Z.cam.orbit); $('hoTears').classList.toggle('on', !!Z.tears); $('hoRoom').classList.toggle('on', !!Z.room);
   $('hoGlRow').hidden = Z.layout !== '8b';
+  $('hoGram').classList.toggle('on', !!Z.gram); if (document.activeElement !== $('hoPub')) $('hoPub').value = Z.pub || '';   // #575
+  $('hoGramSt').textContent = !Z.gram ? '' : !S.D.qlink ? 'DIRROGRAM: waiting for the Quest link (phones get her once the Quest is linked and this DirroVJ is allowed)' : !Z.loaded ? 'DIRROGRAM: load a performer first' : `DIRROGRAM: sent to the Quest every 2 s · phones load ${Z.pub}${Z.perf}/`;
   if (document.activeElement !== $('hoGlitch')) $('hoGlitch').value = Z.glitch;
   hoSpdT.set(((+Z.speed || 1) - 0.25) / 1.75); if (!$('hoSpeedT').classList.contains('drag')) $('hoSpeedV').textContent = 'SPEED ' + (+Z.speed || 1).toFixed(2) + '×';
   hoZoomT.set(hz2s(Math.max(HZMIN, Math.min(HZMAX, +Z.cam.zoom || 1)))); if (!$('hoZoomT').classList.contains('drag')) $('hoZoomV').textContent = (+Z.cam.zoom || 1).toFixed(1) + '×';

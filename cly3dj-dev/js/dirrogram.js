@@ -253,6 +253,40 @@ function drawScroller() {
 
 // the robot's booth: a flight-case table, two turntables (spinning, records on) and the mixer, all facing the robot
 const booth = new THREE.Group(); booth.name = 'booth'; stage.add(booth);
+// #575 HOLODANCER: a performer DirroVJ sends (through the Quest's config), life size on the stage opposite the robot DJ,
+// drawn by the shared player (js/holoplayer.js, loaded on first use) and kept in step with the desk on the Quest clock (NET.cd)
+const HD = { cfg: null, p: null, grp: new THREE.Group(), tap: false };
+HD.grp.name = 'holodancer'; HD.grp.position.set(+(Q.get('holox') || 2.4), 0, +(Q.get('holoz') || 0.4)); stage.add(HD.grp);
+async function holoLoad(src) {
+  try {
+    const mod = await import('./holoplayer.js');
+    if (!HD.p) { HD.p = mod.makeHoloPlayer({ THREE, grid: [96, 108] }); HD.grp.add(HD.p.group); }
+    HD.p.group.visible = false;
+    await HD.p.load(src);
+    if (HD.cfg && HD.cfg.src === src) { HD.p.group.visible = true; toast('Holodancer: ' + ((HD.p.meta && HD.p.meta.name) || 'on stage')); }
+  } catch (e) { console.warn('holodancer', e); }
+}
+function holoCfg(h) {
+  h = h && typeof h === 'object' && typeof h.src === 'string' && (/^https:\/\//.test(h.src) || (location.hostname === 'localhost' && /^http:\/\/localhost[:/]/.test(h.src))) ? h : null;   // localhost only for a PC test
+  const old = HD.cfg; HD.cfg = h;
+  if (!h) { if (HD.p) HD.p.group.visible = false; return; }
+  if (old && old.src === h.src && HD.p && HD.p.ready) { HD.p.group.visible = true; return; }
+  if (!old || old.src !== h.src) holoLoad(h.src);
+}
+const _hd = new THREE.Vector3();
+function holoStep(now) {
+  const c = HD.cfg, p = HD.p; if (!c || !p || !p.ready || !p.group.visible || !stage.visible) return;
+  camera.getWorldPosition(_hd); p.update(_hd, T, camera);
+  const v = p.video, dur = c.dur || v.duration;
+  if (v.paused && HD.tap) v.play().catch(() => {});
+  if (dur > 0 && NET.cd != null && netLive(now)) {   // the desk's dance time, on this phone: (Quest now - t0) x speed, round the loop
+    let tg = ((now - NET.cd - c.t0) / 1000 * c.sp) % dur; if (tg < 0) tg += dur;
+    let d = tg - v.currentTime; if (d > dur / 2) d -= dur; if (d < -dur / 2) d += dur;
+    if (Math.abs(d) > 0.35) v.currentTime = tg;
+    v.playbackRate = c.sp * (1 + clamp(d, -0.12, 0.12));
+  } else v.playbackRate = c.sp || 1;
+}
+addEventListener('pointerdown', () => { HD.tap = true; if (HD.p && HD.p.ready && HD.p.video.paused) HD.p.video.play().catch(() => {}); }, { passive: true });
 const robotRoot = new THREE.Group(); booth.add(robotRoot);
 const gear = new THREE.Group(); gear.rotation.y = Math.PI; booth.add(gear);   // Cly3DJ gear faces a DJ looking down -z; the robot looks down +z
 const TABLE = { h: 0.92, d: 0.5, z: 0.48 };
@@ -484,6 +518,7 @@ function netMsg(m, now) {
     liveCfg.wall = m.wall || null; liveCfg.img = m.img || ''; liveCfg.bcn = m.bcn || null;   // #434, #438
     if (m.ha && typeof m.ha === 'object') Object.assign(HAND_POSE.adj, m.ha);   // #469 the DJ's HAND FIT / PINCH FIT
     { const h = Array.isArray(m.holo) ? m.holo.map(x => String(x).slice(0, 140)) : []; if (h.join('\n') !== liveCfg.holo.join('\n')) { liveCfg.holo = h; drawScroller(); } }   // #435
+    holoCfg(m.hdc || null);   // #575 Holodancer from DirroVJ
     if ((m.scroll || '') !== liveCfg.scroll) { liveCfg.scroll = m.scroll || ''; drawScroller(); }
     if ((m.np || '') !== liveCfg.np) { liveCfg.np = m.np || ''; drawCaption(); if (liveCfg.np) capUntil = T + 10; }   // a new track: NOW SPINNING for 10 s
     return;
@@ -662,6 +697,7 @@ function frame() {
   for (const d of decks) if (d.userData.platter) d.userData.platter.rotation.y -= dt * (33.333 / 60) * Math.PI * 2;
   if (stage.visible) {
     robotStep(now, dt, T);
+    holoStep(now);   // #575
     netLaser(now); laser.tick(dt, beat, camera.getWorldPosition(_t));
   }
   renderer.clear(); renderer.render(bgScene, bgCam); renderer.clearDepth(); renderer.render(scene, camera);
@@ -871,7 +907,7 @@ $('go').onclick = async () => {
 drawCaption(); drawPromo(); drawScroller(); resize();
 buildBooth().then(() => robotReady).then(() => { window.__dirroReady = true; });
 renderer.setAnimationLoop(frame);
-window.dirro = { get wfx() { return wfx; }, wallFx, /* #439 */ BCN, bcnSolve, bcnStage, liveCfg, rec, recStart, recStop, NET, people, setPeople, S, stage, booth, robot, laser, camera, scene, renderer, place, feedPose, live, beat, wall, scroller, set aim(v) { aimF = v; place(); }, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, set pitch(v) { pitch = v; } };
+window.dirro = { HD, holoCfg, /* #575 */ get wfx() { return wfx; }, wallFx, /* #439 */ BCN, bcnSolve, bcnStage, liveCfg, rec, recStart, recStop, NET, people, setPeople, S, stage, booth, robot, laser, camera, scene, renderer, place, feedPose, live, beat, wall, scroller, set aim(v) { aimF = v; place(); }, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, set pitch(v) { pitch = v; } };
 
 // ---------------------------------------------------------------- #524 ⭐ in DirroComics (STAR IN IT)
 // The guest makes a card (photo from this view, comic name, genre, up to two lines of their own), confirms age and the terms,
