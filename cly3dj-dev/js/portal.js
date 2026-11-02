@@ -129,19 +129,29 @@ function makeTrimMat() {
 // ---------- the swept frame ----------
 // #589 the SCREEN panel: fills the opening (same rounded-rect / circle / arch maths as the cut), the shared feed cover-fitted
 const SCREEN_VS = `varying vec2 vP; void main() { vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
-const SCREEN_FS = `uniform sampler2D map; uniform vec2 uHalf; uniform vec2 uR; uniform vec4 uCrop; uniform float uHas; uniform float uBright; varying vec2 vP;
+const SCREEN_FS = `uniform sampler2D map; uniform vec2 uHalf; uniform vec2 uR; uniform vec4 uCrop; uniform float uHas; uniform float uBright; uniform float uAces; varying vec2 vP;
+// #591 the stream's layers are linear HDR and get ACES (x 1/0.6) applied afterwards: hand them the value that ACES maps
+// back onto the clip's own colour, so the picture keeps its brightness and contrast there too (headset: plain sRGB out)
+vec3 acesInv(vec3 y) {
+  const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
+  const mat3 O = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
+  vec3 z = clamp(inverse(O) * y, 0.0, 0.995);
+  vec3 a = 1.0 - 0.983729 * z, b = 0.0245786 - 0.4329510 * z, c = -0.000090537 - 0.238081 * z;
+  vec3 w = (-b + sqrt(max(b * b - 4.0 * a * c, 0.0))) / (2.0 * a);
+  return max(inverse(I) * w * 0.6, 0.0);
+}
 void main() {
   float rr = vP.y > 0.0 ? uR.x : uR.y; vec2 d = abs(vP) - uHalf + rr;
   if (length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - rr > 0.0) discard;
   vec2 uv = uCrop.xy + (vP / uHalf * 0.5 + 0.5) * uCrop.zw;
-  vec3 c = uHas > 0.5 ? texture2D(map, uv).rgb * uBright : vec3(0.008, 0.009, 0.012);
-  float sheen = 0.035 * smoothstep(0.55, 1.0, (vP.y / uHalf.y) * 0.5 + 0.5 - (vP.x / uHalf.x) * 0.25);
-  gl_FragColor = vec4(c + sheen, 1.0);
+  vec3 c = uHas > 0.5 ? texture2D(map, uv).rgb * uBright : vec3(0.008, 0.009, 0.012);   // #591 no glass sheen: it lifted the blacks
+  if (uAces > 0.5) c = acesInv(clamp(c, 0.0, 1.0));
+  gl_FragColor = vec4(c, 1.0);
   #include <colorspace_fragment>
 }`;
 function makeScreenMat() {
   return new THREE.ShaderMaterial({ vertexShader: SCREEN_VS, fragmentShader: SCREEN_FS, toneMapped: false,
-    uniforms: { map: { value: null }, uHalf: { value: new THREE.Vector2(0.3, 0.75) }, uR: { value: new THREE.Vector2() }, uCrop: { value: new THREE.Vector4(0, 0, 1, 1) }, uHas: { value: 0 }, uBright: { value: 1 } } });
+    uniforms: { map: { value: null }, uHalf: { value: new THREE.Vector2(0.3, 0.75) }, uR: { value: new THREE.Vector2() }, uCrop: { value: new THREE.Vector4(0, 0, 1, 1) }, uHas: { value: 0 }, uBright: { value: 1 }, uAces: { value: 0 } } });
 }
 // Profile in (s = out from the opening edge, z = toward the viewer), a closed polygon, with the kind of the segment that
 // starts at each point: 0 concrete, 1 iron, 2 iron lip (studs + light line). D = half depth (6 cm deep in all).
@@ -258,7 +268,7 @@ class PortalFrame {
   setScreen(on) { on = !!on; if (on === this.screen) return; this.screen = on; this._scrFit(); }   // #589
   _scrFit() {   // the panel sits 1.2 cm behind the opening plane, inside the iron reveal; one more draw only while it is a screen
     if (!this.screen) { if (this.scr) this.scr.visible = false; return; }
-    if (!this.scr) { this.scr = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), makeScreenMat()); this.scr.raycast = () => {}; this.scr.renderOrder = -1; this.obj.add(this.scr); }
+    if (!this.scr) { this.scr = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), makeScreenMat()); this.scr.raycast = () => {}; this.scr.renderOrder = -1; this.scr.onBeforeRender = r => { const t = r.getRenderTarget(); this.scr.material.uniforms.uAces.value = t && t.userData && t.userData.aces ? 1 : 0; };   /* #591 */ this.obj.add(this.scr); }
     const { x: hx, y: hy } = this.half, U = this.scr.material.uniforms;
     this.scr.geometry.dispose(); this.scr.geometry = new THREE.PlaneGeometry(2 * hx, 2 * hy); this.scr.position.z = -0.012; this.scr.visible = true;
     U.uHalf.value.set(hx, hy); U.uR.value.copy(this.r);

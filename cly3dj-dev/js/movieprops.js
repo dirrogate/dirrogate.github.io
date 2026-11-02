@@ -850,7 +850,7 @@ class Placer {
   active(st) { return this.on && st.source && st.source.handedness === 'right'; }
   toggle(on = !this.on) {
     this.on = on; this.g.visible = on; if (!on) { this.drop(); this.setHover(null); }
-    this.mp.env.toast(on ? 'PLACEMENT LASER on: aim at a prop or portal frame, trigger to take hold. Thumbstick: back / forward = closer / away, left / right = turn, grip + up / down = size, grip + left / right = tilt a frame. B = off.' : 'Placement laser off', on ? 5200 : 1500);
+    this.mp.env.toast(on ? 'PLACEMENT LASER on. Portal frame / GoPro: aim, hold GRIP = it moves and turns with your hand, stick back / forward = closer / away. Portal frame: aim, hold TRIGGER and move the hand = resize that way. Props: trigger to take hold. B = off.' : 'Placement laser off', on ? 5200 : 1500);
     this.mp.listCb && this.mp.listCb();
   }
   setHover(p) {
@@ -873,22 +873,56 @@ class Placer {
       this.base = base; this.pull = 0; this.lat.set(_p.x - (this.o.x + this.d.x / hz * base), 0, _p.z - (this.o.z + this.d.z / hz * base));
     }
   }
-  drop() { const p = this.held; if (!p) return; this.held = null; p.held = false; p.mp.save(); this.hl.material.color.set(0x39d0ff); this.beamMat.color.set(0x39d0ff); }
+  drop() { const p = this.held; if (!p) return; this.held = null; this.mode = null; this.sz = null; if (p.isPortal || p.isGoPro) p.release(); else { p.held = false; p.mp.save(); } this.hl.material.color.set(0x39d0ff); this.beamMat.color.set(0x39d0ff); }
+  // #591 portal frames and GoPros: aim the laser at one, GRIP = it rides on the beam (the hand moves and turns it, stick
+  // back / forward = closer / away); TRIGGER on a portal frame = resize: the edge you aimed at follows the hand, along
+  // whichever axis (width / height) the hand moves
+  grabRigid(p, t, mode) {
+    this.held = p; this.mode = mode; p.held = true; if (p.grab && p.isGoPro) p.grab(); this.hl.material.color.set(0xffa030); this.beamMat.color.set(0xffa030);
+    p.obj.updateWorldMatrix(true, false);
+    this.off.copy(this.rm).invert().multiply(p.obj.matrixWorld);
+    if (mode === 'size') {
+      _v.copy(this.o).addScaledVector(this.d, t); p.obj.worldToLocal(_v);
+      this.sz = { o0: this.o.clone(), q: p.obj.getWorldQuaternion(new THREE.Quaternion()), h0: p.half.clone(), pos0: p.obj.position.clone(), sx: _v.x < 0 ? -1 : 1, sy: p.door || _v.y >= 0 ? 1 : -1, gain: Math.max(1, t * 0.6) };
+    }
+  }
+  sizeStep(p) {
+    const S = this.sz; _v.copy(this.o).sub(S.o0).applyQuaternion(_q.copy(S.q).invert()).multiplyScalar(S.gain);   // hand travel in the frame's own axes
+    const cl = v => Math.min(3, Math.max(0.12, v)), hx = cl(S.h0.x + S.sx * _v.x / 2), hy = cl(S.h0.y + S.sy * _v.y / 2);
+    p._g = { half: S.h0.clone(), edge: Math.abs(_v.x) >= Math.abs(_v.y) ? 'x' : 'y' }; p.half.set(hx, hy); p._fit();
+    // the edge aimed at follows the hand, the opposite one stays put
+    const rq = p.obj.quaternion; p.obj.position.copy(S.pos0)
+      .addScaledVector(_v2.set(1, 0, 0).applyQuaternion(rq), S.sx * (p.half.x - S.h0.x))
+      .addScaledVector(_v2.set(0, 1, 0).applyQuaternion(rq), S.sy * (p.half.y - S.h0.y));
+    if (p.door) p.obj.position.y = p.half.y;
+  }
   step(st, dt, buzz) {
     const gp = st.source && st.source.gamepad; if (!gp || !gp.buttons) return;
     const b = gp.buttons[5], bp = !!(b && b.pressed); if (bp && !this.bWas) { this.toggle(); buzz(st, 0.4, 30); } this.bWas = bp;
     if (!this.on) return;
     st.ray.updateMatrixWorld(); this.rm.copy(st.ray.matrixWorld); this.o.setFromMatrixPosition(this.rm); this.d.set(0, 0, -1).transformDirection(this.rm);
-    const tr = gp.buttons[0] && gp.buttons[0].value > 0.6, grip = !!(gp.buttons[1] && gp.buttons[1].pressed);
+    const tr = gp.buttons[0] && gp.buttons[0].value > 0.6, grip = !!(gp.buttons[1] && gp.buttons[1].pressed), gripDown = grip && !this.gripWas;
+    this.gripWas = grip;
     let len = 6, hit = null;
     if (!this.held) {
       hit = this.pick(this.o, this.d); this.setHover(hit ? hit.p : null); if (hit) len = hit.t;
-      if (tr && !this.trigWas && hit) { this.grab(hit.p, hit.t, st.ray); buzz(st, 0.5, 40); }
+      const rigid = hit && (hit.p.isPortal || hit.p.isGoPro);
+      if (rigid && gripDown) { this.grabRigid(hit.p, hit.t, 'move'); buzz(st, 0.5, 40); }
+      else if (rigid && hit.p.isPortal && tr && !this.trigWas) { this.grabRigid(hit.p, hit.t, 'size'); buzz(st, 0.5, 40); }
+      else if (!rigid && tr && !this.trigWas && hit) { this.mode = 'prop'; this.grab(hit.p, hit.t, st.ray); buzz(st, 0.5, 40); }
+    } else if (this.mode === 'move' || this.mode === 'size') {
+      const p = this.held, ax = gp.axes && gp.axes.length >= 4 ? gp.axes : null, sy = ax && Math.abs(ax[3]) > 0.15 ? ax[3] : 0;
+      if (this.mode === 'move' ? !grip : !tr) { this.drop(); buzz(st, 0.3, 25); }
+      else if (this.mode === 'move') {
+        if (sy) { _p.setFromMatrixPosition(this.off); const k = sy * dt * (0.8 - _p.z * 0.8); this.off.setPosition(_p.x, _p.y, clamp(_p.z + k, -25, -0.15)); }
+        _m.copy(this.rm).multiply(this.off); p.hold(_m);
+        len = Math.max(0.1, _v2.copy(p.obj.getWorldPosition(_v3)).sub(this.o).length());
+      } else { this.sizeStep(p); len = Math.max(0.1, _v2.copy(p.obj.getWorldPosition(_v3)).sub(this.o).length()); }
     } else {
       const p = this.held, ax = gp.axes && gp.axes.length >= 4 ? gp.axes : null, sx = ax && Math.abs(ax[2]) > 0.15 ? ax[2] : 0, sy = ax && Math.abs(ax[3]) > 0.15 ? ax[3] : 0;
       if (!tr) { this.drop(); buzz(st, 0.3, 25); }
       else {
-        if (grip && p.tilt) this.tiltAdd -= sx * dt * 1.2; else this.yawAdd -= sx * dt * 1.4;   // #586 grip + left / right tilts a portal frame (skyroof)
+        this.yawAdd -= sx * dt * 1.4;
         if (grip) { if (sy) p.resize(Math.exp(-sy * dt * 0.9)); } else if (sy) { const k = sy * dt * (0.8 + (p.floor ? this.base : -this.off.elements[14]) * 0.8); if (p.floor) this.pull = clamp(this.pull - k, 0.3 - this.base, 25); else { _p.setFromMatrixPosition(this.off); this.off.setPosition(_p.x, _p.y, clamp(_p.z + k, -25, -0.2)); } }
         const rig = this.mp.rig; rig.updateMatrixWorld();
         if (p.floor) {   // slides along the floor: where the beam meets it (or the last distance), plus the carry-over from the grab
@@ -901,7 +935,6 @@ class Placer {
         } else {
           _m.copy(this.rm).multiply(this.off); _m.decompose(_p, _q, _s);
           _q.copy(this.q0).premultiply(new THREE.Quaternion().setFromAxisAngle(YAX, this.yawAdd));
-          if (p.tilt && this.tiltAdd) _q.multiply(new THREE.Quaternion().setFromAxisAngle(XAX, this.tiltAdd));   // #586 about the frame's own x axis
           // follow the hand's position only; the stick sets the turn
           if (p.depenKinematic) p.depenKinematic(_p);
           _v.copy(_p); rig.worldToLocal(_v); p.obj.position.copy(_v);

@@ -52,8 +52,17 @@ export class GoPro {
     g.traverse(o => { if (o.isMesh) o.userData.gopro = true; });
     this.cam = new THREE.PerspectiveCamera(ZOOMS.normal.fov, 16 / 9, 0.05, 40);
     this.sp = new THREE.Vector3(); this.sq = new THREE.Quaternion(); this.smooth = false;
+    this.isGoPro = true; this.mp = { save: () => this.save() };   // #591 the placement laser (movieprops.js Placer) picks it up
     this._load();
   }
+  localBox() { return _box.set(_v.set(-B.w / 2 - 0.02, -B.h / 2 - 0.02, -B.d / 2 - 0.02), _v2.set(B.w / 2 + 0.02, B.h / 2 + 0.02, B.d / 2 + 0.02)); }
+  rayT(o, d) {   // distance along the laser to the body (+2 cm), -1 = missed
+    if (!this.on || !this.obj.visible) return -1;
+    const b = this.localBox().clone(); this.obj.updateWorldMatrix(true, false); _m.copy(this.obj.matrixWorld).invert();
+    _ray.origin.copy(o).applyMatrix4(_m); _v.copy(o).add(d).applyMatrix4(_m).sub(_ray.origin); const L = _v.length(); if (L < 1e-9) return -1; _ray.direction.copy(_v).divideScalar(L);
+    const h = _ray.intersectBox(b, _v); return h ? _ray.origin.distanceTo(h) / L : -1;
+  }
+  placeHandles() {}
   _load() {
     let s = null; try { s = JSON.parse(localStorage.getItem(this.key) || 'null'); } catch {}
     if (s && s.p && s.q) { this.obj.position.fromArray(s.p); this.obj.quaternion.fromArray(s.q); } else this.reset(false);
@@ -95,4 +104,5 @@ export class GoPro {
     this.cam.updateMatrixWorld(true);
   }
 }
+const _v2 = new THREE.Vector3(), _box = new THREE.Box3(), _ray = new THREE.Ray();
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _s = new THREE.Vector3();

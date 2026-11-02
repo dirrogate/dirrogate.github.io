@@ -1145,7 +1145,12 @@ const chalkLbl = () => chalkboard && chalkboard.on ? 'WHITEBOARD: ON' : 'WHITEBO
 // (the PC running desktop DirroDJ; on the Quest the browser offers its headset camera), stepped the same way.
 function openPhoneCam(openSetup = false) {
   const S = streamer; if (!S) { toast('Streaming runs on the headset', 2500); return; }
-  const next = () => { if (spect && spect.camNext && spect.camNext()) toast('WEBCAM: next camera…', 1500); drawMixScreen(); };
+  const camOff = () => {   // #591 the tap after the last camera: WEBCAM off, the stream back on SHOW
+    if (spect && spect.camOff) spect.camOff(); localCamClose();
+    if (S.stu.on) S.setStudio('mode', 'show'); else S.setSource('show');
+    toast('WEBCAM off', 1500); drawMixScreen();
+  };
+  const next = () => { if (spect && spect.camLast) { camOff(); return; } if (spect && spect.camNext && spect.camNext()) toast('WEBCAM: next camera…', 1500); drawMixScreen(); };
   if (S.stu.on) {
     const was = S.stu.mode !== 'show';
     if (was) { next(); return; }
@@ -1162,10 +1167,11 @@ function openPhoneCam(openSetup = false) {
     if (openSetup) setTools('pcam'); else drawMixScreen();
     return;
   }
+  if (was && localCam.on && localCam.last) { camOff(); return; }   // #591 this device's cameras: after the last one comes OFF
   localCamOpen(was && localCam.on).then(name => {
     if (!name) { toast(why + ' (and no camera on this device)', 3500); if (openSetup) setTools('pcam'); return; }
     if (!was) S.setSource('pcam');
-    toast('WEBCAM: ' + name + ' (this device)', 2200);
+    toast('WEBCAM: ' + name + ' (this device)' + (localCam.last ? ' · tap again = OFF' : ''), 2200);
     if (openSetup && !was) setTools('pcam'); else drawMixScreen();
   });
 }
@@ -1182,7 +1188,7 @@ async function localCamOpen(step) {
     if (!localCam.video) { const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.autoplay = true; localCam.video = v; }
     localCam.stream = st; localCam.video.srcObject = st; localCam.video.play().catch(() => {});
     const t = st.getVideoTracks()[0], set = t && t.getSettings ? t.getSettings() : {}; localCam.id = set.deviceId || id || '';
-    devs = await list(); const d = devs.find(x => x.deviceId === localCam.id);
+    devs = await list(); const d = devs.find(x => x.deviceId === localCam.id); localCam.last = devs.length < 2 || devs.indexOf(d) === devs.length - 1;   // #591
     localCam.name = ((d && d.label) || (t && t.label) || 'camera').replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)/i, '').slice(0, 32); localCam.on = true;
     return localCam.name;
   } catch (e) { console.warn('local webcam', e); return ''; }
@@ -8316,7 +8322,7 @@ if (!CAMERA_ROLE) {
   });
   mprops = new MovieProps({ rig, camera, renderer, toast, scene, getColliders: () => { if (!sleeveColliders.length) refreshSleeveColliders(); return sleeveColliders; } });   // #478, #541 kinematic props
   mprops.listCb = () => { if (toolsPage === 'props') drawMixScreen(); };
-  mprops.extra = () => portals ? portals.active() : [];   // #586 the B placement laser also picks up portal frames
+  mprops.extra = () => [...(portals ? portals.active() : []), ...[gopro, gopro2].filter(g => g && g.on)];   // #591 GoPros too   // #586 the B placement laser also picks up portal frames
   try { mprops.load(); } catch (e) { console.warn('movie props load', e); }
 }
 // ------------------------------------------------------------------ XR input (hands + controllers)
@@ -8334,7 +8340,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   getHeld: () => held, pullSelected, pickUpFromDeck, releaseHeld, loose, pickUpLoose,
   sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease, spiderGrabTest, spiderGrab, spiderRelease,
   crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, holdLooper, crateSelect, crateWalkStep, drawCrateScreen, layoutSleeves, crateDisc,
-  onA: st => gpSummon(st),   // #404 right controller A: the camera GoPro to that hand
+  // #591 A no longer pulls the GoPro to the hand: the B placement laser picks it up (grip) and pushes / pulls it (stick)
   neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, toast, mixScreenRelease, mixScreenDrag,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
