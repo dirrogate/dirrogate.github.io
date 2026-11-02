@@ -95,16 +95,65 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
       vec3 c = vec3(0.12, 0.78, 1.0) * (0.22 * lines + 1.5 * band) * flick + col() * 0.28;
       gl_FragColor = vec4(c, clamp(0.4 * lines + 0.9 * band, 0.0, 0.95) * uBehind);
     }`;
-  const VSBEAM = 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
-  const FSBEAM = `
-    uniform float uBand, uBehind, uT, uH; uniform vec3 uApex; varying vec3 vP;
-    void main(){
-      float s = clamp((vP.z - uApex.z) / (-uApex.z), 0.0, 1.0);          // 0 at the lens, 1 at her
-      float yb = mix(uApex.y, uBand * uH, s);
-      float band = exp(-pow((vP.y - yb) / (0.015 + 0.05 * s), 2.0));
-      float a = (0.012 + 0.6 * band) * uBehind * smoothstep(0.0, 0.12, s);   // faint cone, bright scanning plane
-      gl_FragColor = vec4(vec3(0.15, 0.8, 1.0), a);
+  // #580 the projector's light: a fan of rays from the lens along the current scan row, each ending ON her shell (the ray reads
+  // view 0's depth at its u on that row, so the sheet stops at her contour), a hot dot where each lands; nothing where the row is empty
+  const RAYS = 72;
+  const BEAM_COMMON = `
+    uniform sampler2D map; uniform float uBand, uBehind, uT, uZn, uZf, uTh, uTv; uniform vec3 uApex; uniform mat4 uPivot;
+    float dep(vec2 p){ return texture2D(map, vec2(clamp(p.x, 0.001, 0.999) * 0.25, clamp(p.y, 0.001, 0.999) * 0.5)).r; }
+    vec3 hit(float u, out float occ){
+      vec2 q = vec2(u, uBand); float s = dep(q);
+      float sm = min(dep(q + vec2(0.006, 0.0)), dep(q - vec2(0.006, 0.0)));
+      occ = step(0.06, s) * step(0.06, sm);
+      float z = mix(uZf, uZn, clamp((s - 0.1) / 0.9, 0.0, 1.0));
+      return (uPivot * vec4((u * 2.0 - 1.0) * uTh * z, (uBand * 2.0 - 1.0) * uTv * z, -z, 1.0)).xyz;
     }`;
+  const VSRAY = BEAM_COMMON + `
+    attribute float aU; varying float vO, vS;
+    void main(){
+      vec3 p = uApex; float o = 1.0; vS = 0.0;
+      if (aU >= 0.0) { p = hit(aU, o); vS = 1.0; }
+      vO = o;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+    }`;
+  const FSRAY = `
+    uniform float uBehind, uT; varying float vO, vS;
+    void main(){
+      if (vO < 0.98) discard;
+      float a = (0.05 + 0.4 * vS * vS) * uBehind * (0.85 + 0.15 * sin(uT * 47.0));
+      gl_FragColor = vec4(vec3(0.15, 0.82, 1.0), a);
+    }`;
+  const VSDOT = BEAM_COMMON + `
+    attribute float aU; varying float vO;
+    void main(){
+      float o; vec3 p = hit(aU, o); vO = o;
+      vec4 mv = modelViewMatrix * vec4(p, 1.0);
+      gl_PointSize = clamp(38.0 / max(0.3, -mv.z), 2.0, 18.0);
+      gl_Position = projectionMatrix * mv;
+    }`;
+  const FSDOT = `
+    uniform float uBehind; varying float vO;
+    void main(){
+      if (vO < 0.5) discard;
+      float r = length(gl_PointCoord - 0.5) * 2.0; if (r > 1.0) discard;
+      float g = pow(1.0 - r, 2.2);
+      gl_FragColor = vec4(mix(vec3(0.2, 0.85, 1.0), vec3(1.0), g * g), g * uBehind);
+    }`;
+  function panelTex(lens) {   // dark gunmetal face, bevel, glowing cyan ports (or the lens)
+    const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+    g.fillStyle = '#10141c'; g.fillRect(0, 0, 256, 256);
+    g.strokeStyle = '#2b3445'; g.lineWidth = 10; g.strokeRect(5, 5, 246, 246); g.strokeStyle = '#1b2230'; g.lineWidth = 2; g.strokeRect(22, 22, 212, 212);
+    const glow = (x, y, r) => { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, '#eaffff'); gr.addColorStop(0.35, '#35d6ff'); gr.addColorStop(1, 'rgba(53,214,255,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); };
+    if (lens) {
+      g.fillStyle = '#05070b'; g.beginPath(); g.arc(128, 128, 76, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#35d6ff'; g.lineWidth = 4; g.beginPath(); g.arc(128, 128, 70, 0, Math.PI * 2); g.stroke();
+      glow(128, 128, 54); for (let i = 0; i < 4; i++) glow(40 + (i % 2) * 176, 40 + (i >> 1) * 176, 12);
+    } else {
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) { g.fillStyle = '#05070b'; g.beginPath(); g.arc(64 + i * 64, 64 + j * 64, 17, 0, Math.PI * 2); g.fill(); glow(64 + i * 64, 64 + j * 64, 13); }
+      g.fillStyle = '#35d6ff'; g.globalAlpha = 0.7; for (let k = 0; k < 5; k++) g.fillRect(40 + k * 38, 228, 24, 5); g.globalAlpha = 1;
+    }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  }
   function buildHalf(R, H) {
     const v0 = P.views[0]; if (!v0) return;
     const un = Object.assign({}, v0.un);
@@ -112,24 +161,33 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     mb.extensions = { derivatives: true };
     P.back = new THREE.Mesh(v0.mesh.geometry, mb); P.back.frustumCulled = false; P.back.visible = false; P.back.renderOrder = 1;
     v0.mesh.parent.add(P.back);
-    // projector behind her (her front faces +Z), aimed at her, and the light cone from its lens to a frame round her
-    const apex = new THREE.Vector3(0, Math.max(2.1, H * 1.25), -1.9), w = 0.55, g = new THREE.BufferGeometry();
-    const c = [[-w, 0, 0], [w, 0, 0], [w, H * 1.04, 0], [-w, H * 1.04, 0]], pos = [];
-    for (let i = 0; i < 4; i++) { const a = c[i], b = c[(i + 1) % 4]; pos.push(apex.x, apex.y, apex.z, ...a, ...b); }
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    const beam = new THREE.Mesh(g, new THREE.ShaderMaterial({ uniforms: { uBand: shared.uBand, uBehind: shared.uBehind, uT: shared.uT, uH: { value: H * 1.04 }, uApex: { value: apex } }, vertexShader: VSBEAM, fragmentShader: FSBEAM, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
-    beam.frustumCulled = false; beam.renderOrder = 3;
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.36), new THREE.MeshBasicMaterial({ color: 0x1b1f28 }));
-    body.position.copy(apex).add(new THREE.Vector3(0, 0, -0.19));
-    body.lookAt(0, H * 0.5, 0);
-    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.055, 24), new THREE.MeshBasicMaterial({ color: 0x8ff0ff, toneMapped: false }));
-    lens.position.copy(apex); lens.lookAt(0, H * 0.5, 0);
-    P.proj = new THREE.Group(); P.proj.add(beam, body, lens); P.proj.visible = false; group.add(P.proj);
+    // her feet-to-head range in view 0's picture (so the scan covers her, not the empty frame)
+    const slotH = 2 * R.dist * R.tv, bottom = R.aimH - slotH / 2;
+    P.uvLo = Math.max(0.0, (0 - bottom) / slotH - 0.01); P.uvHi = Math.min(1.0, (H * 1.04 - bottom) / slotH);
+    const pivot = v0.mesh.parent; pivot.updateMatrix();
+    const apex = new THREE.Vector3(0, H * 0.55, -1.9);   // waist height, behind her (her front faces +Z)
+    const bu = { map: { value: tex }, uBand: shared.uBand, uBehind: shared.uBehind, uT: shared.uT, uZn: v0.un.uZn, uZf: v0.un.uZf, uTh: v0.un.uTh, uTv: v0.un.uTv, uApex: { value: apex }, uPivot: { value: pivot.matrix.clone() } };
+    const gR = new THREE.BufferGeometry(), au = [], pos = [];
+    for (let i = 0; i < RAYS - 1; i++) { const a = i / (RAYS - 1), b = (i + 1) / (RAYS - 1); au.push(-1, a, b); pos.push(0, 0, 0, 0, 0, 0, 0, 0, 0); }
+    gR.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); gR.setAttribute('aU', new THREE.Float32BufferAttribute(au, 1));
+    const sheet = new THREE.Mesh(gR, new THREE.ShaderMaterial({ uniforms: bu, vertexShader: VSRAY, fragmentShader: FSRAY, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+    const gD = new THREE.BufferGeometry(), du = [];
+    for (let i = 0; i < RAYS; i++) du.push(i / (RAYS - 1));
+    gD.setAttribute('position', new THREE.Float32BufferAttribute(new Array(RAYS * 3).fill(0), 3)); gD.setAttribute('aU', new THREE.Float32BufferAttribute(du, 1));
+    const dots = new THREE.Points(gD, new THREE.ShaderMaterial({ uniforms: bu, vertexShader: VSDOT, fragmentShader: FSDOT, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    sheet.frustumCulled = dots.frustumCulled = false; sheet.renderOrder = 3; dots.renderOrder = 4;
+    // the projector: a cube with glowing ports, the lens face (+Z after lookAt) toward her
+    const side = new THREE.MeshBasicMaterial({ map: panelTex(false), toneMapped: false }), front = new THREE.MeshBasicMaterial({ map: panelTex(true), toneMapped: false });
+    const cube = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), [side, side, side, side, front, side]);
+    cube.position.copy(apex).add(new THREE.Vector3(0, 0, -0.17)); cube.lookAt(0, apex.y, 0);
+    P.proj = new THREE.Group(); P.proj.add(sheet, dots, cube); P.proj.visible = false; group.add(P.proj);
   }
   function halfStep(t) {
     const dz = tmp.copy(local).setY(0).normalize().z;   // 1 = straight in front of her, -1 = straight behind
     const behind = Math.max(0, Math.min(1, (0.3 - dz) / 0.6));
-    shared.uBehind.value = behind; shared.uBand.value = 1 - ((t / 2.6) % 1);
+    // #580 top to bottom and back up, easing at each end like a scanning mirror (one full cycle 3.2 s)
+    const k = 0.5 + 0.5 * Math.cos(t * Math.PI * 2 / 3.2);
+    shared.uBehind.value = behind; shared.uBand.value = (P.uvLo || 0) + ((P.uvHi || 1) - (P.uvLo || 0)) * k;
     P.views.forEach((o, i) => { o.mesh.visible = i === 0; o.tear.visible = i === 0; o.un.uKeep.value = 1; o.mat.polygonOffsetFactor = 0; o.mat.polygonOffsetUnits = 0; });
     if (P.back) P.back.visible = behind > 0.01;
     if (P.proj) P.proj.visible = behind > 0.02;
