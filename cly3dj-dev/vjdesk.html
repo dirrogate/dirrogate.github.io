@@ -200,7 +200,7 @@
         <select id="dzFogCol"><option value="cold">COLD</option><option value="warm">WARM</option><option value="violet">VIOLET</option><option value="white">WHITE</option></select></div>
     </section>
     <section style="margin-top:14px" id="hoS">
-      <h2>Holodancer <span class="note" style="text-transform:none;letter-spacing:0">pick a ④ / ⑧ performer in DANCER CLIPS below · made with the Holodancer builder</span></h2>
+      <h2>Holodancer <span class="note" style="text-transform:none;letter-spacing:0">pick a ① / ④ / ⑧ performer in DANCER CLIPS below · made with the Holodancer builder</span></h2>
       <div class="dzTop">
         <div class="dzCamW">
           <div class="dzPadW"><div id="hoPad" title="Camera. X (left to right) = round her 0 to 360 degrees. Y (bottom to top) = camera height, low to high. Double-click = front, eye level."><div id="hoDot"></div><span class="dzAx x">X</span><span class="dzAx y">Y</span></div><span id="hoXY" class="sp">X 0° · Y 8°</span></div>
@@ -223,7 +223,7 @@
 </main>
 <div id="vjDecks">
   <div class="vjBank">
-    <div class="vjBankHead"><h3>DANCER CLIPS</h3><span class="note" id="dzClipNote" style="margin:0">ᯓ🏃🏻‍♀️‍➡️ DANCER dance: click = she blends to it (0.8 s) · ④ ⑧ Holodancer performer (4-view depth / 8-view): click = HOLO plays it</span></div>
+    <div class="vjBankHead"><h3>DANCER CLIPS</h3><span class="note" id="dzClipNote" style="margin:0">ᯓ🏃🏻‍♀️‍➡️ DANCER dance: click = she blends to it (0.8 s) · ① ④ ⑧ Holodancer performer (2D+depth / 4-view depth / 8-view): click = HOLO plays it</span></div>
     <div class="vjBankScroll"><div class="vjGrid" id="gridDancer"></div></div>
   </div>
   <div class="vjBank">
@@ -755,7 +755,7 @@ function renderHo() {
   if (!hoDrag && Date.now() - hoDragT > 600) hoDot(Z.cam.az, Z.cam.el);
   const onAir = S.D.x < 1 && S.D.a === 'holo' || S.D.x > 0 && S.D.b === 'holo', cued = S.D.cue && S.D[S.D.cue] === 'holo', onBus = S.D.a === 'holo' || S.D.b === 'holo';
   const name = ((Z.lib || []).find(p => p.id === Z.perf) || {}).name || Z.perf || '-';
-  $('hoSt').textContent = Z.err ? 'HOLO: ' + Z.err : !(Z.lib || []).length ? 'No performers yet (holo/library.json is empty or missing).' : Z.loading ? 'Loading ' + name + '…' : !Z.loaded ? 'Not loaded yet: click a ④ / ⑧ performer in DANCER CLIPS (or put HOLO on a bus).'
+  $('hoSt').textContent = Z.err ? 'HOLO: ' + Z.err : !(Z.lib || []).length ? 'No performers yet (holo/library.json is empty or missing).' : Z.loading ? 'Loading ' + name + '…' : !Z.loaded ? 'Not loaded yet: click a ① / ④ / ⑧ performer in DANCER CLIPS (or put HOLO on a bus).'
     : `${name} · ${cued ? 'drawing (CUE)' : onAir ? 'drawing' : onBus ? 'paused (CUE its bus to set up, or bring it in with the T-bar)' : 'put HOLO on bus A or B'}`;
 }
 function renderDz() {
@@ -965,7 +965,7 @@ async function loadDzClips() {
       const it = items[c * ROWS + r];
       if (!it) { html += '<div class="vjCell empty" title="Empty"><div class="vjCap"></div></div>'; continue; }
       if (it.k === 'dz') html += `<div class="vjCell dzClip" data-dz="${esc(it.n)}" title="${esc(it.n)}: DANCER dance (click: she blends to it)"><span class="clipBadge">ᯓ🏃🏻‍♀️‍➡️</span><div class="dzIc">💃</div><div class="vjCap">${esc(it.n)}</div></div>`;
-      else { const p = it.p, b = p.layout === '8b' ? '⑧' : '④'; html += `<div class="vjCell dzClip hoClip" data-ho="${esc(p.id)}" title="${esc(p.name)}: Holodancer ${p.layout === '8b' ? '8-view' : '4-view depth'} (click: HOLO plays it)"><span class="clipBadge">${b}</span><div class="dzIc">✦</div><div class="vjCap">${esc(p.name)}</div></div>`; }
+      else { const p = it.p, b = p.layout === '8b' ? '⑧' : p.layout === '1d' ? '①' : '④', kind = p.layout === '8b' ? '8-view' : p.layout === '1d' ? '2D+depth with holoprojector' : '4-view depth'; html += `<div class="vjCell dzClip hoClip" data-ho="${esc(p.id)}" title="${esc(p.name)}: Holodancer ${kind} (click: HOLO plays it)"><span class="clipBadge">${b}</span><div class="dzIc">✦</div><div class="vjCap">${esc(p.name)}</div></div>`; }
     }
   }
   el.innerHTML = html;

@@ -1780,3 +1780,10 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 
 ## #583 Fatter edges: tried and reverted (owner, 2 Nov)
 - Dilating the depth outline (uFat) made her sides look torn with scan-line fringes. Owner asked to go back: `js/holoplayer.js` restored from backups/pre583/ (the #582 version). No Node restart.
+
+## #584 2D+depth Holodancer clips ('1d') with the holoprojector (owner, 2 Nov)
+- `js/holoplayer.js`: new layout '1d': one 1920x1080 video, colour left 960x1080, depth right 960x1080 (black = empty, dark = far .. white = near, near / far metres in performer.json). Same depth mesh, holo tears and room light as 4d; always plays as the half shell (front depth mesh, holoprojector scanning her back from behind). The atlas addressing is now two uniforms (uAt, uAc) so 4d and 1d share every shader. `rig.vfov` (degrees) can replace lens / sensor for real cameras.
+- `holo/kitana_snake1/`: test clip, Kitana's front camera from kitana_snake4 repacked as 2D+depth; listed in holo/library.json.
+- `vjdesk.html`: ① badge for 2D+depth performers in DANCER CLIPS (④ 4-view depth, ⑧ 8-view); notes updated.
+- `DirroDancer/holo/pack_2dd.py`: adds a colour|depth side-by-side video to the library (re-encode, poster, performer.json, library entry). Options --dist --near --far --vfov --camh --height --invert.
+- sw.js v91. Checked on the owner's PC pane: halfshell.html plays kitana_snake1 as 1d (front sharper than the 4-view slot), projector from behind; desk bank shows ① and its tooltip (fed through window.setHoLib; the app-to-desk link needs the Quest). No Node restart. Backup backups/pre584/.

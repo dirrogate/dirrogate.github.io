@@ -5,6 +5,9 @@
 //         Each view becomes a grid mesh pushed out along its camera rays; the three cameras facing the viewer are drawn,
 //         the best one dithered against the next near the hand-over. Torn geometry (depth jumps between grid points, edge-on
 //         surfaces) is drawn as cyan scan lines. Optional relight from depth normals (room light).
+//   '1d'  #584 one view with depth (2D+depth), 1920x1080: colour left 960x1080, depth right 960x1080 (same depth code as 4d).
+//         A real capture (Quest stereo, phone + depth model) or one Blender camera. Always plays as the half shell: her front is the
+//         depth mesh, the holoprojector behind her scans her back. rig.vfov (degrees) can replace lens / sensor for real cameras.
 //   '8b'  8 views, 1920x1620: top 4x2 colour grid, bottom strip 8 alpha mattes. A billboard turned to the viewer shows the
 //         nearest view; a short glitch covers each view change.
 // Rig (performer.json "rig"): cameras on a ring around her, Blender azimuth az0 + azStep * v degrees (from +X, counter-clockwise
@@ -19,6 +22,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
   tex.colorSpace = THREE.NoColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
   const shared = {
     uCut: { value: 0.06 }, uGraze: { value: 0.15 }, uTint: { value: 0 }, uT: { value: 0 }, uTears: { value: 1 }, uBand: { value: 0 }, uBehind: { value: 0 }, uBeam: { value: 0 },
+    uAt: { value: new THREE.Vector4(0.25, 0.5, 0, 0) }, uAc: { value: new THREE.Vector2(0, 0.5) },   // #584 atlas: x scale, y scale, depth offset; colour offset
     uRoom: { value: 0 }, uAmb: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uKey: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uL: { value: new THREE.Vector3(0, 1, 0) },
   };
   const P = { half: false, back: null, proj: null, meta: null, layout: '', views: [], board: null, bU: null, cur: 0, gT0: -1, glitch: 1, ready: false, err: '', base: '' };
@@ -26,9 +30,9 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
 
   // ---------- 4d: depth shells ----------
   const VS4 = `
-    uniform sampler2D map; uniform float uView, uZn, uZf, uTh, uTv; uniform vec2 uStep;
+    uniform sampler2D map; uniform float uView, uZn, uZf, uTh, uTv; uniform vec2 uStep; uniform vec4 uAt;
     varying vec2 vUv; varying float vZ, vOcc, vJump; varying vec3 vPos, vN;
-    float dep(vec2 p){ return texture2D(map, vec2((uView + clamp(p.x, 0.001, 0.999)) * 0.25, clamp(p.y, 0.001, 0.999) * 0.5)).r; }
+    float dep(vec2 p){ return texture2D(map, vec2((uView + clamp(p.x, 0.001, 0.999)) * uAt.x + uAt.z, clamp(p.y, 0.001, 0.999) * uAt.y + uAt.w)).r; }
     float zOf(float s){ return mix(uZf, uZn, clamp((s - 0.1) / 0.9, 0.0, 1.0)); }
     vec3 Pc(vec2 p, float z){ return vec3((p.x * 2.0 - 1.0) * uTh * z, (p.y * 2.0 - 1.0) * uTv * z, -z); }
     void main(){
@@ -48,10 +52,10 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
       gl_Position = projectionMatrix * mv;
     }`;
   const COMMON4 = `
-    uniform sampler2D map; uniform float uView, uCut, uGraze, uTint, uT, uKeep, uRoom, uTears; uniform vec3 uAmb, uKey, uL;
+    uniform sampler2D map; uniform float uView, uCut, uGraze, uTint, uT, uKeep, uRoom, uTears; uniform vec3 uAmb, uKey, uL; uniform vec4 uAt; uniform vec2 uAc;
     varying vec2 vUv; varying float vZ, vOcc, vJump; varying vec3 vPos, vN;
-    vec3 col(){ vec2 p = clamp(vUv, 0.002, 0.998); return texture2D(map, vec2((uView + p.x) * 0.25, 0.5 + p.y * 0.5)).rgb; }
-    float occ(){ vec2 p = clamp(vUv, 0.002, 0.998); return texture2D(map, vec2((uView + p.x) * 0.25, p.y * 0.5)).r; }
+    vec3 col(){ vec2 p = clamp(vUv, 0.002, 0.998); return texture2D(map, vec2((uView + p.x) * uAt.x + uAc.x, p.y * uAt.y + uAc.y)).rgb; }
+    float occ(){ vec2 p = clamp(vUv, 0.002, 0.998); return texture2D(map, vec2((uView + p.x) * uAt.x + uAt.z, p.y * uAt.y + uAt.w)).r; }
     vec3 nrm(){ vec3 n = normalize(vN); return dot(n, -vPos) < 0.0 ? -n : n; }
     float torn(vec3 n){ return max(step(uCut, vJump), step(abs(dot(n, normalize(-vPos))), uGraze)); }
     float b2(vec2 a){ a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
@@ -99,8 +103,8 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
   // view 0's depth at its u on that row, so the sheet stops at her contour), a hot dot where each lands; nothing where the row is empty
   const RAYS = 72;
   const BEAM_COMMON = `
-    uniform sampler2D map; uniform float uBand, uBehind, uT, uZn, uZf, uTh, uTv; uniform vec3 uApex; uniform mat4 uPivot;
-    float dep(vec2 p){ return texture2D(map, vec2(clamp(p.x, 0.001, 0.999) * 0.25, clamp(p.y, 0.001, 0.999) * 0.5)).r; }
+    uniform sampler2D map; uniform float uBand, uBehind, uT, uZn, uZf, uTh, uTv; uniform vec3 uApex; uniform mat4 uPivot; uniform vec4 uAt;
+    float dep(vec2 p){ return texture2D(map, vec2(clamp(p.x, 0.001, 0.999) * uAt.x + uAt.z, clamp(p.y, 0.001, 0.999) * uAt.y + uAt.w)).r; }
     vec3 hit(float u, out float occ){
       vec2 q = vec2(u, uBand); float s = dep(q);
       float sm = min(dep(q + vec2(0.006, 0.0)), dep(q - vec2(0.006, 0.0)));
@@ -165,7 +169,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     P.uvLo = Math.max(0.0, (0 - bottom) / slotH - 0.01); P.uvHi = Math.min(1.0, (H * 1.04 - bottom) / slotH);
     const pivot = v0.mesh.parent; pivot.updateMatrix();
     const apex = new THREE.Vector3(0, H * 0.55, -1.0);   // waist height, 1 m behind her (her front faces +Z); #582 was 1.9 m
-    const bu = { map: { value: tex }, uBand: shared.uBand, uBehind: shared.uBeam, uT: shared.uT, uZn: v0.un.uZn, uZf: v0.un.uZf, uTh: v0.un.uTh, uTv: v0.un.uTv, uApex: { value: apex }, uPivot: { value: pivot.matrix.clone() } };
+    const bu = { map: { value: tex }, uBand: shared.uBand, uBehind: shared.uBeam, uT: shared.uT, uZn: v0.un.uZn, uZf: v0.un.uZf, uTh: v0.un.uTh, uTv: v0.un.uTv, uApex: { value: apex }, uPivot: { value: pivot.matrix.clone() }, uAt: shared.uAt };
     const gR = new THREE.BufferGeometry(), au = [], pos = [];
     for (let i = 0; i < RAYS - 1; i++) { const a = i / (RAYS - 1), b = (i + 1) / (RAYS - 1); au.push(-1, a, b); pos.push(0, 0, 0, 0, 0, 0, 0, 0, 0); }
     gR.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); gR.setAttribute('aU', new THREE.Float32BufferAttribute(au, 1));
@@ -230,13 +234,15 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
   }
   function rigOf(m) {
     const r = Object.assign({ dist: 4.4, lens: 50, sensor: 24, aimH: 1.0, az0: -90, azStep: m.layout === '8b' ? -45 : -90 }, m.rig || {});
-    const tv = (r.sensor / 2) / r.lens, slot = m.slot || [480, 540];
-    return { ...r, tv, th: tv * slot[0] / slot[1], n: m.views || (m.layout === '8b' ? 8 : 4) };
+    const tv = r.vfov ? Math.tan(r.vfov * Math.PI / 360) : (r.sensor / 2) / r.lens, slot = m.slot || (m.layout === '1d' ? [960, 1080] : [480, 540]);
+    return { ...r, tv, th: tv * slot[0] / slot[1], n: m.layout === '1d' ? 1 : m.views || (m.layout === '8b' ? 8 : 4) };
   }
   function build(m) {
     clear();
     const R = rigOf(m); P.rig = R; P.layout = m.layout;
-    if (m.layout === '4d') {
+    if (m.layout === '1d') { shared.uAt.value.set(0.5, 1, 0.5, 0); shared.uAc.value.set(0, 0); }   // #584 colour left, depth right
+    else { shared.uAt.value.set(0.25, 0.5, 0, 0); shared.uAc.value.set(0, 0.5); }
+    if (m.layout === '4d' || m.layout === '1d') {
       const geo = new THREE.PlaneGeometry(1, 1, grid[0], grid[1]), d = m.depth || { near: 3.7, far: 5.1 };
       for (let v = 0; v < R.n; v++) {
         const un = { map: { value: tex }, uView: { value: v }, uZn: { value: d.near }, uZf: { value: d.far }, uTh: { value: R.th }, uTv: { value: R.tv }, uKeep: { value: 1 }, uStep: { value: new THREE.Vector2(1 / grid[0], 1 / grid[1]) }, ...shared };
@@ -280,8 +286,8 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     shared.uT.value = t;
     group.worldToLocal(local.copy(eye));
     const R = P.rig;
-    if (P.layout === '4d') {
-      if (P.half) { halfStep(t); if (viewer && shared.uRoom.value > 0) shared.uL.value.copy(P.lightW || tmp.set(0.6, 1, 0.8)).normalize().transformDirection(viewer.matrixWorldInverse); return; }   // #579
+    if (P.layout === '4d' || P.layout === '1d') {
+      if (P.half || P.layout === '1d') { halfStep(t); if (viewer && shared.uRoom.value > 0) shared.uL.value.copy(P.lightW || tmp.set(0.6, 1, 0.8)).normalize().transformDirection(viewer.matrixWorldInverse); return; }   // #579
       local.y = 0; local.normalize();
       const ranked = P.views.map(o => ({ o, d: o.dir.dot(local) })).sort((a, b) => b.d - a.d);
       const gap = ranked[0].d - ranked[1].d;
