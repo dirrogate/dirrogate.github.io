@@ -1,7 +1,7 @@
 <!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Portal frame test</title>
 <style>html,body{margin:0;height:100%;background:#000;overflow:hidden;font:13px system-ui;color:#ddd}#ui{position:fixed;left:8px;bottom:8px;display:flex;gap:6px}button{background:#1a1e2a;color:#ddd;border:1px solid #333;border-radius:6px;padding:6px 10px}</style>
-<div id="ui"><button id="sky">sky</button><button id="w">size</button><button id="door">door</button><button id="glow">light</button></div>
+<div id="ui"><button id="sky">sky</button><button id="w">size</button><button id="door">type</button><button id="roof">skyroof</button><span id="kind" style="align-self:center"></span><button id="glow">light</button></div>
 <script type="importmap">{"imports":{"three":"../vendor/three/three.module.js"}}</script>
 <script type="module">
 // Test bench for js/portal.js: one frame in front of the DJ, the chosen skybox as the dome (cut by the portal), and a
@@ -27,13 +27,15 @@ loadSky();
 const portals = new Portals(rig, () => ({ p: new THREE.Vector3(0, 1.3, -1.3), yaw: 0 }));
 portals.save = () => {}; portals.list.forEach(f => { f.set = portals; });
 const f = portals._frame(0); f.place({ p: new THREE.Vector3(0, 1.3, -1.3), yaw: 0 }); f.half.set(+(Q.get('hx') || 0.3), +(Q.get('hy') || 0.75)); f._fit();
-portals.n = 1; portals.setOn(true, false); portals.cutInto(dome);
+portals.n = 1; portals.setOn(true, false); portals.cutInto(dome, { sky: true }); setTimeout(() => showKind && showKind(), 0);
 const sizes = [[0.3, 0.75], [0.5, 1.05], [1.2, 0.6], [0.15, 0.2]]; let zi = 0;
 document.getElementById('sky').onclick = () => { si = (si + 1) % 2; loadSky(); };
-document.getElementById('door').onclick = () => { portals.setDoors(portals.doors ? 0 : 1); };
+const kindEl = document.getElementById('kind'), showKind = () => { kindEl.textContent = portals.kindOf(0); };
+document.getElementById('door').onclick = () => { portals.stepKind(0, 1); showKind(); };
+document.getElementById('roof').onclick = () => { f.obj.position.set(0, 2.4, -0.6); f.obj.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2); f.half.set(0.6, 0.6); f._fit(); };
 document.getElementById('glow').onclick = () => portals.stepGlow(1);
 document.getElementById('w').onclick = () => { zi = (zi + 1) % sizes.length; f.half.set(...sizes[zi]); f._fit(); };
-if (Q.get('door')) portals.setDoors(1); if (Q.get('glow')) { portals.glow = Q.get('glow'); portals._styles(); }
+if (Q.get('kind')) portals.setKind(0, Q.get('kind')); showKind(); if (Q.get('glow')) { portals.glow = Q.get('glow'); portals._styles(); }
 addEventListener('resize', () => { cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); R.setSize(innerWidth, innerHeight); });
 R.setAnimationLoop(() => { orbit.update(); portals.tick(); R.render(scene, cam); });
 window.__pf = { f, cam, orbit, portals };

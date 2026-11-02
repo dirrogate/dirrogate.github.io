@@ -850,7 +850,7 @@ class Placer {
   active(st) { return this.on && st.source && st.source.handedness === 'right'; }
   toggle(on = !this.on) {
     this.on = on; this.g.visible = on; if (!on) { this.drop(); this.setHover(null); }
-    this.mp.env.toast(on ? 'PLACEMENT LASER on: aim at a prop, trigger to take hold. Thumbstick: back / forward = closer / away, left / right = turn, grip + up / down = size. B = off.' : 'Placement laser off', on ? 5200 : 1500);
+    this.mp.env.toast(on ? 'PLACEMENT LASER on: aim at a prop or portal frame, trigger to take hold. Thumbstick: back / forward = closer / away, left / right = turn, grip + up / down = size, grip + left / right = tilt a frame. B = off.' : 'Placement laser off', on ? 5200 : 1500);
     this.mp.listCb && this.mp.listCb();
   }
   setHover(p) {
@@ -860,11 +860,11 @@ class Placer {
   }
   pick(o, d) {
     let best = null, bt = 1e9;
-    for (const p of this.mp.props()) { const t = p.rayT(o, d); if (t > 0 && t < bt) { bt = t; best = p; } }
+    for (const p of this.mp.props().concat(this.mp.extra ? this.mp.extra() : [])) { const t = p.rayT(o, d); if (t > 0 && t < bt) { bt = t; best = p; } }   // #586 extra = portal frames
     return best ? { p: best, t: bt } : null;
   }
   grab(p, t, ray) {
-    this.held = p; p.held = true; this.mp.select(p); this.yawAdd = 0; this.hl.material.color.set(0xffa030); this.beamMat.color.set(0xffa030);
+    this.held = p; p.held = true; if (!p.isPortal) this.mp.select(p); this.yawAdd = 0; this.tiltAdd = 0; this.hl.material.color.set(0xffa030); this.beamMat.color.set(0xffa030);
     p.obj.updateWorldMatrix(true, false); p.obj.matrixWorld.decompose(_p, this.q0, _s);
     this.off.copy(this.rm).invert().multiply(p.obj.matrixWorld);   // the prop in the beam's own space (lever arm included)
     if (p.floor) {
@@ -888,7 +888,7 @@ class Placer {
       const p = this.held, ax = gp.axes && gp.axes.length >= 4 ? gp.axes : null, sx = ax && Math.abs(ax[2]) > 0.15 ? ax[2] : 0, sy = ax && Math.abs(ax[3]) > 0.15 ? ax[3] : 0;
       if (!tr) { this.drop(); buzz(st, 0.3, 25); }
       else {
-        this.yawAdd -= sx * dt * 1.4;
+        if (grip && p.tilt) this.tiltAdd -= sx * dt * 1.2; else this.yawAdd -= sx * dt * 1.4;   // #586 grip + left / right tilts a portal frame (skyroof)
         if (grip) { if (sy) p.resize(Math.exp(-sy * dt * 0.9)); } else if (sy) { const k = sy * dt * (0.8 + (p.floor ? this.base : -this.off.elements[14]) * 0.8); if (p.floor) this.pull = clamp(this.pull - k, 0.3 - this.base, 25); else { _p.setFromMatrixPosition(this.off); this.off.setPosition(_p.x, _p.y, clamp(_p.z + k, -25, -0.2)); } }
         const rig = this.mp.rig; rig.updateMatrixWorld();
         if (p.floor) {   // slides along the floor: where the beam meets it (or the last distance), plus the carry-over from the grab
@@ -901,6 +901,7 @@ class Placer {
         } else {
           _m.copy(this.rm).multiply(this.off); _m.decompose(_p, _q, _s);
           _q.copy(this.q0).premultiply(new THREE.Quaternion().setFromAxisAngle(YAX, this.yawAdd));
+          if (p.tilt && this.tiltAdd) _q.multiply(new THREE.Quaternion().setFromAxisAngle(XAX, this.tiltAdd));   // #586 about the frame's own x axis
           // follow the hand's position only; the stick sets the turn
           if (p.depenKinematic) p.depenKinematic(_p);
           _v.copy(_p); rig.worldToLocal(_v); p.obj.position.copy(_v);
@@ -917,7 +918,7 @@ class Placer {
     this.dot.position.copy(e); this.dot.visible = !!(hit || this.held);
   }
 }
-const _q2 = new THREE.Quaternion(), _v3 = new THREE.Vector3();
+const _q2 = new THREE.Quaternion(), _v3 = new THREE.Vector3(), XAX = new THREE.Vector3(1, 0, 0);
 
 // ------------------------------------------------------------------ manager
 // env: { rig, camera, renderer, toast }
