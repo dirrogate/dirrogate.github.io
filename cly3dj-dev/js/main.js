@@ -7230,16 +7230,17 @@ function drawToolsPage() {
     const tBtn = (x, y, w, h) => btn(x, y, w, h, S.testing ? 'TEST: ON' : 'TEST', S.testing, () => S.setTesting(!S.testing), false, 18);
     const gBtn = (x, y, w, h) => btn(x, y, w, h, F.gear ? 'GEAR: ON' : 'GEAR: OFF', F.gear, () => S.setFit('gear', !F.gear), false, 18);
     const rBtn = (x, y, w, h) => btn(x, y, w, h, 'RESET', false, () => S.resetFit(), false, 18);
+    const oBtn = (x, y, w, h) => btn(x, y, w, h, `OUT ${S.hres === 1280 ? '1280' : '960'}`, S.hres === 1280, () => { S.setHres(S.hres === 1280 ? 960 : 1280); toast(S.hres === 1280 ? 'HEADSET CAM: 1280 x 720 (16:9 crop, 3.5 Mbit/s). Watch the FPS readout.' : 'HEADSET CAM: 960 x 720 (camera shape, 3 Mbit/s)', 3500); drawMixScreen(); }, false, 16);   // #590
     if (P) {
       const y1 = y0 + ph + 8, cw = (R - L - 8) / 2;
       rows.forEach((r, i) => cell(...r, L + (i % 2) * (cw + 8), y1 + Math.floor(i / 2) * 58, cw, 54));
-      const yb = y1 + 4 * 58 + 6, bw = (R - L - 16) / 3; tBtn(L, yb, bw, 50); gBtn(L + bw + 8, yb, bw, 50); rBtn(L + 2 * (bw + 8), yb, bw, 50);
+      const yb = y1 + 4 * 58 + 6, bw = (R - L - 24) / 4; tBtn(L, yb, bw, 50); gBtn(L + bw + 8, yb, bw, 50); rBtn(L + 2 * (bw + 8), yb, bw, 50); oBtn(L + 3 * (bw + 8), yb, bw, 50);
       const ya = yb + 58, aw = (R - L - 8) * 0.65; aBtn(L, ya, aw, 50); uBtn(L + aw + 8, ya, R - L - aw - 8, 50);   // #415
       g.fillStyle = camCal.on ? '#fff' : '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; wrapText(g, calText, L + 4, ya + 72, R - L - 8, 20, 6);
     } else {
       const x1 = L + pw + 10, cw = (R - x1 - 8) / 2;
       rows.forEach((r, i) => cell(...r, x1 + (i % 2) * (cw + 8), y0 + Math.floor(i / 2) * 46, cw, 42));
-      const yb = y0 + ph + 8, bw = (pw - 12) / 3; tBtn(L, yb, bw, 40); gBtn(L + bw + 6, yb, bw, 40); rBtn(L + 2 * (bw + 6), yb, bw, 40);
+      const yb = y0 + ph + 8, bw = (pw - 18) / 4; tBtn(L, yb, bw, 40); gBtn(L + bw + 6, yb, bw, 40); rBtn(L + 2 * (bw + 6), yb, bw, 40); oBtn(L + 3 * (bw + 6), yb, bw, 40);
       const ya = y0 + 4 * 46 + 2, aw = (R - x1) * 0.62; aBtn(x1, ya, aw, 30); uBtn(x1 + aw + 6, ya, R - x1 - aw - 6, 30);   // #415
       g.fillStyle = camCal.on ? '#fff' : '#8c96a8'; g.font = '500 12px system-ui'; g.textAlign = 'left'; wrapText(g, calText, x1, ya + 44, R - x1, 14, 2);
     }
