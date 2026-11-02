@@ -31,8 +31,8 @@ input[type=range]{width:90px;accent-color:var(--cue)}
   <button id="room" aria-pressed="false">Room light</button>
   <button id="tear" aria-pressed="true">Holo tears</button>
   <button id="dbg" aria-pressed="false">Tint views</button>
-  <label>Edge cut <input id="cut" type="range" min="0.005" max="0.1" step="0.005" value="0.05"></label>
-  <label>Graze cut <input id="gr" type="range" min="0" max="0.8" step="0.05" value="0.2"></label>
+  <label>Tear at (m) <input id="cut" type="range" min="0.01" max="0.25" step="0.01" value="0.06"></label>
+  <label>Graze cut <input id="gr" type="range" min="0" max="0.6" step="0.05" value="0.15"></label>
   <span id="read">loading…</span>
 </div>
 <div id="ov"><span class="tag" id="tag"></span><span id="hint">Point at the floor, tap to place her</span>
@@ -77,33 +77,41 @@ tex.colorSpace = THREE.NoColorSpace; tex.minFilter = THREE.LinearFilter; tex.mag
 
 const holo = new THREE.Group(); holo.scale.setScalar(START_SCALE); scene.add(holo);
 const shared = {
-  uCut: { value: 0.05 }, uGraze: { value: 0.2 }, uTint: { value: 0 }, uT: { value: 0 },
+  uCut: { value: 0.06 }, uGraze: { value: 0.15 }, uTint: { value: 0 }, uT: { value: 0 },
   uRoom: { value: 0 }, uAmb: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uKey: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uL: { value: new THREE.Vector3(0, 1, 0) },
 };
+// Per grid point (not per screen pixel): depth jump to the neighbouring grid points in metres = tear,
+// and a smooth normal from those neighbours (per-pixel derivatives gave flat tiles under Room light).
 const VS = `
-  uniform sampler2D map; uniform float uView, uZn, uZf, uTh, uTv;
-  varying vec2 vUv; varying float vZ, vOcc; varying vec3 vPos;
-  float dep(vec2 p){ return texture2D(map, vec2((uView + p.x) * 0.25, p.y * 0.5)).r; }
+  uniform sampler2D map; uniform float uView, uZn, uZf, uTh, uTv; uniform vec2 uStep;
+  varying vec2 vUv; varying float vZ, vOcc, vJump; varying vec3 vPos, vN;
+  float dep(vec2 p){ return texture2D(map, vec2((uView + clamp(p.x, 0.001, 0.999)) * 0.25, clamp(p.y, 0.001, 0.999) * 0.5)).r; }
+  float zOf(float s){ return mix(uZf, uZn, clamp((s - 0.1) / 0.9, 0.0, 1.0)); }
+  vec3 P(vec2 p, float z){ return vec3((p.x * 2.0 - 1.0) * uTh * z, (p.y * 2.0 - 1.0) * uTv * z, -z); }
   void main(){
     vUv = uv;
     float s = dep(uv);
     vec2 e = vec2(2.0 / 480.0, 2.0 / 540.0);   // erode the outline: compression smears depth into the empty border
     float mn = min(min(dep(uv + vec2(e.x, 0.0)), dep(uv - vec2(e.x, 0.0))), min(dep(uv + vec2(0.0, e.y)), dep(uv - vec2(0.0, e.y))));
     vOcc = step(0.06, s) * step(0.06, mn);
-    float z = mix(uZf, uZn, clamp((s - 0.1) / 0.9, 0.0, 1.0));
-    if (vOcc < 0.5) z = uZf;
+    float z = vOcc > 0.5 ? zOf(s) : uZf;
+    vec2 dx = vec2(uStep.x, 0.0), dy = vec2(0.0, uStep.y);
+    float sL = dep(uv - dx), sR = dep(uv + dx), sD = dep(uv - dy), sU = dep(uv + dy);
+    float zL = sL > 0.06 ? zOf(sL) : z, zR = sR > 0.06 ? zOf(sR) : z, zD = sD > 0.06 ? zOf(sD) : z, zU = sU > 0.06 ? zOf(sU) : z;
+    vJump = max(max(abs(zL - z), abs(zR - z)), max(abs(zD - z), abs(zU - z)));
+    vec3 n = normalize(cross(P(uv + dx, zR) - P(uv - dx, zL), P(uv + dy, zU) - P(uv - dy, zD)));
+    vN = normalize(normalMatrix * n);
     vZ = z;
-    vec3 p = vec3((uv.x * 2.0 - 1.0) * uTh * z, (uv.y * 2.0 - 1.0) * uTv * z, -z);
-    vec4 mv = modelViewMatrix * vec4(p, 1.0); vPos = mv.xyz;
+    vec4 mv = modelViewMatrix * vec4(P(uv, z), 1.0); vPos = mv.xyz;
     gl_Position = projectionMatrix * mv;
   }`;
 const COMMON = `
   uniform sampler2D map; uniform float uView, uCut, uGraze, uTint, uT, uKeep, uRoom; uniform vec3 uAmb, uKey, uL;
-  varying vec2 vUv; varying float vZ, vOcc; varying vec3 vPos;
+  varying vec2 vUv; varying float vZ, vOcc, vJump; varying vec3 vPos, vN;
   vec3 col(){ vec2 p = clamp(vUv, 0.002, 0.998); return texture2D(map, vec2((uView + p.x) * 0.25, 0.5 + p.y * 0.5)).rgb; }
   float occ(){ vec2 p = clamp(vUv, 0.002, 0.998); return texture2D(map, vec2((uView + p.x) * 0.25, p.y * 0.5)).r; }
-  vec3 nrm(){ vec3 n = normalize(cross(dFdx(vPos), dFdy(vPos))); return dot(n, -vPos) < 0.0 ? -n : n; }
-  float torn(vec3 n){ return max(step(uCut * 10.0, fwidth(vZ)), step(abs(dot(n, normalize(-vPos))), uGraze)); }
+  vec3 nrm(){ vec3 n = normalize(vN); return dot(n, -vPos) < 0.0 ? -n : n; }
+  float torn(vec3 n){ return max(step(uCut, vJump), step(abs(dot(n, normalize(-vPos))), uGraze)); }
   float b2(vec2 a){ a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
   float bayer(vec2 a){ return b2(0.5 * a) * 0.25 + b2(a) + 0.03; }   // 4x4 ordered dither, 0..1`;
 const FS = COMMON + `
@@ -123,15 +131,15 @@ const FS_TEAR = COMMON + `
     if (vOcc < 0.999 || occ() < 0.06) discard;
     vec3 n = nrm();
     if (torn(n) < 0.5) discard;                           // only the torn bits
-    float scan = step(0.5, fract(gl_FragCoord.y * 0.25 - uT * 6.0));
-    float flick = 0.6 + 0.4 * sin(uT * 37.0 + vZ * 40.0);
-    vec3 c = mix(col(), vec3(0.2, 0.85, 1.0), 0.65) * scan * flick;
-    gl_FragColor = vec4(c * 0.55, 1.0);                   // additive
+    float scan = step(0.55, fract(gl_FragCoord.y * 0.2 - uT * 5.0));
+    float flick = 0.65 + 0.35 * sin(uT * 37.0 + vZ * 40.0);
+    vec3 c = mix(col(), vec3(0.15, 0.8, 1.0), 0.8) * scan * flick;
+    gl_FragColor = vec4(c * 0.8, 1.0);                    // additive
   }`;
 const views = [];
 const geo = new THREE.PlaneGeometry(1, 1, GRID[0], GRID[1]);
 for (let v = 0; v < 4; v++) {
-  const un = { map: { value: tex }, uView: { value: v }, uZn: { value: ZN }, uZf: { value: ZF }, uTh: { value: TH }, uTv: { value: TV }, uKeep: { value: 1 }, ...shared };
+  const un = { map: { value: tex }, uView: { value: v }, uZn: { value: ZN }, uZf: { value: ZF }, uTh: { value: TH }, uTv: { value: TV }, uKeep: { value: 1 }, uStep: { value: new THREE.Vector2(1 / GRID[0], 1 / GRID[1]) }, ...shared };
   const m = new THREE.ShaderMaterial({ uniforms: un, vertexShader: VS, fragmentShader: FS, polygonOffset: true });
   const mt = new THREE.ShaderMaterial({ uniforms: un, vertexShader: VS, fragmentShader: FS_TEAR, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
   m.extensions = mt.extensions = { derivatives: true };
