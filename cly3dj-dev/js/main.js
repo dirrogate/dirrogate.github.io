@@ -1349,7 +1349,7 @@ function drawTabNote(s) {
 for (const sc of [mixScreen, mixScreenP]) { const c0 = sc.commit.bind(sc); sc.commit = () => { if (tabNote.text && performance.now() < tabNote.until) drawTabNote(sc); c0(); }; }
 // #467 a WebRTC handshake (spectator phone, DirroTV) had to go through ntfy.sh because our relay hub didn't carry it
 onRelayFallback((what, how) => { tabletNote(`NTFY.SH FALLBACK · ${what}`, 6000); toast(`${what}: handshake ${how} via ntfy.sh (backup relay; relay.dirrodj.club hub not reached)`, 6000); });
-const vpPer = () => (scrDir === 'up' ? 8 : vpFolder === 'Pano' ? 8 : 10);   // #379 portrait PANO: 4 rows, the PANO SPIN slider under them   // thumbnails a page on the Video page (#206 portrait: 5 rows, a third tab row)
+const vpPer = () => (scrDir === 'up' ? (vpFolder === 'Pano' ? 4 : 8) : vpFolder === 'Pano' ? 8 : 10);   // #596 landscape PANO: one row, the TURN / EXPOSURE bars under it   // #379 portrait PANO: 4 rows, the PANO SPIN slider under them   // thumbnails a page on the Video page (#206 portrait: 5 rows, a third tab row)
 function stepScrDir() {
   const dir = tabletDir(scrDir); if (dir === scrDir) return;
   scrDir = dir;
@@ -5534,8 +5534,10 @@ function drawVideoPage() {
   let x = P ? 8 : 108;
   for (const [label, what] of T) { const dim = (!vpSel && what !== 'skyoff'); btn(x, ty, tw, bh, label, false, dim ? null : () => vpAct(what), dim); x += tw + 6; }
   if (vpFolder === 'Pano') {   // #379 PANO SPIN 0 to 5 (degrees a second); landscape: between the SKY buttons and the LED button, portrait: a row of its own
-    const sx = P ? 26 : x, sw = P ? W - 52 : W - 8 - 140 - 6 - x;
-    tSlider(g, sx, P ? H - 150 : by, sw, bh, 'PANO TURN', settings.skyTurn / 359, `${settings.skyTurn}°`, v => setSkyTurn(v * 359));   // #389 was SPIN: a bar that turns the pano by hand
+    // #596 two bars: PANO TURN and EXPOSURE (the same DOME EXPOSURE as PORTALS SETUP); landscape: a full-width row above the buttons
+    const ry = P ? H - 150 : by - bh - 10, rx = P ? 26 : 8, rw = P ? W - 52 : W - 16, hw = (rw - 8) / 2;
+    tSlider(g, rx, ry, hw, bh, 'PANO TURN', settings.skyTurn / 359, `${settings.skyTurn}°`, v => setSkyTurn(v * 359), false, 100);   // #389 was SPIN: a bar that turns the pano by hand
+    tSlider(g, rx + hw + 8, ry, hw, bh, 'EXPOSURE', (dome.ev + 3) / 4, `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)} EV`, v => setDomeEv(-3 + v * 4), false, 100);
   }
   const hasList = vpFolder === 'Video' || vpFolder === 'Images';   // #222 the LED playlist, one tap away
   if (hasList) btn(P ? 124 : 522, by, P ? 70 : 92, bh, `CYCLO LIST ${led.files.length}`, false, () => { vpBack = vpFolder; vpFolder = 'LedList'; vpLoad(); });

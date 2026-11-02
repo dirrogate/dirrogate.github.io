@@ -10,7 +10,7 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v101';   // #595 room scan portals removed, stream layer tag fix (preview black), crates no longer jump
+const CACHE = 'vire-app-v102';   // #596 EXPOSURE bar on VISUALS > PANO
 // v89:   // #573 HOLO bus source (Holodancer)
 // v88:   // #564 SOFT RIM rim / face controls
 // v87:   // #563 grabs into the banks, bank right-click menu

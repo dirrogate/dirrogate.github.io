@@ -1877,3 +1877,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - The black tablet PREVIEW was #591, not the room scan: three's WebGLRenderTarget here has no userData, so `rt.userData.aces = true` threw in the stream setup. Now `rt.vireAces = true` (stream.js, 5 targets), read by the SCREEN portal panel and the dome (skybox.js #594 inverse-ACES, kept). Found by bisecting in the owner's PC pane (RTX 4050): #591 files = black (mean 8), pre-#591 = picture (91), fixed = picture (94.5), dome + stage visible, no console errors but the old rekordbox.xml 404.
 - Crates: clampStack (while carried) only lifts onto tops at most 5 cm above the crate's bottom, so a milk crate / the record crate brought in from the side no longer jumps up onto the record crate / flight case beside it; lift it above the top to stack it (settleStack unchanged).
 - sw.js v101. No Node restart. Backups backups/pre595/, bisect copies backups/bisect_now/. Crate fix not tried by hand in the pane.
+
+## #596 EXPOSURE on VISUALS > PANO (owner, 3 Nov: pano brightness on the tablet, next to SKY)
+- The PANO tab's PANO TURN bar is now two bars side by side: PANO TURN and EXPOSURE (= DOME EXPOSURE, setDomeEv, -3..+1 EV in 0.25 steps, the same saved value as the PORTALS SETUP cell). Landscape: a full-width row above the bottom buttons, so the PANO tab shows one row of 4 panos a page (vpPer); portrait: the row it had (H - 150).
+- Checked in the owner's PC pane: landscape draws both bars, EXPOSURE at 0 EV. sw.js v102. No Node restart. Backup backups/pre595/main.after595.js.
