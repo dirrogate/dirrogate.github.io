@@ -1787,3 +1787,4 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - `vjdesk.html`: ① badge for 2D+depth performers in DANCER CLIPS (④ 4-view depth, ⑧ 8-view); notes updated.
 - `DirroDancer/holo/pack_2dd.py`: adds a colour|depth side-by-side video to the library (re-encode, poster, performer.json, library entry). Options --dist --near --far --vfov --camh --height --invert.
 - sw.js v91. Checked on the owner's PC pane: halfshell.html plays kitana_snake1 as 1d (front sharper than the 4-view slot), projector from behind; desk bank shows ① and its tooltip (fed through window.setHoLib; the app-to-desk link needs the Quest). No Node restart. Backup backups/pre584/.
+- pack_2dd.py takes any size split equally (each half keeps its shape, scaled to 1080 high, max 1920 per half); performer.json slot records the half size so the player keeps the picture's proportions.
