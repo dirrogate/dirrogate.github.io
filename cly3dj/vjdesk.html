@@ -138,6 +138,10 @@
   button.dzRec.on { color:#fff; background:#b0141e; border-color:var(--red); box-shadow:0 0 10px rgba(224,32,42,.45); }
   .vjCell.dzClip { justify-content:space-between; background:linear-gradient(160deg,#1a1024,#0d1017 70%); }
   .vjCell.dzClip .dzIc { flex:1; display:flex; align-items:center; justify-content:center; font-size:26px; opacity:.85; pointer-events:none; }
+  /* #578 one bank for DANCER dances (GLB / FBX) and Holodancer performers: a small badge in the corner says which */
+  .vjCell.dzClip { position:relative; } .clipBadge { position:absolute; top:2px; right:3px; z-index:2; font:700 12px/1 system-ui,sans-serif; color:#fff; pointer-events:none; text-shadow:0 0 3px #000, 0 0 6px #000; }
+  .vjCell.hoClip { background:linear-gradient(160deg,#0b1f2a,#0d1017 70%); } .vjCell.hoClip .dzIc { color:#35d6ff; }
+  .vjCell.hoAct { border:2px solid #35d6ff; box-shadow:0 0 0 1px #0f4a5c inset; } .vjCell.hoAct .vjCap { background:#35d6ff; color:#03161d; font-weight:800; }
   .vjCell.dzAct { border:2px solid #ff4fb4; box-shadow:0 0 0 1px #6b1950 inset; } .vjCell.dzAct .vjCap { background:#ff4fb4; color:#1a0412; font-weight:800; }
   /* #563 right-click menu on IMAGES / VIDEOS cells */
   #bankMenu { position:fixed; z-index:9999; min-width:200px; background:#141924; border:1px solid #4b5d82; border-radius:9px; padding:4px; box-shadow:0 8px 24px rgba(0,0,0,.6); }
@@ -196,8 +200,7 @@
         <select id="dzFogCol"><option value="cold">COLD</option><option value="warm">WARM</option><option value="violet">VIOLET</option><option value="white">WHITE</option></select></div>
     </section>
     <section style="margin-top:14px" id="hoS">
-      <h2>Holodancer <span class="note" style="text-transform:none;letter-spacing:0">put HOLO on bus A or B · performers rendered by the Holodancer builder</span></h2>
-      <div class="row"><span class="dzL" style="width:auto;margin-right:4px">PERFORMER</span><select id="hoPerf" title="Performers listed in holo/library.json"></select><button id="hoRestart" title="Back to the start of the dance">RESTART</button></div>
+      <h2>Holodancer <span class="note" style="text-transform:none;letter-spacing:0">pick a ① / ④ / ⑧ performer in DANCER CLIPS below · made with the Holodancer builder</span></h2>
       <div class="dzTop">
         <div class="dzCamW">
           <div class="dzPadW"><div id="hoPad" title="Camera. X (left to right) = round her 0 to 360 degrees. Y (bottom to top) = camera height, low to high. Double-click = front, eye level."><div id="hoDot"></div><span class="dzAx x">X</span><span class="dzAx y">Y</span></div><span id="hoXY" class="sp">X 0° · Y 8°</span></div>
@@ -206,7 +209,7 @@
         </div>
       </div>
       <div class="row" id="hoGlRow" hidden><span class="dzL">GLITCH</span><label class="kv"><span class="sp">View change</span><input type="range" id="hoGlitch" min="0" max="1.5" step="0.05" value="1" title="Glitch when the camera passes to the next view (8-view performers)"></label></div>
-      <div class="row"><button id="hoGram" title="Send this performer to the Dirrogram phones through the Quest (the Quest must be linked and this DirroVJ allowed on it). The phones stand her on their stage and keep in step with this desk.">SEND TO DIRROGRAM</button><input type="text" id="hoPub" spellcheck="false" style="flex:1;min-width:140px" title="Public (https) address of the performer library the phones load from (the deployed site's holo/ folder)"></div>
+      <div class="row"><button id="hoRestart" title="Back to the start of the dance">RESTART</button><button id="hoGram" title="Send this performer to the Dirrogram phones through the Quest (the Quest must be linked and this DirroVJ allowed on it). The phones stand her on their stage and keep in step with this desk.">SEND TO DIRROGRAM</button><input type="text" id="hoPub" spellcheck="false" style="flex:1;min-width:140px" title="Public (https) address of the performer library the phones load from (the deployed site's holo/ folder)"></div>
       <div id="hoGramSt" class="note"></div>
       <div id="hoSt" class="note">Not loaded yet: pick HOLO on a bus or a performer.</div>
     </section>
@@ -220,7 +223,7 @@
 </main>
 <div id="vjDecks">
   <div class="vjBank">
-    <div class="vjBankHead"><h3>DANCER CLIPS</h3><span class="note" id="dzClipNote" style="margin:0">Click a dance: DANCER blends to it (0.8 s)</span></div>
+    <div class="vjBankHead"><h3>DANCER CLIPS</h3><span class="note" id="dzClipNote" style="margin:0">ᯓ🏃🏻‍♀️‍➡️ DANCER dance: click = she blends to it (0.8 s) · ① ④ ⑧ Holodancer performer (2D+depth / 4-view depth / 8-view): click = HOLO plays it</span></div>
     <div class="vjBankScroll"><div class="vjGrid" id="gridDancer"></div></div>
   </div>
   <div class="vjBank">
@@ -718,7 +721,6 @@ $('dzPad').onpointerup = $('dzPad').onpointercancel = () => { dzDrag = false; dz
 $('dzPad').ondblclick = () => { dzDot(0, 8); dz('cam', { v: { x: 0, y: 8 } }); };
 // ---- #573 HOLODANCER panel
 const ho = (op, o = {}) => send({ k: 'holo', op, ...o });
-$('hoPerf').onchange = e => ho('perf', { v: e.target.value });
 $('hoRestart').onclick = () => ho('restart');
 $('hoOrbit').onclick = () => ho('cam', { v: { orbit: !(S && S.D.holo && S.D.holo.cam.orbit) } });
 $('hoTears').onclick = () => ho('tears', { v: !(S && S.D.holo && S.D.holo.tears) });
@@ -738,11 +740,11 @@ $('hoPad').onpointerdown = e => { hoDrag = true; $('hoPad').setPointerCapture(e.
 $('hoPad').onpointermove = e => { if (hoDrag) hoPadAt(e); };
 $('hoPad').onpointerup = $('hoPad').onpointercancel = () => { hoDrag = false; hoDragT = Date.now(); };
 $('hoPad').ondblclick = () => { hoDot(0, 8); ho('cam', { v: { az: 0, el: 8 } }); };
+window.deskState = () => (S && S.D) || null;   // #578 for the bank's module script
 function renderHo() {
   const Z = S && S.D && S.D.holo; if (!Z) return;
-  const sel = $('hoPerf'), ids = (Z.lib || []).map(p => p.id).join('|');
-  if (sel.dataset.ids !== ids) { sel.dataset.ids = ids; sel.innerHTML = ''; for (const p of Z.lib || []) { const o = document.createElement('option'); o.value = p.id; o.textContent = p.name + (p.layout ? ` (${p.layout === '4d' ? '4-view depth' : '8-view'})` : ''); sel.append(o); } }
-  if (document.activeElement !== sel && Z.perf) sel.value = Z.perf;
+  window.setHoLib && window.setHoLib(Z.lib || []);   // #578 performers live in DANCER CLIPS (the bank's module script)
+  window.hoClips && window.hoClips(Z.loaded || Z.loading ? Z.perf : '');
   $('hoOrbit').classList.toggle('on', !!Z.cam.orbit); $('hoTears').classList.toggle('on', !!Z.tears); $('hoRoom').classList.toggle('on', !!Z.room);
   $('hoGlRow').hidden = Z.layout !== '8b';
   $('hoGram').classList.toggle('on', !!Z.gram); if (document.activeElement !== $('hoPub')) $('hoPub').value = Z.pub || '';   // #575
@@ -753,7 +755,7 @@ function renderHo() {
   if (!hoDrag && Date.now() - hoDragT > 600) hoDot(Z.cam.az, Z.cam.el);
   const onAir = S.D.x < 1 && S.D.a === 'holo' || S.D.x > 0 && S.D.b === 'holo', cued = S.D.cue && S.D[S.D.cue] === 'holo', onBus = S.D.a === 'holo' || S.D.b === 'holo';
   const name = ((Z.lib || []).find(p => p.id === Z.perf) || {}).name || Z.perf || '-';
-  $('hoSt').textContent = Z.err ? 'HOLO: ' + Z.err : !(Z.lib || []).length ? 'No performers yet (holo/library.json is empty or missing).' : Z.loading ? 'Loading ' + name + '…' : !Z.loaded ? 'Not loaded yet: pick HOLO on a bus or a performer.'
+  $('hoSt').textContent = Z.err ? 'HOLO: ' + Z.err : !(Z.lib || []).length ? 'No performers yet (holo/library.json is empty or missing).' : Z.loading ? 'Loading ' + name + '…' : !Z.loaded ? 'Not loaded yet: click a ① / ④ / ⑧ performer in DANCER CLIPS (or put HOLO on a bus).'
     : `${name} · ${cued ? 'drawing (CUE)' : onAir ? 'drawing' : onBus ? 'paused (CUE its bus to set up, or bring it in with the T-bar)' : 'put HOLO on bus A or B'}`;
 }
 function renderDz() {
@@ -952,18 +954,30 @@ for (const b of BANKS) {
 
 // ---- #550 DANCER CLIPS: the dances in models/dancer/clips (clips.json), click = blend to it
 const DZ_MIN_COLS = 6;
-let dzList = [], dzCur = '';
+let dzList = [], dzCur = '', dzLoaded = false, hoLib = [], hoLibKey = '', hoCur = '';   // #578 hoLib: Holodancer performers (holo/library.json via DirroVJ)
 async function loadDzClips() {
-  try { dzList = (await (await fetch('models/dancer/clips/clips.json', { cache: 'no-cache' })).json()).map(f => f.replace(/\.[^.]+$/, '')); } catch { dzList = []; }
-  const el = $('gridDancer'), cols = Math.max(DZ_MIN_COLS, Math.ceil(dzList.length / ROWS)); let html = '';
+  if (!dzLoaded) { try { dzList = (await (await fetch('models/dancer/clips/clips.json', { cache: 'no-cache' })).json()).map(f => f.replace(/\.[^.]+$/, '')); dzLoaded = true; } catch { dzList = []; } }
+  const items = dzList.map(n => ({ k: 'dz', n })).concat(hoLib.map(p => ({ k: 'ho', p })));
+  const el = $('gridDancer'), cols = Math.max(DZ_MIN_COLS, Math.ceil(items.length / ROWS)); let html = '';
   for (let c = 0; c < cols; c++) {
     html += `<div class="vjColHead">Column ${c + 1}</div>`;
-    for (let r = 0; r < ROWS; r++) { const n = dzList[c * ROWS + r]; html += n ? `<div class="vjCell dzClip" data-dz="${esc(n)}" title="${esc(n)} (click: DANCER blends to it)"><div class="dzIc">💃</div><div class="vjCap">${esc(n)}</div></div>` : '<div class="vjCell empty" title="Empty: importing dances comes in a later phase"><div class="vjCap"></div></div>'; }
+    for (let r = 0; r < ROWS; r++) {
+      const it = items[c * ROWS + r];
+      if (!it) { html += '<div class="vjCell empty" title="Empty"><div class="vjCap"></div></div>'; continue; }
+      if (it.k === 'dz') html += `<div class="vjCell dzClip" data-dz="${esc(it.n)}" title="${esc(it.n)}: DANCER dance (click: she blends to it)"><span class="clipBadge">ᯓ🏃🏻‍♀️‍➡️</span><div class="dzIc">💃</div><div class="vjCap">${esc(it.n)}</div></div>`;
+      else { const p = it.p, b = p.layout === '8b' ? '⑧' : p.layout === '1d' ? '①' : '④', kind = p.layout === '8b' ? '8-view' : p.layout === '1d' ? '2D+depth with holoprojector' : '4-view depth'; html += `<div class="vjCell dzClip hoClip" data-ho="${esc(p.id)}" title="${esc(p.name)}: Holodancer ${kind} (click: HOLO plays it)"><span class="clipBadge">${b}</span><div class="dzIc">✦</div><div class="vjCap">${esc(p.name)}</div></div>`; }
+    }
   }
   el.innerHTML = html;
   for (const cell of el.querySelectorAll('[data-dz]')) cell.onclick = () => { send({ k: 'dz', op: 'clip', name: cell.dataset.dz }); window.dzClips(cell.dataset.dz); };
-  window.dzClips(dzCur);
+  for (const cell of el.querySelectorAll('[data-ho]')) cell.onclick = () => {   // #578 a performer: HOLO plays it; with HOLO on no bus yet, it goes on the bus that is off air
+    send({ k: 'holo', op: 'perf', v: cell.dataset.ho }); window.hoClips(cell.dataset.ho);
+    const St = window.deskState && window.deskState(); if (St && St.a !== 'holo' && St.b !== 'holo') send({ k: 'bus', bus: St.x < 0.5 ? 'b' : 'a', v: 'holo' });
+  };
+  window.dzClips(dzCur); window.hoClips(hoCur);
 }
+window.setHoLib = lib => { const ids = lib.map(p => p.id + ':' + p.layout).join('|'); if (ids !== hoLibKey) { hoLibKey = ids; hoLib = lib; loadDzClips(); } };
+window.hoClips = id => { hoCur = id || ''; for (const c of document.querySelectorAll('#gridDancer [data-ho]')) c.classList.toggle('hoAct', c.dataset.ho === hoCur); };
 window.dzClips = name => { dzCur = name || ''; for (const c of document.querySelectorAll('#gridDancer [data-dz]')) c.classList.toggle('dzAct', c.dataset.dz === dzCur); };
 loadDzClips();
 // a DANCER recording landed in VIDEOS: refresh that bank
@@ -981,7 +995,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') bmClose(); }
 addEventListener('scroll', bmClose, true);
 $('bmCx').onclick = async () => { const a = bmAt; bmClose(); if (!a) return; const f = await media.getFile(a.folder, a.name); if (!f) return; cx('add', { files: [{ blob: f, name: a.name }] }); $('cxMsg').textContent = 'Sending ' + a.name + ' to DirroComics…'; };
 $('bmExp').onclick = async () => { const a = bmAt; bmClose(); if (!a) return; const f = await media.getFile(a.folder, a.name); if (!f) return; const u = URL.createObjectURL(f), l = document.createElement('a'); l.href = u; l.download = a.name; document.body.append(l); l.click(); l.remove(); setTimeout(() => URL.revokeObjectURL(u), 30000); };
-$('bmDel').onclick = async () => { const a = bmAt; bmClose(); if (!a || !confirm('Delete ' + a.name + ' from ' + (a.folder === 'Video' ? 'VIDEOS' : 'IMAGES') + '? This removes it from this laptop.')) return;
+$('bmDel').onclick = async () => { const a = bmAt; bmClose(); if (!a || !confirm('Delete ' + a.name + ' from this bank (' + (a.folder === 'Video' ? 'VIDEOS' : 'IMAGES') + ')? The original file on your computer is not touched.')   /* #577 wording */) return;
   await media.remove(a.folder, a.name); thumbUrls.delete(a.folder + '/' + a.name); await loadBank(a.b); };
 </script>
 </body>

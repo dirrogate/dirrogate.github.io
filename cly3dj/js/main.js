@@ -21,7 +21,7 @@ import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #
 import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whiteboard, markers and duster
 import { InkLabel } from './inklabel.js';   // #394 milk crate labels
 import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
-import { Portals } from './portal.js';   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
+import { Portals, SHAPE_OF, SHAPE_LABEL } from './portal.js';   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
 import { Beat } from './beat.js';   // #346 bass onsets on the master for the wall's BEAT
 import { DirroHost, initRelayFromUrl, fanUrl, relayUrl, roomKey, WALL_SRC, WALL_LABEL, WALL_COLS } from './dirro-host.js';   // #427 DIRROGRAM: the show to the audience phones
@@ -1158,7 +1158,7 @@ const portals = CAMERA_ROLE ? null : new Portals(rig, i => {   // frame i's star
   const p = new THREE.Vector3(Math.sin(a) * rr, deckGroups[0].position.y + DECK.H + 0.1, -Math.cos(a) * rr).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw0);
   return { p: p.add(new THREE.Vector3(bx, 0, bz)), yaw: yaw0 - a };
 });
-if (portals) { if (facetWall) portals.cutInto(facetWall.obj); portals.cutInto(skybox.group); }   // the windows punch through the backdrop and the dome; cutInto() again for any future glb room
+if (portals) { if (facetWall) portals.cutInto(facetWall.obj); portals.cutInto(skybox.group, { sky: true }); }   // #586 sky: PANO frames show the dome only through themselves   // the windows punch through the backdrop and the dome; cutInto() again for any future glb room
 let wallTapT = 0, portalTapT = 0, portalDefArm = 0, beat = null, domeBoot = true;
 const _laserCam = new THREE.Vector3();   // #406
 function wallTap() {   // tap = backdrop on / off; double-tap = back to its start spot and mode
@@ -7100,6 +7100,9 @@ function drawToolsPage() {
       ['DOME EXPOSURE', `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)} EV`, d => setDomeEv(dome.ev + d * 0.25)],   // #404 tame blown-out panos
       ['FRACTAL SPEED', `${WL.val('speed')}x`, d => WL.step('speed', d)],
       ['COLOUR CYCLE', `${WL.val('cycle')}x`, d => WL.step('cycle', d)],
+      ['FRAME', `${PS.edit + 1} of ${PS.n}`, d => PS.setEdit(PS.edit + d)],   // #586 which frame TYPE sets (it blinks white)
+      [`TYPE · ${PS.kindOf(PS.edit)[0] === 'p' ? 'PANO (SKY)' : 'REAL (ROOM)'}`, SHAPE_LABEL[SHAPE_OF(PS.kindOf(PS.edit))], d => { PS.stepKind(PS.edit, d); if (PS.kindOf(PS.edit)[0] === 'p' && !dome.on) setDome(true); }],   // #585 doorway / #586 PANO frames
+      ['TRIM LIGHT', PS.glow.toUpperCase(), d => PS.stepGlow(d)],
     ];
     const cell = ([label, val, act], x, y, w, h) => {
       g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
@@ -7109,27 +7112,28 @@ function drawToolsPage() {
       g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + w / 2, by + bh / 2); g.textBaseline = 'alphabetic';
       btn(x + w - bw, by, bw, bh, '+', false, () => { act(1); drawMixScreen(); });
     };
-    const warn = dome.on && !skybox.tex ? 'DOME: no sky picked yet. On VISUALS > PANO pick a panorama or video pano and tap SKY.' : '';
-    const help = 'Frames: grip to move; trigger / pinch the silver side handle = width, top handle = height, corner L = both. Double-tap PORTALS or WALL = back to the start. DOME = the VISUALS sky, also in passthrough; the portals cut through the wall and the dome.';
-    const text = (x, y, w, lh, max, fs) => {
+    const warn = dome.on && !skybox.tex ? 'DOME: no sky picked yet. On VISUALS > PANO pick a panorama or video pano and tap SKY.' : PS.revN && !dome.on ? 'PANO frames show the DOME: turn DOME on.' : '';
+    const help = 'Grip to move; pinch the iron side bar = width, top bar = height, ring = both; or B laser: stick = distance / turn, grip + stick = size / tilt (skyroof). REAL frames show the room, PANO frames show the DOME sky only through them. Doors stand on the floor.';
+    const helpP = 'Grip or B laser to move (grip + stick = tilt). PANO frames show the DOME sky only through them.';   // #585 portrait: short
+    const text = (x, y, w, lh, max, fs, hp) => {
       g.textAlign = 'left'; g.font = `500 ${fs}px system-ui`; let n = 0;
       if (warn) { g.fillStyle = '#f1b650'; n = wrapText(g, warn, x, y, w, lh, 2); }
-      g.fillStyle = '#8c96a8'; wrapText(g, help, x, y + n * lh, w, lh, max - n);
+      g.fillStyle = '#8c96a8'; wrapText(g, hp || help, x, y + n * lh, w, lh, max - n);
     };
     if (P) {
       const tw = (R - L - 8) / 2;
       toggles.forEach(([lb, on, act], i) => btn(L + (i % 2) * (tw + 8), y0 + Math.floor(i / 2) * 52, tw, 46, lb, on, act, false, 17));
       const y1 = y0 + 3 * 52 + 6;
-      cells.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 60, tw, 56));
-      tSlider(g, L, y1 + 4 * 60, R - L, 56, 'DOME TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on);   // #389 (#404 own row)
-      text(L + 4, y1 + 5 * 60 + 18, R - L - 8, 20, 8, 15);
+      const cellsP = cells.concat([['DOME TURN', `${dome.turn}°`, d => setDomeTurn((dome.turn + d * 15 + 360) % 360)]]);   // #586 portrait: DOME TURN as a 15 deg stepper
+      cellsP.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 54, tw, 50));   // #585 rows of 54 px
+      text(L + 4, y1 + 6 * 54 + 16, R - L - 8, 18, 3, 14, helpP);
     } else {
       const tw = (R - L - 30) / 6;
       toggles.forEach(([lb, on, act], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, false, 15));
       const cw = (R - L - 24) / 4, y1 = y0 + 48;
       cells.forEach((c, i) => cell(c, L + (i % 4) * (cw + 8), y1 + Math.floor(i / 4) * 48, cw, 44));
-      tSlider(g, L, y1 + 2 * 48, 2 * cw + 8, 40, 'DOME TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on);   // #389 (#404 third row)
-      text(L + 2 * cw + 24, y1 + 2 * 48 + 12, R - L - 2 * cw - 28, 15, 3, 12);
+      tSlider(g, L + 3 * (cw + 8), y1 + 2 * 48 + 4, cw, 40, 'TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on, 52);   // #389 (#586 third row, right of FRAME / TYPE / TRIM LIGHT)
+      text(L + 2, y1 + 3 * 48 + 12, R - L - 4, 15, 3, 12);
     }
     return;
   }
@@ -8249,6 +8253,7 @@ if (!CAMERA_ROLE) {
   });
   mprops = new MovieProps({ rig, camera, renderer, toast, scene, getColliders: () => { if (!sleeveColliders.length) refreshSleeveColliders(); return sleeveColliders; } });   // #478, #541 kinematic props
   mprops.listCb = () => { if (toolsPage === 'props') drawMixScreen(); };
+  mprops.extra = () => portals ? portals.active() : [];   // #586 the B placement laser also picks up portal frames
   try { mprops.load(); } catch (e) { console.warn('movie props load', e); }
 }
 // ------------------------------------------------------------------ XR input (hands + controllers)
@@ -8754,7 +8759,7 @@ if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
 try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media.getFile('Images', cn).then(f => { if (f) { streamer.setCardPic(f); cardWallSet(f, false); } }).catch(() => {}); } catch (e) {}   // #445 the CARD picture of last time
-window.vire = { THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { get mprops() { return mprops; } /* #586 test hook */, THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._deck = { pullRecord, placeOnDeck, setMotor, dropNeedleAt, get held() { return held; } };   // #497 test hook: put a record on a deck from the console
 window.vire._loop = { loopClip, loopCopy, loopPaste, loopUndo, loopUndoDo, loopDeleteBank, looper, loopSlots, loopUI, pressLooper, clearLooper, loopSlotTap, loopRegion, loopNudge, loopSaveBank, loopLoadBank, loopOpenBanks, stepLooper, releaseLooper };   // #470 test hook
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };

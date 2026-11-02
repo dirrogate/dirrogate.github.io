@@ -1,0 +1,7 @@
+{
+  "id": "kitana_snake1", "name": "Kitana · 2D+depth test", "layout": "1d", "views": 1, "slot": [960, 1080], "atlas": "atlas.mp4",
+  "rig": { "dist": 4.4, "lens": 50, "sensor": 24, "aimH": 1.0, "az0": -90 },
+  "depth": { "near": 3.7, "far": 5.1 },
+  "height": 1.72, "fps": 24, "duration": 5.0, "speed": 0.5,
+  "source": "#584 front camera of kitana_snake4 repacked as 2D+depth (colour left, depth right)"
+}
