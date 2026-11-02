@@ -1,0 +1,26 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Holodancer viewer</title>
+<style>
+html,body{height:100%;margin:0;background:#06070c;color:#e9ecf3;font:13px ui-monospace,monospace;overflow:hidden;color-scheme:dark}
+canvas{display:block}
+#tag{position:fixed;top:12px;left:14px;background:rgba(6,7,12,.5);padding:4px 8px;border-radius:6px}
+</style>
+<span id="tag">loading…</span>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.js"}}</script>
+<script type="module">
+// #574 check any built performer through the shared player: holoview.html?p=<path to performer.json>
+import * as THREE from 'three';
+import {OrbitControls} from '../vendor/three/OrbitControls.js';
+import {makeHoloPlayer} from '../js/holoplayer.js';
+const src = new URLSearchParams(location.search).get('p') || '../holo/kitana_snake4/performer.json';
+const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); renderer.setSize(innerWidth, innerHeight); document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x06070c); scene.add(new THREE.GridHelper(10, 20, 0x2a3346, 0x161b26));
+const cam = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.05, 100); cam.position.set(0, 1.3, 4.2);
+const orbit = new OrbitControls(cam, renderer.domElement); orbit.target.set(0, 0.95, 0); orbit.enableDamping = true;
+const player = makeHoloPlayer({ THREE }); scene.add(player.group);
+addEventListener('resize', () => { cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+player.load(src).then(m => { tag.textContent = `${m.name} · ${m.layout} · ${m.duration} s · camera ${m.rig.dist} m`; }).catch(e => { tag.textContent = 'load failed: ' + e.message; });
+const eye = new THREE.Vector3();
+renderer.setAnimationLoop(t => { orbit.update(); cam.getWorldPosition(eye); player.update(eye, t / 1000, cam); renderer.render(scene, cam); });
+window.__hv = { player };
+</script>
