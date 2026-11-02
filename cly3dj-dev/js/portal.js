@@ -36,8 +36,12 @@ const RIM = 0.085;                               // #587 concrete outer edge, fr
 const cornerRadius = (hx, hy) => Math.min(0.30, 0.42 * Math.min(hx, hy));
 const GLOWS = { off: null, red: 0xff2a2a, cyan: 0x36d8ff, amber: 0xffa53a };
 const GLOW_ORDER = ['off', 'red', 'cyan', 'amber'];
-export const KINDS = ['window', 'door', 'pwindow', 'pdoor'];   // #586 REAL WINDOW, REAL DOOR, PANO WINDOW, PANO DOOR
-export const KIND_LABEL = { window: 'REAL WINDOW', door: 'REAL DOOR', pwindow: 'PANO WINDOW', pdoor: 'PANO DOOR' };
+// #586 REAL WINDOW, REAL DOOR, PANO WINDOW, PANO DOOR; #588 + ROUND (cross grill), ARCH (cross grill), PORTHOLE (no grill), each REAL or PANO.
+// A leading 'p' means PANO (the sky only through it), so the porthole is 'hole' / 'phole'.
+export const KINDS = ['window', 'door', 'round', 'arch', 'hole', 'pwindow', 'pdoor', 'pround', 'parch', 'phole'];
+export const KIND_LABEL = { window: 'REAL WINDOW', door: 'REAL DOOR', round: 'REAL ROUND', arch: 'REAL ARCH', hole: 'REAL PORTHOLE', pwindow: 'PANO WINDOW', pdoor: 'PANO DOOR', pround: 'PANO ROUND', parch: 'PANO ARCH', phole: 'PANO PORTHOLE' };
+export const SHAPE_OF = k => { const b = k[0] === 'p' && k !== 'pane' ? k.slice(1) : k; return b === 'door' ? 'door' : b === 'round' || b === 'arch' || b === 'hole' ? b : 'rect'; };   // #588
+export const SHAPE_LABEL = { rect: 'BAY', door: 'DOOR', round: 'ROUND', arch: 'ARCH', hole: 'PORTHOLE' };
 
 // Shared GLSL injected into any material's own shader. World position -> each portal's local space (its inverse world
 // matrix); the line from the camera to this fragment crosses the portal's plane inside its rounded rectangle = discard.
@@ -132,7 +136,7 @@ const PROFILE = [
   [RIM, -D, 0],                                // outer side, then the back face to the start
 ];
 function pathPts(hx, hy, rT, rB, closed) {
-  const P = [], arc = (cx, cy, r, a0, a1, n = 5) => { for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; P.push([cx + r * Math.cos(a), cy + r * Math.sin(a), Math.cos(a), Math.sin(a)]); } };
+  const P = [], arc = (cx, cy, r, a0, a1, n = r > 0.2 ? 6 : 5 /* #588 big radii (round / arch): 6 steps a quarter */) => { for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; P.push([cx + r * Math.cos(a), cy + r * Math.sin(a), Math.cos(a), Math.sin(a)]); } };
   const H = Math.PI / 2;
   if (closed) { arc(hx - rT, hy - rT, rT, 0, H); arc(-hx + rT, hy - rT, rT, H, 2 * H); arc(-hx + rB, -hy + rB, rB, 2 * H, 3 * H); arc(hx - rB, -hy + rB, rB, 3 * H, 4 * H); }
   else { P.push([hx, -hy, 1, 0]); arc(hx - rT, hy - rT, rT, 0, H); arc(-hx + rT, hy - rT, rT, H, 2 * H); P.push([-hx, -hy, -1, 0]); }
@@ -145,7 +149,13 @@ const HANDLE_BAR = (() => {
   return mergeGeometries(parts.map(g => g.toNonIndexed()));
 })();
 const HANDLE_RING = new THREE.TorusGeometry(0.022, 0.006, 4, 8).rotateZ(Math.PI / 8).translate(0, 0, 0.046).toNonIndexed();   // lies on the concrete face
-function buildTrim(hx, hy, rT, rB, closed, hp) {
+// #588 cross grill: two forged iron bars across the opening (vertical full height, horizontal through the middle or, on an
+// arch, at the spring line), set in the reveal, plus a square boss where they cross. Plain boxes, iron, same mesh.
+function grillBoxes(hx, hy, rT, arch) {
+  const w = 0.015, t = 0.014, yh = arch ? hy - rT : 0;
+  return [[-w, w, -hy, hy, -t, t], [-hx, hx, yh - w, yh + w, -t, t], [-0.026, 0.026, yh - 0.026, yh + 0.026, -0.02, 0.02]];
+}
+function buildTrim(hx, hy, rT, rB, closed, hp, grill) {
   const pro = PROFILE, path = pathPts(hx, hy, rT, rB, closed), N = path.length;
   let area = 0; for (let k = 0; k < pro.length; k++) { const a = pro[k], b = pro[(k + 1) % pro.length]; area += a[0] * b[1] - b[0] * a[1]; }
   const sgn = area > 0 ? 1 : -1, pos = [], nor = [], uv = [], kind = [], seg = [], idx = [];
@@ -185,6 +195,12 @@ function buildTrim(hx, hy, rT, rB, closed, hp) {
     }
   };
   addH(HANDLE_BAR, hp.x.x, hp.x.y, 0); addH(HANDLE_BAR, hp.y.x, hp.y.y, Math.PI / 2); addH(HANDLE_RING, hp.xy.x, hp.xy.y, 0);
+  for (const [x0, x1, y0, y1, z0, z1] of grill || []) {   // #588 grill bars: 6 quads each
+    const F = [[[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1], [1, 0, 0]], [[x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [x0, y0, z0], [-1, 0, 0]],
+      [[x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [0, 1, 0]], [[x0, y0, z1], [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [0, -1, 0]],
+      [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0, 0, 1]], [[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [0, 0, -1]]];
+    for (const f of F) { const base = pos.length / 3; for (let i = 0; i < 4; i++) { pos.push(...f[i]); nor.push(...f[4]); uv.push(f[i][0] + f[i][2], f[i][1]); kind.push(1); seg.push(0); } idx.push(base, base + 1, base + 2, base, base + 2, base + 3); }
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setAttribute('aKind', new THREE.Float32BufferAttribute(kind, 1)); g.setAttribute('aSeg', new THREE.Float32BufferAttribute(seg, 1));
@@ -195,7 +211,7 @@ function buildTrim(hx, hy, rT, rB, closed, hp) {
 // One window: obj (in rig space, scale always 1 -- size is `half`): ONE mesh (trim + handles), one material, one draw.
 class PortalFrame {
   constructor(set) {
-    this.set = set; this.half = HALF0.clone(); this.held = false; this._edge = null; this._g = null; this.door = false; this.rev = false; this.r = new THREE.Vector2();
+    this.set = set; this.half = HALF0.clone(); this.held = false; this._edge = null; this._g = null; this.door = false; this.rev = false; this.shape = 'rect'; this.r = new THREE.Vector2();   // #588 shape: rect / door / round / arch / hole
     this.isPortal = true; this.floor = false; this.tilt = true; this.mp = { save: () => set.save() }; this.flashT = 0;   // #586 MOVIE PROPS placement laser target
     const g = this.obj = new THREE.Group(); g.name = 'portal'; g.visible = false; g.userData.noMirror = true; set.rig.add(g);
     this.mat = makeTrimMat();
@@ -206,16 +222,19 @@ class PortalFrame {
   setGlow(name) { const c = GLOWS[name]; this.mat.userData.uGlow.value.setHex(c || 0).multiplyScalar(c ? 2.2 : 0); }
   setFlash(k) { this.mat.userData.uGlow.value.setRGB(k, k, k); }
   setDoor(on) { on = !!on; if (on === this.door) return; this.door = on; if (on) this._floor(); this._fit(); }
+  setShape(sh) { if (sh === this.shape) return; this.shape = sh; this.door = sh === 'door'; if (sh === 'arch' && this.half.y < this.half.x * 1.3) this.half.y = Math.min(HMAX, this.half.x * 1.6); if (this.door) this._floor(); this._fit(); }   // #588 an arch starts tall
   _floor() {   // a doorway stands on the floor (rig y = 0) and stays upright
     const e = new THREE.Euler().setFromQuaternion(this.obj.quaternion, 'YXZ'); this.obj.quaternion.setFromAxisAngle(_y, e.y);
     this.obj.position.y = this.half.y;
   }
   _fit() {
-    const { x: hx, y: hy } = this.half, door = this.door;
-    const rT = cornerRadius(hx, hy), rB = door ? 0 : rT; this.r.set(rT, rB);
+    const sh = this.shape, door = this.door, circ = sh === 'round' || sh === 'hole';
+    if (circ && this.half.x !== this.half.y) { const m = this._g && this._g.edge === 'y' ? this.half.y : this.half.x; this.half.set(m, m); }   // #588 round frames stay round
+    const { x: hx, y: hy } = this.half;
+    const rT = circ ? hx : sh === 'arch' ? Math.min(hx, hy) : cornerRadius(hx, hy), rB = door ? 0 : sh === 'arch' ? Math.min(0.03, rT) : rT; this.r.set(rT, rB);
     const o = 0.055, dg = (rT + o) * Math.SQRT1_2;   // on the concrete face; the ring on the top-right corner's diagonal
     this.hp.x.set(hx + o, door ? hy * 0.1 : 0, 0); this.hp.y.set(0, hy + o, 0); this.hp.xy.set(hx - rT + dg, hy - rT + dg, 0);
-    this.trim.geometry.dispose(); this.trim.geometry = buildTrim(hx, hy, rT, rB, !door, this.hp);
+    this.trim.geometry.dispose(); this.trim.geometry = buildTrim(hx, hy, rT, rB, !door, this.hp, sh === 'round' || sh === 'arch' ? grillBoxes(hx, hy, rT, sh === 'arch') : null);
     if (door && !this.held) this.obj.position.y = hy;
   }
 
@@ -304,7 +323,7 @@ export class Portals {
   }
   _show() { this.list.forEach((f, i) => { f.obj.visible = this.on && i < this.n; }); this._u.portalN.value = this.on ? this.n : 0; this._u.portalRevN.value = this.revN; }
   // #585 the first `doors` frames are doorways (on the floor, open at the bottom), the rest bay windows; TRIM LIGHT colour
-  _styles() { this.list.forEach((f, i) => { const k = this.kinds[i] || 'window'; f.setDoor(k === 'door' || k === 'pdoor'); f.rev = k[0] === 'p'; f.setGlow(this.glow); }); }
+  _styles() { this.list.forEach((f, i) => { const k = this.kinds[i] || 'window'; f.setShape(SHAPE_OF(k)); f.rev = k[0] === 'p'; f.setGlow(this.glow); }); }   // #588 shape from the kind
   get doors() { return this.kinds.slice(0, this.n).filter(k => k === 'door' || k === 'pdoor').length; }
   kindOf(i) { return this.kinds[i] || 'window'; }
   setKind(i, k) { if (!KINDS.includes(k)) return; this.kinds[i] = k; this._styles(); this.save(); this.flash(i); }

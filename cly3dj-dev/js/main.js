@@ -21,7 +21,7 @@ import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #
 import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whiteboard, markers and duster
 import { InkLabel } from './inklabel.js';   // #394 milk crate labels
 import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
-import { Portals } from './portal.js';   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
+import { Portals, SHAPE_OF, SHAPE_LABEL } from './portal.js';   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
 import { Beat } from './beat.js';   // #346 bass onsets on the master for the wall's BEAT
 import { DirroHost, initRelayFromUrl, fanUrl, relayUrl, roomKey, WALL_SRC, WALL_LABEL, WALL_COLS } from './dirro-host.js';   // #427 DIRROGRAM: the show to the audience phones
@@ -7101,7 +7101,7 @@ function drawToolsPage() {
       ['FRACTAL SPEED', `${WL.val('speed')}x`, d => WL.step('speed', d)],
       ['COLOUR CYCLE', `${WL.val('cycle')}x`, d => WL.step('cycle', d)],
       ['FRAME', `${PS.edit + 1} of ${PS.n}`, d => PS.setEdit(PS.edit + d)],   // #586 which frame TYPE sets (it blinks white)
-      [`TYPE · ${PS.kindOf(PS.edit)[0] === 'p' ? 'PANO (SKY)' : 'REAL (ROOM)'}`, /door/.test(PS.kindOf(PS.edit)) ? 'DOOR' : 'BAY', d => { PS.stepKind(PS.edit, d); if (PS.kindOf(PS.edit)[0] === 'p' && !dome.on) setDome(true); }],   // #585 doorway / #586 PANO frames
+      [`TYPE · ${PS.kindOf(PS.edit)[0] === 'p' ? 'PANO (SKY)' : 'REAL (ROOM)'}`, SHAPE_LABEL[SHAPE_OF(PS.kindOf(PS.edit))], d => { PS.stepKind(PS.edit, d); if (PS.kindOf(PS.edit)[0] === 'p' && !dome.on) setDome(true); }],   // #585 doorway / #586 PANO frames
       ['TRIM LIGHT', PS.glow.toUpperCase(), d => PS.stepGlow(d)],
     ];
     const cell = ([label, val, act], x, y, w, h) => {
