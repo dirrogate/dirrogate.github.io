@@ -8718,6 +8718,7 @@ async function applySpect() {
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => ({ ...led.state(), curve: 0 }),   /* #358 */ onScreen: onPhoneScreen, getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
       getSpiders: spidersState,   // #262
       onVj: m => {   // #507 DirroVJ's scroller desk: an approved line onto the Quest's sine scroller (only from a DirroVJ the DJ allowed)
+        if (m.k === 'vjholo') { if (streamer && streamer.vjAllowed && dirro) dirro.setHolo(m); return; }   // #575 Holodancer to the Dirrogram phones (allowed DirroVJ only)
         if (m.k === 'vjshow') { if (streamer && streamer.vjAllowed) vjShow(m); return; }   // #523 SHOWTIME! from the VJ desk (allowed DirroVJ only)
         if (m.k === 'vjask' || m.k === 'vjclog') {   // #524 a line for a guest / the consent log, to the relay
           if (!streamer || !streamer.vjAllowed) return;

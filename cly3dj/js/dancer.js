@@ -28,11 +28,12 @@ export function createDancer(THREE, gltf, opts = {}) {
     hairSway: 1,                   // spring sway of the bob              // back-light through ears / fingers / nostrils (rim-light glow)
     poreStrength: 0.35,            // tiled micro-normal on skin only
     poreScale: 28,
+    poreNear: 0.9, poreFar: 2.2,   // #562 the pore normal fades between these camera distances (m); the scattering no longer fades
   }, opts);
   const skinUniforms = {
     uSSSColor: { value: new THREE.Color(...o.sssColor) }, uWrap: { value: o.sssWrap }, uTransmit: { value: o.sssTransmit },
     uSkinOn: { value: 1 }, uDetailStrength: { value: o.poreStrength }, uDetailScale: { value: o.poreScale },
-    uDetailN: { value: null },
+    uDetailN: { value: null }, uPoreNear: { value: o.poreNear }, uPoreFar: { value: o.poreFar },
   };
   if (SKIN_DETAIL_B64) {
     const img = new Image(); img.src = 'data:image/webp;base64,' + SKIN_DETAIL_B64;
@@ -49,17 +50,17 @@ export function createDancer(THREE, gltf, opts = {}) {
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', `#include <common>
 uniform sampler2D uSSSMap; uniform sampler2D uDetailN; uniform vec3 uSSSColor;
-uniform float uWrap, uTransmit, uSkinOn, uDetailStrength, uDetailScale;
+uniform float uWrap, uTransmit, uSkinOn, uDetailStrength, uDetailScale, uPoreNear, uPoreFar;
 float gSkin = 0.0; float gThin = 0.0; float gNear = 1.0; vec3 gSmoothN = vec3(0.0, 0.0, 1.0);`)
         .replace('#include <normal_fragment_maps>', `
 #ifdef USE_NORMALMAP
-  { vec3 sssT = texture2D( uSSSMap, vNormalMapUv ).rgb; gNear = 1.0 - smoothstep( 0.9, 2.2, length( vViewPosition ) ); gSkin = sssT.b * uSkinOn * gNear; gThin = sssT.g; }
+  { vec3 sssT = texture2D( uSSSMap, vNormalMapUv ).rgb; gNear = 1.0 - smoothstep( uPoreNear, uPoreFar, length( vViewPosition ) ); gSkin = sssT.b * uSkinOn; gThin = sssT.g; }   // #562 gSkin was * gNear: past 2.2 m the skin lost its scattering and looked like plastic
   gSmoothN = normal;
 #endif
 #include <normal_fragment_maps>`)
         .replace('mapN.xy *= normalScale;', `mapN.xy *= normalScale;
   { vec3 dN = texture2D( uDetailN, vNormalMapUv * uDetailScale ).xyz * 2.0 - 1.0;
-    mapN = normalize( vec3( mapN.xy + dN.xy * uDetailStrength * gSkin, mapN.z ) ); }`)
+    mapN = normalize( vec3( mapN.xy + dN.xy * uDetailStrength * gSkin * gNear, mapN.z ) ); }`)
         .replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>
 void RE_Direct_Skin( const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {
   RE_Direct_Physical( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
@@ -79,7 +80,7 @@ void RE_Direct_Skin( const in IncidentLight directLight, const in vec3 geometryP
 #undef RE_Direct
 #define RE_Direct RE_Direct_Skin`);
     };
-    mat.customProgramCacheKey = () => 'dirro-skin-v3';
+    mat.customProgramCacheKey = () => 'dirro-skin-v4';
     mat.needsUpdate = true;
     return mat;
   }

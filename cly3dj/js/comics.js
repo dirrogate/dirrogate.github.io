@@ -100,7 +100,7 @@ const PAPER_FS = 'uniform vec3 paper; void main() { gl_FragColor = vec4(paper, 1
 const CHROME_FS = `uniform sampler2D chr; uniform vec3 paper, inkc; uniform float ana; varying vec2 vUv;
 void main() { vec4 h = texture2D(chr, vUv); if (h.a < 0.004) discard; float ink = 1.0 - h.r; gl_FragColor = vec4(ana > 0.5 ? paper * (1.0 - ink) : mix(paper, inkc, ink), h.a); }`;
 
-export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vire-comics', requestRgbd, relayAsk }) {   // #524 relayAsk(o): vjask / vjclog to the Quest   // #520 requestRgbd(still): asks the Quest for GRAB RGB-D
+export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vire-comics', requestRgbd, relayAsk, onGrab }) {   // #563 onGrab(blob, name): a copy of every grab for the desk's IMAGES / VIDEOS banks   // #524 relayAsk(o): vjask / vjclog to the Quest   // #520 requestRgbd(still): asks the Quest for GRAB RGB-D
   const cfg = { ...CFG_DEF }, panels = [], stars = []; /* #524 stars: STAR IN IT cards {cid, seq, at, dev, name, genre, lines, img, media, wd} */ let cur = 0, pos = 0, ver = 1, autoT = 0, watchId = null, watchT = 0, pvT = 0, grabReq = null, lastQ = null;
   const res = new Map();   // panel id -> { kind, el, tex, url, ea, ov: { tex, key } }
   const quad = mat => { const sc = new THREE.Scene(), m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); m.frustumCulled = false; sc.add(m); return sc; };
@@ -607,7 +607,7 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
       for (let y = 0; y < h; y++) im.data.set(buf.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4);
       for (let i = 3; i < im.data.length; i += 4) im.data[i] = 255; g.putImageData(im, 0, 0);
     }
-    c.toBlob(b => { if (b) addMedia(b, (src === 'webcam' ? 'webcam-' : 'quest-') + new Date().toTimeString().slice(0, 8).replace(/:/g, '') + '.jpg'); }, 'image/jpeg', 0.92);
+    c.toBlob(b => { if (!b) return; const n = (src === 'webcam' ? 'webcam-' : 'quest-') + new Date().toTimeString().slice(0, 8).replace(/:/g, '') + '.jpg'; addMedia(b, n); if (onGrab) onGrab(b, n); }, 'image/jpeg', 0.92);
   }
   // ---- desk messages
   function sendList() { send({ k: 'cxlist', ver, thumbs: Object.fromEntries(panels.map(p => [p.id, p.thumb || ''])), starImgs: Object.fromEntries(stars.map(s => [s.cid, s.img || ''])) }); }

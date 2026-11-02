@@ -8,11 +8,12 @@
 import { TwitchChat } from './chat.js';
 import { makeComics } from './comics.js';   // #516 DirroComics
 import * as media from './medialib.js';   // #532 IMAGES / VIDEOS / PANOS clip decks
+import { holoDefaults, makeHoloDesk } from './holodesk.js';   // #573 HOLO: Holodancer performers (small modules; the atlas video loads on first use)
 import { Scroller } from './tools.js';   // #556 the same bitmap sine scroller as the Quest's, for the program when there is no Quest
 // #550 DANCER: js/dancerdesk.js is imported only when the desk first needs her (its loaders, post chain and the 5 MB GLB stay out of the start)
 function dzDefaults() {
-  const S = { loaded: false, loading: false, err: '', clip: '', clips: [], stage: 'rim', outfit: 'Red', speed: 1, props: { manhole: false, pumpkin: false, fog: false }, fog: { den: 0.5, h: 0.8, speed: 0.6, col: 'cold' }, cam: { mode: 'orbit', x: 0, y: 8, zoom: 1 }, pv: false, rec: { on: false, t: 0, msg: '' } };
-  try { const o = JSON.parse(localStorage.getItem('vire.dancer') || '{}'); for (const k of ['clip', 'stage', 'outfit']) if (typeof o[k] === 'string') S[k] = o[k]; if (+o.speed > 0) S.speed = Math.max(0.25, Math.min(2, +o.speed)); for (const k of ['props', 'fog', 'cam']) if (o[k] && typeof o[k] === 'object') Object.assign(S[k], o[k]); } catch {}
+  const S = { loaded: false, loading: false, err: '', clip: '', clips: [], stage: 'rim', outfit: 'Red', speed: 1, soft: { c1: '#35d6ff', c2: '#ffa24a', rim: 1, face: 1 }, props: { manhole: false, pumpkin: false, fog: false }, fog: { den: 0.5, h: 0.8, speed: 0.6, col: 'cold' }, cam: { mode: 'orbit', x: 0, y: 8, zoom: 1 }, pv: false, rec: { on: false, t: 0, msg: '' } };
+  try { const o = JSON.parse(localStorage.getItem('vire.dancer') || '{}'); for (const k of ['clip', 'stage', 'outfit']) if (typeof o[k] === 'string') S[k] = o[k]; if (+o.speed > 0) S.speed = Math.max(0.25, Math.min(2, +o.speed)); if (o.soft && typeof o.soft === 'object') Object.assign(S.soft, o.soft); for (const k of ['props', 'fog', 'cam']) if (o[k] && typeof o[k] === 'object') Object.assign(S[k], o[k]); } catch {}
   S.props.manhole = S.props.pumpkin = false;   // #558 the PROPS row is gone (props stay in dancerdesk.js, switched off)
   return S;
 }
@@ -109,10 +110,11 @@ const FRACTALS = {   // #508 per formula: start centre and span, zoom targets
   multi: { t: 3, c: [0, 0], span: 2.8, tg: [[0.38, 0.0], [-0.19, 0.33], [-0.19, -0.33]] },
 };
 const PALS = ['green', 'island', 'lava', 'ice', 'copper', 'neon'];
-const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer'];   // #516 comic = DirroComics page, #550 dancer = DirroDancer, #555 BLACK removed (owner: never used)
+const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'holo'];   // #573 holo = Holodancer
+// (was) const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer'];   // #516 comic = DirroComics page, #550 dancer = DirroDancer, #555 BLACK removed (owner: never used)
 
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
-  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), chDesk: '', audioAuto: false, lsc: '', cue: '' };   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
+  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), holo: holoDefaults(), chDesk: '', audioAuto: false, lsc: '', cue: '' };   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
   try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
   const queue = []; let qid = 1;
@@ -127,14 +129,41 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   let ledTex = null, lastLedVid = null, ledImgTex = null, lastLedImg = null;
   const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 } };
   const mMat = new THREE.ShaderMaterial({ uniforms: mU, vertexShader: VS, fragmentShader: MIX_FS, depthTest: false, depthWrite: false }), mSc = quad(mMat);
-  const comics = makeComics({ THREE, renderer, fixed, send: m => bc.postMessage(m), onChange: () => post(),   // #516
+  // #563 every DirroComics grab (GRAB QUEST / GRAB WEBCAM stills, GRAB RGB-D clips and stills) also lands in the desk's IMAGES or VIDEOS bank
+  async function toBank(blob, name) {
+    try { const vid = /^video\//.test(blob.type) || /\.(mp4|webm|mov|m4v)$/i.test(name), folder = vid ? 'Video' : 'Images';
+      let n = String(name || (vid ? 'grab.webm' : 'grab.jpg')); if (!/\.[a-z0-9]{2,4}$/i.test(n)) n += vid ? (/mp4/.test(blob.type) ? '.mp4' : '.webm') : (/png/.test(blob.type) ? '.png' : '.jpg');
+      const saved = await media.importFile(folder, new File([blob], n, { type: blob.type })); bc.postMessage({ k: 'bank', folder, name: saved }); bc.postMessage({ k: 'cxmsg', t: 'Grab also saved to ' + (vid ? 'VIDEOS' : 'IMAGES') + ': ' + saved }); }
+    catch (e) { bc.postMessage({ k: 'cxmsg', t: 'Grab not saved to the bank: ' + (e.message || e) }); }
+  }
+  const comics = makeComics({ THREE, renderer, fixed, send: m => bc.postMessage(m), onChange: () => post(), onGrab: toBank,   // #516
     relayAsk: o => { const L = getLink(); if (!L || !L.isOpen) return 'no Quest link'; L.send('ctl', o); return ''; },   // #524 vjask / vjclog through the Quest
     requestRgbd: still => { const L = getLink(); if (!L || !L.isOpen) return 'no Quest link (connect DirroVJ to the Quest first)'; L.send('ctl', { k: 'cxgrab', still: !!still, ms: 5000 }); return ''; } });   // #520
   let comicTex = null;
   // #550 DANCER: her own renderer + canvas (js/dancerdesk.js), loaded on first use
   let dz = null, dzP = null;
   const dzLoad = () => dzP || (dzP = import('./dancerdesk.js').then(m => { dz = m.makeDancer({ S: D.dz, post: () => post(), bc, media }); dz.ensure(); return dz; }).catch(e => { D.dz.err = 'load: ' + (e.message || e); dzP = null; post(); }));
-  const dzNeed = used => !!dz && (used.includes('dancer') || dz.recording);   // #552 no own preview: she is drawn where the T-bar shows her, or for REC
+  const dzNeed = used => !!dz && (used.includes('dancer') || dz.recording);
+  // #573 HOLO: drawn with this renderer into its own target, only while the T-bar shows (or CUE) its bus
+  let ho = null;
+  const hoLoad = () => { if (!ho) ho = makeHoloDesk({ THREE, renderer, S: D.holo, post: () => post() }); ho.ensure(); return ho; };
+  const hoNeed = used => !!ho && used.includes('holo');
+  // #575 SEND TO DIRROGRAM: every 2 s (and on a change) the performer + where the dance is, through the Quest link; the Quest puts it
+  // in the config the relay keeps for the phones (dirro-host.js setHolo), the phones keep in step on the Quest clock they already track
+  let hoSent = false;
+  function holoGram() {
+    const H = D.holo, L = getLink(), open = !!(L && L.isOpen);
+    if (!open) { hoSent = false; return; }
+    if (!H.gram || !ho || !ho.ready || !ho.player.meta) { if (hoSent) { L.send('ctl', { k: 'vjholo', on: false }); hoSent = false; } return; }
+    L.send('ctl', { k: 'vjholo', on: true, id: H.perf, src: H.pub.replace(/\/?$/, '/') + H.perf + '/performer.json', pos: ho.t, sp: H.speed, dur: ho.player.meta.duration || ho.player.video.duration || 0 });
+    hoSent = true;
+  }
+  setInterval(holoGram, 2000);
+  fetch('holo/library.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(j => {
+    if (!j || !Array.isArray(j.performers)) return;
+    D.holo.lib = j.performers.map(p => ({ id: p.id, name: p.name || p.id, path: 'holo/' + p.id + '/performer.json', layout: p.layout || '' }));
+    if (D.a === 'holo' || D.b === 'holo') hoLoad(); post();
+  }).catch(() => {});   // #552 no own preview: she is drawn where the T-bar shows her, or for REC
 
   // ---- fractal flight: zoom in toward a target and out again (ping-pong), orbit round it; REACT lifts the heights on the bass
   const F = { z: 0, dir: 1, a: 0, ti: 0, j: 0, type: '', c: new THREE.Vector2(-0.6, 0) };
@@ -173,6 +202,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if (name === 'quest') { U.value = questTex; fit.set(0, 0, 1, 1); return 1; }
     if (name === 'fractal') { U.value = fRT.texture; cover(320, 256, W, H, fit); return 1; }
     if (name === 'dancer') { if (!dz || !dz.ready) return 0; U.value = dz.tex; cover(1280, 720, W, H, fit); return 1; }   // #550
+    if (name === 'holo') { if (!ho || !ho.ready) return 0; U.value = ho.tex; cover(1280, 720, W, H, fit); return 1; }   // #573
     if (name === 'comic') { if (!comicTex) return 0; U.value = comicTex; cover(1920, 1080, W, H, fit); return 1; }   // #516
     if (name === 'webcam') { const v = fixed.video; if (!fixed.on || !v.videoWidth) return 0; U.value = camTex; cover(v.videoWidth, v.videoHeight, W, H, fit); return 1; }
     if (name === 'led') {
@@ -214,7 +244,8 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     const onAir = (D.x < 1 ? [D.a] : []).concat(D.x > 0 ? [D.b] : []), cueSrc = D.cue ? D[D.cue] : '';
     const used = cueSrc && !onAir.includes(cueSrc) ? onAir.concat([cueSrc]) : onAir;   // a cued source is drawn too (FRACTAL, DANCER, COMICS)
     if (used.includes('fractal')) fractal(dt, now);
-    if (dzNeed(used)) dz.render(now);   // #550 only while the T-bar shows her bus, or REC runs
+    if (dzNeed(used)) dz.render(now);
+    if (hoNeed(used)) ho.render(now);   // #573   // #550 only while the T-bar shows her bus, or REC runs
     comics.tick(questTex, now, dt); comicTex = used.includes('comic') ? comics.render(W, H) : null;   // #516
     mU.kA.value = D.x < 1 ? bind(D.a, mU.tA, mU.fA.value, W, H, questTex, now) : 0;
     mU.kB.value = D.x > 0 ? bind(D.b, mU.tB, mU.fB.value, W, H, questTex, now) : 0;
@@ -303,7 +334,8 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     const m = e.data || {}; peers = 1;
     if (m.k === 'hello') { post(); if (!m.again) comics.sendList(); }
     else if (m.k === 'cx') comics.onMsg(m);   // #516 DirroComics
-    else if (m.k === 'dz') { const p = dzLoad(); if (p) p.then(z => z && z.onMsg(m)); }   // #550 DANCER panel and DANCER CLIPS
+    else if (m.k === 'dz') { const p = dzLoad(); if (p) p.then(z => z && z.onMsg(m)); }
+    else if (m.k === 'holo') { hoLoad().onMsg(m); if (m.op === 'gram' || m.op === 'perf' || m.op === 'speed' || m.op === 'restart') setTimeout(holoGram, m.op === 'perf' ? 1500 : 50); }   // #573 HOLO panel, #575 tell the phones at once   // #550 DANCER panel and DANCER CLIPS
     else if (m.k === 'tw') { if (studioCtl) { if (m.op === 'key') studioCtl.setTwKey(m.key); else studioCtl.twToggle(m.key); } post(); }   // #532 Twitch key + GO LIVE on the VJ desk
     else if (m.k === 'media') {   // #532 / #533 IMAGES / VIDEOS / PANOS clip decks
       const { folder, name } = m; if (!folder || !name) return;
@@ -330,7 +362,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       if (m.cam) { const act = D.x < 0.5 ? 'a' : 'b'; if (D[act] === 'webcam') { D[act] = 'quest'; post(); } }
       const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'vjshow', cam: m.cam || '', opt: m.opt || '', v: !!m.v }); else bc.postMessage({ k: 'cxmsg', t: 'SHOWTIME!: no Quest link' });
     }   // #523 / #530
-    else if (m.k === 'bus') { if (SOURCES.includes(m.v)) { if (m.v === 'webcam' && !fixed.on && fixed.start) fixed.start().catch(() => {}); if (m.v === 'dancer') dzLoad(); D[m.bus === 'b' ? 'b' : 'a'] = m.v; } post(); }
+    else if (m.k === 'bus') { if (SOURCES.includes(m.v)) { if (m.v === 'webcam' && !fixed.on && fixed.start) fixed.start().catch(() => {}); if (m.v === 'dancer') dzLoad(); if (m.v === 'holo') hoLoad(); D[m.bus === 'b' ? 'b' : 'a'] = m.v; } post(); }
     else if (m.k === 'x') { D.x = Math.max(0, Math.min(1, +m.v)); D.fadeTo = null; post(); }
     else if (m.k === 'cue') { const b = m.bus === 'a' || m.bus === 'b' ? m.bus : ''; const live = b && ((b === 'a' && D.x <= 0) || (b === 'b' && D.x >= 1)); D.cue = !b || live || D.cue === b ? '' : b; post(); }   // #557 tap = CUE, tap again = out of CUE; the fully live bus can't be cued
     else if (m.k === 'cut') { D.x = D.x < 0.5 ? 1 : 0; D.fadeTo = null; post(); }
@@ -351,5 +383,5 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   // tick() draws only into its own render targets, never to the screen, so it doesn't fight the camera page's own drawing.
   let idleT = 0; setInterval(() => { const now = performance.now(); if (now - outT < 1000 || !peers) return; if (dzNeed([])) try { dz.render(now); } catch (e) { console.warn('dancer idle', e); }   // #550 REC with no program frames
     const dt = idleT ? Math.min(0.25, (now - idleT) / 1000) : 0.12; idleT = now; try { comics.tick(null, now, dt); } catch (e) { console.warn('comics idle', e); } }, 120);
-  return { D, post, output, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null) || (autoTrack && autoTrack.readyState === 'live' ? autoTrack : null), queue, comics, onCx: m => { if (m.star) { comics.onStar(m.star); return; } if (m.blob) comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
+  return { D, post, output, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null) || (autoTrack && autoTrack.readyState === 'live' ? autoTrack : null), queue, comics, onCx: m => { if (m.star) { comics.onStar(m.star); return; } if (m.blob) { comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); toBank(m.blob, m.name || 'quest-rgbd'); } else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
 }

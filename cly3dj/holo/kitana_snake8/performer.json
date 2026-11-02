@@ -1,0 +1,6 @@
+{
+  "id": "kitana_snake8", "name": "Kitana · Snake Hip Hop", "layout": "8b", "views": 8, "slot": [480, 540], "atlas": "atlas.mp4",
+  "rig": { "dist": 4.4, "lens": 50, "sensor": 24, "aimH": 1.0, "az0": -90, "azStep": -45 },
+  "height": 1.72, "fps": 24, "duration": 24.54, "speed": 0.5, "look": "soft rim, lights follow each camera",
+  "source": "DirroDancer/holo/holo_kitana.blend (Mixamo-rigged kitana_snakedance.fbx)"
+}
