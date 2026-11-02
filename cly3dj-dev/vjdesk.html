@@ -981,7 +981,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') bmClose(); }
 addEventListener('scroll', bmClose, true);
 $('bmCx').onclick = async () => { const a = bmAt; bmClose(); if (!a) return; const f = await media.getFile(a.folder, a.name); if (!f) return; cx('add', { files: [{ blob: f, name: a.name }] }); $('cxMsg').textContent = 'Sending ' + a.name + ' to DirroComics…'; };
 $('bmExp').onclick = async () => { const a = bmAt; bmClose(); if (!a) return; const f = await media.getFile(a.folder, a.name); if (!f) return; const u = URL.createObjectURL(f), l = document.createElement('a'); l.href = u; l.download = a.name; document.body.append(l); l.click(); l.remove(); setTimeout(() => URL.revokeObjectURL(u), 30000); };
-$('bmDel').onclick = async () => { const a = bmAt; bmClose(); if (!a || !confirm('Delete ' + a.name + ' from ' + (a.folder === 'Video' ? 'VIDEOS' : 'IMAGES') + '? This removes it from this laptop.')) return;
+$('bmDel').onclick = async () => { const a = bmAt; bmClose(); if (!a || !confirm('Delete ' + a.name + ' from this bank (' + (a.folder === 'Video' ? 'VIDEOS' : 'IMAGES') + ')? The original file on your computer is not touched.')   /* #577 wording */) return;
   await media.remove(a.folder, a.name); thumbUrls.delete(a.folder + '/' + a.name); await loadBank(a.b); };
 </script>
 </body>
