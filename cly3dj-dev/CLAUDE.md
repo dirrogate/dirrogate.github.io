@@ -1770,3 +1770,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Scan: top to bottom and back up continuously, easing at each end like a scanning mirror (cos, 3.2 s cycle), limited to her feet-to-head range in view 0's picture; the band on her back and the light sheet move together.
 - The flat frame cone is gone: a fan of 72 rays from the lens along the current scan row, each ray's end read from view 0's depth at its u on that row (so the sheet stops on her contour, nothing where the row is empty), plus a hot dot (additive point sprite) where each ray lands.
 - Checked on the owner's PC pane from behind: cube with ports, sheet from the lens ending on her outline, hotspots on her, band in step. No Node restart. Backup backups/pre580/.
+
+## #581 Holoprojector: 12 cm cube, four big ports, visible from 15° (owner, 2 Nov)
+- `js/holoplayer.js`: the cube is 12 cm with one big glowing port on each of four faces (the front one, toward her, projects; left, right and back match it), plain top and bottom with a thin light strip. The cube and its rays show from 15° off her front (uBeam fades them in over the next ~10°); her back's scan-line projection still only from behind.
+- Checked on the owner's PC pane at 25° off her front: cube and side port visible beside her, rays reaching her from behind. No Node restart. Backup backups/pre581/.

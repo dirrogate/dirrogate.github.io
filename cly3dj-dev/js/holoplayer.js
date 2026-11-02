@@ -18,7 +18,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
   const tex = new THREE.VideoTexture(video);
   tex.colorSpace = THREE.NoColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
   const shared = {
-    uCut: { value: 0.06 }, uGraze: { value: 0.15 }, uTint: { value: 0 }, uT: { value: 0 }, uTears: { value: 1 }, uBand: { value: 0 }, uBehind: { value: 0 },
+    uCut: { value: 0.06 }, uGraze: { value: 0.15 }, uTint: { value: 0 }, uT: { value: 0 }, uTears: { value: 1 }, uBand: { value: 0 }, uBehind: { value: 0 }, uBeam: { value: 0 },
     uRoom: { value: 0 }, uAmb: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uKey: { value: new THREE.Vector3(0.6, 0.6, 0.6) }, uL: { value: new THREE.Vector3(0, 1, 0) },
   };
   const P = { half: false, back: null, proj: null, meta: null, layout: '', views: [], board: null, bU: null, cur: 0, gT0: -1, glitch: 1, ready: false, err: '', base: '' };
@@ -147,10 +147,9 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     if (lens) {
       g.fillStyle = '#05070b'; g.beginPath(); g.arc(128, 128, 76, 0, Math.PI * 2); g.fill();
       g.strokeStyle = '#35d6ff'; g.lineWidth = 4; g.beginPath(); g.arc(128, 128, 70, 0, Math.PI * 2); g.stroke();
-      glow(128, 128, 54); for (let i = 0; i < 4; i++) glow(40 + (i % 2) * 176, 40 + (i >> 1) * 176, 12);
+      glow(128, 128, 54);   // #581 one big port per face, nothing else
     } else {
-      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) { g.fillStyle = '#05070b'; g.beginPath(); g.arc(64 + i * 64, 64 + j * 64, 17, 0, Math.PI * 2); g.fill(); glow(64 + i * 64, 64 + j * 64, 13); }
-      g.fillStyle = '#35d6ff'; g.globalAlpha = 0.7; for (let k = 0; k < 5; k++) g.fillRect(40 + k * 38, 228, 24, 5); g.globalAlpha = 1;
+      g.fillStyle = '#35d6ff'; g.globalAlpha = 0.55; g.fillRect(56, 124, 144, 6); g.globalAlpha = 1;   // top / bottom: plain, one thin light strip
     }
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
   }
@@ -166,7 +165,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     P.uvLo = Math.max(0.0, (0 - bottom) / slotH - 0.01); P.uvHi = Math.min(1.0, (H * 1.04 - bottom) / slotH);
     const pivot = v0.mesh.parent; pivot.updateMatrix();
     const apex = new THREE.Vector3(0, H * 0.55, -1.9);   // waist height, behind her (her front faces +Z)
-    const bu = { map: { value: tex }, uBand: shared.uBand, uBehind: shared.uBehind, uT: shared.uT, uZn: v0.un.uZn, uZf: v0.un.uZf, uTh: v0.un.uTh, uTv: v0.un.uTv, uApex: { value: apex }, uPivot: { value: pivot.matrix.clone() } };
+    const bu = { map: { value: tex }, uBand: shared.uBand, uBehind: shared.uBeam, uT: shared.uT, uZn: v0.un.uZn, uZf: v0.un.uZf, uTh: v0.un.uTh, uTv: v0.un.uTv, uApex: { value: apex }, uPivot: { value: pivot.matrix.clone() } };
     const gR = new THREE.BufferGeometry(), au = [], pos = [];
     for (let i = 0; i < RAYS - 1; i++) { const a = i / (RAYS - 1), b = (i + 1) / (RAYS - 1); au.push(-1, a, b); pos.push(0, 0, 0, 0, 0, 0, 0, 0, 0); }
     gR.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); gR.setAttribute('aU', new THREE.Float32BufferAttribute(au, 1));
@@ -177,9 +176,10 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     const dots = new THREE.Points(gD, new THREE.ShaderMaterial({ uniforms: bu, vertexShader: VSDOT, fragmentShader: FSDOT, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
     sheet.frustumCulled = dots.frustumCulled = false; sheet.renderOrder = 3; dots.renderOrder = 4;
     // the projector: a cube with glowing ports, the lens face (+Z after lookAt) toward her
-    const side = new THREE.MeshBasicMaterial({ map: panelTex(false), toneMapped: false }), front = new THREE.MeshBasicMaterial({ map: panelTex(true), toneMapped: false });
-    const cube = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), [side, side, side, side, front, side]);
-    cube.position.copy(apex).add(new THREE.Vector3(0, 0, -0.17)); cube.lookAt(0, apex.y, 0);
+    // #581 a 12 cm cube: four big ports (the front one projects; left, right and back match it), plain top and bottom
+    const port = new THREE.MeshBasicMaterial({ map: panelTex(true), toneMapped: false }), plain = new THREE.MeshBasicMaterial({ map: panelTex(false), toneMapped: false });
+    const cube = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), [port, port, plain, plain, port, port]);
+    cube.position.copy(apex).add(new THREE.Vector3(0, 0, -0.06)); cube.lookAt(0, apex.y, 0);
     P.proj = new THREE.Group(); P.proj.add(sheet, dots, cube); P.proj.visible = false; group.add(P.proj);
   }
   function halfStep(t) {
@@ -187,10 +187,12 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     const behind = Math.max(0, Math.min(1, (0.3 - dz) / 0.6));
     // #580 top to bottom and back up, easing at each end like a scanning mirror (one full cycle 3.2 s)
     const k = 0.5 + 0.5 * Math.cos(t * Math.PI * 2 / 3.2);
+    // #581 the projector and its rays show from 15 degrees off her front (cos 15 = 0.966); her back's projection only from behind
+    const beam = Math.max(0, Math.min(1, (0.966 - dz) / 0.12)); shared.uBeam.value = beam;
     shared.uBehind.value = behind; shared.uBand.value = (P.uvLo || 0) + ((P.uvHi || 1) - (P.uvLo || 0)) * k;
     P.views.forEach((o, i) => { o.mesh.visible = i === 0; o.tear.visible = i === 0; o.un.uKeep.value = 1; o.mat.polygonOffsetFactor = 0; o.mat.polygonOffsetUnits = 0; });
     if (P.back) P.back.visible = behind > 0.01;
-    if (P.proj) P.proj.visible = behind > 0.02;
+    if (P.proj) P.proj.visible = dz < 0.966;
     P.cur = 0;
   }
 
