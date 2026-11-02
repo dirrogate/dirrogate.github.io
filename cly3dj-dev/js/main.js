@@ -7100,6 +7100,8 @@ function drawToolsPage() {
       ['DOME EXPOSURE', `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)} EV`, d => setDomeEv(dome.ev + d * 0.25)],   // #404 tame blown-out panos
       ['FRACTAL SPEED', `${WL.val('speed')}x`, d => WL.step('speed', d)],
       ['COLOUR CYCLE', `${WL.val('cycle')}x`, d => WL.step('cycle', d)],
+      ['DOORWAYS', `${PS.doors} of ${PS.n}`, d => PS.setDoors(PS.doors + d)],   // #585 the first k frames stand on the floor as doorways
+      ['TRIM LIGHT', PS.glow.toUpperCase(), d => PS.stepGlow(d)],
     ];
     const cell = ([label, val, act], x, y, w, h) => {
       g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
@@ -7110,26 +7112,27 @@ function drawToolsPage() {
       btn(x + w - bw, by, bw, bh, '+', false, () => { act(1); drawMixScreen(); });
     };
     const warn = dome.on && !skybox.tex ? 'DOME: no sky picked yet. On VISUALS > PANO pick a panorama or video pano and tap SKY.' : '';
-    const help = 'Frames: grip to move; trigger / pinch the silver side handle = width, top handle = height, corner L = both. Double-tap PORTALS or WALL = back to the start. DOME = the VISUALS sky, also in passthrough; the portals cut through the wall and the dome.';
-    const text = (x, y, w, lh, max, fs) => {
+    const help = 'Frames: grip to move; trigger / pinch the iron side handle = width, top handle = height, corner ring = both. DOORWAYS stand on the floor; the rest are bay windows (any angle). Double-tap PORTALS or WALL = back to the start. DOME = the VISUALS sky, also in passthrough; the portals cut through the wall and the dome.';
+    const helpP = 'Grip = move. Pinch the iron side bar = width, top bar = height, ring = both. DOORWAYS stand on the floor.';   // #585 portrait: short
+    const text = (x, y, w, lh, max, fs, hp) => {
       g.textAlign = 'left'; g.font = `500 ${fs}px system-ui`; let n = 0;
       if (warn) { g.fillStyle = '#f1b650'; n = wrapText(g, warn, x, y, w, lh, 2); }
-      g.fillStyle = '#8c96a8'; wrapText(g, help, x, y + n * lh, w, lh, max - n);
+      g.fillStyle = '#8c96a8'; wrapText(g, hp || help, x, y + n * lh, w, lh, max - n);
     };
     if (P) {
       const tw = (R - L - 8) / 2;
       toggles.forEach(([lb, on, act], i) => btn(L + (i % 2) * (tw + 8), y0 + Math.floor(i / 2) * 52, tw, 46, lb, on, act, false, 17));
       const y1 = y0 + 3 * 52 + 6;
-      cells.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 60, tw, 56));
-      tSlider(g, L, y1 + 4 * 60, R - L, 56, 'DOME TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on);   // #389 (#404 own row)
-      text(L + 4, y1 + 5 * 60 + 18, R - L - 8, 20, 8, 15);
+      cells.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 54, tw, 50));   // #585 five rows now: 54 px each
+      tSlider(g, L, y1 + 5 * 54, R - L, 48, 'DOME TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on);   // #389 (#404 own row)
+      text(L + 4, y1 + 5 * 54 + 48 + 18, R - L - 8, 18, 4, 14, helpP);
     } else {
       const tw = (R - L - 30) / 6;
       toggles.forEach(([lb, on, act], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, false, 15));
       const cw = (R - L - 24) / 4, y1 = y0 + 48;
       cells.forEach((c, i) => cell(c, L + (i % 4) * (cw + 8), y1 + Math.floor(i / 4) * 48, cw, 44));
-      tSlider(g, L, y1 + 2 * 48, 2 * cw + 8, 40, 'DOME TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on);   // #389 (#404 third row)
-      text(L + 2 * cw + 24, y1 + 2 * 48 + 12, R - L - 2 * cw - 28, 15, 3, 12);
+      tSlider(g, L + 2 * (cw + 8), y1 + 2 * 48 + 4, 2 * cw + 8, 40, 'DOME TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on);   // #389 (#585 third row, right of DOORWAYS / TRIM LIGHT)
+      text(L + 2, y1 + 3 * 48 + 12, R - L - 4, 15, 3, 12);
     }
     return;
   }
