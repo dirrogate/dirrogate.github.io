@@ -21,7 +21,8 @@ import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #
 import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whiteboard, markers and duster
 import { InkLabel } from './inklabel.js';   // #394 milk crate labels
 import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
-import { Portals, SHAPE_OF, SHAPE_LABEL } from './portal.js';   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
+import { Portals, SHAPE_OF, SHAPE_LABEL, HMIN as P_HMIN, HMAX as P_HMAX } from './portal.js';
+import { RoomSnap, SNAP_IN, SNAP_OUT } from './roomsnap.js';   // #592 Space Setup planes for portal frames   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
 import { Beat } from './beat.js';   // #346 bass onsets on the master for the wall's BEAT
 import { DirroHost, initRelayFromUrl, fanUrl, relayUrl, roomKey, WALL_SRC, WALL_LABEL, WALL_COLS } from './dirro-host.js';   // #427 DIRROGRAM: the show to the audience phones
@@ -1021,6 +1022,7 @@ function stepRealWorld(dt) {
   if (occ) { if (!occ.userData.vireOcc) patchOcclusion(occ); occ.visible = !rdOk && settings.occlusion !== false; }   // fallback only
   if (laser) laser.setDepth(rdOk && settings.roomHits !== false && laser.on ? realDepth.laserData() : null);   // beams stop at real hands / people
   if (mprops) mprops.setDepth(rdOk && settings.roomHits !== false ? realDepth.laserData() : null);   // #480 MOVIE PROPS fog is soft against real walls / people
+  roomSnapTick(dt);   // #592
   if (!laser || !laser.on) return;
   roomT += dt; if (roomT < 0.1) return; roomT = 0;
   const frame = renderer.xr.getFrame(), ref = renderer.xr.getReferenceSpace();
@@ -1225,6 +1227,60 @@ const portals = CAMERA_ROLE ? null : new Portals(rig, i => {   // frame i's star
   return { p: p.add(new THREE.Vector3(bx, 0, bz)), yaw: yaw0 - a };
 });
 if (portals) { if (facetWall) portals.cutInto(facetWall.obj); portals.cutInto(skybox.group, { sky: true }); }   // #586 sky: PANO frames show the dome only through themselves   // the windows punch through the backdrop and the dome; cutInto() again for any future glb room
+// #592 ROOM SNAP: portal frames sit on the Quest's scanned walls / door frames / window frames / ceiling (Space Setup,
+// plane-detection, passthrough only). Placement no longer depends on CAM FIT; the stream only shows CAM FIT's own offset.
+const roomScan = portals ? new RoomSnap(rig) : null;
+let roomSnapT = 0, roomPinGen = 0;
+const _rsEye = new THREE.Vector3(), _rsY = new THREE.Vector3(), _rsP = new THREE.Vector3(), _rsQ = new THREE.Quaternion(), _rsH = new THREE.Vector2();
+function roomEye() { renderer.xr.getCamera().getWorldPosition(_rsEye); rig.updateMatrixWorld(); return rig.worldToLocal(_rsEye); }
+function roomSnapTick(dt) {
+  if (!roomScan || !portals || !portals.on) return;
+  roomSnapT += dt; if (roomSnapT < 0.25) return; roomSnapT = 0;
+  roomScan.update(renderer.xr.getFrame(), renderer.xr.getReferenceSpace(), roomEye());
+  if (roomScan.ok && roomScan.gen !== roomPinGen) {   // the scan came in: put saved frames back on their surfaces (tracking may have shifted)
+    roomPinGen = roomScan.gen; let n = 0;
+    for (const f of portals.active()) { if (!f.snapL || f.held) continue; const e = roomScan.nearest(f.obj.position, [f.snapL], 0.6); if (!e) continue;
+      _rsY.set(0, 1, 0).applyQuaternion(f.obj.quaternion); roomScan.pose(e, f.obj.position, _rsY, f.obj.position, f.obj.quaternion); if (f.door) f._floor(); n++; }
+    if (n) { portals.save(); toast(`Room scan: ${n} portal frame${n > 1 ? 's' : ''} back on ${n > 1 ? 'their' : 'its'} surface`, 2000); }
+  }
+}
+function snapPortal(f) {   // called each frame while the B laser carries a frame (movieprops.js)
+  if (!roomScan || !roomScan.ok) { f.snapL = ''; f._sp = null; return; }
+  const P = f.obj.position, labels = f.door ? ['wall', 'door'] : ['wall', 'window', 'door', 'ceiling'];
+  let e = f._sp && roomScan.planes.includes(f._sp) && Math.abs(roomScan.dist(f._sp, P)) < SNAP_OUT && roomScan.inside(f._sp, P) ? f._sp : null;
+  if (!e) e = roomScan.nearest(P, labels, SNAP_IN);
+  if (!e) { f.snapL = ''; f._sp = null; return; }
+  _rsY.set(0, 1, 0).applyQuaternion(f.obj.quaternion); roomScan.pose(e, P, _rsY, f.obj.position, f.obj.quaternion);
+  if (f.door) f._floor(); f.snapL = e.label; f._sp = e;
+}
+function noScan() { toast(arMode && renderer.xr.isPresenting ? 'No room scan yet: run Space Setup on the Quest (mark doors / windows), then re-enter Passthrough' : 'Room snap needs Passthrough on the Quest', 3500); }
+function portalsSnapScan() {   // SNAP TO SCAN: doorways fill scanned door frames, the other non-skylight frames fill window frames
+  if (!roomScan || !roomScan.ok) return noScan();
+  const used = new Set(); let n = 0, miss = 0;
+  for (const f of portals.active()) {
+    if (f.snapL === 'ceiling') continue;
+    const want = f.door ? 'door' : 'window'; let best = null, bd = 1e9;
+    for (const e of roomScan.byLabel(want)) { if (used.has(e)) continue; const d = e.o.distanceTo(f.obj.position); if (d < bd) { bd = d; best = e; } }
+    if (!best) { miss++; continue; }
+    used.add(best); roomScan.fit(best, _rsP, _rsQ, _rsH);
+    const cl = v => Math.min(P_HMAX, Math.max(P_HMIN, v)); f.half.set(cl(_rsH.x), cl(_rsH.y)); f._g = null; f._fit();
+    f.obj.position.copy(_rsP); f.obj.quaternion.copy(_rsQ); if (f.door) f._floor(); f.snapL = want; f._sp = best; n++;
+  }
+  portals.save();
+  toast(n ? `SNAP TO SCAN: ${n} frame${n > 1 ? 's' : ''} fitted${miss ? `, ${miss} with no scanned ${miss > 1 ? 'frames' : 'frame'} left` : ''}` : 'No scanned door / window frames match: mark them in Space Setup', 3000);
+  drawMixScreen();
+}
+function portalsSkylight() {   // SKYLIGHT: the frame picked with FRAME goes flat on the ceiling above you, as a PANO window
+  if (!roomScan || !roomScan.ok) return noScan();
+  const eye = roomEye().clone(), ceil = roomScan.byLabel('ceiling'); if (!ceil.length) { toast('No ceiling in the room scan', 2500); return; }
+  let e = ceil.find(c => roomScan.inside(c, _rsP.copy(eye).setY(c.o.y), 0)) || ceil[0];
+  const P = roomScan.inside(e, _rsP.copy(eye).setY(e.o.y), 0) ? _rsP.copy(eye) : e.o.clone();
+  const i = portals.edit, k = portals.kindOf(i), sh = SHAPE_OF(k);
+  if (k[0] !== 'p' || sh === 'door') portals.setKind(i, 'p' + (sh === 'door' || sh === 'rect' ? 'window' : sh));   // a skylight shows the DOME sky
+  const f = portals.list[i]; renderer.xr.getCamera().getWorldDirection(_rsY); _rsY.y = 0; if (_rsY.lengthSq() < 1e-6) _rsY.set(0, 0, -1);
+  roomScan.pose(e, P, _rsY.normalize(), f.obj.position, f.obj.quaternion); f.snapL = 'ceiling'; f._sp = e;
+  portals.save(); if (!dome.on) setDome(true); toast('SKYLIGHT: frame ' + (i + 1) + ' on the ceiling above you (PANO: shows the DOME sky)', 2500); drawMixScreen();
+}
 let wallTapT = 0, portalTapT = 0, portalDefArm = 0, beat = null, domeBoot = true;
 const _laserCam = new THREE.Vector3();   // #406
 function wallTap() {   // tap = backdrop on / off; double-tap = back to its start spot and mode
@@ -7157,6 +7213,8 @@ function drawToolsPage() {
       [WL.beat ? 'BEAT: ON' : 'BEAT', WL.beat, () => { WL.setBeat(!WL.beat); drawMixScreen(); }],
       [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)],
       [`SCREEN: ${({ cyclo: 'CYCLO', image: 'IMAGE', video: 'VIDEO' })[PS.scrSrc.src] || 'CYCLO'} ⟳`, PS.screenN > 0, pScrStep],   // #589 the one feed every SCREEN frame shows
+      [P ? 'SNAP TO SCAN' : 'SNAP SCAN', !!(roomScan && roomScan.ok), portalsSnapScan],   // #592 Space Setup door / window frames
+      ['SKYLIGHT', !!(PS.list[PS.edit] && PS.list[PS.edit].snapL === 'ceiling'), portalsSkylight],   // #592 FRAME on the ceiling
       [defArm ? 'TAP AGAIN' : 'DEFAULTS', defArm, portalDefaults],
     ];
     const cells = [
@@ -7181,8 +7239,8 @@ function drawToolsPage() {
       btn(x + w - bw, by, bw, bh, '+', false, () => { act(1); drawMixScreen(); });
     };
     const warn = dome.on && !skybox.tex ? 'DOME: no sky picked yet. On VISUALS > PANO pick a panorama or video pano and tap SKY.' : PS.revN && !dome.on ? 'PANO frames show the DOME: turn DOME on.' : '';
-    const help = 'Grip to move; pinch the iron side bar = width, top bar = height, ring = both; or B laser: stick = distance / turn, grip + stick = size / tilt (skyroof). REAL frames show the room, PANO frames show the DOME sky only through them. Doors stand on the floor.';
-    const helpP = 'Grip or B laser to move (grip + stick = tilt). PANO frames show the DOME sky only through them.';   // #585 portrait: short
+    const help = 'B laser: aim + GRIP = move / turn with the hand (stick = distance), aim + TRIGGER = resize. Near a scanned wall or ceiling a frame snaps flat onto it. SNAP SCAN fills Space Setup door / window frames; SKYLIGHT puts FRAME on the ceiling. PANO frames show the DOME sky.';
+    const helpP = 'B laser: GRIP = move, TRIGGER = resize; frames snap to scanned walls. PANO frames show the DOME sky.';   // #585 portrait: short
     const text = (x, y, w, lh, max, fs, hp) => {
       g.textAlign = 'left'; g.font = `500 ${fs}px system-ui`; let n = 0;
       if (warn) { g.fillStyle = '#f1b650'; n = wrapText(g, warn, x, y, w, lh, 2); }
@@ -8322,6 +8380,7 @@ if (!CAMERA_ROLE) {
   });
   mprops = new MovieProps({ rig, camera, renderer, toast, scene, getColliders: () => { if (!sleeveColliders.length) refreshSleeveColliders(); return sleeveColliders; } });   // #478, #541 kinematic props
   mprops.listCb = () => { if (toolsPage === 'props') drawMixScreen(); };
+  mprops.snap = f => snapPortal(f);   // #592
   mprops.extra = () => [...(portals ? portals.active() : []), ...[gopro, gopro2].filter(g => g && g.on)];   // #591 GoPros too   // #586 the B placement laser also picks up portal frames
   try { mprops.load(); } catch (e) { console.warn('movie props load', e); }
 }

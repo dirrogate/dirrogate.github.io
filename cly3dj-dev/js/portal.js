@@ -238,7 +238,7 @@ function buildTrim(hx, hy, rT, rB, closed, hp, grill) {
 // One window: obj (in rig space, scale always 1 -- size is `half`): ONE mesh (trim + handles), one material, one draw.
 class PortalFrame {
   constructor(set) {
-    this.set = set; this.half = HALF0.clone(); this.held = false; this._edge = null; this._g = null; this.door = false; this.rev = false; this.screen = false; this.scr = null; this.shape = 'rect'; this.r = new THREE.Vector2();   // #588 shape: rect / door / round / arch / hole
+    this.set = set; this.half = HALF0.clone(); this.held = false; this._edge = null; this._g = null; this.door = false; this.rev = false; this.screen = false; this.scr = null; this.shape = 'rect'; this.r = new THREE.Vector2(); this.snapL = '';   // #588 shape: rect / door / round / arch / hole
     this.isPortal = true; this.floor = false; this.tilt = true; this.mp = { save: () => set.save() }; this.flashT = 0;   // #586 MOVIE PROPS placement laser target
     const g = this.obj = new THREE.Group(); g.name = 'portal'; g.visible = false; g.userData.noMirror = true; set.rig.add(g);
     this.mat = makeTrimMat();
@@ -324,6 +324,7 @@ class PortalFrame {
   placeHandles() { if (this.door) this._floor(); }
 }
 
+export { HMIN, HMAX };
 export class Portals {
   // home(i): { p: Vector3, yaw } in rig space, frame i's start spot (the first in front of the mirror, the rest along the wall)
   constructor(rig, home) {
@@ -348,7 +349,7 @@ export class Portals {
     this.kinds = Array.from({ length: MAX_PORTALS }, (_, i) => (s && s.f && s.f[i] && KINDS.includes(s.f[i].k)) ? s.f[i].k : i < doors ? 'door' : 'window');
     for (let i = 0; i < this.n; i++) {
       const f = this._frame(i), d = s && s.f && s.f[i];
-      if (d && d.p && d.q) { f.obj.position.fromArray(d.p); f.obj.quaternion.fromArray(d.q); if (d.h) f.half.fromArray(d.h); f._fit(); }
+      if (d && d.p && d.q) { f.obj.position.fromArray(d.p); f.obj.quaternion.fromArray(d.q); if (d.h) f.half.fromArray(d.h); f.snapL = d.s || ''; f._fit(); }
       else f.place(this.home(i, this.n));
     }
     this._styles();
@@ -356,7 +357,7 @@ export class Portals {
   }
   save() {
     try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, n: this.n, glow: this.glow, scr: this.scrSrc,
-      f: this.list.slice(0, this.n).map((f, i) => ({ p: f.obj.position.toArray(), q: f.obj.quaternion.toArray(), h: f.half.toArray(), k: this.kinds[i] })) })); } catch {}
+      f: this.list.slice(0, this.n).map((f, i) => ({ p: f.obj.position.toArray(), q: f.obj.quaternion.toArray(), h: f.half.toArray(), k: this.kinds[i], s: f.snapL || '' })) })); } catch {}   // #592 s = the scanned surface it sits on
   }
   _show() { this.list.forEach((f, i) => { f.obj.visible = this.on && i < this.n; }); this._u.portalN.value = this.on ? this.n : 0; this._u.portalRevN.value = this.revN; }
   // #585 the first `doors` frames are doorways (on the floor, open at the bottom), the rest bay windows; TRIM LIGHT colour
@@ -379,7 +380,7 @@ export class Portals {
     for (let i = this.n; i < n; i++) { const f = this._frame(i); f.half.copy(HALF0); f._fit(); f.place(this.home(i, n)); }
     this.n = n; this.edit = Math.min(this.edit, n - 1); this._styles(); this._show(); this.save();
   }
-  reset() { for (let i = 0; i < this.n; i++) { const f = this._frame(i); f.half.copy(HALF0); f._fit(); f.place(this.home(i, this.n)); } this._styles(); this.save(); }
+  reset() { for (let i = 0; i < this.n; i++) { const f = this._frame(i); f.snapL = ''; f.half.copy(HALF0); f._fit(); f.place(this.home(i, this.n)); } this._styles(); this.save(); }
   // Cut the portals into every mesh under obj (FacetWall's group, the sky dome, any loaded room/cabin glb). Idempotent
   // per material -- call it again any time a new glb finishes loading and it just adds its materials to the registry.
   // { sky: true } = the sky dome: PANO frames show it only through themselves (#586)
