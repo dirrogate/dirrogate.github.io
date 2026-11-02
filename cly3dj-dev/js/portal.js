@@ -20,7 +20,6 @@ import * as THREE from 'three';
 import { mergeGeometries } from '../vendor/three/utils/BufferGeometryUtils.js';
 
 export const MAX_PORTALS = 6;
-export const SLOTS = MAX_PORTALS;   // #594 back to 6 (12 blacked out the tablet preview on the Quest): frames first, scan cut-outs take the slots left;   // #593 shader slots: up to 6 frames + the SCAN PORTALS cut-outs (scanned walls / floor / ceiling / doors / windows switched OFF)
 const KEY = 'vire.portals', OLD_KEY = 'vire.portal';   // #345 kept one portal under vire.portal
 const HALF0 = new THREE.Vector2(0.3, 0.75);   // a new frame's half-size (metres) -- ~ a floor mirror
 const HMIN = 0.08, HMAX = 2.5;                // half-size limits per side: 16 cm .. 5 m
@@ -50,7 +49,7 @@ export const SHAPE_LABEL = { rect: 'BAY', door: 'DOOR', round: 'ROUND', arch: 'A
 // portalR = corner radius (top, bottom); a doorway's bottom is 0 = square.
 const DECL = `
 #ifdef USE_PORTAL
-  uniform mat4 portalInv[${SLOTS}]; uniform vec2 portalHalf[${SLOTS}]; uniform vec2 portalR[${SLOTS}]; uniform float portalRev[${SLOTS}]; uniform int portalN; uniform int portalRevN;
+  uniform mat4 portalInv[${MAX_PORTALS}]; uniform vec2 portalHalf[${MAX_PORTALS}]; uniform vec2 portalR[${MAX_PORTALS}]; uniform float portalRev[${MAX_PORTALS}]; uniform int portalN; uniform int portalRevN;
   varying vec3 vPortalWP;
 #endif`;
 const VERT = `
@@ -61,7 +60,7 @@ const VERT_SM = VERT.replace('transformed', 'position');   // plain ShaderMateri
 const FRAG = `
 #ifdef USE_PORTAL
   bool inRev = false;
-  for (int i = 0; i < ${SLOTS}; i++) {
+  for (int i = 0; i < ${MAX_PORTALS}; i++) {
     if (i >= portalN) break;
     vec3 pc = (portalInv[i] * vec4(cameraPosition, 1.0)).xyz, pf = (portalInv[i] * vec4(vPortalWP, 1.0)).xyz;
     if (pc.z * pf.z < 0.0) {   // camera and fragment on opposite sides of the window's plane
@@ -239,7 +238,7 @@ function buildTrim(hx, hy, rT, rB, closed, hp, grill) {
 // One window: obj (in rig space, scale always 1 -- size is `half`): ONE mesh (trim + handles), one material, one draw.
 class PortalFrame {
   constructor(set) {
-    this.set = set; this.half = HALF0.clone(); this.held = false; this._edge = null; this._g = null; this.door = false; this.rev = false; this.screen = false; this.scr = null; this.shape = 'rect'; this.r = new THREE.Vector2(); this.snapL = '';   // #588 shape: rect / door / round / arch / hole
+    this.set = set; this.half = HALF0.clone(); this.held = false; this._edge = null; this._g = null; this.door = false; this.rev = false; this.screen = false; this.scr = null; this.shape = 'rect'; this.r = new THREE.Vector2();   // #588 shape: rect / door / round / arch / hole
     this.isPortal = true; this.floor = false; this.tilt = true; this.mp = { save: () => set.save() }; this.flashT = 0;   // #586 MOVIE PROPS placement laser target
     const g = this.obj = new THREE.Group(); g.name = 'portal'; g.visible = false; g.userData.noMirror = true; set.rig.add(g);
     this.mat = makeTrimMat();
@@ -269,7 +268,7 @@ class PortalFrame {
   setScreen(on) { on = !!on; if (on === this.screen) return; this.screen = on; this._scrFit(); }   // #589
   _scrFit() {   // the panel sits 1.2 cm behind the opening plane, inside the iron reveal; one more draw only while it is a screen
     if (!this.screen) { if (this.scr) this.scr.visible = false; return; }
-    if (!this.scr) { this.scr = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), makeScreenMat()); this.scr.raycast = () => {}; this.scr.renderOrder = -1; this.scr.onBeforeRender = r => { const t = r.getRenderTarget(); this.scr.material.uniforms.uAces.value = t && t.userData && t.userData.aces ? 1 : 0; };   /* #591 */ this.obj.add(this.scr); }
+    if (!this.scr) { this.scr = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), makeScreenMat()); this.scr.raycast = () => {}; this.scr.renderOrder = -1; this.scr.onBeforeRender = r => { const t = r.getRenderTarget(); this.scr.material.uniforms.uAces.value = t && t.vireAces ? 1 : 0; };   /* #591 */ this.obj.add(this.scr); }
     const { x: hx, y: hy } = this.half, U = this.scr.material.uniforms;
     this.scr.geometry.dispose(); this.scr.geometry = new THREE.PlaneGeometry(2 * hx, 2 * hy); this.scr.position.z = -0.012; this.scr.visible = true;
     U.uHalf.value.set(hx, hy); U.uR.value.copy(this.r);
@@ -325,16 +324,14 @@ class PortalFrame {
   placeHandles() { if (this.door) this._floor(); }
 }
 
-export { HMIN, HMAX };
 export class Portals {
   // home(i): { p: Vector3, yaw } in rig space, frame i's start spot (the first in front of the mirror, the rest along the wall)
   constructor(rig, home) {
     this.rig = rig; this.home = home; this.on = false; this.n = 1; this.list = []; this.glow = 'off'; this.kinds = []; this.edit = 0; this.scrSrc = { src: 'cyclo', name: '', folder: '' }; this.feed = null;   // #589 one screen feed for all SCREEN frames; feed() -> { tex, w, h } (main.js)   // #585 / #586 kinds per frame
     this._mats = new Set();
-    this.scan = [];   // #593 SCAN PORTALS: [{ M: rig-space pose (Matrix4), half: Vector2 }] cut-outs that show the DOME (like PANO frames)
-    this._u = { portalInv: { value: Array.from({ length: SLOTS }, () => new THREE.Matrix4()) },
-      portalHalf: { value: Array.from({ length: SLOTS }, () => HALF0.clone()) },
-      portalR: { value: Array.from({ length: SLOTS }, () => new THREE.Vector2()) }, portalRev: { value: new Array(SLOTS).fill(0) },
+    this._u = { portalInv: { value: Array.from({ length: MAX_PORTALS }, () => new THREE.Matrix4()) },
+      portalHalf: { value: Array.from({ length: MAX_PORTALS }, () => HALF0.clone()) },
+      portalR: { value: Array.from({ length: MAX_PORTALS }, () => new THREE.Vector2()) }, portalRev: { value: new Array(MAX_PORTALS).fill(0) },
       portalN: { value: 0 }, portalRevN: { value: 0 } };
     this._load();
   }
@@ -351,7 +348,7 @@ export class Portals {
     this.kinds = Array.from({ length: MAX_PORTALS }, (_, i) => (s && s.f && s.f[i] && KINDS.includes(s.f[i].k)) ? s.f[i].k : i < doors ? 'door' : 'window');
     for (let i = 0; i < this.n; i++) {
       const f = this._frame(i), d = s && s.f && s.f[i];
-      if (d && d.p && d.q) { f.obj.position.fromArray(d.p); f.obj.quaternion.fromArray(d.q); if (d.h) f.half.fromArray(d.h); f.snapL = d.s || ''; f._fit(); }
+      if (d && d.p && d.q) { f.obj.position.fromArray(d.p); f.obj.quaternion.fromArray(d.q); if (d.h) f.half.fromArray(d.h); f._fit(); }
       else f.place(this.home(i, this.n));
     }
     this._styles();
@@ -359,16 +356,9 @@ export class Portals {
   }
   save() {
     try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, n: this.n, glow: this.glow, scr: this.scrSrc,
-      f: this.list.slice(0, this.n).map((f, i) => ({ p: f.obj.position.toArray(), q: f.obj.quaternion.toArray(), h: f.half.toArray(), k: this.kinds[i], s: f.snapL || '' })) })); } catch {}   // #592 s = the scanned surface it sits on
+      f: this.list.slice(0, this.n).map((f, i) => ({ p: f.obj.position.toArray(), q: f.obj.quaternion.toArray(), h: f.half.toArray(), k: this.kinds[i] })) })); } catch {}
   }
-  get scanN() { return Math.min(this.scan.length, SLOTS - (this.on ? this.n : 0)); }   // #593
-  _show() { this.list.forEach((f, i) => { f.obj.visible = this.on && i < this.n; }); this._u.portalN.value = (this.on ? this.n : 0) + this.scanN; this._u.portalRevN.value = this.revN + this.scanN; }
-  setScan(list) { this.scan = list || []; this._show(); this._scanUni(); }   // #593
-  _scanUni() {
-    const nf = this.on ? this.n : 0, U = this._u; this.rig.updateMatrixWorld();
-    for (let j = 0; j < this.scanN; j++) { const c = this.scan[j], k = nf + j;
-      U.portalInv.value[k].multiplyMatrices(this.rig.matrixWorld, c.M).invert(); U.portalHalf.value[k].copy(c.half); U.portalR.value[k].set(0, 0); U.portalRev.value[k] = 1; }
-  }
+  _show() { this.list.forEach((f, i) => { f.obj.visible = this.on && i < this.n; }); this._u.portalN.value = this.on ? this.n : 0; this._u.portalRevN.value = this.revN; }
   // #585 the first `doors` frames are doorways (on the floor, open at the bottom), the rest bay windows; TRIM LIGHT colour
   _styles() { this.list.forEach((f, i) => { const k = this.kinds[i] || 'window'; f.setShape(SHAPE_OF(k)); f.rev = k[0] === 'p'; f.setScreen(k[0] === 's'); f.setGlow(this.glow); }); }   // #588 shape from the kind, #589 screen   // #588 shape from the kind
   get doors() { return this.kinds.slice(0, this.n).filter(k => k === 'door' || k === 'pdoor').length; }
@@ -389,7 +379,7 @@ export class Portals {
     for (let i = this.n; i < n; i++) { const f = this._frame(i); f.half.copy(HALF0); f._fit(); f.place(this.home(i, n)); }
     this.n = n; this.edit = Math.min(this.edit, n - 1); this._styles(); this._show(); this.save();
   }
-  reset() { for (let i = 0; i < this.n; i++) { const f = this._frame(i); f.snapL = ''; f.half.copy(HALF0); f._fit(); f.place(this.home(i, this.n)); } this._styles(); this.save(); }
+  reset() { for (let i = 0; i < this.n; i++) { const f = this._frame(i); f.half.copy(HALF0); f._fit(); f.place(this.home(i, this.n)); } this._styles(); this.save(); }
   // Cut the portals into every mesh under obj (FacetWall's group, the sky dome, any loaded room/cabin glb). Idempotent
   // per material -- call it again any time a new glb finishes loading and it just adds its materials to the registry.
   // { sky: true } = the sky dome: PANO frames show it only through themselves (#586)
@@ -424,9 +414,8 @@ export class Portals {
   }
   // per frame: keep the clip uniforms in step with wherever the frames have been dragged / resized to
   tick() {
-    if (this.scan.length) { this._show(); this._scanUni(); }   // #593 the scan cut-outs follow the rig
     if (!this.on) return;
-    this._u.portalRevN.value = this.revN + this.scanN;
+    this._u.portalRevN.value = this.revN;
     for (let i = 0; i < this.n; i++) {
       const f = this.list[i]; f.obj.updateMatrixWorld();
       this._u.portalInv.value[i].copy(f.obj.matrixWorld).invert(); this._u.portalHalf.value[i].copy(f.half); this._u.portalR.value[i].copy(f.r); this._u.portalRev.value[i] = f.rev ? 1 : 0;

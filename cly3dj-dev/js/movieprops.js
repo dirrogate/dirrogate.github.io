@@ -850,7 +850,7 @@ class Placer {
   active(st) { return this.on && st.source && st.source.handedness === 'right'; }
   toggle(on = !this.on) {
     this.on = on; this.g.visible = on; if (!on) { this.drop(); this.setHover(null); }
-    this.mp.env.toast(on ? 'PLACEMENT LASER on. Portal frame / GoPro: aim, hold GRIP = it moves and turns with your hand, stick back / forward = closer / away. Portal frame: aim, hold TRIGGER and move the hand = resize that way. Props: trigger to take hold. SCAN PORTALS: aim at a wall / floor / ceiling / door / window, trigger = OFF / ON. B = off.' : 'Placement laser off', on ? 5200 : 1500);
+    this.mp.env.toast(on ? 'PLACEMENT LASER on. Portal frame / GoPro: aim, hold GRIP = it moves and turns with your hand, stick back / forward = closer / away. Portal frame: aim, hold TRIGGER and move the hand = resize that way. Props: trigger to take hold. B = off.' : 'Placement laser off', on ? 5200 : 1500);
     this.mp.listCb && this.mp.listCb();
   }
   setHover(p) {
@@ -910,16 +910,12 @@ class Placer {
       if (rigid && gripDown) { this.grabRigid(hit.p, hit.t, 'move'); buzz(st, 0.5, 40); }
       else if (rigid && hit.p.isPortal && tr && !this.trigWas) { this.grabRigid(hit.p, hit.t, 'size'); buzz(st, 0.5, 40); }
       else if (!rigid && tr && !this.trigWas && hit) { this.mode = 'prop'; this.grab(hit.p, hit.t, st.ray); buzz(st, 0.5, 40); }
-      if (!hit && this.mp.scanRay) {   // #593 SCAN PORTALS: aim at a scanned wall / floor / ceiling / door / window, trigger = OFF / back ON
-        const sh = this.mp.scanRay(this.o, this.d); if (sh) { len = sh.t; if (tr && !this.trigWas && this.mp.scanClick(sh)) buzz(st, 0.5, 40); }
-      }
     } else if (this.mode === 'move' || this.mode === 'size') {
       const p = this.held, ax = gp.axes && gp.axes.length >= 4 ? gp.axes : null, sy = ax && Math.abs(ax[3]) > 0.15 ? ax[3] : 0;
       if (this.mode === 'move' ? !grip : !tr) { this.drop(); buzz(st, 0.3, 25); }
       else if (this.mode === 'move') {
         if (sy) { _p.setFromMatrixPosition(this.off); const k = sy * dt * (0.8 - _p.z * 0.8); this.off.setPosition(_p.x, _p.y, clamp(_p.z + k, -25, -0.15)); }
         _m.copy(this.rm).multiply(this.off); p.hold(_m);
-        if (p.isPortal && this.mp.snap) this.mp.snap(p);   // #592 near a scanned wall / ceiling it lies flat on it and slides along
         len = Math.max(0.1, _v2.copy(p.obj.getWorldPosition(_v3)).sub(this.o).length());
       } else { this.sizeStep(p); len = Math.max(0.1, _v2.copy(p.obj.getWorldPosition(_v3)).sub(this.o).length()); }
     } else {

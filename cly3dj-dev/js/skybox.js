@@ -120,7 +120,7 @@ export class Skybox {
     }));
     this.geo = null; this.setHeight(this.height);
     this.meshes = this.mats.map(m => {
-      const s = new THREE.Mesh(this.geo, m); s.onBeforeRender = r => { const t = r.getRenderTarget(); m.uniforms.uAces.value = t && t.userData && t.userData.aces ? 1 : 0; };   /* #594 */ s.frustumCulled = false; s.renderOrder = 1000; s.raycast = () => {};   // #403 last of the opaque objects (was -1000, first)
+      const s = new THREE.Mesh(this.geo, m); s.onBeforeRender = r => { const t = r.getRenderTarget(); m.uniforms.uAces.value = t && t.vireAces ? 1 : 0; };   /* #594 */ s.frustumCulled = false; s.renderOrder = 1000; s.raycast = () => {};   // #403 last of the opaque objects (was -1000, first)
       this.group.add(s); return s;
     });
     this.setStereo(false);
