@@ -20,7 +20,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from '../vendor/three/utils/BufferGeometryUtils.js';
 
 export const MAX_PORTALS = 6;
-export const SLOTS = 12;   // #593 shader slots: up to 6 frames + the SCAN PORTALS cut-outs (scanned walls / floor / ceiling / doors / windows switched OFF)
+export const SLOTS = MAX_PORTALS;   // #594 back to 6 (12 blacked out the tablet preview on the Quest): frames first, scan cut-outs take the slots left;   // #593 shader slots: up to 6 frames + the SCAN PORTALS cut-outs (scanned walls / floor / ceiling / doors / windows switched OFF)
 const KEY = 'vire.portals', OLD_KEY = 'vire.portal';   // #345 kept one portal under vire.portal
 const HALF0 = new THREE.Vector2(0.3, 0.75);   // a new frame's half-size (metres) -- ~ a floor mirror
 const HMIN = 0.08, HMAX = 2.5;                // half-size limits per side: 16 cm .. 5 m

@@ -1295,14 +1295,20 @@ function scanApply() {   // rebuild the cut-out list from the scan (every scan u
   if (!portals || !roomScan) return; const list = [];
   for (const e of roomScan.planes) if (SCAN_KINDS.includes(e.label) && scanIsOff(e)) { const c = { M: new THREE.Matrix4(), half: new THREE.Vector2() }; roomScan.cutout(e, c.M, c.half); list.push(c); }
   portals.setScan(list);
-  if (list.length && !dome.on) setDome(true);
+  if (list.length && !dome.on) { scanDomeAuto = true; setDome(true); }   // #594 the DOME comes on for a cut-out, and goes off again with the last one if that is what turned it on
+  else if (!list.length && scanDomeAuto) { scanDomeAuto = false; if (dome.on) setDome(false); }
 }
+let scanDomeAuto = false;
 function scanKind(k) {   // a preset: all of that kind OFF / back ON (single picks of that kind are cleared)
   scanP.off[k] = !scanP.off[k]; scanP.picks = scanP.picks.filter(p => p.l !== k); scanSave(); scanApply();
   const n = roomScan ? roomScan.byLabel(k).length : 0;
   toast(`${SCAN_LBL[k]}: ${scanP.off[k] ? 'OFF (the DOME shows there)' : 'back ON'}${roomScan && roomScan.ok ? ` · ${n} in the scan` : ' · applies once the room scan is in (Passthrough)'}`, 2500); drawMixScreen();
 }
-function scanAllOn() { scanP.off = {}; scanP.picks = []; scanSave(); scanApply(); toast('SCAN PORTALS: every surface back ON', 1800); drawMixScreen(); }
+function scanAllOn() {
+  scanP.off = {}; scanP.picks = []; scanSave(); scanApply();
+  const pf = portals && portals.on ? portals.revN : 0;   // #594 PANO portal FRAMES (SKYLIGHT, snapped PANO doors) still show the DOME: say so
+  toast(pf ? `Scanned surfaces all back ON. ${pf} PANO portal frame${pf > 1 ? 's' : ''} (e.g. SKYLIGHT / a door) still show${pf > 1 ? '' : 's'} the DOME: PORTALS SETUP > PORTALS off, or TYPE` : 'SCAN PORTALS: every surface back ON', pf ? 4500 : 1800); drawMixScreen();
+}
 const _scO = new THREE.Vector3(), _scD = new THREE.Vector3();
 function scanRay(o, d) {   // the B laser, world space -> the scanned surface it hits (rig space inside)
   if (!roomScan || !roomScan.ok) return null; rig.updateMatrixWorld();
@@ -7240,13 +7246,13 @@ function drawToolsPage() {
     if (!portals) { note('Scan portals run on the headset.', y0 + 20); return; }
     const ok = roomScan && roomScan.ok, cnt = k => ok ? roomScan.byLabel(k).length : 0, offN = ok ? roomScan.planes.filter(e => SCAN_KINDS.includes(e.label) && scanIsOff(e)).length : 0;
     const items = SCAN_KINDS.map(k => [`${SCAN_LBL[k]}: ${scanP.off[k] ? 'OFF' : 'ON'}${ok ? ' · ' + cnt(k) : ''}`, !!scanP.off[k], () => scanKind(k)])
-      .concat([['ALL ON', false, scanAllOn], [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)]]);
+      .concat([['ALL ON', false, scanAllOn], [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)], [portals.on ? `PORTAL FRAMES: ON${portals.revN ? ' · ' + portals.revN + ' PANO' : ''}` : 'PORTAL FRAMES: OFF', portals.on, portalsTap]]);   // #594 frames are separate from scan cut-outs
     const cols = P ? 2 : 4, bw = (R - L - (cols - 1) * 8) / cols, bh = P ? 56 : 48;
     items.forEach(([lb, on, act], i) => btn(L + (i % cols) * (bw + 8), y0 + Math.floor(i / cols) * (bh + 8), bw, bh, lb, on, act, false, P ? 17 : 15));
     const yt = y0 + Math.ceil(items.length / cols) * (bh + 8) + 14;
     g.textAlign = 'left'; g.font = `500 ${P ? 14 : 13}px system-ui`;
     g.fillStyle = ok ? '#7fd88f' : '#f1b650';
-    g.fillText(ok ? `Room scan: ${roomScan.planes.length} surfaces · ${offN} OFF` : 'No room scan yet: Passthrough + Space Setup (mark doors / windows) on the Quest', L + 2, yt);
+    g.fillText(ok ? `Room scan: ${roomScan.planes.length} surfaces · ${offN} OFF${portals.scan.length > portals.scanN ? ` · only ${portals.scanN} fit (6 slots, frames first)` : ''}` : 'No room scan yet: Passthrough + Space Setup (mark doors / windows) on the Quest', L + 2, yt);
     g.fillStyle = '#8c96a8'; wrapText(g, 'Lit = OFF: the real surface is replaced by the DOME sky (pick it on VISUALS > PANO > SKY). One surface at a time: B laser, aim at it, trigger = OFF / back ON (overrides its preset). Saved for next time; matched again when the scan loads.', L + 2, yt + 22, R - L - 4, P ? 19 : 17, 5);
     return;
   }
