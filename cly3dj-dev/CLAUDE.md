@@ -1774,3 +1774,6 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #581 Holoprojector: 12 cm cube, four big ports, visible from 15° (owner, 2 Nov)
 - `js/holoplayer.js`: the cube is 12 cm with one big glowing port on each of four faces (the front one, toward her, projects; left, right and back match it), plain top and bottom with a thin light strip. The cube and its rays show from 15° off her front (uBeam fades them in over the next ~10°); her back's scan-line projection still only from behind.
 - Checked on the owner's PC pane at 25° off her front: cube and side port visible beside her, rays reaching her from behind. No Node restart. Backup backups/pre581/.
+
+## #582 Holoprojector 1 m behind her (owner, 2 Nov)
+- `js/holoplayer.js`: the projector's lens sits 1.0 m behind her at life size (was 1.9 m), still at waist height. The ray fan and its scan maths follow the lens, so nothing else changed.

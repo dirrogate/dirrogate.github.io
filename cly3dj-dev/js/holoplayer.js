@@ -164,7 +164,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     const slotH = 2 * R.dist * R.tv, bottom = R.aimH - slotH / 2;
     P.uvLo = Math.max(0.0, (0 - bottom) / slotH - 0.01); P.uvHi = Math.min(1.0, (H * 1.04 - bottom) / slotH);
     const pivot = v0.mesh.parent; pivot.updateMatrix();
-    const apex = new THREE.Vector3(0, H * 0.55, -1.9);   // waist height, behind her (her front faces +Z)
+    const apex = new THREE.Vector3(0, H * 0.55, -1.0);   // waist height, 1 m behind her (her front faces +Z); #582 was 1.9 m
     const bu = { map: { value: tex }, uBand: shared.uBand, uBehind: shared.uBeam, uT: shared.uT, uZn: v0.un.uZn, uZf: v0.un.uZf, uTh: v0.un.uTh, uTv: v0.un.uTv, uApex: { value: apex }, uPivot: { value: pivot.matrix.clone() } };
     const gR = new THREE.BufferGeometry(), au = [], pos = [];
     for (let i = 0; i < RAYS - 1; i++) { const a = i / (RAYS - 1), b = (i + 1) / (RAYS - 1); au.push(-1, a, b); pos.push(0, 0, 0, 0, 0, 0, 0, 0, 0); }
