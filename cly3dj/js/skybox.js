@@ -36,6 +36,14 @@ uniform vec4 so;            // u = u * so.x + so.y, v = v * so.z + so.w (picks t
 uniform vec2 texSize;       // texels (whole picture)
 uniform float aa;           // 1 = video (no mipmaps): footprint-adaptive 4-tap
 uniform float gain;         // #404 DOME EXPOSURE (2^EV)
+uniform float uAces;        // #594 1 = drawing into the stream's linear layer, which gets ACES (x 1/0.6) afterwards
+vec3 acesInv(vec3 y) {      // the value ACES maps back onto the pano's own colour (same as the SCREEN portals, #591)
+  const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
+  const mat3 O = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
+  vec3 z = clamp(inverse(O) * y, 0.0, 0.995);
+  vec3 a = 1.0 - 0.983729 * z, b = 0.0245786 - 0.4329510 * z, c = -0.000090537 - 0.238081 * z;
+  return max(inverse(I) * ((-b + sqrt(max(b * b - 4.0 * a * c, 0.0))) / (2.0 * a)) * 0.6, 0.0);
+}
 varying vec3 vDir;
 varying vec2 vUv;
 void main() {
@@ -47,7 +55,8 @@ void main() {
     c = 0.25 * (texture2D(map, uv + dx * 0.125 + dy * 0.375) + texture2D(map, uv + dx * 0.375 - dy * 0.125)
               + texture2D(map, uv - dx * 0.125 - dy * 0.375) + texture2D(map, uv - dx * 0.375 + dy * 0.125));
   } else c = texture2D(map, uv);
-  gl_FragColor = vec4(c.rgb * gain, c.a);
+  vec3 o = c.rgb * gain; if (uAces > 0.5) o = acesInv(clamp(o, 0.0, 1.0));
+  gl_FragColor = vec4(o, c.a);
   #include <colorspace_fragment>
 }`;
 
@@ -106,12 +115,12 @@ export class Skybox {
     this.group = new THREE.Group(); this.group.visible = false; this.group.name = 'skybox';
     this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.tex = null;
     this.mats = [0, 1].map(() => new THREE.ShaderMaterial({
-      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 } },
+      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 } },
       vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthWrite: false, toneMapped: false,
     }));
     this.geo = null; this.setHeight(this.height);
     this.meshes = this.mats.map(m => {
-      const s = new THREE.Mesh(this.geo, m); s.frustumCulled = false; s.renderOrder = 1000; s.raycast = () => {};   // #403 last of the opaque objects (was -1000, first)
+      const s = new THREE.Mesh(this.geo, m); s.onBeforeRender = r => { const t = r.getRenderTarget(); m.uniforms.uAces.value = t && t.vireAces ? 1 : 0; };   /* #594 */ s.frustumCulled = false; s.renderOrder = 1000; s.raycast = () => {};   // #403 last of the opaque objects (was -1000, first)
       this.group.add(s); return s;
     });
     this.setStereo(false);

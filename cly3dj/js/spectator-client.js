@@ -232,6 +232,7 @@ export function startCamera(ctx) {
   $('#kAuto').onclick = runAuto;   // #186
   // ---- #188 the Quest's mixer CAMERA tab: the phone reports its state ('cst') and takes changes ('cset')
   let lastCst = '', fps = 0, fpsN = 0, fpsT = 0, late = 0, lateN = 0, lastXT = 0; const dts = [];
+  let camSteps = 0;   // #591
   function sendCst(force) {
     if (!link || !link.isOpen) return;
     const m = { k: 'cst', set: vs.S.on, can: vs.S.can, ar: !!renderer.xr.getSession() || fixed.on, cal: cal.ok || !!(fixed.on && fixed.S.err != null), fixed: fixed.on, fcam: fixed.on ? fixed.S.facing : null, fpx: fixed.on && fixed.S.err != null ? +fixed.S.err.toFixed(1) : null, fcal: fixed.on && !!fixed.S.cal, K: { ...vs.K }, L: { ...look.L }, matte: matteOn, pv: pvOn, fps, late, auto: autoMsg, look: look.status(), FL: flook.state(), flErr, FX: fixed.on && fixed.S.pose ? { fov: +fixed.S.pose.fov.toFixed(1), coarse: fixed.coarse, cal: !!fixed.S.cal } : null };
@@ -634,8 +635,11 @@ export function startCamera(ctx) {
     else if (m.k === 'calskip') { if (fixed.on) fixed.calSkip(); }   // #211 the Quest's grip skips an auto point
     else if (m.k === 'led') { if (m.curve != null) led.wall.userData.setCurve(m.curve);   /* #358 the Quest's LED curve */ led.follow(m.on, m.name, m.t + Math.max(0, questNow() - m.qt) / 1000); if (liveOn && !led.on) showLiveCard(true); }   // #176 (#238 the LIVE card stays up)
     else if (m.k === 'camnext') {   // #545 the tablet's WEBCAM, tapped again: next camera (starts the webcam first if it isn't running)
-      (async () => { let n = ''; try { if (!fixed.on) { await fixed.start($('#spFixCam') ? $('#spFixCam').value : 'environment'); n = fixed.camName(); } else n = await fixed.nextCam(); } catch (e) { n = 'camera error: ' + (e.message || e); } if (link && link.isOpen) link.send('ctl', { k: 'camname', n }); sendCst(true); })();
+      (async () => { let n = ''; try { if (!fixed.on) { await fixed.start($('#spFixCam') ? $('#spFixCam').value : 'environment'); n = fixed.camName(); camSteps = 0; } else { n = await fixed.nextCam(); camSteps++; } } catch (e) { n = 'camera error: ' + (e.message || e); }
+        const last = camSteps >= Math.max(2, fixed.S.devs.length) - 1;   // #591 the tablet's next tap after the last camera = WEBCAM OFF
+        if (link && link.isOpen) link.send('ctl', { k: 'camname', n, last }); sendCst(true); })();
     }
+    else if (m.k === 'camoff') { if (fixed.on) fixed.stop(); camSteps = 0; sendCst(true); }   // #591 WEBCAM off from the tablet
     else if (m.k === 'live') { const was = liveOn, wasG = liveGreen, wasP = livePcam; liveOn = !!m.on; liveSolo = !!m.solo; livePcam = !!m.pcam; liveGreen = !!m.green; if (liveOn && (!was || wasG !== liveGreen || wasP !== livePcam)) liveStart(); else if (!liveOn) liveStop(); showLiveCard(liveOn); }   // #238 LIVE CAM (#239 SOLO, #347 PHONE CAM pcam / green)   // #238 LIVE CAM (#239 SOLO)
     else if (m.k === 'scroll' && scroller) {   // #236 the Quest's VJ scroller, drawn here from its text, wave and speed
       scroller.wave = m.wave; scroller.speed = m.speed;

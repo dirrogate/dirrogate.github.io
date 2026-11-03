@@ -330,7 +330,7 @@ export class Streamer {
       if (this.sp) { this.sp.rt.dispose(); this.sp.out.dispose(); }
       const half = r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float');
       const sp = this.sp = { W, H };
-      sp.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 });
+      sp.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 }); sp.rt.vireAces = true;
       sp.out = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false });
       sp.cam = new THREE.PerspectiveCamera(50, W / H, 0.05, 40); sp.cam.updateMatrixWorld = () => {};
       sp.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: sp.rt.texture } }, vertexShader: COPY_VS, fragmentShader: SHOW_FS, depthTest: false, depthWrite: false });
@@ -574,7 +574,7 @@ export class Streamer {
       if (this.mr) { this.mr.rt.dispose(); this.mr.out.dispose(); }
       const half = r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float');
       const mr = this.mr = { W, H };
-      mr.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 });
+      mr.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 }); mr.rt.vireAces = true;
       mr.out = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false });
       mr.cam = new THREE.PerspectiveCamera(50, W / H, 0.05, 40);
       mr.tex = new THREE.VideoTexture(v); mr.tex.colorSpace = THREE.NoColorSpace;
@@ -702,8 +702,8 @@ export class Streamer {
       if (this.pk) { this.pk.rt.dispose(); this.pk.out.dispose(); this.pk.bgRT.dispose(); }
       const half = r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float');
       const pk = this.pk = { W, H };
-      pk.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 });
-      pk.bgRT = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType });
+      pk.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 }); pk.rt.vireAces = true;
+      pk.bgRT = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType }); pk.bgRT.vireAces = true;
       pk.out = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false });
       pk.cam = new THREE.PerspectiveCamera(50, W / H, 0.05, 40); pk.cam.updateMatrixWorld = () => {};
       pk.tex = new THREE.VideoTexture(v); pk.tex.colorSpace = THREE.NoColorSpace; pk.tex.generateMipmaps = false;
@@ -802,7 +802,7 @@ export class Streamer {
     if (!this.ly) {
       const half = r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float');
       const ly = this.ly = {};
-      ly.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 });
+      ly.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 }); ly.rt.vireAces = true;
       ly.out = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false });
       ly.cam = new THREE.PerspectiveCamera(50, W / H, 0.05, 40); ly.cam.updateMatrixWorld = () => {};
       ly.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: ly.rt.texture } }, vertexShader: COPY_VS, fragmentShader: SHOW_FS, depthTest: false, depthWrite: false });
