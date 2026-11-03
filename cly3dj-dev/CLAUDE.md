@@ -1911,3 +1911,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Confirmed: snapPortal already lets any non-doorway frame stick to the scanned ceiling while carried (doorways: walls and door frames only). SKYLIGHT only added the 'above you' placement, the PANO conversion and DOME on; TYPE = PANO already turns DOME on (stepKind).
 - PORTALS SETUP: SKYLIGHT button, portalsSkylight() and the unused noScan() removed; help says: for a skylight, carry a frame (not a doorway) up to the ceiling and set its TYPE to PANO. Ceiling frames still re-pin on scan load (snapL 'ceiling').
 - Checked in the owner's PC pane: page draws 9 toggles + help. sw.js v107. No Node restart. Backup backups/pre601/.
+
+## #602 Release + docs (owner, 3 Nov: 'update .md files and push to main cly3dj')
+- cly3dj = cly3dj-dev (#598 to #601): js/main.js, js/movieprops.js, js/recmaster.js, js/rec-worklet.js, sw.js (v107). Dev-only as before: CLAUDE.md, PROJECT.md, _test/, models/dancer/kitana_1k.glb + kitana_snake.fbx.
+- PROJECT.md: header (log up to #602), REC MASTER / roomsnap files in the code list, Status (3 Nov). Project docs: cly3dj-project.md (= PROJECT.md), movie-props-plan.md (WALL SNAP, PUMPKIN +).
+- Push: from the Claude cloud session (git bundle of the release commit, fast-forward of origin/main); owner fetches in GitHub Desktop.

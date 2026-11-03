@@ -415,9 +415,9 @@ class Prop {
       _e.setFromQuaternion(_q, 'YXZ'); const yaw = _e.y; _v2.copy(this.ringAt).applyMatrix4(_m);
       _v.copy(this.ringAt).applyAxisAngle(YAX, yaw);
       this.obj.position.set(_v2.x - _v.x, clamp(_v2.y - _v.y, -0.3, 2), _v2.z - _v.z); this.obj.rotation.set(0, yaw, 0);
-    } else { this.obj.position.copy(_p); this.obj.quaternion.copy(_q); }
+    } else { this.obj.position.copy(_p); this.obj.quaternion.copy(_q); this.mp.wallSnap(this); }   // #599 wall cards stick to scanned walls
   }
-  release() { this.held = false; this.mp.save(); }
+  release() { this.held = false; this._sp = null; this.mp.save(); }
   corner(P) { return this.wp(this.cube, _v).distanceTo(P) < 0.06; }
   scaleTo(s) { const k = clamp(s, 0.05, 20); this.obj.scale.setScalar(k); this.placeHandles(); this.mp.save(); }
   save() { this.mp.save(); }
@@ -940,6 +940,7 @@ class Placer {
           if (p.depenKinematic) p.depenKinematic(_p);
           _v.copy(_p); rig.worldToLocal(_v); p.obj.position.copy(_v);
           rig.getWorldQuaternion(_q2).invert(); p.obj.quaternion.copy(_q2.multiply(_q));
+          this.mp.wallSnap(p);   // #599
         }
         p.placeHandles(); len = Math.max(0.1, _v2.copy(p.obj.getWorldPosition(_v3)).sub(this.o).length());
       }
@@ -953,6 +954,7 @@ class Placer {
   }
 }
 const _q2 = new THREE.Quaternion(), _v3 = new THREE.Vector3(), XAX = new THREE.Vector3(1, 0, 0);
+export const WALL_SNAP_T = new Set(['walldecal', 'graffiti', 'neon']);   // #599
 
 // ------------------------------------------------------------------ manager
 // env: { rig, camera, renderer, toast }
@@ -963,6 +965,9 @@ export class MovieProps {
     this.refreshLists();
   }
   props() { return this.items.filter(p => !p.dead); }
+  // #599 WALL SNAP: wall decals, graffiti and neon signs lie flat on the Quest's scanned walls / doors / windows while carried (main.js snapProp)
+  wallSnap(p) { if (this.snapProp && WALL_SNAP_T.has(p.type)) this.snapProp(p); }
+  hasWallProps() { return this.items.some(p => !p.dead && WALL_SNAP_T.has(p.type)); }
   setDepth(D) { this.depth = D || null; }   // RealDepth.laserData() while the headset gives a depth map, else null (fog then ignores the real room)
   viewCam() { return this.env.renderer.xr.isPresenting ? this.env.renderer.xr.getCamera() : this.env.camera; }
   // out of focus: how many mip levels / how big a disc, for something at this object's distance (0 when FOCUS is off)

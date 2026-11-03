@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 29 Oct 2026 (decision log up to #537 in `ViRe_Custom/CLAUDE.md`; #530–#536 added by `gemini_argon_`, #537 added by `Gemini_flash8_`). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 3 Nov 2026 (decision log up to #602 in `ViRe_Custom/CLAUDE.md`; #530–#537 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -55,6 +55,7 @@ Owner: Clyde DeSouza (c3souza).
 - `movieprops.js` (#478 to #497): MOVIE PROPS (VJ TOOLS) for filming mode: wet ground surfaces from texture maps, puddles, rain, fog / steam / haze, street lamps with halos, GLB props, neon, graffiti, ground and wall decals (PNG with transparency, lit, rain rings / rivulets), backdrop photo with its reflection in the wet ground, record crate (can float), ALLEY and ROAD scene presets, B-button placement laser.
 - `robot2.js`, `director.js`: robot avatar and AVACAM. `spectator-host.js` (Quest) / `spectator-client.js` + `phonehands.js` (phone).
 - `textures.js`, `models.js`: records, grooves, labels, sleeves, procedural parts.
+- `recmaster.js` + `rec-worklet.js` (#598): REC MASTER on the main tablet page: the master after the limiter (music + mic, no cue) to a 16-bit WAV in OPFS `vire-rec/`, to Downloads on stop. `roomsnap.js` (#592): the Quest's Space Setup planes; ROOM SNAP (portal frames) and WALL SNAP (wall decals, graffiti, neon, #599), each with its own toggle.
 - DirroVJ (laptop, #500 to #515): `studio.js` (the studio: Quest pack + camera composite, Twitch, DirroTV from DirroVJ), `vjdesk.js` (output side of the VJ desk: buses A / B, crossfader, FRACTAL landscape, WEBCAM, LED CLIP, DIRROCOMICS, scroller desk, LINE IN), `vjdesk.html` (the desk window, BroadcastChannel 'dirrovj'), `dirrovj.html` (start page = `index.html?role=camera&vj=1`).
 - DirroComics (#516 to #528): `comics.js` (the comic page as a bus source: panels, inking shaders, anaglyph, text, OPFS storage, issues, MP4 / PDF / REEL / CAROUSEL exports, STAR cast and the YES gate), `cxfiles.js` (zip and PDF writers), `rgbdgrab.js` (Quest: GRAB RGB-D), `storyboard.js` (desk: AI storyboard with Gemini / Claude API), fonts in `web/fonts/`, mark in `web/img/dirrocomics-mark.png`.
 - Dirrogram (audience phones): `dirrogram.js` + `dirrogram.html` (copied into `dirroclub_website/gram/`), `dirro-host.js` (Quest side). Relay: `cloudflare-relay/worker.js` (rooms, HoloSMS, STAR IN IT consent log).
@@ -153,6 +154,13 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 
 - A live comic strip drawn by DirroVJ as a bus source (1950s / 60s newsprint, CyberGrunge meets Steampunk). Details and owner decisions: project doc `dirrocomics-plan.md`; user steps: section 8 of `DirroVJ_DirroDJ_User_Manual.docx`.
 - Built: page with peeks, five inking styles, captions / balloons / SFX, black and white ANAGLYPH with depth (SBS, RGB+D, painted depth maps, MediaPipe PEOPLE, LIVE PEOPLE), GRAB QUEST / WEBCAM / RGB-D, issues (.dirrocomic), MP4, PDF STRIP, Instagram REEL 9:16 and CAROUSEL 4:5 (posted by hand), STAR IN IT (Dirrogram card, YES / NO per line, hash-chained consent log on the relay, WITHDRAW), terms text on the Dirrogram, AI storyboard (Gemini free tier or Claude API, 8 to 12 panels), the owner's DirroComics mark.
+
+## Status (3 Nov)
+
+- Release (cly3dj) = dev up to #601 (released in #602, 3 Nov). Only CLAUDE.md, PROJECT.md, `_test/` and the Kitana test models stay dev-only. cabin.dirrodj.club serves cly3dj-dev.
+- 30 Oct to 3 Nov, in short (details in CLAUDE.md): Gemini sessions #530–#537 (3D LED wall removed, cameras trimmed, WEBCAM unified, LED renamed CYCLO); CYCLO page, avatar pick, playlists from XML (#538–#547); DANCER and Holodancer on the VJ desk, Blender builder, holoprojector, Dirrogram holo (#548–#584); portal frames rebuilt (concrete + iron, doorway / bay / round / arch / porthole, PANO and SCREEN frames, one draw call, laser handling, FRAME LOOK grade) (#585–#597); playback SPEED and pano EXPOSURE (#596, #597).
+- 3 Nov (#598–#601): REC MASTER (WAV of the clean master; with split cue on, the Quest's own video has the master on its left channel for syncing in Premiere); ROOM SNAP ON / OFF on PORTALS SETUP; WALL SNAP ON / OFF on MOVIE PROPS; PUMPKIN + removed (load it with GLB +); SNAP SCAN and SKYLIGHT removed (owner: too complicated; a skylight = a non-doorway frame carried up to the ceiling, TYPE PANO).
+- Not yet tried on the Quest: REC MASTER (48 kHz, the download after leaving VR), ROOM SNAP / WALL SNAP with a real Space Setup, the #589–#597 portal work in passthrough.
 
 ## Status (29 Oct — Gemini_flash8_)
 
