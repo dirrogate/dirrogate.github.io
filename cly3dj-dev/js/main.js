@@ -22,6 +22,7 @@ import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whit
 import { InkLabel } from './inklabel.js';   // #394 milk crate labels
 import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
 import { Portals, GRADE0, SHAPE_OF, SHAPE_LABEL, HMIN as P_HMIN, HMAX as P_HMAX } from './portal.js';
+import { MasterRec } from './recmaster.js';   // #598 REC MASTER: the clean master to a WAV file
 import { RoomSnap, SNAP_IN, SNAP_OUT } from './roomsnap.js';   // #592 Space Setup planes for portal frames   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
 import { Beat } from './beat.js';   // #346 bass onsets on the master for the wall's BEAT
@@ -1236,7 +1237,7 @@ let roomSnapT = 0, roomPinGen = 0;
 const _rsEye = new THREE.Vector3(), _rsY = new THREE.Vector3(), _rsP = new THREE.Vector3(), _rsQ = new THREE.Quaternion(), _rsH = new THREE.Vector2();
 function roomEye() { renderer.xr.getCamera().getWorldPosition(_rsEye); rig.updateMatrixWorld(); return rig.worldToLocal(_rsEye); }
 function roomSnapTick(dt) {
-  if (!roomScan || !portals || !portals.on) return;
+  if (!roomScan || !portals || !portals.on || settings.roomSnap === false) return;   // #598 ROOM SNAP off: no plane reading, no re-pinning
   roomSnapT += dt; if (roomSnapT < 0.25) return; roomSnapT = 0;
   roomScan.update(renderer.xr.getFrame(), renderer.xr.getReferenceSpace(), roomEye());
   if (roomScan.ok && roomScan.gen !== roomPinGen) {   // the scan came in: put saved frames back on their surfaces (tracking may have shifted)
@@ -1247,7 +1248,7 @@ function roomSnapTick(dt) {
   }
 }
 function snapPortal(f) {   // called each frame while the B laser carries a frame (movieprops.js)
-  if (!roomScan || !roomScan.ok) { f.snapL = ''; f._sp = null; return; }
+  if (!roomScan || !roomScan.ok || settings.roomSnap === false) { f.snapL = ''; f._sp = null; return; }
   const P = f.obj.position, labels = f.door ? ['wall', 'door'] : ['wall', 'window', 'door', 'ceiling'];
   let e = f._sp && roomScan.planes.includes(f._sp) && Math.abs(roomScan.dist(f._sp, P)) < SNAP_OUT && roomScan.inside(f._sp, P) ? f._sp : null;
   if (!e) e = roomScan.nearest(P, labels, SNAP_IN);
@@ -1255,8 +1256,14 @@ function snapPortal(f) {   // called each frame while the B laser carries a fram
   _rsY.set(0, 1, 0).applyQuaternion(f.obj.quaternion); roomScan.pose(e, P, _rsY, f.obj.position, f.obj.quaternion);
   if (f.door) f._floor(); f.snapL = e.label; f._sp = e;
 }
+function roomSnapToggle() {   // #598 ROOM SNAP on / off (saved). Off: frames move freely, no Space Setup reading
+  settings.roomSnap = settings.roomSnap === false; saveSettings();
+  if (settings.roomSnap === false && portals) for (const f of portals.list) if (f) f._sp = null;
+  toast(settings.roomSnap === false ? 'ROOM SNAP off: frames no longer stick to scanned walls' : 'ROOM SNAP on: frames stick to scanned walls, doors, windows and the ceiling', 2500); drawMixScreen();
+}
 function noScan() { toast(arMode && renderer.xr.isPresenting ? 'No room scan yet: run Space Setup on the Quest (mark doors / windows), then re-enter Passthrough' : 'Room snap needs Passthrough on the Quest', 3500); }
 function portalsSnapScan() {   // SNAP TO SCAN: doorways fill scanned door frames, the other non-skylight frames fill window frames
+  if (settings.roomSnap === false) { toast('ROOM SNAP is off: turn it on first', 2500); return; }
   if (!roomScan || !roomScan.ok) return noScan();
   const used = new Set(); let n = 0, miss = 0;
   for (const f of portals.active()) {
@@ -1273,6 +1280,7 @@ function portalsSnapScan() {   // SNAP TO SCAN: doorways fill scanned door frame
   drawMixScreen();
 }
 function portalsSkylight() {   // SKYLIGHT: the frame picked with FRAME goes flat on the ceiling above you, as a PANO window
+  if (settings.roomSnap === false) { toast('ROOM SNAP is off: turn it on first', 2500); return; }
   if (!roomScan || !roomScan.ok) return noScan();
   const eye = roomEye().clone(), ceil = roomScan.byLabel('ceiling'); if (!ceil.length) { toast('No ceiling in the room scan', 2500); return; }
   let e = ceil.find(c => roomScan.inside(c, _rsP.copy(eye).setY(c.o.y), 0)) || ceil[0];
@@ -1537,6 +1545,10 @@ $('#helpBtn').onclick = () => { const h = $('#help'); h.style.display = h.style.
 
 // ------------------------------------------------------------------ state
 const engine = new AudioEngine();
+// #598 REC MASTER (main tablet page): the master after the limiter (music + mic, no cue) to a WAV in private storage, to Downloads on stop
+const masterRec = new MasterRec(engine, { toast, onChange: () => { if (!toolsPage && !videoPage) drawMixScreen(); }, inXR: () => renderer.xr.isPresenting });
+renderer.xr.addEventListener('sessionend', () => { if (masterRec.pending.length) masterRec.flushDownloads(); });   // #598 files stopped in VR go to Downloads once out of it
+setInterval(() => { if (masterRec.on && !toolsPage && !videoPage) drawMixScreen(); }, 1000);   // #598 the running time on the button
 // #331 LIVE STREAM: master bus (never CUE) + a picture source, straight to Twitch from the headset (stream.js)
 streamer = CAMERA_ROLE ? null : new Streamer({
   smsList: () => (dirro && dirro.sms) || [],   // #507 HoloSMS for DirroVJ's scroller desk
@@ -6493,7 +6505,7 @@ function drawPropsPage(T) {
     toast(p && p.floor ? (NAMES[k] || 'GROUND') + ' in front of you. Grip the ring on its post to carry it, trigger the cube to size it.' : (NAMES[k] || 'PROP') + ' in front of you. Grip the ring to carry it, trigger the cube to size it (or grip with both hands and stretch).', 4200);
     drawMixScreen();
   };
-  const kinds = [['PUMPKIN +', 'pumpkin'], ['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['GROUND DECAL +', 'decal'], ['WALL DECAL +', 'walldecal'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['CRATE +', 'crate'], ['ALLEY SCENE', 'alley'], ['ROAD SCENE', 'road']];
+  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['GROUND DECAL +', 'decal'], ['WALL DECAL +', 'walldecal'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['CRATE +', 'crate'], ['ALLEY SCENE', 'alley'], ['ROAD SCENE', 'road']];
   const per = P ? 4 : 8, gap = 6, bw = (R - L - gap * (per - 1)) / per, bh = P ? 44 : 34;
   kinds.forEach(([l, k], i) => btn(L + (i % per) * (bw + gap), y0 + Math.floor(i / per) * (bh + 6), bw, bh, l, false, () => spawn(k), false, P ? 16 : 14));
   const top = y0 + Math.ceil(kinds.length / per) * (bh + 6) + 4;
@@ -7260,7 +7272,8 @@ function drawToolsPage() {
       [WL.beat ? 'BEAT: ON' : 'BEAT', WL.beat, () => { WL.setBeat(!WL.beat); drawMixScreen(); }],
       [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)],
       [`SCREEN: ${({ cyclo: 'CYCLO', image: 'IMAGE', video: 'VIDEO' })[PS.scrSrc.src] || 'CYCLO'} ⟳`, PS.screenN > 0, pScrStep],   // #589 the one feed every SCREEN frame shows
-      [P ? 'SNAP TO SCAN' : 'SNAP SCAN', !!(roomScan && roomScan.ok), portalsSnapScan],   // #592 Space Setup door / window frames
+      [settings.roomSnap !== false ? 'ROOM SNAP: ON' : 'ROOM SNAP: OFF', settings.roomSnap !== false, roomSnapToggle],   // #598 owner: snap can be switched off
+      [P ? 'SNAP TO SCAN' : 'SNAP SCAN', !!(roomScan && roomScan.ok && settings.roomSnap !== false), portalsSnapScan],   // #592 Space Setup door / window frames
       ['SKYLIGHT', !!(PS.list[PS.edit] && PS.list[PS.edit].snapL === 'ceiling'), portalsSkylight],
       ['FRAME LOOK ›', JSON.stringify(PS.grade) !== JSON.stringify(GRADE0), () => setTools('pgrade')],   // #597 colour-match the frames to the room   // #592 FRAME on the ceiling
       [defArm ? 'TAP AGAIN' : 'DEFAULTS', defArm, portalDefaults],
@@ -7287,7 +7300,7 @@ function drawToolsPage() {
       btn(x + w - bw, by, bw, bh, '+', false, () => { act(1); drawMixScreen(); });
     };
     const warn = dome.on && !skybox.tex ? 'DOME: no sky picked yet. On VISUALS > PANO pick a panorama or video pano and tap SKY.' : PS.revN && !dome.on ? 'PANO frames show the DOME: turn DOME on.' : '';
-    const help = 'B laser: aim + GRIP = move / turn with the hand (stick = distance), aim + TRIGGER = resize. Near a scanned wall or ceiling a frame snaps flat onto it. SNAP SCAN fills Space Setup door / window frames; SKYLIGHT puts FRAME on the ceiling. PANO frames show the DOME sky.';
+    const help = 'B laser: aim + GRIP = move / turn with the hand (stick = distance), aim + TRIGGER = resize. With ROOM SNAP on, a frame near a scanned wall or ceiling snaps flat onto it. SNAP SCAN fills Space Setup door / window frames; SKYLIGHT puts FRAME on the ceiling. PANO frames show the DOME sky.';
     const helpP = 'B laser: GRIP = move, TRIGGER = resize; frames snap to scanned walls. PANO frames show the DOME sky.';   // #585 portrait: short
     const text = (x, y, w, lh, max, fs, hp) => {
       g.textAlign = 'left'; g.font = `500 ${fs}px system-ui`; let n = 0;
@@ -7296,8 +7309,9 @@ function drawToolsPage() {
     };
     if (P) {
       const tw = (R - L - 8) / 2;
-      toggles.forEach(([lb, on, act], i) => btn(L + (i % 2) * (tw + 8), y0 + Math.floor(i / 2) * 52, tw, 46, lb, on, act, false, 17));
-      const y1 = y0 + Math.ceil(toggles.length / 2) * 52 + 6;   // #589 7 toggles
+      const tr = toggles.length > 10 ? 46 : 52;   // #598 11 toggles (ROOM SNAP): slightly shorter rows so the help still fits
+      toggles.forEach(([lb, on, act], i) => btn(L + (i % 2) * (tw + 8), y0 + Math.floor(i / 2) * tr, tw, tr - 6, lb, on, act, false, 17));
+      const y1 = y0 + Math.ceil(toggles.length / 2) * tr + 6;   // #589 7 toggles
       const cellsP = cells.concat([['DOME TURN', `${dome.turn}°`, d => setDomeTurn((dome.turn + d * 15 + 360) % 360)]]);   // #586 portrait: DOME TURN as a 15 deg stepper
       cellsP.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 54, tw, 50));   // #585 rows of 54 px
       text(L + 4, y1 + 6 * 54 + 16, R - L - 8, 18, 3, 14, helpP);
@@ -7920,10 +7934,11 @@ function drawMixScreen() {
     drawResetMix(g, 106, H - 52, 110, 36);   // #254
     drawLoopMainBtn(g, 222, H - 52, W - 20 - 222, 36, 15); SP_HIT.push({ x: 219, y: H - 60, w: W - 20 - 216, h: 52, act: () => setTools('looper') });   // #470
     drawPin(g, W - 26 - 150, H - 142, 150, 34);   // #210 (#470: above the button rows, LOOP took its place)
+    drawRecMaster(g, 20, H - 142, 160, 34, 15);   // #598 left of GEAR HERE
     scr().commit(); return;
   }
   for (const d of decks) drawDeckPanel(g, d, d.i ? W / 2 + 6 : 6, 6, W / 2 - 12, H - 12, false);
-  drawPin(g, W - 14 - 120, H - 46, 120, 30);   // #210 (#470 narrower: LOOP joined the bottom bar)
+  drawPin(g, W - 14 - 120, H - 82, 120, 30);   // #210 (#470 narrower: LOOP joined the bottom bar; #598 up above the bar, REC MASTER took its place)
   { // #185 VIDEO: deck B's top row (was the #176 LED WALL switch, which is on the Video page now)
     const w = 108, h = 28, y = 12, bw = 96, bx = W - 14 - bw, x = bx - 8 - w;   // #202 clear of the corner L; #363 BACK at the right, VISUALS left of it
     drawTopBtn(g, bx, y, bw, h, '◀ BACK', false, !navCan(), 18);
@@ -7941,6 +7956,7 @@ function drawMixScreen() {
     tb('DIRROVJ', !!(S && S.stu.on), () => setTools('studio'), !S, 80);
     tb('CYCLO ⁺¹', ledMode !== 'off', () => setTools('wall'), false, 72);   // #439, #537 the CYCLO page, one tap from the mixer
     drawLoopMainBtn(g, x, y, 74, h, 17); SP_HIT.push({ x: x - 3, y: y - 8, w: 80, h: h + 14, act: () => setTools('looper') }); x += 74 + gap;   // #470 LOOP: state colour, opens the LOOPER page
+    drawRecMaster(g, x, y, 130, h, 15); x += 130 + gap;   // #598
     if (testState.fps) {   // #258 live frame rate (kept for the console: window.vire)
       const st = fpsStats(); g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '700 15px system-ui';
       g.fillStyle = !st ? '#8c96a8' : st.drops > 3 ? '#ff5050' : st.drops ? '#f1b650' : '#40d080';
@@ -7965,6 +7981,21 @@ function drawResetMix(g, x, y, w, h) {
   g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = armed ? '#fff' : '#c9ced8'; 
   btnLabel(g, armed ? 'TAP AGAIN' : 'RESET MIX', x, y, w, h, 15);   // #349 g.textBaseline = 'alphabetic';
   SP_HIT.push({ x, y: y - 4, w, h: h + 8, act: () => { if (performance.now() - resetArm < 3000) { resetArm = 0; resetMix(); drawMixScreen(); } else { resetArm = performance.now(); drawMixScreen(); setTimeout(drawMixScreen, 3100); } } });
+}
+// #598 REC MASTER: one tap starts, stopping takes two taps within 3 s (a stray poke can't end a set's recording)
+let recArm = 0;
+function drawRecMaster(g, x, y, w, h, fs = 15) {
+  const on = masterRec.on, armed = on && performance.now() - recArm < 3000, t = masterRec.secs, hh = Math.floor(t / 3600), mm = Math.floor(t / 60) % 60, ss = Math.floor(t) % 60;
+  const time = (hh ? hh + ':' + String(mm).padStart(2, '0') : mm) + ':' + String(ss).padStart(2, '0');
+  g.fillStyle = on ? (armed ? '#ff4040' : '#c8202c') : masterRec.busy ? '#3a4252' : '#2a3140'; g.fillRect(x, y, w, h);
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : '#c9ced8';
+  btnLabel(g, armed ? 'TAP TO STOP' : on ? '● REC ' + time : masterRec.busy ? 'SAVING…' : 'REC MASTER', x, y, w, h, fs); g.textBaseline = 'alphabetic';
+  SP_HIT.push({ x, y: y - 4, w, h: h + 8, act: () => {
+    if (masterRec.busy) return;
+    if (!masterRec.on) { if (!splitCue) toast('REC MASTER on. Tip: turn split cue on so the Quest\'s own video has the master on its left channel (for syncing in the edit)', 4500); masterRec.start(); return; }
+    if (performance.now() - recArm < 3000) { recArm = 0; masterRec.stop(); } else { recArm = performance.now(); setTimeout(drawMixScreen, 3100); }
+    drawMixScreen();
+  } });
 }
 // #210 GEAR HERE (in XR): tap twice within 3 s; a small pin status beside it
 function drawPin(g, x, y, w, h) {
