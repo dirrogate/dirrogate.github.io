@@ -1916,3 +1916,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - cly3dj = cly3dj-dev (#598 to #601): js/main.js, js/movieprops.js, js/recmaster.js, js/rec-worklet.js, sw.js (v107). Dev-only as before: CLAUDE.md, PROJECT.md, _test/, models/dancer/kitana_1k.glb + kitana_snake.fbx.
 - PROJECT.md: header (log up to #602), REC MASTER / roomsnap files in the code list, Status (3 Nov). Project docs: cly3dj-project.md (= PROJECT.md), movie-props-plan.md (WALL SNAP, PUMPKIN +).
 - Push: from the Claude cloud session (git bundle of the release commit, fast-forward of origin/main); owner fetches in GitHub Desktop.
+
+## #603 MAIN MENU on every page (owner, 3 Nov: 'MAIN MENU, PREVIEW, BACK ... a quick way to return to the main menu so BPM etc. can be seen')
+- Tools pages' header (head()): the parent button (▲ VJ TOOLS / ▲ DJ TOOLS / DJ MIXER / VISUALS, #363) is now MAIN MENU on every page: goMain() = the mixer front page (decks, BPM, bottom bar). Order MAIN MENU, PREVIEW, BACK; BACK still = the page before (history, navBack). head()'s second argument is now unused.
+- VISUALS page: portrait DJ MIXER -> MAIN MENU, landscape MIXER -> MAIN (56 px).
+- Checked in the owner's PC pane: PORTALS SETUP / MOVIE PROPS / VISUALS headers, MAIN MENU press lands on the front page. sw.js v108. No Node restart. Backup backups/pre603/.
