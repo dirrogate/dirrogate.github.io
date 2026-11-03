@@ -1921,3 +1921,4 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Tools pages' header (head()): the parent button (▲ VJ TOOLS / ▲ DJ TOOLS / DJ MIXER / VISUALS, #363) is now MAIN MENU on every page: goMain() = the mixer front page (decks, BPM, bottom bar). Order MAIN MENU, PREVIEW, BACK; BACK still = the page before (history, navBack). head()'s second argument is now unused.
 - VISUALS page: portrait DJ MIXER -> MAIN MENU, landscape MIXER -> MAIN (56 px).
 - Checked in the owner's PC pane: PORTALS SETUP / MOVIE PROPS / VISUALS headers, MAIN MENU press lands on the front page. sw.js v108. No Node restart. Backup backups/pre603/.
+- (3 Nov) Released #603 to cly3dj (owner: 'push to both cly3dj-dev and cly3dj'), sw.js v108; pushed from the Claude cloud session.

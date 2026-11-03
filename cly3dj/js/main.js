@@ -5532,7 +5532,7 @@ function drawVideoPage() {
     const tabs = [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam', 'Fx'], tw = (W - 30 - 12) / 3;   // #379 + FX   // #214 LOOK, #220 DJ CAM
     // #363 a top row of its own: title, then DJ MIXER and BACK at the top right; the tabs move down a row
     btn(22, 28, tw, 34, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW (where the title was)
-    btn(22 + (tw + 6), 28, tw, 34, 'DJ MIXER', false, () => setVideoPage(false));
+    btn(22 + (tw + 6), 28, tw, 34, 'MAIN MENU', false, () => setVideoPage(false));   // #603
     btn(22 + 2 * (tw + 6), 28, tw, 34, '◀ BACK', false, navCan() ? navBack : null, !navCan());
     const tw4 = (W - 30 - 18) / 4;   // #441 the last row has four: two tabs, SCROLLER and WALL +1
     tabs.forEach((f, i) => btn(i < 6 ? 22 + (i % 3) * (tw + 6) : 22 + (i - 6) * (tw4 + 6), 68 + Math.floor(i / 3) * 40, i < 6 ? tw : tw4, 34, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)));
@@ -5543,7 +5543,7 @@ function drawVideoPage() {
     for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam', 'Fx']) { const w = { Pano: 50, Video: 50, Images: 58, Camera: 66, Sync: 44, Look: 44, 'DJ Cam': 62, Fx: 36 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)); x += w + 4; }   // #379 narrower again for FX
     btn(x, 8, 62, 32, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
     btn(x + 66, 8, 52, 32, 'CYCLO ⁺¹', ledMode !== 'off', () => { videoPage = false; setTools('wall'); });   // #441, #537
-    btn(W - 8 - 62 - 4 - 66 - 4 - 56, 8, 56, 32, 'MIXER', false, () => setVideoPage(false));   // #225 (#441 narrower for WALL)
+    btn(W - 8 - 62 - 4 - 66 - 4 - 56, 8, 56, 32, 'MAIN', false, () => setVideoPage(false));   // #225 (#441 narrower for WALL; #603 MAIN = the main menu)
     btn(W - 8 - 62 - 4 - 66, 8, 66, 32, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW
     btn(W - 8 - 62, 8, 62, 32, '◀ BACK', false, navCan() ? navBack : null, !navCan());   // #363
   }
@@ -5866,6 +5866,7 @@ function navTrack() {
   if (navKey && k !== navKey && !navRestoring) { navHist.push(JSON.parse(navKey)); if (navHist.length > 40) navHist.shift(); }
   navKey = k;
 }
+function goMain() { scrollFromVP = false; videoPage = false; setTools(null); drawMixScreen(); }   // #603 MAIN MENU on every page
 function navBack() {
   const st = navHist.pop(); if (!st) return;
   navRestoring = true;
@@ -6598,10 +6599,10 @@ function drawToolsPage() {
   const L = P ? 24 : 8, R = W - (P ? 26 : 8);   // portrait keeps clear of the silver corner L
   const head = (title, back, extra) => {   // #365 extra: { label, on, act } a button left of the parent one (STREAM's CHAT)
     const y = P ? 28 : 8, bw = P ? 66 : 80, pw = P ? 92 : 110, pvw = P ? 72 : 84;   // #363 BACK right, the page's own button left of it; #389 PREVIEW (always here) between them
-    const upLbl = back === 'mixer' ? 'DJ MIXER' : back === 'visuals' ? 'VISUALS' : '▲ ' + (TOOLS_NAME[back] || 'UP');
+    // #603 owner: MAIN MENU, PREVIEW, BACK on every page. MAIN MENU = the mixer front page (decks, BPM, bottom buttons); BACK = the page before (history)
     btn(R - bw, y, bw, 34, '◀ BACK', false, navCan() ? navBack : null, !navCan());
     btn(R - bw - 6 - pvw, y, pvw, 34, 'PREVIEW', monOn, () => setMonitor(!monOn), false, 14);   // #389 the master PREVIEW on every page
-    btn(R - bw - 12 - pvw - pw, y, pw, 34, upLbl, false, () => { if (back === 'visuals') { scrollFromVP = false; setTools(null); setVideoPage(true); } else setTools(back === 'mixer' ? null : back); }, false, 15);
+    btn(R - bw - 12 - pvw - pw, y, pw, 34, 'MAIN MENU', false, goMain, false, 15);
     let tw = R - L - bw - pw - pvw - 22;
     if (extra) {   // portrait: no room for a title as well, the button takes its place
       const ew = P ? Math.min(110, tw) : 96; btn(R - bw - pw - pvw - 18 - ew, y, ew, 34, extra.label, extra.on, extra.act, false, 17);
