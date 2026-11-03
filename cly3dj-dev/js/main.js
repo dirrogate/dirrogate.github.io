@@ -1237,10 +1237,11 @@ let roomSnapT = 0, roomPinGen = 0;
 const _rsEye = new THREE.Vector3(), _rsY = new THREE.Vector3(), _rsP = new THREE.Vector3(), _rsQ = new THREE.Quaternion(), _rsH = new THREE.Vector2();
 function roomEye() { renderer.xr.getCamera().getWorldPosition(_rsEye); rig.updateMatrixWorld(); return rig.worldToLocal(_rsEye); }
 function roomSnapTick(dt) {
-  if (!roomScan || !portals || !portals.on || settings.roomSnap === false) return;   // #598 ROOM SNAP off: no plane reading, no re-pinning
+  const wantP = !!(portals && portals.on && settings.roomSnap !== false), wantW = settings.propSnap !== false && !!(mprops && mprops.hasWallProps());   // #599 WALL SNAP needs the scan too
+  if (!roomScan || (!wantP && !wantW)) return;   // #598 ROOM SNAP off: no plane reading, no re-pinning
   roomSnapT += dt; if (roomSnapT < 0.25) return; roomSnapT = 0;
   roomScan.update(renderer.xr.getFrame(), renderer.xr.getReferenceSpace(), roomEye());
-  if (roomScan.ok && roomScan.gen !== roomPinGen) {   // the scan came in: put saved frames back on their surfaces (tracking may have shifted)
+  if (wantP && roomScan.ok && roomScan.gen !== roomPinGen) {   // the scan came in: put saved frames back on their surfaces (tracking may have shifted)
     roomPinGen = roomScan.gen; let n = 0;
     for (const f of portals.active()) { if (!f.snapL || f.held) continue; const e = roomScan.nearest(f.obj.position, [f.snapL], 0.6); if (!e) continue;
       _rsY.set(0, 1, 0).applyQuaternion(f.obj.quaternion); roomScan.pose(e, f.obj.position, _rsY, f.obj.position, f.obj.quaternion); if (f.door) f._floor(); n++; }
@@ -1260,6 +1261,21 @@ function roomSnapToggle() {   // #598 ROOM SNAP on / off (saved). Off: frames mo
   settings.roomSnap = settings.roomSnap === false; saveSettings();
   if (settings.roomSnap === false && portals) for (const f of portals.list) if (f) f._sp = null;
   toast(settings.roomSnap === false ? 'ROOM SNAP off: frames no longer stick to scanned walls' : 'ROOM SNAP on: frames stick to scanned walls, doors, windows and the ceiling', 2500); drawMixScreen();
+}
+// #599 WALL SNAP: a wall decal / graffiti / neon card carried within 15 cm of a scanned wall, door or window lies flat on it
+// (5 mm off, 1 cm for neon) and slides along; its own turn in the wall plane is kept; pull 30 cm off to let go. Own toggle.
+const _wsZ = new THREE.Vector3(), _wsX = new THREE.Vector3(), _wsY = new THREE.Vector3(), _wsM = new THREE.Matrix4();
+function snapProp(p) {
+  if (!roomScan || !roomScan.ok || settings.propSnap === false) { p._sp = null; return; }
+  const P = p.obj.position, labels = ['wall', 'door', 'window'];
+  let e = p._sp && roomScan.planes.includes(p._sp) && Math.abs(roomScan.dist(p._sp, P)) < SNAP_OUT && roomScan.inside(p._sp, P) ? p._sp : null;
+  if (!e) e = roomScan.nearest(P, labels, SNAP_IN);
+  if (!e) { p._sp = null; return; }
+  _wsZ.copy(e.n); _wsY.set(0, 1, 0).applyQuaternion(p.obj.quaternion).addScaledVector(_wsZ, -_wsY.dot(_wsZ));
+  if (_wsY.lengthSq() < 1e-6) _wsY.set(0, 1, 0).addScaledVector(_wsZ, -_wsZ.y); _wsY.normalize(); _wsX.crossVectors(_wsY, _wsZ).normalize();
+  p.obj.quaternion.setFromRotationMatrix(_wsM.makeBasis(_wsX, _wsY, _wsZ));
+  P.addScaledVector(_wsZ, (p.type === 'neon' ? 0.01 : 0.005) - roomScan.dist(e, P)); p._sp = e;
+  if (p.placeHandles) p.placeHandles();
 }
 function noScan() { toast(arMode && renderer.xr.isPresenting ? 'No room scan yet: run Space Setup on the Quest (mark doors / windows), then re-enter Passthrough' : 'Room snap needs Passthrough on the Quest', 3500); }
 function portalsSnapScan() {   // SNAP TO SCAN: doorways fill scanned door frames, the other non-skylight frames fill window frames
@@ -6523,7 +6539,9 @@ function drawPropsPage(T) {
   if (!n) { g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; wrapText(g, 'Tap a + button to put a prop in front of you.', L + 4, top + 16, listW - 8, 19, 3); }
   const clearArm = performance.now() - propsClearT < 3000;
   btn(L, top + rows * RH + 2, listW, RH - 4, clearArm ? 'TAP AGAIN: CLEAR ALL' : 'CLEAR ALL', clearArm, n ? () => { if (performance.now() - propsClearT < 3000) { propsClearT = 0; mp.clear(); } else propsClearT = performance.now(); drawMixScreen(); } : null, !n, P ? 15 : 13);
-  btn(L, top + (rows + 2) * RH + 2, listW, RH - 4, mp.guides ? 'GUIDES (boxes + ring / cube handles): ON' : 'GUIDES (boxes + ring / cube handles): OFF', mp.guides, () => { mp.setGuides(!mp.guides); drawMixScreen(); }, false, P ? 15 : 13);   // #486 the blue boxes only help while placing; off for filming
+  { const hw = (listW - 4) / 2;   // #599 GUIDES and WALL SNAP share the row
+    btn(L, top + (rows + 2) * RH + 2, hw, RH - 4, mp.guides ? 'GUIDES: ON' : 'GUIDES: OFF', mp.guides, () => { mp.setGuides(!mp.guides); drawMixScreen(); }, false, P ? 15 : 13);   // #486 the blue boxes (+ ring / cube handles) only help while placing; off for filming
+    btn(L + hw + 4, top + (rows + 2) * RH + 2, hw, RH - 4, settings.propSnap !== false ? 'WALL SNAP: ON' : 'WALL SNAP: OFF', settings.propSnap !== false, () => { settings.propSnap = settings.propSnap === false; saveSettings(); toast(settings.propSnap === false ? 'WALL SNAP off: wall decals, graffiti and neon stay where you let go' : 'WALL SNAP on: wall decals, graffiti and neon stick to scanned walls, doors and windows (Passthrough, Space Setup)', 3000); drawMixScreen(); }, false, P ? 15 : 13); }
   btn(L, top + (rows + 1) * RH + 2, listW, RH - 4, mp.placer.on ? 'LASER (B): ON' : 'PLACE LASER (B)', mp.placer.on, () => { mp.placer.toggle(); drawMixScreen(); }, false, P ? 15 : 13);   // #479
   if (!sel) return;
   // ---- the selected prop's controls
@@ -8460,6 +8478,7 @@ if (!CAMERA_ROLE) {
   mprops = new MovieProps({ rig, camera, renderer, toast, scene, getColliders: () => { if (!sleeveColliders.length) refreshSleeveColliders(); return sleeveColliders; } });   // #478, #541 kinematic props
   mprops.listCb = () => { if (toolsPage === 'props') drawMixScreen(); };
   mprops.snap = f => snapPortal(f);   // #592
+  mprops.snapProp = p => snapProp(p);   // #599
   mprops.extra = () => [...(portals ? portals.active() : []), ...[gopro, gopro2].filter(g => g && g.on)];   // #591 GoPros too   // #586 the B placement laser also picks up portal frames
   try { mprops.load(); } catch (e) { console.warn('movie props load', e); }
 }
