@@ -1277,20 +1277,8 @@ function snapProp(p) {
   P.addScaledVector(_wsZ, (p.type === 'neon' ? 0.01 : 0.005) - roomScan.dist(e, P)); p._sp = e;
   if (p.placeHandles) p.placeHandles();
 }
-function noScan() { toast(arMode && renderer.xr.isPresenting ? 'No room scan yet: run Space Setup on the Quest (mark doors / windows), then re-enter Passthrough' : 'Room snap needs Passthrough on the Quest', 3500); }
-// #600 SNAP SCAN removed (owner: too complicated); frames still snap one at a time while carried, SKYLIGHT stays
-function portalsSkylight() {   // SKYLIGHT: the frame picked with FRAME goes flat on the ceiling above you, as a PANO window
-  if (settings.roomSnap === false) { toast('ROOM SNAP is off: turn it on first', 2500); return; }
-  if (!roomScan || !roomScan.ok) return noScan();
-  const eye = roomEye().clone(), ceil = roomScan.byLabel('ceiling'); if (!ceil.length) { toast('No ceiling in the room scan', 2500); return; }
-  let e = ceil.find(c => roomScan.inside(c, _rsP.copy(eye).setY(c.o.y), 0)) || ceil[0];
-  const P = roomScan.inside(e, _rsP.copy(eye).setY(e.o.y), 0) ? _rsP.copy(eye) : e.o.clone();
-  const i = portals.edit, k = portals.kindOf(i), sh = SHAPE_OF(k);
-  if (k[0] !== 'p' || sh === 'door') portals.setKind(i, 'p' + (sh === 'door' || sh === 'rect' ? 'window' : sh));   // a skylight shows the DOME sky
-  const f = portals.list[i]; renderer.xr.getCamera().getWorldDirection(_rsY); _rsY.y = 0; if (_rsY.lengthSq() < 1e-6) _rsY.set(0, 0, -1);
-  roomScan.pose(e, P, _rsY.normalize(), f.obj.position, f.obj.quaternion); f.snapL = 'ceiling'; f._sp = e;
-  portals.save(); if (!dome.on) setDome(true); toast('SKYLIGHT: frame ' + (i + 1) + ' on the ceiling above you (PANO: shows the DOME sky)', 2500); drawMixScreen();
-}
+// #600 SNAP SCAN and #601 SKYLIGHT removed (owner): with ROOM SNAP on, a frame carried near a scanned wall or the ceiling sticks to it;
+// a skylight is just a frame (not a doorway) carried up to the ceiling, with TYPE set to PANO
 // #597 playback SPEED: the dome's video pano (PANO tab) and the clips on the VIDEO tab (Cyclo / LED wall, the stream's copy,
 // SCREEN portals). Deck video vinyl is not touched (it follows the platter). 0.25x .. 2x, saved in settings.
 const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -7275,7 +7263,6 @@ function drawToolsPage() {
       [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)],
       [`SCREEN: ${({ cyclo: 'CYCLO', image: 'IMAGE', video: 'VIDEO' })[PS.scrSrc.src] || 'CYCLO'} ⟳`, PS.screenN > 0, pScrStep],   // #589 the one feed every SCREEN frame shows
       [settings.roomSnap !== false ? 'ROOM SNAP: ON' : 'ROOM SNAP: OFF', settings.roomSnap !== false, roomSnapToggle],   // #598 owner: snap can be switched off
-      ['SKYLIGHT', !!(PS.list[PS.edit] && PS.list[PS.edit].snapL === 'ceiling'), portalsSkylight],
       ['FRAME LOOK ›', JSON.stringify(PS.grade) !== JSON.stringify(GRADE0), () => setTools('pgrade')],   // #597 colour-match the frames to the room   // #592 FRAME on the ceiling
       [defArm ? 'TAP AGAIN' : 'DEFAULTS', defArm, portalDefaults],
     ];
@@ -7301,7 +7288,7 @@ function drawToolsPage() {
       btn(x + w - bw, by, bw, bh, '+', false, () => { act(1); drawMixScreen(); });
     };
     const warn = dome.on && !skybox.tex ? 'DOME: no sky picked yet. On VISUALS > PANO pick a panorama or video pano and tap SKY.' : PS.revN && !dome.on ? 'PANO frames show the DOME: turn DOME on.' : '';
-    const help = 'B laser: aim + GRIP = move / turn with the hand (stick = distance), aim + TRIGGER = resize. With ROOM SNAP on, a frame near a scanned wall or ceiling snaps flat onto it. SKYLIGHT puts FRAME on the ceiling. PANO frames show the DOME sky.';
+    const help = 'B laser: aim + GRIP = move / turn with the hand (stick = distance), aim + TRIGGER = resize. With ROOM SNAP on, a frame near a scanned wall or ceiling snaps flat onto it. For a skylight, carry a frame (not a doorway) up to the ceiling and set its TYPE to PANO. PANO frames show the DOME sky.';
     const helpP = 'B laser: GRIP = move, TRIGGER = resize; frames snap to scanned walls. PANO frames show the DOME sky.';   // #585 portrait: short
     const text = (x, y, w, lh, max, fs, hp) => {
       g.textAlign = 'left'; g.font = `500 ${fs}px system-ui`; let n = 0;

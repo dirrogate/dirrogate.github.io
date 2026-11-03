@@ -1906,3 +1906,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #600 SNAP SCAN removed (owner, 3 Nov: 'too complicated')
 - PORTALS SETUP: the SNAP SCAN / SNAP TO SCAN button and portalsSnapScan() are gone; help text updated. Kept: ROOM SNAP toggle (frames snap one at a time while carried), SKYLIGHT, re-pin on scan load, WALL SNAP for props. roomsnap.js unchanged (fit() / byLabel() now unused by main.js).
 - Checked in the owner's PC pane: PORTALS SETUP draws 10 toggles. sw.js v106. No Node restart. Backup backups/pre600/.
+
+## #601 SKYLIGHT removed (owner, 3 Nov: 'technically SKYLIGHT is just a portal that sticks to the ceiling')
+- Confirmed: snapPortal already lets any non-doorway frame stick to the scanned ceiling while carried (doorways: walls and door frames only). SKYLIGHT only added the 'above you' placement, the PANO conversion and DOME on; TYPE = PANO already turns DOME on (stepKind).
+- PORTALS SETUP: SKYLIGHT button, portalsSkylight() and the unused noScan() removed; help says: for a skylight, carry a frame (not a doorway) up to the ceiling and set its TYPE to PANO. Ceiling frames still re-pin on scan load (snapL 'ceiling').
+- Checked in the owner's PC pane: page draws 9 toggles + help. sw.js v107. No Node restart. Backup backups/pre601/.
