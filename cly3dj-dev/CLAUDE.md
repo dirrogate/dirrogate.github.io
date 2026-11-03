@@ -1902,3 +1902,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - roomSnapTick now also reads the scan when WALL SNAP is on and a wall card exists, even with PORTALS off; re-pinning stays portals-only.
 - MOVIE PROPS page: GUIDES and WALL SNAP share a row (GUIDES: ON / OFF, WALL SNAP: ON / OFF; settings.propSnap, default on). Independent of PORTALS SETUP's ROOM SNAP.
 - Checked in the owner's PC pane: app loads, page draws, hook wired (test wall decal removed again). NOT tried on the Quest (needs Passthrough + Space Setup). sw.js v105. No Node restart. Backup backups/pre599/.
+
+## #600 SNAP SCAN removed (owner, 3 Nov: 'too complicated')
+- PORTALS SETUP: the SNAP SCAN / SNAP TO SCAN button and portalsSnapScan() are gone; help text updated. Kept: ROOM SNAP toggle (frames snap one at a time while carried), SKYLIGHT, re-pin on scan load, WALL SNAP for props. roomsnap.js unchanged (fit() / byLabel() now unused by main.js).
+- Checked in the owner's PC pane: PORTALS SETUP draws 10 toggles. sw.js v106. No Node restart. Backup backups/pre600/.

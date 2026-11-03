@@ -1278,23 +1278,7 @@ function snapProp(p) {
   if (p.placeHandles) p.placeHandles();
 }
 function noScan() { toast(arMode && renderer.xr.isPresenting ? 'No room scan yet: run Space Setup on the Quest (mark doors / windows), then re-enter Passthrough' : 'Room snap needs Passthrough on the Quest', 3500); }
-function portalsSnapScan() {   // SNAP TO SCAN: doorways fill scanned door frames, the other non-skylight frames fill window frames
-  if (settings.roomSnap === false) { toast('ROOM SNAP is off: turn it on first', 2500); return; }
-  if (!roomScan || !roomScan.ok) return noScan();
-  const used = new Set(); let n = 0, miss = 0;
-  for (const f of portals.active()) {
-    if (f.snapL === 'ceiling') continue;
-    const want = f.door ? 'door' : 'window'; let best = null, bd = 1e9;
-    for (const e of roomScan.byLabel(want)) { if (used.has(e)) continue; const d = e.o.distanceTo(f.obj.position); if (d < bd) { bd = d; best = e; } }
-    if (!best) { miss++; continue; }
-    used.add(best); roomScan.fit(best, _rsP, _rsQ, _rsH);
-    const cl = v => Math.min(P_HMAX, Math.max(P_HMIN, v)); f.half.set(cl(_rsH.x), cl(_rsH.y)); f._g = null; f._fit();
-    f.obj.position.copy(_rsP); f.obj.quaternion.copy(_rsQ); if (f.door) f._floor(); f.snapL = want; f._sp = best; n++;
-  }
-  portals.save();
-  toast(n ? `SNAP TO SCAN: ${n} frame${n > 1 ? 's' : ''} fitted${miss ? `, ${miss} with no scanned ${miss > 1 ? 'frames' : 'frame'} left` : ''}` : 'No scanned door / window frames match: mark them in Space Setup', 3000);
-  drawMixScreen();
-}
+// #600 SNAP SCAN removed (owner: too complicated); frames still snap one at a time while carried, SKYLIGHT stays
 function portalsSkylight() {   // SKYLIGHT: the frame picked with FRAME goes flat on the ceiling above you, as a PANO window
   if (settings.roomSnap === false) { toast('ROOM SNAP is off: turn it on first', 2500); return; }
   if (!roomScan || !roomScan.ok) return noScan();
@@ -7291,7 +7275,6 @@ function drawToolsPage() {
       [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)],
       [`SCREEN: ${({ cyclo: 'CYCLO', image: 'IMAGE', video: 'VIDEO' })[PS.scrSrc.src] || 'CYCLO'} ⟳`, PS.screenN > 0, pScrStep],   // #589 the one feed every SCREEN frame shows
       [settings.roomSnap !== false ? 'ROOM SNAP: ON' : 'ROOM SNAP: OFF', settings.roomSnap !== false, roomSnapToggle],   // #598 owner: snap can be switched off
-      [P ? 'SNAP TO SCAN' : 'SNAP SCAN', !!(roomScan && roomScan.ok && settings.roomSnap !== false), portalsSnapScan],   // #592 Space Setup door / window frames
       ['SKYLIGHT', !!(PS.list[PS.edit] && PS.list[PS.edit].snapL === 'ceiling'), portalsSkylight],
       ['FRAME LOOK ›', JSON.stringify(PS.grade) !== JSON.stringify(GRADE0), () => setTools('pgrade')],   // #597 colour-match the frames to the room   // #592 FRAME on the ceiling
       [defArm ? 'TAP AGAIN' : 'DEFAULTS', defArm, portalDefaults],
@@ -7318,7 +7301,7 @@ function drawToolsPage() {
       btn(x + w - bw, by, bw, bh, '+', false, () => { act(1); drawMixScreen(); });
     };
     const warn = dome.on && !skybox.tex ? 'DOME: no sky picked yet. On VISUALS > PANO pick a panorama or video pano and tap SKY.' : PS.revN && !dome.on ? 'PANO frames show the DOME: turn DOME on.' : '';
-    const help = 'B laser: aim + GRIP = move / turn with the hand (stick = distance), aim + TRIGGER = resize. With ROOM SNAP on, a frame near a scanned wall or ceiling snaps flat onto it. SNAP SCAN fills Space Setup door / window frames; SKYLIGHT puts FRAME on the ceiling. PANO frames show the DOME sky.';
+    const help = 'B laser: aim + GRIP = move / turn with the hand (stick = distance), aim + TRIGGER = resize. With ROOM SNAP on, a frame near a scanned wall or ceiling snaps flat onto it. SKYLIGHT puts FRAME on the ceiling. PANO frames show the DOME sky.';
     const helpP = 'B laser: GRIP = move, TRIGGER = resize; frames snap to scanned walls. PANO frames show the DOME sky.';   // #585 portrait: short
     const text = (x, y, w, lh, max, fs, hp) => {
       g.textAlign = 'left'; g.font = `500 ${fs}px system-ui`; let n = 0;
