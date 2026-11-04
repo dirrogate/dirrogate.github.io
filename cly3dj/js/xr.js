@@ -128,6 +128,14 @@ export function setupXR(ctx) {
   // Yaw of an orientation about world up (for turning knobs and rotating furniture).
   function yawOf(q) { const x = v1.set(1, 0, 0).applyQuaternion(q); return Math.atan2(-x.z, x.x); }
   function wrap(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
+  // #604 a tick when a deck passes square to the mixer (0 / 90 / 180 / 270 degrees relative to it); it never pulls the deck
+  const _twQ = new THREE.Quaternion(), _twI = new THREE.Quaternion();
+  function alignTick(st, g, obj) {
+    const mx = ctx.MOVABLE.mixer; if (!mx || mx === obj) return;
+    const rel = wrap(obj.rotation.y - mx.rotation.y), q = Math.PI / 2, d = rel - Math.round(rel / q) * q;
+    if (g.alD !== undefined && Math.sign(d) !== Math.sign(g.alD) && Math.abs(d) < 0.05 && Math.abs(g.alD) < 0.05) buzz(st, 0.3, 10);
+    g.alD = d;
+  }
   function handQuat(st, out) {
     if (st.isHand) { const w = joint(st, 'wrist'); if (w) return w.getWorldQuaternion(out); }
     return st.grip.getWorldQuaternion(out);
@@ -392,7 +400,7 @@ export function setupXR(ctx) {
     const lg = ctx.lidGrabTest(P);
     if (lg === 'handle' && ctx.lidShut() && gripOk) {   // #253 carrying the crate = grip
       const g = ctx.MOVABLE.crate;
-      st.direct = { kind: 'move', target: 'crate', stMove: ctx.stage.beginMove('crate'), p0: P.clone(), pos0: g.position.clone(), yaw0: g.rotation.y, hyaw0: yawOf(handQuat(st, q1)) };
+      st.direct = { kind: 'move', target: 'crate', stMove: ctx.stage.beginMove('crate'), p0: P.clone(), pos0: g.position.clone(), yaw0: g.rotation.y, hyaw0: yawOf(handQuat(st, q1)), hq0: handQuat(st, new THREE.Quaternion()) };
       buzz(st); return true;
     }
     if (lg) { ctx.lidGrab(); st.direct = { kind: 'lid', off: ctx.lidOffset(P) }; buzz(st); return true; }
@@ -440,7 +448,7 @@ export function setupXR(ctx) {
       if (ctx.gearLocked && ctx.gearLocked(hit.key)) { ctx.gearLockMsg && ctx.gearLockMsg(); buzz(st, 0.6, 60); return true; }   // #378 GEAR LOCKDOWN: decks and mixer can't be picked up
       const g = ctx.MOVABLE[hit.key];
       if (ctx.flyingMilk && ctx.flyingMilk.has(g)) { ctx.flyingMilk.delete(g); g.rotation.x = 0; g.rotation.z = 0; }   // #200 caught mid-bounce
-      st.direct = { kind: 'move', target: hit.key, stMove: ctx.stage.beginMove(hit.key), p0: P.clone(), pos0: g.position.clone(), yaw0: g.rotation.y, hyaw0: yawOf(handQuat(st, q1)) };
+      st.direct = { kind: 'move', target: hit.key, stMove: ctx.stage.beginMove(hit.key), p0: P.clone(), pos0: g.position.clone(), yaw0: g.rotation.y, hyaw0: yawOf(handQuat(st, q1)), hq0: handQuat(st, new THREE.Quaternion()) };
       buzz(st); return true;
     }
     return false;
@@ -607,8 +615,17 @@ export function setupXR(ctx) {
       const delta = v2.copy(P).sub(g.p0).applyQuaternion(obj.parent.getWorldQuaternion(q1).invert());
       const isCase = !!ctx.cases[g.target];
       obj.position.set(g.pos0.x + delta.x, isCase ? g.pos0.y : Math.max(0, g.pos0.y + delta.y), g.pos0.z + delta.z);
-      obj.rotation.y = g.yaw0 + wrap(yawOf(handQuat(st, q1)) - g.hyaw0);
-      if (ctx.snapYaw && ctx.snapYaw(g.target)) obj.rotation.y = softSnap(g, obj.rotation.y, () => buzz(st, 0.25, 12));   // #385 turntables: free twist, soft pull to each 45 degrees (was #378's ratchet)
+      // #604 (owner: turning a deck to battle mode caught and jumped, hit and miss) the turn is the hand's twist about the
+      // vertical since the grab (swing-twist of the hand's rotation change), not the yaw of one hand axis: that axis goes
+      // near vertical when the wrist rolls or points down, and its yaw then jumped. No pull to fixed angles any more.
+      // Fine twist: the other hand's trigger / pinch (or this controller's trigger while it holds with the grip) = a quarter of the turn.
+      const hq = handQuat(st, q1), dq = _twQ.copy(hq).multiply(_twI.copy(g.hq0).invert());
+      const twist = 2 * Math.atan2(dq.y, dq.w);
+      const gpS = !st.isHand && st.source && st.source.gamepad, ownTrig = st.btn === 'grip' && !!(gpS && gpS.buttons[0] && gpS.buttons[0].pressed);
+      const fine = ctx.snapYaw && ctx.snapYaw(g.target) && (ownTrig || inputs.some(o => o !== st && o.connected && (o.isHand ? !!o.pinching : !!(o.source && o.source.gamepad && o.source.gamepad.buttons[0] && o.source.gamepad.buttons[0].pressed))));
+      if (fine !== !!g.fine) { g.fine = fine; g.yaw0 = obj.rotation.y; g.hq0.copy(hq); buzz(st, fine ? 0.35 : 0.2, 15); }   // re-anchor: no jump when fine mode starts or ends
+      else obj.rotation.y = g.yaw0 + wrap(fine ? 2 * Math.atan2(dq.y, dq.w) * 0.25 : twist);
+      if (ctx.snapYaw && ctx.snapYaw(g.target)) alignTick(st, g, obj);   // a light tick (no pull) when the deck passes square to the mixer
       if (!isCase) ctx.clampStack(g.target);   // #142: crates can't sink into what is under them
       // hand velocity (world), so a milk crate can be tossed (#88)
       const now = performance.now();
