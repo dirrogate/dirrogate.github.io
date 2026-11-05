@@ -4156,7 +4156,7 @@ function pressControl(c, src) { // buttons; returns true if handled (src: who pr
     if (c.id === 'x2') { setPitchRange(d, d.range > 0.1 ? 0.08 : 0.16); return true; }
     if (c.id === 'start') { setMotor(d, !d.motorOn); return true; }
     if (c.id === 'power') { setPower(d, d.power === false); return true; }
-    if (c.id === 'target') { const t = d.g.userData.target; if (t) t.raised = !t.raised; return true; }
+    if (c.id === 'target') { const t = d.g.userData.target; if (!settings.targetLight) { if (t) t.raised = false; toast('TARGET LIGHT is off: turn it on in DJ TOOLS > TURNTABLE FEEL', 2500); return true; } if (t) t.raised = !t.raised; return true; }   // #605
     if (c.id === 'rpm33') { setSpeed(d, 1); return true; }
     if (c.id === 'rpm45') { setSpeed(d, 45 / (100 / 3)); return true; }
     if (c.id === 'arm') { const st = engine.state.decks[d.i]; if (st.needle || d.arm.lift < 0.5) liftNeedle(d, true); else dropNeedleAt(d, 0); return true; }
@@ -6157,6 +6157,11 @@ const FEEL_DEF = {
   grv: { label: 'RECORD GROOVES', lo: 0, hi: 300, v: 100, unit: '%' },       // #455 ring contrast + sheen on the vinyl (looks only, no physics)
 };
 const FEEL = Object.fromEntries(Object.entries(FEEL_DEF).map(([k, r]) => [k, r.v]));
+// #605 MIXER FEEL (DJ TOOLS > MIXER FEEL): knob friction for the controllers / hands (xr.js knob turn); KNOB TWIST is PINCH FIT's kt
+const MIXFEEL_DEF = { kfric: { label: 'KNOB FRICTION', lo: 0, hi: 100, v: 50, unit: '%' } };
+const MIXFEEL = Object.fromEntries(Object.entries(MIXFEEL_DEF).map(([k, r]) => [k, r.v]));
+try { Object.assign(MIXFEEL, JSON.parse(localStorage.getItem('vire.mixfeel') || '{}')); } catch (e) {}
+function setMixFeel(k, v) { MIXFEEL[k] = v; try { localStorage.setItem('vire.mixfeel', JSON.stringify(MIXFEEL)); } catch (e) {} }
 try { Object.assign(FEEL, JSON.parse(localStorage.getItem('vire.feel') || '{}')); } catch (e) {}
 setGrooveK((FEEL.grv != null ? FEEL.grv : 100) / 100);   // #455
 function setFeel(k, v) { FEEL[k] = v; try { localStorage.setItem('vire.feel', JSON.stringify(FEEL)); } catch (e) {} if (k === 'grv') setGrooveK(v / 100); if (k !== 'scr' && k !== 'smooth' && k !== 'even' && k !== 'grv') sendPhysics(); }
@@ -6169,7 +6174,7 @@ const PINCH_FIT_DEF = {
 };
 // #513 the TV's address, from where this page runs (cabin.dirrodj.club/ = the cly3dj-dev folder on Cloudflare; github.io/cly3dj/ ...); no 'https://'
 const venueUrl = () => new URL('venue.html', location.href).href.replace(/[?#].*$/, '').replace(/^https?:\/\//, '');
-const TOOLS_NAME = { card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530
+const TOOLS_NAME = { mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -7394,14 +7399,14 @@ function drawToolsPage() {
     if (P) {
       if (page === 'dj') { const lw = (R - L - 8) * 0.42; btn(L, y0 + 8, R - L - lw - 8, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 22); drawLoopMainBtn(g, R - lw, y0 + 8, lw, 80, 22); VP_HIT.push({ x: R - lw, y: y0 + 8, w: lw, h: 80, act: () => setTools('looper') }); sw(L, y0 + 100, R - L, 64, 'MILK CRATE', 'milk');   // #470 LOOPER
         ctlBtn(L, y0 + 176, (R - L - 8) * 0.62, 64); btn(L + (R - L - 8) * 0.62 + 8, y0 + 176, (R - L - 8) * 0.38, 64, 'HAND FIT', false, () => setTools('handfit'), false, 18);   // #291
-        lockBtn(L, y0 + 252, (R - L - 8) * 0.55, 64); btn(L + (R - L - 8) * 0.55 + 8, y0 + 252, (R - L - 8) * 0.45, 64, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 17);   // #378, #423
+        { const w3 = (R - L - 16) / 3; lockBtn(L, y0 + 252, w3 * 1.1, 64); btn(L + w3 * 1.1 + 8, y0 + 252, w3 * 0.95, 64, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 15); btn(L + w3 * 2.05 + 16, y0 + 252, w3 * 0.95, 64, 'MIXER FEEL', false, () => setTools('mixfeel'), false, 15); }   // #378, #423, #605
         avBtn(L, y0 + 328, (R - L - 8) * 0.38, 64); styleBtn(L + (R - L - 8) * 0.38 + 8, y0 + 328, (R - L - 8) * 0.62, 64);   // #539
-        note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until you switch it off (then decks turn in 45 degree steps). RECORD MAKER: press your own record. MILK CRATE: the first milk crate. CONTROLLERS: 3D hands holding them, or the bare controllers. AVATAR: tap to pick ROBOT, DIRROFACE or DIRROCROW.', y0 + 408); }
+        note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until you switch it off. RECORD MAKER: press your own record. MILK CRATE: the first milk crate. CONTROLLERS: 3D hands holding them, or the bare controllers. AVATAR: tap to pick ROBOT, DIRROFACE or DIRROCROW.', y0 + 408); }
       else vjPage(y0);   // #389
     } else {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
       if (page === 'dj') { const mw = 236, lw = 170; btn(L, y0 + 8, mw, 80, 'RECORD MAKER', false, () => setTools('maker'), false, 22); drawLoopMainBtn(g, L + mw + 8, y0 + 8, lw, 80, 22); VP_HIT.push({ x: L + mw + 8, y: y0 + 8, w: lw, h: 80, act: () => setTools('looper') }); sw(L + mw + lw + 16, y0 + 8, R - (L + mw + lw + 16), 80, 'MILK CRATE', 'milk');   // #470 LOOPER
-        ctlBtn(L, y0 + 96, (R - L - 8) * 0.66, 50); btn(L + (R - L - 8) * 0.66 + 8, y0 + 96, (R - L - 8) * 0.34, 50, 'HAND FIT', false, () => setTools('handfit'), false, 20);   // #291
+        ctlBtn(L, y0 + 96, (R - L - 16) * 0.5, 50); btn(L + (R - L - 16) * 0.5 + 8, y0 + 96, (R - L - 16) * 0.25, 50, 'HAND FIT', false, () => setTools('handfit'), false, 20); btn(L + (R - L - 16) * 0.75 + 16, y0 + 96, (R - L - 16) * 0.25, 50, 'MIXER FEEL', false, () => setTools('mixfeel'), false, 20);   // #291, #605
         { const rw = R - L - 24, xa = L + rw * 0.34 + 8, xb = xa + rw * 0.22 + 8, xc = xb + rw * 0.16 + 8;   // #539 the avatar pair shares this row (the landscape screen is only 304 px tall)
           lockBtn(L, y0 + 154, rw * 0.34, 46); btn(xa, y0 + 154, rw * 0.22, 46, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 18);   // #378, #423
           avBtn(xb, y0 + 154, rw * 0.16, 46); styleBtn(xc, y0 + 154, rw * 0.28, 46); }
@@ -7642,19 +7647,36 @@ function drawToolsPage() {
     }
     return;
   }
+  if (page === 'mixfeel') {   // #605 MIXER FEEL: knob friction + the knob twist (same value as PINCH FIT's KNOB TWIST)
+    const y0 = head('MIXER FEEL', 'dj'); let X = null; try { X = xr; } catch (e) {}
+    const r = MIXFEEL_DEF.kfric, v = MIXFEEL.kfric, kt = X && X.handFit && X.handFit.kt != null ? X.handFit.kt : PINCH_FIT_DEF.kt.v, rk = PINCH_FIT_DEF.kt;
+    const fric = (x, y, w, h) => tSlider(g, x, y, w, h, r.label, (v - r.lo) / (r.hi - r.lo), `${v} %`, f => { setMixFeel('kfric', Math.round(r.lo + f * (r.hi - r.lo))); }, false, 170);
+    const twist = (x, y, w, h) => tSlider(g, x, y, w, h, 'KNOB TWIST', (kt - rk.lo) / (rk.hi - rk.lo), `${kt}°`, f => { if (X) X.setHandFit('kt', Math.round(rk.lo + f * (rk.hi - rk.lo))); }, !X, 170);
+    const reset = () => { setMixFeel('kfric', r.v); if (X) X.setHandFit('kt', rk.v); drawMixScreen(); };
+    const txt = 'KNOB FRICTION: how much the knobs resist small movements. From rest your wrist turns a little before a knob lets go, tracking jitter is ignored and the turn is eased. 0 % = as loose as before. KNOB TWIST: wrist turn for a knob from 0 to full (more = finer). No haptics on knobs, only a small click when PAN comes back to the centre.';
+    if (P) { fric(L, y0, R - L, 46); twist(L, y0 + 52, R - L, 46); btn(L, y0 + 108, R - L, 40, 'RESET', false, reset); note(txt, y0 + 168); }
+    else { fric(L, y0, R - L, 34); twist(L, y0 + 40, R - L, 34); btn(L, y0 + 82, 170, 32, 'RESET', false, reset, false, 14); note(txt, y0 + 136); }
+    return;
+  }
   if (page === 'feel') {   // #423 (owner) TURNTABLE FEEL sliders, preset to the current physics
     const y0 = head('TURNTABLE FEEL', 'dj'), D = FEEL_DEF, keys = Object.keys(D);
     const row = (k, x, y, w, h) => { const r = D[k], v = FEEL[k]; tSlider(g, x, y, w, h, r.label, (v - r.lo) / (r.hi - r.lo), `${v} ${r.unit}`, f => setFeel(k, Math.round(r.lo + f * (r.hi - r.lo))), false, 170); };
     const reset = () => { for (const k of keys) setFeel(k, D[k].v); drawMixScreen(); };
+    // #605 TARGET LIGHT: the pop-up lamp lights the platter only when enabled here (off by default: no accidental lamp while performing)
+    const tlBtn = (x, y, w, h, fs) => btn(x, y, w, h, settings.targetLight ? 'TARGET LIGHT: ENABLED' : 'TARGET LIGHT: OFF', !!settings.targetLight, () => {
+      settings.targetLight = !settings.targetLight; saveSettings();
+      if (!settings.targetLight) for (const d of decks) { const t = d.g.userData.target; if (t) t.raised = false; }
+      toast(settings.targetLight ? 'TARGET LIGHT enabled: press the lamp on a deck to raise it' : 'TARGET LIGHT off: the lamps stay down', 2200); drawMixScreen(); }, false, fs);
     if (P) {
       keys.forEach((k, i) => row(k, L, y0 + i * 52, R - L, 46));
-      const yb = y0 + keys.length * 52 + 4; btn(L, yb, R - L, 40, 'RESET TO AS BUILT', false, reset);
+      const yb = y0 + keys.length * 52 + 4; btn(L, yb, (R - L - 8) / 2, 40, 'RESET TO AS BUILT', false, reset, false, 15); tlBtn(L + (R - L) / 2 + 4, yb, (R - L - 8) / 2, 40, 15);   // #605
       note('Drag a bar. 100 % = the physics as built. PLATTER FRICTION: slipmat grip. SCRATCH & DRAG: record turn per hand turn (100 % = 1:1). RADIUS EVEN-OUT: every touch point moves the record like the outer edge (0 % = true vinyl). HAND SMOOTHING: filters tracking jitter on the record. SPINDLE TWIST: pinch on the spindle. NUDGE: finger on the platter rim.', yb + 58);
     } else {
       const bw = 170;   // one bar per row, full width; RESET under the label column
       keys.forEach((k, i) => row(k, L, y0 + i * 31, R - L, 28));   // #424 / #455 seven bars
       btn(L, y0 + keys.length * 31 + 2, bw, 30, 'RESET TO AS BUILT', false, reset, false, 14);
-      g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('100 % = as built.  RADIUS EVEN-OUT 0 % = true vinyl.  RECORD GROOVES = ring contrast and sheen.', L + bw + 12, y0 + keys.length * 31 + 17); g.textBaseline = 'alphabetic';
+      tlBtn(L + bw + 8, y0 + keys.length * 31 + 2, 220, 30, 14);   // #605
+      g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; fitText2(g, '100 % = as built.  RADIUS EVEN-OUT 0 % = true vinyl.  GROOVES = ring contrast and sheen.', L + bw + 236, y0 + keys.length * 31 + 17, R - (L + bw + 236)); g.textBaseline = 'alphabetic';
     }
     return;
   }
@@ -8457,7 +8479,7 @@ if (!CAMERA_ROLE) {
 const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or controllers to drive
   get mprops() { return mprops; },   // #479
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
-  stage, cases, resizeCase, deckGroups, clampStack, settleStack, gearLocked, gearLockMsg, snapYaw: isDeckKey,   // #378
+  stage, cases, resizeCase, deckGroups, clampStack, settleStack, gearLocked, gearLockMsg, snapYaw: isDeckKey, mixFeel: () => MIXFEEL, targetLightOn: () => !!settings.targetLight,   // #605   // #378
   REC, DECK, CRATE, ARM,
   castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : []), ...(mprops ? mprops.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
