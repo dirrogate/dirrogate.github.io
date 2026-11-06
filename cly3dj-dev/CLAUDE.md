@@ -1944,4 +1944,5 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Remote tablet interface: `ACID` button added as the last button on the bottom row of the mixer menu (pulsing state indicator). Tapping opens full-screen TB-303 panel (`tb303_panel.png`) with photorealistic turnable knob cutouts (TUNING, CUTOFF, RESONANCE, ENV MOD, DECAY, ACCENT, TEMPO, VOLUME/POWER), working RUN/STOP button and pulsing LED, pattern selector keys with active LEDs, live keyboard key auditioning, and top navigation header (`MAIN MENU`, `PREVIEW`, `◀ BACK`) drawn over the clean top chassis allowing continuous acid playback while navigating other tablet pages.
 - Power knob OFF behavior: rotating the TB-303 VOLUME knob counter-clockwise to OFF stops the synth and automatically exits back to the main tablet remote menu.
 - `sw.js` bumped to `v111` with `acid-worklet.js` and `tb303_*.png` assets added to cache.
+- REC MASTER moved to Deck A display top right; ACID button placed prominently where REC MASTER was at the bottom right.
 

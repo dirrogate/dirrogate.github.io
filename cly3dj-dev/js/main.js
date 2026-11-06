@@ -8224,6 +8224,8 @@ function drawMixScreen() {
     // (keep clear of the silver corner L: #202 it is top-left when held +x edge up, bottom-right the other way)
     const TOP = 76, ph = (H - TOP - 12) / 2, w = 120, h = 40, y = 28;
     for (const d of decks) drawDeckPanel(g, d, 6, TOP + d.i * (ph + 6), W - 12, ph, true);
+    // Gemini_acid: REC MASTER moved to top right of Deck A display in portrait
+    drawRecMaster(g, W - 14 - 110, TOP + 6, 110, 28, 14);
     const bw = 80, vw = 84, vx = W - 14 - bw - 6 - vw;   // #363 BACK top right, VISUALS left of it
     drawTopBtn(g, W - 14 - bw, y, bw, h, '◀ BACK', false, !navCan(), 18);
     if (navCan()) SP_HIT.push({ x: W - 14 - bw - 3, y: y - 8, w: bw + 9, h: h + 16, act: navBack });
@@ -8238,15 +8240,18 @@ function drawMixScreen() {
     SP_HIT.push({ x: 14, y: H - 60, w: 74, h: 52, act: () => setTools('home') });
     drawResetMix(g, 90, H - 52, 82, 36);   // #254
     drawLoopMainBtn(g, 178, H - 52, 48, 36, 14); SP_HIT.push({ x: 175, y: H - 60, w: 54, h: 52, act: () => setTools('looper') });   // #470
-    // Gemini_acid: ACID button on portrait bottom bar
-    drawTopBtn(g, 232, H - 52, W - 20 - 232, 36, 'ACID', acidUI.running, false, 15);
+    // Gemini_acid: ACID button on portrait bottom bar right
+    drawTopBtn(g, 232, H - 52, W - 20 - 232, 36, acidUI.running ? '● ACID' : 'ACID', acidUI.running, false, 15);
     SP_HIT.push({ x: 229, y: H - 60, w: W - 20 - 226, h: 52, act: () => setTools('acid') });
     drawPin(g, W - 26 - 150, H - 142, 150, 34);   // #210 (#470: above the button rows, LOOP took its place)
-    drawRecMaster(g, 20, H - 142, 160, 34, 15);   // #598 left of GEAR HERE
     scr().commit(); return;
   }
   for (const d of decks) drawDeckPanel(g, d, d.i ? W / 2 + 6 : 6, 6, W / 2 - 12, H - 12, false);
   drawPin(g, W - 14 - 120, H - 82, 120, 30);   // #210 (#470 narrower: LOOP joined the bottom bar; #598 up above the bar, REC MASTER took its place)
+  { // Gemini_acid: REC MASTER moved to Deck A display top right
+    const w = 120, h = 28, y = 12, x = W / 2 - 14 - w;
+    drawRecMaster(g, x, y, w, h, 15);
+  }
   { // #185 VIDEO: deck B's top row (was the #176 LED WALL switch, which is on the Video page now)
     const w = 108, h = 28, y = 12, bw = 96, bx = W - 14 - bw, x = bx - 8 - w;   // #202 clear of the corner L; #363 BACK at the right, VISUALS left of it
     drawTopBtn(g, bx, y, bw, h, '◀ BACK', false, !navCan(), 18);
@@ -8264,9 +8269,8 @@ function drawMixScreen() {
     tb('DIRROVJ', !!(S && S.stu.on), () => setTools('studio'), !S, 80);
     tb('CYCLO ⁺¹', ledMode !== 'off', () => setTools('wall'), false, 72);   // #439, #537 the CYCLO page, one tap from the mixer
     drawLoopMainBtn(g, x, y, 74, h, 17); SP_HIT.push({ x: x - 3, y: y - 8, w: 80, h: h + 14, act: () => setTools('looper') }); x += 74 + gap;   // #470 LOOP: state colour, opens the LOOPER page
-    drawRecMaster(g, x, y, 130, h, 15); x += 130 + gap;   // #598
-    // Gemini_acid: ACID button as the last button on the bottom row of the mixer menu
-    tb('ACID', acidUI.running, () => setTools('acid'), false, 68);
+    // Gemini_acid: ACID button placed where REC MASTER currently was at the bottom right
+    tb(acidUI.running ? '● ACID' : 'ACID', acidUI.running, () => setTools('acid'), false, 116);
     if (testState.fps) {   // #258 live frame rate (kept for the console: window.vire)
       const st = fpsStats(); g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '700 15px system-ui';
       g.fillStyle = !st ? '#8c96a8' : st.drops > 3 ? '#ff5050' : st.drops ? '#f1b650' : '#40d080';
