@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v112';   // #606 Gemini_acid: TB-303 alignment, PSD cutouts, hitzones & header refinement
+const CACHE = 'vire-app-v113';   // #606 Gemini_acid: TB-303 knob rotation ranges (±150°), header kerning & stacked black status
+// v112:  // #606 Gemini_acid: TB-303 alignment, PSD cutouts, hitzones & header refinement
 // v111:  // #606 Roland TB-303 analog acid synth, presets & tablet interface
 // v110:  // #605 MIXER FEEL (knob friction), TARGET LIGHT toggle
 // v89:   // #573 HOLO bus source (Holodancer)

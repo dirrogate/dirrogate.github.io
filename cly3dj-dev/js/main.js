@@ -6655,13 +6655,14 @@ function drawAcidPage(T) {
   }
 
   // Gemini_acid: Top Navigation Bar over the top chassis (CV/GATE area)
-  // Per user request: remove background stickers and reduce font by ~15% (14 -> 12px, 13 -> 11px)
+  // Kerning tightened and moved into top-right margin so it stays entirely above the graphic divider line and away from Accent lettering
   {
-    const navY = P ? 28 : (oy + 6);
-    const navH = 26;
-    const bw = P ? 66 : 74;
-    const pvw = P ? 72 : 82;
-    const mw = P ? 84 : 96;
+    const navY = P ? 28 : (oy + 3);
+    const navH = 16;
+    const bw = P ? 56 : 50;
+    const pvw = P ? 60 : 54;
+    const mw = P ? 72 : 66;
+    const gap = 4;
     let nx = P ? R : (ox + dw - 12);
 
     const acidNavBtn = (x, y, w, h, label, on, act, fs) => {
@@ -6672,20 +6673,25 @@ function drawAcidPage(T) {
       g.fillStyle = on ? '#15803d' : '#22262e';
       g.fillText(label, x + w / 2, y + h / 2);
       g.restore();
-      if (act) VP_HIT.push({ x, y, w, h, act });
+      if (act) VP_HIT.push({ x: x - 2, y: y - 2, w: w + 4, h: h + 4, act });
     };
 
-    acidNavBtn(nx - bw, navY, bw, navH, '◀ BACK', false, navCan() ? navBack : () => setTools(null), 12);
-    acidNavBtn(nx - bw - 6 - pvw, navY, pvw, navH, 'PREVIEW', monOn, () => setMonitor(!monOn), 11);
-    acidNavBtn(nx - bw - 12 - pvw - mw, navY, mw, navH, 'MAIN MENU', false, () => setTools(null), 12);
+    acidNavBtn(nx - bw, navY, bw, navH, '◀ BACK', false, navCan() ? navBack : () => setTools(null), 11);
+    acidNavBtn(nx - bw - gap - pvw, navY, pvw, navH, 'PREVIEW', monOn, () => setMonitor(!monOn), 11);
+    acidNavBtn(nx - bw - gap - pvw - gap - mw, navY, mw, navH, 'MAIN MENU', false, () => setTools(null), 11);
 
-    // Clean status readout on the left of the top nav header (avoids overlapping Roland logo or chassis text)
+    // Status readout: reduced font by 25% (9px), black font (#111), stacked with BPM and Preset under RUN
+    // Sits cleanly in the top-left margin above MIX IN / WAVEFORM / Roland logo
     g.save();
-    g.font = '700 12px system-ui';
+    g.font = '700 9px system-ui';
     g.textAlign = 'left';
-    g.textBaseline = 'middle';
-    g.fillStyle = acidUI.running ? '#15803d' : '#555b68';
-    g.fillText(`${acidUI.running ? '● RUN' : '■ STOP'} · ${acidUI.tempo} BPM · P${acidUI.pattern + 1} (${ACID_PATTERN_NAMES[acidUI.pattern].split(' (')[0]})`, ox + 14 * sx, navY + navH / 2);
+    g.fillStyle = '#111111';
+    const rx0 = ox + 14 * sx;
+    // Line 1: RUN / STOP
+    g.fillText(acidUI.running ? '● RUN' : '■ STOP', rx0, navY + 4);
+    // Line 2: BPM and Preset name under RUN
+    const pName = (ACID_PATTERN_NAMES[acidUI.pattern] || '').split(' (')[0];
+    g.fillText(`${acidUI.tempo} BPM · P${acidUI.pattern + 1} (${pName})`, rx0, navY + 14);
     g.restore();
   }
 
@@ -6722,7 +6728,7 @@ function drawAcidPage(T) {
     VP_HIT.push(hit);
   };
 
-  // 1. The 6 Small Knobs (-135 deg to +135 deg)
+  // 1. The 6 Small Knobs (-150 deg to +150 deg, spanning all 11 dial dots)
   // Exact centers from PSD: cy = 104.5 (tuning 496, cutoff 617, reso 737, envMod 858, decay 981, accent 1102)
   const smallKnobs = [
     { name: 'tuning', cx: 496.0,  cy: 104.5, val: acidUI.tuning, set: v => { acidUI.tuning = v; engine.setAcidParam('tuning', v); } },
@@ -6733,22 +6739,22 @@ function drawAcidPage(T) {
     { name: 'accent', cx: 1102.0, cy: 104.5, val: acidUI.accent, set: v => { acidUI.accent = v; engine.setAcidParam('accent', v); } }
   ];
   for (const sk of smallKnobs) {
-    rotKnob(acidImgs.knobSmall, sk.cx, sk.cy, 42, sk.val, -135, 135, sk.name, v => { sk.set(v); drawMixScreen(); });
+    rotKnob(acidImgs.knobSmall, sk.cx, sk.cy, 42, sk.val, -150, 150, sk.name, v => { sk.set(v); drawMixScreen(); });
   }
 
-  // 2. TEMPO Knob: 80 to 180 BPM
+  // 2. TEMPO Knob: 80 to 180 BPM (-150 deg SLOW to +150 deg FAST)
   // Exact center from PSD: cx = 250.0, cy = 301.5
   const tempoNorm = (acidUI.tempo - 80) / 100;
-  rotKnob(acidImgs.knobTempo, 250.0, 301.5, 60, tempoNorm, -135, 135, 'tempo', v => {
+  rotKnob(acidImgs.knobTempo, 250.0, 301.5, 60, tempoNorm, -150, 150, 'tempo', v => {
     acidUI.tempo = Math.round(80 + v * 100);
     engine.setAcidParam('bpm', acidUI.tempo);
     drawMixScreen();
   });
 
-  // 3. VOLUME Knob (CUE Bus):
+  // 3. VOLUME Knob (CUE Bus): (-150 deg OFF to +150 deg MAX)
   // Exact center from PSD: cx = 1434.5, cy = 300.0
   // Per user request: removed erratic "switch off" so Volume acts as a smooth volume control
-  rotKnob(acidImgs.knobVol, 1434.5, 300.0, 60, acidUI.cueVol, -135, 135, 'vol', v => {
+  rotKnob(acidImgs.knobVol, 1434.5, 300.0, 60, acidUI.cueVol, -150, 150, 'vol', v => {
     acidUI.cueVol = v;
     engine.setAcidCueVol(v);
     drawMixScreen();
