@@ -602,6 +602,9 @@ export function makeMixer() {
       }
       addKnob('loop.vol', x + 0.033, 0.006, 0xff8a40, 0.008);
       label('LOOP VOL', x + 0.033, -0.0065, 0.0024);
+      // Gemini_acid: ACID VOL knob directly above LOOP VOL in Deck B column (sends to MASTER bus)
+      addKnob('acid.vol', x + 0.033, -0.022, 0x40ff90, 0.0075);
+      label('ACID VOL', x + 0.033, -0.0335, 0.0022);
     }
     layout.slots.push({ x, z: 0.104, w: 0.0035, d: 0.066 });
     layout.faderScales.push({ x: x + (x < 0 ? 0.013 : -0.013), z0: 0.076, z1: 0.132 });

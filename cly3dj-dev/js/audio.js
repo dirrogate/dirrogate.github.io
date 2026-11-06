@@ -95,6 +95,17 @@ export class AudioEngine {
       this.loopGain.push(lg);
     }
     this.setLoopVol(this._loopVol ?? 0.8);
+
+    // Gemini_acid: Roland TB-303 synthesis worklet & dual bus routing (CUE bus vs MASTER bus)
+    await ctx.audioWorklet.addModule(new URL('./acid-worklet.js', import.meta.url));
+    this.acidNode = new AudioWorkletNode(ctx, 'vire-acid', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+    this.acidNode.port.onmessage = e => { if (this.onAcid) this.onAcid(e.data); };
+    this.acidCueGain = ctx.createGain(); this.acidCueGain.gain.value = 0.8;
+    this.acidMasterGain = ctx.createGain(); this.acidMasterGain.gain.value = 0.0;
+    this.acidNode.connect(this.acidCueGain).connect(this.cueBus);
+    this.acidNode.connect(this.acidMasterGain).connect(this.masterBus);
+    if (this._acidMasterVol !== undefined) this.setAcidMasterVol(this._acidMasterVol);
+    if (this._acidCueVol !== undefined) this.setAcidCueVol(this._acidCueVol);
   }
 
   resume() { return this.ctx && this.ctx.state !== 'running' ? this.ctx.resume() : Promise.resolve(); }
@@ -132,6 +143,14 @@ export class AudioEngine {
     const g = Math.pow(v / 0.8, 2);
     for (const n of this.loopGain) this._ramp(n.gain, g);
   }
+  // Gemini_acid: TB-303 volume routing & synth controls
+  setAcidCueVol(v) { this._acidCueVol = v; if (this.acidCueGain) this._ramp(this.acidCueGain.gain, v * v); }
+  setAcidMasterVol(v) { this._acidMasterVol = v; if (this.acidMasterGain) this._ramp(this.acidMasterGain.gain, v * v * 1.2); }
+  setAcidRun(on) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'run', value: !!on }); }
+  setAcidPattern(idx) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'pattern', value: idx }); }
+  setAcidParam(key, value) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'param', key, value }); }
+  acidNoteOn(note, accent) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'noteOn', note, accent }); }
+  acidNoteOff() { if (this.acidNode) this.acidNode.port.postMessage({ type: 'noteOff' }); }
   // mask = [bool, bool]: the channels to sample (the ones with CUE on); looperPlay() ends the sample and loops it
   looperRec(mask) { if (this.looper) this.looper.port.postMessage({ type: 'rec', mask }); }
   looperPlay() { if (this.looper) this.looper.port.postMessage({ type: 'play' }); }

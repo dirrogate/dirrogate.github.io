@@ -164,6 +164,13 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 
 ## Status (29 Oct — Gemini_flash8_)
 
+- Gemini_acid (#606, Phase 1):
+  - **Gemini_acid Roland TB-303 analog acid synthesizer, presets & tablet interface (#606):**
+    - High-fidelity analog-modeled discrete-time TB-303 synthesizer AudioWorklet (`acid-worklet.js`) featuring bandlimited PolyBLEP Sawtooth and asymmetric Square oscillators, 4-pole non-linear saturated diode ladder filter (`tanh` feedback clipping), ~60ms slide portamento, and snappy accent response (boosted gain, increased cutoff spike, shortened decay).
+    - 4 Goa trance acid sequence presets assigned to Pattern Keys 1–4 ("Astral Drive" 142 BPM, "Hallucinogenic Squelch" 144 BPM, "Juno Hypnosis" 140 BPM, "Acperience Euphoria" 145 BPM).
+    - Dual volume bus audio routing: TB-303 panel VOLUME knob feeds `cueBus` only (private headphone audition/cueing); main mixer `ACID VOL` knob (positioned directly above `LOOP VOL` on Deck B column) feeds `masterBus` (live stream & audience).
+    - Remote tablet interface: `ACID` button added as the last button on the bottom row of the mixer menu (pulsing state indicator). Tapping opens full-screen TB-303 panel (`tb303_panel.png`) with photorealistic turnable knob cutouts (TUNING, CUTOFF, RESONANCE, ENV MOD, DECAY, ACCENT, TEMPO, VOLUME/POWER), working RUN/STOP button and pulsing LED, pattern selector keys with active LEDs, live keyboard key auditioning, and top navigation header (`MAIN MENU`, `PREVIEW`, `◀ BACK`) drawn over the clean top chassis allowing continuous acid playback while navigating other tablet pages.
+    - Power knob OFF behavior: rotating the TB-303 VOLUME knob counter-clockwise to OFF stops the synth and automatically exits back to the main tablet remote menu.
 - Gemini_flash8_ (#537, in `cly3dj-dev`, waiting for the owner's go before copying to `cly3dj`):
   - **Gemini_flash8_ Rename LED / LED WALL to CYCLO across UI (#537):** Renamed all user-facing `LED`, `LED WALL`, and `LED CLIP` labels, buttons, notes and toasts across the app to `CYCLO` (`main.js`, `vjdesk.html`, `index.html`, `spectator-client.js`, `dirrogram.html`, `dirrogram.js`). Mixer modes display `CYCLO OFF`, `CYCLO CLIPS`, `CYCLO VIDVINYL`, `CYCLO MANDEL`, etc., header and navigation shortcuts are `CYCLO` and `CYCLO ⁺¹`, playlist controls are `CYCLO NOW`, `+ CYCLO`, `CYCLO LIST`, and VJ Desk A/B monitors display `CYCLO`.
   - **Gemini_flash8_ Remove MR GUI from tablet remote mixer screen (#537):** Safely removed the spectator AR debug/viewfinder button `MR GUI` from Deck A's top row in both portrait and landscape orientations (`main.js`), decluttering the mixer interface.

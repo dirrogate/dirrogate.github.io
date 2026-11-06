@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v110';   // #605 MIXER FEEL (knob friction), TARGET LIGHT toggle
+const CACHE = 'vire-app-v111';   // #606 Gemini_acid: Roland TB-303 analog acid synth, presets & tablet interface
+// v110:  // #605 MIXER FEEL (knob friction), TARGET LIGHT toggle
 // v89:   // #573 HOLO bus source (Holodancer)
 // v88:   // #564 SOFT RIM rim / face controls
 // v87:   // #563 grabs into the banks, bank right-click menu
@@ -31,12 +32,12 @@ const CACHE = 'vire-app-v110';   // #605 MIXER FEEL (knob friction), TARGET LIGH
 const NET_WAIT = 2500, OFFLINE_HOLD = 30000;
 const APP = [
   'index.html', 'spectator.html', 'dirrovj.html', 'vjdesk.html', 'venue.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png',
-  ...['artfetch', 'loopbank', 'inklabel', 'whiteboard', 'audio', 'beat', 'bump-worker', 'camtest', 'chat', 'deck-glb', 'deck-inst', 'deck-worklet', 'decode-worker', 'director', 'env', 'fakelight', 'fixedcam', 'fixlook',
+  ...['artfetch', 'acid-worklet', 'loopbank', 'inklabel', 'whiteboard', 'audio', 'beat', 'bump-worker', 'camtest', 'chat', 'deck-glb', 'deck-inst', 'deck-worklet', 'decode-worker', 'director', 'env', 'fakelight', 'fixedcam', 'fixlook',
     'facetwall', 'flightcase', 'fx', 'dirro-host', 'dirrogram', 'wallfx', 'wallfx-worker', 'gopro', 'laser', 'realdepth', 'camfit', 'id3', 'layout', 'ledwall', 'library', 'lookmatch', 'main', 'medialib', 'merge', 'mic-worklet', 'models', 'movieprops', 'neon', 'net-link',
     'keycol', 'neonenv', 'pcampack', 'perfcap', 'sleeves', 'phonelib', 'portal', 'robot', 'robot2', 'skybox', 'spectator-client', 'spectator-host', 'spectator', 'storage', 'stream', 'studio', 'vjdesk', 'dancer', 'dancerdesk', 'holodesk', 'holoplayer', 'comics', 'cxfiles', 'storyboard', 'rgbdgrab', 'recmaster', 'rec-worklet', 'textures', 'tools', 'venue', 'videovinyl', 'vset', 'xr'].map(n => `js/${n}.js`),
   ...['flight_case_kit', 'flight_case_kit_ktx', 'milk_crate', 'milk_crate_ktx', 'mixer_parts', 'neon_sign_glass', 'neon_sign_glass_ktx',
     'record_crate', 'record_crate_ktx', 'turntable', 'avatar/robot', 'avatar/avatar_robot', 'avatar/avatar_robot_v2', 'avatar/dirroface', 'avatar/dirrocrow'].map(n => `models/${n}.glb`),
-  'img/dirrocomics-mark.png', 'img/sky_factory.jpg', 'models/avatar/gemini_emboss.png', 'models/slipmat_left.jpg', 'models/slipmat_right.jpg', 'models/turntable_ao.json', 'models/turntable_ao.png',
+  'img/dirrocomics-mark.png', 'img/sky_factory.jpg', 'img/tb303_panel.png', 'img/tb303_knob_small.png', 'img/tb303_knob_tempo.png', 'img/tb303_knob_volume.png', 'models/avatar/gemini_emboss.png', 'models/slipmat_left.jpg', 'models/slipmat_right.jpg', 'models/turntable_ao.json', 'models/turntable_ao.png',
   'vendor/three/three.module.js', 'vendor/qrcode/qrcode.mjs', 'dirrogram.html', 'retroscene.png', 'mattes/matte1.mp4', 'vendor/three/OrbitControls.js', 'vendor/three/RoomEnvironment.js',
   'vendor/three/loaders/GLTFLoader.js', 'vendor/three/loaders/KTX2Loader.js', 'vendor/three/utils/BufferGeometryUtils.js', 'vendor/three/utils/WorkerPool.js',
   'vendor/three/libs/meshopt_decoder.module.js', 'vendor/three/math/SimplexNoise.js',   // #548 DANCER (desk)

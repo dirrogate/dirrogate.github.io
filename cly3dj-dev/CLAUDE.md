@@ -1936,3 +1936,12 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - TURNTABLE FEEL: TARGET LIGHT: OFF / ENABLED (settings.targetLight, default off). Off: the lamp head isn't a grab target (xr.js grab test skipped, so the trigger goes to whatever else is there), pressControl 'target' sinks it and toasts where to enable it; switching off lowers both lamps. Landscape: next to RESET TO AS BUILT; portrait: half of the RESET row.
 - DJ TOOLS portrait note no longer says decks turn in 45 degree steps (#604).
 - Checked in the owner's PC pane: DJ TOOLS, MIXER FEEL, TURNTABLE FEEL in landscape and portrait. NOT tried on the Quest (the feel itself). sw.js v110. No Node restart. Backup backups/pre605/.
+
+## #606 Roland TB-303 analog acid synthesizer, presets & tablet interface (owner, 7 Nov)
+- Gemini_acid: high-fidelity analog-modeled discrete-time TB-303 synthesizer AudioWorklet (`acid-worklet.js`) featuring bandlimited PolyBLEP Sawtooth and asymmetric Square oscillators, 4-pole non-linear saturated diode ladder filter (`tanh` feedback clipping), ~60ms slide portamento, and snappy accent response (boosted gain, increased cutoff spike, shortened decay).
+- 4 Goa trance acid sequence presets assigned to Pattern Keys 1–4 ("Astral Drive" 142 BPM, "Hallucinogenic Squelch" 144 BPM, "Juno Hypnosis" 140 BPM, "Acperience Euphoria" 145 BPM).
+- Dual volume bus audio routing: TB-303 panel VOLUME knob feeds `cueBus` only (private headphone audition/cueing); main mixer `ACID VOL` knob (positioned directly above `LOOP VOL` on Deck B column, `z = -0.022`) feeds `masterBus` (live stream & audience).
+- Remote tablet interface: `ACID` button added as the last button on the bottom row of the mixer menu (pulsing state indicator). Tapping opens full-screen TB-303 panel (`tb303_panel.png`) with photorealistic turnable knob cutouts (TUNING, CUTOFF, RESONANCE, ENV MOD, DECAY, ACCENT, TEMPO, VOLUME/POWER), working RUN/STOP button and pulsing LED, pattern selector keys with active LEDs, live keyboard key auditioning, and top navigation header (`MAIN MENU`, `PREVIEW`, `◀ BACK`) drawn over the clean top chassis allowing continuous acid playback while navigating other tablet pages.
+- Power knob OFF behavior: rotating the TB-303 VOLUME knob counter-clockwise to OFF stops the synth and automatically exits back to the main tablet remote menu.
+- `sw.js` bumped to `v111` with `acid-worklet.js` and `tb303_*.png` assets added to cache.
+
