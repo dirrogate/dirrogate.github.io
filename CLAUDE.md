@@ -1942,12 +1942,12 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - 4 Goa trance acid sequence presets assigned to Pattern Keys 1–4 ("Astral Drive" 142 BPM, "Hallucinogenic Squelch" 144 BPM, "Juno Hypnosis" 140 BPM, "Acperience Euphoria" 145 BPM).
 - Dual volume bus audio routing: TB-303 panel VOLUME knob feeds `cueBus` only (private headphone audition/cueing); main mixer `ACID VOL` knob (positioned directly above `LOOP VOL` on Deck B column, `z = -0.022`) feeds `masterBus` (live stream & audience).
 - Remote tablet interface: `ACID` button added as the last button on the bottom row of the mixer menu (pulsing state indicator). Tapping opens full-screen TB-303 panel (`tb303_panel.png`) with photorealistic turnable knob cutouts (TUNING, CUTOFF, RESONANCE, ENV MOD, DECAY, ACCENT, TEMPO, VOLUME), working RUN/STOP button and pulsing LED, pattern selector keys with active LEDs, live keyboard key auditioning, and top navigation header (`MAIN MENU`, `PREVIEW`, `◀ BACK`) drawn over the clean top chassis allowing continuous acid playback while navigating other tablet pages.
-- `sw.js` bumped to `v113` with `acid-worklet.js` and `tb303_*.png` assets added to cache.
+- `sw.js` bumped to `v114` with updated `tb303_panel.png` and `main.js`.
 - REC MASTER moved to Deck A display top right; ACID button placed prominently where REC MASTER was at the bottom right.
-- PSD asset integration & precision alignment: cutouts and cleaned panel extracted directly from `tb303_panel_and_knobs.psd` with exact centers and non-uniform canvas scaling (`scale(sx, sy)`).
+- PSD asset integration & precision alignment: cutouts and cleaned panel extracted directly from `tb303_panel_and_knobs.psd` with exact centers and non-uniform canvas scaling (`scale(sx, sy)`). Updated `tb303_panel.png` synced to dev.
 - Full extent dial sweeps: adjusted rotation angles to full hardware span ($\pm 150^\circ$) across all knobs. Small knobs now hit all 11 dial dots, Tempo sweeps full 80–180 BPM (SLOW to FAST) without 50% truncation, and Volume reaches POWER SW OFF to MAX with zero notch shortfall.
 - Accurate physical hitzones: RUN/STOP at `x:[72..178], y:[592..658]`, LED at `(125, 569)`, WAVEFORM at `x:[305..385], y:[28..72]`, and Pattern keys 1..4 at `y:[590..658]`.
 - Top navigation header refinement: `MAIN MENU`, `PREVIEW`, and `◀ BACK` kerned tightly ($4$ px gap) and positioned at $y=3..19$, staying entirely above the graphic divider line and over 60px clear of the Accent knob lettering.
-- Stacked black status typography: reduced font by ~25% (9px), black font (`#111`), with BPM and preset name stacked cleanly directly under RUN/STOP in the top-left margin avoiding chassis silkscreen overlaps.
+- Clean black status typography: RUN text line removed from top left (redundant with pulsing hardware LED); BPM and preset name preserved at top-left margin in crisp black font (`#111`, 9px) above MIX IN.
 - Removed erratic switch-off from Volume knob (smooth CUE volume control).
 

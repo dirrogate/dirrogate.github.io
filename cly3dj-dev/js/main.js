@@ -6680,16 +6680,12 @@ function drawAcidPage(T) {
     acidNavBtn(nx - bw - gap - pvw, navY, pvw, navH, 'PREVIEW', monOn, () => setMonitor(!monOn), 11);
     acidNavBtn(nx - bw - gap - pvw - gap - mw, navY, mw, navH, 'MAIN MENU', false, () => setTools(null), 11);
 
-    // Status readout: reduced font by 25% (9px), black font (#111), stacked with BPM and Preset under RUN
-    // Sits cleanly in the top-left margin above MIX IN / WAVEFORM / Roland logo
+    // Status readout: BPM and Preset name in top-left margin (black font, 9px)
     g.save();
     g.font = '700 9px system-ui';
     g.textAlign = 'left';
     g.fillStyle = '#111111';
     const rx0 = ox + 14 * sx;
-    // Line 1: RUN / STOP
-    g.fillText(acidUI.running ? '● RUN' : '■ STOP', rx0, navY + 4);
-    // Line 2: BPM and Preset name under RUN
     const pName = (ACID_PATTERN_NAMES[acidUI.pattern] || '').split(' (')[0];
     g.fillText(`${acidUI.tempo} BPM · P${acidUI.pattern + 1} (${pName})`, rx0, navY + 14);
     g.restore();
