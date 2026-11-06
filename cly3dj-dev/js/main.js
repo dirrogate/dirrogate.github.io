@@ -6634,7 +6634,7 @@ const ACID_PATTERN_NAMES = [
 ];
 
 function drawAcidPage(T) {
-  const { g, W, H, P, L, R, btn, head, note } = T;
+  const { g, W, H, P, L, R, head, note } = T;
   VP_HIT.length = 0;
 
   // Background panel: draw base panel image
@@ -6654,7 +6654,8 @@ function drawAcidPage(T) {
     g.fillText('LOADING TB-303...', W / 2, H / 2);
   }
 
-  // Gemini_acid: Top Navigation Bar over the cleaned "CV GATE HEADPHONE OUTPUT DC9V" area
+  // Gemini_acid: Top Navigation Bar over the top chassis (CV/GATE area)
+  // Per user request: remove background stickers and reduce font by ~15% (14 -> 12px, 13 -> 11px)
   {
     const navY = P ? 28 : (oy + 6);
     const navH = 26;
@@ -6663,27 +6664,50 @@ function drawAcidPage(T) {
     const mw = P ? 84 : 96;
     let nx = P ? R : (ox + dw - 12);
 
-    btn(nx - bw, navY, bw, navH, '◀ BACK', false, navCan() ? navBack : () => setTools(null), false, 14);
-    btn(nx - bw - 6 - pvw, navY, pvw, navH, 'PREVIEW', monOn, () => setMonitor(!monOn), false, 13);
-    btn(nx - bw - 12 - pvw - mw, navY, mw, navH, 'MAIN MENU', false, () => setTools(null), false, 14);
+    const acidNavBtn = (x, y, w, h, label, on, act, fs) => {
+      g.save();
+      g.font = `700 ${fs}px system-ui`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillStyle = on ? '#15803d' : '#22262e';
+      g.fillText(label, x + w / 2, y + h / 2);
+      g.restore();
+      if (act) VP_HIT.push({ x, y, w, h, act });
+    };
+
+    acidNavBtn(nx - bw, navY, bw, navH, '◀ BACK', false, navCan() ? navBack : () => setTools(null), 12);
+    acidNavBtn(nx - bw - 6 - pvw, navY, pvw, navH, 'PREVIEW', monOn, () => setMonitor(!monOn), 11);
+    acidNavBtn(nx - bw - 12 - pvw - mw, navY, mw, navH, 'MAIN MENU', false, () => setTools(null), 12);
+
+    // Clean status readout on the left of the top nav header (avoids overlapping Roland logo or chassis text)
+    g.save();
+    g.font = '700 12px system-ui';
+    g.textAlign = 'left';
+    g.textBaseline = 'middle';
+    g.fillStyle = acidUI.running ? '#15803d' : '#555b68';
+    g.fillText(`${acidUI.running ? '● RUN' : '■ STOP'} · ${acidUI.tempo} BPM · P${acidUI.pattern + 1} (${ACID_PATTERN_NAMES[acidUI.pattern].split(' (')[0]})`, ox + 14 * sx, navY + navH / 2);
+    g.restore();
   }
 
   // Helper for drawing and interacting with turnable knobs
+  // Knobs are rendered with translate + scale(sx, sy) + rotate(angRad) so they match the panel holes with 100% precision
   const rotKnob = (img, cx, cy, rad, val, minDeg, maxDeg, id, onChange) => {
-    const kx = ox + cx * sx, ky = oy + cy * sy, kr = Math.round(rad * Math.min(sx, sy));
+    const kx = ox + cx * sx, ky = oy + cy * sy;
     const deg = minDeg + val * (maxDeg - minDeg);
     const angRad = deg * Math.PI / 180;
 
     if (img && img.complete && img.naturalWidth) {
       g.save();
       g.translate(kx, ky);
+      g.scale(sx, sy);
       g.rotate(angRad);
-      g.drawImage(img, -kr, -kr, kr * 2, kr * 2);
+      g.drawImage(img, -rad, -rad, rad * 2, rad * 2);
       g.restore();
     }
 
+    const krx = rad * sx, kry = rad * sy;
     const hit = {
-      x: kx - kr - 4, y: ky - kr - 4, w: (kr + 4) * 2, h: (kr + 4) * 2,
+      x: kx - krx - 8, y: ky - kry - 8, w: (krx + 8) * 2, h: (kry + 8) * 2,
       drag: true,
       act: (px, py) => {
         if (hit._pressY === undefined || screenHold !== null) {
@@ -6699,52 +6723,48 @@ function drawAcidPage(T) {
   };
 
   // 1. The 6 Small Knobs (-135 deg to +135 deg)
+  // Exact centers from PSD: cy = 104.5 (tuning 496, cutoff 617, reso 737, envMod 858, decay 981, accent 1102)
   const smallKnobs = [
-    { name: 'tuning', cx: 497, cy: 120, val: acidUI.tuning, set: v => { acidUI.tuning = v; engine.setAcidParam('tuning', v); } },
-    { name: 'cutoff', cx: 619, cy: 120, val: acidUI.cutoff, set: v => { acidUI.cutoff = v; engine.setAcidParam('cutoff', v); } },
-    { name: 'reso',   cx: 739, cy: 120, val: acidUI.reso,   set: v => { acidUI.reso = v; engine.setAcidParam('resonance', v); } },
-    { name: 'envMod', cx: 861, cy: 121, val: acidUI.envMod, set: v => { acidUI.envMod = v; engine.setAcidParam('envMod', v); } },
-    { name: 'decay',  cx: 983, cy: 121, val: acidUI.decay,  set: v => { acidUI.decay = v; engine.setAcidParam('decay', v); } },
-    { name: 'accent', cx: 1105, cy: 121, val: acidUI.accent, set: v => { acidUI.accent = v; engine.setAcidParam('accent', v); } }
+    { name: 'tuning', cx: 496.0,  cy: 104.5, val: acidUI.tuning, set: v => { acidUI.tuning = v; engine.setAcidParam('tuning', v); } },
+    { name: 'cutoff', cx: 617.0,  cy: 105.5, val: acidUI.cutoff, set: v => { acidUI.cutoff = v; engine.setAcidParam('cutoff', v); } },
+    { name: 'reso',   cx: 737.0,  cy: 103.5, val: acidUI.reso,   set: v => { acidUI.reso = v; engine.setAcidParam('resonance', v); } },
+    { name: 'envMod', cx: 858.0,  cy: 104.5, val: acidUI.envMod, set: v => { acidUI.envMod = v; engine.setAcidParam('envMod', v); } },
+    { name: 'decay',  cx: 981.0,  cy: 104.5, val: acidUI.decay,  set: v => { acidUI.decay = v; engine.setAcidParam('decay', v); } },
+    { name: 'accent', cx: 1102.0, cy: 104.5, val: acidUI.accent, set: v => { acidUI.accent = v; engine.setAcidParam('accent', v); } }
   ];
   for (const sk of smallKnobs) {
-    rotKnob(acidImgs.knobSmall, sk.cx, sk.cy, 36, sk.val, -135, 135, sk.name, v => { sk.set(v); drawMixScreen(); });
+    rotKnob(acidImgs.knobSmall, sk.cx, sk.cy, 42, sk.val, -135, 135, sk.name, v => { sk.set(v); drawMixScreen(); });
   }
 
   // 2. TEMPO Knob: 80 to 180 BPM
+  // Exact center from PSD: cx = 250.0, cy = 301.5
   const tempoNorm = (acidUI.tempo - 80) / 100;
-  rotKnob(acidImgs.knobTempo, 258, 361, 58, tempoNorm, -135, 135, 'tempo', v => {
+  rotKnob(acidImgs.knobTempo, 250.0, 301.5, 60, tempoNorm, -135, 135, 'tempo', v => {
     acidUI.tempo = Math.round(80 + v * 100);
     engine.setAcidParam('bpm', acidUI.tempo);
     drawMixScreen();
   });
 
-  // 3. VOLUME / POWER SW OFF Knob:
-  // Turning all the way counter-clockwise to OFF (<= 0.03) powers off and exits back to main tablet remote menu!
-  // Turning above 0.03 routes to CUE bus only.
-  rotKnob(acidImgs.knobVol, 1443, 357, 58, acidUI.cueVol, -135, 135, 'vol', v => {
-    if (v <= 0.03) {
-      acidUI.cueVol = 0;
-      acidUI.running = false;
-      engine.setAcidRun(false);
-      engine.setAcidCueVol(0);
-      screenDrag = null;
-      setTools(null); // Gemini_acid: Power off: exits back to main remote tablet menu!
-      toast('TB-303 Power Off', 1500);
-    } else {
-      acidUI.cueVol = v;
-      engine.setAcidCueVol(v);
-      drawMixScreen();
-    }
+  // 3. VOLUME Knob (CUE Bus):
+  // Exact center from PSD: cx = 1434.5, cy = 300.0
+  // Per user request: removed erratic "switch off" so Volume acts as a smooth volume control
+  rotKnob(acidImgs.knobVol, 1434.5, 300.0, 60, acidUI.cueVol, -135, 135, 'vol', v => {
+    acidUI.cueVol = v;
+    engine.setAcidCueVol(v);
+    drawMixScreen();
   });
 
-  // 4. WAVEFORM Switch (Sawtooth / Square) next to Roland logo at (155, 52)
+  // 4. WAVEFORM Switch (Sawtooth / Square) next to Roland logo at x:[305..385], y:[28..72]
   {
-    const wx = ox + 120 * sx, wy = oy + 36 * sy, ww = 60 * sx, wh = 34 * sy;
-    g.fillStyle = acidUI.waveform === 0 ? 'rgba(40, 255, 120, 0.25)' : 'rgba(255, 180, 40, 0.25)';
-    g.strokeStyle = acidUI.waveform === 0 ? '#40ff80' : '#ffb020';
-    g.lineWidth = 1.5;
-    g.beginPath(); g.roundRect ? g.roundRect(wx, wy, ww, wh, 4) : g.rect(wx, wy, ww, wh); g.fill(); g.stroke();
+    const wx = ox + 305 * sx, wy = oy + 28 * sy, ww = 80 * sx, wh = 44 * sy;
+    // Highlight indicator over selected waveform icon
+    const indX = acidUI.waveform === 0 ? (ox + 326 * sx) : (ox + 365 * sx);
+    const indY = oy + 38 * sy;
+    g.save();
+    g.fillStyle = acidUI.waveform === 0 ? '#10b981' : '#f59e0b';
+    g.beginPath(); g.arc(indX, indY, 4 * sx, 0, Math.PI * 2); g.fill();
+    g.restore();
+
     VP_HIT.push({
       x: wx, y: wy, w: ww, h: wh,
       act: () => {
@@ -6756,12 +6776,14 @@ function drawAcidPage(T) {
     });
   }
 
-  // 5. RUN / STOP Button at [60..179, 734..789]
+  // 5. RUN / STOP Button at physical graphic position x:[72..178], y:[592..658]
   {
-    const rx = ox + 60 * sx, ry = oy + 734 * sy, rw = 120 * sx, rh = 56 * sy;
+    const rx = ox + 72 * sx, ry = oy + 592 * sy, rw = 106 * sx, rh = 66 * sy;
     if (acidUI.running) {
-      g.fillStyle = 'rgba(255, 40, 40, 0.18)';
+      g.save();
+      g.fillStyle = 'rgba(255, 40, 40, 0.20)';
       g.fillRect(rx, ry, rw, rh);
+      g.restore();
     }
     VP_HIT.push({
       x: rx, y: ry, w: rw, h: rh,
@@ -6774,50 +6796,50 @@ function drawAcidPage(T) {
     });
   }
 
-  // 6. RUN / BATTERY LED at (110, 686)
+  // 6. RUN / BATTERY LED at exact lens center cx=125.0, cy=569.0
   {
-    const lx = ox + 110 * sx, ly = oy + 686 * sy;
+    const lx = ox + 125.0 * sx, ly = oy + 569.0 * sy;
     const on = acidUI.running;
     g.save();
-    g.beginPath(); g.arc(lx, ly, 6 * sx, 0, Math.PI * 2);
     if (on) {
-      const gr = g.createRadialGradient(lx, ly, 0, lx, ly, 8 * sx);
+      const gr = g.createRadialGradient(lx, ly, 0, lx, ly, 9 * sx);
       gr.addColorStop(0, '#ffffff');
-      gr.addColorStop(0.3, '#ff2222');
+      gr.addColorStop(0.35, '#ff2222');
       gr.addColorStop(1, 'rgba(255, 0, 0, 0)');
       g.fillStyle = gr;
-      g.beginPath(); g.arc(lx, ly, 8 * sx, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(lx, ly, 9 * sx, 0, Math.PI * 2); g.fill();
       g.fillStyle = '#ff2211';
     } else {
       g.fillStyle = '#3a0808';
     }
-    g.beginPath(); g.arc(lx, ly, 3.5 * sx, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(lx, ly, 4 * sx, 0, Math.PI * 2); g.fill();
     g.restore();
   }
 
   // 7. Pattern Keys 1 to 4 and LEDs
+  // Exact positions on panel: white keys row y:[590..658], LEDs at y=568..569
   const pattKeys = [
-    { idx: 0, x0: 390, x1: 449, lx: 414, ly: 679 },
-    { idx: 1, x0: 475, x1: 534, lx: 501, ly: 686 },
-    { idx: 2, x0: 565, x1: 624, lx: 594, ly: 681 },
-    { idx: 3, x0: 650, x1: 709, lx: 682, ly: 685 }
+    { idx: 0, x0: 388, x1: 440, lx: 414.0, ly: 569.0 },
+    { idx: 1, x0: 477, x1: 529, lx: 503.0, ly: 568.0 },
+    { idx: 2, x0: 567, x1: 619, lx: 593.0, ly: 569.0 },
+    { idx: 3, x0: 655, x1: 707, lx: 681.0, ly: 568.0 }
   ];
   for (const pk of pattKeys) {
-    const kx = ox + pk.x0 * sx, kw = (pk.x1 - pk.x0) * sx, ky = oy + 710 * sy, kh = 70 * sy;
+    const kx = ox + pk.x0 * sx, kw = (pk.x1 - pk.x0) * sx, ky = oy + 590 * sy, kh = 68 * sy;
     const isSel = acidUI.pattern === pk.idx;
 
-    // Pattern LED
+    // Pattern LED at exact lens center
     const lx = ox + pk.lx * sx, ly = oy + pk.ly * sy;
     g.save();
     if (isSel) {
-      const gr = g.createRadialGradient(lx, ly, 0, lx, ly, 7 * sx);
-      gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.4, '#ff2222'); gr.addColorStop(1, 'rgba(255, 0, 0, 0)');
-      g.fillStyle = gr; g.beginPath(); g.arc(lx, ly, 7 * sx, 0, Math.PI * 2); g.fill();
+      const gr = g.createRadialGradient(lx, ly, 0, lx, ly, 8 * sx);
+      gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.35, '#ff2222'); gr.addColorStop(1, 'rgba(255, 0, 0, 0)');
+      g.fillStyle = gr; g.beginPath(); g.arc(lx, ly, 8 * sx, 0, Math.PI * 2); g.fill();
       g.fillStyle = '#ff1e11';
     } else {
       g.fillStyle = '#3a0808';
     }
-    g.beginPath(); g.arc(lx, ly, 3.2 * sx, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(lx, ly, 3.8 * sx, 0, Math.PI * 2); g.fill();
     g.restore();
 
     // Hitbox for pattern selection
@@ -6833,28 +6855,31 @@ function drawAcidPage(T) {
   }
 
   // 8. 1-Octave Keyboard Keys Live Play (Audition / Jamming)
+  // White keys y:[590..658], Black keys y:[488..554]
   const kbNotes = [
-    { n: 36, x0: 390, x1: 449, y0: 710, y1: 779 }, // C
-    { n: 37, x0: 430, x1: 475, y0: 550, y1: 670 }, // C#
-    { n: 38, x0: 475, x1: 534, y0: 710, y1: 779 }, // D
-    { n: 39, x0: 520, x1: 565, y0: 550, y1: 670 }, // D#
-    { n: 40, x0: 565, x1: 624, y0: 710, y1: 779 }, // E
-    { n: 41, x0: 650, x1: 709, y0: 710, y1: 779 }, // F
-    { n: 42, x0: 700, x1: 745, y0: 550, y1: 670 }, // F#
-    { n: 43, x0: 735, x1: 794, y0: 710, y1: 779 }, // G
-    { n: 44, x0: 790, x1: 835, y0: 550, y1: 670 }, // G#
-    { n: 45, x0: 825, x1: 884, y0: 710, y1: 779 }, // A
-    { n: 46, x0: 875, x1: 920, y0: 550, y1: 670 }, // A#
-    { n: 47, x0: 910, x1: 969, y0: 710, y1: 779 }, // B
-    { n: 48, x0: 995, x1: 1054, y0: 710, y1: 779 } // C (high)
+    { n: 36, x0: 388, x1: 440, y0: 590, y1: 658 }, // C (Pattern 1)
+    { n: 37, x0: 436, x1: 484, y0: 488, y1: 554 }, // C#
+    { n: 38, x0: 477, x1: 529, y0: 590, y1: 658 }, // D (Pattern 2)
+    { n: 39, x0: 525, x1: 573, y0: 488, y1: 554 }, // D#
+    { n: 40, x0: 567, x1: 619, y0: 590, y1: 658 }, // E (Pattern 3)
+    { n: 41, x0: 655, x1: 707, y0: 590, y1: 658 }, // F (Pattern 4)
+    { n: 42, x0: 702, x1: 750, y0: 488, y1: 554 }, // F#
+    { n: 43, x0: 745, x1: 797, y0: 590, y1: 658 }, // G
+    { n: 44, x0: 791, x1: 839, y0: 488, y1: 554 }, // G#
+    { n: 45, x0: 834, x1: 886, y0: 590, y1: 658 }, // A
+    { n: 46, x0: 880, x1: 928, y0: 488, y1: 554 }, // A#
+    { n: 47, x0: 923, x1: 975, y0: 590, y1: 658 }, // B
+    { n: 48, x0: 1012, x1: 1064, y0: 590, y1: 658 } // C (high)
   ];
   for (const kn of kbNotes) {
     const kx = ox + kn.x0 * sx, kw = (kn.x1 - kn.x0) * sx, ky = oy + kn.y0 * sy, kh = (kn.y1 - kn.y0) * sy;
     if (acidUI.activeKey === kn.n) {
+      g.save();
       g.fillStyle = 'rgba(70, 180, 255, 0.45)';
       g.fillRect(kx, ky, kw, kh);
+      g.restore();
     }
-    // For black keys and higher white keys that aren't pattern selectors 1..4:
+    // Black keys and upper white keys (G, A, B, High C) trigger live audition notes:
     if (kn.n > 41 || (kn.n % 12 === 1 || kn.n % 12 === 3 || kn.n % 12 === 6 || kn.n % 12 === 8 || kn.n % 12 === 10)) {
       VP_HIT.push({
         x: kx, y: ky, w: kw, h: kh,
@@ -6870,17 +6895,6 @@ function drawAcidPage(T) {
         }
       });
     }
-  }
-
-  // Readout badge at bottom-right of panel
-  {
-    const bx = ox + 18 * sx, by = oy + 28 * sy;
-    g.fillStyle = 'rgba(10, 12, 16, 0.75)';
-    g.fillRect(bx, by, 160 * sx, 20 * sy);
-    g.fillStyle = '#40ff80'; g.font = `700 ${Math.round(11 * Math.min(sx, sy) + 4)}px monospace`;
-    g.textAlign = 'left'; g.textBaseline = 'middle';
-    g.fillText(`${acidUI.running ? '● PLAY' : '■ STOP'} ${acidUI.tempo} BPM P${acidUI.pattern + 1}`, bx + 4, by + 10 * sy);
-    g.textBaseline = 'alphabetic';
   }
 }
 
