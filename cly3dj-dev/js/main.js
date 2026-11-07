@@ -1414,7 +1414,7 @@ for (const sc of [mixScreen, mixScreenP]) { const c0 = sc.commit.bind(sc); sc.co
 onRelayFallback((what, how) => { tabletNote(`NTFY.SH FALLBACK · ${what}`, 6000); toast(`${what}: handshake ${how} via ntfy.sh (backup relay; relay.dirrodj.club hub not reached)`, 6000); });
 const vpPer = () => (scrDir === 'up' ? (vpFolder === 'Pano' || vpFolder === 'Video' ? 4 : 8) : vpFolder === 'Pano' ? 6 : vpFolder === 'Video' ? 8 : 10);   // #596 / #597 room for the bars   // #596 landscape PANO: one row, the TURN / EXPOSURE bars under it   // #379 portrait PANO: 4 rows, the PANO SPIN slider under them   // thumbnails a page on the Video page (#206 portrait: 5 rows, a third tab row)
 function stepScrDir() {
-  const dir = tabletDir(scrDir); if (dir === scrDir) return;
+  const dir = toolsPage === 'acid' ? 'up' : tabletDir(scrDir); if (dir === scrDir) return;   // #607 owner: the ACID page is landscape only
   scrDir = dir;
   if (dir !== 'up') mixScreenP.texture.rotation = dir === 'px' ? -Math.PI / 2 : Math.PI / 2;
   const m = mixer.userData.screen.material; m.map = scr().texture; m.needsUpdate = true;
@@ -1794,7 +1794,7 @@ let syncAnim = null;
 let syncFlash = { t: 0, color: 'blue' };
 let splitCue = false;
 const cueOn = [false, false];
-let acidCueOn = false;   // Gemini_acid: ACID CUE toggle on mixer (routes TB-03 to cueBus when on, masterBus when off)
+let acidCueOn = false;   // Gemini_acid: ACID CUE on the mixer. #607 a normal pre-listen: adds the TB-03 to the cue bus, master untouched
 
 // mixer control values (0..1, 0.5 neutral) and defaults
 const MIXDEF = {
@@ -1813,7 +1813,7 @@ function applyMix(id) {
   if (id === 'mic.pitch') return engine.setMicPitch(v);
   if (id === 'hpmix') return engine.setHpMix(v);   // #334
   if (id === 'loop.vol') return engine.setLoopVol(v);   // LOOPER
-  if (id === 'acid.vol') return engine.setAcidVol(v);   // Gemini_acid: ACID volume (master or cue bus depending on acidCueOn)
+  if (id === 'acid.vol') return engine.setAcidVol(v);   // Gemini_acid: ACID VOL = the TB-03's channel fader into the master (#607)
   const [ch, what] = id.split('.'); const i = ch === 'A' ? 0 : 1;
   if (what === 'trim') engine.setTrim(i, v);
   else if (what === 'hi' || what === 'mid' || what === 'low') engine.setEQ(i, what, v);
@@ -1823,7 +1823,7 @@ function applyMix(id) {
 }
 function mixLabel(id) {
   const v = mixVal[id];
-  if (id === 'acid.vol') return `Acid ${acidCueOn ? 'Cue' : 'Master'} Vol ${v < 0.01 ? 'off' : Math.round(v * 100) + '%'}`; // Gemini_acid
+  if (id === 'acid.vol') return `Acid Vol ${v < 0.01 ? 'off' : Math.round(v * 100) + '%'}${acidCueOn ? ' (CUE on)' : ''}`; // Gemini_acid; #607 one fader into the master, like a deck
   const [ch, what] = id.includes('.') ? id.split('.') : ['', id];
   const pre = ch ? ch + ' ' : '';
   switch (what) {
@@ -1848,7 +1848,6 @@ function mixLabel(id) {
     case 'vol': return `Loop volume ${v < 0.01 ? 'off' : Math.round(20 * Math.log10(Math.pow(v / 0.8, 2) + 1e-9)) + ' dB'} (the loop then goes through that channel's EQ and filter)`;   // LOOPER
     case 'xfader': return `Crossfader ${v < -0.02 ? 'A ' + Math.round(-v * 100) : v > 0.02 ? 'B ' + Math.round(v * 100) : 'centre'}`;
   }
-  if (id === 'acid.vol') return `Acid Master Vol ${v < 0.01 ? 'off' : Math.round(v * 100) + '%'}`; // Gemini_acid
   return id;
 }
 function updateMixVisual(id) {
@@ -4173,7 +4172,7 @@ function pressControl(c, src) { // buttons; returns true if handled (src: who pr
     if (id === 'splitcue') { splitCue = !splitCue; engine.setSplitCue(splitCue); toast(splitCue ? 'Split cue: master left ear, cue right ear' : 'Split cue off'); return true; }
     if (id === 'bpmtap') { handleBpmTap(src || 'mouse'); return true; }
     if (id.endsWith('.beat1')) { tapBeat1(decks[id[0] === 'B' ? 1 : 0], src || 'mouse'); return true; }
-    if (id === 'acid.cue') { acidCueOn = !acidCueOn; engine.setAcidCue(acidCueOn); toast(acidCueOn ? 'ACID CUE: routed to headphone cue bus' : 'ACID CUE off: routed to master bus', 1600); return true; }   // Gemini_acid: toggle TB-03 between cueBus and masterBus
+    if (id === 'acid.cue') { acidCueOn = !acidCueOn; engine.setAcidCue(acidCueOn); toast(acidCueOn ? 'ACID CUE on: TB-03 in the headphones (pre-fader), master unchanged' : 'ACID CUE off', 1600); if (toolsPage === 'acid') drawMixScreen(); return true; }   // Gemini_acid; #607 pre-listen like a deck CUE, never mutes the master
     if (id.endsWith('.cue')) { const i = id[0] === 'A' ? 0 : 1; cueOn[i] = !cueOn[i]; engine.setCue(i, cueOn[i]); return true; }
   }
   return false;
@@ -4202,6 +4201,15 @@ engine.onLooper = m => {
   if (m.state === 'empty') { if (m.short) loopSay('LOOP: too short, nothing sampled', 1800); }
   else if (m.state === 'play' && looper.recEnding) { looper.recEnding = false; toast(`LOOP ${looper.len.toFixed(2)} s${looper.len >= 29.9 ? ' (30 s full)' : ''}: playing`, 2000); }
   if (toolsPage === 'looper') drawMixScreen();
+};
+// #607 the synth starts with its own defaults (120 BPM, other delay settings); send it what the page shows, once it exists
+engine.onAcidReady = () => {
+  const P = { bpm: acidUI.tempo, tuning: acidUI.tuning, cutoff: acidUI.cutoff, resonance: acidUI.reso, envMod: acidUI.envMod, decay: acidUI.decay,
+    accent: acidUI.accent, overdrive: acidUI.overdrive, delayTime: acidUI.delayTime, delayFeedback: acidUI.delayFeedback, waveform: acidUI.waveform, transpose: acidUI.transpose };
+  for (const k in P) engine.setAcidParam(k, P[k]);
+  engine.setAcidTrackMode(acidUI.mode <= 1); engine.setAcidTrack(acidUI.trackIdx); engine.setAcidPattern(acidUI.pattern);
+  engine.setAcidVol(mixVal['acid.vol'] ?? 0.8); engine.setAcidCue(acidCueOn);
+  if (acidUI.running) engine.setAcidRun(true);
 };
 // Gemini_acid: connect audio engine worklet step message for TB-03 LED pulse & track bar sync
 engine.onAcid = m => {
@@ -5761,7 +5769,7 @@ function readout(d, st) {
 // #222 long press on the tablet (trigger / pinch / fingertip held 0.6 s): on a VIDEO page thumbnail it offers delete
 let screenHold = null, holdSeq = 0, vpDel = null;
 let screenDrag = null;   // #422 the slider being dragged on the tablet
-function mixScreenRelease() { screenHold = null; screenDrag = null; }
+function mixScreenRelease() { const d = screenDrag; screenHold = null; screenDrag = null; if (d && d.release) { d.release(); drawMixScreen(); } }   // #607 detented knobs step on a tap's release
 function scrUvPx(uv) { const c = scr().canvas; return [(scrDir === 'px' ? 1 - uv.y : scrDir === 'nx' ? uv.y : uv.x) * c.width, (scrDir === 'px' ? 1 - uv.x : scrDir === 'nx' ? uv.x : 1 - uv.y) * c.height]; }
 function mixScreenDrag(uv) {   // #422 finger still on the screen (XR) / mouse held (desktop): a grabbed slider follows it
   if (!screenDrag || !uv) return; const [px, py] = scrUvPx(uv);
@@ -5906,7 +5914,7 @@ function setTools(p) {
   if (p === 'pcamcrop') setTools.fitIv = setInterval(() => { if (toolsPage === 'pcamcrop') drawMixScreen(); }, 200);
   if (p === 'props') setTools.fitIv = setInterval(() => { if (toolsPage === 'props') drawMixScreen(); }, 700);   // #478 prop list / names
   if (p === 'looper') setTools.fitIv = setInterval(() => { if (toolsPage === 'looper') drawMixScreen(); }, 100);   // #470 playhead, REC clock, armed blink
-  if (p === 'acid') setTools.fitIv = setInterval(() => { if (toolsPage === 'acid' && acidUI.running) drawMixScreen(); }, 80);   // Gemini_acid: TB-303 LED pulse refresh
+  // #607 the ACID page redraws on the synth's step messages only (the 80 ms timer here drew it twice as often for nothing)
   if (p === 'perfcap') setTools.fitIv = setInterval(() => { if (toolsPage === 'perfcap') drawMixScreen(); }, 1000);   // #387 the clock and size
   if (p === 'studiokey') setTools.fitIv = setInterval(() => { if (toolsPage === 'studiokey') drawMixScreen(); }, 400);   // #385 the S8 KEY numbers and preview   // #353 the CROP picture, ~5 a second
   if (p !== 'kbd') { try { if (document.activeElement === sysKbInput) sysKbInput.blur(); } catch (e) {} }   // #387
@@ -6608,6 +6616,14 @@ function drawPropsPage(T) {
   });
 }
 
+// #607 LED glow as one pre-made sprite (canvas shadowBlur on every lit LED, every redraw, was costly on the Quest)
+const acidGlowSpr = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d');
+  const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,120,70,0.9)'); gr.addColorStop(0.35, 'rgba(255,40,10,0.5)'); gr.addColorStop(1, 'rgba(255,20,0,0)');
+  x.fillStyle = gr; x.fillRect(0, 0, 64, 64); return c;
+})();
+const acidGlow = (g, cx, cy, rx, ry = rx) => g.drawImage(acidGlowSpr, cx - rx, cy - ry, rx * 2, ry * 2);
 // Gemini_acid: Roland Boutique TB-03 image assets, state, 7-segment LED display, and page renderer
 const acidImgs = {
   panel: new Image(),
@@ -6748,12 +6764,10 @@ function drawAcid7SegDisplay(g, ox, oy, sx, sy, chars, dotIdx) {
     g.moveTo(pts[0][0], pts[0][1]);
     for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
     g.closePath();
-    if (lit) {
-      g.shadowColor = '#ff2200';
-      g.shadowBlur = 6 * sx;
+    if (lit) {   // #607 a soft wide stroke under the fill instead of shadowBlur
+      g.strokeStyle = 'rgba(255, 40, 0, 0.28)'; g.lineWidth = 4 * sx; g.lineJoin = 'round'; g.stroke();
       g.fillStyle = '#ff3b14';
       g.fill();
-      g.shadowBlur = 0;
     } else {
       g.fillStyle = '#260604';
       g.fill();
@@ -6813,11 +6827,9 @@ function drawAcid7SegDisplay(g, ox, oy, sx, sy, chars, dotIdx) {
     g.beginPath();
     g.arc(dpx, dpy, h * 1.15, 0, Math.PI * 2);
     if (dpLit) {
-      g.shadowColor = '#ff2200';
-      g.shadowBlur = 5 * sx;
       g.fillStyle = '#ff4418';
       g.fill();
-      g.shadowBlur = 0;
+      acidGlow(g, dpx, dpy, h * 3);   // #607
     } else {
       g.fillStyle = '#260604';
       g.fill();
@@ -6881,8 +6893,7 @@ function drawAcidPage(T) {
     const rx0 = ox + 18 * sx;
     const pCode = acidUI.mode <= 1 ? `TR-${acidUI.trackIdx + 1} (Bar ${acidUI.bar + 1} · P${acidPatternCode(acidUI.pattern)})` : `P${acidPatternCode(acidUI.pattern)}`;
     const trStr = acidUI.transpose !== 0 ? ` · ${acidUI.transpose > 0 ? '+' : ''}${acidUI.transpose}st` : '';
-    const routeStr = acidCueOn ? 'CUE BUS' : 'MASTER BUS';
-    g.fillText(`${acidUI.tempo.toFixed(1)} BPM · ${pCode}${trStr} · [${routeStr}]`, rx0, navY + 12);
+    g.fillText(`${acidUI.tempo.toFixed(1)} BPM · ${pCode}${trStr}${acidCueOn ? ' · [CUE ON]' : ''}`, rx0, navY + 12);   // #607 master always on
     g.restore();
   }
 
@@ -6952,7 +6963,7 @@ function drawAcidPage(T) {
   // 3. TRACK / PATT. GROUP 7-Position Detented Selector Knob (cx=510, cy=270, rad=36)
   // Positions 0..6 correspond to Track 1..7 or Pattern Group I (0,1), II (2,3), III (4,5), IV (6)
   {
-    const trackAngles = [-30, 0, 45, 90, 135, 180, 210];
+    const trackAngles = [0, 26, 54, 90, 127, 154, 180];   // #607 measured on tb-03.png: the knob image's notch points left (at '1') at 0 deg
     drawKnobSprite(acidImgs.knobTrack, 510.0, 270.0, 36.0, trackAngles[acidUI.pattGroup] || 0);
     const kx = ox + 510.0 * sx, ky = oy + 270.0 * sy, krx = 36.0 * sx, kry = 36.0 * sy;
     const hit = {
@@ -6961,11 +6972,16 @@ function drawAcidPage(T) {
       act: (px, py) => {
         if (hit._pressY === undefined || screenHold !== null) {
           hit._pressY = py;
-          hit._pressPos = acidUI.pattGroup;
+          hit._pressPos = acidUI.pattGroup; hit._moved = false;
+          return;   // #607 a touch alone no longer steps it (that happens on release, if it didn't move)
         }
         const dy = hit._pressY - py;
-        let nPos = Math.round(hit._pressPos + dy / 18);
-        if ( Math.abs(dy) < 4 && screenHold !== null ) nPos = (acidUI.pattGroup + 1) % 7;
+        if (Math.abs(dy) >= 4) hit._moved = true;
+        if (!hit._moved) return;
+        hit.go(Math.round(hit._pressPos + dy / 18));   // #607 drag up = clockwise
+      },
+      release: () => { if (!hit._moved) hit.go((acidUI.pattGroup + 1) % 7); },   // #607 tap = next position
+      go: nPos => {
         nPos = Math.max(0, Math.min(6, nPos));
         if (nPos !== acidUI.pattGroup) {
           acidUI.pattGroup = nPos;
@@ -6993,7 +7009,7 @@ function drawAcidPage(T) {
   // 4. MODE 4-Position Detented Selector Knob (cx=725, cy=270, rad=35)
   // 0: TRACK WRITE, 1: TRACK PLAY, 2: PATTERN PLAY, 3: PATTERN WRITE
   {
-    const modeAngles = [0, 18, 38, 62];
+    const modeAngles = [-60, -12, 8, 30];   // #607 measured on tb-03.png: the knob image's notch points upper right (about -30 deg) at 0
     const modeNames = ['TRACK WRITE', 'TRACK PLAY', 'PATTERN PLAY', 'PATTERN WRITE'];
     drawKnobSprite(acidImgs.knobMode, 725.0, 270.0, 35.0, modeAngles[acidUI.mode] || 38);
     const kx = ox + 725.0 * sx, ky = oy + 270.0 * sy, krx = 35.0 * sx, kry = 35.0 * sy;
@@ -7003,11 +7019,16 @@ function drawAcidPage(T) {
       act: (px, py) => {
         if (hit._pressY === undefined || screenHold !== null) {
           hit._pressY = py;
-          hit._pressMode = acidUI.mode;
+          hit._pressMode = acidUI.mode; hit._moved = false;
+          return;   // #607 step on release, not on touch
         }
         const dy = hit._pressY - py;
-        let nMode = Math.round(hit._pressMode - dy / 22);
-        if (Math.abs(dy) < 4 && screenHold !== null) nMode = (acidUI.mode + 1) % 4;
+        if (Math.abs(dy) >= 4) hit._moved = true;
+        if (!hit._moved) return;
+        hit.go(Math.round(hit._pressMode + dy / 22));   // #607 drag up = clockwise (was the opposite way to the TRACK knob)
+      },
+      release: () => { if (!hit._moved) hit.go((acidUI.mode + 1) % 4); },
+      go: nMode => {
         nMode = Math.max(0, Math.min(3, nMode));
         if (nMode !== acidUI.mode) {
           acidUI.mode = nMode;
@@ -7109,8 +7130,7 @@ function drawAcidPage(T) {
     const lx = ox + 916 * sx, ly = oy + 262.5 * sy, lw = 28 * sx, lh = 7 * sy;
     g.save();
     if (acidUI.tempoMode) {
-      g.shadowColor = '#ff3300';
-      g.shadowBlur = 8 * sx;
+      acidGlow(g, lx + lw / 2, ly + lh / 2, lw * 0.9, lh * 1.8);   // #607 sprite glow
       g.fillStyle = '#ff4818';
       g.fillRect(lx, ly, lw, lh);
     } else {
@@ -7157,12 +7177,7 @@ function drawAcidPage(T) {
     const lx = ox + cx * sx, ly = oy + cy * sy, rad = r * sx;
     g.save();
     if (lit) {
-      const gr = g.createRadialGradient(lx, ly, 0, lx, ly, rad * 2.4);
-      gr.addColorStop(0, '#ffffff');
-      gr.addColorStop(0.35, col);
-      gr.addColorStop(1, 'rgba(255, 20, 0, 0)');
-      g.fillStyle = gr;
-      g.beginPath(); g.arc(lx, ly, rad * 2.4, 0, Math.PI * 2); g.fill();
+      acidGlow(g, lx, ly, rad * 2.4);   // #607 pre-made sprite instead of a new gradient per LED per redraw
       g.fillStyle = col;
     } else {
       g.fillStyle = '#2d0707';
@@ -7192,8 +7207,7 @@ function drawAcidPage(T) {
     const lx = ox + 128.5 * sx, ly = oy + 480.5 * sy, lw = 28 * sx, lh = 7 * sy;
     g.save();
     if (acidUI.running) {
-      g.shadowColor = '#ff2200';
-      g.shadowBlur = 9 * sx;
+      acidGlow(g, lx + lw / 2, ly + lh / 2, lw * 0.9, lh * 1.8);   // #607 sprite glow
       g.fillStyle = '#ff3311';
       g.fillRect(lx, ly, lw, lh);
     } else {
@@ -7260,7 +7274,7 @@ function drawAcidPage(T) {
       act: () => {
         if (acidUI.pitchMode) {
           acidUI.activeKey = wk.note;
-          engine.acidNoteOn(wk.note + acidUI.transpose, false);
+          engine.acidNoteOn(wk.note, false);   // #607 the worklet adds the transpose (it was added twice)
           drawMixScreen();
           setTimeout(() => { engine.acidNoteOff(); acidUI.activeKey = null; if (toolsPage === 'acid') drawMixScreen(); }, 220);
         } else {
@@ -7289,7 +7303,7 @@ function drawAcidPage(T) {
       x: kx, y: ky, w: kw, h: kh,
       act: () => {
         acidUI.activeKey = bk.note;
-        engine.acidNoteOn(bk.note + acidUI.transpose, true);
+        engine.acidNoteOn(bk.note, true);   // #607 the worklet adds the transpose
         drawMixScreen();
         setTimeout(() => { engine.acidNoteOff(); acidUI.activeKey = null; if (toolsPage === 'acid') drawMixScreen(); }, 220);
       }
@@ -7379,8 +7393,7 @@ function drawAcidPage(T) {
     g.save();
     const beatPulse = acidUI.running && (acidUI.step % 4 === 0);
     if (beatPulse) {
-      g.shadowColor = '#ff2200';
-      g.shadowBlur = 7 * sx;
+      acidGlow(g, lx + lw / 2, ly + lh / 2, lw * 0.9, lh * 1.8);   // #607 sprite glow
       g.fillStyle = '#ff3b14';
       g.fillRect(lx, ly, lw, lh);
     } else {

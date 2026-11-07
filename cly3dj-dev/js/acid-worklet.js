@@ -12,7 +12,7 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
     this.running = false;
     this.bpm = 120.0;
     this.tuning = 0.5;        // 0..1, 0.5 = 440 Hz standard
-    this.cutoff = 0.35;       // base cutoff (35 Hz .. 2400 Hz)
+    this.cutoff = 0.35;       // base cutoff (35 Hz .. 5000 Hz; #607 was 2400)
     this.resonance = 0.65;    // 0 .. 0.98 (diode ladder resonance)
     this.envMod = 0.70;       // envelope to filter cutoff depth
     this.decay = 0.40;        // 200 ms .. 2000 ms
@@ -22,6 +22,7 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
     this.delayFeedback = 0.25;// TB-03 Delay feedback & wet mix (0..1)
     this.waveform = 0;        // 0 = Sawtooth, 1 = Square
     this.transpose = 0;       // Manual semitone transpose (-12 .. +12)
+    this.makeup = 0.32;       // #607 output gain (was 0.8 into a double ladder): default patch about -9.5 dBFS RMS, like a mastered track
 
     // Clock, Step & Track Sequencer
     this.samplesPerStep = (60 / (this.bpm * 4)) * this.sampleRate;
@@ -106,8 +107,6 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
       {id:'PTN3_20',endStep:16,triplet:0,steps:[[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0]]},
       {id:'PTN3_21',endStep:16,triplet:0,steps:[[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0]]},
       {id:'PTN3_22',endStep:16,triplet:0,steps:[[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0],[-1,0,0]]},
-      {id:'GOA_1',endStep:16,triplet:0,steps:[[38,1,0],[38,0,0],[50,0,1],[38,0,0],[41,0,0],[38,0,0],[50,1,1],[48,0,0],[38,1,0],[38,0,0],[43,1,0],[41,0,1],[38,0,0],[50,0,1],[51,1,1],[38,0,0]]},
-      {id:'GOA_2',endStep:16,triplet:0,steps:[[42,1,0],[-1,0,0],[42,0,1],[45,0,1],[42,0,0],[54,1,0],[-1,0,0],[42,0,0],[57,1,1],[55,0,1],[47,0,0],[42,1,0],[-1,0,0],[45,0,1],[44,1,0],[42,0,0]]},
       {id:'GOA_1',endStep:16,triplet:0,steps:[[38,1,0],[38,0,0],[50,0,1],[38,0,0],[41,0,0],[38,0,0],[50,1,1],[48,0,0],[38,1,0],[38,0,0],[43,1,0],[41,0,1],[38,0,0],[50,0,1],[51,1,1],[38,0,0]]},
       {id:'GOA_2',endStep:16,triplet:0,steps:[[42,1,0],[-1,0,0],[42,0,1],[45,0,1],[42,0,0],[54,1,0],[-1,0,0],[42,0,0],[57,1,1],[55,0,1],[47,0,0],[42,1,0],[-1,0,0],[45,0,1],[44,1,0],[42,0,0]]},
       {id:'GOA_3',endStep:16,triplet:0,steps:[[33,1,0],[45,0,0],[45,0,1],[48,0,0],[33,0,0],[40,1,0],[45,0,1],[43,0,0],[33,1,0],[45,0,0],[50,0,1],[48,1,0],[33,0,0],[41,0,1],[40,1,0],[33,0,0]]},
@@ -235,7 +234,7 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
         break;
       }
       case 'param':
-        if (msg.key && typeof msg.value === 'number') {
+        if (msg.key && typeof msg.value === 'number' && AcidWorkletProcessor.PARAMS.has(msg.key)) {   // #607 only real synth params
           this[msg.key] = msg.value;
           if (msg.key === 'bpm') {
             this.updateStepTiming();
@@ -350,9 +349,9 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
     const envDecayCoef = Math.exp(-1 / (decaySec * this.sampleRate));
     const vcaDecayCoef = Math.exp(-1 / (0.25 * this.sampleRate));
 
-    // Base cutoff: 35 Hz to 2400 Hz
+    // Base cutoff: 35 Hz to 5000 Hz (#607: was 2400, the filter never really opened)
     const minCut = 35;
-    const maxCut = 2400;
+    const maxCut = 5000;
     const baseCutoff = minCut * Math.pow(maxCut / minCut, this.cutoff);
 
     // TB-03 Overdrive & Delay constants
@@ -408,10 +407,13 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
       const f = Math.tan((Math.PI * targetCutoff) / (this.sampleRate * 2));
       const g = f / (1.0 + f);
 
+      // #607 both passes take the same oscillator sample (real 2x oversampling). Before, pass 2 was fed pass 1's
+      // output, so the 'oversampling' was two ladders in series, and any input gain compounded and blew up.
       let sig = rawOsc;
+      const xin = rawOsc * (1.0 + k * 0.5);   // #607 input boost against the ladder's level loss as resonance rises (half of it, so the 303 bass thinning stays)
       for (let os = 0; os < 2; os++) {
         const fb = Math.tanh(k * this.s4);
-        const u = sig - fb;
+        const u = xin - fb;
 
         const v1 = (u - this.s1) * g;
         const y1 = v1 + this.s1;
@@ -437,7 +439,7 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
       if (this.currentAccent) {
         amp *= (1.0 + this.accent * 0.6);
       }
-      let outSig = sig * amp * 0.8;
+      let outSig = sig * amp * this.makeup;   // #607 was x 0.8; makeup calibrated so the default patch sits near a mastered track's level
 
       // High-Pass DC-Blocker (15 Hz)
       const dcAlpha = 0.998;
@@ -470,7 +472,10 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
       this.delayBuf[this.delayWrite] = Math.tanh(postOd + fbSig * fbGain);
       this.delayWrite = (this.delayWrite + 1) & this.delayMask;
 
-      const finalSig = postOd + delayed * delayWet;
+      let finalSig = postOd + delayed * delayWet;
+      // #607 soft safety stage: untouched below 0.7, rounds off above it, never past 1.0
+      const ax = Math.abs(finalSig);
+      if (ax > 0.7) finalSig = Math.sign(finalSig) * (0.7 + 0.3 * Math.tanh((ax - 0.7) / 0.3));
 
       // Output to stereo buffers
       outL[i] = finalSig;
@@ -481,4 +486,5 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
   }
 }
 
+AcidWorkletProcessor.PARAMS = new Set(['bpm', 'tuning', 'cutoff', 'resonance', 'envMod', 'decay', 'accent', 'overdrive', 'delayTime', 'delayFeedback', 'waveform', 'transpose']);
 registerProcessor('vire-acid', AcidWorkletProcessor);

@@ -714,7 +714,7 @@ export function setupXR(ctx) {
   function buttonList() {
     const out = [];
     const mc = ctx.mixer.userData.controls;
-    for (const id of ['sync', 'splitcue', 'mic', 'A.cue', 'B.cue', 'bpmtap', 'looper']) out.push({ g: mc[id], c: { mixer: true, id }, r: 0.013 });   // BPM TAP replaced A.beat1; LOOPER replaced B.beat1
+    for (const id of ['sync', 'splitcue', 'mic', 'A.cue', 'B.cue', 'bpmtap', 'looper', 'acid.cue']) if (mc[id]) out.push({ g: mc[id], c: { mixer: true, id }, r: 0.013 });   // BPM TAP replaced A.beat1; LOOPER replaced B.beat1; #607 ACID CUE was missing (not pokeable in the headset)
     for (const d of ctx.decks) {
       const u = d.g.userData;
       out.push({ g: u.start, c: { deck: d.name, id: 'start' }, r: 0.022 });
