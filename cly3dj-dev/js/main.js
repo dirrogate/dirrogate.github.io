@@ -6706,6 +6706,52 @@ function selectAcidPattern(idx, announce = true) {
   }
 }
 
+// #607 knob angles measured on tb-03.png (TRACK image notch points left at 0 deg, MODE image notch upper right at 0)
+const ACID_TRACK_ANG = [0, 26, 54, 90, 127, 154, 180];
+const ACID_MODE_ANG = [-60, -12, 8, 30];
+const ACID_MODE_NAMES = ['TRACK WRITE', 'TRACK PLAY', 'PATTERN PLAY', 'PATTERN WRITE'];
+// #608 the TRACK / PATT. GROUP, MODE and VALUE actions, shared by the flat panel and the raised 3D knobs
+function acidTrackGo(nPos) {
+  nPos = Math.max(0, Math.min(6, nPos));
+  if (nPos === acidUI.pattGroup) return false;
+  acidUI.pattGroup = nPos;
+  if (acidUI.mode <= 1) {   // Track mode: Track 1..7
+    acidUI.trackIdx = nPos; acidUI.tempoMode = false;
+    engine.setAcidTrack(nPos); toast(`TB-03 Track ${nPos + 1}`, 1200);
+  } else {   // Pattern mode: Bank I..IV
+    const bank = nPos <= 1 ? 0 : nPos <= 3 ? 1 : nPos <= 5 ? 2 : 3;
+    acidUI.tempoMode = false;
+    selectAcidPattern(Math.min(75, bank * 24 + acidUI.pattSection * 8 + acidUI.pattern % 8), true);
+  }
+  drawMixScreen(); return true;
+}
+function acidModeGo(nMode) {
+  nMode = Math.max(0, Math.min(3, nMode));
+  if (nMode === acidUI.mode) return false;
+  acidUI.mode = nMode;
+  const isTrack = nMode <= 1;
+  engine.setAcidTrackMode(isTrack);
+  if (isTrack) { acidUI.trackIdx = acidUI.pattGroup; engine.setAcidTrack(acidUI.trackIdx); }
+  acidUI.tempoMode = false;
+  toast(`TB-03 Mode: ${ACID_MODE_NAMES[nMode]}`, 1400);
+  drawMixScreen(); return true;
+}
+function acidValueStep(n) {   // n detent steps of the endless VALUE encoder (+ = clockwise)
+  if (!n) return;
+  acidUI.valueAngle = (acidUI.valueAngle + n * 9) % 360;
+  if (acidUI.tempoMode) {
+    const t = Math.max(40, Math.min(300, Math.round((acidUI.tempo + n * 0.5) * 10) / 10));
+    if (t !== acidUI.tempo) { acidUI.tempo = t; engine.setAcidParam('bpm', t); }
+  } else if (acidUI.mode <= 1) {
+    const tr = Math.max(0, Math.min(6, acidUI.trackIdx + n));
+    if (tr !== acidUI.trackIdx) { acidUI.trackIdx = tr; acidUI.pattGroup = tr; engine.setAcidTrack(tr); }
+  } else {
+    const pt = Math.max(0, Math.min(75, acidUI.pattern + n));
+    if (pt !== acidUI.pattern) selectAcidPattern(pt, false);
+  }
+  drawMixScreen();
+}
+
 // Gemini_acid: 7-Segment LED character segment map [a, b, c, d, e, f, g]
 //   --a--
 //  |     |
@@ -6838,6 +6884,124 @@ function drawAcid7SegDisplay(g, ox, oy, sx, sy, chars, dotIdx) {
   g.restore();
 }
 
+// #608 (owner) RAISED TB-03 KNOBS: in the headset, opening the ACID page raises all 12 panel knobs out of the tablet as
+// real 3D knobs (quick staggered rise, a few acid smileys float away), grabbed and turned like the mixer knobs (xr.js:
+// trigger / pinch, the same wrist twist and MIXER FEEL friction). They stay up while the page is open and sink back
+// when it closes. TRACK and MODE snap to their positions with the slightest haptic tick per notch (battery-light);
+// VALUE is endless. Desktop keeps the flat panel. Each knob is a mixVal accessor (not enumerable, never saved), so
+// xr.js needs nothing knob-specific beyond acidKnobs / knobTick / knobEnd.
+const ACID_KNOBS = (() => {
+  const cont = (id, img, cx, cy, r, a0, key, ui) => ({ id, img, cx, cy, r, kind: 'cont', ang: () => a0 + acidUI[ui] * 300,
+    get: () => acidUI[ui], set: v => { acidUI[ui] = v; engine.setAcidParam(key, v); } });
+  return [
+    cont('tb.tuning', 'knobSynth', 502.5, 159.5, 34.5, -3, 'tuning', 'tuning'),
+    cont('tb.cutoff', 'knobSynth', 609.5, 159.5, 34.5, -3, 'cutoff', 'cutoff'),
+    cont('tb.reso', 'knobSynth', 716.5, 159.5, 34.5, -3, 'resonance', 'reso'),
+    cont('tb.envmod', 'knobSynth', 824.5, 159.5, 34.5, -3, 'envMod', 'envMod'),
+    cont('tb.decay', 'knobSynth', 932.5, 159.5, 34.5, -3, 'decay', 'decay'),
+    cont('tb.accent', 'knobSynth', 1039.5, 159.5, 34.5, -3, 'accent', 'accent'),
+    cont('tb.drive', 'knobFx', 1399.0, 162.0, 32.0, 0, 'overdrive', 'overdrive'),
+    cont('tb.dtime', 'knobFx', 1496.0, 162.0, 32.0, 0, 'delayTime', 'delayTime'),
+    cont('tb.dfb', 'knobFx', 1597.0, 162.0, 32.0, 0, 'delayFeedback', 'delayFeedback'),
+    { id: 'tb.track', img: 'knobTrack', cx: 510.0, cy: 270.0, r: 36.0, kind: 'det', n: 7, pos: () => acidUI.pattGroup, go: n => acidTrackGo(n), ang: () => ACID_TRACK_ANG[acidUI.pattGroup] || 0 },
+    { id: 'tb.mode', img: 'knobMode', cx: 725.0, cy: 270.0, r: 35.0, kind: 'det', n: 4, pos: () => acidUI.mode, go: n => acidModeGo(n), ang: () => ACID_MODE_ANG[acidUI.mode] ?? 8 },
+    { id: 'tb.value', img: 'knobValue', cx: 1260.0, cy: 271.0, r: 35.0, kind: 'enc', ang: () => acidUI.valueAngle },
+  ];
+})();
+const AK = { root: null, list: [], up: false, p: 0, faces: [], dirty: false, drawT: 0, faceTex: null };
+const AK_ENC_STEP = 0.025;   // VALUE: one step per 2.5 % of a knob turn (about 6 deg of wrist with the default KNOB TWIST)
+for (const d of ACID_KNOBS) {
+  Object.defineProperty(mixVal, d.id, { enumerable: false, configurable: true,
+    get: () => d.kind === 'cont' ? d.get() : d.kind === 'det' ? (d.acc ?? d.pos() / (d.n - 1)) : 0.5,
+    set: v => {
+      if (d.kind === 'cont') d.set(v);
+      else if (d.kind === 'det') { d.acc = v; const p = Math.round(v * (d.n - 1)); if (p !== d.pos() && d.go(p)) d.tick = true; }
+      else { d.enc = (d.enc || 0) + (v - 0.5); const q = d.enc / AK_ENC_STEP, n = q > 0 ? Math.floor(q + 1e-6) : Math.ceil(q - 1e-6); if (n) { d.enc -= n * AK_ENC_STEP; acidValueStep(n); } }
+      AK.dirty = true;
+    } });
+}
+const acidKnobTick = id => { const d = ACID_KNOBS.find(k => k.id === id); if (!d || !d.tick) return false; d.tick = false; return true; };
+const acidKnobEnd = id => { const d = ACID_KNOBS.find(k => k.id === id); if (d) { d.acc = null; d.enc = 0; AK.dirty = true; } };
+const acidKnobs3D = () => (AK.up && AK.p > 0.5 ? AK.list.map(k => ({ id: k.d.id, g: k.grab })) : []);
+function buildAcidKnobs3D() {
+  const sm = mixer.userData.screen; if (!sm || AK.root) return;
+  const SW = 0.19, SH = 0.075, PX = SW / 1680, H = 0.016, CAP = 0.0065;   // knob tops 16 mm off the glassless screen
+  AK.root = new THREE.Group(); AK.root.visible = false; sm.add(AK.root);
+  const sideMat = new THREE.MeshStandardMaterial({ color: 0x2b2d33, roughness: 0.5, metalness: 0.3 });
+  const shaftMat = new THREE.MeshStandardMaterial({ color: 0x9a9ea6, roughness: 0.3, metalness: 0.85 });
+  const tops = {};
+  const topMat = key => {
+    if (tops[key]) return tops[key];
+    const img = acidImgs[key], t = new THREE.Texture(img); t.colorSpace = THREE.SRGBColorSpace;
+    if (img.complete && img.naturalWidth) t.needsUpdate = true; else img.addEventListener('load', () => { t.needsUpdate = true; });
+    return (tops[key] = new THREE.MeshBasicMaterial({ map: t, transparent: true, alphaTest: 0.05, toneMapped: false }));
+  };
+  const shaftG = new THREE.CylinderGeometry(1, 1.15, 1, 16); shaftG.rotateX(Math.PI / 2); shaftG.translate(0, 0, 0.5);   // unit, along +z
+  ACID_KNOBS.forEach((d, i) => {
+    const R = d.r * PX * 1.35;   // 1.35x the printed knob: as big as fits between neighbours (12 mm apart)
+    const k = new THREE.Group(); k.position.set((d.cx / 1680 - 0.5) * SW, (0.5 - d.cy / 663) * SH, 0);
+    const lift = new THREE.Group(); lift.scale.z = 0.001; k.add(lift);
+    const shaft = new THREE.Mesh(shaftG, shaftMat); shaft.scale.set(R * 0.38, R * 0.38, H - CAP); lift.add(shaft);
+    const spin = new THREE.Group(); spin.position.z = H - CAP; lift.add(spin);
+    const bodyG = new THREE.CylinderGeometry(R, R * 1.05, CAP, 40, 1, true); bodyG.rotateX(Math.PI / 2); bodyG.translate(0, 0, CAP / 2);
+    spin.add(new THREE.Mesh(bodyG, sideMat));
+    const top = new THREE.Mesh(new THREE.CircleGeometry(R, 40), topMat(d.img)); top.position.z = CAP + 0.0001; spin.add(top);
+    const grab = new THREE.Object3D(); grab.position.z = H; lift.add(grab);   // xr.js measures the hand to this point
+    for (const o of [shaft, top, ...spin.children]) { o.raycast = () => {}; padCull(o); }
+    AK.root.add(k); AK.list.push({ d, i, k, lift, spin, grab });
+  });
+}
+function acidFaceTex() {   // an acid-house smiley, drawn once
+  if (AK.faceTex) return AK.faceTex;
+  const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+  x.fillStyle = '#ffe414'; x.strokeStyle = '#111'; x.lineWidth = 7;
+  x.beginPath(); x.arc(64, 64, 58, 0, Math.PI * 2); x.fill(); x.stroke();
+  x.fillStyle = '#111';
+  x.beginPath(); x.ellipse(45, 48, 7, 13, 0, 0, Math.PI * 2); x.fill();
+  x.beginPath(); x.ellipse(83, 48, 7, 13, 0, 0, Math.PI * 2); x.fill();
+  x.lineWidth = 8; x.lineCap = 'round'; x.beginPath(); x.arc(64, 66, 34, 0.18 * Math.PI, 0.82 * Math.PI); x.stroke();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return (AK.faceTex = t);
+}
+function spawnAcidFaces() {
+  const tex = acidFaceTex(), up = new THREE.Vector3();
+  for (let n = 0; n < 5; n++) {
+    const src = AK.list[Math.floor(Math.random() * AK.list.length)];
+    const m = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
+    const sp = new THREE.Sprite(m); src.grab.getWorldPosition(sp.position); sp.position.y += 0.01;   // from a knob top, in front of the tablet
+    const s0 = 0.024 + Math.random() * 0.018; sp.scale.setScalar(s0); sp.raycast = () => {};
+    scene.add(sp);
+    AK.faces.push({ sp, s0, age: -n * 0.15, life: 2.6 + Math.random() * 0.9, spin: (Math.random() - 0.5) * 2.4,
+      v: up.set((Math.random() - 0.5) * 0.05, 0.07 + Math.random() * 0.05, (Math.random() - 0.5) * 0.05).clone() });   // a slow float up past the DJ's eyes
+  }
+}
+function stepAcidKnobs(dt) {
+  if (AK.faces.length) {
+    for (let i = AK.faces.length - 1; i >= 0; i--) {
+      const f = AK.faces[i]; f.age += dt; if (f.age < 0) continue;
+      const a = f.age / f.life;
+      if (a >= 1) { scene.remove(f.sp); f.sp.material.dispose(); AK.faces.splice(i, 1); continue; }
+      f.sp.position.addScaledVector(f.v, dt); f.v.x += Math.sin(f.age * 3 + i) * 0.02 * dt;   // a little sway
+      f.sp.material.rotation += f.spin * dt; f.sp.scale.setScalar(f.s0 * (1 + a * 0.8));
+      f.sp.material.opacity = Math.min(1, f.age / 0.15) * (a > 0.6 ? (1 - a) / 0.4 : 1);
+    }
+  }
+  const want = !!((renderer.xr.isPresenting || AK.force) && toolsPage === 'acid' && scrDir === 'up');   // AK.force: test hook (desktop)
+  if (want && !AK.root) buildAcidKnobs3D();
+  if (!AK.root) return;
+  if (want !== AK.up) { AK.up = want; if (want) spawnAcidFaces(); drawMixScreen(); }   // redraw: the flat knob hits come and go
+  AK.p = AK.up ? Math.min(1, AK.p + dt / 0.75) : Math.max(0, AK.p - dt * 3);
+  AK.root.visible = AK.p > 0;
+  if (!AK.root.visible) return;
+  const ease = t => { const c = 1.9; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };   // overshoot a touch, settle
+  for (const k of AK.list) {
+    const t = Math.max(0, Math.min(1, (AK.p - k.i * 0.03) / 0.4));
+    k.lift.scale.z = Math.max(0.001, AK.up ? ease(t) : t);
+    k.spin.rotation.z = -k.d.ang() * Math.PI / 180;
+  }
+  const now = performance.now();
+  if (AK.dirty && now - AK.drawT > 90) { AK.dirty = false; AK.drawT = now; if (toolsPage === 'acid') drawMixScreen(); }   // the panel's readouts, ~10 a second while turning
+}
+
 function drawAcidPage(T) {
   const { g, W, H, P, L, R } = T;
   VP_HIT.length = 0;
@@ -6934,7 +7098,7 @@ function drawAcidPage(T) {
         onChange(nVal);
       }
     };
-    VP_HIT.push(hit);
+    if (!AK.up) VP_HIT.push(hit);   // #608 headset: the raised 3D knob is the control, not the flat picture under it
   };
 
   // 1. 6 Synth Knobs (tb03_knob_synth.png, rad=34.5, cy=159.5, calibrated minDeg=-3 to maxDeg=297 for -150..+150 deg sweep)
@@ -6963,8 +7127,7 @@ function drawAcidPage(T) {
   // 3. TRACK / PATT. GROUP 7-Position Detented Selector Knob (cx=510, cy=270, rad=36)
   // Positions 0..6 correspond to Track 1..7 or Pattern Group I (0,1), II (2,3), III (4,5), IV (6)
   {
-    const trackAngles = [0, 26, 54, 90, 127, 154, 180];   // #607 measured on tb-03.png: the knob image's notch points left (at '1') at 0 deg
-    drawKnobSprite(acidImgs.knobTrack, 510.0, 270.0, 36.0, trackAngles[acidUI.pattGroup] || 0);
+    drawKnobSprite(acidImgs.knobTrack, 510.0, 270.0, 36.0, ACID_TRACK_ANG[acidUI.pattGroup] || 0);
     const kx = ox + 510.0 * sx, ky = oy + 270.0 * sy, krx = 36.0 * sx, kry = 36.0 * sy;
     const hit = {
       x: kx - krx - 6, y: ky - kry - 6, w: (krx + 6) * 2, h: (kry + 6) * 2,
@@ -6981,37 +7144,15 @@ function drawAcidPage(T) {
         hit.go(Math.round(hit._pressPos + dy / 18));   // #607 drag up = clockwise
       },
       release: () => { if (!hit._moved) hit.go((acidUI.pattGroup + 1) % 7); },   // #607 tap = next position
-      go: nPos => {
-        nPos = Math.max(0, Math.min(6, nPos));
-        if (nPos !== acidUI.pattGroup) {
-          acidUI.pattGroup = nPos;
-          if (acidUI.mode <= 1) {
-            // Track mode: select Track 1..7
-            acidUI.trackIdx = nPos;
-            acidUI.tempoMode = false;
-            engine.setAcidTrack(nPos);
-            toast(`TB-03 Track ${nPos + 1}`, 1200);
-          } else {
-            // Pattern mode: select Bank I..IV
-            const bank = nPos <= 1 ? 0 : nPos <= 3 ? 1 : nPos <= 5 ? 2 : 3;
-            const curInSection = acidUI.pattern % 8;
-            const newIdx = Math.min(75, bank * 24 + acidUI.pattSection * 8 + curInSection);
-            acidUI.tempoMode = false;
-            selectAcidPattern(newIdx, true);
-          }
-          drawMixScreen();
-        }
-      }
+      go: nPos => acidTrackGo(nPos)   // #608 shared with the raised 3D knob
     };
-    VP_HIT.push(hit);
+    if (!AK.up) VP_HIT.push(hit);   // #608
   }
 
   // 4. MODE 4-Position Detented Selector Knob (cx=725, cy=270, rad=35)
   // 0: TRACK WRITE, 1: TRACK PLAY, 2: PATTERN PLAY, 3: PATTERN WRITE
   {
-    const modeAngles = [-60, -12, 8, 30];   // #607 measured on tb-03.png: the knob image's notch points upper right (about -30 deg) at 0
-    const modeNames = ['TRACK WRITE', 'TRACK PLAY', 'PATTERN PLAY', 'PATTERN WRITE'];
-    drawKnobSprite(acidImgs.knobMode, 725.0, 270.0, 35.0, modeAngles[acidUI.mode] || 38);
+    drawKnobSprite(acidImgs.knobMode, 725.0, 270.0, 35.0, ACID_MODE_ANG[acidUI.mode] ?? 8);
     const kx = ox + 725.0 * sx, ky = oy + 270.0 * sy, krx = 35.0 * sx, kry = 35.0 * sy;
     const hit = {
       x: kx - krx - 6, y: ky - kry - 6, w: (krx + 6) * 2, h: (kry + 6) * 2,
@@ -7028,23 +7169,9 @@ function drawAcidPage(T) {
         hit.go(Math.round(hit._pressMode + dy / 22));   // #607 drag up = clockwise (was the opposite way to the TRACK knob)
       },
       release: () => { if (!hit._moved) hit.go((acidUI.mode + 1) % 4); },
-      go: nMode => {
-        nMode = Math.max(0, Math.min(3, nMode));
-        if (nMode !== acidUI.mode) {
-          acidUI.mode = nMode;
-          const isTrack = nMode <= 1;
-          engine.setAcidTrackMode(isTrack);
-          if (isTrack) {
-            acidUI.trackIdx = acidUI.pattGroup;
-            engine.setAcidTrack(acidUI.trackIdx);
-          }
-          acidUI.tempoMode = false;
-          toast(`TB-03 Mode: ${modeNames[nMode]}`, 1400);
-          drawMixScreen();
-        }
-      }
+      go: nMode => acidModeGo(nMode)   // #608 shared with the raised 3D knob
     };
-    VP_HIT.push(hit);
+    if (!AK.up) VP_HIT.push(hit);   // #608
   }
 
   // 5. VALUE Endless Rotary Encoder Knob (cx=1260, cy=271, rad=35)
@@ -7093,7 +7220,7 @@ function drawAcidPage(T) {
         drawMixScreen();
       }
     };
-    VP_HIT.push(hit);
+    if (!AK.up) VP_HIT.push(hit);   // #608
   }
 
   // 6. 4-Digit 7-Segment Red LED Display (x=[1013..1176], y=[237..310])
@@ -9193,7 +9320,7 @@ function frameBody() {
   screenTimer += dt;
   let beatChanged = false;
   for (const d of decks) { const k = ledBeat(d); if (k !== d.ledShown) { d.ledShown = k; beatChanged = true; } }
-  if (beatChanged || screenTimer > 1 / 15) { screenTimer = 0; drawMixScreen(); }
+  if (toolsPage !== 'acid' && (beatChanged || screenTimer > 1 / 15)) { screenTimer = 0; drawMixScreen(); }   // #608 the ACID page redraws on synth steps and touches only (its full-panel redraw at 15 Hz on top was wasted)
   if (deckInst) deckInst.update();   // #154
   for (const d of decks) vvStep(d);   // #177 VideoVinyl
   stepPvLid(dt);   // #196 preview lid
@@ -9205,6 +9332,7 @@ function frameBody() {
   for (const lb of milkLabels()) lb.tick();   // #394 label ink: upload / save
   stepPlJump(dt);   // #394 playlist records jumping into a milk crate
   stepScrDir();    // #198 portrait menu
+  stepAcidKnobs(dt);   // #608 raised TB-03 knobs on the ACID page (headset)
   if (spect) {   // #158 spectator camera (nothing when off / no phone)
     try { spect.tick(dt); }   // #217: a spectator error must never stop the headset's frame (it froze on a record pull)
     catch (e) { if (!spectErrShown) { spectErrShown = true; console.error(e); toast('Phone / DirroVJ link error (headset keeps running): ' + e.message, 5000); } }
@@ -9336,7 +9464,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   stage, cases, resizeCase, deckGroups, clampStack, settleStack, gearLocked, gearLockMsg, snapYaw: isDeckKey, mixFeel: () => MIXFEEL, targetLightOn: () => !!settings.targetLight,   // #605   // #378
   REC, DECK, CRATE, ARM,
   castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : []), ...(mprops ? mprops.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
-  setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
+  setMix, pressControl, setPitch, setPower, acidKnobs: acidKnobs3D, knobTick: acidKnobTick, knobEnd: acidKnobEnd, knobObj: id => { const k = AK.list.find(x => x.d.id === id); return k ? k.spin : null; },   // #608 pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
   scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
   armGrab, armDrag, armRelease,
@@ -9832,7 +9960,7 @@ if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
 try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media.getFile('Images', cn).then(f => { if (f) { streamer.setCardPic(f); cardWallSet(f, false); } }).catch(() => {}); } catch (e) {}   // #445 the CARD picture of last time
-window.vire = { get mprops() { return mprops; } /* #586 test hook */, THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { get mprops() { return mprops; } /* #586 test hook */, _acid: { AK, ACID_KNOBS, acidUI, tick: acidKnobTick, end: acidKnobEnd } /* #608 test hook */, THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._deck = { pullRecord, placeOnDeck, setMotor, dropNeedleAt, get held() { return held; } };   // #497 test hook: put a record on a deck from the console
 window.vire._loop = { loopClip, loopCopy, loopPaste, loopUndo, loopUndoDo, loopDeleteBank, looper, loopSlots, loopUI, pressLooper, clearLooper, loopSlotTap, loopRegion, loopNudge, loopSaveBank, loopLoadBank, loopOpenBanks, stepLooper, releaseLooper };   // #470 test hook
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };

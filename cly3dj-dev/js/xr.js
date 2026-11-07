@@ -264,6 +264,13 @@ export function setupXR(ctx) {
       st.direct = { kind: 'gopro', prop: pr, off: pr.penOff ? pr.penOff.clone() : new THREE.Matrix4().copy(st.anchor.matrixWorld).invert().multiply(o.matrixWorld) };   // #395 a marker: held like a pen
       pr.grab(st); buzz(st, 0.4, 25); return true;
     }
+    // #608 the raised TB-03 knobs on the ACID page (main.js acidKnobs): trigger (hands: pinch) turns them like mixer knobs.
+    // Tested before the tablet grab, so a pinch on a knob turns the knob instead of picking the tablet up.
+    if (deckOk && ctx.acidKnobs) {
+      let best = null, bd = 0.022;
+      for (const k of ctx.acidKnobs()) { k.g.getWorldPosition(v2); const dd = v2.distanceTo(P); if (dd < bd) { bd = dd; best = k; } }
+      if (best) { st.direct = { kind: 'knob', id: best.id, yawL: yawOf(handQuat(st, q1)), qL: handQuat(st, new THREE.Quaternion()), hist: [], dmin: Infinity }; return true; }
+    }
     // 0a. #189 the mixer's tablet: grip (controllers) or pinch (hands) on its frame picks it up; it keeps its pose
     //     relative to the hand while held (main.js places it; it stays a child of the mixer so the phone mirrors it)
     // #195 (owner): pick-up = grip only (hands: pinch); resize = trigger (or pinch) on the lower-right corner handle and
@@ -575,6 +582,7 @@ export function setupXR(ctx) {
         else if (Math.abs(nv - 0.5) < 0.03 && Math.abs(ctx.mixVal[g.id] - 0.5) >= 0.03) { nv = 0.5; g.panAcc = 0; g.dyF = 0; buzz(st, 0.25, 8); }   // #605 a small click at the centre (the only knob haptic)
       }
       ctx.setMix(g.id, nv);
+      if (ctx.knobTick && ctx.knobTick(g.id)) buzz(st, 0.08, 4);   // #608 owner: the slightest tick per TRACK / MODE notch (controller batteries)
     } else if (g.kind === 'slider') {
       const m = ctx.sliderFromLocal(g.id, ctx.mixer.worldToLocal(v2.copy(P)), true);   // #293 unclamped: grabbed off the cap, the ends are still reachable
       if (g.m0 == null) { g.m0 = m; g.v0 = ctx.mixVal[g.id]; }
@@ -685,6 +693,7 @@ export function setupXR(ctx) {
     else if (g.kind === 'gopro') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'propStretch' && o.direct.prop === g.prop) o.direct = null; g.prop.release(); }   // #337 (#340 any prop)
     else if (g.kind === 'propStretch' || g.kind === 'propScale') g.prop.save();   // #341
     else if (g.kind === 'propKnob') { if (g.prop.knobEnd) g.prop.knobEnd(); }   // #379
+    else if (g.kind === 'knob') { if (ctx.knobEnd) ctx.knobEnd(g.id); }   // #608 detented TB-03 knobs settle on their notch
     else if (g.kind === 'tablet') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'tabletStretch') o.direct = null; if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
     else if (g.kind === 'tabletScale' || g.kind === 'tabletStretch') ctx.saveTablet();
     else if (g.kind === 'neonScale') {
@@ -1011,7 +1020,7 @@ export function setupXR(ctx) {
   function snapTarget(st) {
     const d = st.direct; if (!d || st.btn !== 'trigger') return null;
     let o = null, dy = 0.008;
-    if (d.kind === 'knob' || d.kind === 'slider') o = ctx.mixer.userData.controls && ctx.mixer.userData.controls[d.id];
+    if (d.kind === 'knob' || d.kind === 'slider') o = (ctx.mixer.userData.controls && ctx.mixer.userData.controls[d.id]) || (ctx.knobObj && ctx.knobObj(d.id));   // #608 raised TB-03 knobs too
     else if (d.kind === 'pitch') o = d.d && d.d.g.userData.pitchCap;
     else if (d.kind === 'power') { o = d.d && d.d.g.userData.powerKnob; dy = 0.01; }
     if (!o) return null;
@@ -1041,7 +1050,7 @@ export function setupXR(ctx) {
       const T = want ? snapTarget(st) : null, d = st.direct;   // #469 no pinch slide in CONTROLLER look
       st.pin = Math.max(0, Math.min(1, (st.pin || 0) + (T ? 1 : -1) / 60 / 0.1));
       if (T && st.pinchRoot) {
-        const kc = d.kind === 'knob' ? ctx.mixer.userData.controls[d.id] : null;
+        const kc = d.kind === 'knob' ? (ctx.mixer.userData.controls[d.id] || (ctx.knobObj && ctx.knobObj(d.id))) : null;   // #608
         if (!st.snapQ || st.snapQ.d !== d) st.snapQ = { d, qGrip: st.grip.getWorldQuaternion(new THREE.Quaternion()), qKnob: kc ? kc.getWorldQuaternion(new THREE.Quaternion()) : null };
         let q;
         if (kc) {
