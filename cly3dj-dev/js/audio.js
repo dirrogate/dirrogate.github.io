@@ -96,16 +96,15 @@ export class AudioEngine {
     }
     this.setLoopVol(this._loopVol ?? 0.8);
 
-    // Gemini_acid: Roland TB-303 synthesis worklet & dual bus routing (CUE bus vs MASTER bus)
+    // Gemini_acid: Roland TB-03 synthesis worklet & exclusive CUE / MASTER bus routing via ACID CUE + ACID VOL
     await ctx.audioWorklet.addModule(new URL('./acid-worklet.js', import.meta.url));
     this.acidNode = new AudioWorkletNode(ctx, 'vire-acid', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
     this.acidNode.port.onmessage = e => { if (this.onAcid) this.onAcid(e.data); };
-    this.acidCueGain = ctx.createGain(); this.acidCueGain.gain.value = 0.8;
+    this.acidCueGain = ctx.createGain(); this.acidCueGain.gain.value = 0.0;
     this.acidMasterGain = ctx.createGain(); this.acidMasterGain.gain.value = 0.0;
     this.acidNode.connect(this.acidCueGain).connect(this.cueBus);
     this.acidNode.connect(this.acidMasterGain).connect(this.masterBus);
-    if (this._acidMasterVol !== undefined) this.setAcidMasterVol(this._acidMasterVol);
-    if (this._acidCueVol !== undefined) this.setAcidCueVol(this._acidCueVol);
+    this._syncAcidRouting();
   }
 
   resume() { return this.ctx && this.ctx.state !== 'running' ? this.ctx.resume() : Promise.resolve(); }
@@ -143,11 +142,22 @@ export class AudioEngine {
     const g = Math.pow(v / 0.8, 2);
     for (const n of this.loopGain) this._ramp(n.gain, g);
   }
-  // Gemini_acid: TB-303 volume routing & synth controls
+  // Gemini_acid: TB-03 volume routing (single ACID VOL knob routed to CUE when ACID CUE is active, else MASTER)
+  _syncAcidRouting() {
+    const v = this._acidVol ?? 0.0;
+    const cueOn = !!this._acidCueOn;
+    if (this.acidCueGain) this._ramp(this.acidCueGain.gain, cueOn ? v * v : 0);
+    if (this.acidMasterGain) this._ramp(this.acidMasterGain.gain, cueOn ? 0 : v * v * 1.2);
+  }
+  setAcidVol(v) { this._acidVol = v; this._syncAcidRouting(); }
+  setAcidCue(on) { this._acidCueOn = !!on; this._syncAcidRouting(); }
   setAcidCueVol(v) { this._acidCueVol = v; if (this.acidCueGain) this._ramp(this.acidCueGain.gain, v * v); }
   setAcidMasterVol(v) { this._acidMasterVol = v; if (this.acidMasterGain) this._ramp(this.acidMasterGain.gain, v * v * 1.2); }
   setAcidRun(on) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'run', value: !!on }); }
   setAcidPattern(idx) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'pattern', value: idx }); }
+  setAcidTrack(idx) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'track', value: idx }); }
+  setAcidTrackMode(on) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'trackMode', value: !!on }); }
+  clearAcidPattern() { if (this.acidNode) this.acidNode.port.postMessage({ type: 'clearPattern' }); }
   setAcidParam(key, value) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'param', key, value }); }
   acidNoteOn(note, accent) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'noteOn', note, accent }); }
   acidNoteOff() { if (this.acidNode) this.acidNode.port.postMessage({ type: 'noteOff' }); }

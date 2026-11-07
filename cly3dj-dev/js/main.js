@@ -1794,12 +1794,13 @@ let syncAnim = null;
 let syncFlash = { t: 0, color: 'blue' };
 let splitCue = false;
 const cueOn = [false, false];
+let acidCueOn = false;   // Gemini_acid: ACID CUE toggle on mixer (routes TB-03 to cueBus when on, masterBus when off)
 
 // mixer control values (0..1, 0.5 neutral) and defaults
 const MIXDEF = {
   'A.trim': 0.5, 'A.hi': 0.5, 'A.mid': 0.5, 'A.low': 0.5, 'A.filter': 0.5, 'A.pan': 0.5, 'A.fader': 0.8,
   'B.trim': 0.5, 'B.hi': 0.5, 'B.mid': 0.5, 'B.low': 0.5, 'B.filter': 0.5, 'B.pan': 0.5, 'B.fader': 0.8,
-  master: 0.8, xfader: 0, 'mic.gain': 0.5, 'mic.pitch': 0.5, hpmix: 0.5, 'loop.vol': 0.8, 'acid.vol': 0.0,   // #334 🎧 MIX (centre = cue + master both full)   // LOOPER: 0.8 = the loop at the level it was sampled   // Gemini_acid: Master ACID volume
+  master: 0.8, xfader: 0, 'mic.gain': 0.5, 'mic.pitch': 0.5, hpmix: 0.5, 'loop.vol': 0.8, 'acid.vol': 0.8,   // #334 🎧 MIX (centre = cue + master both full)   // LOOPER: 0.8 = the loop at the level it was sampled   // Gemini_acid: TB-03 volume (routes to master or cue)
 };
 const mixVal = { ...MIXDEF };
 
@@ -1812,7 +1813,7 @@ function applyMix(id) {
   if (id === 'mic.pitch') return engine.setMicPitch(v);
   if (id === 'hpmix') return engine.setHpMix(v);   // #334
   if (id === 'loop.vol') return engine.setLoopVol(v);   // LOOPER
-  if (id === 'acid.vol') return engine.setAcidMasterVol(v);   // Gemini_acid: ACID volume to master bus
+  if (id === 'acid.vol') return engine.setAcidVol(v);   // Gemini_acid: ACID volume (master or cue bus depending on acidCueOn)
   const [ch, what] = id.split('.'); const i = ch === 'A' ? 0 : 1;
   if (what === 'trim') engine.setTrim(i, v);
   else if (what === 'hi' || what === 'mid' || what === 'low') engine.setEQ(i, what, v);
@@ -1822,6 +1823,7 @@ function applyMix(id) {
 }
 function mixLabel(id) {
   const v = mixVal[id];
+  if (id === 'acid.vol') return `Acid ${acidCueOn ? 'Cue' : 'Master'} Vol ${v < 0.01 ? 'off' : Math.round(v * 100) + '%'}`; // Gemini_acid
   const [ch, what] = id.includes('.') ? id.split('.') : ['', id];
   const pre = ch ? ch + ' ' : '';
   switch (what) {
@@ -4171,6 +4173,7 @@ function pressControl(c, src) { // buttons; returns true if handled (src: who pr
     if (id === 'splitcue') { splitCue = !splitCue; engine.setSplitCue(splitCue); toast(splitCue ? 'Split cue: master left ear, cue right ear' : 'Split cue off'); return true; }
     if (id === 'bpmtap') { handleBpmTap(src || 'mouse'); return true; }
     if (id.endsWith('.beat1')) { tapBeat1(decks[id[0] === 'B' ? 1 : 0], src || 'mouse'); return true; }
+    if (id === 'acid.cue') { acidCueOn = !acidCueOn; engine.setAcidCue(acidCueOn); toast(acidCueOn ? 'ACID CUE: routed to headphone cue bus' : 'ACID CUE off: routed to master bus', 1600); return true; }   // Gemini_acid: toggle TB-03 between cueBus and masterBus
     if (id.endsWith('.cue')) { const i = id[0] === 'A' ? 0 : 1; cueOn[i] = !cueOn[i]; engine.setCue(i, cueOn[i]); return true; }
   }
   return false;
@@ -4200,10 +4203,13 @@ engine.onLooper = m => {
   else if (m.state === 'play' && looper.recEnding) { looper.recEnding = false; toast(`LOOP ${looper.len.toFixed(2)} s${looper.len >= 29.9 ? ' (30 s full)' : ''}: playing`, 2000); }
   if (toolsPage === 'looper') drawMixScreen();
 };
-// Gemini_acid: connect audio engine worklet step message for TB-303 LED pulse
+// Gemini_acid: connect audio engine worklet step message for TB-03 LED pulse & track bar sync
 engine.onAcid = m => {
   if (m.type === 'step') {
     acidUI.step = m.step;
+    if (m.pattern !== undefined) acidUI.pattern = m.pattern;
+    if (m.bar !== undefined) acidUI.bar = m.bar;
+    acidUI.stepAccent = !!m.accent;
     if (toolsPage === 'acid') drawMixScreen();
   }
 };
@@ -6602,47 +6608,234 @@ function drawPropsPage(T) {
   });
 }
 
-// Gemini_acid: Roland TB-303 image assets, state, and page renderer
-const acidImgs = { panel: new Image(), knobSmall: new Image(), knobTempo: new Image(), knobVol: new Image(), loaded: 0 };
-['panel', 'knobSmall', 'knobTempo', 'knobVol'].forEach(k => {
-  const file = k === 'panel' ? 'tb303_panel.png' : k === 'knobSmall' ? 'tb303_knob_small.png' : k === 'knobTempo' ? 'tb303_knob_tempo.png' : 'tb303_knob_volume.png';
+// Gemini_acid: Roland Boutique TB-03 image assets, state, 7-segment LED display, and page renderer
+const acidImgs = {
+  panel: new Image(),
+  knobSynth: new Image(),
+  knobFx: new Image(),
+  knobTrack: new Image(),
+  knobMode: new Image(),
+  knobValue: new Image(),
+  switchWave: new Image(),
+  loaded: 0
+};
+[
+  ['panel', 'tb-03.png'],
+  ['knobSynth', 'tb03_knob_synth.png'],
+  ['knobFx', 'tb03_knob_fx.png'],
+  ['knobTrack', 'tb03_knob_track.png'],
+  ['knobMode', 'tb03_knob_mode.png'],
+  ['knobValue', 'tb03_knob_value.png'],
+  ['switchWave', 'tb03_switch_wave.png']
+].forEach(([k, file]) => {
   acidImgs[k].onload = () => { acidImgs.loaded++; if (toolsPage === 'acid') drawMixScreen(); };
   acidImgs[k].src = 'img/' + file;
 });
 
 const acidUI = {
   running: false,
-  pattern: 0,
+  tempoMode: true,      // true = LED shows BPM & VALUE knob adjusts BPM; false = LED shows Bank-Pattern / Track & VALUE knob selects pattern/track
+  tempo: 138.0,         // 40.0 to 300.0 BPM
+  pattern: 0,           // 0..75 across 4 banks (Bank I: 0..23, Bank II: 24..47, Bank III: 48..71, Bank IV: 72..75)
+  pattGroup: 0,         // 0..6 on TRACK / PATT. GROUP knob (0..1 = I, 2..3 = II, 4..5 = III, 6 = IV; or Track 1..7 in Track mode)
+  pattSection: 0,       // 0 = Section A (1..8), 1 = Section B (9..16), 2 = Section C (17..24)
+  mode: 2,              // 0 = TRACK WRITE, 1 = TRACK PLAY, 2 = PATTERN PLAY, 3 = PATTERN WRITE
+  trackIdx: 0,          // 0..6 (TRACK1..TRACK7)
+  bar: 0,
   step: 0,
-  cueVol: 0.8,
-  tempo: 142,
+  stepAccent: false,
   tuning: 0.5,
   cutoff: 0.35,
   reso: 0.65,
   envMod: 0.70,
   decay: 0.40,
   accent: 0.60,
-  waveform: 0, // 0 = saw, 1 = square
-  activeKey: null
+  overdrive: 0.25,
+  delayTime: 0.38,
+  delayFeedback: 0.30,
+  waveform: 0,          // 0 = saw, 1 = square
+  transpose: 0,         // -12..+12 semitones
+  pitchMode: false,
+  timeMode: false,
+  valueAngle: 0,        // continuous rotation angle (deg) for endless VALUE encoder
+  activeKey: null,
+  tapTimes: []
 };
 
-const ACID_PATTERN_NAMES = [
-  'Astral Drive (142 BPM · Dm)',
-  'Hallucinogenic Squelch (144 BPM · F#m)',
-  'Juno Hypnosis (140 BPM · Am)',
-  'Acperience Euphoria (145 BPM · Cm)'
-];
+// Gemini_acid: Helper to format current Pattern (0..75) as Bank-Pattern code (e.g. '1-01'..'4-04')
+function acidPatternCode(idx) {
+  const bank = Math.min(3, Math.floor(idx / 24));
+  const num = (idx % 24) + 1;
+  return `${bank + 1}-${num < 10 ? '0' + num : num}`;
+}
+
+// Gemini_acid: Sync pattern selection from bank/section/key or direct index (0..75)
+function selectAcidPattern(idx, announce = true) {
+  const clamped = Math.max(0, Math.min(75, idx));
+  acidUI.pattern = clamped;
+  const bank = Math.min(3, Math.floor(clamped / 24));
+  const inBank = clamped % 24;
+  acidUI.pattSection = Math.floor(inBank / 8);
+  // Keep TRACK / PATT.GROUP knob aligned with bank I..IV when in Pattern modes
+  if (acidUI.mode >= 2) {
+    const curBank = acidUI.pattGroup <= 1 ? 0 : acidUI.pattGroup <= 3 ? 1 : acidUI.pattGroup <= 5 ? 2 : 3;
+    if (curBank !== bank) acidUI.pattGroup = bank === 0 ? 0 : bank === 1 ? 2 : bank === 2 ? 4 : 6;
+  }
+  engine.setAcidPattern(clamped);
+  if (announce) {
+    const code = acidPatternCode(clamped);
+    const goaNames = ['Astral Drive', 'Hallucinogenic Squelch', 'Juno Hypnosis', 'Acperience Euphoria'];
+    const extra = clamped >= 72 ? ` (${goaNames[clamped - 72]})` : ` (TB-03 Patch ${code})`;
+    toast(`TB-03 Pattern ${code}${extra}`, 1400);
+  }
+}
+
+// Gemini_acid: 7-Segment LED character segment map [a, b, c, d, e, f, g]
+//   --a--
+//  |     |
+//  f     b
+//  |     |
+//   --g--
+//  |     |
+//  e     c
+//  |     |
+//   --d--
+const LED7_MAP = {
+  '0': [1, 1, 1, 1, 1, 1, 0],
+  '1': [0, 1, 1, 0, 0, 0, 0],
+  '2': [1, 1, 0, 1, 1, 0, 1],
+  '3': [1, 1, 1, 1, 0, 0, 1],
+  '4': [0, 1, 1, 0, 0, 1, 1],
+  '5': [1, 0, 1, 1, 0, 1, 1],
+  '6': [1, 0, 1, 1, 1, 1, 1],
+  '7': [1, 1, 1, 0, 0, 0, 0],
+  '8': [1, 1, 1, 1, 1, 1, 1],
+  '9': [1, 1, 1, 1, 0, 1, 1],
+  '-': [0, 0, 0, 0, 0, 0, 1],
+  't': [0, 0, 0, 1, 1, 1, 1],
+  'r': [0, 0, 0, 0, 1, 0, 1],
+  'P': [1, 1, 0, 0, 1, 1, 1],
+  'A': [1, 1, 1, 0, 1, 1, 1],
+  'b': [0, 0, 1, 1, 1, 1, 1],
+  'C': [1, 0, 0, 1, 1, 1, 0],
+  'd': [0, 1, 1, 1, 1, 0, 1],
+  ' ': [0, 0, 0, 0, 0, 0, 0]
+};
+
+function drawAcid7SegDisplay(g, ox, oy, sx, sy, chars, dotIdx) {
+  // Black LED bezel cutout on tb-03.png is x=[1013..1176], y=[237..310]
+  const wx = ox + 1014 * sx, wy = oy + 238 * sy, ww = 161 * sx, wh = 71 * sy;
+  g.save();
+  g.fillStyle = '#090202';
+  g.fillRect(wx, wy, ww, wh);
+
+  // Subtle inner red ambient reflection
+  const amb = g.createLinearGradient(wx, wy, wx, wy + wh);
+  amb.addColorStop(0, 'rgba(60, 5, 0, 0.25)');
+  amb.addColorStop(0.5, 'rgba(20, 0, 0, 0.05)');
+  amb.addColorStop(1, 'rgba(50, 5, 0, 0.25)');
+  g.fillStyle = amb;
+  g.fillRect(wx, wy, ww, wh);
+
+  const dw = 22 * sx, dh = 40 * sy, thick = Math.max(2.2, 4.0 * Math.min(sx, sy));
+  const pitch = 36 * sx;
+  const startX = ox + 1029 * sx;
+  const topY = oy + 253 * sy;
+  const slant = 2.5 * sx; // authentic slight rightward italic slant of 7-segment LEDs
+
+  const drawSegPoly = (pts, lit) => {
+    g.beginPath();
+    g.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+    g.closePath();
+    if (lit) {
+      g.shadowColor = '#ff2200';
+      g.shadowBlur = 6 * sx;
+      g.fillStyle = '#ff3b14';
+      g.fill();
+      g.shadowBlur = 0;
+    } else {
+      g.fillStyle = '#260604';
+      g.fill();
+    }
+  };
+
+  for (let i = 0; i < 4; i++) {
+    const ch = chars[i] || ' ';
+    const segs = LED7_MAP[ch] || LED7_MAP[' '];
+    const x0 = startX + i * pitch;
+    const y0 = topY;
+    const ym = y0 + dh * 0.5;
+    const y1 = y0 + dh;
+    const t = thick;
+    const h = t * 0.5;
+    // Slant x helper based on vertical progress (0 at bottom, slant at top)
+    const sxAt = y => ((y1 - y) / dh) * slant;
+
+    // Horizontal segment helper (a, g, d)
+    const hSeg = (yc, lit) => {
+      const s = sxAt(yc);
+      const lx = x0 + s + h * 0.7, rx = x0 + dw + s - h * 0.7;
+      drawSegPoly([
+        [lx + h, yc - h],
+        [rx - h, yc - h],
+        [rx, yc],
+        [rx - h, yc + h],
+        [lx + h, yc + h],
+        [lx, yc]
+      ], lit);
+    };
+    // Vertical segment helper (f, b, e, c)
+    const vSeg = (xc, yt, yb, lit) => {
+      const st = sxAt(yt), sb = sxAt(yb);
+      const xt = xc + st, xb = xc + sb;
+      drawSegPoly([
+        [xt, yt + h * 0.6],
+        [xt + h, yt + h * 1.5],
+        [xb + h, yb - h * 1.5],
+        [xb, yb - h * 0.6],
+        [xb - h, yb - h * 1.5],
+        [xt - h, yt + h * 1.5]
+      ], lit);
+    };
+
+    hSeg(y0, segs[0]);             // a (top)
+    vSeg(x0 + dw, y0, ym, segs[1]); // b (top-right)
+    vSeg(x0 + dw, ym, y1, segs[2]); // c (bottom-right)
+    hSeg(y1, segs[3]);             // d (bottom)
+    vSeg(x0, ym, y1, segs[4]);     // e (bottom-left)
+    vSeg(x0, y0, ym, segs[5]);     // f (top-left)
+    hSeg(ym, segs[6]);             // g (middle)
+
+    // Decimal point after digit i
+    const dpLit = (dotIdx === i);
+    const dpx = x0 + dw + 5.5 * sx, dpy = y1;
+    g.beginPath();
+    g.arc(dpx, dpy, h * 1.15, 0, Math.PI * 2);
+    if (dpLit) {
+      g.shadowColor = '#ff2200';
+      g.shadowBlur = 5 * sx;
+      g.fillStyle = '#ff4418';
+      g.fill();
+      g.shadowBlur = 0;
+    } else {
+      g.fillStyle = '#260604';
+      g.fill();
+    }
+  }
+  g.restore();
+}
 
 function drawAcidPage(T) {
-  const { g, W, H, P, L, R, head, note } = T;
+  const { g, W, H, P, L, R } = T;
   VP_HIT.length = 0;
 
-  // Background panel: draw base panel image
-  const pw = 1656, ph = 814;
+  // Gemini_acid: Base panel tb-03.png is 1680 x 663
+  const pw = 1680, ph = 663;
   let ox = 0, oy = 0, dw = W, dh = H;
   if (P) {
     dw = W; dh = Math.round(W * (ph / pw));
-    oy = 80;
+    oy = 88;
   }
   const sx = dw / pw, sy = dh / ph;
 
@@ -6651,26 +6844,26 @@ function drawAcidPage(T) {
   } else {
     g.fillStyle = '#1c1e24'; g.fillRect(0, 0, W, H);
     g.fillStyle = '#fff'; g.font = '700 22px system-ui'; g.textAlign = 'center';
-    g.fillText('LOADING TB-303...', W / 2, H / 2);
+    g.fillText('LOADING ROLAND TB-03...', W / 2, H / 2);
   }
 
-  // Gemini_acid: Top Navigation Bar over the top chassis (CV/GATE area)
-  // Kerning tightened and moved into top-right margin so it stays entirely above the graphic divider line and away from Accent lettering
+  // Gemini_acid: Top Navigation Bar (MAIN MENU | PREVIEW | ◀ BACK)
+  // Strictly preserves PREVIEW -> setMonitor(!monOn) untouched, no background sticker, compact font in top-right margin
   {
-    const navY = P ? 28 : (oy + 3);
+    const navY = P ? 28 : (oy + 5);
     const navH = 16;
     const bw = P ? 56 : 50;
     const pvw = P ? 60 : 54;
     const mw = P ? 72 : 66;
     const gap = 4;
-    let nx = P ? R : (ox + dw - 12);
+    const nx = P ? R : (ox + dw - 14);
 
     const acidNavBtn = (x, y, w, h, label, on, act, fs) => {
       g.save();
       g.font = `700 ${fs}px system-ui`;
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      g.fillStyle = on ? '#15803d' : '#22262e';
+      g.fillStyle = on ? '#15803d' : '#1e2229';
       g.fillText(label, x + w / 2, y + h / 2);
       g.restore();
       if (act) VP_HIT.push({ x: x - 2, y: y - 2, w: w + 4, h: h + 4, act });
@@ -6680,36 +6873,45 @@ function drawAcidPage(T) {
     acidNavBtn(nx - bw - gap - pvw, navY, pvw, navH, 'PREVIEW', monOn, () => setMonitor(!monOn), 11);
     acidNavBtn(nx - bw - gap - pvw - gap - mw, navY, mw, navH, 'MAIN MENU', false, () => setTools(null), 11);
 
-    // Status readout: BPM and Preset name in top-left margin (black font, 9px)
+    // Compact status line in top-left margin (BPM, Pattern/Track code, and Cue/Master route indicator)
     g.save();
     g.font = '700 9px system-ui';
     g.textAlign = 'left';
     g.fillStyle = '#111111';
-    const rx0 = ox + 14 * sx;
-    const pName = (ACID_PATTERN_NAMES[acidUI.pattern] || '').split(' (')[0];
-    g.fillText(`${acidUI.tempo} BPM · P${acidUI.pattern + 1} (${pName})`, rx0, navY + 14);
+    const rx0 = ox + 18 * sx;
+    const pCode = acidUI.mode <= 1 ? `TR-${acidUI.trackIdx + 1} (Bar ${acidUI.bar + 1} · P${acidPatternCode(acidUI.pattern)})` : `P${acidPatternCode(acidUI.pattern)}`;
+    const trStr = acidUI.transpose !== 0 ? ` · ${acidUI.transpose > 0 ? '+' : ''}${acidUI.transpose}st` : '';
+    const routeStr = acidCueOn ? 'CUE BUS' : 'MASTER BUS';
+    g.fillText(`${acidUI.tempo.toFixed(1)} BPM · ${pCode}${trStr} · [${routeStr}]`, rx0, navY + 12);
     g.restore();
   }
 
-  // Helper for drawing and interacting with turnable knobs
-  // Knobs are rendered with translate + scale(sx, sy) + rotate(angRad) so they match the panel holes with 100% precision
-  const rotKnob = (img, cx, cy, rad, val, minDeg, maxDeg, id, onChange) => {
+  // Gemini_acid: Helper to draw a dark metallic socket behind each rotated knob (covers white cutout holes in tb-03.png)
+  const drawKnobSprite = (img, cx, cy, rad, deg) => {
     const kx = ox + cx * sx, ky = oy + cy * sy;
-    const deg = minDeg + val * (maxDeg - minDeg);
-    const angRad = deg * Math.PI / 180;
-
+    g.save();
+    g.translate(kx, ky);
+    g.scale(sx, sy);
+    // Dark recessed circular socket so rotating fluted/D-shaft knobs never shows white corners
+    g.fillStyle = '#25282e';
+    g.beginPath();
+    g.arc(0, 0, rad - 1.2, 0, Math.PI * 2);
+    g.fill();
     if (img && img.complete && img.naturalWidth) {
-      g.save();
-      g.translate(kx, ky);
-      g.scale(sx, sy);
-      g.rotate(angRad);
+      g.rotate(deg * Math.PI / 180);
       g.drawImage(img, -rad, -rad, rad * 2, rad * 2);
-      g.restore();
     }
+    g.restore();
+  };
 
+  // Continuous rotary knob helper (calibrated to tick marks)
+  const rotKnob = (img, cx, cy, rad, val, minDeg, maxDeg, onChange) => {
+    const deg = minDeg + val * (maxDeg - minDeg);
+    drawKnobSprite(img, cx, cy, rad, deg);
+    const kx = ox + cx * sx, ky = oy + cy * sy;
     const krx = rad * sx, kry = rad * sy;
     const hit = {
-      x: kx - krx - 8, y: ky - kry - 8, w: (krx + 8) * 2, h: (kry + 8) * 2,
+      x: kx - krx - 6, y: ky - kry - 6, w: (krx + 6) * 2, h: (kry + 6) * 2,
       drag: true,
       act: (px, py) => {
         if (hit._pressY === undefined || screenHold !== null) {
@@ -6724,179 +6926,493 @@ function drawAcidPage(T) {
     VP_HIT.push(hit);
   };
 
-  // 1. The 6 Small Knobs (-150 deg to +150 deg, spanning all 11 dial dots)
-  // Exact centers from PSD: cy = 104.5 (tuning 496, cutoff 617, reso 737, envMod 858, decay 981, accent 1102)
-  const smallKnobs = [
-    { name: 'tuning', cx: 496.0,  cy: 104.5, val: acidUI.tuning, set: v => { acidUI.tuning = v; engine.setAcidParam('tuning', v); } },
-    { name: 'cutoff', cx: 617.0,  cy: 105.5, val: acidUI.cutoff, set: v => { acidUI.cutoff = v; engine.setAcidParam('cutoff', v); } },
-    { name: 'reso',   cx: 737.0,  cy: 103.5, val: acidUI.reso,   set: v => { acidUI.reso = v; engine.setAcidParam('resonance', v); } },
-    { name: 'envMod', cx: 858.0,  cy: 104.5, val: acidUI.envMod, set: v => { acidUI.envMod = v; engine.setAcidParam('envMod', v); } },
-    { name: 'decay',  cx: 981.0,  cy: 104.5, val: acidUI.decay,  set: v => { acidUI.decay = v; engine.setAcidParam('decay', v); } },
-    { name: 'accent', cx: 1102.0, cy: 104.5, val: acidUI.accent, set: v => { acidUI.accent = v; engine.setAcidParam('accent', v); } }
+  // 1. 6 Synth Knobs (tb03_knob_synth.png, rad=34.5, cy=159.5, calibrated minDeg=-3 to maxDeg=297 for -150..+150 deg sweep)
+  const synthKnobs = [
+    { cx: 502.5,  cy: 159.5, val: acidUI.tuning, set: v => { acidUI.tuning = v; engine.setAcidParam('tuning', v); } },
+    { cx: 609.5,  cy: 159.5, val: acidUI.cutoff, set: v => { acidUI.cutoff = v; engine.setAcidParam('cutoff', v); } },
+    { cx: 716.5,  cy: 159.5, val: acidUI.reso,   set: v => { acidUI.reso = v; engine.setAcidParam('resonance', v); } },
+    { cx: 824.5,  cy: 159.5, val: acidUI.envMod, set: v => { acidUI.envMod = v; engine.setAcidParam('envMod', v); } },
+    { cx: 932.5,  cy: 159.5, val: acidUI.decay,  set: v => { acidUI.decay = v; engine.setAcidParam('decay', v); } },
+    { cx: 1039.5, cy: 159.5, val: acidUI.accent, set: v => { acidUI.accent = v; engine.setAcidParam('accent', v); } }
   ];
-  for (const sk of smallKnobs) {
-    rotKnob(acidImgs.knobSmall, sk.cx, sk.cy, 42, sk.val, -150, 150, sk.name, v => { sk.set(v); drawMixScreen(); });
+  for (const sk of synthKnobs) {
+    rotKnob(acidImgs.knobSynth, sk.cx, sk.cy, 34.5, sk.val, -3, 297, v => { sk.set(v); drawMixScreen(); });
   }
 
-  // 2. TEMPO Knob: 80 to 180 BPM (-150 deg SLOW to +150 deg FAST)
-  // Exact center from PSD: cx = 250.0, cy = 301.5
-  const tempoNorm = (acidUI.tempo - 80) / 100;
-  rotKnob(acidImgs.knobTempo, 250.0, 301.5, 60, tempoNorm, -150, 150, 'tempo', v => {
-    acidUI.tempo = Math.round(80 + v * 100);
-    engine.setAcidParam('bpm', acidUI.tempo);
-    drawMixScreen();
-  });
+  // 2. 3 FX Knobs: OVERDRIVE, DELAY TIME, DELAY FEEDBACK (tb03_knob_fx.png, rad=32.0, cy=162.0, minDeg=0 to maxDeg=300)
+  const fxKnobs = [
+    { cx: 1399.0, cy: 162.0, val: acidUI.overdrive,     set: v => { acidUI.overdrive = v; engine.setAcidParam('overdrive', v); } },
+    { cx: 1496.0, cy: 162.0, val: acidUI.delayTime,     set: v => { acidUI.delayTime = v; engine.setAcidParam('delayTime', v); } },
+    { cx: 1597.0, cy: 162.0, val: acidUI.delayFeedback, set: v => { acidUI.delayFeedback = v; engine.setAcidParam('delayFeedback', v); } }
+  ];
+  for (const fk of fxKnobs) {
+    rotKnob(acidImgs.knobFx, fk.cx, fk.cy, 32.0, fk.val, 0, 300, v => { fk.set(v); drawMixScreen(); });
+  }
 
-  // 3. VOLUME Knob (CUE Bus): (-150 deg OFF to +150 deg MAX)
-  // Exact center from PSD: cx = 1434.5, cy = 300.0
-  // Per user request: removed erratic "switch off" so Volume acts as a smooth volume control
-  rotKnob(acidImgs.knobVol, 1434.5, 300.0, 60, acidUI.cueVol, -150, 150, 'vol', v => {
-    acidUI.cueVol = v;
-    engine.setAcidCueVol(v);
-    drawMixScreen();
-  });
-
-  // 4. WAVEFORM Switch (Sawtooth / Square) next to Roland logo at x:[305..385], y:[28..72]
+  // 3. TRACK / PATT. GROUP 7-Position Detented Selector Knob (cx=510, cy=270, rad=36)
+  // Positions 0..6 correspond to Track 1..7 or Pattern Group I (0,1), II (2,3), III (4,5), IV (6)
   {
-    const wx = ox + 305 * sx, wy = oy + 28 * sy, ww = 80 * sx, wh = 44 * sy;
-    // Highlight indicator over selected waveform icon
-    const indX = acidUI.waveform === 0 ? (ox + 326 * sx) : (ox + 365 * sx);
-    const indY = oy + 38 * sy;
+    const trackAngles = [-30, 0, 45, 90, 135, 180, 210];
+    drawKnobSprite(acidImgs.knobTrack, 510.0, 270.0, 36.0, trackAngles[acidUI.pattGroup] || 0);
+    const kx = ox + 510.0 * sx, ky = oy + 270.0 * sy, krx = 36.0 * sx, kry = 36.0 * sy;
+    const hit = {
+      x: kx - krx - 6, y: ky - kry - 6, w: (krx + 6) * 2, h: (kry + 6) * 2,
+      drag: true,
+      act: (px, py) => {
+        if (hit._pressY === undefined || screenHold !== null) {
+          hit._pressY = py;
+          hit._pressPos = acidUI.pattGroup;
+        }
+        const dy = hit._pressY - py;
+        let nPos = Math.round(hit._pressPos + dy / 18);
+        if ( Math.abs(dy) < 4 && screenHold !== null ) nPos = (acidUI.pattGroup + 1) % 7;
+        nPos = Math.max(0, Math.min(6, nPos));
+        if (nPos !== acidUI.pattGroup) {
+          acidUI.pattGroup = nPos;
+          if (acidUI.mode <= 1) {
+            // Track mode: select Track 1..7
+            acidUI.trackIdx = nPos;
+            acidUI.tempoMode = false;
+            engine.setAcidTrack(nPos);
+            toast(`TB-03 Track ${nPos + 1}`, 1200);
+          } else {
+            // Pattern mode: select Bank I..IV
+            const bank = nPos <= 1 ? 0 : nPos <= 3 ? 1 : nPos <= 5 ? 2 : 3;
+            const curInSection = acidUI.pattern % 8;
+            const newIdx = Math.min(75, bank * 24 + acidUI.pattSection * 8 + curInSection);
+            acidUI.tempoMode = false;
+            selectAcidPattern(newIdx, true);
+          }
+          drawMixScreen();
+        }
+      }
+    };
+    VP_HIT.push(hit);
+  }
+
+  // 4. MODE 4-Position Detented Selector Knob (cx=725, cy=270, rad=35)
+  // 0: TRACK WRITE, 1: TRACK PLAY, 2: PATTERN PLAY, 3: PATTERN WRITE
+  {
+    const modeAngles = [0, 18, 38, 62];
+    const modeNames = ['TRACK WRITE', 'TRACK PLAY', 'PATTERN PLAY', 'PATTERN WRITE'];
+    drawKnobSprite(acidImgs.knobMode, 725.0, 270.0, 35.0, modeAngles[acidUI.mode] || 38);
+    const kx = ox + 725.0 * sx, ky = oy + 270.0 * sy, krx = 35.0 * sx, kry = 35.0 * sy;
+    const hit = {
+      x: kx - krx - 6, y: ky - kry - 6, w: (krx + 6) * 2, h: (kry + 6) * 2,
+      drag: true,
+      act: (px, py) => {
+        if (hit._pressY === undefined || screenHold !== null) {
+          hit._pressY = py;
+          hit._pressMode = acidUI.mode;
+        }
+        const dy = hit._pressY - py;
+        let nMode = Math.round(hit._pressMode - dy / 22);
+        if (Math.abs(dy) < 4 && screenHold !== null) nMode = (acidUI.mode + 1) % 4;
+        nMode = Math.max(0, Math.min(3, nMode));
+        if (nMode !== acidUI.mode) {
+          acidUI.mode = nMode;
+          const isTrack = nMode <= 1;
+          engine.setAcidTrackMode(isTrack);
+          if (isTrack) {
+            acidUI.trackIdx = acidUI.pattGroup;
+            engine.setAcidTrack(acidUI.trackIdx);
+          }
+          acidUI.tempoMode = false;
+          toast(`TB-03 Mode: ${modeNames[nMode]}`, 1400);
+          drawMixScreen();
+        }
+      }
+    };
+    VP_HIT.push(hit);
+  }
+
+  // 5. VALUE Endless Rotary Encoder Knob (cx=1260, cy=271, rad=35)
+  // Adjusts BPM when acidUI.tempoMode === true, or scrolls through all 76 patterns / 7 tracks when acidUI.tempoMode === false
+  {
+    drawKnobSprite(acidImgs.knobValue, 1260.0, 271.0, 35.0, acidUI.valueAngle);
+    const kx = ox + 1260.0 * sx, ky = oy + 271.0 * sy, krx = 35.0 * sx, kry = 35.0 * sy;
+    const hit = {
+      x: kx - krx - 8, y: ky - kry - 8, w: (krx + 8) * 2, h: (kry + 8) * 2,
+      drag: true,
+      act: (px, py) => {
+        if (hit._pressY === undefined || screenHold !== null) {
+          hit._pressY = py;
+          hit._pressTempo = acidUI.tempo;
+          hit._pressPatt = acidUI.pattern;
+          hit._pressTrack = acidUI.trackIdx;
+          hit._pressAng = acidUI.valueAngle;
+        }
+        const dy = hit._pressY - py;
+        acidUI.valueAngle = (hit._pressAng + dy * 2.2) % 360;
+        if (acidUI.tempoMode) {
+          // Step BPM in 0.5 BPM increments (40.0 to 300.0)
+          const steps = Math.round(dy / 4);
+          const nTempo = Math.max(40, Math.min(300, Math.round((hit._pressTempo + steps * 0.5) * 10) / 10));
+          if (nTempo !== acidUI.tempo) {
+            acidUI.tempo = nTempo;
+            engine.setAcidParam('bpm', acidUI.tempo);
+          }
+        } else if (acidUI.mode <= 1) {
+          // Track mode: step through Tracks 1..7
+          const steps = Math.round(dy / 16);
+          const nTr = Math.max(0, Math.min(6, hit._pressTrack + steps));
+          if (nTr !== acidUI.trackIdx) {
+            acidUI.trackIdx = nTr;
+            acidUI.pattGroup = nTr;
+            engine.setAcidTrack(nTr);
+          }
+        } else {
+          // Pattern mode: scroll seamlessly through all 76 patterns (1-01..4-04)
+          const steps = Math.round(dy / 8);
+          const nPatt = Math.max(0, Math.min(75, hit._pressPatt + steps));
+          if (nPatt !== acidUI.pattern) {
+            selectAcidPattern(nPatt, false);
+          }
+        }
+        drawMixScreen();
+      }
+    };
+    VP_HIT.push(hit);
+  }
+
+  // 6. 4-Digit 7-Segment Red LED Display (x=[1013..1176], y=[237..310])
+  {
+    let chars = '1380', dotIdx = 2;
+    if (acidUI.tempoMode) {
+      const s = acidUI.tempo.toFixed(1).replace('.', '');
+      chars = s.padStart(4, ' ');
+      dotIdx = 2;
+    } else if (acidUI.mode <= 1) {
+      chars = `tr-${acidUI.trackIdx + 1}`;
+      dotIdx = -1;
+    } else {
+      chars = acidPatternCode(acidUI.pattern);
+      dotIdx = -1;
+    }
+    drawAcid7SegDisplay(g, ox, oy, sx, sy, chars, dotIdx);
+
+    // Clicking or dragging on the LED display itself also toggles/adjusts the value
+    const lx = ox + 1013 * sx, ly = oy + 237 * sy, lw = 163 * sx, lh = 73 * sy;
+    VP_HIT.push({
+      x: lx, y: ly, w: lw, h: lh,
+      act: () => {
+        acidUI.tempoMode = !acidUI.tempoMode;
+        toast(acidUI.tempoMode ? `LED Display: TEMPO (${acidUI.tempo.toFixed(1)} BPM)` : `LED Display: ${acidUI.mode <= 1 ? 'TRACK' : 'PATTERN'} (${acidUI.mode <= 1 ? 'TR-' + (acidUI.trackIdx + 1) : acidPatternCode(acidUI.pattern)})`, 1200);
+        drawMixScreen();
+      }
+    });
+  }
+
+  // 7. TEMPO Button (x=[902..959], y=[254..287]) + Embedded Orange/Red LED Bar at cx=930.3, cy=266.0
+  {
+    const bx = ox + 902 * sx, by = oy + 254 * sy, bw = 57 * sx, bh = 33 * sy;
+    const lx = ox + 916 * sx, ly = oy + 262.5 * sy, lw = 28 * sx, lh = 7 * sy;
     g.save();
-    g.fillStyle = acidUI.waveform === 0 ? '#10b981' : '#f59e0b';
-    g.beginPath(); g.arc(indX, indY, 4 * sx, 0, Math.PI * 2); g.fill();
+    if (acidUI.tempoMode) {
+      g.shadowColor = '#ff3300';
+      g.shadowBlur = 8 * sx;
+      g.fillStyle = '#ff4818';
+      g.fillRect(lx, ly, lw, lh);
+    } else {
+      g.fillStyle = '#330c06';
+      g.fillRect(lx, ly, lw, lh);
+    }
     g.restore();
 
     VP_HIT.push({
-      x: wx, y: wy, w: ww, h: wh,
+      x: bx - 4, y: by - 4, w: bw + 8, h: bh + 8,
+      act: () => {
+        acidUI.tempoMode = !acidUI.tempoMode;
+        toast(acidUI.tempoMode ? 'TEMPO mode: turn VALUE knob to adjust BPM' : 'PATTERN / TRACK mode: turn VALUE knob to browse patches', 1400);
+        drawMixScreen();
+      }
+    });
+  }
+
+  // 8. WAVEFORM Sliding Switch (tb03_switch_wave.png, slot at x=[285..354], y=[202..231])
+  {
+    // Fill dark slot first so sliding switch cleanly covers the opposite half
+    g.save();
+    g.fillStyle = '#181a1f';
+    g.fillRect(ox + 286 * sx, oy + 203 * sy, 67 * sx, 27 * sy);
+    if (acidImgs.switchWave.complete && acidImgs.switchWave.naturalWidth) {
+      const swX = acidUI.waveform === 0 ? 287 : 324;
+      g.drawImage(acidImgs.switchWave, ox + swX * sx, oy + 203 * sy, 28 * sx, 27 * sy);
+    }
+    g.restore();
+
+    VP_HIT.push({
+      x: ox + 255 * sx, y: oy + 190 * sy, w: 130 * sx, h: 52 * sy,
       act: () => {
         acidUI.waveform = 1 - acidUI.waveform;
         engine.setAcidParam('waveform', acidUI.waveform);
-        toast('Waveform: ' + (acidUI.waveform === 0 ? 'SAWTOOTH' : 'SQUARE'), 1200);
+        toast('TB-03 Waveform: ' + (acidUI.waveform === 0 ? 'SAWTOOTH' : 'SQUARE'), 1100);
         drawMixScreen();
       }
     });
   }
 
-  // 5. RUN / STOP Button at physical graphic position x:[72..178], y:[592..658]
-  {
-    const rx = ox + 72 * sx, ry = oy + 592 * sy, rw = 106 * sx, rh = 66 * sy;
-    if (acidUI.running) {
-      g.save();
-      g.fillStyle = 'rgba(255, 40, 40, 0.20)';
-      g.fillRect(rx, ry, rw, rh);
-      g.restore();
+  // Helper for round red panel LEDs and embedded button cap LEDs
+  const drawLedDot = (cx, cy, r, lit, col = '#ff2211') => {
+    const lx = ox + cx * sx, ly = oy + cy * sy, rad = r * sx;
+    g.save();
+    if (lit) {
+      const gr = g.createRadialGradient(lx, ly, 0, lx, ly, rad * 2.4);
+      gr.addColorStop(0, '#ffffff');
+      gr.addColorStop(0.35, col);
+      gr.addColorStop(1, 'rgba(255, 20, 0, 0)');
+      g.fillStyle = gr;
+      g.beginPath(); g.arc(lx, ly, rad * 2.4, 0, Math.PI * 2); g.fill();
+      g.fillStyle = col;
+    } else {
+      g.fillStyle = '#2d0707';
     }
+    g.beginPath(); g.arc(lx, ly, rad, 0, Math.PI * 2); g.fill();
+    g.restore();
+  };
+
+  // 9. PATTERN CLEAR Button (x=[114..172], y=[379..412])
+  VP_HIT.push({
+    x: ox + 110 * sx, y: oy + 375 * sy, w: 66 * sx, h: 42 * sy,
+    act: () => {
+      if (acidUI.mode === 3) {
+        engine.clearAcidPattern();
+        toast(`Cleared Pattern ${acidPatternCode(acidUI.pattern)}`, 1400);
+      } else {
+        acidUI.transpose = 0;
+        engine.setAcidParam('transpose', 0);
+        toast('Bar / Transpose reset', 1100);
+      }
+      drawMixScreen();
+    }
+  });
+
+  // 10. RUN / STOP Button (x=[98..187], y=[469..531]) + Embedded LED Bar at cx=142.5, cy=484
+  {
+    const lx = ox + 128.5 * sx, ly = oy + 480.5 * sy, lw = 28 * sx, lh = 7 * sy;
+    g.save();
+    if (acidUI.running) {
+      g.shadowColor = '#ff2200';
+      g.shadowBlur = 9 * sx;
+      g.fillStyle = '#ff3311';
+      g.fillRect(lx, ly, lw, lh);
+    } else {
+      g.fillStyle = '#320808';
+      g.fillRect(lx, ly, lw, lh);
+    }
+    g.restore();
+
     VP_HIT.push({
-      x: rx, y: ry, w: rw, h: rh,
+      x: ox + 96 * sx, y: oy + 467 * sy, w: 93 * sx, h: 66 * sy,
       act: () => {
         acidUI.running = !acidUI.running;
         engine.setAcidRun(acidUI.running);
-        toast(acidUI.running ? 'TB-303: RUN' : 'TB-303: STOP', 1000);
+        toast(acidUI.running ? 'TB-03: RUN' : 'TB-03: STOP', 1000);
         drawMixScreen();
       }
     });
   }
 
-  // 6. RUN / BATTERY LED at exact lens center cx=125.0, cy=569.0
-  {
-    const lx = ox + 125.0 * sx, ly = oy + 569.0 * sy;
-    const on = acidUI.running;
-    g.save();
-    if (on) {
-      const gr = g.createRadialGradient(lx, ly, 0, lx, ly, 9 * sx);
-      gr.addColorStop(0, '#ffffff');
-      gr.addColorStop(0.35, '#ff2222');
-      gr.addColorStop(1, 'rgba(255, 0, 0, 0)');
-      g.fillStyle = gr;
-      g.beginPath(); g.arc(lx, ly, 9 * sx, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#ff2211';
-    } else {
-      g.fillStyle = '#3a0808';
+  // 11. PITCH MODE Button (x=[306..362], y=[380..412], LED at 335, 340) & FUNCTION / BAR Button (x=[253..282], y=[472..531], NORMAL MODE LED at 361, 462)
+  drawLedDot(335.0, 340.0, 4.2, acidUI.pitchMode);
+  drawLedDot(361.0, 462.0, 4.2, !acidUI.pitchMode && !acidUI.timeMode, '#ff5511');
+  VP_HIT.push({
+    x: ox + 302 * sx, y: oy + 376 * sy, w: 64 * sx, h: 40 * sy,
+    act: () => {
+      acidUI.pitchMode = !acidUI.pitchMode;
+      if (acidUI.pitchMode) acidUI.timeMode = false;
+      toast(acidUI.pitchMode ? 'PITCH MODE: Keyboard plays live TB-03 notes' : 'NORMAL MODE: Keys 1-8 select patterns', 1400);
+      drawMixScreen();
     }
-    g.beginPath(); g.arc(lx, ly, 4 * sx, 0, Math.PI * 2); g.fill();
-    g.restore();
-  }
+  });
+  VP_HIT.push({
+    x: ox + 249 * sx, y: oy + 468 * sy, w: 38 * sx, h: 66 * sy,
+    act: () => {
+      acidUI.pitchMode = false;
+      acidUI.timeMode = false;
+      toast('NORMAL MODE active', 1000);
+      drawMixScreen();
+    }
+  });
 
-  // 7. Pattern Keys 1 to 4 and LEDs
-  // Exact positions on panel: white keys row y:[590..658], LEDs at y=568..569
-  const pattKeys = [
-    { idx: 0, x0: 388, x1: 440, lx: 414.0, ly: 569.0 },
-    { idx: 1, x0: 477, x1: 529, lx: 503.0, ly: 568.0 },
-    { idx: 2, x0: 567, x1: 619, lx: 593.0, ly: 569.0 },
-    { idx: 3, x0: 655, x1: 707, lx: 681.0, ly: 568.0 }
+  // 12. 8 Lower White Keys (C..C' / Pattern Selectors 1..8) + 5 Upper Black Keys (C#, D#, F#, G#, A#)
+  // White keys y=[472..531], w=30, LED inside cap at cy=484
+  const whiteCenters = [
+    { idx: 0, note: 36, cx: 485.5 }, // C  / Pattern 1
+    { idx: 1, note: 38, cx: 568.5 }, // D  / Pattern 2
+    { idx: 2, note: 40, cx: 651.0 }, // E  / Pattern 3
+    { idx: 3, note: 41, cx: 733.5 }, // F  / Pattern 4
+    { idx: 4, note: 43, cx: 816.0 }, // G  / Pattern 5
+    { idx: 5, note: 45, cx: 898.0 }, // A  / Pattern 6
+    { idx: 6, note: 47, cx: 980.0 }, // B  / Pattern 7
+    { idx: 7, note: 48, cx: 1062.5 } // C' / Pattern 8
   ];
-  for (const pk of pattKeys) {
-    const kx = ox + pk.x0 * sx, kw = (pk.x1 - pk.x0) * sx, ky = oy + 590 * sy, kh = 68 * sy;
-    const isSel = acidUI.pattern === pk.idx;
+  const curKeyInSection = acidUI.pattern % 8;
+  for (const wk of whiteCenters) {
+    const isPattSel = !acidUI.pitchMode && (curKeyInSection === wk.idx);
+    const isStepPulse = acidUI.running && ((acidUI.step % 8) === wk.idx);
+    const isKeyLit = (acidUI.activeKey === wk.note) || isPattSel || isStepPulse;
+    drawLedDot(wk.cx, 484.0, 3.6, isKeyLit, isPattSel ? '#ff2211' : '#ff6622');
 
-    // Pattern LED at exact lens center
-    const lx = ox + pk.lx * sx, ly = oy + pk.ly * sy;
-    g.save();
-    if (isSel) {
-      const gr = g.createRadialGradient(lx, ly, 0, lx, ly, 8 * sx);
-      gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.35, '#ff2222'); gr.addColorStop(1, 'rgba(255, 0, 0, 0)');
-      g.fillStyle = gr; g.beginPath(); g.arc(lx, ly, 8 * sx, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#ff1e11';
-    } else {
-      g.fillStyle = '#3a0808';
-    }
-    g.beginPath(); g.arc(lx, ly, 3.8 * sx, 0, Math.PI * 2); g.fill();
-    g.restore();
-
-    // Hitbox for pattern selection
+    const kx = ox + (wk.cx - 18) * sx, ky = oy + 470 * sy, kw = 36 * sx, kh = 64 * sy;
     VP_HIT.push({
       x: kx, y: ky, w: kw, h: kh,
       act: () => {
-        acidUI.pattern = pk.idx;
-        engine.setAcidPattern(pk.idx);
-        toast('TB-303: ' + ACID_PATTERN_NAMES[pk.idx], 1800);
-        drawMixScreen();
+        if (acidUI.pitchMode) {
+          acidUI.activeKey = wk.note;
+          engine.acidNoteOn(wk.note + acidUI.transpose, false);
+          drawMixScreen();
+          setTimeout(() => { engine.acidNoteOff(); acidUI.activeKey = null; if (toolsPage === 'acid') drawMixScreen(); }, 220);
+        } else {
+          const bank = Math.min(3, Math.floor(acidUI.pattern / 24));
+          const newIdx = Math.min(75, bank * 24 + acidUI.pattSection * 8 + wk.idx);
+          acidUI.tempoMode = false;
+          selectAcidPattern(newIdx, true);
+          drawMixScreen();
+        }
       }
     });
   }
 
-  // 8. 1-Octave Keyboard Keys Live Play (Audition / Jamming)
-  // White keys y:[590..658], Black keys y:[488..554]
-  const kbNotes = [
-    { n: 36, x0: 388, x1: 440, y0: 590, y1: 658 }, // C (Pattern 1)
-    { n: 37, x0: 436, x1: 484, y0: 488, y1: 554 }, // C#
-    { n: 38, x0: 477, x1: 529, y0: 590, y1: 658 }, // D (Pattern 2)
-    { n: 39, x0: 525, x1: 573, y0: 488, y1: 554 }, // D#
-    { n: 40, x0: 567, x1: 619, y0: 590, y1: 658 }, // E (Pattern 3)
-    { n: 41, x0: 655, x1: 707, y0: 590, y1: 658 }, // F (Pattern 4)
-    { n: 42, x0: 702, x1: 750, y0: 488, y1: 554 }, // F#
-    { n: 43, x0: 745, x1: 797, y0: 590, y1: 658 }, // G
-    { n: 44, x0: 791, x1: 839, y0: 488, y1: 554 }, // G#
-    { n: 45, x0: 834, x1: 886, y0: 590, y1: 658 }, // A
-    { n: 46, x0: 880, x1: 928, y0: 488, y1: 554 }, // A#
-    { n: 47, x0: 923, x1: 975, y0: 590, y1: 658 }, // B
-    { n: 48, x0: 1012, x1: 1064, y0: 590, y1: 658 } // C (high)
+  // 5 Black Keys (C#, D#, F#, G#, A#): y=[358..417], w=30, LED at cy=370 (always audition notes or transpose when running)
+  const blackCenters = [
+    { note: 37, cx: 527.0 }, // C#
+    { note: 39, cx: 609.5 }, // D#
+    { note: 42, cx: 774.5 }, // F#
+    { note: 44, cx: 856.5 }, // G#
+    { note: 46, cx: 938.5 }  // A#
   ];
-  for (const kn of kbNotes) {
-    const kx = ox + kn.x0 * sx, kw = (kn.x1 - kn.x0) * sx, ky = oy + kn.y0 * sy, kh = (kn.y1 - kn.y0) * sy;
-    if (acidUI.activeKey === kn.n) {
-      g.save();
-      g.fillStyle = 'rgba(70, 180, 255, 0.45)';
-      g.fillRect(kx, ky, kw, kh);
-      g.restore();
+  for (const bk of blackCenters) {
+    drawLedDot(bk.cx, 370.0, 3.4, acidUI.activeKey === bk.note);
+    const kx = ox + (bk.cx - 18) * sx, ky = oy + 356 * sy, kw = 36 * sx, kh = 64 * sy;
+    VP_HIT.push({
+      x: kx, y: ky, w: kw, h: kh,
+      act: () => {
+        acidUI.activeKey = bk.note;
+        engine.acidNoteOn(bk.note + acidUI.transpose, true);
+        drawMixScreen();
+        setTimeout(() => { engine.acidNoteOff(); acidUI.activeKey = null; if (toolsPage === 'acid') drawMixScreen(); }, 220);
+      }
+    });
+  }
+
+  // 13. Right-Side 4 Vertical Buttons: DOWN (9/STEP), UP (0/TRIPLET), ACCENT (100/Section A), SLIDE (200/Section B)
+  // Centers at cx = [1155.5, 1236.5, 1319.5, 1400.5], y=[472..531], LED at cy=484
+  drawLedDot(1155.5, 484.0, 3.5, acidUI.transpose < 0);
+  drawLedDot(1236.5, 484.0, 3.5, acidUI.transpose > 0);
+  drawLedDot(1319.5, 484.0, 3.5, acidUI.pattSection === 0 || acidUI.pattSection === 2 || acidUI.stepAccent);
+  drawLedDot(1400.5, 484.0, 3.5, acidUI.pattSection === 1 || acidUI.pattSection === 2);
+
+  // DOWN button (Transpose -1 semitone)
+  VP_HIT.push({
+    x: ox + (1155.5 - 18) * sx, y: oy + 470 * sy, w: 36 * sx, h: 64 * sy,
+    act: () => {
+      acidUI.transpose = Math.max(-12, acidUI.transpose - 1);
+      engine.setAcidParam('transpose', acidUI.transpose);
+      toast(`TB-03 Transpose: ${acidUI.transpose > 0 ? '+' : ''}${acidUI.transpose} semitones`, 1100);
+      drawMixScreen();
     }
-    // Black keys and upper white keys (G, A, B, High C) trigger live audition notes:
-    if (kn.n > 41 || (kn.n % 12 === 1 || kn.n % 12 === 3 || kn.n % 12 === 6 || kn.n % 12 === 8 || kn.n % 12 === 10)) {
-      VP_HIT.push({
-        x: kx, y: ky, w: kw, h: kh,
-        act: () => {
-          acidUI.activeKey = kn.n;
-          engine.acidNoteOn(kn.n, false);
-          drawMixScreen();
-          setTimeout(() => {
-            engine.acidNoteOff();
-            acidUI.activeKey = null;
-            if (toolsPage === 'acid') drawMixScreen();
-          }, 200);
+  });
+  // UP button (Transpose +1 semitone)
+  VP_HIT.push({
+    x: ox + (1236.5 - 18) * sx, y: oy + 470 * sy, w: 36 * sx, h: 64 * sy,
+    act: () => {
+      acidUI.transpose = Math.min(12, acidUI.transpose + 1);
+      engine.setAcidParam('transpose', acidUI.transpose);
+      toast(`TB-03 Transpose: ${acidUI.transpose > 0 ? '+' : ''}${acidUI.transpose} semitones`, 1100);
+      drawMixScreen();
+    }
+  });
+  // ACCENT / PATT. SECTION A (Patterns 1..8 of current bank)
+  VP_HIT.push({
+    x: ox + (1319.5 - 18) * sx, y: oy + 470 * sy, w: 36 * sx, h: 64 * sy,
+    act: () => {
+      acidUI.pattSection = 0;
+      const bank = Math.min(3, Math.floor(acidUI.pattern / 24));
+      const newIdx = Math.min(75, bank * 24 + (acidUI.pattern % 8));
+      acidUI.tempoMode = false;
+      selectAcidPattern(newIdx, true);
+      drawMixScreen();
+    }
+  });
+  // SLIDE / PATT. SECTION B (Patterns 9..16 of current bank; tap again while in B to toggle Section C: 17..24)
+  VP_HIT.push({
+    x: ox + (1400.5 - 18) * sx, y: oy + 470 * sy, w: 36 * sx, h: 64 * sy,
+    act: () => {
+      acidUI.pattSection = acidUI.pattSection === 1 ? 2 : 1;
+      const bank = Math.min(3, Math.floor(acidUI.pattern / 24));
+      const newIdx = Math.min(75, bank * 24 + acidUI.pattSection * 8 + (acidUI.pattern % 8));
+      acidUI.tempoMode = false;
+      selectAcidPattern(newIdx, true);
+      drawMixScreen();
+    }
+  });
+
+  // 14. TIME MODE LED (1278, 360) & Rest Button (x=[1372..1429], y=[379..412] -> selects Section C [17..24] directly)
+  drawLedDot(1278.0, 360.0, 4.0, acidUI.pattSection === 2);
+  VP_HIT.push({
+    x: ox + 1370 * sx, y: oy + 376 * sy, w: 62 * sx, h: 40 * sy,
+    act: () => {
+      acidUI.pattSection = 2;
+      const bank = Math.min(3, Math.floor(acidUI.pattern / 24));
+      const newIdx = Math.min(75, bank * 24 + 16 + (acidUI.pattern % 8));
+      acidUI.tempoMode = false;
+      selectAcidPattern(newIdx, true);
+      drawMixScreen();
+    }
+  });
+
+  // 15. BACK Button (x=[1515..1571], y=[379..412] -> Previous Pattern)
+  VP_HIT.push({
+    x: ox + 1512 * sx, y: oy + 376 * sy, w: 64 * sx, h: 40 * sy,
+    act: () => {
+      acidUI.tempoMode = false;
+      selectAcidPattern((acidUI.pattern + 75) % 76, true);
+      drawMixScreen();
+    }
+  });
+
+  // 16. WRITE / NEXT (TAP) Button (x=[1498..1586], y=[469..531], LED bar at cx=1542, cy=484)
+  // In Tempo mode: acts as Tap Tempo! In Pattern/Track mode: steps to Next Pattern!
+  {
+    const lx = ox + 1528 * sx, ly = oy + 480.5 * sy, lw = 28 * sx, lh = 7 * sy;
+    g.save();
+    const beatPulse = acidUI.running && (acidUI.step % 4 === 0);
+    if (beatPulse) {
+      g.shadowColor = '#ff2200';
+      g.shadowBlur = 7 * sx;
+      g.fillStyle = '#ff3b14';
+      g.fillRect(lx, ly, lw, lh);
+    } else {
+      g.fillStyle = '#320808';
+      g.fillRect(lx, ly, lw, lh);
+    }
+    g.restore();
+
+    VP_HIT.push({
+      x: ox + 1496 * sx, y: oy + 467 * sy, w: 92 * sx, h: 66 * sy,
+      act: () => {
+        if (acidUI.tempoMode) {
+          const now = performance.now();
+          acidUI.tapTimes = acidUI.tapTimes.filter(t => now - t < 2500);
+          acidUI.tapTimes.push(now);
+          if (acidUI.tapTimes.length >= 2) {
+            let sum = 0;
+            for (let i = 1; i < acidUI.tapTimes.length; i++) sum += acidUI.tapTimes[i] - acidUI.tapTimes[i - 1];
+            const avgMs = sum / (acidUI.tapTimes.length - 1);
+            const bpm = Math.max(40, Math.min(300, Math.round((60000 / avgMs) * 10) / 10));
+            acidUI.tempo = bpm;
+            engine.setAcidParam('bpm', bpm);
+            toast(`TB-03 Tap Tempo: ${bpm.toFixed(1)} BPM`, 1100);
+          } else {
+            toast('TAP TEMPO: tap again to set BPM', 1000);
+          }
+        } else {
+          selectAcidPattern((acidUI.pattern + 1) % 76, true);
         }
-      });
-    }
+        drawMixScreen();
+      }
+    });
   }
 }
 
@@ -8604,6 +9120,12 @@ function frameBody() {
     if (ring) { ring.color.setHex(col); ring.opacity = lit ? 1 : 0; }
   }
   mc.splitcue.userData.set(splitCue ? (Math.floor(performance.now() / 350) % 2 ? 1 : 0.15) : 0.06);   // #254 flashes while split cue is on
+  // Gemini_acid: ACID CUE button & collar ring flash amber when ACID CUE is active; unlit when routed to Master
+  if (mc['acid.cue']) {
+    const acBlink = acidCueOn && (Math.floor(performance.now() / 350) % 2 === 0);
+    mc['acid.cue'].userData.set(acidCueOn ? (acBlink ? 1.2 : 0.2) : 0.06);
+    if (mixer.userData.acidCueRing) mixer.userData.acidCueRing.opacity = acBlink ? 0.95 : 0;
+  }
   mc.mic.userData.set(micOn ? 0.75 + Math.min(0.6, micLevel() * 2) : 0.06);
   syncFlash.t = Math.max(0, syncFlash.t - dt);
   mc.sync.userData.setColor(syncFlash.color === 'red' && syncFlash.t > 0 ? 0xff3030 : 0x39a8ff);

@@ -602,9 +602,16 @@ export function makeMixer() {
       }
       addKnob('loop.vol', x + 0.033, 0.006, 0xff8a40, 0.008);
       label('LOOP VOL', x + 0.033, -0.0065, 0.0024);
-      // Gemini_acid: ACID VOL knob directly above LOOP VOL in Deck B column (sends to MASTER bus)
-      addKnob('acid.vol', x + 0.033, -0.022, 0x40ff90, 0.0075);
-      label('ACID VOL', x + 0.033, -0.0335, 0.0022);
+      // Gemini_acid: ACID VOL knob and ACID CUE button below it in Deck B outer column
+      label('ACID VOL', x + 0.033, -0.0645, 0.0022);
+      addKnob('acid.vol', x + 0.033, -0.052, 0x40ff90, 0.0075);
+      addButton('acid.cue', 0.02, 0.012, 0xffb020, 'ACID CUE', x + 0.033, -0.028);
+      {
+        const acRingMat = new THREE.MeshBasicMaterial({ color: 0xffb020, toneMapped: false, transparent: true, opacity: 0 });
+        const acRing = new THREE.Mesh(roundedTop(0.024, 0.016, 0.0035, 0.0006), acRingMat);
+        acRing.position.set(x + 0.033, top + 0.0002, -0.028); acRing.raycast = () => {};
+        g.add(acRing); u.acidCueRing = acRingMat;
+      }
     }
     layout.slots.push({ x, z: 0.104, w: 0.0035, d: 0.066 });
     layout.faderScales.push({ x: x + (x < 0 ? 0.013 : -0.013), z0: 0.076, z1: 0.132 });
