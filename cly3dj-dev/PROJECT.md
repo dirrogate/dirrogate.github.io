@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 3 Nov 2026 (decision log up to #602 in `ViRe_Custom/CLAUDE.md`; #530–#537 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 8 Nov 2026 (decision log up to #608 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -155,6 +155,18 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 - A live comic strip drawn by DirroVJ as a bus source (1950s / 60s newsprint, CyberGrunge meets Steampunk). Details and owner decisions: project doc `dirrocomics-plan.md`; user steps: section 8 of `DirroVJ_DirroDJ_User_Manual.docx`.
 - Built: page with peeks, five inking styles, captions / balloons / SFX, black and white ANAGLYPH with depth (SBS, RGB+D, painted depth maps, MediaPipe PEOPLE, LIVE PEOPLE), GRAB QUEST / WEBCAM / RGB-D, issues (.dirrocomic), MP4, PDF STRIP, Instagram REEL 9:16 and CAROUSEL 4:5 (posted by hand), STAR IN IT (Dirrogram card, YES / NO per line, hash-chained consent log on the relay, WITHDRAW), terms text on the Dirrogram, AI storyboard (Gemini free tier or Claude API, 8 to 12 panels), the owner's DirroComics mark.
 
+## Status (8 Nov)
+
+- Release (cly3dj) = dev up to #608 (released 8 Nov). Only CLAUDE.md, PROJECT.md, `_test/` and the Kitana test models stay dev-only. cabin.dirrodj.club serves cly3dj-dev.
+- #603–#605: MAIN MENU on every tablet page, smooth deck twist, MIXER FEEL (knob friction), TARGET LIGHT toggle.
+- ACID / DIRROACID (TB-03 acid synth on the tablet: #606 by Gemini, reviewed and fixed by Claude in #607, raised knobs #608):
+  - Tablet: ACID button on the mixer page opens the TB-03 panel (landscape only). 76 patterns (3 TB-03 banks + 4 Goa presets as bank 4) and 7 tracks, RUN / STOP, keyboard, TEMPO / VALUE, overdrive and delay.
+  - Mixer: ACID VOL = the TB-03's channel fader into the master (same law as a deck fader); ACID CUE = pre-fader pre-listen into the headphones, like a deck CUE (never mutes the master). Pokeable in the headset.
+  - Synth level: the default patch sits near a mastered track (about -9.5 dBFS RMS); the filter is a true 4-pole now (brighter than Gemini's version), cutoff to 5 kHz, soft safety stage.
+  - Headset: on the ACID page all 12 knobs rise out of the tablet as 3D knobs (with acid smileys floating away), turned like the mixer knobs; TRACK / MODE notch with the slightest haptic tick, no other knob haptics. Desktop keeps the flat panel.
+  - The tablet's glass plate is gone (owner: glare).
+- Not yet tried on the Quest: the raised knobs (grab feel, size, tick strength), the new synth level against real records.
+
 ## Status (3 Nov)
 
 - Release (cly3dj) = dev up to #601 (released in #602, 3 Nov). Only CLAUDE.md, PROJECT.md, `_test/` and the Kitana test models stay dev-only. cabin.dirrodj.club serves cly3dj-dev.
@@ -168,9 +180,14 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
   - **Gemini_acid Roland TB-303 analog acid synthesizer, presets & tablet interface (#606):**
     - High-fidelity analog-modeled discrete-time TB-303 synthesizer AudioWorklet (`acid-worklet.js`) featuring bandlimited PolyBLEP Sawtooth and asymmetric Square oscillators, 4-pole non-linear saturated diode ladder filter (`tanh` feedback clipping), ~60ms slide portamento, and snappy accent response (boosted gain, increased cutoff spike, shortened decay).
     - 4 Goa trance acid sequence presets assigned to Pattern Keys 1–4 ("Astral Drive" 142 BPM, "Hallucinogenic Squelch" 144 BPM, "Juno Hypnosis" 140 BPM, "Acperience Euphoria" 145 BPM).
-    - Dual volume bus audio routing: TB-303 panel VOLUME knob feeds `cueBus` only (private headphone audition/cueing); main mixer `ACID VOL` knob (positioned directly above `LOOP VOL` on Deck B column) feeds `masterBus` (live stream & audience).
-    - Remote tablet interface: `ACID` button added as the last button on the bottom row of the mixer menu (pulsing state indicator). Tapping opens full-screen TB-303 panel (`tb303_panel.png`) with photorealistic turnable knob cutouts (TUNING, CUTOFF, RESONANCE, ENV MOD, DECAY, ACCENT, TEMPO, VOLUME/POWER), working RUN/STOP button and pulsing LED, pattern selector keys with active LEDs, live keyboard key auditioning, and top navigation header (`MAIN MENU`, `PREVIEW`, `◀ BACK`) drawn over the clean top chassis allowing continuous acid playback while navigating other tablet pages.
-    - Power knob OFF behavior: rotating the TB-303 VOLUME knob counter-clockwise to OFF stops the synth and automatically exits back to the main tablet remote menu.
+    - (SUPERSEDED by #607: ACID VOL is the fader into the master, ACID CUE a pre-fader pre-listen; see Status 8 Nov) Dual volume bus audio routing: TB-303 panel VOLUME knob feeds `cueBus` only (private headphone audition/cueing); main mixer `ACID VOL` knob (positioned directly above `LOOP VOL` on Deck B column) feeds `masterBus` (live stream & audience).
+    - Remote tablet interface: `ACID` button added as the last button on the bottom row of the mixer menu (pulsing state indicator). Tapping opens full-screen TB-303 panel (`tb303_panel.png`) with photorealistic turnable knob cutouts (TUNING, CUTOFF, RESONANCE, ENV MOD, DECAY, ACCENT, TEMPO, VOLUME), working RUN/STOP button and pulsing LED, pattern selector keys with active LEDs, live keyboard key auditioning, and top navigation header (`MAIN MENU`, `PREVIEW`, `◀ BACK`) drawn over the clean top chassis allowing continuous acid playback while navigating other tablet pages.
+    - PSD asset integration & precision alignment: cutouts and cleaned panel extracted directly from `tb303_panel_and_knobs.psd` with exact centers and non-uniform canvas scaling (`scale(sx, sy)`).
+    - Full extent dial sweeps: adjusted rotation angles to full hardware span ($\pm 150^\circ$) across all knobs. Small knobs now hit all 11 dial dots, Tempo sweeps full 80–180 BPM (SLOW to FAST) without 50% truncation, and Volume reaches POWER SW OFF to MAX with zero notch shortfall.
+    - Accurate physical hitzones: RUN/STOP at `x:[72..178], y:[592..658]`, LED at `(125, 569)`, WAVEFORM at `x:[305..385], y:[28..72]`, and Pattern keys 1..4 at `y:[590..658]`.
+    - Top navigation header refinement: `MAIN MENU`, `PREVIEW`, and `◀ BACK` kerned tightly ($4$ px gap) and positioned at $y=3..19$, staying entirely above the graphic divider line and over 60px clear of the Accent knob lettering.
+    - Clean black status typography: RUN text line removed from top left (redundant with pulsing hardware LED); BPM and preset name preserved at top-left margin in crisp black font (`#111`, 9px) above MIX IN.
+    - Removed erratic switch-off from Volume knob (smooth CUE volume control).
 - Gemini_flash8_ (#537, in `cly3dj-dev`, waiting for the owner's go before copying to `cly3dj`):
   - **Gemini_flash8_ Rename LED / LED WALL to CYCLO across UI (#537):** Renamed all user-facing `LED`, `LED WALL`, and `LED CLIP` labels, buttons, notes and toasts across the app to `CYCLO` (`main.js`, `vjdesk.html`, `index.html`, `spectator-client.js`, `dirrogram.html`, `dirrogram.js`). Mixer modes display `CYCLO OFF`, `CYCLO CLIPS`, `CYCLO VIDVINYL`, `CYCLO MANDEL`, etc., header and navigation shortcuts are `CYCLO` and `CYCLO ⁺¹`, playlist controls are `CYCLO NOW`, `+ CYCLO`, `CYCLO LIST`, and VJ Desk A/B monitors display `CYCLO`.
   - **Gemini_flash8_ Remove MR GUI from tablet remote mixer screen (#537):** Safely removed the spectator AR debug/viewfinder button `MR GUI` from Deck A's top row in both portrait and landscape orientations (`main.js`), decluttering the mixer interface.

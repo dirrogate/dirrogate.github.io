@@ -235,7 +235,7 @@ export function setupXR(ctx) {
       updateAnchor(st); if (ctx.sleeveGrab(st.anchor, P)) { st.direct = { kind: 'sleeve' }; buzz(st, 0.4, 30); return true; } } }
     // 0. target lamp, controllers only: the trigger (or grip) at the lamp head toggles it (CLAUDE.md #58).
     //    Controllers never toggle it by hovering; bare hands still press it with a fingertip poke.
-    for (const d of ctx.decks) {
+    if (!ctx.targetLightOn || ctx.targetLightOn()) for (const d of ctx.decks) {   // #605 TURNTABLE FEEL > TARGET LIGHT off: the lamp head isn't a control at all
       const t = d.g.userData.target; if (!t) continue;
       t.grp.getWorldPosition(v2); v2.y += t.headY;
       if (Math.hypot(P.x - v2.x, P.z - v2.z) < 0.02 && P.y - v2.y < 0.025 && P.y - v2.y > -0.03) {
@@ -263,6 +263,13 @@ export function setupXR(ctx) {
       updateAnchor(st); const o = pr.obj; o.updateMatrixWorld();
       st.direct = { kind: 'gopro', prop: pr, off: pr.penOff ? pr.penOff.clone() : new THREE.Matrix4().copy(st.anchor.matrixWorld).invert().multiply(o.matrixWorld) };   // #395 a marker: held like a pen
       pr.grab(st); buzz(st, 0.4, 25); return true;
+    }
+    // #608 the raised TB-03 knobs on the ACID page (main.js acidKnobs): trigger (hands: pinch) turns them like mixer knobs.
+    // Tested before the tablet grab, so a pinch on a knob turns the knob instead of picking the tablet up.
+    if (deckOk && ctx.acidKnobs) {
+      let best = null, bd = 0.022;
+      for (const k of ctx.acidKnobs()) { k.g.getWorldPosition(v2); const dd = v2.distanceTo(P); if (dd < bd) { bd = dd; best = k; } }
+      if (best) { st.direct = { kind: 'knob', id: best.id, yawL: yawOf(handQuat(st, q1)), qL: handQuat(st, new THREE.Quaternion()), hist: [], dmin: Infinity }; return true; }
     }
     // 0a. #189 the mixer's tablet: grip (controllers) or pinch (hands) on its frame picks it up; it keeps its pose
     //     relative to the hand while held (main.js places it; it stays a child of the mixer so the phone mirrors it)
@@ -338,7 +345,7 @@ export function setupXR(ctx) {
       else if (best.kind === 'slider') st.direct = { kind: 'slider', id: best.id, v0: ctx.mixVal[best.id], m0: ctx.sliderFromLocal(best.id, ctx.mixer.worldToLocal(v2.copy(P))) };
       else { st.direct = { kind: 'pitch', d: best.deck, v0: best.deck.pitch, m0: ctx.pitchFromLocalZ(best.deck, best.deck.g.worldToLocal(v2.copy(P)).z) }; ctx.setLastTouched(best.deck.i); ctx.heldPitch.add(best.deck.i); }
       st.direct.hist = []; st.direct.dmin = Infinity;
-      buzz(st); return true;
+      if (best.kind !== 'knob') buzz(st); return true;   // #605 owner: no haptics on knobs (only PAN's centre click)
     }
     // 3. platter and record (CLAUDE.md #35): label = lift off (only after a 3 cm lift), grooves = scratch,
     //    platter rim = nudge. Grabbing the edge never takes the record off.
@@ -555,15 +562,27 @@ export function setupXR(ctx) {
         let tw = 2 * Math.atan2(d.x * h.x + d.y * h.y + d.z * h.z, d.w); tw = wrap(tw);
         dy = -Math.max(-0.6, Math.min(0.6, tw));   // same sign convention as the yaw: clockwise = dy < 0 = up
       }
+      // #605 KNOB FRICTION (DJ TOOLS > MIXER FEEL): from rest the wrist has to turn a little before the knob lets go
+      // (static friction, up to 4 deg), tracking jitter under a noise floor is ignored, and the turn is eased (viscous drag:
+      // the same total travel, just less twitchy). Held still for 0.25 s it grips again. No haptics.
+      { const fr = Math.max(0, Math.min(1, ((ctx.mixFeel && ctx.mixFeel().kfric) || 0) / 100));
+        if (fr > 0) {
+          const now = performance.now(), BRK = fr * 0.07, NOISE = fr * 0.004;
+          if (Math.abs(dy) < NOISE) dy = 0;
+          if (dy) g.tMove = now; else if (g.slip && now - (g.tMove || 0) > 250) { g.slip = false; g.acc = 0; }
+          if (!g.slip) { g.acc = (g.acc || 0) + dy; if (Math.abs(g.acc) < BRK) dy = 0; else { dy = g.acc - Math.sign(g.acc) * BRK; g.slip = true; g.acc = 0; } }
+          g.dyF = (g.dyF || 0) + (dy - (g.dyF || 0)) * (1 - 0.65 * fr); dy = Math.abs(g.dyF) < 1e-5 ? 0 : g.dyF;
+        } }
       // #421 (owner: far too much twist, the hand ended up buried in the mixer): controllers 0 -> full in 90 deg of twist
       let nv = ctx.mixVal[g.id] - (st.isHand ? dy / (300 * Math.PI / 180) * 2.4 : dy / (pf('kt') * Math.PI / 180));   // #422 TWIST slider (deg of wrist for 0 -> full)   // turn clockwise (seen from above) = up; full travel = 250 deg of wrist (#327 bare hands: 125 deg)
       // #254 (owner) sticky PAN: centred, it holds until turned 8 % of its travel away (a brush can't swing it);
       // turned back within 3 % of the middle it settles there again. The hold keeps the turn so far in g.panAcc.
       if (g.id.endsWith('.pan')) {
         if (ctx.mixVal[g.id] === 0.5) { g.panAcc = (g.panAcc || 0) + (nv - 0.5); nv = Math.abs(g.panAcc) > 0.08 ? 0.5 + g.panAcc : 0.5; if (nv !== 0.5) g.panAcc = 0; }
-        else if (Math.abs(nv - 0.5) < 0.03 && Math.abs(ctx.mixVal[g.id] - 0.5) >= 0.03) { nv = 0.5; g.panAcc = 0; buzz(st, 0.3, 12); }
+        else if (Math.abs(nv - 0.5) < 0.03 && Math.abs(ctx.mixVal[g.id] - 0.5) >= 0.03) { nv = 0.5; g.panAcc = 0; g.dyF = 0; buzz(st, 0.25, 8); }   // #605 a small click at the centre (the only knob haptic)
       }
       ctx.setMix(g.id, nv);
+      if (ctx.knobTick && ctx.knobTick(g.id)) buzz(st, 0.08, 4);   // #608 owner: the slightest tick per TRACK / MODE notch (controller batteries)
     } else if (g.kind === 'slider') {
       const m = ctx.sliderFromLocal(g.id, ctx.mixer.worldToLocal(v2.copy(P)), true);   // #293 unclamped: grabbed off the cap, the ends are still reachable
       if (g.m0 == null) { g.m0 = m; g.v0 = ctx.mixVal[g.id]; }
@@ -674,6 +693,7 @@ export function setupXR(ctx) {
     else if (g.kind === 'gopro') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'propStretch' && o.direct.prop === g.prop) o.direct = null; g.prop.release(); }   // #337 (#340 any prop)
     else if (g.kind === 'propStretch' || g.kind === 'propScale') g.prop.save();   // #341
     else if (g.kind === 'propKnob') { if (g.prop.knobEnd) g.prop.knobEnd(); }   // #379
+    else if (g.kind === 'knob') { if (ctx.knobEnd) ctx.knobEnd(g.id); }   // #608 detented TB-03 knobs settle on their notch
     else if (g.kind === 'tablet') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'tabletStretch') o.direct = null; if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
     else if (g.kind === 'tabletScale' || g.kind === 'tabletStretch') ctx.saveTablet();
     else if (g.kind === 'neonScale') {
@@ -703,7 +723,7 @@ export function setupXR(ctx) {
   function buttonList() {
     const out = [];
     const mc = ctx.mixer.userData.controls;
-    for (const id of ['sync', 'splitcue', 'mic', 'A.cue', 'B.cue', 'bpmtap', 'looper']) out.push({ g: mc[id], c: { mixer: true, id }, r: 0.013 });   // BPM TAP replaced A.beat1; LOOPER replaced B.beat1
+    for (const id of ['sync', 'splitcue', 'mic', 'A.cue', 'B.cue', 'bpmtap', 'looper', 'acid.cue']) if (mc[id]) out.push({ g: mc[id], c: { mixer: true, id }, r: 0.013 });   // BPM TAP replaced A.beat1; LOOPER replaced B.beat1; #607 ACID CUE was missing (not pokeable in the headset)
     for (const d of ctx.decks) {
       const u = d.g.userData;
       out.push({ g: u.start, c: { deck: d.name, id: 'start' }, r: 0.022 });
@@ -1000,7 +1020,7 @@ export function setupXR(ctx) {
   function snapTarget(st) {
     const d = st.direct; if (!d || st.btn !== 'trigger') return null;
     let o = null, dy = 0.008;
-    if (d.kind === 'knob' || d.kind === 'slider') o = ctx.mixer.userData.controls && ctx.mixer.userData.controls[d.id];
+    if (d.kind === 'knob' || d.kind === 'slider') o = (ctx.mixer.userData.controls && ctx.mixer.userData.controls[d.id]) || (ctx.knobObj && ctx.knobObj(d.id));   // #608 raised TB-03 knobs too
     else if (d.kind === 'pitch') o = d.d && d.d.g.userData.pitchCap;
     else if (d.kind === 'power') { o = d.d && d.d.g.userData.powerKnob; dy = 0.01; }
     if (!o) return null;
@@ -1030,7 +1050,7 @@ export function setupXR(ctx) {
       const T = want ? snapTarget(st) : null, d = st.direct;   // #469 no pinch slide in CONTROLLER look
       st.pin = Math.max(0, Math.min(1, (st.pin || 0) + (T ? 1 : -1) / 60 / 0.1));
       if (T && st.pinchRoot) {
-        const kc = d.kind === 'knob' ? ctx.mixer.userData.controls[d.id] : null;
+        const kc = d.kind === 'knob' ? (ctx.mixer.userData.controls[d.id] || (ctx.knobObj && ctx.knobObj(d.id))) : null;   // #608
         if (!st.snapQ || st.snapQ.d !== d) st.snapQ = { d, qGrip: st.grip.getWorldQuaternion(new THREE.Quaternion()), qKnob: kc ? kc.getWorldQuaternion(new THREE.Quaternion()) : null };
         let q;
         if (kc) {

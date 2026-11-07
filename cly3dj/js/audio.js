@@ -95,6 +95,18 @@ export class AudioEngine {
       this.loopGain.push(lg);
     }
     this.setLoopVol(this._loopVol ?? 0.8);
+
+    // Gemini_acid: Roland TB-03 synthesis worklet. #607 routed like a deck channel: ACID VOL = its fader into the master,
+    // ACID CUE = pre-fader pre-listen into the cue bus (master is never muted by it)
+    await ctx.audioWorklet.addModule(new URL('./acid-worklet.js', import.meta.url));
+    this.acidNode = new AudioWorkletNode(ctx, 'vire-acid', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+    this.acidNode.port.onmessage = e => { if (this.onAcid) this.onAcid(e.data); };
+    this.acidCueGain = ctx.createGain(); this.acidCueGain.gain.value = 0.0;
+    this.acidMasterGain = ctx.createGain(); this.acidMasterGain.gain.value = 0.0;
+    this.acidNode.connect(this.acidCueGain).connect(this.cueBus);
+    this.acidNode.connect(this.acidMasterGain).connect(this.masterBus);
+    this._syncAcidRouting();
+    if (this.onAcidReady) this.onAcidReady();   // #607 main.js sends the page's settings (tempo, knobs, pattern) once the synth exists
   }
 
   resume() { return this.ctx && this.ctx.state !== 'running' ? this.ctx.resume() : Promise.resolve(); }
@@ -132,6 +144,23 @@ export class AudioEngine {
     const g = Math.pow(v / 0.8, 2);
     for (const n of this.loopGain) this._ramp(n.gain, g);
   }
+  // #607 TB-03 routing, the same as a deck channel: ACID VOL is its fader (v^2 law, like setFader) into the master;
+  // ACID CUE adds a pre-fader copy to the cue bus at unity (like setCue), so it can be pre-listened with ACID VOL down
+  _syncAcidRouting() {
+    const v = this._acidVol ?? 0.8;
+    if (this.acidCueGain) this._ramp(this.acidCueGain.gain, this._acidCueOn ? 1 : 0);
+    if (this.acidMasterGain) this._ramp(this.acidMasterGain.gain, v * v);
+  }
+  setAcidVol(v) { this._acidVol = v; this._syncAcidRouting(); }
+  setAcidCue(on) { this._acidCueOn = !!on; this._syncAcidRouting(); }
+  setAcidRun(on) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'run', value: !!on }); }
+  setAcidPattern(idx) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'pattern', value: idx }); }
+  setAcidTrack(idx) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'track', value: idx }); }
+  setAcidTrackMode(on) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'trackMode', value: !!on }); }
+  clearAcidPattern() { if (this.acidNode) this.acidNode.port.postMessage({ type: 'clearPattern' }); }
+  setAcidParam(key, value) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'param', key, value }); }
+  acidNoteOn(note, accent) { if (this.acidNode) this.acidNode.port.postMessage({ type: 'noteOn', note, accent }); }
+  acidNoteOff() { if (this.acidNode) this.acidNode.port.postMessage({ type: 'noteOff' }); }
   // mask = [bool, bool]: the channels to sample (the ones with CUE on); looperPlay() ends the sample and loops it
   looperRec(mask) { if (this.looper) this.looper.port.postMessage({ type: 'rec', mask }); }
   looperPlay() { if (this.looper) this.looper.port.postMessage({ type: 'play' }); }
