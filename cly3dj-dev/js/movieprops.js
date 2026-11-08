@@ -906,6 +906,10 @@ class Placer {
     let len = 6, hit = null;
     if (!this.held) {
       hit = this.pick(this.o, this.d); this.setHover(hit ? hit.p : null); if (hit) len = hit.t;
+      if (hit && hit.p.isPortal && hit.p._lockHit) {   // #626 the padlock badge: trigger or grip = locked / open
+        if ((tr && !this.trigWas) || gripDown) { hit.p.setLocked(!hit.p.locked); hit.p.set.save(); buzz(st, 0.4, 30); this.mp.env.toast(hit.p.locked ? 'Portal frame LOCKED' : 'Portal frame open', 1200); }
+        this.trigWas = tr; return this._beam(len, hit);
+      }
       const rigid = hit && (hit.p.isPortal || hit.p.isGoPro);
       if (rigid && gripDown) { this.grabRigid(hit.p, hit.t, 'move'); buzz(st, 0.5, 40); }
       else if (rigid && hit.p.isPortal && tr && !this.trigWas) { this.grabRigid(hit.p, hit.t, 'size'); buzz(st, 0.5, 40); }
@@ -946,7 +950,9 @@ class Placer {
       }
     }
     this.trigWas = tr;
-    // the beam
+    this._beam(len, hit);
+  }
+  _beam(len, hit) {   // the beam (#626 a method: the padlock branch returns early)
     const e = this.held ? _v3.copy(this.held.obj.getWorldPosition(_v2)) : _v3.copy(this.o).addScaledVector(this.d, len);
     _v2.copy(e).sub(this.o); const L = Math.max(0.05, _v2.length());
     this.beam.position.copy(this.o).addScaledVector(_v2, 0.5); this.beam.scale.set(1, L, 1); this.beam.quaternion.setFromUnitVectors(YAX, _v2.normalize());

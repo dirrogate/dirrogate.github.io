@@ -6272,7 +6272,7 @@ const PINCH_FIT_DEF = {
 };
 // #513 the TV's address, from where this page runs (cabin.dirrodj.club/ = the cly3dj-dev folder on Cloudflare; github.io/cly3dj/ ...); no 'https://'
 const venueUrl = () => new URL('venue.html', location.href).href.replace(/[?#].*$/, '').replace(/^https?:\/\//, '');
-const TOOLS_NAME = { acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530 / Gemini_acid
+const TOOLS_NAME = { acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', rooms: 'ROOMS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530 / Gemini_acid
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -8683,44 +8683,61 @@ function drawToolsPage() {
     wrapText(g, (PS.on ? '' : 'PORTALS are off: turn them on to see the frames. ') + help, L + 2, yt, R - L - 4, P ? 19 : 17, 4);
     return;
   }
-  if (page === 'night') {   // #612 NIGHT LOOK: presets, layers on / off, strengths, tint and glow colours
+  if (page === 'night') {   // #612 / #626 NIGHT LOOK: moonlight through the PANO openings, glow, eaves, posts (grade, stripes, beams, presets removed)
     const y0 = head('NIGHT LOOK', 'portals'), N = night;
     if (!N) { note('Night look runs on the headset.', y0 + 20); return; }
-    const S = N.S, redraw = () => drawMixScreen();
-    const pw = (R - L - 16) / 3;
-    [['off', 'OFF'], ['goa', 'GOA NIGHT'], ['cyber', 'CYBER FULL MOON']].forEach(([k, lb], i) => btn(L + i * (pw + 8), y0, pw, 32, lb, k === 'off' ? !S.on : S.on && S.preset === k, () => { N.preset(k); redraw(); }, false, 14));
-    const B = portals.bamboo, tg = [
-      [S.on ? 'NIGHT: ON' : 'NIGHT', S.on, () => N.set('on', !S.on)], ['GRADE', S.grade, () => N.set('grade', !S.grade)], ['MOON LIGHT', S.moon, () => N.set('moon', !S.moon)],
-      ['MOON STRIPES', S.stripes, () => N.set('stripes', !S.stripes)], ['GLOW', S.glow, () => N.set('glow', !S.glow)],
-      ['MOONBEAMS', !!S.beams, () => N.set('beams', !S.beams)], ['DUST', !!S.dust, () => N.set('dust', !S.dust)],   // #625
+    const S = N.S, redraw = () => drawMixScreen(), B = portals.bamboo;
+    const tg = [
+      [S.on ? 'NIGHT: ON' : 'NIGHT', S.on, () => N.set('on', !S.on)], ['MOON LIGHT', S.moon, () => N.set('moon', !S.moon)], ['GLOW', S.glow, () => N.set('glow', !S.glow)],
       ['THATCH EAVES', !!B.eaves, () => portals.setBamboo('eaves', !B.eaves)], ['CORNER POSTS', !!B.posts, () => portals.setBamboo('posts', !B.posts)], ['ROOM MESH', S.mesh, () => N.set('mesh', !S.mesh)]];
-    const tc = P ? 2 : 5, tw = (R - L - (tc - 1) * 6) / tc, th = P ? 40 : 30, ty = y0 + 38;
-    tg.forEach(([lb, on, act], i) => btn(L + (i % tc) * (tw + 6), ty + Math.floor(i / tc) * (th + 5), tw, th, lb, on, () => { act(); redraw(); }, false, P ? 15 : 13));
+    const tc = P ? 2 : 6, tw = (R - L - (tc - 1) * 6) / tc, th = P ? 42 : 34, ty = y0;
+    tg.forEach(([lb, on, act], i) => btn(L + (i % tc) * (tw + 6), ty + Math.floor(i / tc) * (th + 6), tw, th, lb, on, () => { act(); redraw(); }, false, P ? 15 : 13));
     const st = (k, d, step, lo, hi) => N.set(k, clamp(Math.round((S[k] + d * step) / step) * step, lo, hi));
+    const pa = B.postAdj || 0;
     const cells = [
-      ['GRADE STRENGTH', Math.round(S.str * 100) + '%', d => st('str', d, 0.05, 0, 0.9)], ['STRIPE SOFTNESS', ['SHARP', 'SOFT', 'VERY SOFT'][S.soft] || 'SOFT', d => st('soft', d, 1, 0, 2)],
-      ['KEEP CLEAR', S.clear.toFixed(1) + ' m', d => st('clear', d, 0.1, 0, 2)], ['LIGHT FROM', S.src === 'dome' ? 'DOME MOON' : 'OVERHEAD', () => N.set('src', S.src === 'dome' ? 'top' : 'dome')],
+      ['EDGE SOFTNESS', ['SHARP', 'SOFT', 'VERY SOFT'][S.soft] || 'SOFT', d => st('soft', d, 1, 0, 2)], ['KEEP CLEAR', S.clear.toFixed(1) + ' m', d => st('clear', d, 0.1, 0, 2)],
+      ['LIGHT FROM', S.src === 'dome' ? 'DOME MOON' : 'OVERHEAD', () => N.set('src', S.src === 'dome' ? 'top' : 'dome')],
       ['GLOW FROM', S.gdir + '°', d => N.set('gdir', (S.gdir + d * 45 + 360) % 360)], ['GLOW STRENGTH', Math.round(S.gstr * 100) + '%', d => st('gstr', d, 0.05, 0, 1.5)],
-      ['BEAM STRENGTH', Math.round(S.bstr * 100) + '%', d => st('bstr', d, 0.05, 0, 2)], ['DUST AMOUNT', Math.round(S.dstr * 100) + '%', d => st('dstr', d, 0.05, 0, 2)]];   // #625
-    const cc = P ? 2 : 4, cw = (R - L - (cc - 1) * 8) / cc, ch = P ? 50 : 40, cy = ty + Math.ceil(tg.length / tc) * (th + 5) + 2;
+      ['POST LENGTH', Math.abs(pa) < 0.005 ? 'TO FLOOR' : (pa > 0 ? '+' : '') + Math.round(pa * 100) + ' cm', d => portals.setBamboo('postAdj', clamp(Math.round(((B.postAdj || 0) + d * 0.05) * 100) / 100, -2, 1))]];   // #626
+    const cc = P ? 2 : 3, cw = (R - L - (cc - 1) * 8) / cc, ch = P ? 50 : 42, cy = ty + Math.ceil(tg.length / tc) * (th + 6) + 2;
     cells.forEach(([label, val, act], i) => {
-      const x = L + (i % cc) * (cw + 8), y = cy + Math.floor(i / cc) * (ch + 4), by = y + 13, bh = ch - 13, bw = 38;
+      const x = L + (i % cc) * (cw + 8), y = cy + Math.floor(i / cc) * (ch + 4), by = y + 13, bh = ch - 13, bw = 40;
       g.fillStyle = '#8c96a8'; g.font = '700 11px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 10);
       btn(x, by, bw, bh, '−', false, () => { act(-1); redraw(); });
       let fs = 15; g.font = `700 ${fs}px system-ui`; while (fs > 10 && g.measureText(val).width > cw - 2 * bw - 6) g.font = `700 ${--fs}px system-ui`;
       g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + cw / 2, by + bh / 2); g.textBaseline = 'alphabetic';
       btn(x + cw - bw, by, bw, bh, '+', false, () => { act(1); redraw(); });
     });
-    // colour sliders (hue) with a swatch
-    const sy = cy + Math.ceil(cells.length / cc) * (ch + 4) + 2, sw = P ? R - L : (R - L - 8) / 2, sh = P ? 40 : 34;
+    const sy = cy + Math.ceil(cells.length / cc) * (ch + 4) + 4, sw = P ? R - L : (R - L - 8) / 2, sh = P ? 40 : 34;
     const swatch = (x, y, h, hue, sat) => { g.fillStyle = `hsl(${hue}, ${Math.round(sat * 100)}%, 50%)`; g.fillRect(x, y + 6, 36, h - 12); };
-    tSlider(g, L, sy, sw - 44, sh, 'TINT HUE', S.hue / 359, S.hue + '°', v => { N.set('hue', Math.round(v * 359)); }, false, 96); swatch(L + sw - 40, sy, sh, S.hue, S.sat);
+    tSlider(g, L, sy, sw - 44, sh, 'MOON HUE', S.hue / 359, S.hue + '°', v => { N.set('hue', Math.round(v * 359)); }, false, 96); swatch(L + sw - 40, sy, sh, S.hue, S.sat);
     const gx = P ? L : L + sw + 8, gy = P ? sy + sh + 6 : sy;
     tSlider(g, gx, gy, sw - 44, sh, 'GLOW HUE', S.ghue / 359, S.ghue + '°', v => { N.set('ghue', Math.round(v * 359)); }, false, 96); swatch(gx + sw - 40, gy, sh, S.ghue, 0.85);
-    const yt = (P ? gy : sy) + sh + 14;
+    const yt = (P ? gy : sy) + sh + 16;
     g.textAlign = 'left'; g.font = `500 ${P ? 13 : 12}px system-ui`; g.fillStyle = S.on ? '#7fd88f' : '#8c96a8';
-    const surf = !S.mesh ? 'ROOM MESH off: floor + shell' : N.hasMesh ? `room mesh ${Math.round(N.meshTris).toLocaleString()} tris` : 'no room mesh yet (Passthrough + Space Setup): floor + shell';
-    g.fillText(`${S.on ? 'On' : 'Off'} · ${surf} · moon ${S.src !== 'dome' ? 'overhead' : dome.on && skybox.tex ? 'from the dome' : 'needs DOME on'} · stripes from BAMBOO frames (PANO type)`, L + 2, yt);
+    const surf = !S.mesh ? 'ROOM MESH off: floor + shell' : N.hasMesh ? `room mesh ${Math.round(N.meshTris).toLocaleString()} tris` : 'no room mesh yet: floor + shell';
+    g.fillText(`${S.on ? 'On' : 'Off'} · ${surf} · moon ${S.src !== 'dome' ? 'overhead' : dome.on && skybox.tex ? 'from the dome' : 'needs DOME on'} · light comes in through PANO frames`, L + 2, yt);
+    return;
+  }
+  if (page === 'rooms') {   // #626 ROOMS: ROOM HERE, and five saved rooms (portals + frames + eaves / posts, night look, dome + sky, FX, movie props)
+    const y0 = head('ROOMS', 'portals'), now = performance.now();
+    btn(L, y0, R - L, P ? 60 : 40, now - roomHereArm < 3000 ? 'TAP AGAIN: ROOM HERE' : 'ROOM HERE  ·  flight case in front of you, decks at their height', now - roomHereArm < 3000, roomHereTap, false, P ? 16 : 15);
+    const list = roomsList(), ry = y0 + (P ? 70 : 46), rh = P ? 56 : 33, bw = P ? 74 : 92;
+    for (let i = 0; i < 5; i++) {
+      const r = list[i], y = ry + i * (rh + 4), saveArm = roomArm.k === 'save' + i && now - roomArm.t < 3000, loadArm = roomArm.k === 'load' + i && now - roomArm.t < 3000;
+      g.fillStyle = '#121a2a'; g.fillRect(L, y, R - L - 2 * bw - 12, rh);
+      g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillStyle = r ? '#dfe6f2' : '#56627a'; g.font = `700 ${P ? 15 : 14}px system-ui`;
+      g.fillText(`ROOM ${i + 1}`, L + 10, y + rh / 2 - (r ? 7 : 0));
+      if (r) { g.font = `500 ${P ? 12 : 11}px system-ui`; g.fillStyle = '#8c96a8'; fitText2(g, r.info || '', L + 10, y + rh / 2 + 9, R - L - 2 * bw - 32); }
+      else { g.font = '500 12px system-ui'; g.fillStyle = '#56627a'; g.fillText('empty', L + 90, y + rh / 2); }
+      g.textBaseline = 'alphabetic';
+      btn(R - 2 * bw - 6, y, bw, rh, saveArm ? 'TAP AGAIN' : 'SAVE', saveArm, () => roomSlotTap('save', i), false, 14);
+      btn(R - bw, y, bw, rh, loadArm ? 'TAP AGAIN' : 'LOAD', loadArm, r ? () => roomSlotTap('load', i) : null, !r, 14);
+    }
+    const yt = ry + 5 * (rh + 4) + 14;
+    if (!P) return;   // landscape: no room for the help text
+    g.textAlign = 'left'; g.font = `500 ${P ? 13 : 12}px system-ui`; g.fillStyle = '#8c96a8';
+    wrapText(g, 'SAVE keeps this room\'s portals (place, size, type, style, locks), roof and eaves / posts, frame looks, night look, dome, sky, FX and movie props, all relative to the gear. LOAD restores them and restarts the app (enter the headset again), then press ROOM HERE where you stand.', L + 2, yt, R - L - 4, P ? 18 : 16, 3);
     return;
   }
   if (page === 'portals') {   // #346 PORTALS SETUP: the real-world windows, the wall they cut, the sky dome behind it
@@ -8737,7 +8754,9 @@ function drawToolsPage() {
       [`SCREEN: ${({ cyclo: 'CYCLO', image: 'IMAGE', video: 'VIDEO' })[PS.scrSrc.src] || 'CYCLO'} ⟳`, PS.screenN > 0, pScrStep],   // #589 the one feed every SCREEN frame shows
       [settings.roomSnap !== false ? 'ROOM SNAP: ON' : 'ROOM SNAP: OFF', settings.roomSnap !== false, roomSnapToggle],   // #598 owner: snap can be switched off
       ['FRAME LOOK ›', JSON.stringify(PS.grade) !== JSON.stringify(GRADE0), () => setTools('pgrade')],
-      ['NIGHT LOOK ›', !!(night && night.S.on), () => setTools('night')],   // #612   // #597 colour-match the frames to the room   // #592 FRAME on the ceiling
+      ['NIGHT LOOK ›', !!(night && night.S.on), () => setTools('night')],
+      [PS.anyUnlocked ? 'LOCK ALL' : 'UNLOCK ALL', !PS.anyUnlocked, () => { const on = PS.anyUnlocked; PS.lockAll(on); toast(on ? 'All portal frames LOCKED (the laser and hands can\'t move them)' : 'All portal frames open', 2200); drawMixScreen(); }],   // #626
+      ['ROOMS ›', false, () => setTools('rooms')],   // #626   // #612   // #597 colour-match the frames to the room   // #592 FRAME on the ceiling
       [defArm ? 'TAP AGAIN' : 'DEFAULTS', defArm, portalDefaults],
     ];
     const cells = [
@@ -8752,6 +8771,7 @@ function drawToolsPage() {
       ['FRAME', `${PS.edit + 1} of ${PS.n}`, d => PS.setEdit(PS.edit + d)],   // #586 which frame TYPE sets (it blinks white)
       [`TYPE · ${PS.kindOf(PS.edit)[0] === 'p' ? 'PANO (SKY)' : PS.kindOf(PS.edit)[0] === 's' ? 'SCREEN' : 'REAL (ROOM)'}`, SHAPE_LABEL[SHAPE_OF(PS.kindOf(PS.edit))], d => { PS.stepKind(PS.edit, d); if (PS.kindOf(PS.edit)[0] === 'p' && !dome.on) setDome(true); }],   // #585 doorway / #586 PANO frames
       ['TRIM LIGHT', PS.glow.toUpperCase(), d => PS.stepGlow(d)],
+      ['LOCK', PS.list[PS.edit] && PS.list[PS.edit].locked ? 'LOCKED' : 'OPEN', () => { PS.toggleLock(PS.edit); }],   // #626 FRAME's padlock
       ['STYLE', PS.styleOf(PS.edit).toUpperCase(), d => { const o = ['iron', 'holo', 'bamboo'], i = o.indexOf(PS.styleOf(PS.edit)); PS.setStyle(PS.edit, o[(i + d + 3) % 3]); }],   // #598 FRAME's style: IRON / HOLO / BAMBOO
     ];
     const cell = ([label, val, act], x, y, w, h) => {
@@ -8779,12 +8799,12 @@ function drawToolsPage() {
       cellsP.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 54, tw, 50));   // #585 rows of 54 px
       text(L + 4, y1 + Math.ceil(cellsP.length / 2) * 54 + 16, R - L - 8, 18, 3, 14, helpP);   // #598
     } else {
-      const tw = (R - L - 6 * (toggles.length - 1)) / toggles.length;
-      toggles.forEach(([lb, on, act], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, false, 14));
-      const cw = (R - L - 32) / 5, y1 = y0 + 48;   // #598 five across (STYLE added), the TURN slider in the slot after the last cell
+      const per = Math.ceil(toggles.length / 2), tw = (R - L - 6 * (per - 1)) / per;   // #626 two rows
+      toggles.forEach(([lb, on, act], i) => btn(L + (i % per) * (tw + 6), y0 + Math.floor(i / per) * 38, tw, 34, lb, on, act, false, 13));
+      const cw = (R - L - 32) / 5, y1 = y0 + 78;   // #598 five across (STYLE added), the TURN slider in the slot after the last cell
       cells.forEach((c, i) => cell(c, L + (i % 5) * (cw + 8), y1 + Math.floor(i / 5) * 48, cw, 44));
       { const i = cells.length; tSlider(g, L + (i % 5) * (cw + 8), y1 + Math.floor(i / 5) * 48 + 4, cw, 40, 'TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on, 52); }   // #389 (#586 third row, right of FRAME / TYPE / TRIM LIGHT)
-      text(L + 2, y1 + 3 * 48 + 12, R - L - 4, 15, 3, 12);
+      text(L + 2, y1 + 3 * 48 + 10, R - L - 4, 14, 1, 11);   // #626 one line under the taller toggle block
     }
     return;
   }
@@ -9561,6 +9581,64 @@ function gearHere() {   // all the gear in front of the DJ, facing them, then a 
   toast('Gear moved in front of you' + (anchorPending ? ' and pinned to the room' : ''), 3000); drawMixScreen();
 }
 
+// #626 ROOM HERE: like GEAR HERE, but keyed to the flight case: the whole rig (gear, portals, roof, props) turns and
+// moves so the flight case stands in front of you, facing you, at your current spot; heights stay as they are (the
+// rig stays on the floor), then it is re-pinned to the room. ROOMS: five saved rooms (localStorage bundles).
+var roomHereArm = 0, roomArm = { k: '', t: 0 };
+function roomHereTap() {
+  const now = performance.now();
+  if (now - roomHereArm < 3000) { roomHereArm = 0; roomHere(); } else { roomHereArm = now; toast('ROOM HERE: tap again to bring the room to where you stand', 2500); }
+  drawMixScreen();
+}
+function roomHere() {
+  const s = renderer.xr.getSession(); if (!s) { toast('ROOM HERE works in the headset (enter XR first)', 2500); return; }
+  const c = cases.caseA; if (!c) { gearHere(); return; }
+  const old = rigAnchor; rigAnchor = null;
+  if (old) { try { old.delete(); } catch {} if (old._id) { if (s.deletePersistentAnchor) s.deletePersistentAnchor(old._id).catch(() => {}); saveAnchorList(anchorList().filter(x => x !== old._id)); } }
+  const xc = renderer.xr.getCamera(); xc.updateMatrixWorld();
+  const head = new THREE.Vector3().setFromMatrixPosition(xc.matrixWorld), fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(xc.getWorldQuaternion(new THREE.Quaternion())); fwd.y = 0;
+  if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1); fwd.normalize();
+  const yaw = Math.atan2(-fwd.x, -fwd.z), g = c.group;
+  // the case's front faces the DJ (+z in the rig), so the rig turns by your heading minus the case's own turn in the rig
+  const rigYaw = yaw - g.rotation.y, target = head.clone().addScaledVector(fwd, 0.38 + c.D / 2);   // case centre: its front edge ~38 cm ahead of you
+  rig.rotation.set(0, rigYaw, 0);
+  const off = new THREE.Vector3(g.position.x, 0, g.position.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), rigYaw);
+  rig.position.set(target.x - off.x, rig.position.y, target.z - off.z);
+  anchorPending = !!(window.XRFrame && XRFrame.prototype.createAnchor); anchorMsg = anchorPending ? 'pinning…' : 'not pinned';
+  toast('Room brought to you: flight case in front' + (anchorPending ? ', pinned to this spot' : ''), 3000); drawMixScreen();
+}
+const ROOMS_KEY = 'vire.rooms', ROOM_KEYS = ['vire.portals', 'vire.night', 'vire.dome', 'vire.fx.floats', 'vire.fx.water', 'vire.movieprops', 'vire.movieprops.cam'];
+const ROOM_SET = ['skyMedia', 'skyFile', 'skyH', 'skyTurn', 'skyType', 'skyKey', 'env', 'sky', 'domeLight', 'arSoft', 'panoRate'];
+function roomsList() { try { const a = JSON.parse(localStorage.getItem(ROOMS_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } }
+function roomSlotTap(what, i) {
+  const k = what + i, now = performance.now();
+  if (roomArm.k !== k || now - roomArm.t > 3000) { roomArm = { k, t: now }; drawMixScreen(); return; }
+  roomArm = { k: '', t: 0 };
+  if (what === 'save') roomSave(i); else roomLoad(i);
+  drawMixScreen();
+}
+function roomSave(i) {
+  const keys = {}; for (const k of ROOM_KEYS) { const v = localStorage.getItem(k); if (v != null) keys[k] = v; }
+  const set = {}; for (const k of ROOM_SET) if (settings[k] !== undefined) set[k] = settings[k];
+  const n = portals ? portals.n : 0, sky = (settings.skyMedia || '').split('/').pop() || (settings.skyFile || '').split(':')[0] || 'no sky';
+  const d = new Date(), info = `${d.toLocaleDateString()} ${d.toLocaleTimeString().slice(0, 5)} · ${portals && portals.on ? n + ' portal' + (n > 1 ? 's' : '') : 'portals off'} · ${dome.on ? 'dome: ' + sky : 'no dome'}${night && night.S.on ? ' · night' : ''}`;
+  const list = roomsList(); while (list.length < 5) list.push(null);
+  list[i] = { v: 1, t: Date.now(), info, keys, set };
+  try { localStorage.setItem(ROOMS_KEY, JSON.stringify(list)); toast(`ROOM ${i + 1} saved`, 1800); }
+  catch (e) { toast('Could not save the room: storage is full (movie props with pictures take the most room)', 4000); }
+}
+function roomLoad(i) {
+  const r = roomsList()[i]; if (!r) return;
+  try {
+    for (const k of ROOM_KEYS) { if (r.keys && r.keys[k] != null) localStorage.setItem(k, r.keys[k]); else localStorage.removeItem(k); }
+    Object.assign(settings, r.set || {}); saveSettings();
+    sessionStorage.setItem('vire.roomLoaded', String(i + 1));
+  } catch (e) { toast('Could not load the room: ' + e.message, 3500); return; }
+  toast(`Loading ROOM ${i + 1}…`, 1500);
+  setTimeout(() => location.reload(), 600);
+}
+setTimeout(() => { let n = null; try { n = sessionStorage.getItem('vire.roomLoaded'); sessionStorage.removeItem('vire.roomLoaded'); } catch {} if (n) toast(`ROOM ${n} loaded. Enter the headset and press ROOM HERE where you stand.`, 6000); }, 2500);
+
 // ------------------------------------------------------------------ frame loop
 const clock = new THREE.Clock();
 const camFwd = new THREE.Vector3(), camDown = new THREE.Vector3(), camRight = new THREE.Vector3();
@@ -9871,6 +9949,7 @@ function frameBody() {
       toast(`Beacon ${k === 'L' ? 'LEFT' : 'RIGHT'} marked`, 2000); xr.buzz && xr.buzz(st, 0.6, 60); break;
     }
   }
+  if (portals) portals.showLocks = !!(mprops && mprops.placer && mprops.placer.on);   // #626 padlocks only while the B laser is on
   if (portals) { if (!portals.feed) portals.feed = portalFeed; portals.tick(); }
   if (night && night.S.on) night.tick(renderer.xr.isPresenting ? renderer.xr.getFrame() : null, renderer.xr.isPresenting ? renderer.xr.getReferenceSpace() : null, dt, nightMoonDir());   // #612   // #345 #346 (#589 screen feed)
   if (domeBoot) { domeBoot = false; if (dome.on && !CAMERA_ROLE) setDome(true); }   // #346 a dome left on last time: load its sky once everything is up

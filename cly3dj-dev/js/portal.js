@@ -154,7 +154,7 @@ function makeHoloMat() {
 // copies of one pole (one InstancedMesh, one draw). SLAT GAP = the gap between slats; CLEARING pushes them out toward
 // the edges so the middle opens up onto the dome; DIRECTION = slats along the frame's width or height. Each pole gets
 // its own thickness, colour, a little twist and height wobble, and culm nodes every ~30 cm (painted by the shader).
-export const BAMBOO0 = { gap: 0.02, clear: 0.4, dir: 'x', kind: 'bamboo', eaves: false, posts: false };   // #612 eaves = thatch fringe, posts = corner poles to the floor (ceiling frames)   // kind: 'bamboo' poles or 'wood' flat slats
+export const BAMBOO0 = { gap: 0.02, clear: 0.4, dir: 'x', kind: 'bamboo', eaves: false, posts: false, postAdj: 0 };   // #626 postAdj   // #612 eaves = thatch fringe, posts = corner poles to the floor (ceiling frames)   // kind: 'bamboo' poles or 'wood' flat slats
 const BAM_MAX = 160;
 const bamGeo = (() => { const g = new THREE.CylinderGeometry(1, 1, 1, 8, 1, false); g.rotateZ(Math.PI / 2); return g; })();   // unit pole along x
 function makeBambooMat() {
@@ -290,6 +290,22 @@ function frameTex(name) {
   t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 2; return t;
 }
 const planksTex = () => _texP || (_texP = frameTex('planks')), reedTex = () => _texR || (_texR = frameTex('reed'));
+// #626 LOCK per frame: a padlock badge at the frame's top-left corner, shown only while the B placement laser is on
+// (never in recordings otherwise). Aim the laser at it + trigger (or grip) = locked / open. A locked frame can't be
+// picked by the laser or grabbed by hand. Saved per frame (lk).
+const lockTex = (() => {
+  const mk = locked => {
+    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+    g.fillStyle = 'rgba(10,14,22,0.82)'; g.beginPath(); g.arc(32, 32, 30, 0, Math.PI * 2); g.fill();
+    const col = locked ? '#ff6a3d' : '#5fe08a'; g.strokeStyle = col; g.lineWidth = 6; g.lineCap = 'round';
+    g.beginPath(); if (locked) g.arc(32, 26, 10, Math.PI, 0); else g.arc(42, 20, 10, Math.PI, 0); g.stroke();
+    if (locked) { g.beginPath(); g.moveTo(22, 26); g.lineTo(22, 31); g.moveTo(42, 26); g.lineTo(42, 31); g.stroke(); } else { g.beginPath(); g.moveTo(52, 20); g.lineTo(52, 26); g.stroke(); }
+    g.fillStyle = col; g.fillRect(18, 30, 28, 20); g.fillStyle = 'rgba(10,14,22,0.9)'; g.fillRect(30, 36, 4, 8);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  };
+  let a = null; return locked => (a || (a = [mk(false), mk(true)]))[locked ? 1 : 0];
+})();
+const LOCK_S = 0.1;
 // #612 THATCH EAVES: two staggered rows of dry palm-leaf cards hanging from the roof's edge into the room (frame +z),
 // leaf shape cut in the shader with alpha-to-coverage (soft edges with the headset's MSAA), one InstancedMesh, 1 draw.
 const FR_MAX = 600;
@@ -506,14 +522,20 @@ class PortalFrame {
     if (door && !this.held) this.obj.position.y = hy;
     this._scrFit();
     this._holoFit(); this._bamFit();   // #598
+    this._lockFit();   // #626
   }
   setScreen(on) { on = !!on; if (on === this.screen) return; this.screen = on; this._scrFit(); }   // #589
+  setLocked(on) { this.locked = !!on; if (this.lk) this.lk.material.map = lockTex(this.locked), this.lk.material.needsUpdate = true; }   // #626
+  _lockFit() {
+    if (!this.lk) { this.lk = new THREE.Mesh(new THREE.PlaneGeometry(LOCK_S, LOCK_S), new THREE.MeshBasicMaterial({ map: lockTex(this.locked), transparent: true, toneMapped: false, depthTest: false })); this.lk.renderOrder = 20; this.lk.raycast = () => {}; this.lk.visible = false; this.obj.add(this.lk); }
+    this.lk.position.set(-this.half.x - RIM - 0.07, this.half.y + RIM + 0.07, 0.03);
+  }
   setStyle(st) { const h = st === 'holo', b = st === 'bamboo'; if (h === !!this.holo && b === !!this.bamboo) return; this.holo = h; this.bamboo = b; this._fit(); }   // #598 iron / holo / bamboo
   _bamFit() {
     const B = this.set.bamboo, wood = B.kind === 'wood';
     if (this.bm) this.bm.visible = false; if (this.wm) this.wm.visible = false; if (this.fm) this.fm.visible = false;
     if (!this.bamboo) return;
-    { const zr = _v.set(0, 0, 1).applyQuaternion(this.obj.quaternion); B.postLen = zr.y < -0.7 ? this.obj.position.y / -zr.y - 0.05 : 0; }   // #612 posts only for a ceiling frame (facing down)
+    { const zr = _v.set(0, 0, 1).applyQuaternion(this.obj.quaternion); B.postLen = zr.y < -0.7 ? Math.max(0.2, this.obj.position.y / -zr.y - 0.05 + (B.postAdj || 0)) : 0; }   // #626 POST LENGTH: + / - from 'to the floor'   // #612 posts only for a ceiling frame (facing down)
     if (B.eaves) { if (!this.fm) { this.fm = new THREE.InstancedMesh(frGeo, makeFringeMat(), FR_MAX); this.fm.raycast = () => {}; this.fm.frustumCulled = false; this.obj.add(this.fm); this.fm.setColorAt(0, new THREE.Color(1, 1, 1)); }
       layFringe(this.fm, this.half.x, this.half.y); this.fm.visible = true; }
     const mk = (geo, mat) => { const im = new THREE.InstancedMesh(geo, mat, BAM_MAX); im.raycast = () => {}; im.frustumCulled = false; this.obj.add(im); im.setColorAt(0, new THREE.Color(1, 1, 1)); return im; };
@@ -537,14 +559,14 @@ class PortalFrame {
   }
 
   hit(P) {   // grab box: the trim frame + slack
-    if (!this.obj.visible) return false;
+    if (!this.obj.visible || this.locked) return false;   // #626 locked
     this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P));
     return Math.abs(l.x) < this.half.x + RIM + 0.08 && Math.abs(l.y) < this.half.y + RIM + 0.08 && Math.abs(l.z) < 0.12;
   }
 
   // Which handle the hand is on (trigger / pinch): 'x' side bar, 'y' top bar, 'xy' corner ring
   corner(P) {
-    this._edge = null; if (!this.obj.visible) return false;
+    this._edge = null; if (!this.obj.visible || this.locked) return false;   // #626
     this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P));
     if (Math.abs(l.z) > 0.12) return false;
     const R = this.hp.xy, S = this.hp.x, T = this.hp.y;
@@ -577,7 +599,16 @@ class PortalFrame {
   // #586 placement laser (movieprops.js Placer): aim box, size by the stick, keep a doorway on the floor after each move
   localBox() { return _box.set(_v.set(-this.half.x - RIM, -this.half.y - RIM, -0.1), _v2.set(this.half.x + RIM, this.half.y + RIM, 0.1)); }
   rayT(o, d) {
+    this._lockHit = false;
     if (!this.obj.visible) return -1;
+    if (this.lk && this.lk.visible) {   // #626 the padlock badge: a hit toggles the lock (movieprops.js Placer)
+      this.obj.updateWorldMatrix(true, false); _m.copy(this.obj.matrixWorld).invert();
+      _ray.origin.copy(o).applyMatrix4(_m); _v.copy(o).add(d).applyMatrix4(_m).sub(_ray.origin); const L0 = _v.length();
+      if (L0 > 1e-9) { _ray.direction.copy(_v).divideScalar(L0); const c = this.lk.position, h = LOCK_S * 0.75;
+        const lb = _box.set(_v.set(c.x - h, c.y - h, c.z - 0.04), _v2.set(c.x + h, c.y + h, c.z + 0.04)), hp = _ray.intersectBox(lb, _v);
+        if (hp) { this._lockHit = true; return _ray.origin.distanceTo(hp) / L0; } }
+    }
+    if (this.locked) return -1;
     const b = this.localBox().clone(); this.obj.updateWorldMatrix(true, false); _m.copy(this.obj.matrixWorld).invert();
     _ray.origin.copy(o).applyMatrix4(_m); _v.copy(o).add(d).applyMatrix4(_m).sub(_ray.origin); const L = _v.length(); if (L < 1e-9) return -1; _ray.direction.copy(_v).divideScalar(L);
     if (b.containsPoint(_ray.origin)) return -1; const h = _ray.intersectBox(b, _v); return h ? _ray.origin.distanceTo(h) / L : -1;
@@ -592,6 +623,7 @@ export class Portals {
   constructor(rig, home) {
     this.rig = rig; this.home = home; this.on = false; this.n = 1; this.list = []; this.glow = 'off'; this.kinds = []; this.edit = 0; this.scrSrc = { src: 'cyclo', name: '', folder: '' }; this.feed = null;   // #589 one screen feed for all SCREEN frames; feed() -> { tex, w, h } (main.js)   // #585 / #586 kinds per frame
     this.grade = { ...GRADE0 };   // #597 FRAME LOOK
+    this.showLocks = false;   // #626 main.js: true while the B laser is on
     this.styles = []; this.holo = { ...HOLO0 }; this.bamboo = { ...BAMBOO0 }; this.beat = 0;   // #598 per frame 'iron' / 'holo'; one HOLO look for all
     this._mats = new Set();
     this._u = { portalInv: { value: Array.from({ length: MAX_PORTALS }, () => new THREE.Matrix4()) },
@@ -618,13 +650,14 @@ export class Portals {
       const f = this._frame(i), d = s && s.f && s.f[i];
       if (d && d.p && d.q) { f.obj.position.fromArray(d.p); f.obj.quaternion.fromArray(d.q); if (d.h) f.half.fromArray(d.h); f.snapL = d.s || ''; f._fit(); }
       else f.place(this.home(i, this.n));
+      f.setLocked(!!(d && d.lk));   // #626
     }
     this._styles();
     this.setOn(!!(s && s.on), false);
   }
   save() {
     try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, n: this.n, glow: this.glow, scr: this.scrSrc, grade: this.grade, holo: this.holo, bamboo: this.bamboo,
-      f: this.list.slice(0, this.n).map((f, i) => ({ p: f.obj.position.toArray(), q: f.obj.quaternion.toArray(), h: f.half.toArray(), k: this.kinds[i], s: f.snapL || '', st: this.styles[i] || 'iron' })) })); } catch {}   // #592 s = the scanned surface it sits on
+      f: this.list.slice(0, this.n).map((f, i) => ({ p: f.obj.position.toArray(), q: f.obj.quaternion.toArray(), h: f.half.toArray(), k: this.kinds[i], s: f.snapL || '', st: this.styles[i] || 'iron', lk: !!f.locked })) })); } catch {}   // #592 s = the scanned surface it sits on
   }
   _show() { this.list.forEach((f, i) => { f.obj.visible = this.on && i < this.n; }); this._u.portalN.value = this.on ? this.n : 0; this._u.portalRevN.value = this.revN; }
   // #585 the first `doors` frames are doorways (on the floor, open at the bottom), the rest bay windows; TRIM LIGHT colour
@@ -640,6 +673,9 @@ export class Portals {
   get revN() { let n = 0; for (let i = 0; i < this.n; i++) if (this.kindOf(i)[0] === 'p') n++; return this.on ? n : 0; }
   setDoors(k) { for (let i = 0; i < MAX_PORTALS; i++) { const rev = this.kindOf(i)[0] === 'p'; this.kinds[i] = (i < k ? (rev ? 'pdoor' : 'door') : (rev ? 'pwindow' : 'window')); } this._styles(); this.save(); }
   stepGlow(d) { const i = GLOW_ORDER.indexOf(this.glow); this.glow = GLOW_ORDER[((i < 0 ? 0 : i) + d + GLOW_ORDER.length) % GLOW_ORDER.length]; this._styles(); this.save(); }
+  lockAll(on) { for (let i = 0; i < this.n; i++) this._frame(i).setLocked(on); this.save(); }   // #626
+  get anyUnlocked() { for (let i = 0; i < this.n; i++) if (!this._frame(i).locked) return true; return false; }
+  toggleLock(i) { const f = this.list[i]; if (!f) return; f.setLocked(!f.locked); this.save(); }
   styleOf(i) { return this.styles[i] || 'iron'; }   // #598
   setStyle(i, st) { this.styles[i] = st; this._styles(); this.save(); this.flash(i); }
   get holoN() { let n = 0; for (let i = 0; i < this.n; i++) if (this.styleOf(i) === 'holo') n++; return this.on ? n : 0; }
@@ -700,6 +736,7 @@ export class Portals {
           if (a > A) { const cw = A / a; U.uCrop.value.set((1 - cw) / 2, 0, cw, 1); } else { const ch = a / A; U.uCrop.value.set(0, (1 - ch) / 2, 1, ch); }
         } else U.uHas.value = 0;
       }
+      if (f.lk) f.lk.visible = this.showLocks;   // #626
       if (f.holo && f.hm) {   // #598
         const U = f.hm.material.uniforms, H = this.holo; U.uT.value = performance.now() / 1000; U.uCol.value.setHex(HOLO_COLS[H.col] || HOLO_COLS.cyan);
         U.uInt.value = H.int; U.uScan.value = H.scan; U.uGlass.value = H.glass; U.uGlitch.value = H.glitch; U.uBeat.value = H.beat ? Math.min(1, this.beat) : 0;
