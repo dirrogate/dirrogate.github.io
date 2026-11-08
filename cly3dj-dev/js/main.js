@@ -8692,15 +8692,17 @@ function drawToolsPage() {
     const B = portals.bamboo, tg = [
       [S.on ? 'NIGHT: ON' : 'NIGHT', S.on, () => N.set('on', !S.on)], ['GRADE', S.grade, () => N.set('grade', !S.grade)], ['MOON LIGHT', S.moon, () => N.set('moon', !S.moon)],
       ['MOON STRIPES', S.stripes, () => N.set('stripes', !S.stripes)], ['GLOW', S.glow, () => N.set('glow', !S.glow)],
+      ['MOONBEAMS', !!S.beams, () => N.set('beams', !S.beams)], ['DUST', !!S.dust, () => N.set('dust', !S.dust)],   // #625
       ['THATCH EAVES', !!B.eaves, () => portals.setBamboo('eaves', !B.eaves)], ['CORNER POSTS', !!B.posts, () => portals.setBamboo('posts', !B.posts)], ['ROOM MESH', S.mesh, () => N.set('mesh', !S.mesh)]];
-    const tc = P ? 2 : 4, tw = (R - L - (tc - 1) * 6) / tc, th = P ? 40 : 30, ty = y0 + 38;
+    const tc = P ? 2 : 5, tw = (R - L - (tc - 1) * 6) / tc, th = P ? 40 : 30, ty = y0 + 38;
     tg.forEach(([lb, on, act], i) => btn(L + (i % tc) * (tw + 6), ty + Math.floor(i / tc) * (th + 5), tw, th, lb, on, () => { act(); redraw(); }, false, P ? 15 : 13));
     const st = (k, d, step, lo, hi) => N.set(k, clamp(Math.round((S[k] + d * step) / step) * step, lo, hi));
     const cells = [
       ['GRADE STRENGTH', Math.round(S.str * 100) + '%', d => st('str', d, 0.05, 0, 0.9)], ['STRIPE SOFTNESS', ['SHARP', 'SOFT', 'VERY SOFT'][S.soft] || 'SOFT', d => st('soft', d, 1, 0, 2)],
       ['KEEP CLEAR', S.clear.toFixed(1) + ' m', d => st('clear', d, 0.1, 0, 2)], ['LIGHT FROM', S.src === 'dome' ? 'DOME MOON' : 'OVERHEAD', () => N.set('src', S.src === 'dome' ? 'top' : 'dome')],
-      ['GLOW FROM', S.gdir + '°', d => N.set('gdir', (S.gdir + d * 45 + 360) % 360)], ['GLOW STRENGTH', Math.round(S.gstr * 100) + '%', d => st('gstr', d, 0.05, 0, 1.5)]];
-    const cc = P ? 2 : 3, cw = (R - L - (cc - 1) * 8) / cc, ch = P ? 50 : 40, cy = ty + Math.ceil(tg.length / tc) * (th + 5) + 2;
+      ['GLOW FROM', S.gdir + '°', d => N.set('gdir', (S.gdir + d * 45 + 360) % 360)], ['GLOW STRENGTH', Math.round(S.gstr * 100) + '%', d => st('gstr', d, 0.05, 0, 1.5)],
+      ['BEAM STRENGTH', Math.round(S.bstr * 100) + '%', d => st('bstr', d, 0.05, 0, 2)], ['DUST AMOUNT', Math.round(S.dstr * 100) + '%', d => st('dstr', d, 0.05, 0, 2)]];   // #625
+    const cc = P ? 2 : 4, cw = (R - L - (cc - 1) * 8) / cc, ch = P ? 50 : 40, cy = ty + Math.ceil(tg.length / tc) * (th + 5) + 2;
     cells.forEach(([label, val, act], i) => {
       const x = L + (i % cc) * (cw + 8), y = cy + Math.floor(i / cc) * (ch + 4), by = y + 13, bh = ch - 13, bw = 38;
       g.fillStyle = '#8c96a8'; g.font = '700 11px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 10);

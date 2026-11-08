@@ -7,10 +7,10 @@
 // never into the stream's other cameras. One draw per mesh; per pixel a few lookups.
 import * as THREE from 'three';
 
-export const NIGHT0 = { on: false, grade: true, moon: true, stripes: true, glow: true, mesh: true, str: 0.45, hue: 220, sat: 0.55, ghue: 30, gstr: 0.6, gdir: 270, soft: 1, clear: 0.5, src: 'dome', preset: 'goa' };
+export const NIGHT0 = { on: false, grade: true, moon: true, stripes: true, glow: true, mesh: true, beams: true, dust: false, bstr: 0.6, dstr: 0.6, str: 0.45, hue: 220, sat: 0.55, ghue: 30, gstr: 0.6, gdir: 270, soft: 1, clear: 0.5, src: 'dome', preset: 'goa' };
 export const NIGHT_PRESETS = {
-  goa: { on: true, grade: true, moon: true, stripes: true, glow: true, str: 0.45, hue: 220, sat: 0.55, ghue: 30, gstr: 0.6, soft: 1, src: 'dome', eaves: true, posts: true },
-  cyber: { on: true, grade: true, moon: true, stripes: true, glow: true, str: 0.55, hue: 270, sat: 0.6, ghue: 310, gstr: 0.7, soft: 0, src: 'dome', eaves: false, posts: false },
+  goa: { on: true, grade: true, moon: true, stripes: true, glow: true, beams: true, str: 0.45, hue: 220, sat: 0.55, ghue: 30, gstr: 0.6, soft: 1, src: 'dome', eaves: true, posts: true },
+  cyber: { on: true, grade: true, moon: true, stripes: true, glow: true, beams: true, str: 0.55, hue: 270, sat: 0.6, ghue: 310, gstr: 0.7, soft: 0, src: 'dome', eaves: false, posts: false },
 };
 const KEY = 'vire.night', SLOTS = 6, MW = 512;
 
@@ -50,6 +50,52 @@ void main() {
   gl_FragColor = vec4(add, a);
 }`;
 
+// #625 MOONBEAMS: per PANO frame one skewed prism from the opening down to the floor along the moon (12 triangles),
+// drawn additive and double-sided: each pixel traces back toward the moon to the opening, so the shaft has the
+// opening's shape, the slats' stripes and soft edges, fades with distance and near the floor, with a slow haze drift.
+// DUST: 220 motes per beam, moved in the vertex shader (no CPU per frame), lit only where they sit inside the shaft.
+const BEAM_VS = `uniform float uOn; varying vec3 vW; void main() { vW = (modelMatrix * vec4(position, 1.0)).xyz; gl_Position = uOn > 0.5 ? projectionMatrix * viewMatrix * vec4(vW, 1.0) : vec4(2.0, 2.0, 2.0, 1.0); }`;
+const SHAFT = `uniform mat4 portalInv[${SLOTS}]; uniform vec2 portalHalf[${SLOTS}]; uniform vec2 portalR[${SLOTS}];
+uniform sampler2D uSlat; uniform vec4 uSlatInfo[${SLOTS}]; uniform vec3 uMoon; uniform float uSoft, uStripes; uniform int uIdx;
+float sdR(vec2 p, vec2 h, vec2 r) { float rr = p.y > 0.0 ? r.x : r.y; vec2 d = abs(p) - h + rr; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - rr; }
+vec2 shaft(vec3 P) {   // x: how much moonlight reaches P through opening uIdx, y: distance back to the opening (m)
+  mat4 M = portalInv[0]; vec2 H = portalHalf[0], R = portalR[0]; vec4 si = uSlatInfo[0];
+  for (int i = 1; i < ${SLOTS}; i++) if (i == uIdx) { M = portalInv[i]; H = portalHalf[i]; R = portalR[i]; si = uSlatInfo[i]; }
+  vec3 pf = (M * vec4(P, 1.0)).xyz, dm = (M * vec4(P + uMoon, 1.0)).xyz - pf;
+  if (abs(dm.z) < 1e-4) return vec2(0.0); float t = -pf.z / dm.z; if (t <= 0.0) return vec2(0.0);
+  vec2 q = pf.xy + dm.xy * t; float sw = 0.012 + (0.004 + uSoft * 0.012) * t;
+  float e = 1.0 - smoothstep(-sw, sw, sdR(q, H, R));
+  if (si.x > 0.5 && uStripes > 0.5) { float c = (si.y > 0.5 ? q.y : q.x) / (2.0 * si.z) + 0.5; e *= textureLod(uSlat, vec2(c, (float(uIdx) + 0.5) / 8.0), uSoft * 1.5).r; }
+  return vec2(e, t);
+}`;
+const BEAM_FS = SHAFT + `
+uniform float uBStr, uT, uFloorY; uniform vec3 uBeamCol; varying vec3 vW;
+void main() {   // far side of the prism only: march back toward the eye through the shaft (12 steps, up to 3.5 m)
+  vec3 dir = cameraPosition - vW; float len = min(length(dir), 3.5); dir = normalize(dir);
+  float st = len / 12.0, acc = 0.0;
+  for (int k = 0; k < 12; k++) {
+    vec3 P = vW + dir * (float(k) + 0.5) * st;
+    vec2 s = shaft(P); if (s.x < 0.002) continue;
+    float fade = exp(-s.y * 0.32) * smoothstep(0.0, 0.25, s.y) * smoothstep(0.0, 0.35, P.y - uFloorY);
+    float haze = 0.72 + 0.28 * sin(P.x * 2.3 + uT * 0.21) * sin(P.z * 1.9 - uT * 0.17) * sin(P.y * 3.1 + uT * 0.11);
+    acc += s.x * fade * haze * st;
+  }
+  if (acc < 0.0005) discard;
+  gl_FragColor = vec4(uBeamCol * acc * uBStr * 0.34, 0.0);
+}`;
+const DUST_VS = SHAFT + `
+uniform float uOn, uT, uDStr; uniform vec3 uO, uX, uY, uD; attribute vec4 aR; varying float vB;
+void main() {
+  float t = fract(aR.z + uT * 0.006 * (0.5 + aR.w)), u = fract(aR.x + 0.02 * sin(uT * 0.3 + aR.w * 9.0)), v = fract(aR.y + 0.02 * cos(uT * 0.25 + aR.w * 7.0));
+  vec3 P = uO + uX * (u * 2.2 - 1.1) + uY * (v * 2.2 - 1.1) + uD * t;
+  vec2 s = shaft(P); vB = s.x * (0.5 + 0.5 * sin(uT * (1.0 + aR.w * 2.0) + aR.w * 30.0)) * uDStr * smoothstep(0.0, 0.2, s.y);
+  vec4 mv = viewMatrix * vec4(P, 1.0); gl_Position = uOn > 0.5 && vB > 0.01 ? projectionMatrix * mv : vec4(2.0, 2.0, 2.0, 1.0);
+  gl_PointSize = clamp(9.0 / max(-mv.z, 0.2), 1.5, 9.0);
+}`;
+const DUST_FS = `uniform vec3 uBeamCol; varying float vB; void main() { vec2 c = gl_PointCoord - 0.5; float a = smoothstep(0.5, 0.1, length(c)); gl_FragColor = vec4(uBeamCol * a * vB * 1.1, 0.0); }`;
+const DUST_N = 220;
+
+const _bv1 = new THREE.Vector3(), _bv2 = new THREE.Vector3(), _bv3 = new THREE.Vector3(), _bv4 = new THREE.Vector3(), _bv5 = new THREE.Vector3(), _bv6 = new THREE.Vector3(), _bm1 = new THREE.Matrix4();
 export class NightLook {
   constructor(rig, portals, mainCam) {
     this.rig = rig; this.portals = portals; this.mainCam = mainCam; this.S = { ...NIGHT0 }; this.moonDir = new THREE.Vector3(0.3, 0.8, -0.5).normalize();
@@ -67,6 +113,8 @@ export class NightLook {
     this.shell = new THREE.Mesh(new THREE.SphereGeometry(7, 32, 16), this.shellMat);
     for (const m of [this.floor, this.shell]) { m.renderOrder = 2; m.frustumCulled = false; m.raycast = () => {}; this._gate(m); this.group.add(m); }
     this.meshes = new Map(); this.meshN = 0; this.meshTris = 0;
+    this.beamU = { uBStr: { value: 0.6 }, uDStr: { value: 0.6 }, uT: { value: 0 }, uFloorY: { value: 0 }, uBeamCol: { value: new THREE.Color(0.82, 0.88, 1.0) } };   // #625
+    this.beams = [];
     this.apply();
   }
   _mat(shell) {
@@ -95,6 +143,7 @@ export class NightLook {
     const a = S.gdir * Math.PI / 180; U.uGlowPos.value.set(Math.sin(a) * 2.6, 0.45, -Math.cos(a) * 2.6);   // rig space (converted each tick)
     this._glowRig = U.uGlowPos.value.clone();
     this.group.visible = !!S.on;
+    if (this.beamU) { this.beamU.uBStr.value = S.bstr; this.beamU.uDStr.value = S.dstr; this.beamU.uBeamCol.value.setRGB(0.82, 0.88, 1.0).lerp(U.uTint.value, 0.3); }
   }
   get hasMesh() { return this.meshN > 0; }
   // per frame (cheap): moon direction, glow position, slat masks when a roof changed; mesh poses every ~0.25 s
@@ -112,6 +161,40 @@ export class NightLook {
     if (!useMesh && this.meshes.size) this._clearMeshes();
     const m = this.meshN > 0;
     this.floor.visible = !m; this.shell.visible = !m;
+    this._beams();
+  }
+  _beamSlot(i) {   // a prism mesh + a dust cloud for frame slot i
+    if (this.beams[i]) return this.beams[i];
+    const shared = { ...this.u, ...this.beamU, uIdx: { value: i } };
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(24), 3));
+    g.setIndex([0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2, 2, 6, 7, 2, 7, 3, 3, 7, 4, 3, 4, 0]);
+    const bm = new THREE.Mesh(g, new THREE.ShaderMaterial({ vertexShader: BEAM_VS, fragmentShader: BEAM_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
+      blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,   /* add light, keep the framebuffer alpha (passthrough) */ uniforms: { ...shared, uOn: { value: 1 } } }));
+    const dg = new THREE.BufferGeometry(), r = new Float32Array(DUST_N * 4); for (let k = 0; k < r.length; k++) r[k] = Math.random();
+    dg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(DUST_N * 3), 3)); dg.setAttribute('aR', new THREE.BufferAttribute(r, 4));
+    const du = { ...shared, uOn: { value: 1 }, uO: { value: new THREE.Vector3() }, uX: { value: new THREE.Vector3() }, uY: { value: new THREE.Vector3() }, uD: { value: new THREE.Vector3() } };
+    const dm = new THREE.Points(dg, new THREE.ShaderMaterial({ vertexShader: DUST_VS, fragmentShader: DUST_FS, transparent: true, depthWrite: false, toneMapped: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,   /* add light, keep the framebuffer alpha (passthrough) */ uniforms: du }));
+    for (const o of [bm, dm]) { o.frustumCulled = false; o.raycast = () => {}; o.renderOrder = 3; this._gate(o); }
+    this.group.add(bm); this.group.add(dm);
+    return (this.beams[i] = { bm, dm, du });
+  }
+  _beams() {   // rebuild each PANO frame's prism (8 corners) from the opening along the moon to the floor
+    const S = this.S, P = this.portals, act = P.on ? P.list.slice(0, P.n) : [], U = this.u;
+    this.beamU.uT.value = performance.now() / 1000; this.beamU.uFloorY.value = this.rig.matrixWorld.elements[13];
+    const M = U.uMoon.value, want = S.moon && (S.beams || S.dust);
+    for (let i = 0; i < SLOTS; i++) {
+      const f = act[i], on = want && f && f.rev && f.obj.visible && M.y > 0.05;
+      if (!on) { if (this.beams[i]) { this.beams[i].bm.visible = false; this.beams[i].dm.visible = false; } continue; }
+      const b = this._beamSlot(i); f.obj.updateMatrixWorld();
+      const c = f.obj.getWorldPosition(_bv1), floorY = this.beamU.uFloorY.value, L = Math.min(8, Math.max(0.3, (c.y - floorY) / M.y));
+      const X = _bv2.set(1, 0, 0).transformDirection(f.obj.matrixWorld).multiplyScalar(f.half.x), Y = _bv3.set(0, 1, 0).transformDirection(f.obj.matrixWorld).multiplyScalar(f.half.y), D = _bv4.copy(M).multiplyScalar(-L);
+      const pos = b.bm.geometry.attributes.position, cs = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+      const rI = _bm1.copy(this.rig.matrixWorld).invert();   // the prism lives under the rig: world corners -> rig space
+      cs.forEach(([sx, sy], k) => { _bv5.copy(c).addScaledVector(X, sx * 1.05).addScaledVector(Y, sy * 1.05); _bv6.copy(_bv5).applyMatrix4(rI); pos.setXYZ(k, _bv6.x, _bv6.y, _bv6.z); _bv5.add(D).applyMatrix4(rI); pos.setXYZ(k + 4, _bv5.x, _bv5.y, _bv5.z); });
+      pos.needsUpdate = true; b.bm.geometry.computeBoundingSphere();
+      b.du.uO.value.copy(c); b.du.uX.value.copy(X); b.du.uY.value.copy(Y); b.du.uD.value.copy(D);
+      b.bm.visible = !!S.beams; b.dm.visible = !!S.dust;
+    }
   }
   _slats() {   // one row per frame slot of an 8-row mask: 255 = open, 0 = under a slat / edge pole
     const P = this.portals, act = P.on ? P.list.slice(0, P.n) : [];
