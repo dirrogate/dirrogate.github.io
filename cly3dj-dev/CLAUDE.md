@@ -2118,3 +2118,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - ACID_DECK_BTNS tray: x 108, y 194, w 148, h 50 plate px (was 342,148 90x34 under SAVE, hard up against it and the well). Plain silver strip under the well, clear of the saw icon / switch.
 - Legend now centred right of the LED and sized to the key (11.5 px x h/34). Tap = tray, hold 0.6 s = eject, no trigger needed (#633).
 - Pane: screenshot checked; simulated controller tap (trigger off) at the new spot opens / shuts the tray. NOT tried on the Quest. sw.js v142. No Node restart. Backup backups/pre634/.
+
+## #635 ACID TRAY key re-placed (owner, 9 Nov: #634 cut through the plate's horizontal line and crowded the saw-tooth icon; drop it a few mm and align it with the PATTERN CLEAR / RUN-STOP column)
+- tray: x 98, y 214, w 89, h 46 plate px. The plate's line is at y 202 (measured); x 98..187 = RUN/STOP's span (PATTERN CLEAR 114..172 is centred in it). Saw icon now ~85 px clear.
+- Pane screenshot checked; simulated controller tap opens / shuts the tray. NOT tried on the Quest. sw.js v143. No Node restart. Backup backups/pre635/.
