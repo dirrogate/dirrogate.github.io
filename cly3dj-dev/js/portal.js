@@ -229,8 +229,11 @@ float wn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
 float wf(vec2 p) { return wn(p) * 0.5 + wn(p * 2.03) * 0.25 + wn(p * 4.01) * 0.125; }`)
       .replace('#include <map_fragment>', `
         // #613 one board = one plank band of the photo (7 bands); offset along the board by its seed
-        float band = floor(vSeed * 7.0), u = vW.x / 1.4 + vSeed * 3.7, vb = clamp(abs(vLN.y) > 0.5 ? 0.5 + vW.z / max(2.0 * vHalf.z, 1e-3) * 0.3 : vW.y / max(2.0 * vHalf.y, 1e-3) + 0.5, 0.03, 0.97);
-        vec4 tx = texture2D(uTex, vec2(u, (band + vb) / 7.0));
+        // #614 the photo's planks are not equal bands: the measured plank spans (v, gaps left out) so a board never straddles a gap
+        const vec2 PB[7] = vec2[7](vec2(0.7949, 0.9199), vec2(0.6699, 0.7676), vec2(0.5215, 0.6426), vec2(0.3691, 0.4941), vec2(0.2109, 0.3418), vec2(0.0918, 0.1836), vec2(-0.0527, 0.0645));
+        int band = int(floor(vSeed * 6.999));
+        float u = vW.x / 1.4 + vSeed * 3.7, vb = clamp(abs(vLN.y) > 0.5 ? 0.5 + vW.z / max(2.0 * vHalf.z, 1e-3) * 0.3 : vW.y / max(2.0 * vHalf.y, 1e-3) + 0.5, 0.0, 1.0);
+        vec4 tx = texture2D(uTex, vec2(u, mix(PB[band].x, PB[band].y, vb)));
         diffuseColor.rgb *= tx.rgb * 1.55;
         float late = tx.a, fib = 0.0, knot = 0.0;
         wAO = mix(0.62, 1.0, smoothstep(0.0, 0.014, vHalf.y - abs(vW.y))) * mix(0.75, 1.0, smoothstep(0.0, 0.04, vHalf.x - abs(vW.x)));
@@ -244,7 +247,7 @@ float wf(vec2 p) { return wn(p) * 0.5 + wn(p * 2.03) * 0.25 + wn(p * 4.01) * 0.1
       .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= wAO; reflectedLight.indirectSpecular *= wAO; reflectedLight.directDiffuse *= mix(1.0, wAO, 0.6);')
       .replace('#include <tonemapping_fragment>', `{ vec3 c = gl_FragColor.rgb * uGradeA.x * uGradeB; float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = max(mix(vec3(l), c, uGradeA.z), 0.0); gl_FragColor.rgb = 0.18 * pow(c / 0.18 + 1e-5, vec3(uGradeA.y)); }\n#include <tonemapping_fragment>`);
   };
-  m.customProgramCacheKey = () => 'wood613';
+  m.customProgramCacheKey = () => 'wood614';
   return m;
 }
 function layWood(im, hx, hy, B) {
