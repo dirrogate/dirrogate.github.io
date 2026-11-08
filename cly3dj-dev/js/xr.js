@@ -229,12 +229,12 @@ export function setupXR(ctx) {
       const gpT = !st.isHand && st.source && st.source.gamepad, trig = gpT ? !!(gpT.buttons[0] && gpT.buttons[0].value > 0.5) : null;
       const tWas = st.trigWasScr; st.trigWasScr = !!trig;
       if (st.scrGrab) {
-        const keep = st.isHand ? (inside && l.z < 0.03 && l.z > -0.03) : trig;
+        const keep = (st.isHand || st.scrGrab === 'btn') ? (inside && l.z < 0.03 && l.z > -0.03) : trig;   // #633 a held button (TRAY) stays held while touched
         if (!keep) { st.scrGrab = false; if (ctx.mixScreenRelease) ctx.mixScreenRelease(); buzz(st, 0.2, 10); }
         else if (Math.abs(l.x) < sw / 2 + 0.04 && Math.abs(l.y) < sh / 2 + 0.04 && Math.abs(l.z) < 0.08 && ctx.mixScreenDrag) ctx.mixScreenDrag(uv);
         if (!inside || l.z > 0.02) st.poke.set(ms, true);
       }
-      else if (inside && l.z < 0.006 && l.z > -0.015 && armed) { if (ctx.mixScreenPress(uv, st.isHand ? true : trig)) { st.poke.set(ms, false); buzz(st, 0.4, 20); st.scrGrab = !!(ctx.mixScreenDragging && ctx.mixScreenDragging()); } }
+      else if (inside && l.z < 0.006 && l.z > -0.015 && armed) { if (ctx.mixScreenPress(uv, st.isHand ? true : trig)) { st.poke.set(ms, false); buzz(st, 0.4, 20); st.scrGrab = (ctx.mixScreenDragging && ctx.mixScreenDragging()) || false; } }
       else if (!st.isHand && trig && !tWas && inside && l.z < 0.02 && l.z > -0.03 && ctx.mixScreenGrabAt && ctx.mixScreenGrabAt(uv)) { st.scrGrab = true; st.poke.set(ms, false); buzz(st, 0.4, 20); }   // #630 touch first, then squeeze: the trigger grabs the slider under the tip (or hovering within 2 cm)
       else if (!inside || l.z > 0.02) { if (!armed && ctx.mixScreenRelease) ctx.mixScreenRelease(); st.poke.set(ms, true); }   // #222 fingertip off = end of a long press
       }

@@ -2108,3 +2108,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 
 ## #632 Transport heads in black plastic (owner, 9 Nov)
 - CHEADS.mat: 0x141518, roughness 0.38, metalness 0 (was chrome-ish 0xe6e8ec / metal 0.55). Flange unchanged (dark grey). sw.js v140. No Node restart.
+
+## #633 ACID TRAY button dead with the controller (owner, 9 Nov: "the tray button is not working now")
+- Cause: TRAY is a drag hit (drag: true, so it hears its release: tap = tray, hold 0.6 s = eject). #629's rule "drag hits need the trigger held" swallowed it on the Quest.
+- Fix: hit flag `btn: true` (TRAY). mixScreenPress lets btn hits through without the trigger; mixScreenGrabAt skips them; mixScreenDragging returns 'btn' and xr.js keeps a 'btn' grab while the tip stays on the glass (like hands) instead of while the trigger is held; mixScreenDrag ignores btn hits so the long press (eject) still fires.
+- Pane test: mixScreenPress(uv, false) + release toggles the tray open / shut. NOT tried on the Quest. The ACID TRACK / MODE detent knobs still follow #629 (trigger to turn or tap). sw.js v141. No Node restart. Backup backups/pre633/.

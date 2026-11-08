@@ -5845,16 +5845,16 @@ function readout(d, st) {
 // #222 long press on the tablet (trigger / pinch / fingertip held 0.6 s): on a VIDEO page thumbnail it offers delete
 let screenHold = null, holdSeq = 0, vpDel = null;
 let screenDrag = null;   // #422 the slider being dragged on the tablet
-function mixScreenDragging() { return !!screenDrag; }
+function mixScreenDragging() { return screenDrag ? (screenDrag.btn ? 'btn' : true) : false; }   // #633 'btn': held by the touch, not the trigger
 function mixScreenGrabAt(uv) {   // #630 the trigger pulled while touching: grab the drag control under the tip (sliders only)
   if (!uv || !(videoPage || toolsPage)) return false; const [px, py] = scrUvPx(uv);
-  const b = VP_HIT.find(h => h.drag && px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h); if (!b) return false;
+  const b = VP_HIT.find(h => h.drag && !h.btn && px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h); if (!b) return false;
   screenHold = null; b.act(px, py); screenDrag = b; drawMixScreen(); return true;
 }   // #629 xr.js: did the press grab a slider?
 function mixScreenRelease() { const d = screenDrag; screenHold = null; screenDrag = null; if (d && d.release) { d.release(); drawMixScreen(); } }   // #607 detented knobs step on a tap's release
 function scrUvPx(uv) { const c = scr().canvas; return [(scrDir === 'px' ? 1 - uv.y : scrDir === 'nx' ? uv.y : uv.x) * (c.lw || c.width), (scrDir === 'px' ? 1 - uv.x : scrDir === 'nx' ? uv.x : 1 - uv.y) * (c.lh || c.height)]; }
 function mixScreenDrag(uv) {   // #422 finger still on the screen (XR) / mouse held (desktop): a grabbed slider follows it
-  if (!screenDrag || !uv) return; const [px, py] = scrUvPx(uv);
+  if (!screenDrag || !uv || screenDrag.btn) return; const [px, py] = scrUvPx(uv);   // #633 a held button keeps its 0.6 s long press
   screenHold = null; screenDrag.act(px, py); drawMixScreen();
 }
 function mixScreenLong(px, py) {
@@ -5884,7 +5884,8 @@ function mixScreenPress(uv, trig) {   // #629 trig: undefined = mouse / desktop 
   if (videoPage || toolsPage) {   // #224 the TOOLS pages use the same tap list
     const b = VP_HIT.find(h => px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h);
     if (vpDel && !(b && b.del)) vpDel = null;   // any other tap closes the delete offer
-    if (b && b.drag && trig === false) { screenHold = null; if (performance.now() - (mixScreenPress.hintT || 0) > 4000) { mixScreenPress.hintT = performance.now(); toast('Hold the TRIGGER to move a slider; let go to stop', 1800); } return true; }   // #629
+    if (b && b.drag && !b.btn && trig === false) {   // #633 b.btn: a button that only drags to hear its release (TRAY) needs no trigger
+      screenHold = null; if (performance.now() - (mixScreenPress.hintT || 0) > 4000) { mixScreenPress.hintT = performance.now(); toast('Hold the TRIGGER to move a slider; let go to stop', 1800); } return true; }   // #629
     if (b) { b.act(px, py); if (b.drag) screenDrag = b; } drawMixScreen(); return true;   // #353 the tap point, for the CROP picture; #422 sliders keep dragging
   }   // #185
   // #164 spectator strip: MR GUI (helpers on/off) and CELL REC (phone goes clean for recording)
@@ -7791,7 +7792,7 @@ function drawAcidPage(T) {
     g.fillRect(lx, ly, lw, lh);
     if (b.id === 'lock' && acidUI.lock) { g.save(); g.fillStyle = '#c8202c'; g.font = '800 9px system-ui'; g.textAlign = 'right'; g.textBaseline = 'middle'; g.fillText('AB'[acidUI.lock - 1], ox + (b.x + b.w - 4) * sx, oy + (b.y + b.h / 2) * sy); g.restore(); }
     if (b.id === 'tray') {   // #619 hold TRAY = eject; #621 the tap acts on release, so a hold doesn't also open / close the tray
-      const h = { x: ox + (b.x - 2) * sx, y: oy + (b.y - 3) * sy, w: (b.w + 4) * sx, h: (b.h + 6) * sy, drag: true,
+      const h = { x: ox + (b.x - 2) * sx, y: oy + (b.y - 3) * sy, w: (b.w + 4) * sx, h: (b.h + 6) * sy, drag: true, btn: true,   // #633 a button: tap / hold by touch, no trigger
         act: () => { if (screenHold !== null) acidTrayHeld = false; }, long: () => { acidTrayHeld = true; acidDeckBtn('eject'); }, release: () => { if (!acidTrayHeld) acidDeckBtn('tray'); } };
       VP_HIT.push(h);
     } else VP_HIT.push({ x: ox + (b.x - 2) * sx, y: oy + (b.y - 3) * sy, w: (b.w + 4) * sx, h: (b.h + 6) * sy, act: () => acidDeckBtn(b.id) });
