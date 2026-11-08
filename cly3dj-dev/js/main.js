@@ -21,7 +21,7 @@ import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #
 import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whiteboard, markers and duster
 import { InkLabel } from './inklabel.js';   // #394 milk crate labels
 import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
-import { Portals, GRADE0, SHAPE_OF, SHAPE_LABEL, HMIN as P_HMIN, HMAX as P_HMAX } from './portal.js';
+import { Portals, GRADE0, HOLO_ORDER, SHAPE_OF, SHAPE_LABEL, HMIN as P_HMIN, HMAX as P_HMAX } from './portal.js';
 import { MasterRec } from './recmaster.js';   // #598 REC MASTER: the clean master to a WAV file
 import { RoomSnap, SNAP_IN, SNAP_OUT } from './roomsnap.js';   // #592 Space Setup planes for portal frames   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
@@ -1233,7 +1233,7 @@ if (portals) { if (facetWall) portals.cutInto(facetWall.obj); portals.cutInto(sk
 // #592 ROOM SNAP: portal frames sit on the Quest's scanned walls / door frames / window frames / ceiling (Space Setup,
 // plane-detection, passthrough only). Placement no longer depends on CAM FIT; the stream only shows CAM FIT's own offset.
 const roomScan = portals ? new RoomSnap(rig) : null;
-let roomSnapT = 0, roomPinGen = 0;
+let roomSnapT = 0, roomPinGen = 0, pgSec = 'iron';   // #598 FRAME LOOK tab
 const _rsEye = new THREE.Vector3(), _rsY = new THREE.Vector3(), _rsP = new THREE.Vector3(), _rsQ = new THREE.Quaternion(), _rsH = new THREE.Vector2();
 function roomEye() { renderer.xr.getCamera().getWorldPosition(_rsEye); rig.updateMatrixWorld(); return rig.worldToLocal(_rsEye); }
 function roomSnapTick(dt) {
@@ -1290,6 +1290,27 @@ function applyRates() {
   set(led && led.video, vr); set(sclip.el, vr); set(pfeed && pfeed.el, vr);
 }
 setInterval(applyRates, 500);
+// #598 SOFT ROOM LIGHT in passthrough (Settings, on by default): the shiny studio environment is swapped for a dim,
+// soft, low-contrast one (a plain grey dome: lighter overhead, darker below, no hot spots) and the key light is
+// softened, so gear and props stop looking lit by a different room. Back to the studio light when the session ends.
+let arSoftEnv = null, arPrev = null;
+function softEnvTex() {
+  if (arSoftEnv) return arSoftEnv;
+  const sc = new THREE.Scene(), m = new THREE.ShaderMaterial({ side: THREE.BackSide, depthWrite: false,
+    vertexShader: 'varying vec3 vD; void main() { vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'varying vec3 vD; void main() { float y = vD.y; vec3 c = mix(vec3(0.16, 0.155, 0.15), vec3(0.42, 0.41, 0.39), smoothstep(-0.6, 0.9, y)); gl_FragColor = vec4(c, 1.0); }' });
+  sc.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), m));
+  const pm = new THREE.PMREMGenerator(renderer); arSoftEnv = pm.fromScene(sc, 0.08).texture; pm.dispose(); return arSoftEnv;
+}
+function applyArLook() {
+  const want = arMode && settings.arSoft !== false;
+  if (want) {
+    if (!arPrev) arPrev = { env: scene.environment, key: key.intensity };
+    if (scene.environment !== softEnvTex()) scene.environment = softEnvTex();
+    key.intensity = arPrev.key * 0.55;
+  } else if (arPrev) { scene.environment = arPrev.env; key.intensity = arPrev.key; arPrev = null; }
+}
+setInterval(applyArLook, 1000);   // keeps it applied if the env light is rebuilt mid-session
 let wallTapT = 0, portalTapT = 0, portalDefArm = 0, beat = null, domeBoot = true;
 const _laserCam = new THREE.Vector3();   // #406
 function wallTap() {   // tap = backdrop on / off; double-tap = back to its start spot and mode
@@ -8197,30 +8218,49 @@ function drawToolsPage() {
     note('The TV shows what goes to Twitch (SHOWTIME!, CARD...), or the same picture off air. It shows a small SOUND button only while SOUND TO TV is on: press OK on its remote once to unmute. If the TV is in the same room as the PA, switch the sound off (it would echo). TV OFF closes the link; the TV keeps waiting.', row(0).y + (P ? 3 * (bh + gap) : bh + gap) + 14);
     return;
   }
-  if (page === 'pgrade') {   // #597 FRAME LOOK: grade the portal frames (concrete / iron) to sit in the passthrough room
+  if (page === 'pgrade') {   // #597 / #598 FRAME LOOK: IRON grade, HOLO look, BAMBOO roof (tabs at the top)
     const y0 = head('FRAME LOOK', 'portals'), PS = portals;
     if (!PS) { note('Portals run on the headset.', y0 + 20); return; }
-    const G = PS.grade, f2 = (v, d = 2) => (v > 0 ? '+' : '') + v.toFixed(d), st = (k, d, lo, hi, step) => () => PS.setGrade(k, Math.round(clamp(G[k] + d * step, lo, hi) / step) * step);
-    const cells = [
-      ['EXPOSURE', f2(G.ev) + ' EV', d => st('ev', d, -3, 2, 0.25)()],
-      ['CONTRAST', G.con.toFixed(2), d => st('con', d, 0.5, 1.6, 0.05)()],
-      ['SATURATION', G.sat.toFixed(2), d => st('sat', d, 0, 1.6, 0.05)()],
-      ['WARMTH', f2(G.warm, 1) + (G.warm > 0 ? ' warm' : G.warm < 0 ? ' cool' : ''), d => st('warm', d, -1, 1, 0.1)()],
-      ['TINT', f2(G.tint, 1) + (G.tint > 0 ? ' magenta' : G.tint < 0 ? ' green' : ''), d => st('tint', d, -1, 1, 0.1)()],
-    ];
-    const cols = P ? 2 : 3, cw = (R - L - (cols - 1) * 8) / cols, ch = P ? 56 : 50;
+    const sec = pgSec, secs = [['iron', 'IRON GRADE'], ['holo', `HOLO · ${PS.holoN}`], ['bamboo', 'BAMBOO']], tw3 = (R - L - 16) / 3;
+    secs.forEach(([k, lb], i) => btn(L + i * (tw3 + 8), y0, tw3, 34, lb, sec === k, () => { pgSec = k; drawMixScreen(); }, false, 15));
+    const f2 = (v, d = 2) => (v > 0 ? '+' : '') + v.toFixed(d), stp = (v, d, step, lo, hi) => clamp(Math.round((v + d * step) / step) * step, lo, hi);
+    let cells = [], extra = [], help = '';
+    if (sec === 'iron') {
+      const G = PS.grade;
+      cells = [['EXPOSURE', f2(G.ev) + ' EV', d => PS.setGrade('ev', stp(G.ev, d, 0.25, -3, 2))], ['CONTRAST', G.con.toFixed(2), d => PS.setGrade('con', stp(G.con, d, 0.05, 0.5, 1.6))],
+        ['SATURATION', G.sat.toFixed(2), d => PS.setGrade('sat', stp(G.sat, d, 0.05, 0, 1.6))], ['WARMTH', f2(G.warm, 1), d => PS.setGrade('warm', stp(G.warm, d, 0.1, -1, 1))],
+        ['TINT', f2(G.tint, 1), d => PS.setGrade('tint', stp(G.tint, d, 0.1, -1, 1))]];
+      extra = [['RESET', false, () => PS.setGrade('reset')]];
+      help = 'Grade for IRON and BAMBOO frames, after lighting. Next to a frame in Passthrough, match the real wall: EXPOSURE, then WARMTH (yellow / blue) and TINT (green / magenta), then SATURATION and CONTRAST.';
+    } else if (sec === 'holo') {
+      const H = PS.holo;
+      cells = [['COLOUR', H.col.toUpperCase(), d => { const i = HOLO_ORDER.indexOf(H.col); PS.setHolo('col', HOLO_ORDER[(i + d + HOLO_ORDER.length) % HOLO_ORDER.length]); }],
+        ['INTENSITY', H.int.toFixed(1), d => PS.setHolo('int', stp(H.int, d, 0.1, 0.1, 2))], ['GLASS', H.glass.toFixed(1), d => PS.setHolo('glass', stp(H.glass, d, 0.1, 0, 2))],
+        ['SCANLINES', H.scan.toFixed(1), d => PS.setHolo('scan', stp(H.scan, d, 0.1, 0, 1))], ['GLITCH', H.glitch.toFixed(1), d => PS.setHolo('glitch', stp(H.glitch, d, 0.1, 0, 2))]];
+      extra = [[H.beat ? 'BEAT: ON' : 'BEAT', H.beat, () => PS.setHolo('beat', !H.beat)], ['RESET', false, () => PS.setHolo('reset')]];
+      help = 'HOLO frames (PORTALS SETUP > STYLE): a glowing scan edge with streaks, and a faint glass over the real view (GLASS 0 = edge only). GLITCH bands jump the edge, never the real picture; BEAT = on the beat.';
+    } else {
+      const B = PS.bamboo;
+      cells = [['SLAT GAP', Math.round(B.gap * 100) + ' cm', d => PS.setBamboo('gap', stp(B.gap, d, 0.01, 0.01, 0.4))], ['CLEARING', Math.round(B.clear * 100) + '%', d => PS.setBamboo('clear', stp(B.clear, d, 0.05, 0, 1))],
+        ['DIRECTION', B.dir === 'y' ? 'ALONG HEIGHT' : 'ALONG WIDTH', () => PS.setBamboo('dir', B.dir === 'y' ? 'x' : 'y')],
+        ['SLATS', B.kind === 'wood' ? 'WOOD' : 'BAMBOO', () => PS.setBamboo('kind', B.kind === 'wood' ? 'bamboo' : 'wood')]];   // #598 round bamboo or flat boards
+      extra = [['RESET', false, () => PS.setBamboo('reset')]];
+      help = 'BAMBOO frames (STYLE): edge poles / beams and one layer of round bamboo or flat WOOD boards. CLEARING pushes the slats to the edges so the middle opens onto the DOME (use a PANO type, or SKYLIGHT on the ceiling). Graded by IRON GRADE.';
+    }
+    const cols = P ? 2 : 3, cw = (R - L - (cols - 1) * 8) / cols, ch = P ? 56 : 50, yc = y0 + 44;
     cells.forEach(([label, val, act], i) => {
-      const x = L + (i % cols) * (cw + 8), y = y0 + Math.floor(i / cols) * (ch + 6), by = y + 15, bh = ch - 15, bw = 44;
+      const x = L + (i % cols) * (cw + 8), y = yc + Math.floor(i / cols) * (ch + 6), by = y + 15, bh = ch - 15, bw = 44;
       g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
       btn(x, by, bw, bh, '−', false, () => { act(-1); drawMixScreen(); });
-      g.fillStyle = '#fff'; g.font = '700 16px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + cw / 2, by + bh / 2); g.textBaseline = 'alphabetic';
+      let fs = 16; g.font = `700 ${fs}px system-ui`; while (fs > 11 && g.measureText(val).width > cw - 2 * bw - 6) g.font = `700 ${--fs}px system-ui`;
+      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + cw / 2, by + bh / 2); g.textBaseline = 'alphabetic';
       btn(x + cw - bw, by, bw, bh, '+', false, () => { act(1); drawMixScreen(); });
     });
-    const n = cells.length, ry = y0 + Math.ceil((n + 1) / cols) * (ch + 6) - ch + 15 - 6;
-    { const i = n, x = L + (i % cols) * (cw + 8), y = y0 + Math.floor(i / cols) * (ch + 6) + 15; btn(x, y, cw, ch - 15, 'RESET', false, () => { PS.setGrade('reset'); drawMixScreen(); }); }
-    const yt = y0 + Math.ceil((n + 1) / cols) * (ch + 6) + 14;
+    { const i = cells.length, x = L + (i % cols) * (cw + 8), y = yc + Math.floor(i / cols) * (ch + 6) + 15, ew = (cw - 6 * (extra.length - 1)) / extra.length;
+      extra.forEach(([lb, on, act], j) => btn(x + j * (ew + 6), y, ew, ch - 15, lb, on, () => { act(); drawMixScreen(); })); }
+    const yt = yc + Math.ceil((cells.length + 1) / cols) * (ch + 6) + 12;
     g.textAlign = 'left'; g.fillStyle = PS.on ? '#8c96a8' : '#f1b650'; g.font = `500 ${P ? 14 : 13}px system-ui`;
-    wrapText(g, (PS.on ? '' : 'PORTALS are off: turn them on to see the frames. ') + 'One look for every frame\'s concrete and iron, applied after lighting. Stand next to a frame in Passthrough and match it to the real wall beside it: EXPOSURE first, then WARMTH (yellow / blue light) and TINT (green / magenta), then SATURATION and CONTRAST. Saved.', L + 2, yt, R - L - 4, P ? 19 : 17, 6);
+    wrapText(g, (PS.on ? '' : 'PORTALS are off: turn them on to see the frames. ') + help, L + 2, yt, R - L - 4, P ? 19 : 17, 4);
     return;
   }
   if (page === 'portals') {   // #346 PORTALS SETUP: the real-world windows, the wall they cut, the sky dome behind it
@@ -8250,6 +8290,7 @@ function drawToolsPage() {
       ['FRAME', `${PS.edit + 1} of ${PS.n}`, d => PS.setEdit(PS.edit + d)],   // #586 which frame TYPE sets (it blinks white)
       [`TYPE · ${PS.kindOf(PS.edit)[0] === 'p' ? 'PANO (SKY)' : PS.kindOf(PS.edit)[0] === 's' ? 'SCREEN' : 'REAL (ROOM)'}`, SHAPE_LABEL[SHAPE_OF(PS.kindOf(PS.edit))], d => { PS.stepKind(PS.edit, d); if (PS.kindOf(PS.edit)[0] === 'p' && !dome.on) setDome(true); }],   // #585 doorway / #586 PANO frames
       ['TRIM LIGHT', PS.glow.toUpperCase(), d => PS.stepGlow(d)],
+      ['STYLE', PS.styleOf(PS.edit).toUpperCase(), d => { const o = ['iron', 'holo', 'bamboo'], i = o.indexOf(PS.styleOf(PS.edit)); PS.setStyle(PS.edit, o[(i + d + 3) % 3]); }],   // #598 FRAME's style: IRON / HOLO / BAMBOO
     ];
     const cell = ([label, val, act], x, y, w, h) => {
       g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
@@ -8274,13 +8315,13 @@ function drawToolsPage() {
       const y1 = y0 + Math.ceil(toggles.length / 2) * tr + 6;   // #589 7 toggles
       const cellsP = cells.concat([['DOME TURN', `${dome.turn}°`, d => setDomeTurn((dome.turn + d * 15 + 360) % 360)]]);   // #586 portrait: DOME TURN as a 15 deg stepper
       cellsP.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 54, tw, 50));   // #585 rows of 54 px
-      text(L + 4, y1 + 6 * 54 + 16, R - L - 8, 18, 3, 14, helpP);
+      text(L + 4, y1 + Math.ceil(cellsP.length / 2) * 54 + 16, R - L - 8, 18, 3, 14, helpP);   // #598
     } else {
       const tw = (R - L - 6 * (toggles.length - 1)) / toggles.length;
       toggles.forEach(([lb, on, act], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, false, 14));
-      const cw = (R - L - 24) / 4, y1 = y0 + 48;
-      cells.forEach((c, i) => cell(c, L + (i % 4) * (cw + 8), y1 + Math.floor(i / 4) * 48, cw, 44));
-      tSlider(g, L + 3 * (cw + 8), y1 + 2 * 48 + 4, cw, 40, 'TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on, 52);   // #389 (#586 third row, right of FRAME / TYPE / TRIM LIGHT)
+      const cw = (R - L - 32) / 5, y1 = y0 + 48;   // #598 five across (STYLE added), the TURN slider in the slot after the last cell
+      cells.forEach((c, i) => cell(c, L + (i % 5) * (cw + 8), y1 + Math.floor(i / 5) * 48, cw, 44));
+      { const i = cells.length; tSlider(g, L + (i % 5) * (cw + 8), y1 + Math.floor(i / 5) * 48 + 4, cw, 40, 'TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on, 52); }   // #389 (#586 third row, right of FRAME / TYPE / TRIM LIGHT)
       text(L + 2, y1 + 3 * 48 + 12, R - L - 4, 15, 3, 12);
     }
     return;
@@ -9347,8 +9388,9 @@ function frameBody() {
   stepRealWorld(dt);   // #411 depth occlusion on / off, room planes for the laser
   if (facetWall || laser) {   // #345; #346 BEAT: bass onsets on the master, read only while the wall is on with BEAT (#406 or the laser on AUTO)
     if (!beat) beat = new Beat(engine);
-    beat.want = !!((facetWall && facetWall.on && facetWall.beat) || (laser && laser.on && laser.auto) || (dirro && dirro.on) || isFxMode(ledMode));   // #427 the phones follow the beat; #439 the wall visuals
+    beat.want = !!((facetWall && facetWall.on && facetWall.beat) || (laser && laser.on && laser.auto) || (dirro && dirro.on) || isFxMode(ledMode) || (portals && portals.holo.beat && portals.holoN > 0));   // #598 HOLO glitches on the beat   // #427 the phones follow the beat; #439 the wall visuals
     const bp = beat.tick(dt);
+    if (portals) portals.beat = bp || 0;   // #598
     if (facetWall) facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource, bp);
     if (laser && laser.on) laser.tick(dt, beat, camera.getWorldPosition(_laserCam));
   }
@@ -9510,7 +9552,7 @@ async function begin(mode) {
     xr.setHandMode('3d');   // #268 (owner): no passthrough cut-out for tracked hands; always the 3D hands
     // passthrough rooms are much dimmer than the studio environment: tone reflections down so metal isn't self-lit
     arMode = mode === 'immersive-ar';
-    if (mode === 'immersive-ar') { scene.background = null; room.visible = false; skybox.group.visible = skyShadow.visible = false; scene.environmentIntensity = settings.arRefl / 100; if (dome.on) applySky(); }   // #346 the dome shows in passthrough
+    if (mode === 'immersive-ar') { scene.background = null; room.visible = false; skybox.group.visible = skyShadow.visible = false; scene.environmentIntensity = settings.arRefl / 100; if (dome.on) applySky(); applyArLook(); }   // #598   // #346 the dome shows in passthrough
     else applySky();   // #182: stereo panoramas split per eye while presenting   // #180: was a fixed 0.28, now Settings > Reflections in passthrough (default 60 %)
     tidyRecords();   // #242 every VR / passthrough start: records lying about go back into the crate
     Object.assign(xrDiag, { t0: performance.now(), frames: 0, err: '', errN: 0, mode });
@@ -9521,7 +9563,7 @@ async function begin(mode) {
       try { localStorage.setItem('vire.xrLastEnd', new Date().toISOString() + ' ' + msg); } catch {}
       console.warn(msg); setTimeout(() => toast(msg, 15000), 300);
     });
-    session.addEventListener('end', () => { rigAnchor = null; anchorPending = false; rig.rotation.set(0, 0, 0); arMode = false; applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
+    session.addEventListener('end', () => { rigAnchor = null; anchorPending = false; rig.rotation.set(0, 0, 0); arMode = false; applyArLook(); applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
     toast('Reach out and touch: pinch or grip right at a knob, fader, tonearm or record', 5000);
   } catch (e) { toast('Could not start XR: ' + e.message, 4000); }
 }
@@ -9703,6 +9745,7 @@ function syncSettingsUI() {
   { const u = f => new URL(f, location.href).href.replace(/[?#].*$/, ''); $('#spectUrlP').textContent = u('spectator.html'); $('#spectUrlV').textContent = u('dirrovj.html'); }   // #511 the full address (cabin.dirrodj.club/cly3dj/... or the dev folder)
   $('#sDeckModel').value = settings.deckModel; $('#sRecWeight').value = settings.recWeight; $('#sSlipmat').value = settings.slipmat; $('#cPll').checked = !!settings.pll;
   $('#bEnvImg').hidden = settings.env !== 'image'; $('#rowEnvMix').hidden = settings.env === 'studio';
+  if ($('#sArSoft')) { $('#sArSoft').checked = settings.arSoft !== false; $('#sArSoft').onchange = e => { settings.arSoft = e.target.checked; saveSettings(); applyArLook(); }; }   // #598
   $('#sArRefl').value = settings.arRefl; $('#arReflVal').textContent = settings.arRefl + '%';
   $('#cOccl').checked = settings.occlusion !== false; $('#cRoomHits').checked = settings.roomHits !== false;   // #411
   $('#sSky').value = settings.sky; $('#rowSky').hidden = settings.env === 'studio';
