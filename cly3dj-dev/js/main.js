@@ -8245,7 +8245,7 @@ function drawToolsPage() {
         ['DIRECTION', B.dir === 'y' ? 'ALONG HEIGHT' : 'ALONG WIDTH', () => PS.setBamboo('dir', B.dir === 'y' ? 'x' : 'y')],
         ['SLATS', B.kind === 'wood' ? 'WOOD' : 'BAMBOO', () => PS.setBamboo('kind', B.kind === 'wood' ? 'bamboo' : 'wood')]];   // #598 round bamboo or flat boards
       extra = [['RESET', false, () => PS.setBamboo('reset')]];
-      help = 'BAMBOO frames (STYLE): edge poles / beams and one layer of round bamboo or flat WOOD boards. CLEARING pushes the slats to the edges so the middle opens onto the DOME (use a PANO type, or SKYLIGHT on the ceiling). Graded by IRON GRADE.';
+      help = 'BAMBOO frames (STYLE): edge poles / beams and one layer of round bamboo or flat WOOD boards. CLEARING pushes the slats to the edges so the middle opens onto the DOME (use a PANO type on the ceiling). Graded by IRON GRADE.';
     }
     const cols = P ? 2 : 3, cw = (R - L - (cols - 1) * 8) / cols, ch = P ? 56 : 50, yc = y0 + 44;
     cells.forEach(([label, val, act], i) => {
