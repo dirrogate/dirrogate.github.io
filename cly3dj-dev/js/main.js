@@ -6978,7 +6978,7 @@ function drawAcid7SegDisplay(g, ox, oy, sx, sy, chars, dotIdx) {
 const cassImg = new Image(); cassImg.src = 'img/micro_cassette.png';
 cassImg.onload = () => { if (acidTray.open) acidTrayDraw(); if (acidTape.loaded) acidPlateRebuild(); };
 const CASS_WELL = { x: 62, y: 23, w: 244, h: 160 };   // where the loaded cassette sits in the plate's well (plate px)
-const CASS_REELS = [{ x: 134, y: 96 }, { x: 241, y: 96 }];   // its reels there
+const CASS_REELS = [{ x: 133, y: 101 }, { x: 233, y: 101 }];   // its reels there (#631 measured: the centres of the PNG's two hub holes)
 const acidTape = { list: FACTORY_TAPES.slice(), loaded: null, side: 'A', active: false };
 function drawCassette(x, t, side, dx, dy, dw, dh, small) {   // the owner's PNG, the name on the lower label band, B over the A
   const k = dw / 229, ky = dh / 150;
@@ -7166,7 +7166,7 @@ function cas3dTarget(t) {   // where this tape's cassette should be: { parent, p
 function stepCas3D(dt) {
   const want = !!((renderer.xr.isPresenting || CAS3D.force) && toolsPage === 'acid' && scrDir === 'up' && mixer.userData.screen);
   if (want !== CAS3D.up) {
-    CAS3D.up = want;
+    CAS3D.up = want; AK.dirty = true;   // #631 the 2D hubs give way to the 3D heads
     if (!want) { for (const m of CAS3D.meshes.values()) if (m !== CAS3D.held) m.visible = false; CAS3D.popped = null; return; }
   }
   if (!want) return;
@@ -7179,6 +7179,43 @@ function stepCas3D(dt) {
     if (!m.visible) { m.position.copy(tg.pos); m.quaternion.copy(tg.quat); m.scale.set(1, 1, 1); }   // appearing: straight to its place
     m.visible = true;
     m.position.lerp(tg.pos, k); m.quaternion.slerp(tg.quat, k); m.scale.lerp(_c3v2.set(1, 1, 1), k);
+  }
+}
+// #631 (owner) the two transport heads as real 3D spindles: six-spline drive heads standing out of the plate. Empty well:
+// short, at the plate's own spindles; a cassette in: they slide under its hub holes and extrude up through the white
+// gear wheels to the face, turning with the sequencer / the finger, so the cassette reads as driven. Headset only.
+const CHEADS = { list: [], e: 0, mat: null };
+function casHeadsBuild(sm) {
+  const n = 6, st = Math.PI * 2 / n, r = 0.00105, R = 0.0018, s = new THREE.Shape(), P = (rad, a) => [rad * Math.cos(a), rad * Math.sin(a)];
+  for (let i = 0; i < n; i++) {
+    const a = i * st, pts = [P(r, a - st * 0.5), P(r, a - st * 0.2), P(R, a - st * 0.11), P(R, a + st * 0.11), P(r, a + st * 0.2)];
+    pts.forEach(([x, y], j) => (i === 0 && j === 0) ? s.moveTo(x, y) : s.lineTo(x, y));
+  }
+  s.closePath();
+  const bore = new THREE.Path(); bore.absarc(0, 0, 0.00038, 0, Math.PI * 2, true); s.holes.push(bore);
+  const gGeo = new THREE.ExtrudeGeometry(s, { depth: 0.0040, bevelEnabled: true, bevelThickness: 0.00012, bevelSize: 0.0001, bevelSegments: 1, curveSegments: 6 });
+  const fGeo = new THREE.CylinderGeometry(0.00235, 0.0026, 0.0003, 24); fGeo.rotateX(Math.PI / 2); fGeo.translate(0, 0, 0.00015);
+  CHEADS.mat = new THREE.MeshStandardMaterial({ color: 0xe6e8ec, roughness: 0.32, metalness: 0.55 });
+  const fMat = new THREE.MeshStandardMaterial({ color: 0x3a3d43, roughness: 0.5, metalness: 0.4 });
+  for (let i = 0; i < 2; i++) {
+    const h = new THREE.Group(), gear = new THREE.Mesh(gGeo, CHEADS.mat), fl = new THREE.Mesh(fGeo, fMat);
+    for (const o of [gear, fl]) { o.raycast = () => {}; padCull(o); h.add(o); }
+    h.userData.gear = gear; h.visible = false; sm.add(h); CHEADS.list.push(h);
+  }
+}
+function stepCasHeads(dt) {
+  const sm = mixer.userData.screen, want = CAS3D.up;
+  if (!CHEADS.list.length) { if (!want || !sm) return; casHeadsBuild(sm); }
+  for (const h of CHEADS.list) h.visible = want;
+  if (!want) return;
+  const tgt = acidTape.loaded && !(CAS3D.held && CAS3D.held.userData.tape === acidTape.loaded) ? 1 : 0;
+  CHEADS.e += (tgt - CHEADS.e) * (1 - Math.exp(-dt * 9)); const e = CHEADS.e;
+  const a0 = (acidUI.step || 0) * Math.PI / 8 * (acidUI.running ? 1 : 0) + acidReelSpin;   // the same angle as the 2D hubs
+  for (let i = 0; i < 2; i++) {
+    const h = CHEADS.list[i], A = ACID_REELS[i], B = CASS_REELS[i];
+    h.position.copy(plateLocal(A.x + (B.x - A.x) * e, A.y + (B.y - A.y) * e, 0.0001));
+    h.rotation.set(0, 0, -a0);   // canvas + = clockwise on the face
+    h.userData.gear.scale.z = 0.35 + 0.65 * e;   // extrudes out through the cassette's gear wheel (top ~4.3 mm, just proud of its face)
   }
 }
 function cassGrab(P, anchor) {   // the nearest visible cassette within 2.5 cm of the grip
@@ -7766,9 +7803,11 @@ function drawAcidPage(T) {
   for (const rl of (acidTape.loaded ? CASS_REELS : ACID_REELS)) {
     const cx = ox + rl.x * sx, cy = oy + rl.y * sy, r = 13 * sx;
     const a0 = (acidUI.step || 0) * Math.PI / 8 * (acidUI.running ? 1 : 0) + acidReelSpin;   // the hubs step round with the sequencer, and turn with the finger (#620)
-    g.save(); g.translate(cx, cy); g.rotate(a0); g.strokeStyle = 'rgba(235,238,242,0.85)'; g.lineWidth = Math.max(1, 2.2 * sx);
-    for (let k = 0; k < 6; k++) { g.rotate(Math.PI / 3); g.beginPath(); g.moveTo(r * 0.45, 0); g.lineTo(r * 0.9, 0); g.stroke(); }
-    g.restore();
+    if (!CAS3D.up) {   // #631 in the headset the 3D heads take over
+      g.save(); g.translate(cx, cy); g.rotate(a0); g.strokeStyle = 'rgba(235,238,242,0.85)'; g.lineWidth = Math.max(1, 2.2 * sx);
+      for (let k = 0; k < 6; k++) { g.rotate(Math.PI / 3); g.beginPath(); g.moveTo(r * 0.45, 0); g.lineTo(r * 0.9, 0); g.stroke(); }
+      g.restore();
+    }
     const hit = { x: cx - 36 * sx, y: cy - 36 * sx, w: 72 * sx, h: 72 * sx, drag: true,   // #620 bigger grab area round each reel
       act: (px, py) => {
         const a = Math.atan2(py - cy, px - cx), now = performance.now();
@@ -9941,6 +9980,7 @@ function frameBody() {
   stepAcidKnobs(dt);   // #608 raised TB-03 knobs on the ACID page (headset)
   stepAcidLock(performance.now());   // #618 LOCK follows the deck's tempo (pitch fader moves)
   stepCas3D(dt);   // #621 3D micro-cassettes (headset)
+  stepCasHeads(dt);   // #631 3D transport heads
   if (spect) {   // #158 spectator camera (nothing when off / no phone)
     try { spect.tick(dt); }   // #217: a spectator error must never stop the headset's frame (it froze on a record pull)
     catch (e) { if (!spectErrShown) { spectErrShown = true; console.error(e); toast('Phone / DirroVJ link error (headset keeps running): ' + e.message, 5000); } }
