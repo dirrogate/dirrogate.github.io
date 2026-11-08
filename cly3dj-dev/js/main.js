@@ -8866,6 +8866,7 @@ function drawToolsPage() {
       btn(x, y, w, h, `CONTROLLERS: ${{ '3dhands': '3D HANDS', glove: 'GLOVE', controller: 'CONTROLLER' }[cur]}`, cur !== 'controller', () => { if (X) X.setCtlLook(NEXT[cur]); const el = document.getElementById('sHands'); if (el && X) el.value = X.getCtlLook(); drawMixScreen(); }, false, P ? 18 : 20); };
     const avBtn = (x, y, w, h) => btn(x, y, w, h, `AVATAR: ${djSet.avatar ? 'ON' : 'OFF'}`, djSet.avatar, () => setDjAvatar(!djSet.avatar), false, P ? 18 : 20);   // #363 the robot DJ (SHOWTIME!) on / off
     const styleBtn = (x, y, w, h) => btn(x, y, w, h, `AVATAR: ${(AVATAR_STYLES[djSet.style] || AVATAR_STYLES.robot).label}`, djSet.style !== 'robot', nextDjStyle, false, P ? 18 : 20);   // #539 tap to cycle ROBOT / DIRROFACE / DIRROCROW
+    const caseBtn = (x, y, w, h) => { const t = !!(cases.caseA && cases.caseA.H <= 0.15); btn(x, y, w, h, `FLIGHTCASE: ${t ? 'TRAY' : 'FULL'}`, t, caseTrayToggle, !cases.caseA, P ? 18 : 18); };   // #628 same switch as ROOMS > CASE
     const sw = (x, y, w, h, label, k) => { const on = pieceOn(k); btn(x, y, w, h, `${label}: ${on ? 'ON' : 'OFF'}`, on, () => setPiece(k, !on), false, P ? 18 : 20); };
     // #389 / #530 VJ TOOLS: 14 stage & visual extras in a clean grid
     const vjPage = y0 => {
@@ -8892,7 +8893,8 @@ function drawToolsPage() {
         ctlBtn(L, y0 + 176, (R - L - 8) * 0.62, 64); btn(L + (R - L - 8) * 0.62 + 8, y0 + 176, (R - L - 8) * 0.38, 64, 'HAND FIT', false, () => setTools('handfit'), false, 18);   // #291
         { const w3 = (R - L - 16) / 3; lockBtn(L, y0 + 252, w3 * 1.1, 64); btn(L + w3 * 1.1 + 8, y0 + 252, w3 * 0.95, 64, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 15); btn(L + w3 * 2.05 + 16, y0 + 252, w3 * 0.95, 64, 'MIXER FEEL', false, () => setTools('mixfeel'), false, 15); }   // #378, #423, #605
         avBtn(L, y0 + 328, (R - L - 8) * 0.38, 64); styleBtn(L + (R - L - 8) * 0.38 + 8, y0 + 328, (R - L - 8) * 0.62, 64);   // #539
-        note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until you switch it off. RECORD MAKER: press your own record. MILK CRATE: the first milk crate. CONTROLLERS: 3D hands holding them, or the bare controllers. AVATAR: tap to pick ROBOT, DIRROFACE or DIRROCROW.', y0 + 408); }
+        caseBtn(L, y0 + 404, R - L, 56);   // #628
+        note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until you switch it off. RECORD MAKER: press your own record. MILK CRATE: the first milk crate. CONTROLLERS: 3D hands holding them, or the bare controllers. AVATAR: tap to pick ROBOT, DIRROFACE or DIRROCROW. FLIGHTCASE: TRAY = lid height, carry it by its front handle.', y0 + 474); }
       else vjPage(y0);   // #389
     } else {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
@@ -8901,7 +8903,9 @@ function drawToolsPage() {
         { const rw = R - L - 24, xa = L + rw * 0.34 + 8, xb = xa + rw * 0.22 + 8, xc = xb + rw * 0.16 + 8;   // #539 the avatar pair shares this row (the landscape screen is only 304 px tall)
           lockBtn(L, y0 + 154, rw * 0.34, 46); btn(xa, y0 + 154, rw * 0.22, 46, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 18);   // #378, #423
           avBtn(xb, y0 + 154, rw * 0.16, 46); styleBtn(xc, y0 + 154, rw * 0.28, 46); }
-        note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until it is switched off. RECORD MAKER: press your own record. CONTROLLERS: 3D hands or bare controllers.', y0 + 218); }
+        { const cw = (R - L) * 0.34; caseBtn(L, y0 + 206, cw, 44);   // #628
+          g.textAlign = 'left'; g.font = '500 12px system-ui'; g.fillStyle = '#8c96a8';
+          wrapText(g, 'GEAR LOCKDOWN is on at every start. FLIGHTCASE: TRAY = the case at lid height, carry it (and the gear) by its front handle, lift it onto a table.', L + cw + 12, y0 + 222, R - L - cw - 12, 15, 2); } }
       else vjPage(y0);   // #389
     }
     return;
