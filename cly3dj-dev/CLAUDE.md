@@ -2059,3 +2059,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 
 ## #623 Smokier cassette shells (owner, 8 Nov: 'at least 45 % more smoky')
 - Edges opacity 0.42 -> 0.61 (+45 %), colour 0xd4d8de -> 0xa4a9b1 (darker smoke); faces get a smoke layer rgba(72,76,84,0.36) behind the picture, so the see-through shell and hub holes read as smoked plastic instead of clear. sw.js v131. dev only. Module-checked. No Node restart.
+
+## #624 Cassettes keep the picture's outline (owner, 8 Nov: 'retain the curve of the cassette ... alpha cutoff ... extrude')
+- cassOutline(): the micro_cassette.png alpha edge (alpha > 30) is traced once with a Moore-neighbour walk and simplified (Ramer-Douglas-Peucker, 0.4 px), mapped to CASS3_W x CASS3_H. cassGeos(): front / back = ShapeGeometry of that outline with the picture laid over it (UV from position; back turned round so side B reads correctly), sides = ExtrudeGeometry of the same shape (its caps hidden). Each cassette is a Group of the three meshes. Falls back to a rectangle if the picture isn't loaded.
+- Thickness unchanged (3.75 mm, the owner's earlier '25 % thinner'). Checked in the PC pane (force hook): rounded corners follow the picture. sw.js v132. dev only. Module-checked. No Node restart.

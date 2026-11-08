@@ -7092,12 +7092,55 @@ function cassTex(t, side) {
   if (cassImg.complete && cassImg.naturalWidth) drawCassette(x, t, side, 0, 0, 320, 210);
   const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 4; return tx;
 }
+// #624 (owner) the cassette keeps the picture's own outline: the PNG's alpha edge is traced once (Moore-neighbour walk,
+// alpha > 30, simplified) and extruded to the shell thickness; front = side A picture, back = side B, sides = smoky plastic
+function cassOutline() {
+  const W = cassImg.naturalWidth, H = cassImg.naturalHeight; if (!W) return null;
+  const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'); x.drawImage(cassImg, 0, 0);
+  const a = x.getImageData(0, 0, W, H).data, on = (px, py) => px >= 0 && py >= 0 && px < W && py < H && a[(py * W + px) * 4 + 3] > 30;
+  let sx = -1, sy = -1;
+  for (let py = 0; py < H && sx < 0; py++) for (let px = 0; px < W; px++) if (on(px, py)) { sx = px; sy = py; break; }
+  if (sx < 0) return null;
+  const D = [[-1, 0], [-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1]];   // W NW N NE E SE S SW (clockwise, y down)
+  const pts = [[sx, sy]]; let px = sx, py = sy, b = 0;
+  for (let n = 0; n < 20000; n++) {
+    let k = 1, q = null;
+    for (; k <= 8; k++) { const d = D[(b + k) % 8]; if (on(px + d[0], py + d[1])) { q = (b + k) % 8; break; } }
+    if (q === null) break;
+    const bx = px + D[(q + 7) % 8][0], by = py + D[(q + 7) % 8][1];   // the empty cell checked just before the hit
+    px += D[q][0]; py += D[q][1];
+    b = D.findIndex(d => px + d[0] === bx && py + d[1] === by); if (b < 0) b = 0;
+    if (px === sx && py === sy) break;
+    pts.push([px, py]);
+  }
+  const rdp = (P, e) => {   // Ramer-Douglas-Peucker
+    if (P.length < 3) return P; const [x1, y1] = P[0], [x2, y2] = P[P.length - 1]; let m = 0, mi = 0;
+    for (let i = 1; i < P.length - 1; i++) { const [x0, y0] = P[i], d = Math.abs((y2 - y1) * x0 - (x2 - x1) * y0 + x2 * y1 - y2 * x1) / (Math.hypot(y2 - y1, x2 - x1) || 1); if (d > m) { m = d; mi = i; } }
+    return m > e ? [...rdp(P.slice(0, mi + 1), e).slice(0, -1), ...rdp(P.slice(mi), e)] : [P[0], P[P.length - 1]];
+  };
+  const half = pts.length >> 1, sp = [...rdp(pts.slice(0, half + 1), 0.4).slice(0, -1), ...rdp(pts.slice(half).concat([pts[0]]), 0.4).slice(0, -1)];
+  return sp.length >= 4 ? sp.map(([u, v]) => new THREE.Vector2((u / W - 0.5) * CASS3_W, (0.5 - v / H) * CASS3_H)) : null;
+}
+function cassGeos() {
+  if (CAS3D.geo) return CAS3D.geo;
+  const o = cassOutline(), sh = new THREE.Shape(o || [new THREE.Vector2(-CASS3_W / 2, -CASS3_H / 2), new THREE.Vector2(CASS3_W / 2, -CASS3_H / 2), new THREE.Vector2(CASS3_W / 2, CASS3_H / 2), new THREE.Vector2(-CASS3_W / 2, CASS3_H / 2)]);
+  const face = new THREE.ShapeGeometry(sh), pos = face.attributes.position, uv = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) { uv[i * 2] = pos.getX(i) / CASS3_W + 0.5; uv[i * 2 + 1] = pos.getY(i) / CASS3_H + 0.5; }   // the picture laid straight over its own outline
+  face.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  const front = face.clone(); front.translate(0, 0, CASS3_T / 2 + 0.00005);
+  const back = face.clone(); back.rotateY(Math.PI); back.translate(0, 0, -CASS3_T / 2 - 0.00005);   // turned round: side B reads right way round from behind
+  const side = new THREE.ExtrudeGeometry(sh, { depth: CASS3_T, bevelEnabled: false, steps: 1, curveSegments: 1 }); side.translate(0, 0, -CASS3_T / 2);
+  CAS3D.edge = new THREE.MeshStandardMaterial({ color: 0xa4a9b1, roughness: 0.18, metalness: 0, transparent: true, opacity: 0.61, depthWrite: false });   // #622 / #623 smoky plastic
+  CAS3D.noCap = new THREE.MeshBasicMaterial({ visible: false });   // the extrusion's own caps: the picture faces cover them
+  return (CAS3D.geo = { front, back, side });
+}
 function cassMesh(t) {
   let m = CAS3D.meshes.get(t); if (m) return m;
-  if (!CAS3D.geo) { CAS3D.geo = new THREE.BoxGeometry(CASS3_W, CASS3_H, CASS3_T); CAS3D.edge = new THREE.MeshStandardMaterial({ color: 0xa4a9b1, roughness: 0.18, metalness: 0, transparent: true, opacity: 0.61, depthWrite: false }); }   // #622 edges: clear smoky plastic, like the picture's shell
-  const face = side => new THREE.MeshBasicMaterial({ map: cassTex(t, side), toneMapped: false, transparent: true, alphaTest: 0.02 });   // #622 the picture's see-through shell and hub holes stay see-through
-  m = new THREE.Mesh(CAS3D.geo, [CAS3D.edge, CAS3D.edge, CAS3D.edge, CAS3D.edge, face('A'), face('B')]);   // box faces: +x -x +y -y +z(A) -z(B)
-  m.userData.tape = t; m.visible = false; m.raycast = () => {}; padCull(m);
+  const G = cassGeos();
+  const face = side => new THREE.MeshBasicMaterial({ map: cassTex(t, side), toneMapped: false, transparent: true, alphaTest: 0.02 });   // #622 see-through shell / hub holes, smoked (#623)
+  m = new THREE.Group();
+  for (const part of [new THREE.Mesh(G.side, [CAS3D.noCap, CAS3D.edge]), new THREE.Mesh(G.front, face('A')), new THREE.Mesh(G.back, face('B'))]) { part.raycast = () => {}; padCull(part); m.add(part); }
+  m.userData.tape = t; m.visible = false;
   CAS3D.meshes.set(t, m); return m;
 }
 function cas3dTarget(t) {   // where this tape's cassette should be: { parent, pos, quat } or null (hidden)
