@@ -1608,7 +1608,7 @@ $('#helpBtn').onclick = () => { const h = $('#help'); h.style.display = h.style.
 const engine = new AudioEngine();
 // #598 REC MASTER (main tablet page): the master after the limiter (music + mic, no cue) to a WAV in private storage, to Downloads on stop
 const masterRec = new MasterRec(engine, { toast, onChange: () => { if (!toolsPage && !videoPage) drawMixScreen(); }, inXR: () => renderer.xr.isPresenting });
-renderer.xr.addEventListener('sessionend', () => { if (masterRec.pending.length) masterRec.flushDownloads(); });   // #598 files stopped in VR go to Downloads once out of it
+renderer.xr.addEventListener('sessionend', () => { if (masterRec.pending.length) setTimeout(() => masterRec.offer(), 400); });   // #598 files stopped in VR go to Downloads once out of it; #637 via a SAVE button on the page (a tap = a gesture the Quest Browser honours)
 setInterval(() => { if (masterRec.on && !toolsPage && !videoPage) drawMixScreen(); }, 1000);   // #598 the running time on the button
 // #331 LIVE STREAM: master bus (never CUE) + a picture source, straight to Twitch from the headset (stream.js)
 streamer = CAMERA_ROLE ? null : new Streamer({
@@ -9478,6 +9478,7 @@ function drawMixScreen() {
     for (const d of decks) drawDeckPanel(g, d, 6, TOP + d.i * (ph + 6), W - 12, ph, true);
     // Gemini_acid: REC MASTER moved to top right of Deck A display in portrait
     drawRecMaster(g, W - 14 - 110, TOP + 6, 110, 28, 14);
+    drawTakesBtn(g, W - 14 - 110 - 6 - 78, TOP + 6, 78, 28, 14);   // #637
     const bw = 80, vw = 84, vx = W - 14 - bw - 6 - vw;   // #363 BACK top right, VISUALS left of it
     drawTopBtn(g, W - 14 - bw, y, bw, h, '◀ BACK', false, !navCan(), 18);
     if (navCan()) SP_HIT.push({ x: W - 14 - bw - 3, y: y - 8, w: bw + 9, h: h + 16, act: navBack });
@@ -9503,6 +9504,7 @@ function drawMixScreen() {
   { // Gemini_acid: REC MASTER moved to Deck A display top right
     const w = 120, h = 28, y = 12, x = W / 2 - 14 - w;
     drawRecMaster(g, x, y, w, h, 15);
+    drawTakesBtn(g, x - 8 - 84, y, 84, h, 15);   // #637
   }
   { // #185 VIDEO: deck B's top row (was the #176 LED WALL switch, which is on the Video page now)
     const w = 108, h = 28, y = 12, bw = 96, bx = W - 14 - bw, x = bx - 8 - w;   // #202 clear of the corner L; #363 BACK at the right, VISUALS left of it
@@ -9562,6 +9564,13 @@ function drawRecMaster(g, x, y, w, h, fs = 15) {
     if (performance.now() - recArm < 3000) { recArm = 0; masterRec.stop(); } else { recArm = performance.now(); setTimeout(drawMixScreen, 3100); }
     drawMixScreen();
   } });
+}
+function drawTakesBtn(g, x, y, w, h, fs = 15) {   // #637 TAKES: the last recordings in storage to Downloads (in VR: offered on leaving it)
+  const n = masterRec.pending.length;
+  g.fillStyle = n ? '#4a2a10' : '#2a3140'; g.fillRect(x, y, w, h);
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = n ? '#ffb070' : '#c9ced8';
+  btnLabel(g, n ? `TAKES ${n}` : 'TAKES', x, y, w, h, fs); g.textBaseline = 'alphabetic';
+  SP_HIT.push({ x, y: y - 4, w, h: h + 8, act: () => { if (!masterRec.busy) masterRec.saveTakes().then(drawMixScreen); } });
 }
 // #210 GEAR HERE (in XR): tap twice within 3 s; a small pin status beside it
 function drawPin(g, x, y, w, h) {
@@ -10632,3 +10641,4 @@ if (CAMERA_ROLE) {
     newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, scroller, skybox, envLight, key, crateRemote })).catch(e => { document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;top:0;left:0;right:0;color:#fbb;background:#300;padding:8px;z-index:99">${new URLSearchParams(location.search).get('vj') === '1' ? 'DirroVJ' : 'Camera page'} failed: ${e.message}</pre>`); });
 }
 window.vire._dl = { domeLightOn, domeLightTick, envLight, night, get key() { return domeLitKey; } };   // #611 / #612 test hook
+window.vire._rec = masterRec;   // #637 test hook

@@ -2127,3 +2127,9 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - tray: label 'CASSETTE TRAY', x 52, y 214, w 181, h 46 (centred on the PATTERN CLEAR / RUN-STOP column, 142.5; ~35 px clear of the saw icon).
 - PLAY/STOP, LOCK, SAVE: y 22 / 85 / 148 (were 22 / 64 / 106), spanning the well's height; same x 342, 90 x 34.
 - Pane screenshot checked; simulated tap still opens / shuts the tray. NOT tried on the Quest. sw.js v144. No Node restart. Backup backups/pre636/.
+
+## #637 REC MASTER takes: TAKES key + SAVE banner (owner, 9 Nov: nothing in the Quest's Download folder over USB)
+- Suspected cause: #598 fired the download from the XR 'sessionend' event, with no tap behind it; the Quest Browser can drop gesture-less downloads silently. (Also: Android MTP over USB can lag in listing new files until the media scanner sees them.)
+- recmaster.js: takes() lists the finished WAVs kept in OPFS vire-rec/ (last 3, newest first, not the one recording); saveTakes() queues them all in pending; offer() shows a fixed DOM banner on the 2D page, "SAVE n RECORDINGS TO DOWNLOADS" + ✕ (later). Tapping it is the user gesture; files download 0.9 s apart, then a toast says where (Files > Downloads; PC: Internal shared storage\Download).
+- main.js: sessionend now calls masterRec.offer() (was flushDownloads); new drawTakesBtn: TAKES key left of REC MASTER (landscape and portrait main page), shows 'TAKES n' in amber while some wait. In VR it queues and toasts "leave VR, then tap SAVE"; on the 2D page it opens the banner at once. Stop-in-VR toast reworded. Test hook window.vire._rec.
+- Pane test: a 2.5 s recording, takes() lists it, saveTakes() queues it, banner shows, clicking it downloads and clears. NOT tried on the Quest. sw.js v145. No Node restart. Backup backups/pre637/.
