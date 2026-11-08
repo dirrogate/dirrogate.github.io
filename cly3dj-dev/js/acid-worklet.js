@@ -220,6 +220,17 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
         this.trackMode = !!msg.value;
         if (!this.trackMode) this.trackTranspose = 0;
         break;
+      case 'loadTape': {   // #619 a micro-cassette side: its patterns go to slots 76.. (or copies of bank patterns), its chain to track 7
+        const base = 76, pats = msg.patterns || [];
+        this.patterns.length = base;
+        for (const q of pats) {
+          if (q.fromBank !== undefined) { const src = this.patterns[q.fromBank]; this.patterns.push({ id: 'TAPE', endStep: src.endStep, triplet: src.triplet, steps: src.steps.map(x => x.slice()) }); }
+          else this.patterns.push({ id: 'TAPE', endStep: q.endStep || 16, triplet: q.triplet ? 1 : 0, steps: q.steps.map(x => x.slice()) });
+        }
+        this.tracks.length = 7;
+        if (msg.track) this.tracks.push({ id: 'TAPE', len: msg.track.bars.length, dsBar: msg.track.dsBar || 0, bars: msg.track.bars.map(([pi, tr]) => [base + pi, tr || 0]) });
+        break;
+      }
       case 'clearPattern': {
         const p = this.patterns[this.currentPattern];
         if (p && p.steps) {

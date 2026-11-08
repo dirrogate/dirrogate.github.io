@@ -766,6 +766,15 @@ export function setupXR(ctx) {
       if (inside && l.z < 0.006 && l.z > -0.015) { if (armed && ctx.mixScreenPress({ x: l.x / sw + 0.5, y: l.y / sh + 0.5 })) { st.poke.set(ms, false); buzz(st, 0.4, 20); } else if (!armed && ctx.mixScreenDrag) ctx.mixScreenDrag({ x: l.x / sw + 0.5, y: l.y / sh + 0.5 }); }   // #422 slider drag
       else if (!inside || l.z > 0.02) { if (!armed && ctx.mixScreenRelease) ctx.mixScreenRelease(); st.poke.set(ms, true); }   // #222 fingertip off = end of a long press
     }
+    // #619 the ACID cassette tray on the PREVIEW slide-out screen (fingertip / controller tip, like the tablet screen)
+    if (ctx.trayScreen) {
+      const ts = ctx.trayScreen();
+      if (ts) {
+        const l = ts.worldToLocal(v2.copy(T)), inside = Math.abs(l.x) < 0.5 && Math.abs(l.y) < 0.5, armed = st.poke.get(ts) !== false;   // plane 1 x 1, scaled
+        if (inside && l.z < 0.006 && l.z > -0.015) { const uv = { x: l.x + 0.5, y: l.y + 0.5 }; if (armed) { if (ctx.trayPress(uv)) { st.poke.set(ts, false); buzz(st, 0.15, 6); } } else ctx.trayDrag(uv); }
+        else if (!inside || l.z > 0.02) { if (!armed) ctx.trayRelease(); st.poke.set(ts, true); }
+      }
+    }
     // crate screen
     const scr = ctx.crate.userData.screen;
     const l = scr.worldToLocal(v2.copy(T));

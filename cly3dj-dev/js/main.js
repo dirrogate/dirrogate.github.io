@@ -49,6 +49,7 @@ import * as media from './medialib.js';
 import { makePerfCap } from './perfcap.js';
 import { Stage, FlightCase } from './layout.js';
 import { loadCaseKit } from './flightcase.js';
+import { FACTORY_TAPES } from './acid-tapes.js';   // #619 DIRROACID micro-cassettes
 import { setRecordTexSize, setGrooveK } from './textures.js';
 import {
   initMaterials, MAT, tabletBodyMat, TABLET_T, makeDeck, makeButton, makeMixer, makeCrate, makeMilkCrate, loadMilkCrate, loadMilkCrateBaked, upgradeMilkCrate, loadRecordCrateBaked, upgradeRecordCrate, loadMixerParts, initKTX2, loadBaked, MILK_CREDIT, Record3D, armYawForRadius,
@@ -503,7 +504,7 @@ function stepPvLid(dt) {
 let pvWanted = false, pvLast = 0, pvDecoding = false, pvA = 0.45;
 function onPreviewFrame(buf) {
   const stuMon = monOn && streamer && streamer.stuRun;   // #380 the PREVIEW monitor shows the S8 STUDIO's output
-  if ((!pvWanted && !stuMon) || (monOn && !stuMon) || pvDecoding) return; pvDecoding = true;
+  if ((!pvWanted && !stuMon) || (monOn && !stuMon) || pvDecoding || acidTray.open) return; pvDecoding = true;   // #619 the cassette tray has the screen
   createImageBitmap(new Blob([buf], { type: 'image/jpeg' }), { imageOrientation: stuMon ? 'none' : 'flipY' }).then(b => {
     const old = pvTex.image; pvTex.image = b; pvTex.needsUpdate = true; if (old && old.close) old.close();
     if (stuMon) { pvLast = performance.now(); return; }
@@ -518,7 +519,14 @@ function onPreviewFrame(buf) {
 let monOn = false, monT = 0;
 const monCanvas = document.createElement('canvas'); monCanvas.width = 384; monCanvas.height = 216;
 const monG = monCanvas.getContext('2d'), monTex = new THREE.CanvasTexture(monCanvas); monTex.colorSpace = THREE.SRGBColorSpace;
+// #619 the ACID cassette TRAY borrows the PREVIEW slide-out screen: two rows of micro-cassettes, scrolled sideways.
+// PREVIEW (or TRAY again, or leaving the ACID page) closes it.
+const TRAY_W = 1024, TRAY_H = 388;
+const acidTray = { open: false, scroll: 0, press: null, canvas: document.createElement('canvas') };
+acidTray.canvas.width = TRAY_W; acidTray.canvas.height = TRAY_H; acidTray.g = acidTray.canvas.getContext('2d');
+acidTray.tex = new THREE.CanvasTexture(acidTray.canvas); acidTray.tex.colorSpace = THREE.SRGBColorSpace; acidTray.tex.anisotropy = 4;
 function setMonitor(on) {
+  if (on && acidTray.open) acidTrayClose();   // #619 PREVIEW takes the screen back
   monOn = !!on;
   if (monOn) { if (spect && spect.camSet && pvWanted) spect.camSet({ what: 'preview', v: false }); pvWanted = true; pvScreen.material.map = monTex; pvScreen.material.color.setScalar(1); pvScreen.material.needsUpdate = true; pvA = 16 / 9; pvAspect(pvA); monT = 0; }
   else { pvWanted = false; pvScreen.material.map = null; pvScreen.material.color.setHex(0x202020); pvScreen.material.needsUpdate = true; }
@@ -1449,6 +1457,7 @@ function syncScrMap() {   // #617 the ACID page swaps in its own canvas; #618 an
   const m = mixer.userData.screen && mixer.userData.screen.material, t = scr().texture; if (m && m.map !== t) { m.map = t; m.needsUpdate = true; }
   const on = toolsPage === 'acid' && scrDir === 'up';
   if (on) acidLayers();
+  if (toolsPage !== 'acid' && acidTray.open) acidTrayClose();   // #619 the tray belongs to the ACID page
   if (ACIDL.plate) { ACIDL.plate.visible = on && !!ACIDL.tex; ACIDL.over.visible = on && !!ACIDL.tex; }
 }
 // #467 a small note strip on the tablet, over whatever page is open, for a few seconds (toast() is a desktop-only overlay,
@@ -4198,7 +4207,7 @@ function interactive() { return [deckGroups[0], deckGroups[1], mixer, crateRig, 
 // instanced parts (the mixer knobs, #84): a hit on instance i stands for that knob's proxy object
 function hitTarget(hit) { const o = hit.object, ids = o.userData.knobIds; return ids && hit.instanceId !== undefined ? mixer.userData.controls[ids[hit.instanceId]] : o; }
 function controlOf(o) {
-  while (o) { const u = o.userData; if (u && (u.control || u.record || u.crateSleeves || u.crateScreen || u.mixScreen || u.tabletCorner || u.tabletBody || u.crateDisc || u.crateCover || u.platterOf || u.lid || u.move || u.resize)) return o; o = o.parent; }
+  while (o) { const u = o.userData; if (u && (u.control || u.record || u.crateSleeves || u.crateScreen || u.mixScreen || u.trayScreen || u.tabletCorner || u.tabletBody || u.crateDisc || u.crateCover || u.platterOf || u.lid || u.move || u.resize)) return o; o = o.parent; }
   return null;
 }
 function isTabletCornerHit(hit, obj) {   // #532 top-right corner L-handle or top-right bezel of the remote tablet
@@ -4277,7 +4286,7 @@ engine.onAcidReady = () => {
 engine.onAcid = m => {
   if (m.type === 'step') {
     acidUI.step = m.step;
-    if (m.pattern !== undefined) acidUI.pattern = m.pattern;
+    if (m.pattern !== undefined && m.pattern < 76) acidUI.pattern = m.pattern;   // #619 76.. = the cassette's slots
     if (m.bar !== undefined) acidUI.bar = m.bar;
     acidUI.stepAccent = !!m.accent;
     if (toolsPage === 'acid') drawMixScreen();
@@ -4751,6 +4760,7 @@ function pointerDown(p) {
   }
   if (u.tabletBody) return false;
   if (u.mixScreen) { mixScreenPress(hit.uv); p.drag = { kind: 'screen' }; activePointers.add(p); return true; }   // #222 the release ends a long press
+  if (u.trayScreen) { trayPress(hit.uv); p.drag = { kind: 'tray' }; activePointers.add(p); return true; }   // #619 cassette tray on the PREVIEW screen
   if (u.crateScreen) { if (crateLidOpen()) { crateScreenPress(hit.uv); p.drag = { kind: 'crateScreen' }; activePointers.add(p); } return true; }   // #226 the release ends a long press
   if (u.crateDisc) { pullSelected(p.space); layoutSleeves(); return true; }
   if ((u.crateSleeves || u.crateCover) && !crateLidOpen()) return true;
@@ -4805,6 +4815,7 @@ function pointerMove(p) {
   const dr = p.drag; if (!dr) return;
   p.tip = '';
   if (dr.kind === 'screen') { if (screenDrag) { const h = castRay(p.ray, [mixer.userData.screen])[0]; if (h) mixScreenDrag(h.uv); } return; }   // #422
+  if (dr.kind === 'tray') { const h = castRay(p.ray, [pvScreen])[0]; if (h) trayDrag(h.uv); return; }   // #619
   if (dr.kind === 'tabletCorner') {   // #532 left-click drag on top-right corner resizes the popped-out remote tablet
     if (!dr.moved && Math.hypot(p.x - dr.x0, p.y - dr.y0) < 4) return;
     if (!dr.moved) { dr.moved = true; if (dr.wasDocked) { tabletPopOut(); dr.s0 = TABLET.scale.x; } }
@@ -4883,6 +4894,7 @@ function pointerUp(p) {
   if (dr.kind === 'move') { stage.endMove(dr.st); settleStack(dr.target); if (dr.target.startsWith('milk')) releaseMilk(dr.target, null); }
   if (dr.kind === 'resize') stage.save();
   if (dr.kind === 'screen') mixScreenRelease();   // #222
+  if (dr.kind === 'tray') trayRelease();   // #619
   if (dr.kind === 'tabletCorner') { if (!dr.moved) { if (dr.wasDocked) tabletPopOut(); else tabletDock(); } else saveTablet(); }   // #532
   if (dr.kind === 'crateScreen') crateScreenRelease();   // #226
   p.drag = null; activePointers.delete(p);
@@ -6750,6 +6762,7 @@ function acidPatternCode(idx) {
 
 // Gemini_acid: Sync pattern selection from bank/section/key or direct index (0..75)
 function selectAcidPattern(idx, announce = true) {
+  acidLeaveTape(true);   // #619 a pattern key / VALUE goes back to the bank (the cassette stays in the well)
   const clamped = Math.max(0, Math.min(75, idx));
   acidUI.pattern = clamped;
   const bank = Math.min(3, Math.floor(clamped / 24));
@@ -6777,6 +6790,7 @@ const ACID_MODE_NAMES = ['TRACK WRITE', 'TRACK PLAY', 'PATTERN PLAY', 'PATTERN W
 function acidTrackGo(nPos) {
   nPos = Math.max(0, Math.min(6, nPos));
   if (nPos === acidUI.pattGroup) return false;
+  acidLeaveTape();   // #619 the panel's own patterns / tracks take over from the cassette
   acidUI.pattGroup = nPos;
   if (acidUI.mode <= 1) {   // Track mode: Track 1..7
     acidUI.trackIdx = nPos; acidUI.tempoMode = false;
@@ -6791,6 +6805,7 @@ function acidTrackGo(nPos) {
 function acidModeGo(nMode) {
   nMode = Math.max(0, Math.min(3, nMode));
   if (nMode === acidUI.mode) return false;
+  acidLeaveTape();   // #619
   acidUI.mode = nMode;
   const isTrack = nMode <= 1;
   engine.setAcidTrackMode(isTrack);
@@ -6947,6 +6962,119 @@ function drawAcid7SegDisplay(g, ox, oy, sx, sy, chars, dotIdx) {
   g.restore();
 }
 
+// #619 MICRO-CASSETTES: a tape = name, BPM, key, tag, side A / side B (each a pattern or a bank patch, plus its sound).
+// Loading one puts the TB-03 on the tape (pattern slot 76.., PATTERN PLAY) and loads its sound onto the knobs; the
+// panel's own pattern keys / TRACK / MODE go back to the bank with the cassette left in the well; PLAY returns to it.
+const cassImg = new Image(); cassImg.src = 'img/micro_cassette.png';
+cassImg.onload = () => { if (acidTray.open) acidTrayDraw(); if (acidTape.loaded) acidPlateRebuild(); };
+const CASS_WELL = { x: 62, y: 23, w: 244, h: 160 };   // where the loaded cassette sits in the plate's well (plate px)
+const CASS_REELS = [{ x: 134, y: 96 }, { x: 241, y: 96 }];   // its reels there
+const acidTape = { list: FACTORY_TAPES.slice(), loaded: null, side: 'A', active: false };
+function drawCassette(x, t, side, dx, dy, dw, dh, small) {   // the owner's PNG, the name on the lower label band, B over the A
+  const k = dw / 229, ky = dh / 150;
+  x.drawImage(cassImg, dx, dy, dw, dh);
+  if (side === 'B') { x.fillStyle = '#dfe4e4'; x.fillRect(dx + 198 * k, dy + 60 * ky, 24 * k, 26 * ky); x.fillStyle = '#111'; x.font = `700 ${Math.round(24 * ky)}px Arial, sans-serif`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('B', dx + 210 * k, dy + 74 * ky); }
+  if (small) return;
+  x.fillStyle = '#16181c'; x.textAlign = 'left'; x.textBaseline = 'middle';
+  x.font = `700 ${Math.round(12.5 * ky)}px "Segoe Print", "Comic Sans MS", cursive`;
+  x.fillText(t.name, dx + 12 * k, dy + 109 * ky, 196 * k);
+  x.font = `600 ${Math.round(8 * ky)}px Arial, sans-serif`; x.fillStyle = '#333';
+  x.fillText(`${t.bpm} BPM${t.key ? ' · ' + t.key : ''} · ${t.tag}`, dx + 12 * k, dy + 33 * ky, 196 * k);
+}
+function acidPlateRebuild() { if (!ACIDL.tex) return; const c = acidPlateCanvas(); if (!c) return; ACIDL.tex.image = c; ACIDL.tex.needsUpdate = true; }   // the plate goes up again only when the well changes
+function acidTapeApply() {
+  const t = acidTape.loaded; if (!t) return;
+  const s = t[acidTape.side] || t.A;
+  if (engine.acidNode) engine.acidNode.port.postMessage({ type: 'loadTape', patterns: [s.bank !== undefined ? { fromBank: s.bank } : s.pattern], track: null });
+  const map = { tuning: 'tuning', cutoff: 'cutoff', reso: 'resonance', envMod: 'envMod', decay: 'decay', accent: 'accent', overdrive: 'overdrive', delayTime: 'delayTime', delayFeedback: 'delayFeedback', waveform: 'waveform' };
+  for (const k in map) if (s.sound && s.sound[k] !== undefined) { acidUI[k] = s.sound[k]; engine.setAcidParam(map[k], s.sound[k]); }
+  if (!acidUI.lock) { acidUI.tempo = t.bpm; engine.setAcidParam('bpm', t.bpm); }
+  if (acidUI.transpose) { acidUI.transpose = 0; engine.setAcidParam('transpose', 0); }
+  acidUI.mode = 2; engine.setAcidTrackMode(false); engine.setAcidPattern(76);
+  acidTape.active = true; acidUI.tempoMode = false;
+  if (toolsPage === 'acid') drawMixScreen();
+}
+function acidLeaveTape(keepPattern) {   // the panel's own pattern / track takes over; the cassette stays in the well
+  if (!acidTape.active) return; acidTape.active = false;
+  if (!keepPattern) engine.setAcidPattern(acidUI.pattern);
+}
+function acidTapeLoad(t) {
+  acidTape.loaded = t; acidTape.side = 'A'; acidTapeApply(); acidPlateRebuild();
+  tabletNote(`Cassette in: ${t.name} (${t.bpm} BPM${t.key ? ', ' + t.key : ''}). PLAY to start; tap it to flip to side B`, 3500);
+  if (acidTray.open) acidTrayDraw();
+}
+function acidTapeFlip() {
+  const t = acidTape.loaded; if (!t || !t.B) return;
+  acidTape.side = acidTape.side === 'A' ? 'B' : 'A'; acidTapeApply(); acidPlateRebuild();
+  tabletNote(`Side ${acidTape.side}: ${t.name}`, 1800);
+}
+function acidTapeEject() {
+  if (!acidTape.loaded) return; const n = acidTape.loaded.name;
+  acidLeaveTape(); acidTape.loaded = null; acidPlateRebuild(); if (acidTray.open) acidTrayDraw();
+  tabletNote(`Ejected: ${n}`, 1600); drawMixScreen();
+}
+// ---- the tray (on the PREVIEW screen): 2 rows, column after column, scroll bar along the bottom
+const TRAY_CELL = 172, TRAY_ROW = [40, 204], TRAY_THUMB = [150, 98], TRAY_BAR = 364;
+const trayMax = () => Math.max(0, Math.ceil(acidTape.list.length / 2) * TRAY_CELL + 16 - TRAY_W);
+function acidTrayDraw() {
+  const g = acidTray.g, W = TRAY_W, H = TRAY_H, sc = acidTray.scroll;
+  g.fillStyle = '#16181d'; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#c9ccd1'; g.font = '700 17px Arial, sans-serif'; g.textAlign = 'left'; g.textBaseline = 'middle';
+  g.fillText(`CASSETTE TRAY · ${acidTape.list.length} TAPES`, 16, 20);
+  g.fillStyle = '#7d8592'; g.font = '500 14px Arial, sans-serif'; g.textAlign = 'right';
+  g.fillText('tap a cassette to load it · swipe or drag the bar to scroll · PREVIEW closes', W - 16, 20);
+  acidTape.list.forEach((t, i) => {
+    const col = Math.floor(i / 2), x = 16 + col * TRAY_CELL - sc, y = TRAY_ROW[i % 2];
+    if (x > W || x + TRAY_CELL < 0) return;
+    const on = acidTape.loaded === t;
+    if (on) { g.strokeStyle = '#e0302a'; g.lineWidth = 4; g.strokeRect(x - 4, y - 4, TRAY_THUMB[0] + 8, TRAY_THUMB[1] + 8); }
+    if (cassImg.complete && cassImg.naturalWidth) drawCassette(g, t, on ? acidTape.side : 'A', x, y, TRAY_THUMB[0], TRAY_THUMB[1], true);
+    g.fillStyle = on ? '#ff6a5a' : '#eef1f5'; g.font = '700 14px Arial, sans-serif'; g.textAlign = 'left';
+    g.fillText(t.name, x, y + TRAY_THUMB[1] + 16, TRAY_CELL - 12);
+    g.fillStyle = '#9aa3b2'; g.font = '500 12px Arial, sans-serif';
+    g.fillText(`${t.bpm} BPM${t.key ? ' · ' + t.key : ''} · ${t.tag}`, x, y + TRAY_THUMB[1] + 36, TRAY_CELL - 12);
+  });
+  const mx = trayMax();   // scroll bar
+  g.fillStyle = '#2a2f38'; g.fillRect(16, TRAY_BAR, W - 32, 14);
+  const vis = (W - 32) * Math.min(1, W / (W + mx)), bx = 16 + (mx ? (sc / mx) * (W - 32 - vis) : 0);
+  g.fillStyle = '#b8bec8'; g.fillRect(bx, TRAY_BAR, vis, 14);
+  acidTray.tex.needsUpdate = true;
+}
+function acidTrayOpen() {
+  if (monOn) setMonitor(false);
+  acidTray.open = true; acidTrayDraw();
+  pvWanted = true; pvScreen.material.map = acidTray.tex; pvScreen.material.color.setScalar(1); pvScreen.material.needsUpdate = true;
+  pvA = TRAY_W / TRAY_H; pvAspect(pvA);
+  pvScreen.userData.trayScreen = true; pvScreen.raycast = THREE.Mesh.prototype.raycast;   // tappable while open
+  drawMixScreen();
+}
+function acidTrayClose() {
+  if (!acidTray.open) return; acidTray.open = false; acidTray.press = null;
+  pvWanted = false; pvScreen.material.map = null; pvScreen.material.color.setHex(0x202020); pvScreen.material.needsUpdate = true;
+  pvScreen.userData.trayScreen = false; pvScreen.raycast = () => {};
+  drawMixScreen();
+}
+const trayPx = uv => [uv.x * TRAY_W, (1 - uv.y) * TRAY_H];
+const trayBarTo = x => { const mx = trayMax(), vis = (TRAY_W - 32) * Math.min(1, TRAY_W / (TRAY_W + mx)); acidTray.scroll = Math.max(0, Math.min(mx, (x - 16 - vis / 2) / Math.max(1, TRAY_W - 32 - vis) * mx)); };
+function trayPress(uv) {
+  if (!acidTray.open || !uv) return false; const [x, y] = trayPx(uv);
+  acidTray.press = { x, y, s0: acidTray.scroll, moved: false, bar: y >= TRAY_BAR - 8 };
+  if (acidTray.press.bar) { trayBarTo(x); acidTrayDraw(); }
+  return true;
+}
+function trayDrag(uv) {
+  const p = acidTray.press; if (!p || !uv) return; const [x] = trayPx(uv);
+  if (p.bar) trayBarTo(x);
+  else { if (Math.abs(x - p.x) > 10) p.moved = true; if (p.moved) acidTray.scroll = Math.max(0, Math.min(trayMax(), p.s0 - (x - p.x))); }
+  acidTrayDraw();
+}
+function trayRelease() {
+  const p = acidTray.press; acidTray.press = null; if (!p || p.moved || p.bar) return;
+  const row = p.y >= TRAY_ROW[1] - 4 ? 1 : p.y >= TRAY_ROW[0] - 4 ? 0 : -1; if (row < 0) return;
+  const col = Math.floor((p.x + acidTray.scroll - 16) / TRAY_CELL), i = col * 2 + row;
+  if (col >= 0 && acidTape.list[i]) acidTapeLoad(acidTape.list[i]);
+}
+
 // #618 ACID page layers: the plate (full-res, built once with the cassette deck buttons painted on) and the overlay
 const ACIDL = { plate: null, over: null, tex: null };
 const ACID_DECK_BTNS = [   // plate px (1680 x 663), in the column between the cassette well and TUNING
@@ -6961,6 +7089,7 @@ function acidPlateCanvas() {
   const img = acidImgs.panel; if (!img.complete || !img.naturalWidth) return null;
   const c = document.createElement('canvas'); c.width = 1680; c.height = 663; const x = c.getContext('2d');
   x.drawImage(img, 0, 0, 1680, 663);
+  if (acidTape.loaded && cassImg.complete && cassImg.naturalWidth) drawCassette(x, acidTape.loaded, acidTape.side, CASS_WELL.x, CASS_WELL.y, CASS_WELL.w, CASS_WELL.h);   // #619
   for (const b of ACID_DECK_BTNS) {   // silver keys like the TB-03's RUN/STOP, legend on the key
     const gr = x.createLinearGradient(0, b.y, 0, b.y + b.h); gr.addColorStop(0, '#f6f7f9'); gr.addColorStop(0.55, '#d9dce1'); gr.addColorStop(1, '#a9adb4');
     x.fillStyle = 'rgba(0,0,0,0.28)'; x.beginPath(); x.roundRect(b.x + 1, b.y + 3, b.w, b.h, 4); x.fill();
@@ -7003,6 +7132,7 @@ function acidNudge(k) {   // k = -0.12 .. +0.12 of the tempo while a reel is tur
 }
 function acidDeckBtn(id) {
   if (id === 'play') {
+    if (!acidUI.running && acidTape.loaded && !acidTape.active) acidTapeApply();   // #619 PLAY goes back to the cassette
     acidUI.running = !acidUI.running; engine.setAcidRun(acidUI.running);
     toast(acidUI.running ? 'TB-03: PLAY' : 'TB-03: STOP', 1000);
   } else if (id === 'lock') {
@@ -7010,7 +7140,8 @@ function acidDeckBtn(id) {
     if (acidUI.lock) { acidUI.tempoMode = true; const b = acidLockBpm(acidUI.lock - 1); tabletNote(b ? `LOCK ${'AB'[acidUI.lock - 1]}: TB-03 follows deck ${'AB'[acidUI.lock - 1]} at ${b.toFixed(1)} BPM. Start on the downbeat, nudge with the reels` : `LOCK ${'AB'[acidUI.lock - 1]}: deck ${'AB'[acidUI.lock - 1]} has no BPM yet (load a record with one)`, 3500); }
     else tabletNote('LOCK off: TB-03 keeps its own tempo', 2200);
   } else if (id === 'save') tabletNote('SAVE: writing to a fresh cassette comes with the cassette bank', 2500);
-  else if (id === 'tray') tabletNote('TRAY: the cassette tray on PREVIEW comes with the cassette bank', 2500);
+  else if (id === 'tray') { if (acidTray.open) acidTrayClose(); else acidTrayOpen(); }
+  else if (id === 'eject') acidTapeEject();
   drawMixScreen();
 }
 
@@ -7188,7 +7319,7 @@ function drawAcidPage(T) {
     g.textAlign = 'left';
     g.fillStyle = '#111111';
     const rx0 = ox + 462 * sx;   // #618 the strip above TUNING..ACCENT (the cassette well is top left now)
-    const pCode = acidUI.mode <= 1 ? `TR-${acidUI.trackIdx + 1} (Bar ${acidUI.bar + 1} · P${acidPatternCode(acidUI.pattern)})` : `P${acidPatternCode(acidUI.pattern)}`;
+    const pCode = acidTape.active ? `TAPE ${acidTape.side}: ${acidTape.loaded.name}` : acidUI.mode <= 1 ? `TR-${acidUI.trackIdx + 1} (Bar ${acidUI.bar + 1} · P${acidPatternCode(acidUI.pattern)})` : `P${acidPatternCode(acidUI.pattern)}`;
     const trStr = acidUI.transpose !== 0 ? ` · ${acidUI.transpose > 0 ? '+' : ''}${acidUI.transpose}st` : '';
     const lk = acidUI.lock ? ` · LOCK ${'AB'[acidUI.lock - 1]}${acidLock.noBpm ? ' (no BPM)' : ''}` : '';
     g.fillText(`${acidUI.tempo.toFixed(1)} BPM${lk} · ${pCode}${trStr} · DLY ${ACID_DLY_NAMES[Math.round(acidUI.delayTime * 7)]}${acidCueOn ? ' · [CUE ON]' : ''}`, rx0, navY + 12);   // #607 master always on; #618 LOCK, synced delay
@@ -7365,6 +7496,9 @@ function drawAcidPage(T) {
       const s = acidUI.tempo.toFixed(1).replace('.', '');
       chars = s.padStart(4, ' ');
       dotIdx = 2;
+    } else if (acidTape.active) {   // #619 a cassette is playing
+      chars = acidTape.side === 'A' ? 'CA-A' : 'CA-b';
+      dotIdx = -1;
     } else if (acidUI.mode <= 1) {
       chars = `tr-${acidUI.trackIdx + 1}`;
       dotIdx = -1;
@@ -7472,9 +7606,13 @@ function drawAcidPage(T) {
     if (lit) { acidGlow(g, lx + lw / 2, ly + lh / 2, lw, lh * 1.8); g.fillStyle = '#ff3311'; } else g.fillStyle = '#320808';
     g.fillRect(lx, ly, lw, lh);
     if (b.id === 'lock' && acidUI.lock) { g.save(); g.fillStyle = '#c8202c'; g.font = '800 9px system-ui'; g.textAlign = 'right'; g.textBaseline = 'middle'; g.fillText('AB'[acidUI.lock - 1], ox + (b.x + b.w - 4) * sx, oy + (b.y + b.h / 2) * sy); g.restore(); }
-    VP_HIT.push({ x: ox + (b.x - 2) * sx, y: oy + (b.y - 3) * sy, w: (b.w + 4) * sx, h: (b.h + 6) * sy, act: () => acidDeckBtn(b.id) });
+    VP_HIT.push({ x: ox + (b.x - 2) * sx, y: oy + (b.y - 3) * sy, w: (b.w + 4) * sx, h: (b.h + 6) * sy, act: () => acidDeckBtn(b.id), long: b.id === 'tray' ? () => acidDeckBtn('eject') : undefined });   // #619 hold TRAY = eject
   }
-  for (const rl of ACID_REELS) {
+  if (acidTape.loaded) {   // #619 tap the cassette (not its reels) = flip it over: side A / side B
+    const w = CASS_WELL; VP_HIT.push({ x: ox + w.x * sx, y: oy + (w.y + w.h * 0.62) * sy, w: w.w * sx, h: w.h * 0.38 * sy, act: () => acidTapeFlip() });
+    VP_HIT.push({ x: ox + w.x * sx, y: oy + w.y * sy, w: w.w * sx, h: w.h * 0.18 * sy, act: () => acidTapeFlip() });
+  }
+  for (const rl of (acidTape.loaded ? CASS_REELS : ACID_REELS)) {
     const cx = ox + rl.x * sx, cy = oy + rl.y * sy, r = 13 * sx;
     const a0 = (acidUI.step || 0) * Math.PI / 8 * (acidUI.running ? 1 : 0);   // the hubs step round with the sequencer
     g.save(); g.translate(cx, cy); g.rotate(a0); g.strokeStyle = 'rgba(235,238,242,0.85)'; g.lineWidth = Math.max(1, 2.2 * sx);
@@ -9689,6 +9827,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   REC, DECK, CRATE, ARM,
   castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : []), ...(mprops ? mprops.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
+  trayScreen: () => (acidTray.open ? pvScreen : null), trayPress, trayDrag, trayRelease,   // #619
   acidKnobs: acidKnobs3D, knobTick: acidKnobTick, knobEnd: acidKnobEnd, knobObj: acidKnobObj, knobAxis: acidKnobAxis,   // #608 / #616 (own line: #608 had commented out the fader / pitch helpers above)
   scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
@@ -10187,7 +10326,7 @@ if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
 try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media.getFile('Images', cn).then(f => { if (f) { streamer.setCardPic(f); cardWallSet(f, false); } }).catch(() => {}); } catch (e) {}   // #445 the CARD picture of last time
-window.vire = { get mprops() { return mprops; } /* #586 test hook */, _acid: { AK, ACID_KNOBS, acidUI, tick: acidKnobTick, end: acidKnobEnd } /* #608 test hook */, THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { get mprops() { return mprops; } /* #586 test hook */, _acid: { AK, ACID_KNOBS, acidUI, tick: acidKnobTick, end: acidKnobEnd, acidTape, acidTray, trayPress, trayDrag, trayRelease } /* #608 test hook */, THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._deck = { pullRecord, placeOnDeck, setMotor, dropNeedleAt, get held() { return held; } };   // #497 test hook: put a record on a deck from the console
 window.vire._loop = { loopClip, loopCopy, loopPaste, loopUndo, loopUndoDo, loopDeleteBank, looper, loopSlots, loopUI, pressLooper, clearLooper, loopSlotTap, loopRegion, loopNudge, loopSaveBank, loopLoadBank, loopOpenBanks, stepLooper, releaseLooper };   // #470 test hook
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
