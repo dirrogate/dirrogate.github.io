@@ -2009,9 +2009,10 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Lesson (third time): a `//` comment inserted mid-declaration swallowed the rest of a GLSL line (compile error 'vec4: syntax error', boards vanished). Use /* */ for any comment placed inside a statement.
 - Checked in the owner's PC pane: 0 bad programs, boards visibly different, knots / nails spread. sw.js v123. No Node restart. Backup backups/pre613/portal.after614.js.
 
-## #610 Fix: headset faders / crossfader / pitch broken by #608; lower TB-03 knobs (owner, 8 Nov)
+## #616 Fix: headset faders / crossfader / pitch broken by #608; lower TB-03 knobs (owner, 8 Nov)
 - Owner: channel faders, crossfader and both pitch faders no longer moved in the headset; the raised ACID knobs were unwieldy with the controller; remove the stems, lower the black bodies, knobs 1 % smaller.
 - Cause: #608 appended the acid entries plus a `//` comment to the middle of the setupXR ctx line in main.js, which commented out `pitchFromLocalZ, sliderFromLocal, setLastTouched` after it. xr.js's slider / pitch grabs then had no helpers. The acid entries now sit on their own line. Lesson: never put a // comment into the middle of a line that continues with code.
 - Knobs: stems removed; the knob is a 3.5 mm body sitting on the screen (was a 16 mm knob on a stem); radius 1.3365x the printed knob (1 % under #608); grab reach 1.6 cm (was 2.2).
 - Turning: TB-03 knobs follow the wrist twist about the tablet face's normal (ctx.knobAxis, hands and controllers), so they turn naturally wherever the tablet is held; the mixer knobs keep the twist about up.
-- Released at once to cly3dj as well (the #609 release carried the fader bug). sw.js v118. NOT tried on the Quest. No Node restart.
+- Released at once to cly3dj as well (the #609 release carried the fader bug). Release = the #609 release + only this fix (an earlier copy from web/ had pulled the other session's unreleased #610-#615 main.js / sw.js into cly3dj; rebuilt from the #609 release files). Release sw.js 'vire-app-v117-1'; dev sw.js v124 (on top of the other session's v123). NOT tried on the Quest. No Node restart.
+- Note: another session was logging #610-#615 (HOLO / BAMBOO frames, planks) in parallel; this entry was renumbered #616 to avoid the clash.

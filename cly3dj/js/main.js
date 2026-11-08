@@ -21,10 +21,9 @@ import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #
 import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whiteboard, markers and duster
 import { InkLabel } from './inklabel.js';   // #394 milk crate labels
 import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
-import { Portals, GRADE0, HOLO_ORDER, SHAPE_OF, SHAPE_LABEL, HMIN as P_HMIN, HMAX as P_HMAX } from './portal.js';
+import { Portals, GRADE0, SHAPE_OF, SHAPE_LABEL, HMIN as P_HMIN, HMAX as P_HMAX } from './portal.js';
 import { MasterRec } from './recmaster.js';   // #598 REC MASTER: the clean master to a WAV file
-import { RoomSnap, SNAP_IN, SNAP_OUT } from './roomsnap.js';
-import { NightLook } from './night.js';   // #612 NIGHT LOOK   // #592 Space Setup planes for portal frames   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
+import { RoomSnap, SNAP_IN, SNAP_OUT } from './roomsnap.js';   // #592 Space Setup planes for portal frames   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
 import { Beat } from './beat.js';   // #346 bass onsets on the master for the wall's BEAT
 import { DirroHost, initRelayFromUrl, fanUrl, relayUrl, roomKey, WALL_SRC, WALL_LABEL, WALL_COLS } from './dirro-host.js';   // #427 DIRROGRAM: the show to the audience phones
@@ -1234,7 +1233,7 @@ if (portals) { if (facetWall) portals.cutInto(facetWall.obj); portals.cutInto(sk
 // #592 ROOM SNAP: portal frames sit on the Quest's scanned walls / door frames / window frames / ceiling (Space Setup,
 // plane-detection, passthrough only). Placement no longer depends on CAM FIT; the stream only shows CAM FIT's own offset.
 const roomScan = portals ? new RoomSnap(rig) : null;
-let roomSnapT = 0, roomPinGen = 0, pgSec = 'iron';   // #598 FRAME LOOK tab
+let roomSnapT = 0, roomPinGen = 0;
 const _rsEye = new THREE.Vector3(), _rsY = new THREE.Vector3(), _rsP = new THREE.Vector3(), _rsQ = new THREE.Quaternion(), _rsH = new THREE.Vector2();
 function roomEye() { renderer.xr.getCamera().getWorldPosition(_rsEye); rig.updateMatrixWorld(); return rig.worldToLocal(_rsEye); }
 function roomSnapTick(dt) {
@@ -1291,57 +1290,6 @@ function applyRates() {
   set(led && led.video, vr); set(sclip.el, vr); set(pfeed && pfeed.el, vr);
 }
 setInterval(applyRates, 500);
-// #598 SOFT ROOM LIGHT in passthrough (Settings, on by default): the shiny studio environment is swapped for a dim,
-// soft, low-contrast one (a plain grey dome: lighter overhead, darker below, no hot spots) and the key light is
-// softened, so gear and props stop looking lit by a different room. Back to the studio light when the session ends.
-let arSoftEnv = null, arPrev = null;
-function softEnvTex() {
-  if (arSoftEnv) return arSoftEnv;
-  const sc = new THREE.Scene(), m = new THREE.ShaderMaterial({ side: THREE.BackSide, depthWrite: false,
-    vertexShader: 'varying vec3 vD; void main() { vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: 'varying vec3 vD; void main() { float y = vD.y; vec3 c = mix(vec3(0.16, 0.155, 0.15), vec3(0.42, 0.41, 0.39), smoothstep(-0.6, 0.9, y)); gl_FragColor = vec4(c, 1.0); }' });
-  sc.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), m));
-  const pm = new THREE.PMREMGenerator(renderer); arSoftEnv = pm.fromScene(sc, 0.08).texture; pm.dispose(); return arSoftEnv;
-}
-function applyArLook() {
-  const want = arMode && settings.arSoft !== false && !domeLightOn();   // #611 the dome's own light wins while it is on
-  if (want) {
-    if (!arPrev) arPrev = { env: scene.environment, key: key.intensity };
-    if (scene.environment !== softEnvTex()) scene.environment = softEnvTex();
-    key.intensity = arPrev.key * 0.55;
-  } else if (arPrev) { scene.environment = arPrev.env; key.intensity = arPrev.key; arPrev = null; }
-}
-setInterval(applyArLook, 1000);   // keeps it applied if the env light is rebuilt mid-session
-// #611 DOME LIGHT (PORTALS SETUP toggle, settings.domeLight, default on): while the DOME shows a sky, that sky lights the
-// scene: it becomes the environment light (90 %, over the studio base) and the key light aims from its brightest spot,
-// in its colour, turned with the dome. Done once per sky change (a video pano: the frame on screen then), never per
-// frame, so audio is untouched. Off / dome off: back to Settings > Lighting. In passthrough it replaces SOFT ROOM LIGHT.
-let domeLitKey = '', domeCanvas = null;
-function domeLightOn() { return !CAMERA_ROLE && settings.domeLight !== false && dome.on && !!skybox.tex; }   // hoisted: applySkyTurn may run first
-function domeLightTick() {
-  const on = domeLightOn(), k = on ? (skybox.tex.uuid + '|' + skybox.layout + '|' + skybox.swap) : '';
-  if (k === domeLitKey && (!on || envLight._lastSrc === domeCanvas)) return;   // also re-applies if Settings > Lighting replaced it (start-up race)
-  const was = domeLitKey; domeLitKey = k;
-  if (on) {
-    try {
-      const c = skybox.lightStill || leftEyeCanvas(skybox.tex.image, skybox.layout, skybox.swap, 1024);   // still: kept at load; video: this frame
-      envLight.mix = 0.9; domeCanvas = c; envLight.setImage(c); skyKeyLight = brightestDir(c); skyAvg = panoAvg(c);
-    } catch (e) { console.warn('dome light', e); }
-  } else if (was) applyEnv();
-  applyArLook(); applySkyTurn();
-}
-setInterval(domeLightTick, 1500);
-// #612 NIGHT LOOK (PORTALS SETUP > NIGHT LOOK): the real room as night under the dome (night.js). The moon comes from
-// the dome picture's brightest spot, turned with the dome; it shines in through the PANO frames (stripes under slats).
-const night = portals && !CAMERA_ROLE ? new NightLook(rig, portals, camera) : null;
-let nightMoonKey = '', nightMoon = null;
-function nightMoonDir() {
-  if (!dome.on || !skybox.tex) return null;
-  if (skybox.tex.uuid !== nightMoonKey) { nightMoonKey = skybox.tex.uuid; try { const src = skybox.lightStill || null; nightMoon = src ? brightestDir(src) : skyKeyLight; } catch (e) { nightMoon = skyKeyLight; } }
-  if (!nightMoon) return null;
-  const d = nightMoon.dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), settings.skyTurn * DEG + skySpin.ang + dome.turn * DEG);
-  if (d.y < 0.08) d.y = 0.08; return d.normalize();
-}
 let wallTapT = 0, portalTapT = 0, portalDefArm = 0, beat = null, domeBoot = true;
 const _laserCam = new THREE.Vector3();   // #406
 function wallTap() {   // tap = backdrop on / off; double-tap = back to its start spot and mode
@@ -6250,7 +6198,7 @@ const PINCH_FIT_DEF = {
 };
 // #513 the TV's address, from where this page runs (cabin.dirrodj.club/ = the cly3dj-dev folder on Cloudflare; github.io/cly3dj/ ...); no 'https://'
 const venueUrl = () => new URL('venue.html', location.href).href.replace(/[?#].*$/, '').replace(/^https?:\/\//, '');
-const TOOLS_NAME = { acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530 / Gemini_acid
+const TOOLS_NAME = { acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530 / Gemini_acid
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -6977,11 +6925,11 @@ const acidKnobEnd = id => { const d = ACID_KNOBS.find(k => k.id === id); if (d) 
 const acidKnobs3D = () => (AK.up && AK.p > 0.5 ? AK.list.map(k => ({ id: k.d.id, g: k.grab })) : []);
 const acidKnobObj = id => { const k = AK.list.find(x => x.d.id === id); return k ? k.spin : null; };
 const _akAxis = new THREE.Vector3();
-// #610 the TB-03 knobs turn about the tablet's face, wherever the tablet is held (the mixer knobs use the twist about up)
+// #616 the TB-03 knobs turn about the tablet's face, wherever the tablet is held (the mixer knobs use the twist about up)
 const acidKnobAxis = id => (id.startsWith('tb.') && mixer.userData.screen ? _akAxis.set(0, 0, 1).transformDirection(mixer.userData.screen.matrixWorld) : null);
 function buildAcidKnobs3D() {
   const sm = mixer.userData.screen; if (!sm || AK.root) return;
-  const SW = 0.19, SH = 0.075, PX = SW / 1680, CAP = 0.0035;   // #610 owner: no stems, a low 3.5 mm body sitting on the screen (was a 16 mm tall knob on a stem)
+  const SW = 0.19, SH = 0.075, PX = SW / 1680, CAP = 0.0035;   // #616 owner: no stems, a low 3.5 mm body sitting on the screen (was a 16 mm tall knob on a stem)
   AK.root = new THREE.Group(); AK.root.visible = false; sm.add(AK.root);
   const sideMat = new THREE.MeshStandardMaterial({ color: 0x2b2d33, roughness: 0.5, metalness: 0.3 });
   const tops = {};
@@ -6992,7 +6940,7 @@ function buildAcidKnobs3D() {
     return (tops[key] = new THREE.MeshBasicMaterial({ map: t, transparent: true, alphaTest: 0.05, toneMapped: false }));
   };
   ACID_KNOBS.forEach((d, i) => {
-    const R = d.r * PX * 1.3365;   // #610 1 % under the 1.35x of #608 (neighbours are 12 mm apart)
+    const R = d.r * PX * 1.3365;   // #616 1 % under the 1.35x of #608 (neighbours are 12 mm apart)
     const k = new THREE.Group(); k.position.set((d.cx / 1680 - 0.5) * SW, (0.5 - d.cy / 663) * SH, 0);
     const lift = new THREE.Group(); lift.scale.z = 0.001; k.add(lift);
     const spin = new THREE.Group(); lift.add(spin);
@@ -8250,87 +8198,30 @@ function drawToolsPage() {
     note('The TV shows what goes to Twitch (SHOWTIME!, CARD...), or the same picture off air. It shows a small SOUND button only while SOUND TO TV is on: press OK on its remote once to unmute. If the TV is in the same room as the PA, switch the sound off (it would echo). TV OFF closes the link; the TV keeps waiting.', row(0).y + (P ? 3 * (bh + gap) : bh + gap) + 14);
     return;
   }
-  if (page === 'pgrade') {   // #597 / #598 FRAME LOOK: IRON grade, HOLO look, BAMBOO roof (tabs at the top)
+  if (page === 'pgrade') {   // #597 FRAME LOOK: grade the portal frames (concrete / iron) to sit in the passthrough room
     const y0 = head('FRAME LOOK', 'portals'), PS = portals;
     if (!PS) { note('Portals run on the headset.', y0 + 20); return; }
-    const sec = pgSec, secs = [['iron', 'IRON GRADE'], ['holo', `HOLO · ${PS.holoN}`], ['bamboo', 'BAMBOO']], tw3 = (R - L - 16) / 3;
-    secs.forEach(([k, lb], i) => btn(L + i * (tw3 + 8), y0, tw3, 34, lb, sec === k, () => { pgSec = k; drawMixScreen(); }, false, 15));
-    const f2 = (v, d = 2) => (v > 0 ? '+' : '') + v.toFixed(d), stp = (v, d, step, lo, hi) => clamp(Math.round((v + d * step) / step) * step, lo, hi);
-    let cells = [], extra = [], help = '';
-    if (sec === 'iron') {
-      const G = PS.grade;
-      cells = [['EXPOSURE', f2(G.ev) + ' EV', d => PS.setGrade('ev', stp(G.ev, d, 0.25, -3, 2))], ['CONTRAST', G.con.toFixed(2), d => PS.setGrade('con', stp(G.con, d, 0.05, 0.5, 1.6))],
-        ['SATURATION', G.sat.toFixed(2), d => PS.setGrade('sat', stp(G.sat, d, 0.05, 0, 1.6))], ['WARMTH', f2(G.warm, 1), d => PS.setGrade('warm', stp(G.warm, d, 0.1, -1, 1))],
-        ['TINT', f2(G.tint, 1), d => PS.setGrade('tint', stp(G.tint, d, 0.1, -1, 1))]];
-      extra = [['RESET', false, () => PS.setGrade('reset')]];
-      help = 'Grade for IRON and BAMBOO frames, after lighting. Next to a frame in Passthrough, match the real wall: EXPOSURE, then WARMTH (yellow / blue) and TINT (green / magenta), then SATURATION and CONTRAST.';
-    } else if (sec === 'holo') {
-      const H = PS.holo;
-      cells = [['COLOUR', H.col.toUpperCase(), d => { const i = HOLO_ORDER.indexOf(H.col); PS.setHolo('col', HOLO_ORDER[(i + d + HOLO_ORDER.length) % HOLO_ORDER.length]); }],
-        ['INTENSITY', H.int.toFixed(1), d => PS.setHolo('int', stp(H.int, d, 0.1, 0.1, 2))], ['GLASS', H.glass.toFixed(1), d => PS.setHolo('glass', stp(H.glass, d, 0.1, 0, 2))],
-        ['SCANLINES', H.scan.toFixed(1), d => PS.setHolo('scan', stp(H.scan, d, 0.1, 0, 1))], ['GLITCH', H.glitch.toFixed(1), d => PS.setHolo('glitch', stp(H.glitch, d, 0.1, 0, 2))]];
-      extra = [[H.beat ? 'BEAT: ON' : 'BEAT', H.beat, () => PS.setHolo('beat', !H.beat)], ['RESET', false, () => PS.setHolo('reset')]];
-      help = 'HOLO frames (PORTALS SETUP > STYLE): a glowing scan edge with streaks, and a faint glass over the real view (GLASS 0 = edge only). GLITCH bands jump the edge, never the real picture; BEAT = on the beat.';
-    } else {
-      const B = PS.bamboo;
-      cells = [['SLAT GAP', Math.round(B.gap * 100) + ' cm', d => PS.setBamboo('gap', stp(B.gap, d, 0.01, 0.01, 0.4))], ['CLEARING', Math.round(B.clear * 100) + '%', d => PS.setBamboo('clear', stp(B.clear, d, 0.05, 0, 1))],
-        ['DIRECTION', B.dir === 'y' ? 'ALONG HEIGHT' : 'ALONG WIDTH', () => PS.setBamboo('dir', B.dir === 'y' ? 'x' : 'y')],
-        ['SLATS', B.kind === 'wood' ? 'WOOD' : 'BAMBOO', () => PS.setBamboo('kind', B.kind === 'wood' ? 'bamboo' : 'wood')]];   // #598 round bamboo or flat boards
-      extra = [['RESET', false, () => PS.setBamboo('reset')]];
-      help = 'BAMBOO frames (STYLE): edge poles / beams and one layer of round bamboo or flat WOOD boards. CLEARING pushes the slats to the edges so the middle opens onto the DOME (use a PANO type on the ceiling). Graded by IRON GRADE.';
-    }
-    const cols = P ? 2 : 3, cw = (R - L - (cols - 1) * 8) / cols, ch = P ? 56 : 50, yc = y0 + 44;
+    const G = PS.grade, f2 = (v, d = 2) => (v > 0 ? '+' : '') + v.toFixed(d), st = (k, d, lo, hi, step) => () => PS.setGrade(k, Math.round(clamp(G[k] + d * step, lo, hi) / step) * step);
+    const cells = [
+      ['EXPOSURE', f2(G.ev) + ' EV', d => st('ev', d, -3, 2, 0.25)()],
+      ['CONTRAST', G.con.toFixed(2), d => st('con', d, 0.5, 1.6, 0.05)()],
+      ['SATURATION', G.sat.toFixed(2), d => st('sat', d, 0, 1.6, 0.05)()],
+      ['WARMTH', f2(G.warm, 1) + (G.warm > 0 ? ' warm' : G.warm < 0 ? ' cool' : ''), d => st('warm', d, -1, 1, 0.1)()],
+      ['TINT', f2(G.tint, 1) + (G.tint > 0 ? ' magenta' : G.tint < 0 ? ' green' : ''), d => st('tint', d, -1, 1, 0.1)()],
+    ];
+    const cols = P ? 2 : 3, cw = (R - L - (cols - 1) * 8) / cols, ch = P ? 56 : 50;
     cells.forEach(([label, val, act], i) => {
-      const x = L + (i % cols) * (cw + 8), y = yc + Math.floor(i / cols) * (ch + 6), by = y + 15, bh = ch - 15, bw = 44;
+      const x = L + (i % cols) * (cw + 8), y = y0 + Math.floor(i / cols) * (ch + 6), by = y + 15, bh = ch - 15, bw = 44;
       g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
       btn(x, by, bw, bh, '−', false, () => { act(-1); drawMixScreen(); });
-      let fs = 16; g.font = `700 ${fs}px system-ui`; while (fs > 11 && g.measureText(val).width > cw - 2 * bw - 6) g.font = `700 ${--fs}px system-ui`;
-      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + cw / 2, by + bh / 2); g.textBaseline = 'alphabetic';
+      g.fillStyle = '#fff'; g.font = '700 16px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + cw / 2, by + bh / 2); g.textBaseline = 'alphabetic';
       btn(x + cw - bw, by, bw, bh, '+', false, () => { act(1); drawMixScreen(); });
     });
-    { const i = cells.length, x = L + (i % cols) * (cw + 8), y = yc + Math.floor(i / cols) * (ch + 6) + 15, ew = (cw - 6 * (extra.length - 1)) / extra.length;
-      extra.forEach(([lb, on, act], j) => btn(x + j * (ew + 6), y, ew, ch - 15, lb, on, () => { act(); drawMixScreen(); })); }
-    const yt = yc + Math.ceil((cells.length + 1) / cols) * (ch + 6) + 12;
+    const n = cells.length, ry = y0 + Math.ceil((n + 1) / cols) * (ch + 6) - ch + 15 - 6;
+    { const i = n, x = L + (i % cols) * (cw + 8), y = y0 + Math.floor(i / cols) * (ch + 6) + 15; btn(x, y, cw, ch - 15, 'RESET', false, () => { PS.setGrade('reset'); drawMixScreen(); }); }
+    const yt = y0 + Math.ceil((n + 1) / cols) * (ch + 6) + 14;
     g.textAlign = 'left'; g.fillStyle = PS.on ? '#8c96a8' : '#f1b650'; g.font = `500 ${P ? 14 : 13}px system-ui`;
-    wrapText(g, (PS.on ? '' : 'PORTALS are off: turn them on to see the frames. ') + help, L + 2, yt, R - L - 4, P ? 19 : 17, 4);
-    return;
-  }
-  if (page === 'night') {   // #612 NIGHT LOOK: presets, layers on / off, strengths, tint and glow colours
-    const y0 = head('NIGHT LOOK', 'portals'), N = night;
-    if (!N) { note('Night look runs on the headset.', y0 + 20); return; }
-    const S = N.S, redraw = () => drawMixScreen();
-    const pw = (R - L - 16) / 3;
-    [['off', 'OFF'], ['goa', 'GOA NIGHT'], ['cyber', 'CYBER FULL MOON']].forEach(([k, lb], i) => btn(L + i * (pw + 8), y0, pw, 32, lb, k === 'off' ? !S.on : S.on && S.preset === k, () => { N.preset(k); redraw(); }, false, 14));
-    const B = portals.bamboo, tg = [
-      [S.on ? 'NIGHT: ON' : 'NIGHT', S.on, () => N.set('on', !S.on)], ['GRADE', S.grade, () => N.set('grade', !S.grade)], ['MOON LIGHT', S.moon, () => N.set('moon', !S.moon)],
-      ['MOON STRIPES', S.stripes, () => N.set('stripes', !S.stripes)], ['GLOW', S.glow, () => N.set('glow', !S.glow)],
-      ['THATCH EAVES', !!B.eaves, () => portals.setBamboo('eaves', !B.eaves)], ['CORNER POSTS', !!B.posts, () => portals.setBamboo('posts', !B.posts)], ['ROOM MESH', S.mesh, () => N.set('mesh', !S.mesh)]];
-    const tc = P ? 2 : 4, tw = (R - L - (tc - 1) * 6) / tc, th = P ? 40 : 30, ty = y0 + 38;
-    tg.forEach(([lb, on, act], i) => btn(L + (i % tc) * (tw + 6), ty + Math.floor(i / tc) * (th + 5), tw, th, lb, on, () => { act(); redraw(); }, false, P ? 15 : 13));
-    const st = (k, d, step, lo, hi) => N.set(k, clamp(Math.round((S[k] + d * step) / step) * step, lo, hi));
-    const cells = [
-      ['GRADE STRENGTH', Math.round(S.str * 100) + '%', d => st('str', d, 0.05, 0, 0.9)], ['STRIPE SOFTNESS', ['SHARP', 'SOFT', 'VERY SOFT'][S.soft] || 'SOFT', d => st('soft', d, 1, 0, 2)],
-      ['KEEP CLEAR', S.clear.toFixed(1) + ' m', d => st('clear', d, 0.1, 0, 2)], ['LIGHT FROM', S.src === 'dome' ? 'DOME MOON' : 'OVERHEAD', () => N.set('src', S.src === 'dome' ? 'top' : 'dome')],
-      ['GLOW FROM', S.gdir + '°', d => N.set('gdir', (S.gdir + d * 45 + 360) % 360)], ['GLOW STRENGTH', Math.round(S.gstr * 100) + '%', d => st('gstr', d, 0.05, 0, 1.5)]];
-    const cc = P ? 2 : 3, cw = (R - L - (cc - 1) * 8) / cc, ch = P ? 50 : 40, cy = ty + Math.ceil(tg.length / tc) * (th + 5) + 2;
-    cells.forEach(([label, val, act], i) => {
-      const x = L + (i % cc) * (cw + 8), y = cy + Math.floor(i / cc) * (ch + 4), by = y + 13, bh = ch - 13, bw = 38;
-      g.fillStyle = '#8c96a8'; g.font = '700 11px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 10);
-      btn(x, by, bw, bh, '−', false, () => { act(-1); redraw(); });
-      let fs = 15; g.font = `700 ${fs}px system-ui`; while (fs > 10 && g.measureText(val).width > cw - 2 * bw - 6) g.font = `700 ${--fs}px system-ui`;
-      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + cw / 2, by + bh / 2); g.textBaseline = 'alphabetic';
-      btn(x + cw - bw, by, bw, bh, '+', false, () => { act(1); redraw(); });
-    });
-    // colour sliders (hue) with a swatch
-    const sy = cy + Math.ceil(cells.length / cc) * (ch + 4) + 2, sw = P ? R - L : (R - L - 8) / 2, sh = P ? 40 : 34;
-    const swatch = (x, y, h, hue, sat) => { g.fillStyle = `hsl(${hue}, ${Math.round(sat * 100)}%, 50%)`; g.fillRect(x, y + 6, 36, h - 12); };
-    tSlider(g, L, sy, sw - 44, sh, 'TINT HUE', S.hue / 359, S.hue + '°', v => { N.set('hue', Math.round(v * 359)); }, false, 96); swatch(L + sw - 40, sy, sh, S.hue, S.sat);
-    const gx = P ? L : L + sw + 8, gy = P ? sy + sh + 6 : sy;
-    tSlider(g, gx, gy, sw - 44, sh, 'GLOW HUE', S.ghue / 359, S.ghue + '°', v => { N.set('ghue', Math.round(v * 359)); }, false, 96); swatch(gx + sw - 40, gy, sh, S.ghue, 0.85);
-    const yt = (P ? gy : sy) + sh + 14;
-    g.textAlign = 'left'; g.font = `500 ${P ? 13 : 12}px system-ui`; g.fillStyle = S.on ? '#7fd88f' : '#8c96a8';
-    const surf = !S.mesh ? 'ROOM MESH off: floor + shell' : N.hasMesh ? `room mesh ${Math.round(N.meshTris).toLocaleString()} tris` : 'no room mesh yet (Passthrough + Space Setup): floor + shell';
-    g.fillText(`${S.on ? 'On' : 'Off'} · ${surf} · moon ${S.src !== 'dome' ? 'overhead' : dome.on && skybox.tex ? 'from the dome' : 'needs DOME on'} · stripes from BAMBOO frames (PANO type)`, L + 2, yt);
+    wrapText(g, (PS.on ? '' : 'PORTALS are off: turn them on to see the frames. ') + 'One look for every frame\'s concrete and iron, applied after lighting. Stand next to a frame in Passthrough and match it to the real wall beside it: EXPOSURE first, then WARMTH (yellow / blue light) and TINT (green / magenta), then SATURATION and CONTRAST. Saved.', L + 2, yt, R - L - 4, P ? 19 : 17, 6);
     return;
   }
   if (page === 'portals') {   // #346 PORTALS SETUP: the real-world windows, the wall they cut, the sky dome behind it
@@ -8343,11 +8234,9 @@ function drawToolsPage() {
       [WL.mode === 'screen' ? 'SCREEN' : 'FRACTAL', false, () => { WL.toggleMode(); drawMixScreen(); }],
       [WL.beat ? 'BEAT: ON' : 'BEAT', WL.beat, () => { WL.setBeat(!WL.beat); drawMixScreen(); }],
       [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)],
-      [settings.domeLight !== false ? 'DOME LIGHT: ON' : 'DOME LIGHT', settings.domeLight !== false, () => { settings.domeLight = settings.domeLight === false; saveSettings(); domeLightTick(); toast(settings.domeLight ? 'DOME LIGHT: the dome\'s sky lights the gear and frames' : 'DOME LIGHT off: Settings > Lighting', 2200); drawMixScreen(); }],   // #611
       [`SCREEN: ${({ cyclo: 'CYCLO', image: 'IMAGE', video: 'VIDEO' })[PS.scrSrc.src] || 'CYCLO'} ⟳`, PS.screenN > 0, pScrStep],   // #589 the one feed every SCREEN frame shows
       [settings.roomSnap !== false ? 'ROOM SNAP: ON' : 'ROOM SNAP: OFF', settings.roomSnap !== false, roomSnapToggle],   // #598 owner: snap can be switched off
-      ['FRAME LOOK ›', JSON.stringify(PS.grade) !== JSON.stringify(GRADE0), () => setTools('pgrade')],
-      ['NIGHT LOOK ›', !!(night && night.S.on), () => setTools('night')],   // #612   // #597 colour-match the frames to the room   // #592 FRAME on the ceiling
+      ['FRAME LOOK ›', JSON.stringify(PS.grade) !== JSON.stringify(GRADE0), () => setTools('pgrade')],   // #597 colour-match the frames to the room   // #592 FRAME on the ceiling
       [defArm ? 'TAP AGAIN' : 'DEFAULTS', defArm, portalDefaults],
     ];
     const cells = [
@@ -8362,7 +8251,6 @@ function drawToolsPage() {
       ['FRAME', `${PS.edit + 1} of ${PS.n}`, d => PS.setEdit(PS.edit + d)],   // #586 which frame TYPE sets (it blinks white)
       [`TYPE · ${PS.kindOf(PS.edit)[0] === 'p' ? 'PANO (SKY)' : PS.kindOf(PS.edit)[0] === 's' ? 'SCREEN' : 'REAL (ROOM)'}`, SHAPE_LABEL[SHAPE_OF(PS.kindOf(PS.edit))], d => { PS.stepKind(PS.edit, d); if (PS.kindOf(PS.edit)[0] === 'p' && !dome.on) setDome(true); }],   // #585 doorway / #586 PANO frames
       ['TRIM LIGHT', PS.glow.toUpperCase(), d => PS.stepGlow(d)],
-      ['STYLE', PS.styleOf(PS.edit).toUpperCase(), d => { const o = ['iron', 'holo', 'bamboo'], i = o.indexOf(PS.styleOf(PS.edit)); PS.setStyle(PS.edit, o[(i + d + 3) % 3]); }],   // #598 FRAME's style: IRON / HOLO / BAMBOO
     ];
     const cell = ([label, val, act], x, y, w, h) => {
       g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
@@ -8387,13 +8275,13 @@ function drawToolsPage() {
       const y1 = y0 + Math.ceil(toggles.length / 2) * tr + 6;   // #589 7 toggles
       const cellsP = cells.concat([['DOME TURN', `${dome.turn}°`, d => setDomeTurn((dome.turn + d * 15 + 360) % 360)]]);   // #586 portrait: DOME TURN as a 15 deg stepper
       cellsP.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 54, tw, 50));   // #585 rows of 54 px
-      text(L + 4, y1 + Math.ceil(cellsP.length / 2) * 54 + 16, R - L - 8, 18, 3, 14, helpP);   // #598
+      text(L + 4, y1 + 6 * 54 + 16, R - L - 8, 18, 3, 14, helpP);
     } else {
       const tw = (R - L - 6 * (toggles.length - 1)) / toggles.length;
       toggles.forEach(([lb, on, act], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, false, 14));
-      const cw = (R - L - 32) / 5, y1 = y0 + 48;   // #598 five across (STYLE added), the TURN slider in the slot after the last cell
-      cells.forEach((c, i) => cell(c, L + (i % 5) * (cw + 8), y1 + Math.floor(i / 5) * 48, cw, 44));
-      { const i = cells.length; tSlider(g, L + (i % 5) * (cw + 8), y1 + Math.floor(i / 5) * 48 + 4, cw, 40, 'TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on, 52); }   // #389 (#586 third row, right of FRAME / TYPE / TRIM LIGHT)
+      const cw = (R - L - 24) / 4, y1 = y0 + 48;
+      cells.forEach((c, i) => cell(c, L + (i % 4) * (cw + 8), y1 + Math.floor(i / 4) * 48, cw, 44));
+      tSlider(g, L + 3 * (cw + 8), y1 + 2 * 48 + 4, cw, 40, 'TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on, 52);   // #389 (#586 third row, right of FRAME / TYPE / TRIM LIGHT)
       text(L + 2, y1 + 3 * 48 + 12, R - L - 4, 15, 3, 12);
     }
     return;
@@ -9460,9 +9348,8 @@ function frameBody() {
   stepRealWorld(dt);   // #411 depth occlusion on / off, room planes for the laser
   if (facetWall || laser) {   // #345; #346 BEAT: bass onsets on the master, read only while the wall is on with BEAT (#406 or the laser on AUTO)
     if (!beat) beat = new Beat(engine);
-    beat.want = !!((facetWall && facetWall.on && facetWall.beat) || (laser && laser.on && laser.auto) || (dirro && dirro.on) || isFxMode(ledMode) || (portals && portals.holo.beat && portals.holoN > 0));   // #598 HOLO glitches on the beat   // #427 the phones follow the beat; #439 the wall visuals
+    beat.want = !!((facetWall && facetWall.on && facetWall.beat) || (laser && laser.on && laser.auto) || (dirro && dirro.on) || isFxMode(ledMode));   // #427 the phones follow the beat; #439 the wall visuals
     const bp = beat.tick(dt);
-    if (portals) portals.beat = bp || 0;   // #598
     if (facetWall) facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource, bp);
     if (laser && laser.on) laser.tick(dt, beat, camera.getWorldPosition(_laserCam));
   }
@@ -9478,8 +9365,7 @@ function frameBody() {
       toast(`Beacon ${k === 'L' ? 'LEFT' : 'RIGHT'} marked`, 2000); xr.buzz && xr.buzz(st, 0.6, 60); break;
     }
   }
-  if (portals) { if (!portals.feed) portals.feed = portalFeed; portals.tick(); }
-  if (night && night.S.on) night.tick(renderer.xr.isPresenting ? renderer.xr.getFrame() : null, renderer.xr.isPresenting ? renderer.xr.getReferenceSpace() : null, dt, nightMoonDir());   // #612   // #345 #346 (#589 screen feed)
+  if (portals) { if (!portals.feed) portals.feed = portalFeed; portals.tick(); }   // #345 #346 (#589 screen feed)
   if (domeBoot) { domeBoot = false; if (dome.on && !CAMERA_ROLE) setDome(true); }   // #346 a dome left on last time: load its sky once everything is up
   if (skySpin.speed > 0 && skybox.group.visible) { skySpin.ang = (skySpin.ang + skySpin.speed * DEG * dt) % (2 * Math.PI); applySkyTurn(); }   // #379 PANO SPIN
   if (mprops) mprops.tick(dt);   // #478
@@ -9580,7 +9466,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   REC, DECK, CRATE, ARM,
   castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : []), ...(mprops ? mprops.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
-  acidKnobs: acidKnobs3D, knobTick: acidKnobTick, knobEnd: acidKnobEnd, knobObj: acidKnobObj, knobAxis: acidKnobAxis,   // #608 / #610 (own line: #608 had commented out the fader / pitch helpers above)
+  acidKnobs: acidKnobs3D, knobTick: acidKnobTick, knobEnd: acidKnobEnd, knobObj: acidKnobObj, knobAxis: acidKnobAxis,   // #608 / #616 (own line: #608 had commented out the fader / pitch helpers above)
   scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
   armGrab, armDrag, armRelease,
@@ -9609,7 +9495,7 @@ async function begin(mode) {
     const base = ['local-floor', 'bounded-floor', 'hand-tracking', 'anchors'];   // #210 anchors
     let session = null;
     if (mode === 'immersive-ar') {   // #411 (#408 depth test): Quest 3 depth for occlusion, Space Setup planes for the laser
-      try { session = await navigator.xr.requestSession(mode, { optionalFeatures: [...base, 'depth-sensing', 'plane-detection', 'mesh-detection'], depthSensing: { usagePreference: ['gpu-optimized'], dataFormatPreference: ['luminance-alpha', 'float32'] } }); }
+      try { session = await navigator.xr.requestSession(mode, { optionalFeatures: [...base, 'depth-sensing', 'plane-detection'], depthSensing: { usagePreference: ['gpu-optimized'], dataFormatPreference: ['luminance-alpha', 'float32'] } }); }
       catch (e) { console.warn('depth / planes refused, plain passthrough', e); }
     }
     if (!session) session = await navigator.xr.requestSession(mode, { optionalFeatures: base });
@@ -9626,7 +9512,7 @@ async function begin(mode) {
     xr.setHandMode('3d');   // #268 (owner): no passthrough cut-out for tracked hands; always the 3D hands
     // passthrough rooms are much dimmer than the studio environment: tone reflections down so metal isn't self-lit
     arMode = mode === 'immersive-ar';
-    if (mode === 'immersive-ar') { scene.background = null; room.visible = false; skybox.group.visible = skyShadow.visible = false; scene.environmentIntensity = settings.arRefl / 100; if (dome.on) applySky(); applyArLook(); }   // #598   // #346 the dome shows in passthrough
+    if (mode === 'immersive-ar') { scene.background = null; room.visible = false; skybox.group.visible = skyShadow.visible = false; scene.environmentIntensity = settings.arRefl / 100; if (dome.on) applySky(); }   // #346 the dome shows in passthrough
     else applySky();   // #182: stereo panoramas split per eye while presenting   // #180: was a fixed 0.28, now Settings > Reflections in passthrough (default 60 %)
     tidyRecords();   // #242 every VR / passthrough start: records lying about go back into the crate
     Object.assign(xrDiag, { t0: performance.now(), frames: 0, err: '', errN: 0, mode });
@@ -9637,7 +9523,7 @@ async function begin(mode) {
       try { localStorage.setItem('vire.xrLastEnd', new Date().toISOString() + ' ' + msg); } catch {}
       console.warn(msg); setTimeout(() => toast(msg, 15000), 300);
     });
-    session.addEventListener('end', () => { rigAnchor = null; anchorPending = false; rig.rotation.set(0, 0, 0); arMode = false; applyArLook(); applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
+    session.addEventListener('end', () => { rigAnchor = null; anchorPending = false; rig.rotation.set(0, 0, 0); arMode = false; applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
     toast('Reach out and touch: pinch or grip right at a knob, fader, tonearm or record', 5000);
   } catch (e) { toast('Could not start XR: ' + e.message, 4000); }
 }
@@ -9746,11 +9632,10 @@ function applySkyTurn() {
   const full = !arMode && settings.env === 'image' && settings.sky === 'on' && !!skybox.tex;
   const domeOn = !CAMERA_ROLE && dome.on && !!skybox.tex;
   const turn = (settings.env === 'image' ? settings.skyTurn * DEG : 0) + skySpin.ang;
-  const dl = domeLightOn(), dTurn = settings.skyTurn * DEG + skySpin.ang + dome.turn * DEG;   // #611 DOME LIGHT turns with the dome
-  skybox.setTurn(domeOn ? dTurn : turn); scene.environmentRotation.set(0, dl ? dTurn : turn, 0); scene.backgroundRotation.set(0, turn, 0);
+  skybox.setTurn(domeOn ? settings.skyTurn * DEG + skySpin.ang + dome.turn * DEG : turn); scene.environmentRotation.set(0, turn, 0); scene.backgroundRotation.set(0, turn, 0);
   // key light from the picture's brightest area (windows, lamps), at least 35 deg up so shadows stay short
-  if (((full && settings.skyKey === 'on') || dl) && skyKeyLight) {
-    const d = _skyD.copy(skyKeyLight.dir).applyAxisAngle(_yAxis, dl ? dTurn : turn);
+  if (full && settings.skyKey === 'on' && skyKeyLight) {
+    const d = _skyD.copy(skyKeyLight.dir).applyAxisAngle(_yAxis, turn);
     const hz = Math.hypot(d.x, d.z) || 1, up = Math.max(d.y, Math.sin(35 * DEG)), k = Math.sqrt(1 - up * up) / hz;
     key.position.set(d.x * k, up, d.z * k).multiplyScalar(2.7).add(key.target.position);
     key.color.setRGB(1, 1, 1).lerp(skyKeyLight.color, 0.5);
@@ -9820,7 +9705,6 @@ function syncSettingsUI() {
   { const u = f => new URL(f, location.href).href.replace(/[?#].*$/, ''); $('#spectUrlP').textContent = u('spectator.html'); $('#spectUrlV').textContent = u('dirrovj.html'); }   // #511 the full address (cabin.dirrodj.club/cly3dj/... or the dev folder)
   $('#sDeckModel').value = settings.deckModel; $('#sRecWeight').value = settings.recWeight; $('#sSlipmat').value = settings.slipmat; $('#cPll').checked = !!settings.pll;
   $('#bEnvImg').hidden = settings.env !== 'image'; $('#rowEnvMix').hidden = settings.env === 'studio';
-  if ($('#sArSoft')) { $('#sArSoft').checked = settings.arSoft !== false; $('#sArSoft').onchange = e => { settings.arSoft = e.target.checked; saveSettings(); applyArLook(); }; }   // #598
   $('#sArRefl').value = settings.arRefl; $('#arReflVal').textContent = settings.arRefl + '%';
   $('#cOccl').checked = settings.occlusion !== false; $('#cRoomHits').checked = settings.roomHits !== false;   // #411
   $('#sSky').value = settings.sky; $('#rowSky').hidden = settings.env === 'studio';
@@ -10092,4 +9976,3 @@ if (CAMERA_ROLE) {
   import('./spectator-client.js').then(m => m.startCamera({ THREE, renderer, scene, camera, rig, room, stage, cases, decks, deckInst, neon,
     newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, scroller, skybox, envLight, key, crateRemote })).catch(e => { document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;top:0;left:0;right:0;color:#fbb;background:#300;padding:8px;z-index:99">${new URLSearchParams(location.search).get('vj') === '1' ? 'DirroVJ' : 'Camera page'} failed: ${e.message}</pre>`); });
 }
-window.vire._dl = { domeLightOn, domeLightTick, envLight, night, get key() { return domeLitKey; } };   // #611 / #612 test hook

@@ -267,7 +267,7 @@ export function setupXR(ctx) {
     // #608 the raised TB-03 knobs on the ACID page (main.js acidKnobs): trigger (hands: pinch) turns them like mixer knobs.
     // Tested before the tablet grab, so a pinch on a knob turns the knob instead of picking the tablet up.
     if (deckOk && ctx.acidKnobs) {
-      let best = null, bd = 0.016;   // #610 tighter (was 2.2 cm): neighbours are 12 mm apart
+      let best = null, bd = 0.016;   // #616 tighter (was 2.2 cm): neighbours are 12 mm apart
       for (const k of ctx.acidKnobs()) { k.g.getWorldPosition(v2); const dd = v2.distanceTo(P); if (dd < bd) { bd = dd; best = k; } }
       if (best) { st.direct = { kind: 'knob', id: best.id, yawL: yawOf(handQuat(st, q1)), qL: handQuat(st, new THREE.Quaternion()), hist: [], dmin: Infinity }; return true; }
     }
@@ -557,7 +557,7 @@ export function setupXR(ctx) {
       // above is weak or even reversed. There the knob follows the twist about the controller's own long axis (grip -Z),
       // like turning a key: clockwise seen from behind the hand = clockwise. The CONTROLLER look keeps the old reading.
       const kAx = ctx.knobAxis ? ctx.knobAxis(g.id) : null;
-      if (kAx && g.qL) {   // #610 TB-03 knobs: the twist about the tablet face's normal (clockwise seen from the front = up), hands and controllers alike
+      if (kAx && g.qL) {   // #616 TB-03 knobs: the twist about the tablet face's normal (clockwise seen from the front = up), hands and controllers alike
         const q = handQuat(st, q1), d = _kq.copy(q).multiply(_kq2.copy(g.qL).invert()); g.qL.copy(q);
         dy = Math.max(-0.6, Math.min(0.6, wrap(2 * Math.atan2(d.x * kAx.x + d.y * kAx.y + d.z * kAx.z, d.w))));
       } else if (!st.isHand && ctlLook !== 'controller' && g.qL) {
