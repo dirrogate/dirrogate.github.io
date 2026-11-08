@@ -6975,12 +6975,15 @@ for (const d of ACID_KNOBS) {
 const acidKnobTick = id => { const d = ACID_KNOBS.find(k => k.id === id); if (!d || !d.tick) return false; d.tick = false; return true; };
 const acidKnobEnd = id => { const d = ACID_KNOBS.find(k => k.id === id); if (d) { d.acc = null; d.enc = 0; AK.dirty = true; } };
 const acidKnobs3D = () => (AK.up && AK.p > 0.5 ? AK.list.map(k => ({ id: k.d.id, g: k.grab })) : []);
+const acidKnobObj = id => { const k = AK.list.find(x => x.d.id === id); return k ? k.spin : null; };
+const _akAxis = new THREE.Vector3();
+// #610 the TB-03 knobs turn about the tablet's face, wherever the tablet is held (the mixer knobs use the twist about up)
+const acidKnobAxis = id => (id.startsWith('tb.') && mixer.userData.screen ? _akAxis.set(0, 0, 1).transformDirection(mixer.userData.screen.matrixWorld) : null);
 function buildAcidKnobs3D() {
   const sm = mixer.userData.screen; if (!sm || AK.root) return;
-  const SW = 0.19, SH = 0.075, PX = SW / 1680, H = 0.016, CAP = 0.0065;   // knob tops 16 mm off the glassless screen
+  const SW = 0.19, SH = 0.075, PX = SW / 1680, CAP = 0.0035;   // #610 owner: no stems, a low 3.5 mm body sitting on the screen (was a 16 mm tall knob on a stem)
   AK.root = new THREE.Group(); AK.root.visible = false; sm.add(AK.root);
   const sideMat = new THREE.MeshStandardMaterial({ color: 0x2b2d33, roughness: 0.5, metalness: 0.3 });
-  const shaftMat = new THREE.MeshStandardMaterial({ color: 0x9a9ea6, roughness: 0.3, metalness: 0.85 });
   const tops = {};
   const topMat = key => {
     if (tops[key]) return tops[key];
@@ -6988,18 +6991,16 @@ function buildAcidKnobs3D() {
     if (img.complete && img.naturalWidth) t.needsUpdate = true; else img.addEventListener('load', () => { t.needsUpdate = true; });
     return (tops[key] = new THREE.MeshBasicMaterial({ map: t, transparent: true, alphaTest: 0.05, toneMapped: false }));
   };
-  const shaftG = new THREE.CylinderGeometry(1, 1.15, 1, 16); shaftG.rotateX(Math.PI / 2); shaftG.translate(0, 0, 0.5);   // unit, along +z
   ACID_KNOBS.forEach((d, i) => {
-    const R = d.r * PX * 1.35;   // 1.35x the printed knob: as big as fits between neighbours (12 mm apart)
+    const R = d.r * PX * 1.3365;   // #610 1 % under the 1.35x of #608 (neighbours are 12 mm apart)
     const k = new THREE.Group(); k.position.set((d.cx / 1680 - 0.5) * SW, (0.5 - d.cy / 663) * SH, 0);
     const lift = new THREE.Group(); lift.scale.z = 0.001; k.add(lift);
-    const shaft = new THREE.Mesh(shaftG, shaftMat); shaft.scale.set(R * 0.38, R * 0.38, H - CAP); lift.add(shaft);
-    const spin = new THREE.Group(); spin.position.z = H - CAP; lift.add(spin);
+    const spin = new THREE.Group(); lift.add(spin);
     const bodyG = new THREE.CylinderGeometry(R, R * 1.05, CAP, 40, 1, true); bodyG.rotateX(Math.PI / 2); bodyG.translate(0, 0, CAP / 2);
     spin.add(new THREE.Mesh(bodyG, sideMat));
     const top = new THREE.Mesh(new THREE.CircleGeometry(R, 40), topMat(d.img)); top.position.z = CAP + 0.0001; spin.add(top);
-    const grab = new THREE.Object3D(); grab.position.z = H; lift.add(grab);   // xr.js measures the hand to this point
-    for (const o of [shaft, top, ...spin.children]) { o.raycast = () => {}; padCull(o); }
+    const grab = new THREE.Object3D(); grab.position.z = CAP; lift.add(grab);   // xr.js measures the hand to this point
+    for (const o of spin.children) { o.raycast = () => {}; padCull(o); }
     AK.root.add(k); AK.list.push({ d, i, k, lift, spin, grab });
   });
 }
@@ -9578,7 +9579,8 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   stage, cases, resizeCase, deckGroups, clampStack, settleStack, gearLocked, gearLockMsg, snapYaw: isDeckKey, mixFeel: () => MIXFEEL, targetLightOn: () => !!settings.targetLight,   // #605   // #378
   REC, DECK, CRATE, ARM,
   castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : []), ...(mprops ? mprops.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
-  setMix, pressControl, setPitch, setPower, acidKnobs: acidKnobs3D, knobTick: acidKnobTick, knobEnd: acidKnobEnd, knobObj: id => { const k = AK.list.find(x => x.d.id === id); return k ? k.spin : null; },   // #608 pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
+  setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
+  acidKnobs: acidKnobs3D, knobTick: acidKnobTick, knobEnd: acidKnobEnd, knobObj: acidKnobObj, knobAxis: acidKnobAxis,   // #608 / #610 (own line: #608 had commented out the fader / pitch helpers above)
   scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
   armGrab, armDrag, armRelease,
