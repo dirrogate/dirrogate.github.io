@@ -1303,7 +1303,7 @@ function softEnvTex() {
   const pm = new THREE.PMREMGenerator(renderer); arSoftEnv = pm.fromScene(sc, 0.08).texture; pm.dispose(); return arSoftEnv;
 }
 function applyArLook() {
-  const want = arMode && settings.arSoft !== false;
+  const want = arMode && settings.arSoft !== false && !domeLightOn();   // #611 the dome's own light wins while it is on
   if (want) {
     if (!arPrev) arPrev = { env: scene.environment, key: key.intensity };
     if (scene.environment !== softEnvTex()) scene.environment = softEnvTex();
@@ -1311,6 +1311,25 @@ function applyArLook() {
   } else if (arPrev) { scene.environment = arPrev.env; key.intensity = arPrev.key; arPrev = null; }
 }
 setInterval(applyArLook, 1000);   // keeps it applied if the env light is rebuilt mid-session
+// #611 DOME LIGHT (PORTALS SETUP toggle, settings.domeLight, default on): while the DOME shows a sky, that sky lights the
+// scene: it becomes the environment light (90 %, over the studio base) and the key light aims from its brightest spot,
+// in its colour, turned with the dome. Done once per sky change (a video pano: the frame on screen then), never per
+// frame, so audio is untouched. Off / dome off: back to Settings > Lighting. In passthrough it replaces SOFT ROOM LIGHT.
+let domeLitKey = '', domeCanvas = null;
+function domeLightOn() { return !CAMERA_ROLE && settings.domeLight !== false && dome.on && !!skybox.tex; }   // hoisted: applySkyTurn may run first
+function domeLightTick() {
+  const on = domeLightOn(), k = on ? (skybox.tex.uuid + '|' + skybox.layout + '|' + skybox.swap) : '';
+  if (k === domeLitKey && (!on || envLight._lastSrc === domeCanvas)) return;   // also re-applies if Settings > Lighting replaced it (start-up race)
+  const was = domeLitKey; domeLitKey = k;
+  if (on) {
+    try {
+      const c = skybox.lightStill || leftEyeCanvas(skybox.tex.image, skybox.layout, skybox.swap, 1024);   // still: kept at load; video: this frame
+      envLight.mix = 0.9; domeCanvas = c; envLight.setImage(c); skyKeyLight = brightestDir(c); skyAvg = panoAvg(c);
+    } catch (e) { console.warn('dome light', e); }
+  } else if (was) applyEnv();
+  applyArLook(); applySkyTurn();
+}
+setInterval(domeLightTick, 1500);
 let wallTapT = 0, portalTapT = 0, portalDefArm = 0, beat = null, domeBoot = true;
 const _laserCam = new THREE.Vector3();   // #406
 function wallTap() {   // tap = backdrop on / off; double-tap = back to its start spot and mode
@@ -8273,6 +8292,7 @@ function drawToolsPage() {
       [WL.mode === 'screen' ? 'SCREEN' : 'FRACTAL', false, () => { WL.toggleMode(); drawMixScreen(); }],
       [WL.beat ? 'BEAT: ON' : 'BEAT', WL.beat, () => { WL.setBeat(!WL.beat); drawMixScreen(); }],
       [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)],
+      [settings.domeLight !== false ? 'DOME LIGHT: ON' : 'DOME LIGHT', settings.domeLight !== false, () => { settings.domeLight = settings.domeLight === false; saveSettings(); domeLightTick(); toast(settings.domeLight ? 'DOME LIGHT: the dome\'s sky lights the gear and frames' : 'DOME LIGHT off: Settings > Lighting', 2200); drawMixScreen(); }],   // #611
       [`SCREEN: ${({ cyclo: 'CYCLO', image: 'IMAGE', video: 'VIDEO' })[PS.scrSrc.src] || 'CYCLO'} ⟳`, PS.screenN > 0, pScrStep],   // #589 the one feed every SCREEN frame shows
       [settings.roomSnap !== false ? 'ROOM SNAP: ON' : 'ROOM SNAP: OFF', settings.roomSnap !== false, roomSnapToggle],   // #598 owner: snap can be switched off
       ['FRAME LOOK ›', JSON.stringify(PS.grade) !== JSON.stringify(GRADE0), () => setTools('pgrade')],   // #597 colour-match the frames to the room   // #592 FRAME on the ceiling
@@ -9672,10 +9692,11 @@ function applySkyTurn() {
   const full = !arMode && settings.env === 'image' && settings.sky === 'on' && !!skybox.tex;
   const domeOn = !CAMERA_ROLE && dome.on && !!skybox.tex;
   const turn = (settings.env === 'image' ? settings.skyTurn * DEG : 0) + skySpin.ang;
-  skybox.setTurn(domeOn ? settings.skyTurn * DEG + skySpin.ang + dome.turn * DEG : turn); scene.environmentRotation.set(0, turn, 0); scene.backgroundRotation.set(0, turn, 0);
+  const dl = domeLightOn(), dTurn = settings.skyTurn * DEG + skySpin.ang + dome.turn * DEG;   // #611 DOME LIGHT turns with the dome
+  skybox.setTurn(domeOn ? dTurn : turn); scene.environmentRotation.set(0, dl ? dTurn : turn, 0); scene.backgroundRotation.set(0, turn, 0);
   // key light from the picture's brightest area (windows, lamps), at least 35 deg up so shadows stay short
-  if (full && settings.skyKey === 'on' && skyKeyLight) {
-    const d = _skyD.copy(skyKeyLight.dir).applyAxisAngle(_yAxis, turn);
+  if (((full && settings.skyKey === 'on') || dl) && skyKeyLight) {
+    const d = _skyD.copy(skyKeyLight.dir).applyAxisAngle(_yAxis, dl ? dTurn : turn);
     const hz = Math.hypot(d.x, d.z) || 1, up = Math.max(d.y, Math.sin(35 * DEG)), k = Math.sqrt(1 - up * up) / hz;
     key.position.set(d.x * k, up, d.z * k).multiplyScalar(2.7).add(key.target.position);
     key.color.setRGB(1, 1, 1).lerp(skyKeyLight.color, 0.5);
@@ -10017,3 +10038,4 @@ if (CAMERA_ROLE) {
   import('./spectator-client.js').then(m => m.startCamera({ THREE, renderer, scene, camera, rig, room, stage, cases, decks, deckInst, neon,
     newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, scroller, skybox, envLight, key, crateRemote })).catch(e => { document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;top:0;left:0;right:0;color:#fbb;background:#300;padding:8px;z-index:99">${new URLSearchParams(location.search).get('vj') === '1' ? 'DirroVJ' : 'Camera page'} failed: ${e.message}</pre>`); });
 }
+window.vire._dl = { domeLightOn, domeLightTick, envLight, get key() { return domeLitKey; } };   // #611 test hook

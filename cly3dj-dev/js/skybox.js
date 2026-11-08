@@ -164,6 +164,7 @@ export class Skybox {
     t.flipY = false;   // flipped when the bitmap was made
     t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
     t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.anisotropy = 4; t.needsUpdate = true;
+    try { this.lightStill = leftEyeCanvas(bmp, layout, swap, 1024); } catch (e) { this.lightStill = null; }   // #611 a small copy for DOME LIGHT (the bitmap is closed after upload)
     t.onUpdate = () => { if (bmp.close) bmp.close(); };
     this.tex = t; this.size = [bmp.width, bmp.height];
     this.mats.forEach(m => { m.uniforms.map.value = t; m.uniforms.texSize.value.set(bmp.width, bmp.height); m.uniforms.aa.value = 0; });   // #403
@@ -176,6 +177,7 @@ export class Skybox {
     t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
     t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
     this.tex = t; this.size = [video.videoWidth, video.videoHeight];
+    this.lightStill = null;   // #611 a video pano: DOME LIGHT grabs the frame on screen
     this.mats.forEach(m => { m.uniforms.map.value = t; m.uniforms.texSize.value.set(video.videoWidth, video.videoHeight); m.uniforms.aa.value = 1; });   // #403 4-tap where minified
     this.setLayout(layout, swap);
   }

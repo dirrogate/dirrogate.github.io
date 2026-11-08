@@ -161,17 +161,25 @@ function makeBambooMat() {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.62, metalness: 0 });
   m.onBeforeCompile = sh => {
     sh.uniforms.uGradeA = GRADE.uGradeA; sh.uniforms.uGradeB = GRADE.uGradeB;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vAlong;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvAlong = position.x * length(instanceMatrix[0].xyz) + (instanceMatrix[3].x + instanceMatrix[3].y) * 7.0;   // metres along the pole, offset per pole');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec4 uGradeA; uniform vec3 uGradeB; varying float vAlong;')
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vAlong; varying vec3 vLN; varying float vHalfL; varying float vAlong2;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvAlong = position.x * length(instanceMatrix[0].xyz) + (instanceMatrix[3].x + instanceMatrix[3].y) * 7.0; vLN = normal; vHalfL = 0.5 * length(instanceMatrix[0].xyz); vAlong2 = position.x * length(instanceMatrix[0].xyz);   // metres along the pole, offset per pole');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec4 uGradeA; uniform vec3 uGradeB; varying float vAlong; varying vec3 vLN; varying float vHalfL; varying float vAlong2; float bAO, bHgt;')
       .replace('#include <map_fragment>', `
         float nd = abs(fract(vAlong / 0.3) - 0.5);                      // a culm node every 30 cm
         float node = 1.0 - smoothstep(0.0, 0.035, 0.5 - nd);
         float streak = 0.92 + 0.08 * sin(vAlong * 97.0 + vNormal.y * 9.0);
-        diffuseColor.rgb *= mix(1.0, 0.62, node) * streak;`)
+        diffuseColor.rgb *= mix(1.0, 0.62, node) * streak;
+        // #611 fake AO: the back of the pole (toward the ceiling), the ends, where a slat crosses an edge pole; node ridges
+        bAO = mix(0.5, 1.0, smoothstep(-0.8, 0.6, vLN.z)) * mix(0.75, 1.0, smoothstep(0.0, 0.05, vHalfL - abs(vAlong2)));
+        if (vHalfL > 0.2) bAO *= mix(0.72, 1.0, smoothstep(0.02, 0.08, abs(abs(vAlong2) - (vHalfL - 0.06))));
+        bHgt = node * 0.0012 + (streak - 0.92) * 0.004;`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        { vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition), R1 = cross(sy, normal), R2 = cross(normal, sx); float det = dot(sx, R1);
+          vec2 dH = vec2(dFdx(bHgt), dFdy(bHgt)); normal = normalize(abs(det) * normal - sign(det) * (dH.x * R1 + dH.y * R2)); }`)
+      .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= bAO; reflectedLight.indirectSpecular *= bAO; reflectedLight.directDiffuse *= mix(1.0, bAO, 0.6);')
       .replace('#include <tonemapping_fragment>', `{ vec3 c = gl_FragColor.rgb * uGradeA.x * uGradeB; float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = max(mix(vec3(l), c, uGradeA.z), 0.0); gl_FragColor.rgb = 0.18 * pow(c / 0.18 + 1e-5, vec3(uGradeA.y)); }\n#include <tonemapping_fragment>`);
   };
-  m.customProgramCacheKey = () => 'bamboo598';
+  m.customProgramCacheKey = () => 'bamboo611';
   return m;
 }
 const _bm = new THREE.Matrix4(), _bq = new THREE.Quaternion(), _bp = new THREE.Vector3(), _bs = new THREE.Vector3(), _bc = new THREE.Color(), _bz = new THREE.Vector3(0, 0, 1);
@@ -209,10 +217,10 @@ function makeWoodMat() {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.78, metalness: 0 });
   m.onBeforeCompile = sh => {
     sh.uniforms.uGradeA = GRADE.uGradeA; sh.uniforms.uGradeB = GRADE.uGradeB;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vW; varying float vSeed;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvW = position * vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)); vSeed = fract(sin(dot(instanceMatrix[3].xyz, vec3(12.9, 78.2, 37.7))) * 43758.5);');
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vW; varying float vSeed; varying vec3 vHalf; varying vec3 vLN;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHalf = 0.5 * vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)); vLN = normal; vW = position * vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)); vSeed = fract(sin(dot(instanceMatrix[3].xyz, vec3(12.9, 78.2, 37.7))) * 43758.5);');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-uniform vec4 uGradeA; uniform vec3 uGradeB; varying vec3 vW; varying float vSeed;
+uniform vec4 uGradeA; uniform vec3 uGradeB; varying vec3 vW; varying float vSeed; varying vec3 vHalf; varying vec3 vLN; float wAO, wHgt;
 float wh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float wn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(wh(i), wh(i + vec2(1, 0)), f.x), mix(wh(i + vec2(0, 1)), wh(i + vec2(1, 1)), f.x), f.y); }
@@ -227,11 +235,20 @@ float wf(vec2 p) { return wn(p) * 0.5 + wn(p * 2.03) * 0.25 + wn(p * 4.01) * 0.1
         float fib = wn(vec2(u * 9.0, v * 900.0)) * 0.5 + wn(vec2(u * 3.0, v * 260.0)) * 0.5;   // fine fibres along the grain
         vec3 light = vec3(0.60, 0.43, 0.27), dark = vec3(0.30, 0.19, 0.10);
         vec3 wc = mix(light, dark, late * 0.75 + knot * 0.9) * (0.86 + 0.22 * fib);
-        diffuseColor.rgb *= wc;`)
+        diffuseColor.rgb *= wc;
+        // #611 fake AO: dark board edges and ends, the band where a board crosses an edge beam, the gap faces, the back
+        wAO = mix(0.62, 1.0, smoothstep(0.0, 0.014, vHalf.y - abs(vW.y))) * mix(0.75, 1.0, smoothstep(0.0, 0.04, vHalf.x - abs(vW.x)));
+        if (vHalf.x > 0.2 && vHalf.y < 0.07) wAO *= mix(0.7, 1.0, smoothstep(0.02, 0.09, abs(abs(vW.x) - (vHalf.x - 0.05))));
+        if (abs(vLN.y) > 0.5) wAO *= 0.55; if (vLN.z < -0.5) wAO *= 0.5;
+        wHgt = (late * 0.6 - knot * 0.8) * 0.0014;   // grain relief on the rings and knots only (fine fibres would shimmer in the headset)`)
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness - 0.12 * late + 0.06 * fib;')
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        { vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition), R1 = cross(sy, normal), R2 = cross(normal, sx); float det = dot(sx, R1);
+          vec2 dH = vec2(dFdx(wHgt), dFdy(wHgt)); normal = normalize(abs(det) * normal - sign(det) * (dH.x * R1 + dH.y * R2)); }`)
+      .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= wAO; reflectedLight.indirectSpecular *= wAO; reflectedLight.directDiffuse *= mix(1.0, wAO, 0.6);')
       .replace('#include <tonemapping_fragment>', `{ vec3 c = gl_FragColor.rgb * uGradeA.x * uGradeB; float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = max(mix(vec3(l), c, uGradeA.z), 0.0); gl_FragColor.rgb = 0.18 * pow(c / 0.18 + 1e-5, vec3(uGradeA.y)); }\n#include <tonemapping_fragment>`);
   };
-  m.customProgramCacheKey = () => 'wood598';
+  m.customProgramCacheKey = () => 'wood611';
   return m;
 }
 function layWood(im, hx, hy, B) {
