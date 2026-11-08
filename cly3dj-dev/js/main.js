@@ -7258,10 +7258,10 @@ function acidReelTurn(da, dt) {   // da rad, + = clockwise
 // #618 ACID page layers: the plate (full-res, built once with the cassette deck buttons painted on) and the overlay
 const ACIDL = { plate: null, over: null, tex: null };
 const ACID_DECK_BTNS = [   // plate px (1680 x 663), in the column between the cassette well and TUNING
-  { id: 'play', label: 'PLAY/STOP', x: 342, y: 22, w: 90, h: 34 },
-  { id: 'lock', label: 'LOCK', x: 342, y: 64, w: 90, h: 34 },
-  { id: 'save', label: 'SAVE', x: 342, y: 106, w: 90, h: 34 },
-  { id: 'tray', label: 'TRAY', x: 98, y: 214, w: 89, h: 46 },   // #635 (owner) under the plate's line (y 202), same column as PATTERN CLEAR / RUN-STOP (x 98..187), clear of the saw icon
+  { id: 'play', label: 'PLAY/STOP', x: 342, y: 22, w: 90, h: 34 },   // #636 (owner) the three spread down the well's height (were 22 / 64 / 106)
+  { id: 'lock', label: 'LOCK', x: 342, y: 85, w: 90, h: 34 },
+  { id: 'save', label: 'SAVE', x: 342, y: 148, w: 90, h: 34 },
+  { id: 'tray', label: 'CASSETTE TRAY', x: 52, y: 214, w: 181, h: 46 },   // #635 / #636 (owner) under the plate's line (y 202), centred on the PATTERN CLEAR / RUN-STOP column (142.5), wide enough for its name
 ];
 const ACID_REELS = [{ x: 117, y: 90 }, { x: 209, y: 90 }];   // the well's two spindles
 const ACID_DLY_NAMES = ['1/16', '1/8T', '1/16.', '1/8', '1/4T', '1/8.', '1/4', '1/4.'];   // must match acid-worklet DLY_BEATS

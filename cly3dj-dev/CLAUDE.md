@@ -2122,3 +2122,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #635 ACID TRAY key re-placed (owner, 9 Nov: #634 cut through the plate's horizontal line and crowded the saw-tooth icon; drop it a few mm and align it with the PATTERN CLEAR / RUN-STOP column)
 - tray: x 98, y 214, w 89, h 46 plate px. The plate's line is at y 202 (measured); x 98..187 = RUN/STOP's span (PATTERN CLEAR 114..172 is centred in it). Saw icon now ~85 px clear.
 - Pane screenshot checked; simulated controller tap opens / shuts the tray. NOT tried on the Quest. sw.js v143. No Node restart. Backup backups/pre635/.
+
+## #636 CASSETTE TRAY key wider; deck keys spread (owner, 9 Nov)
+- tray: label 'CASSETTE TRAY', x 52, y 214, w 181, h 46 (centred on the PATTERN CLEAR / RUN-STOP column, 142.5; ~35 px clear of the saw icon).
+- PLAY/STOP, LOCK, SAVE: y 22 / 85 / 148 (were 22 / 64 / 106), spanning the well's height; same x 342, 90 x 34.
+- Pane screenshot checked; simulated tap still opens / shuts the tray. NOT tried on the Quest. sw.js v144. No Node restart. Backup backups/pre636/.
