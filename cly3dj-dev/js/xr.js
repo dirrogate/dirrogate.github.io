@@ -264,6 +264,17 @@ export function setupXR(ctx) {
       st.direct = { kind: 'gopro', prop: pr, off: pr.penOff ? pr.penOff.clone() : new THREE.Matrix4().copy(st.anchor.matrixWorld).invert().multiply(o.matrixWorld) };   // #395 a marker: held like a pen
       pr.grab(st); buzz(st, 0.4, 25); return true;
     }
+    // #621 ACID cassette deck. A reel: trigger (hands: pinch) grabs it, the wrist twist about the tablet face turns it
+    // (clockwise = push the tape ahead, anticlockwise = hold it back), like the turntable spindle.
+    if (deckOk && ctx.reelAt) {
+      const ri = ctx.reelAt(P);
+      if (ri >= 0) { st.direct = { kind: 'reel', i: ri, qL: handQuat(st, new THREE.Quaternion()), tL: performance.now() }; buzz(st, 0.12, 5); return true; }
+    }
+    // #621 a micro-cassette (in the tray on the PREVIEW screen, or in the well): grip (hands: pinch) picks it up
+    if ((btn === 'grip' || st.isHand) && ctx.cassGrab) {
+      updateAnchor(st);
+      if (ctx.cassGrab(P, st.anchor)) { st.direct = { kind: 'cassette' }; buzz(st, 0.15, 8); return true; }
+    }
     // #608 the raised TB-03 knobs on the ACID page (main.js acidKnobs): trigger (hands: pinch) turns them like mixer knobs.
     // Tested before the tablet grab, so a pinch on a knob turns the knob instead of picking the tablet up.
     if (deckOk && ctx.acidKnobs) {
@@ -587,6 +598,13 @@ export function setupXR(ctx) {
       }
       ctx.setMix(g.id, nv);
       if (ctx.knobTick && ctx.knobTick(g.id)) buzz(st, 0.08, 4);   // #608 owner: the slightest tick per TRACK / MODE notch (controller batteries)
+    } else if (g.kind === 'reel') {   // #621 twist about the tablet face = turn the reel
+      const ax = ctx.knobAxis && ctx.knobAxis('tb.reel'), now = performance.now();
+      let da = 0;
+      if (ax && g.qL) { const q = handQuat(st, q1), d = _kq.copy(q).multiply(_kq2.copy(g.qL).invert()); g.qL.copy(q); da = -wrap(2 * Math.atan2(d.x * ax.x + d.y * ax.y + d.z * ax.z, d.w)); }
+      if (Math.abs(da) < 0.004) da = 0;   // tracking jitter
+      const dt = Math.max(0.008, (now - g.tL) / 1000); g.tL = now;
+      ctx.reelTurn(Math.max(-0.6, Math.min(0.6, da)), dt);
     } else if (g.kind === 'slider') {
       const m = ctx.sliderFromLocal(g.id, ctx.mixer.worldToLocal(v2.copy(P)), true);   // #293 unclamped: grabbed off the cap, the ends are still reachable
       if (g.m0 == null) { g.m0 = m; g.v0 = ctx.mixVal[g.id]; }
@@ -698,6 +716,8 @@ export function setupXR(ctx) {
     else if (g.kind === 'propStretch' || g.kind === 'propScale') g.prop.save();   // #341
     else if (g.kind === 'propKnob') { if (g.prop.knobEnd) g.prop.knobEnd(); }   // #379
     else if (g.kind === 'knob') { if (ctx.knobEnd) ctx.knobEnd(g.id); }   // #608 detented TB-03 knobs settle on their notch
+    else if (g.kind === 'reel') { if (ctx.reelEnd) ctx.reelEnd(); }   // #621
+    else if (g.kind === 'cassette') { if (ctx.cassRelease) ctx.cassRelease(st.anchor); buzz(st, 0.15, 8); }   // #621 into the well = load, else back to the tray
     else if (g.kind === 'tablet') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'tabletStretch') o.direct = null; if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
     else if (g.kind === 'tabletScale' || g.kind === 'tabletStretch') ctx.saveTablet();
     else if (g.kind === 'neonScale') {
