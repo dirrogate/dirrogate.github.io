@@ -6748,6 +6748,7 @@ const acidUI = {
   pitchMode: false,
   timeMode: false,
   lock: 0,              // #618 LOCK: 0 off, 1 = deck A, 2 = deck B
+  nudge: 0,             // #620 reel nudge now (-0.12 .. +0.12)
   valueAngle: 0,        // continuous rotation angle (deg) for endless VALUE encoder
   activeKey: null,
   tapTimes: []
@@ -7125,11 +7126,14 @@ function stepAcidLock(now) {
   const t = Math.round(b * 100) / 100;
   if (Math.abs(t - acidUI.tempo) >= 0.01) { acidUI.tempo = t; engine.setAcidParam('bpm', t); if (toolsPage === 'acid' && now - acidLock.last > 250) { acidLock.last = now; drawMixScreen(); } }
 }
-let acidNudgeT = 0;
+let acidNudgeT = 0, acidReelSpin = 0;   // #620 acidReelSpin: how far the reels have been turned by hand (rad)
 function acidNudge(k) {   // k = -0.12 .. +0.12 of the tempo while a reel is turned; settles back by itself
+  const was = acidUI.nudge || 0; acidUI.nudge = k;
   engine.setAcidParam('rateMul', 1 + k); clearTimeout(acidNudgeT);
-  if (k) acidNudgeT = setTimeout(() => engine.setAcidParam('rateMul', 1), 140);   // finger held still on the reel = locked again
+  if (k) acidNudgeT = setTimeout(() => acidNudge(0), 140);   // finger held still on the reel = locked again
+  if (!k && was && toolsPage === 'acid') drawMixScreen();   // #620 the readouts drop back to the set tempo
 }
+const acidShownBpm = () => acidUI.tempo * (1 + (acidUI.nudge || 0));   // #620 what the readouts show: the tempo with the nudge in it
 function acidDeckBtn(id) {
   if (id === 'play') {
     if (!acidUI.running && acidTape.loaded && !acidTape.active) acidTapeApply();   // #619 PLAY goes back to the cassette
@@ -7322,7 +7326,8 @@ function drawAcidPage(T) {
     const pCode = acidTape.active ? `TAPE ${acidTape.side}: ${acidTape.loaded.name}` : acidUI.mode <= 1 ? `TR-${acidUI.trackIdx + 1} (Bar ${acidUI.bar + 1} · P${acidPatternCode(acidUI.pattern)})` : `P${acidPatternCode(acidUI.pattern)}`;
     const trStr = acidUI.transpose !== 0 ? ` · ${acidUI.transpose > 0 ? '+' : ''}${acidUI.transpose}st` : '';
     const lk = acidUI.lock ? ` · LOCK ${'AB'[acidUI.lock - 1]}${acidLock.noBpm ? ' (no BPM)' : ''}` : '';
-    g.fillText(`${acidUI.tempo.toFixed(1)} BPM${lk} · ${pCode}${trStr} · DLY ${ACID_DLY_NAMES[Math.round(acidUI.delayTime * 7)]}${acidCueOn ? ' · [CUE ON]' : ''}`, rx0, navY + 12);   // #607 master always on; #618 LOCK, synced delay
+    const nz = acidUI.nudge ? ` (NUDGE ${acidUI.nudge > 0 ? '+' : ''}${(acidUI.nudge * 100).toFixed(1)}%)` : '';
+    g.fillText(`${acidShownBpm().toFixed(1)} BPM${nz}${lk} · ${pCode}${trStr} · DLY ${ACID_DLY_NAMES[Math.round(acidUI.delayTime * 7)]}${acidCueOn ? ' · [CUE ON]' : ''}`, rx0, navY + 12);   // #607 master always on; #618 LOCK, synced delay
     g.restore();
   }
 
@@ -7493,7 +7498,7 @@ function drawAcidPage(T) {
   {
     let chars = '1380', dotIdx = 2;
     if (acidUI.tempoMode) {
-      const s = acidUI.tempo.toFixed(1).replace('.', '');
+      const s = acidShownBpm().toFixed(1).replace('.', '');   // #620 nudge included
       chars = s.padStart(4, ' ');
       dotIdx = 2;
     } else if (acidTape.active) {   // #619 a cassette is playing
@@ -7614,16 +7619,17 @@ function drawAcidPage(T) {
   }
   for (const rl of (acidTape.loaded ? CASS_REELS : ACID_REELS)) {
     const cx = ox + rl.x * sx, cy = oy + rl.y * sy, r = 13 * sx;
-    const a0 = (acidUI.step || 0) * Math.PI / 8 * (acidUI.running ? 1 : 0);   // the hubs step round with the sequencer
+    const a0 = (acidUI.step || 0) * Math.PI / 8 * (acidUI.running ? 1 : 0) + acidReelSpin;   // the hubs step round with the sequencer, and turn with the finger (#620)
     g.save(); g.translate(cx, cy); g.rotate(a0); g.strokeStyle = 'rgba(235,238,242,0.85)'; g.lineWidth = Math.max(1, 2.2 * sx);
     for (let k = 0; k < 6; k++) { g.rotate(Math.PI / 3); g.beginPath(); g.moveTo(r * 0.45, 0); g.lineTo(r * 0.9, 0); g.stroke(); }
     g.restore();
-    const hit = { x: cx - 26 * sx, y: cy - 26 * sx, w: 52 * sx, h: 52 * sx, drag: true,
+    const hit = { x: cx - 36 * sx, y: cy - 36 * sx, w: 72 * sx, h: 72 * sx, drag: true,   // #620 bigger grab area round each reel
       act: (px, py) => {
         const a = Math.atan2(py - cy, px - cx), now = performance.now();
         if (hit._a === undefined || screenHold !== null) { hit._a = a; hit._t = now; return; }
         let da = a - hit._a; if (da > Math.PI) da -= 2 * Math.PI; else if (da < -Math.PI) da += 2 * Math.PI;
         const dt = Math.max(8, now - hit._t) / 1000; hit._a = a; hit._t = now;
+        acidReelSpin += da;   // #620 the hubs follow the finger
         acidNudge(Math.max(-0.12, Math.min(0.12, (da / dt) * 0.02)));   // a brisk finger spin = +-12 %
       },
       release: () => acidNudge(0) };

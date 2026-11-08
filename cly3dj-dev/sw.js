@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v127';   // #619 ACID micro-cassettes: factory tapes, TRAY on PREVIEW, load / flip / eject
+const CACHE = 'vire-app-v128';   // #620 reel nudge shows: hubs follow the finger, BPM readouts include the nudge
+// v127:   // #619 ACID micro-cassettes: factory tapes, TRAY on PREVIEW, load / flip / eject
 // v126:   // #618 ACID plate layer (micro-cassette well), cassette deck buttons, LOCK, reel nudge, synced delay
 // v125:   // #617 ACID cue follows ACID VOL, +6 dB, 2x ACID page canvas, silver knob bodies, VOL labels up
 // v124:   // #616 headset faders / crossfader / pitch fixed (broken by #608); low TB-03 knobs, twist about the tablet face
