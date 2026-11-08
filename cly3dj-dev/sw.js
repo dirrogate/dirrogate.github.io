@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v124';   // #616 headset faders / crossfader / pitch fixed (broken by #608); low TB-03 knobs, twist about the tablet face
+const CACHE = 'vire-app-v125';   // #617 ACID cue follows ACID VOL, +6 dB, 2x ACID page canvas, silver knob bodies, VOL labels up
+// v124:   // #616 headset faders / crossfader / pitch fixed (broken by #608); low TB-03 knobs, twist about the tablet face
 // v123:   // #615 per-board plank / offset / mirror set on the CPU (no visible repeats)
 // v116:  // #607 ACID fixes (cue pre-listen, level, knob angles, VR poke), tablet glass removed
 // v115:  // #606 Gemini_acid: Roland Boutique TB-03 upgrade, 7-seg LED, Overdrive/Delay, 76 patterns & 7 tracks, ACID CUE mixer button

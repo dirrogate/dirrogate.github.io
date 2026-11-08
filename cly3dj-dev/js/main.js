@@ -1439,8 +1439,12 @@ const mixScreen = new Screen(768, 304);
 // logic and dead zone). Portrait pages draw on their own 304 x 768 canvas whose texture is turned 90 deg on the same
 // screen; mixScreenPress maps taps back onto it.
 const mixScreenP = new Screen(304, 768); mixScreenP.texture.center.set(0.5, 0.5);
+// #617 the ACID page draws on a 2x canvas (1536 x 608) for sharper panel lettering; pages still work in the 768 x 304
+// layout (canvas.lw / lh, transform k = 2), and taps map through the same logical size
+const acidScreen = new Screen(1536, 608); acidScreen.canvas.lw = 768; acidScreen.canvas.lh = 304; acidScreen.canvas.k = 2; acidScreen.texture.anisotropy = 8;
 let scrDir = 'up';
-const scr = () => (scrDir === 'up' ? mixScreen : mixScreenP), portrait = () => scrDir !== 'up';
+const scr = () => (scrDir === 'up' ? (toolsPage === 'acid' ? acidScreen : mixScreen) : mixScreenP), portrait = () => scrDir !== 'up';   // #617 acidScreen
+function syncScrMap() { const m = mixer.userData.screen && mixer.userData.screen.material, t = scr().texture; if (m && m.map !== t) { m.map = t; m.needsUpdate = true; } }   // #617 the ACID page swaps in its own canvas
 // #467 a small note strip on the tablet, over whatever page is open, for a few seconds (toast() is a desktop-only overlay,
 // invisible in the headset). Drawn at commit time, so every page gets it without each page knowing; cleared by a redraw.
 const tabNote = { text: '', until: 0, t: 0 };
@@ -1450,7 +1454,7 @@ function tabletNote(text, ms = 5000) {
   try { drawMixScreen(); } catch {}   // (the phone's camera role has no tablet to draw)
 }
 function drawTabNote(s) {
-  const g = s.g, W = s.canvas.width, H = s.canvas.height, P = W < H;
+  const g = s.g, W = s.canvas.lw || s.canvas.width, H = s.canvas.lh || s.canvas.height, P = W < H;   // #617 logical size (acidScreen)
   const fs = P ? 13 : 15, bh = fs + 14, y = Math.round(H * (P ? 0.5 : 0.62)) - bh / 2;
   g.save(); g.font = `600 ${fs}px system-ui, sans-serif`;
   let t = tabNote.text; const max = W - 40; while (t.length > 4 && g.measureText(t).width > max - 24) t = t.slice(0, -2);
@@ -1461,7 +1465,7 @@ function drawTabNote(s) {
   g.fillStyle = '#ffd27a'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, W / 2, y + bh / 2 + 1);
   g.restore();
 }
-for (const sc of [mixScreen, mixScreenP]) { const c0 = sc.commit.bind(sc); sc.commit = () => { if (tabNote.text && performance.now() < tabNote.until) drawTabNote(sc); c0(); }; }
+for (const sc of [mixScreen, mixScreenP, acidScreen]) { const c0 = sc.commit.bind(sc); sc.commit = () => { if (tabNote.text && performance.now() < tabNote.until) drawTabNote(sc); c0(); }; }
 // #467 a WebRTC handshake (spectator phone, DirroTV) had to go through ntfy.sh because our relay hub didn't carry it
 onRelayFallback((what, how) => { tabletNote(`NTFY.SH FALLBACK · ${what}`, 6000); toast(`${what}: handshake ${how} via ntfy.sh (backup relay; relay.dirrodj.club hub not reached)`, 6000); });
 const vpPer = () => (scrDir === 'up' ? (vpFolder === 'Pano' || vpFolder === 'Video' ? 4 : 8) : vpFolder === 'Pano' ? 6 : vpFolder === 'Video' ? 8 : 10);   // #596 / #597 room for the bars   // #596 landscape PANO: one row, the TURN / EXPOSURE bars under it   // #379 portrait PANO: 4 rows, the PANO SPIN slider under them   // thumbnails a page on the Video page (#206 portrait: 5 rows, a third tab row)
@@ -5822,7 +5826,7 @@ function readout(d, st) {
 let screenHold = null, holdSeq = 0, vpDel = null;
 let screenDrag = null;   // #422 the slider being dragged on the tablet
 function mixScreenRelease() { const d = screenDrag; screenHold = null; screenDrag = null; if (d && d.release) { d.release(); drawMixScreen(); } }   // #607 detented knobs step on a tap's release
-function scrUvPx(uv) { const c = scr().canvas; return [(scrDir === 'px' ? 1 - uv.y : scrDir === 'nx' ? uv.y : uv.x) * c.width, (scrDir === 'px' ? 1 - uv.x : scrDir === 'nx' ? uv.x : 1 - uv.y) * c.height]; }
+function scrUvPx(uv) { const c = scr().canvas; return [(scrDir === 'px' ? 1 - uv.y : scrDir === 'nx' ? uv.y : uv.x) * (c.lw || c.width), (scrDir === 'px' ? 1 - uv.x : scrDir === 'nx' ? uv.x : 1 - uv.y) * (c.lh || c.height)]; }
 function mixScreenDrag(uv) {   // #422 finger still on the screen (XR) / mouse held (desktop): a grabbed slider follows it
   if (!screenDrag || !uv) return; const [px, py] = scrUvPx(uv);
   screenHold = null; screenDrag.act(px, py); drawMixScreen();
@@ -5848,8 +5852,8 @@ function mixScreenPress(uv) {
   if (!uv) return;
   // #198 portrait: the canvas is turned 90 deg on the screen, so map the screen's uv back onto it
   const c = scr().canvas;
-  const px = (scrDir === 'px' ? 1 - uv.y : scrDir === 'nx' ? uv.y : uv.x) * c.width;
-  const py = (scrDir === 'px' ? 1 - uv.x : scrDir === 'nx' ? uv.x : 1 - uv.y) * c.height;
+  const px = (scrDir === 'px' ? 1 - uv.y : scrDir === 'nx' ? uv.y : uv.x) * (c.lw || c.width);   // #617 logical size
+  const py = (scrDir === 'px' ? 1 - uv.x : scrDir === 'nx' ? uv.x : 1 - uv.y) * (c.lh || c.height);
   const id = ++holdSeq; screenHold = id; setTimeout(() => { if (screenHold === id) { screenHold = null; mixScreenLong(px, py); } }, 600);   // #222
   if (videoPage || toolsPage) {   // #224 the TOOLS pages use the same tap list
     const b = VP_HIT.find(h => px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h);
@@ -6983,7 +6987,7 @@ function buildAcidKnobs3D() {
   const sm = mixer.userData.screen; if (!sm || AK.root) return;
   const SW = 0.19, SH = 0.075, PX = SW / 1680, CAP = 0.0035;   // #616 owner: no stems, a low 3.5 mm body sitting on the screen (was a 16 mm tall knob on a stem)
   AK.root = new THREE.Group(); AK.root.visible = false; sm.add(AK.root);
-  const sideMat = new THREE.MeshStandardMaterial({ color: 0x2b2d33, roughness: 0.5, metalness: 0.3 });
+  const sideMat = new THREE.MeshStandardMaterial({ color: 0xc9ccd1, roughness: 0.38, metalness: 0.55 });   // #617 owner: silver like the TB-03 plate (was black)
   const tops = {};
   const topMat = key => {
     if (tops[key]) return tops[key];
@@ -6992,7 +6996,7 @@ function buildAcidKnobs3D() {
     return (tops[key] = new THREE.MeshBasicMaterial({ map: t, transparent: true, alphaTest: 0.05, toneMapped: false }));
   };
   ACID_KNOBS.forEach((d, i) => {
-    const R = d.r * PX * 1.3365;   // #616 1 % under the 1.35x of #608 (neighbours are 12 mm apart)
+    const R = d.r * PX * 1.3231;   // #617 another 1 % under (#616 1.3365, #608 1.35)
     const k = new THREE.Group(); k.position.set((d.cx / 1680 - 0.5) * SW, (0.5 - d.cy / 663) * SH, 0);
     const lift = new THREE.Group(); lift.scale.z = 0.001; k.add(lift);
     const spin = new THREE.Group(); lift.add(spin);
@@ -7610,7 +7614,8 @@ function drawAcidPage(T) {
 }
 
 function drawToolsPage() {
-  const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
+  const { g, canvas: c } = scr(); const W = c.lw || c.width, H = c.lh || c.height, P = portrait();
+  g.setTransform(c.k || 1, 0, 0, c.k || 1, 0, 0);   // #617 acidScreen draws the 768 x 304 layout at 2x
   VP_HIT.length = 0;
   g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H);
   const btn = (x, y, w, h, label, on, act, dim, fs0 = 17) => {
@@ -8998,6 +9003,7 @@ function drawTypeBadge(g, x, y, video) {
 function drawMixScreen() {
   navTrack();   // #363
   syncShowFromRoom();   // #401 one switch per object
+  syncScrMap();   // #617
   if (toolsPage) { drawToolsPage(); scr().commit(); return; }   // #224
   if (videoPage) { drawVideoPage(); scr().commit(); return; }   // #185
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();

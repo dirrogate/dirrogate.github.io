@@ -601,9 +601,9 @@ export function makeMixer() {
         g.add(ring); u.loopRing = ringMat;
       }
       addKnob('loop.vol', x + 0.033, 0.006, 0xff8a40, 0.008);
-      label('LOOP VOL', x + 0.033, -0.0065, 0.0024);
+      label('LOOP VOL', x + 0.033, -0.0095, 0.0024);   // #617 3 mm higher, clear of the knob's dots
       // Gemini_acid: ACID VOL knob and ACID CUE button below it in Deck B outer column
-      label('ACID VOL', x + 0.033, -0.0645, 0.0022);
+      label('ACID VOL', x + 0.033, -0.0675, 0.0022);   // #617 3 mm higher, clear of the knob's dots
       addKnob('acid.vol', x + 0.033, -0.052, 0x40ff90, 0.0075);
       addButton('acid.cue', 0.02, 0.012, 0xffb020, 'ACID CUE', x + 0.033, -0.028);
       {

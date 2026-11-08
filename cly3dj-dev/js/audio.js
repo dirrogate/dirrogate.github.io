@@ -144,12 +144,13 @@ export class AudioEngine {
     const g = Math.pow(v / 0.8, 2);
     for (const n of this.loopGain) this._ramp(n.gain, g);
   }
-  // #607 TB-03 routing, the same as a deck channel: ACID VOL is its fader (v^2 law, like setFader) into the master;
-  // ACID CUE adds a pre-fader copy to the cue bus at unity (like setCue), so it can be pre-listened with ACID VOL down
+  // #607 TB-03 routing: ACID VOL is its fader (v^2 law, like setFader) into the master; ACID CUE adds a copy to the cue bus.
+  // #617 (owner) the cue copy follows ACID VOL too (knob down = silent in the phones as well), and the channel has +6 dB
+  // of gain (ACID_GAIN) so ACID VOL at 80 % sits level with a loud record on a deck fader at 80 %
   _syncAcidRouting() {
-    const v = this._acidVol ?? 0.8;
-    if (this.acidCueGain) this._ramp(this.acidCueGain.gain, this._acidCueOn ? 1 : 0);
-    if (this.acidMasterGain) this._ramp(this.acidMasterGain.gain, v * v);
+    const v = this._acidVol ?? 0.8, g = v * v * AudioEngine.ACID_GAIN;
+    if (this.acidCueGain) this._ramp(this.acidCueGain.gain, this._acidCueOn ? g : 0);
+    if (this.acidMasterGain) this._ramp(this.acidMasterGain.gain, g);
   }
   setAcidVol(v) { this._acidVol = v; this._syncAcidRouting(); }
   setAcidCue(on) { this._acidCueOn = !!on; this._syncAcidRouting(); }
@@ -321,3 +322,4 @@ function convertInline(L, R) {
   const conv = F => { const o = new Int16Array(F.length); for (let j = 0; j < F.length; j++) { const a = F[j] * 32767; o[j] = a > 32767 ? 32767 : a < -32768 ? -32768 : a; } return o; };
   return { iL: conv(L), iR: R ? conv(R) : null, env };
 }
+AudioEngine.ACID_GAIN = 2.0;   // #617 TB-03 channel gain (+6 dB) ahead of ACID VOL, for master and cue alike
