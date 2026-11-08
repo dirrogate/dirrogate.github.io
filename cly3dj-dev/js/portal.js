@@ -218,39 +218,33 @@ const woodGeo = new THREE.BoxGeometry(1, 1, 1);
 function makeWoodMat() {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.78, metalness: 0 });
   m.onBeforeCompile = sh => {
-    sh.uniforms.uGradeA = GRADE.uGradeA; sh.uniforms.uGradeB = GRADE.uGradeB;
+    sh.uniforms.uGradeA = GRADE.uGradeA; sh.uniforms.uGradeB = GRADE.uGradeB; sh.uniforms.uTex = { value: planksTex() };
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vW; varying float vSeed; varying vec3 vHalf; varying vec3 vLN;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHalf = 0.5 * vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)); vLN = normal; vW = position * vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)); vSeed = fract(sin(dot(instanceMatrix[3].xyz, vec3(12.9, 78.2, 37.7))) * 43758.5);');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-uniform vec4 uGradeA; uniform vec3 uGradeB; varying vec3 vW; varying float vSeed; varying vec3 vHalf; varying vec3 vLN; float wAO, wHgt;
+uniform vec4 uGradeA; uniform vec3 uGradeB; uniform sampler2D uTex; varying vec3 vW; varying float vSeed; varying vec3 vHalf; varying vec3 vLN; float wAO, wHgt;
 float wh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float wn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(wh(i), wh(i + vec2(1, 0)), f.x), mix(wh(i + vec2(0, 1)), wh(i + vec2(1, 1)), f.x), f.y); }
 float wf(vec2 p) { return wn(p) * 0.5 + wn(p * 2.03) * 0.25 + wn(p * 4.01) * 0.125; }`)
       .replace('#include <map_fragment>', `
-        float u = vW.x + vSeed * 7.3, v = vW.y + vW.z;                    // along / across the board
-        vec2 kc = vec2(floor(u / 0.55) * 0.55 + 0.27 + (wh(vec2(floor(u / 0.55), vSeed)) - 0.5) * 0.2, (wh(vec2(vSeed, floor(u / 0.55))) - 0.5) * 0.05);
-        float kd = length(vec2((u - kc.x) * 0.35, v - kc.y)), knot = step(0.62, wh(vec2(floor(u / 0.55), vSeed * 3.1))) * (1.0 - smoothstep(0.004, 0.012, kd));
-        float warp = wf(vec2(u * 1.3, v * 9.0 + vSeed * 20.0)) * 2.2 + 1.8 * exp(-kd * 60.0) * step(0.62, wh(vec2(floor(u / 0.55), vSeed * 3.1)));
-        float ring = fract(v * 38.0 + warp + vSeed * 5.0);
-        float late = smoothstep(0.55, 0.95, ring) * (1.0 - smoothstep(0.95, 1.0, ring));   // dark latewood band
-        float fib = wn(vec2(u * 9.0, v * 900.0)) * 0.5 + wn(vec2(u * 3.0, v * 260.0)) * 0.5;   // fine fibres along the grain
-        vec3 light = vec3(0.60, 0.43, 0.27), dark = vec3(0.30, 0.19, 0.10);
-        vec3 wc = mix(light, dark, late * 0.75 + knot * 0.9) * (0.86 + 0.22 * fib);
-        diffuseColor.rgb *= wc;
-        // #611 fake AO: dark board edges and ends, the band where a board crosses an edge beam, the gap faces, the back
+        // #613 one board = one plank band of the photo (7 bands); offset along the board by its seed
+        float band = floor(vSeed * 7.0), u = vW.x / 1.4 + vSeed * 3.7, vb = clamp(abs(vLN.y) > 0.5 ? 0.5 + vW.z / max(2.0 * vHalf.z, 1e-3) * 0.3 : vW.y / max(2.0 * vHalf.y, 1e-3) + 0.5, 0.03, 0.97);
+        vec4 tx = texture2D(uTex, vec2(u, (band + vb) / 7.0));
+        diffuseColor.rgb *= tx.rgb * 1.55;
+        float late = tx.a, fib = 0.0, knot = 0.0;
         wAO = mix(0.62, 1.0, smoothstep(0.0, 0.014, vHalf.y - abs(vW.y))) * mix(0.75, 1.0, smoothstep(0.0, 0.04, vHalf.x - abs(vW.x)));
         if (vHalf.x > 0.2 && vHalf.y < 0.07) wAO *= mix(0.7, 1.0, smoothstep(0.02, 0.09, abs(abs(vW.x) - (vHalf.x - 0.05))));
         if (abs(vLN.y) > 0.5) wAO *= 0.55; if (vLN.z < -0.5) wAO *= 0.5;
-        wHgt = (late * 0.6 - knot * 0.8) * 0.0014;   // grain relief on the rings and knots only (fine fibres would shimmer in the headset)`)
-      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness - 0.12 * late + 0.06 * fib;')
+        wHgt = tx.a * 0.0011;`)
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = 0.82 - 0.12 * late;')
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         { vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition), R1 = cross(sy, normal), R2 = cross(normal, sx); float det = dot(sx, R1);
           vec2 dH = vec2(dFdx(wHgt), dFdy(wHgt)); normal = normalize(abs(det) * normal - sign(det) * (dH.x * R1 + dH.y * R2)); }`)
       .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= wAO; reflectedLight.indirectSpecular *= wAO; reflectedLight.directDiffuse *= mix(1.0, wAO, 0.6);')
       .replace('#include <tonemapping_fragment>', `{ vec3 c = gl_FragColor.rgb * uGradeA.x * uGradeB; float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = max(mix(vec3(l), c, uGradeA.z), 0.0); gl_FragColor.rgb = 0.18 * pow(c / 0.18 + 1e-5, vec3(uGradeA.y)); }\n#include <tonemapping_fragment>`);
   };
-  m.customProgramCacheKey = () => 'wood611';
+  m.customProgramCacheKey = () => 'wood613';
   return m;
 }
 function layWood(im, hx, hy, B) {
@@ -277,6 +271,14 @@ function layWood(im, hx, hy, B) {
   if (B.posts && B.postLen > 0.3) for (const [px, py] of [[hx, hy], [-hx, hy], [hx, -hy], [-hx, -hy]]) { if (n >= BAM_MAX) break; _bq.setFromAxisAngle(_by, -Math.PI / 2); _bp.set(px, py, B.postLen / 2); _bs.set(B.postLen, 0.08, 0.08); im.setMatrixAt(n, _bm.compose(_bp, _bq, _bs)); _bc.setRGB(0.8, 0.75, 0.68); im.setColorAt(n, _bc); n++; }   // #612
   im.count = n; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
 }
+// #613 two small packed textures (Poly Haven CC0, 512 x 512 WebP): RGB = colour with ambient occlusion baked in from the
+// height map, A = height (relief by screen derivatives). One texture read per pixel, no normal / roughness maps.
+let _texP = null, _texR = null;
+function frameTex(name) {
+  const t = new THREE.TextureLoader().load('surfaces/frame_' + name + '.webp');
+  t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 2; return t;
+}
+const planksTex = () => _texP || (_texP = frameTex('planks')), reedTex = () => _texR || (_texR = frameTex('reed'));
 // #612 THATCH EAVES: two staggered rows of dry palm-leaf cards hanging from the roof's edge into the room (frame +z),
 // leaf shape cut in the shader with alpha-to-coverage (soft edges with the headset's MSAA), one InstancedMesh, 1 draw.
 const FR_MAX = 600;
@@ -284,21 +286,27 @@ const frGeo = (() => { const g = new THREE.PlaneGeometry(1, 1); g.translate(0, -
 function makeFringeMat() {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0, side: THREE.DoubleSide, alphaToCoverage: true, transparent: false });
   m.onBeforeCompile = sh => {
-    sh.uniforms.uGradeA = GRADE.uGradeA; sh.uniforms.uGradeB = GRADE.uGradeB;
+    sh.uniforms.uGradeA = GRADE.uGradeA; sh.uniforms.uGradeB = GRADE.uGradeB; sh.uniforms.uTex = { value: reedTex() };
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vFu; varying float vFs;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFu = uv; vFs = fract(sin(dot(instanceMatrix[3].xyz, vec3(12.9, 78.2, 37.7))) * 43758.5);');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec4 uGradeA; uniform vec3 uGradeB; varying vec2 vFu; varying float vFs;')
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec4 uGradeA; uniform vec3 uGradeB; uniform sampler2D uTex; varying vec2 vFu; varying float vFs; float fAO, fHgt;')
       .replace('#include <map_fragment>', `
         float x = vFu.x - 0.5, y = vFu.y;                              // y = 1 at the roof edge, 0 at the tip
         float strands = abs(fract(vFu.x * 7.0 + vFs * 3.0) - 0.5);     // the frond splits into strips
         float w = 0.5 * (0.35 + 0.65 * y) - (1.0 - y) * 0.12 * step(0.38, strands);
         float rag = 0.06 * sin(vFu.x * 41.0 + vFs * 20.0);
         float a = smoothstep(0.0, 0.03, w - abs(x)) * smoothstep(0.0, 0.05, y + rag - 0.02);
-        vec3 c = mix(vec3(0.30, 0.22, 0.11), vec3(0.50, 0.40, 0.22), y) * (0.8 + 0.4 * vFs) * (0.85 + 0.15 * step(0.25, strands));
-        diffuseColor.rgb *= c; diffuseColor.a = a;`)
+        vec4 tx = texture2D(uTex, vec2(vFu.x * 0.22 + vFs * 0.78, y * 0.5 + fract(vFs * 7.3) * 0.5));   // #613 reed thatch photo
+        diffuseColor.rgb *= tx.rgb * 1.5 * (0.88 + 0.24 * vFs); diffuseColor.a = a;
+        fAO = mix(0.5, 1.0, smoothstep(1.0, 0.45, y)) * (0.8 + 0.2 * step(0.25, strands));   // dark up under the roof edge and between strips
+        fHgt = tx.a * 0.0015;`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        { vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition), R1 = cross(sy, normal), R2 = cross(normal, sx); float det = dot(sx, R1);
+          vec2 dH = vec2(dFdx(fHgt), dFdy(fHgt)); normal = normalize(abs(det) * normal - sign(det) * (dH.x * R1 + dH.y * R2)); }`)
+      .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= fAO; reflectedLight.indirectSpecular *= fAO; reflectedLight.directDiffuse *= mix(1.0, fAO, 0.6);')
       .replace('#include <tonemapping_fragment>', `{ vec3 c = gl_FragColor.rgb * uGradeA.x * uGradeB; float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = max(mix(vec3(l), c, uGradeA.z), 0.0); gl_FragColor.rgb = 0.18 * pow(c / 0.18 + 1e-5, vec3(uGradeA.y)); }\n#include <tonemapping_fragment>`);
   };
-  m.customProgramCacheKey = () => 'fringe612';
+  m.customProgramCacheKey = () => 'fringe613';
   return m;
 }
 const _fX = new THREE.Vector3(), _fY = new THREE.Vector3(0, 0, -1), _fZ = new THREE.Vector3(), _fR = new THREE.Matrix4();
@@ -312,13 +320,13 @@ function layFringe(im, hx, hy) {
       const t = (i + (row ? 0.5 : 0)) / steps, sd = rnd(n * 1.7 + row * 31), hgt = (row ? 0.24 : 0.3) + 0.1 * sd;
       _fZ.crossVectors(_fX, _fY).normalize();
       _fR.makeBasis(_fX, _fY, _fZ); _bq.setFromRotationMatrix(_fR);
-      _bq.multiply(new THREE.Quaternion().setFromAxisAngle(_bx1, 0.18 + 0.12 * sd + row * 0.1));   // lean outward
-      _bp.set(ax + (bx - ax) * t + out[0] * (0.03 + row * 0.02), ay + (by - ay) * t + out[1] * (0.03 + row * 0.02), 0.03 + row * 0.015);
+      _bq.multiply(new THREE.Quaternion().setFromAxisAngle(_bx1, -(0.08 + 0.08 * sd + row * 0.06)));   // #613 lean slightly inward
+      _bp.set(ax + (bx - ax) * t - out[0] * (0.04 + row * 0.03), ay + (by - ay) * t - out[1] * (0.04 + row * 0.03), 0.03 + row * 0.015);   // #613 hangs just inside the roof's outline, so it never pokes into a real wall
       _bs.set(0.075 + 0.02 * sd, hgt, 1);
       im.setMatrixAt(n, _bm.compose(_bp, _bq, _bs)); _bc.setRGB(1, 1, 1); im.setColorAt(n, _bc); n++;
     }
   };
-  const e = 0.04; edge(-hx - e, hy, hx + e, hy, [0, 1]); edge(hx + e, -hy, -hx - e, -hy, [0, -1]); edge(hx, hy, hx, -hy, [1, 0]); edge(-hx, -hy, -hx, hy, [-1, 0]);
+  const e = -0.04; edge(-hx - e, hy, hx + e, hy, [0, 1]); edge(hx + e, -hy, -hx - e, -hy, [0, -1]); edge(hx, hy, hx, -hy, [1, 0]); edge(-hx, -hy, -hx, hy, [-1, 0]);
   im.count = n; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
 }
 const _bx1 = new THREE.Vector3(1, 0, 0);
