@@ -466,7 +466,7 @@ export function setupXR(ctx) {
       if (ctx.gearLocked && ctx.gearLocked(hit.key)) { ctx.gearLockMsg && ctx.gearLockMsg(); buzz(st, 0.6, 60); return true; }   // #378 GEAR LOCKDOWN: decks and mixer can't be picked up
       const g = ctx.MOVABLE[hit.key];
       if (ctx.flyingMilk && ctx.flyingMilk.has(g)) { ctx.flyingMilk.delete(g); g.rotation.x = 0; g.rotation.z = 0; }   // #200 caught mid-bounce
-      st.direct = { kind: 'move', target: hit.key, stMove: ctx.stage.beginMove(hit.key), p0: P.clone(), pos0: g.position.clone(), yaw0: g.rotation.y, hyaw0: yawOf(handQuat(st, q1)), hq0: handQuat(st, new THREE.Quaternion()) };
+      st.direct = { kind: 'move', lift: !!hit.handle, target: hit.key, stMove: ctx.stage.beginMove(hit.key), p0: P.clone(), pos0: g.position.clone(), yaw0: g.rotation.y, hyaw0: yawOf(handQuat(st, q1)), hq0: handQuat(st, new THREE.Quaternion()) };
       buzz(st); return true;
     }
     return false;
@@ -486,6 +486,10 @@ export function setupXR(ctx) {
     return Math.sign(l.x);
   }
   function hitMovable(P) {
+    for (const k in ctx.cases) {   // #627 the front carry handle first: grip it = carry the case (and the gear on it), lift allowed
+      const c = ctx.cases[k], l = c.group.worldToLocal(v2.copy(P)), hy = c.handleY != null ? c.handleY : c.H - 0.075, hw = (c.handleW || 0.2) / 2 + 0.04;
+      if (Math.abs(l.x) < hw && Math.abs(l.y - hy) < 0.065 && l.z > c.D / 2 - 0.02 && l.z < c.D / 2 + 0.1) return { key: k, handle: true };
+    }
     for (const k of [...Object.keys(GEAR), ...Object.keys(ctx.stage.items).filter(k => /^milk\d$/.test(k))]) {   // + spawned milk crates (#88)
       const o = ctx.MOVABLE[k]; if (!o || !o.visible) continue;   // #235 switched-off pieces can't be grabbed
       // #200 milk crates: the grab box follows the crate's real size (#193 made it longer and taller than the old box), 3 cm
@@ -655,7 +659,7 @@ export function setupXR(ctx) {
       const obj = ctx.MOVABLE[g.target];
       const delta = v2.copy(P).sub(g.p0).applyQuaternion(obj.parent.getWorldQuaternion(q1).invert());
       const isCase = !!ctx.cases[g.target];
-      obj.position.set(g.pos0.x + delta.x, isCase ? g.pos0.y : Math.max(0, g.pos0.y + delta.y), g.pos0.z + delta.z);
+      obj.position.set(g.pos0.x + delta.x, isCase && !g.lift ? g.pos0.y : Math.max(0, g.pos0.y + delta.y), g.pos0.z + delta.z);   // #627 a case carried by its handle can be lifted (tray onto a real table)
       // #604 (owner: turning a deck to battle mode caught and jumped, hit and miss) the turn is the hand's twist about the
       // vertical since the grab (swing-twist of the hand's rotation change), not the yaw of one hand axis: that axis goes
       // near vertical when the wrist rolls or points down, and its yaw then jumped. No pull to fixed angles any more.
@@ -708,7 +712,7 @@ export function setupXR(ctx) {
     else if (g.kind === 'spindle') ctx.spindleRelease(g.d);   // #322
     else if (g.kind === 'pinchHold') ctx.scratchEnd(g.s);   // #325
     else if (g.kind === 'held') { const h = ctx.getHeld(); if (h && h.attach === st.anchor) ctx.releaseHeld(); }
-    else if (g.kind === 'move') { ctx.stage.endMove(g.stMove); if (g.target.startsWith('milk')) ctx.releaseMilk(g.target, g.vel); else ctx.settleStack(g.target); }   // #200 milk: releaseMilk drops / throws / settles it
+    else if (g.kind === 'move') { if (g.lift && ctx.cases[g.target]) { const o = ctx.MOVABLE[g.target]; if (o && o.position.y < 0.05) o.position.y = 0; }   /* #627 let go near the floor: back on it */ ctx.stage.endMove(g.stMove); if (g.target.startsWith('milk')) ctx.releaseMilk(g.target, g.vel); else ctx.settleStack(g.target); }   // #200 milk: releaseMilk drops / throws / settles it
     else if (g.kind === 'lid') ctx.lidRelease();
     else if (g.kind === 'spider') { ctx.spiderRelease(st.anchor); buzz(st, 0.3, 20); }   // #256
     else if (g.kind === 'sleeve') ctx.sleeveRelease(st.anchor);   // #242 let go: it stays there (over the record crate: back in)

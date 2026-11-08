@@ -8721,7 +8721,9 @@ function drawToolsPage() {
   }
   if (page === 'rooms') {   // #626 ROOMS: ROOM HERE, and five saved rooms (portals + frames + eaves / posts, night look, dome + sky, FX, movie props)
     const y0 = head('ROOMS', 'portals'), now = performance.now();
-    btn(L, y0, R - L, P ? 60 : 40, now - roomHereArm < 3000 ? 'TAP AGAIN: ROOM HERE' : 'ROOM HERE  ·  flight case in front of you, decks at their height', now - roomHereArm < 3000, roomHereTap, false, P ? 16 : 15);
+    const trayW = P ? 120 : 170, isTray = cases.caseA && cases.caseA.H <= 0.15;
+    btn(L, y0, R - L - trayW - 8, P ? 60 : 40, now - roomHereArm < 3000 ? 'TAP AGAIN: ROOM HERE' : (P ? 'ROOM HERE' : 'ROOM HERE  ·  flight case in front of you'), now - roomHereArm < 3000, roomHereTap, false, P ? 16 : 15);
+    btn(R - trayW, y0, trayW, P ? 60 : 40, isTray ? 'CASE: TRAY' : 'CASE: FULL', isTray, caseTrayToggle, false, P ? 15 : 15);   // #627
     const list = roomsList(), ry = y0 + (P ? 70 : 46), rh = P ? 56 : 33, bw = P ? 74 : 92;
     for (let i = 0; i < 5; i++) {
       const r = list[i], y = ry + i * (rh + 4), saveArm = roomArm.k === 'save' + i && now - roomArm.t < 3000, loadArm = roomArm.k === 'load' + i && now - roomArm.t < 3000;
@@ -9606,6 +9608,14 @@ function roomHere() {
   rig.position.set(target.x - off.x, rig.position.y, target.z - off.z);
   anchorPending = !!(window.XRFrame && XRFrame.prototype.createAnchor); anchorMsg = anchorPending ? 'pinning…' : 'not pinned';
   toast('Room brought to you: flight case in front' + (anchorPending ? ', pinned to this spot' : ''), 3000); drawMixScreen();
+}
+// #627 CASE: TRAY / FULL (ROOMS page): the flight case shrinks to lid height (10 cm) so it carries the gear like a tray
+// (grip its front handle to lift it onto a real table), or goes back to its full height standing on the floor.
+function caseTrayToggle() {
+  const c = cases.caseA; if (!c) return;
+  if (c.H > 0.15) { try { localStorage.setItem('vire.caseFullH', String(c.H)); } catch {} stage.resize('caseA', c.W, c.D, 0.1); toast('Flight case as a TRAY: grip its front handle to carry the gear, lift it onto a table', 3500); }
+  else { let h = 0.88; try { h = parseFloat(localStorage.getItem('vire.caseFullH')) || 0.88; } catch {} c.group.position.y = 0; stage.resize('caseA', c.W, c.D, h); toast('Flight case back to full height, on the floor', 2500); }
+  stage.save(); drawMixScreen();
 }
 const ROOMS_KEY = 'vire.rooms', ROOM_KEYS = ['vire.portals', 'vire.night', 'vire.dome', 'vire.fx.floats', 'vire.fx.water', 'vire.movieprops', 'vire.movieprops.cam'];
 const ROOM_SET = ['skyMedia', 'skyFile', 'skyH', 'skyTurn', 'skyType', 'skyKey', 'env', 'sky', 'domeLight', 'arSoft', 'panoRate'];
