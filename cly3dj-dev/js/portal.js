@@ -154,7 +154,7 @@ function makeHoloMat() {
 // copies of one pole (one InstancedMesh, one draw). SLAT GAP = the gap between slats; CLEARING pushes them out toward
 // the edges so the middle opens up onto the dome; DIRECTION = slats along the frame's width or height. Each pole gets
 // its own thickness, colour, a little twist and height wobble, and culm nodes every ~30 cm (painted by the shader).
-export const BAMBOO0 = { gap: 0.02, clear: 0.4, dir: 'x', kind: 'bamboo' };   // kind: 'bamboo' poles or 'wood' flat slats
+export const BAMBOO0 = { gap: 0.02, clear: 0.4, dir: 'x', kind: 'bamboo', eaves: false, posts: false };   // #612 eaves = thatch fringe, posts = corner poles to the floor (ceiling frames)   // kind: 'bamboo' poles or 'wood' flat slats
 const BAM_MAX = 160;
 const bamGeo = (() => { const g = new THREE.CylinderGeometry(1, 1, 1, 8, 1, false); g.rotateZ(Math.PI / 2); return g; })();   // unit pole along x
 function makeBambooMat() {
@@ -182,7 +182,7 @@ function makeBambooMat() {
   m.customProgramCacheKey = () => 'bamboo611';
   return m;
 }
-const _bm = new THREE.Matrix4(), _bq = new THREE.Quaternion(), _bp = new THREE.Vector3(), _bs = new THREE.Vector3(), _bc = new THREE.Color(), _bz = new THREE.Vector3(0, 0, 1);
+const _by = new THREE.Vector3(0, 1, 0), _bm = new THREE.Matrix4(), _bq = new THREE.Quaternion(), _bp = new THREE.Vector3(), _bs = new THREE.Vector3(), _bc = new THREE.Color(), _bz = new THREE.Vector3(0, 0, 1);
 const rnd = n => { const x = Math.sin(n * 91.345 + 7.13) * 43758.5453; return x - Math.floor(x); };
 // fill an InstancedMesh: 4 edge poles + slats; positions in frame space (opening plane z = 0, slats a little in front)
 function layBamboo(im, hx, hy, B) {
@@ -203,10 +203,12 @@ function layBamboo(im, hx, hy, B) {
     const r = 0.016 + 0.007 * rnd(i * 2.7 + 11); half.push([y, r, i]);
     const t = 1 - y / Hh; y -= 2 * r + gap * (1 + 12 * B.clear * t * t); i++;
   }
+  im.userData.slats = { along, Hh, list: half.map(([yy, r]) => [yy, r]), v: (im.userData.slats ? im.userData.slats.v : 0) + 1 };   // #612 for NIGHT LOOK moon stripes (mirrored +-)
   for (const [yy, r, k] of half) for (const sg of [1, -1]) {
     const c = sg * yy, z = 0.085 + (rnd(k * 5.1 + sg) - 0.5) * 0.012, len = 2 * W + 0.12 + (rnd(k + 9) - 0.5) * 0.08;
     if (along) pole((rnd(k * 3.3 + sg) - 0.5) * 0.04, c, z, len, r, 0, k * 13 + sg); else pole(c, (rnd(k * 3.3 + sg) - 0.5) * 0.04, z, len, r, Math.PI / 2, k * 13 + sg);
   }
+  if (B.posts && B.postLen > 0.3) for (const [px, py] of [[hx, hy], [-hx, hy], [hx, -hy], [-hx, -hy]]) { if (n >= BAM_MAX) break; _bq.setFromAxisAngle(_by, -Math.PI / 2); _bp.set(px, py, B.postLen / 2); _bs.set(B.postLen, 0.045, 0.045); im.setMatrixAt(n, _bm.compose(_bp, _bq, _bs)); _bc.setRGB(0.36, 0.27, 0.13); im.setColorAt(n, _bc); n++; }   // #612 corner posts down to the floor
   im.count = n; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
 }
 // #598 WOOD slats (BAMBOO section, SLATS: WOOD): flat boards with procedural grain -- no texture file. Growth rings
@@ -267,12 +269,59 @@ function layWood(im, hx, hy, B) {
     const w = 0.085 + 0.02 * rnd(i * 2.7 + 11); half.push([y - w / 2, w, i]);
     const t = 1 - y / Hh; y -= w + gap * (1 + 12 * B.clear * t * t); i++;
   }
+  im.userData.slats = { along, Hh, list: half.map(([yy, w]) => [yy, w / 2]), v: (im.userData.slats ? im.userData.slats.v : 0) + 1 };   // #612
   for (const [yy, w, k] of half) for (const sg of [1, -1]) {
     const c = sg * yy, z = 0.1 + (rnd(k * 5.1 + sg) - 0.5) * 0.006, len = 2 * W + 0.1 + (rnd(k + 9) - 0.5) * 0.06, th = 0.018;
     if (along) board((rnd(k * 3.3 + sg) - 0.5) * 0.04, c, z, len, w, th, 0, k * 13 + sg); else board(c, (rnd(k * 3.3 + sg) - 0.5) * 0.04, z, len, w, th, Math.PI / 2, k * 13 + sg);
   }
+  if (B.posts && B.postLen > 0.3) for (const [px, py] of [[hx, hy], [-hx, hy], [hx, -hy], [-hx, -hy]]) { if (n >= BAM_MAX) break; _bq.setFromAxisAngle(_by, -Math.PI / 2); _bp.set(px, py, B.postLen / 2); _bs.set(B.postLen, 0.08, 0.08); im.setMatrixAt(n, _bm.compose(_bp, _bq, _bs)); _bc.setRGB(0.8, 0.75, 0.68); im.setColorAt(n, _bc); n++; }   // #612
   im.count = n; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
 }
+// #612 THATCH EAVES: two staggered rows of dry palm-leaf cards hanging from the roof's edge into the room (frame +z),
+// leaf shape cut in the shader with alpha-to-coverage (soft edges with the headset's MSAA), one InstancedMesh, 1 draw.
+const FR_MAX = 600;
+const frGeo = (() => { const g = new THREE.PlaneGeometry(1, 1); g.translate(0, -0.5, 0); return g; })();   // top edge at the origin, hangs along -y
+function makeFringeMat() {
+  const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0, side: THREE.DoubleSide, alphaToCoverage: true, transparent: false });
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uGradeA = GRADE.uGradeA; sh.uniforms.uGradeB = GRADE.uGradeB;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vFu; varying float vFs;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFu = uv; vFs = fract(sin(dot(instanceMatrix[3].xyz, vec3(12.9, 78.2, 37.7))) * 43758.5);');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec4 uGradeA; uniform vec3 uGradeB; varying vec2 vFu; varying float vFs;')
+      .replace('#include <map_fragment>', `
+        float x = vFu.x - 0.5, y = vFu.y;                              // y = 1 at the roof edge, 0 at the tip
+        float strands = abs(fract(vFu.x * 7.0 + vFs * 3.0) - 0.5);     // the frond splits into strips
+        float w = 0.5 * (0.35 + 0.65 * y) - (1.0 - y) * 0.12 * step(0.38, strands);
+        float rag = 0.06 * sin(vFu.x * 41.0 + vFs * 20.0);
+        float a = smoothstep(0.0, 0.03, w - abs(x)) * smoothstep(0.0, 0.05, y + rag - 0.02);
+        vec3 c = mix(vec3(0.30, 0.22, 0.11), vec3(0.50, 0.40, 0.22), y) * (0.8 + 0.4 * vFs) * (0.85 + 0.15 * step(0.25, strands));
+        diffuseColor.rgb *= c; diffuseColor.a = a;`)
+      .replace('#include <tonemapping_fragment>', `{ vec3 c = gl_FragColor.rgb * uGradeA.x * uGradeB; float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = max(mix(vec3(l), c, uGradeA.z), 0.0); gl_FragColor.rgb = 0.18 * pow(c / 0.18 + 1e-5, vec3(uGradeA.y)); }\n#include <tonemapping_fragment>`);
+  };
+  m.customProgramCacheKey = () => 'fringe612';
+  return m;
+}
+const _fX = new THREE.Vector3(), _fY = new THREE.Vector3(0, 0, -1), _fZ = new THREE.Vector3(), _fR = new THREE.Matrix4();
+function layFringe(im, hx, hy) {
+  let n = 0;
+  const edge = (ax, ay, bx, by, out) => {   // from a to b, leaning outward along `out`
+    const L = Math.hypot(bx - ax, by - ay), steps = Math.floor(L / 0.045);
+    _fX.set((bx - ax) / L, (by - ay) / L, 0);
+    for (let row = 0; row < 2; row++) for (let i = 0; i <= steps; i++) {
+      if (n >= FR_MAX) return;
+      const t = (i + (row ? 0.5 : 0)) / steps, sd = rnd(n * 1.7 + row * 31), hgt = (row ? 0.24 : 0.3) + 0.1 * sd;
+      _fZ.crossVectors(_fX, _fY).normalize();
+      _fR.makeBasis(_fX, _fY, _fZ); _bq.setFromRotationMatrix(_fR);
+      _bq.multiply(new THREE.Quaternion().setFromAxisAngle(_bx1, 0.18 + 0.12 * sd + row * 0.1));   // lean outward
+      _bp.set(ax + (bx - ax) * t + out[0] * (0.03 + row * 0.02), ay + (by - ay) * t + out[1] * (0.03 + row * 0.02), 0.03 + row * 0.015);
+      _bs.set(0.075 + 0.02 * sd, hgt, 1);
+      im.setMatrixAt(n, _bm.compose(_bp, _bq, _bs)); _bc.setRGB(1, 1, 1); im.setColorAt(n, _bc); n++;
+    }
+  };
+  const e = 0.04; edge(-hx - e, hy, hx + e, hy, [0, 1]); edge(hx + e, -hy, -hx - e, -hy, [0, -1]); edge(hx, hy, hx, -hy, [1, 0]); edge(-hx, -hy, -hx, hy, [-1, 0]);
+  im.count = n; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
+}
+const _bx1 = new THREE.Vector3(1, 0, 0);
 function makeTrimMat() {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0 });
   m.userData.uGlow = { value: new THREE.Color(0, 0, 0) };
@@ -443,8 +492,11 @@ class PortalFrame {
   setStyle(st) { const h = st === 'holo', b = st === 'bamboo'; if (h === !!this.holo && b === !!this.bamboo) return; this.holo = h; this.bamboo = b; this._fit(); }   // #598 iron / holo / bamboo
   _bamFit() {
     const B = this.set.bamboo, wood = B.kind === 'wood';
-    if (this.bm) this.bm.visible = false; if (this.wm) this.wm.visible = false;
+    if (this.bm) this.bm.visible = false; if (this.wm) this.wm.visible = false; if (this.fm) this.fm.visible = false;
     if (!this.bamboo) return;
+    { const zr = _v.set(0, 0, 1).applyQuaternion(this.obj.quaternion); B.postLen = zr.y < -0.7 ? this.obj.position.y / -zr.y - 0.05 : 0; }   // #612 posts only for a ceiling frame (facing down)
+    if (B.eaves) { if (!this.fm) { this.fm = new THREE.InstancedMesh(frGeo, makeFringeMat(), FR_MAX); this.fm.raycast = () => {}; this.fm.frustumCulled = false; this.obj.add(this.fm); this.fm.setColorAt(0, new THREE.Color(1, 1, 1)); }
+      layFringe(this.fm, this.half.x, this.half.y); this.fm.visible = true; }
     const mk = (geo, mat) => { const im = new THREE.InstancedMesh(geo, mat, BAM_MAX); im.raycast = () => {}; im.frustumCulled = false; this.obj.add(im); im.setColorAt(0, new THREE.Color(1, 1, 1)); return im; };
     if (wood) { if (!this.wm) this.wm = mk(woodGeo, makeWoodMat()); layWood(this.wm, this.half.x, this.half.y, B); this.wm.visible = true; }
     else { if (!this.bm) this.bm = mk(bamGeo, makeBambooMat()); layBamboo(this.bm, this.half.x, this.half.y, B); this.bm.visible = true; }
@@ -500,7 +552,7 @@ class PortalFrame {
     this.obj.scale.set(1, 1, 1);
     if (this.door) this._floor();
   }
-  release() { this.held = false; if (this.door) this._floor(); this.save(); }
+  release() { this.held = false; if (this.door) this._floor(); if (this.bamboo) this._bamFit(); this.save(); }   // #612 posts follow the roof's height
   save() { this._g = null; this._edge = null; this.set.save(); }
   place(h) { this.obj.position.copy(h.p); this.obj.quaternion.setFromAxisAngle(_y, h.yaw); this.obj.scale.set(1, 1, 1); if (this.door) this._floor(); }
   // #586 placement laser (movieprops.js Placer): aim box, size by the stick, keep a doorway on the floor after each move

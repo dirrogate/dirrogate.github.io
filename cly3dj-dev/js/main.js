@@ -23,7 +23,8 @@ import { InkLabel } from './inklabel.js';   // #394 milk crate labels
 import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
 import { Portals, GRADE0, HOLO_ORDER, SHAPE_OF, SHAPE_LABEL, HMIN as P_HMIN, HMAX as P_HMAX } from './portal.js';
 import { MasterRec } from './recmaster.js';   // #598 REC MASTER: the clean master to a WAV file
-import { RoomSnap, SNAP_IN, SNAP_OUT } from './roomsnap.js';   // #592 Space Setup planes for portal frames   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
+import { RoomSnap, SNAP_IN, SNAP_OUT } from './roomsnap.js';
+import { NightLook } from './night.js';   // #612 NIGHT LOOK   // #592 Space Setup planes for portal frames   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
 import { Beat } from './beat.js';   // #346 bass onsets on the master for the wall's BEAT
 import { DirroHost, initRelayFromUrl, fanUrl, relayUrl, roomKey, WALL_SRC, WALL_LABEL, WALL_COLS } from './dirro-host.js';   // #427 DIRROGRAM: the show to the audience phones
@@ -1330,6 +1331,17 @@ function domeLightTick() {
   applyArLook(); applySkyTurn();
 }
 setInterval(domeLightTick, 1500);
+// #612 NIGHT LOOK (PORTALS SETUP > NIGHT LOOK): the real room as night under the dome (night.js). The moon comes from
+// the dome picture's brightest spot, turned with the dome; it shines in through the PANO frames (stripes under slats).
+const night = portals && !CAMERA_ROLE ? new NightLook(rig, portals, camera) : null;
+let nightMoonKey = '', nightMoon = null;
+function nightMoonDir() {
+  if (!dome.on || !skybox.tex) return null;
+  if (skybox.tex.uuid !== nightMoonKey) { nightMoonKey = skybox.tex.uuid; try { const src = skybox.lightStill || null; nightMoon = src ? brightestDir(src) : skyKeyLight; } catch (e) { nightMoon = skyKeyLight; } }
+  if (!nightMoon) return null;
+  const d = nightMoon.dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), settings.skyTurn * DEG + skySpin.ang + dome.turn * DEG);
+  if (d.y < 0.08) d.y = 0.08; return d.normalize();
+}
 let wallTapT = 0, portalTapT = 0, portalDefArm = 0, beat = null, domeBoot = true;
 const _laserCam = new THREE.Vector3();   // #406
 function wallTap() {   // tap = backdrop on / off; double-tap = back to its start spot and mode
@@ -6238,7 +6250,7 @@ const PINCH_FIT_DEF = {
 };
 // #513 the TV's address, from where this page runs (cabin.dirrodj.club/ = the cly3dj-dev folder on Cloudflare; github.io/cly3dj/ ...); no 'https://'
 const venueUrl = () => new URL('venue.html', location.href).href.replace(/[?#].*$/, '').replace(/^https?:\/\//, '');
-const TOOLS_NAME = { acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530 / Gemini_acid
+const TOOLS_NAME = { acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530 / Gemini_acid
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -8282,6 +8294,44 @@ function drawToolsPage() {
     wrapText(g, (PS.on ? '' : 'PORTALS are off: turn them on to see the frames. ') + help, L + 2, yt, R - L - 4, P ? 19 : 17, 4);
     return;
   }
+  if (page === 'night') {   // #612 NIGHT LOOK: presets, layers on / off, strengths, tint and glow colours
+    const y0 = head('NIGHT LOOK', 'portals'), N = night;
+    if (!N) { note('Night look runs on the headset.', y0 + 20); return; }
+    const S = N.S, redraw = () => drawMixScreen();
+    const pw = (R - L - 16) / 3;
+    [['off', 'OFF'], ['goa', 'GOA NIGHT'], ['cyber', 'CYBER FULL MOON']].forEach(([k, lb], i) => btn(L + i * (pw + 8), y0, pw, 32, lb, k === 'off' ? !S.on : S.on && S.preset === k, () => { N.preset(k); redraw(); }, false, 14));
+    const B = portals.bamboo, tg = [
+      [S.on ? 'NIGHT: ON' : 'NIGHT', S.on, () => N.set('on', !S.on)], ['GRADE', S.grade, () => N.set('grade', !S.grade)], ['MOON LIGHT', S.moon, () => N.set('moon', !S.moon)],
+      ['MOON STRIPES', S.stripes, () => N.set('stripes', !S.stripes)], ['GLOW', S.glow, () => N.set('glow', !S.glow)],
+      ['THATCH EAVES', !!B.eaves, () => portals.setBamboo('eaves', !B.eaves)], ['CORNER POSTS', !!B.posts, () => portals.setBamboo('posts', !B.posts)], ['ROOM MESH', S.mesh, () => N.set('mesh', !S.mesh)]];
+    const tc = P ? 2 : 4, tw = (R - L - (tc - 1) * 6) / tc, th = P ? 40 : 30, ty = y0 + 38;
+    tg.forEach(([lb, on, act], i) => btn(L + (i % tc) * (tw + 6), ty + Math.floor(i / tc) * (th + 5), tw, th, lb, on, () => { act(); redraw(); }, false, P ? 15 : 13));
+    const st = (k, d, step, lo, hi) => N.set(k, clamp(Math.round((S[k] + d * step) / step) * step, lo, hi));
+    const cells = [
+      ['GRADE STRENGTH', Math.round(S.str * 100) + '%', d => st('str', d, 0.05, 0, 0.9)], ['STRIPE SOFTNESS', ['SHARP', 'SOFT', 'VERY SOFT'][S.soft] || 'SOFT', d => st('soft', d, 1, 0, 2)],
+      ['KEEP CLEAR', S.clear.toFixed(1) + ' m', d => st('clear', d, 0.1, 0, 2)], ['LIGHT FROM', S.src === 'dome' ? 'DOME MOON' : 'OVERHEAD', () => N.set('src', S.src === 'dome' ? 'top' : 'dome')],
+      ['GLOW FROM', S.gdir + '°', d => N.set('gdir', (S.gdir + d * 45 + 360) % 360)], ['GLOW STRENGTH', Math.round(S.gstr * 100) + '%', d => st('gstr', d, 0.05, 0, 1.5)]];
+    const cc = P ? 2 : 3, cw = (R - L - (cc - 1) * 8) / cc, ch = P ? 50 : 40, cy = ty + Math.ceil(tg.length / tc) * (th + 5) + 2;
+    cells.forEach(([label, val, act], i) => {
+      const x = L + (i % cc) * (cw + 8), y = cy + Math.floor(i / cc) * (ch + 4), by = y + 13, bh = ch - 13, bw = 38;
+      g.fillStyle = '#8c96a8'; g.font = '700 11px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 10);
+      btn(x, by, bw, bh, '−', false, () => { act(-1); redraw(); });
+      let fs = 15; g.font = `700 ${fs}px system-ui`; while (fs > 10 && g.measureText(val).width > cw - 2 * bw - 6) g.font = `700 ${--fs}px system-ui`;
+      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + cw / 2, by + bh / 2); g.textBaseline = 'alphabetic';
+      btn(x + cw - bw, by, bw, bh, '+', false, () => { act(1); redraw(); });
+    });
+    // colour sliders (hue) with a swatch
+    const sy = cy + Math.ceil(cells.length / cc) * (ch + 4) + 2, sw = P ? R - L : (R - L - 8) / 2, sh = P ? 40 : 34;
+    const swatch = (x, y, h, hue, sat) => { g.fillStyle = `hsl(${hue}, ${Math.round(sat * 100)}%, 50%)`; g.fillRect(x, y + 6, 36, h - 12); };
+    tSlider(g, L, sy, sw - 44, sh, 'TINT HUE', S.hue / 359, S.hue + '°', v => { N.set('hue', Math.round(v * 359)); }, false, 96); swatch(L + sw - 40, sy, sh, S.hue, S.sat);
+    const gx = P ? L : L + sw + 8, gy = P ? sy + sh + 6 : sy;
+    tSlider(g, gx, gy, sw - 44, sh, 'GLOW HUE', S.ghue / 359, S.ghue + '°', v => { N.set('ghue', Math.round(v * 359)); }, false, 96); swatch(gx + sw - 40, gy, sh, S.ghue, 0.85);
+    const yt = (P ? gy : sy) + sh + 14;
+    g.textAlign = 'left'; g.font = `500 ${P ? 13 : 12}px system-ui`; g.fillStyle = S.on ? '#7fd88f' : '#8c96a8';
+    const surf = !S.mesh ? 'ROOM MESH off: floor + shell' : N.hasMesh ? `room mesh ${Math.round(N.meshTris).toLocaleString()} tris` : 'no room mesh yet (Passthrough + Space Setup): floor + shell';
+    g.fillText(`${S.on ? 'On' : 'Off'} · ${surf} · moon ${S.src !== 'dome' ? 'overhead' : dome.on && skybox.tex ? 'from the dome' : 'needs DOME on'} · stripes from BAMBOO frames (PANO type)`, L + 2, yt);
+    return;
+  }
   if (page === 'portals') {   // #346 PORTALS SETUP: the real-world windows, the wall they cut, the sky dome behind it
     const y0 = head(P ? 'PORTALS' : 'PORTALS SETUP', 'vj'), WL = facetWall, PS = portals;
     if (!WL || !PS) { note('Portals run on the headset (not on the phone).', y0 + 20); return; }
@@ -8295,7 +8345,8 @@ function drawToolsPage() {
       [settings.domeLight !== false ? 'DOME LIGHT: ON' : 'DOME LIGHT', settings.domeLight !== false, () => { settings.domeLight = settings.domeLight === false; saveSettings(); domeLightTick(); toast(settings.domeLight ? 'DOME LIGHT: the dome\'s sky lights the gear and frames' : 'DOME LIGHT off: Settings > Lighting', 2200); drawMixScreen(); }],   // #611
       [`SCREEN: ${({ cyclo: 'CYCLO', image: 'IMAGE', video: 'VIDEO' })[PS.scrSrc.src] || 'CYCLO'} ⟳`, PS.screenN > 0, pScrStep],   // #589 the one feed every SCREEN frame shows
       [settings.roomSnap !== false ? 'ROOM SNAP: ON' : 'ROOM SNAP: OFF', settings.roomSnap !== false, roomSnapToggle],   // #598 owner: snap can be switched off
-      ['FRAME LOOK ›', JSON.stringify(PS.grade) !== JSON.stringify(GRADE0), () => setTools('pgrade')],   // #597 colour-match the frames to the room   // #592 FRAME on the ceiling
+      ['FRAME LOOK ›', JSON.stringify(PS.grade) !== JSON.stringify(GRADE0), () => setTools('pgrade')],
+      ['NIGHT LOOK ›', !!(night && night.S.on), () => setTools('night')],   // #612   // #597 colour-match the frames to the room   // #592 FRAME on the ceiling
       [defArm ? 'TAP AGAIN' : 'DEFAULTS', defArm, portalDefaults],
     ];
     const cells = [
@@ -9426,7 +9477,8 @@ function frameBody() {
       toast(`Beacon ${k === 'L' ? 'LEFT' : 'RIGHT'} marked`, 2000); xr.buzz && xr.buzz(st, 0.6, 60); break;
     }
   }
-  if (portals) { if (!portals.feed) portals.feed = portalFeed; portals.tick(); }   // #345 #346 (#589 screen feed)
+  if (portals) { if (!portals.feed) portals.feed = portalFeed; portals.tick(); }
+  if (night && night.S.on) night.tick(renderer.xr.isPresenting ? renderer.xr.getFrame() : null, renderer.xr.isPresenting ? renderer.xr.getReferenceSpace() : null, dt, nightMoonDir());   // #612   // #345 #346 (#589 screen feed)
   if (domeBoot) { domeBoot = false; if (dome.on && !CAMERA_ROLE) setDome(true); }   // #346 a dome left on last time: load its sky once everything is up
   if (skySpin.speed > 0 && skybox.group.visible) { skySpin.ang = (skySpin.ang + skySpin.speed * DEG * dt) % (2 * Math.PI); applySkyTurn(); }   // #379 PANO SPIN
   if (mprops) mprops.tick(dt);   // #478
@@ -9555,7 +9607,7 @@ async function begin(mode) {
     const base = ['local-floor', 'bounded-floor', 'hand-tracking', 'anchors'];   // #210 anchors
     let session = null;
     if (mode === 'immersive-ar') {   // #411 (#408 depth test): Quest 3 depth for occlusion, Space Setup planes for the laser
-      try { session = await navigator.xr.requestSession(mode, { optionalFeatures: [...base, 'depth-sensing', 'plane-detection'], depthSensing: { usagePreference: ['gpu-optimized'], dataFormatPreference: ['luminance-alpha', 'float32'] } }); }
+      try { session = await navigator.xr.requestSession(mode, { optionalFeatures: [...base, 'depth-sensing', 'plane-detection', 'mesh-detection'], depthSensing: { usagePreference: ['gpu-optimized'], dataFormatPreference: ['luminance-alpha', 'float32'] } }); }
       catch (e) { console.warn('depth / planes refused, plain passthrough', e); }
     }
     if (!session) session = await navigator.xr.requestSession(mode, { optionalFeatures: base });
@@ -10038,4 +10090,4 @@ if (CAMERA_ROLE) {
   import('./spectator-client.js').then(m => m.startCamera({ THREE, renderer, scene, camera, rig, room, stage, cases, decks, deckInst, neon,
     newMilk, stepWallGlow, stepBlobs, Record3D, BG, led, scroller, skybox, envLight, key, crateRemote })).catch(e => { document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;top:0;left:0;right:0;color:#fbb;background:#300;padding:8px;z-index:99">${new URLSearchParams(location.search).get('vj') === '1' ? 'DirroVJ' : 'Camera page'} failed: ${e.message}</pre>`); });
 }
-window.vire._dl = { domeLightOn, domeLightTick, envLight, get key() { return domeLitKey; } };   // #611 test hook
+window.vire._dl = { domeLightOn, domeLightTick, envLight, night, get key() { return domeLitKey; } };   // #611 / #612 test hook
