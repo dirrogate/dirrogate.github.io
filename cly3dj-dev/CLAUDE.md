@@ -2051,3 +2051,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Reels: trigger (hands: pinch) within 9 mm of a reel grabs it (tested before the cassette grip, so a pinch on a reel turns it); the wrist twist about the tablet face turns it (jitter under 0.004 rad ignored), same nudge as the finger drag (acidReelTurn), let go = locked again.
 - PREVIEW lid stays out of the top edge on the ACID page (pvWantDir 'up'). TRAY tap now acts on release, so holding it to eject doesn't also open / close the tray (flag acidTrayHeld; the hit objects are rebuilt each redraw).
 - Checked in the PC pane with the force hook: 12 cassettes on the tray lid, grip -> drop in the well loads it (side A), reel found and nudge +10 % then back to 0, hold TRAY pops it up with the tray left open; screenshots of the 3D tray and the popped cassette look right. NOT tried on the Quest (grip feel, drop distance, twist strength). sw.js v129. No Node restart. Backup backups/pre621/. dev only.
+
+## #622 Translucent cassette shells, 25 % thinner (owner, 8 Nov)
+- Box edges: clear smoky plastic (MeshStandard 0xd4d8de, opacity 0.42, roughness 0.18, no depth write); faces keep the picture's own alpha (transparent, alphaTest 0.02), so the see-through shell and hub holes stay see-through. Thickness 5 -> 3.75 mm.
+- A mid-line `//` comment again swallowed a closing brace (the browser failed with 'Unexpected end of input'). LESSON: check every JS file as an ES MODULE (copy to /tmp/x.mjs, node --check); a plain `node --check file.js` parses it as a script and missed this. All ACID files re-checked as modules.
+- Checked in the PC pane (force hook): popped cassette shows through, edges translucent. sw.js v130. dev only. No Node restart.

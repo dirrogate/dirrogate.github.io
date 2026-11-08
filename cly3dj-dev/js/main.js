@@ -7082,20 +7082,19 @@ function trayRelease() {
 // front and side B on the back. They sit over their pictures in the TRAY on the PREVIEW screen; grip one out, drop it
 // into the well (front = side A facing you, turned over = side B) and it loads. The loaded one sits in the well;
 // hold TRAY = it pops up to be gripped out; dropped anywhere else it goes back to the tray.
-const CASS3_W = 244 * 0.19 / 1680, CASS3_H = 160 * 0.075 / 663, CASS3_T = 0.005;
+const CASS3_W = 244 * 0.19 / 1680, CASS3_H = 160 * 0.075 / 663, CASS3_T = 0.00375;   // #622 sides 25 % thinner (was 5 mm)
 const CAS3D = { up: false, meshes: new Map(), held: null, popped: null, geo: null, edge: null, layoutDirty: true, force: false };
 const _c3v = new THREE.Vector3(), _c3v2 = new THREE.Vector3(), _c3q = new THREE.Quaternion(), _c3e = new THREE.Euler();
 const plateLocal = (px, py, z = 0) => _c3v.set((px / 1680 - 0.5) * 0.19, (0.5 - py / 663) * 0.075, z);
 function cassTex(t, side) {
   const c = document.createElement('canvas'); c.width = 320; c.height = 210; const x = c.getContext('2d');
-  x.fillStyle = '#a3a7ae'; x.fillRect(0, 0, 320, 210);   // the picture's see-through corners and hub holes read as grey plastic, not black
   if (cassImg.complete && cassImg.naturalWidth) drawCassette(x, t, side, 0, 0, 320, 210);
   const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 4; return tx;
 }
 function cassMesh(t) {
   let m = CAS3D.meshes.get(t); if (m) return m;
-  if (!CAS3D.geo) { CAS3D.geo = new THREE.BoxGeometry(CASS3_W, CASS3_H, CASS3_T); CAS3D.edge = new THREE.MeshStandardMaterial({ color: 0xb9bdc4, roughness: 0.45, metalness: 0.1 }); }
-  const face = side => new THREE.MeshBasicMaterial({ map: cassTex(t, side), toneMapped: false });
+  if (!CAS3D.geo) { CAS3D.geo = new THREE.BoxGeometry(CASS3_W, CASS3_H, CASS3_T); CAS3D.edge = new THREE.MeshStandardMaterial({ color: 0xd4d8de, roughness: 0.18, metalness: 0, transparent: true, opacity: 0.42, depthWrite: false }); }   // #622 edges: clear smoky plastic, like the picture's shell
+  const face = side => new THREE.MeshBasicMaterial({ map: cassTex(t, side), toneMapped: false, transparent: true, alphaTest: 0.02 });   // #622 the picture's see-through shell and hub holes stay see-through
   m = new THREE.Mesh(CAS3D.geo, [CAS3D.edge, CAS3D.edge, CAS3D.edge, CAS3D.edge, face('A'), face('B')]);   // box faces: +x -x +y -y +z(A) -z(B)
   m.userData.tape = t; m.visible = false; m.raycast = () => {}; padCull(m);
   CAS3D.meshes.set(t, m); return m;
