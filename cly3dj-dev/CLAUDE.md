@@ -2056,3 +2056,6 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Box edges: clear smoky plastic (MeshStandard 0xd4d8de, opacity 0.42, roughness 0.18, no depth write); faces keep the picture's own alpha (transparent, alphaTest 0.02), so the see-through shell and hub holes stay see-through. Thickness 5 -> 3.75 mm.
 - A mid-line `//` comment again swallowed a closing brace (the browser failed with 'Unexpected end of input'). LESSON: check every JS file as an ES MODULE (copy to /tmp/x.mjs, node --check); a plain `node --check file.js` parses it as a script and missed this. All ACID files re-checked as modules.
 - Checked in the PC pane (force hook): popped cassette shows through, edges translucent. sw.js v130. dev only. No Node restart.
+
+## #623 Smokier cassette shells (owner, 8 Nov: 'at least 45 % more smoky')
+- Edges opacity 0.42 -> 0.61 (+45 %), colour 0xd4d8de -> 0xa4a9b1 (darker smoke); faces get a smoke layer rgba(72,76,84,0.36) behind the picture, so the see-through shell and hub holes read as smoked plastic instead of clear. sw.js v131. dev only. Module-checked. No Node restart.

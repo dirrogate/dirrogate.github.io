@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v130';   // #622 translucent cassette shells, 25 % thinner
+const CACHE = 'vire-app-v131';   // #623 smokier cassette shells
+// v130:   // #622 translucent cassette shells, 25 % thinner
 // v129:   // #621 3D micro-cassettes (grip from the tray, drop in the well, flip = side B, eject pops up), trigger reel nudge
 // v128:   // #620 reel nudge shows: hubs follow the finger, BPM readouts include the nudge
 // v127:   // #619 ACID micro-cassettes: factory tapes, TRAY on PREVIEW, load / flip / eject
