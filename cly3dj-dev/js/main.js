@@ -1371,6 +1371,8 @@ async function setDome(on) {   // the sky picked on VISUALS (PANO > SKY) as a do
 function setDomeTurn(a) { dome.turn = clamp(Math.round(a), 0, 359); saveDome(); applySkyTurn(); drawMixScreen(); }   // #389 PORTALS SETUP > DOME TURN
 function setDomeEv(ev) { dome.ev = Math.min(1, Math.max(-3, Math.round(ev * 4) / 4)); saveDome(); skybox.setExposure(dome.ev); drawMixScreen(); }   // #404
 skybox.setExposure(dome.ev);
+function setDomeCon(k) { dome.con = Math.min(1.8, Math.max(0.5, Math.round(k * 20) / 20)); saveDome(); skybox.setContrast(dome.con); drawMixScreen(); }   // #629 DOME CONTRAST
+skybox.setContrast(dome.con || 1);
 function setDomeSize(r) { dome.r = Math.min(20, Math.max(3, Math.round(r))); saveDome(); applySky(); }
 function portalDefaults() {   // two taps: wall shape, fractal speed / colour cycle and dome size back to their defaults
   if (performance.now() - portalDefArm < 3000) {
@@ -5843,6 +5845,7 @@ function readout(d, st) {
 // #222 long press on the tablet (trigger / pinch / fingertip held 0.6 s): on a VIDEO page thumbnail it offers delete
 let screenHold = null, holdSeq = 0, vpDel = null;
 let screenDrag = null;   // #422 the slider being dragged on the tablet
+function mixScreenDragging() { return !!screenDrag; }   // #629 xr.js: did the press grab a slider?
 function mixScreenRelease() { const d = screenDrag; screenHold = null; screenDrag = null; if (d && d.release) { d.release(); drawMixScreen(); } }   // #607 detented knobs step on a tap's release
 function scrUvPx(uv) { const c = scr().canvas; return [(scrDir === 'px' ? 1 - uv.y : scrDir === 'nx' ? uv.y : uv.x) * (c.lw || c.width), (scrDir === 'px' ? 1 - uv.x : scrDir === 'nx' ? uv.x : 1 - uv.y) * (c.lh || c.height)]; }
 function mixScreenDrag(uv) {   // #422 finger still on the screen (XR) / mouse held (desktop): a grabbed slider follows it
@@ -5866,7 +5869,7 @@ async function deleteMedia(folder, name) {   // remove from this headset's libra
   if (vpSel === name) vpSel = null; vpDel = null;
   toast(`Deleted ${name}`, 2000); vpLoad();
 }
-function mixScreenPress(uv) {
+function mixScreenPress(uv, trig) {   // #629 trig: undefined = mouse / desktop (old behaviour), true / false = the controller's trigger
   if (!uv) return;
   // #198 portrait: the canvas is turned 90 deg on the screen, so map the screen's uv back onto it
   const c = scr().canvas;
@@ -5876,6 +5879,7 @@ function mixScreenPress(uv) {
   if (videoPage || toolsPage) {   // #224 the TOOLS pages use the same tap list
     const b = VP_HIT.find(h => px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h);
     if (vpDel && !(b && b.del)) vpDel = null;   // any other tap closes the delete offer
+    if (b && b.drag && trig === false) { screenHold = null; if (performance.now() - (mixScreenPress.hintT || 0) > 4000) { mixScreenPress.hintT = performance.now(); toast('Hold the TRIGGER to move a slider; let go to stop', 1800); } return true; }   // #629
     if (b) { b.act(px, py); if (b.drag) screenDrag = b; } drawMixScreen(); return true;   // #353 the tap point, for the CROP picture; #422 sliders keep dragging
   }   // #185
   // #164 spectator strip: MR GUI (helpers on/off) and CELL REC (phone goes clean for recording)
@@ -8260,7 +8264,7 @@ function drawToolsPage() {
     ];
     const cell = ([label, val, act], x, y, w, h) => {
       g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
-      const by = y + 15, bh = h - 15, bw = 40;
+      const by = y + 15, bh = h - 15, bw = Math.min(40, Math.round(w * 0.27));   // #629 narrower cells: smaller - / +
       btn(x, by, bw, bh, '−', false, () => { act(-1); drawMixScreen(); });
       let fs = 17; g.font = `700 ${fs}px system-ui`; while (fs > 11 && g.measureText(val).width > w - 2 * bw - 6) g.font = `700 ${--fs}px system-ui`;
       g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + w / 2, by + bh / 2); g.textBaseline = 'alphabetic';
@@ -8768,6 +8772,7 @@ function drawToolsPage() {
       ['DISTANCE', `${WL.val('r').toFixed(2)} m`, d => WL.step('r', d)],
       ['DOME SIZE', `${dome.r} m`, d => setDomeSize(dome.r + d)],
       ['DOME EXPOSURE', `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)} EV`, d => setDomeEv(dome.ev + d * 0.25)],   // #404 tame blown-out panos
+      ['DOME CONTRAST', (dome.con || 1).toFixed(2), d => setDomeCon((dome.con || 1) + d * 0.05)],   // #629
       ['FRACTAL SPEED', `${WL.val('speed')}x`, d => WL.step('speed', d)],
       ['COLOUR CYCLE', `${WL.val('cycle')}x`, d => WL.step('cycle', d)],
       ['FRAME', `${PS.edit + 1} of ${PS.n}`, d => PS.setEdit(PS.edit + d)],   // #586 which frame TYPE sets (it blinks white)
@@ -8803,9 +8808,9 @@ function drawToolsPage() {
     } else {
       const per = Math.ceil(toggles.length / 2), tw = (R - L - 6 * (per - 1)) / per;   // #626 two rows
       toggles.forEach(([lb, on, act], i) => btn(L + (i % per) * (tw + 6), y0 + Math.floor(i / per) * 38, tw, 34, lb, on, act, false, 13));
-      const cw = (R - L - 32) / 5, y1 = y0 + 78;   // #598 five across (STYLE added), the TURN slider in the slot after the last cell
-      cells.forEach((c, i) => cell(c, L + (i % 5) * (cw + 8), y1 + Math.floor(i / 5) * 48, cw, 44));
-      { const i = cells.length; tSlider(g, L + (i % 5) * (cw + 8), y1 + Math.floor(i / 5) * 48 + 4, cw, 40, 'TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on, 52); }   // #389 (#586 third row, right of FRAME / TYPE / TRIM LIGHT)
+      const NC = 6, cw = (R - L - 8 * (NC - 1)) / NC, y1 = y0 + 78;   // #629 six across (DOME CONTRAST added), the TURN slider in the slot after the last cell
+      cells.forEach((c, i) => cell(c, L + (i % NC) * (cw + 8), y1 + Math.floor(i / NC) * 48, cw, 44));
+      { const i = cells.length; tSlider(g, L + (i % NC) * (cw + 8), y1 + Math.floor(i / NC) * 48 + 4, cw, 40, 'TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on, 56); }   // #389 (#586 third row, right of FRAME / TYPE / TRIM LIGHT)
       text(L + 2, y1 + 3 * 48 + 10, R - L - 4, 14, 1, 11);   // #626 one line under the taller toggle block
     }
     return;
@@ -10077,7 +10082,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease, spiderGrabTest, spiderGrab, spiderRelease,
   crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, holdLooper, crateSelect, crateWalkStep, drawCrateScreen, layoutSleeves, crateDisc,
   // #591 A no longer pulls the GoPro to the hand: the B placement laser picks it up (grip) and pushes / pulls it (stick)
-  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, toast, mixScreenRelease, mixScreenDrag,
+  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, toast, mixScreenRelease, mixScreenDrag, mixScreenDragging,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
 });

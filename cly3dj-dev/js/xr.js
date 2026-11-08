@@ -786,8 +786,18 @@ export function setupXR(ctx) {
     {
       const ms = ctx.mixer.userData.screen, l = ms.worldToLocal(v2.copy(T));
       const sw = ms.geometry.parameters.width, sh = ms.geometry.parameters.height;
-      const inside = Math.abs(l.x) < sw / 2 && Math.abs(l.y) < sh / 2, armed = st.poke.get(ms) !== false;
-      if (inside && l.z < 0.006 && l.z > -0.015) { if (armed && ctx.mixScreenPress({ x: l.x / sw + 0.5, y: l.y / sh + 0.5 })) { st.poke.set(ms, false); buzz(st, 0.4, 20); } else if (!armed && ctx.mixScreenDrag) ctx.mixScreenDrag({ x: l.x / sw + 0.5, y: l.y / sh + 0.5 }); }   // #422 slider drag
+      const inside = Math.abs(l.x) < sw / 2 && Math.abs(l.y) < sh / 2, armed = st.poke.get(ms) !== false, uv = { x: Math.min(1, Math.max(0, l.x / sw + 0.5)), y: Math.min(1, Math.max(0, l.y / sh + 0.5)) };
+      // #629 sliders / drag controls on the tablet: a controller grabs one only with the TRIGGER held while touching it,
+      // it follows while the trigger stays held (even a little off the glass) and lets go the moment the trigger is
+      // released; touching a slider without the trigger does nothing. Hands keep touch-and-drag (no trigger).
+      const gpT = !st.isHand && st.source && st.source.gamepad, trig = gpT ? !!(gpT.buttons[0] && gpT.buttons[0].value > 0.5) : null;
+      if (st.scrGrab) {
+        const keep = st.isHand ? (inside && l.z < 0.03 && l.z > -0.03) : trig;
+        if (!keep) { st.scrGrab = false; if (ctx.mixScreenRelease) ctx.mixScreenRelease(); buzz(st, 0.2, 10); }
+        else if (Math.abs(l.x) < sw / 2 + 0.04 && Math.abs(l.y) < sh / 2 + 0.04 && Math.abs(l.z) < 0.08 && ctx.mixScreenDrag) ctx.mixScreenDrag(uv);
+        if (!inside || l.z > 0.02) st.poke.set(ms, true);
+      }
+      else if (inside && l.z < 0.006 && l.z > -0.015) { if (armed && ctx.mixScreenPress(uv, st.isHand ? true : trig)) { st.poke.set(ms, false); buzz(st, 0.4, 20); st.scrGrab = !!(ctx.mixScreenDragging && ctx.mixScreenDragging()); } }
       else if (!inside || l.z > 0.02) { if (!armed && ctx.mixScreenRelease) ctx.mixScreenRelease(); st.poke.set(ms, true); }   // #222 fingertip off = end of a long press
     }
     // #619 the ACID cassette tray on the PREVIEW slide-out screen (fingertip / controller tip, like the tablet screen)
