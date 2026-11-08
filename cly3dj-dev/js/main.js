@@ -7261,7 +7261,7 @@ const ACID_DECK_BTNS = [   // plate px (1680 x 663), in the column between the c
   { id: 'play', label: 'PLAY/STOP', x: 342, y: 22, w: 90, h: 34 },
   { id: 'lock', label: 'LOCK', x: 342, y: 64, w: 90, h: 34 },
   { id: 'save', label: 'SAVE', x: 342, y: 106, w: 90, h: 34 },
-  { id: 'tray', label: 'TRAY', x: 342, y: 148, w: 90, h: 34 },
+  { id: 'tray', label: 'TRAY', x: 108, y: 194, w: 148, h: 50 },   // #634 (owner) bigger, on its own left of the WAVEFORM switch (was 342,148 90x34)
 ];
 const ACID_REELS = [{ x: 117, y: 90 }, { x: 209, y: 90 }];   // the well's two spindles
 const ACID_DLY_NAMES = ['1/16', '1/8T', '1/16.', '1/8', '1/4T', '1/8.', '1/4', '1/4.'];   // must match acid-worklet DLY_BEATS
@@ -7274,8 +7274,8 @@ function acidPlateCanvas() {
     const gr = x.createLinearGradient(0, b.y, 0, b.y + b.h); gr.addColorStop(0, '#f6f7f9'); gr.addColorStop(0.55, '#d9dce1'); gr.addColorStop(1, '#a9adb4');
     x.fillStyle = 'rgba(0,0,0,0.28)'; x.beginPath(); x.roundRect(b.x + 1, b.y + 3, b.w, b.h, 4); x.fill();
     x.fillStyle = gr; x.strokeStyle = '#7d8187'; x.lineWidth = 1.5; x.beginPath(); x.roundRect(b.x, b.y, b.w, b.h, 4); x.fill(); x.stroke();
-    x.fillStyle = '#1b1c1f'; x.font = '700 11.5px Arial, Helvetica, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillText(b.label, b.x + 55, b.y + b.h / 2 + 1, b.w - 30);   // right of the LED bar, squeezed to fit
+    x.fillStyle = '#1b1c1f'; x.font = `700 ${(11.5 * b.h / 34).toFixed(1)}px Arial, Helvetica, sans-serif`; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText(b.label, b.x + 22 + (b.w - 22) / 2, b.y + b.h / 2 + 1, b.w - 30);   // #634 sized to the key   // right of the LED bar, squeezed to fit
   }
   return c;
 }

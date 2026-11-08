@@ -2113,3 +2113,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Cause: TRAY is a drag hit (drag: true, so it hears its release: tap = tray, hold 0.6 s = eject). #629's rule "drag hits need the trigger held" swallowed it on the Quest.
 - Fix: hit flag `btn: true` (TRAY). mixScreenPress lets btn hits through without the trigger; mixScreenGrabAt skips them; mixScreenDragging returns 'btn' and xr.js keeps a 'btn' grab while the tip stays on the glass (like hands) instead of while the trigger is held; mixScreenDrag ignores btn hits so the long press (eject) still fires.
 - Pane test: mixScreenPress(uv, false) + release toggles the tray open / shut. NOT tried on the Quest. The ACID TRACK / MODE detent knobs still follow #629 (trigger to turn or tap). sw.js v141. No Node restart. Backup backups/pre633/.
+
+## #634 ACID TRAY key moved and enlarged (owner, 9 Nov: TRAY engages erratically; move it left of the WAVEFORM switch and make it larger)
+- ACID_DECK_BTNS tray: x 108, y 194, w 148, h 50 plate px (was 342,148 90x34 under SAVE, hard up against it and the well). Plain silver strip under the well, clear of the saw icon / switch.
+- Legend now centred right of the LED and sized to the key (11.5 px x h/34). Tap = tray, hold 0.6 s = eject, no trigger needed (#633).
+- Pane: screenshot checked; simulated controller tap (trigger off) at the new spot opens / shuts the tray. NOT tried on the Quest. sw.js v142. No Node restart. Backup backups/pre634/.
