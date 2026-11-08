@@ -1439,12 +1439,18 @@ const mixScreen = new Screen(768, 304);
 // logic and dead zone). Portrait pages draw on their own 304 x 768 canvas whose texture is turned 90 deg on the same
 // screen; mixScreenPress maps taps back onto it.
 const mixScreenP = new Screen(304, 768); mixScreenP.texture.center.set(0.5, 0.5);
-// #617 the ACID page draws on a 2x canvas (1536 x 608) for sharper panel lettering; pages still work in the 768 x 304
-// layout (canvas.lw / lh, transform k = 2), and taps map through the same logical size
-const acidScreen = new Screen(1536, 608); acidScreen.canvas.lw = 768; acidScreen.canvas.lh = 304; acidScreen.canvas.k = 2; acidScreen.texture.anisotropy = 8;
+// #618 the ACID page is two layers: the TB-03 plate (full 1680 x 663, sent to the GPU once, sharp lettering) and this
+// normal-size transparent overlay with only the moving parts (LEDs, display, status), redrawn as before. (#617's 2x
+// canvas sent 4x the pixels on every redraw.)
+const acidScreen = new Screen(768, 304);
 let scrDir = 'up';
 const scr = () => (scrDir === 'up' ? (toolsPage === 'acid' ? acidScreen : mixScreen) : mixScreenP), portrait = () => scrDir !== 'up';   // #617 acidScreen
-function syncScrMap() { const m = mixer.userData.screen && mixer.userData.screen.material, t = scr().texture; if (m && m.map !== t) { m.map = t; m.needsUpdate = true; } }   // #617 the ACID page swaps in its own canvas
+function syncScrMap() {   // #617 the ACID page swaps in its own canvas; #618 and shows its plate + overlay layers
+  const m = mixer.userData.screen && mixer.userData.screen.material, t = scr().texture; if (m && m.map !== t) { m.map = t; m.needsUpdate = true; }
+  const on = toolsPage === 'acid' && scrDir === 'up';
+  if (on) acidLayers();
+  if (ACIDL.plate) { ACIDL.plate.visible = on && !!ACIDL.tex; ACIDL.over.visible = on && !!ACIDL.tex; }
+}
 // #467 a small note strip on the tablet, over whatever page is open, for a few seconds (toast() is a desktop-only overlay,
 // invisible in the headset). Drawn at commit time, so every page gets it without each page knowing; cleared by a redraw.
 const tabNote = { text: '', until: 0, t: 0 };
@@ -6692,7 +6698,7 @@ const acidImgs = {
   loaded: 0
 };
 [
-  ['panel', 'tb-03.png'],
+  ['panel', 'tb-03_cass.png'],   // #618 owner's plate with the micro-cassette well (logo top right)
   ['knobSynth', 'tb03_knob_synth.png'],
   ['knobFx', 'tb03_knob_fx.png'],
   ['knobTrack', 'tb03_knob_track.png'],
@@ -6729,6 +6735,7 @@ const acidUI = {
   transpose: 0,         // -12..+12 semitones
   pitchMode: false,
   timeMode: false,
+  lock: 0,              // #618 LOCK: 0 off, 1 = deck A, 2 = deck B
   valueAngle: 0,        // continuous rotation angle (deg) for endless VALUE encoder
   activeKey: null,
   tapTimes: []
@@ -6940,6 +6947,73 @@ function drawAcid7SegDisplay(g, ox, oy, sx, sy, chars, dotIdx) {
   g.restore();
 }
 
+// #618 ACID page layers: the plate (full-res, built once with the cassette deck buttons painted on) and the overlay
+const ACIDL = { plate: null, over: null, tex: null };
+const ACID_DECK_BTNS = [   // plate px (1680 x 663), in the column between the cassette well and TUNING
+  { id: 'play', label: 'PLAY/STOP', x: 342, y: 22, w: 90, h: 34 },
+  { id: 'lock', label: 'LOCK', x: 342, y: 64, w: 90, h: 34 },
+  { id: 'save', label: 'SAVE', x: 342, y: 106, w: 90, h: 34 },
+  { id: 'tray', label: 'TRAY', x: 342, y: 148, w: 90, h: 34 },
+];
+const ACID_REELS = [{ x: 117, y: 90 }, { x: 209, y: 90 }];   // the well's two spindles
+const ACID_DLY_NAMES = ['1/16', '1/8T', '1/16.', '1/8', '1/4T', '1/8.', '1/4', '1/4.'];   // must match acid-worklet DLY_BEATS
+function acidPlateCanvas() {
+  const img = acidImgs.panel; if (!img.complete || !img.naturalWidth) return null;
+  const c = document.createElement('canvas'); c.width = 1680; c.height = 663; const x = c.getContext('2d');
+  x.drawImage(img, 0, 0, 1680, 663);
+  for (const b of ACID_DECK_BTNS) {   // silver keys like the TB-03's RUN/STOP, legend on the key
+    const gr = x.createLinearGradient(0, b.y, 0, b.y + b.h); gr.addColorStop(0, '#f6f7f9'); gr.addColorStop(0.55, '#d9dce1'); gr.addColorStop(1, '#a9adb4');
+    x.fillStyle = 'rgba(0,0,0,0.28)'; x.beginPath(); x.roundRect(b.x + 1, b.y + 3, b.w, b.h, 4); x.fill();
+    x.fillStyle = gr; x.strokeStyle = '#7d8187'; x.lineWidth = 1.5; x.beginPath(); x.roundRect(b.x, b.y, b.w, b.h, 4); x.fill(); x.stroke();
+    x.fillStyle = '#1b1c1f'; x.font = '700 11.5px Arial, Helvetica, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText(b.label, b.x + 55, b.y + b.h / 2 + 1, b.w - 30);   // right of the LED bar, squeezed to fit
+  }
+  return c;
+}
+function acidLayers() {
+  const sm = mixer.userData.screen; if (!sm) return;
+  if (!ACIDL.plate) {
+    const mk = (map, z, tr) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.075), new THREE.MeshBasicMaterial({ map, toneMapped: false, transparent: tr, depthWrite: !tr }));
+      m.position.z = z; m.renderOrder = tr ? 3 : 1; m.raycast = () => {}; m.visible = false; padCull(m); sm.add(m); return m; };
+    ACIDL.plate = mk(null, 0.00008, false);
+    ACIDL.over = mk(acidScreen.texture, 0.00016, true);
+  }
+  if (!ACIDL.tex) {
+    const c = acidPlateCanvas(); if (!c) return;
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+    ACIDL.tex = t; ACIDL.plate.material.map = t; ACIDL.plate.material.needsUpdate = true;
+  }
+}
+// #618 LOCK: the TB-03 follows a deck's tempo = its file BPM (ID3, else Rekordbox) x motor speed x pitch fader.
+// No beat detection (owner's LOCK rule): you start it on the downbeat and nudge by ear (the reels).
+const acidLock = { last: 0, noBpm: false, t: 0 };
+function acidLockBpm(i) { const d = decks[i]; const b = trackBpm(d); return b ? b * d.speed * (1 + d.pitch) : 0; }
+function stepAcidLock(now) {
+  if (!acidUI.lock || now - acidLock.t < 50) return; acidLock.t = now;
+  const b = acidLockBpm(acidUI.lock - 1), nb = !b;
+  if (nb !== acidLock.noBpm) { acidLock.noBpm = nb; if (toolsPage === 'acid') drawMixScreen(); }
+  if (!b) return;
+  const t = Math.round(b * 100) / 100;
+  if (Math.abs(t - acidUI.tempo) >= 0.01) { acidUI.tempo = t; engine.setAcidParam('bpm', t); if (toolsPage === 'acid' && now - acidLock.last > 250) { acidLock.last = now; drawMixScreen(); } }
+}
+let acidNudgeT = 0;
+function acidNudge(k) {   // k = -0.12 .. +0.12 of the tempo while a reel is turned; settles back by itself
+  engine.setAcidParam('rateMul', 1 + k); clearTimeout(acidNudgeT);
+  if (k) acidNudgeT = setTimeout(() => engine.setAcidParam('rateMul', 1), 140);   // finger held still on the reel = locked again
+}
+function acidDeckBtn(id) {
+  if (id === 'play') {
+    acidUI.running = !acidUI.running; engine.setAcidRun(acidUI.running);
+    toast(acidUI.running ? 'TB-03: PLAY' : 'TB-03: STOP', 1000);
+  } else if (id === 'lock') {
+    acidUI.lock = (acidUI.lock + 1) % 3; acidLock.noBpm = false;
+    if (acidUI.lock) { acidUI.tempoMode = true; const b = acidLockBpm(acidUI.lock - 1); tabletNote(b ? `LOCK ${'AB'[acidUI.lock - 1]}: TB-03 follows deck ${'AB'[acidUI.lock - 1]} at ${b.toFixed(1)} BPM. Start on the downbeat, nudge with the reels` : `LOCK ${'AB'[acidUI.lock - 1]}: deck ${'AB'[acidUI.lock - 1]} has no BPM yet (load a record with one)`, 3500); }
+    else tabletNote('LOCK off: TB-03 keeps its own tempo', 2200);
+  } else if (id === 'save') tabletNote('SAVE: writing to a fresh cassette comes with the cassette bank', 2500);
+  else if (id === 'tray') tabletNote('TRAY: the cassette tray on PREVIEW comes with the cassette bank', 2500);
+  drawMixScreen();
+}
+
 // #608 (owner) RAISED TB-03 KNOBS: in the headset, opening the ACID page raises all 12 panel knobs out of the tablet as
 // real 3D knobs (quick staggered rise, a few acid smileys float away), grabbed and turned like the mixer knobs (xr.js:
 // trigger / pinch, the same wrist twist and MIXER FEEL friction). They stay up while the page is open and sink back
@@ -7072,7 +7146,9 @@ function drawAcidPage(T) {
   }
   const sx = dw / pw, sy = dh / ph;
 
-  if (acidImgs.panel.complete && acidImgs.panel.naturalWidth) {
+  if (ACIDL.tex) {
+    // #618 the plate is its own layer (acidLayers); this canvas only carries what moves
+  } else if (acidImgs.panel.complete && acidImgs.panel.naturalWidth) {
     g.drawImage(acidImgs.panel, ox, oy, dw, dh);
   } else {
     g.fillStyle = '#1c1e24'; g.fillRect(0, 0, W, H);
@@ -7111,15 +7187,17 @@ function drawAcidPage(T) {
     g.font = '700 9px system-ui';
     g.textAlign = 'left';
     g.fillStyle = '#111111';
-    const rx0 = ox + 18 * sx;
+    const rx0 = ox + 462 * sx;   // #618 the strip above TUNING..ACCENT (the cassette well is top left now)
     const pCode = acidUI.mode <= 1 ? `TR-${acidUI.trackIdx + 1} (Bar ${acidUI.bar + 1} · P${acidPatternCode(acidUI.pattern)})` : `P${acidPatternCode(acidUI.pattern)}`;
     const trStr = acidUI.transpose !== 0 ? ` · ${acidUI.transpose > 0 ? '+' : ''}${acidUI.transpose}st` : '';
-    g.fillText(`${acidUI.tempo.toFixed(1)} BPM · ${pCode}${trStr}${acidCueOn ? ' · [CUE ON]' : ''}`, rx0, navY + 12);   // #607 master always on
+    const lk = acidUI.lock ? ` · LOCK ${'AB'[acidUI.lock - 1]}${acidLock.noBpm ? ' (no BPM)' : ''}` : '';
+    g.fillText(`${acidUI.tempo.toFixed(1)} BPM${lk} · ${pCode}${trStr} · DLY ${ACID_DLY_NAMES[Math.round(acidUI.delayTime * 7)]}${acidCueOn ? ' · [CUE ON]' : ''}`, rx0, navY + 12);   // #607 master always on; #618 LOCK, synced delay
     g.restore();
   }
 
   // Gemini_acid: Helper to draw a dark metallic socket behind each rotated knob (covers white cutout holes in tb-03.png)
   const drawKnobSprite = (img, cx, cy, rad, deg) => {
+    if (AK.up) return;   // #618 the raised 3D knob covers it
     const kx = ox + cx * sx, ky = oy + cy * sy;
     g.save();
     g.translate(kx, ky);
@@ -7386,6 +7464,34 @@ function drawAcidPage(T) {
     }
   });
 
+  // #618 MICRO-CASSETTE DECK (owner): PLAY/STOP, LOCK, SAVE, TRAY in the column right of the well (buttons are on the
+  // plate layer, LEDs here); the two reels nudge the sequencer like a record (turn clockwise = push, anticlockwise = hold back)
+  for (const b of ACID_DECK_BTNS) {
+    const lit = b.id === 'play' ? acidUI.running : b.id === 'lock' ? acidUI.lock > 0 : false;
+    const lx = ox + (b.x + 7) * sx, ly = oy + (b.y + b.h / 2 - 3.5) * sy, lw = 13 * sx, lh = 7 * sy;
+    if (lit) { acidGlow(g, lx + lw / 2, ly + lh / 2, lw, lh * 1.8); g.fillStyle = '#ff3311'; } else g.fillStyle = '#320808';
+    g.fillRect(lx, ly, lw, lh);
+    if (b.id === 'lock' && acidUI.lock) { g.save(); g.fillStyle = '#c8202c'; g.font = '800 9px system-ui'; g.textAlign = 'right'; g.textBaseline = 'middle'; g.fillText('AB'[acidUI.lock - 1], ox + (b.x + b.w - 4) * sx, oy + (b.y + b.h / 2) * sy); g.restore(); }
+    VP_HIT.push({ x: ox + (b.x - 2) * sx, y: oy + (b.y - 3) * sy, w: (b.w + 4) * sx, h: (b.h + 6) * sy, act: () => acidDeckBtn(b.id) });
+  }
+  for (const rl of ACID_REELS) {
+    const cx = ox + rl.x * sx, cy = oy + rl.y * sy, r = 13 * sx;
+    const a0 = (acidUI.step || 0) * Math.PI / 8 * (acidUI.running ? 1 : 0);   // the hubs step round with the sequencer
+    g.save(); g.translate(cx, cy); g.rotate(a0); g.strokeStyle = 'rgba(235,238,242,0.85)'; g.lineWidth = Math.max(1, 2.2 * sx);
+    for (let k = 0; k < 6; k++) { g.rotate(Math.PI / 3); g.beginPath(); g.moveTo(r * 0.45, 0); g.lineTo(r * 0.9, 0); g.stroke(); }
+    g.restore();
+    const hit = { x: cx - 26 * sx, y: cy - 26 * sx, w: 52 * sx, h: 52 * sx, drag: true,
+      act: (px, py) => {
+        const a = Math.atan2(py - cy, px - cx), now = performance.now();
+        if (hit._a === undefined || screenHold !== null) { hit._a = a; hit._t = now; return; }
+        let da = a - hit._a; if (da > Math.PI) da -= 2 * Math.PI; else if (da < -Math.PI) da += 2 * Math.PI;
+        const dt = Math.max(8, now - hit._t) / 1000; hit._a = a; hit._t = now;
+        acidNudge(Math.max(-0.12, Math.min(0.12, (da / dt) * 0.02)));   // a brisk finger spin = +-12 %
+      },
+      release: () => acidNudge(0) };
+    VP_HIT.push(hit);
+  }
+
   // 10. RUN / STOP Button (x=[98..187], y=[469..531]) + Embedded LED Bar at cx=142.5, cy=484
   {
     const lx = ox + 128.5 * sx, ly = oy + 480.5 * sy, lw = 28 * sx, lh = 7 * sy;
@@ -7402,12 +7508,7 @@ function drawAcidPage(T) {
 
     VP_HIT.push({
       x: ox + 96 * sx, y: oy + 467 * sy, w: 93 * sx, h: 66 * sy,
-      act: () => {
-        acidUI.running = !acidUI.running;
-        engine.setAcidRun(acidUI.running);
-        toast(acidUI.running ? 'TB-03: RUN' : 'TB-03: STOP', 1000);
-        drawMixScreen();
-      }
+      act: () => acidDeckBtn('play')   // #618 same as the cassette deck's PLAY/STOP
     });
   }
 
@@ -7615,9 +7716,10 @@ function drawAcidPage(T) {
 
 function drawToolsPage() {
   const { g, canvas: c } = scr(); const W = c.lw || c.width, H = c.lh || c.height, P = portrait();
-  g.setTransform(c.k || 1, 0, 0, c.k || 1, 0, 0);   // #617 acidScreen draws the 768 x 304 layout at 2x
+  g.setTransform(1, 0, 0, 1, 0, 0);
   VP_HIT.length = 0;
-  g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H);
+  if (toolsPage === 'acid' && ACIDL.tex) g.clearRect(0, 0, W, H);   // #618 transparent overlay over the plate layer
+  else { g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H); }
   const btn = (x, y, w, h, label, on, act, dim, fs0 = 17) => {
     g.fillStyle = on ? (btnGreen ? '#1f9d55' : '#c8202c') : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);   // #545 btnGreen: 'this is what is live now' (DIRROVJ page)
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : dim ? '#56627a' : '#3a4252';
@@ -9452,6 +9554,7 @@ function frameBody() {
   stepPlJump(dt);   // #394 playlist records jumping into a milk crate
   stepScrDir();    // #198 portrait menu
   stepAcidKnobs(dt);   // #608 raised TB-03 knobs on the ACID page (headset)
+  stepAcidLock(performance.now());   // #618 LOCK follows the deck's tempo (pitch fader moves)
   if (spect) {   // #158 spectator camera (nothing when off / no phone)
     try { spect.tick(dt); }   // #217: a spectator error must never stop the headset's frame (it froze on a record pull)
     catch (e) { if (!spectErrShown) { spectErrShown = true; console.error(e); toast('Phone / DirroVJ link error (headset keeps running): ' + e.message, 5000); } }
