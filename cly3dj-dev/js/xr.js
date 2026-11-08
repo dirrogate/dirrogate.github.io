@@ -48,7 +48,7 @@ export function setupXR(ctx) {
   const hmf = new XRHandModelFactory().setPath(PROF + '/generic-hand/');
 
   const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
-  const tipGeo = new THREE.SphereGeometry(0.00675, 12, 8);   // #291 / #293 (owner) 150 % twice (6 -> 9 -> 13.5 mm); #385 (owner) 50 %: 6.75 mm
+  const tipGeo = new THREE.SphereGeometry(0.0068175, 12, 8);   // #630 (owner) 1 % larger   // #291 / #293 (owner) 150 % twice (6 -> 9 -> 13.5 mm); #385 (owner) 50 %: 6.75 mm
   // #140 (owner): the blue tip ball sits at the front centre of the controller's own model (the fixed grip-space
   // point was off to one side on Quest 3 Touch Plus). Measured once from the loaded model: the front-most 2.5 cm of
   // its vertices give the centre (x, y); the ball's centre sits 2 mm inside the front face. Fallback until the model loads.
@@ -218,6 +218,26 @@ export function setupXR(ctx) {
       st.rubT = 0.04;
     }
   }
+  // #630 the mixer tablet screen: taps, long presses, trigger-held slider drags (#629). Called from pokes() and, while a trigger 'tap' grab is active, from the frame loop.
+  function screenPoke(st, T) {
+      const ms = ctx.mixer.userData.screen, l = ms.worldToLocal(v2.copy(T));
+      const sw = ms.geometry.parameters.width, sh = ms.geometry.parameters.height;
+      const inside = Math.abs(l.x) < sw / 2 && Math.abs(l.y) < sh / 2, armed = st.poke.get(ms) !== false, uv = { x: Math.min(1, Math.max(0, l.x / sw + 0.5)), y: Math.min(1, Math.max(0, l.y / sh + 0.5)) };
+      // #629 sliders / drag controls on the tablet: a controller grabs one only with the TRIGGER held while touching it,
+      // it follows while the trigger stays held (even a little off the glass) and lets go the moment the trigger is
+      // released; touching a slider without the trigger does nothing. Hands keep touch-and-drag (no trigger).
+      const gpT = !st.isHand && st.source && st.source.gamepad, trig = gpT ? !!(gpT.buttons[0] && gpT.buttons[0].value > 0.5) : null;
+      const tWas = st.trigWasScr; st.trigWasScr = !!trig;
+      if (st.scrGrab) {
+        const keep = st.isHand ? (inside && l.z < 0.03 && l.z > -0.03) : trig;
+        if (!keep) { st.scrGrab = false; if (ctx.mixScreenRelease) ctx.mixScreenRelease(); buzz(st, 0.2, 10); }
+        else if (Math.abs(l.x) < sw / 2 + 0.04 && Math.abs(l.y) < sh / 2 + 0.04 && Math.abs(l.z) < 0.08 && ctx.mixScreenDrag) ctx.mixScreenDrag(uv);
+        if (!inside || l.z > 0.02) st.poke.set(ms, true);
+      }
+      else if (inside && l.z < 0.006 && l.z > -0.015 && armed) { if (ctx.mixScreenPress(uv, st.isHand ? true : trig)) { st.poke.set(ms, false); buzz(st, 0.4, 20); st.scrGrab = !!(ctx.mixScreenDragging && ctx.mixScreenDragging()); } }
+      else if (!st.isHand && trig && !tWas && inside && l.z < 0.02 && l.z > -0.03 && ctx.mixScreenGrabAt && ctx.mixScreenGrabAt(uv)) { st.scrGrab = true; st.poke.set(ms, false); buzz(st, 0.4, 20); }   // #630 touch first, then squeeze: the trigger grabs the slider under the tip (or hovering within 2 cm)
+      else if (!inside || l.z > 0.02) { if (!armed && ctx.mixScreenRelease) ctx.mixScreenRelease(); st.poke.set(ms, true); }   // #222 fingertip off = end of a long press
+      }
   function grabStart(st, P, btn) {
     if (st.direct) return true;
     if (st.scratch) { ctx.scratchEnd(st.scratch); st.scratch = null; }   // #282 a touch-nudge gives way to a button grab (#325 hands too: a pinch ends the fingertip scratch)
@@ -782,24 +802,7 @@ export function setupXR(ctx) {
       else if (h > 0.02 || dxz > b.r * 2) { if (!armed && b.c.id && (b.c.id === 'bpmtap' || b.c.id === 'looper' || b.c.id.endsWith('.beat1'))) ctx.releaseBeat1(st); st.poke.set(key, true); }
     }
     st.pokeLift = (st.pokeLift || 0) + (Math.min(0.03, lift) - (st.pokeLift || 0)) * 0.5;
-    // mixer readout (#116): poke the tempo number to cycle ORIG BPM / BPM / KEY
-    {
-      const ms = ctx.mixer.userData.screen, l = ms.worldToLocal(v2.copy(T));
-      const sw = ms.geometry.parameters.width, sh = ms.geometry.parameters.height;
-      const inside = Math.abs(l.x) < sw / 2 && Math.abs(l.y) < sh / 2, armed = st.poke.get(ms) !== false, uv = { x: Math.min(1, Math.max(0, l.x / sw + 0.5)), y: Math.min(1, Math.max(0, l.y / sh + 0.5)) };
-      // #629 sliders / drag controls on the tablet: a controller grabs one only with the TRIGGER held while touching it,
-      // it follows while the trigger stays held (even a little off the glass) and lets go the moment the trigger is
-      // released; touching a slider without the trigger does nothing. Hands keep touch-and-drag (no trigger).
-      const gpT = !st.isHand && st.source && st.source.gamepad, trig = gpT ? !!(gpT.buttons[0] && gpT.buttons[0].value > 0.5) : null;
-      if (st.scrGrab) {
-        const keep = st.isHand ? (inside && l.z < 0.03 && l.z > -0.03) : trig;
-        if (!keep) { st.scrGrab = false; if (ctx.mixScreenRelease) ctx.mixScreenRelease(); buzz(st, 0.2, 10); }
-        else if (Math.abs(l.x) < sw / 2 + 0.04 && Math.abs(l.y) < sh / 2 + 0.04 && Math.abs(l.z) < 0.08 && ctx.mixScreenDrag) ctx.mixScreenDrag(uv);
-        if (!inside || l.z > 0.02) st.poke.set(ms, true);
-      }
-      else if (inside && l.z < 0.006 && l.z > -0.015) { if (armed && ctx.mixScreenPress(uv, st.isHand ? true : trig)) { st.poke.set(ms, false); buzz(st, 0.4, 20); st.scrGrab = !!(ctx.mixScreenDragging && ctx.mixScreenDragging()); } }
-      else if (!inside || l.z > 0.02) { if (!armed && ctx.mixScreenRelease) ctx.mixScreenRelease(); st.poke.set(ms, true); }   // #222 fingertip off = end of a long press
-    }
+    screenPoke(st, T);   // #630 the tablet screen (also runs while a trigger 'tap' is active)
     // #619 the ACID cassette tray on the PREVIEW slide-out screen (fingertip / controller tip, like the tablet screen)
     if (ctx.trayScreen) {
       const ts = ctx.trayScreen();
@@ -929,7 +932,7 @@ export function setupXR(ctx) {
       updateOccluder(st);
       updateAnchor(st);
 
-      if (st.direct) grabMove(st, st.isHand ? st.pinchPt : st.tip);
+      if (st.direct) { grabMove(st, st.isHand ? st.pinchPt : st.tip); if (hasTip && st.direct && st.direct.kind === 'tap') screenPoke(st, st.tip); }   // #630
       else if (hasTip) pokes(st, st.tip);
       if (st.isHand) crateTouchWalk(st);   // #350
       deckFeel(st, dt);

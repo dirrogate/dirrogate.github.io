@@ -5845,7 +5845,12 @@ function readout(d, st) {
 // #222 long press on the tablet (trigger / pinch / fingertip held 0.6 s): on a VIDEO page thumbnail it offers delete
 let screenHold = null, holdSeq = 0, vpDel = null;
 let screenDrag = null;   // #422 the slider being dragged on the tablet
-function mixScreenDragging() { return !!screenDrag; }   // #629 xr.js: did the press grab a slider?
+function mixScreenDragging() { return !!screenDrag; }
+function mixScreenGrabAt(uv) {   // #630 the trigger pulled while touching: grab the drag control under the tip (sliders only)
+  if (!uv || !(videoPage || toolsPage)) return false; const [px, py] = scrUvPx(uv);
+  const b = VP_HIT.find(h => h.drag && px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h); if (!b) return false;
+  screenHold = null; b.act(px, py); screenDrag = b; drawMixScreen(); return true;
+}   // #629 xr.js: did the press grab a slider?
 function mixScreenRelease() { const d = screenDrag; screenHold = null; screenDrag = null; if (d && d.release) { d.release(); drawMixScreen(); } }   // #607 detented knobs step on a tap's release
 function scrUvPx(uv) { const c = scr().canvas; return [(scrDir === 'px' ? 1 - uv.y : scrDir === 'nx' ? uv.y : uv.x) * (c.lw || c.width), (scrDir === 'px' ? 1 - uv.x : scrDir === 'nx' ? uv.x : 1 - uv.y) * (c.lh || c.height)]; }
 function mixScreenDrag(uv) {   // #422 finger still on the screen (XR) / mouse held (desktop): a grabbed slider follows it
@@ -10082,7 +10087,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease, spiderGrabTest, spiderGrab, spiderRelease,
   crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, holdLooper, crateSelect, crateWalkStep, drawCrateScreen, layoutSleeves, crateDisc,
   // #591 A no longer pulls the GoPro to the hand: the B placement laser picks it up (grip) and pushes / pulls it (stick)
-  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, toast, mixScreenRelease, mixScreenDrag, mixScreenDragging,
+  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, toast, mixScreenRelease, mixScreenDrag, mixScreenDragging, mixScreenGrabAt,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
 });
