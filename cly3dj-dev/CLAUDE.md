@@ -2105,3 +2105,6 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - They turn with the same angle as the 2D hubs: sequencer step x pi/8 while running + acidReelSpin (finger / trigger turn).
 - CASS_REELS corrected to the measured centres of the PNG's two hub holes: (133,101) / (233,101) plate px (was 134,96 / 241,96); used by the 2D hubs, reel hits and acidReelAt.
 - PC pane checked with CAS3D.force: heads centred in both gear wheels, empty-well heads short on the plate; rotation follows acidReelTurn. NOT tried on the Quest. sw.js v139. No Node restart. Backup backups/pre631/.
+
+## #632 Transport heads in black plastic (owner, 9 Nov)
+- CHEADS.mat: 0x141518, roughness 0.38, metalness 0 (was chrome-ish 0xe6e8ec / metal 0.55). Flange unchanged (dark grey). sw.js v140. No Node restart.

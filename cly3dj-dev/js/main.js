@@ -7195,7 +7195,7 @@ function casHeadsBuild(sm) {
   const bore = new THREE.Path(); bore.absarc(0, 0, 0.00038, 0, Math.PI * 2, true); s.holes.push(bore);
   const gGeo = new THREE.ExtrudeGeometry(s, { depth: 0.0040, bevelEnabled: true, bevelThickness: 0.00012, bevelSize: 0.0001, bevelSegments: 1, curveSegments: 6 });
   const fGeo = new THREE.CylinderGeometry(0.00235, 0.0026, 0.0003, 24); fGeo.rotateX(Math.PI / 2); fGeo.translate(0, 0, 0.00015);
-  CHEADS.mat = new THREE.MeshStandardMaterial({ color: 0xe6e8ec, roughness: 0.32, metalness: 0.55 });
+  CHEADS.mat = new THREE.MeshStandardMaterial({ color: 0x141518, roughness: 0.38, metalness: 0 });   // #632 (owner) black plastic
   const fMat = new THREE.MeshStandardMaterial({ color: 0x3a3d43, roughness: 0.5, metalness: 0.4 });
   for (let i = 0; i < 2; i++) {
     const h = new THREE.Group(), gear = new THREE.Mesh(gGeo, CHEADS.mat), fl = new THREE.Mesh(fGeo, fMat);
