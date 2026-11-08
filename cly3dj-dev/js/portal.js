@@ -219,10 +219,10 @@ function makeWoodMat() {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.78, metalness: 0 });
   m.onBeforeCompile = sh => {
     sh.uniforms.uGradeA = GRADE.uGradeA; sh.uniforms.uGradeB = GRADE.uGradeB; sh.uniforms.uTex = { value: planksTex() };
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vW; varying float vSeed; varying vec3 vHalf; varying vec3 vLN;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHalf = 0.5 * vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)); vLN = normal; vW = position * vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)); vSeed = fract(sin(dot(instanceMatrix[3].xyz, vec3(12.9, 78.2, 37.7))) * 43758.5);');
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 aSeed; varying vec3 vBS; varying vec3 vW; varying float vSeed; varying vec3 vHalf; varying vec3 vLN;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBS = aSeed; vHalf = 0.5 * vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)); vLN = normal; vW = position * vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)); vSeed = fract(sin(dot(instanceMatrix[3].xyz, vec3(12.9, 78.2, 37.7))) * 43758.5);');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-uniform vec4 uGradeA; uniform vec3 uGradeB; uniform sampler2D uTex; varying vec3 vW; varying float vSeed; varying vec3 vHalf; varying vec3 vLN; float wAO, wHgt;
+uniform vec4 uGradeA; uniform vec3 uGradeB; uniform sampler2D uTex; varying vec3 vBS; varying vec3 vW; varying float vSeed; varying vec3 vHalf; varying vec3 vLN; float wAO, wHgt;
 float wh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float wn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(wh(i), wh(i + vec2(1, 0)), f.x), mix(wh(i + vec2(0, 1)), wh(i + vec2(1, 1)), f.x), f.y); }
@@ -231,8 +231,8 @@ float wf(vec2 p) { return wn(p) * 0.5 + wn(p * 2.03) * 0.25 + wn(p * 4.01) * 0.1
         // #613 one board = one plank band of the photo (7 bands); offset along the board by its seed
         // #614 the photo's planks are not equal bands: the measured plank spans (v, gaps left out) so a board never straddles a gap
         const vec2 PB[7] = vec2[7](vec2(0.7949, 0.9199), vec2(0.6699, 0.7676), vec2(0.5215, 0.6426), vec2(0.3691, 0.4941), vec2(0.2109, 0.3418), vec2(0.0918, 0.1836), vec2(-0.0527, 0.0645));
-        int band = int(floor(vSeed * 6.999));
-        float u = vW.x / 1.4 + vSeed * 3.7, vb = clamp(abs(vLN.y) > 0.5 ? 0.5 + vW.z / max(2.0 * vHalf.z, 1e-3) * 0.3 : vW.y / max(2.0 * vHalf.y, 1e-3) + 0.5, 0.0, 1.0);
+        int band = int(vBS.x + 0.5);                                   // #615 set per board on the CPU: neighbours never share a plank
+        float u = (vBS.z > 0.5 ? -vW.x : vW.x) / 1.4 + vBS.y, /* offset spread by the golden ratio, every other board mirrored */ vb = clamp(abs(vLN.y) > 0.5 ? 0.5 + vW.z / max(2.0 * vHalf.z, 1e-3) * 0.3 : vW.y / max(2.0 * vHalf.y, 1e-3) + 0.5, 0.0, 1.0);
         vec4 tx = texture2D(uTex, vec2(u, mix(PB[band].x, PB[band].y, vb)));
         diffuseColor.rgb *= tx.rgb * 1.55;
         float late = tx.a, fib = 0.0, knot = 0.0;
@@ -247,7 +247,7 @@ float wf(vec2 p) { return wn(p) * 0.5 + wn(p * 2.03) * 0.25 + wn(p * 4.01) * 0.1
       .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= wAO; reflectedLight.indirectSpecular *= wAO; reflectedLight.directDiffuse *= mix(1.0, wAO, 0.6);')
       .replace('#include <tonemapping_fragment>', `{ vec3 c = gl_FragColor.rgb * uGradeA.x * uGradeB; float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = max(mix(vec3(l), c, uGradeA.z), 0.0); gl_FragColor.rgb = 0.18 * pow(c / 0.18 + 1e-5, vec3(uGradeA.y)); }\n#include <tonemapping_fragment>`);
   };
-  m.customProgramCacheKey = () => 'wood614';
+  m.customProgramCacheKey = () => 'wood615';
   return m;
 }
 function layWood(im, hx, hy, B) {
@@ -271,7 +271,15 @@ function layWood(im, hx, hy, B) {
     const c = sg * yy, z = 0.1 + (rnd(k * 5.1 + sg) - 0.5) * 0.006, len = 2 * W + 0.1 + (rnd(k + 9) - 0.5) * 0.06, th = 0.018;
     if (along) board((rnd(k * 3.3 + sg) - 0.5) * 0.04, c, z, len, w, th, 0, k * 13 + sg); else board(c, (rnd(k * 3.3 + sg) - 0.5) * 0.04, z, len, w, th, Math.PI / 2, k * 13 + sg);
   }
-  if (B.posts && B.postLen > 0.3) for (const [px, py] of [[hx, hy], [-hx, hy], [hx, -hy], [-hx, -hy]]) { if (n >= BAM_MAX) break; _bq.setFromAxisAngle(_by, -Math.PI / 2); _bp.set(px, py, B.postLen / 2); _bs.set(B.postLen, 0.08, 0.08); im.setMatrixAt(n, _bm.compose(_bp, _bq, _bs)); _bc.setRGB(0.8, 0.75, 0.68); im.setColorAt(n, _bc); n++; }   // #612
+  { // #615 plank band / offset / mirror per board, in spatial order across the roof, so neighbours differ and nails never line up
+    const sa = im.geometry.getAttribute('aSeed'), order = [];
+    for (let k = 0; k < n; k++) { im.getMatrixAt(k, _bm); _bp.setFromMatrixPosition(_bm); order.push([k, along ? _bp.y : _bp.x, k < 4]); }
+    const slats = order.filter(o => !o[2]).sort((a, b) => a[1] - b[1]), PERM = [3, 0, 5, 2, 6, 1, 4];
+    slats.forEach(([k], r) => sa.setXYZ(k, PERM[r % 7], (r * 0.6180339) % 1 * 1.0 + 0.13 * Math.floor(r / 7), r % 2));
+    order.filter(o => o[2]).forEach(([k], r) => sa.setXYZ(k, PERM[(r + 2) % 7], 0.37 + r * 0.29, 0));
+    sa.needsUpdate = true;
+  }
+  if (B.posts && B.postLen > 0.3) for (const [px, py] of [[hx, hy], [-hx, hy], [hx, -hy], [-hx, -hy]]) { if (n >= BAM_MAX) break; _bq.setFromAxisAngle(_by, -Math.PI / 2); _bp.set(px, py, B.postLen / 2); _bs.set(B.postLen, 0.08, 0.08); im.setMatrixAt(n, _bm.compose(_bp, _bq, _bs)); _bc.setRGB(0.8, 0.75, 0.68); im.setColorAt(n, _bc); im.geometry.getAttribute('aSeed').setXYZ(n, (n % 7), 0.21 * n, 0); n++; }   // #612
   im.count = n; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
 }
 // #613 two small packed textures (Poly Haven CC0, 512 x 512 WebP): RGB = colour with ambient occlusion baked in from the
@@ -509,7 +517,7 @@ class PortalFrame {
     if (B.eaves) { if (!this.fm) { this.fm = new THREE.InstancedMesh(frGeo, makeFringeMat(), FR_MAX); this.fm.raycast = () => {}; this.fm.frustumCulled = false; this.obj.add(this.fm); this.fm.setColorAt(0, new THREE.Color(1, 1, 1)); }
       layFringe(this.fm, this.half.x, this.half.y); this.fm.visible = true; }
     const mk = (geo, mat) => { const im = new THREE.InstancedMesh(geo, mat, BAM_MAX); im.raycast = () => {}; im.frustumCulled = false; this.obj.add(im); im.setColorAt(0, new THREE.Color(1, 1, 1)); return im; };
-    if (wood) { if (!this.wm) this.wm = mk(woodGeo, makeWoodMat()); layWood(this.wm, this.half.x, this.half.y, B); this.wm.visible = true; }
+    if (wood) { if (!this.wm) { const g = woodGeo.clone(); g.setAttribute('aSeed', new THREE.InstancedBufferAttribute(new Float32Array(BAM_MAX * 3), 3)); this.wm = mk(g, makeWoodMat()); } layWood(this.wm, this.half.x, this.half.y, B); this.wm.visible = true; }
     else { if (!this.bm) this.bm = mk(bamGeo, makeBambooMat()); layBamboo(this.bm, this.half.x, this.half.y, B); this.bm.visible = true; }
   }
   _holoFit() {
