@@ -1467,7 +1467,7 @@ function syncScrMap() {   // #617 the ACID page swaps in its own canvas; #618 an
 // invisible in the headset). Drawn at commit time, so every page gets it without each page knowing; cleared by a redraw.
 const tabNote = { text: '', until: 0, t: 0 };
 function tabletNote(text, ms = 5000) {
-  tabNote.text = text; tabNote.until = performance.now() + ms; toast(text, ms);
+  tabNote.text = text; tabNote.until = performance.now() + ms; toast.noNote = true; try { toast(text, ms); } finally { toast.noNote = false; }
   clearTimeout(tabNote.t); tabNote.t = setTimeout(() => { tabNote.text = ''; try { drawMixScreen(); } catch {} }, ms + 50);
   try { drawMixScreen(); } catch {}   // (the phone's camera role has no tablet to draw)
 }
@@ -1599,6 +1599,7 @@ async function perfToggle() {
 function toast(msg, ms = 2200) {
   const t = $('#toast'); t.textContent = msg; t.style.opacity = 1;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.opacity = 0, ms);
+  if (!toast.noNote && renderer.xr.isPresenting) { try { tabletNote(String(msg), Math.max(ms, 1800)); } catch {} }   // #645 in the headset the page overlay is invisible: show it on the tablet too
 }
 const tip = $('#tip');
 function showTip(text, x, y) { if (!text) { tip.style.display = 'none'; return; } tip.textContent = text; tip.style.display = 'block'; tip.style.left = (x + 16) + 'px'; tip.style.top = (y + 12) + 'px'; }
@@ -1868,7 +1869,6 @@ let syncAnim = null;
 let syncFlash = { t: 0, color: 'blue' };
 let splitCue = false;
 const cueOn = [false, false];
-let lastCue = -1;   // #644 the CUE button touched last (the left TAP BPM goes to the deck whose CUE is on)
 let acidCueOn = false;   // Gemini_acid: ACID CUE on the mixer. #607 a normal pre-listen: adds the TB-03 to the cue bus, master untouched
 
 // mixer control values (0..1, 0.5 neutral) and defaults
@@ -4248,7 +4248,7 @@ function pressControl(c, src) { // buttons; returns true if handled (src: who pr
     if (id === 'bpmtap') { handleBpmTap(src || 'mouse'); return true; }
     if (id.endsWith('.beat1')) { tapBeat1(decks[id[0] === 'B' ? 1 : 0], src || 'mouse'); return true; }
     if (id === 'acid.cue') { acidCueOn = !acidCueOn; engine.setAcidCue(acidCueOn); toast(acidCueOn ? 'ACID CUE on: TB-03 in the headphones (pre-fader), master unchanged' : 'ACID CUE off', 1600); if (toolsPage === 'acid') drawMixScreen(); return true; }   // Gemini_acid; #607 pre-listen like a deck CUE, never mutes the master
-    if (id.endsWith('.cue')) { const i = id[0] === 'A' ? 0 : 1; cueOn[i] = !cueOn[i]; if (cueOn[i]) lastCue = i; engine.setCue(i, cueOn[i]); return true; }
+    if (id.endsWith('.cue')) { const i = id[0] === 'A' ? 0 : 1; cueOn[i] = !cueOn[i]; engine.setCue(i, cueOn[i]); return true; }
   }
   return false;
 }
@@ -5166,9 +5166,11 @@ const tapTempo = {
   lastTap: 0        // timestamp of last tap
 };
 
-function cueTarget() {
-  const on = [0, 1].filter(i => cueOn[i]); if (!on.length) return null;
-  return decks[on.length === 2 && lastCue >= 0 ? lastCue : on[0]];
+let lastTapMode = 0;
+// #645 the left TAP BPM button feeds the deck whose tablet readout is on TAP BPM (both: the one switched to TAP last)
+function tapTarget() {
+  const on = [0, 1].filter(i => bpmMode[i] === 'tap'); if (!on.length) return null;
+  return decks[on.length === 2 ? lastTapMode : on[0]];
 }
 function handleBpmTap(src = 'mouse') {
   const now = performance.now() / 1000;
@@ -5196,10 +5198,10 @@ function handleBpmTap(src = 'mouse') {
 
     if (bpm >= 30 && bpm <= 300) {
       tapTempo.bpm = bpm;
-      // #644 the tapped tempo goes to the deck whose CUE is on (both on: the CUE touched last). A track with an ID3 or
+      // #644/#645 the tapped tempo goes to the deck whose tablet readout is on TAP BPM. A track with an ID3 or
       // Rekordbox BPM keeps it (LOCK's rule); one without takes the tap, saved with the track, live for LOCK and the phase meter.
-      const cd = cueTarget(), ct = cd && cd.loaded ? cd.track : null;
-      let tail = cd ? '' : ' (CUE a deck to send it there)';
+      const cd = tapTarget(), ct = cd && cd.loaded ? cd.track : null;
+      let tail = cd ? '' : ' (set a deck\'s tablet readout to TAP BPM to send it there)';
       if (ct) {
         if (fileBpmSrc(ct)) tail = ` · deck ${cd.name} keeps its ${fileBpmSrc(ct) === 'id3' ? 'ID3' : 'Rekordbox'} BPM ${+ct.bpm.toFixed(2)}`;
         else { setTap(ct, { bpm: +bpm.toFixed(3), taps: n }); tail = ` → deck ${cd.name}`; }
@@ -5208,12 +5210,13 @@ function handleBpmTap(src = 'mouse') {
     }
   }
   tapTempo.lastTap = now;
+  drawMixScreen();   // #645 the TAP BPM readout on the tablet follows the taps
 }
 
 function clearBpmTap() {
   tapTempo.times = [];
   tapTempo.bpm = 0;
-  const cd = cueTarget(); if (cd && cd.loaded && cd.track && tapBpmOf(cd.track)) setTap(cd.track, { bpm: 0, taps: 0 });   // #644 a long press also drops the tapped BPM it gave that deck
+  const cd = tapTarget(); if (cd && cd.loaded && cd.track && tapBpmOf(cd.track)) setTap(cd.track, { bpm: 0, taps: 0 });   // #644 a long press also drops the tapped BPM it gave that deck
   blinkUntil[0] = performance.now() / 1000 + 1.0;
   toast('TAP: BPM cleared', 1400);
 }
@@ -5292,7 +5295,7 @@ function ledBeat(d) {
 // Mixer readout modes (owner, #116): tap the big number / its label to cycle ORIG BPM -> BPM -> KEY -> ORIG ...
 // ORIG = the MP3's ID3 BPM only. BPM = playing tempo now. KEY = the key it sounds in now: vinyl has no key lock,
 // so pitch moves the key too (12 x log2 of the speed ratio; ~6 % = 1 semitone). Key from ID3 TKEY, else Rekordbox.
-const BPM_MODES = ['cur', 'rb', 'key', 'off'];   // #643 BPM -> REKORDBOX BPM -> KEY -> OFF (ORIG is gone)
+const BPM_MODES = ['cur', 'rb', 'key', 'tap', 'off'];   // #643 BPM -> REKORDBOX BPM -> KEY -> OFF (ORIG is gone)
 const bpmMode = (() => { try { const v = JSON.parse(localStorage.getItem('vire.bpmMode')); if (Array.isArray(v) && v.length === 2 && v.every(m => BPM_MODES.includes(m))) return v; } catch {} return ['cur', 'cur']; })();
 const SP_HIT = [];   // #164 spectator strip buttons
 const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set while drawing
@@ -5917,6 +5920,11 @@ function phaseOff(d) {   // { off beats (this deck minus the other, -.5..+.5), m
 function readout(d, st) {
   const t = d.loaded ? d.track : null, mode = bpmMode[d.i];
   if (mode === 'off') return { big: '', label: 'READOUT OFF · tap to show' };
+  if (mode === 'tap') {
+    const tg = tapTarget() === d, saved = t ? tapBpmOf(t) : 0, fs = fileBpmSrc(t), live = tg && tapTempo.bpm > 0 && performance.now() / 1000 - tapTempo.lastTap < 6;
+    const big = live ? tapTempo.bpm.toFixed(2) : saved ? saved.toFixed(2) : '--.-';
+    return { big, label: 'TAP BPM' + (!tg ? ' · tap the left button' : fs ? ` · keeps ${fs === 'id3' ? 'ID3' : 'RB'} ${+t.bpm.toFixed(2)}` : live ? ' · tapping' : saved ? ' · saved' : ' · tap the left TAP BPM button') };
+  }
   if (mode === 'rb') { const rb = rbBpmOf(t); return { big: rb ? String(+rb.toFixed(2)) : '--.-', label: 'REKORDBOX BPM' + (t && !rb ? ' · none' : '') }; }
   if (mode === 'key') {
     const src = t && (t.id3Key || t.key), k = parseKey(src);
@@ -5982,6 +5990,7 @@ function mixScreenPress(uv, trig) {   // #629 trig: undefined = mouse / desktop 
   for (let i = 0; i < 2; i++) {
     const b = MS_HIT[i]; if (!b || px < b.x || px > b.x + b.w || py < b.y || py > b.y + b.h) continue;
     bpmMode[i] = BPM_MODES[(BPM_MODES.indexOf(bpmMode[i]) + 1) % BPM_MODES.length];
+    if (bpmMode[i] === 'tap') { lastTapMode = i; tapTempo.times = []; tapTempo.bpm = 0; }   // #645 this deck now takes the left TAP BPM button
     try { localStorage.setItem('vire.bpmMode', JSON.stringify(bpmMode)); } catch {}
     drawMixScreen(); return true;
   }

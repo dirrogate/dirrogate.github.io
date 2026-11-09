@@ -2180,3 +2180,9 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - The mixer's TAP BPM button (and its display) is no longer deck A only. The tapped tempo is saved (setTap bpm) for the deck whose CUE is on; both on = the CUE touched last (`lastCue`, `cueTarget()`). No CUE on: toast says CUE a deck.
 - A track with an ID3 or Rekordbox BPM keeps it (LOCK rule: ID3 > Rekordbox > tapped); the toast says so. A track with none takes the tap: live for LOCK and the phase meter. Long press on TAP (clearBpmTap) also drops that deck's tapped BPM.
 - Tested in the browser pane (CUE A -> 119.278 saved on A; B with ID3 128 untouched). sw.js v152. No Node restart.
+
+## #645 TAP BPM is a tablet readout mode (owner, 10 Nov) - replaces #644's CUE targeting
+- Tapping the big readout on a deck panel now cycles BPM -> REKORDBOX BPM -> KEY -> TAP BPM -> OFF. A deck whose readout is on TAP BPM receives the left mixer TAP BPM button (both on TAP: the one switched last, `lastTapMode`; switching to TAP resets the running tap). `tapTarget()` replaces `cueTarget()`; the CUE buttons no longer matter (lastCue removed).
+- TAP BPM readout shows the live tapped tempo while tapping, else the track's saved tapped BPM; label says tapping / saved / keeps ID3|RB x (a track with a file BPM keeps it, LOCK rule) / tap the left button. The tablet redraws on every tap. Long press on TAP also clears that deck's tapped BPM.
+- The owner DJs in the Quest, where toast() (a page overlay) is invisible: toast() now also calls tabletNote() while `renderer.xr.isPresenting`, so every toast (LOCK, TAP, ...) shows on the tablet strip. tabletNote sets `toast.noNote` to avoid a loop. RULE: new feedback for the headset goes through tabletNote or the tablet itself.
+- Tested in the browser pane (A on TAP: taps saved 119.1 on A, B with ID3 128 untouched). Not tested in the headset. sw.js v153. No Node restart.
