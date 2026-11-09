@@ -4429,6 +4429,51 @@ function loopNudge(ms) {
   if (loopUI.sel === 'in') loopRegion(L.a + d, L.b); else loopRegion(L.a, L.b + d);
   drawMixScreen();
 }
+// #500 FIX LOOP: one touch. Rough IN / OUT in, a loop that repeats with no timing wobble out. (1) IN snaps to the nearest drum hit (within 50 ms),
+// (2) the length becomes a whole number of beats (whole bars from 4 up) at the loop's pitched BPM, or at a tempo found from the audio when the deck had none,
+// (3) the last 4 ms before OUT are crossfaded with the audio just before IN, so the wrap has no click. Works on the loop's own audio once; UNDO puts it back.
+function loopFix() {
+  const L = looper.data; if (!L || looper.state === 'rec') return;
+  const sr = L.sr, len = L.len, H = 128, nF = Math.floor(len / H);
+  if (nF < 16) { loopSay('FIX: the loop is too short'); return; }
+  const mono = new Float32Array(len);
+  for (const c of L.bufs) if (c) for (let i = 0; i < len; i++) mono[i] += c[0][i] + c[1][i];
+  const e = new Float32Array(nF);   // level of the change in the sound, per 128 samples; its rises are the drum hits
+  for (let f = 0; f < nF; f++) { let s = 0; for (let i = f * H + 1; i < (f + 1) * H; i++) { const d = mono[i] - mono[i - 1]; s += d * d; } e[f] = Math.sqrt(s / H); }
+  const flux = new Float32Array(nF); for (let f = 1; f < nF; f++) flux[f] = Math.max(0, e[f] - e[f - 1]);
+  // (1) IN onto the nearest hit
+  const win = Math.round(0.05 * sr / H), fa = Math.round(L.a / H); let bf = -1, bv = 0; const near = [];
+  for (let f = Math.max(1, fa - win); f <= Math.min(nF - 1, fa + win); f++) { near.push(flux[f]); if (flux[f] > bv) { bv = flux[f]; bf = f; } }
+  near.sort((x, y) => x - y); const med = near.length ? near[near.length >> 1] : 0;
+  let a = L.a, moved = false;
+  if (bf > 0 && bv > 3 * med + 1e-4) {
+    let mx = 0; for (let i = bf * H; i < (bf + 1) * H; i++) mx = Math.max(mx, Math.abs(mono[i] - mono[i - 1]));
+    let i = Math.max(1, (bf - 1) * H); while (i < (bf + 1) * H && Math.abs(mono[i] - mono[i - 1]) < 0.25 * mx) i++;   // first sample of the attack
+    a = Math.min(i, len - 1); moved = true;
+  }
+  // (2) length: whole beats at the loop's tempo
+  let bpm = L.bpm > 40 && L.bpm < 260 ? L.bpm : 0, src = 'DECK';
+  if (!bpm) {   // no BPM on the deck: look for the repeat in the hits themselves
+    const fb = Math.floor(a / H), fe = Math.floor(L.b / H); let best = 0, bl = 0;
+    const lo = Math.round(60 / 200 * sr / H), hi = Math.round(60 / 60 * sr / H);
+    let r0 = 0; for (let f = fb; f < fe; f++) r0 += flux[f] * flux[f];
+    for (let lag = lo; lag <= hi && fb + lag < fe; lag++) { let s = 0; for (let f = fb; f + lag < fe; f++) s += flux[f] * flux[f + lag]; const r = r0 > 0 ? s / r0 : 0; if (r > best) { best = r; bl = lag; } }
+    if (best > 0.2 && bl) { bpm = 60 * sr / (bl * H); src = 'AUDIO'; }
+  }
+  let b = L.b, nBeats = 0;
+  if (bpm) {
+    const beat = sr * 60 / bpm; nBeats = Math.max(1, Math.round((L.b - a) / beat)); if (nBeats >= 6) nBeats = Math.max(4, Math.round(nBeats / 4) * 4);
+    while (nBeats > 1 && a + nBeats * beat > len) nBeats -= nBeats > 4 ? 4 : 1;
+    b = Math.round(a + nBeats * beat); if (b > len) { loopSay('FIX: not enough audio after IN for one beat'); return; }
+  }
+  // (3) the seam: the tail fades into what came just before IN, so the wrap has no click
+  const x = Math.min(Math.round(0.004 * sr), a, b - a - 1);
+  const bufs = L.bufs.map(c => c ? [c[0].slice(), c[1].slice()] : null);
+  if (x > 8) for (const c of bufs) if (c) for (let k = 0; k < 2; k++) { const t = c[k]; for (let i = 0; i < x; i++) { const w = (i + 0.5) / x * Math.PI / 2; t[b - x + i] = t[b - x + i] * Math.cos(w) + t[a - x + i] * Math.sin(w); } }
+  const dMs = Math.round((a - L.a) * 1000 / sr);
+  loopReplace({ ...L, bufs, a, b, t: Date.now(), name: L.name || '' },
+    `FIX LOOP: ${nBeats ? nBeats + ' BEATS' : 'seam only (no tempo found)'} = ${((b - a) / sr).toFixed(3)} S${bpm ? ' at ' + bpm.toFixed(1) + ' BPM (' + src + ')' : ''}, IN ${moved ? (dMs >= 0 ? '+' : '') + dMs + ' MS onto a hit' : 'kept'}`);
+}
 function ensureLoopSlots() {
   if (loopUI.loaded || !engine.ctx) return loopUI.loaded;
   loopUI.loaded = loopDb.readSlots(engine.ctx.sampleRate).then(s => { s.forEach((x, i) => { if (!loopSlots[i]) loopSlots[i] = x; }); drawMixScreen(); })
@@ -4989,6 +5034,7 @@ addEventListener('keydown', e => {
   if ($('#start').style.display !== 'none' || e.target === searchInput || toolsPage === 'kbd') return;   // #224 typing on the tablet keyboard
   const k = e.key;
   if (toolsPage === 'looper' && looper.data && (k === 'ArrowLeft' || k === 'ArrowRight')) { e.preventDefault(); loopNudge((k === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 10 : e.altKey ? 100 : 1)); return; }   // #470 1 ms (Shift 10, Alt 100)
+  if (toolsPage === 'looper' && looper.data && (k === 'f' || k === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); loopFix(); return; }   // #500
   if ((toolsPage === 'looper' || toolsPage === 'loopbanks') && (k === 'z' || k === 'Z') && (e.ctrlKey || e.metaKey)) { e.preventDefault(); loopUndoDo(); return; }   // #473
   if (toolsPage === 'looper' && (e.ctrlKey || e.metaKey) && 'xXcCvV'.includes(k) && k.length === 1) { e.preventDefault(); if (k === 'v' || k === 'V') loopPaste(); else loopCopy(k === 'x' || k === 'X'); return; }   // #474
   if (toolsPage === 'looper' && (k === 'ArrowUp' || k === 'ArrowDown')) { e.preventDefault(); loopUI.sel = loopUI.sel === 'in' ? 'out' : 'in'; drawMixScreen(); return; }
@@ -6515,7 +6561,7 @@ function drawLooperPage(page, T) {
   const loadG = (x, y, w, h) => gad(x, y, w, h, 'LOAD BANK', false, loopOpenBanks);
   const zoomTo = f => { const c = loopUI.sel === 'in' ? Ld.a : Ld.b, s = (v1 - v0) * f; setView(c - s / 2, c + s / 2); };
   const viewGads = [[P ? 'SHOW RNG' : 'SHOW RANGE', () => { const m = (Ld.b - Ld.a) * 0.06; setView(Ld.a - m, Ld.b + m); }], ['SHOW ALL', () => setView(0, len)], ['ZOOM', () => zoomTo(0.25)], ['TELE', () => zoomTo(4)]];
-  const markGads = [['IN', loopUI.sel === 'in', () => { loopUI.sel = 'in'; }], ['OUT', loopUI.sel === 'out', () => { loopUI.sel = 'out'; }], ['RANGE ALL', false, () => loopRegion(0, Ld.len)]];
+  const markGads = [['IN', loopUI.sel === 'in', () => { loopUI.sel = 'in'; }], ['OUT', loopUI.sel === 'out', () => { loopUI.sel = 'out'; }], ['ALL', false, () => loopRegion(0, Ld.len)], ['FIX', false, loopFix]];   // #500 FIX LOOP
   const editGads = [['CUT', () => loopCopy(true), dimE], ['COPY', () => loopCopy(false), dimE], ['PASTE', loopPaste, !loopClip.bufs || st === 'rec'], ['UNDO', loopUndoDo, !loopUndo.length]];   // #474
   const nudgeGads = [['-10MS', () => loopNudge(-10)], ['-1MS', () => loopNudge(-1)], ['+1MS', () => loopNudge(1)], ['+10MS', () => loopNudge(10)]];
   if (!P) {
@@ -6528,7 +6574,7 @@ function drawLooperPage(page, T) {
     { const bh = 2 * rH + gap, hit = gad(x, y + rH, w, bh, '', st !== 'empty', () => pressLooper('tablet'), false, stCol); hit.long = clearLooper;   // #474 REC / PLAY / CLR stacked
       const lp = 1.75, off = st !== 'empty' ? 1 : 0; ['REC', 'PLAY', 'CLR'].forEach((l, i) => txt(l, x + (w - bitWidth(l, lp)) / 2, y + rH + (bh - 3 * 7 * lp - 2 * 4) / 2 + i * (7 * lp + 4) + off, lp, stCol)); }
     [x, y, w] = grp(x0 + 240, 196);   // markers
-    { const mw = [44, 50, w - 94 - 2 * gap]; let mx = x; markGads.forEach(([l, on, a], i) => { gad(mx, y, mw[i], rH, l, on, a, dimE); mx += mw[i] + gap; });   // #475 RANGE ALL gets the room
+    { const mw = [38, 44, 40, w - 122 - 3 * gap]; let mx = x; markGads.forEach(([l, on, a], i) => { gad(mx, y, mw[i], rH, l, on, a, dimE, l === 'FIX' ? AM.grn : null); mx += mw[i] + gap; });   // #500 FIX LOOP gets the last slot
       const w4 = (w - 3 * gap) / 4; nudgeGads.forEach(([l, a], i) => gad(x + i * (w4 + gap), y + rH + gap, w4, rH, l, false, a, dimE));
       editGads.forEach(([l, a, dim], i) => gad(x + i * (w4 + gap), y + 2 * (rH + gap), w4, rH, l, false, a, dim, l === 'UNDO' ? AM.amb : null)); }
     [x, y, w] = grp(x0 + 442, 186);   // view + volume
@@ -6542,7 +6588,7 @@ function drawLooperPage(page, T) {
     panel(x, y, w, 2 * rH + 18); txt(stTxt, x + 8, y + 7, 2, AM.cyan); { const hit = gad(x + 4, y + 26, w - 8, rH + 18 - 6, act, st !== 'empty', () => pressLooper('tablet'), false, stCol); hit.long = clearLooper; } y += 2 * rH + 22;
     const w4 = (w - 3 * gap) / 4; for (let n = 1; n <= 4; n++) slotG(x + (n - 1) * (w4 + gap), y, w4, rH + 6, n); y += rH + 6 + gap;
     const w3 = (w - 2 * gap) / 3; storeG(x, y, w3, rH); saveG(x + w3 + gap, y, w3, rH); loadG(x + 2 * (w3 + gap), y, w3, rH); y += rH + gap;
-    markGads.forEach(([l, on, a], i) => gad(x + i * (w3 + gap), y, w3, rH, l, on, a, dimE)); y += rH + gap;
+    markGads.forEach(([l, on, a], i) => gad(x + i * (w4 + gap), y, w4, rH, l, on, a, dimE, l === 'FIX' ? AM.grn : null)); y += rH + gap;
     nudgeGads.forEach(([l, a], i) => gad(x + i * (w4 + gap), y, w4, rH, l, false, a, dimE)); y += rH + gap;
     editGads.forEach(([l, a, dim], i) => gad(x + i * (w4 + gap), y, w4, rH, l, false, a, dim, l === 'UNDO' ? AM.amb : null)); y += rH + gap;
     viewGads.forEach(([l, a], i) => gad(x + i * (w4 + gap), y, w4, rH, l, false, a, dimV)); y += rH + gap;
@@ -10626,7 +10672,7 @@ drawMixScreen();
 try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media.getFile('Images', cn).then(f => { if (f) { streamer.setCardPic(f); cardWallSet(f, false); } }).catch(() => {}); } catch (e) {}   // #445 the CARD picture of last time
 window.vire = { get mprops() { return mprops; } /* #586 test hook */, _acid: { AK, ACID_KNOBS, acidUI, tick: acidKnobTick, end: acidKnobEnd, acidTape, acidTray, trayPress, trayDrag, trayRelease, CAS3D, cassGrab, cassRelease, acidReelAt, acidReelTurn } /* #608 test hook */, THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._deck = { pullRecord, placeOnDeck, setMotor, dropNeedleAt, get held() { return held; } };   // #497 test hook: put a record on a deck from the console
-window.vire._loop = { loopClip, loopCopy, loopPaste, loopUndo, loopUndoDo, loopDeleteBank, looper, loopSlots, loopUI, pressLooper, clearLooper, loopSlotTap, loopRegion, loopNudge, loopSaveBank, loopLoadBank, loopOpenBanks, stepLooper, releaseLooper };   // #470 test hook
+window.vire._loop = { loopFix, loopClip, loopCopy, loopPaste, loopUndo, loopUndoDo, loopDeleteBank, looper, loopSlots, loopUI, pressLooper, clearLooper, loopSlotTap, loopRegion, loopNudge, loopSaveBank, loopLoadBank, loopOpenBanks, stepLooper, releaseLooper };   // #470 test hook
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
 window.vire._mp = { get mp() { return mprops; }, setTab: t => { mpTab = t; } };   // #478 test hook
 window.vire._laser = { laser, laserTap, camCal, camCalStart, camCalStop };   // #415 camCal test hook   // #406 test hook
