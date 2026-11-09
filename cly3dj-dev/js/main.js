@@ -5987,7 +5987,7 @@ function drawDeckPanel(g, d, x0, y0, w, h, P) {
   fitText2(g, t ? `${deckVid[d.i].v ? 'VV  ·  ' : ''}${t.artist}${d.side ? '  ·  side ' + d.side : ''}${t.split ? '  ·  split' : ''}` : '', x0 + 12, 90 + dy, w - 24);
   const st = engine.state.decks[d.i];
   const rd = readout(d, st);
-  g.fillStyle = '#fff'; g.font = '700 30px system-ui'; g.fillText(rd.big, x0 + 12, 148 + dy);   // #643 smaller
+  g.fillStyle = '#fff'; g.font = '700 25px system-ui'; g.fillText(rd.big, x0 + 12, 148 + dy);   // #643 smaller
   g.fillStyle = '#8c96a8'; g.font = '500 17px system-ui'; fitText2(g, rd.label, x0 + 14, 172 + dy, w * 0.62);
   MS_HIT[d.i] = { x: x0 + 6, y: 100 + dy, w: w * 0.62, h: 84 };
   // #319 (owner): the +/- readout is the platter's live speed, so a spindle twist or a rim nudge shows as it happens
