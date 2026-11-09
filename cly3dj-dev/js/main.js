@@ -122,7 +122,7 @@ const KEY_POS = key.position.clone();
 // catches the gear's shadows on the panorama's floor (the studio floor is hidden then).
 const skybox = new Skybox(renderer); rig.add(skybox.group); skybox.group.position.x = 0.05; skybox.group.position.z = 0.62;
 // #346 DOME (PORTALS SETUP): the same grounded sky, shown even in passthrough and with any light setting, sized 3-20 m
-const dome = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.dome') || 'null'); } catch {} return { on: !!(s && s.on), r: Math.min(20, Math.max(3, (s && s.r) || 10)), turn: Math.min(359, Math.max(0, (s && s.turn) || 0)), ev: Math.min(1, Math.max(-3, +(s && s.ev) || 0)) }; })();   // #404 ev: DOME EXPOSURE   // #389 turn: the dome's own angle
+const dome = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.dome') || 'null'); } catch {} return { on: !!(s && s.on), r: Math.min(20, Math.max(3, (s && s.r) || 10)), turn: Math.min(359, Math.max(0, (s && s.turn) || 0)), ev: Math.min(1, Math.max(-3, +(s && s.ev) || 0)), gam: Math.min(2, Math.max(0.5, +(s && s.gam) || 1)) }; })();   // #638 gam: DOME GAMMA   // #404 ev: DOME EXPOSURE   // #389 turn: the dome's own angle
 const skyShadow = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.ShadowMaterial({ opacity: 0.4 }));
 skyShadow.rotation.x = -Math.PI / 2; skyShadow.position.y = 0.001; skyShadow.receiveShadow = true; skyShadow.visible = false; skyShadow.raycast = () => {};
 rig.add(skyShadow);
@@ -1371,8 +1371,9 @@ async function setDome(on) {   // the sky picked on VISUALS (PANO > SKY) as a do
 function setDomeTurn(a) { dome.turn = clamp(Math.round(a), 0, 359); saveDome(); applySkyTurn(); drawMixScreen(); }   // #389 PORTALS SETUP > DOME TURN
 function setDomeEv(ev) { dome.ev = Math.min(1, Math.max(-3, Math.round(ev * 4) / 4)); saveDome(); skybox.setExposure(dome.ev); drawMixScreen(); }   // #404
 skybox.setExposure(dome.ev);
-function setDomeCon(k) { dome.con = Math.min(1.8, Math.max(0.5, Math.round(k * 20) / 20)); saveDome(); skybox.setContrast(dome.con); drawMixScreen(); }   // #629 DOME CONTRAST
-skybox.setContrast(dome.con || 1);
+function setDomeGam(k) { dome.gam = Math.min(2, Math.max(0.5, Math.round(k * 20) / 20)); saveDome(); skybox.setGamma(dome.gam); drawMixScreen(); }   // #638 DOME GAMMA (replaces #629 DOME CONTRAST)
+skybox.setGamma(dome.gam);
+const gamPos = g => (Math.log2(g) + 1) / 2, gamOf = v => Math.pow(2, v * 2 - 1);   // #638 slider: 0.5 .. 1 (middle) .. 2
 function setDomeSize(r) { dome.r = Math.min(20, Math.max(3, Math.round(r))); saveDome(); applySky(); }
 function portalDefaults() {   // two taps: wall shape, fractal speed / colour cycle and dome size back to their defaults
   if (performance.now() - portalDefArm < 3000) {
@@ -5702,10 +5703,11 @@ function drawVideoPage() {
   if (vpFolder === 'Pano') {   // #379 PANO SPIN 0 to 5 (degrees a second); landscape: between the SKY buttons and the LED button, portrait: a row of its own
     // #596 / #597 three bars: PANO TURN, EXPOSURE (the same DOME EXPOSURE as PORTALS SETUP) and SPEED (video panos);
     // landscape: a full-width row above the buttons; portrait: TURN + EXPOSURE, then SPEED under them
-    const ry = P ? H - 194 : by - bh - 10, rx = P ? 26 : 8, rw = P ? W - 52 : W - 16, hw = P ? (rw - 8) / 2 : (rw - 16) / 3, pr = settings.panoRate || 1;
+    const ry = P ? H - 194 : by - bh - 10, rx = P ? 26 : 8, rw = P ? W - 52 : W - 16, hw = P ? (rw - 8) / 2 : (rw - 24) / 4,   /* #638 four across: + GAMMA */ pr = settings.panoRate || 1;
     tSlider(g, rx, ry, hw, bh, P ? 'TURN' : 'PANO TURN', settings.skyTurn / 359, `${settings.skyTurn}°`, v => setSkyTurn(v * 359), false, 100);   // #389 was SPIN: a bar that turns the pano by hand
     tSlider(g, rx + hw + 8, ry, hw, bh, P ? 'EV' : 'EXPOSURE', (dome.ev + 3) / 4, `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)}`, v => setDomeEv(-3 + v * 4), false, 100);
-    tSlider(g, P ? rx : rx + 2 * (hw + 8), P ? ry + 44 : ry, P ? rw : hw, bh, 'SPEED', RATES.indexOf(pr) / (RATES.length - 1), rateTxt(pr), v => setRate('panoRate', RATES[Math.round(v * (RATES.length - 1))]), false, 100);   // #597 video panos only
+    tSlider(g, P ? rx + hw + 8 : rx + 2 * (hw + 8), P ? ry + 44 : ry, hw, bh, 'GAMMA', gamPos(dome.gam), dome.gam.toFixed(2), v => setDomeGam(gamOf(v)), false, 100);   // #638 the same DOME GAMMA as PORTALS SETUP
+    tSlider(g, P ? rx : rx + 3 * (hw + 8), P ? ry + 44 : ry, hw, bh, 'SPEED', RATES.indexOf(pr) / (RATES.length - 1), rateTxt(pr), v => setRate('panoRate', RATES[Math.round(v * (RATES.length - 1))]), false, 100);   // #597 video panos only
   }
   if (vpFolder === 'Video') {   // #597 SPEED for the clips (Cyclo / LED wall, SCREEN portals): a row of its own above the buttons
     const vr = settings.vidRate || 1;
@@ -8817,7 +8819,7 @@ function drawToolsPage() {
       ['DISTANCE', `${WL.val('r').toFixed(2)} m`, d => WL.step('r', d)],
       ['DOME SIZE', `${dome.r} m`, d => setDomeSize(dome.r + d)],
       ['DOME EXPOSURE', `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)} EV`, d => setDomeEv(dome.ev + d * 0.25)],   // #404 tame blown-out panos
-      ['DOME CONTRAST', (dome.con || 1).toFixed(2), d => setDomeCon((dome.con || 1) + d * 0.05)],   // #629
+      ['DOME GAMMA', dome.gam.toFixed(2), d => setDomeGam(dome.gam + d * 0.05)],   // #638 (was #629 DOME CONTRAST)
       ['FRACTAL SPEED', `${WL.val('speed')}x`, d => WL.step('speed', d)],
       ['COLOUR CYCLE', `${WL.val('cycle')}x`, d => WL.step('cycle', d)],
       ['FRAME', `${PS.edit + 1} of ${PS.n}`, d => PS.setEdit(PS.edit + d)],   // #586 which frame TYPE sets (it blinks white)
@@ -8853,7 +8855,7 @@ function drawToolsPage() {
     } else {
       const per = Math.ceil(toggles.length / 2), tw = (R - L - 6 * (per - 1)) / per;   // #626 two rows
       toggles.forEach(([lb, on, act], i) => btn(L + (i % per) * (tw + 6), y0 + Math.floor(i / per) * 38, tw, 34, lb, on, act, false, 13));
-      const NC = 6, cw = (R - L - 8 * (NC - 1)) / NC, y1 = y0 + 78;   // #629 six across (DOME CONTRAST added), the TURN slider in the slot after the last cell
+      const NC = 6, cw = (R - L - 8 * (NC - 1)) / NC, y1 = y0 + 78;   // #629 six across (DOME CONTRAST added; #638 now DOME GAMMA), the TURN slider in the slot after the last cell
       cells.forEach((c, i) => cell(c, L + (i % NC) * (cw + 8), y1 + Math.floor(i / NC) * 48, cw, 44));
       { const i = cells.length; tSlider(g, L + (i % NC) * (cw + 8), y1 + Math.floor(i / NC) * 48 + 4, cw, 40, 'TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on, 56); }   // #389 (#586 third row, right of FRAME / TYPE / TRIM LIGHT)
       text(L + 2, y1 + 3 * 48 + 10, R - L - 4, 14, 1, 11);   // #626 one line under the taller toggle block

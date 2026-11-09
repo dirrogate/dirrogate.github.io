@@ -36,7 +36,8 @@ uniform vec4 so;            // u = u * so.x + so.y, v = v * so.z + so.w (picks t
 uniform vec2 texSize;       // texels (whole picture)
 uniform float aa;           // 1 = video (no mipmaps): footprint-adaptive 4-tap
 uniform float gain;         // #404 DOME EXPOSURE (2^EV)
-uniform float uCon;         // #629 DOME CONTRAST (1 = as shot), around mid-grey after the exposure
+uniform float uCon;         // #629 DOME CONTRAST, retired by #638 (stays 1)
+uniform float uGam;         // #638 DOME GAMMA (1 = as shot; < 1 darker mid-tones, > 1 lighter; black and white stay put)
 uniform float uAces;        // #594 1 = drawing into the stream's linear layer, which gets ACES (x 1/0.6) afterwards
 vec3 acesInv(vec3 y) {      // the value ACES maps back onto the pano's own colour (same as the SCREEN portals, #591)
   const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
@@ -56,7 +57,7 @@ void main() {
     c = 0.25 * (texture2D(map, uv + dx * 0.125 + dy * 0.375) + texture2D(map, uv + dx * 0.375 - dy * 0.125)
               + texture2D(map, uv - dx * 0.125 - dy * 0.375) + texture2D(map, uv - dx * 0.375 + dy * 0.125));
   } else c = texture2D(map, uv);
-  vec3 o = c.rgb * gain; o = 0.18 * pow(max(o, vec3(0.0)) / 0.18, vec3(uCon)); if (uAces > 0.5) o = acesInv(clamp(o, 0.0, 1.0));
+  vec3 o = c.rgb * gain; o = 0.18 * pow(max(o, vec3(0.0)) / 0.18, vec3(uCon)); o = pow(o, vec3(1.0 / uGam)); if (uAces > 0.5) o = acesInv(clamp(o, 0.0, 1.0));
   gl_FragColor = vec4(o, c.a);
   #include <colorspace_fragment>
 }`;
@@ -116,7 +117,7 @@ export class Skybox {
     this.group = new THREE.Group(); this.group.visible = false; this.group.name = 'skybox';
     this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.tex = null;
     this.mats = [0, 1].map(() => new THREE.ShaderMaterial({
-      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 } },
+      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 } },
       vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthWrite: false, toneMapped: false,
     }));
     this.geo = null; this.setHeight(this.height);
@@ -196,6 +197,7 @@ export class Skybox {
     this.meshes[1].layers.set(2); this.meshes[1].visible = st;
   }
   setTurn(rad) { this.group.rotation.y = rad; }
+  setGamma(k) { this.mats.forEach(m => { m.uniforms.uGam.value = k || 1; }); }   // #638 DOME GAMMA
   setContrast(k) { this.mats.forEach(m => { m.uniforms.uCon.value = k || 1; }); }   // #629 DOME CONTRAST
   setExposure(ev) { const g = Math.pow(2, ev || 0); this.mats.forEach(m => { m.uniforms.gain.value = g; }); }   // #404 DOME EXPOSURE
 }
