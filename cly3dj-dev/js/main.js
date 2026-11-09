@@ -1868,6 +1868,7 @@ let syncAnim = null;
 let syncFlash = { t: 0, color: 'blue' };
 let splitCue = false;
 const cueOn = [false, false];
+let lastCue = -1;   // #644 the CUE button touched last (the left TAP BPM goes to the deck whose CUE is on)
 let acidCueOn = false;   // Gemini_acid: ACID CUE on the mixer. #607 a normal pre-listen: adds the TB-03 to the cue bus, master untouched
 
 // mixer control values (0..1, 0.5 neutral) and defaults
@@ -4247,7 +4248,7 @@ function pressControl(c, src) { // buttons; returns true if handled (src: who pr
     if (id === 'bpmtap') { handleBpmTap(src || 'mouse'); return true; }
     if (id.endsWith('.beat1')) { tapBeat1(decks[id[0] === 'B' ? 1 : 0], src || 'mouse'); return true; }
     if (id === 'acid.cue') { acidCueOn = !acidCueOn; engine.setAcidCue(acidCueOn); toast(acidCueOn ? 'ACID CUE on: TB-03 in the headphones (pre-fader), master unchanged' : 'ACID CUE off', 1600); if (toolsPage === 'acid') drawMixScreen(); return true; }   // Gemini_acid; #607 pre-listen like a deck CUE, never mutes the master
-    if (id.endsWith('.cue')) { const i = id[0] === 'A' ? 0 : 1; cueOn[i] = !cueOn[i]; engine.setCue(i, cueOn[i]); return true; }
+    if (id.endsWith('.cue')) { const i = id[0] === 'A' ? 0 : 1; cueOn[i] = !cueOn[i]; if (cueOn[i]) lastCue = i; engine.setCue(i, cueOn[i]); return true; }
   }
   return false;
 }
@@ -5165,6 +5166,10 @@ const tapTempo = {
   lastTap: 0        // timestamp of last tap
 };
 
+function cueTarget() {
+  const on = [0, 1].filter(i => cueOn[i]); if (!on.length) return null;
+  return decks[on.length === 2 && lastCue >= 0 ? lastCue : on[0]];
+}
 function handleBpmTap(src = 'mouse') {
   const now = performance.now() / 1000;
   tapFlashT = now;
@@ -5191,7 +5196,15 @@ function handleBpmTap(src = 'mouse') {
 
     if (bpm >= 30 && bpm <= 300) {
       tapTempo.bpm = bpm;
-      toast(`TAP: ${n} · ${bpm.toFixed(2)} BPM`, 1200);
+      // #644 the tapped tempo goes to the deck whose CUE is on (both on: the CUE touched last). A track with an ID3 or
+      // Rekordbox BPM keeps it (LOCK's rule); one without takes the tap, saved with the track, live for LOCK and the phase meter.
+      const cd = cueTarget(), ct = cd && cd.loaded ? cd.track : null;
+      let tail = cd ? '' : ' (CUE a deck to send it there)';
+      if (ct) {
+        if (fileBpmSrc(ct)) tail = ` · deck ${cd.name} keeps its ${fileBpmSrc(ct) === 'id3' ? 'ID3' : 'Rekordbox'} BPM ${+ct.bpm.toFixed(2)}`;
+        else { setTap(ct, { bpm: +bpm.toFixed(3), taps: n }); tail = ` → deck ${cd.name}`; }
+      } else if (cd) tail = ` · deck ${cd.name} has no record`;
+      toast(`TAP: ${n} · ${bpm.toFixed(2)} BPM${tail}`, 1200);
     }
   }
   tapTempo.lastTap = now;
@@ -5200,6 +5213,7 @@ function handleBpmTap(src = 'mouse') {
 function clearBpmTap() {
   tapTempo.times = [];
   tapTempo.bpm = 0;
+  const cd = cueTarget(); if (cd && cd.loaded && cd.track && tapBpmOf(cd.track)) setTap(cd.track, { bpm: 0, taps: 0 });   // #644 a long press also drops the tapped BPM it gave that deck
   blinkUntil[0] = performance.now() / 1000 + 1.0;
   toast('TAP: BPM cleared', 1400);
 }

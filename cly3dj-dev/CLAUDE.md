@@ -2175,3 +2175,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Beat grid for the meter: the track's BPM (ID3, else Rekordbox) laid on its own onsets. decode-worker.js (and the inline fallback in audio.js) now also returns `flux` (5 ms loudness rises) + `fh`; stored in `envCache` entries; `gridOf(t, bpm)` in main.js combs the first 45 s for the offset that stacks the hits (about 5 ms accuracy on a clean beat); a tapped beat 1 (old sidecar data) overrides it. Cached per track+BPM in `gridCache`. Weak spots: tracks with a long beatless intro or a drifting / wrong BPM, half-time BPMs.
 - Mixer BPM readout: font 46 -> 25 px (v151); tap cycles BPM -> REKORDBOX BPM -> KEY -> OFF (the old ORIG mode is gone; a saved 'orig' resets to BPM). OFF shows only a small label; tap it to bring the number back.
 - Test hook `vire._phase`. sw.js v150. Backups: backups/pre-phasemeter/. No Node restart.
+
+## #644 Left TAP BPM goes to the deck whose CUE is on (owner, 10 Nov)
+- The mixer's TAP BPM button (and its display) is no longer deck A only. The tapped tempo is saved (setTap bpm) for the deck whose CUE is on; both on = the CUE touched last (`lastCue`, `cueTarget()`). No CUE on: toast says CUE a deck.
+- A track with an ID3 or Rekordbox BPM keeps it (LOCK rule: ID3 > Rekordbox > tapped); the toast says so. A track with none takes the tap: live for LOCK and the phase meter. Long press on TAP (clearBpmTap) also drops that deck's tapped BPM.
+- Tested in the browser pane (CUE A -> 119.278 saved on A; B with ID3 128 untouched). sw.js v152. No Node restart.
