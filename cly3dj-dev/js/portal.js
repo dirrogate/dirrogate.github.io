@@ -36,6 +36,9 @@ const RIM = 0.085;                               // #587 concrete outer edge, fr
 const cornerRadius = (hx, hy) => Math.min(0.30, 0.42 * Math.min(hx, hy));
 const GLOWS = { off: null, red: 0xff2a2a, cyan: 0x36d8ff, amber: 0xffa53a };
 const GLOW_ORDER = ['off', 'red', 'cyan', 'amber'];
+// #639 GLASS RAIN presets: [rain 0..1, mist 0..1, flow speed]
+export const RAIN_PRESETS = { off: [0, 0, 1], mist: [0, 0.6, 1], drizzle: [0.35, 0.25, 0.8], rain: [0.7, 0.35, 1], storm: [1, 0.5, 1.6] };
+export const RAIN_ORDER = ['off', 'mist', 'drizzle', 'rain', 'storm'];
 // #586 REAL WINDOW, REAL DOOR, PANO WINDOW, PANO DOOR; #588 + ROUND (cross grill), ARCH (cross grill), PORTHOLE (no grill), each REAL or PANO.
 // A leading 'p' means PANO (the sky only through it), so the porthole is 'hole' / 'phole'.
 // #589 + SCREEN BAY / SCREEN DOOR / SCREEN PORTHOLE ('s' + shape): the opening shows the shared screen feed (CYCLO, an image or a video).
@@ -49,7 +52,7 @@ export const SHAPE_LABEL = { rect: 'BAY', door: 'DOOR', round: 'ROUND', arch: 'A
 // portalR = corner radius (top, bottom); a doorway's bottom is 0 = square.
 const DECL = `
 #ifdef USE_PORTAL
-  uniform mat4 portalInv[${MAX_PORTALS}]; uniform vec2 portalHalf[${MAX_PORTALS}]; uniform vec2 portalR[${MAX_PORTALS}]; uniform float portalRev[${MAX_PORTALS}]; uniform int portalN; uniform int portalRevN;
+  uniform mat4 portalInv[${MAX_PORTALS}]; uniform vec2 portalHalf[${MAX_PORTALS}]; uniform vec2 portalR[${MAX_PORTALS}]; uniform float portalRev[${MAX_PORTALS}]; uniform float portalUp[${MAX_PORTALS}]; uniform vec4 portalRain; uniform int portalN; uniform int portalRevN;   // #639 portalRain = (rain, mist, time, flow)
   varying vec3 vPortalWP;
 #endif`;
 const VERT = `
@@ -57,14 +60,58 @@ const VERT = `
   vPortalWP = (modelMatrix * vec4(transformed, 1.0)).xyz;
 #endif`;
 const VERT_SM = VERT.replace('transformed', 'position');   // plain ShaderMaterials (the sky dome) have no 'transformed'
+// #639 GLASS RAIN on PANO frames (owner: rain droplets on the portal windows; reuse the #495 wall-decal rivulets).
+// The PANO opening has no glass mesh: the dome itself is drawn through it, so the water is worked out right here in
+// the dome's fragment, in the frame's own plane (metres), and returned as a BEND (where on the glass to look through
+// instead) plus a few masks; skybox.js turns the bend into a texture offset with screen derivatives. Each eye gets its
+// own crossing point, so the drops sit ON the glass with the right parallax. Cost: nothing at all when GLASS RAIN is
+// OFF (uniform branch); when on, 1 bead cell + the 2 nearest rivulet columns (skipped early away from a run) per dome
+// pixel INSIDE PANO openings only.
+// Upright frames: beads + rivulets running down. Skylights (portalUp ~0): beads that land, swell and dry, no runs.
+const RAIN = `
+  vec2 rBend = vec2(0.0); float rCore = 0.0, rEdge = 0.0, rBead = 0.0, rClear = 0.0;
+  if (portalRain.x + portalRain.y > 0.001 && inRev) {
+    float kk = clamp(portalRain.x, 0.0, 1.0), T = portalRain.z, Tf = portalRain.z * portalRain.w, up = clamp(upRev, 0.0, 1.0);
+    // beads: one per 2.2 cm cell, land at a random moment, swell, sit, then dry off; each is a tiny lens (flips what's behind it)
+    if (kk > 0.0) {   // MIST alone skips all the water maths
+    vec2 cs = vec2(0.022), cid = floor(pRev / cs), cf = pRev / cs - cid - 0.5;
+    float h0 = fract(sin(dot(cid, vec2(127.1, 311.7))) * 43758.5453), h1 = fract(sin(dot(cid, vec2(269.5, 183.3))) * 43758.5453);
+    float life = fract(T * (0.05 + 0.08 * h1) * (0.4 + kk) + h0), on = step(h1, kk * (1.15 - 0.45 * up));
+    vec2 bc = (vec2(h0, h1) - 0.5) * 0.5; float br = (0.13 + 0.22 * h0) * smoothstep(0.0, 0.06, life) * (1.0 - smoothstep(0.8, 1.0, life));
+    vec2 bq = (cf - bc) * cs.x; float bl = length(cf - bc), bd = smoothstep(br, br * 0.55, bl) * on;
+    rBend += -bq * 7.0 * bd * kk; rBead = bd; rEdge = smoothstep(br * 0.55, br, bl) * bd;
+    if (up > 0.3) {   // the #495 rivulets, in metres on this frame: wander, run, pause, run again, top to bottom
+      float cw = 0.06, H = 2.0 * hRev.y, yN = (pRev.y + hRev.y) / H, yM = pRev.y;
+      float c0 = floor(pRev.x / cw - 0.5);
+      for (int j = 0; j <= 1; j++) {   // the two nearest columns (the wander stays within 0.35 of a column)
+        float cx = c0 + float(j), r2 = fract(sin((cx * 2.3 + 1.1) * 91.345) * 47453.5453);
+        if (r2 > kk * 0.9) continue;
+        float r = fract(sin((cx + 3.7) * 91.345) * 47453.5453), r3 = fract(sin((cx * 5.1 + 9.0) * 91.345) * 47453.5453);
+        float u = Tf * (0.07 + 0.09 * r) + r3 * 10.0, stepped = (floor(u) + smoothstep(0.0, 0.45, fract(u))) * (0.05 + 0.05 * r);
+        float head = 1.05 - mod(stepped + r2 * 3.0, 1.55);
+        if ((yN - head) * H < -0.025 || yN > head + 0.7 + 0.3 * r3) continue;   // cheap: nowhere near this run's head or trail
+        float cxm = (cx + 0.5 + 0.25 * sin(yM * (2.0 + 3.0 * r) + r * 20.0) * (0.6 + 0.4 * sin(yM * 6.0 + r2 * 9.0)) + 0.1 * sin(yM * 17.0 + r3 * 5.0)) * cw;
+        float dx = pRev.x - cxm, trail = step(head, yN) * smoothstep(head + 0.4 + 0.3 * r3, head, yN);
+        float wd = (0.0042 + 0.0035 * r) * (1.0 + 0.7 * sin(yM * 9.0 + r * 5.0)), core = smoothstep(wd, 0.0, abs(dx)) * trail, edge = smoothstep(wd * 3.2, wd, abs(dx)) * trail;
+        vec2 hq = vec2(dx, (yN - head) * H); float hd = smoothstep(0.012 + 0.006 * r, 0.0, length(hq));
+        rBend += (vec2(-dx * 8.0 * edge * (1.0 - core * 0.4), -0.004 * core) - hq * 4.0 * hd) * kk * up;
+        rCore = max(rCore, core); rEdge = max(rEdge, edge - core * 0.6); rBead = max(rBead, hd);
+        rClear = max(rClear, smoothstep(wd * 5.0, wd, abs(dx)) * step(head, yN));   // a run wipes the mist off behind it
+      }
+    }
+    }
+    rClear = max(rClear, rBead);
+  }
+`;
 const FRAG = `
 #ifdef USE_PORTAL
-  bool inRev = false;
+  bool inRev = false; vec2 pRev = vec2(0.0), hRev = vec2(1.0); float upRev = 1.0;   // #639 where the eye ray crosses the PANO glass (metres, frame centre = 0)
   for (int i = 0; i < ${MAX_PORTALS}; i++) {
     if (i >= portalN) break;
     vec3 pc = (portalInv[i] * vec4(cameraPosition, 1.0)).xyz, pf = (portalInv[i] * vec4(vPortalWP, 1.0)).xyz;
     if (pc.z * pf.z < 0.0) {   // camera and fragment on opposite sides of the window's plane
       vec2 h = portalHalf[i], p = mix(pc.xy, pf.xy, pc.z / (pc.z - pf.z)), q = abs(p);
+      if (portalRev[i] > 0.5 && !inRev) { pRev = p; hRev = h; upRev = portalUp[i]; }   // kept just outside the opening too, so screen derivatives stay smooth at its edge
       float rr = p.y > 0.0 ? portalR[i].x : portalR[i].y;
       vec2 d = q - h + rr;
       if (length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - rr < 0.0) { if (portalRev[i] > 0.5) inRev = true; else discard; }
@@ -72,6 +119,7 @@ const FRAG = `
   }
   #ifdef PORTAL_SKY
   if (portalRevN > 0 && !inRev) discard;   // #586 PANO frames: the dome only shows through them
+  ${RAIN}
   #endif
 #endif`;
 
@@ -623,12 +671,14 @@ export class Portals {
   constructor(rig, home) {
     this.rig = rig; this.home = home; this.on = false; this.n = 1; this.list = []; this.glow = 'off'; this.kinds = []; this.edit = 0; this.scrSrc = { src: 'cyclo', name: '', folder: '' }; this.feed = null;   // #589 one screen feed for all SCREEN frames; feed() -> { tex, w, h } (main.js)   // #585 / #586 kinds per frame
     this.grade = { ...GRADE0 };   // #597 FRAME LOOK
+    this.rain = 'off'; this._rainT = 0; this._rainLast = 0;   // #639 GLASS RAIN preset (PANO frames)
     this.showLocks = false;   // #626 main.js: true while the B laser is on
     this.styles = []; this.holo = { ...HOLO0 }; this.bamboo = { ...BAMBOO0 }; this.beat = 0;   // #598 per frame 'iron' / 'holo'; one HOLO look for all
     this._mats = new Set();
     this._u = { portalInv: { value: Array.from({ length: MAX_PORTALS }, () => new THREE.Matrix4()) },
       portalHalf: { value: Array.from({ length: MAX_PORTALS }, () => HALF0.clone()) },
-      portalR: { value: Array.from({ length: MAX_PORTALS }, () => new THREE.Vector2()) }, portalRev: { value: new Array(MAX_PORTALS).fill(0) },
+      portalR: { value: Array.from({ length: MAX_PORTALS }, () => new THREE.Vector2()) }, portalRev: { value: new Array(MAX_PORTALS).fill(0) }, portalUp: { value: new Array(MAX_PORTALS).fill(1) },
+      portalRain: { value: new THREE.Vector4(0, 0, 0, 1) },   // #639
       portalN: { value: 0 }, portalRevN: { value: 0 } };
     this._load();
   }
@@ -641,6 +691,7 @@ export class Portals {
     this.n = Math.min(MAX_PORTALS, Math.max(1, (s && s.n) || 1));
     this.glow = s && GLOWS[s.glow] !== undefined ? s.glow : 'off';   // #585
     if (s && s.grade) Object.assign(this.grade, s.grade); applyGrade(this.grade);   // #597
+    this.setRain(s && RAIN_PRESETS[s.rain] ? s.rain : 'off', false);   // #639
     if (s && s.bamboo) Object.assign(this.bamboo, s.bamboo);
     if (s && s.holo) Object.assign(this.holo, s.holo); this.styles = Array.from({ length: MAX_PORTALS }, (_, i) => (s && s.f && s.f[i] && s.f[i].st) || 'iron');   // #598
     if (s && s.scr && s.scr.src) this.scrSrc = { src: s.scr.src, name: s.scr.name || '', folder: s.scr.folder || '' };   // #589
@@ -656,7 +707,7 @@ export class Portals {
     this.setOn(!!(s && s.on), false);
   }
   save() {
-    try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, n: this.n, glow: this.glow, scr: this.scrSrc, grade: this.grade, holo: this.holo, bamboo: this.bamboo,
+    try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, n: this.n, glow: this.glow, rain: this.rain, scr: this.scrSrc, grade: this.grade, holo: this.holo, bamboo: this.bamboo,
       f: this.list.slice(0, this.n).map((f, i) => ({ p: f.obj.position.toArray(), q: f.obj.quaternion.toArray(), h: f.half.toArray(), k: this.kinds[i], s: f.snapL || '', st: this.styles[i] || 'iron', lk: !!f.locked })) })); } catch {}   // #592 s = the scanned surface it sits on
   }
   _show() { this.list.forEach((f, i) => { f.obj.visible = this.on && i < this.n; }); this._u.portalN.value = this.on ? this.n : 0; this._u.portalRevN.value = this.revN; }
@@ -681,6 +732,9 @@ export class Portals {
   get holoN() { let n = 0; for (let i = 0; i < this.n; i++) if (this.styleOf(i) === 'holo') n++; return this.on ? n : 0; }
   setBamboo(k, v) { if (k === 'reset') Object.assign(this.bamboo, BAMBOO0); else this.bamboo[k] = v; for (let i = 0; i < this.n; i++) { const f = this.list[i]; if (f && f.bamboo) f._bamFit(); } this.save(); }   // #598
   setHolo(k, v) { if (k === 'reset') Object.assign(this.holo, HOLO0); else this.holo[k] = v; this.save(); }
+  // #639 GLASS RAIN: one cell on PORTALS SETUP steps OFF / MIST / DRIZZLE / RAIN / STORM for every PANO frame
+  setRain(k, save = true) { if (!RAIN_PRESETS[k]) k = 'off'; this.rain = k; const P = RAIN_PRESETS[k], U = this._u.portalRain.value; U.x = P[0]; U.y = P[1]; U.w = P[2]; if (save) this.save(); }
+  stepRain(d) { const i = RAIN_ORDER.indexOf(this.rain); this.setRain(RAIN_ORDER[((i < 0 ? 0 : i) + d + RAIN_ORDER.length) % RAIN_ORDER.length]); }
   setGrade(k, v) { if (k === 'reset') Object.assign(this.grade, GRADE0); else this.grade[k] = v; applyGrade(this.grade); this.save(); }   // #597
   setOn(on, save = true) { this.on = !!on; this._show(); if (save) this.save(); }
   // more frames: the new ones start at their spots across the wall; fewer: the extra ones are put away (kept for later)
@@ -726,8 +780,10 @@ export class Portals {
   tick() {
     if (!this.on) return;
     this._u.portalRevN.value = this.revN;
+    if (this.rain !== 'off') { const now = performance.now(); if (this._rainLast) this._rainT += Math.min(0.1, (now - this._rainLast) / 1000); this._rainLast = now; this._u.portalRain.value.z = this._rainT % 3600; } else this._rainLast = 0;   // #639 clock only while it rains
     for (let i = 0; i < this.n; i++) {
       const f = this.list[i]; f.obj.updateMatrixWorld();
+      this._u.portalUp.value[i] = Math.abs(_up.setFromMatrixColumn(f.obj.matrixWorld, 1).normalize().y);   // #639 1 = upright window, 0 = skylight
       this._u.portalInv.value[i].copy(f.obj.matrixWorld).invert(); this._u.portalHalf.value[i].copy(f.half); this._u.portalR.value[i].copy(f.r); this._u.portalRev.value[i] = f.rev ? 1 : 0;
       if (f.screen && f.scr) {   // #589 the shared feed, cover-fitted to this opening
         const F = this.feed && this.feed(), U = f.scr.material.uniforms;
@@ -745,4 +801,5 @@ export class Portals {
     }
   }
 }
+const _up = new THREE.Vector3();   // #639
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _m = new THREE.Matrix4(), _s = new THREE.Vector3(), _y = new THREE.Vector3(0, 1, 0), _box = new THREE.Box3(), _ray = new THREE.Ray();

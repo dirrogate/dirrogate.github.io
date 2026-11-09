@@ -8820,6 +8820,7 @@ function drawToolsPage() {
       ['DOME SIZE', `${dome.r} m`, d => setDomeSize(dome.r + d)],
       ['DOME EXPOSURE', `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)} EV`, d => setDomeEv(dome.ev + d * 0.25)],   // #404 tame blown-out panos
       ['DOME GAMMA', dome.gam.toFixed(2), d => setDomeGam(dome.gam + d * 0.05)],   // #638 (was #629 DOME CONTRAST)
+      ['GLASS RAIN', PS.rain.toUpperCase(), d => { PS.stepRain(d); if (PS.rain !== 'off' && !PS.revN) toast('GLASS RAIN shows on PANO frames: set a frame\'s TYPE to PANO', 2600); }],   // #639 rain / mist on every PANO frame's glass
       ['FRACTAL SPEED', `${WL.val('speed')}x`, d => WL.step('speed', d)],
       ['COLOUR CYCLE', `${WL.val('cycle')}x`, d => WL.step('cycle', d)],
       ['FRAME', `${PS.edit + 1} of ${PS.n}`, d => PS.setEdit(PS.edit + d)],   // #586 which frame TYPE sets (it blinks white)
@@ -8846,12 +8847,15 @@ function drawToolsPage() {
     };
     if (P) {
       const tw = (R - L - 8) / 2;
-      const tr = toggles.length > 10 ? 46 : 52;   // #598 11 toggles (ROOM SNAP): slightly shorter rows so the help still fits
-      toggles.forEach(([lb, on, act], i) => btn(L + (i % 2) * (tw + 8), y0 + Math.floor(i / 2) * tr, tw, tr - 6, lb, on, act, false, 17));
-      const y1 = y0 + Math.ceil(toggles.length / 2) * tr + 6;   // #589 7 toggles
+      // #639 13 toggles + 17 cells no longer fit 768 px (STYLE / DOME TURN had already slipped off the bottom): toggles go
+      // three across, cell rows shrink to fit (54 px max), the help gets whatever lines are left
+      const TC = toggles.length > 10 ? 3 : 2, tw3 = (R - L - 8 * (TC - 1)) / TC, tr = toggles.length > 10 ? 46 : 52;
+      toggles.forEach(([lb, on, act], i) => btn(L + (i % TC) * (tw3 + 8), y0 + Math.floor(i / TC) * tr, tw3, tr - 6, lb, on, act, false, TC > 2 ? 14 : 17));
+      const y1 = y0 + Math.ceil(toggles.length / TC) * tr + 6;   // #589 7 toggles
       const cellsP = cells.concat([['DOME TURN', `${dome.turn}°`, d => setDomeTurn((dome.turn + d * 15 + 360) % 360)]]);   // #586 portrait: DOME TURN as a 15 deg stepper
-      cellsP.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 54, tw, 50));   // #585 rows of 54 px
-      text(L + 4, y1 + Math.ceil(cellsP.length / 2) * 54 + 16, R - L - 8, 18, 3, 14, helpP);   // #598
+      const rows = Math.ceil(cellsP.length / 2), rh = Math.min(54, Math.floor((H - y1 - 40) / rows));
+      cellsP.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * rh, tw, rh - 4));   // #585 rows of 54 px (#639 fewer if needed)
+      const ty = y1 + rows * rh + 16; text(L + 4, ty, R - L - 8, 18, Math.max(1, Math.min(3, Math.floor((H - ty) / 18) + 1)), 14, helpP);   // #598
     } else {
       const per = Math.ceil(toggles.length / 2), tw = (R - L - 6 * (per - 1)) / per;   // #626 two rows
       toggles.forEach(([lb, on, act], i) => btn(L + (i % per) * (tw + 6), y0 + Math.floor(i / per) * 38, tw, 34, lb, on, act, false, 13));

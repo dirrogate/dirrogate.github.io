@@ -51,13 +51,28 @@ varying vec2 vUv;
 void main() {
   vec2 uv = vec2(vUv.x * so.x + so.y, vUv.y * so.z + so.w);
   vec2 dx = dFdx(uv), dy = dFdy(uv);
+#ifdef PORTAL_SKY
+  {   // #639 GLASS RAIN (portal.js): the bend is in metres on the frame's glass; map it to texture space with the screen
+      // derivatives of both (works for any frame angle, each eye, and the flattened floor). Derivatives taken outside any branch.
+    vec2 pdx = dFdx(pRev), pdy = dFdy(pRev); mat2 Jp = mat2(pdx, pdy); float jd = determinant(Jp);
+    if (dot(rBend, rBend) > 1e-10 && abs(jd) > 1e-14) { vec2 duv = mat2(dx, dy) * (inverse(Jp) * rBend); uv += duv * min(1.0, 0.03 / max(length(duv), 1e-6)); }
+  }
+#endif
   vec4 c;
   float fp = max(length(dx * texSize), length(dy * texSize));
   if (aa > 0.5 && fp > 1.2) {
     c = 0.25 * (texture2D(map, uv + dx * 0.125 + dy * 0.375) + texture2D(map, uv + dx * 0.375 - dy * 0.125)
               + texture2D(map, uv - dx * 0.125 - dy * 0.375) + texture2D(map, uv - dx * 0.375 + dy * 0.125));
   } else c = texture2D(map, uv);
-  vec3 o = c.rgb * gain; o = 0.18 * pow(max(o, vec3(0.0)) / 0.18, vec3(uCon)); o = pow(o, vec3(1.0 / uGam)); if (uAces > 0.5) o = acesInv(clamp(o, 0.0, 1.0));
+  vec3 o = c.rgb * gain; o = 0.18 * pow(max(o, vec3(0.0)) / 0.18, vec3(uCon)); o = pow(o, vec3(1.0 / uGam));
+#ifdef PORTAL_SKY
+  if (portalRain.x + portalRain.y > 0.001 && inRev) {   // #639 the water itself: condensation (milky, cooler, lower contrast) wiped clear where water runs; dark rims, bright lens cores
+    float mist = portalRain.y * (1.0 - rClear), lu = dot(o, vec3(0.2126, 0.7152, 0.0722));
+    o = mix(o, mix(vec3(lu), o, 0.55) * 0.8 + vec3(0.016, 0.02, 0.026), mist * 0.6);
+    o *= (1.0 - 0.45 * rEdge * portalRain.x) * (1.0 + 0.1 * rCore + 0.04 * rBead);
+  }
+#endif
+  if (uAces > 0.5) o = acesInv(clamp(o, 0.0, 1.0));
   gl_FragColor = vec4(o, c.a);
   #include <colorspace_fragment>
 }`;
