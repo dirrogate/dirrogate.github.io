@@ -78,7 +78,7 @@ const RAIN = `
     float h0 = fract(sin(dot(cid, vec2(127.1, 311.7))) * 43758.5453), h1 = fract(sin(dot(cid, vec2(269.5, 183.3))) * 43758.5453);
     float life = fract(T * (0.09 + 0.12 * h1) * (0.5 + kk) + h0), on = step(h1, kk * (1.15 - 0.45 * up));   // #640 shorter cycle
     vec2 bc = (vec2(h0, h1) - 0.5) * 0.5; float br = (0.13 + 0.22 * h0) * smoothstep(0.0, 0.05, life) * (1.0 - smoothstep(0.3, 0.5, life));   // #640 dries off in the first half, gone the rest
-    vec2 bq = (cf - bc) * cs.x; float bl = length(cf - bc), bd = smoothstep(br, br * 0.55, bl) * on;
+    vec2 bq = (cf - bc) * cs.x; float bl = length(cf - bc), bd = smoothstep(br, br * 0.55, bl) * on * step(0.001, br);   // #646 a dried bead (br = 0) made smoothstep divide by zero: on some GPUs the whole cell bent (square tiles)
     rBend += -bq * 7.0 * bd * kk; rBead = bd; rEdge = smoothstep(br * 0.55, br, bl) * bd;
     if (up > 0.3) {   // the #495 rivulets, in metres on this frame: wander, run, pause, run again, top to bottom
       float cw = 0.06, H = 2.0 * hRev.y, yN = (pRev.y + hRev.y) / H, yM = pRev.y;
