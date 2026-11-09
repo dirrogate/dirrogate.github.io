@@ -21,11 +21,11 @@ import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #
 import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whiteboard, markers and duster
 import { InkLabel } from './inklabel.js';   // #394 milk crate labels
 import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
-import { Portals, GRADE0, HOLO_ORDER, SHAPE_OF, SHAPE_LABEL, HMIN as P_HMIN, HMAX as P_HMAX } from './portal.js';
+import { Portals, GRADE0, HOLO_ORDER, SHAPE_OF, SHAPE_LABEL, HMIN as P_HMIN, HMAX as P_HMAX, RAIN_ORDER, MAX_PORTALS } from './portal.js';
 import { MasterRec } from './recmaster.js';   // #598 REC MASTER: the clean master to a WAV file
 import { RoomSnap, SNAP_IN, SNAP_OUT } from './roomsnap.js';
 import { NightLook } from './night.js';   // #612 NIGHT LOOK   // #592 Space Setup planes for portal frames   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
-import { FacetWall, WALL_DEF } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
+import { FacetWall, WALL_DEF, WALL_LIM } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
 import { Beat } from './beat.js';   // #346 bass onsets on the master for the wall's BEAT
 import { DirroHost, initRelayFromUrl, fanUrl, relayUrl, roomKey, WALL_SRC, WALL_LABEL, WALL_COLS } from './dirro-host.js';   // #427 DIRROGRAM: the show to the audience phones
 import qrcode from '../vendor/qrcode/qrcode.mjs';   // #427 the room's QR (MIT, Kazuhiko Arase)
@@ -8059,6 +8059,40 @@ function drawToolsPage() {
     if (act) VP_HIT.push({ x, y, w, h, act });
   };
   const L = P ? 24 : 8, R = W - (P ? 26 : 8);   // portrait keeps clear of the silver corner L
+  // #640 owner: the − value + boxes read badly. A control cell is [label, valueText, step(d), spec]:
+  //  spec { v, lo, hi, step, set, dim } = a SLIDER, the value printed on its grab disc (drag with the trigger held, as every
+  //  tablet slider since #629; tick marks when it has 10 steps or fewer, bipolar ranges fill from 0);
+  //  spec 'cycle' = one button that steps to the next choice (⟳); no spec = the old − value + stepper (kept for fine
+  //  calibration pages: CAM FIT, HAND FIT).
+  const ctl = ([label, val, act, spec], x, y, w, h, opt = {}) => {
+    const lf = opt.lf || 12, top = lf + 3, by = y + top, bh = h - top, cy = by + bh / 2;
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillStyle = '#8c96a8';
+    { let f = lf; g.font = `700 ${f}px system-ui`; while (f > 9 && g.measureText(label).width > w - 4) g.font = `700 ${--f}px system-ui`; } g.fillText(label, x + 2, y + lf - 1);
+    if (spec && typeof spec === 'object') {
+      const { lo, hi, step } = spec, dim = !!spec.dim || spec.v == null || !(hi > lo), t = hi > lo && spec.v != null ? clamp((spec.v - lo) / (hi - lo), 0, 1) : 0;
+      let fs = 14; g.font = `800 ${fs}px system-ui`; while (fs > 10 && g.measureText(val).width > w * 0.48 - 12) g.font = `800 ${--fs}px system-ui`;
+      const pw = Math.max(34, Math.min(w * 0.48, g.measureText(val).width + 12)), ph = Math.max(16, Math.min(bh - 4, 28)), x0 = x + pw / 2, tw = Math.max(1, w - pw), kx = x0 + tw * t;
+      g.fillStyle = '#1e2a3d'; g.fillRect(x + 2, cy - 3, w - 4, 6);
+      const n = hi > lo ? Math.round((hi - lo) / step) : 0;
+      if (n > 0 && n <= 10) { g.fillStyle = '#3a4660'; for (let i = 0; i <= n; i++) g.fillRect(Math.round(x0 + tw * i / n) - 1, cy - 8, 2, 16); }
+      const z = lo < 0 && hi > 0 ? x0 + tw * (-lo / (hi - lo)) : x0;
+      g.fillStyle = dim ? '#3a4660' : '#c8202c'; g.fillRect(Math.min(z, kx), cy - 3, Math.abs(kx - z), 6);
+      g.fillStyle = dim ? '#56627a' : '#eef2f8'; g.beginPath();
+      if (g.roundRect) g.roundRect(kx - pw / 2, cy - ph / 2, pw, ph, ph / 2); else g.rect(kx - pw / 2, cy - ph / 2, pw, ph); g.fill();
+      g.fillStyle = dim ? '#2a3140' : '#0d1422'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, kx, cy + 1); g.textBaseline = 'alphabetic';
+      if (!dim) VP_HIT.push({ x, y: by - 4, w, h: bh + 6, drag: true, act: px => {
+        let v = lo + clamp((px - x0) / tw, 0, 1) * (hi - lo); v = clamp(lo + Math.round((v - lo) / step) * step, lo, hi); v = Math.round(v * 1e6) / 1e6;
+        if (v !== spec.v) { spec.v = v; spec.set(v); }
+      } });
+      return;
+    }
+    if (spec === 'cycle') { btn(x, by, w, bh, val + '  ⟳', false, act ? () => act(1) : null, !act, opt.fs || 15); return; }
+    const bw = Math.min(40, Math.round(w * 0.27));
+    btn(x, by, bw, bh, '−', false, act ? () => { act(-1); drawMixScreen(); } : null, !act);
+    let fs = 17; g.font = `700 ${fs}px system-ui`; while (fs > 11 && g.measureText(val).width > w - 2 * bw - 6) g.font = `700 ${--fs}px system-ui`;
+    g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + w / 2, by + bh / 2); g.textBaseline = 'alphabetic';
+    btn(x + w - bw, by, bw, bh, '+', false, act ? () => { act(1); drawMixScreen(); } : null, !act);
+  };
   const head = (title, back, extra) => {   // #365 extra: { label, on, act } a button left of the parent one (STREAM's CHAT)
     const y = P ? 28 : 8, bw = P ? 66 : 80, pw = P ? 92 : 110, pvw = P ? 72 : 84;   // #363 BACK right, the page's own button left of it; #389 PREVIEW (always here) between them
     // #603 owner: MAIN MENU, PREVIEW, BACK on every page. MAIN MENU = the mixer front page (decks, BPM, bottom buttons); BACK = the page before (history)
@@ -8254,14 +8288,8 @@ function drawToolsPage() {
       if (i === 0) keySend('gl', cl(u)); else if (i === 1) keySend('gr', cl(1 - u)); else if (i === 2) keySend('gt', cl(w)); else keySend('gb', cl(1 - w));
     } });
     const r2 = x => Math.round(x * 100) / 100;
-    const cells = [['LEFT', 'gl'], ['RIGHT', 'gr'], ['TOP', 'gt'], ['BOTTOM', 'gb']].map(([lb, k]) => [lb, K ? Math.round((K[k] || 0) * 100) + '%' : '--', d => K && keySend(k, Math.min(0.45, Math.max(0, r2((K[k] || 0) + d * 0.01))))]);
-    const cell = ([label, val, act], x, y, w, h) => {
-      g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
-      const cy = y + 15, ch = h - 15, cw = 40;
-      btn(x, cy, cw, ch, '−', false, K ? () => { act(-1); drawMixScreen(); } : null, !K);
-      g.font = '700 17px system-ui'; g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + w / 2, cy + ch / 2); g.textBaseline = 'alphabetic';
-      btn(x + w - cw, cy, cw, ch, '+', false, K ? () => { act(1); drawMixScreen(); } : null, !K);
-    };
+    const cells = [['LEFT', 'gl'], ['RIGHT', 'gr'], ['TOP', 'gt'], ['BOTTOM', 'gb']].map(([lb, k]) => [lb, K ? Math.round((K[k] || 0) * 100) + '%' : '--', d => K && keySend(k, Math.min(0.45, Math.max(0, r2((K[k] || 0) + d * 0.01)))), { v: K ? K[k] || 0 : null, lo: 0, hi: 0.45, step: 0.01, set: v => keySend(k, v) }]);   // #640 sliders
+    const cell = (c, x, y, w, h) => ctl(c, x, y, w, h);   // #640
     const tog = [[C.matte ? 'MATTE: ON' : 'MATTE', C.matte, () => S.setPcam('matte', !C.matte)], ['PREVIEW', monOn, () => setMonitor(!monOn)],
       ['RESET', false, K ? () => { for (const k of ['gl', 'gr', 'gt', 'gb']) keySend(k, 0); drawMixScreen(); } : null, !K]];
     const help = 'Tap the picture: the nearest edge moves there. − / + for 1 % steps. Everything outside the yellow box is cut away like the green. MATTE shows the result as it goes out (green screen on).';
@@ -8298,25 +8326,18 @@ function drawToolsPage() {
     ];
     const lat = S.delay != null ? Math.round(S.delay) : null;
     const cells = [
-      ['STRENGTH', K ? r2(K.thr).toFixed(2) : '--', d => K && keySend('thr', Math.min(0.8, Math.max(0, r2(K.thr + d * 0.01))))],
-      ['SOFTNESS', K ? r2(K.soft).toFixed(2) : '--', d => K && keySend('soft', Math.min(0.4, Math.max(0.02, r2(K.soft + d * 0.01))))],
-      ['SPILL', K ? r2(K.spill).toFixed(2) : '--', d => K && keySend('spill', Math.min(1, Math.max(0, r2(K.spill + d * 0.05))))],
-      ['LIGHT', Math.round(C.lightStr * 100) + '%', d => S.setPcam('lightStr', Math.min(1, Math.max(0, r2(C.lightStr + d * 0.1))))],
-      ['WRAP', Math.round(C.wrap * 100) + '%', d => S.setPcam('wrap', Math.min(1, Math.max(0, r2(C.wrap + d * 0.1))))],
-      ['KEY GLOW', Math.round(C.glow * 100) + '%', d => S.setPcam('glow', Math.min(1, Math.max(0, r2(C.glow + d * 0.1))))],
-      ['EXPOSURE', (C.expo > 0 ? '+' : '') + C.expo.toFixed(1), d => S.setPcam('expo', Math.min(1, Math.max(-1, r2(C.expo + d * 0.1))))],
+      ['STRENGTH', K ? r2(K.thr).toFixed(2) : '--', d => K && keySend('thr', Math.min(0.8, Math.max(0, r2(K.thr + d * 0.01)))), { v: K ? K.thr : null, lo: 0, hi: 0.8, step: 0.01, set: v => keySend('thr', v) }],
+      ['SOFTNESS', K ? r2(K.soft).toFixed(2) : '--', d => K && keySend('soft', Math.min(0.4, Math.max(0.02, r2(K.soft + d * 0.01)))), { v: K ? K.soft : null, lo: 0.02, hi: 0.4, step: 0.01, set: v => keySend('soft', v) }],
+      ['SPILL', K ? r2(K.spill).toFixed(2) : '--', d => K && keySend('spill', Math.min(1, Math.max(0, r2(K.spill + d * 0.05)))), { v: K ? K.spill : null, lo: 0, hi: 1, step: 0.05, set: v => keySend('spill', v) }],
+      ['LIGHT', Math.round(C.lightStr * 100) + '%', d => S.setPcam('lightStr', Math.min(1, Math.max(0, r2(C.lightStr + d * 0.1)))), { v: C.lightStr, lo: 0, hi: 1, step: 0.1, set: v => S.setPcam('lightStr', v) }],
+      ['WRAP', Math.round(C.wrap * 100) + '%', d => S.setPcam('wrap', Math.min(1, Math.max(0, r2(C.wrap + d * 0.1)))), { v: C.wrap, lo: 0, hi: 1, step: 0.1, set: v => S.setPcam('wrap', v) }],
+      ['KEY GLOW', Math.round(C.glow * 100) + '%', d => S.setPcam('glow', Math.min(1, Math.max(0, r2(C.glow + d * 0.1)))), { v: C.glow, lo: 0, hi: 1, step: 0.1, set: v => S.setPcam('glow', v) }],
+      ['EXPOSURE', (C.expo > 0 ? '+' : '') + C.expo.toFixed(1), d => S.setPcam('expo', Math.min(1, Math.max(-1, r2(C.expo + d * 0.1)))), { v: C.expo, lo: -1, hi: 1, step: 0.1, set: v => S.setPcam('expo', v) }],
       S.stu.on
         ? ['DELAY TRIM', `${S.stu.trim >= 0 ? '+' : ''}${S.stu.trim} ms`, d => S.setStudio('trim', S.stu.trim + d * 10)]
         : [lat != null ? 'DELAY TRIM' : 'DELAY', lat != null ? `${lat}${C.trim >= 0 ? '+' : ''}${C.trim} ms` : `${C.manual} ms`, d => lat != null ? S.setPcam('trim', C.trim + d * 10) : S.setPcam('manual', Math.max(0, C.manual + d * 10))],
     ];
-    const cell = ([label, val, act], x, y, w, h) => {
-      g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
-      const by = y + 15, bh = h - 15, bw = Math.min(40, Math.round(w * 0.27));   // #629 narrower cells: smaller - / +
-      btn(x, by, bw, bh, '−', false, () => { act(-1); drawMixScreen(); });
-      let fs = 17; g.font = `700 ${fs}px system-ui`; while (fs > 11 && g.measureText(val).width > w - 2 * bw - 6) g.font = `700 ${--fs}px system-ui`;
-      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + w / 2, by + bh / 2); g.textBaseline = 'alphabetic';
-      btn(x + w - bw, by, bw, bh, '+', false, () => { act(1); drawMixScreen(); });
-    };
+    const cell = (c, x, y, w, h) => ctl(c, x, y, w, h);   // #640 sliders (DELAY keeps − / +: open-ended ms)
     const st = pcamStatus(S);   // #374 shared with the OBJECTS page
     if (C.green && C.light) { const h = S.lampHint(); if (h) st.push(h); }
     if (C.green && S.showOpt.backdrop === 'dome' && !skybox.tex) st.push('BACK DOME: no sky picked yet (VISUALS > PANO > SKY).');
@@ -8364,23 +8385,16 @@ function drawToolsPage() {
       [STUDIO_MODES.key || 'LIVE KEY!', S.stu.mode === 'key', () => S.setStudio('mode', 'key')],
     ];
     const cells = [
-      ['STRENGTH', K ? r2(K.thr).toFixed(2) : '--', d => K && keySend('thr', cl(r2(K.thr + d * 0.01), 0, 0.8))],
-      ['SOFTNESS', K ? r2(K.soft).toFixed(2) : '--', d => K && keySend('soft', cl(r2(K.soft + d * 0.01), 0.02, 0.4))],
-      ['SPILL', K ? r2(K.spill).toFixed(2) : '--', d => K && keySend('spill', cl(r2(K.spill + d * 0.05), 0, 1))],
-      ['DOME MATCH', K ? pc(K.cmatch || 0) : '--', d => K && keySend('cmatch', cl(r2((K.cmatch || 0) + d * 0.1), 0, 1))],
-      ['CROP LEFT', K ? pc(K.gl || 0) : '--', d => K && keySend('gl', cl(r2((K.gl || 0) + d * 0.02), 0, 0.45))],
-      ['CROP RIGHT', K ? pc(K.gr || 0) : '--', d => K && keySend('gr', cl(r2((K.gr || 0) + d * 0.02), 0, 0.45))],
-      ['CROP TOP', K ? pc(K.gt || 0) : '--', d => K && keySend('gt', cl(r2((K.gt || 0) + d * 0.02), 0, 0.45))],
-      ['CROP BOTTOM', K ? pc(K.gb || 0) : '--', d => K && keySend('gb', cl(r2((K.gb || 0) + d * 0.02), 0, 0.45))],
+      ['STRENGTH', K ? r2(K.thr).toFixed(2) : '--', d => K && keySend('thr', cl(r2(K.thr + d * 0.01), 0, 0.8)), { v: K ? K.thr || 0 : null, lo: 0, hi: 0.8, step: 0.01, set: v => keySend('thr', v) }],
+      ['SOFTNESS', K ? r2(K.soft).toFixed(2) : '--', d => K && keySend('soft', cl(r2(K.soft + d * 0.01), 0.02, 0.4)), { v: K ? K.soft || 0 : null, lo: 0.02, hi: 0.4, step: 0.01, set: v => keySend('soft', v) }],
+      ['SPILL', K ? r2(K.spill).toFixed(2) : '--', d => K && keySend('spill', cl(r2(K.spill + d * 0.05), 0, 1)), { v: K ? K.spill || 0 : null, lo: 0, hi: 1, step: 0.05, set: v => keySend('spill', v) }],
+      ['DOME MATCH', K ? pc(K.cmatch || 0) : '--', d => K && keySend('cmatch', cl(r2((K.cmatch || 0) + d * 0.1), 0, 1)), { v: K ? K.cmatch || 0 : null, lo: 0, hi: 1, step: 0.1, set: v => keySend('cmatch', v) }],
+      ['CROP LEFT', K ? pc(K.gl || 0) : '--', d => K && keySend('gl', cl(r2((K.gl || 0) + d * 0.02), 0, 0.45)), { v: K ? K.gl || 0 : null, lo: 0, hi: 0.45, step: 0.02, set: v => keySend('gl', v) }],
+      ['CROP RIGHT', K ? pc(K.gr || 0) : '--', d => K && keySend('gr', cl(r2((K.gr || 0) + d * 0.02), 0, 0.45)), { v: K ? K.gr || 0 : null, lo: 0, hi: 0.45, step: 0.02, set: v => keySend('gr', v) }],
+      ['CROP TOP', K ? pc(K.gt || 0) : '--', d => K && keySend('gt', cl(r2((K.gt || 0) + d * 0.02), 0, 0.45)), { v: K ? K.gt || 0 : null, lo: 0, hi: 0.45, step: 0.02, set: v => keySend('gt', v) }],
+      ['CROP BOTTOM', K ? pc(K.gb || 0) : '--', d => K && keySend('gb', cl(r2((K.gb || 0) + d * 0.02), 0, 0.45)), { v: K ? K.gb || 0 : null, lo: 0, hi: 0.45, step: 0.02, set: v => keySend('gb', v) }],
     ];
-    const cell = ([label, val, act], x, y, w, h) => {
-      g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
-      const by = y + 15, bh2 = h - 15, bw = 40;
-      btn(x, by, bw, bh2, '−', false, () => { act(-1); drawMixScreen(); });
-      let fs = 17; g.font = `700 ${fs}px system-ui`; while (fs > 11 && g.measureText(val).width > w - 2 * bw - 6) g.font = `700 ${--fs}px system-ui`;
-      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + w / 2, by + bh2 / 2); g.textBaseline = 'alphabetic';
-      btn(x + w - bw, by, bw, bh2, '+', false, () => { act(1); drawMixScreen(); });
-    };
+    const cell = (c, x, y, w, h) => ctl(c, x, y, w, h);   // #640 sliders
     const prev = (x, y, w) => {
       const h2 = Math.round(w * 9 / 16); g.fillStyle = '#000'; g.fillRect(x, y, w, h2);
       const im = monOn && S.stuRun ? pvTex.image : null;
@@ -8698,35 +8712,28 @@ function drawToolsPage() {
     let cells = [], extra = [], help = '';
     if (sec === 'iron') {
       const G = PS.grade;
-      cells = [['EXPOSURE', f2(G.ev) + ' EV', d => PS.setGrade('ev', stp(G.ev, d, 0.25, -3, 2))], ['CONTRAST', G.con.toFixed(2), d => PS.setGrade('con', stp(G.con, d, 0.05, 0.5, 1.6))],
-        ['SATURATION', G.sat.toFixed(2), d => PS.setGrade('sat', stp(G.sat, d, 0.05, 0, 1.6))], ['WARMTH', f2(G.warm, 1), d => PS.setGrade('warm', stp(G.warm, d, 0.1, -1, 1))],
-        ['TINT', f2(G.tint, 1), d => PS.setGrade('tint', stp(G.tint, d, 0.1, -1, 1))]];
+      cells = [['EXPOSURE', f2(G.ev) + ' EV', d => PS.setGrade('ev', stp(G.ev, d, 0.25, -3, 2)), { v: G.ev, lo: -3, hi: 2, step: 0.25, set: v => PS.setGrade('ev', v) }], ['CONTRAST', G.con.toFixed(2), d => PS.setGrade('con', stp(G.con, d, 0.05, 0.5, 1.6)), { v: G.con, lo: 0.5, hi: 1.6, step: 0.05, set: v => PS.setGrade('con', v) }],
+        ['SATURATION', G.sat.toFixed(2), d => PS.setGrade('sat', stp(G.sat, d, 0.05, 0, 1.6)), { v: G.sat, lo: 0, hi: 1.6, step: 0.05, set: v => PS.setGrade('sat', v) }], ['WARMTH', f2(G.warm, 1), d => PS.setGrade('warm', stp(G.warm, d, 0.1, -1, 1)), { v: G.warm, lo: -1, hi: 1, step: 0.1, set: v => PS.setGrade('warm', v) }],
+        ['TINT', f2(G.tint, 1), d => PS.setGrade('tint', stp(G.tint, d, 0.1, -1, 1)), { v: G.tint, lo: -1, hi: 1, step: 0.1, set: v => PS.setGrade('tint', v) }]];
       extra = [['RESET', false, () => PS.setGrade('reset')]];
       help = 'Grade for IRON and BAMBOO frames, after lighting. Next to a frame in Passthrough, match the real wall: EXPOSURE, then WARMTH (yellow / blue) and TINT (green / magenta), then SATURATION and CONTRAST.';
     } else if (sec === 'holo') {
       const H = PS.holo;
-      cells = [['COLOUR', H.col.toUpperCase(), d => { const i = HOLO_ORDER.indexOf(H.col); PS.setHolo('col', HOLO_ORDER[(i + d + HOLO_ORDER.length) % HOLO_ORDER.length]); }],
-        ['INTENSITY', H.int.toFixed(1), d => PS.setHolo('int', stp(H.int, d, 0.1, 0.1, 2))], ['GLASS', H.glass.toFixed(1), d => PS.setHolo('glass', stp(H.glass, d, 0.1, 0, 2))],
-        ['SCANLINES', H.scan.toFixed(1), d => PS.setHolo('scan', stp(H.scan, d, 0.1, 0, 1))], ['GLITCH', H.glitch.toFixed(1), d => PS.setHolo('glitch', stp(H.glitch, d, 0.1, 0, 2))]];
+      cells = [['COLOUR', H.col.toUpperCase(), d => { const i = HOLO_ORDER.indexOf(H.col); PS.setHolo('col', HOLO_ORDER[(i + d + HOLO_ORDER.length) % HOLO_ORDER.length]); }, 'cycle'],
+        ['INTENSITY', H.int.toFixed(1), d => PS.setHolo('int', stp(H.int, d, 0.1, 0.1, 2)), { v: H.int, lo: 0.1, hi: 2, step: 0.1, set: v => PS.setHolo('int', v) }], ['GLASS', H.glass.toFixed(1), d => PS.setHolo('glass', stp(H.glass, d, 0.1, 0, 2)), { v: H.glass, lo: 0, hi: 2, step: 0.1, set: v => PS.setHolo('glass', v) }],
+        ['SCANLINES', H.scan.toFixed(1), d => PS.setHolo('scan', stp(H.scan, d, 0.1, 0, 1)), { v: H.scan, lo: 0, hi: 1, step: 0.1, set: v => PS.setHolo('scan', v) }], ['GLITCH', H.glitch.toFixed(1), d => PS.setHolo('glitch', stp(H.glitch, d, 0.1, 0, 2)), { v: H.glitch, lo: 0, hi: 2, step: 0.1, set: v => PS.setHolo('glitch', v) }]];
       extra = [[H.beat ? 'BEAT: ON' : 'BEAT', H.beat, () => PS.setHolo('beat', !H.beat)], ['RESET', false, () => PS.setHolo('reset')]];
       help = 'HOLO frames (PORTALS SETUP > STYLE): a glowing scan edge with streaks, and a faint glass over the real view (GLASS 0 = edge only). GLITCH bands jump the edge, never the real picture; BEAT = on the beat.';
     } else {
       const B = PS.bamboo;
-      cells = [['SLAT GAP', Math.round(B.gap * 100) + ' cm', d => PS.setBamboo('gap', stp(B.gap, d, 0.01, 0.01, 0.4))], ['CLEARING', Math.round(B.clear * 100) + '%', d => PS.setBamboo('clear', stp(B.clear, d, 0.05, 0, 1))],
-        ['DIRECTION', B.dir === 'y' ? 'ALONG HEIGHT' : 'ALONG WIDTH', () => PS.setBamboo('dir', B.dir === 'y' ? 'x' : 'y')],
-        ['SLATS', B.kind === 'wood' ? 'WOOD' : 'BAMBOO', () => PS.setBamboo('kind', B.kind === 'wood' ? 'bamboo' : 'wood')]];   // #598 round bamboo or flat boards
+      cells = [['SLAT GAP', Math.round(B.gap * 100) + ' cm', d => PS.setBamboo('gap', stp(B.gap, d, 0.01, 0.01, 0.4)), { v: B.gap, lo: 0.01, hi: 0.4, step: 0.01, set: v => PS.setBamboo('gap', v) }], ['CLEARING', Math.round(B.clear * 100) + '%', d => PS.setBamboo('clear', stp(B.clear, d, 0.05, 0, 1)), { v: B.clear, lo: 0, hi: 1, step: 0.05, set: v => PS.setBamboo('clear', v) }],
+        ['DIRECTION', B.dir === 'y' ? 'ALONG HEIGHT' : 'ALONG WIDTH', () => PS.setBamboo('dir', B.dir === 'y' ? 'x' : 'y'), 'cycle'],
+        ['SLATS', B.kind === 'wood' ? 'WOOD' : 'BAMBOO', () => PS.setBamboo('kind', B.kind === 'wood' ? 'bamboo' : 'wood'), 'cycle']];   // #598 round bamboo or flat boards
       extra = [['RESET', false, () => PS.setBamboo('reset')]];
       help = 'BAMBOO frames (STYLE): edge poles / beams and one layer of round bamboo or flat WOOD boards. CLEARING pushes the slats to the edges so the middle opens onto the DOME (use a PANO type on the ceiling). Graded by IRON GRADE.';
     }
     const cols = P ? 2 : 3, cw = (R - L - (cols - 1) * 8) / cols, ch = P ? 56 : 50, yc = y0 + 44;
-    cells.forEach(([label, val, act], i) => {
-      const x = L + (i % cols) * (cw + 8), y = yc + Math.floor(i / cols) * (ch + 6), by = y + 15, bh = ch - 15, bw = 44;
-      g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
-      btn(x, by, bw, bh, '−', false, () => { act(-1); drawMixScreen(); });
-      let fs = 16; g.font = `700 ${fs}px system-ui`; while (fs > 11 && g.measureText(val).width > cw - 2 * bw - 6) g.font = `700 ${--fs}px system-ui`;
-      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + cw / 2, by + bh / 2); g.textBaseline = 'alphabetic';
-      btn(x + cw - bw, by, bw, bh, '+', false, () => { act(1); drawMixScreen(); });
-    });
+    cells.forEach((c, i) => ctl(c, L + (i % cols) * (cw + 8), yc + Math.floor(i / cols) * (ch + 6), cw, ch));   // #640 sliders
     { const i = cells.length, x = L + (i % cols) * (cw + 8), y = yc + Math.floor(i / cols) * (ch + 6) + 15, ew = (cw - 6 * (extra.length - 1)) / extra.length;
       extra.forEach(([lb, on, act], j) => btn(x + j * (ew + 6), y, ew, ch - 15, lb, on, () => { act(); drawMixScreen(); })); }
     const yt = yc + Math.ceil((cells.length + 1) / cols) * (ch + 6) + 12;
@@ -8746,19 +8753,12 @@ function drawToolsPage() {
     const st = (k, d, step, lo, hi) => N.set(k, clamp(Math.round((S[k] + d * step) / step) * step, lo, hi));
     const pa = B.postAdj || 0;
     const cells = [
-      ['EDGE SOFTNESS', ['SHARP', 'SOFT', 'VERY SOFT'][S.soft] || 'SOFT', d => st('soft', d, 1, 0, 2)], ['KEEP CLEAR', S.clear.toFixed(1) + ' m', d => st('clear', d, 0.1, 0, 2)],
-      ['LIGHT FROM', S.src === 'dome' ? 'DOME MOON' : 'OVERHEAD', () => N.set('src', S.src === 'dome' ? 'top' : 'dome')],
-      ['GLOW FROM', S.gdir + '°', d => N.set('gdir', (S.gdir + d * 45 + 360) % 360)], ['GLOW STRENGTH', Math.round(S.gstr * 100) + '%', d => st('gstr', d, 0.05, 0, 1.5)],
-      ['POST LENGTH', Math.abs(pa) < 0.005 ? 'TO FLOOR' : (pa > 0 ? '+' : '') + Math.round(pa * 100) + ' cm', d => portals.setBamboo('postAdj', clamp(Math.round(((B.postAdj || 0) + d * 0.05) * 100) / 100, -2, 1))]];   // #626
+      ['EDGE SOFTNESS', ['SHARP', 'SOFT', 'VERY SOFT'][S.soft] || 'SOFT', d => st('soft', d, 1, 0, 2), { v: S.soft, lo: 0, hi: 2, step: 1, set: v => N.set('soft', v) }], ['KEEP CLEAR', S.clear.toFixed(1) + ' m', d => st('clear', d, 0.1, 0, 2), { v: S.clear, lo: 0, hi: 2, step: 0.1, set: v => N.set('clear', v) }],
+      ['LIGHT FROM', S.src === 'dome' ? 'DOME MOON' : 'OVERHEAD', () => N.set('src', S.src === 'dome' ? 'top' : 'dome'), 'cycle'],
+      ['GLOW FROM', S.gdir + '°', d => N.set('gdir', (S.gdir + d * 45 + 360) % 360), { v: S.gdir, lo: 0, hi: 315, step: 45, set: v => N.set('gdir', v) }], ['GLOW STRENGTH', Math.round(S.gstr * 100) + '%', d => st('gstr', d, 0.05, 0, 1.5), { v: S.gstr, lo: 0, hi: 1.5, step: 0.05, set: v => N.set('gstr', v) }],
+      ['POST LENGTH', Math.abs(pa) < 0.005 ? 'TO FLOOR' : (pa > 0 ? '+' : '') + Math.round(pa * 100) + ' cm', d => portals.setBamboo('postAdj', clamp(Math.round(((B.postAdj || 0) + d * 0.05) * 100) / 100, -2, 1)), { v: pa, lo: -2, hi: 1, step: 0.05, set: v => portals.setBamboo('postAdj', v) }]];   // #626
     const cc = P ? 2 : 3, cw = (R - L - (cc - 1) * 8) / cc, ch = P ? 50 : 42, cy = ty + Math.ceil(tg.length / tc) * (th + 6) + 2;
-    cells.forEach(([label, val, act], i) => {
-      const x = L + (i % cc) * (cw + 8), y = cy + Math.floor(i / cc) * (ch + 4), by = y + 13, bh = ch - 13, bw = 40;
-      g.fillStyle = '#8c96a8'; g.font = '700 11px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 10);
-      btn(x, by, bw, bh, '−', false, () => { act(-1); redraw(); });
-      let fs = 15; g.font = `700 ${fs}px system-ui`; while (fs > 10 && g.measureText(val).width > cw - 2 * bw - 6) g.font = `700 ${--fs}px system-ui`;
-      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + cw / 2, by + bh / 2); g.textBaseline = 'alphabetic';
-      btn(x + cw - bw, by, bw, bh, '+', false, () => { act(1); redraw(); });
-    });
+    cells.forEach((c, i) => ctl(c, L + (i % cc) * (cw + 8), cy + Math.floor(i / cc) * (ch + 4), cw, ch, { lf: 11 }));   // #640 sliders
     const sy = cy + Math.ceil(cells.length / cc) * (ch + 4) + 4, sw = P ? R - L : (R - L - 8) / 2, sh = P ? 40 : 34;
     const swatch = (x, y, h, hue, sat) => { g.fillStyle = `hsl(${hue}, ${Math.round(sat * 100)}%, 50%)`; g.fillRect(x, y + 6, 36, h - 12); };
     tSlider(g, L, sy, sw - 44, sh, 'MOON HUE', S.hue / 359, S.hue + '°', v => { N.set('hue', Math.round(v * 359)); }, false, 96); swatch(L + sw - 40, sy, sh, S.hue, S.sat);
@@ -8812,31 +8812,27 @@ function drawToolsPage() {
       ['ROOMS ›', false, () => setTools('rooms')],   // #626   // #612   // #597 colour-match the frames to the room   // #592 FRAME on the ceiling
       [defArm ? 'TAP AGAIN' : 'DEFAULTS', defArm, portalDefaults],
     ];
+    const wl = k => ({ v: WL.val(k), lo: WALL_LIM[k][0], hi: WALL_LIM[k][1], step: WALL_LIM[k][2], set: v => WL.set(k, v) });   // #640 sliders
+    const rainSet = v => { PS.setRain(RAIN_ORDER[v]); if (PS.rain !== 'off' && !PS.revN) toast('GLASS RAIN shows on PANO frames: set a frame\'s TYPE to PANO', 2600); };
     const cells = [
-      ['PORTALS', `${PS.n}`, d => { PS.setCount(PS.n + d); if (!PS.on) PS.setOn(true); }],
-      ['WRAP', `${WL.val('arc')}°`, d => WL.step('arc', d)],
-      ['HEIGHT', `${WL.val('h').toFixed(2)} m`, d => WL.step('h', d)],
-      ['DISTANCE', `${WL.val('r').toFixed(2)} m`, d => WL.step('r', d)],
-      ['DOME SIZE', `${dome.r} m`, d => setDomeSize(dome.r + d)],
-      ['DOME EXPOSURE', `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)} EV`, d => setDomeEv(dome.ev + d * 0.25)],   // #404 tame blown-out panos
-      ['DOME GAMMA', dome.gam.toFixed(2), d => setDomeGam(dome.gam + d * 0.05)],   // #638 (was #629 DOME CONTRAST)
-      ['GLASS RAIN', PS.rain.toUpperCase(), d => { PS.stepRain(d); if (PS.rain !== 'off' && !PS.revN) toast('GLASS RAIN shows on PANO frames: set a frame\'s TYPE to PANO', 2600); }],   // #639 rain / mist on every PANO frame's glass
-      ['FRACTAL SPEED', `${WL.val('speed')}x`, d => WL.step('speed', d)],
-      ['COLOUR CYCLE', `${WL.val('cycle')}x`, d => WL.step('cycle', d)],
-      ['FRAME', `${PS.edit + 1} of ${PS.n}`, d => PS.setEdit(PS.edit + d)],   // #586 which frame TYPE sets (it blinks white)
-      [`TYPE · ${PS.kindOf(PS.edit)[0] === 'p' ? 'PANO (SKY)' : PS.kindOf(PS.edit)[0] === 's' ? 'SCREEN' : 'REAL (ROOM)'}`, SHAPE_LABEL[SHAPE_OF(PS.kindOf(PS.edit))], d => { PS.stepKind(PS.edit, d); if (PS.kindOf(PS.edit)[0] === 'p' && !dome.on) setDome(true); }],   // #585 doorway / #586 PANO frames
-      ['TRIM LIGHT', PS.glow.toUpperCase(), d => PS.stepGlow(d)],
-      ['LOCK', PS.list[PS.edit] && PS.list[PS.edit].locked ? 'LOCKED' : 'OPEN', () => { PS.toggleLock(PS.edit); }],   // #626 FRAME's padlock
-      ['STYLE', PS.styleOf(PS.edit).toUpperCase(), d => { const o = ['iron', 'holo', 'bamboo'], i = o.indexOf(PS.styleOf(PS.edit)); PS.setStyle(PS.edit, o[(i + d + 3) % 3]); }],   // #598 FRAME's style: IRON / HOLO / BAMBOO
+      ['PORTALS', `${PS.n}`, null, { v: PS.n, lo: 1, hi: MAX_PORTALS, step: 1, set: v => { PS.setCount(v); if (!PS.on) PS.setOn(true); } }],
+      ['WRAP', `${WL.val('arc')}°`, null, wl('arc')],
+      ['HEIGHT', `${WL.val('h').toFixed(2)} m`, null, wl('h')],
+      ['DISTANCE', `${WL.val('r').toFixed(2)} m`, null, wl('r')],
+      ['DOME SIZE', `${dome.r} m`, null, { v: dome.r, lo: 3, hi: 20, step: 1, set: setDomeSize }],
+      ['DOME EXPOSURE', `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)} EV`, null, { v: dome.ev, lo: -3, hi: 1, step: 0.25, set: setDomeEv }],   // #404 tame blown-out panos
+      ['DOME GAMMA', dome.gam.toFixed(2), null, { v: dome.gam, lo: 0.5, hi: 2, step: 0.05, set: setDomeGam }],   // #638 (was #629 DOME CONTRAST)
+      ['GLASS RAIN', PS.rain.toUpperCase(), null, { v: Math.max(0, RAIN_ORDER.indexOf(PS.rain)), lo: 0, hi: RAIN_ORDER.length - 1, step: 1, set: rainSet }],   // #639 rain / mist on every PANO frame's glass
+      ['FRACTAL SPEED', `${WL.val('speed')}x`, null, wl('speed')],
+      ['COLOUR CYCLE', `${WL.val('cycle')}x`, null, wl('cycle')],
+      ['FRAME', `${PS.edit + 1} of ${PS.n}`, null, { v: PS.edit + 1, lo: 1, hi: PS.n, step: 1, set: v => PS.setEdit(v - 1), dim: PS.n < 2 }],   // #586 which frame TYPE sets (it blinks white)
+      [`TYPE · ${PS.kindOf(PS.edit)[0] === 'p' ? 'PANO (SKY)' : PS.kindOf(PS.edit)[0] === 's' ? 'SCREEN' : 'REAL (ROOM)'}`, SHAPE_LABEL[SHAPE_OF(PS.kindOf(PS.edit))], d => { PS.stepKind(PS.edit, d); if (PS.kindOf(PS.edit)[0] === 'p' && !dome.on) setDome(true); }, 'cycle'],   // #585 doorway / #586 PANO frames
+      ['TRIM LIGHT', PS.glow.toUpperCase(), d => PS.stepGlow(d), 'cycle'],
+      ['LOCK', PS.list[PS.edit] && PS.list[PS.edit].locked ? 'LOCKED' : 'OPEN', () => { PS.toggleLock(PS.edit); }, 'cycle'],   // #626 FRAME's padlock
+      ['STYLE', PS.styleOf(PS.edit).toUpperCase(), d => { const o = ['iron', 'holo', 'bamboo'], i = o.indexOf(PS.styleOf(PS.edit)); PS.setStyle(PS.edit, o[(i + d + 3) % 3]); }, 'cycle'],   // #598 FRAME's style: IRON / HOLO / BAMBOO
+      ['DOME TURN', `${dome.turn}°`, null, { v: dome.turn, lo: 0, hi: 355, step: 5, set: setDomeTurn, dim: !dome.on }],   // #389 / #640 a slider in both orientations
     ];
-    const cell = ([label, val, act], x, y, w, h) => {
-      g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(label, x + 2, y + 11);
-      const by = y + 15, bh = h - 15, bw = 40;
-      btn(x, by, bw, bh, '−', false, () => { act(-1); drawMixScreen(); });
-      let fs = 17; g.font = `700 ${fs}px system-ui`; while (fs > 11 && g.measureText(val).width > w - 2 * bw - 6) g.font = `700 ${--fs}px system-ui`;
-      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, x + w / 2, by + bh / 2); g.textBaseline = 'alphabetic';
-      btn(x + w - bw, by, bw, bh, '+', false, () => { act(1); drawMixScreen(); });
-    };
+    const cell = (c, x, y, w, h) => ctl(c, x, y, w, h);   // #640
     const warn = dome.on && !skybox.tex ? 'DOME: no sky picked yet. On VISUALS > PANO pick a panorama or video pano and tap SKY.' : PS.revN && !dome.on ? 'PANO frames show the DOME: turn DOME on.' : '';
     const help = 'B laser: aim + GRIP = move / turn with the hand (stick = distance), aim + TRIGGER = resize. With ROOM SNAP on, a frame near a scanned wall or ceiling snaps flat onto it. For a skylight, carry a frame (not a doorway) up to the ceiling and set its TYPE to PANO. PANO frames show the DOME sky.';
     const helpP = 'B laser: GRIP = move, TRIGGER = resize; frames snap to scanned walls. PANO frames show the DOME sky.';   // #585 portrait: short
@@ -8852,7 +8848,7 @@ function drawToolsPage() {
       const TC = toggles.length > 10 ? 3 : 2, tw3 = (R - L - 8 * (TC - 1)) / TC, tr = toggles.length > 10 ? 46 : 52;
       toggles.forEach(([lb, on, act], i) => btn(L + (i % TC) * (tw3 + 8), y0 + Math.floor(i / TC) * tr, tw3, tr - 6, lb, on, act, false, TC > 2 ? 14 : 17));
       const y1 = y0 + Math.ceil(toggles.length / TC) * tr + 6;   // #589 7 toggles
-      const cellsP = cells.concat([['DOME TURN', `${dome.turn}°`, d => setDomeTurn((dome.turn + d * 15 + 360) % 360)]]);   // #586 portrait: DOME TURN as a 15 deg stepper
+      const cellsP = cells;   // #640 DOME TURN is now in cells (a slider)
       const rows = Math.ceil(cellsP.length / 2), rh = Math.min(54, Math.floor((H - y1 - 40) / rows));
       cellsP.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * rh, tw, rh - 4));   // #585 rows of 54 px (#639 fewer if needed)
       const ty = y1 + rows * rh + 16; text(L + 4, ty, R - L - 8, 18, Math.max(1, Math.min(3, Math.floor((H - ty) / 18) + 1)), 14, helpP);   // #598
@@ -8861,7 +8857,6 @@ function drawToolsPage() {
       toggles.forEach(([lb, on, act], i) => btn(L + (i % per) * (tw + 6), y0 + Math.floor(i / per) * 38, tw, 34, lb, on, act, false, 13));
       const NC = 6, cw = (R - L - 8 * (NC - 1)) / NC, y1 = y0 + 78;   // #629 six across (DOME CONTRAST added; #638 now DOME GAMMA), the TURN slider in the slot after the last cell
       cells.forEach((c, i) => cell(c, L + (i % NC) * (cw + 8), y1 + Math.floor(i / NC) * 48, cw, 44));
-      { const i = cells.length; tSlider(g, L + (i % NC) * (cw + 8), y1 + Math.floor(i / NC) * 48 + 4, cw, 40, 'TURN', dome.turn / 359, dome.turn + '°', v => setDomeTurn(v * 359), !dome.on, 56); }   // #389 (#586 third row, right of FRAME / TYPE / TRIM LIGHT)
       text(L + 2, y1 + 3 * 48 + 10, R - L - 4, 14, 1, 11);   // #626 one line under the taller toggle block
     }
     return;
@@ -9115,12 +9110,9 @@ function drawToolsPage() {
     btn(L, y, bw, 42, 'EDIT TEXT', false, () => openKbd('SCROLLER TEXT', scroller.text, true, 120, t => { t = cleanText(t, 120); if (t.trim()) scroller.start(t); else scroller.stop(); }, 'scroller'));
     btn(L + bw + 6, y, bw, 42, scroller.on ? 'STOP' : 'START', scroller.on, () => { if (scroller.on) scroller.stop(); else scroller.start(); });
     y += 52;
-    for (const [label, k] of [['WAVE', 'wave'], ['SPEED', 'speed']]) {
-      g.fillStyle = '#dfe6f2'; g.font = '700 17px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(label, L + 4, y + 20);
-      g.textAlign = 'center'; g.fillText(String(scroller[k]), L + 196, y + 20); g.textBaseline = 'alphabetic';
-      btn(L + 110, y, 56, 40, '−', false, () => { scroller[k] = Math.max(k === 'speed' ? 1 : 0, scroller[k] - 1); scroller.save(); });
-      btn(L + 226, y, 56, 40, '+', false, () => { scroller[k] = Math.min(10, scroller[k] + 1); scroller.save(); });
-      y += 46;
+    for (const [label, k] of [['WAVE', 'wave'], ['SPEED', 'speed']]) {   // #640 sliders (were − n +)
+      ctl([label, String(scroller[k]), null, { v: scroller[k], lo: k === 'speed' ? 1 : 0, hi: 10, step: 1, set: v => { scroller[k] = v; scroller.save(); } }], L, y, Math.min(R - L, 380), 44, { lf: 13 });
+      y += 50;
     }
     if (!P) note('ENTER on the keyboard starts it at the bottom of the Cyclo, over whatever is playing.', y + 14);
     return;

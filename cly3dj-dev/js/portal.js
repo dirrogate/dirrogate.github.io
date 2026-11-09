@@ -76,8 +76,8 @@ const RAIN = `
     if (kk > 0.0) {   // MIST alone skips all the water maths
     vec2 cs = vec2(0.022), cid = floor(pRev / cs), cf = pRev / cs - cid - 0.5;
     float h0 = fract(sin(dot(cid, vec2(127.1, 311.7))) * 43758.5453), h1 = fract(sin(dot(cid, vec2(269.5, 183.3))) * 43758.5453);
-    float life = fract(T * (0.05 + 0.08 * h1) * (0.4 + kk) + h0), on = step(h1, kk * (1.15 - 0.45 * up));
-    vec2 bc = (vec2(h0, h1) - 0.5) * 0.5; float br = (0.13 + 0.22 * h0) * smoothstep(0.0, 0.06, life) * (1.0 - smoothstep(0.8, 1.0, life));
+    float life = fract(T * (0.09 + 0.12 * h1) * (0.5 + kk) + h0), on = step(h1, kk * (1.15 - 0.45 * up));   // #640 shorter cycle
+    vec2 bc = (vec2(h0, h1) - 0.5) * 0.5; float br = (0.13 + 0.22 * h0) * smoothstep(0.0, 0.05, life) * (1.0 - smoothstep(0.3, 0.5, life));   // #640 dries off in the first half, gone the rest
     vec2 bq = (cf - bc) * cs.x; float bl = length(cf - bc), bd = smoothstep(br, br * 0.55, bl) * on;
     rBend += -bq * 7.0 * bd * kk; rBead = bd; rEdge = smoothstep(br * 0.55, br, bl) * bd;
     if (up > 0.3) {   // the #495 rivulets, in metres on this frame: wander, run, pause, run again, top to bottom
@@ -92,10 +92,11 @@ const RAIN = `
         if ((yN - head) * H < -0.025 || yN > head + 0.7 + 0.3 * r3) continue;   // cheap: nowhere near this run's head or trail
         float cxm = (cx + 0.5 + 0.25 * sin(yM * (2.0 + 3.0 * r) + r * 20.0) * (0.6 + 0.4 * sin(yM * 6.0 + r2 * 9.0)) + 0.1 * sin(yM * 17.0 + r3 * 5.0)) * cw;
         float dx = pRev.x - cxm, trail = step(head, yN) * smoothstep(head + 0.4 + 0.3 * r3, head, yN);
+        float heal = exp(-max(yN - head, 0.0) * H / 0.035);   // #640 the bend dies off within ~3.5 cm behind the head: the picture closes up at once (it read as a tear)
         float wd = (0.0042 + 0.0035 * r) * (1.0 + 0.7 * sin(yM * 9.0 + r * 5.0)), core = smoothstep(wd, 0.0, abs(dx)) * trail, edge = smoothstep(wd * 3.2, wd, abs(dx)) * trail;
         vec2 hq = vec2(dx, (yN - head) * H); float hd = smoothstep(0.012 + 0.006 * r, 0.0, length(hq));
-        rBend += (vec2(-dx * 8.0 * edge * (1.0 - core * 0.4), -0.004 * core) - hq * 4.0 * hd) * kk * up;
-        rCore = max(rCore, core); rEdge = max(rEdge, edge - core * 0.6); rBead = max(rBead, hd);
+        rBend += (vec2(-dx * 8.0 * edge * (1.0 - core * 0.4) * heal, -0.004 * core * heal) - hq * 4.0 * hd) * kk * up;
+        rCore = max(rCore, core * (0.25 + 0.75 * heal)); rEdge = max(rEdge, (edge - core * 0.6) * (0.2 + 0.8 * heal)); rBead = max(rBead, hd);   // the old trail: a faint wet line, no dark gash
         rClear = max(rClear, smoothstep(wd * 5.0, wd, abs(dx)) * step(head, yN));   // a run wipes the mist off behind it
       }
     }
