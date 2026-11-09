@@ -293,8 +293,8 @@ export class AudioEngine {
     if (w) {
       const id = ++this._dwId;
       out = await new Promise(res => { this._dwJobs.set(id, res); w.postMessage({ id, L, R, rate: buf.sampleRate }, R ? [L.buffer, R.buffer] : [L.buffer]); });
-    } else out = convertInline(L, R);
-    return { L: out.iL, R: out.iR || out.iL, rate: buf.sampleRate, duration: buf.duration, env: out.env };
+    } else out = convertInline(L, R, buf.sampleRate);
+    return { L: out.iL, R: out.iR || out.iL, rate: buf.sampleRate, duration: buf.duration, env: out.env, flux: out.flux, fh: out.fh };
   }
 
   load(i, decoded, track, startTime = 0) {
@@ -310,7 +310,7 @@ export class AudioEngine {
 }
 
 // same work as decode-worker.js, for browsers without module-relative workers
-function convertInline(L, R) {
+function convertInline(L, R, rate = 44100) {
   const n = L.length, R2 = R || L, bins = 8192, env = new Float32Array(bins), per = Math.max(1, Math.floor(n / bins));
   for (let b = 0; b < bins; b++) {
     let s = 0, pk = 0; const st = b * per, en = Math.min(n, st + per);
@@ -320,6 +320,8 @@ function convertInline(L, R) {
   let mx = 0; for (const v of env) if (v > mx) mx = v;
   if (mx > 0) for (let b = 0; b < bins; b++) env[b] /= mx;
   const conv = F => { const o = new Int16Array(F.length); for (let j = 0; j < F.length; j++) { const a = F[j] * 32767; o[j] = a > 32767 ? 32767 : a < -32768 ? -32768 : a; } return o; };
-  return { iL: conv(L), iR: R ? conv(R) : null, env };
+  const fr = Math.max(1, Math.round(rate / 200)), nf = Math.floor(n / fr), flux = new Float32Array(nf); let pv = 0;   // #643 as decode-worker.js
+  for (let i = 0; i < nf; i++) { let s = 0; for (let j = i * fr, e2 = j + fr; j < e2; j += 2) { const v = (L[j] + R2[j]) * 0.5; s += v * v; } const r = Math.sqrt(s / (fr / 2)); flux[i] = r > pv ? r - pv : 0; pv = r; }
+  return { iL: conv(L), iR: R ? conv(R) : null, env, flux, fh: fr / rate };
 }
 AudioEngine.ACID_GAIN = 2.0;   // #617 TB-03 channel gain (+6 dB) ahead of ACID VOL, for master and cue alike

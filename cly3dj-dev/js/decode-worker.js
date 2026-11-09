@@ -12,7 +12,12 @@ self.onmessage = (e) => {
   }
   let mx = 0; for (let b = 0; b < bins; b++) if (env[b] > mx) mx = env[b];
   if (mx > 0) for (let b = 0; b < bins; b++) env[b] /= mx;
+  // #643 onset flux for the phase meter (display only): loudness every 5 ms, positive rises
+  const fr = Math.max(1, Math.round(rate / 200)), nf = Math.floor(n / fr), flux = new Float32Array(nf);
+  let prev = 0;
+  for (let i = 0; i < nf; i++) { let s = 0; for (let j = i * fr, e2 = j + fr; j < e2; j += 2) { const v = (L[j] + R2[j]) * 0.5; s += v * v; } const r = Math.sqrt(s / (fr / 2)); flux[i] = r > prev ? r - prev : 0; prev = r; }
+  const fh = fr / rate;
   const conv = (F) => { const o = new Int16Array(F.length); for (let j = 0; j < F.length; j++) { const a = F[j] * 32767; o[j] = a > 32767 ? 32767 : a < -32768 ? -32768 : a; } return o; };
   const iL = conv(L), iR = R ? conv(R) : null;
-  self.postMessage({ id, iL, iR, env }, iR ? [iL.buffer, iR.buffer, env.buffer] : [iL.buffer, env.buffer]);
+  self.postMessage({ id, iL, iR, env, flux, fh }, iR ? [iL.buffer, iR.buffer, env.buffer, flux.buffer] : [iL.buffer, env.buffer, flux.buffer]);
 };
