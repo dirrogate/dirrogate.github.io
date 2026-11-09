@@ -22,6 +22,7 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
     this.delayFeedback = 0.25;// TB-03 Delay feedback & wet mix (0..1)
     this.waveform = 0;        // 0 = Sawtooth, 1 = Square
     this.transpose = 0;       // Manual semitone transpose (-12 .. +12)
+    this.rateMul = 1;         // #618 NUDGE: the cassette reels push / hold the sequencer (1 = locked tempo)
     this.makeup = 0.32;       // #607 output gain (was 0.8 into a double ladder): default patch about -9.5 dBFS RMS, like a mastered track
 
     // Clock, Step & Track Sequencer
@@ -219,6 +220,17 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
         this.trackMode = !!msg.value;
         if (!this.trackMode) this.trackTranspose = 0;
         break;
+      case 'loadTape': {   // #619 a micro-cassette side: its patterns go to slots 76.. (or copies of bank patterns), its chain to track 7
+        const base = 76, pats = msg.patterns || [];
+        this.patterns.length = base;
+        for (const q of pats) {
+          if (q.fromBank !== undefined) { const src = this.patterns[q.fromBank]; this.patterns.push({ id: 'TAPE', endStep: src.endStep, triplet: src.triplet, steps: src.steps.map(x => x.slice()) }); }
+          else this.patterns.push({ id: 'TAPE', endStep: q.endStep || 16, triplet: q.triplet ? 1 : 0, steps: q.steps.map(x => x.slice()) });
+        }
+        this.tracks.length = 7;
+        if (msg.track) this.tracks.push({ id: 'TAPE', len: msg.track.bars.length, dsBar: msg.track.dsBar || 0, bars: msg.track.bars.map(([pi, tr]) => [base + pi, tr || 0]) });
+        break;
+      }
       case 'clearPattern': {
         const p = this.patterns[this.currentPattern];
         if (p && p.steps) {
@@ -274,7 +286,7 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
   stepSequencer() {
     if (!this.running) return;
 
-    this.stepTimer++;
+    this.stepTimer += this.rateMul;   // #618 nudge
     if (this.stepTimer >= this.samplesPerStep) {
       this.stepTimer -= this.samplesPerStep;
       const curP = this.patterns[this.currentPattern] || this.patterns[0];
@@ -358,7 +370,9 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
     const odAmount = this.overdrive;
     const odDrive = 1.0 + odAmount * 14.0;
     const odMakeup = 1.0 / (1.0 + odAmount * 0.65);
-    const targetDelaySamples = (0.020 + this.delayTime * 0.580) * this.sampleRate;
+    // #618 DELAY TIME is tempo-synced: the knob picks 1/16, 1/8T, 1/16., 1/8, 1/4T, 1/8., 1/4, 1/4. (beats of the current BPM)
+    const beats = AcidWorkletProcessor.DLY_BEATS[Math.max(0, Math.min(7, Math.round(this.delayTime * 7)))];
+    const targetDelaySamples = Math.min(this.delaySize - 4, beats * 60 / Math.max(20, this.bpm) * this.sampleRate);
     const fbGain = this.delayFeedback * 0.90;
     const delayWet = (this.delayFeedback < 0.01 && this.delayTime < 0.01)
       ? 0.0
@@ -486,5 +500,6 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
   }
 }
 
-AcidWorkletProcessor.PARAMS = new Set(['bpm', 'tuning', 'cutoff', 'resonance', 'envMod', 'decay', 'accent', 'overdrive', 'delayTime', 'delayFeedback', 'waveform', 'transpose']);
+AcidWorkletProcessor.DLY_BEATS = [0.25, 1 / 3, 0.375, 0.5, 2 / 3, 0.75, 1, 1.5];   // #618
+AcidWorkletProcessor.PARAMS = new Set(['rateMul', 'bpm', 'tuning', 'cutoff', 'resonance', 'envMod', 'decay', 'accent', 'overdrive', 'delayTime', 'delayFeedback', 'waveform', 'transpose']);
 registerProcessor('vire-acid', AcidWorkletProcessor);

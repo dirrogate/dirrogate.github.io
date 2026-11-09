@@ -177,10 +177,26 @@ export class FlightCase {
     this.H = Math.min(L.H[1], Math.max(L.H[0], H));
     this.build();
   }
+  // #627 FRONT CARRY HANDLE: a chrome pull bar on the front (+z, the DJ's side). Grip it to carry the case with the
+  // gear on top; from the handle the case can also be LIFTED (a case shrunk to lid height becomes a tray to set on a
+  // real table). Near the top on a tall case, mid-height on a short one. xr.js hitMovable finds it (userData.caseHandle).
+  _frontHandle() {   // one merged mesh (1 draw in both build paths)
+    const m = mats(), { W, D, H } = this, hd = D / 2, y = H > 0.25 ? H - 0.075 : H / 2, bw = Math.min(0.2, W * 0.4), so = 0.035, r = 0.0075;
+    this.handleY = y; this.handleW = bw;
+    const gs = [], put = (g, rx, rz, x, yy, z) => { if (rx) g.rotateX(rx); if (rz) g.rotateZ(rz); g.translate(x, yy, z); gs.push(g.index ? g.toNonIndexed() : g); };
+    put(new THREE.CylinderGeometry(r, r, bw, 14), 0, Math.PI / 2, 0, y, hd + so);
+    for (const sx of [-1, 1]) {
+      put(new THREE.CylinderGeometry(r, r, so, 10), Math.PI / 2, 0, sx * bw / 2, y, hd + so / 2);
+      put(new THREE.SphereGeometry(r * 1.02, 10, 8), 0, 0, sx * bw / 2, y, hd + so);
+      put(new THREE.CylinderGeometry(r * 2.2, r * 2.2, 0.006, 14), Math.PI / 2, 0, sx * bw / 2, y, hd + 0.003);
+    }
+    for (const g of gs) for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
+    const o = new THREE.Mesh(mergeGeometries(gs, false), m.chrome); o.castShadow = true; o.userData.move = this.key; o.userData.caseHandle = true; this.parts.add(o);
+  }
   build() {
     const m = mats(); const { W, D, H } = this;
     for (const c of [...this.parts.children]) { this.parts.remove(c); c.traverse(o => o.geometry && o.geometry.dispose()); }
-    if (KIT) { buildKit(this); return; }   // #135
+    if (KIT) { buildKit(this); this._frontHandle(); return; }   // #135 (#627 + the front carry handle)
     const P = this.parts, key = this.key;
     const add = (geo, mat, x, y, z, tag = 'move') => {
       const o = new THREE.Mesh(geo, mat); o.position.set(x, y, z); o.castShadow = true; o.receiveShadow = true;
@@ -258,6 +274,7 @@ export class FlightCase {
     // generous invisible grab zones on the bottom corners so they are easy to catch
     const hz = new THREE.MeshBasicMaterial({ visible: false });
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(new THREE.BoxGeometry(0.07, 0.06, 0.07), hz, sx * hw, 0.03, sz * hd, { sx, sz });
+    this._frontHandle();   // #627 before the merge: no extra draws
     mergeStatic(P);   // ~50 parts -> one mesh per material and grab/resize tag (#84); redone on every resize
   }
   // Bottom resize handles in case-local coordinates (for direct touch)

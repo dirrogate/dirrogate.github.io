@@ -48,7 +48,7 @@ export function setupXR(ctx) {
   const hmf = new XRHandModelFactory().setPath(PROF + '/generic-hand/');
 
   const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
-  const tipGeo = new THREE.SphereGeometry(0.00675, 12, 8);   // #291 / #293 (owner) 150 % twice (6 -> 9 -> 13.5 mm); #385 (owner) 50 %: 6.75 mm
+  const tipGeo = new THREE.SphereGeometry(0.0068175, 12, 8);   // #630 (owner) 1 % larger   // #291 / #293 (owner) 150 % twice (6 -> 9 -> 13.5 mm); #385 (owner) 50 %: 6.75 mm
   // #140 (owner): the blue tip ball sits at the front centre of the controller's own model (the fixed grip-space
   // point was off to one side on Quest 3 Touch Plus). Measured once from the loaded model: the front-most 2.5 cm of
   // its vertices give the centre (x, y); the ball's centre sits 2 mm inside the front face. Fallback until the model loads.
@@ -218,6 +218,26 @@ export function setupXR(ctx) {
       st.rubT = 0.04;
     }
   }
+  // #630 the mixer tablet screen: taps, long presses, trigger-held slider drags (#629). Called from pokes() and, while a trigger 'tap' grab is active, from the frame loop.
+  function screenPoke(st, T) {
+      const ms = ctx.mixer.userData.screen, l = ms.worldToLocal(v2.copy(T));
+      const sw = ms.geometry.parameters.width, sh = ms.geometry.parameters.height;
+      const inside = Math.abs(l.x) < sw / 2 && Math.abs(l.y) < sh / 2, armed = st.poke.get(ms) !== false, uv = { x: Math.min(1, Math.max(0, l.x / sw + 0.5)), y: Math.min(1, Math.max(0, l.y / sh + 0.5)) };
+      // #629 sliders / drag controls on the tablet: a controller grabs one only with the TRIGGER held while touching it,
+      // it follows while the trigger stays held (even a little off the glass) and lets go the moment the trigger is
+      // released; touching a slider without the trigger does nothing. Hands keep touch-and-drag (no trigger).
+      const gpT = !st.isHand && st.source && st.source.gamepad, trig = gpT ? !!(gpT.buttons[0] && gpT.buttons[0].value > 0.5) : null;
+      const tWas = st.trigWasScr; st.trigWasScr = !!trig;
+      if (st.scrGrab) {
+        const keep = (st.isHand || st.scrGrab === 'btn') ? (inside && l.z < 0.03 && l.z > -0.03) : trig;   // #633 a held button (TRAY) stays held while touched
+        if (!keep) { st.scrGrab = false; if (ctx.mixScreenRelease) ctx.mixScreenRelease(); buzz(st, 0.2, 10); }
+        else if (Math.abs(l.x) < sw / 2 + 0.04 && Math.abs(l.y) < sh / 2 + 0.04 && Math.abs(l.z) < 0.08 && ctx.mixScreenDrag) ctx.mixScreenDrag(uv);
+        if (!inside || l.z > 0.02) st.poke.set(ms, true);
+      }
+      else if (inside && l.z < 0.006 && l.z > -0.015 && armed) { if (ctx.mixScreenPress(uv, st.isHand ? true : trig)) { st.poke.set(ms, false); buzz(st, 0.4, 20); st.scrGrab = (ctx.mixScreenDragging && ctx.mixScreenDragging()) || false; } }
+      else if (!st.isHand && trig && !tWas && inside && l.z < 0.02 && l.z > -0.03 && ctx.mixScreenGrabAt && ctx.mixScreenGrabAt(uv)) { st.scrGrab = true; st.poke.set(ms, false); buzz(st, 0.4, 20); }   // #630 touch first, then squeeze: the trigger grabs the slider under the tip (or hovering within 2 cm)
+      else if (!inside || l.z > 0.02) { if (!armed && ctx.mixScreenRelease) ctx.mixScreenRelease(); st.poke.set(ms, true); }   // #222 fingertip off = end of a long press
+      }
   function grabStart(st, P, btn) {
     if (st.direct) return true;
     if (st.scratch) { ctx.scratchEnd(st.scratch); st.scratch = null; }   // #282 a touch-nudge gives way to a button grab (#325 hands too: a pinch ends the fingertip scratch)
@@ -264,10 +284,21 @@ export function setupXR(ctx) {
       st.direct = { kind: 'gopro', prop: pr, off: pr.penOff ? pr.penOff.clone() : new THREE.Matrix4().copy(st.anchor.matrixWorld).invert().multiply(o.matrixWorld) };   // #395 a marker: held like a pen
       pr.grab(st); buzz(st, 0.4, 25); return true;
     }
+    // #621 ACID cassette deck. A reel: trigger (hands: pinch) grabs it, the wrist twist about the tablet face turns it
+    // (clockwise = push the tape ahead, anticlockwise = hold it back), like the turntable spindle.
+    if (deckOk && ctx.reelAt) {
+      const ri = ctx.reelAt(P);
+      if (ri >= 0) { st.direct = { kind: 'reel', i: ri, qL: handQuat(st, new THREE.Quaternion()), tL: performance.now() }; buzz(st, 0.12, 5); return true; }
+    }
+    // #621 a micro-cassette (in the tray on the PREVIEW screen, or in the well): grip (hands: pinch) picks it up
+    if ((btn === 'grip' || st.isHand) && ctx.cassGrab) {
+      updateAnchor(st);
+      if (ctx.cassGrab(P, st.anchor)) { st.direct = { kind: 'cassette' }; buzz(st, 0.15, 8); return true; }
+    }
     // #608 the raised TB-03 knobs on the ACID page (main.js acidKnobs): trigger (hands: pinch) turns them like mixer knobs.
     // Tested before the tablet grab, so a pinch on a knob turns the knob instead of picking the tablet up.
     if (deckOk && ctx.acidKnobs) {
-      let best = null, bd = 0.016;   // #610 tighter (was 2.2 cm): neighbours are 12 mm apart
+      let best = null, bd = 0.016;   // #616 tighter (was 2.2 cm): neighbours are 12 mm apart
       for (const k of ctx.acidKnobs()) { k.g.getWorldPosition(v2); const dd = v2.distanceTo(P); if (dd < bd) { bd = dd; best = k; } }
       if (best) { st.direct = { kind: 'knob', id: best.id, yawL: yawOf(handQuat(st, q1)), qL: handQuat(st, new THREE.Quaternion()), hist: [], dmin: Infinity }; return true; }
     }
@@ -455,7 +486,7 @@ export function setupXR(ctx) {
       if (ctx.gearLocked && ctx.gearLocked(hit.key)) { ctx.gearLockMsg && ctx.gearLockMsg(); buzz(st, 0.6, 60); return true; }   // #378 GEAR LOCKDOWN: decks and mixer can't be picked up
       const g = ctx.MOVABLE[hit.key];
       if (ctx.flyingMilk && ctx.flyingMilk.has(g)) { ctx.flyingMilk.delete(g); g.rotation.x = 0; g.rotation.z = 0; }   // #200 caught mid-bounce
-      st.direct = { kind: 'move', target: hit.key, stMove: ctx.stage.beginMove(hit.key), p0: P.clone(), pos0: g.position.clone(), yaw0: g.rotation.y, hyaw0: yawOf(handQuat(st, q1)), hq0: handQuat(st, new THREE.Quaternion()) };
+      st.direct = { kind: 'move', lift: !!hit.handle, target: hit.key, stMove: ctx.stage.beginMove(hit.key), p0: P.clone(), pos0: g.position.clone(), yaw0: g.rotation.y, hyaw0: yawOf(handQuat(st, q1)), hq0: handQuat(st, new THREE.Quaternion()) };
       buzz(st); return true;
     }
     return false;
@@ -475,6 +506,10 @@ export function setupXR(ctx) {
     return Math.sign(l.x);
   }
   function hitMovable(P) {
+    for (const k in ctx.cases) {   // #627 the front carry handle first: grip it = carry the case (and the gear on it), lift allowed
+      const c = ctx.cases[k], l = c.group.worldToLocal(v2.copy(P)), hy = c.handleY != null ? c.handleY : c.H - 0.075, hw = (c.handleW || 0.2) / 2 + 0.04;
+      if (Math.abs(l.x) < hw && Math.abs(l.y - hy) < 0.065 && l.z > c.D / 2 - 0.02 && l.z < c.D / 2 + 0.1) return { key: k, handle: true };
+    }
     for (const k of [...Object.keys(GEAR), ...Object.keys(ctx.stage.items).filter(k => /^milk\d$/.test(k))]) {   // + spawned milk crates (#88)
       const o = ctx.MOVABLE[k]; if (!o || !o.visible) continue;   // #235 switched-off pieces can't be grabbed
       // #200 milk crates: the grab box follows the crate's real size (#193 made it longer and taller than the old box), 3 cm
@@ -557,7 +592,7 @@ export function setupXR(ctx) {
       // above is weak or even reversed. There the knob follows the twist about the controller's own long axis (grip -Z),
       // like turning a key: clockwise seen from behind the hand = clockwise. The CONTROLLER look keeps the old reading.
       const kAx = ctx.knobAxis ? ctx.knobAxis(g.id) : null;
-      if (kAx && g.qL) {   // #610 TB-03 knobs: the twist about the tablet face's normal (clockwise seen from the front = up), hands and controllers alike
+      if (kAx && g.qL) {   // #616 TB-03 knobs: the twist about the tablet face's normal (clockwise seen from the front = up), hands and controllers alike
         const q = handQuat(st, q1), d = _kq.copy(q).multiply(_kq2.copy(g.qL).invert()); g.qL.copy(q);
         dy = Math.max(-0.6, Math.min(0.6, wrap(2 * Math.atan2(d.x * kAx.x + d.y * kAx.y + d.z * kAx.z, d.w))));
       } else if (!st.isHand && ctlLook !== 'controller' && g.qL) {
@@ -587,6 +622,13 @@ export function setupXR(ctx) {
       }
       ctx.setMix(g.id, nv);
       if (ctx.knobTick && ctx.knobTick(g.id)) buzz(st, 0.08, 4);   // #608 owner: the slightest tick per TRACK / MODE notch (controller batteries)
+    } else if (g.kind === 'reel') {   // #621 twist about the tablet face = turn the reel
+      const ax = ctx.knobAxis && ctx.knobAxis('tb.reel'), now = performance.now();
+      let da = 0;
+      if (ax && g.qL) { const q = handQuat(st, q1), d = _kq.copy(q).multiply(_kq2.copy(g.qL).invert()); g.qL.copy(q); da = -wrap(2 * Math.atan2(d.x * ax.x + d.y * ax.y + d.z * ax.z, d.w)); }
+      if (Math.abs(da) < 0.004) da = 0;   // tracking jitter
+      const dt = Math.max(0.008, (now - g.tL) / 1000); g.tL = now;
+      ctx.reelTurn(Math.max(-0.6, Math.min(0.6, da)), dt);
     } else if (g.kind === 'slider') {
       const m = ctx.sliderFromLocal(g.id, ctx.mixer.worldToLocal(v2.copy(P)), true);   // #293 unclamped: grabbed off the cap, the ends are still reachable
       if (g.m0 == null) { g.m0 = m; g.v0 = ctx.mixVal[g.id]; }
@@ -637,7 +679,7 @@ export function setupXR(ctx) {
       const obj = ctx.MOVABLE[g.target];
       const delta = v2.copy(P).sub(g.p0).applyQuaternion(obj.parent.getWorldQuaternion(q1).invert());
       const isCase = !!ctx.cases[g.target];
-      obj.position.set(g.pos0.x + delta.x, isCase ? g.pos0.y : Math.max(0, g.pos0.y + delta.y), g.pos0.z + delta.z);
+      obj.position.set(g.pos0.x + delta.x, isCase && !g.lift ? g.pos0.y : Math.max(0, g.pos0.y + delta.y), g.pos0.z + delta.z);   // #627 a case carried by its handle can be lifted (tray onto a real table)
       // #604 (owner: turning a deck to battle mode caught and jumped, hit and miss) the turn is the hand's twist about the
       // vertical since the grab (swing-twist of the hand's rotation change), not the yaw of one hand axis: that axis goes
       // near vertical when the wrist rolls or points down, and its yaw then jumped. No pull to fixed angles any more.
@@ -690,7 +732,7 @@ export function setupXR(ctx) {
     else if (g.kind === 'spindle') ctx.spindleRelease(g.d);   // #322
     else if (g.kind === 'pinchHold') ctx.scratchEnd(g.s);   // #325
     else if (g.kind === 'held') { const h = ctx.getHeld(); if (h && h.attach === st.anchor) ctx.releaseHeld(); }
-    else if (g.kind === 'move') { ctx.stage.endMove(g.stMove); if (g.target.startsWith('milk')) ctx.releaseMilk(g.target, g.vel); else ctx.settleStack(g.target); }   // #200 milk: releaseMilk drops / throws / settles it
+    else if (g.kind === 'move') { if (g.lift && ctx.cases[g.target]) { const o = ctx.MOVABLE[g.target]; if (o && o.position.y < 0.05) o.position.y = 0; }   /* #627 let go near the floor: back on it */ ctx.stage.endMove(g.stMove); if (g.target.startsWith('milk')) ctx.releaseMilk(g.target, g.vel); else ctx.settleStack(g.target); }   // #200 milk: releaseMilk drops / throws / settles it
     else if (g.kind === 'lid') ctx.lidRelease();
     else if (g.kind === 'spider') { ctx.spiderRelease(st.anchor); buzz(st, 0.3, 20); }   // #256
     else if (g.kind === 'sleeve') ctx.sleeveRelease(st.anchor);   // #242 let go: it stays there (over the record crate: back in)
@@ -698,6 +740,8 @@ export function setupXR(ctx) {
     else if (g.kind === 'propStretch' || g.kind === 'propScale') g.prop.save();   // #341
     else if (g.kind === 'propKnob') { if (g.prop.knobEnd) g.prop.knobEnd(); }   // #379
     else if (g.kind === 'knob') { if (ctx.knobEnd) ctx.knobEnd(g.id); }   // #608 detented TB-03 knobs settle on their notch
+    else if (g.kind === 'reel') { if (ctx.reelEnd) ctx.reelEnd(); }   // #621
+    else if (g.kind === 'cassette') { if (ctx.cassRelease) ctx.cassRelease(st.anchor); buzz(st, 0.15, 8); }   // #621 into the well = load, else back to the tray
     else if (g.kind === 'tablet') { for (const o of inputs) if (o !== st && o.direct && o.direct.kind === 'tabletStretch') o.direct = null; if (ctx.tabletRelease()) buzz(st, 0.6, 35); }   // #189 (a buzz when it snaps into the slot)
     else if (g.kind === 'tabletScale' || g.kind === 'tabletStretch') ctx.saveTablet();
     else if (g.kind === 'neonScale') {
@@ -758,13 +802,15 @@ export function setupXR(ctx) {
       else if (h > 0.02 || dxz > b.r * 2) { if (!armed && b.c.id && (b.c.id === 'bpmtap' || b.c.id === 'looper' || b.c.id.endsWith('.beat1'))) ctx.releaseBeat1(st); st.poke.set(key, true); }
     }
     st.pokeLift = (st.pokeLift || 0) + (Math.min(0.03, lift) - (st.pokeLift || 0)) * 0.5;
-    // mixer readout (#116): poke the tempo number to cycle ORIG BPM / BPM / KEY
-    {
-      const ms = ctx.mixer.userData.screen, l = ms.worldToLocal(v2.copy(T));
-      const sw = ms.geometry.parameters.width, sh = ms.geometry.parameters.height;
-      const inside = Math.abs(l.x) < sw / 2 && Math.abs(l.y) < sh / 2, armed = st.poke.get(ms) !== false;
-      if (inside && l.z < 0.006 && l.z > -0.015) { if (armed && ctx.mixScreenPress({ x: l.x / sw + 0.5, y: l.y / sh + 0.5 })) { st.poke.set(ms, false); buzz(st, 0.4, 20); } else if (!armed && ctx.mixScreenDrag) ctx.mixScreenDrag({ x: l.x / sw + 0.5, y: l.y / sh + 0.5 }); }   // #422 slider drag
-      else if (!inside || l.z > 0.02) { if (!armed && ctx.mixScreenRelease) ctx.mixScreenRelease(); st.poke.set(ms, true); }   // #222 fingertip off = end of a long press
+    screenPoke(st, T);   // #630 the tablet screen (also runs while a trigger 'tap' is active)
+    // #619 the ACID cassette tray on the PREVIEW slide-out screen (fingertip / controller tip, like the tablet screen)
+    if (ctx.trayScreen) {
+      const ts = ctx.trayScreen();
+      if (ts) {
+        const l = ts.worldToLocal(v2.copy(T)), inside = Math.abs(l.x) < 0.5 && Math.abs(l.y) < 0.5, armed = st.poke.get(ts) !== false;   // plane 1 x 1, scaled
+        if (inside && l.z < 0.006 && l.z > -0.015) { const uv = { x: l.x + 0.5, y: l.y + 0.5 }; if (armed) { if (ctx.trayPress(uv)) { st.poke.set(ts, false); buzz(st, 0.15, 6); } } else ctx.trayDrag(uv); }
+        else if (!inside || l.z > 0.02) { if (!armed) ctx.trayRelease(); st.poke.set(ts, true); }
+      }
     }
     // crate screen
     const scr = ctx.crate.userData.screen;
@@ -886,7 +932,7 @@ export function setupXR(ctx) {
       updateOccluder(st);
       updateAnchor(st);
 
-      if (st.direct) grabMove(st, st.isHand ? st.pinchPt : st.tip);
+      if (st.direct) { grabMove(st, st.isHand ? st.pinchPt : st.tip); if (hasTip && st.direct && st.direct.kind === 'tap') screenPoke(st, st.tip); }   // #630
       else if (hasTip) pokes(st, st.tip);
       if (st.isHand) crateTouchWalk(st);   // #350
       deckFeel(st, dt);

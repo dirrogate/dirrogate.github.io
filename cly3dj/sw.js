@@ -10,8 +10,18 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v117-1';   // #616 release hotfix: headset faders / crossfader / pitch (broken by #608), low TB-03 knobs
-// v117:  // #608 raised 3D TB-03 knobs on the ACID page (headset), acid smileys
+const CACHE = 'vire-app-v149';   // #642 FIX LOOP (one-touch perfect loop in LOOP MASTER)
+// v147:   // #639 GLASS RAIN on PANO portal frames
+// v146:   // #638 DOME GAMMA replaces DOME CONTRAST (PANO page + PORTALS SETUP)
+// v131:   // #623 smokier cassette shells
+// v130:   // #622 translucent cassette shells, 25 % thinner
+// v129:   // #621 3D micro-cassettes (grip from the tray, drop in the well, flip = side B, eject pops up), trigger reel nudge
+// v128:   // #620 reel nudge shows: hubs follow the finger, BPM readouts include the nudge
+// v127:   // #619 ACID micro-cassettes: factory tapes, TRAY on PREVIEW, load / flip / eject
+// v126:   // #618 ACID plate layer (micro-cassette well), cassette deck buttons, LOCK, reel nudge, synced delay
+// v125:   // #617 ACID cue follows ACID VOL, +6 dB, 2x ACID page canvas, silver knob bodies, VOL labels up
+// v124:   // #616 headset faders / crossfader / pitch fixed (broken by #608); low TB-03 knobs, twist about the tablet face
+// v123:   // #615 per-board plank / offset / mirror set on the CPU (no visible repeats)
 // v116:  // #607 ACID fixes (cue pre-listen, level, knob angles, VR poke), tablet glass removed
 // v115:  // #606 Gemini_acid: Roland Boutique TB-03 upgrade, 7-seg LED, Overdrive/Delay, 76 patterns & 7 tracks, ACID CUE mixer button
 // v114:  // #606 Gemini_acid: Updated tb303_panel.png & top-left status typography
@@ -39,12 +49,12 @@ const CACHE = 'vire-app-v117-1';   // #616 release hotfix: headset faders / cros
 const NET_WAIT = 2500, OFFLINE_HOLD = 30000;
 const APP = [
   'index.html', 'spectator.html', 'dirrovj.html', 'vjdesk.html', 'venue.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png',
-  ...['artfetch', 'acid-worklet', 'loopbank', 'inklabel', 'whiteboard', 'audio', 'beat', 'bump-worker', 'camtest', 'chat', 'deck-glb', 'deck-inst', 'deck-worklet', 'decode-worker', 'director', 'env', 'fakelight', 'fixedcam', 'fixlook',
+  ...['artfetch', 'acid-worklet', 'acid-tapes', 'loopbank', 'inklabel', 'whiteboard', 'audio', 'beat', 'bump-worker', 'camtest', 'chat', 'deck-glb', 'deck-inst', 'deck-worklet', 'decode-worker', 'director', 'env', 'fakelight', 'fixedcam', 'fixlook',
     'facetwall', 'flightcase', 'fx', 'dirro-host', 'dirrogram', 'wallfx', 'wallfx-worker', 'gopro', 'laser', 'realdepth', 'camfit', 'id3', 'layout', 'ledwall', 'library', 'lookmatch', 'main', 'medialib', 'merge', 'mic-worklet', 'models', 'movieprops', 'neon', 'net-link',
     'keycol', 'neonenv', 'pcampack', 'perfcap', 'sleeves', 'phonelib', 'portal', 'robot', 'robot2', 'skybox', 'spectator-client', 'spectator-host', 'spectator', 'storage', 'stream', 'studio', 'vjdesk', 'dancer', 'dancerdesk', 'holodesk', 'holoplayer', 'comics', 'cxfiles', 'storyboard', 'rgbdgrab', 'recmaster', 'rec-worklet', 'textures', 'tools', 'venue', 'videovinyl', 'vset', 'xr'].map(n => `js/${n}.js`),
   ...['flight_case_kit', 'flight_case_kit_ktx', 'milk_crate', 'milk_crate_ktx', 'mixer_parts', 'neon_sign_glass', 'neon_sign_glass_ktx',
     'record_crate', 'record_crate_ktx', 'turntable', 'avatar/robot', 'avatar/avatar_robot', 'avatar/avatar_robot_v2', 'avatar/dirroface', 'avatar/dirrocrow'].map(n => `models/${n}.glb`),
-  'img/dirrocomics-mark.png', 'img/sky_factory.jpg', 'img/tb-03.png', 'img/tb03_knob_synth.png', 'img/tb03_knob_fx.png', 'img/tb03_knob_track.png', 'img/tb03_knob_mode.png', 'img/tb03_knob_value.png', 'img/tb03_switch_wave.png', 'models/avatar/gemini_emboss.png', 'models/slipmat_left.jpg', 'models/slipmat_right.jpg', 'models/turntable_ao.json', 'models/turntable_ao.png',
+  'img/dirrocomics-mark.png', 'img/sky_factory.jpg', 'img/tb-03.png', 'img/tb-03_cass.png', 'img/micro_cassette.png', 'img/tb03_knob_synth.png', 'img/tb03_knob_fx.png', 'img/tb03_knob_track.png', 'img/tb03_knob_mode.png', 'img/tb03_knob_value.png', 'img/tb03_switch_wave.png', 'models/avatar/gemini_emboss.png', 'models/slipmat_left.jpg', 'models/slipmat_right.jpg', 'models/turntable_ao.json', 'models/turntable_ao.png',
   'vendor/three/three.module.js', 'vendor/qrcode/qrcode.mjs', 'dirrogram.html', 'retroscene.png', 'mattes/matte1.mp4', 'vendor/three/OrbitControls.js', 'vendor/three/RoomEnvironment.js',
   'vendor/three/loaders/GLTFLoader.js', 'vendor/three/loaders/KTX2Loader.js', 'vendor/three/utils/BufferGeometryUtils.js', 'vendor/three/utils/WorkerPool.js',
   'vendor/three/libs/meshopt_decoder.module.js', 'vendor/three/math/SimplexNoise.js',   // #548 DANCER (desk)

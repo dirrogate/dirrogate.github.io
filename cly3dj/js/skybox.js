@@ -36,6 +36,8 @@ uniform vec4 so;            // u = u * so.x + so.y, v = v * so.z + so.w (picks t
 uniform vec2 texSize;       // texels (whole picture)
 uniform float aa;           // 1 = video (no mipmaps): footprint-adaptive 4-tap
 uniform float gain;         // #404 DOME EXPOSURE (2^EV)
+uniform float uCon;         // #629 DOME CONTRAST, retired by #638 (stays 1)
+uniform float uGam;         // #638 DOME GAMMA (1 = as shot; < 1 darker mid-tones, > 1 lighter; black and white stay put)
 uniform float uAces;        // #594 1 = drawing into the stream's linear layer, which gets ACES (x 1/0.6) afterwards
 vec3 acesInv(vec3 y) {      // the value ACES maps back onto the pano's own colour (same as the SCREEN portals, #591)
   const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
@@ -49,13 +51,28 @@ varying vec2 vUv;
 void main() {
   vec2 uv = vec2(vUv.x * so.x + so.y, vUv.y * so.z + so.w);
   vec2 dx = dFdx(uv), dy = dFdy(uv);
+#ifdef PORTAL_SKY
+  {   // #639 GLASS RAIN (portal.js): the bend is in metres on the frame's glass; map it to texture space with the screen
+      // derivatives of both (works for any frame angle, each eye, and the flattened floor). Derivatives taken outside any branch.
+    vec2 pdx = dFdx(pRev), pdy = dFdy(pRev); mat2 Jp = mat2(pdx, pdy); float jd = determinant(Jp);
+    if (dot(rBend, rBend) > 1e-10 && abs(jd) > 1e-14) { vec2 duv = mat2(dx, dy) * (inverse(Jp) * rBend); uv += duv * min(1.0, 0.03 / max(length(duv), 1e-6)); }
+  }
+#endif
   vec4 c;
   float fp = max(length(dx * texSize), length(dy * texSize));
   if (aa > 0.5 && fp > 1.2) {
     c = 0.25 * (texture2D(map, uv + dx * 0.125 + dy * 0.375) + texture2D(map, uv + dx * 0.375 - dy * 0.125)
               + texture2D(map, uv - dx * 0.125 - dy * 0.375) + texture2D(map, uv - dx * 0.375 + dy * 0.125));
   } else c = texture2D(map, uv);
-  vec3 o = c.rgb * gain; if (uAces > 0.5) o = acesInv(clamp(o, 0.0, 1.0));
+  vec3 o = c.rgb * gain; o = 0.18 * pow(max(o, vec3(0.0)) / 0.18, vec3(uCon)); o = pow(o, vec3(1.0 / uGam));
+#ifdef PORTAL_SKY
+  if (portalRain.x + portalRain.y > 0.001 && inRev) {   // #639 the water itself: condensation (milky, cooler, lower contrast) wiped clear where water runs; dark rims, bright lens cores
+    float mist = portalRain.y * (1.0 - rClear), lu = dot(o, vec3(0.2126, 0.7152, 0.0722));
+    o = mix(o, mix(vec3(lu), o, 0.55) * 0.8 + vec3(0.016, 0.02, 0.026), mist * 0.6);
+    o *= (1.0 - 0.45 * rEdge * portalRain.x) * (1.0 + 0.1 * rCore + 0.04 * rBead);
+  }
+#endif
+  if (uAces > 0.5) o = acesInv(clamp(o, 0.0, 1.0));
   gl_FragColor = vec4(o, c.a);
   #include <colorspace_fragment>
 }`;
@@ -115,7 +132,7 @@ export class Skybox {
     this.group = new THREE.Group(); this.group.visible = false; this.group.name = 'skybox';
     this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.tex = null;
     this.mats = [0, 1].map(() => new THREE.ShaderMaterial({
-      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 } },
+      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 } },
       vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthWrite: false, toneMapped: false,
     }));
     this.geo = null; this.setHeight(this.height);
@@ -164,6 +181,7 @@ export class Skybox {
     t.flipY = false;   // flipped when the bitmap was made
     t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
     t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.anisotropy = 4; t.needsUpdate = true;
+    try { this.lightStill = leftEyeCanvas(bmp, layout, swap, 1024); } catch (e) { this.lightStill = null; }   // #611 a small copy for DOME LIGHT (the bitmap is closed after upload)
     t.onUpdate = () => { if (bmp.close) bmp.close(); };
     this.tex = t; this.size = [bmp.width, bmp.height];
     this.mats.forEach(m => { m.uniforms.map.value = t; m.uniforms.texSize.value.set(bmp.width, bmp.height); m.uniforms.aa.value = 0; });   // #403
@@ -176,6 +194,7 @@ export class Skybox {
     t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
     t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
     this.tex = t; this.size = [video.videoWidth, video.videoHeight];
+    this.lightStill = null;   // #611 a video pano: DOME LIGHT grabs the frame on screen
     this.mats.forEach(m => { m.uniforms.map.value = t; m.uniforms.texSize.value.set(video.videoWidth, video.videoHeight); m.uniforms.aa.value = 1; });   // #403 4-tap where minified
     this.setLayout(layout, swap);
   }
@@ -193,6 +212,8 @@ export class Skybox {
     this.meshes[1].layers.set(2); this.meshes[1].visible = st;
   }
   setTurn(rad) { this.group.rotation.y = rad; }
+  setGamma(k) { this.mats.forEach(m => { m.uniforms.uGam.value = k || 1; }); }   // #638 DOME GAMMA
+  setContrast(k) { this.mats.forEach(m => { m.uniforms.uCon.value = k || 1; }); }   // #629 DOME CONTRAST
   setExposure(ev) { const g = Math.pow(2, ev || 0); this.mats.forEach(m => { m.uniforms.gain.value = g; }); }   // #404 DOME EXPOSURE
 }
 

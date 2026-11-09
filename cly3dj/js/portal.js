@@ -36,6 +36,9 @@ const RIM = 0.085;                               // #587 concrete outer edge, fr
 const cornerRadius = (hx, hy) => Math.min(0.30, 0.42 * Math.min(hx, hy));
 const GLOWS = { off: null, red: 0xff2a2a, cyan: 0x36d8ff, amber: 0xffa53a };
 const GLOW_ORDER = ['off', 'red', 'cyan', 'amber'];
+// #639 GLASS RAIN presets: [rain 0..1, mist 0..1, flow speed]
+export const RAIN_PRESETS = { off: [0, 0, 1], mist: [0, 0.6, 1], drizzle: [0.35, 0.25, 0.8], rain: [0.7, 0.35, 1], storm: [1, 0.5, 1.6] };
+export const RAIN_ORDER = ['off', 'mist', 'drizzle', 'rain', 'storm'];
 // #586 REAL WINDOW, REAL DOOR, PANO WINDOW, PANO DOOR; #588 + ROUND (cross grill), ARCH (cross grill), PORTHOLE (no grill), each REAL or PANO.
 // A leading 'p' means PANO (the sky only through it), so the porthole is 'hole' / 'phole'.
 // #589 + SCREEN BAY / SCREEN DOOR / SCREEN PORTHOLE ('s' + shape): the opening shows the shared screen feed (CYCLO, an image or a video).
@@ -49,7 +52,7 @@ export const SHAPE_LABEL = { rect: 'BAY', door: 'DOOR', round: 'ROUND', arch: 'A
 // portalR = corner radius (top, bottom); a doorway's bottom is 0 = square.
 const DECL = `
 #ifdef USE_PORTAL
-  uniform mat4 portalInv[${MAX_PORTALS}]; uniform vec2 portalHalf[${MAX_PORTALS}]; uniform vec2 portalR[${MAX_PORTALS}]; uniform float portalRev[${MAX_PORTALS}]; uniform int portalN; uniform int portalRevN;
+  uniform mat4 portalInv[${MAX_PORTALS}]; uniform vec2 portalHalf[${MAX_PORTALS}]; uniform vec2 portalR[${MAX_PORTALS}]; uniform float portalRev[${MAX_PORTALS}]; uniform float portalUp[${MAX_PORTALS}]; uniform vec4 portalRain; uniform int portalN; uniform int portalRevN;   // #639 portalRain = (rain, mist, time, flow)
   varying vec3 vPortalWP;
 #endif`;
 const VERT = `
@@ -57,14 +60,59 @@ const VERT = `
   vPortalWP = (modelMatrix * vec4(transformed, 1.0)).xyz;
 #endif`;
 const VERT_SM = VERT.replace('transformed', 'position');   // plain ShaderMaterials (the sky dome) have no 'transformed'
+// #639 GLASS RAIN on PANO frames (owner: rain droplets on the portal windows; reuse the #495 wall-decal rivulets).
+// The PANO opening has no glass mesh: the dome itself is drawn through it, so the water is worked out right here in
+// the dome's fragment, in the frame's own plane (metres), and returned as a BEND (where on the glass to look through
+// instead) plus a few masks; skybox.js turns the bend into a texture offset with screen derivatives. Each eye gets its
+// own crossing point, so the drops sit ON the glass with the right parallax. Cost: nothing at all when GLASS RAIN is
+// OFF (uniform branch); when on, 1 bead cell + the 2 nearest rivulet columns (skipped early away from a run) per dome
+// pixel INSIDE PANO openings only.
+// Upright frames: beads + rivulets running down. Skylights (portalUp ~0): beads that land, swell and dry, no runs.
+const RAIN = `
+  vec2 rBend = vec2(0.0); float rCore = 0.0, rEdge = 0.0, rBead = 0.0, rClear = 0.0;
+  if (portalRain.x + portalRain.y > 0.001 && inRev) {
+    float kk = clamp(portalRain.x, 0.0, 1.0), T = portalRain.z, Tf = portalRain.z * portalRain.w, up = clamp(upRev, 0.0, 1.0);
+    // beads: one per 2.2 cm cell, land at a random moment, swell, sit, then dry off; each is a tiny lens (flips what's behind it)
+    if (kk > 0.0) {   // MIST alone skips all the water maths
+    vec2 cs = vec2(0.022), cid = floor(pRev / cs), cf = pRev / cs - cid - 0.5;
+    float h0 = fract(sin(dot(cid, vec2(127.1, 311.7))) * 43758.5453), h1 = fract(sin(dot(cid, vec2(269.5, 183.3))) * 43758.5453);
+    float life = fract(T * (0.09 + 0.12 * h1) * (0.5 + kk) + h0), on = step(h1, kk * (1.15 - 0.45 * up));   // #640 shorter cycle
+    vec2 bc = (vec2(h0, h1) - 0.5) * 0.5; float br = (0.13 + 0.22 * h0) * smoothstep(0.0, 0.05, life) * (1.0 - smoothstep(0.3, 0.5, life));   // #640 dries off in the first half, gone the rest
+    vec2 bq = (cf - bc) * cs.x; float bl = length(cf - bc), bd = smoothstep(br, br * 0.55, bl) * on;
+    rBend += -bq * 7.0 * bd * kk; rBead = bd; rEdge = smoothstep(br * 0.55, br, bl) * bd;
+    if (up > 0.3) {   // the #495 rivulets, in metres on this frame: wander, run, pause, run again, top to bottom
+      float cw = 0.06, H = 2.0 * hRev.y, yN = (pRev.y + hRev.y) / H, yM = pRev.y;
+      float c0 = floor(pRev.x / cw - 0.5);
+      for (int j = 0; j <= 1; j++) {   // the two nearest columns (the wander stays within 0.35 of a column)
+        float cx = c0 + float(j), r2 = fract(sin((cx * 2.3 + 1.1) * 91.345) * 47453.5453);
+        if (r2 > kk * 0.9) continue;
+        float r = fract(sin((cx + 3.7) * 91.345) * 47453.5453), r3 = fract(sin((cx * 5.1 + 9.0) * 91.345) * 47453.5453);
+        float u = Tf * (0.07 + 0.09 * r) + r3 * 10.0, stepped = (floor(u) + smoothstep(0.0, 0.45, fract(u))) * (0.05 + 0.05 * r);
+        float head = 1.05 - mod(stepped + r2 * 3.0, 1.55);
+        if ((yN - head) * H < -0.025 || yN > head + 0.7 + 0.3 * r3) continue;   // cheap: nowhere near this run's head or trail
+        float cxm = (cx + 0.5 + 0.25 * sin(yM * (2.0 + 3.0 * r) + r * 20.0) * (0.6 + 0.4 * sin(yM * 6.0 + r2 * 9.0)) + 0.1 * sin(yM * 17.0 + r3 * 5.0)) * cw;
+        float dx = pRev.x - cxm, trail = step(head, yN) * smoothstep(head + 0.4 + 0.3 * r3, head, yN);
+        float heal = exp(-max(yN - head, 0.0) * H / 0.035);   // #640 the bend dies off within ~3.5 cm behind the head: the picture closes up at once (it read as a tear)
+        float wd = (0.0042 + 0.0035 * r) * (1.0 + 0.7 * sin(yM * 9.0 + r * 5.0)), core = smoothstep(wd, 0.0, abs(dx)) * trail, edge = smoothstep(wd * 3.2, wd, abs(dx)) * trail;
+        vec2 hq = vec2(dx, (yN - head) * H); float hd = smoothstep(0.012 + 0.006 * r, 0.0, length(hq));
+        rBend += (vec2(-dx * 8.0 * edge * (1.0 - core * 0.4) * heal, -0.004 * core * heal) - hq * 4.0 * hd) * kk * up;
+        rCore = max(rCore, core * (0.25 + 0.75 * heal)); rEdge = max(rEdge, (edge - core * 0.6) * (0.2 + 0.8 * heal)); rBead = max(rBead, hd);   // the old trail: a faint wet line, no dark gash
+        rClear = max(rClear, smoothstep(wd * 5.0, wd, abs(dx)) * step(head, yN));   // a run wipes the mist off behind it
+      }
+    }
+    }
+    rClear = max(rClear, rBead);
+  }
+`;
 const FRAG = `
 #ifdef USE_PORTAL
-  bool inRev = false;
+  bool inRev = false; vec2 pRev = vec2(0.0), hRev = vec2(1.0); float upRev = 1.0;   // #639 where the eye ray crosses the PANO glass (metres, frame centre = 0)
   for (int i = 0; i < ${MAX_PORTALS}; i++) {
     if (i >= portalN) break;
     vec3 pc = (portalInv[i] * vec4(cameraPosition, 1.0)).xyz, pf = (portalInv[i] * vec4(vPortalWP, 1.0)).xyz;
     if (pc.z * pf.z < 0.0) {   // camera and fragment on opposite sides of the window's plane
       vec2 h = portalHalf[i], p = mix(pc.xy, pf.xy, pc.z / (pc.z - pf.z)), q = abs(p);
+      if (portalRev[i] > 0.5 && !inRev) { pRev = p; hRev = h; upRev = portalUp[i]; }   // kept just outside the opening too, so screen derivatives stay smooth at its edge
       float rr = p.y > 0.0 ? portalR[i].x : portalR[i].y;
       vec2 d = q - h + rr;
       if (length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - rr < 0.0) { if (portalRev[i] > 0.5) inRev = true; else discard; }
@@ -72,6 +120,7 @@ const FRAG = `
   }
   #ifdef PORTAL_SKY
   if (portalRevN > 0 && !inRev) discard;   // #586 PANO frames: the dome only shows through them
+  ${RAIN}
   #endif
 #endif`;
 
@@ -108,6 +157,255 @@ function applyGrade(G) {
   GRADE.uGradeA.value.set(Math.pow(2, G.ev), G.con, G.sat, 0);
   GRADE.uGradeB.value.set(1 + 0.12 * G.warm, 1 - 0.08 * G.tint, 1 - 0.12 * G.warm).multiplyScalar(1 / (1 - 0.04 * G.tint));
 }
+// #598 HOLO frame style: no concrete / iron, one transparent sheet over the opening + 30 cm each side. Drawn over the
+// passthrough only (it cannot bend the real picture): a glowing scan edge that flickers, light streaks flying off the
+// sides, and across the opening a faint tinted glass with scanlines, sparkle dust and glitch bands that jump the edge
+// sideways now and then (or on the beat). The real mirror / door behind stays sharp.
+const HOLO_COLS = { cyan: 0x36d8ff, blue: 0x2a6bff, violet: 0x8a5bff, green: 0x3dffa0, white: 0xe8f2ff };
+export const HOLO_ORDER = Object.keys(HOLO_COLS);
+export const HOLO0 = { col: 'cyan', int: 1, scan: 1, glass: 0.5, glitch: 1, beat: false };
+const HOLO_VS = `varying vec2 vP; void main() { vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+const HOLO_FS = `uniform vec2 uHalf; uniform vec2 uR; uniform float uT; uniform vec3 uCol; uniform float uInt; uniform float uScan; uniform float uGlass; uniform float uGlitch; uniform float uBeat; varying vec2 vP;
+float h1(float n) { return fract(sin(n * 12.9898) * 43758.5453); }
+float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float sdR(vec2 p) { float rr = p.y > 0.0 ? uR.x : uR.y; vec2 d = abs(p) - uHalf + rr; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - rr; }
+void main() {
+  vec2 p = vP;
+  float slot = floor(uT * (0.6 + 1.6 * uGlitch)), ph = fract(uT * (0.6 + 1.6 * uGlitch));
+  float on = uGlitch > 0.01 ? step(ph, 0.12) * step(0.45, h1(slot)) : 0.0; on = max(on, uBeat * step(0.01, uGlitch));
+  float bc = (h1(slot + 3.1) * 2.0 - 1.0) * uHalf.y, bw = 0.03 + 0.09 * h1(slot + 7.7);
+  float band = on * (1.0 - smoothstep(bw * 0.6, bw, abs(p.y - bc)));
+  vec2 q = vec2(p.x + band * (h1(slot + 1.3) - 0.5) * 0.08, p.y);   // the edge tears sideways inside a band
+  float sd = sdR(q);
+  float fl = 0.86 + 0.14 * sin(uT * 37.0) * sin(uT * 13.7); fl *= h1(floor(uT * 9.0)) > 0.97 ? 0.45 : 1.0;
+  float scan = 0.55 + 0.45 * sin(p.y * 230.0 * 6.2832);
+  float edge = exp(-abs(sd) / 0.006) * 1.4 + exp(-abs(sd) / 0.035) * 0.45;
+  float a = edge * fl * (0.75 + 0.25 * scan);
+  vec3 c = mix(uCol, vec3(1.0), clamp(exp(-abs(sd) / 0.003) * 0.8, 0.0, 1.0));
+  if (sd > 0.0 && abs(p.x) > uHalf.x && abs(p.y) < uHalf.y - uR.y) {   // streaks flying off the left / right edges
+    float row = floor(p.y * 110.0), hh = h1(row + floor(uT * 5.0) * 17.0), len = hh > 0.93 ? (hh - 0.93) * 4.2 : 0.0;   // sparser, longer (up to ~30 cm)
+    float dx = abs(p.x) - uHalf.x, line = 1.0 - smoothstep(0.15, 0.45, abs(fract(p.y * 110.0) - 0.5));
+    a += step(dx, len) * (1.0 - dx / max(len, 1e-3)) * line * 0.9 * fl;
+  }
+  if (sd < 0.0) {   // the glass: tint, scanlines, sparkle dust, brighter in a glitch band
+    float g = uGlass * 0.16 * (0.55 + 0.45 * scan * uScan + (1.0 - uScan) * 0.45) + band * 0.18;
+    vec2 cell = floor(p * 55.0); float hs = h2(cell), tw = step(0.985, hs) * pow(max(0.0, sin(uT * 2.5 + hs * 60.0)), 10.0);
+    a += g + tw * 0.9; c = mix(c, uCol * 0.8, clamp(g * 3.0, 0.0, 1.0)); c += tw;
+  }
+  a = clamp(a * uInt, 0.0, 1.0); if (a < 0.003) discard;
+  gl_FragColor = vec4(c, a);
+}`;
+function makeHoloMat() {
+  return new THREE.ShaderMaterial({ vertexShader: HOLO_VS, fragmentShader: HOLO_FS, transparent: true, depthWrite: false, toneMapped: false,
+    uniforms: { uHalf: { value: new THREE.Vector2() }, uR: { value: new THREE.Vector2() }, uT: { value: 0 }, uCol: { value: new THREE.Color(HOLO_COLS.cyan) }, uInt: { value: 1 }, uScan: { value: 1 }, uGlass: { value: 0.5 }, uGlitch: { value: 1 }, uBeat: { value: 0 } } });
+}
+// #598 BAMBOO frame style (a shack roof / skylight): poles round the edge and one layer of slats across the opening, all
+// copies of one pole (one InstancedMesh, one draw). SLAT GAP = the gap between slats; CLEARING pushes them out toward
+// the edges so the middle opens up onto the dome; DIRECTION = slats along the frame's width or height. Each pole gets
+// its own thickness, colour, a little twist and height wobble, and culm nodes every ~30 cm (painted by the shader).
+export const BAMBOO0 = { gap: 0.02, clear: 0.4, dir: 'x', kind: 'bamboo', eaves: false, posts: false, postAdj: 0 };   // #626 postAdj   // #612 eaves = thatch fringe, posts = corner poles to the floor (ceiling frames)   // kind: 'bamboo' poles or 'wood' flat slats
+const BAM_MAX = 160;
+const bamGeo = (() => { const g = new THREE.CylinderGeometry(1, 1, 1, 8, 1, false); g.rotateZ(Math.PI / 2); return g; })();   // unit pole along x
+function makeBambooMat() {
+  const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.62, metalness: 0 });
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uGradeA = GRADE.uGradeA; sh.uniforms.uGradeB = GRADE.uGradeB;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vAlong; varying vec3 vLN; varying float vHalfL; varying float vAlong2;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvAlong = position.x * length(instanceMatrix[0].xyz) + (instanceMatrix[3].x + instanceMatrix[3].y) * 7.0; vLN = normal; vHalfL = 0.5 * length(instanceMatrix[0].xyz); vAlong2 = position.x * length(instanceMatrix[0].xyz);   // metres along the pole, offset per pole');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec4 uGradeA; uniform vec3 uGradeB; varying float vAlong; varying vec3 vLN; varying float vHalfL; varying float vAlong2; float bAO, bHgt;')
+      .replace('#include <map_fragment>', `
+        float nd = abs(fract(vAlong / 0.3) - 0.5);                      // a culm node every 30 cm
+        float node = 1.0 - smoothstep(0.0, 0.035, 0.5 - nd);
+        float streak = 0.92 + 0.08 * sin(vAlong * 97.0 + vNormal.y * 9.0);
+        diffuseColor.rgb *= mix(1.0, 0.62, node) * streak;
+        // #611 fake AO: the back of the pole (toward the ceiling), the ends, where a slat crosses an edge pole; node ridges
+        bAO = mix(0.5, 1.0, smoothstep(-0.8, 0.6, vLN.z)) * mix(0.75, 1.0, smoothstep(0.0, 0.05, vHalfL - abs(vAlong2)));
+        if (vHalfL > 0.2) bAO *= mix(0.72, 1.0, smoothstep(0.02, 0.08, abs(abs(vAlong2) - (vHalfL - 0.06))));
+        bHgt = node * 0.0012 + (streak - 0.92) * 0.004;`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        { vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition), R1 = cross(sy, normal), R2 = cross(normal, sx); float det = dot(sx, R1);
+          vec2 dH = vec2(dFdx(bHgt), dFdy(bHgt)); normal = normalize(abs(det) * normal - sign(det) * (dH.x * R1 + dH.y * R2)); }`)
+      .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= bAO; reflectedLight.indirectSpecular *= bAO; reflectedLight.directDiffuse *= mix(1.0, bAO, 0.6);')
+      .replace('#include <tonemapping_fragment>', `{ vec3 c = gl_FragColor.rgb * uGradeA.x * uGradeB; float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = max(mix(vec3(l), c, uGradeA.z), 0.0); gl_FragColor.rgb = 0.18 * pow(c / 0.18 + 1e-5, vec3(uGradeA.y)); }\n#include <tonemapping_fragment>`);
+  };
+  m.customProgramCacheKey = () => 'bamboo611';
+  return m;
+}
+const _by = new THREE.Vector3(0, 1, 0), _bm = new THREE.Matrix4(), _bq = new THREE.Quaternion(), _bp = new THREE.Vector3(), _bs = new THREE.Vector3(), _bc = new THREE.Color(), _bz = new THREE.Vector3(0, 0, 1);
+const rnd = n => { const x = Math.sin(n * 91.345 + 7.13) * 43758.5453; return x - Math.floor(x); };
+// fill an InstancedMesh: 4 edge poles + slats; positions in frame space (opening plane z = 0, slats a little in front)
+function layBamboo(im, hx, hy, B) {
+  let n = 0;
+  const pole = (cx, cy, cz, len, r, rotZ, seed) => {
+    if (n >= BAM_MAX) return;
+    _bq.setFromAxisAngle(_bz, rotZ + (rnd(seed) - 0.5) * 0.02); _bp.set(cx, cy, cz); _bs.set(len, r, r);
+    im.setMatrixAt(n, _bm.compose(_bp, _bq, _bs));
+    const k = 0.62 + 0.45 * rnd(seed + 3), w = rnd(seed + 5); _bc.setRGB((0.42 - 0.04 * w) * k, (0.31 + 0.04 * w) * k, (0.15 - 0.03 * w) * k);   /* dry straw .. tan, a few greener */ im.setColorAt(n, _bc); n++;
+  };
+  const R = 0.034, along = B.dir !== 'y', W = along ? hx : hy, Hh = along ? hy : hx;   // slats run along W, are laid out across Hh
+  pole(0, hy, 0.02, 2 * hx + 0.24, R, 0, 1); pole(0, -hy, 0.02, 2 * hx + 0.24, R, 0, 2);
+  pole(hx, 0, 0.055, 2 * hy + 0.24, R, Math.PI / 2, 3); pole(-hx, 0, 0.055, 2 * hy + 0.24, R, Math.PI / 2, 4);
+  // slats from each edge toward the middle; the step grows toward the middle with CLEARING
+  const half = [], gap = Math.max(0.005, B.gap);
+  let y = Hh - R - 0.02, i = 0;
+  while (y > 0 && half.length < (BAM_MAX - 4) / 2) {
+    const r = 0.016 + 0.007 * rnd(i * 2.7 + 11); half.push([y, r, i]);
+    const t = 1 - y / Hh; y -= 2 * r + gap * (1 + 12 * B.clear * t * t); i++;
+  }
+  im.userData.slats = { along, Hh, list: half.map(([yy, r]) => [yy, r]), v: (im.userData.slats ? im.userData.slats.v : 0) + 1 };   // #612 for NIGHT LOOK moon stripes (mirrored +-)
+  for (const [yy, r, k] of half) for (const sg of [1, -1]) {
+    const c = sg * yy, z = 0.085 + (rnd(k * 5.1 + sg) - 0.5) * 0.012, len = 2 * W + 0.12 + (rnd(k + 9) - 0.5) * 0.08;
+    if (along) pole((rnd(k * 3.3 + sg) - 0.5) * 0.04, c, z, len, r, 0, k * 13 + sg); else pole(c, (rnd(k * 3.3 + sg) - 0.5) * 0.04, z, len, r, Math.PI / 2, k * 13 + sg);
+  }
+  if (B.posts && B.postLen > 0.3) for (const [px, py] of [[hx, hy], [-hx, hy], [hx, -hy], [-hx, -hy]]) { if (n >= BAM_MAX) break; _bq.setFromAxisAngle(_by, -Math.PI / 2); _bp.set(px, py, B.postLen / 2); _bs.set(B.postLen, 0.045, 0.045); im.setMatrixAt(n, _bm.compose(_bp, _bq, _bs)); _bc.setRGB(0.36, 0.27, 0.13); im.setColorAt(n, _bc); n++; }   // #612 corner posts down to the floor
+  im.count = n; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
+}
+// #598 WOOD slats (BAMBOO section, SLATS: WOOD): flat boards with procedural grain -- no texture file. Growth rings
+// warped by noise, fine fibres along the board, a knot now and then, darker edges, per-board shade / offset so no two
+// boards match. Unit box: x = length, y = width (in the frame plane), z = thickness.
+const woodGeo = new THREE.BoxGeometry(1, 1, 1);
+function makeWoodMat() {
+  const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.78, metalness: 0 });
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uGradeA = GRADE.uGradeA; sh.uniforms.uGradeB = GRADE.uGradeB; sh.uniforms.uTex = { value: planksTex() };
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 aSeed; varying vec3 vBS; varying vec3 vW; varying float vSeed; varying vec3 vHalf; varying vec3 vLN;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBS = aSeed; vHalf = 0.5 * vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)); vLN = normal; vW = position * vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)); vSeed = fract(sin(dot(instanceMatrix[3].xyz, vec3(12.9, 78.2, 37.7))) * 43758.5);');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+uniform vec4 uGradeA; uniform vec3 uGradeB; uniform sampler2D uTex; varying vec3 vBS; varying vec3 vW; varying float vSeed; varying vec3 vHalf; varying vec3 vLN; float wAO, wHgt;
+float wh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float wn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(wh(i), wh(i + vec2(1, 0)), f.x), mix(wh(i + vec2(0, 1)), wh(i + vec2(1, 1)), f.x), f.y); }
+float wf(vec2 p) { return wn(p) * 0.5 + wn(p * 2.03) * 0.25 + wn(p * 4.01) * 0.125; }`)
+      .replace('#include <map_fragment>', `
+        // #613 one board = one plank band of the photo (7 bands); offset along the board by its seed
+        // #614 the photo's planks are not equal bands: the measured plank spans (v, gaps left out) so a board never straddles a gap
+        const vec2 PB[7] = vec2[7](vec2(0.7949, 0.9199), vec2(0.6699, 0.7676), vec2(0.5215, 0.6426), vec2(0.3691, 0.4941), vec2(0.2109, 0.3418), vec2(0.0918, 0.1836), vec2(-0.0527, 0.0645));
+        int band = int(vBS.x + 0.5);                                   // #615 set per board on the CPU: neighbours never share a plank
+        float u = (vBS.z > 0.5 ? -vW.x : vW.x) / 1.4 + vBS.y, /* offset spread by the golden ratio, every other board mirrored */ vb = clamp(abs(vLN.y) > 0.5 ? 0.5 + vW.z / max(2.0 * vHalf.z, 1e-3) * 0.3 : vW.y / max(2.0 * vHalf.y, 1e-3) + 0.5, 0.0, 1.0);
+        vec4 tx = texture2D(uTex, vec2(u, mix(PB[band].x, PB[band].y, vb)));
+        diffuseColor.rgb *= tx.rgb * 1.55;
+        float late = tx.a, fib = 0.0, knot = 0.0;
+        wAO = mix(0.62, 1.0, smoothstep(0.0, 0.014, vHalf.y - abs(vW.y))) * mix(0.75, 1.0, smoothstep(0.0, 0.04, vHalf.x - abs(vW.x)));
+        if (vHalf.x > 0.2 && vHalf.y < 0.07) wAO *= mix(0.7, 1.0, smoothstep(0.02, 0.09, abs(abs(vW.x) - (vHalf.x - 0.05))));
+        if (abs(vLN.y) > 0.5) wAO *= 0.55; if (vLN.z < -0.5) wAO *= 0.5;
+        wHgt = tx.a * 0.0011;`)
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = 0.82 - 0.12 * late;')
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        { vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition), R1 = cross(sy, normal), R2 = cross(normal, sx); float det = dot(sx, R1);
+          vec2 dH = vec2(dFdx(wHgt), dFdy(wHgt)); normal = normalize(abs(det) * normal - sign(det) * (dH.x * R1 + dH.y * R2)); }`)
+      .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= wAO; reflectedLight.indirectSpecular *= wAO; reflectedLight.directDiffuse *= mix(1.0, wAO, 0.6);')
+      .replace('#include <tonemapping_fragment>', `{ vec3 c = gl_FragColor.rgb * uGradeA.x * uGradeB; float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = max(mix(vec3(l), c, uGradeA.z), 0.0); gl_FragColor.rgb = 0.18 * pow(c / 0.18 + 1e-5, vec3(uGradeA.y)); }\n#include <tonemapping_fragment>`);
+  };
+  m.customProgramCacheKey = () => 'wood615';
+  return m;
+}
+function layWood(im, hx, hy, B) {
+  let n = 0;
+  const board = (cx, cy, cz, len, w, t, rotZ, seed) => {
+    if (n >= BAM_MAX) return;
+    _bq.setFromAxisAngle(_bz, rotZ + (rnd(seed) - 0.5) * 0.012); _bp.set(cx, cy, cz); _bs.set(len, w, t);
+    im.setMatrixAt(n, _bm.compose(_bp, _bq, _bs));
+    const k = 0.8 + 0.35 * rnd(seed + 3); _bc.setRGB(k, k * (0.97 + 0.05 * rnd(seed + 5)), k * (0.92 + 0.08 * rnd(seed + 7))); im.setColorAt(n, _bc); n++;
+  };
+  const along = B.dir !== 'y', W = along ? hx : hy, Hh = along ? hy : hx, BW = 0.07;
+  board(0, hy, 0.02, 2 * hx + 0.2, BW, BW, 0, 1); board(0, -hy, 0.02, 2 * hx + 0.2, BW, BW, 0, 2);   // edge beams
+  board(hx, 0, 0.055, 2 * hy + 0.2, BW, BW, Math.PI / 2, 3); board(-hx, 0, 0.055, 2 * hy + 0.2, BW, BW, Math.PI / 2, 4);
+  const half = [], gap = Math.max(0.005, B.gap); let y = Hh - 0.05 - 0.02, i = 0;
+  while (y > 0 && half.length < (BAM_MAX - 4) / 2) {
+    const w = 0.085 + 0.02 * rnd(i * 2.7 + 11); half.push([y - w / 2, w, i]);
+    const t = 1 - y / Hh; y -= w + gap * (1 + 12 * B.clear * t * t); i++;
+  }
+  im.userData.slats = { along, Hh, list: half.map(([yy, w]) => [yy, w / 2]), v: (im.userData.slats ? im.userData.slats.v : 0) + 1 };   // #612
+  for (const [yy, w, k] of half) for (const sg of [1, -1]) {
+    const c = sg * yy, z = 0.1 + (rnd(k * 5.1 + sg) - 0.5) * 0.006, len = 2 * W + 0.1 + (rnd(k + 9) - 0.5) * 0.06, th = 0.018;
+    if (along) board((rnd(k * 3.3 + sg) - 0.5) * 0.04, c, z, len, w, th, 0, k * 13 + sg); else board(c, (rnd(k * 3.3 + sg) - 0.5) * 0.04, z, len, w, th, Math.PI / 2, k * 13 + sg);
+  }
+  { // #615 plank band / offset / mirror per board, in spatial order across the roof, so neighbours differ and nails never line up
+    const sa = im.geometry.getAttribute('aSeed'), order = [];
+    for (let k = 0; k < n; k++) { im.getMatrixAt(k, _bm); _bp.setFromMatrixPosition(_bm); order.push([k, along ? _bp.y : _bp.x, k < 4]); }
+    const slats = order.filter(o => !o[2]).sort((a, b) => a[1] - b[1]), PERM = [3, 0, 5, 2, 6, 1, 4];
+    slats.forEach(([k], r) => sa.setXYZ(k, PERM[r % 7], (r * 0.6180339) % 1 * 1.0 + 0.13 * Math.floor(r / 7), r % 2));
+    order.filter(o => o[2]).forEach(([k], r) => sa.setXYZ(k, PERM[(r + 2) % 7], 0.37 + r * 0.29, 0));
+    sa.needsUpdate = true;
+  }
+  if (B.posts && B.postLen > 0.3) for (const [px, py] of [[hx, hy], [-hx, hy], [hx, -hy], [-hx, -hy]]) { if (n >= BAM_MAX) break; _bq.setFromAxisAngle(_by, -Math.PI / 2); _bp.set(px, py, B.postLen / 2); _bs.set(B.postLen, 0.08, 0.08); im.setMatrixAt(n, _bm.compose(_bp, _bq, _bs)); _bc.setRGB(0.8, 0.75, 0.68); im.setColorAt(n, _bc); im.geometry.getAttribute('aSeed').setXYZ(n, (n % 7), 0.21 * n, 0); n++; }   // #612
+  im.count = n; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
+}
+// #613 two small packed textures (Poly Haven CC0, 512 x 512 WebP): RGB = colour with ambient occlusion baked in from the
+// height map, A = height (relief by screen derivatives). One texture read per pixel, no normal / roughness maps.
+let _texP = null, _texR = null;
+function frameTex(name) {
+  const t = new THREE.TextureLoader().load('surfaces/frame_' + name + '.webp');
+  t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 2; return t;
+}
+const planksTex = () => _texP || (_texP = frameTex('planks')), reedTex = () => _texR || (_texR = frameTex('reed'));
+// #626 LOCK per frame: a padlock badge at the frame's top-left corner, shown only while the B placement laser is on
+// (never in recordings otherwise). Aim the laser at it + trigger (or grip) = locked / open. A locked frame can't be
+// picked by the laser or grabbed by hand. Saved per frame (lk).
+const lockTex = (() => {
+  const mk = locked => {
+    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+    g.fillStyle = 'rgba(10,14,22,0.82)'; g.beginPath(); g.arc(32, 32, 30, 0, Math.PI * 2); g.fill();
+    const col = locked ? '#ff6a3d' : '#5fe08a'; g.strokeStyle = col; g.lineWidth = 6; g.lineCap = 'round';
+    g.beginPath(); if (locked) g.arc(32, 26, 10, Math.PI, 0); else g.arc(42, 20, 10, Math.PI, 0); g.stroke();
+    if (locked) { g.beginPath(); g.moveTo(22, 26); g.lineTo(22, 31); g.moveTo(42, 26); g.lineTo(42, 31); g.stroke(); } else { g.beginPath(); g.moveTo(52, 20); g.lineTo(52, 26); g.stroke(); }
+    g.fillStyle = col; g.fillRect(18, 30, 28, 20); g.fillStyle = 'rgba(10,14,22,0.9)'; g.fillRect(30, 36, 4, 8);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  };
+  let a = null; return locked => (a || (a = [mk(false), mk(true)]))[locked ? 1 : 0];
+})();
+const LOCK_S = 0.1;
+// #612 THATCH EAVES: two staggered rows of dry palm-leaf cards hanging from the roof's edge into the room (frame +z),
+// leaf shape cut in the shader with alpha-to-coverage (soft edges with the headset's MSAA), one InstancedMesh, 1 draw.
+const FR_MAX = 600;
+const frGeo = (() => { const g = new THREE.PlaneGeometry(1, 1); g.translate(0, -0.5, 0); return g; })();   // top edge at the origin, hangs along -y
+function makeFringeMat() {
+  const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0, side: THREE.DoubleSide, alphaToCoverage: true, transparent: false });
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uGradeA = GRADE.uGradeA; sh.uniforms.uGradeB = GRADE.uGradeB; sh.uniforms.uTex = { value: reedTex() };
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vFu; varying float vFs;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFu = uv; vFs = fract(sin(dot(instanceMatrix[3].xyz, vec3(12.9, 78.2, 37.7))) * 43758.5);');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec4 uGradeA; uniform vec3 uGradeB; uniform sampler2D uTex; varying vec2 vFu; varying float vFs; float fAO, fHgt;')
+      .replace('#include <map_fragment>', `
+        float x = vFu.x - 0.5, y = vFu.y;                              // y = 1 at the roof edge, 0 at the tip
+        float strands = abs(fract(vFu.x * 7.0 + vFs * 3.0) - 0.5);     // the frond splits into strips
+        float w = 0.5 * (0.35 + 0.65 * y) - (1.0 - y) * 0.12 * step(0.38, strands);
+        float rag = 0.06 * sin(vFu.x * 41.0 + vFs * 20.0);
+        float a = smoothstep(0.0, 0.03, w - abs(x)) * smoothstep(0.0, 0.05, y + rag - 0.02);
+        vec4 tx = texture2D(uTex, vec2(vFu.x * 0.22 + vFs * 0.78, y * 0.5 + fract(vFs * 7.3) * 0.5));   // #613 reed thatch photo
+        diffuseColor.rgb *= tx.rgb * 1.5 * (0.88 + 0.24 * vFs); diffuseColor.a = a;
+        fAO = mix(0.5, 1.0, smoothstep(1.0, 0.45, y)) * (0.8 + 0.2 * step(0.25, strands));   // dark up under the roof edge and between strips
+        fHgt = tx.a * 0.0015;`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        { vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition), R1 = cross(sy, normal), R2 = cross(normal, sx); float det = dot(sx, R1);
+          vec2 dH = vec2(dFdx(fHgt), dFdy(fHgt)); normal = normalize(abs(det) * normal - sign(det) * (dH.x * R1 + dH.y * R2)); }`)
+      .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= fAO; reflectedLight.indirectSpecular *= fAO; reflectedLight.directDiffuse *= mix(1.0, fAO, 0.6);')
+      .replace('#include <tonemapping_fragment>', `{ vec3 c = gl_FragColor.rgb * uGradeA.x * uGradeB; float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = max(mix(vec3(l), c, uGradeA.z), 0.0); gl_FragColor.rgb = 0.18 * pow(c / 0.18 + 1e-5, vec3(uGradeA.y)); }\n#include <tonemapping_fragment>`);
+  };
+  m.customProgramCacheKey = () => 'fringe613';
+  return m;
+}
+const _fX = new THREE.Vector3(), _fY = new THREE.Vector3(0, 0, -1), _fZ = new THREE.Vector3(), _fR = new THREE.Matrix4();
+function layFringe(im, hx, hy) {
+  let n = 0;
+  const edge = (ax, ay, bx, by, out) => {   // from a to b, leaning outward along `out`
+    const L = Math.hypot(bx - ax, by - ay), steps = Math.floor(L / 0.045);
+    _fX.set((bx - ax) / L, (by - ay) / L, 0);
+    for (let row = 0; row < 2; row++) for (let i = 0; i <= steps; i++) {
+      if (n >= FR_MAX) return;
+      const t = (i + (row ? 0.5 : 0)) / steps, sd = rnd(n * 1.7 + row * 31), hgt = (row ? 0.24 : 0.3) + 0.1 * sd;
+      _fZ.crossVectors(_fX, _fY).normalize();
+      _fR.makeBasis(_fX, _fY, _fZ); _bq.setFromRotationMatrix(_fR);
+      _bq.multiply(new THREE.Quaternion().setFromAxisAngle(_bx1, -(0.08 + 0.08 * sd + row * 0.06)));   // #613 lean slightly inward
+      _bp.set(ax + (bx - ax) * t - out[0] * (0.04 + row * 0.03), ay + (by - ay) * t - out[1] * (0.04 + row * 0.03), 0.03 + row * 0.015);   // #613 hangs just inside the roof's outline, so it never pokes into a real wall
+      _bs.set(0.075 + 0.02 * sd, hgt, 1);
+      im.setMatrixAt(n, _bm.compose(_bp, _bq, _bs)); _bc.setRGB(1, 1, 1); im.setColorAt(n, _bc); n++;
+    }
+  };
+  const e = -0.04; edge(-hx - e, hy, hx + e, hy, [0, 1]); edge(hx + e, -hy, -hx - e, -hy, [0, -1]); edge(hx, hy, hx, -hy, [1, 0]); edge(-hx, -hy, -hx, hy, [-1, 0]);
+  im.count = n; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
+}
+const _bx1 = new THREE.Vector3(1, 0, 0);
 function makeTrimMat() {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0 });
   m.userData.uGlow = { value: new THREE.Color(0, 0, 0) };
@@ -266,14 +564,41 @@ class PortalFrame {
     const sh = this.shape, door = this.door, circ = sh === 'round' || sh === 'hole';
     if (circ && this.half.x !== this.half.y) { const m = this._g && this._g.edge === 'y' ? this.half.y : this.half.x; this.half.set(m, m); }   // #588 round frames stay round
     const { x: hx, y: hy } = this.half;
-    const rT = circ ? hx : sh === 'arch' ? Math.min(hx, hy) : cornerRadius(hx, hy), rB = door ? 0 : sh === 'arch' ? Math.min(0.03, rT) : rT; this.r.set(rT, rB);
+    let rT = circ ? hx : sh === 'arch' ? Math.min(hx, hy) : cornerRadius(hx, hy), rB = door ? 0 : sh === 'arch' ? Math.min(0.03, rT) : rT; if (this.bamboo) { rT = rB = 0.02; } this.r.set(rT, rB);   // #598 bamboo: a square opening
     const o = 0.055, dg = (rT + o) * Math.SQRT1_2;   // on the concrete face; the ring on the top-right corner's diagonal
     this.hp.x.set(hx + o, door ? hy * 0.1 : 0, 0); this.hp.y.set(0, hy + o, 0); this.hp.xy.set(hx - rT + dg, hy - rT + dg, 0);
     this.trim.geometry.dispose(); this.trim.geometry = buildTrim(hx, hy, rT, rB, !door, this.hp, sh === 'round' || sh === 'arch' ? grillBoxes(hx, hy, rT, sh === 'arch') : null);
     if (door && !this.held) this.obj.position.y = hy;
     this._scrFit();
+    this._holoFit(); this._bamFit();   // #598
+    this._lockFit();   // #626
   }
   setScreen(on) { on = !!on; if (on === this.screen) return; this.screen = on; this._scrFit(); }   // #589
+  setLocked(on) { this.locked = !!on; if (this.lk) this.lk.material.map = lockTex(this.locked), this.lk.material.needsUpdate = true; }   // #626
+  _lockFit() {
+    if (!this.lk) { this.lk = new THREE.Mesh(new THREE.PlaneGeometry(LOCK_S, LOCK_S), new THREE.MeshBasicMaterial({ map: lockTex(this.locked), transparent: true, toneMapped: false, depthTest: false })); this.lk.renderOrder = 20; this.lk.raycast = () => {}; this.lk.visible = false; this.obj.add(this.lk); }
+    this.lk.position.set(-this.half.x - RIM - 0.07, this.half.y + RIM + 0.07, 0.03);
+  }
+  setStyle(st) { const h = st === 'holo', b = st === 'bamboo'; if (h === !!this.holo && b === !!this.bamboo) return; this.holo = h; this.bamboo = b; this._fit(); }   // #598 iron / holo / bamboo
+  _bamFit() {
+    const B = this.set.bamboo, wood = B.kind === 'wood';
+    if (this.bm) this.bm.visible = false; if (this.wm) this.wm.visible = false; if (this.fm) this.fm.visible = false;
+    if (!this.bamboo) return;
+    { const zr = _v.set(0, 0, 1).applyQuaternion(this.obj.quaternion); B.postLen = zr.y < -0.7 ? Math.max(0.2, this.obj.position.y / -zr.y - 0.05 + (B.postAdj || 0)) : 0; }   // #626 POST LENGTH: + / - from 'to the floor'   // #612 posts only for a ceiling frame (facing down)
+    if (B.eaves) { if (!this.fm) { this.fm = new THREE.InstancedMesh(frGeo, makeFringeMat(), FR_MAX); this.fm.raycast = () => {}; this.fm.frustumCulled = false; this.obj.add(this.fm); this.fm.setColorAt(0, new THREE.Color(1, 1, 1)); }
+      layFringe(this.fm, this.half.x, this.half.y); this.fm.visible = true; }
+    const mk = (geo, mat) => { const im = new THREE.InstancedMesh(geo, mat, BAM_MAX); im.raycast = () => {}; im.frustumCulled = false; this.obj.add(im); im.setColorAt(0, new THREE.Color(1, 1, 1)); return im; };
+    if (wood) { if (!this.wm) { const g = woodGeo.clone(); g.setAttribute('aSeed', new THREE.InstancedBufferAttribute(new Float32Array(BAM_MAX * 3), 3)); this.wm = mk(g, makeWoodMat()); } layWood(this.wm, this.half.x, this.half.y, B); this.wm.visible = true; }
+    else { if (!this.bm) this.bm = mk(bamGeo, makeBambooMat()); layBamboo(this.bm, this.half.x, this.half.y, B); this.bm.visible = true; }
+  }
+  _holoFit() {
+    this.trim.visible = !this.holo && !this.bamboo;
+    if (!this.holo) { if (this.hm) this.hm.visible = false; return; }
+    if (!this.hm) { this.hm = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), makeHoloMat()); this.hm.raycast = () => {}; this.hm.renderOrder = 5; this.obj.add(this.hm); }
+    const { x: hx, y: hy } = this.half, U = this.hm.material.uniforms;
+    this.hm.geometry.dispose(); this.hm.geometry = new THREE.PlaneGeometry(2 * hx + 0.6, 2 * hy + 0.12); this.hm.position.z = 0.004; this.hm.visible = true;
+    U.uHalf.value.set(hx, hy); U.uR.value.copy(this.r);
+  }
   _scrFit() {   // the panel sits 1.2 cm behind the opening plane, inside the iron reveal; one more draw only while it is a screen
     if (!this.screen) { if (this.scr) this.scr.visible = false; return; }
     if (!this.scr) { this.scr = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), makeScreenMat()); this.scr.raycast = () => {}; this.scr.renderOrder = -1; this.scr.onBeforeRender = r => { const t = r.getRenderTarget(); this.scr.material.uniforms.uAces.value = t && t.vireAces ? 1 : 0; };   /* #591 */ this.obj.add(this.scr); }
@@ -283,14 +608,14 @@ class PortalFrame {
   }
 
   hit(P) {   // grab box: the trim frame + slack
-    if (!this.obj.visible) return false;
+    if (!this.obj.visible || this.locked) return false;   // #626 locked
     this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P));
     return Math.abs(l.x) < this.half.x + RIM + 0.08 && Math.abs(l.y) < this.half.y + RIM + 0.08 && Math.abs(l.z) < 0.12;
   }
 
   // Which handle the hand is on (trigger / pinch): 'x' side bar, 'y' top bar, 'xy' corner ring
   corner(P) {
-    this._edge = null; if (!this.obj.visible) return false;
+    this._edge = null; if (!this.obj.visible || this.locked) return false;   // #626
     this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P));
     if (Math.abs(l.z) > 0.12) return false;
     const R = this.hp.xy, S = this.hp.x, T = this.hp.y;
@@ -317,13 +642,22 @@ class PortalFrame {
     this.obj.scale.set(1, 1, 1);
     if (this.door) this._floor();
   }
-  release() { this.held = false; if (this.door) this._floor(); this.save(); }
+  release() { this.held = false; if (this.door) this._floor(); if (this.bamboo) this._bamFit(); this.save(); }   // #612 posts follow the roof's height
   save() { this._g = null; this._edge = null; this.set.save(); }
   place(h) { this.obj.position.copy(h.p); this.obj.quaternion.setFromAxisAngle(_y, h.yaw); this.obj.scale.set(1, 1, 1); if (this.door) this._floor(); }
   // #586 placement laser (movieprops.js Placer): aim box, size by the stick, keep a doorway on the floor after each move
   localBox() { return _box.set(_v.set(-this.half.x - RIM, -this.half.y - RIM, -0.1), _v2.set(this.half.x + RIM, this.half.y + RIM, 0.1)); }
   rayT(o, d) {
+    this._lockHit = false;
     if (!this.obj.visible) return -1;
+    if (this.lk && this.lk.visible) {   // #626 the padlock badge: a hit toggles the lock (movieprops.js Placer)
+      this.obj.updateWorldMatrix(true, false); _m.copy(this.obj.matrixWorld).invert();
+      _ray.origin.copy(o).applyMatrix4(_m); _v.copy(o).add(d).applyMatrix4(_m).sub(_ray.origin); const L0 = _v.length();
+      if (L0 > 1e-9) { _ray.direction.copy(_v).divideScalar(L0); const c = this.lk.position, h = LOCK_S * 0.75;
+        const lb = _box.set(_v.set(c.x - h, c.y - h, c.z - 0.04), _v2.set(c.x + h, c.y + h, c.z + 0.04)), hp = _ray.intersectBox(lb, _v);
+        if (hp) { this._lockHit = true; return _ray.origin.distanceTo(hp) / L0; } }
+    }
+    if (this.locked) return -1;
     const b = this.localBox().clone(); this.obj.updateWorldMatrix(true, false); _m.copy(this.obj.matrixWorld).invert();
     _ray.origin.copy(o).applyMatrix4(_m); _v.copy(o).add(d).applyMatrix4(_m).sub(_ray.origin); const L = _v.length(); if (L < 1e-9) return -1; _ray.direction.copy(_v).divideScalar(L);
     if (b.containsPoint(_ray.origin)) return -1; const h = _ray.intersectBox(b, _v); return h ? _ray.origin.distanceTo(h) / L : -1;
@@ -338,10 +672,14 @@ export class Portals {
   constructor(rig, home) {
     this.rig = rig; this.home = home; this.on = false; this.n = 1; this.list = []; this.glow = 'off'; this.kinds = []; this.edit = 0; this.scrSrc = { src: 'cyclo', name: '', folder: '' }; this.feed = null;   // #589 one screen feed for all SCREEN frames; feed() -> { tex, w, h } (main.js)   // #585 / #586 kinds per frame
     this.grade = { ...GRADE0 };   // #597 FRAME LOOK
+    this.rain = 'off'; this._rainT = 0; this._rainLast = 0;   // #639 GLASS RAIN preset (PANO frames)
+    this.showLocks = false;   // #626 main.js: true while the B laser is on
+    this.styles = []; this.holo = { ...HOLO0 }; this.bamboo = { ...BAMBOO0 }; this.beat = 0;   // #598 per frame 'iron' / 'holo'; one HOLO look for all
     this._mats = new Set();
     this._u = { portalInv: { value: Array.from({ length: MAX_PORTALS }, () => new THREE.Matrix4()) },
       portalHalf: { value: Array.from({ length: MAX_PORTALS }, () => HALF0.clone()) },
-      portalR: { value: Array.from({ length: MAX_PORTALS }, () => new THREE.Vector2()) }, portalRev: { value: new Array(MAX_PORTALS).fill(0) },
+      portalR: { value: Array.from({ length: MAX_PORTALS }, () => new THREE.Vector2()) }, portalRev: { value: new Array(MAX_PORTALS).fill(0) }, portalUp: { value: new Array(MAX_PORTALS).fill(1) },
+      portalRain: { value: new THREE.Vector4(0, 0, 0, 1) },   // #639
       portalN: { value: 0 }, portalRevN: { value: 0 } };
     this._load();
   }
@@ -354,6 +692,9 @@ export class Portals {
     this.n = Math.min(MAX_PORTALS, Math.max(1, (s && s.n) || 1));
     this.glow = s && GLOWS[s.glow] !== undefined ? s.glow : 'off';   // #585
     if (s && s.grade) Object.assign(this.grade, s.grade); applyGrade(this.grade);   // #597
+    this.setRain(s && RAIN_PRESETS[s.rain] ? s.rain : 'off', false);   // #639
+    if (s && s.bamboo) Object.assign(this.bamboo, s.bamboo);
+    if (s && s.holo) Object.assign(this.holo, s.holo); this.styles = Array.from({ length: MAX_PORTALS }, (_, i) => (s && s.f && s.f[i] && s.f[i].st) || 'iron');   // #598
     if (s && s.scr && s.scr.src) this.scrSrc = { src: s.scr.src, name: s.scr.name || '', folder: s.scr.folder || '' };   // #589
     const doors = (s && s.doors) | 0;   // #585 saved a count of doorways (the first k); #586 a kind per frame
     this.kinds = Array.from({ length: MAX_PORTALS }, (_, i) => (s && s.f && s.f[i] && KINDS.includes(s.f[i].k)) ? s.f[i].k : i < doors ? 'door' : 'window');
@@ -361,17 +702,18 @@ export class Portals {
       const f = this._frame(i), d = s && s.f && s.f[i];
       if (d && d.p && d.q) { f.obj.position.fromArray(d.p); f.obj.quaternion.fromArray(d.q); if (d.h) f.half.fromArray(d.h); f.snapL = d.s || ''; f._fit(); }
       else f.place(this.home(i, this.n));
+      f.setLocked(!!(d && d.lk));   // #626
     }
     this._styles();
     this.setOn(!!(s && s.on), false);
   }
   save() {
-    try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, n: this.n, glow: this.glow, scr: this.scrSrc, grade: this.grade,
-      f: this.list.slice(0, this.n).map((f, i) => ({ p: f.obj.position.toArray(), q: f.obj.quaternion.toArray(), h: f.half.toArray(), k: this.kinds[i], s: f.snapL || '' })) })); } catch {}   // #592 s = the scanned surface it sits on
+    try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, n: this.n, glow: this.glow, rain: this.rain, scr: this.scrSrc, grade: this.grade, holo: this.holo, bamboo: this.bamboo,
+      f: this.list.slice(0, this.n).map((f, i) => ({ p: f.obj.position.toArray(), q: f.obj.quaternion.toArray(), h: f.half.toArray(), k: this.kinds[i], s: f.snapL || '', st: this.styles[i] || 'iron', lk: !!f.locked })) })); } catch {}   // #592 s = the scanned surface it sits on
   }
   _show() { this.list.forEach((f, i) => { f.obj.visible = this.on && i < this.n; }); this._u.portalN.value = this.on ? this.n : 0; this._u.portalRevN.value = this.revN; }
   // #585 the first `doors` frames are doorways (on the floor, open at the bottom), the rest bay windows; TRIM LIGHT colour
-  _styles() { this.list.forEach((f, i) => { const k = this.kinds[i] || 'window'; f.setShape(SHAPE_OF(k)); f.rev = k[0] === 'p'; f.setScreen(k[0] === 's'); f.setGlow(this.glow); }); }   // #588 shape from the kind, #589 screen   // #588 shape from the kind
+  _styles() { this.list.forEach((f, i) => { const k = this.kinds[i] || 'window'; f.setShape(SHAPE_OF(k)); f.rev = k[0] === 'p'; f.setScreen(k[0] === 's'); f.setGlow(this.glow); f.setStyle(this.styles[i]); }); }   // #588 shape from the kind, #589 screen   // #588 shape from the kind
   get doors() { return this.kinds.slice(0, this.n).filter(k => k === 'door' || k === 'pdoor').length; }
   kindOf(i) { return this.kinds[i] || 'window'; }
   setKind(i, k) { if (!KINDS.includes(k)) return; this.kinds[i] = k; this._styles(); this.save(); this.flash(i); }
@@ -383,6 +725,17 @@ export class Portals {
   get revN() { let n = 0; for (let i = 0; i < this.n; i++) if (this.kindOf(i)[0] === 'p') n++; return this.on ? n : 0; }
   setDoors(k) { for (let i = 0; i < MAX_PORTALS; i++) { const rev = this.kindOf(i)[0] === 'p'; this.kinds[i] = (i < k ? (rev ? 'pdoor' : 'door') : (rev ? 'pwindow' : 'window')); } this._styles(); this.save(); }
   stepGlow(d) { const i = GLOW_ORDER.indexOf(this.glow); this.glow = GLOW_ORDER[((i < 0 ? 0 : i) + d + GLOW_ORDER.length) % GLOW_ORDER.length]; this._styles(); this.save(); }
+  lockAll(on) { for (let i = 0; i < this.n; i++) this._frame(i).setLocked(on); this.save(); }   // #626
+  get anyUnlocked() { for (let i = 0; i < this.n; i++) if (!this._frame(i).locked) return true; return false; }
+  toggleLock(i) { const f = this.list[i]; if (!f) return; f.setLocked(!f.locked); this.save(); }
+  styleOf(i) { return this.styles[i] || 'iron'; }   // #598
+  setStyle(i, st) { this.styles[i] = st; this._styles(); this.save(); this.flash(i); }
+  get holoN() { let n = 0; for (let i = 0; i < this.n; i++) if (this.styleOf(i) === 'holo') n++; return this.on ? n : 0; }
+  setBamboo(k, v) { if (k === 'reset') Object.assign(this.bamboo, BAMBOO0); else this.bamboo[k] = v; for (let i = 0; i < this.n; i++) { const f = this.list[i]; if (f && f.bamboo) f._bamFit(); } this.save(); }   // #598
+  setHolo(k, v) { if (k === 'reset') Object.assign(this.holo, HOLO0); else this.holo[k] = v; this.save(); }
+  // #639 GLASS RAIN: one cell on PORTALS SETUP steps OFF / MIST / DRIZZLE / RAIN / STORM for every PANO frame
+  setRain(k, save = true) { if (!RAIN_PRESETS[k]) k = 'off'; this.rain = k; const P = RAIN_PRESETS[k], U = this._u.portalRain.value; U.x = P[0]; U.y = P[1]; U.w = P[2]; if (save) this.save(); }
+  stepRain(d) { const i = RAIN_ORDER.indexOf(this.rain); this.setRain(RAIN_ORDER[((i < 0 ? 0 : i) + d + RAIN_ORDER.length) % RAIN_ORDER.length]); }
   setGrade(k, v) { if (k === 'reset') Object.assign(this.grade, GRADE0); else this.grade[k] = v; applyGrade(this.grade); this.save(); }   // #597
   setOn(on, save = true) { this.on = !!on; this._show(); if (save) this.save(); }
   // more frames: the new ones start at their spots across the wall; fewer: the extra ones are put away (kept for later)
@@ -428,8 +781,10 @@ export class Portals {
   tick() {
     if (!this.on) return;
     this._u.portalRevN.value = this.revN;
+    if (this.rain !== 'off') { const now = performance.now(); if (this._rainLast) this._rainT += Math.min(0.1, (now - this._rainLast) / 1000); this._rainLast = now; this._u.portalRain.value.z = this._rainT % 3600; } else this._rainLast = 0;   // #639 clock only while it rains
     for (let i = 0; i < this.n; i++) {
       const f = this.list[i]; f.obj.updateMatrixWorld();
+      this._u.portalUp.value[i] = Math.abs(_up.setFromMatrixColumn(f.obj.matrixWorld, 1).normalize().y);   // #639 1 = upright window, 0 = skylight
       this._u.portalInv.value[i].copy(f.obj.matrixWorld).invert(); this._u.portalHalf.value[i].copy(f.half); this._u.portalR.value[i].copy(f.r); this._u.portalRev.value[i] = f.rev ? 1 : 0;
       if (f.screen && f.scr) {   // #589 the shared feed, cover-fitted to this opening
         const F = this.feed && this.feed(), U = f.scr.material.uniforms;
@@ -438,8 +793,14 @@ export class Portals {
           if (a > A) { const cw = A / a; U.uCrop.value.set((1 - cw) / 2, 0, cw, 1); } else { const ch = a / A; U.uCrop.value.set(0, (1 - ch) / 2, 1, ch); }
         } else U.uHas.value = 0;
       }
+      if (f.lk) f.lk.visible = this.showLocks;   // #626
+      if (f.holo && f.hm) {   // #598
+        const U = f.hm.material.uniforms, H = this.holo; U.uT.value = performance.now() / 1000; U.uCol.value.setHex(HOLO_COLS[H.col] || HOLO_COLS.cyan);
+        U.uInt.value = H.int; U.uScan.value = H.scan; U.uGlass.value = H.glass; U.uGlitch.value = H.glitch; U.uBeat.value = H.beat ? Math.min(1, this.beat) : 0;
+      }
       if (f.flashT) { const left = f.flashT - performance.now(); if (left > 0) f.setFlash(1.5 + 1.5 * Math.sin(left / 80)); else { f.flashT = 0; f.setGlow(this.glow); } }
     }
   }
 }
+const _up = new THREE.Vector3();   // #639
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _m = new THREE.Matrix4(), _s = new THREE.Vector3(), _y = new THREE.Vector3(0, 1, 0), _box = new THREE.Box3(), _ray = new THREE.Ray();
