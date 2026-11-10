@@ -2213,3 +2213,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Moving plate: a locked-off video range -> plate_video.mp4 at 30 fps, upscaled per frame ("fast" GPU bicubic + unsharp, steady; "ai" Real-ESRGAN whole frame ~1 s a frame), last second dissolved into the first. Scrub bar under the canvas shows the plate at any time and where the car is.
 - space_car.glb is under the Sketchfab Standard licence: fine in renders, do not publish the .glb itself (e.g. on the public site).
 - Studio only (DirroVJcyberdomes/club_window): no web/ change, no Node restart. Backups backups/pre649/.
+
+## #650 CLUB WINDOW fog fix + car lit by the frame (owner, 10 Nov: fog edges harsh / not following the polygon / subtracting; car needs size, looks unreal)
+- Fog noise was not seamless (tiled 2x2 and wrapped): straight seams cut across the fog. Now a frequency-domain tileable noise, padded for the wrap. Overlapping fog areas add (they took the max). Fog is a soft veil (mix to a fog colour lit by the plate) instead of a raw linear add, which showed every faint edge in the darks.
+- Car: lit each frame by the frame rendered so far (club video, neon, moving plate) as a screen-space probe from the car's own position; fog veil and distance haze over the car. "size (length)" 0.5 to 30 m at the top of the car panel; "scene light" slider.
