@@ -7214,7 +7214,7 @@ function trayRelease() {
 // into the well (front = side A facing you, turned over = side B) and it loads. The loaded one sits in the well;
 // hold TRAY = it pops up to be gripped out; dropped anywhere else it goes back to the tray.
 const CASS3_W = 244 * 0.19 / 1680, CASS3_H = 160 * 0.075 / 663, CASS3_T = 0.00375;   // #622 sides 25 % thinner (was 5 mm)
-const CAS3D = { up: false, meshes: new Map(), held: null, popped: null, geo: null, edge: null, layoutDirty: true, force: false };
+const CAS3D = { style: 'png' /* #691 owner: the original picture look (#623), no 3D reels */, up: false, meshes: new Map(), held: null, popped: null, geo: null, edge: null, layoutDirty: true, force: false };
 const _c3v = new THREE.Vector3(), _c3v2 = new THREE.Vector3(), _c3q = new THREE.Quaternion(), _c3e = new THREE.Euler();
 const plateLocal = (px, py, z = 0) => _c3v.set((px / 1680 - 0.5) * 0.19, (0.5 - py / 663) * 0.075, z);
 // #689 (owner: 'they look fake with no reels inside') the face is warm smoked clear plastic (like a clear cassette
@@ -7284,7 +7284,7 @@ function cassGeos() {
   const front = face.clone(); front.translate(0, 0, CASS3_T / 2 + 0.00005);
   const back = face.clone(); back.rotateY(Math.PI); back.translate(0, 0, -CASS3_T / 2 - 0.00005);   // turned round: side B reads right way round from behind
   const side = new THREE.ExtrudeGeometry(sh, { depth: CASS3_T, bevelEnabled: false, steps: 1, curveSegments: 1 }); side.translate(0, 0, -CASS3_T / 2);
-  CAS3D.edge = new THREE.MeshStandardMaterial({ color: 0x7a7066, roughness: 0.2, metalness: 0, transparent: true, opacity: 0.55, depthWrite: false });   // #622 / #623 smoky plastic; #689 warm smoke like a clear cassette shell
+  CAS3D.edge = new THREE.MeshStandardMaterial({ color: 0x24211f, roughness: 0.25, metalness: 0, transparent: true, opacity: 0.86, depthWrite: false });   // #691 owner: sides dark translucent, not see-through   // #622 / #623 smoky plastic; #689 warm smoke like a clear cassette shell
   CAS3D.noCap = new THREE.MeshBasicMaterial({ visible: false });   // the extrusion's own caps: the picture faces cover them
   return (CAS3D.geo = { front, back, side });
 }

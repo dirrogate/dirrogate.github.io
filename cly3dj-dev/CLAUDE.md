@@ -2380,3 +2380,9 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Test hook only: window.vire._acid.cassStyle('label' | 'clear' | 'png') rebuilds the 3D cassettes in that look (CAS3D.style; default = the #689 'label' look). Renders made in the owner's PC pane with an off-screen camera (face-on and at an angle) and sent to him.
 - Findings: the heads are concentric with the hubs, but the 3D look reads as fake: 16-sided packs look like black tyres, the hub ring is grey not white and wider than the spline (loose fit), the spline top sits proud while the hub is mid-depth (gap seen at an angle), and the well photo's own printed reels show through the smoke behind the 3D reels. The old PNG-face look (#623) seats the heads in its printed white hubs more convincingly. Waiting for the owner's pick.
 - dev only, no visible change. No Node restart.
+
+## #691 Cassettes: back to the original picture look, dark translucent sides (owner, 11 Nov: 'just use the original one we had and make the sides dark translucent not transparent')
+- CAS3D.style default 'png': faces = the micro_cassette.png picture over the #623 smoke, no 3D reels / rollers (the #689 label + reel look stays in the code as style 'label', reachable only through the test hook). Outline still traced from the PNG (#624), 3.75 mm thick.
+- Sides: dark smoked plastic 0x24211f at opacity 0.86 (was warm smoke 0.55, mostly see-through).
+- The well under a 3D cassette stays the empty-well photo in the headset (no flat cassette picture behind it); desktop unchanged.
+- Checked with one render in the PC pane (popped cassette at an angle: dark translucent side). sw.js v176. dev only. Module-checked. No Node restart.
