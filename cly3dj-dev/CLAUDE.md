@@ -2369,3 +2369,9 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Level: the shorter gate takes about 1.7 dB off the average level, so audio.js ACID_GAIN 2.5 -> 3.0 keeps #687's +25 %. Measured (node, 142 BPM): default patch -11.6 dBFS RMS before ACID VOL; CPU while playing unchanged (about 1.2 % of one laptop core).
 - Not built yet (proposed next): diode-ladder style filter (per-stage saturation, 303 resonance character) with proper oversampling.
 - NOT tried by ear or on the Quest. sw.js v174. dev only. Module-checked. No Node restart. Backup backups/pre688/ (worklet, sw).
+
+## #689 Micro-cassettes with real reels inside (owner, 11 Nov, with a photo of a clear smoked compact cassette: 'they look fake with no reels inside')
+- cassTex: the face is now warm smoked clear plastic rgba(104,94,84,0.40) with a moulded rim, corner screws and paper labels on top: top label (red stripe, BPM / key / tag, big side letter) and a handwritten name label at the bottom; the window between them is see-through. Edges warm smoke 0x7a7066 at 0.55. The outline is still traced from the PNG (#624).
+- Inside each cassette (cassReelParts, shared geometry, 16-segment tubes): left tape pack r 4.6 mm, right r 3.0 mm (dark brown 0x1c1613), white hub rings r 1.9-2.6 mm that the #631 transport heads come up through, two black guide rollers at the bottom corners. The reels turn with the heads when that cassette is loaded (same angle as the heads; turned-over cassette turns the other way in its own frame). Shell renders after the reels (renderOrder 4, no depth write).
+- In the headset the plate no longer paints the flat PNG cassette in the well under the 3D one (plate rebuilt when CAS3D.up changes); desktop keeps the flat picture.
+- Checked in the PC pane (force hook): reels, hubs and heads visible through the smoked window, labels sharp. NOT tried on the Quest. sw.js v175. dev only. Module-checked. No Node restart. Backup backups/pre689/.

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from '../vendor/three/OrbitControls.js';
+import { mergeGeometries } from '../vendor/three/utils/BufferGeometryUtils.js';   // #689 cassette reels
 import { RoomEnvironment } from '../vendor/three/RoomEnvironment.js';
 import { parseLibrary, addUnsorted, emptyLibrary } from './library.js';
 import { readID3 } from './id3.js';
@@ -7216,10 +7217,25 @@ const CASS3_W = 244 * 0.19 / 1680, CASS3_H = 160 * 0.075 / 663, CASS3_T = 0.0037
 const CAS3D = { up: false, meshes: new Map(), held: null, popped: null, geo: null, edge: null, layoutDirty: true, force: false };
 const _c3v = new THREE.Vector3(), _c3v2 = new THREE.Vector3(), _c3q = new THREE.Quaternion(), _c3e = new THREE.Euler();
 const plateLocal = (px, py, z = 0) => _c3v.set((px / 1680 - 0.5) * 0.19, (0.5 - py / 663) * 0.075, z);
+// #689 (owner: 'they look fake with no reels inside') the face is warm smoked clear plastic (like a clear cassette
+// shell) with paper labels on top: a top label (red stripe, BPM / key / tag, side letter) and a name label at the
+// bottom; the window between them is see-through so the real 3D reels inside show
 function cassTex(t, side) {
-  const c = document.createElement('canvas'); c.width = 320; c.height = 210; const x = c.getContext('2d');
-  x.fillStyle = 'rgba(72, 76, 84, 0.36)'; x.beginPath(); x.roundRect(3, 3, 314, 204, 10); x.fill();   // #623 smoke behind the see-through shell / hub holes
-  if (cassImg.complete && cassImg.naturalWidth) drawCassette(x, t, side, 0, 0, 320, 210);
+  const W = 512, H = 336, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+  x.fillStyle = 'rgba(104, 94, 84, 0.40)'; x.fillRect(0, 0, W, H);   // smoke (the outline shape trims the corners)
+  x.strokeStyle = 'rgba(40, 34, 30, 0.55)'; x.lineWidth = 6; x.strokeRect(3, 3, W - 6, H - 6);   // moulded rim
+  x.strokeStyle = 'rgba(230, 226, 220, 0.25)'; x.lineWidth = 2; x.strokeRect(16, 14, W - 32, H - 28);   // inner ridge catching light
+  const paper = (px, py, pw, ph) => { x.fillStyle = 'rgba(0,0,0,0.25)'; x.fillRect(px + 2, py + 3, pw, ph); x.fillStyle = '#efe9dc'; x.fillRect(px, py, pw, ph); };
+  paper(30, 24, W - 60, 66);   // top label
+  x.fillStyle = '#e23a2c'; x.fillRect(30, 24, W - 60, 9);
+  x.fillStyle = '#2a2622'; x.font = '600 20px Arial, sans-serif'; x.textAlign = 'left'; x.textBaseline = 'middle';
+  x.fillText(`${t.bpm} BPM${t.key ? ' · ' + t.key : ''} · ${t.tag}`, 44, 62, W - 150);
+  x.font = '800 44px Arial, sans-serif'; x.textAlign = 'right'; x.fillText(side, W - 44, 60);
+  paper(74, 240, W - 148, 62);   // name label
+  x.fillStyle = '#16181c'; x.textAlign = 'center'; x.font = '700 28px "Segoe Print", "Comic Sans MS", cursive';
+  x.fillText(t.name, W / 2, 272, W - 170);
+  x.fillStyle = 'rgba(205, 205, 200, 0.9)';   // corner screws
+  for (const [sx, sy] of [[22, 20], [W - 22, 20], [22, H - 20], [W - 22, H - 20]]) { x.beginPath(); x.arc(sx, sy, 7, 0, Math.PI * 2); x.fill(); }
   const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 4; return tx;
 }
 // #624 (owner) the cassette keeps the picture's own outline: the PNG's alpha edge is traced once (Moore-neighbour walk,
@@ -7260,16 +7276,44 @@ function cassGeos() {
   const front = face.clone(); front.translate(0, 0, CASS3_T / 2 + 0.00005);
   const back = face.clone(); back.rotateY(Math.PI); back.translate(0, 0, -CASS3_T / 2 - 0.00005);   // turned round: side B reads right way round from behind
   const side = new THREE.ExtrudeGeometry(sh, { depth: CASS3_T, bevelEnabled: false, steps: 1, curveSegments: 1 }); side.translate(0, 0, -CASS3_T / 2);
-  CAS3D.edge = new THREE.MeshStandardMaterial({ color: 0xa4a9b1, roughness: 0.18, metalness: 0, transparent: true, opacity: 0.61, depthWrite: false });   // #622 / #623 smoky plastic
+  CAS3D.edge = new THREE.MeshStandardMaterial({ color: 0x7a7066, roughness: 0.2, metalness: 0, transparent: true, opacity: 0.55, depthWrite: false });   // #622 / #623 smoky plastic; #689 warm smoke like a clear cassette shell
   CAS3D.noCap = new THREE.MeshBasicMaterial({ visible: false });   // the extrusion's own caps: the picture faces cover them
   return (CAS3D.geo = { front, back, side });
 }
+// #689 the reels inside: a wound tape pack (big on the left, small on the right, like side A part played), a white hub
+// ring the transport heads come up through, and two guide rollers at the bottom corners. Low-segment cylinders, shared.
+const CASS_REEL_X = [(134 - 184) * 0.19 / 1680, (241 - 184) * 0.19 / 1680], CASS_REEL_Y = (103 - 96) * 0.075 / 663;
+function cassReelParts() {
+  if (CAS3D.reel) return CAS3D.reel;
+  const T = CASS3_T, zc = g => { g.rotateX(Math.PI / 2); return g; };
+  const packMat = new THREE.MeshStandardMaterial({ color: 0x1c1613, roughness: 0.45, metalness: 0.05, side: THREE.DoubleSide });
+  const hubMat = new THREE.MeshStandardMaterial({ color: 0xe8e6e1, roughness: 0.5, side: THREE.DoubleSide });
+  const rolMat = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.4 });
+  const ring = (r0, r1, h) => {   // a short tube with flat ring ends (the heads show through the middle)
+    const g = [zc(new THREE.CylinderGeometry(r1, r1, h, 16, 1, true)), zc(new THREE.CylinderGeometry(r0, r0, h, 16, 1, true))];
+    const top = new THREE.RingGeometry(r0, r1, 16); top.translate(0, 0, h / 2); const bot = new THREE.RingGeometry(r0, r1, 16); bot.rotateY(Math.PI); bot.translate(0, 0, -h / 2);
+    return mergeGeometries([...g.map(q => q.toNonIndexed()), top.toNonIndexed(), bot.toNonIndexed()]);
+  };
+  return (CAS3D.reel = {
+    packL: new THREE.Mesh(ring(0.0026, 0.0046, T * 0.5), packMat), packR: new THREE.Mesh(ring(0.0026, 0.0030, T * 0.5), packMat),
+    hub: ring(0.0019, 0.0026, T * 0.8), hubMat,
+    rol: zc(new THREE.CylinderGeometry(0.0011, 0.0011, T * 0.7, 10)), rolMat,
+  });
+}
 function cassMesh(t) {
   let m = CAS3D.meshes.get(t); if (m) return m;
-  const G = cassGeos();
-  const face = side => new THREE.MeshBasicMaterial({ map: cassTex(t, side), toneMapped: false, transparent: true, alphaTest: 0.02 });   // #622 see-through shell / hub holes, smoked (#623)
+  const G = cassGeos(), RP = cassReelParts();
+  const face = side => new THREE.MeshBasicMaterial({ map: cassTex(t, side), toneMapped: false, transparent: true, depthWrite: false });   // #689 smoked shell + labels
   m = new THREE.Group();
-  for (const part of [new THREE.Mesh(G.side, [CAS3D.noCap, CAS3D.edge]), new THREE.Mesh(G.front, face('A')), new THREE.Mesh(G.back, face('B'))]) { part.raycast = () => {}; padCull(part); m.add(part); }
+  const add = (o, x = 0, y = 0) => { o.position.set(x, y, 0); o.raycast = () => {}; padCull(o); m.add(o); return o; };
+  m.userData.reels = [0, 1].map(i => {   // turn with the sequencer when this cassette plays (stepCas3D)
+    const g = new THREE.Group(); g.position.set(CASS_REEL_X[i], CASS_REEL_Y, 0); m.add(g);
+    for (const o of [i ? RP.packR.clone() : RP.packL.clone(), new THREE.Mesh(RP.hub, RP.hubMat)]) { o.raycast = () => {}; padCull(o); g.add(o); }
+    return g;
+  });
+  add(new THREE.Mesh(RP.rol, RP.rolMat), -0.0112, -0.0062); add(new THREE.Mesh(RP.rol, RP.rolMat), 0.0112, -0.0062);
+  const shell = [new THREE.Mesh(G.side, [CAS3D.noCap, CAS3D.edge]), new THREE.Mesh(G.front, face('A')), new THREE.Mesh(G.back, face('B'))];
+  for (const p of shell) { p.renderOrder = 4; add(p); }   // the smoked shell draws after the reels inside it
   m.userData.tape = t; m.visible = false;
   CAS3D.meshes.set(t, m); return m;
 }
@@ -7288,6 +7332,7 @@ function stepCas3D(dt) {
   const want = !!((renderer.xr.isPresenting || CAS3D.force) && toolsPage === 'acid' && scrDir === 'up' && mixer.userData.screen);
   if (want !== CAS3D.up) {
     CAS3D.up = want; AK.dirty = true;   // #631 the 2D hubs give way to the 3D heads
+    acidPlateRebuild();   // #689 the 3D cassette (with its reels) replaces the flat picture in the well, and back
     if (!want) { for (const m of CAS3D.meshes.values()) if (m !== CAS3D.held) m.visible = false; CAS3D.popped = null; return; }
   }
   if (!want) return;
@@ -7300,6 +7345,10 @@ function stepCas3D(dt) {
     if (!m.visible) { m.position.copy(tg.pos); m.quaternion.copy(tg.quat); m.scale.set(1, 1, 1); }   // appearing: straight to its place
     m.visible = true;
     m.position.lerp(tg.pos, k); m.quaternion.slerp(tg.quat, k); m.scale.lerp(_c3v2.set(1, 1, 1), k);
+    if (t === acidTape.loaded && m.userData.reels) {   // #689 the reels turn with the transport heads (turned-over cassette: the other way in its own frame)
+      const a0 = (acidUI.step || 0) * Math.PI / 8 * (acidUI.running ? 1 : 0) + acidReelSpin;
+      for (const r of m.userData.reels) r.rotation.z = acidTape.side === 'B' ? a0 : -a0;
+    }
   }
 }
 // #631 (owner) the two transport heads as real 3D spindles: six-spline drive heads standing out of the plate. Empty well:
@@ -7389,7 +7438,7 @@ function acidPlateCanvas() {
   const img = acidImgs.panel; if (!img.complete || !img.naturalWidth) return null;
   const c = document.createElement('canvas'); c.width = 1680; c.height = 663; const x = c.getContext('2d');
   x.drawImage(img, 0, 0, 1680, 663);
-  if (acidTape.loaded && cassImg.complete && cassImg.naturalWidth) drawCassette(x, acidTape.loaded, acidTape.side, CASS_WELL.x, CASS_WELL.y, CASS_WELL.w, CASS_WELL.h);   // #619
+  if (acidTape.loaded && !CAS3D.up && cassImg.complete && cassImg.naturalWidth) drawCassette(x, acidTape.loaded, acidTape.side, CASS_WELL.x, CASS_WELL.y, CASS_WELL.w, CASS_WELL.h);   // #619
   for (const b of ACID_DECK_BTNS) {   // silver keys like the TB-03's RUN/STOP, legend on the key
     const gr = x.createLinearGradient(0, b.y, 0, b.y + b.h); gr.addColorStop(0, '#f6f7f9'); gr.addColorStop(0.55, '#d9dce1'); gr.addColorStop(1, '#a9adb4');
     x.fillStyle = 'rgba(0,0,0,0.28)'; x.beginPath(); x.roundRect(b.x + 1, b.y + 3, b.w, b.h, 4); x.fill();
