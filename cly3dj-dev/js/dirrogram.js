@@ -265,7 +265,7 @@ async function holoLoad(src) {
     HD.p.group.visible = false;
     await HD.p.load(src);
     HD.loaded = src;   // #672
-    if (AR.on && HD.cfg && HD.cfg.src === src) { HD.p.group.visible = AR.placed; toast('Holodancer: ' + ((HD.p.meta && HD.p.meta.name) || 'on stage')); }
+    if (AR.on && arSrc() === src) { HD.p.group.visible = AR.placed; toast('Holodancer: ' + ((HD.p.meta && HD.p.meta.name) || 'on stage')); }
   } catch (e) { console.warn('holodancer', e); }
   if (HD.loading === src) HD.loading = null;
 }
@@ -311,9 +311,19 @@ reticle.add(new THREE.Mesh(new THREE.RingGeometry(0.17, 0.21, 48).rotateX(-Math.
 const _arP = new THREE.Vector3(), _arC = new THREE.Vector3();
 if (navigator.xr && navigator.xr.isSessionSupported) navigator.xr.isSessionSupported('immersive-ar').then(ok => { if (ok) $('bHolo').classList.remove('hide'); }).catch(() => {});
 const arHint = t => { $('arHint').textContent = t; };
+// #673 standalone (owner, 11 Nov: no Quest, no DirroVJ needed): the performer library on cabin.dirrodj.club (= cly3dj-dev, ?holo= to
+// change it). A performer DirroVJ sends (through the Quest) wins while it comes, kept in step with the desk; otherwise she dances
+// from the library on this phone's own clock, and NEXT DANCER steps through the library.
+const HOLO_LIB = (Q.get('holo') || 'https://cabin.dirrodj.club/holo/').replace(/\/?$/, '/');
+AR.lib = []; AR.li = 0;
+fetch(HOLO_LIB + 'library.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(j => {
+  AR.lib = ((j && j.performers) || []).filter(p => p.layout !== '8b').map(p => ({ id: p.id, name: p.name || p.id, src: HOLO_LIB + p.id + '/performer.json' }));   // 8-view is too tall for phone decoders
+}).catch(() => {});
+const arSrc = () => HD.cfg ? HD.cfg.src : AR.lib.length ? AR.lib[AR.li % AR.lib.length].src : null;
+const arNextVis = () => $('arNext').classList.toggle('hide', !!HD.cfg || AR.lib.length < 2);
 async function arStart() {
   if (AR.on) return;
-  if (!HD.cfg) { toast('No Holodancer on right now: the DJ sends her from DirroVJ'); return; }
+  if (!arSrc()) { toast('No Holodancer here yet (the performer library did not load)'); return; }
   let sess;
   try { sess = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay', 'anchors'], domOverlay: { root: $('arUi') } }); }
   catch (e) { toast('AR could not start on this phone: ' + (e.message || e)); return; }
@@ -327,7 +337,8 @@ async function arStart() {
     const vs = await sess.requestReferenceSpace('viewer'); AR.hts = await sess.requestHitTestSource({ space: vs });
     sess.addEventListener('select', arTap); sess.addEventListener('end', arEnd);
   } catch (e) { toast('AR could not start: ' + (e.message || e)); arEnd(); return; }
-  if (HD.loaded !== HD.cfg.src && HD.loading !== HD.cfg.src) { arHint('Loading the Holodancer… then point at the floor and tap'); holoLoad(HD.cfg.src); }
+  arNextVis();
+  const sr = arSrc(); if (HD.loaded !== sr && HD.loading !== sr) { arHint('Loading the Holodancer… then point at the floor and tap'); holoLoad(sr); }
 }
 function arTap() {
   if (!AR.on || !AR.hitRes) return;
@@ -347,7 +358,7 @@ function arFrame(now, xf) {
     if (AR.placed && AR.anchor) { const ap = xf.getPose(AR.anchor.anchorSpace, AR.ref); if (ap) { const q = ap.transform.position; arGrp.position.set(q.x, q.y, q.z); } }
   }
   arGrp.scale.setScalar(AR.small ? 0.3 : 1);
-  if (HD.cfg && HD.loaded !== HD.cfg.src && HD.loading !== HD.cfg.src) holoLoad(HD.cfg.src);   // the DJ changed performer
+  { const sr = arSrc(); if (sr && HD.loaded !== sr && HD.loading !== sr) { holoLoad(sr); arNextVis(); } }   // the DJ changed (or sent / stopped) a performer, or NEXT DANCER
   const p = HD.p;
   if (p && p.ready) {
     if (p.group.parent !== arGrp) arGrp.add(p.group);
@@ -370,6 +381,7 @@ function arEnd() {
 }
 $('bHolo').onclick = () => arStart();
 $('arExit').onclick = () => arEnd();
+$('arNext').onclick = () => { if (HD.cfg || AR.lib.length < 2) return; AR.li = (AR.li + 1) % AR.lib.length; toast(AR.lib[AR.li].name); };   // #673
 $('arMove').onclick = () => { if (!AR.on) return; AR.placed = false; if (AR.anchor) { try { AR.anchor.delete(); } catch {} AR.anchor = null; } arHint('Point at the floor and tap'); };
 $('arSize').onclick = () => { AR.small = !AR.small; $('arSize').textContent = AR.small ? 'SMALL' : 'LIFE SIZE'; };
 $('arUi').addEventListener('beforexrselect', e => { if (e.target && e.target.closest && e.target.closest('button')) e.preventDefault(); });   // a button tap is not a placing tap
