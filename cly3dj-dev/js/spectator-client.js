@@ -126,7 +126,7 @@ export function startCamera(ctx) {
   if (VJ) {   // #500 DirroVJ start page: no AR; the webcam (fixed camera) is optional, only for LIVE DJ! / LIVE KEY!
     document.title = 'DirroVJ';
     $('#spS h1').innerHTML = 'Dirro<span>VJ</span>';
-    $('#spS p').textContent = 'The VJ desk for the cabin laptop. Clicking Connect automatically spawns the DirroVJ desk window, launches the Webcam / Projector window (for your 2nd monitor / projector), and starts the webcam. On the Quest: Settings > Phone / DirroVJ link On and read the code there.';
+    $('#spS p').textContent = 'This page is the DirroVJ ENGINE: it draws the program for the desk, the projector window, Twitch and DirroTV, so keep it open (minimise it; closing it stops them). The VJ desk for the cabin laptop. Clicking Connect automatically spawns the DirroVJ desk window, launches the Webcam / Projector window (for your 2nd monitor / projector), and starts the webcam. On the Quest: Settings > Phone / DirroVJ link On and read the code there.';
     $('#spAR').hidden = true;
     $('#spFix').disabled = false;
     $('#spConnect').textContent = 'Connect to the Quest (LINKED)';   // #662

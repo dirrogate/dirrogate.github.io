@@ -10,7 +10,7 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v155';   // #662 DirroVJ SOLO / LINKED, master tempo (LINE IN / TAP), DIRROVERSE source + page
+const CACHE = 'vire-app-v156';   // #663 DirroVerse section above the clip banks, projector window: display picker, ✕ CLOSE, no auto-open on clicks
 // v153:   // #645 TAP BPM readout mode; toasts mirrored on the tablet in VR
 // v147:   // #639 GLASS RAIN on PANO portal frames
 // v146:   // #638 DOME GAMMA replaces DOME CONTRAST (PANO page + PORTALS SETUP)

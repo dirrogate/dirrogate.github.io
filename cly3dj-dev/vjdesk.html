@@ -227,6 +227,16 @@
     </section>
   </div>
 </main>
+<section id="dvS" style="margin:0 16px 14px">
+  <h2>DirroVerse <span class="note" style="text-transform:none;letter-spacing:0">put DIRROVERSE on bus A or B · sets made in the Cyber-Window studio on this laptop</span></h2>
+  <div class="row"><select id="dvSet" style="min-width:180px"></select><button id="dvLoad">LOAD</button><button id="dvList">REFRESH</button>
+    <label class="note" style="margin:0"><input type="checkbox" id="dvCam" checked> live webcam in the windows</label>
+    <a href="http://127.0.0.1:8090/" target="_blank" class="note" style="margin:0 6px">open the studio</a><a href="./dirroverse.html" target="_blank" class="note" style="margin:0">DIRROVERSE page</a></div>
+  <div id="dvSt" class="note"></div>
+  <div class="row"><input id="dvName" placeholder="name on the car's plate, e.g. WELCOME MAYA" style="flex:1;min-width:220px"><button id="dvRender">RENDER ARRIVAL</button><span id="dvJob" class="note" style="margin:0"></span></div>
+  <div class="note">An arrival takes about a minute on the RTX 4050; render the night's names before the show. Tap a name to fire it: it plays over the set and hands back to the loop at its end.</div>
+  <div class="row" id="dvArr"></div>
+</section>
 <div id="vjDecks">
   <div class="vjBank">
     <div class="vjBankHead"><h3>DANCER CLIPS</h3><span class="note" id="dzClipNote" style="margin:0">ᯓ🏃🏻‍♀️‍➡️ DANCER dance: click = she blends to it (0.8 s) · ① ④ ⑧ Holodancer performer (2D+depth / 4-view depth / 8-view): click = HOLO plays it</span></div>
@@ -304,16 +314,6 @@
       <div class="row"><button data-add="cap">+ CAPTION</button><button data-add="speech">+ SPEECH</button><button data-add="thought">+ THOUGHT</button><button data-add="shout">+ SHOUT</button><button data-add="sfx">+ SFX</button></div>
     </div>
   </div>
-</section>
-<section id="dvS" style="margin:0 16px 16px">
-  <h2>DirroVerse <span class="note" style="text-transform:none;letter-spacing:0">put DIRROVERSE on bus A or B · sets made in the Cyber-Window studio on this laptop</span></h2>
-  <div class="row"><select id="dvSet" style="min-width:180px"></select><button id="dvLoad">LOAD</button><button id="dvList">REFRESH</button>
-    <label class="note" style="margin:0"><input type="checkbox" id="dvCam" checked> live webcam in the windows</label>
-    <a href="http://127.0.0.1:8090/" target="_blank" class="note" style="margin:0 6px">open the studio</a><a href="./dirroverse.html" target="_blank" class="note" style="margin:0">DIRROVERSE page</a></div>
-  <div id="dvSt" class="note"></div>
-  <div class="row"><input id="dvName" placeholder="name on the car's plate, e.g. WELCOME MAYA" style="flex:1;min-width:220px"><button id="dvRender">RENDER ARRIVAL</button><span id="dvJob" class="note" style="margin:0"></span></div>
-  <div class="note">An arrival takes about a minute on the RTX 4050; render the night's names before the show. Tap a name to fire it: it plays over the set and hands back to the loop at its end.</div>
-  <div class="row" id="dvArr"></div>
 </section>
 <section id="twS" style="margin:0 16px 16px">
       <h2>Sound for Twitch</h2>
@@ -842,9 +842,7 @@ function popScreenWin() {
   try { if (window.opener && window.opener.spect && window.opener.spect.studio) return window.opener.spect.studio.openScreenWin(window); } catch {}
 }
 $('openScreen').onclick = popScreenWin;
-document.addEventListener('click', () => {
-  try { if (window.opener && window.opener.spect && window.opener.spect.studio && window.opener.spect.studio.needScreenWin) window.opener.spect.studio.openScreenWin(window); } catch {}
-}, { capture: true });
+// #663 no more opening the projector window on any click (it doubled the outputs): only the 🎥 button and START SOLO / Connect open it
 // #545 who makes the program picture: DIRROVJ ON AIR (green) once the Quest turned DirroVJ on, else the Quest; and who renders SHOW
 function airBadges(a) {
   const on = $('airOn'), rn = $('airRen'); if (!on || !rn) return;

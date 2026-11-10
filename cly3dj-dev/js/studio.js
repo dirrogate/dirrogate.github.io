@@ -245,10 +245,21 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
         <button id="bPgm" class="on" title="Show the DirroVJ Program mix (A/B crossfader: Webcam, Fractal, Quest SHOWTIME!, DirroComics)">PROGRAM MIX</button>
         <button id="bCam" title="Show this laptop's raw webcam only">WEBCAM ONLY</button>
         <button id="bMir" title="Flip horizontally">MIRROR</button>
+        <select id="bScr" title="Which display to fill (projector, TV, 2nd monitor)" style="display:none;font:600 13px system-ui;background:#1c2230;color:#e6e8ec;border:1px solid #2e3850;border-radius:8px;padding:6px"></select>
         <button id="bFull" class="fs">⛶ FULL SCREEN</button>
+        <button id="bClose" title="Close this output window">✕ CLOSE</button>
       </div></body></html>`);
       doc.close();
-      const toggleFs = () => { try { if (doc.fullscreenElement) doc.exitFullscreen(); else doc.documentElement.requestFullscreen(); } catch {} };
+      // #663 full screen on a chosen display (Window Management API: Chrome asks once to "manage windows on all your displays");
+      // full screen is the only way a browser window loses its title bar. ✕ CLOSE closes this window (it was opened by script).
+      let scrList = null;
+      (async () => { try { if (!('getScreenDetails' in w)) return; const sd = await w.getScreenDetails(); scrList = sd;
+        const sel = doc.getElementById('bScr'), fill = () => { sel.innerHTML = sd.screens.map((x, i) => `<option value="${i}">${i + 1}: ${x.label || ''} ${x.width}×${x.height}${x.isPrimary ? ' (laptop)' : ''}</option>`).join(''); const ext = sd.screens.findIndex(x => !x.isPrimary); if (ext >= 0) sel.value = ext; sel.style.display = sd.screens.length > 1 ? '' : 'none'; };
+        fill(); sd.addEventListener('screenschange', fill); } catch {} })();
+      const toggleFs = () => { try { if (doc.fullscreenElement) { doc.exitFullscreen(); return; }
+        const sel = doc.getElementById('bScr'), scr = scrList && scrList.screens[+sel.value];
+        doc.documentElement.requestFullscreen(scr ? { screen: scr } : undefined).catch(() => doc.documentElement.requestFullscreen()); } catch {} };
+      doc.getElementById('bClose').onclick = () => { needScreenWin = false; try { w.close(); } catch {} };
       doc.getElementById('bFull').onclick = toggleFs;
       doc.getElementById('vjScreenVid').ondblclick = toggleFs;
       doc.getElementById('bPgm').onclick = () => { scrMode = 'pgm'; syncScreenWin(); };
@@ -280,6 +291,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   $('stuHide').onclick = () => { uiT = 0; stEl.hidden = barEl.hidden = true; };
   $('stuDesk').hidden = !vj; $('stuDesk').onclick = () => openDesk();   // #507
   $('stuScreen').hidden = !vj; $('stuScreen').onclick = () => openScreenWin();   // #531
+  if (vj) window.addEventListener('beforeunload', e => { e.preventDefault(); e.returnValue = ''; });   // #663 this page IS the DirroVJ engine: closing it stops the desk, Twitch and DirroTV, so ask first
   ov.addEventListener('click', e => { if (e.target === ov) showUi(); });
   function showUi() { uiT = performance.now() + 6000; stEl.hidden = barEl.hidden = false; }
   function full() {
