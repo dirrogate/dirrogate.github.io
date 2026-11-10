@@ -2386,3 +2386,6 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Sides: dark smoked plastic 0x24211f at opacity 0.86 (was warm smoke 0.55, mostly see-through).
 - The well under a 3D cassette stays the empty-well photo in the headset (no flat cassette picture behind it); desktop unchanged.
 - Checked with one render in the PC pane (popped cassette at an angle: dark translucent side). sw.js v176. dev only. Module-checked. No Node restart.
+
+## #692 Release #682 to #691 to cly3dj (owner, 11 Nov: 'ok push to main cly3dj')
+- cly3dj = cly3dj-dev again: js/acid-worklet.js, js/audio.js, js/main.js, js/tools.js, sw.js (v176), vjdesk.html. Carries the desk / DirroVerse / scroller work (#682-#686) and the ACID work (#687-#691: +25 % channel, 303 articulation, accent sweep, DSP sleep, overdrive DC fix, original cassette look with dark translucent sides). Dev-only as before: CLAUDE.md, PROJECT.md, _test/, the Kitana test models, and cly3dj-dev/backups/. All released JS module-checked. Commit prepared; the owner pushes in GitHub Desktop.

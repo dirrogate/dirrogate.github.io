@@ -137,6 +137,14 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
     this.vcaEnv = 0;
     this.currentAccent = false;
     this.gateOn = false;
+    // #688 303 articulation: the gate closes half way through a step unless that step slides into the next; the VCA
+    // fades slowly while the gate is open and closes fast; accents charge an 'accent sweep' that builds up over runs
+    this.gateTimer = Infinity;   // samples left until the gate closes (Infinity = held: slide, or a key held)
+    this.vcaPeak = 0;            // the VCA's slowly fading level while the gate is open
+    this.prevSlide = false;      // the last played step asked to slide into this one
+    this.accSweep = 0;           // accent sweep 'capacitor'
+    this.odDcIn = 0; this.odDcOut = 0;   // #688 post-overdrive DC blocker
+    this.idle = 0;               // #688 samples of silence while stopped (the DSP sleeps after 0.1 s)
 
     // 4-Pole Diode Ladder Filter state
     this.s1 = 0;
@@ -189,9 +197,8 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
           }
           this.updateStepTiming();
         } else {
-          this.vcaEnv = 0;
-          this.filterEnv = 0;
-          this.gateOn = false;
+          this.gateOn = false;   // #688 let the note close naturally (fast VCA release) instead of cutting to 0
+          this.gateTimer = Infinity; this.prevSlide = false;
           this.currentStep = 0;
           this.stepTimer = 0;
         }
@@ -255,6 +262,7 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
         break;
       case 'noteOn':
         this.triggerNote(msg.note + this.transpose, false, msg.accent || false);
+        this.gateTimer = Infinity;   // #688 held until noteOff
         break;
       case 'noteOff':
         this.gateOn = false;
@@ -275,10 +283,11 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
     this.currentAccent = isAccent;
     this.gateOn = true;
 
+    this.idle = 0;   // #688 wake the DSP
     if (!isSlide) {
       this.freq = f;
-      // Retrigger envelopes
-      this.vcaEnv = 1.0;
+      // Retrigger envelopes (#688 the VCA rises over ~2 ms from where it is, no click)
+      this.vcaPeak = 1.0;
       this.filterEnv = 1.0;
     }
   }
@@ -319,10 +328,15 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
       const acc = !!stepArr[1];
       const sld = !!stepArr[2];
 
+      // #688 TB-303 slide: a step's SLIDE holds its gate into the next step, and the next note glides there (no
+      // retrigger). Without slide the gate closes half way through the step.
       if (note >= 0) {
-        this.triggerNote(note + this.transpose + this.trackTranspose, sld, acc);
+        const glide = this.prevSlide && this.gateOn;
+        this.triggerNote(note + this.transpose + this.trackTranspose, glide, acc);
+        this.gateTimer = sld ? Infinity : this.samplesPerStep * 0.5;
+        this.prevSlide = sld;
       } else {
-        this.gateOn = false;
+        this.gateOn = false; this.gateTimer = Infinity; this.prevSlide = false;
       }
 
       // Notify main thread for UI LED sync
@@ -359,7 +373,13 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
     const baseDecaySec = 0.20 + this.decay * 1.80;
     const decaySec = this.currentAccent ? Math.min(baseDecaySec, 0.20) : baseDecaySec;
     const envDecayCoef = Math.exp(-1 / (decaySec * this.sampleRate));
-    const vcaDecayCoef = Math.exp(-1 / (0.25 * this.sampleRate));
+    const vcaHoldCoef = Math.exp(-1 / (1.6 * this.sampleRate));     // #688 slow fade while the gate is open
+    const vcaAtt = 1 - Math.exp(-1 / (0.002 * this.sampleRate));    // 2 ms rise
+    const vcaRel = 1 - Math.exp(-1 / (0.010 * this.sampleRate));    // 10 ms close when the gate shuts
+    const accUp = 1 - Math.exp(-1 / (0.012 * this.sampleRate));     // accent sweep charge
+    const accDown = 1 - Math.exp(-1 / ((0.10 + 0.35 * this.resonance) * this.sampleRate));   // slow discharge: runs of accents stack (more 'wow' with resonance)
+    // #688 sleep: stopped, gate shut, and 0.1 s of silence (delay tail gone) = output zeros without running the DSP
+    if (!this.running && !this.gateOn && this.idle > this.sampleRate * 0.1) { outL.fill(0); if (outR !== outL) outR.fill(0); return true; }
 
     // Base cutoff: 35 Hz to 5000 Hz (#607: was 2400, the filter never really opened)
     const minCut = 35;
@@ -405,15 +425,16 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
 
       // Envelope step
       this.filterEnv *= envDecayCoef;
-      if (!this.gateOn) {
-        this.vcaEnv *= vcaDecayCoef;
-      }
+      // #688 gate timing and VCA
+      if (this.gateTimer !== Infinity && --this.gateTimer <= 0) { this.gateOn = false; this.gateTimer = Infinity; }
+      if (this.gateOn) { this.vcaPeak *= vcaHoldCoef; this.vcaEnv += (this.vcaPeak - this.vcaEnv) * vcaAtt; }
+      else this.vcaEnv -= this.vcaEnv * vcaRel;
+      // accent sweep: charges towards the accented filter envelope, drains slowly
+      const accT = this.currentAccent ? this.accent * this.filterEnv : 0;
+      this.accSweep += (accT - this.accSweep) * (accT > this.accSweep ? accUp : accDown);
 
       // Cutoff calculation: base + (envMod * filterEnv) + extra accent spike
-      let envCut = this.envMod * this.filterEnv;
-      if (this.currentAccent) {
-        envCut += this.accent * 0.45 * this.filterEnv;
-      }
+      let envCut = this.envMod * this.filterEnv + this.accSweep * 0.75;   // #688 accent through the sweep circuit
       const targetCutoff = Math.min(18000, baseCutoff * Math.pow(16, envCut));
 
       // 4-Pole Diode Ladder Filter (2x oversampled for numerical stability)
@@ -464,9 +485,12 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
       let postOd = this.dcOut;
       if (odAmount > 0.005) {
         const x = postOd * odDrive;
-        const sat = Math.tanh(x + 0.14 * x * x) - 0.11;
+        const sat = Math.tanh(x + 0.14 * x * x);   // #688 was '- 0.11': a constant DC offset into the master whenever OVERDRIVE was up
         postOd = postOd * (1.0 - odAmount) + sat * odMakeup * odAmount * 1.35;
       }
+
+      // #688 DC blocker after the overdrive (its asymmetric curve makes a little DC on loud notes)
+      this.odDcOut = postOd - this.odDcIn + 0.998 * this.odDcOut; this.odDcIn = postOd; postOd = this.odDcOut;
 
       // Gemini_acid: TB-03 Tape / Digital Delay stage
       this.smoothDelay += (targetDelaySamples - this.smoothDelay) * 0.0012;
@@ -491,6 +515,7 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
       const ax = Math.abs(finalSig);
       if (ax > 0.7) finalSig = Math.sign(finalSig) * (0.7 + 0.3 * Math.tanh((ax - 0.7) / 0.3));
 
+      if (Math.abs(finalSig) < 1e-5) this.idle++; else this.idle = 0;   // #688
       // Output to stereo buffers
       outL[i] = finalSig;
       outR[i] = finalSig;

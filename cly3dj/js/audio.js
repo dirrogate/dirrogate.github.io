@@ -324,4 +324,5 @@ function convertInline(L, R, rate = 44100) {
   for (let i = 0; i < nf; i++) { let s = 0; for (let j = i * fr, e2 = j + fr; j < e2; j += 2) { const v = (L[j] + R2[j]) * 0.5; s += v * v; } const r = Math.sqrt(s / (fr / 2)); flux[i] = r > pv ? r - pv : 0; pv = r; }
   return { iL: conv(L), iR: R ? conv(R) : null, env, flux, fh: fr / rate };
 }
-AudioEngine.ACID_GAIN = 2.0;   // #617 TB-03 channel gain (+6 dB) ahead of ACID VOL, for master and cue alike
+AudioEngine.ACID_GAIN = 3.0;   // #688 2.5 -> 3.0: makes up the ~1.7 dB the shorter 303 gate takes off the average level (keeps #687's +25 %)
+// was:   // #617 TB-03 channel gain ahead of ACID VOL, for master and cue alike; #687 owner: +25 % (2.0 -> 2.5, about +1.9 dB)
