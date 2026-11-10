@@ -148,11 +148,17 @@
   #bankMenu[hidden] { display:none; } #bankMenu .bmT { font:700 11px system-ui; color:var(--mute); padding:5px 8px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; }
   #bankMenu button { display:block; width:100%; text-align:left; padding:8px 10px; border:0; border-radius:6px; background:transparent; font:600 13px system-ui; }
   #bankMenu button:hover { background:#22304a; } #bankMenu button.del:hover { background:#5a1a1e; }
+  .bpmBox { display:flex; align-items:center; gap:5px; margin-left:10px; padding:3px 8px; border:1px solid var(--line); border-radius:7px; }
+  .bpmBox b { font:800 16px ui-monospace,Consolas,monospace; min-width:52px; text-align:right; color:#ffd25a; } .bpmU { font:700 10px system-ui; color:#8c96a8; }
+  .bpmBox button { padding:4px 8px; } .bpmBox button.on { background:#1f9d55; color:#fff; } #tapB { font-weight:800; min-width:52px; }
+  #beatL { width:12px; height:12px; border-radius:50%; background:#333; display:inline-block; }
   .air { font:700 12px system-ui,sans-serif; padding:4px 8px; border-radius:6px; margin-left:8px; background:#2a3140; color:#c9ced8; white-space:nowrap; } .air.on { background:#1f9d55; color:#fff; }   /* #545 */
 </style>
 </head>
 <body>
-<header><h1>Dirro<span>VJ</span> desk</h1><div id="st">Looking for the DirroVJ output window…</div><span id="airOn" class="air">QUEST ON AIR</span><span id="airRen" class="air">RENDER: QUEST</span><span id="airLink" class="air">QUEST LINK: -</span><span id="airTv" class="air">DIRROTV: -</span><button id="openScreen" style="margin-left:auto" title="Open the Webcam / Projector output in a separate window (drag to a 2nd monitor or projector and make full screen)">🎥 Webcam / Projector window</button></header>
+<header><h1>Dirro<span>VJ</span> desk</h1><div id="st">Looking for the DirroVJ output window…</div><span id="airOn" class="air">QUEST ON AIR</span><span id="airRen" class="air">RENDER: QUEST</span><span id="airLink" class="air">QUEST LINK: -</span><span id="airTv" class="air">DIRROTV: -</span>
+<span class="bpmBox" title="Master tempo for BEAT effects. LINE IN: follows the kicks in the live sound. TAP: tap the beat (button or T); 4 taps or more for a steady tempo; - / + nudge.">
+  <b id="bpmV">--.-</b><span class="bpmU">BPM</span><button id="tapB">TAP</button><span id="beatL"></span><button id="tmL" class="sm">LINE IN</button><button id="tmT" class="sm">TAP</button><button id="bpmM" class="sm">−</button><button id="bpmP" class="sm">+</button></span><button id="openScreen" style="margin-left:auto" title="Open the Webcam / Projector output in a separate window (drag to a 2nd monitor or projector and make full screen)">🎥 Webcam / Projector window</button></header>
 <main>
   <div>
     <section>
@@ -299,6 +305,16 @@
     </div>
   </div>
 </section>
+<section id="dvS" style="margin:0 16px 16px">
+  <h2>DirroVerse <span class="note" style="text-transform:none;letter-spacing:0">put DIRROVERSE on bus A or B · sets made in the Cyber-Window studio on this laptop</span></h2>
+  <div class="row"><select id="dvSet" style="min-width:180px"></select><button id="dvLoad">LOAD</button><button id="dvList">REFRESH</button>
+    <label class="note" style="margin:0"><input type="checkbox" id="dvCam" checked> live webcam in the windows</label>
+    <a href="http://127.0.0.1:8090/" target="_blank" class="note" style="margin:0 6px">open the studio</a><a href="./dirroverse.html" target="_blank" class="note" style="margin:0">DIRROVERSE page</a></div>
+  <div id="dvSt" class="note"></div>
+  <div class="row"><input id="dvName" placeholder="name on the car's plate, e.g. WELCOME MAYA" style="flex:1;min-width:220px"><button id="dvRender">RENDER ARRIVAL</button><span id="dvJob" class="note" style="margin:0"></span></div>
+  <div class="note">An arrival takes about a minute on the RTX 4050; render the night's names before the show. Tap a name to fire it: it plays over the set and hands back to the loop at its end.</div>
+  <div class="row" id="dvArr"></div>
+</section>
 <section id="twS" style="margin:0 16px 16px">
       <h2>Sound for Twitch</h2>
       <div class="row"><button id="aQ">QUEST (Wi-Fi)</button><button id="aL">LINE IN</button><button id="twBtn" class="twBtn" title="Start or stop streaming the DirroVJ Program picture + sound to Twitch">TWITCH ON/OFF</button><span id="twSt" class="note" style="margin:0"></span></div>
@@ -309,10 +325,11 @@
         <input type="password" id="twKey" placeholder="Paste Twitch stream key (saved on this device; or sent from Quest)" autocomplete="off" spellcheck="false">
         <button id="twKeyShow" type="button" title="Show / hide Twitch key" style="padding:5px 8px;font-size:12px">SHOW</button>
       </div>
+      <div class="row"><label for="tvCode" class="note" style="margin:0">DIRROTV (SOLO):</label><input id="tvCode" placeholder="6-digit code on the TV" maxlength="8" style="width:170px"><button id="tvPair">PAIR TV</button><span class="note" style="margin:0">open venue.html on the TV, type its code here; the key stays on this laptop</span></div>
     </section>
 <script>
 const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
-const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'COMICS', dancer: 'DANCER', holo: 'HOLO' };   // #573   // #516, #537, #550, #555 BLACK gone, DIRROCOMICS shortened to COMICS (one line per bus)
+const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'COMICS', dancer: 'DANCER', holo: 'HOLO', dverse: 'DIRROVERSE' };   // #662   // #573   // #516, #537, #550, #555 BLACK gone, DIRROCOMICS shortened to COMICS (one line per bus)
 let S = null, lastSeen = 0, realT = 0;   // #519 realT: last state from a real DirroVJ
 for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = document.createElement('button'); b.textContent = NAMES[k]; b.dataset.bus = bus; b.dataset.src = k; b.onclick = () => send({ k: 'bus', bus, v: k }); $(bus === 'a' ? 'busA' : 'busB').append(b); }
 // #552 T-bar: a vision-mixer lever. Grab the handle (or anywhere on the bar) and pull: it moves by how far you pull, it never jumps to the click.
@@ -362,6 +379,9 @@ function render() {
   const D = S.D;
   for (const b of document.querySelectorAll('[data-bus]')) b.classList.toggle('on', D[b.dataset.bus] === b.dataset.src);
   xfT.set(D.x);   // #552
+  { $('bpmV').textContent = D.bpm > 0 ? D.bpm.toFixed(1) : '--.-'; $('tmL').classList.toggle('on', D.tempo !== 'tap'); $('tmT').classList.toggle('on', D.tempo === 'tap');   // #662
+    if (D.beatN !== render.bn) { render.bn = D.beatN; $('beatL').style.background = '#ffd25a'; setTimeout(() => { $('beatL').style.background = '#333'; }, 110); } }
+  renderDv(D.dv);
   for (const [id, b, live] of [['litA', 'a', D.x < 1], ['litB', 'b', D.x > 0]]) { const cue = D.cue === b; $(id).classList.toggle('cue', cue); $(id).classList.toggle('live', live && !cue); }   // #557
   { const t = $('pvTag'); if (D.cue) { t.textContent = `CUE ${D.cue.toUpperCase()} · on air: ${D.x <= 0 ? 'A' : D.x >= 1 ? 'B' : 'A+B'}`; t.classList.add('cue'); $('pv').classList.add('cue'); } else { t.textContent = 'PROGRAM'; t.classList.remove('cue'); $('pv').classList.remove('cue'); } }
   for (const b of document.querySelectorAll('[data-pal]')) b.classList.toggle('on', D.fr.pal === b.dataset.pal);
@@ -795,6 +815,29 @@ bc.onmessage = e => {
   else if (m.k === 'cxmsg') { $('cxMsg').textContent = m.t; clearTimeout(cxMsgT); cxMsgT = setTimeout(() => { $('cxMsg').textContent = ''; }, 6000); }
 };
 send({ k: 'hello' });
+// #662 master tempo + DirroVerse + DirroTV pairing in SOLO
+$('tapB').onclick = () => send({ k: 'tap' }); $('tmL').onclick = () => send({ k: 'tempo', v: 'line' }); $('tmT').onclick = () => send({ k: 'tempo', v: 'tap' });
+$('bpmM').onclick = () => send({ k: 'nudge', d: -0.5 }); $('bpmP').onclick = () => send({ k: 'nudge', d: 0.5 });
+document.addEventListener('keydown', e => { if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return; if (e.key === 't' || e.key === 'T') { e.preventDefault(); send({ k: 'tap' }); } });
+$('tvPair').onclick = () => send({ k: 'tvpair', code: $('tvCode').value });
+$('dvList').onclick = () => send({ k: 'dv', act: 'list' }); $('dvLoad').onclick = () => $('dvSet').value && send({ k: 'dv', act: 'load', set: $('dvSet').value });
+$('dvCam').onchange = () => send({ k: 'dv', act: 'cam', v: $('dvCam').checked });
+$('dvRender').onclick = () => { const n = $('dvName').value.trim(); if (n) send({ k: 'dv', act: 'render', name: n }); };
+let dvAsked = false;
+function renderDv(v) {
+  if (!v) return; if (!dvAsked) { dvAsked = true; send({ k: 'dv', act: 'list' }); }
+  const sel = $('dvSet'), want = (v.sets || []).join('|');
+  if (sel.dataset.l !== want) { const cur = sel.value || v.set; sel.innerHTML = (v.sets || []).map(n => `<option>${n}</option>`).join(''); sel.dataset.l = want; if (cur) sel.value = cur; }
+  if (v.set && document.activeElement !== sel && !sel.dataset.touched) sel.value = v.set;
+  if (document.activeElement !== $('dvCam')) $('dvCam').checked = !!v.cam;
+  $('dvSt').textContent = v.studio && v.studio !== 'ok' ? v.studio : (v.status || (v.sets && v.sets.length ? 'Pick a set and LOAD.' : ''));
+  const j = v.job; $('dvJob').textContent = !j ? '' : j.status === 'running' ? `rendering "${j.name}": ${Math.round(j.progress)}%` : j.status === 'done' ? `"${j.name}" ready` : j.status === 'error' ? 'error: ' + j.err : j.status;
+  const want2 = (v.arrivals || []).join('|') + '/' + v.playing;
+  if ($('dvArr').dataset.l !== want2) { $('dvArr').dataset.l = want2; $('dvArr').innerHTML = '';
+    for (const f of v.arrivals || []) { const b = document.createElement('button'); b.textContent = (v.playing === f ? '▶ ' : '') + f.replace(/^arrival_|\.mp4$/g, '').replace(/_/g, ' ');
+      b.className = v.playing === f ? 'on' : ''; b.onclick = () => send({ k: 'dv', act: v.playing === f ? 'stopArr' : 'arrive', file: f }); $('dvArr').append(b); } }
+}
+$('dvSet').onchange = () => { $('dvSet').dataset.touched = '1'; };
 function popScreenWin() {
   try { if (window.opener && window.opener.spect && window.opener.spect.studio) return window.opener.spect.studio.openScreenWin(window); } catch {}
 }
@@ -809,7 +852,8 @@ function airBadges(a) {
   on.textContent = vjAir ? 'DIRROVJ ON AIR' : 'QUEST ON AIR (DirroVJ off)'; on.classList.toggle('on', vjAir);
   rn.textContent = !vjAir ? 'RENDER: -' : a.mode !== 'show' ? 'WEBCAM' : lap ? 'RENDER: LAPTOP' : 'RENDER: QUEST'; rn.classList.toggle('on', vjAir);
   const lk = $('airLink'), tv = $('airTv');   // #556
-  if (lk) { const l = !!(a && a.link); lk.textContent = l ? (vjAir ? 'QUEST LINK: ON AIR' : 'QUEST LINK: CONNECTED') : 'QUEST LINK: NONE'; lk.classList.toggle('on', l); lk.style.background = l ? '' : '#5a1a1e'; }
+  if (lk) { const l = !!(a && a.link); lk.textContent = l ? (vjAir ? 'LINKED · QUEST ON AIR' : 'LINKED') : 'SOLO'; lk.classList.toggle('on', l); lk.style.background = l ? '' : '#1d3f66';
+    lk.title = l ? 'LINKED: the Quest is connected (QUEST bus, its sound, SHOWTIME!).' : 'SOLO: no Quest. Twitch, DirroTV, the beat (LINE IN / TAP) and all other sources run from this laptop.'; }   // #662
   if (tv) { const s = a && a.tv || 'off'; tv.textContent = 'DIRROTV: ' + (s === 'live' ? 'ON' : s === 'waiting' ? 'WAITING' : a && a.tvKnown ? 'QUEST' : 'NOT PAIRED'); tv.classList.toggle('on', s === 'live'); tv.title = 'ON: a DirroTV screen shows this program. WAITING: DirroVJ answers the paired TV key, no screen yet. QUEST: the Quest answers its TVs. NOT PAIRED: pair a TV on the Quest once (TOOLS > STREAM > DIRROTV), DirroVJ keeps the key after that.'; }
   rn.title = 'RENDER QUEST: the Quest draws the scene and sends it with its matte. RENDER LAPTOP: this laptop draws it from the mirror (sharper, no Wi-Fi video). Switched on the tablet: TWITCH > DIRROVJ.';
 }

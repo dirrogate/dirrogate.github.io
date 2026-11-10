@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DirroVerse</title>
+<!-- #662 DIRROVERSE page: browse the Cyber-Window studio's sets on this laptop, render their plate loops and arrivals for DirroVJ -->
+<style>
+:root{--bg:#0b0d12;--panel:#141922;--line:#263042;--text:#e6e8ec;--mute:#8c96a8;--acc:#39a8ff;--ok:#1f9d55}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px system-ui,Segoe UI,sans-serif}
+header{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}h1{font-size:18px;margin:0}h1 span{color:var(--acc)}
+#st{color:var(--mute)}a{color:var(--acc)}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;padding:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.card img{width:100%;aspect-ratio:16/9;object-fit:cover;background:#000;display:block}
+.body{padding:10px}.name{font-weight:700;font-size:15px}.meta{color:var(--mute);font-size:12px;margin:4px 0 8px}
+button{background:#1d2533;color:var(--text);border:1px solid var(--line);border-radius:5px;padding:5px 9px;cursor:pointer;margin:2px 2px 2px 0}button:hover{border-color:var(--acc)}
+input{background:#0d1320;color:var(--text);border:1px solid var(--line);border-radius:5px;padding:5px 7px;width:100%;margin:4px 0}
+.bar{height:6px;background:#1d2533;border-radius:3px;overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;width:0;background:var(--acc)}
+.files{font-size:12px;color:var(--mute);margin-top:6px;word-break:break-all}
+</style>
+</head>
+<body>
+<header><h1>Dirro<span>Verse</span></h1><div id="st">Looking for the Cyber-Window studio on this laptop…</div>
+  <a href="http://127.0.0.1:8090/" target="_blank" style="margin-left:auto">open the studio (set builder)</a><a href="./vjdesk.html">VJ desk</a></header>
+<div id="grid"></div>
+<script>
+const STUDIO = 'http://127.0.0.1:8090', $ = id => document.getElementById(id);
+const j = async (u, b) => (await fetch(STUDIO + u, b === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) })).json();
+async function load() {
+  let st; try { st = await j('/api/status'); } catch (e) { $('st').textContent = 'No studio found: double-click start_set_builder.bat (DirroVJcyberdomes\\club_window) on this laptop, then reload.'; return; }
+  $('st').textContent = `${st.sets.length} set(s) · GPU: ${st.device}. Put DIRROVERSE on a bus in the VJ desk and LOAD a set there.`;
+  const G = $('grid'); G.innerHTML = '';
+  for (const name of st.sets) {
+    const c = document.createElement('div'); c.className = 'card';
+    c.innerHTML = `<img src="${STUDIO}/api/plateframe?name=${encodeURIComponent(name)}&t=0&w=640" alt="">
+      <div class="body"><div class="name">${name}</div><div class="meta" data-m></div>
+      <button data-a="loop">Render plate loop</button><button data-a="comp">Render composite</button>
+      <input data-n placeholder="name on the car's plate, e.g. WELCOME MAYA"><button data-a="arr">Render arrival</button>
+      <div class="bar"><i data-p></i></div><div class="meta" data-s></div><div class="files" data-f></div></div>`;
+    G.append(c);
+    const q = s => c.querySelector(s);
+    const files = async () => { const f = (await j(`/api/set/${encodeURIComponent(name)}/files`)).files || [];
+      q('[data-m]').textContent = f.includes('plate_loop.mp4') ? 'plate loop ready for DirroVJ' : 'no plate loop yet: render one for DirroVJ';
+      q('[data-f]').innerHTML = f.filter(x => /\.mp4$/.test(x)).map(x => `<a href="${STUDIO}/sets/${encodeURIComponent(name)}/${x}" target="_blank">${x}</a>`).join(' · '); };
+    files();
+    const run = async (body, url) => {
+      const jb = await j(url, body); if (jb.error) { q('[data-s]').textContent = 'Error: ' + jb.error; return; }
+      const poll = setInterval(async () => { const s = await j('/api/job/' + jb.id); q('[data-p]').style.width = (s.progress || 0) + '%';
+        q('[data-s]').textContent = s.status === 'running' ? `rendering… ${Math.round(s.progress || 0)}%` : s.status === 'done' ? `${s.output} done in ${s.seconds} s` : s.status + (s.error ? ': ' + s.error : '');
+        if (s.status !== 'running') { clearInterval(poll); files(); } }, 1000); };
+    q('[data-a="loop"]').onclick = () => run({ name, mode: 'plate_loop' }, '/api/render');
+    q('[data-a="comp"]').onclick = () => run({ name, mode: 'composite' }, '/api/render');
+    q('[data-a="arr"]').onclick = () => { const n = q('[data-n]').value.trim(); if (n) run({ set: name, name: n }, '/api/arrival'); };
+  }
+}
+load();
+</script>
+</body>
+</html>

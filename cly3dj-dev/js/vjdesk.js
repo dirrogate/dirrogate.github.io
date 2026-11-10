@@ -9,7 +9,8 @@ import { TwitchChat } from './chat.js';
 import { makeComics } from './comics.js';   // #516 DirroComics
 import * as media from './medialib.js';   // #532 IMAGES / VIDEOS / PANOS clip decks
 import { holoDefaults, makeHoloDesk } from './holodesk.js';   // #573 HOLO: Holodancer performers (small modules; the atlas video loads on first use)
-import { Scroller } from './tools.js';   // #556 the same bitmap sine scroller as the Quest's, for the program when there is no Quest
+import { Scroller } from './tools.js';
+import { makeDirroverse } from './dirroverse.js';   // #662 DIRROVERSE: Cyber-Window sets (the studio on this laptop) on the buses   // #556 the same bitmap sine scroller as the Quest's, for the program when there is no Quest
 // #550 DANCER: js/dancerdesk.js is imported only when the desk first needs her (its loaders, post chain and the 5 MB GLB stay out of the start)
 function dzDefaults() {
   const S = { loaded: false, loading: false, err: '', clip: '', clips: [], stage: 'rim', outfit: 'Red', speed: 1, soft: { c1: '#35d6ff', c2: '#ffa24a', rim: 1, face: 1 }, props: { manhole: false, pumpkin: false, fog: false }, fog: { den: 0.5, h: 0.8, speed: 0.6, col: 'cold' }, cam: { mode: 'orbit', x: 0, y: 8, zoom: 1 }, pv: false, rec: { on: false, t: 0, msg: '' } };
@@ -110,11 +111,12 @@ const FRACTALS = {   // #508 per formula: start centre and span, zoom targets
   multi: { t: 3, c: [0, 0], span: 2.8, tg: [[0.38, 0.0], [-0.19, 0.33], [-0.19, -0.33]] },
 };
 const PALS = ['green', 'island', 'lava', 'ice', 'copper', 'neon'];
-const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'holo'];   // #573 holo = Holodancer
+const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'holo', 'dverse'];   // #573 holo = Holodancer, #662 dverse = DirroVerse
 // (was) const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer'];   // #516 comic = DirroComics page, #550 dancer = DirroDancer, #555 BLACK removed (owner: never used)
 
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
-  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), holo: holoDefaults(), chDesk: '', audioAuto: false, lsc: '', cue: '' };   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
+  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), holo: holoDefaults(), chDesk: '', audioAuto: false, lsc: '', cue: '',
+    tempo: 'line', bpm: 0, beatN: 0, dv: { set: '', sets: [], files: [], arrivals: [], status: '', studio: '', cam: true, playing: '', job: null } };   // #662 master tempo (LINE IN / TAP) + DirroVerse   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
   try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
   const queue = []; let qid = 1;
@@ -126,6 +128,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   const rU = { hT: { value: hRT.texture }, ro: { value: new THREE.Vector3() }, cx: { value: new THREE.Vector3() }, cy: { value: new THREE.Vector3() }, cz: { value: new THREE.Vector3() }, HS: { value: 0.25 }, pal: { value: 0 }, pump: { value: 0 }, cyc: { value: 0 }, flash: { value: 0 }, res: { value: new THREE.Vector2(320, 256) } };
   const rMat = new THREE.ShaderMaterial({ uniforms: rU, vertexShader: VS, fragmentShader: R_FS, depthTest: false, depthWrite: false }), rSc = quad(rMat);
   const camTex = new THREE.VideoTexture(fixed.video); camTex.colorSpace = THREE.NoColorSpace; camTex.generateMipmaps = false;
+  let dvx = null; const dvGet = () => dvx || (dvx = makeDirroverse({ THREE, renderer, camTex, camVideo: fixed.video, S: D.dv, post: () => post() }));   // #662
   let ledTex = null, lastLedVid = null, ledImgTex = null, lastLedImg = null;
   const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 } };
   const mMat = new THREE.ShaderMaterial({ uniforms: mU, vertexShader: VS, fragmentShader: MIX_FS, depthTest: false, depthWrite: false }), mSc = quad(mMat);
@@ -176,12 +179,32 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       if (analyse.ac && analyse.ac.state === 'suspended') analyse.ac.resume().catch(() => {});
       an.getByteFrequencyData(anBuf); let s = 0; for (let i = 1; i < 6; i++) s += anBuf[i]; const v = s / (5 * 255);
       bass = v > bass ? v : bass * 0.88; avg += (v - avg) * Math.min(1, dt * 1.5);
-      if (v > 0.22 && v > avg * 1.32 && now - kickT > 230) { kickT = now; pulse = 1; D.kick++; if (peers) post(); }
+      if (v > 0.22 && v > avg * 1.32 && now - kickT > 230) {
+        if (D.tempo === 'line') { tempoKick(now); pulse = 1; D.kick++; if (peers) post(); }   // #662 LINE IN: each kick is a beat (and feeds the BPM readout)
+        kickT = now;
+      }
     } else bass *= 0.9;
+    if (D.tempo === 'tap' && D.bpm > 0) {   // #662 TAP: a steady clock at the tapped BPM
+      const per = 60000 / D.bpm; if (!tClock.next || tClock.next < now - per) tClock.next = now;
+      if (now >= tClock.next) { tClock.next += per; pulse = 1; D.kick++; D.beatN++; if (peers) post(); }
+    }
     pulse *= Math.exp(-dt * 5.5);
   }
+  // #662 master tempo: LINE IN estimates the BPM from the kick spacing (median of the last 8, folded into 70..180); TAP = taps averaged
+  const tClock = { next: 0, kicks: [], taps: [] };
+  function tempoKick(now) {
+    const K = tClock.kicks; K.push(now); while (K.length > 9) K.shift(); D.beatN++;
+    if (K.length >= 5) { const iv = K.slice(1).map((t, i) => t - K[i]).filter(x => x > 250 && x < 1600).sort((a, b) => a - b);
+      if (iv.length >= 4) { let b = 60000 / iv[iv.length >> 1]; while (b < 70) b *= 2; while (b > 180) b /= 2; D.bpm = Math.round((D.bpm ? D.bpm * 0.7 + b * 0.3 : b) * 10) / 10; } }
+  }
+  function tempoTap(now) {
+    const T = tClock.taps; if (T.length && now - T[T.length - 1] > 2000) T.length = 0; T.push(now); while (T.length > 8) T.shift();
+    D.tempo = 'tap';
+    if (T.length >= 2) { const iv = T.slice(1).map((t, i) => t - T[i]), m = iv.reduce((a, b) => a + b, 0) / iv.length; D.bpm = Math.round(60000 / m * 10) / 10; }
+    tClock.next = now; pulse = 1; D.kick++; D.beatN++;   // the tap is the downbeat
+  }
   function fractal(dt, now) {
-    const fr = D.fr, FD = FRACTALS[fr.type] || FRACTALS.mandel; analyse(dt, now);
+    const fr = D.fr, FD = FRACTALS[fr.type] || FRACTALS.mandel;
     if (F.type !== fr.type) { F.type = fr.type; F.z = 0; F.dir = 1; F.ti = 0; }
     F.z += F.dir * dt * 0.06 * fr.speed * fr.zoom; const zmax = FD.t === 1 ? 2.5 : 6.5;
     if (F.z > zmax) { F.z = zmax; F.dir = -1; } if (F.z < 0) { F.z = 0; F.dir = 1; F.ti = (F.ti + 1) % FD.tg.length; }
@@ -204,6 +227,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if (name === 'dancer') { if (!dz || !dz.ready) return 0; U.value = dz.tex; cover(1280, 720, W, H, fit); return 1; }   // #550
     if (name === 'holo') { if (!ho || !ho.ready) return 0; U.value = ho.tex; cover(1280, 720, W, H, fit); return 1; }   // #573
     if (name === 'comic') { if (!comicTex) return 0; U.value = comicTex; cover(1920, 1080, W, H, fit); return 1; }   // #516
+    if (name === 'dverse') { const t = dvx && dvx.ready ? dvx.render(now) : null; if (!t) return 0; U.value = t; cover(dvx.w, dvx.h, W, H, fit); return 1; }   // #662
     if (name === 'webcam') { const v = fixed.video; if (!fixed.on || !v.videoWidth) return 0; U.value = camTex; cover(v.videoWidth, v.videoHeight, W, H, fit); return 1; }
     if (name === 'led') {
       if (D.ledKind === 'pano') {
@@ -243,6 +267,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if ((D.cue === 'a' && D.x <= 0) || (D.cue === 'b' && D.x >= 1)) { D.cue = ''; post(); }   // #557 the T-bar reached the cued bus: it is LIVE now, CUE ends
     const onAir = (D.x < 1 ? [D.a] : []).concat(D.x > 0 ? [D.b] : []), cueSrc = D.cue ? D[D.cue] : '';
     const used = cueSrc && !onAir.includes(cueSrc) ? onAir.concat([cueSrc]) : onAir;   // a cued source is drawn too (FRACTAL, DANCER, COMICS)
+    analyse(dt, now);   // #662 the master tempo runs whatever is on the buses
     if (used.includes('fractal')) fractal(dt, now);
     if (dzNeed(used)) dz.render(now);
     if (hoNeed(used)) ho.render(now);   // #573   // #550 only while the T-bar shows her bus, or REC runs
@@ -362,13 +387,26 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       if (m.cam) { const act = D.x < 0.5 ? 'a' : 'b'; if (D[act] === 'webcam') { D[act] = 'quest'; post(); } }
       const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'vjshow', cam: m.cam || '', opt: m.opt || '', v: !!m.v }); else bc.postMessage({ k: 'cxmsg', t: 'SHOWTIME!: no Quest link' });
     }   // #523 / #530
-    else if (m.k === 'bus') { if (SOURCES.includes(m.v)) { if (m.v === 'webcam' && !fixed.on && fixed.start) fixed.start().catch(() => {}); if (m.v === 'dancer') dzLoad(); if (m.v === 'holo') hoLoad(); D[m.bus === 'b' ? 'b' : 'a'] = m.v; } post(); }
+    else if (m.k === 'bus') { if (SOURCES.includes(m.v)) { if (m.v === 'webcam' && !fixed.on && fixed.start) fixed.start().catch(() => {}); if (m.v === 'dancer') dzLoad(); if (m.v === 'holo') hoLoad(); if (m.v === 'dverse') { const x = dvGet(); if (!D.dv.sets.length) x.list(); } D[m.bus === 'b' ? 'b' : 'a'] = m.v; } post(); }
     else if (m.k === 'x') { D.x = Math.max(0, Math.min(1, +m.v)); D.fadeTo = null; post(); }
     else if (m.k === 'cue') { const b = m.bus === 'a' || m.bus === 'b' ? m.bus : ''; const live = b && ((b === 'a' && D.x <= 0) || (b === 'b' && D.x >= 1)); D.cue = !b || live || D.cue === b ? '' : b; post(); }   // #557 tap = CUE, tap again = out of CUE; the fully live bus can't be cued
     else if (m.k === 'cut') { D.x = D.x < 0.5 ? 1 : 0; D.fadeTo = null; post(); }
     else if (m.k === 'auto') { D.fadeMs = +m.ms || D.fadeMs; D.fadeTo = D.x < 0.5 ? 1 : 0; post(); }
     else if (m.k === 'fr') { Object.assign(D.fr, m.v || {}); try { localStorage.setItem('vire.vjFr', JSON.stringify(D.fr)); } catch {} post(); }
     else if (m.k === 'pump') { pulse = 1; D.kick++; }   // #508 the VJ's own hit
+    else if (m.k === 'tap') { tempoTap(performance.now()); post(); }   // #662 TAP (button or T)
+    else if (m.k === 'tempo') { D.tempo = m.v === 'tap' ? 'tap' : 'line'; if (D.tempo === 'line') tClock.kicks.length = 0; post(); }
+    else if (m.k === 'nudge') { if (D.bpm > 0) D.bpm = Math.max(40, Math.min(220, Math.round((D.bpm + (+m.d || 0)) * 10) / 10)); post(); }
+    else if (m.k === 'tvpair') { if (studioCtl && studioCtl.tvPair) studioCtl.tvPair(String(m.code || '')).then(t => bc.postMessage({ k: 'cxmsg', t })).catch(e => bc.postMessage({ k: 'cxmsg', t: 'DirroTV: ' + e.message })); }   // #662 SOLO: pair a TV from the desk
+    else if (m.k === 'dv') {   // #662 DirroVerse
+      const x = dvGet();
+      if (m.act === 'list') x.list();
+      else if (m.act === 'load') { x.load(String(m.set || '')); if (!fixed.on && fixed.start) fixed.start().catch(() => {}); }
+      else if (m.act === 'cam') { D.dv.cam = !!m.v; if (D.dv.cam && !fixed.on && fixed.start) fixed.start().catch(() => {}); post(); }
+      else if (m.act === 'arrive') x.arrive(String(m.file || ''));
+      else if (m.act === 'stopArr') { D.dv.playing = ''; post(); }
+      else if (m.act === 'render') x.renderArrival(String(m.name || '').slice(0, 40));
+    }
     else if (m.k === 'approve') approve(m.id);
     else if (m.k === 'reject') { const i = queue.findIndex(x => x.id === m.id); if (i >= 0) queue.splice(i, 1); post(); }
     else if (m.k === 'say') approve(null, String(m.t || '').slice(0, 120));

@@ -11,7 +11,7 @@
 // late each frame is, and shows the camera frame filmed at the frame's own time from a short ring of camera frames (up to 12, ~400 ms).
 // The sound arrives in step with the Quest's picture (one WebRTC stream), so it needs nothing. TRIM (tablet) nudges the camera.
 import { STU, readStamp, stampBlock } from './stream.js';
-import { opusStereo, tvHost } from './net-link.js';
+import { opusStereo, tvHost, tvNewKey, tvPairSend } from './net-link.js';
 import { makeDesk } from './vjdesk.js';   // #507 DirroVJ desk (buses, fractal, scroller desk, line in)
 
 const TWITCH_WHIP = 'https://g.webrtc.live-video.net:4443/v2/offer', KEYK = 'vire.s8twitchKey', RING = 12;
@@ -159,6 +159,11 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     twState: () => ({ state: S.tw, msg: S.twMsg, kbps: S.kbps, key: getTwKey() }),
     airState: () => { const L = getLink(); return { qOn: !!S.qOn, local: !!S.local, mode: S.mode, link: !!(L && L.isOpen), tv: S.tv || 'off', tvKnown: !!tvSaved().key }; },   // #545 the desk's ON AIR / RENDER badges, #556 QUEST LINK + DIRROTV
     setTwKey,
+    tvPair: async code => {   // #662 SOLO: pair a DirroTV screen from the desk (the TV shows the code on venue.html); the key is kept like #556
+      code = String(code || '').replace(/\D/g, ''); if (code.length !== 6) return 'DirroTV: the code on the TV has 6 digits';
+      const key = tvNewKey(); try { localStorage.setItem(TVK, JSON.stringify({ key, aud: true })); } catch {}
+      tvFollow(key, true); await tvPairSend(code, key); return 'DirroTV: pairing sent; the TV connects in a few seconds';
+    },
     twToggle: k => {
       if (k != null && String(k).trim()) setTwKey(k);
       if (S.tw === 'live' || S.tw === 'connecting') twStop('');
