@@ -2200,3 +2200,16 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Builder tools: + WINDOW (4 clicks, corners auto-ordered), + BAR (2 clicks, mapped into the window by homography), + LIGHT, + FOG and + NO SPILL (drag), sliders for the rest, autosave. Previews WINDOW / MID / WHOLE; renders "Composite" (1920x1080 pull-back with the feed) and "Plate loop" (plate size, windows black, plus window_mask.png and spill.png so a VJ can key any feed live).
 - Test set alley1 on the RTX 4050: plate (Real-ESRGAN x4, 3008x1664) 5.1 s, preview 2.3 s, composite 35 s, 20 s plate loop 70 s; loop seam 2.7 against an ordinary frame step of 2.4 (seamless).
 - Studio only: nothing in web/ changed, no Node restart. Phase 3 (AI outpaint to widen the plate) waits on the owner's choice of local or cloud model.
+
+## #648 CLUB WINDOW builder fixes (owner, 10 Nov: workflow unclear, selection, bars, fog boxes, silhouette, no Save)
+- Black windows: the club feed (yellowfog render, 10 s) had a 20 s start; FeedReader now wraps the start round the clip, start sliders end at the clip length.
+- Selection: smallest item wins, click again on the same spot picks the one underneath, Layers list with hide eyes, zoom/pan/undo. Bars: drag across the frame bar, hatched on canvas, "keep plate frame" or "draw dark bar", upright or crossbar. Fog / no-spill are polygons. Silhouette + shadow detail per window (keyed to the window's own average). Own clip per window, bake into plate loop. Save / Save as / autosave line.
+- Loop seam with a baked clip: the clip's crop drift was not periodic (now swings out and back once per loop) and the glass drops crossfade over the last second. Seam 3.6 vs step 8.
+
+## #649 CLUB WINDOW: feather, IN FRONT, signs, cars, moving plate (owner, 10 Nov)
+- Feather in plate px on fog / no-spill / in-front areas (blur sigma quarter-res = feather / 6), drawn soft on the canvas. Fog default 240.
+- + SIGN: 4-corner quad, NEON TEXT (Windows fonts, colour, glow, light on wall, flicker with stutters, periodic in loops) or PICTURE (png alpha, opacity, lit by scene, screen blend).
+- + CAR (car3d.py): GLB (DirroVJcyberdomes/space_car.glb, nose +X, tail lights at -X) rasterised in torch on the GPU (no OpenGL: moderngl not installed), name plate quad behind the rear panel with the typed name (neon / classic / gold). Path = plate points + distance (m) through a level pinhole camera (camera fov slider), Catmull-Rom, holds to show the plate, banking, hover bob, lit from the plate (env), rim colours, glow. + IN FRONT areas hide the car. Render "Arrival (car)": whole plate 1920 wide, about 75 s for 9 s on the 4050 (car drawn at output resolution).
+- Moving plate: a locked-off video range -> plate_video.mp4 at 30 fps, upscaled per frame ("fast" GPU bicubic + unsharp, steady; "ai" Real-ESRGAN whole frame ~1 s a frame), last second dissolved into the first. Scrub bar under the canvas shows the plate at any time and where the car is.
+- space_car.glb is under the Sketchfab Standard licence: fine in renders, do not publish the .glb itself (e.g. on the public site).
+- Studio only (DirroVJcyberdomes/club_window): no web/ change, no Node restart. Backups backups/pre649/.
