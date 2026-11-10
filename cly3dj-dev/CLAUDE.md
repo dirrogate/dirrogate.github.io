@@ -2317,3 +2317,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 
 ## #678 Release #643 to #677 to cly3dj (owner, 11 Nov: "update any .md files and push to main cly3dj")
 - cly3dj = cly3dj-dev again (CLAUDE.md, PROJECT.md, _test/ and backups/ stay dev-only), sw.js vire-app-v165. In: #643 phase meter; #662 to #666 DirroVJ SOLO / LINKED, master tempo, DIRROVERSE, projector window, projection mapping, OUTPUT HERE, off-air pausing; #667 CAST; #668 / #669 HOLO+CAM and DANCER+CAM; #670 to #677 the Holodancer for the phones (PLACE HOLODANCER, CLUB LIGHT, standalone library, laptop room) and #671 the HOLODANCER movie prop; #675 holoprojector. PROJECT.md: Status (11 Nov). Not yet tried on the Quest or real phones: most of #662 to #677 (see each entry).
+
+
+## #679 HOLO+CAM / DANCER+CAM: the camera pads, ORBIT and zoom T-bars work again (owner, 11 Nov)
+- The placed renders (renderPlaced) only read the In the webcam sliders, so the HOLO / DANCER X-Y pads and zoom T-bars did nothing on the CAM buses. Now they move the camera on top of the placement: pad X adds to FACING (round the dancer), pad Y adds to CAMERA POS (its default 8 deg = no change), ORBIT / the dancer orbit spin turn, zoom scales the dancer's height from the feet (HOLO 0.5x to 5x, DANCER 0.4x to 8x). The plain HOLO and DANCER buses are unchanged. sw.js v166. No Node restart. Backups backups/pre679/.

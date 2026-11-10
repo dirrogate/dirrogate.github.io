@@ -184,11 +184,11 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       cu.mean.value.copy(camMean);
       const pl = who === 'holo' ? (ho && ho.ready ? ho.renderPlaced(now, P) : null) : (dz && dz.ready ? dz.renderPlaced(now, P) : null);
       cu.hoOn.value = pl ? 1 : 0;
-      if (pl) { cu.ho.value = pl.tex; cu.pm.value = pl.pm ? 1 : 0; cu.foot.value.copy(pl.foot); cu.k.value = Math.max(0.02, pl.head.y - pl.foot.y) / Math.max(0.03, +P.h || 0.4); }
+      if (pl) { cu.ho.value = pl.tex; cu.pm.value = pl.pm ? 1 : 0; cu.foot.value.copy(pl.foot); cu.k.value = Math.max(0.02, pl.head.y - pl.foot.y) / Math.max(0.03, (+P.h || 0.4) * (pl.zoom || 1)); cu.hH.value = (+P.h || 0.4) * (pl.zoom || 1); }   // #679 zoom T-bar = size
       const el = +P.el || 0;   // the soft patch only shows while the camera sees the top of the surface; the dancer has a real shadow instead
       cu.F.value.set(+P.x, 1 - +P.y); cu.A.value = A; cu.flip.value = P.flip ? 1 : 0; cu.light.value = +P.light || 0;
       cu.shadow.value = who === 'holo' ? (+P.shadow || 0) * Math.max(0, Math.min(1, (el + 2) / 8)) : 0;
-      cu.cut.value = +P.cut || 0; cu.sEl.value = Math.sin(Math.max(5, Math.min(80, el)) * Math.PI / 180); cu.hH.value = +P.h || 0.4;
+      cu.cut.value = +P.cut || 0; cu.sEl.value = Math.sin(Math.max(5, Math.min(80, el)) * Math.PI / 180); if (!pl) cu.hH.value = +P.h || 0.4;
       const prev = renderer.getRenderTarget(); renderer.setRenderTarget(C.rt); renderer.render(C.sc, oc); renderer.setRenderTarget(prev);
     }
     U.value = C.rt.texture; fit.set(0, 0, 1, 1); return 1;
