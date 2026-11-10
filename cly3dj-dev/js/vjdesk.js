@@ -145,7 +145,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
   try { const o = JSON.parse(localStorage.getItem('vire.vjCast') || '{}'); for (const k of ['l', 'r', 't', 'b']) if (+o[k] >= 0) D.cast[k] = Math.min(0.45, +o[k]); } catch {}
-  try { const o = JSON.parse(localStorage.getItem('vire.vjHp') || '{}'); for (const k of Object.keys(HP0)) if (o[k] != null) D.hp[k] = typeof HP0[k] === 'boolean' ? !!o[k] : +o[k]; } catch {}
+  try { const o = JSON.parse(localStorage.getItem('vire.vjHp') || '{}'); for (const k of Object.keys(HP0)) if (o[k] != null && k !== 'face') D.hp[k] = typeof HP0[k] === 'boolean' ? !!o[k] : +o[k]; } catch {}   // #680 FACING slider gone (the pad turns the dancer): a saved one is dropped
   const queue = []; let qid = 1;
   const quad = mat => { const sc = new THREE.Scene(), m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); m.frustumCulled = false; sc.add(m); return sc; };
   const oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);

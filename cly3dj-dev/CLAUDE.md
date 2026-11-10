@@ -2321,3 +2321,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 
 ## #679 HOLO+CAM / DANCER+CAM: the camera pads, ORBIT and zoom T-bars work again (owner, 11 Nov)
 - The placed renders (renderPlaced) only read the In the webcam sliders, so the HOLO / DANCER X-Y pads and zoom T-bars did nothing on the CAM buses. Now they move the camera on top of the placement: pad X adds to FACING (round the dancer), pad Y adds to CAMERA POS (its default 8 deg = no change), ORBIT / the dancer orbit spin turn, zoom scales the dancer's height from the feet (HOLO 0.5x to 5x, DANCER 0.4x to 8x). The plain HOLO and DANCER buses are unchanged. sw.js v166. No Node restart. Backups backups/pre679/.
+
+
+## #680 In the webcam: FACING and HEIGHT sliders removed (owner, 11 Nov: "remove it if not needed")
+- Since #679 the HOLO / DANCER pad and zoom T-bar turn and size the placed dancer, so FACING and HEIGHT were duplicates: gone (a saved FACING is dropped on load; the mouse wheel on the monitor still sets the starting size). Kept: PLACE ON THE MONITOR (where the feet go), mirror, RESET, CAMERA POS (the HOLO pad only reaches about -15 deg; a floor webcam looking up at a bar top needs -30 to -60), SHADOW, LIGHT MATCH, FRONT EDGE. sw.js v167. No Node restart. Backups backups/pre680/.
