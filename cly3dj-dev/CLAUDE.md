@@ -2227,3 +2227,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #652 CLUB WINDOW: tube letters, user fonts, name plate on any GLB (owner, 10 Nov)
 - Tube letters (signs and the car plate): the glyph outline (dilate minus erode, ~3.5 % of the size) as a glass tube. club_window/fonts/: any .ttf/.otf dropped there is listed by file name (e.g. Tilt Neon, OFL, not downloaded for the owner).
 - Name plate on other GLBs: "plate on" = auto (a part named like licen / plate / number), any part of the model picked from /api/glbparts (its UVs stretched over the plate texture), or "add a plate" (quad behind the rearmost surface). All are part of the mesh, so the plate moves and banks with the vehicle. space_car.glb and the Dale Aristocrat GLB have no named plate part: auto adds the quad.
+
+## #653 CLUB WINDOW: AI plate (FLUX, local) + palette match (owner, 10 Nov)
+- aigen.py: the owner's existing stable-diffusion.cpp + FLUX.1-schnell Q3_K (D:\OllamaModels\univdemomaster\sdcpp, read only, env CW_SDCPP) run as sd-cli img2img, same flags as univdemo (te=cpu, vae=cpu, offload, cfg 1, 4 steps), 768 px on the long edge, under the builder's GPU lock. No SDXL / IP-Adapter download (owner had approved it; not needed for now).
+- Start image (file + time) keeps the layout, prompt sets the scene, "change" = strength. Palette from a style reference (default sets/alley1/plate.png): Lab mean / spread transfer (Reinhard) on the start image before FLUX and on each result. gen_0.png = palette match only (instant). Picking a version runs Make plate (Real-ESRGAN x4). Prompt and source saved in set.json source.ai.
+- Endpoints /api/aigen/status, POST /api/aigen (job), POST /api/aigen/use. Test images: CyberGrungeRef/slum1_plate.webp, slum2_plate.jpg.
