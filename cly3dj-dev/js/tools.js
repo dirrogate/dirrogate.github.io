@@ -38,32 +38,56 @@ const G = {
   '☺': '..####..|.#....#.|#.#..#.#|#......#|#.#..#.#|#..##..#|.#....#.|..####..',
   '☹': '..####..|.#....#.|#.#..#.#|#......#|#..##..#|#.#..#.#|.#....#.|..####..',
   '👍': '....##..|...###..|..###...|########|##.#####|##.####.|##.#####|##.####.',
+  '\u2665': '.##..##.|########|########|########|.######.|..####..|...##...|........',   // #685 heart (red)
 };
-export const EMOJI = ['☺', '☹', '👍'];
+export const EMOJI = ['☺', '☹', '👍', '\u2665'];
+// #685 typed :) :( <3 become the smiley, the sad face and the heart
+export const emojiText = s => String(s).replace(/:-?\)/g, '☺').replace(/:-?\(/g, '☹').replace(/<3/g, '\u2665');
+const emCol = ch => ch === '\u2665' ? '#ff2d55' : '#ffd23a';
 Object.assign(G, {   // #407 for the Workbench-style LASER page
   '%': '##...#|##..#.|...#..|..#...|.#..##|#...##|......', '<': '...##.|..##..|.##...|##....|.##...|..##..|...##.',
   '>': '.##...|..##..|...##.|....##|...##.|..##..|.##...', '*': '......|#.##.#|.####.|######|.####.|#.##.#|......',
+  // #685 the punctuation chat and DJs type (it showed as ?)
+  '-': '......|......|......|######|......|......|......', ':': '......|..##..|..##..|......|..##..|..##..|......',
+  ';': '......|..##..|..##..|......|..##..|..##..|.#....', "'": '..##..|..##..|.#....|......|......|......|......',
+  '"': '.#..#.|.#..#.|......|......|......|......|......', '/': '.....#|....#.|...#..|..#...|.#....|#.....|......',
+  '(': '...##.|..#...|.#....|.#....|.#....|..#...|...##.', ')': '.##...|...#..|....#.|....#.|....#.|...#..|.##...',
+  '+': '......|..##..|..##..|######|..##..|..##..|......', '=': '......|......|######|......|######|......|......',
+  '#': '.#..#.|######|.#..#.|.#..#.|.#..#.|######|.#..#.', '@': '.####.|#....#|#.##.#|#.#.##|#.####|#.....|.####.',
+  '&': '.##...|#..#..|.##...|.##..#|#..##.|#...#.|.###.#', '_': '......|......|......|......|......|......|######',
+  '$': '..#...|.####.|#.#...|.###..|..#.#.|####..|..#...', '\u2726': '..#...|..#...|.###..|#####.|.###..|..#...|..#...',
+  '\u00b7': '......|......|......|..##..|..##..|......|......'
 });
+// #685 curly quotes, long dashes and ellipses fold to the plain ones; accented letters to their base letter (É -> E)
+const ALIAS = { '\u2018': "'", '\u2019': "'", '\u201c': '"', '\u201d': '"', '\u2013': '-', '\u2014': '-', '\u2026': '.', '\u00d7': '*', '\u2764': '\u2665', '\u2605': '*', '\u2606': '*' };
 const GLYPH = new Map(Object.entries(G).map(([k, v]) => [k, v.split('|').map(r => [...r].map(c => c === '#'))]));
 export const FONT_OK = ch => GLYPH.has(ch);
-export function cleanText(s, max = 120) { return [...s.toUpperCase()].filter(FONT_OK).slice(0, max).join(''); }
-export function glyph(ch) { return GLYPH.get(ch) || GLYPH.get('?'); }
+// #685 lowercase, accents and look-alikes map onto the font; what is still unknown draws as a space (it used to be '?')
+export function fold(ch) {
+  if (GLYPH.has(ch)) return ch;
+  const u = ch.toUpperCase(); if (GLYPH.has(u)) return u;
+  if (ALIAS[ch]) return ALIAS[ch];
+  const b = ch.normalize('NFD')[0].toUpperCase(); if (GLYPH.has(b)) return b;
+  return '';
+}
+export function cleanText(s, max = 120) { return [...emojiText(s)].map(fold).filter(c => c && FONT_OK(c)).slice(0, max).join(''); }
+export function glyph(ch) { return GLYPH.get(fold(ch)) || GLYPH.get(' '); }
 export const isEmoji = ch => EMOJI.includes(ch);
 // draw a string in the bitmap font; px = size of one font pixel; color = css or (x) => css. Returns the width.
 export function drawBitText(g, s, x, y, px, color, bold = true) {
   let cx = x;
-  for (const ch of s) {
+  for (const ch of emojiText(s)) {
     const gl = glyph(ch), em = isEmoji(ch), dy = em ? -px : 0;
     for (let r = 0; r < gl.length; r++) for (let c = 0; c < gl[r].length; c++) {
       if (!gl[r][c]) continue;
-      g.fillStyle = em ? '#ffd23a' : typeof color === 'function' ? color(cx + c * px) : color;
+      g.fillStyle = em ? emCol(ch) : typeof color === 'function' ? color(cx + c * px) : color;
       g.fillRect(cx + c * px, y + dy + r * px, px * (bold ? 1.4 : 1), px);
     }
     cx += (gl[0].length + 1) * px;
   }
   return cx - x;
 }
-export const bitWidth = (s, px) => [...s].reduce((w, ch) => w + (glyph(ch)[0].length + 1) * px, 0);
+export const bitWidth = (s, px) => [...emojiText(s)].reduce((w, ch) => w + (glyph(ch)[0].length + 1) * px, 0);
 
 // ---------------------------------------------------------------- VJ Scroller (2D canvas band for stream / DirroTV / DirroVJ)
 export class Scroller {
@@ -84,7 +108,7 @@ export class Scroller {
     if (++this.n % 2) return;   // redraw at half the frame rate (~45 / 36 fps)
     const g = this.g, W = this.canvas.width, H = this.canvas.height, px = 6;
     this.x -= (50 + this.speed * 42) * dt * 2;
-    const tw = bitWidth(this.text, px);
+    const txt = emojiText(this.text), tw = bitWidth(txt, px);
     if (this.x < -tw) this.x = W;
     g.clearRect(0, 0, W, H);
     const grd = g.createLinearGradient(0, 0, 0, H); grd.addColorStop(0, 'rgba(0,0,0,0)'); grd.addColorStop(0.5, 'rgba(0,0,0,0.28)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
@@ -92,12 +116,12 @@ export class Scroller {
     const amp = this.wave * 4.2, base = H / 2 - 3.5 * px, t = this.t;
     // a sine scroller bends every column of every letter on the same wave; rainbow raster colours
     let cx = this.x;
-    for (const ch of this.text) {
+    for (const ch of txt) {
       const gl = glyph(ch), em = isEmoji(ch), cw = (gl[0].length + 1) * px;
       if (cx > W) break;
       if (cx + cw > 0) for (let c = 0; c < gl[0].length; c++) {
         const x = cx + c * px, y = base + Math.sin(x * 0.011 + t * 3.1) * amp + (em ? -px : 0);
-        const col = em ? '#ffd23a' : `hsl(${(x * 0.45 + t * 90) % 360},100%,60%)`;
+        const col = em ? emCol(ch) : `hsl(${(x * 0.45 + t * 90) % 360},100%,60%)`;
         for (let r = 0; r < gl.length; r++) {
           if (!gl[r][c]) continue;
           g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(x + 3, y + r * px + 3, px * 1.4, px);

@@ -2346,3 +2346,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #684 DirroVerse chips: tooltip, right-click DELETE SCENE (owner, 11 Nov)
 - Chip tooltip: "<set> · plate loop rendered" or "<set> · No plate loop yet, render one in the Dirroverse Studio" (the hover chip says the same).
 - Right-click a chip: a small menu, DELETE SCENE AND ITS FOLDER, click again within 3 s to confirm. Studio set_builder_server.py: POST /api/set/{name}/delete moves sets/<name> to club_window/deleted_sets/<name>_<time> (out of every list; empty it by hand, or move a set back into sets/ to restore). Needs the studio restarted once (start_set_builder.bat); until then the desk says so. Backup set_builder_server_pre684.py. sw.js v170. No Node restart. Backups backups/pre684/.
+
+
+## #685 Scroller showed ???? (owner, 11 Nov); :) :( and heart emoji
+- tools.js bitmap font (sine scroller on the Quest, DirroVJ, stream, LED wall labels): it never uppercased and had no glyph for most punctuation, so lowercase, : ' - / @ and the ✦ separator drew as ?. Now fold(): uppercase, accents to the base letter (É to E), curly quotes / long dashes / ellipsis to plain ones; new glyphs - : ; ' " / ( ) + = # @ & _ $ ✦ ·; anything still unknown draws as a space, not ?.
+- Emoji: typed :) and :-) = ☺, :( = ☹, <3 and ❤ = a red heart (new 8 x 8 glyph), alongside the old ☺ ☹ 👍. Applied in the Scroller, drawBitText, bitWidth and cleanText. sw.js v171. No Node restart. Backups backups/pre685/.
