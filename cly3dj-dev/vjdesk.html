@@ -34,6 +34,8 @@
   .utilBreak span { font:900 22px/1 system-ui,sans-serif; color:var(--gold); letter-spacing:.08em; text-transform:uppercase; }
   .dvGrid { display:grid; grid-auto-flow:column; grid-template-rows:repeat(2, 84px); grid-auto-columns:150px; gap:3px; width:max-content; padding:3px; }
   .dvGrid .vjCell img { inset:0 0 16px 0; }
+  #dvMenu { position:fixed; z-index:60; min-width:230px; background:#121722; border:1px solid #4b5d82; border-radius:8px; padding:8px; box-shadow:0 8px 30px rgba(0,0,0,.6); }
+  #dvMenu #dvMenuT { font:800 13px system-ui,sans-serif; margin:0 2px 6px; } #dvMenu button { width:100%; } #dvMenu button.del:hover { background:#5a1a1e; }
   #dvPeek { position:fixed; z-index:50; width:360px; background:#0b0e15; border:1px solid #4b5d82; border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,.6); padding:6px; pointer-events:none; }
   #dvPeek .pv { position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:5px; overflow:hidden; }
   #dvPeek img, #dvPeek video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
@@ -257,6 +259,7 @@
     <label class="note" style="margin:0"><input type="checkbox" id="dvCam" checked> live webcam in the windows</label>
     <a href="http://127.0.0.1:8090/" target="_blank" class="note" style="margin:0 6px">open the studio</a><a href="./dirroverse.html" target="_blank" class="note" style="margin:0">DIRROVERSE page</a></div>
   <div class="vjBankScroll" style="margin:6px 0"><div class="dvGrid" id="dvGrid"></div></div>
+  <div id="dvMenu" hidden><div id="dvMenuT"></div><button id="dvDel" class="del">DELETE SCENE AND ITS FOLDER</button></div>
   <div id="dvPeek" hidden><div class="pv"><img alt=""><video muted playsinline hidden></video></div><div class="nm"></div><div class="mt"></div></div>
   <div id="dvSt" class="note"></div>
   <div class="row"><input id="dvName" placeholder="name on the car's plate, e.g. WELCOME MAYA" style="flex:1;min-width:220px"><button id="dvRender">RENDER ARRIVAL</button><span id="dvJob" class="note" style="margin:0"></span></div>
@@ -948,9 +951,26 @@ function dvChips(v) {
     c.innerHTML = `<img src="${DV_STUDIO}/api/plateframe?name=${dvU(n)}&t=0&w=300" alt=""><div class="vjCap">${n.replace(/</g, '&lt;')}</div>`;
     c.onclick = () => { $('dvSet').value = n; $('dvSet').dataset.touched = '1'; send({ k: 'dv', act: 'load', set: n }); };
     c.onmouseenter = () => dvPeek(n, c); c.onmouseleave = () => dvPeek(null);
+    c.oncontextmenu = e => { e.preventDefault(); dvPeek(null); dvMenuOpen(n, e.clientX, e.clientY); };   // #684
+    fetch(`${DV_STUDIO}/api/set/${dvU(n)}/files`).then(r => r.json()).then(j => { c.title = (j.files || []).includes('plate_loop.mp4') ? `${n} · plate loop rendered` : `${n} · No plate loop yet, render one in the Dirroverse Studio`; }).catch(() => {});
     G.append(c);
   }
 }
+// #684 right-click a set: DELETE SCENE (tap twice). The studio moves its folder to club_window/deleted_sets/ (out of every list).
+let dvMenuSet = '', dvDelT = 0;
+function dvMenuOpen(n, x, y) {
+  const M = $('dvMenu'); dvMenuSet = n; dvDelT = 0; $('dvMenuT').textContent = n; $('dvDel').textContent = 'DELETE SCENE AND ITS FOLDER';
+  M.hidden = false; M.style.left = Math.min(innerWidth - 250, x) + 'px'; M.style.top = Math.min(innerHeight - 110, y) + 'px';
+}
+document.addEventListener('pointerdown', e => { const M = $('dvMenu'); if (!M.hidden && !M.contains(e.target)) M.hidden = true; });
+$('dvDel').onclick = async () => {
+  if (Date.now() - dvDelT > 3000) { dvDelT = Date.now(); $('dvDel').textContent = 'CLICK AGAIN: DELETE "' + dvMenuSet + '"'; return; }
+  const n = dvMenuSet; $('dvMenu').hidden = true;
+  try { const r = await fetch(`${DV_STUDIO}/api/set/${dvU(n)}/delete`, { method: 'POST' }), j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || r.status === 404 || r.status === 405 ? (j.error || 'the studio has no delete yet: restart it (start_set_builder.bat)') : r.status);
+    $('dvSt').textContent = `Deleted "${n}" (moved to club_window/deleted_sets).`; $('dvGrid').dataset.l = ''; send({ k: 'dv', act: 'list' }); }
+  catch (e) { $('dvSt').textContent = 'Delete failed: ' + (e.message || e); }
+};
 let dvPk = { n: null, t: 0, seq: 0 };
 async function dvPeek(n, el) {
   const P = $('dvPeek'), img = P.querySelector('img'), vid = P.querySelector('video');
@@ -963,7 +983,7 @@ async function dvPeek(n, el) {
   let f = []; try { f = (await (await fetch(`${DV_STUDIO}/api/set/${dvU(n)}/files`)).json()).files || []; } catch {}
   if (seq !== dvPk.seq) return;
   const loop = f.includes('plate_loop.mp4'), arr = f.filter(x => /^arrival_.*\.mp4$/.test(x)).length;
-  P.querySelector('.mt').textContent = (loop ? 'plate loop rendered · 1 fps preview' : 'no plate loop yet: render one on the DIRROVERSE page') + (arr ? ` · ${arr} arrival${arr > 1 ? 's' : ''}` : '');
+  P.querySelector('.mt').textContent = (loop ? 'plate loop rendered · 1 fps preview' : 'No plate loop yet, render one in the Dirroverse Studio') + (arr ? ` · ${arr} arrival${arr > 1 ? 's' : ''}` : '');
   if (!loop) return;
   vid.src = `${DV_STUDIO}/sets/${dvU(n)}/plate_loop.mp4`;
   vid.onloadedmetadata = () => {

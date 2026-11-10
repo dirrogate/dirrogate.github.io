@@ -2341,3 +2341,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Header compact: one line, 16 px title, the "Connected to the DirroVJ output window · SPACE / C" explainer is now a status dot (green = connected, hover = the text), smaller ON AIR / RENDER / SOLO / DIRROTV tags, smaller BPM box and buttons, "🎥 Projector" button.
 - Scroller queue moved to the left column under SHOWTIME!.
 - "Sound for Twitch" is "Twitch streaming"; its "QUEST (Wi-Fi)" button is "QuestSound (wifi)". sw.js v169. No Node restart. Backups backups/pre683/.
+
+
+## #684 DirroVerse chips: tooltip, right-click DELETE SCENE (owner, 11 Nov)
+- Chip tooltip: "<set> · plate loop rendered" or "<set> · No plate loop yet, render one in the Dirroverse Studio" (the hover chip says the same).
+- Right-click a chip: a small menu, DELETE SCENE AND ITS FOLDER, click again within 3 s to confirm. Studio set_builder_server.py: POST /api/set/{name}/delete moves sets/<name> to club_window/deleted_sets/<name>_<time> (out of every list; empty it by hand, or move a set back into sets/ to restore). Needs the studio restarted once (start_set_builder.bat); until then the desk says so. Backup set_builder_server_pre684.py. sw.js v170. No Node restart. Backups backups/pre684/.
