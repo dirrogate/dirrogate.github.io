@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 11 Nov 2026 (decision log up to #678 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 11 Nov 2026 (decision log up to #694 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -157,11 +157,13 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 
 ## Status (11 Nov)
 
-- Release (cly3dj) = dev up to #680 (released 11 Nov, #678 and #681). cabin.dirrodj.club serves cly3dj-dev; Dirrogram is uploaded by hand from `ViRe_Custom/dirroclub_website` (gram/index.html = web/dirrogram.html, gram/js = web/js).
+- Release (cly3dj) = dev up to #693 (released 11 Nov: #678, #681, #692, #694). cabin.dirrodj.club serves cly3dj-dev; Dirrogram is uploaded by hand from `ViRe_Custom/dirroclub_website` (gram/index.html = web/dirrogram.html, gram/js = web/js).
 - DirroVJ (#662 to #669): SOLO / LINKED; master tempo LINE IN / TAP; DIRROVERSE bus (Cyber-Window studio sets, `claude/cyber-window-dirrovj-plan.md`); projector window with a display picker, OUTPUT HERE, projection mapping (two copies on 4x4 / 8x8 meshes, end of the desk); CAST bus (the Quest 3 casting tab via getDisplayMedia, crop); HOLO+CAM and DANCER+CAM (a dancer placed in the club webcam: spot, height, CAMERA POS -60..+60, facing, shadow, LIGHT MATCH, FRONT EDGE); Dirrogram from this laptop (own room, QR, dirrodj.club/<ROOM>).
 - Holodancer: Blender builder 1-view depth layout (#671), guide `claude/holodancer-guide.md` and `DirroDancer/holo/builder/README.md`; Quest MOVIE PROPS > HOLODANCER + (life size, carried by the ring, PERFORMER / SIZE / SPEED / TEARS / PROJECTOR / TURN 45 deg); holoprojector 0.5 m behind the dancer with bolder scan lines (#675).
 - Dirrogram (phones): no automatic placement (#670); PLACE HOLODANCER in the camera mode on every phone (tilt-based floor spot, drag to turn / nearer, NEXT DANCER), performers from cabin.dirrodj.club/holo/ or the one DirroVJ sends; CLUB LIGHT relights the dancer from the camera picture (#677); the WebXR walk-around was tried (#672) and removed (#676); start screen DIRROGRAMS; no CONNECTING pill without a room.
-- Not yet tried on the Quest or real phones: most of the above. User-facing text calls the performer "the dancer" (male or female performers).
+- Desk / scroller (#682 to #686): VJ desk Utilities section and compact header, DirroVerse set chips (hover preview, right-click DELETE SCENE), scroller font with lowercase / accents / emoji, acid! and thumb! floaters.
+- ACID / DIRROACID (#687 to #693, plan doc `claude/acid-cassette-plan.md`): ACID channel gain 3.0 (+25 % on #617, plus make-up for the shorter gate); 303 articulation (gate closes half way through a step unless it slides, proper 303 slide meaning, VCA fade / 10 ms close, accent sweep that builds over runs of accents); the worklet sleeps when stopped and silent; overdrive DC offset fixed. Cassettes back to the original picture look with dark translucent sides (#691; the label + 3D-reel look stays behind a test hook). 16 new factory tapes (#693): whole 2-4 bar Goa acid phrases chained as a TB-03 track, Phrygian / Phrygian dominant / harmonic minor / minor / double harmonic, side B = breakdown, each with its own filter curve over the phrase (on top of the CUTOFF knob). Preview: `ViRe_Custom/renders/acid_tapes_preview.wav`.
+- Not yet tried on the Quest or real phones: most of the above, including the new ACID sound and tapes. User-facing text calls the performer "the dancer" (male or female performers).
 
 ## Status (8 Nov)
 

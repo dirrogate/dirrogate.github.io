@@ -2395,3 +2395,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - acid-worklet.js: 'tapeCut' message: while the tape's chain plays (track 7), the curve is added to the CUTOFF knob, eased across the bars, so the line opens and closes by itself while the knob still rides on top.
 - main.js acidTapeApply: a phrase tape loads its bars into slots 76.. and its chain as track 7 and plays in TRACK PLAY; leaving the tape clears the curve and goes back to PATTERN PLAY on the bank.
 - Preview render (worklet alone, side A, 4 bars each of six tapes): ViRe_Custom/renders/acid_tapes_preview.wav. sw.js v177. dev only. Module-checked. No Node restart. Backup backups/pre693/.
+
+## #694 Release #693 to cly3dj; docs (owner, 11 Nov: 'release to cly3dj and update .md')
+- cly3dj = cly3dj-dev again: js/acid-tapes.js, js/acid-worklet.js, js/main.js, sw.js (v177). Dev-only as before: CLAUDE.md, PROJECT.md, _test/, the Kitana test models, backups/. Released JS module-checked.
+- PROJECT.md Status (11 Nov): release line (#693), desk / scroller #682-#686 and ACID #687-#693 summaries; project docs claude/cly3dj-project.md and claude/acid-cassette-plan.md updated.

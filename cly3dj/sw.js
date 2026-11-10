@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v176';   // #691 cassettes back to the picture look, dark translucent sides
+const CACHE = 'vire-app-v177';   // #693 new Goa acid tapes: whole multi-bar phrases with their own filter curves
+// v176:   // #691 cassettes back to the picture look, dark translucent sides
 // v175:   // #689 cassettes: smoked clear shell, paper labels, 3D reels inside
 // v174:   // #688 ACID 303 gate / VCA / accent sweep, DSP sleep when stopped, overdrive DC fix
 // v173:   // #687 ACID channel +25 % (ACID_GAIN 2.5)

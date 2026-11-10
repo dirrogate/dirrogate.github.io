@@ -22,6 +22,7 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
     this.delayFeedback = 0.25;// TB-03 Delay feedback & wet mix (0..1)
     this.waveform = 0;        // 0 = Sawtooth, 1 = Square
     this.transpose = 0;       // Manual semitone transpose (-12 .. +12)
+    this.tapeCut = null;      // #693
     this.rateMul = 1;         // #618 NUDGE: the cassette reels push / hold the sequencer (1 = locked tempo)
     this.makeup = 0.32;       // #607 output gain (was 0.8 into a double ladder): default patch about -9.5 dBFS RMS, like a mastered track
 
@@ -238,6 +239,9 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
         if (msg.track) this.tracks.push({ id: 'TAPE', len: msg.track.bars.length, dsBar: msg.track.dsBar || 0, bars: msg.track.bars.map(([pi, tr]) => [base + pi, tr || 0]) });
         break;
       }
+      case 'tapeCut':   // #693 a tape's filter curve over its phrase (offset per chain bar, on top of the CUTOFF knob)
+        this.tapeCut = Array.isArray(msg.value) && msg.value.length ? msg.value.slice() : null;
+        break;
       case 'clearPattern': {
         const p = this.patterns[this.currentPattern];
         if (p && p.steps) {
@@ -384,7 +388,13 @@ class AcidWorkletProcessor extends AudioWorkletProcessor {
     // Base cutoff: 35 Hz to 5000 Hz (#607: was 2400, the filter never really opened)
     const minCut = 35;
     const maxCut = 5000;
-    const baseCutoff = minCut * Math.pow(maxCut / minCut, this.cutoff);
+    let cutK = this.cutoff;
+    if (this.tapeCut && this.trackMode && this.currentTrack === 7) {   // #693 the cassette's own filter movement, eased across bars
+      const tc = this.tapeCut, n = tc.length, p = this.patterns[this.currentPattern], plen = (p && p.endStep) || 16;
+      const pos = this.currentBar + Math.max(0, this.currentStep) / plen, i0 = Math.floor(pos) % n, f = pos - Math.floor(pos);
+      cutK = Math.max(0, Math.min(1, cutK + tc[i0] + (tc[(i0 + 1) % n] - tc[i0]) * f));
+    }
+    const baseCutoff = minCut * Math.pow(maxCut / minCut, cutK);
 
     // TB-03 Overdrive & Delay constants
     const odAmount = this.overdrive;
