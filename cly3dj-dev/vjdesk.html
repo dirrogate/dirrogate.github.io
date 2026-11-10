@@ -234,6 +234,8 @@
     <a href="http://127.0.0.1:8090/" target="_blank" class="note" style="margin:0 6px">open the studio</a><a href="./dirroverse.html" target="_blank" class="note" style="margin:0">DIRROVERSE page</a></div>
   <div id="dvSt" class="note"></div>
   <div class="row"><input id="dvName" placeholder="name on the car's plate, e.g. WELCOME MAYA" style="flex:1;min-width:220px"><button id="dvRender">RENDER ARRIVAL</button><span id="dvJob" class="note" style="margin:0"></span></div>
+  <div class="row"><span class="note" style="margin:0">match the scene:</span><input type="range" id="dvMatch" min="0" max="1" step="0.05" value="0.7" style="width:180px"><b id="dvMatchV" class="note" style="margin:0">0.70</b>
+    <span class="note" style="margin:0">the webcam takes the plate's palette, the set's grade, glass mist, drops, reflection and fog (render the plate loop again once for its fog map)</span></div>
   <div class="note">An arrival takes about a minute on the RTX 4050; render the night's names before the show. Tap a name to fire it: it plays over the set and hands back to the loop at its end.</div>
   <div class="row" id="dvArr"></div>
 </section>
@@ -327,6 +329,13 @@
       </div>
       <div class="row"><label for="tvCode" class="note" style="margin:0">DIRROTV (SOLO):</label><input id="tvCode" placeholder="6-digit code on the TV" maxlength="8" style="width:170px"><button id="tvPair">PAIR TV</button><span class="note" style="margin:0">open venue.html on the TV, type its code here; the key stays on this laptop</span></div>
     </section>
+<section id="pmS" style="margin:0 16px 20px">
+  <h2>Projection mapping <span class="note" style="text-transform:none;letter-spacing:0">in the 🎥 projector window (open it, put it on the projector, ⛶ FULL SCREEN) · copies of the program, each on its own 4×4 or 8×8 mesh</span></h2>
+  <div class="row"><button id="pmOn">MAPPING OFF</button><button id="pmEdit">EDIT POINTS</button><button id="pmTest">TEST PATTERN</button>
+    <button id="pmSave">SAVE PROFILE…</button><button id="pmLoadB">LOAD PROFILE…</button><input type="file" id="pmFile" accept=".json" hidden><button id="pmResetAll" class="sm">RESET ALL</button><span id="pmSt" class="note" style="margin:0"></span></div>
+  <div id="pmCopies"></div>
+  <div class="note">On the projector: drag a point; SHIFT-drag moves a whole copy; arrow keys nudge the picked point (SHIFT = 10 px); TAB picks the next point. A copy's grid change keeps its shape. Profiles are saved on this laptop and as a file per venue.</div>
+</section>
 <script>
 const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
 const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'COMICS', dancer: 'DANCER', holo: 'HOLO', dverse: 'DIRROVERSE' };   // #662   // #573   // #516, #537, #550, #555 BLACK gone, DIRROCOMICS shortened to COMICS (one line per bus)
@@ -838,6 +847,32 @@ function renderDv(v) {
       b.className = v.playing === f ? 'on' : ''; b.onclick = () => send({ k: 'dv', act: v.playing === f ? 'stopArr' : 'arrive', file: f }); $('dvArr').append(b); } }
 }
 $('dvSet').onchange = () => { $('dvSet').dataset.touched = '1'; };
+$('dvMatch').oninput = () => { $('dvMatchV').textContent = (+$('dvMatch').value).toFixed(2); send({ k: 'dv', act: 'look', match: +$('dvMatch').value }); };
+// #664 projection mapping: the projector window holds the state; this desk sends changes and shows it
+const pmc = new BroadcastChannel('dirrovj-pm'); let PM = null, pmSeen = 0;
+const pmSend = m => pmc.postMessage(m);
+pmc.onmessage = e => { const m = e.data || {}; if (m.k === 'pmstate') { PM = m.S; pmSeen = Date.now(); renderPm(); } };
+setInterval(() => { pmSend({ k: 'pmget' }); if (Date.now() - pmSeen > 3000) $('pmSt').textContent = 'No projector window: open it with 🎥 (header).'; }, 1500); pmSend({ k: 'pmget' });
+$('pmOn').onclick = () => PM && pmSend({ k: 'pmset', v: { on: !PM.on } });
+$('pmEdit').onclick = () => PM && pmSend({ k: 'pmset', v: { edit: !PM.edit } });
+$('pmTest').onclick = () => PM && pmSend({ k: 'pmset', v: { test: !PM.test } });
+$('pmResetAll').onclick = () => pmSend({ k: 'pmreset' });
+$('pmSave').onclick = () => { if (!PM) return; const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(PM, null, 1)], { type: 'application/json' })); a.download = 'dirrovj-mapping.json'; a.click(); };
+$('pmLoadB').onclick = () => $('pmFile').click();
+$('pmFile').onchange = async () => { const f = $('pmFile').files[0]; if (!f) return; try { pmSend({ k: 'pmload', S: JSON.parse(await f.text()) }); } catch (e) { $('pmSt').textContent = 'Not a mapping profile: ' + e.message; } $('pmFile').value = ''; };
+function renderPm() {
+  if (!PM) return; $('pmSt').textContent = PM.on ? 'Mapping ON in the projector window.' : 'Mapping off: the projector shows the plain program.';
+  $('pmOn').textContent = PM.on ? 'MAPPING ON' : 'MAPPING OFF'; $('pmOn').classList.toggle('on', PM.on); $('pmEdit').classList.toggle('on', PM.edit); $('pmTest').classList.toggle('on', PM.test);
+  const box = $('pmCopies'), sig = PM.copies.map(c => [c.on, c.n, c.bright].join()).join('|'); if (box.dataset.l === sig) return; box.dataset.l = sig; box.innerHTML = '';
+  PM.copies.forEach((c, i) => { const r = document.createElement('div'); r.className = 'row';
+    r.innerHTML = `<b style="color:${i % 2 ? '#ffa24a' : '#39a8ff'};min-width:64px">COPY ${i + 1}</b><button data-a="on" class="${c.on ? 'on' : ''}">${c.on ? 'ON' : 'OFF'}</button>
+      <button data-n="4" class="${c.n === 4 ? 'on' : ''}">4×4</button><button data-n="8" class="${c.n === 8 ? 'on' : ''}">8×8</button>
+      <span class="note" style="margin:0">brightness</span><input type="range" min="0" max="1.5" step="0.05" value="${c.bright ?? 1}" style="width:140px"><button data-a="reset" class="sm">RESET</button>`;
+    r.querySelector('[data-a=on]').onclick = () => pmSend({ k: 'pmcopy', i, v: { on: !c.on } });
+    for (const b of r.querySelectorAll('[data-n]')) b.onclick = () => pmSend({ k: 'pmcopy', i, n: +b.dataset.n });
+    r.querySelector('input').oninput = e => pmSend({ k: 'pmcopy', i, v: { bright: +e.target.value } });
+    r.querySelector('[data-a=reset]').onclick = () => pmSend({ k: 'pmreset', i }); box.append(r); });
+}
 function popScreenWin() {
   try { if (window.opener && window.opener.spect && window.opener.spect.studio) return window.opener.spect.studio.openScreenWin(window); } catch {}
 }

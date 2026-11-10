@@ -12,7 +12,8 @@
 // The sound arrives in step with the Quest's picture (one WebRTC stream), so it needs nothing. TRIM (tablet) nudges the camera.
 import { STU, readStamp, stampBlock } from './stream.js';
 import { opusStereo, tvHost, tvNewKey, tvPairSend } from './net-link.js';
-import { makeDesk } from './vjdesk.js';   // #507 DirroVJ desk (buses, fractal, scroller desk, line in)
+import { makeDesk } from './vjdesk.js';
+import { attachProjMap } from './projmap.js';   // #664 projection mapping in the projector window   // #507 DirroVJ desk (buses, fractal, scroller desk, line in)
 
 const TWITCH_WHIP = 'https://g.webrtc.live-video.net:4443/v2/offer', KEYK = 'vire.s8twitchKey', RING = 12;
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
@@ -268,6 +269,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       w.addEventListener('keydown', e => { if (e.key === 'f' || e.key === 'F') toggleFs(); });
       let idleT = 0; const wake = () => { doc.body.classList.remove('idle'); clearTimeout(idleT); idleT = setTimeout(() => doc.body.classList.add('idle'), 2600); };
       w.addEventListener('mousemove', wake); w.addEventListener('mousedown', wake); wake();
+      try { attachProjMap(w, doc, doc.getElementById('vjScreenVid')); } catch (e) { console.warn('projection mapping', e); }   // #664
     }
     frame(performance.now()); syncScreenWin();
     try { w.focus(); } catch {}

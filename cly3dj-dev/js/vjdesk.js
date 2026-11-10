@@ -116,7 +116,7 @@ const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'holo',
 
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
   const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), holo: holoDefaults(), chDesk: '', audioAuto: false, lsc: '', cue: '',
-    tempo: 'line', bpm: 0, beatN: 0, dv: { set: '', sets: [], files: [], arrivals: [], status: '', studio: '', cam: true, playing: '', job: null } };   // #662 master tempo (LINE IN / TAP) + DirroVerse   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
+    tempo: 'line', bpm: 0, beatN: 0, dv: { set: '', sets: [], files: [], arrivals: [], status: '', studio: '', cam: true, playing: '', job: null, match: 0.7 } };   // #662 master tempo (LINE IN / TAP) + DirroVerse   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
   try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
   const queue = []; let qid = 1;
@@ -406,6 +406,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       else if (m.act === 'arrive') x.arrive(String(m.file || ''));
       else if (m.act === 'stopArr') { D.dv.playing = ''; post(); }
       else if (m.act === 'render') x.renderArrival(String(m.name || '').slice(0, 40));
+      else if (m.act === 'look') { D.dv.match = Math.max(0, Math.min(1, +m.match || 0)); post(); }   // #664 webcam palette match to the plate
     }
     else if (m.k === 'approve') approve(m.id);
     else if (m.k === 'reject') { const i = queue.findIndex(x => x.id === m.id); if (i >= 0) queue.splice(i, 1); post(); }
