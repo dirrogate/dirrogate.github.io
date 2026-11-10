@@ -2329,3 +2329,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 
 ## #681 Release #679 and #680 to cly3dj (owner, 11 Nov)
 - cly3dj = cly3dj-dev again (CLAUDE.md, PROJECT.md, _test/, backups/ dev-only), sw.js vire-app-v167: the camera pads, ORBIT and zoom T-bars on HOLO+CAM / DANCER+CAM, In the webcam without FACING / HEIGHT.
+
+
+## #682 Desk: Utilities break, DirroVerse set chips (owner, 11 Nov)
+- vjdesk.html: a bold gold "Utilities:" break after the DirroComics panel, then Dirrogram from this laptop (moved), Cast (moved), Sound for Twitch, Projection mapping.
+- DirroVerse: the sets as a two-row chip scroller like the clip banks (thumbnail = the studio plateframe at t 0). Click = load the set (green border on the loaded one); hover = a bigger 360 px chip with the name, whether a plate loop is rendered and how many arrivals; a rendered plate_loop.mp4 steps through at 1 frame a second (straight from 127.0.0.1:8090). The set drop-down is hidden (kept for state). sw.js v168. No Node restart. Backups backups/pre682/.
