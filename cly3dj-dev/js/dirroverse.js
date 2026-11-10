@@ -151,5 +151,9 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     renderer.setRenderTarget(rt); renderer.render(sc, oc); renderer.setRenderTarget(null);
     return rt.texture;
   }
-  return { list, load, arrive, renderArrival, render, get w() { return W; }, get h() { return H; }, get ready() { return ready; } };
+  function active(on) {   // #666 pause the loop (and an arrival) while DIRROVERSE is off air
+    if (on) { if (ready && vid.paused && !S.playing) vid.play().catch(() => {}); if (S.playing && arr.paused) arr.play().catch(() => {}); }
+    else { if (!vid.paused) vid.pause(); if (!arr.paused) arr.pause(); }
+  }
+  return { list, load, arrive, renderArrival, render, active, get w() { return W; }, get h() { return H; }, get ready() { return ready; } };
 }

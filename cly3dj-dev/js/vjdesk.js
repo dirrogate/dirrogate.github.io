@@ -270,7 +270,10 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     analyse(dt, now);   // #662 the master tempo runs whatever is on the buses
     if (used.includes('fractal')) fractal(dt, now);
     if (dzNeed(used)) dz.render(now);
-    if (hoNeed(used)) ho.render(now);   // #573   // #550 only while the T-bar shows her bus, or REC runs
+    if (hoNeed(used)) ho.render(now);
+    { const hv = ho && ho.player && ho.player.video;   // #666 off air = no decoding: the holo atlas and the DirroVerse loop pause when no bus (or CUE) shows them
+      if (hv && hv.src) { if (hoNeed(used)) { if (hv.paused) hv.play().catch(() => {}); } else if (!hv.paused) hv.pause(); }
+      if (dvx) dvx.active(used.includes('dverse')); }   // #573   // #550 only while the T-bar shows her bus, or REC runs
     comics.tick(questTex, now, dt); comicTex = used.includes('comic') ? comics.render(W, H) : null;   // #516
     mU.kA.value = D.x < 1 ? bind(D.a, mU.tA, mU.fA.value, W, H, questTex, now) : 0;
     mU.kB.value = D.x > 0 ? bind(D.b, mU.tB, mU.fB.value, W, H, questTex, now) : 0;
