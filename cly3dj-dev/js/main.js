@@ -38,7 +38,7 @@ import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.j
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
-import { MovieProps, SURF_SLOTS, PLATE_BUILTIN, COLORS, PRESETS, NEON_FONTS, FOG_COLORS, MATTES, GRAFF_BUILTIN, DECAL_GROUND, DECAL_WALL, GRAFF_TINTS, removeFile } from './movieprops.js';   // #478 VJ TOOLS > MOVIE PROPS
+import { MovieProps, holoLibrary, SURF_SLOTS, PLATE_BUILTIN, COLORS, PRESETS, NEON_FONTS, FOG_COLORS, MATTES, GRAFF_BUILTIN, DECAL_GROUND, DECAL_WALL, GRAFF_TINTS, removeFile } from './movieprops.js';   // #478 VJ TOOLS > MOVIE PROPS
 import { FX, USER_LAYER } from './fx.js';
 import { makeRgbdGrab } from './rgbdgrab.js';   // #520 GRAB RGB-D for DirroComics (asked from the VJ desk)   // #379 VISUALS > FX: FLOAT and WATER
 import * as store from './storage.js';
@@ -6660,6 +6660,7 @@ function drawLooperPage(page, T) {
 // #478 VJ TOOLS > MOVIE PROPS: spawn row, list of the props in the room (tap = select, X = remove) and the selected prop's controls
 const pcs = v => Math.round(v * 100) + '%';
 var btnGreen = false;   // #545 see the tools-page btn (var: drawMixScreen can run before this line)
+let holoLibCache = null;   // #671
 let propsClearT = 0, mpTab = 'props', mpSurfName = '', surfDelT = 0;
 function drawPropsPage(T) {
   const { g, W, H, P, L, R, btn, head, note } = T;
@@ -6701,7 +6702,7 @@ function drawPropsPage(T) {
     note('Each slot takes a picture (jpg / png). Diffuse = colour, displacement = height (white high), roughness, normal (OpenGL style) and AO are optional. Added from this device; set TILE SIZE to how many metres one picture covers.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 12);
     return;
   }
-  const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', decal: 'GROUND DECAL', walldecal: 'WALL DECAL', glb: 'GLB', lamp: 'LAMP', plate: 'BACKDROP', crate: 'RECORD CRATE', pumpkin: 'PUMPKIN' };
+  const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', decal: 'GROUND DECAL', walldecal: 'WALL DECAL', glb: 'GLB', lamp: 'LAMP', plate: 'BACKDROP', crate: 'RECORD CRATE', pumpkin: 'PUMPKIN', holo: 'HOLODANCER' };   // #671
   const spawn = k => {
     const o = {};
     if (k === 'pumpkin') { k = 'glb'; o.src = 'halloween_pumpkin.glb'; }
@@ -6716,14 +6717,14 @@ function drawPropsPage(T) {
     toast(p && p.floor ? (NAMES[k] || 'GROUND') + ' in front of you. Grip the ring on its post to carry it, trigger the cube to size it.' : (NAMES[k] || 'PROP') + ' in front of you. Grip the ring to carry it, trigger the cube to size it (or grip with both hands and stretch).', 4200);
     drawMixScreen();
   };
-  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['GROUND DECAL +', 'decal'], ['WALL DECAL +', 'walldecal'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['CRATE +', 'crate'], ['ALLEY SCENE', 'alley'], ['ROAD SCENE', 'road']];
+  const kinds = [['HOLODANCER +', 'holo'], ['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['GROUND DECAL +', 'decal'], ['WALL DECAL +', 'walldecal'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['CRATE +', 'crate'], ['ALLEY SCENE', 'alley'], ['ROAD SCENE', 'road']];
   const per = P ? 4 : 8, gap = 6, bw = (R - L - gap * (per - 1)) / per, bh = P ? 44 : 34;
   kinds.forEach(([l, k], i) => btn(L + (i % per) * (bw + gap), y0 + Math.floor(i / per) * (bh + 6), bw, bh, l, false, () => spawn(k), false, P ? 16 : 14));
   const top = y0 + Math.ceil(kinds.length / per) * (bh + 6) + 4;
   // ---- list of props
   const RH = P ? 33 : 30, listW = P ? R - L : 214, rowsMax = P ? 3 : Math.max(2, Math.floor((H - top - 8 - 3 * RH) / RH));
   const n = items.length, si = Math.max(0, items.indexOf(sel)), start = n <= rowsMax ? 0 : Math.max(0, Math.min(si - Math.floor(rowsMax / 2), n - rowsMax));
-  const det = p => p.type === 'puddle' ? p.matte : p.type === 'neon' ? p.text.replace(/\n/g, ' ') : (p.type === 'graffiti' || p.type === 'decal' || p.type === 'walldecal' || p.type === 'glb') ? (p.src || '(none)') : '';
+  const det = p => p.type === 'puddle' ? p.matte : p.type === 'neon' ? p.text.replace(/\n/g, ' ') : (p.type === 'graffiti' || p.type === 'decal' || p.type === 'walldecal' || p.type === 'glb') ? (p.src || '(none)') : p.type === 'holo' ? (p.name || p.state) : '';
   const detP = p => p.type === 'puddle' && p.surf ? p.surf : det(p);
   for (let r = 0; r < rowsMax && start + r < n; r++) {
     const p = items[start + r], y = top + r * RH;
@@ -6795,6 +6796,16 @@ function drawPropsPage(T) {
       S('BRIGHTNESS', sel.bright / 1.5, pc(sel.bright / 1.5), v => { sel.bright = v * 1.5; sel.look(); }), S('OPACITY', sel.opac, pc(sel.opac), v => { sel.opac = v; sel.look(); }), sizeUni());
     if (dk) cells.push(S('WETNESS (gloss, lamp glints)', sel.wet, pc(sel.wet), v => { sel.wet = v; }), S(sel.type === 'decal' ? 'RAIN RINGS' : 'RIVULET AMOUNT', sel.rainAmt, pc(sel.rainAmt), v => { sel.rainAmt = v; }), S('AMBIENT', sel.amb / 0.6, pc(sel.amb / 0.6), v => { sel.amb = v * 0.6; }));
     if (sel.type === 'walldecal') cells.push(S('RIVULET SPEED', (sel.flow - 0.1) / 3.9, sel.flow.toFixed(1) + 'x', v => { sel.flow = 0.1 + v * 3.9; }));
+  } else if (sel.type === 'holo') {   // #671 HOLODANCER
+    if (!holoLibCache) holoLibrary().then(l => { holoLibCache = l; drawMixScreen(); });
+    const lib = holoLibCache || [], kind = l => l === '1d' ? '1-view' : l === '4d' ? '4-view' : l === '8b' ? '8-view' : '';
+    cells.push(B('PERFORMER: ' + (sel.name || '…') + (sel.layout ? ' (' + kind(sel.layout) + ')' : ''), false, () => { if (lib.length) { const i = lib.findIndex(x => x.id === sel.perf); sel.load(lib[(i + 1) % lib.length].id); } }, lib.length < 2),
+      S('SIZE', logS(sel.obj.scale.x), Math.abs(sel.obj.scale.x - 1) < 0.02 ? 'LIFE SIZE' : sel.obj.scale.x.toFixed(2) + 'x', v => sel.scaleTo(0.1 * Math.pow(100, v))),
+      B('LIFE SIZE', Math.abs(sel.obj.scale.x - 1) < 0.02, () => sel.scaleTo(1)),
+      S('SPEED', (sel.speed - 0.25) / 1.75, sel.speed.toFixed(2) + 'x', v => sel.set('speed', 0.25 + v * 1.75)),
+      B(sel.tears ? 'HOLO TEARS: ON' : 'HOLO TEARS: OFF', sel.tears, () => sel.set('tears', !sel.tears)),
+      B(sel.layout === '1d' ? 'PROJECTOR: ALWAYS (1-view)' : sel.half ? 'PROJECTOR: ON' : 'PROJECTOR: OFF', sel.layout === '1d' || sel.half, () => sel.set('half', !sel.half), sel.layout !== '4d'),
+      B('TURN 45°', false, () => { sel.obj.rotation.y += Math.PI / 4; }), B('RESTART DANCE', false, () => sel.restart()));
   } else if (sel.type === 'glb') {
     const names = mp.lists.glb;
     cells.push(B(sel.src ? 'MODEL: ' + sel.src : 'MODEL: (none)', false, () => { if (names.length) sel.load(cyc(names, sel.src || names[names.length - 1])); }, !names.length),

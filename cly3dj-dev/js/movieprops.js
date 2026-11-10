@@ -959,6 +959,45 @@ class Placer {
     this.dot.position.copy(e); this.dot.visible = !!(hit || this.held);
   }
 }
+// #671 HOLODANCER prop: a Holodancer performer (web/holo, the same library the VJ Desk uses) standing in the room, life size at
+// SIZE 1x, upright and carried by the ring on her post like the floor props. Drawn by the shared player (js/holoplayer.js), so the
+// 1-view performers show their front shell with the holoprojector scanning her back, the 4-view ones are look-around (PROJECTOR
+// turns their front-shell + projector look on). The headset's own camera sees her, so passthrough filming / Twitch get her too.
+let holoLib = null;
+const holoLibrary = () => holoLib || (holoLib = fetch(new URL('../holo/library.json', import.meta.url).href, { cache: 'no-cache' }).then(r => r.ok ? r.json() : { performers: [] }).then(j => (j.performers || []).map(p => ({ id: p.id, name: p.name || p.id, layout: p.layout || '' }))).catch(() => { holoLib = null; return []; }));
+export { holoLibrary };
+class HoloProp extends Prop {
+  constructor(mp) {
+    super(mp, 'holo', true); this.perf = ''; this.name = ''; this.layout = ''; this.speed = 1; this.tears = true; this.half = false; this.state = 'empty'; this.p = null; this.seq = 0; this.time = 0;
+    this.ringAt.set(0.32, POST_H, 0.32); this.cubeAt.set(-0.3, 1.86, -0.3); this.hw = 0.4; this.placeHandles();
+  }
+  async load(id) {
+    const lib = await holoLibrary(); if (this.dead) return;
+    const e = lib.find(x => x.id === id) || lib[0]; if (!e) { this.state = 'missing'; this.mp.env.toast('No Holodancer performers (holo/library.json is empty)', 3500); return; }
+    const seq = ++this.seq; this.perf = e.id; this.name = e.name; this.layout = e.layout; this.state = 'loading';
+    try {
+      const mod = await import('./holoplayer.js');
+      if (!this.p) { this.p = mod.makeHoloPlayer({ THREE, grid: [128, 144] }); this.obj.add(this.p.group); noRay(this.p.group); }
+      this.p.group.visible = false;
+      await this.p.load(new URL('../holo/' + e.id + '/performer.json', import.meta.url).href); if (this.dead || seq !== this.seq) return;
+      noRay(this.p.group); this.apply2(); this.p.group.visible = true; this.state = 'ok'; this.p.video.play().catch(() => {});
+      const h = (this.p.meta && this.p.meta.height) || 1.72; this.cubeAt.set(-0.3, h + 0.12, -0.3); this.placeHandles();
+    } catch (er) { if (seq === this.seq) { this.state = 'failed'; this.mp.env.toast('Holodancer could not load: ' + (er.message || er), 4000); } }
+    this.mp.save();
+  }
+  apply2() { const p = this.p; if (!p) return; p.set('speed', this.speed); p.set('tears', this.tears); p.set('half', this.half && this.layout === '4d'); p.set('room', false); }
+  set(k, v) { this[k] = v; this.apply2(); this.mp.save(); }
+  restart() { if (this.p && this.p.video) { this.p.video.currentTime = 0; this.p.video.play().catch(() => {}); } }
+  localBox() { return _bx.set(_v.set(-0.4, 0, -0.4), _v2.set(0.4, 1.85, 0.4)); }
+  tick(dt) {
+    const p = this.p; if (!p || !p.ready || !p.group.visible) return; this.time += dt;
+    if (p.video.paused) p.video.play().catch(() => {});
+    const cam = this.mp.viewCam(); cam.updateMatrixWorld(); p.update(_v3.setFromMatrixPosition(cam.matrixWorld), this.time, cam);
+  }
+  dispose() { this.seq++; if (this.p && this.p.video) { try { this.p.video.pause(); this.p.video.removeAttribute('src'); this.p.video.load(); } catch {} } super.dispose(); }
+  snap() { return { ...this.base(), perf: this.perf, speed: this.speed, tears: this.tears, half: this.half }; }
+  apply(d) { for (const k of ['speed', 'tears', 'half']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.load(d.perf || ''); }
+}
 const _q2 = new THREE.Quaternion(), _v3 = new THREE.Vector3(), XAX = new THREE.Vector3(1, 0, 0);
 export const WALL_SNAP_T = new Set(['walldecal', 'graffiti', 'neon']);   // #599
 
@@ -1049,8 +1088,9 @@ export class MovieProps {
     return { p: new THREE.Vector3(l.x, floor ? 0.01 : Math.max(1.0, l.y - 0.25), l.z), yaw };
   }
   spawn(type, opt = {}) {
-    const P = { puddle: Puddle, rain: Rain, fog: Fog, neon: NeonSign, graffiti: Graffiti, decal: GroundDecal, walldecal: WallDecal, glb: GlbProp, lamp: Lamp, plate: Plate, crate: CrateProp }[type]; if (!P) return null;
+    const P = { puddle: Puddle, rain: Rain, fog: Fog, neon: NeonSign, graffiti: Graffiti, decal: GroundDecal, walldecal: WallDecal, glb: GlbProp, lamp: Lamp, plate: Plate, crate: CrateProp, holo: HoloProp }[type]; if (!P) return null;
     const p = new P(this), s = this.spot(p.floor); p.obj.position.copy(s.p); p.obj.rotation.set(0, s.yaw, 0); p.placeHandles();
+    if (type === 'holo' && !opt.restore) p.load(opt.perf || '');   // #671
     if (type === 'glb' && opt.src) p.load(opt.src); if ((type === 'graffiti' || type === 'decal' || type === 'walldecal') && opt.src) { p.src = opt.src; p.tint = opt.src === 'graff1.png' ? 1 : 0; p.load(); }
     this.items.push(p); this.selected = p; this.save(); return p;
   }
@@ -1091,7 +1131,7 @@ export class MovieProps {
   saveNow() { try { localStorage.setItem(KEY, JSON.stringify(this.items.filter(p => !p.dead).map(p => p.snap()))); } catch {} }
   load() {
     if (this.loaded) return; this.loaded = true; let a = []; try { a = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch {}
-    for (const d of a) { const p = this.spawn(d.type); if (p) p.apply(d); }
+    for (const d of a) { const p = this.spawn(d.type, { restore: true }); if (p) p.apply(d); }
     this.selected = this.items[this.items.length - 1] || null;
   }
   pickFile(kind, accept, done) {   // a file picker (the headset may not allow one while it is in VR: add files from the desktop page, or before entering VR)
