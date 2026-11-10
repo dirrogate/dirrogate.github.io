@@ -145,7 +145,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
   try { const o = JSON.parse(localStorage.getItem('vire.vjCast') || '{}'); for (const k of ['l', 'r', 't', 'b']) if (+o[k] >= 0) D.cast[k] = Math.min(0.45, +o[k]); } catch {}
-  try { const o = JSON.parse(localStorage.getItem('vire.vjHp') || '{}'); for (const k of Object.keys(HP0)) if (o[k] != null) D.hp[k] = typeof HP0[k] === 'boolean' ? !!o[k] : +o[k]; } catch {}
+  try { const o = JSON.parse(localStorage.getItem('vire.vjHp') || '{}'); for (const k of Object.keys(HP0)) if (o[k] != null && k !== 'face') D.hp[k] = typeof HP0[k] === 'boolean' ? !!o[k] : +o[k]; } catch {}   // #680 FACING slider gone (the pad turns the dancer): a saved one is dropped
   const queue = []; let qid = 1;
   const quad = mat => { const sc = new THREE.Scene(), m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); m.frustumCulled = false; sc.add(m); return sc; };
   const oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -184,11 +184,11 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       cu.mean.value.copy(camMean);
       const pl = who === 'holo' ? (ho && ho.ready ? ho.renderPlaced(now, P) : null) : (dz && dz.ready ? dz.renderPlaced(now, P) : null);
       cu.hoOn.value = pl ? 1 : 0;
-      if (pl) { cu.ho.value = pl.tex; cu.pm.value = pl.pm ? 1 : 0; cu.foot.value.copy(pl.foot); cu.k.value = Math.max(0.02, pl.head.y - pl.foot.y) / Math.max(0.03, +P.h || 0.4); }
+      if (pl) { cu.ho.value = pl.tex; cu.pm.value = pl.pm ? 1 : 0; cu.foot.value.copy(pl.foot); cu.k.value = Math.max(0.02, pl.head.y - pl.foot.y) / Math.max(0.03, (+P.h || 0.4) * (pl.zoom || 1)); cu.hH.value = (+P.h || 0.4) * (pl.zoom || 1); }   // #679 zoom T-bar = size
       const el = +P.el || 0;   // the soft patch only shows while the camera sees the top of the surface; the dancer has a real shadow instead
       cu.F.value.set(+P.x, 1 - +P.y); cu.A.value = A; cu.flip.value = P.flip ? 1 : 0; cu.light.value = +P.light || 0;
       cu.shadow.value = who === 'holo' ? (+P.shadow || 0) * Math.max(0, Math.min(1, (el + 2) / 8)) : 0;
-      cu.cut.value = +P.cut || 0; cu.sEl.value = Math.sin(Math.max(5, Math.min(80, el)) * Math.PI / 180); cu.hH.value = +P.h || 0.4;
+      cu.cut.value = +P.cut || 0; cu.sEl.value = Math.sin(Math.max(5, Math.min(80, el)) * Math.PI / 180); if (!pl) cu.hH.value = +P.h || 0.4;
       const prev = renderer.getRenderTarget(); renderer.setRenderTarget(C.rt); renderer.render(C.sc, oc); renderer.setRenderTarget(prev);
     }
     U.value = C.rt.texture; fit.set(0, 0, 1, 1); return 1;

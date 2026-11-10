@@ -2325,3 +2325,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 
 ## #680 In the webcam: FACING and HEIGHT sliders removed (owner, 11 Nov: "remove it if not needed")
 - Since #679 the HOLO / DANCER pad and zoom T-bar turn and size the placed dancer, so FACING and HEIGHT were duplicates: gone (a saved FACING is dropped on load; the mouse wheel on the monitor still sets the starting size). Kept: PLACE ON THE MONITOR (where the feet go), mirror, RESET, CAMERA POS (the HOLO pad only reaches about -15 deg; a floor webcam looking up at a bar top needs -30 to -60), SHADOW, LIGHT MATCH, FRONT EDGE. sw.js v167. No Node restart. Backups backups/pre680/.
+
+
+## #681 Release #679 and #680 to cly3dj (owner, 11 Nov)
+- cly3dj = cly3dj-dev again (CLAUDE.md, PROJECT.md, _test/, backups/ dev-only), sw.js vire-app-v167: the camera pads, ORBIT and zoom T-bars on HOLO+CAM / DANCER+CAM, In the webcam without FACING / HEIGHT.

@@ -295,7 +295,7 @@ void main() {
   // her, P.face = which way she faces), her current stage lights kept, the stage, fog and backdrop gone. A shadow-only plane under her
   // feet takes her real shadow (P.shadow), so she sits on the bar top. Seen from below the surface it vanishes, as it should.
   let camP = null, shP = null, shL = null; const _pv = new THREE.Vector3(), _clr = new THREE.Color();
-  const placed = { tex, foot: new THREE.Vector2(0.5, 0.1), head: new THREE.Vector2(0.5, 0.9), pm: false, t: -1 };
+  const placed = { zoom: 1, tex, foot: new THREE.Vector2(0.5, 0.1), head: new THREE.Vector2(0.5, 0.9), pm: false, t: -1 };
   const uvOf = (x, y, z, out) => { _pv.set(x, y, z).project(camP); return out.set(_pv.x * 0.5 + 0.5, _pv.y * 0.5 + 0.5); };
   function renderPlaced(now, P) {
     if (!ready) return null;
@@ -310,7 +310,10 @@ void main() {
       Object.assign(shL.shadow.camera, { left: -2, right: 2, top: 2, bottom: -2, near: 0.5, far: 10 }); shL.shadow.camera.updateProjectionMatrix(); shL.shadow.radius = 4;
       scene.add(shP, shL, shL.target);
     }
-    const az = (+P.face || 0) * D2R, el = Math.max(-60, Math.min(75, +P.el || 0)) * D2R, d = 5.4, aimY = 0.9;
+    // #679 the DANCER pad, ORBIT and zoom T-bar move the camera on top of the placement (pad Y 8 deg = no change)
+    if (S.cam.mode !== 'hand') C.spin = (C.spin + dt * 6) % 360;
+    placed.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +S.cam.zoom || 1));
+    const az = ((+P.face || 0) + (+S.cam.x || 0) + (S.cam.mode !== 'hand' ? C.spin : 0)) * D2R, el = Math.max(-60, Math.min(75, (+P.el || 0) + wrap((+S.cam.y || 8) - 8))) * D2R, d = 5.4, aimY = 0.9;
     camP.position.set(Math.sin(az) * Math.cos(el) * d, aimY + Math.sin(el) * d, Math.cos(az) * Math.cos(el) * d); camP.lookAt(0, aimY, 0); camP.updateMatrixWorld();
     shP.material.opacity = Math.max(0, Math.min(1, +P.shadow || 0)) * 0.8;
     const hid = [floorMesh, fogG, motes, ...Object.values(props)].filter(o => o && o.visible);
