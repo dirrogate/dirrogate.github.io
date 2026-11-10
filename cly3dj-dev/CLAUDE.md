@@ -2217,3 +2217,9 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #650 CLUB WINDOW fog fix + car lit by the frame (owner, 10 Nov: fog edges harsh / not following the polygon / subtracting; car needs size, looks unreal)
 - Fog noise was not seamless (tiled 2x2 and wrapped): straight seams cut across the fog. Now a frequency-domain tileable noise, padded for the wrap. Overlapping fog areas add (they took the max). Fog is a soft veil (mix to a fog colour lit by the plate) instead of a raw linear add, which showed every faint edge in the darks.
 - Car: lit each frame by the frame rendered so far (club video, neon, moving plate) as a screen-space probe from the car's own position; fog veil and distance haze over the car. "size (length)" 0.5 to 30 m at the top of the car panel; "scene light" slider.
+
+## #651 CLUB WINDOW: fog motion, signs lit by the scene, car paint (owner, 10 Nov)
+- Fog motion (Look): roll (towards / away: the noise grows or shrinks about the picture centre), rise, wind; two noise layers at different speeds for depth. Set-wide, not per area.
+- Signs: pictures lit by the frame (spill, flicker, fog: local frame / bare plate ratio) and veiled by the fog; neon dims in fog and its halo spreads wider.
+- Car: clear-coat (sharp mirror of the frame, Fresnel), paint darker and less saturated, grime slider (rougher, darker), underside darker, plate colour cast, rim light down to 0.25 with a slider.
+- Studio only. Not part of DirroVJ or the Movie props page yet: that is phase 4 (SET as a DirroVJ source).
