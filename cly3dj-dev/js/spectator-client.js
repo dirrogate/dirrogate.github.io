@@ -134,6 +134,8 @@ export function startCamera(ctx) {
     $('#spConnect').insertAdjacentHTML('afterend', '<button id="spDesk">Open the VJ desk (control window)</button><button id="spScreen">Open Webcam / Projector window (2nd monitor / full screen)</button>');
     $('#spDesk').onclick = () => studio.openDesk();   // #507
     $('#spScreen').onclick = () => studio.openScreenWin();   // #531
+    $('#spScreen').insertAdjacentHTML('afterend', '<button id="spHere" title="Make this window the projector output: one window, nothing copied, and it keeps drawing (a minimised window does not)">OUTPUT HERE (this window = projector)</button>');
+    $('#spHere').onclick = () => studio.outputHere(true);   // #665
     $('#spFix').textContent = 'Start webcam (optional: the WEBCAM source, aim it at the DJ or the crowd)';   // #501
   }
 

@@ -275,6 +275,44 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     try { w.focus(); } catch {}
     return w;
   }
+  // #665 OUTPUT HERE: this engine window is the projector output itself (one window, nothing copied for the screen, never
+  // minimised so Chrome keeps drawing it). Its own controls hide; a bar like the projector window's: display picker, full screen,
+  // EXIT; projection mapping works here too (fed from the same program capture as Twitch / DirroTV).
+  let outHere = null;
+  function outputHere(on = true) {
+    const doc = document;
+    if (!on) { if (outHere) { outHere.bar.remove(); doc.body.classList.remove('vjOut'); try { if (doc.fullscreenElement) doc.exitFullscreen(); } catch {} outHere = null; } return; }
+    if (outHere) return;
+    if (!doc.getElementById('vjOutCss')) { const st = doc.createElement('style'); st.id = 'vjOutCss';
+      st.textContent = `body.vjOut > *:not(canvas):not(#vjOutBar):not(#pmCv):not(#pmOv):not(#vjOutVid):not(script):not(style) { display:none !important }
+        body.vjOut { background:#000; overflow:hidden; cursor:none } body.vjOut.wake { cursor:auto }
+        #vjOutBar { position:fixed; top:12px; right:12px; z-index:20; display:flex; gap:8px; align-items:center; background:rgba(11,13,18,.85); border:1px solid #2e3850; border-radius:10px; padding:6px 10px; font:600 13px system-ui; color:#e6e8ec; transition:opacity .25s }
+        body.vjOut:not(.wake) #vjOutBar { opacity:0; pointer-events:none }
+        #vjOutBar button, #vjOutBar select { font:600 13px system-ui; color:#e6e8ec; background:#1c2230; border:1px solid #2e3850; border-radius:8px; padding:7px 11px; cursor:pointer }
+        #vjOutBar .fs { background:#b0141e; border-color:#e0202a }
+        #vjOutVid { position:fixed; inset:0; width:100vw; height:100vh; object-fit:contain; visibility:hidden; pointer-events:none }`;
+      doc.head.append(st); }
+    const bar = doc.createElement('div'); bar.id = 'vjOutBar';
+    bar.innerHTML = '<span style="color:#8c96a8;font-size:12px">OUTPUT HERE · this window is the projector</span><select id="vjOutScr" style="display:none"></select><button id="vjOutFs" class="fs">⛶ FULL SCREEN</button><button id="vjOutX">✕ EXIT OUTPUT</button>';
+    doc.body.append(bar); doc.body.classList.add('vjOut');
+    let sd = null;
+    (async () => { try { if (!('getScreenDetails' in window)) return; sd = await window.getScreenDetails(); const sel = doc.getElementById('vjOutScr');
+      const fill = () => { sel.innerHTML = sd.screens.map((x, i) => `<option value="${i}">${i + 1}: ${x.label || ''} ${x.width}×${x.height}${x.isPrimary ? ' (laptop)' : ''}</option>`).join(''); const e = sd.screens.findIndex(x => !x.isPrimary); if (e >= 0) sel.value = e; sel.style.display = sd.screens.length > 1 ? '' : 'none'; };
+      fill(); sd.addEventListener('screenschange', fill); } catch {} })();
+    doc.getElementById('vjOutFs').onclick = () => { try { if (doc.fullscreenElement) { doc.exitFullscreen(); return; } const s = sd && sd.screens[+doc.getElementById('vjOutScr').value];
+      doc.documentElement.requestFullscreen(s ? { screen: s } : undefined).catch(() => doc.documentElement.requestFullscreen()); } catch {} };
+    doc.getElementById('vjOutX').onclick = () => outputHere(false);
+    let idle = 0; const wake = () => { doc.body.classList.add('wake'); clearTimeout(idle); idle = setTimeout(() => doc.body.classList.remove('wake'), 2600); };
+    window.addEventListener('mousemove', wake); wake();
+    if (!doc.getElementById('vjOutVid')) {   // projection mapping here: its source is the program capture (the same track as the projector window's)
+      const v = doc.createElement('video'); v.id = 'vjOutVid'; v.muted = true; v.autoplay = true; v.playsInline = true; doc.body.append(v);
+      if (!scrTrack || scrTrack.readyState !== 'live') { try { scrTrack = cv.captureStream(0).getVideoTracks()[0]; scrTrack.contentHint = 'motion'; scrStream = new MediaStream([scrTrack]); } catch {} }
+      if (scrStream) { v.srcObject = scrStream; v.play().catch(() => {}); }
+      try { const pm = attachProjMap(window, doc, v); const keep = () => { v.style.visibility = 'hidden'; requestAnimationFrame(keep); }; keep(); } catch (e) { console.warn('projection mapping here', e); }
+    }
+    outHere = { bar };
+    if (!S.on) startVj();
+  }
   let keepAc = null;
   function startVj() {
     S.on = true; S.gest = true; S.paused = false;
@@ -574,5 +612,5 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   }
   function twStop(msg, err) { twClose(); twSet(err ? 'error' : 'off', msg || ''); }
   // the sound follows the Quest's SOUND switch (it simply stops sending); the element is never muted after START STUDIO
-  return { S, _U: U /* #504 test hook */, desk, onVjSms: m => { if (desk) desk.onVjSms(m); }, onCx: m => { if (desk) desk.onCx(m); },   /* #520 GRAB RGB-D */ get sceneLag() { return vj && S.on && !S.paused && S.mode === 'show' && S.local ? S.trim : 0; }, onMsg, onScp, onTrack, onLink, frame, openDesk, openScreenWin, syncScreenWin, startVj, get needScreenWin() { return needScreenWin; }, get on() { return (S.on || vj) && !S.paused; }, get mon() { return S.on && !S.paused && S.mon; }, resume() { S.paused = false; apply(); } };
+  return { S, _U: U /* #504 test hook */, desk, onVjSms: m => { if (desk) desk.onVjSms(m); }, onCx: m => { if (desk) desk.onCx(m); },   /* #520 GRAB RGB-D */ get sceneLag() { return vj && S.on && !S.paused && S.mode === 'show' && S.local ? S.trim : 0; }, onMsg, onScp, onTrack, onLink, frame, openDesk, openScreenWin, syncScreenWin, startVj, outputHere, get needScreenWin() { return needScreenWin; }, get on() { return (S.on || vj) && !S.paused; }, get mon() { return S.on && !S.paused && S.mon; }, resume() { S.paused = false; apply(); } };
 }
