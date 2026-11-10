@@ -266,7 +266,11 @@ async function holoLoad(src) {
     if (HD.cfg && HD.cfg.src === src) { HD.p.group.visible = true; toast('Holodancer: ' + ((HD.p.meta && HD.p.meta.name) || 'on stage')); }
   } catch (e) { console.warn('holodancer', e); }
 }
+// #670 (owner, 10 Nov) no automatic placement: the performer DirroVJ sends is only remembered here. She comes back with the
+// Android "point at the floor and tap" HOLODANCER button (to build); until then the phones do not show her
+HD.auto = false;
 function holoCfg(h) {
+  if (!HD.auto) { HD.cfg = h && typeof h === 'object' && typeof h.src === 'string' ? h : null; if (HD.p) HD.p.group.visible = false; return; }
   h = h && typeof h === 'object' && typeof h.src === 'string' && (/^https:\/\//.test(h.src) || (location.hostname === 'localhost' && /^http:\/\/localhost[:/]/.test(h.src))) ? h : null;   // localhost only for a PC test
   const old = HD.cfg; HD.cfg = h;
   if (!h) { if (HD.p) HD.p.group.visible = false; return; }
