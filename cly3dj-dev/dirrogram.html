@@ -12,9 +12,7 @@
   canvas#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   /* #433 selfie: no mirror. Text on the LED wall and the scroller reads the right way, and the screen matches the clip a recording saves */
   .hide { display: none !important; }
-  #arUi { position: fixed; inset: 0; pointer-events: none; z-index: 6; }   /* #672 AR HOLODANCER overlay */
-  #arHint { position: absolute; top: calc(env(safe-area-inset-top) + 22px); left: 12px; right: 12px; text-align: center; font: 600 16px system-ui, sans-serif; color: #fff; text-shadow: 0 1px 5px #000, 0 0 2px #000; }
-  #arRow { position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 22px); display: flex; gap: 10px; justify-content: center; pointer-events: auto; }
+  .bsub { display: block; font-size: 10px; font-weight: 500; letter-spacing: 0.02em; opacity: 0.75; margin-top: 2px; text-transform: none; }   /* #676 */
   #start { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
     background: radial-gradient(ellipse at 50% 35%, #1a1030 0%, #05040a 70%); text-align: center; padding: 24px; z-index: 5; }
   #start h1 { margin: 0; font-size: 44px; letter-spacing: 0.08em; font-weight: 800; }
@@ -84,7 +82,8 @@
 <div id="aim" class="hide"></div>
 <div id="hint" class="hide">Point the ring at the centre DJ, then tap AIM</div>
 <div id="bar" class="hide">
-  <button class="btn hide" id="bHolo" title="Point at the floor and tap">HOLODANCER</button>
+  <button class="btn ghost" id="bPlace">PLACE HOLODANCER<small class="bsub">press and drag to turn</small></button>
+  <button class="btn ghost hide" id="bNext">NEXT DANCER</button>
   <button class="btn ghost" id="bRec">● REC</button>
   <button class="btn ghost" id="bAim">AIM</button>
   <button class="btn ghost" id="bFlip">SELFIE</button>
@@ -125,8 +124,6 @@
   <div class="smsRow"><span></span><button class="btn ghost" id="askNo">NO</button><button class="btn" id="askYes">YES</button></div>
 </div>
 <div id="net" class="hide"></div>
-<div id="arUi" class="hide"><div id="arHint">Point at the floor and tap</div>
-  <div id="arRow"><button class="btn ghost" id="arMove">MOVE</button><button class="btn ghost hide" id="arNext">NEXT DANCER</button><button class="btn ghost" id="arSize">LIFE SIZE</button><button class="btn" id="arExit">EXIT</button></div></div>
 <div id="toast" style="opacity:0"></div>
 <script type="module" src="./js/dirrogram.js"></script>
 </body>

@@ -265,7 +265,7 @@ async function holoLoad(src) {
     HD.p.group.visible = false;
     await HD.p.load(src);
     HD.loaded = src;   // #672
-    if (AR.on && arSrc() === src) { HD.p.group.visible = AR.placed; toast('Holodancer: ' + ((HD.p.meta && HD.p.meta.name) || 'on stage')); }
+    if ((AR.on || HP.on) && arSrc() === src) { HD.p.group.visible = AR.on ? AR.placed : HP.placed; toast('Holodancer: ' + ((HD.p.meta && HD.p.meta.name) || 'on stage')); }
   } catch (e) { console.warn('holodancer', e); }
   if (HD.loading === src) HD.loading = null;
 }
@@ -273,7 +273,7 @@ async function holoLoad(src) {
 // Android "point at the floor and tap" HOLODANCER button (to build); until then the phones do not show her
 HD.auto = false;
 function holoCfg(h) {
-  if (!HD.auto) { HD.cfg = h && typeof h === 'object' && typeof h.src === 'string' ? h : null; if (HD.p && !AR.on) HD.p.group.visible = false; return; }   // #672 in AR she stays
+  if (!HD.auto) { HD.cfg = h && typeof h === 'object' && typeof h.src === 'string' ? h : null; if (HD.p && !AR.on && !HP.on) HD.p.group.visible = false; return; }   // #672 in AR she stays
   h = h && typeof h === 'object' && typeof h.src === 'string' && (/^https:\/\//.test(h.src) || (location.hostname === 'localhost' && /^http:\/\/localhost[:/]/.test(h.src))) ? h : null;   // localhost only for a PC test
   const old = HD.cfg; HD.cfg = h;
   if (!h) { if (HD.p) HD.p.group.visible = false; return; }
@@ -299,92 +299,63 @@ function holoSync(now) {
   } else v.playbackRate = c.sp || 1;
 }
 
-// #672 HOLODANCER on the floor (owner, 10 Nov): Android Chrome, back camera, no marker. The button starts a WebXR AR session (the
-// phone's own camera picture and tracking), a ring follows the floor / bar top under the screen centre, one tap stands her there
-// life size (or SMALL for a bar top), pinned with an anchor where the phone offers one. She keeps in step with DirroVJ's dance.
-// The booth, robot, lasers and wall are the camera mode's; AR shows her alone. EXIT (or the phone's back) returns to the camera mode.
-const AR = { on: false, sess: null, hts: null, ref: null, placed: false, anchor: null, hitRes: null, hitM: new THREE.Matrix4(), small: false };
-const arScene = new THREE.Scene(), arGrp = new THREE.Group(); arScene.add(arGrp, new THREE.HemisphereLight(0xffffff, 0x303040, 1));
-const reticle = new THREE.Group(); reticle.matrixAutoUpdate = false; reticle.visible = false; arScene.add(reticle);
-reticle.add(new THREE.Mesh(new THREE.RingGeometry(0.17, 0.21, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x39e6ff, transparent: true, opacity: 0.9, depthTest: false })),
-  new THREE.Mesh(new THREE.CircleGeometry(0.025, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false })));
-const _arP = new THREE.Vector3(), _arC = new THREE.Vector3();
-if (navigator.xr && navigator.xr.isSessionSupported) navigator.xr.isSessionSupported('immersive-ar').then(ok => { if (ok) $('bHolo').classList.remove('hide'); }).catch(() => {});
-const arHint = t => { $('arHint').textContent = t; };
-// #673 standalone (owner, 11 Nov: no Quest, no DirroVJ needed): the performer library on cabin.dirrodj.club (= cly3dj-dev, ?holo= to
-// change it). A performer DirroVJ sends (through the Quest) wins while it comes, kept in step with the desk; otherwise she dances
-// from the library on this phone's own clock, and NEXT DANCER steps through the library.
+// #672 / #673 the Holodancer for the phones (the WebXR AR walk-around was removed in #676: PLACE HOLODANCER in the camera mode, turned by
+// hand, does the job on every phone). The performer library on cabin.dirrodj.club (= cly3dj-dev, ?holo= to change it); a performer
+// DirroVJ sends wins while it comes and keeps in step with the desk, otherwise it dances on this phone's own clock; NEXT DANCER
+// steps through the library.
+const AR = { on: false, lib: [], li: 0 };   // on stays false (kept for holoSync / holoLoad)
 const HOLO_LIB = (Q.get('holo') || 'https://cabin.dirrodj.club/holo/').replace(/\/?$/, '/');
-AR.lib = []; AR.li = 0;
 fetch(HOLO_LIB + 'library.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(j => {
   AR.lib = ((j && j.performers) || []).filter(p => p.layout !== '8b').map(p => ({ id: p.id, name: p.name || p.id, src: HOLO_LIB + p.id + '/performer.json' }));   // 8-view is too tall for phone decoders
+  hpNextVis();
 }).catch(() => {});
 const arSrc = () => HD.cfg ? HD.cfg.src : AR.lib.length ? AR.lib[AR.li % AR.lib.length].src : null;
-const arNextVis = () => $('arNext').classList.toggle('hide', !!HD.cfg || AR.lib.length < 2);
-async function arStart() {
-  if (AR.on) return;
-  if (!arSrc()) { toast('No Holodancer here yet (the performer library did not load)'); return; }
-  let sess;
-  try { sess = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay', 'anchors'], domOverlay: { root: $('arUi') } }); }
-  catch (e) { toast('AR could not start on this phone: ' + (e.message || e)); return; }
-  if (stream) { for (const t of stream.getTracks()) t.stop(); stream = null; }   // the AR session needs the back camera to itself
-  bgMat.uniforms.uOn.value = 0;
-  AR.on = true; AR.sess = sess; AR.placed = false; AR.anchor = null; AR.hitRes = null;
-  show('arUi', true); arHint('Point at the floor and tap'); $('arSize').textContent = AR.small ? 'SMALL' : 'LIFE SIZE';
-  try {
-    renderer.xr.enabled = true; renderer.xr.setReferenceSpaceType('local');
-    await renderer.xr.setSession(sess); AR.ref = renderer.xr.getReferenceSpace();
-    const vs = await sess.requestReferenceSpace('viewer'); AR.hts = await sess.requestHitTestSource({ space: vs });
-    sess.addEventListener('select', arTap); sess.addEventListener('end', arEnd);
-  } catch (e) { toast('AR could not start: ' + (e.message || e)); arEnd(); return; }
-  arNextVis();
-  const sr = arSrc(); if (HD.loaded !== sr && HD.loading !== sr) { arHint('Loading the Holodancer… then point at the floor and tap'); holoLoad(sr); }
+
+// #676 PLACE HOLODANCER in the camera mode (owner, 11 Nov): every phone, iPhones too, no WebXR. The gyroscope gives only the
+// phone's direction, so the dancer is stood on the floor from the tilt: the ring on a floor spot, a tap, and the spot is
+// HP.h (1.4 m, a phone held up) below the eye along that line. Right while standing and panning; walking makes the dancer
+// slide along (the walk-around is the AR button). Press and drag sideways = turn the dancer, up / down = nearer / farther.
+const HP = { on: false, picking: false, placed: false, h: 1.4, grp: new THREE.Group() };
+HP.grp.name = 'placedHolodancer'; scene.add(HP.grp);
+const hpLabel = () => { $('bPlace').firstChild.textContent = HP.picking ? 'CANCEL' : HP.placed ? 'MOVE HOLODANCER' : 'PLACE HOLODANCER'; hpNextVis(); };
+function hpNextVis() { $('bNext').classList.toggle('hide', !HP.placed || !!HD.cfg || AR.lib.length < 2); }
+function hpStart() {
+  if (HP.picking) { HP.picking = false; if (!HP.placed) hpOff(); show('aim', false); show('hint', false); hpLabel(); return; }
+  const sr = arSrc(); if (!sr) { toast('No Holodancer here yet (the performer library did not load)'); return; }
+  aimMenu(false); HP.on = true; HP.picking = true; hpLabel();
+  $('hint').textContent = 'Point the ring at the floor where the dancer stands, then tap'; show('aim', true); show('hint', true);
+  if (HD.loaded !== sr && HD.loading !== sr) holoLoad(sr);
 }
-function arTap() {
-  if (!AR.on || !AR.hitRes) return;
-  _arP.setFromMatrixPosition(AR.hitM); arGrp.position.copy(_arP);
-  renderer.xr.getCamera().getWorldPosition(_arC); arGrp.rotation.set(0, Math.atan2(_arC.x - _arP.x, _arC.z - _arP.z), 0);   // she faces whoever placed her
-  if (AR.anchor) { try { AR.anchor.delete(); } catch {} AR.anchor = null; }
-  if (AR.hitRes.createAnchor) AR.hitRes.createAnchor().then(a => { if (AR.on) AR.anchor = a; else try { a.delete(); } catch {} }).catch(() => {});
-  AR.placed = true; reticle.visible = false; arHint('Walk round her · MOVE to stand her somewhere else');
+function hpOff() { HP.on = HP.placed = HP.picking = false; if (HD.p && HD.p.group.parent === HP.grp) { HD.grp.add(HD.p.group); HD.p.group.visible = false; if (HD.p.video) HD.p.video.pause(); } hpLabel(); }
+function hpPlace() {
+  const f = V(0, 0, -1).applyQuaternion(camQuat(new THREE.Quaternion())); camera.updateMatrixWorld(); const e = camera.getWorldPosition(new THREE.Vector3());
+  if (f.y > -0.08) { toast('Point lower, at the floor'); return; }
+  const t = Math.min(12, HP.h / -f.y), P = e.clone().addScaledVector(f, t);
+  if (t >= 12) P.y = e.y - HP.h;   // too shallow: 12 m out, on the floor
+  HP.grp.position.copy(P); HP.grp.rotation.set(0, Math.atan2(e.x - P.x, e.z - P.z), 0);   // facing the phone
+  HP.picking = false; HP.placed = true; show('aim', false); show('hint', false); hpLabel();
+  toast('Press and drag sideways to turn · up / down = nearer / farther');
 }
-function arFrame(now, xf) {
-  if (xf && AR.ref) {
-    if (AR.hts && !AR.placed) {
-      const r = xf.getHitTestResults(AR.hts), pose = r.length ? r[0].getPose(AR.ref) : null;
-      if (pose) { AR.hitRes = r[0]; AR.hitM.fromArray(pose.transform.matrix); reticle.matrix.copy(AR.hitM); reticle.visible = true; }
-      else { AR.hitRes = null; reticle.visible = false; }
-    }
-    if (AR.placed && AR.anchor) { const ap = xf.getPose(AR.anchor.anchorSpace, AR.ref); if (ap) { const q = ap.transform.position; arGrp.position.set(q.x, q.y, q.z); } }
-  }
-  arGrp.scale.setScalar(AR.small ? 0.3 : 1);
-  { const sr = arSrc(); if (sr && HD.loaded !== sr && HD.loading !== sr) { holoLoad(sr); arNextVis(); } }   // the DJ changed (or sent / stopped) a performer, or NEXT DANCER
-  const p = HD.p;
-  if (p && p.ready) {
-    if (p.group.parent !== arGrp) arGrp.add(p.group);
-    p.group.visible = AR.placed;
-    if (AR.placed) { const xc = renderer.xr.getCamera(); xc.getWorldPosition(_hd); p.update(_hd, T, xc); holoSync(now); }
-  }
-  renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(arScene, camera);
+function hpStep(now) {
+  if (!HP.on || AR.on) return;
+  const sr = arSrc(); if (sr && HD.loaded !== sr && HD.loading !== sr) { holoLoad(sr); hpNextVis(); }   // the DJ changed (or sent / stopped) a performer, or NEXT DANCER
+  const p = HD.p; if (!p || !p.ready) return;
+  if (p.group.parent !== HP.grp) HP.grp.add(p.group);
+  p.group.visible = HP.placed; if (!HP.placed) return;
+  camera.getWorldPosition(_hd); p.update(_hd, T, camera); holoSync(now);
 }
-function arEnd() {
-  if (!AR.on) return; AR.on = false;
-  try { if (AR.hts) AR.hts.cancel(); } catch {} AR.hts = null;
-  if (AR.anchor) { try { AR.anchor.delete(); } catch {} AR.anchor = null; }
-  const s = AR.sess; AR.sess = null; AR.placed = false; reticle.visible = false;
-  if (s) { s.removeEventListener('end', arEnd); s.removeEventListener('select', arTap); s.end().catch(() => {}); }
-  renderer.xr.enabled = false; renderer.setClearColor(0x000000, 1);
-  if (HD.p) { HD.grp.add(HD.p.group); HD.p.group.visible = false; if (HD.p.video) HD.p.video.pause(); }
-  show('arUi', false);
-  (Q.has('demo') ? startDemo() : startCamera(selfie)).catch(e => toast('Camera: ' + (e.message || e)));
-  setTimeout(resize, 300);
+{ let d = null;   // press and drag on the picture: turn the placed dancer (sideways), nearer / farther (up / down)
+  canvas.addEventListener('pointerdown', e => { if (HP.placed && !HP.picking) d = [e.clientX, e.clientY]; });
+  window.addEventListener('pointerup', () => { d = null; });
+  window.addEventListener('pointermove', e => {
+    if (!d) return; const dx = e.clientX - d[0], dy = e.clientY - d[1]; d = [e.clientX, e.clientY];
+    HP.grp.rotation.y += dx * 0.012;
+    const E = camera.getWorldPosition(new THREE.Vector3()), off = HP.grp.position.clone().sub(E), k = clamp(1 - dy * 0.004, 0.9, 1.1);
+    const flat = Math.hypot(off.x, off.z) * k; if (flat > 0.4 && flat < 15) { HP.grp.position.x = E.x + off.x * k; HP.grp.position.z = E.z + off.z * k; }
+  });
 }
-$('bHolo').onclick = () => arStart();
-$('arExit').onclick = () => arEnd();
-$('arNext').onclick = () => { if (HD.cfg || AR.lib.length < 2) return; AR.li = (AR.li + 1) % AR.lib.length; toast(AR.lib[AR.li].name); };   // #673
-$('arMove').onclick = () => { if (!AR.on) return; AR.placed = false; if (AR.anchor) { try { AR.anchor.delete(); } catch {} AR.anchor = null; } arHint('Point at the floor and tap'); };
-$('arSize').onclick = () => { AR.small = !AR.small; $('arSize').textContent = AR.small ? 'SMALL' : 'LIFE SIZE'; };
-$('arUi').addEventListener('beforexrselect', e => { if (e.target && e.target.closest && e.target.closest('button')) e.preventDefault(); });   // a button tap is not a placing tap
+$('bPlace').onclick = () => hpStart();
+$('bNext').onclick = () => { if (HD.cfg || AR.lib.length < 2) return; AR.li = (AR.li + 1) % AR.lib.length; toast(AR.lib[AR.li].name); };
 addEventListener('pointerdown', () => { HD.tap = true; if (HD.p && HD.p.ready && HD.p.video.paused) HD.p.video.play().catch(() => {}); }, { passive: true });
 const robotRoot = new THREE.Group(); booth.add(robotRoot);
 const gear = new THREE.Group(); gear.rotation.y = Math.PI; booth.add(gear);   // Cly3DJ gear faces a DJ looking down -z; the robot looks down +z
@@ -768,13 +739,12 @@ function wallFx(now, q) {
   return wfxTex;
 }
 const _cq = new THREE.Quaternion();
-function frame(_ft, xf) {
+function frame() {
   const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000); last = now; T += dt;
   if (NET.relay && !NET.ws && now >= NET.retryT) netConnect();
   if (NET.ws && NET.ws.readyState === 1 && now - (NET.pingT || 0) > 3000) { NET.pingT = now; NET.ws.send(JSON.stringify({ k: 'ping', c: now })); }
   netStatus(now);
   beatStep(now, dt);
-  if (AR.on && renderer.xr.isPresenting) { arFrame(now, xf); return; }   // #672
   camQuat(_cq); camera.quaternion.copy(_cq); camera.updateMatrixWorld();
   // LED wall: fractal, a promo card for 6 s every 24 s, NOW SPINNING band 10 s in every 30 s
   promoT += dt; const pc = promoT % 24, cc = T % 30;
@@ -795,6 +765,7 @@ function frame(_ft, xf) {
   wu.uCap.value += ((cc < 10 || T < capUntil ? 1 : 0) - wu.uCap.value) * Math.min(1, dt * 4);
   scrMat.uniforms.uT.value = T; scrMat.uniforms.uKick.value = beat.kick; scrMat.uniforms.uOff.value = (T * 0.07) % 1;
   for (const d of decks) if (d.userData.platter) d.userData.platter.rotation.y -= dt * (33.333 / 60) * Math.PI * 2;
+  hpStep(now);   // #676
   if (stage.visible) {
     robotStep(now, dt, T);
     holoStep(now);   // #575
@@ -876,6 +847,7 @@ $('mBcn').onclick = () => {
   aimMenu(false); BCN.step = 1; BCN.dirs = []; BCN.pts = []; $('hint').textContent = BCN_HINT[1]; show('aim', true); show('hint', true);
 };
 function ringTap() {
+  if (HP.picking) { hpPlace(); return; }   // #676
   if (BCN.step) {
     const Bs = bcnStage(); if (!Bs) { BCN.step = 0; toast('The beacons are gone: use AIM'); return; }
     BCN.dirs.push(V(0, 0, -1).applyQuaternion(camQuat(new THREE.Quaternion())));
@@ -983,7 +955,7 @@ $('smsSend').onclick = () => {
   NET.ws.send(JSON.stringify({ k: 'sms', t })); $('smsIn').value = ''; $('smsN').textContent = '0 / 140'; show('sms', false);
 };
 // tapping anywhere while the ring shows = AIM
-canvas.addEventListener('click', () => { if (!$('aim').classList.contains('hide') && (BCN.step || !aimF)) ringTap(); });
+canvas.addEventListener('click', () => { if (!$('aim').classList.contains('hide') && (BCN.step || !aimF || HP.picking)) ringTap(); });
 
 $('go').onclick = async () => {
   $('err').textContent = '';

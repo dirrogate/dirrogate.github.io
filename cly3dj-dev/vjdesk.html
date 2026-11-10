@@ -209,9 +209,9 @@
       <h2>Holodancer <span class="note" style="text-transform:none;letter-spacing:0">pick a ① / ④ / ⑧ performer in DANCER CLIPS below · made with the Holodancer builder</span></h2>
       <div class="dzTop">
         <div class="dzCamW">
-          <div class="dzPadW"><div id="hoPad" title="Camera. X (left to right) = round her 0 to 360 degrees. Y (bottom to top) = camera height, low to high. Double-click = front, eye level."><div id="hoDot"></div><span class="dzAx x">X</span><span class="dzAx y">Y</span></div><span id="hoXY" class="sp">X 0° · Y 8°</span></div>
+          <div class="dzPadW"><div id="hoPad" title="Camera. X (left to right) = round the dancer 0 to 360 degrees. Y (bottom to top) = camera height, low to high. Double-click = front, eye level."><div id="hoDot"></div><span class="dzAx x">X</span><span class="dzAx y">Y</span></div><span id="hoXY" class="sp">X 0° · Y 8°</span></div>
           <div class="dzZoomW"><div class="tbar" id="hoZoomT" title="Zoom T-bar: push up = closer, pull down = wide."></div><span id="hoZoomV" class="sp">1.0×</span></div>
-          <div class="dzBtnCol"><button id="hoOrbit" title="Slow orbit round her (6° a second) on top of the pad">ORBIT</button><button id="hoTears" title="Torn geometry shown as cyan scan lines (depth performers)">HOLO TEARS</button><button id="hoRoom" title="Relight her from above-front using her depth (depth performers)">RELIGHT</button><div class="dzSpd" title="Dance speed 0.25x to 2x. Double-click = 1x."><div class="tbar h mini" id="hoSpeedT"></div><span id="hoSpeedV">SPEED 1.00×</span></div></div>
+          <div class="dzBtnCol"><button id="hoOrbit" title="Slow orbit round the dancer (6° a second) on top of the pad">ORBIT</button><button id="hoTears" title="Torn geometry shown as cyan scan lines (depth performers)">HOLO TEARS</button><button id="hoRoom" title="Relight her from above-front using her depth (depth performers)">RELIGHT</button><div class="dzSpd" title="Dance speed 0.25x to 2x. Double-click = 1x."><div class="tbar h mini" id="hoSpeedT"></div><span id="hoSpeedV">SPEED 1.00×</span></div></div>
         </div>
       </div>
       <div class="row" id="hoGlRow" hidden><span class="dzL">GLITCH</span><label class="kv"><span class="sp">View change</span><input type="range" id="hoGlitch" min="0" max="1.5" step="0.05" value="1" title="Glitch when the camera passes to the next view (8-view performers)"></label></div>
@@ -220,19 +220,19 @@
       <div id="hoSt" class="note">Not loaded yet: pick HOLO on a bus or a performer.</div>
     </section>
 <section style="margin-top:14px" id="hpS">
-      <h2>In the webcam <span class="note" style="text-transform:none;letter-spacing:0">stand a dancer on the bar top, the floor, a stage riser</span></h2>
+      <h2>In the webcam <span class="note" style="text-transform:none;letter-spacing:0">place a dancer on the bar top, the floor, a stage riser</span></h2>
       <div id="hpBox">
-        <div class="row"><span class="note" style="margin:0">#668 / #669 she dances inside the webcam picture: put HOLO+CAM (Holodancer) or DANCER+CAM (3D Dancer) on a bus, CUE it, then stand her on the monitor. One spot for both.</span></div>
-        <div class="row"><button id="hpPick" title="On: click or drag on the monitor = where her feet go, mouse wheel on the monitor = her height">STAND HER ON THE MONITOR</button>
+        <div class="row"><span class="note" style="margin:0">#668 / #669 the dancer inside the webcam picture: put HOLO+CAM (Holodancer) or DANCER+CAM (3D Dancer) on a bus, CUE it, then place the dancer on the monitor. One spot for both.</span></div>
+        <div class="row"><button id="hpPick" title="On: click or drag on the monitor = where the feet go, mouse wheel on the monitor = the dancer's height">PLACE ON THE MONITOR</button>
           <label class="note" style="margin:0"><input type="checkbox" id="hp_flip"> mirror</label><button id="hpReset">RESET</button><span id="hpSt" class="note" style="margin:0"></span></div>
         <div class="row">
-          <label class="kv" title="How tall she is on screen (part of the frame height)"><span class="sp">HEIGHT</span><input type="range" id="hp_h" min="0.05" max="1.2" step="0.01"></label>
-          <label class="kv" title="Where the webcam is against her feet: + = above, looking down (camera high on the wall aimed at the bar), 0 = level, - = below, looking up (camera low on the floor, her on the bar top)"><span class="sp">CAMERA POS</span><input type="range" id="hp_el" min="-60" max="60" step="1"><b id="hp_elV" class="note" style="margin:0;min-width:3.5em"></b></label>
-          <label class="kv" title="Which way she faces the webcam (0 = straight at it)"><span class="sp">FACING</span><input type="range" id="hp_face" min="0" max="360" step="1"></label></div>
+          <label class="kv" title="How tall the dancer is on screen (part of the frame height)"><span class="sp">HEIGHT</span><input type="range" id="hp_h" min="0.05" max="1.2" step="0.01"></label>
+          <label class="kv" title="Where the webcam is against the dancer's feet: + = above, looking down (camera high on the wall aimed at the bar), 0 = level, - = below, looking up (camera low on the floor, the dancer on the bar top)"><span class="sp">CAMERA POS</span><input type="range" id="hp_el" min="-60" max="60" step="1"><b id="hp_elV" class="note" style="margin:0;min-width:3.5em"></b></label>
+          <label class="kv" title="Which way the dancer faces the webcam (0 = straight at it)"><span class="sp">FACING</span><input type="range" id="hp_face" min="0" max="360" step="1"></label></div>
         <div class="row">
-          <label class="kv" title="Her shadow on the surface: the 3D Dancer casts a real one, the Holodancer gets a soft patch. Gone when the camera is below the surface"><span class="sp">SHADOW</span><input type="range" id="hp_shadow" min="0" max="1" step="0.05"></label>
-          <label class="kv" title="Pull her colours and brightness toward the light in the webcam picture"><span class="sp">LIGHT MATCH</span><input type="range" id="hp_light" min="0" max="1" step="0.05"></label>
-          <label class="kv" title="Hide her below a line, for a bar front or rail in front of her. 0 = off"><span class="sp">FRONT EDGE</span><input type="range" id="hp_cut" min="0" max="1" step="0.01"></label></div>
+          <label class="kv" title="The dancer's shadow on the surface: the 3D Dancer casts a real one, the Holodancer gets a soft patch. Gone when the camera is below the surface"><span class="sp">SHADOW</span><input type="range" id="hp_shadow" min="0" max="1" step="0.05"></label>
+          <label class="kv" title="Pull the dancer's colours and brightness toward the light in the webcam picture"><span class="sp">LIGHT MATCH</span><input type="range" id="hp_light" min="0" max="1" step="0.05"></label>
+          <label class="kv" title="Hide the dancer below a line, for a bar front or rail in front. 0 = off"><span class="sp">FRONT EDGE</span><input type="range" id="hp_cut" min="0" max="1" step="0.01"></label></div>
       </div>
     </section>
     <section style="margin-top:14px">
@@ -898,7 +898,7 @@ function renderCaHp() {
   const P = D.hp; if (P) { for (const k of ['h', 'el', 'face', 'shadow', 'light', 'cut']) if (document.activeElement !== $('hp_' + k)) $('hp_' + k).value = P[k];
     $('hp_flip').checked = !!P.flip; elV();
     const isC = v => v === 'hocam' || v === 'dzcam', bus = isC(D.a) ? D.a : isC(D.b) ? D.b : '', onBus = !!bus, shown = D.cue ? isC(D[D.cue]) : (D.x < 1 && isC(D.a)) || (D.x > 0 && isC(D.b));
-    $('hpSt').textContent = !onBus ? 'put HOLO+CAM or DANCER+CAM on bus A or B' : !shown ? 'CUE that bus so the monitor shows it while you place her' : bus === 'hocam' && !D.holo.loaded ? 'pick a performer (DANCER CLIPS ① ④ ⑧)' : bus === 'dzcam' && !(D.dz && D.dz.loaded) ? 'DANCER is loading…' : 'feet at ' + Math.round(P.x * 100) + '%, ' + Math.round(P.y * 100) + '% · height ' + Math.round(P.h * 100) + '%'; }
+    $('hpSt').textContent = !onBus ? 'put HOLO+CAM or DANCER+CAM on bus A or B' : !shown ? 'CUE that bus so the monitor shows it while you place the dancer' : bus === 'hocam' && !D.holo.loaded ? 'pick a performer (DANCER CLIPS ① ④ ⑧)' : bus === 'dzcam' && !(D.dz && D.dz.loaded) ? 'DANCER is loading…' : 'feet at ' + Math.round(P.x * 100) + '%, ' + Math.round(P.y * 100) + '% · height ' + Math.round(P.h * 100) + '%'; }
 }
 send({ k: 'hello' });
 // #662 master tempo + DirroVerse + DirroTV pairing in SOLO
