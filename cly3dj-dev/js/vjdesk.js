@@ -10,6 +10,7 @@ import { makeComics } from './comics.js';   // #516 DirroComics
 import * as media from './medialib.js';   // #532 IMAGES / VIDEOS / PANOS clip decks
 import { holoDefaults, makeHoloDesk } from './holodesk.js';   // #573 HOLO: Holodancer performers (small modules; the atlas video loads on first use)
 import { Scroller } from './tools.js';
+import { DirroHost, fanUrl, roomKey } from './dirro-host.js';   // #674 DIRROGRAM from this laptop (SOLO)
 import { makeDirroverse } from './dirroverse.js';   // #662 DIRROVERSE: Cyber-Window sets (the studio on this laptop) on the buses   // #556 the same bitmap sine scroller as the Quest's, for the program when there is no Quest
 // #550 DANCER: js/dancerdesk.js is imported only when the desk first needs her (its loaders, post chain and the 5 MB GLB stay out of the start)
 function dzDefaults() {
@@ -140,7 +141,7 @@ const HP0 = { x: 0.5, y: 0.8, h: 0.4, el: 8, face: 0, flip: false, shadow: 0.55,
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
   const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), holo: holoDefaults(), chDesk: '', audioAuto: false, lsc: '', cue: '',
     tempo: 'line', bpm: 0, beatN: 0, dv: { set: '', sets: [], files: [], arrivals: [], status: '', studio: '', cam: true, playing: '', job: null, match: 0.7 },
-    cast: { on: false, label: '', l: 0, r: 0, t: 0, b: 0 }, hp: { ...HP0 } };   // #667 CAST crop, #668 HOLO+CAM placement   // #662 master tempo (LINE IN / TAP) + DirroVerse   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
+    cast: { on: false, label: '', l: 0, r: 0, t: 0, b: 0 }, hp: { ...HP0 }, gram: { on: false, st: 'Off', url: '', room: '' }, beatT: 0 };   // #667 CAST crop, #668 HOLO+CAM placement   // #662 master tempo (LINE IN / TAP) + DirroVerse   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
   try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
   try { const o = JSON.parse(localStorage.getItem('vire.vjCast') || '{}'); for (const k of ['l', 'r', 't', 'b']) if (+o[k] >= 0) D.cast[k] = Math.min(0.45, +o[k]); } catch {}
@@ -216,9 +217,23 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   const hoNeed = used => !!ho && (used.includes('holo') || used.includes('hocam'));   // #668
   // #575 SEND TO DIRROGRAM: every 2 s (and on a change) the performer + where the dance is, through the Quest link; the Quest puts it
   // in the config the relay keeps for the phones (dirro-host.js setHolo), the phones keep in step on the Quest clock they already track
+  // #674 DIRROGRAM from this laptop (SOLO, owner 11 Nov): the Quest's own sender (dirro-host.js) run here with a still 'head', the
+  // master tempo as the beat, no lasers. Its own room (kept in this browser), its own QR and short link dirrodj.club/<ROOM>. The phones
+  // in it get the beat, the Holodancer (SEND TO DIRROGRAM) and their LIVE pill; HoloSMS land here (the desk shows them).
+  let gram = null;
+  const gramHost = () => gram || (gram = (() => {
+    const rig = new THREE.Object3D(), cam = new THREE.PerspectiveCamera(50, 1, 0.1, 10); cam.position.set(0, 1.62, 0.2); cam.updateMatrixWorld();
+    return new DirroHost({ renderer, rig, camera: cam, getXr: () => null, getBeat: () => ({ count: D.beatN, last: D.beatT }), tapBpm: () => D.bpm || 0, micLevel: () => 0,
+      nowPlaying: () => ({ a: '', bpm: D.bpm || 0 }), scrollText: () => '', onChange: () => gramSt(), onSms: t => bc.postMessage({ k: 'cxmsg', t: 'HoloSMS from a phone: ' + t }) });
+  })());
+  function gramSt() { const g = gram; const G = D.gram; G.on = !!(g && g.on); G.st = g ? g.status() : 'Off'; G.url = G.on ? fanUrl() : ''; G.room = G.on ? roomKey() : ''; post(); }
+  try { if (localStorage.getItem('vire.dirroOn') === '1') { gramHost(); gramSt(); } } catch {}
+  setInterval(() => { if (gram && gram.on) gram.tick(performance.now()); }, 33);
+  setInterval(() => { if (gram && gram.on) gramSt(); }, 2000);
   let hoSent = false;
   function holoGram() {
     const H = D.holo, L = getLink(), open = !!(L && L.isOpen);
+    if (gram && gram.on) gram.setHolo(H.gram && ho && ho.ready && ho.player.meta ? { on: true, id: H.perf, src: H.pub.replace(/\/?$/, '/') + H.perf + '/performer.json', pos: ho.t, sp: H.speed, dur: ho.player.meta.duration || ho.player.video.duration || 0 } : { on: false });   // #674
     if (!open) { hoSent = false; return; }
     if (!H.gram || !ho || !ho.ready || !ho.player.meta) { if (hoSent) { L.send('ctl', { k: 'vjholo', on: false }); hoSent = false; } return; }
     L.send('ctl', { k: 'vjholo', on: true, id: H.perf, src: H.pub.replace(/\/?$/, '/') + H.perf + '/performer.json', pos: ho.t, sp: H.speed, dur: ho.player.meta.duration || ho.player.video.duration || 0 });
@@ -249,14 +264,14 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     } else bass *= 0.9;
     if (D.tempo === 'tap' && D.bpm > 0) {   // #662 TAP: a steady clock at the tapped BPM
       const per = 60000 / D.bpm; if (!tClock.next || tClock.next < now - per) tClock.next = now;
-      if (now >= tClock.next) { tClock.next += per; pulse = 1; D.kick++; D.beatN++; if (peers) post(); }
+      if (now >= tClock.next) { tClock.next += per; pulse = 1; D.kick++; D.beatN++; D.beatT = now; if (peers) post(); }
     }
     pulse *= Math.exp(-dt * 5.5);
   }
   // #662 master tempo: LINE IN estimates the BPM from the kick spacing (median of the last 8, folded into 70..180); TAP = taps averaged
   const tClock = { next: 0, kicks: [], taps: [] };
   function tempoKick(now) {
-    const K = tClock.kicks; K.push(now); while (K.length > 9) K.shift(); D.beatN++;
+    const K = tClock.kicks; K.push(now); while (K.length > 9) K.shift(); D.beatN++; D.beatT = now;
     if (K.length >= 5) { const iv = K.slice(1).map((t, i) => t - K[i]).filter(x => x > 250 && x < 1600).sort((a, b) => a - b);
       if (iv.length >= 4) { let b = 60000 / iv[iv.length >> 1]; while (b < 70) b *= 2; while (b > 180) b /= 2; D.bpm = Math.round((D.bpm ? D.bpm * 0.7 + b * 0.3 : b) * 10) / 10; } }
   }
@@ -470,6 +485,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     else if (m.k === 'tempo') { D.tempo = m.v === 'tap' ? 'tap' : 'line'; if (D.tempo === 'line') tClock.kicks.length = 0; post(); }
     else if (m.k === 'nudge') { if (D.bpm > 0) D.bpm = Math.max(40, Math.min(220, Math.round((D.bpm + (+m.d || 0)) * 10) / 10)); post(); }
     else if (m.k === 'tvpair') { if (studioCtl && studioCtl.tvPair) studioCtl.tvPair(String(m.code || '')).then(t => bc.postMessage({ k: 'cxmsg', t })).catch(e => bc.postMessage({ k: 'cxmsg', t: 'DirroTV: ' + e.message })); }   // #662 SOLO: pair a TV from the desk
+    else if (m.k === 'gram') { gramHost().setOn(!!m.on); gramSt(); setTimeout(holoGram, 300); return; }   // #674
     else if (m.k === 'cast') { if (m.op === 'stop') setCast(null); else if (m.op === 'crop' && m.v) { for (const k of ['l', 'r', 't', 'b']) if (m.v[k] != null) D.cast[k] = Math.max(0, Math.min(0.45, +m.v[k] || 0)); try { localStorage.setItem('vire.vjCast', JSON.stringify({ l: D.cast.l, r: D.cast.r, t: D.cast.t, b: D.cast.b })); } catch {} } post(); }   // #667
     else if (m.k === 'hp') { if (m.reset) Object.assign(D.hp, HP0); else if (m.v) for (const k of Object.keys(HP0)) if (m.v[k] != null) D.hp[k] = typeof HP0[k] === 'boolean' ? !!m.v[k] : +m.v[k];   // #668
       try { localStorage.setItem('vire.vjHp', JSON.stringify(D.hp)); } catch {} post(); }

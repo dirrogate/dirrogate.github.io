@@ -752,7 +752,7 @@ function robotStep(now, dt, t) {
 // ---------------------------------------------------------------- frame loop
 let last = performance.now(), T = 0, promoT = 0, capUntil = 0, netShown = '';
 function netStatus(now) {   // the pill top right: LIVE with the round trip, or what the link is doing
-  if (!NET.relay) return;
+  if (!NET.relay || !NET.room) return;   // #674 no room (dirrodj.club/gram opened on its own): no pill, the page runs standalone
   const s = netLive(now) ? `\u25cf LIVE ${Math.round(NET.rtt)} ms` : NET.state === 'open' ? '\u25cb WAITING FOR THE DJ' : '\u25cb CONNECTING';
   if (s === netShown) return; netShown = s; const el = $('net'); el.textContent = s; el.classList.remove('hide'); el.classList.toggle('on', netLive(now));
 }

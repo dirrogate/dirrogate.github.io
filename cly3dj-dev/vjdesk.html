@@ -243,6 +243,13 @@
     </section>
   </div>
 </main>
+<section id="grS" style="margin:0 16px 14px">
+  <h2>Dirrogram from this laptop <span class="note" style="text-transform:none;letter-spacing:0">#674 SOLO: phones join this laptop's own room, no Quest needed (LINKED shows use the Quest's room and QR)</span></h2>
+  <div class="row" style="align-items:flex-start"><canvas id="grQr" width="164" height="164" style="background:#fff;border-radius:6px;display:none"></canvas>
+    <div style="flex:1;min-width:220px"><div class="row"><button id="grOn">DIRROGRAM: OFF</button><span id="grSt" class="note" style="margin:0"></span></div>
+      <div id="grUrl" style="font:700 20px system-ui;margin:6px 0;letter-spacing:.03em"></div>
+      <div class="note">Phones scan the QR or open the link: they get the beat (master tempo), the Holodancer when SEND TO DIRROGRAM is on, and send HoloSMS here. Without the room, dirrodj.club/gram still runs on its own (camera mode, and the HOLODANCER button on Android from the performer library).</div></div></div>
+</section>
 <section id="caS" style="margin:0 16px 14px">
   <h2>Cast <span class="note" style="text-transform:none;letter-spacing:0">#667 the Quest 3 as the wearer sees it (portals, domes, gear all in place): put CAST on bus A or B</span></h2>
   <div class="row"><button id="caPick" title="Pick the Chrome tab or window that shows the Quest casting (oculus.com/casting). Video only, no sound.">PICK THE CASTING WINDOW…</button><button id="caStop">STOP</button><span id="caSt" class="note" style="margin:0"></span></div>
@@ -803,7 +810,7 @@ function renderHo() {
   $('hoOrbit').classList.toggle('on', !!Z.cam.orbit); $('hoTears').classList.toggle('on', !!Z.tears); $('hoRoom').classList.toggle('on', !!Z.room);
   $('hoGlRow').hidden = Z.layout !== '8b';
   $('hoGram').classList.toggle('on', !!Z.gram); if (document.activeElement !== $('hoPub')) $('hoPub').value = Z.pub || '';   // #575
-  $('hoGramSt').textContent = !Z.gram ? '' : !S.D.qlink ? 'DIRROGRAM: waiting for the Quest link (phones get her once the Quest is linked and this DirroVJ is allowed)' : !Z.loaded ? 'DIRROGRAM: load a performer first' : `DIRROGRAM: sent to the Quest every 2 s · phones load ${Z.pub}${Z.perf}/`;
+  $('hoGramSt').textContent = !Z.gram ? '' : S.D.gram && S.D.gram.on ? (!Z.loaded ? 'DIRROGRAM: load a performer first' : `DIRROGRAM: sent to this laptop's room (${S.D.gram.room}) · phones load ${Z.pub}${Z.perf}/`) : !S.D.qlink ? 'DIRROGRAM: waiting for the Quest link (phones get her once the Quest is linked and this DirroVJ is allowed)' : !Z.loaded ? 'DIRROGRAM: load a performer first' : `DIRROGRAM: sent to the Quest every 2 s · phones load ${Z.pub}${Z.perf}/`;
   if (document.activeElement !== $('hoGlitch')) $('hoGlitch').value = Z.glitch;
   hoSpdT.set(((+Z.speed || 1) - 0.25) / 1.75); if (!$('hoSpeedT').classList.contains('drag')) $('hoSpeedV').textContent = 'SPEED ' + (+Z.speed || 1).toFixed(2) + '×';
   hoZoomT.set(hz2s(Math.max(HZMIN, Math.min(HZMAX, +Z.cam.zoom || 1)))); if (!$('hoZoomT').classList.contains('drag')) $('hoZoomV').textContent = (+Z.cam.zoom || 1).toFixed(1) + '×';
@@ -857,6 +864,15 @@ $('caPick').onclick = async () => {
     eng.setCast(st); } catch (e) { $('caSt').textContent = 'Not picked: ' + (e.message || e); }
 };
 $('caStop').onclick = () => send({ k: 'cast', op: 'stop' });
+$('grOn').onclick = () => send({ k: 'gram', on: !(S && S.D.gram && S.D.gram.on) });   // #674
+let grQrFor = '';
+async function grQr(url) {
+  if (url === grQrFor) return; grQrFor = url; const c = $('grQr'); c.style.display = url ? '' : 'none'; if (!url) return;
+  try { const qrcode = (await import('./vendor/qrcode/qrcode.mjs')).default; const q = qrcode(0, 'M'); q.addData(url); q.make();
+    const n = q.getModuleCount(), px = Math.floor(c.width / (n + 8)), o = Math.floor((c.width - px * n) / 2), g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#000';
+    for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) g.fillRect(o + k * px, o + r * px, px, px); } catch (e) { c.style.display = 'none'; }
+}
 for (const k of ['l', 'r', 't', 'b']) $('ca_' + k).oninput = () => send({ k: 'cast', op: 'crop', v: { [k]: +$('ca_' + k).value } });
 let hpOn = false;
 const elV = () => { const v = +$('hp_el').value; $('hp_elV').textContent = (v > 0 ? '+' : '') + v + '° ' + (v > 2 ? 'above' : v < -2 ? 'below' : 'level'); };
@@ -874,6 +890,8 @@ $('hpPick').onclick = () => { hpOn = !hpOn; $('hpPick').classList.toggle('on', h
   pv.draggable = false; }
 function renderCaHp() {
   const D = S && S.D; if (!D) return;
+  if (D.gram) { const G = D.gram; $('grOn').textContent = G.on ? 'DIRROGRAM: ON' : 'DIRROGRAM: OFF'; $('grOn').classList.toggle('on', G.on); $('grSt').textContent = G.st || '';
+    $('grUrl').textContent = G.on ? G.url.replace(/^https:\/\//, '') : ''; grQr(G.on ? G.url : ''); }
   const C = D.cast; if (C) { for (const k of ['l', 'r', 't', 'b']) if (document.activeElement !== $('ca_' + k)) $('ca_' + k).value = C[k];
     const onBus = D.a === 'cast' || D.b === 'cast';
     $('caSt').textContent = C.on ? 'Casting: ' + (C.label || 'picked') + (onBus ? '' : ' · put CAST on bus A or B') : $('caSt').textContent.startsWith('Not picked') || $('caSt').textContent.startsWith('Open this') ? $('caSt').textContent : 'No casting window picked.'; }
