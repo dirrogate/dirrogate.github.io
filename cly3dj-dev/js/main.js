@@ -7117,17 +7117,24 @@ function acidPlateRebuild() { if (!ACIDL.tex) return; const c = acidPlateCanvas(
 function acidTapeApply() {
   const t = acidTape.loaded; if (!t) return;
   const s = t[acidTape.side] || t.A;
-  if (engine.acidNode) engine.acidNode.port.postMessage({ type: 'loadTape', patterns: [s.bank !== undefined ? { fromBank: s.bank } : s.pattern], track: null });
+  const multi = !!s.patterns;   // #693 a whole phrase: its bars chained as a TB-03 track, plus the tape's filter curve
+  if (engine.acidNode) {
+    engine.acidNode.port.postMessage({ type: 'loadTape', patterns: multi ? s.patterns : [s.bank !== undefined ? { fromBank: s.bank } : s.pattern], track: multi ? { bars: s.chain.map(i => [i, 0]) } : null });
+    engine.acidNode.port.postMessage({ type: 'tapeCut', value: multi ? s.cut : null });
+  }
   const map = { tuning: 'tuning', cutoff: 'cutoff', reso: 'resonance', envMod: 'envMod', decay: 'decay', accent: 'accent', overdrive: 'overdrive', delayTime: 'delayTime', delayFeedback: 'delayFeedback', waveform: 'waveform' };
   for (const k in map) if (s.sound && s.sound[k] !== undefined) { acidUI[k] = s.sound[k]; engine.setAcidParam(map[k], s.sound[k]); }
   if (!acidUI.lock) { acidUI.tempo = t.bpm; engine.setAcidParam('bpm', t.bpm); }
   if (acidUI.transpose) { acidUI.transpose = 0; engine.setAcidParam('transpose', 0); }
-  acidUI.mode = 2; engine.setAcidTrackMode(false); engine.setAcidPattern(76);
+  if (multi) { acidUI.mode = 1; engine.setAcidTrackMode(true); engine.setAcidTrack(7); }   // TRACK PLAY on the tape's chain (slot 7)
+  else { acidUI.mode = 2; engine.setAcidTrackMode(false); engine.setAcidPattern(76); }
   acidTape.active = true; acidUI.tempoMode = false;
   if (toolsPage === 'acid') drawMixScreen();
 }
 function acidLeaveTape(keepPattern) {   // the panel's own pattern / track takes over; the cassette stays in the well
   if (!acidTape.active) return; acidTape.active = false;
+  if (engine.acidNode) engine.acidNode.port.postMessage({ type: 'tapeCut', value: null });   // #693
+  if (acidUI.mode <= 1) { acidUI.mode = 2; engine.setAcidTrackMode(false); }   // #693 off the tape's chain, back to the bank's patterns
   if (!keepPattern) engine.setAcidPattern(acidUI.pattern);
 }
 function acidTapeLoad(t) {
