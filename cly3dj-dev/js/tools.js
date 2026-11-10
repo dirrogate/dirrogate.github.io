@@ -39,10 +39,11 @@ const G = {
   '☹': '..####..|.#....#.|#.#..#.#|#......#|#..##..#|#.#..#.#|.#....#.|..####..',
   '👍': '....##..|...###..|..###...|########|##.#####|##.####.|##.#####|##.####.',
   '\u2665': '.##..##.|########|########|########|.######.|..####..|...##...|........',   // #685 heart (red)
+  '\u263b': '..####..|.######.|##.##.##|########|#.####.#|##....##|.######.|..####..',   // #686 the 90s acid face (yellow, eyes and grin cut out)
 };
-export const EMOJI = ['☺', '☹', '👍', '\u2665'];
-// #685 typed :) :( <3 become the smiley, the sad face and the heart
-export const emojiText = s => String(s).replace(/:-?\)/g, '☺').replace(/:-?\(/g, '☹').replace(/<3/g, '\u2665');
+export const EMOJI = ['☺', '☹', '👍', '\u2665', '\u263b'];
+// #685 typed :) :( <3 become the smiley, the sad face and the heart; #686 acid! = the acid face, thumb! = thumbs up (both send floaters up)
+export const emojiText = s => String(s).replace(/acid!/gi, '\u263b').replace(/thumbs?!/gi, '👍').replace(/:-?\)/g, '☺').replace(/:-?\(/g, '☹').replace(/<3/g, '\u2665');
 const emCol = ch => ch === '\u2665' ? '#ff2d55' : '#ffd23a';
 Object.assign(G, {   // #407 for the Workbench-style LASER page
   '%': '##...#|##..#.|...#..|..#...|.#..##|#...##|......', '<': '...##.|..##..|.##...|##....|.##...|..##..|...##.',
@@ -92,7 +93,7 @@ export const bitWidth = (s, px) => [...emojiText(s)].reduce((w, ch) => w + (glyp
 // ---------------------------------------------------------------- VJ Scroller (2D canvas band for stream / DirroTV / DirroVJ)
 export class Scroller {
   constructor() {
-    this.on = false; this.t = 0; this.x = 0; this.n = 0;
+    this.on = false; this.t = 0; this.x = 0; this.n = 0; this.parts = [];   // #686 floaters
     const s = (() => { try { return JSON.parse(localStorage.getItem('vire.scroller') || '{}'); } catch { return {}; } })();
     this.text = s.text || 'CLY3DJ ☺ VINYL IN MIXED REALITY 👍'; this.wave = s.wave ?? 6; this.speed = s.speed ?? 5;
     this.canvas = document.createElement('canvas'); this.canvas.width = 768; this.canvas.height = 128;
@@ -128,8 +129,16 @@ export class Scroller {
           g.fillStyle = col; g.fillRect(x, y + r * px, px * 1.4, px);
         }
       }
+      if ((ch === '\u263b' || ch === '👍') && cx > -cw && cx < W && Math.random() < dt * 2 * 2.2 && this.parts.length < 40)   // #686 a few float up from each acid face / thumb on screen
+        this.parts.push({ ch, x: cx + Math.random() * cw, y: base, vy: 34 + Math.random() * 30, vx: (Math.random() - 0.5) * 30, t: 0, life: 1.4 + Math.random() * 0.8, px: 2.5 + Math.random() * 2, ph: Math.random() * 6 });
       cx += cw;
     }
+    for (const p of this.parts) {   // rise, sway, fade (drawn at half the frame rate, like the text)
+      p.t += dt * 2; p.y -= p.vy * dt * 2; p.x += (p.vx + Math.sin(p.t * 4 + p.ph) * 18) * dt * 2;
+      const gl = glyph(p.ch), a = Math.max(0, 1 - p.t / p.life); g.globalAlpha = a; g.fillStyle = p.ch === '\u263b' ? '#ffe600' : '#ffd23a';
+      for (let r = 0; r < gl.length; r++) for (let c = 0; c < gl[r].length; c++) if (gl[r][c]) g.fillRect(p.x + c * p.px, p.y + r * p.px, p.px * 1.15, p.px);
+    }
+    g.globalAlpha = 1; this.parts = this.parts.filter(p => p.t < p.life && p.y > -40);
   }
 }
 

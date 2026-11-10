@@ -2351,3 +2351,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #685 Scroller showed ???? (owner, 11 Nov); :) :( and heart emoji
 - tools.js bitmap font (sine scroller on the Quest, DirroVJ, stream, LED wall labels): it never uppercased and had no glyph for most punctuation, so lowercase, : ' - / @ and the ✦ separator drew as ?. Now fold(): uppercase, accents to the base letter (É to E), curly quotes / long dashes / ellipsis to plain ones; new glyphs - : ; ' " / ( ) + = # @ & _ $ ✦ ·; anything still unknown draws as a space, not ?.
 - Emoji: typed :) and :-) = ☺, :( = ☹, <3 and ❤ = a red heart (new 8 x 8 glyph), alongside the old ☺ ☹ 👍. Applied in the Scroller, drawBitText, bitWidth and cleanText. sw.js v171. No Node restart. Backups backups/pre685/.
+
+
+## #686 Scroller: acid! and thumb! (owner, 11 Nov)
+- Typed acid! (any case) becomes the 90s acid face (new 8 x 8 glyph U+263B, bright yellow, eyes and grin cut out); thumb! / thumbs! becomes 👍. While one is on screen, small copies float up from it (2 to 3 a second, up to 40 at once), sway and fade over about 1.5 to 2 s inside the scroller band. tools.js Scroller.parts. sw.js v172. No Node restart. Backups backups/pre686/.
