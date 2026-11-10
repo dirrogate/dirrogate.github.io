@@ -26,7 +26,7 @@ vec3 src(sampler2D t, vec4 f, float k) { if (k < 0.5) return vec3(0.0); vec3 c =
 void main() { gl_FragColor = vec4(mix(src(tA, fA, kA), src(tB, fB, kB), x), 1.0); }`;
 // #668 HOLO+CAM: the webcam with the Holodancer stood on a spot in it (feet at F, her height hH of the frame), a soft contact
 // shadow under her feet and her colours pulled toward the webcam's light. cut > 0 hides her below a line (a bar front, a rail)
-const HC_FS = `uniform sampler2D cam, ho; uniform vec4 cf; uniform vec2 F, foot; uniform vec3 mean; uniform float hoOn, A, k, flip, shadow, light, cut, sEl, hH; varying vec2 vUv;
+const HC_FS = `uniform sampler2D cam, ho; uniform vec4 cf; uniform vec2 F, foot; uniform vec3 mean; uniform float hoOn, A, k, flip, shadow, light, cut, sEl, hH, pm; varying vec2 vUv;
 void main() {
   vec3 c = texture2D(cam, cf.xy + vUv * cf.zw).rgb;
   if (hoOn > 0.5) {
@@ -41,7 +41,7 @@ void main() {
       vec3 tint = mean / max(max(mean.r, mean.g), max(mean.b, 0.02));
       vec3 g = mix(vec3(1.0), tint * clamp(0.45 + L * 1.6, 0.45, 1.25), light);
       float a = clamp(h.a, 0.0, 1.0);
-      c = c * (1.0 - a) + h.rgb * g;
+      c = c * (1.0 - a) + (pm > 0.5 ? h.rgb : h.rgb * a) * g;   // holo target is premultiplied, the dancer canvas is not
     }
   }
   gl_FragColor = vec4(c, 1.0);
@@ -133,7 +133,7 @@ const FRACTALS = {   // #508 per formula: start centre and span, zoom targets
   multi: { t: 3, c: [0, 0], span: 2.8, tg: [[0.38, 0.0], [-0.19, 0.33], [-0.19, -0.33]] },
 };
 const PALS = ['green', 'island', 'lava', 'ice', 'copper', 'neon'];
-const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'holo', 'dverse', 'cast', 'hocam'];   // #667 cast = the Quest 3 casting window, #668 hocam = Holodancer stood in the webcam   // #573 holo = Holodancer, #662 dverse = DirroVerse
+const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'holo', 'dverse', 'cast', 'hocam', 'dzcam'];   // #667 cast = the Quest 3 casting window, #668 hocam = Holodancer stood in the webcam, #669 dzcam = the 3D Dancer stood in it   // #573 holo = Holodancer, #662 dverse = DirroVerse
 // (was) const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer'];   // #516 comic = DirroComics page, #550 dancer = DirroDancer, #555 BLACK removed (owner: never used)
 
 const HP0 = { x: 0.5, y: 0.8, h: 0.4, el: 8, face: 0, flip: false, shadow: 0.55, light: 0.6, cut: 0 };   // #668 x, y = her feet (0..1, from the top left), h = her height (part of the frame)
@@ -164,28 +164,33 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if (stream) { const tr = stream.getVideoTracks()[0]; if (tr) { D.cast.label = tr.label || ''; tr.addEventListener('ended', () => { if (castV.srcObject === stream) setCast(null); }); } castV.play().catch(() => {}); }
     post();
   }
-  // #668 HOLO+CAM: composite target at the program's shape, so a click on the desk monitor is where her feet go
-  const hcRT = new THREE.WebGLRenderTarget(1280, 720, { depthBuffer: false, generateMipmaps: false });
-  const hcU = { cam: { value: camTex }, ho: { value: null }, cf: { value: new THREE.Vector4(0, 0, 1, 1) }, F: { value: new THREE.Vector2() }, foot: { value: new THREE.Vector2() }, mean: { value: new THREE.Vector3(0.5, 0.5, 0.5) },
-    hoOn: { value: 0 }, A: { value: 16 / 9 }, k: { value: 1 }, flip: { value: 0 }, shadow: { value: 0 }, light: { value: 0 }, cut: { value: 0 }, sEl: { value: 0.2 }, hH: { value: 0.4 } };
-  const hcSc = quad(new THREE.ShaderMaterial({ uniforms: hcU, vertexShader: VS, fragmentShader: HC_FS, depthTest: false, depthWrite: false }));
+  // #668 / #669 HOLO+CAM, DANCER+CAM: a composite target each, at the program's shape, so a click on the desk monitor is where her feet go
+  const mkComp = () => { const rt = new THREE.WebGLRenderTarget(1280, 720, { depthBuffer: false, generateMipmaps: false });
+    const U = { cam: { value: camTex }, ho: { value: null }, cf: { value: new THREE.Vector4(0, 0, 1, 1) }, F: { value: new THREE.Vector2() }, foot: { value: new THREE.Vector2() }, mean: { value: new THREE.Vector3(0.5, 0.5, 0.5) },
+      hoOn: { value: 0 }, A: { value: 16 / 9 }, k: { value: 1 }, flip: { value: 0 }, shadow: { value: 0 }, light: { value: 0 }, cut: { value: 0 }, sEl: { value: 0.2 }, hH: { value: 0.4 }, pm: { value: 1 } };
+    return { rt, U, sc: quad(new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: HC_FS, depthTest: false, depthWrite: false })), t: -1 }; };
+  const comp = { holo: mkComp(), dancer: mkComp() };
   const mc = document.createElement('canvas'); mc.width = mc.height = 8; const mcx = mc.getContext('2d', { willReadFrequently: true });
-  let hcT = -1, meanT = 0;
-  function hoCam(U, fit, W, H, now) {
-    if (hcT !== now) {
-      hcT = now;
+  const camMean = new THREE.Vector3(0.5, 0.5, 0.5); let meanT = 0;
+  function inCam(who, U, fit, W, H, now) {
+    const C = comp[who], cu = C.U;
+    if (C.t !== now) {
+      C.t = now;
       const A = W / H, hw = Math.max(320, Math.min(1920, Math.round(720 * A))), P = D.hp, v = fixed.video;
-      if (hcRT.width !== hw) hcRT.setSize(hw, 720);
-      cover(v.videoWidth, v.videoHeight, W, H, hcU.cf.value);
-      if (now - meanT > 400) { meanT = now; try { mcx.drawImage(v, 0, 0, 8, 8); const d = mcx.getImageData(0, 0, 8, 8).data; let r = 0, g = 0, b = 0; for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; } const n = d.length / 4 * 255; hcU.mean.value.set(r / n, g / n, b / n); } catch {} }
-      const pl = ho && ho.ready ? ho.renderPlaced(now, P) : null;
-      hcU.hoOn.value = pl ? 1 : 0;
-      if (pl) { hcU.ho.value = pl.tex; hcU.foot.value.copy(pl.foot); hcU.k.value = Math.max(0.02, pl.head.y - pl.foot.y) / Math.max(0.03, +P.h || 0.4); }
-      hcU.F.value.set(+P.x, 1 - +P.y); hcU.A.value = A; hcU.flip.value = P.flip ? 1 : 0; hcU.shadow.value = +P.shadow || 0; hcU.light.value = +P.light || 0;
-      hcU.cut.value = +P.cut || 0; hcU.sEl.value = Math.sin(Math.max(5, Math.min(80, +P.el || 0)) * Math.PI / 180); hcU.hH.value = +P.h || 0.4;
-      const prev = renderer.getRenderTarget(); renderer.setRenderTarget(hcRT); renderer.render(hcSc, oc); renderer.setRenderTarget(prev);
+      if (C.rt.width !== hw) C.rt.setSize(hw, 720);
+      cover(v.videoWidth, v.videoHeight, W, H, cu.cf.value);
+      if (now - meanT > 400) { meanT = now; try { mcx.drawImage(v, 0, 0, 8, 8); const d = mcx.getImageData(0, 0, 8, 8).data; let r = 0, g = 0, b = 0; for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; } const n = d.length / 4 * 255; camMean.set(r / n, g / n, b / n); } catch {} }
+      cu.mean.value.copy(camMean);
+      const pl = who === 'holo' ? (ho && ho.ready ? ho.renderPlaced(now, P) : null) : (dz && dz.ready ? dz.renderPlaced(now, P) : null);
+      cu.hoOn.value = pl ? 1 : 0;
+      if (pl) { cu.ho.value = pl.tex; cu.pm.value = pl.pm ? 1 : 0; cu.foot.value.copy(pl.foot); cu.k.value = Math.max(0.02, pl.head.y - pl.foot.y) / Math.max(0.03, +P.h || 0.4); }
+      const el = +P.el || 0;   // the soft patch only shows while the camera sees the top of the surface; the dancer has a real shadow instead
+      cu.F.value.set(+P.x, 1 - +P.y); cu.A.value = A; cu.flip.value = P.flip ? 1 : 0; cu.light.value = +P.light || 0;
+      cu.shadow.value = who === 'holo' ? (+P.shadow || 0) * Math.max(0, Math.min(1, (el + 2) / 8)) : 0;
+      cu.cut.value = +P.cut || 0; cu.sEl.value = Math.sin(Math.max(5, Math.min(80, el)) * Math.PI / 180); cu.hH.value = +P.h || 0.4;
+      const prev = renderer.getRenderTarget(); renderer.setRenderTarget(C.rt); renderer.render(C.sc, oc); renderer.setRenderTarget(prev);
     }
-    U.value = hcRT.texture; fit.set(0, 0, 1, 1); return 1;
+    U.value = C.rt.texture; fit.set(0, 0, 1, 1); return 1;
   }
   let ledTex = null, lastLedVid = null, ledImgTex = null, lastLedImg = null;
   const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 } };
@@ -204,7 +209,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   // #550 DANCER: her own renderer + canvas (js/dancerdesk.js), loaded on first use
   let dz = null, dzP = null;
   const dzLoad = () => dzP || (dzP = import('./dancerdesk.js').then(m => { dz = m.makeDancer({ S: D.dz, post: () => post(), bc, media }); dz.ensure(); return dz; }).catch(e => { D.dz.err = 'load: ' + (e.message || e); dzP = null; post(); }));
-  const dzNeed = used => !!dz && (used.includes('dancer') || dz.recording);
+  const dzNeed = used => !!dz && !used.includes('dzcam') && (used.includes('dancer') || dz.recording);   // #669 DANCER+CAM draws her itself (one picture of her a frame)
   // #573 HOLO: drawn with this renderer into its own target, only while the T-bar shows (or CUE) its bus
   let ho = null;
   const hoLoad = () => { if (!ho) ho = makeHoloDesk({ THREE, renderer, S: D.holo, post: () => post() }); ho.ensure(); return ho; };
@@ -289,7 +294,8 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if (name === 'cast') { const v = castV; if (!D.cast.on || !v.videoWidth) return 0;   // #667 crop off the casting page's own frame, then cover
       const C = D.cast, w = Math.max(0.05, 1 - C.l - C.r), h = Math.max(0.05, 1 - C.t - C.b); cover(v.videoWidth * w, v.videoHeight * h, W, H, fit);
       fit.set(C.l + fit.x * w, C.b + fit.y * h, fit.z * w, fit.w * h); U.value = castTex; return 1; }
-    if (name === 'hocam') { const v = fixed.video; if (!fixed.on || !v.videoWidth) return 0; return hoCam(U, fit, W, H, now); }   // #668
+    if (name === 'hocam') { const v = fixed.video; if (!fixed.on || !v.videoWidth) return 0; return inCam('holo', U, fit, W, H, now); }   // #668
+    if (name === 'dzcam') { const v = fixed.video; if (!fixed.on || !v.videoWidth) return 0; return inCam('dancer', U, fit, W, H, now); }   // #669
     if (name === 'webcam') { const v = fixed.video; if (!fixed.on || !v.videoWidth) return 0; U.value = camTex; cover(v.videoWidth, v.videoHeight, W, H, fit); return 1; }
     if (name === 'led') {
       if (D.ledKind === 'pano') {
@@ -453,7 +459,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       if (m.cam) { const act = D.x < 0.5 ? 'a' : 'b'; if (D[act] === 'webcam') { D[act] = 'quest'; post(); } }
       const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'vjshow', cam: m.cam || '', opt: m.opt || '', v: !!m.v }); else bc.postMessage({ k: 'cxmsg', t: 'SHOWTIME!: no Quest link' });
     }   // #523 / #530
-    else if (m.k === 'bus') { if (SOURCES.includes(m.v)) { if (m.v === 'webcam' && !fixed.on && fixed.start) fixed.start().catch(() => {}); if (m.v === 'dancer') dzLoad(); if (m.v === 'holo') hoLoad(); if (m.v === 'hocam') { if (!fixed.on && fixed.start) fixed.start().catch(() => {}); hoLoad(); } if (m.v === 'dverse') { const x = dvGet(); if (!D.dv.sets.length) x.list(); } D[m.bus === 'b' ? 'b' : 'a'] = m.v; } post(); }
+    else if (m.k === 'bus') { if (SOURCES.includes(m.v)) { if (m.v === 'webcam' && !fixed.on && fixed.start) fixed.start().catch(() => {}); if (m.v === 'dancer') dzLoad(); if (m.v === 'holo') hoLoad(); if (m.v === 'dzcam') { if (!fixed.on && fixed.start) fixed.start().catch(() => {}); dzLoad(); } if (m.v === 'hocam') { if (!fixed.on && fixed.start) fixed.start().catch(() => {}); hoLoad(); } if (m.v === 'dverse') { const x = dvGet(); if (!D.dv.sets.length) x.list(); } D[m.bus === 'b' ? 'b' : 'a'] = m.v; } post(); }
     else if (m.k === 'x') { D.x = Math.max(0, Math.min(1, +m.v)); D.fadeTo = null; post(); }
     else if (m.k === 'cue') { const b = m.bus === 'a' || m.bus === 'b' ? m.bus : ''; const live = b && ((b === 'a' && D.x <= 0) || (b === 'b' && D.x >= 1)); D.cue = !b || live || D.cue === b ? '' : b; post(); }   // #557 tap = CUE, tap again = out of CUE; the fully live bus can't be cued
     else if (m.k === 'cut') { D.x = D.x < 0.5 ? 1 : 0; D.fadeTo = null; post(); }

@@ -51,15 +51,15 @@ export function makeHoloDesk({ THREE, renderer, S, post }) {
     if (renderer.xr) renderer.xr.enabled = prevXr;
   }
 
-  // #668 HOLO+CAM: her alone on a clear background, seen from the angle the club webcam has (P.el = how far it looks down on
-  // her, P.face = which way she faces it). Returns where her feet and head land, so the desk can stand her on a spot in the webcam
+  // #668 HOLO+CAM: her alone on a clear background, seen from the angle the club webcam has (P.el: + = it looks down on her,
+  // - = up at her, P.face = which way she faces it). Returns where her feet and head land, so the desk can stand her on a spot in the webcam
   const rtP = new THREE.WebGLRenderTarget(W, H, { depthBuffer: true });
   const camP = new THREE.PerspectiveCamera(30, W / H, 0.05, 60), eyeP = new THREE.Vector3(), pv3 = new THREE.Vector3(), clr = new THREE.Color();
-  const placed = { tex: rtP.texture, foot: new THREE.Vector2(0.5, 0.1), head: new THREE.Vector2(0.5, 0.9) };
+  const placed = { pm: true, tex: rtP.texture, foot: new THREE.Vector2(0.5, 0.1), head: new THREE.Vector2(0.5, 0.9) };
   const uvOf = (x, y, z, out) => { pv3.set(x, y, z).project(camP); return out.set(pv3.x * 0.5 + 0.5, pv3.y * 0.5 + 0.5); };
   function renderPlaced(now, P) {
     if (!player.ready) return null;
-    const az = (+P.face || 0) * Math.PI / 180, el = Math.max(-20, Math.min(75, +P.el || 0)) * Math.PI / 180, d = 5.4, aimY = 0.9;
+    const az = (+P.face || 0) * Math.PI / 180, el = Math.max(-60, Math.min(75, +P.el || 0)) * Math.PI / 180, d = 5.4, aimY = 0.9;
     eyeP.set(Math.sin(az) * Math.cos(el) * d, aimY + Math.sin(el) * d, Math.cos(az) * Math.cos(el) * d);
     camP.position.copy(eyeP); camP.lookAt(0, aimY, 0); camP.updateMatrixWorld();
     player.update(eyeP, now / 1000, camP);
