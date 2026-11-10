@@ -2334,3 +2334,10 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #682 Desk: Utilities break, DirroVerse set chips (owner, 11 Nov)
 - vjdesk.html: a bold gold "Utilities:" break after the DirroComics panel, then Dirrogram from this laptop (moved), Cast (moved), Sound for Twitch, Projection mapping.
 - DirroVerse: the sets as a two-row chip scroller like the clip banks (thumbnail = the studio plateframe at t 0). Click = load the set (green border on the loaded one); hover = a bigger 360 px chip with the name, whether a plate loop is rendered and how many arrivals; a rendered plate_loop.mp4 steps through at 1 frame a second (straight from 127.0.0.1:8090). The set drop-down is hidden (kept for state). sw.js v168. No Node restart. Backups backups/pre682/.
+
+
+## #683 Desk tidy (owner, 11 Nov, with screenshots)
+- CAST is now QUESTCAST and its bus button sits right after QUEST on both lanes (NAMES order); its section is "QuestCast".
+- Header compact: one line, 16 px title, the "Connected to the DirroVJ output window · SPACE / C" explainer is now a status dot (green = connected, hover = the text), smaller ON AIR / RENDER / SOLO / DIRROTV tags, smaller BPM box and buttons, "🎥 Projector" button.
+- Scroller queue moved to the left column under SHOWTIME!.
+- "Sound for Twitch" is "Twitch streaming"; its "QUEST (Wi-Fi)" button is "QuestSound (wifi)". sw.js v169. No Node restart. Backups backups/pre683/.

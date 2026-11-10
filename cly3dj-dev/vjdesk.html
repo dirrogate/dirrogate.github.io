@@ -13,9 +13,10 @@
   ::-webkit-scrollbar-track { background:#0e121a; border-radius:6px; }
   ::-webkit-scrollbar-thumb { background:#3a4664; border-radius:6px; border:2px solid #0e121a; }
   ::-webkit-scrollbar-thumb:hover { background:#52648c; }
-  header { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--line); }
-  header h1 { margin:0; font-size:22px; font-weight:800; letter-spacing:.03em; } header h1 span { color:var(--red); }
-  #st { color:var(--mute); font-size:13px; }
+  header { display:flex; align-items:center; gap:8px; padding:5px 12px; border-bottom:1px solid var(--line); flex-wrap:wrap; }   /* #683 compact */
+  header button { padding:3px 8px; font-size:12px; border-radius:6px; white-space:nowrap; }
+  #st { width:10px; height:10px; border-radius:50%; background:#5a6070; font-size:0; overflow:hidden; flex:none; } #st.ok { background:#1f9d55; box-shadow:0 0 6px #1f9d55; }
+  header h1 { margin:0; white-space:nowrap; font-size:16px; font-weight:800; letter-spacing:.03em; } header h1 span { color:var(--red); }
   main { display:grid; grid-template-columns:minmax(320px,1.08fr) minmax(300px,1fr); gap:14px; padding:14px 16px 10px; align-items:start; }
   @media (max-width:760px) { main { grid-template-columns:1fr; } }
   section { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; }
@@ -157,17 +158,17 @@
   #bankMenu[hidden] { display:none; } #bankMenu .bmT { font:700 11px system-ui; color:var(--mute); padding:5px 8px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; }
   #bankMenu button { display:block; width:100%; text-align:left; padding:8px 10px; border:0; border-radius:6px; background:transparent; font:600 13px system-ui; }
   #bankMenu button:hover { background:#22304a; } #bankMenu button.del:hover { background:#5a1a1e; }
-  .bpmBox { display:flex; align-items:center; gap:5px; margin-left:10px; padding:3px 8px; border:1px solid var(--line); border-radius:7px; }
-  .bpmBox b { font:800 16px ui-monospace,Consolas,monospace; min-width:52px; text-align:right; color:#ffd25a; } .bpmU { font:700 10px system-ui; color:#8c96a8; }
-  .bpmBox button { padding:4px 8px; } .bpmBox button.on { background:#1f9d55; color:#fff; } #tapB { font-weight:800; min-width:52px; }
+  .bpmBox { display:flex; align-items:center; gap:4px; margin-left:6px; padding:2px 6px; border:1px solid var(--line); border-radius:7px; }
+  .bpmBox b { font:800 14px ui-monospace,Consolas,monospace; min-width:52px; text-align:right; color:#ffd25a; } .bpmU { font:700 10px system-ui; color:#8c96a8; }
+  .bpmBox button { padding:2px 7px; font-size:12px; } .bpmBox button.on { background:#1f9d55; color:#fff; } #tapB { font-weight:800; min-width:52px; }
   #beatL { width:12px; height:12px; border-radius:50%; background:#333; display:inline-block; }
-  .air { font:700 12px system-ui,sans-serif; padding:4px 8px; border-radius:6px; margin-left:8px; background:#2a3140; color:#c9ced8; white-space:nowrap; } .air.on { background:#1f9d55; color:#fff; }   /* #545 */
+  .air { font:700 11px system-ui,sans-serif; padding:2px 7px; border-radius:5px; margin-left:2px; background:#2a3140; color:#c9ced8; white-space:nowrap; } .air.on { background:#1f9d55; color:#fff; }   /* #545 */
 </style>
 </head>
 <body>
 <header><h1>Dirro<span>VJ</span> desk</h1><div id="st">Looking for the DirroVJ output window…</div><span id="airOn" class="air">QUEST ON AIR</span><span id="airRen" class="air">RENDER: QUEST</span><span id="airLink" class="air">QUEST LINK: -</span><span id="airTv" class="air">DIRROTV: -</span>
 <span class="bpmBox" title="Master tempo for BEAT effects. LINE IN: follows the kicks in the live sound. TAP: tap the beat (button or T); 4 taps or more for a steady tempo; - / + nudge.">
-  <b id="bpmV">--.-</b><span class="bpmU">BPM</span><button id="tapB">TAP</button><span id="beatL"></span><button id="tmL" class="sm">LINE IN</button><button id="tmT" class="sm">TAP</button><button id="bpmM" class="sm">−</button><button id="bpmP" class="sm">+</button></span><button id="openScreen" style="margin-left:auto" title="Open the Webcam / Projector output in a separate window (drag to a 2nd monitor or projector and make full screen)">🎥 Webcam / Projector window</button></header>
+  <b id="bpmV">--.-</b><span class="bpmU">BPM</span><button id="tapB">TAP</button><span id="beatL"></span><button id="tmL" class="sm">LINE IN</button><button id="tmT" class="sm">TAP</button><button id="bpmM" class="sm">−</button><button id="bpmP" class="sm">+</button></span><button id="openScreen" style="margin-left:auto" title="Open the Webcam / Projector output in a separate window (drag to a 2nd monitor or projector and make full screen)">🎥 Projector</button></header>
 <main>
   <div>
     <section>
@@ -184,6 +185,12 @@
       <div class="row" id="shCam"></div>
       <div class="row" id="shObj"></div>
       <div class="note" id="shN">Same buttons as the tablet's SHOWTIME! page; whatever is tapped last wins, the tablet stays in charge.</div>
+    </section>
+    <section style="margin-top:14px">
+      <h2>Scroller queue</h2>
+      <div id="chatSt" class="note"></div>
+      <div id="queue"></div>
+      <div class="note">APPROVE puts the line on the Quest's sine scroller (headset, DirroTV and the stream). The DJ can still switch the scroller off on the Quest.</div>
     </section>
   </div>
   <div>
@@ -241,12 +248,6 @@
           <label class="kv" title="Pull the dancer's colours and brightness toward the light in the webcam picture"><span class="sp">LIGHT MATCH</span><input type="range" id="hp_light" min="0" max="1" step="0.05"></label>
           <label class="kv" title="Hide the dancer below a line, for a bar front or rail in front. 0 = off"><span class="sp">FRONT EDGE</span><input type="range" id="hp_cut" min="0" max="1" step="0.01"></label></div>
       </div>
-    </section>
-    <section style="margin-top:14px">
-      <h2>Scroller queue</h2>
-      <div id="chatSt" class="note"></div>
-      <div id="queue"></div>
-      <div class="note">APPROVE puts the line on the Quest's sine scroller (headset, DirroTV and the stream). The DJ can still switch the scroller off on the Quest.</div>
     </section>
   </div>
 </main>
@@ -351,7 +352,7 @@
       <div class="note">Phones scan the QR or open the link: they get the beat (master tempo), the Holodancer when SEND TO DIRROGRAM is on, and send HoloSMS here. Without the room, dirrodj.club/gram still runs on its own (camera mode, and the HOLODANCER button on Android from the performer library).</div></div></div>
 </section>
 <section id="caS" style="margin:0 16px 14px">
-  <h2>Cast <span class="note" style="text-transform:none;letter-spacing:0">#667 the Quest 3 as the wearer sees it (portals, domes, gear all in place): put CAST on bus A or B</span></h2>
+  <h2>QuestCast <span class="note" style="text-transform:none;letter-spacing:0">#667 the Quest 3 as the wearer sees it (portals, domes, gear all in place): put QUESTCAST on bus A or B</span></h2>
   <div class="row"><button id="caPick" title="Pick the Chrome tab or window that shows the Quest casting (oculus.com/casting). Video only, no sound.">PICK THE CASTING WINDOW…</button><button id="caStop">STOP</button><span id="caSt" class="note" style="margin:0"></span></div>
   <div class="row"><span class="note" style="margin:0">crop the casting page's frame:</span>
     <label class="kv"><span class="sp">LEFT</span><input type="range" id="ca_l" min="0" max="0.45" step="0.005" value="0"></label>
@@ -361,8 +362,8 @@
   <div class="note">On the Quest: Camera / Cast to Computer, and open oculus.com/casting in Chrome on this laptop. Start the immersive WebXR session in the headset, then pick that tab here (a tab, not the whole window, keeps Chrome's bars out). Keep this desk window open: the capture belongs to it.</div>
 </section>
 <section id="twS" style="margin:0 16px 16px">
-      <h2>Sound for Twitch</h2>
-      <div class="row"><button id="aQ">QUEST (Wi-Fi)</button><button id="aL">LINE IN</button><button id="twBtn" class="twBtn" title="Start or stop streaming the DirroVJ Program picture + sound to Twitch">TWITCH ON/OFF</button><span id="twSt" class="note" style="margin:0"></span></div>
+      <h2>Twitch streaming</h2>
+      <div class="row"><button id="aQ">QuestSound (wifi)</button><button id="aL">LINE IN</button><button id="twBtn" class="twBtn" title="Start or stop streaming the DirroVJ Program picture + sound to Twitch">TWITCH ON/OFF</button><span id="twSt" class="note" style="margin:0"></span></div>
       <div class="row"><select id="dev" style="width:100%"></select></div>
       <div id="aSt" class="note"></div>
       <div class="twKeyRow">
@@ -381,7 +382,7 @@
 </section>
 <script>
 const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
-const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'COMICS', dancer: 'DANCER', holo: 'HOLO', dverse: 'DIRROVERSE', cast: 'CAST', hocam: 'HOLO+CAM', dzcam: 'DANCER+CAM' };   // #667 #668 #669   // #662   // #573   // #516, #537, #550, #555 BLACK gone, DIRROCOMICS shortened to COMICS (one line per bus)
+const NAMES = { quest: 'QUEST', cast: 'QUESTCAST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'COMICS', dancer: 'DANCER', holo: 'HOLO', dverse: 'DIRROVERSE', hocam: 'HOLO+CAM', dzcam: 'DANCER+CAM' };   // #667 #668 #669   // #662   // #573   // #516, #537, #550, #555 BLACK gone, DIRROCOMICS shortened to COMICS (one line per bus)
 let S = null, lastSeen = 0, realT = 0;   // #519 realT: last state from a real DirroVJ
 for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = document.createElement('button'); b.textContent = NAMES[k]; b.dataset.bus = bus; b.dataset.src = k; b.onclick = () => send({ k: 'bus', bus, v: k }); $(bus === 'a' ? 'busA' : 'busB').append(b); }
 // #552 T-bar: a vision-mixer lever. Grab the handle (or anywhere on the bar) and pull: it moves by how far you pull, it never jumps to the click.
@@ -904,13 +905,14 @@ function renderCaHp() {
     $('grUrl').textContent = G.on ? G.url.replace(/^https:\/\//, '') : ''; grQr(G.on ? G.url : ''); }
   const C = D.cast; if (C) { for (const k of ['l', 'r', 't', 'b']) if (document.activeElement !== $('ca_' + k)) $('ca_' + k).value = C[k];
     const onBus = D.a === 'cast' || D.b === 'cast';
-    $('caSt').textContent = C.on ? 'Casting: ' + (C.label || 'picked') + (onBus ? '' : ' · put CAST on bus A or B') : $('caSt').textContent.startsWith('Not picked') || $('caSt').textContent.startsWith('Open this') ? $('caSt').textContent : 'No casting window picked.'; }
+    $('caSt').textContent = C.on ? 'Casting: ' + (C.label || 'picked') + (onBus ? '' : ' · put QUESTCAST on bus A or B') : $('caSt').textContent.startsWith('Not picked') || $('caSt').textContent.startsWith('Open this') ? $('caSt').textContent : 'No casting window picked.'; }
   const P = D.hp; if (P) { for (const k of ['el', 'shadow', 'light', 'cut']) if (document.activeElement !== $('hp_' + k)) $('hp_' + k).value = P[k];
     $('hp_flip').checked = !!P.flip; elV();
     const isC = v => v === 'hocam' || v === 'dzcam', bus = isC(D.a) ? D.a : isC(D.b) ? D.b : '', onBus = !!bus, shown = D.cue ? isC(D[D.cue]) : (D.x < 1 && isC(D.a)) || (D.x > 0 && isC(D.b));
     $('hpSt').textContent = !onBus ? 'put HOLO+CAM or DANCER+CAM on bus A or B' : !shown ? 'CUE that bus so the monitor shows it while you place the dancer' : bus === 'hocam' && !D.holo.loaded ? 'pick a performer (DANCER CLIPS ① ④ ⑧)' : bus === 'dzcam' && !(D.dz && D.dz.loaded) ? 'DANCER is loading…' : 'feet at ' + Math.round(P.x * 100) + '%, ' + Math.round(P.y * 100) + '% · height ' + Math.round(P.h * 100) + '%'; }
 }
 send({ k: 'hello' });
+setInterval(() => { const t = $('st').textContent; $('st').title = t; $('st').classList.toggle('ok', /^Connected to the DirroVJ output/.test(t)); }, 500);   // #683 the status is a dot (hover for the text)
 // #662 master tempo + DirroVerse + DirroTV pairing in SOLO
 $('tapB').onclick = () => send({ k: 'tap' }); $('tmL').onclick = () => send({ k: 'tempo', v: 'line' }); $('tmT').onclick = () => send({ k: 'tempo', v: 'tap' });
 $('bpmM').onclick = () => send({ k: 'nudge', d: -0.5 }); $('bpmP').onclick = () => send({ k: 'nudge', d: 0.5 });
