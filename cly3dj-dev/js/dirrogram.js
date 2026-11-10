@@ -23,7 +23,7 @@ const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 
 // ---------------------------------------------------------------- settings (per phone)
 const KEY = 'dirro.set';
-const DEF = { exp: 0, night: 1, dist: 6, robotX: -2.3, robotZ: 0, lift: 0, fov: 64, bpm: 124,
+const DEF = { club: 1, exp: 0, night: 1, dist: 6, robotX: -2.3, robotZ: 0, lift: 0, fov: 64, bpm: 124,
   scroll: 'WELCOME TO THE DIRROGRAM  ✦  DIRRODJ LIVE ON VINYL  ✦  TWITCH.TV/DIRROGATE  ✦  FILM IT, SHARE IT  ✦', np: 'DirroDJ · live vinyl set' };
 const S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
@@ -326,7 +326,7 @@ function hpStart() {
   $('hint').textContent = 'Point the ring at the floor where the dancer stands, then tap'; show('aim', true); show('hint', true);
   if (HD.loaded !== sr && HD.loading !== sr) holoLoad(sr);
 }
-function hpOff() { HP.on = HP.placed = HP.picking = false; if (HD.p && HD.p.group.parent === HP.grp) { HD.grp.add(HD.p.group); HD.p.group.visible = false; if (HD.p.video) HD.p.video.pause(); } hpLabel(); }
+function hpOff() { HP.on = HP.placed = HP.picking = false; if (HD.p && CL.on) { CL.on = false; HD.p.set('room', false); } if (HD.p && HD.p.group.parent === HP.grp) { HD.grp.add(HD.p.group); HD.p.group.visible = false; if (HD.p.video) HD.p.video.pause(); } hpLabel(); }
 function hpPlace() {
   const f = V(0, 0, -1).applyQuaternion(camQuat(new THREE.Quaternion())); camera.updateMatrixWorld(); const e = camera.getWorldPosition(new THREE.Vector3());
   if (f.y > -0.08) { toast('Point lower, at the floor'); return; }
@@ -342,7 +342,41 @@ function hpStep(now) {
   const p = HD.p; if (!p || !p.ready) return;
   if (p.group.parent !== HP.grp) HP.grp.add(p.group);
   p.group.visible = HP.placed; if (!HP.placed) return;
+  clubLight(now, p);
   camera.getWorldPosition(_hd); p.update(_hd, T, camera); holoSync(now);
+}
+// #677 CLUB LIGHT (SETTINGS, on by default): the placed Holodancer is relit (the player's room light, depth normals) from the camera
+// picture: a 16 x 9 copy 5 times a second; ambient = the frame's average colour, key = the brightest tenth of it, its direction from
+// where those cells sit in the frame (left / right / up), turned into the world by the camera. Eased over about half a second, so
+// strobes and laser flashes do not make the dancer flicker. A floor keeps the hologram visible in a dark room.
+const CL = { c: document.createElement('canvas'), g: null, t: 0, last: 0, amb: new THREE.Vector3(0.6, 0.6, 0.6), key: new THREE.Vector3(0.6, 0.6, 0.6), dir: new THREE.Vector3(0.6, 1, 0.8),
+  tA: new THREE.Vector3(0.6, 0.6, 0.6), tK: new THREE.Vector3(0.6, 0.6, 0.6), tD: new THREE.Vector3(0.6, 1, 0.8), on: false };
+CL.c.width = 16; CL.c.height = 9;
+const lin = v => Math.pow(v / 255, 2.2);
+function clubLight(now, p) {
+  const dt = CL.last ? Math.min(0.2, (now - CL.last) / 1000) : 0.016; CL.last = now;
+  if (!S.club || !src || !src.el || !src.el.videoWidth) { if (CL.on) { CL.on = false; p.set('room', false); } return; }
+  if (now - CL.t > 200) {
+    CL.t = now;
+    try {
+      const g = CL.g || (CL.g = CL.c.getContext('2d', { willReadFrequently: true })); g.drawImage(src.el, 0, 0, 16, 9);
+      const d = g.getImageData(0, 0, 16, 9).data, n = 144, cells = [];
+      let r = 0, gg = 0, b = 0;
+      for (let i = 0; i < n; i++) { const R_ = lin(d[i * 4]), G_ = lin(d[i * 4 + 1]), B_ = lin(d[i * 4 + 2]); r += R_; gg += G_; b += B_; cells.push([0.2126 * R_ + 0.7152 * G_ + 0.0722 * B_, R_, G_, B_, i % 16, Math.floor(i / 16)]); }
+      r /= n; gg /= n; b /= n;
+      cells.sort((x, y) => y[0] - x[0]); const top = cells.slice(0, 14);
+      let kr = 0, kg = 0, kb = 0, kx = 0, ky = 0; for (const c of top) { kr += c[1]; kg += c[2]; kb += c[3]; kx += c[4]; ky += c[5]; } kr /= 14; kg /= 14; kb /= 14; kx /= 14; ky /= 14;
+      const chroma = (x, y, z) => { const m = Math.max(x, y, z, 1e-3); return [x / m, y / m, z / m]; };
+      const L = 0.2126 * r + 0.7152 * gg + 0.0722 * b, Lk = 0.2126 * kr + 0.7152 * kg + 0.0722 * kb;
+      const ca = chroma(r, gg, b), ck = chroma(kr, kg, kb), a = clamp(0.28 + 1.4 * L, 0.28, 1.0), k = clamp(0.3 + 0.9 * Lk, 0.3, 1.1);
+      CL.tA.set(ca[0] * a, ca[1] * a, ca[2] * a); CL.tK.set(ck[0] * k, ck[1] * k, ck[2] * k);
+      const sx = (kx / 15) * 2 - 1, sy = 1 - (ky / 8) * 2;   // where the light sits in the frame
+      CL.tD.set(selfie ? -sx : sx, sy * 0.8 + 0.4, 0.6).normalize(); camera.updateMatrixWorld(); CL.tD.transformDirection(camera.matrixWorld);   // camera space -> world
+    } catch (e) { /* a frame not ready yet */ }
+  }
+  const e = 1 - Math.exp(-dt * 2.2); CL.amb.lerp(CL.tA, e); CL.key.lerp(CL.tK, e); CL.dir.lerp(CL.tD, e);
+  if (!CL.on) { CL.on = true; p.set('room', true); }
+  p.set('light', { amb: CL.amb, key: CL.key, dir: CL.dir });
 }
 { let d = null;   // press and drag on the picture: turn the placed dancer (sideways), nearer / farther (up / down)
   canvas.addEventListener('pointerdown', e => { if (HP.placed && !HP.picking) d = [e.clientX, e.clientY]; });
@@ -816,6 +850,7 @@ const ROWS = [
   ['bpm', 'BPM', 60, 180, 1, v => v.toFixed(0)],
   ['exp', 'EXPOSURE', -2, 1, 0.25, v => (v > 0 ? '+' : '') + v.toFixed(2) + ' EV'],   // #449
   ['night', 'LOW LIGHT', 0, 2, 1, v => ['OFF', 'ON', 'MAX'][v] || 'ON'],   // #466
+  ['club', 'CLUB LIGHT', 0, 1, 1, v => v ? 'ON' : 'OFF'],   // #677 the Holodancer takes the club's light from the camera picture
 ];
 function buildPanel() {
   const p = $('panel'); p.innerHTML = '';
@@ -824,7 +859,7 @@ function buildPanel() {
     r.innerHTML = `<span class="lab">${lab}</span><button>−</button><span class="val"></span><button>+</button>`;
     const val = r.querySelector('.val'), upd = () => { val.textContent = fmt(S[k]); };
     const [m, pl] = r.querySelectorAll('button');
-    const step = d => { S[k] = clamp(Math.round((S[k] + d * st) / st) * st, a, b); upd(); save(); if (k === 'fov') resize(); else if (k === 'exp') applyExposure(); else if (k === 'night') applyNight(); else place(); };
+    const step = d => { S[k] = clamp(Math.round((S[k] + d * st) / st) * st, a, b); upd(); save(); if (k === 'fov') resize(); else if (k === 'exp') applyExposure(); else if (k === 'night') applyNight(); else if (k === 'club') { /* hpStep reads it */ } else place(); };
     m.onclick = () => step(-1); pl.onclick = () => step(1); upd(); p.appendChild(r);
   }
   if (!DEV) return;
