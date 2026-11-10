@@ -218,6 +218,19 @@
       <div class="row"><button id="hoRestart" title="Back to the start of the dance">RESTART</button><button id="hoGram" title="Send this performer to the Dirrogram phones through the Quest (the Quest must be linked and this DirroVJ allowed on it). The phones stand her on their stage and keep in step with this desk.">SEND TO DIRROGRAM</button><input type="text" id="hoPub" spellcheck="false" style="flex:1;min-width:140px" title="Public (https) address of the performer library the phones load from (the deployed site's holo/ folder)"></div>
       <div id="hoGramSt" class="note"></div>
       <div id="hoSt" class="note">Not loaded yet: pick HOLO on a bus or a performer.</div>
+      <div id="hpBox" style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
+        <div class="row"><b style="font-size:12px;letter-spacing:.05em">HOLO+CAM</b><span class="note" style="margin:0">#668 she dances inside the webcam picture: put HOLO+CAM on a bus, CUE it, then stand her on the monitor</span></div>
+        <div class="row"><button id="hpPick" title="On: click or drag on the monitor = where her feet go, mouse wheel on the monitor = her height">STAND HER ON THE MONITOR</button>
+          <label class="note" style="margin:0"><input type="checkbox" id="hp_flip"> mirror</label><button id="hpReset">RESET</button><span id="hpSt" class="note" style="margin:0"></span></div>
+        <div class="row">
+          <label class="kv" title="How tall she is on screen (part of the frame height)"><span class="sp">HEIGHT</span><input type="range" id="hp_h" min="0.05" max="1.2" step="0.01"></label>
+          <label class="kv" title="How far the webcam looks down on her: 0 = level with her, 30 = from above, like a camera high on the wall aimed at the bar"><span class="sp">CAM LOOKS DOWN</span><input type="range" id="hp_el" min="-10" max="60" step="1"></label>
+          <label class="kv" title="Which way she faces the webcam (0 = straight at it)"><span class="sp">FACING</span><input type="range" id="hp_face" min="0" max="360" step="1"></label></div>
+        <div class="row">
+          <label class="kv" title="Soft dark patch under her feet so she sits on the surface"><span class="sp">SHADOW</span><input type="range" id="hp_shadow" min="0" max="1" step="0.05"></label>
+          <label class="kv" title="Pull her colours and brightness toward the light in the webcam picture"><span class="sp">LIGHT MATCH</span><input type="range" id="hp_light" min="0" max="1" step="0.05"></label>
+          <label class="kv" title="Hide her below a line, for a bar front or rail in front of her. 0 = off"><span class="sp">FRONT EDGE</span><input type="range" id="hp_cut" min="0" max="1" step="0.01"></label></div>
+      </div>
     </section>
     <section style="margin-top:14px">
       <h2>Scroller queue</h2>
@@ -227,6 +240,16 @@
     </section>
   </div>
 </main>
+<section id="caS" style="margin:0 16px 14px">
+  <h2>Cast <span class="note" style="text-transform:none;letter-spacing:0">#667 the Quest 3 as the wearer sees it (portals, domes, gear all in place): put CAST on bus A or B</span></h2>
+  <div class="row"><button id="caPick" title="Pick the Chrome tab or window that shows the Quest casting (oculus.com/casting). Video only, no sound.">PICK THE CASTING WINDOW…</button><button id="caStop">STOP</button><span id="caSt" class="note" style="margin:0"></span></div>
+  <div class="row"><span class="note" style="margin:0">crop the casting page's frame:</span>
+    <label class="kv"><span class="sp">LEFT</span><input type="range" id="ca_l" min="0" max="0.45" step="0.005" value="0"></label>
+    <label class="kv"><span class="sp">RIGHT</span><input type="range" id="ca_r" min="0" max="0.45" step="0.005" value="0"></label>
+    <label class="kv"><span class="sp">TOP</span><input type="range" id="ca_t" min="0" max="0.45" step="0.005" value="0"></label>
+    <label class="kv"><span class="sp">BOTTOM</span><input type="range" id="ca_b" min="0" max="0.45" step="0.005" value="0"></label></div>
+  <div class="note">On the Quest: Camera / Cast to Computer, and open oculus.com/casting in Chrome on this laptop. Start the immersive WebXR session in the headset, then pick that tab here (a tab, not the whole window, keeps Chrome's bars out). Keep this desk window open: the capture belongs to it.</div>
+</section>
 <section id="dvS" style="margin:0 16px 14px">
   <h2>DirroVerse <span class="note" style="text-transform:none;letter-spacing:0">put DIRROVERSE on bus A or B · sets made in the Cyber-Window studio on this laptop</span></h2>
   <div class="row"><select id="dvSet" style="min-width:180px"></select><button id="dvLoad">LOAD</button><button id="dvList">REFRESH</button>
@@ -338,7 +361,7 @@
 </section>
 <script>
 const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
-const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'COMICS', dancer: 'DANCER', holo: 'HOLO', dverse: 'DIRROVERSE' };   // #662   // #573   // #516, #537, #550, #555 BLACK gone, DIRROCOMICS shortened to COMICS (one line per bus)
+const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'COMICS', dancer: 'DANCER', holo: 'HOLO', dverse: 'DIRROVERSE', cast: 'CAST', hocam: 'HOLO+CAM' };   // #667 #668   // #662   // #573   // #516, #537, #550, #555 BLACK gone, DIRROCOMICS shortened to COMICS (one line per bus)
 let S = null, lastSeen = 0, realT = 0;   // #519 realT: last state from a real DirroVJ
 for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = document.createElement('button'); b.textContent = NAMES[k]; b.dataset.bus = bus; b.dataset.src = k; b.onclick = () => send({ k: 'bus', bus, v: k }); $(bus === 'a' ? 'busA' : 'busB').append(b); }
 // #552 T-bar: a vision-mixer lever. Grab the handle (or anywhere on the bar) and pull: it moves by how far you pull, it never jumps to the click.
@@ -812,7 +835,7 @@ bc.onmessage = e => {
   if (m.k === 'state') {
     if (m.test && Date.now() - realT < 4000) return;   // #519 the DirroComics test page steps aside when a real DirroVJ answers
     if (!m.test) realT = Date.now();
-    S = m; render(); renderDz(); renderHo(); airBadges(m.air); CX = m.C || null; renderCx(); renderShow(); if (CX) { renderStars(); starBadges(); }   // #523, #524
+    S = m; render(); renderDz(); renderHo(); renderCaHp(); airBadges(m.air); CX = m.C || null; renderCx(); renderShow(); if (CX) { renderStars(); starBadges(); }   // #523, #524
     $('st').textContent = m.test ? 'Connected to the DirroComics TEST page: only the DirroComics section works here (no buses, fractal or program picture). Open dirrovj.html for the real desk.'
       : (m.live || $('pv').getAttribute('src')) ? 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'
       : 'Connected to DirroVJ, starting program output…';
@@ -823,6 +846,38 @@ bc.onmessage = e => {
   else if (m.k === 'cxlist') { cxThumbs = m.thumbs || {}; cxStarImgs = m.starImgs || cxStarImgs; cxListN++; renderCx(); }
   else if (m.k === 'cxmsg') { $('cxMsg').textContent = m.t; clearTimeout(cxMsgT); cxMsgT = setTimeout(() => { $('cxMsg').textContent = ''; }, 6000); }
 };
+// #667 CAST + #668 HOLO+CAM
+$('caPick').onclick = async () => {
+  let eng = null; try { eng = window.opener && window.opener.spect && window.opener.spect.studio && window.opener.spect.studio.desk; } catch {}
+  if (!eng || !eng.setCast) { $('caSt').textContent = 'Open this desk from the DirroVJ engine page (its DESK button), then pick again.'; return; }
+  try { const st = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 60 }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false, selfBrowserSurface: 'exclude', surfaceSwitching: 'include', preferCurrentTab: false });
+    eng.setCast(st); } catch (e) { $('caSt').textContent = 'Not picked: ' + (e.message || e); }
+};
+$('caStop').onclick = () => send({ k: 'cast', op: 'stop' });
+for (const k of ['l', 'r', 't', 'b']) $('ca_' + k).oninput = () => send({ k: 'cast', op: 'crop', v: { [k]: +$('ca_' + k).value } });
+let hpOn = false;
+const hpSend = v => send({ k: 'hp', v });
+for (const k of ['h', 'el', 'face', 'shadow', 'light', 'cut']) $('hp_' + k).oninput = () => hpSend({ [k]: +$('hp_' + k).value });
+$('hp_flip').onchange = () => hpSend({ flip: $('hp_flip').checked });
+$('hpReset').onclick = () => send({ k: 'hp', reset: true });
+$('hpPick').onclick = () => { hpOn = !hpOn; $('hpPick').classList.toggle('on', hpOn); $('pv').style.cursor = hpOn ? 'crosshair' : ''; };
+{ const pv = $('pv'); let down = false, lastS = 0;
+  const at = e => { const r = pv.getBoundingClientRect(); return { x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) }; };
+  pv.addEventListener('pointerdown', e => { if (!hpOn) return; e.preventDefault(); down = true; pv.setPointerCapture(e.pointerId); hpSend(at(e)); });
+  pv.addEventListener('pointermove', e => { if (!down || performance.now() - lastS < 30) return; lastS = performance.now(); hpSend(at(e)); });
+  pv.addEventListener('pointerup', e => { if (down) hpSend(at(e)); down = false; });
+  pv.addEventListener('wheel', e => { if (!hpOn || !S || !S.D.hp) return; e.preventDefault(); hpSend({ h: Math.max(0.05, Math.min(1.2, S.D.hp.h * (e.deltaY < 0 ? 1.05 : 1 / 1.05))) }); }, { passive: false });
+  pv.draggable = false; }
+function renderCaHp() {
+  const D = S && S.D; if (!D) return;
+  const C = D.cast; if (C) { for (const k of ['l', 'r', 't', 'b']) if (document.activeElement !== $('ca_' + k)) $('ca_' + k).value = C[k];
+    const onBus = D.a === 'cast' || D.b === 'cast';
+    $('caSt').textContent = C.on ? 'Casting: ' + (C.label || 'picked') + (onBus ? '' : ' · put CAST on bus A or B') : $('caSt').textContent.startsWith('Not picked') || $('caSt').textContent.startsWith('Open this') ? $('caSt').textContent : 'No casting window picked.'; }
+  const P = D.hp; if (P) { for (const k of ['h', 'el', 'face', 'shadow', 'light', 'cut']) if (document.activeElement !== $('hp_' + k)) $('hp_' + k).value = P[k];
+    $('hp_flip').checked = !!P.flip;
+    const onBus = D.a === 'hocam' || D.b === 'hocam', shown = D.cue ? D[D.cue] === 'hocam' : (D.x < 1 && D.a === 'hocam') || (D.x > 0 && D.b === 'hocam');
+    $('hpSt').textContent = !onBus ? 'put HOLO+CAM on bus A or B' : !shown ? 'CUE the HOLO+CAM bus so the monitor shows it while you place her' : !D.holo.loaded ? 'pick a performer (DANCER CLIPS ① ④ ⑧)' : 'feet at ' + Math.round(P.x * 100) + '%, ' + Math.round(P.y * 100) + '% · height ' + Math.round(P.h * 100) + '%'; }
+}
 send({ k: 'hello' });
 // #662 master tempo + DirroVerse + DirroTV pairing in SOLO
 $('tapB').onclick = () => send({ k: 'tap' }); $('tmL').onclick = () => send({ k: 'tempo', v: 'line' }); $('tmT').onclick = () => send({ k: 'tempo', v: 'tap' });

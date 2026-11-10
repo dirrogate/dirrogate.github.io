@@ -51,6 +51,29 @@ export function makeHoloDesk({ THREE, renderer, S, post }) {
     if (renderer.xr) renderer.xr.enabled = prevXr;
   }
 
+  // #668 HOLO+CAM: her alone on a clear background, seen from the angle the club webcam has (P.el = how far it looks down on
+  // her, P.face = which way she faces it). Returns where her feet and head land, so the desk can stand her on a spot in the webcam
+  const rtP = new THREE.WebGLRenderTarget(W, H, { depthBuffer: true });
+  const camP = new THREE.PerspectiveCamera(30, W / H, 0.05, 60), eyeP = new THREE.Vector3(), pv3 = new THREE.Vector3(), clr = new THREE.Color();
+  const placed = { tex: rtP.texture, foot: new THREE.Vector2(0.5, 0.1), head: new THREE.Vector2(0.5, 0.9) };
+  const uvOf = (x, y, z, out) => { pv3.set(x, y, z).project(camP); return out.set(pv3.x * 0.5 + 0.5, pv3.y * 0.5 + 0.5); };
+  function renderPlaced(now, P) {
+    if (!player.ready) return null;
+    const az = (+P.face || 0) * Math.PI / 180, el = Math.max(-20, Math.min(75, +P.el || 0)) * Math.PI / 180, d = 5.4, aimY = 0.9;
+    eyeP.set(Math.sin(az) * Math.cos(el) * d, aimY + Math.sin(el) * d, Math.cos(az) * Math.cos(el) * d);
+    camP.position.copy(eyeP); camP.lookAt(0, aimY, 0); camP.updateMatrixWorld();
+    player.update(eyeP, now / 1000, camP);
+    const bg = scene.background, ca = renderer.getClearAlpha(); renderer.getClearColor(clr);
+    const prevRT = renderer.getRenderTarget(), prevXr = renderer.xr && renderer.xr.enabled;
+    if (renderer.xr) renderer.xr.enabled = false;
+    scene.background = null; renderer.setClearColor(0x000000, 0);
+    renderer.setRenderTarget(rtP); renderer.clear(); renderer.render(scene, camP); renderer.setRenderTarget(prevRT);
+    scene.background = bg; renderer.setClearColor(clr, ca);
+    if (renderer.xr) renderer.xr.enabled = prevXr;
+    uvOf(0, 0, 0, placed.foot); uvOf(0, 1.7, 0, placed.head);
+    return placed;
+  }
+
   function onMsg(m) {
     if (m.op === 'perf') { pick(String(m.v || '')); return; }
     if (m.op === 'cam' && m.v) { Object.assign(S.cam, m.v); if (m.v.orbit === false) { S.cam.az = (S.cam.az + orbitAz) % 360; orbitAz = 0; } }
@@ -63,5 +86,5 @@ export function makeHoloDesk({ THREE, renderer, S, post }) {
     else if (m.op === 'pub') { const u = String(m.v || '').trim(); if (/^https:\/\/[\w.-]+(:\d+)?\//.test(u)) S.pub = u.replace(/\/?$/, '/'); }
     apply(); save(); post();
   }
-  return { ensure, render, onMsg, pick, player, get tex() { return rt.texture; }, get ready() { return player.ready; }, get t() { return player.video.currentTime; } };
+  return { ensure, render, renderPlaced, onMsg, pick, player, get tex() { return rt.texture; }, get ready() { return player.ready; }, get t() { return player.video.currentTime; } };
 }
