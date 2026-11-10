@@ -2355,3 +2355,9 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 
 ## #686 Scroller: acid! and thumb! (owner, 11 Nov)
 - Typed acid! (any case) becomes the 90s acid face (new 8 x 8 glyph U+263B, bright yellow, eyes and grin cut out); thumb! / thumbs! becomes 👍. While one is on screen, small copies float up from it (2 to 3 a second, up to 40 at once), sway and fade over about 1.5 to 2 s inside the scroller band. tools.js Scroller.parts. sw.js v172. No Node restart. Backups backups/pre686/.
+
+## #687 ACID channel +25 %; squelch review and CPU (owner, 11 Nov)
+- audio.js ACID_GAIN 2.0 -> 2.5 (+25 %, about +1.9 dB) for master and cue; ACID VOL 80 % = gain 1.6 now.
+- CPU (measured in node on the owner's laptop, Ryzen 5 6600H, worklet alone, 145 BPM, reso 0.9, overdrive 0.6, delay on): 20 s of audio in 238 ms = 32 us per 128-sample block = about 1.2 % of one core (budget 2667 us). Filter (two ladder passes + tan + tanh per sample) is the bulk; overdrive and delay are a few % of it. The worklet still runs its full DSP when stopped (no idle skip yet). Quest estimate: a few % of the audio thread.
+- Squelch review (owner asked; not built): biggest gaps vs a real 303 / TB-03: (1) no gate length (notes hold until the next one; a 303 closes the gate about half way through each non-slide step) and no VCA decay while the gate is open; (2) no accent sweep circuit (accent 'wow' that builds over consecutive accents); (3) the ladder is a generic 4-pole with tanh on the feedback only, not a diode ladder (rubbery resonance, bass kept at high resonance); (4) 2x 'oversampling' is a zero-order hold. Proposed order: 1 + 2 (cheap), then 3, plus an idle skip when stopped and silent.
+- sw.js v173, dev only. No Node restart.

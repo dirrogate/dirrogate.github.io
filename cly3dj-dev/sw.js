@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v172';   // #686 acid! and thumb! floaters
+const CACHE = 'vire-app-v173';   // #687 ACID channel +25 % (ACID_GAIN 2.5)
+// v172:   // #686 acid! and thumb! floaters
 // v153:   // #645 TAP BPM readout mode; toasts mirrored on the tablet in VR
 // v147:   // #639 GLASS RAIN on PANO portal frames
 // v146:   // #638 DOME GAMMA replaces DOME CONTRAST (PANO page + PORTALS SETUP)
