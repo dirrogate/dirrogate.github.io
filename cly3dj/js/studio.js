@@ -11,8 +11,9 @@
 // late each frame is, and shows the camera frame filmed at the frame's own time from a short ring of camera frames (up to 12, ~400 ms).
 // The sound arrives in step with the Quest's picture (one WebRTC stream), so it needs nothing. TRIM (tablet) nudges the camera.
 import { STU, readStamp, stampBlock } from './stream.js';
-import { opusStereo, tvHost } from './net-link.js';
-import { makeDesk } from './vjdesk.js';   // #507 DirroVJ desk (buses, fractal, scroller desk, line in)
+import { opusStereo, tvHost, tvNewKey, tvPairSend } from './net-link.js';
+import { makeDesk } from './vjdesk.js';
+import { attachProjMap } from './projmap.js';   // #664 projection mapping in the projector window   // #507 DirroVJ desk (buses, fractal, scroller desk, line in)
 
 const TWITCH_WHIP = 'https://g.webrtc.live-video.net:4443/v2/offer', KEYK = 'vire.s8twitchKey', RING = 12;
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
@@ -159,6 +160,11 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     twState: () => ({ state: S.tw, msg: S.twMsg, kbps: S.kbps, key: getTwKey() }),
     airState: () => { const L = getLink(); return { qOn: !!S.qOn, local: !!S.local, mode: S.mode, link: !!(L && L.isOpen), tv: S.tv || 'off', tvKnown: !!tvSaved().key }; },   // #545 the desk's ON AIR / RENDER badges, #556 QUEST LINK + DIRROTV
     setTwKey,
+    tvPair: async code => {   // #662 SOLO: pair a DirroTV screen from the desk (the TV shows the code on venue.html); the key is kept like #556
+      code = String(code || '').replace(/\D/g, ''); if (code.length !== 6) return 'DirroTV: the code on the TV has 6 digits';
+      const key = tvNewKey(); try { localStorage.setItem(TVK, JSON.stringify({ key, aud: true })); } catch {}
+      tvFollow(key, true); await tvPairSend(code, key); return 'DirroTV: pairing sent; the TV connects in a few seconds';
+    },
     twToggle: k => {
       if (k != null && String(k).trim()) setTwKey(k);
       if (S.tw === 'live' || S.tw === 'connecting') twStop('');
@@ -240,10 +246,21 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
         <button id="bPgm" class="on" title="Show the DirroVJ Program mix (A/B crossfader: Webcam, Fractal, Quest SHOWTIME!, DirroComics)">PROGRAM MIX</button>
         <button id="bCam" title="Show this laptop's raw webcam only">WEBCAM ONLY</button>
         <button id="bMir" title="Flip horizontally">MIRROR</button>
+        <select id="bScr" title="Which display to fill (projector, TV, 2nd monitor)" style="display:none;font:600 13px system-ui;background:#1c2230;color:#e6e8ec;border:1px solid #2e3850;border-radius:8px;padding:6px"></select>
         <button id="bFull" class="fs">⛶ FULL SCREEN</button>
+        <button id="bClose" title="Close this output window">✕ CLOSE</button>
       </div></body></html>`);
       doc.close();
-      const toggleFs = () => { try { if (doc.fullscreenElement) doc.exitFullscreen(); else doc.documentElement.requestFullscreen(); } catch {} };
+      // #663 full screen on a chosen display (Window Management API: Chrome asks once to "manage windows on all your displays");
+      // full screen is the only way a browser window loses its title bar. ✕ CLOSE closes this window (it was opened by script).
+      let scrList = null;
+      (async () => { try { if (!('getScreenDetails' in w)) return; const sd = await w.getScreenDetails(); scrList = sd;
+        const sel = doc.getElementById('bScr'), fill = () => { sel.innerHTML = sd.screens.map((x, i) => `<option value="${i}">${i + 1}: ${x.label || ''} ${x.width}×${x.height}${x.isPrimary ? ' (laptop)' : ''}</option>`).join(''); const ext = sd.screens.findIndex(x => !x.isPrimary); if (ext >= 0) sel.value = ext; sel.style.display = sd.screens.length > 1 ? '' : 'none'; };
+        fill(); sd.addEventListener('screenschange', fill); } catch {} })();
+      const toggleFs = () => { try { if (doc.fullscreenElement) { doc.exitFullscreen(); return; }
+        const sel = doc.getElementById('bScr'), scr = scrList && scrList.screens[+sel.value];
+        doc.documentElement.requestFullscreen(scr ? { screen: scr } : undefined).catch(() => doc.documentElement.requestFullscreen()); } catch {} };
+      doc.getElementById('bClose').onclick = () => { needScreenWin = false; try { w.close(); } catch {} };
       doc.getElementById('bFull').onclick = toggleFs;
       doc.getElementById('vjScreenVid').ondblclick = toggleFs;
       doc.getElementById('bPgm').onclick = () => { scrMode = 'pgm'; syncScreenWin(); };
@@ -252,10 +269,49 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       w.addEventListener('keydown', e => { if (e.key === 'f' || e.key === 'F') toggleFs(); });
       let idleT = 0; const wake = () => { doc.body.classList.remove('idle'); clearTimeout(idleT); idleT = setTimeout(() => doc.body.classList.add('idle'), 2600); };
       w.addEventListener('mousemove', wake); w.addEventListener('mousedown', wake); wake();
+      try { attachProjMap(w, doc, doc.getElementById('vjScreenVid')); } catch (e) { console.warn('projection mapping', e); }   // #664
     }
     frame(performance.now()); syncScreenWin();
     try { w.focus(); } catch {}
     return w;
+  }
+  // #665 OUTPUT HERE: this engine window is the projector output itself (one window, nothing copied for the screen, never
+  // minimised so Chrome keeps drawing it). Its own controls hide; a bar like the projector window's: display picker, full screen,
+  // EXIT; projection mapping works here too (fed from the same program capture as Twitch / DirroTV).
+  let outHere = null;
+  function outputHere(on = true) {
+    const doc = document;
+    if (!on) { if (outHere) { outHere.bar.remove(); doc.body.classList.remove('vjOut'); try { if (doc.fullscreenElement) doc.exitFullscreen(); } catch {} outHere = null; } return; }
+    if (outHere) return;
+    if (!doc.getElementById('vjOutCss')) { const st = doc.createElement('style'); st.id = 'vjOutCss';
+      st.textContent = `body.vjOut > *:not(canvas):not(#vjOutBar):not(#pmCv):not(#pmOv):not(#vjOutVid):not(script):not(style) { display:none !important }
+        body.vjOut { background:#000; overflow:hidden; cursor:none } body.vjOut.wake { cursor:auto }
+        #vjOutBar { position:fixed; top:12px; right:12px; z-index:20; display:flex; gap:8px; align-items:center; background:rgba(11,13,18,.85); border:1px solid #2e3850; border-radius:10px; padding:6px 10px; font:600 13px system-ui; color:#e6e8ec; transition:opacity .25s }
+        body.vjOut:not(.wake) #vjOutBar { opacity:0; pointer-events:none }
+        #vjOutBar button, #vjOutBar select { font:600 13px system-ui; color:#e6e8ec; background:#1c2230; border:1px solid #2e3850; border-radius:8px; padding:7px 11px; cursor:pointer }
+        #vjOutBar .fs { background:#b0141e; border-color:#e0202a }
+        #vjOutVid { position:fixed; inset:0; width:100vw; height:100vh; object-fit:contain; visibility:hidden; pointer-events:none }`;
+      doc.head.append(st); }
+    const bar = doc.createElement('div'); bar.id = 'vjOutBar';
+    bar.innerHTML = '<span style="color:#8c96a8;font-size:12px">OUTPUT HERE · this window is the projector</span><select id="vjOutScr" style="display:none"></select><button id="vjOutFs" class="fs">⛶ FULL SCREEN</button><button id="vjOutX">✕ EXIT OUTPUT</button>';
+    doc.body.append(bar); doc.body.classList.add('vjOut');
+    let sd = null;
+    (async () => { try { if (!('getScreenDetails' in window)) return; sd = await window.getScreenDetails(); const sel = doc.getElementById('vjOutScr');
+      const fill = () => { sel.innerHTML = sd.screens.map((x, i) => `<option value="${i}">${i + 1}: ${x.label || ''} ${x.width}×${x.height}${x.isPrimary ? ' (laptop)' : ''}</option>`).join(''); const e = sd.screens.findIndex(x => !x.isPrimary); if (e >= 0) sel.value = e; sel.style.display = sd.screens.length > 1 ? '' : 'none'; };
+      fill(); sd.addEventListener('screenschange', fill); } catch {} })();
+    doc.getElementById('vjOutFs').onclick = () => { try { if (doc.fullscreenElement) { doc.exitFullscreen(); return; } const s = sd && sd.screens[+doc.getElementById('vjOutScr').value];
+      doc.documentElement.requestFullscreen(s ? { screen: s } : undefined).catch(() => doc.documentElement.requestFullscreen()); } catch {} };
+    doc.getElementById('vjOutX').onclick = () => outputHere(false);
+    let idle = 0; const wake = () => { doc.body.classList.add('wake'); clearTimeout(idle); idle = setTimeout(() => doc.body.classList.remove('wake'), 2600); };
+    window.addEventListener('mousemove', wake); wake();
+    if (!doc.getElementById('vjOutVid')) {   // projection mapping here: its source is the program capture (the same track as the projector window's)
+      const v = doc.createElement('video'); v.id = 'vjOutVid'; v.muted = true; v.autoplay = true; v.playsInline = true; doc.body.append(v);
+      if (!scrTrack || scrTrack.readyState !== 'live') { try { scrTrack = cv.captureStream(0).getVideoTracks()[0]; scrTrack.contentHint = 'motion'; scrStream = new MediaStream([scrTrack]); } catch {} }
+      if (scrStream) { v.srcObject = scrStream; v.play().catch(() => {}); }
+      try { const pm = attachProjMap(window, doc, v); const keep = () => { v.style.visibility = 'hidden'; requestAnimationFrame(keep); }; keep(); } catch (e) { console.warn('projection mapping here', e); }
+    }
+    outHere = { bar };
+    if (!S.on) startVj();
   }
   let keepAc = null;
   function startVj() {
@@ -275,6 +331,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   $('stuHide').onclick = () => { uiT = 0; stEl.hidden = barEl.hidden = true; };
   $('stuDesk').hidden = !vj; $('stuDesk').onclick = () => openDesk();   // #507
   $('stuScreen').hidden = !vj; $('stuScreen').onclick = () => openScreenWin();   // #531
+  if (vj) window.addEventListener('beforeunload', e => { e.preventDefault(); e.returnValue = ''; });   // #663 this page IS the DirroVJ engine: closing it stops the desk, Twitch and DirroTV, so ask first
   ov.addEventListener('click', e => { if (e.target === ov) showUi(); });
   function showUi() { uiT = performance.now() + 6000; stEl.hidden = barEl.hidden = false; }
   function full() {
@@ -555,5 +612,5 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   }
   function twStop(msg, err) { twClose(); twSet(err ? 'error' : 'off', msg || ''); }
   // the sound follows the Quest's SOUND switch (it simply stops sending); the element is never muted after START STUDIO
-  return { S, _U: U /* #504 test hook */, desk, onVjSms: m => { if (desk) desk.onVjSms(m); }, onCx: m => { if (desk) desk.onCx(m); },   /* #520 GRAB RGB-D */ get sceneLag() { return vj && S.on && !S.paused && S.mode === 'show' && S.local ? S.trim : 0; }, onMsg, onScp, onTrack, onLink, frame, openDesk, openScreenWin, syncScreenWin, startVj, get needScreenWin() { return needScreenWin; }, get on() { return (S.on || vj) && !S.paused; }, get mon() { return S.on && !S.paused && S.mon; }, resume() { S.paused = false; apply(); } };
+  return { S, _U: U /* #504 test hook */, desk, onVjSms: m => { if (desk) desk.onVjSms(m); }, onCx: m => { if (desk) desk.onCx(m); },   /* #520 GRAB RGB-D */ get sceneLag() { return vj && S.on && !S.paused && S.mode === 'show' && S.local ? S.trim : 0; }, onMsg, onScp, onTrack, onLink, frame, openDesk, openScreenWin, syncScreenWin, startVj, outputHere, get needScreenWin() { return needScreenWin; }, get on() { return (S.on || vj) && !S.paused; }, get mon() { return S.on && !S.paused && S.mon; }, resume() { S.paused = false; apply(); } };
 }

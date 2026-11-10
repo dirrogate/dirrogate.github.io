@@ -94,10 +94,10 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
       if (uBehind < 0.01 || vOcc < 0.999 || occ() < 0.06 || vJump > 0.35) discard;
       float y = vUv.y;
       float band = exp(-pow((y - uBand) / 0.035, 2.0));
-      float lines = 0.3 + 0.7 * step(0.5, fract(y * 150.0 - uT * 2.0));
+      float lines = 0.12 + 0.88 * step(0.45, fract(y * 70.0 - uT * 2.0));   // #675 70 thick lines (was 150 thin): they held up badly in AR
       float flick = 0.85 + 0.15 * sin(uT * 31.0 + y * 20.0);
-      vec3 c = vec3(0.12, 0.78, 1.0) * (0.22 * lines + 1.5 * band) * flick + col() * 0.28;
-      gl_FragColor = vec4(c, clamp(0.4 * lines + 0.9 * band, 0.0, 0.95) * uBehind);
+      vec3 c = vec3(0.18, 0.86, 1.0) * (0.55 * lines + 1.8 * band) * flick + col() * 0.22;
+      gl_FragColor = vec4(c, clamp(0.72 * lines + 0.95 * band, 0.0, 0.97) * uBehind);
     }`;
   // #580 the projector's light: a fan of rays from the lens along the current scan row, each ending ON her shell (the ray reads
   // view 0's depth at its u on that row, so the sheet stops at her contour), a hot dot where each lands; nothing where the row is empty
@@ -124,7 +124,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     uniform float uBehind, uT; varying float vO, vS;
     void main(){
       if (vO < 0.98) discard;
-      float a = (0.05 + 0.4 * vS * vS) * uBehind * (0.85 + 0.15 * sin(uT * 47.0));
+      float a = (0.1 + 0.6 * vS * vS) * uBehind * (0.85 + 0.15 * sin(uT * 47.0));   // #675 brighter fan
       gl_FragColor = vec4(vec3(0.15, 0.82, 1.0), a);
     }`;
   const VSDOT = BEAM_COMMON + `
@@ -132,7 +132,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     void main(){
       float o; vec3 p = hit(aU, o); vO = o;
       vec4 mv = modelViewMatrix * vec4(p, 1.0);
-      gl_PointSize = clamp(38.0 / max(0.3, -mv.z), 2.0, 18.0);
+      gl_PointSize = clamp(48.0 / max(0.3, -mv.z), 3.0, 22.0);   // #675
       gl_Position = projectionMatrix * mv;
     }`;
   const FSDOT = `
@@ -168,7 +168,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     const slotH = 2 * R.dist * R.tv, bottom = R.aimH - slotH / 2;
     P.uvLo = Math.max(0.0, (0 - bottom) / slotH - 0.01); P.uvHi = Math.min(1.0, (H * 1.04 - bottom) / slotH);
     const pivot = v0.mesh.parent; pivot.updateMatrix();
-    const apex = new THREE.Vector3(0, H * 0.55, -1.0);   // waist height, 1 m behind her (her front faces +Z); #582 was 1.9 m
+    const apex = new THREE.Vector3(0, H * 0.55, -0.5);   // waist height, 0.5 m behind her (her front faces +Z); #675 was 1 m, #582 1.9 m
     const bu = { map: { value: tex }, uBand: shared.uBand, uBehind: shared.uBeam, uT: shared.uT, uZn: v0.un.uZn, uZf: v0.un.uZf, uTh: v0.un.uTh, uTv: v0.un.uTv, uApex: { value: apex }, uPivot: { value: pivot.matrix.clone() }, uAt: shared.uAt };
     const gR = new THREE.BufferGeometry(), au = [], pos = [];
     for (let i = 0; i < RAYS - 1; i++) { const a = i / (RAYS - 1), b = (i + 1) / (RAYS - 1); au.push(-1, a, b); pos.push(0, 0, 0, 0, 0, 0, 0, 0, 0); }

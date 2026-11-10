@@ -126,12 +126,16 @@ export function startCamera(ctx) {
   if (VJ) {   // #500 DirroVJ start page: no AR; the webcam (fixed camera) is optional, only for LIVE DJ! / LIVE KEY!
     document.title = 'DirroVJ';
     $('#spS h1').innerHTML = 'Dirro<span>VJ</span>';
-    $('#spS p').textContent = 'The VJ desk for the cabin laptop. Clicking Connect automatically spawns the DirroVJ desk window, launches the Webcam / Projector window (for your 2nd monitor / projector), and starts the webcam. On the Quest: Settings > Phone / DirroVJ link On and read the code there.';
+    $('#spS p').textContent = 'This page is the DirroVJ ENGINE: it draws the program for the desk, the projector window, Twitch and DirroTV, so keep it open (minimise it; closing it stops them). The VJ desk for the cabin laptop. Clicking Connect automatically spawns the DirroVJ desk window, launches the Webcam / Projector window (for your 2nd monitor / projector), and starts the webcam. On the Quest: Settings > Phone / DirroVJ link On and read the code there.';
     $('#spAR').hidden = true;
     $('#spFix').disabled = false;
+    $('#spConnect').textContent = 'Connect to the Quest (LINKED)';   // #662
+    $('#spConnect').insertAdjacentHTML('beforebegin', '<button id="spSolo" style="background:#1d3f66;color:#fff;font-weight:700">START SOLO (no Quest)</button>');
     $('#spConnect').insertAdjacentHTML('afterend', '<button id="spDesk">Open the VJ desk (control window)</button><button id="spScreen">Open Webcam / Projector window (2nd monitor / full screen)</button>');
     $('#spDesk').onclick = () => studio.openDesk();   // #507
     $('#spScreen').onclick = () => studio.openScreenWin();   // #531
+    $('#spScreen').insertAdjacentHTML('afterend', '<button id="spHere" title="Make this window the projector output: one window, nothing copied, and it keeps drawing (a minimised window does not)">OUTPUT HERE (this window = projector)</button>');
+    $('#spHere').onclick = () => studio.outputHere(true);   // #665
     $('#spFix').textContent = 'Start webcam (optional: the WEBCAM source, aim it at the DJ or the crowd)';   // #501
   }
 
@@ -142,6 +146,13 @@ export function startCamera(ctx) {
   const st = t => { $('#spSt').textContent = t; };
   const STATUS = { relay: 'Relay reached, calling the Quest…', 'relay-retry': 'No internet for the handshake, retrying…', 'quest-offline': 'Quest not found: is its Phone / DirroVJ link On, same code?',
     connecting: 'Connecting to the Quest…', connected: 'Connected to the Quest', disconnected: 'Link lost', failed: 'Link failed (are both on the same Wi-Fi?)' };
+  if (VJ && $('#spSolo')) $('#spSolo').onclick = () => {   // #662 SOLO: desk, projector window, webcam and the program output, no pairing
+    try { localStorage.setItem('vire.vjMode', 'solo'); } catch {}
+    studio.openDesk(); studio.openScreenWin();
+    if (!fixed.on) fixed.start($('#spFixCam').value).then(() => studio.syncScreenWin()).catch(() => {});
+    studio.startVj(); studio.syncScreenWin();
+    st('SOLO: DirroVJ runs without the Quest. Twitch key, DirroTV pairing and the beat (LINE IN / TAP) are on the desk. Connect later to go LINKED.');
+  };
   $('#spConnect').onclick = () => {
     const code = $('#spCode').value.trim();
     if (VJ) {   // #531 spawn the VJ desk + separate Webcam / Projector window and start the webcam immediately on Connect

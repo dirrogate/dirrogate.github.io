@@ -23,7 +23,7 @@ const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 
 // ---------------------------------------------------------------- settings (per phone)
 const KEY = 'dirro.set';
-const DEF = { exp: 0, night: 1, dist: 6, robotX: -2.3, robotZ: 0, lift: 0, fov: 64, bpm: 124,
+const DEF = { club: 1, exp: 0, night: 1, dist: 6, robotX: -2.3, robotZ: 0, lift: 0, fov: 64, bpm: 124,
   scroll: 'WELCOME TO THE DIRROGRAM  ✦  DIRRODJ LIVE ON VINYL  ✦  TWITCH.TV/DIRROGATE  ✦  FILM IT, SHARE IT  ✦', np: 'DirroDJ · live vinyl set' };
 const S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
@@ -258,15 +258,22 @@ const booth = new THREE.Group(); booth.name = 'booth'; stage.add(booth);
 const HD = { cfg: null, p: null, grp: new THREE.Group(), tap: false };
 HD.grp.name = 'holodancer'; HD.grp.position.set(+(Q.get('holox') || 2.4), 0, +(Q.get('holoz') || 0.4)); stage.add(HD.grp);
 async function holoLoad(src) {
+  HD.loading = src;
   try {
     const mod = await import('./holoplayer.js');
     if (!HD.p) { HD.p = mod.makeHoloPlayer({ THREE, grid: [96, 108] }); HD.grp.add(HD.p.group); }
     HD.p.group.visible = false;
     await HD.p.load(src);
-    if (HD.cfg && HD.cfg.src === src) { HD.p.group.visible = true; toast('Holodancer: ' + ((HD.p.meta && HD.p.meta.name) || 'on stage')); }
+    HD.loaded = src;   // #672
+    if ((AR.on || HP.on) && arSrc() === src) { HD.p.group.visible = AR.on ? AR.placed : HP.placed; toast('Holodancer: ' + ((HD.p.meta && HD.p.meta.name) || 'on stage')); }
   } catch (e) { console.warn('holodancer', e); }
+  if (HD.loading === src) HD.loading = null;
 }
+// #670 (owner, 10 Nov) no automatic placement: the performer DirroVJ sends is only remembered here. She comes back with the
+// Android "point at the floor and tap" HOLODANCER button (to build); until then the phones do not show her
+HD.auto = false;
 function holoCfg(h) {
+  if (!HD.auto) { HD.cfg = h && typeof h === 'object' && typeof h.src === 'string' ? h : null; if (HD.p && !AR.on && !HP.on) HD.p.group.visible = false; return; }   // #672 in AR she stays
   h = h && typeof h === 'object' && typeof h.src === 'string' && (/^https:\/\//.test(h.src) || (location.hostname === 'localhost' && /^http:\/\/localhost[:/]/.test(h.src))) ? h : null;   // localhost only for a PC test
   const old = HD.cfg; HD.cfg = h;
   if (!h) { if (HD.p) HD.p.group.visible = false; return; }
@@ -276,16 +283,113 @@ function holoCfg(h) {
 const _hd = new THREE.Vector3();
 function holoStep(now) {
   const c = HD.cfg, p = HD.p; if (!c || !p || !p.ready || !p.group.visible || !stage.visible) return;
-  camera.getWorldPosition(_hd); p.update(_hd, T, camera);
-  const v = p.video, dur = c.dur || v.duration;
-  if (v.paused && HD.tap) v.play().catch(() => {});
-  if (dur > 0 && NET.cd != null && netLive(now)) {   // the desk's dance time, on this phone: (Quest now - t0) x speed, round the loop
+  camera.getWorldPosition(_hd); p.update(_hd, T, camera); holoSync(now);
+}
+// the desk's dance time on this phone: (Quest now - t0) x speed, round the loop (#575; also the AR HOLODANCER, #672)
+function holoSync(now) {
+  const c = HD.cfg, p = HD.p, v = p.video;
+  if (v.paused && (HD.tap || AR.on)) v.play().catch(() => {});
+  if (!c) { v.playbackRate = 1; return; }
+  const dur = c.dur || v.duration;
+  if (dur > 0 && NET.cd != null && netLive(now)) {
     let tg = ((now - NET.cd - c.t0) / 1000 * c.sp) % dur; if (tg < 0) tg += dur;
     let d = tg - v.currentTime; if (d > dur / 2) d -= dur; if (d < -dur / 2) d += dur;
     if (Math.abs(d) > 0.35) v.currentTime = tg;
     v.playbackRate = c.sp * (1 + clamp(d, -0.12, 0.12));
   } else v.playbackRate = c.sp || 1;
 }
+
+// #672 / #673 the Holodancer for the phones (the WebXR AR walk-around was removed in #676: PLACE HOLODANCER in the camera mode, turned by
+// hand, does the job on every phone). The performer library on cabin.dirrodj.club (= cly3dj-dev, ?holo= to change it); a performer
+// DirroVJ sends wins while it comes and keeps in step with the desk, otherwise it dances on this phone's own clock; NEXT DANCER
+// steps through the library.
+const AR = { on: false, lib: [], li: 0 };   // on stays false (kept for holoSync / holoLoad)
+const HOLO_LIB = (Q.get('holo') || 'https://cabin.dirrodj.club/holo/').replace(/\/?$/, '/');
+fetch(HOLO_LIB + 'library.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(j => {
+  AR.lib = ((j && j.performers) || []).filter(p => p.layout !== '8b').map(p => ({ id: p.id, name: p.name || p.id, src: HOLO_LIB + p.id + '/performer.json' }));   // 8-view is too tall for phone decoders
+  hpNextVis();
+}).catch(() => {});
+const arSrc = () => HD.cfg ? HD.cfg.src : AR.lib.length ? AR.lib[AR.li % AR.lib.length].src : null;
+
+// #676 PLACE HOLODANCER in the camera mode (owner, 11 Nov): every phone, iPhones too, no WebXR. The gyroscope gives only the
+// phone's direction, so the dancer is stood on the floor from the tilt: the ring on a floor spot, a tap, and the spot is
+// HP.h (1.4 m, a phone held up) below the eye along that line. Right while standing and panning; walking makes the dancer
+// slide along (the walk-around is the AR button). Press and drag sideways = turn the dancer, up / down = nearer / farther.
+const HP = { on: false, picking: false, placed: false, h: 1.4, grp: new THREE.Group() };
+HP.grp.name = 'placedHolodancer'; scene.add(HP.grp);
+const hpLabel = () => { $('bPlace').firstChild.textContent = HP.picking ? 'CANCEL' : HP.placed ? 'MOVE HOLODANCER' : 'PLACE HOLODANCER'; hpNextVis(); };
+function hpNextVis() { $('bNext').classList.toggle('hide', !HP.placed || !!HD.cfg || AR.lib.length < 2); }
+function hpStart() {
+  if (HP.picking) { HP.picking = false; if (!HP.placed) hpOff(); show('aim', false); show('hint', false); hpLabel(); return; }
+  const sr = arSrc(); if (!sr) { toast('No Holodancer here yet (the performer library did not load)'); return; }
+  aimMenu(false); HP.on = true; HP.picking = true; hpLabel();
+  $('hint').textContent = 'Point the ring at the floor where the dancer stands, then tap'; show('aim', true); show('hint', true);
+  if (HD.loaded !== sr && HD.loading !== sr) holoLoad(sr);
+}
+function hpOff() { HP.on = HP.placed = HP.picking = false; if (HD.p && CL.on) { CL.on = false; HD.p.set('room', false); } if (HD.p && HD.p.group.parent === HP.grp) { HD.grp.add(HD.p.group); HD.p.group.visible = false; if (HD.p.video) HD.p.video.pause(); } hpLabel(); }
+function hpPlace() {
+  const f = V(0, 0, -1).applyQuaternion(camQuat(new THREE.Quaternion())); camera.updateMatrixWorld(); const e = camera.getWorldPosition(new THREE.Vector3());
+  if (f.y > -0.08) { toast('Point lower, at the floor'); return; }
+  const t = Math.min(12, HP.h / -f.y), P = e.clone().addScaledVector(f, t);
+  if (t >= 12) P.y = e.y - HP.h;   // too shallow: 12 m out, on the floor
+  HP.grp.position.copy(P); HP.grp.rotation.set(0, Math.atan2(e.x - P.x, e.z - P.z), 0);   // facing the phone
+  HP.picking = false; HP.placed = true; show('aim', false); show('hint', false); hpLabel();
+  toast('Press and drag sideways to turn · up / down = nearer / farther');
+}
+function hpStep(now) {
+  if (!HP.on || AR.on) return;
+  const sr = arSrc(); if (sr && HD.loaded !== sr && HD.loading !== sr) { holoLoad(sr); hpNextVis(); }   // the DJ changed (or sent / stopped) a performer, or NEXT DANCER
+  const p = HD.p; if (!p || !p.ready) return;
+  if (p.group.parent !== HP.grp) HP.grp.add(p.group);
+  p.group.visible = HP.placed; if (!HP.placed) return;
+  clubLight(now, p);
+  camera.getWorldPosition(_hd); p.update(_hd, T, camera); holoSync(now);
+}
+// #677 CLUB LIGHT (SETTINGS, on by default): the placed Holodancer is relit (the player's room light, depth normals) from the camera
+// picture: a 16 x 9 copy 5 times a second; ambient = the frame's average colour, key = the brightest tenth of it, its direction from
+// where those cells sit in the frame (left / right / up), turned into the world by the camera. Eased over about half a second, so
+// strobes and laser flashes do not make the dancer flicker. A floor keeps the hologram visible in a dark room.
+const CL = { c: document.createElement('canvas'), g: null, t: 0, last: 0, amb: new THREE.Vector3(0.6, 0.6, 0.6), key: new THREE.Vector3(0.6, 0.6, 0.6), dir: new THREE.Vector3(0.6, 1, 0.8),
+  tA: new THREE.Vector3(0.6, 0.6, 0.6), tK: new THREE.Vector3(0.6, 0.6, 0.6), tD: new THREE.Vector3(0.6, 1, 0.8), on: false };
+CL.c.width = 16; CL.c.height = 9;
+const lin = v => Math.pow(v / 255, 2.2);
+function clubLight(now, p) {
+  const dt = CL.last ? Math.min(0.2, (now - CL.last) / 1000) : 0.016; CL.last = now;
+  if (!S.club || !src || !src.el || !src.el.videoWidth) { if (CL.on) { CL.on = false; p.set('room', false); } return; }
+  if (now - CL.t > 200) {
+    CL.t = now;
+    try {
+      const g = CL.g || (CL.g = CL.c.getContext('2d', { willReadFrequently: true })); g.drawImage(src.el, 0, 0, 16, 9);
+      const d = g.getImageData(0, 0, 16, 9).data, n = 144, cells = [];
+      let r = 0, gg = 0, b = 0;
+      for (let i = 0; i < n; i++) { const R_ = lin(d[i * 4]), G_ = lin(d[i * 4 + 1]), B_ = lin(d[i * 4 + 2]); r += R_; gg += G_; b += B_; cells.push([0.2126 * R_ + 0.7152 * G_ + 0.0722 * B_, R_, G_, B_, i % 16, Math.floor(i / 16)]); }
+      r /= n; gg /= n; b /= n;
+      cells.sort((x, y) => y[0] - x[0]); const top = cells.slice(0, 14);
+      let kr = 0, kg = 0, kb = 0, kx = 0, ky = 0; for (const c of top) { kr += c[1]; kg += c[2]; kb += c[3]; kx += c[4]; ky += c[5]; } kr /= 14; kg /= 14; kb /= 14; kx /= 14; ky /= 14;
+      const chroma = (x, y, z) => { const m = Math.max(x, y, z, 1e-3); return [x / m, y / m, z / m]; };
+      const L = 0.2126 * r + 0.7152 * gg + 0.0722 * b, Lk = 0.2126 * kr + 0.7152 * kg + 0.0722 * kb;
+      const ca = chroma(r, gg, b), ck = chroma(kr, kg, kb), a = clamp(0.28 + 1.4 * L, 0.28, 1.0), k = clamp(0.3 + 0.9 * Lk, 0.3, 1.1);
+      CL.tA.set(ca[0] * a, ca[1] * a, ca[2] * a); CL.tK.set(ck[0] * k, ck[1] * k, ck[2] * k);
+      const sx = (kx / 15) * 2 - 1, sy = 1 - (ky / 8) * 2;   // where the light sits in the frame
+      CL.tD.set(selfie ? -sx : sx, sy * 0.8 + 0.4, 0.6).normalize(); camera.updateMatrixWorld(); CL.tD.transformDirection(camera.matrixWorld);   // camera space -> world
+    } catch (e) { /* a frame not ready yet */ }
+  }
+  const e = 1 - Math.exp(-dt * 2.2); CL.amb.lerp(CL.tA, e); CL.key.lerp(CL.tK, e); CL.dir.lerp(CL.tD, e);
+  if (!CL.on) { CL.on = true; p.set('room', true); }
+  p.set('light', { amb: CL.amb, key: CL.key, dir: CL.dir });
+}
+{ let d = null;   // press and drag on the picture: turn the placed dancer (sideways), nearer / farther (up / down)
+  canvas.addEventListener('pointerdown', e => { if (HP.placed && !HP.picking) d = [e.clientX, e.clientY]; });
+  window.addEventListener('pointerup', () => { d = null; });
+  window.addEventListener('pointermove', e => {
+    if (!d) return; const dx = e.clientX - d[0], dy = e.clientY - d[1]; d = [e.clientX, e.clientY];
+    HP.grp.rotation.y += dx * 0.012;
+    const E = camera.getWorldPosition(new THREE.Vector3()), off = HP.grp.position.clone().sub(E), k = clamp(1 - dy * 0.004, 0.9, 1.1);
+    const flat = Math.hypot(off.x, off.z) * k; if (flat > 0.4 && flat < 15) { HP.grp.position.x = E.x + off.x * k; HP.grp.position.z = E.z + off.z * k; }
+  });
+}
+$('bPlace').onclick = () => hpStart();
+$('bNext').onclick = () => { if (HD.cfg || AR.lib.length < 2) return; AR.li = (AR.li + 1) % AR.lib.length; toast(AR.lib[AR.li].name); };
 addEventListener('pointerdown', () => { HD.tap = true; if (HD.p && HD.p.ready && HD.p.video.paused) HD.p.video.play().catch(() => {}); }, { passive: true });
 const robotRoot = new THREE.Group(); booth.add(robotRoot);
 const gear = new THREE.Group(); gear.rotation.y = Math.PI; booth.add(gear);   // Cly3DJ gear faces a DJ looking down -z; the robot looks down +z
@@ -653,7 +757,7 @@ function robotStep(now, dt, t) {
 // ---------------------------------------------------------------- frame loop
 let last = performance.now(), T = 0, promoT = 0, capUntil = 0, netShown = '';
 function netStatus(now) {   // the pill top right: LIVE with the round trip, or what the link is doing
-  if (!NET.relay) return;
+  if (!NET.relay || !NET.room) return;   // #674 no room (dirrodj.club/gram opened on its own): no pill, the page runs standalone
   const s = netLive(now) ? `\u25cf LIVE ${Math.round(NET.rtt)} ms` : NET.state === 'open' ? '\u25cb WAITING FOR THE DJ' : '\u25cb CONNECTING';
   if (s === netShown) return; netShown = s; const el = $('net'); el.textContent = s; el.classList.remove('hide'); el.classList.toggle('on', netLive(now));
 }
@@ -695,6 +799,7 @@ function frame() {
   wu.uCap.value += ((cc < 10 || T < capUntil ? 1 : 0) - wu.uCap.value) * Math.min(1, dt * 4);
   scrMat.uniforms.uT.value = T; scrMat.uniforms.uKick.value = beat.kick; scrMat.uniforms.uOff.value = (T * 0.07) % 1;
   for (const d of decks) if (d.userData.platter) d.userData.platter.rotation.y -= dt * (33.333 / 60) * Math.PI * 2;
+  hpStep(now);   // #676
   if (stage.visible) {
     robotStep(now, dt, T);
     holoStep(now);   // #575
@@ -745,6 +850,7 @@ const ROWS = [
   ['bpm', 'BPM', 60, 180, 1, v => v.toFixed(0)],
   ['exp', 'EXPOSURE', -2, 1, 0.25, v => (v > 0 ? '+' : '') + v.toFixed(2) + ' EV'],   // #449
   ['night', 'LOW LIGHT', 0, 2, 1, v => ['OFF', 'ON', 'MAX'][v] || 'ON'],   // #466
+  ['club', 'CLUB LIGHT', 0, 1, 1, v => v ? 'ON' : 'OFF'],   // #677 the Holodancer takes the club's light from the camera picture
 ];
 function buildPanel() {
   const p = $('panel'); p.innerHTML = '';
@@ -753,7 +859,7 @@ function buildPanel() {
     r.innerHTML = `<span class="lab">${lab}</span><button>−</button><span class="val"></span><button>+</button>`;
     const val = r.querySelector('.val'), upd = () => { val.textContent = fmt(S[k]); };
     const [m, pl] = r.querySelectorAll('button');
-    const step = d => { S[k] = clamp(Math.round((S[k] + d * st) / st) * st, a, b); upd(); save(); if (k === 'fov') resize(); else if (k === 'exp') applyExposure(); else if (k === 'night') applyNight(); else place(); };
+    const step = d => { S[k] = clamp(Math.round((S[k] + d * st) / st) * st, a, b); upd(); save(); if (k === 'fov') resize(); else if (k === 'exp') applyExposure(); else if (k === 'night') applyNight(); else if (k === 'club') { /* hpStep reads it */ } else place(); };
     m.onclick = () => step(-1); pl.onclick = () => step(1); upd(); p.appendChild(r);
   }
   if (!DEV) return;
@@ -776,6 +882,7 @@ $('mBcn').onclick = () => {
   aimMenu(false); BCN.step = 1; BCN.dirs = []; BCN.pts = []; $('hint').textContent = BCN_HINT[1]; show('aim', true); show('hint', true);
 };
 function ringTap() {
+  if (HP.picking) { hpPlace(); return; }   // #676
   if (BCN.step) {
     const Bs = bcnStage(); if (!Bs) { BCN.step = 0; toast('The beacons are gone: use AIM'); return; }
     BCN.dirs.push(V(0, 0, -1).applyQuaternion(camQuat(new THREE.Quaternion())));
@@ -883,7 +990,7 @@ $('smsSend').onclick = () => {
   NET.ws.send(JSON.stringify({ k: 'sms', t })); $('smsIn').value = ''; $('smsN').textContent = '0 / 140'; show('sms', false);
 };
 // tapping anywhere while the ring shows = AIM
-canvas.addEventListener('click', () => { if (!$('aim').classList.contains('hide') && (BCN.step || !aimF)) ringTap(); });
+canvas.addEventListener('click', () => { if (!$('aim').classList.contains('hide') && (BCN.step || !aimF || HP.picking)) ringTap(); });
 
 $('go').onclick = async () => {
   $('err').textContent = '';

@@ -38,7 +38,7 @@ import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.j
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
 import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
-import { MovieProps, SURF_SLOTS, PLATE_BUILTIN, COLORS, PRESETS, NEON_FONTS, FOG_COLORS, MATTES, GRAFF_BUILTIN, DECAL_GROUND, DECAL_WALL, GRAFF_TINTS, removeFile } from './movieprops.js';   // #478 VJ TOOLS > MOVIE PROPS
+import { MovieProps, holoLibrary, SURF_SLOTS, PLATE_BUILTIN, COLORS, PRESETS, NEON_FONTS, FOG_COLORS, MATTES, GRAFF_BUILTIN, DECAL_GROUND, DECAL_WALL, GRAFF_TINTS, removeFile } from './movieprops.js';   // #478 VJ TOOLS > MOVIE PROPS
 import { FX, USER_LAYER } from './fx.js';
 import { makeRgbdGrab } from './rgbdgrab.js';   // #520 GRAB RGB-D for DirroComics (asked from the VJ desk)   // #379 VISUALS > FX: FLOAT and WATER
 import * as store from './storage.js';
@@ -1467,7 +1467,7 @@ function syncScrMap() {   // #617 the ACID page swaps in its own canvas; #618 an
 // invisible in the headset). Drawn at commit time, so every page gets it without each page knowing; cleared by a redraw.
 const tabNote = { text: '', until: 0, t: 0 };
 function tabletNote(text, ms = 5000) {
-  tabNote.text = text; tabNote.until = performance.now() + ms; toast(text, ms);
+  tabNote.text = text; tabNote.until = performance.now() + ms; toast.noNote = true; try { toast(text, ms); } finally { toast.noNote = false; }
   clearTimeout(tabNote.t); tabNote.t = setTimeout(() => { tabNote.text = ''; try { drawMixScreen(); } catch {} }, ms + 50);
   try { drawMixScreen(); } catch {}   // (the phone's camera role has no tablet to draw)
 }
@@ -1599,6 +1599,7 @@ async function perfToggle() {
 function toast(msg, ms = 2200) {
   const t = $('#toast'); t.textContent = msg; t.style.opacity = 1;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.opacity = 0, ms);
+  if (!toast.noNote && renderer.xr.isPresenting) { try { tabletNote(String(msg), Math.max(ms, 1800)); } catch {} }   // #645 in the headset the page overlay is invisible: show it on the tablet too
 }
 const tip = $('#tip');
 function showTip(text, x, y) { if (!text) { tip.style.display = 'none'; return; } tip.textContent = text; tip.style.display = 'block'; tip.style.left = (x + 16) + 'px'; tip.style.top = (y + 12) + 'px'; }
@@ -2320,7 +2321,7 @@ function predecode(rec3d, side) {
       await engine.init();
       const data = await fetchSide(t);
       const dec = await engine.decode(data.bytes.slice(0));
-      envCache.set(t.id, { env: dec.env, duration: dec.duration });
+      envCache.set(t.id, { env: dec.env, duration: dec.duration, flux: dec.flux, fh: dec.fh });
       return dec;
     })();
     p.catch(() => decodeCache.delete(t.id));
@@ -3963,7 +3964,7 @@ async function loadSide(d) {
       const data = await fetchSide(t);
       if (token !== d.loadToken) return;
       decoded = await engine.decode(data.bytes.slice(0));
-      envCache.set(t.id, { env: decoded.env, duration: decoded.duration });
+      envCache.set(t.id, { env: decoded.env, duration: decoded.duration, flux: decoded.flux, fh: decoded.fh });
     }
     if (token !== d.loadToken) return;
     if (rec3d.envs[side] !== decoded.env) { rec3d.envs[side] = decoded.env; rec3d.durations[side] = decoded.duration; rec3d.redraw(side); }
@@ -5165,6 +5166,12 @@ const tapTempo = {
   lastTap: 0        // timestamp of last tap
 };
 
+let lastTapMode = 0;
+// #645 the left TAP BPM button feeds the deck whose tablet readout is on TAP BPM (both: the one switched to TAP last)
+function tapTarget() {
+  const on = [0, 1].filter(i => bpmMode[i] === 'tap'); if (!on.length) return null;
+  return decks[on.length === 2 ? lastTapMode : on[0]];
+}
 function handleBpmTap(src = 'mouse') {
   const now = performance.now() / 1000;
   tapFlashT = now;
@@ -5191,15 +5198,25 @@ function handleBpmTap(src = 'mouse') {
 
     if (bpm >= 30 && bpm <= 300) {
       tapTempo.bpm = bpm;
-      toast(`TAP: ${n} · ${bpm.toFixed(2)} BPM`, 1200);
+      // #644/#645 the tapped tempo goes to the deck whose tablet readout is on TAP BPM. A track with an ID3 or
+      // Rekordbox BPM keeps it (LOCK's rule); one without takes the tap, saved with the track, live for LOCK and the phase meter.
+      const cd = tapTarget(), ct = cd && cd.loaded ? cd.track : null;
+      let tail = cd ? '' : ' (set a deck\'s tablet readout to TAP BPM to send it there)';
+      if (ct) {
+        if (fileBpmSrc(ct)) tail = ` · deck ${cd.name} keeps its ${fileBpmSrc(ct) === 'id3' ? 'ID3' : 'Rekordbox'} BPM ${+ct.bpm.toFixed(2)}`;
+        else { setTap(ct, { bpm: +bpm.toFixed(3), taps: n }); tail = ` → deck ${cd.name}`; }
+      } else if (cd) tail = ` · deck ${cd.name} has no record`;
+      toast(`TAP: ${n} · ${bpm.toFixed(2)} BPM${tail}`, 1200);
     }
   }
   tapTempo.lastTap = now;
+  drawMixScreen();   // #645 the TAP BPM readout on the tablet follows the taps
 }
 
 function clearBpmTap() {
   tapTempo.times = [];
   tapTempo.bpm = 0;
+  const cd = tapTarget(); if (cd && cd.loaded && cd.track && tapBpmOf(cd.track)) setTap(cd.track, { bpm: 0, taps: 0 });   // #644 a long press also drops the tapped BPM it gave that deck
   blinkUntil[0] = performance.now() / 1000 + 1.0;
   toast('TAP: BPM cleared', 1400);
 }
@@ -5278,7 +5295,7 @@ function ledBeat(d) {
 // Mixer readout modes (owner, #116): tap the big number / its label to cycle ORIG BPM -> BPM -> KEY -> ORIG ...
 // ORIG = the MP3's ID3 BPM only. BPM = playing tempo now. KEY = the key it sounds in now: vinyl has no key lock,
 // so pitch moves the key too (12 x log2 of the speed ratio; ~6 % = 1 semitone). Key from ID3 TKEY, else Rekordbox.
-const BPM_MODES = ['orig', 'cur', 'key'];
+const BPM_MODES = ['cur', 'rb', 'key', 'tap', 'off'];   // #643 BPM -> REKORDBOX BPM -> KEY -> OFF (ORIG is gone)
 const bpmMode = (() => { try { const v = JSON.parse(localStorage.getItem('vire.bpmMode')); if (Array.isArray(v) && v.length === 2 && v.every(m => BPM_MODES.includes(m))) return v; } catch {} return ['cur', 'cur']; })();
 const SP_HIT = [];   // #164 spectator strip buttons
 const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set while drawing
@@ -5869,14 +5886,46 @@ function parseKey(k) {
   return { i: (i + 12) % 12, minor: !!m[3] && m[3][0].toLowerCase() === 'm' && m[3].toLowerCase() !== 'maj' && m[3].toLowerCase() !== 'major' };
 }
 const keyName = (i, minor) => NOTES[((i % 12) + 12) % 12] + (minor ? 'm' : '');
+// #643 PHASE METER (the owner's: look, don't cheat). Display only. Each track's beat grid = its BPM (ID3, else Rekordbox)
+// laid on the track's own onsets: a comb over the first 45 s of the onset flux (5 ms steps) picks the offset where the
+// hits stack up; a tapped beat 1 wins if the track has one. Both decks' beat phase (0..1) -> their difference.
+const gridCache = new Map();
+function gridOf(t, bpm) {
+  if (!t || !(bpm > 0)) return null;
+  const key = t.id + '|' + bpm.toFixed(3), hit = gridCache.get(key); if (hit !== undefined) return hit;
+  const per = 60 / bpm, b1 = beat1Of(t); let g = null;
+  if (b1 !== null) g = ((b1 % per) + per) % per;
+  else {
+    const e = envCache.get(t.id); if (!e || !e.flux) return null;   // not decoded yet: ask again later
+    const fl = e.flux, fh = e.fh, pf = per / fh, nB = Math.max(4, Math.floor(45 / per));
+    let best = -1, bo = 0;
+    for (let o = 0; o < pf; o++) { let s = 0; for (let k = 0; k < nB; k++) { const i = Math.round(o + k * pf); if (i + 1 >= fl.length) break; s += fl[i] + fl[i + 1]; } if (s > best) { best = s; bo = o; } }
+    g = best > 0 ? bo * fh : null;
+  }
+  const r = g === null ? null : { g, per };
+  gridCache.set(key, r); if (gridCache.size > 40) gridCache.delete(gridCache.keys().next().value);
+  return r;
+}
+function beatPhase(d) {
+  const t = d.loaded ? d.track : null, bpm = t ? trackBpm(d) : 0, gr = t && gridOf(t, bpm); if (!gr) return null;
+  const x = (heardPos(d) - gr.g) / gr.per; return x - Math.floor(x);
+}
+function phaseOff(d) {   // { off beats (this deck minus the other, -.5..+.5), ms, per s, okMs } or null
+  const o = decks[1 - d.i]; if (!d.loaded || !o || !o.loaded) return null;
+  const a = beatPhase(d), b = beatPhase(o); if (a === null || b === null) return null;
+  let off = a - b; off -= Math.round(off);
+  const per = 60 / (effBpm(d) || 120);
+  return { off, ms: off * per * 1000, per, okMs: 20 };
+}
 function readout(d, st) {
   const t = d.loaded ? d.track : null, mode = bpmMode[d.i];
-  if (mode === 'orig') {
-    // #119: ID3 if the file has one ("ORIG · ID3", Rekordbox shown alongside), else the XML value as "RB:BPM"
-    const fs = fileBpmSrc(t), tb = t && tapBpmOf(t), rb = rbBpmOf(t);
-    const extra = (fs === 'id3' && rb ? ` · RB:${+rb.toFixed(2)}` : '') + (tb ? ` · tap ${tb.toFixed(2)}` : '');
-    return { big: fs ? String(+t.bpm.toFixed(2)) : '--.-', label: (fs === 'rb' ? 'RB:BPM' : 'ORIG BPM') + (t ? (fs === 'id3' ? ' · ID3' : fs ? '' : ' · none') + extra : '') };
+  if (mode === 'off') return { big: '', label: 'READOUT OFF · tap to show' };
+  if (mode === 'tap') {
+    const tg = tapTarget() === d, saved = t ? tapBpmOf(t) : 0, fs = fileBpmSrc(t), live = tg && tapTempo.bpm > 0 && performance.now() / 1000 - tapTempo.lastTap < 6;
+    const big = live ? tapTempo.bpm.toFixed(2) : saved ? saved.toFixed(2) : '--.-';
+    return { big, label: 'TAP BPM' + (!tg ? ' · tap the left button' : fs ? ` · keeps ${fs === 'id3' ? 'ID3' : 'RB'} ${+t.bpm.toFixed(2)}` : live ? ' · tapping' : saved ? ' · saved' : ' · tap the left TAP BPM button') };
   }
+  if (mode === 'rb') { const rb = rbBpmOf(t); return { big: rb ? String(+rb.toFixed(2)) : '--.-', label: 'REKORDBOX BPM' + (t && !rb ? ' · none' : '') }; }
   if (mode === 'key') {
     const src = t && (t.id3Key || t.key), k = parseKey(src);
     if (!k) return { big: '--', label: 'KEY' + (t ? ' · none' : '') };
@@ -5941,6 +5990,7 @@ function mixScreenPress(uv, trig) {   // #629 trig: undefined = mouse / desktop 
   for (let i = 0; i < 2; i++) {
     const b = MS_HIT[i]; if (!b || px < b.x || px > b.x + b.w || py < b.y || py > b.y + b.h) continue;
     bpmMode[i] = BPM_MODES[(BPM_MODES.indexOf(bpmMode[i]) + 1) % BPM_MODES.length];
+    if (bpmMode[i] === 'tap') { lastTapMode = i; tapTempo.times = []; tapTempo.bpm = 0; }   // #645 this deck now takes the left TAP BPM button
     try { localStorage.setItem('vire.bpmMode', JSON.stringify(bpmMode)); } catch {}
     drawMixScreen(); return true;
   }
@@ -5960,7 +6010,7 @@ function drawDeckPanel(g, d, x0, y0, w, h, P) {
   fitText2(g, t ? `${deckVid[d.i].v ? 'VV  ·  ' : ''}${t.artist}${d.side ? '  ·  side ' + d.side : ''}${t.split ? '  ·  split' : ''}` : '', x0 + 12, 90 + dy, w - 24);
   const st = engine.state.decks[d.i];
   const rd = readout(d, st);
-  g.fillStyle = '#fff'; g.font = '700 46px system-ui'; g.fillText(rd.big, x0 + 12, 150 + dy);
+  g.fillStyle = '#fff'; g.font = '700 25px system-ui'; g.fillText(rd.big, x0 + 12, 148 + dy);   // #643 smaller
   g.fillStyle = '#8c96a8'; g.font = '500 17px system-ui'; fitText2(g, rd.label, x0 + 14, 172 + dy, w * 0.62);
   MS_HIT[d.i] = { x: x0 + 6, y: 100 + dy, w: w * 0.62, h: 84 };
   // #319 (owner): the +/- readout is the platter's live speed, so a spindle twist or a rim nudge shows as it happens
@@ -5980,6 +6030,17 @@ function drawDeckPanel(g, d, x0, y0, w, h, P) {
     // beat phase dots
     const beatInBar = ledBeat(d);   // #117: grey until beat 1 and a BPM exist
     for (let k = 0; k < 4; k++) { g.fillStyle = k === beatInBar ? '#39a8ff' : '#26324a'; g.fillRect(x0 + 12 + k * 30, DOTS, 24, 10); }
+    // #643 phase meter (display only, nothing moves): this deck's beat against the other deck's, 0.25 beat each way
+    const ph = phaseOff(d);
+    if (ph) {
+      const bx = x0 + 140, bw = w - 152, cx = bx + bw / 2, by = DOTS + 1;
+      g.fillStyle = '#26324a'; g.fillRect(bx, by, bw, 8);
+      const okw = Math.max(3, bw * (ph.okMs / (ph.per * 500)));   // green zone: +-okMs
+      g.fillStyle = '#1d5a34'; g.fillRect(cx - okw / 2, by, okw, 8);
+      g.fillStyle = '#56627a'; g.fillRect(cx - 1, by - 2, 2, 12);
+      const f = Math.max(-1, Math.min(1, ph.off / 0.25)), ok = Math.abs(ph.ms) <= ph.okMs;
+      g.fillStyle = ok ? '#40ff70' : Math.abs(f) >= 1 ? '#ff4b4b' : '#f2b640'; g.fillRect(cx + f * (bw / 2 - 3) - 3, by - 2, 6, 12);
+    }
     if (t && tapEntry(t)) {   // sidecar save state for this track (portrait: its own line, the panel is narrower)
       const tx = { saved: 'taps saved', saving: 'saving…', retry: 'not saved: retrying', static: 'saved on this device', local: 'saved on this device' }[taps.status] || '';
       g.textAlign = P ? 'left' : 'right'; g.fillStyle = taps.status === 'saved' ? '#56627a' : '#c9a040'; g.font = '500 13px system-ui';
@@ -6599,6 +6660,7 @@ function drawLooperPage(page, T) {
 // #478 VJ TOOLS > MOVIE PROPS: spawn row, list of the props in the room (tap = select, X = remove) and the selected prop's controls
 const pcs = v => Math.round(v * 100) + '%';
 var btnGreen = false;   // #545 see the tools-page btn (var: drawMixScreen can run before this line)
+let holoLibCache = null;   // #671
 let propsClearT = 0, mpTab = 'props', mpSurfName = '', surfDelT = 0;
 function drawPropsPage(T) {
   const { g, W, H, P, L, R, btn, head, note } = T;
@@ -6640,7 +6702,7 @@ function drawPropsPage(T) {
     note('Each slot takes a picture (jpg / png). Diffuse = colour, displacement = height (white high), roughness, normal (OpenGL style) and AO are optional. Added from this device; set TILE SIZE to how many metres one picture covers.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 12);
     return;
   }
-  const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', decal: 'GROUND DECAL', walldecal: 'WALL DECAL', glb: 'GLB', lamp: 'LAMP', plate: 'BACKDROP', crate: 'RECORD CRATE', pumpkin: 'PUMPKIN' };
+  const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', decal: 'GROUND DECAL', walldecal: 'WALL DECAL', glb: 'GLB', lamp: 'LAMP', plate: 'BACKDROP', crate: 'RECORD CRATE', pumpkin: 'PUMPKIN', holo: 'HOLODANCER' };   // #671
   const spawn = k => {
     const o = {};
     if (k === 'pumpkin') { k = 'glb'; o.src = 'halloween_pumpkin.glb'; }
@@ -6655,14 +6717,14 @@ function drawPropsPage(T) {
     toast(p && p.floor ? (NAMES[k] || 'GROUND') + ' in front of you. Grip the ring on its post to carry it, trigger the cube to size it.' : (NAMES[k] || 'PROP') + ' in front of you. Grip the ring to carry it, trigger the cube to size it (or grip with both hands and stretch).', 4200);
     drawMixScreen();
   };
-  const kinds = [['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['GROUND DECAL +', 'decal'], ['WALL DECAL +', 'walldecal'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['CRATE +', 'crate'], ['ALLEY SCENE', 'alley'], ['ROAD SCENE', 'road']];
+  const kinds = [['HOLODANCER +', 'holo'], ['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['GROUND DECAL +', 'decal'], ['WALL DECAL +', 'walldecal'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['CRATE +', 'crate'], ['ALLEY SCENE', 'alley'], ['ROAD SCENE', 'road']];
   const per = P ? 4 : 8, gap = 6, bw = (R - L - gap * (per - 1)) / per, bh = P ? 44 : 34;
   kinds.forEach(([l, k], i) => btn(L + (i % per) * (bw + gap), y0 + Math.floor(i / per) * (bh + 6), bw, bh, l, false, () => spawn(k), false, P ? 16 : 14));
   const top = y0 + Math.ceil(kinds.length / per) * (bh + 6) + 4;
   // ---- list of props
   const RH = P ? 33 : 30, listW = P ? R - L : 214, rowsMax = P ? 3 : Math.max(2, Math.floor((H - top - 8 - 3 * RH) / RH));
   const n = items.length, si = Math.max(0, items.indexOf(sel)), start = n <= rowsMax ? 0 : Math.max(0, Math.min(si - Math.floor(rowsMax / 2), n - rowsMax));
-  const det = p => p.type === 'puddle' ? p.matte : p.type === 'neon' ? p.text.replace(/\n/g, ' ') : (p.type === 'graffiti' || p.type === 'decal' || p.type === 'walldecal' || p.type === 'glb') ? (p.src || '(none)') : '';
+  const det = p => p.type === 'puddle' ? p.matte : p.type === 'neon' ? p.text.replace(/\n/g, ' ') : (p.type === 'graffiti' || p.type === 'decal' || p.type === 'walldecal' || p.type === 'glb') ? (p.src || '(none)') : p.type === 'holo' ? (p.name || p.state) : '';
   const detP = p => p.type === 'puddle' && p.surf ? p.surf : det(p);
   for (let r = 0; r < rowsMax && start + r < n; r++) {
     const p = items[start + r], y = top + r * RH;
@@ -6734,6 +6796,16 @@ function drawPropsPage(T) {
       S('BRIGHTNESS', sel.bright / 1.5, pc(sel.bright / 1.5), v => { sel.bright = v * 1.5; sel.look(); }), S('OPACITY', sel.opac, pc(sel.opac), v => { sel.opac = v; sel.look(); }), sizeUni());
     if (dk) cells.push(S('WETNESS (gloss, lamp glints)', sel.wet, pc(sel.wet), v => { sel.wet = v; }), S(sel.type === 'decal' ? 'RAIN RINGS' : 'RIVULET AMOUNT', sel.rainAmt, pc(sel.rainAmt), v => { sel.rainAmt = v; }), S('AMBIENT', sel.amb / 0.6, pc(sel.amb / 0.6), v => { sel.amb = v * 0.6; }));
     if (sel.type === 'walldecal') cells.push(S('RIVULET SPEED', (sel.flow - 0.1) / 3.9, sel.flow.toFixed(1) + 'x', v => { sel.flow = 0.1 + v * 3.9; }));
+  } else if (sel.type === 'holo') {   // #671 HOLODANCER
+    if (!holoLibCache) holoLibrary().then(l => { holoLibCache = l; drawMixScreen(); });
+    const lib = holoLibCache || [], kind = l => l === '1d' ? '1-view' : l === '4d' ? '4-view' : l === '8b' ? '8-view' : '';
+    cells.push(B('PERFORMER: ' + (sel.name || '…') + (sel.layout ? ' (' + kind(sel.layout) + ')' : ''), false, () => { if (lib.length) { const i = lib.findIndex(x => x.id === sel.perf); sel.load(lib[(i + 1) % lib.length].id); } }, lib.length < 2),
+      S('SIZE', logS(sel.obj.scale.x), Math.abs(sel.obj.scale.x - 1) < 0.02 ? 'LIFE SIZE' : sel.obj.scale.x.toFixed(2) + 'x', v => sel.scaleTo(0.1 * Math.pow(100, v))),
+      B('LIFE SIZE', Math.abs(sel.obj.scale.x - 1) < 0.02, () => sel.scaleTo(1)),
+      S('SPEED', (sel.speed - 0.25) / 1.75, sel.speed.toFixed(2) + 'x', v => sel.set('speed', 0.25 + v * 1.75)),
+      B(sel.tears ? 'HOLO TEARS: ON' : 'HOLO TEARS: OFF', sel.tears, () => sel.set('tears', !sel.tears)),
+      B(sel.layout === '1d' ? 'PROJECTOR: ALWAYS (1-view)' : sel.half ? 'PROJECTOR: ON' : 'PROJECTOR: OFF', sel.layout === '1d' || sel.half, () => sel.set('half', !sel.half), sel.layout !== '4d'),
+      B('TURN 45°', false, () => { sel.obj.rotation.y += Math.PI / 4; }), B('RESTART DANCE', false, () => sel.restart()));
   } else if (sel.type === 'glb') {
     const names = mp.lists.glb;
     cells.push(B(sel.src ? 'MODEL: ' + sel.src : 'MODEL: (none)', false, () => { if (names.length) sel.load(cyc(names, sel.src || names[names.length - 1])); }, !names.length),
@@ -10672,6 +10744,7 @@ drawMixScreen();
 try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media.getFile('Images', cn).then(f => { if (f) { streamer.setCardPic(f); cardWallSet(f, false); } }).catch(() => {}); } catch (e) {}   // #445 the CARD picture of last time
 window.vire = { get mprops() { return mprops; } /* #586 test hook */, _acid: { AK, ACID_KNOBS, acidUI, tick: acidKnobTick, end: acidKnobEnd, acidTape, acidTray, trayPress, trayDrag, trayRelease, CAS3D, cassGrab, cassRelease, acidReelAt, acidReelTurn } /* #608 test hook */, THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._deck = { pullRecord, placeOnDeck, setMotor, dropNeedleAt, get held() { return held; } };   // #497 test hook: put a record on a deck from the console
+window.vire._phase = { gridOf, beatPhase, phaseOff, envCache, gridCache };   // #643 test hook
 window.vire._loop = { loopFix, loopClip, loopCopy, loopPaste, loopUndo, loopUndoDo, loopDeleteBank, looper, loopSlots, loopUI, pressLooper, clearLooper, loopSlotTap, loopRegion, loopNudge, loopSaveBank, loopLoadBank, loopOpenBanks, stepLooper, releaseLooper };   // #470 test hook
 window.vire._art = { art, maker, openArtPage, runArtSearch, openArtRelease, useArt, pressRecord, get plNow() { return plNow; } };
 window.vire._mp = { get mp() { return mprops; }, setTab: t => { mpTab = t; } };   // #478 test hook

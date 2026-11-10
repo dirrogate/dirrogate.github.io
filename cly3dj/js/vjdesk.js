@@ -9,7 +9,9 @@ import { TwitchChat } from './chat.js';
 import { makeComics } from './comics.js';   // #516 DirroComics
 import * as media from './medialib.js';   // #532 IMAGES / VIDEOS / PANOS clip decks
 import { holoDefaults, makeHoloDesk } from './holodesk.js';   // #573 HOLO: Holodancer performers (small modules; the atlas video loads on first use)
-import { Scroller } from './tools.js';   // #556 the same bitmap sine scroller as the Quest's, for the program when there is no Quest
+import { Scroller } from './tools.js';
+import { DirroHost, fanUrl, roomKey } from './dirro-host.js';   // #674 DIRROGRAM from this laptop (SOLO)
+import { makeDirroverse } from './dirroverse.js';   // #662 DIRROVERSE: Cyber-Window sets (the studio on this laptop) on the buses   // #556 the same bitmap sine scroller as the Quest's, for the program when there is no Quest
 // #550 DANCER: js/dancerdesk.js is imported only when the desk first needs her (its loaders, post chain and the 5 MB GLB stay out of the start)
 function dzDefaults() {
   const S = { loaded: false, loading: false, err: '', clip: '', clips: [], stage: 'rim', outfit: 'Red', speed: 1, soft: { c1: '#35d6ff', c2: '#ffa24a', rim: 1, face: 1 }, props: { manhole: false, pumpkin: false, fog: false }, fog: { den: 0.5, h: 0.8, speed: 0.6, col: 'cold' }, cam: { mode: 'orbit', x: 0, y: 8, zoom: 1 }, pv: false, rec: { on: false, t: 0, msg: '' } };
@@ -23,6 +25,28 @@ const MIX_FS = `uniform sampler2D tA, tB; uniform vec4 fA, fB; uniform float kA,
 vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
 vec3 src(sampler2D t, vec4 f, float k) { if (k < 0.5) return vec3(0.0); vec3 c = texture2D(t, f.xy + vUv * f.zw).rgb; return k > 1.5 ? clamp(srgb(c), 0.0, 1.0) : c; }
 void main() { gl_FragColor = vec4(mix(src(tA, fA, kA), src(tB, fB, kB), x), 1.0); }`;
+// #668 HOLO+CAM: the webcam with the Holodancer stood on a spot in it (feet at F, her height hH of the frame), a soft contact
+// shadow under her feet and her colours pulled toward the webcam's light. cut > 0 hides her below a line (a bar front, a rail)
+const HC_FS = `uniform sampler2D cam, ho; uniform vec4 cf; uniform vec2 F, foot; uniform vec3 mean; uniform float hoOn, A, k, flip, shadow, light, cut, sEl, hH, pm; varying vec2 vUv;
+void main() {
+  vec3 c = texture2D(cam, cf.xy + vUv * cf.zw).rgb;
+  if (hoOn > 0.5) {
+    vec2 dq = vUv - F; dq.x *= A;
+    vec2 e = dq / vec2(0.17 * hH, 0.17 * hH * max(0.12, sEl));
+    c *= 1.0 - shadow * 0.75 * (1.0 - smoothstep(0.2, 1.0, length(e)));
+    vec2 r = foot + vec2((flip > 0.5 ? -1.0 : 1.0) * dq.x / (16.0 / 9.0), dq.y) * k;
+    bool hide = cut > 0.0 && 1.0 - vUv.y > cut;
+    if (!hide && r.x > 0.0 && r.x < 1.0 && r.y > 0.0 && r.y < 1.0) {
+      vec4 h = texture2D(ho, r);
+      float L = dot(mean, vec3(0.299, 0.587, 0.114));
+      vec3 tint = mean / max(max(mean.r, mean.g), max(mean.b, 0.02));
+      vec3 g = mix(vec3(1.0), tint * clamp(0.45 + L * 1.6, 0.45, 1.25), light);
+      float a = clamp(h.a, 0.0, 1.0);
+      c = c * (1.0 - a) + (pm > 0.5 ? h.rgb : h.rgb * a) * g;   // holo target is premultiplied, the dancer canvas is not
+    }
+  }
+  gl_FragColor = vec4(c, 1.0);
+}`;
 // heights (r), colour detail (g), inside the set (b). Four formulas; inside the set the height comes from an orbit trap (how close the
 // orbit passes the axes and the origin), so the old flat plateau becomes ridges, domes and swirls (#508)
 const H_FS = `uniform vec2 c0, jc; uniform float span, maxI, ftype; varying vec2 vUv;
@@ -110,13 +134,18 @@ const FRACTALS = {   // #508 per formula: start centre and span, zoom targets
   multi: { t: 3, c: [0, 0], span: 2.8, tg: [[0.38, 0.0], [-0.19, 0.33], [-0.19, -0.33]] },
 };
 const PALS = ['green', 'island', 'lava', 'ice', 'copper', 'neon'];
-const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'holo'];   // #573 holo = Holodancer
+const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'holo', 'dverse', 'cast', 'hocam', 'dzcam'];   // #667 cast = the Quest 3 casting window, #668 hocam = Holodancer stood in the webcam, #669 dzcam = the 3D Dancer stood in it   // #573 holo = Holodancer, #662 dverse = DirroVerse
 // (was) const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer'];   // #516 comic = DirroComics page, #550 dancer = DirroDancer, #555 BLACK removed (owner: never used)
 
+const HP0 = { x: 0.5, y: 0.8, h: 0.4, el: 8, face: 0, flip: false, shadow: 0.55, light: 0.6, cut: 0 };   // #668 x, y = her feet (0..1, from the top left), h = her height (part of the frame)
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
-  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), holo: holoDefaults(), chDesk: '', audioAuto: false, lsc: '', cue: '' };   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
+  const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), holo: holoDefaults(), chDesk: '', audioAuto: false, lsc: '', cue: '',
+    tempo: 'line', bpm: 0, beatN: 0, dv: { set: '', sets: [], files: [], arrivals: [], status: '', studio: '', cam: true, playing: '', job: null, match: 0.7 },
+    cast: { on: false, label: '', l: 0, r: 0, t: 0, b: 0 }, hp: { ...HP0 }, gram: { on: false, st: 'Off', url: '', room: '' }, beatT: 0 };   // #667 CAST crop, #668 HOLO+CAM placement   // #662 master tempo (LINE IN / TAP) + DirroVerse   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
   try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
+  try { const o = JSON.parse(localStorage.getItem('vire.vjCast') || '{}'); for (const k of ['l', 'r', 't', 'b']) if (+o[k] >= 0) D.cast[k] = Math.min(0.45, +o[k]); } catch {}
+  try { const o = JSON.parse(localStorage.getItem('vire.vjHp') || '{}'); for (const k of Object.keys(HP0)) if (o[k] != null) D.hp[k] = typeof HP0[k] === 'boolean' ? !!o[k] : +o[k]; } catch {}
   const queue = []; let qid = 1;
   const quad = mat => { const sc = new THREE.Scene(), m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); m.frustumCulled = false; sc.add(m); return sc; };
   const oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -126,6 +155,44 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   const rU = { hT: { value: hRT.texture }, ro: { value: new THREE.Vector3() }, cx: { value: new THREE.Vector3() }, cy: { value: new THREE.Vector3() }, cz: { value: new THREE.Vector3() }, HS: { value: 0.25 }, pal: { value: 0 }, pump: { value: 0 }, cyc: { value: 0 }, flash: { value: 0 }, res: { value: new THREE.Vector2(320, 256) } };
   const rMat = new THREE.ShaderMaterial({ uniforms: rU, vertexShader: VS, fragmentShader: R_FS, depthTest: false, depthWrite: false }), rSc = quad(rMat);
   const camTex = new THREE.VideoTexture(fixed.video); camTex.colorSpace = THREE.NoColorSpace; camTex.generateMipmaps = false;
+  let dvx = null; const dvGet = () => dvx || (dvx = makeDirroverse({ THREE, renderer, camTex, camVideo: fixed.video, S: D.dv, post: () => post() }));   // #662
+  // #667 CAST: the Quest 3 casting window (Chrome's casting page, picked in the desk window with getDisplayMedia, video only)
+  const castV = document.createElement('video'); castV.muted = true; castV.playsInline = true; castV.autoplay = true;
+  const castTex = new THREE.VideoTexture(castV); castTex.colorSpace = THREE.NoColorSpace; castTex.generateMipmaps = false;
+  function setCast(stream) {
+    const old = castV.srcObject; if (old && old !== stream) { try { old.getTracks().forEach(t => t.stop()); } catch {} }
+    castV.srcObject = stream || null; D.cast.on = !!stream; D.cast.label = '';
+    if (stream) { const tr = stream.getVideoTracks()[0]; if (tr) { D.cast.label = tr.label || ''; tr.addEventListener('ended', () => { if (castV.srcObject === stream) setCast(null); }); } castV.play().catch(() => {}); }
+    post();
+  }
+  // #668 / #669 HOLO+CAM, DANCER+CAM: a composite target each, at the program's shape, so a click on the desk monitor is where her feet go
+  const mkComp = () => { const rt = new THREE.WebGLRenderTarget(1280, 720, { depthBuffer: false, generateMipmaps: false });
+    const U = { cam: { value: camTex }, ho: { value: null }, cf: { value: new THREE.Vector4(0, 0, 1, 1) }, F: { value: new THREE.Vector2() }, foot: { value: new THREE.Vector2() }, mean: { value: new THREE.Vector3(0.5, 0.5, 0.5) },
+      hoOn: { value: 0 }, A: { value: 16 / 9 }, k: { value: 1 }, flip: { value: 0 }, shadow: { value: 0 }, light: { value: 0 }, cut: { value: 0 }, sEl: { value: 0.2 }, hH: { value: 0.4 }, pm: { value: 1 } };
+    return { rt, U, sc: quad(new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: HC_FS, depthTest: false, depthWrite: false })), t: -1 }; };
+  const comp = { holo: mkComp(), dancer: mkComp() };
+  const mc = document.createElement('canvas'); mc.width = mc.height = 8; const mcx = mc.getContext('2d', { willReadFrequently: true });
+  const camMean = new THREE.Vector3(0.5, 0.5, 0.5); let meanT = 0;
+  function inCam(who, U, fit, W, H, now) {
+    const C = comp[who], cu = C.U;
+    if (C.t !== now) {
+      C.t = now;
+      const A = W / H, hw = Math.max(320, Math.min(1920, Math.round(720 * A))), P = D.hp, v = fixed.video;
+      if (C.rt.width !== hw) C.rt.setSize(hw, 720);
+      cover(v.videoWidth, v.videoHeight, W, H, cu.cf.value);
+      if (now - meanT > 400) { meanT = now; try { mcx.drawImage(v, 0, 0, 8, 8); const d = mcx.getImageData(0, 0, 8, 8).data; let r = 0, g = 0, b = 0; for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; } const n = d.length / 4 * 255; camMean.set(r / n, g / n, b / n); } catch {} }
+      cu.mean.value.copy(camMean);
+      const pl = who === 'holo' ? (ho && ho.ready ? ho.renderPlaced(now, P) : null) : (dz && dz.ready ? dz.renderPlaced(now, P) : null);
+      cu.hoOn.value = pl ? 1 : 0;
+      if (pl) { cu.ho.value = pl.tex; cu.pm.value = pl.pm ? 1 : 0; cu.foot.value.copy(pl.foot); cu.k.value = Math.max(0.02, pl.head.y - pl.foot.y) / Math.max(0.03, +P.h || 0.4); }
+      const el = +P.el || 0;   // the soft patch only shows while the camera sees the top of the surface; the dancer has a real shadow instead
+      cu.F.value.set(+P.x, 1 - +P.y); cu.A.value = A; cu.flip.value = P.flip ? 1 : 0; cu.light.value = +P.light || 0;
+      cu.shadow.value = who === 'holo' ? (+P.shadow || 0) * Math.max(0, Math.min(1, (el + 2) / 8)) : 0;
+      cu.cut.value = +P.cut || 0; cu.sEl.value = Math.sin(Math.max(5, Math.min(80, el)) * Math.PI / 180); cu.hH.value = +P.h || 0.4;
+      const prev = renderer.getRenderTarget(); renderer.setRenderTarget(C.rt); renderer.render(C.sc, oc); renderer.setRenderTarget(prev);
+    }
+    U.value = C.rt.texture; fit.set(0, 0, 1, 1); return 1;
+  }
   let ledTex = null, lastLedVid = null, ledImgTex = null, lastLedImg = null;
   const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 } };
   const mMat = new THREE.ShaderMaterial({ uniforms: mU, vertexShader: VS, fragmentShader: MIX_FS, depthTest: false, depthWrite: false }), mSc = quad(mMat);
@@ -143,16 +210,30 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   // #550 DANCER: her own renderer + canvas (js/dancerdesk.js), loaded on first use
   let dz = null, dzP = null;
   const dzLoad = () => dzP || (dzP = import('./dancerdesk.js').then(m => { dz = m.makeDancer({ S: D.dz, post: () => post(), bc, media }); dz.ensure(); return dz; }).catch(e => { D.dz.err = 'load: ' + (e.message || e); dzP = null; post(); }));
-  const dzNeed = used => !!dz && (used.includes('dancer') || dz.recording);
+  const dzNeed = used => !!dz && !used.includes('dzcam') && (used.includes('dancer') || dz.recording);   // #669 DANCER+CAM draws her itself (one picture of her a frame)
   // #573 HOLO: drawn with this renderer into its own target, only while the T-bar shows (or CUE) its bus
   let ho = null;
   const hoLoad = () => { if (!ho) ho = makeHoloDesk({ THREE, renderer, S: D.holo, post: () => post() }); ho.ensure(); return ho; };
-  const hoNeed = used => !!ho && used.includes('holo');
+  const hoNeed = used => !!ho && (used.includes('holo') || used.includes('hocam'));   // #668
   // #575 SEND TO DIRROGRAM: every 2 s (and on a change) the performer + where the dance is, through the Quest link; the Quest puts it
   // in the config the relay keeps for the phones (dirro-host.js setHolo), the phones keep in step on the Quest clock they already track
+  // #674 DIRROGRAM from this laptop (SOLO, owner 11 Nov): the Quest's own sender (dirro-host.js) run here with a still 'head', the
+  // master tempo as the beat, no lasers. Its own room (kept in this browser), its own QR and short link dirrodj.club/<ROOM>. The phones
+  // in it get the beat, the Holodancer (SEND TO DIRROGRAM) and their LIVE pill; HoloSMS land here (the desk shows them).
+  let gram = null;
+  const gramHost = () => gram || (gram = (() => {
+    const rig = new THREE.Object3D(), cam = new THREE.PerspectiveCamera(50, 1, 0.1, 10); cam.position.set(0, 1.62, 0.2); cam.updateMatrixWorld();
+    return new DirroHost({ renderer, rig, camera: cam, getXr: () => null, getBeat: () => ({ count: D.beatN, last: D.beatT }), tapBpm: () => D.bpm || 0, micLevel: () => 0,
+      nowPlaying: () => ({ a: '', bpm: D.bpm || 0 }), scrollText: () => '', onChange: () => gramSt(), onSms: t => bc.postMessage({ k: 'cxmsg', t: 'HoloSMS from a phone: ' + t }) });
+  })());
+  function gramSt() { const g = gram; const G = D.gram; G.on = !!(g && g.on); G.st = g ? g.status() : 'Off'; G.url = G.on ? fanUrl() : ''; G.room = G.on ? roomKey() : ''; post(); }
+  try { if (localStorage.getItem('vire.dirroOn') === '1') { gramHost(); gramSt(); } } catch {}
+  setInterval(() => { if (gram && gram.on) gram.tick(performance.now()); }, 33);
+  setInterval(() => { if (gram && gram.on) gramSt(); }, 2000);
   let hoSent = false;
   function holoGram() {
     const H = D.holo, L = getLink(), open = !!(L && L.isOpen);
+    if (gram && gram.on) gram.setHolo(H.gram && ho && ho.ready && ho.player.meta ? { on: true, id: H.perf, src: H.pub.replace(/\/?$/, '/') + H.perf + '/performer.json', pos: ho.t, sp: H.speed, dur: ho.player.meta.duration || ho.player.video.duration || 0 } : { on: false });   // #674
     if (!open) { hoSent = false; return; }
     if (!H.gram || !ho || !ho.ready || !ho.player.meta) { if (hoSent) { L.send('ctl', { k: 'vjholo', on: false }); hoSent = false; } return; }
     L.send('ctl', { k: 'vjholo', on: true, id: H.perf, src: H.pub.replace(/\/?$/, '/') + H.perf + '/performer.json', pos: ho.t, sp: H.speed, dur: ho.player.meta.duration || ho.player.video.duration || 0 });
@@ -162,7 +243,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   fetch('holo/library.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(j => {
     if (!j || !Array.isArray(j.performers)) return;
     D.holo.lib = j.performers.map(p => ({ id: p.id, name: p.name || p.id, path: 'holo/' + p.id + '/performer.json', layout: p.layout || '' }));
-    if (D.a === 'holo' || D.b === 'holo') hoLoad(); post();
+    if (['holo', 'hocam'].includes(D.a) || ['holo', 'hocam'].includes(D.b)) hoLoad(); post();
   }).catch(() => {});   // #552 no own preview: she is drawn where the T-bar shows her, or for REC
 
   // ---- fractal flight: zoom in toward a target and out again (ping-pong), orbit round it; REACT lifts the heights on the bass
@@ -176,12 +257,32 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       if (analyse.ac && analyse.ac.state === 'suspended') analyse.ac.resume().catch(() => {});
       an.getByteFrequencyData(anBuf); let s = 0; for (let i = 1; i < 6; i++) s += anBuf[i]; const v = s / (5 * 255);
       bass = v > bass ? v : bass * 0.88; avg += (v - avg) * Math.min(1, dt * 1.5);
-      if (v > 0.22 && v > avg * 1.32 && now - kickT > 230) { kickT = now; pulse = 1; D.kick++; if (peers) post(); }
+      if (v > 0.22 && v > avg * 1.32 && now - kickT > 230) {
+        if (D.tempo === 'line') { tempoKick(now); pulse = 1; D.kick++; if (peers) post(); }   // #662 LINE IN: each kick is a beat (and feeds the BPM readout)
+        kickT = now;
+      }
     } else bass *= 0.9;
+    if (D.tempo === 'tap' && D.bpm > 0) {   // #662 TAP: a steady clock at the tapped BPM
+      const per = 60000 / D.bpm; if (!tClock.next || tClock.next < now - per) tClock.next = now;
+      if (now >= tClock.next) { tClock.next += per; pulse = 1; D.kick++; D.beatN++; D.beatT = now; if (peers) post(); }
+    }
     pulse *= Math.exp(-dt * 5.5);
   }
+  // #662 master tempo: LINE IN estimates the BPM from the kick spacing (median of the last 8, folded into 70..180); TAP = taps averaged
+  const tClock = { next: 0, kicks: [], taps: [] };
+  function tempoKick(now) {
+    const K = tClock.kicks; K.push(now); while (K.length > 9) K.shift(); D.beatN++; D.beatT = now;
+    if (K.length >= 5) { const iv = K.slice(1).map((t, i) => t - K[i]).filter(x => x > 250 && x < 1600).sort((a, b) => a - b);
+      if (iv.length >= 4) { let b = 60000 / iv[iv.length >> 1]; while (b < 70) b *= 2; while (b > 180) b /= 2; D.bpm = Math.round((D.bpm ? D.bpm * 0.7 + b * 0.3 : b) * 10) / 10; } }
+  }
+  function tempoTap(now) {
+    const T = tClock.taps; if (T.length && now - T[T.length - 1] > 2000) T.length = 0; T.push(now); while (T.length > 8) T.shift();
+    D.tempo = 'tap';
+    if (T.length >= 2) { const iv = T.slice(1).map((t, i) => t - T[i]), m = iv.reduce((a, b) => a + b, 0) / iv.length; D.bpm = Math.round(60000 / m * 10) / 10; }
+    tClock.next = now; pulse = 1; D.kick++; D.beatN++;   // the tap is the downbeat
+  }
   function fractal(dt, now) {
-    const fr = D.fr, FD = FRACTALS[fr.type] || FRACTALS.mandel; analyse(dt, now);
+    const fr = D.fr, FD = FRACTALS[fr.type] || FRACTALS.mandel;
     if (F.type !== fr.type) { F.type = fr.type; F.z = 0; F.dir = 1; F.ti = 0; }
     F.z += F.dir * dt * 0.06 * fr.speed * fr.zoom; const zmax = FD.t === 1 ? 2.5 : 6.5;
     if (F.z > zmax) { F.z = zmax; F.dir = -1; } if (F.z < 0) { F.z = 0; F.dir = 1; F.ti = (F.ti + 1) % FD.tg.length; }
@@ -204,6 +305,12 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if (name === 'dancer') { if (!dz || !dz.ready) return 0; U.value = dz.tex; cover(1280, 720, W, H, fit); return 1; }   // #550
     if (name === 'holo') { if (!ho || !ho.ready) return 0; U.value = ho.tex; cover(1280, 720, W, H, fit); return 1; }   // #573
     if (name === 'comic') { if (!comicTex) return 0; U.value = comicTex; cover(1920, 1080, W, H, fit); return 1; }   // #516
+    if (name === 'dverse') { const t = dvx && dvx.ready ? dvx.render(now) : null; if (!t) return 0; U.value = t; cover(dvx.w, dvx.h, W, H, fit); return 1; }   // #662
+    if (name === 'cast') { const v = castV; if (!D.cast.on || !v.videoWidth) return 0;   // #667 crop off the casting page's own frame, then cover
+      const C = D.cast, w = Math.max(0.05, 1 - C.l - C.r), h = Math.max(0.05, 1 - C.t - C.b); cover(v.videoWidth * w, v.videoHeight * h, W, H, fit);
+      fit.set(C.l + fit.x * w, C.b + fit.y * h, fit.z * w, fit.w * h); U.value = castTex; return 1; }
+    if (name === 'hocam') { const v = fixed.video; if (!fixed.on || !v.videoWidth) return 0; return inCam('holo', U, fit, W, H, now); }   // #668
+    if (name === 'dzcam') { const v = fixed.video; if (!fixed.on || !v.videoWidth) return 0; return inCam('dancer', U, fit, W, H, now); }   // #669
     if (name === 'webcam') { const v = fixed.video; if (!fixed.on || !v.videoWidth) return 0; U.value = camTex; cover(v.videoWidth, v.videoHeight, W, H, fit); return 1; }
     if (name === 'led') {
       if (D.ledKind === 'pano') {
@@ -243,9 +350,14 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if ((D.cue === 'a' && D.x <= 0) || (D.cue === 'b' && D.x >= 1)) { D.cue = ''; post(); }   // #557 the T-bar reached the cued bus: it is LIVE now, CUE ends
     const onAir = (D.x < 1 ? [D.a] : []).concat(D.x > 0 ? [D.b] : []), cueSrc = D.cue ? D[D.cue] : '';
     const used = cueSrc && !onAir.includes(cueSrc) ? onAir.concat([cueSrc]) : onAir;   // a cued source is drawn too (FRACTAL, DANCER, COMICS)
+    analyse(dt, now);   // #662 the master tempo runs whatever is on the buses
     if (used.includes('fractal')) fractal(dt, now);
     if (dzNeed(used)) dz.render(now);
-    if (hoNeed(used)) ho.render(now);   // #573   // #550 only while the T-bar shows her bus, or REC runs
+    if (ho && used.includes('holo')) ho.render(now);   // #668 HOLO+CAM draws her itself (in bind)
+    if (castV.srcObject) { if (used.includes('cast')) { if (castV.paused) castV.play().catch(() => {}); } else if (!castV.paused) castV.pause(); }   // #667
+    { const hv = ho && ho.player && ho.player.video;   // #666 off air = no decoding: the holo atlas and the DirroVerse loop pause when no bus (or CUE) shows them
+      if (hv && hv.src) { if (hoNeed(used)) { if (hv.paused) hv.play().catch(() => {}); } else if (!hv.paused) hv.pause(); }
+      if (dvx) dvx.active(used.includes('dverse')); }   // #573   // #550 only while the T-bar shows her bus, or REC runs
     comics.tick(questTex, now, dt); comicTex = used.includes('comic') ? comics.render(W, H) : null;   // #516
     mU.kA.value = D.x < 1 ? bind(D.a, mU.tA, mU.fA.value, W, H, questTex, now) : 0;
     mU.kB.value = D.x > 0 ? bind(D.b, mU.tB, mU.fB.value, W, H, questTex, now) : 0;
@@ -362,13 +474,31 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       if (m.cam) { const act = D.x < 0.5 ? 'a' : 'b'; if (D[act] === 'webcam') { D[act] = 'quest'; post(); } }
       const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'vjshow', cam: m.cam || '', opt: m.opt || '', v: !!m.v }); else bc.postMessage({ k: 'cxmsg', t: 'SHOWTIME!: no Quest link' });
     }   // #523 / #530
-    else if (m.k === 'bus') { if (SOURCES.includes(m.v)) { if (m.v === 'webcam' && !fixed.on && fixed.start) fixed.start().catch(() => {}); if (m.v === 'dancer') dzLoad(); if (m.v === 'holo') hoLoad(); D[m.bus === 'b' ? 'b' : 'a'] = m.v; } post(); }
+    else if (m.k === 'bus') { if (SOURCES.includes(m.v)) { if (m.v === 'webcam' && !fixed.on && fixed.start) fixed.start().catch(() => {}); if (m.v === 'dancer') dzLoad(); if (m.v === 'holo') hoLoad(); if (m.v === 'dzcam') { if (!fixed.on && fixed.start) fixed.start().catch(() => {}); dzLoad(); } if (m.v === 'hocam') { if (!fixed.on && fixed.start) fixed.start().catch(() => {}); hoLoad(); } if (m.v === 'dverse') { const x = dvGet(); if (!D.dv.sets.length) x.list(); } D[m.bus === 'b' ? 'b' : 'a'] = m.v; } post(); }
     else if (m.k === 'x') { D.x = Math.max(0, Math.min(1, +m.v)); D.fadeTo = null; post(); }
     else if (m.k === 'cue') { const b = m.bus === 'a' || m.bus === 'b' ? m.bus : ''; const live = b && ((b === 'a' && D.x <= 0) || (b === 'b' && D.x >= 1)); D.cue = !b || live || D.cue === b ? '' : b; post(); }   // #557 tap = CUE, tap again = out of CUE; the fully live bus can't be cued
     else if (m.k === 'cut') { D.x = D.x < 0.5 ? 1 : 0; D.fadeTo = null; post(); }
     else if (m.k === 'auto') { D.fadeMs = +m.ms || D.fadeMs; D.fadeTo = D.x < 0.5 ? 1 : 0; post(); }
     else if (m.k === 'fr') { Object.assign(D.fr, m.v || {}); try { localStorage.setItem('vire.vjFr', JSON.stringify(D.fr)); } catch {} post(); }
     else if (m.k === 'pump') { pulse = 1; D.kick++; }   // #508 the VJ's own hit
+    else if (m.k === 'tap') { tempoTap(performance.now()); post(); }   // #662 TAP (button or T)
+    else if (m.k === 'tempo') { D.tempo = m.v === 'tap' ? 'tap' : 'line'; if (D.tempo === 'line') tClock.kicks.length = 0; post(); }
+    else if (m.k === 'nudge') { if (D.bpm > 0) D.bpm = Math.max(40, Math.min(220, Math.round((D.bpm + (+m.d || 0)) * 10) / 10)); post(); }
+    else if (m.k === 'tvpair') { if (studioCtl && studioCtl.tvPair) studioCtl.tvPair(String(m.code || '')).then(t => bc.postMessage({ k: 'cxmsg', t })).catch(e => bc.postMessage({ k: 'cxmsg', t: 'DirroTV: ' + e.message })); }   // #662 SOLO: pair a TV from the desk
+    else if (m.k === 'gram') { gramHost().setOn(!!m.on); gramSt(); setTimeout(holoGram, 300); return; }   // #674
+    else if (m.k === 'cast') { if (m.op === 'stop') setCast(null); else if (m.op === 'crop' && m.v) { for (const k of ['l', 'r', 't', 'b']) if (m.v[k] != null) D.cast[k] = Math.max(0, Math.min(0.45, +m.v[k] || 0)); try { localStorage.setItem('vire.vjCast', JSON.stringify({ l: D.cast.l, r: D.cast.r, t: D.cast.t, b: D.cast.b })); } catch {} } post(); }   // #667
+    else if (m.k === 'hp') { if (m.reset) Object.assign(D.hp, HP0); else if (m.v) for (const k of Object.keys(HP0)) if (m.v[k] != null) D.hp[k] = typeof HP0[k] === 'boolean' ? !!m.v[k] : +m.v[k];   // #668
+      try { localStorage.setItem('vire.vjHp', JSON.stringify(D.hp)); } catch {} post(); }
+    else if (m.k === 'dv') {   // #662 DirroVerse
+      const x = dvGet();
+      if (m.act === 'list') x.list();
+      else if (m.act === 'load') { x.load(String(m.set || '')); if (!fixed.on && fixed.start) fixed.start().catch(() => {}); }
+      else if (m.act === 'cam') { D.dv.cam = !!m.v; if (D.dv.cam && !fixed.on && fixed.start) fixed.start().catch(() => {}); post(); }
+      else if (m.act === 'arrive') x.arrive(String(m.file || ''));
+      else if (m.act === 'stopArr') { D.dv.playing = ''; post(); }
+      else if (m.act === 'render') x.renderArrival(String(m.name || '').slice(0, 40));
+      else if (m.act === 'look') { D.dv.match = Math.max(0, Math.min(1, +m.match || 0)); post(); }   // #664 webcam palette match to the plate
+    }
     else if (m.k === 'approve') approve(m.id);
     else if (m.k === 'reject') { const i = queue.findIndex(x => x.id === m.id); if (i >= 0) queue.splice(i, 1); post(); }
     else if (m.k === 'say') approve(null, String(m.t || '').slice(0, 120));
@@ -383,5 +513,5 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   // tick() draws only into its own render targets, never to the screen, so it doesn't fight the camera page's own drawing.
   let idleT = 0; setInterval(() => { const now = performance.now(); if (now - outT < 1000 || !peers) return; if (dzNeed([])) try { dz.render(now); } catch (e) { console.warn('dancer idle', e); }   // #550 REC with no program frames
     const dt = idleT ? Math.min(0.25, (now - idleT) / 1000) : 0.12; idleT = now; try { comics.tick(null, now, dt); } catch (e) { console.warn('comics idle', e); } }, 120);
-  return { D, post, output, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null) || (autoTrack && autoTrack.readyState === 'live' ? autoTrack : null), queue, comics, onCx: m => { if (m.star) { comics.onStar(m.star); return; } if (m.blob) { comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); toBank(m.blob, m.name || 'quest-rgbd'); } else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
+  return { D, post, output, setCast, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null) || (autoTrack && autoTrack.readyState === 'live' ? autoTrack : null), queue, comics, onCx: m => { if (m.star) { comics.onStar(m.star); return; } if (m.blob) { comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); toBank(m.blob, m.name || 'quest-rgbd'); } else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
 }

@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 8 Nov 2026 (decision log up to #608 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 11 Nov 2026 (decision log up to #678 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -154,6 +154,14 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 
 - A live comic strip drawn by DirroVJ as a bus source (1950s / 60s newsprint, CyberGrunge meets Steampunk). Details and owner decisions: project doc `dirrocomics-plan.md`; user steps: section 8 of `DirroVJ_DirroDJ_User_Manual.docx`.
 - Built: page with peeks, five inking styles, captions / balloons / SFX, black and white ANAGLYPH with depth (SBS, RGB+D, painted depth maps, MediaPipe PEOPLE, LIVE PEOPLE), GRAB QUEST / WEBCAM / RGB-D, issues (.dirrocomic), MP4, PDF STRIP, Instagram REEL 9:16 and CAROUSEL 4:5 (posted by hand), STAR IN IT (Dirrogram card, YES / NO per line, hash-chained consent log on the relay, WITHDRAW), terms text on the Dirrogram, AI storyboard (Gemini free tier or Claude API, 8 to 12 panels), the owner's DirroComics mark.
+
+## Status (11 Nov)
+
+- Release (cly3dj) = dev up to #677 (released 11 Nov, #678). cabin.dirrodj.club serves cly3dj-dev; Dirrogram is uploaded by hand from `ViRe_Custom/dirroclub_website` (gram/index.html = web/dirrogram.html, gram/js = web/js).
+- DirroVJ (#662 to #669): SOLO / LINKED; master tempo LINE IN / TAP; DIRROVERSE bus (Cyber-Window studio sets, `claude/cyber-window-dirrovj-plan.md`); projector window with a display picker, OUTPUT HERE, projection mapping (two copies on 4x4 / 8x8 meshes, end of the desk); CAST bus (the Quest 3 casting tab via getDisplayMedia, crop); HOLO+CAM and DANCER+CAM (a dancer placed in the club webcam: spot, height, CAMERA POS -60..+60, facing, shadow, LIGHT MATCH, FRONT EDGE); Dirrogram from this laptop (own room, QR, dirrodj.club/<ROOM>).
+- Holodancer: Blender builder 1-view depth layout (#671), guide `claude/holodancer-guide.md` and `DirroDancer/holo/builder/README.md`; Quest MOVIE PROPS > HOLODANCER + (life size, carried by the ring, PERFORMER / SIZE / SPEED / TEARS / PROJECTOR / TURN 45 deg); holoprojector 0.5 m behind the dancer with bolder scan lines (#675).
+- Dirrogram (phones): no automatic placement (#670); PLACE HOLODANCER in the camera mode on every phone (tilt-based floor spot, drag to turn / nearer, NEXT DANCER), performers from cabin.dirrodj.club/holo/ or the one DirroVJ sends; CLUB LIGHT relights the dancer from the camera picture (#677); the WebXR walk-around was tried (#672) and removed (#676); start screen DIRROGRAMS; no CONNECTING pill without a room.
+- Not yet tried on the Quest or real phones: most of the above. User-facing text calls the performer "the dancer" (male or female performers).
 
 ## Status (8 Nov)
 

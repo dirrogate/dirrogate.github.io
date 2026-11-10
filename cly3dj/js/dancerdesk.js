@@ -29,7 +29,7 @@ const wrap = a => ((a + 540) % 360) - 180;
 const nz = x => Math.sin(x) * 0.6 + Math.sin(x * 2.3 + 1.7) * 0.3 + Math.sin(x * 5.1 + 0.4) * 0.1;
 
 export function makeDancer({ S, post, bc, media }) {
-  let ready = false, loading = null, renderer, scene, cam, composer, gtao, dancer, rim, studio, camKey, fogG, gl;
+  let floorMesh = null, ready = false, loading = null, renderer, scene, cam, composer, gtao, dancer, rim, studio, camKey, fogG, gl;
   let soft, faceKey, envRoom, envSoft, bloom, gradeU, motes, floorM, rimL, rimR, envT = 0;   // #562 SOFT RIM
   const canvas = document.createElement('canvas'); canvas.width = DZ_W; canvas.height = DZ_H;
   const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.NoColorSpace; tex.generateMipmaps = false; tex.minFilter = tex.magFilter = THREE.LinearFilter;
@@ -41,7 +41,7 @@ export function makeDancer({ S, post, bc, media }) {
     if (loading) return loading;
     S.loading = true; S.err = ''; post();
     loading = (async () => {
-      renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, preserveDrawingBuffer: true, powerPreference: 'high-performance' });   // #669 alpha: DANCER+CAM draws her on a clear background
       renderer.setPixelRatio(1); renderer.setSize(DZ_W, DZ_H, false);
       renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.NeutralToneMapping; renderer.toneMappingExposure = 1; renderer.shadowMap.enabled = true;
       scene = new THREE.Scene(); scene.background = new THREE.Color(0x07060b); scene.fog = new THREE.FogExp2(0x07060b, 0.05);
@@ -50,7 +50,7 @@ export function makeDancer({ S, post, bc, media }) {
       cam = new THREE.PerspectiveCamera(32, DZ_W / DZ_H, 0.03, 60); scene.add(cam);
       camKey = attachCameraKey(THREE, cam, { intensity: 1.1 }); camKey.visible = false;
       const floor = new THREE.Mesh(new THREE.CircleGeometry(5, 64), new THREE.MeshStandardMaterial({ color: 0x0c0a12, roughness: 0.25, metalness: 0.4 }));
-      floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor); floorM = floor.material;
+      floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor); floorM = floor.material; floorMesh = floor;
       rim = createSilhouetteRig(THREE); scene.add(rim.group);
       studio = new THREE.Group();
       const key = new THREE.SpotLight(0xffe6d6, 55, 0, 0.55, 0.6); key.position.set(2.2, 3.6, 3); key.castShadow = true; key.shadow.mapSize.set(1024, 1024); key.target.position.set(0, 1, 0);
@@ -291,6 +291,40 @@ void main() {
     return true;
   }
 
+  // #669 DANCER+CAM: her alone on a clear background from the club webcam's angle (P.el: + = the camera looks down on her, - = up at
+  // her, P.face = which way she faces), her current stage lights kept, the stage, fog and backdrop gone. A shadow-only plane under her
+  // feet takes her real shadow (P.shadow), so she sits on the bar top. Seen from below the surface it vanishes, as it should.
+  let camP = null, shP = null, shL = null; const _pv = new THREE.Vector3(), _clr = new THREE.Color();
+  const placed = { tex, foot: new THREE.Vector2(0.5, 0.1), head: new THREE.Vector2(0.5, 0.9), pm: false, t: -1 };
+  const uvOf = (x, y, z, out) => { _pv.set(x, y, z).project(camP); return out.set(_pv.x * 0.5 + 0.5, _pv.y * 0.5 + 0.5); };
+  function renderPlaced(now, P) {
+    if (!ready) return null;
+    if (placed.t >= 0 && now - placed.t < 8) return placed;
+    placed.t = now;
+    const dt = Math.min(0.05, last ? (now - last) / 1000 : 0.016); last = now; time += dt;
+    dancer.update(dt);
+    if (!camP) {
+      camP = new THREE.PerspectiveCamera(30, DZ_W / DZ_H, 0.03, 60);
+      shP = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new THREE.ShadowMaterial({ opacity: 0.5 })); shP.rotation.x = -Math.PI / 2; shP.position.y = 0.002; shP.receiveShadow = true;
+      shL = new THREE.DirectionalLight(0xffffff, 0.05); shL.position.set(0.6, 5, 1.2); shL.castShadow = true; shL.shadow.mapSize.set(1024, 1024);
+      Object.assign(shL.shadow.camera, { left: -2, right: 2, top: 2, bottom: -2, near: 0.5, far: 10 }); shL.shadow.camera.updateProjectionMatrix(); shL.shadow.radius = 4;
+      scene.add(shP, shL, shL.target);
+    }
+    const az = (+P.face || 0) * D2R, el = Math.max(-60, Math.min(75, +P.el || 0)) * D2R, d = 5.4, aimY = 0.9;
+    camP.position.set(Math.sin(az) * Math.cos(el) * d, aimY + Math.sin(el) * d, Math.cos(az) * Math.cos(el) * d); camP.lookAt(0, aimY, 0); camP.updateMatrixWorld();
+    shP.material.opacity = Math.max(0, Math.min(1, +P.shadow || 0)) * 0.8;
+    const hid = [floorMesh, fogG, motes, ...Object.values(props)].filter(o => o && o.visible);
+    hid.forEach(o => { o.visible = false; });
+    const bg = scene.background, fg = scene.fog, ca = renderer.getClearAlpha(); renderer.getClearColor(_clr);
+    scene.background = null; scene.fog = null; shP.visible = shL.visible = true;
+    renderer.setRenderTarget(null); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(scene, camP);
+    scene.background = bg; scene.fog = fg; renderer.setClearColor(_clr, ca); shP.visible = shL.visible = false;
+    hid.forEach(o => { o.visible = true; });
+    tex.needsUpdate = true;
+    uvOf(0, 0, 0, placed.foot); uvOf(0, 1.7, 0, placed.head);
+    return placed;
+  }
+
   function onMsg(m) {
     const op = m.op;
     if (op === 'clip' && m.name) { S.clip = String(m.name); if (ready && dancer.actions.has(S.clip)) dancer.play(S.clip, 0.8); }
@@ -304,5 +338,5 @@ void main() {
     else if (op === 'rec') { if (rec) recStop(); else ensure().then(() => { if (ready && !rec) recStart(); }); }
     save(); post(); ensure();
   }
-  return { ensure, render, onMsg, tex, get ready() { return ready; }, get recording() { return !!rec; } };
+  return { ensure, render, renderPlaced, onMsg, tex, get ready() { return ready; }, get recording() { return !!rec; } };
 }

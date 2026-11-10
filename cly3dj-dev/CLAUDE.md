@@ -2313,3 +2313,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #677 Dirrogram CLUB LIGHT, DIRROGRAMS title, smaller buttons (owner, 11 Nov)
 - SETTINGS > CLUB LIGHT (ON by default, S.club): the placed Holodancer is relit by the player's room light (depth normals) from the camera picture: a 16 x 9 copy 5 times a second, ambient = the frame's average colour (floor 0.28 so the hologram stays visible), key = the brightest 14 cells' colour, direction from where they sit in the frame (camera space to world), eased (about 0.5 s) against strobes. OFF = the performer's own baked light.
 - Start screen title DIRROGRAMS (white DIRRO, red GRAMS; 40 px). Bar buttons (.btn.ghost) smaller: 8 x 13 px padding, 12.5 px text, 7 px gaps. Copied to dirroclub_website/gram. No Node restart. Backups backups/pre677/.
+
+
+## #678 Release #643 to #677 to cly3dj (owner, 11 Nov: "update any .md files and push to main cly3dj")
+- cly3dj = cly3dj-dev again (CLAUDE.md, PROJECT.md, _test/ and backups/ stay dev-only), sw.js vire-app-v165. In: #643 phase meter; #662 to #666 DirroVJ SOLO / LINKED, master tempo, DIRROVERSE, projector window, projection mapping, OUTPUT HERE, off-air pausing; #667 CAST; #668 / #669 HOLO+CAM and DANCER+CAM; #670 to #677 the Holodancer for the phones (PLACE HOLODANCER, CLUB LIGHT, standalone library, laptop room) and #671 the HOLODANCER movie prop; #675 holoprojector. PROJECT.md: Status (11 Nov). Not yet tried on the Quest or real phones: most of #662 to #677 (see each entry).

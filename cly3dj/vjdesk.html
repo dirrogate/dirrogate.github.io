@@ -148,11 +148,17 @@
   #bankMenu[hidden] { display:none; } #bankMenu .bmT { font:700 11px system-ui; color:var(--mute); padding:5px 8px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; }
   #bankMenu button { display:block; width:100%; text-align:left; padding:8px 10px; border:0; border-radius:6px; background:transparent; font:600 13px system-ui; }
   #bankMenu button:hover { background:#22304a; } #bankMenu button.del:hover { background:#5a1a1e; }
+  .bpmBox { display:flex; align-items:center; gap:5px; margin-left:10px; padding:3px 8px; border:1px solid var(--line); border-radius:7px; }
+  .bpmBox b { font:800 16px ui-monospace,Consolas,monospace; min-width:52px; text-align:right; color:#ffd25a; } .bpmU { font:700 10px system-ui; color:#8c96a8; }
+  .bpmBox button { padding:4px 8px; } .bpmBox button.on { background:#1f9d55; color:#fff; } #tapB { font-weight:800; min-width:52px; }
+  #beatL { width:12px; height:12px; border-radius:50%; background:#333; display:inline-block; }
   .air { font:700 12px system-ui,sans-serif; padding:4px 8px; border-radius:6px; margin-left:8px; background:#2a3140; color:#c9ced8; white-space:nowrap; } .air.on { background:#1f9d55; color:#fff; }   /* #545 */
 </style>
 </head>
 <body>
-<header><h1>Dirro<span>VJ</span> desk</h1><div id="st">Looking for the DirroVJ output window…</div><span id="airOn" class="air">QUEST ON AIR</span><span id="airRen" class="air">RENDER: QUEST</span><span id="airLink" class="air">QUEST LINK: -</span><span id="airTv" class="air">DIRROTV: -</span><button id="openScreen" style="margin-left:auto" title="Open the Webcam / Projector output in a separate window (drag to a 2nd monitor or projector and make full screen)">🎥 Webcam / Projector window</button></header>
+<header><h1>Dirro<span>VJ</span> desk</h1><div id="st">Looking for the DirroVJ output window…</div><span id="airOn" class="air">QUEST ON AIR</span><span id="airRen" class="air">RENDER: QUEST</span><span id="airLink" class="air">QUEST LINK: -</span><span id="airTv" class="air">DIRROTV: -</span>
+<span class="bpmBox" title="Master tempo for BEAT effects. LINE IN: follows the kicks in the live sound. TAP: tap the beat (button or T); 4 taps or more for a steady tempo; - / + nudge.">
+  <b id="bpmV">--.-</b><span class="bpmU">BPM</span><button id="tapB">TAP</button><span id="beatL"></span><button id="tmL" class="sm">LINE IN</button><button id="tmT" class="sm">TAP</button><button id="bpmM" class="sm">−</button><button id="bpmP" class="sm">+</button></span><button id="openScreen" style="margin-left:auto" title="Open the Webcam / Projector output in a separate window (drag to a 2nd monitor or projector and make full screen)">🎥 Webcam / Projector window</button></header>
 <main>
   <div>
     <section>
@@ -203,15 +209,31 @@
       <h2>Holodancer <span class="note" style="text-transform:none;letter-spacing:0">pick a ① / ④ / ⑧ performer in DANCER CLIPS below · made with the Holodancer builder</span></h2>
       <div class="dzTop">
         <div class="dzCamW">
-          <div class="dzPadW"><div id="hoPad" title="Camera. X (left to right) = round her 0 to 360 degrees. Y (bottom to top) = camera height, low to high. Double-click = front, eye level."><div id="hoDot"></div><span class="dzAx x">X</span><span class="dzAx y">Y</span></div><span id="hoXY" class="sp">X 0° · Y 8°</span></div>
+          <div class="dzPadW"><div id="hoPad" title="Camera. X (left to right) = round the dancer 0 to 360 degrees. Y (bottom to top) = camera height, low to high. Double-click = front, eye level."><div id="hoDot"></div><span class="dzAx x">X</span><span class="dzAx y">Y</span></div><span id="hoXY" class="sp">X 0° · Y 8°</span></div>
           <div class="dzZoomW"><div class="tbar" id="hoZoomT" title="Zoom T-bar: push up = closer, pull down = wide."></div><span id="hoZoomV" class="sp">1.0×</span></div>
-          <div class="dzBtnCol"><button id="hoOrbit" title="Slow orbit round her (6° a second) on top of the pad">ORBIT</button><button id="hoTears" title="Torn geometry shown as cyan scan lines (depth performers)">HOLO TEARS</button><button id="hoRoom" title="Relight her from above-front using her depth (depth performers)">RELIGHT</button><div class="dzSpd" title="Dance speed 0.25x to 2x. Double-click = 1x."><div class="tbar h mini" id="hoSpeedT"></div><span id="hoSpeedV">SPEED 1.00×</span></div></div>
+          <div class="dzBtnCol"><button id="hoOrbit" title="Slow orbit round the dancer (6° a second) on top of the pad">ORBIT</button><button id="hoTears" title="Torn geometry shown as cyan scan lines (depth performers)">HOLO TEARS</button><button id="hoRoom" title="Relight her from above-front using her depth (depth performers)">RELIGHT</button><div class="dzSpd" title="Dance speed 0.25x to 2x. Double-click = 1x."><div class="tbar h mini" id="hoSpeedT"></div><span id="hoSpeedV">SPEED 1.00×</span></div></div>
         </div>
       </div>
       <div class="row" id="hoGlRow" hidden><span class="dzL">GLITCH</span><label class="kv"><span class="sp">View change</span><input type="range" id="hoGlitch" min="0" max="1.5" step="0.05" value="1" title="Glitch when the camera passes to the next view (8-view performers)"></label></div>
       <div class="row"><button id="hoRestart" title="Back to the start of the dance">RESTART</button><button id="hoGram" title="Send this performer to the Dirrogram phones through the Quest (the Quest must be linked and this DirroVJ allowed on it). The phones stand her on their stage and keep in step with this desk.">SEND TO DIRROGRAM</button><input type="text" id="hoPub" spellcheck="false" style="flex:1;min-width:140px" title="Public (https) address of the performer library the phones load from (the deployed site's holo/ folder)"></div>
       <div id="hoGramSt" class="note"></div>
       <div id="hoSt" class="note">Not loaded yet: pick HOLO on a bus or a performer.</div>
+    </section>
+<section style="margin-top:14px" id="hpS">
+      <h2>In the webcam <span class="note" style="text-transform:none;letter-spacing:0">place a dancer on the bar top, the floor, a stage riser</span></h2>
+      <div id="hpBox">
+        <div class="row"><span class="note" style="margin:0">#668 / #669 the dancer inside the webcam picture: put HOLO+CAM (Holodancer) or DANCER+CAM (3D Dancer) on a bus, CUE it, then place the dancer on the monitor. One spot for both.</span></div>
+        <div class="row"><button id="hpPick" title="On: click or drag on the monitor = where the feet go, mouse wheel on the monitor = the dancer's height">PLACE ON THE MONITOR</button>
+          <label class="note" style="margin:0"><input type="checkbox" id="hp_flip"> mirror</label><button id="hpReset">RESET</button><span id="hpSt" class="note" style="margin:0"></span></div>
+        <div class="row">
+          <label class="kv" title="How tall the dancer is on screen (part of the frame height)"><span class="sp">HEIGHT</span><input type="range" id="hp_h" min="0.05" max="1.2" step="0.01"></label>
+          <label class="kv" title="Where the webcam is against the dancer's feet: + = above, looking down (camera high on the wall aimed at the bar), 0 = level, - = below, looking up (camera low on the floor, the dancer on the bar top)"><span class="sp">CAMERA POS</span><input type="range" id="hp_el" min="-60" max="60" step="1"><b id="hp_elV" class="note" style="margin:0;min-width:3.5em"></b></label>
+          <label class="kv" title="Which way the dancer faces the webcam (0 = straight at it)"><span class="sp">FACING</span><input type="range" id="hp_face" min="0" max="360" step="1"></label></div>
+        <div class="row">
+          <label class="kv" title="The dancer's shadow on the surface: the 3D Dancer casts a real one, the Holodancer gets a soft patch. Gone when the camera is below the surface"><span class="sp">SHADOW</span><input type="range" id="hp_shadow" min="0" max="1" step="0.05"></label>
+          <label class="kv" title="Pull the dancer's colours and brightness toward the light in the webcam picture"><span class="sp">LIGHT MATCH</span><input type="range" id="hp_light" min="0" max="1" step="0.05"></label>
+          <label class="kv" title="Hide the dancer below a line, for a bar front or rail in front. 0 = off"><span class="sp">FRONT EDGE</span><input type="range" id="hp_cut" min="0" max="1" step="0.01"></label></div>
+      </div>
     </section>
     <section style="margin-top:14px">
       <h2>Scroller queue</h2>
@@ -221,6 +243,35 @@
     </section>
   </div>
 </main>
+<section id="grS" style="margin:0 16px 14px">
+  <h2>Dirrogram from this laptop <span class="note" style="text-transform:none;letter-spacing:0">#674 SOLO: phones join this laptop's own room, no Quest needed (LINKED shows use the Quest's room and QR)</span></h2>
+  <div class="row" style="align-items:flex-start"><canvas id="grQr" width="164" height="164" style="background:#fff;border-radius:6px;display:none"></canvas>
+    <div style="flex:1;min-width:220px"><div class="row"><button id="grOn">DIRROGRAM: OFF</button><span id="grSt" class="note" style="margin:0"></span></div>
+      <div id="grUrl" style="font:700 20px system-ui;margin:6px 0;letter-spacing:.03em"></div>
+      <div class="note">Phones scan the QR or open the link: they get the beat (master tempo), the Holodancer when SEND TO DIRROGRAM is on, and send HoloSMS here. Without the room, dirrodj.club/gram still runs on its own (camera mode, and the HOLODANCER button on Android from the performer library).</div></div></div>
+</section>
+<section id="caS" style="margin:0 16px 14px">
+  <h2>Cast <span class="note" style="text-transform:none;letter-spacing:0">#667 the Quest 3 as the wearer sees it (portals, domes, gear all in place): put CAST on bus A or B</span></h2>
+  <div class="row"><button id="caPick" title="Pick the Chrome tab or window that shows the Quest casting (oculus.com/casting). Video only, no sound.">PICK THE CASTING WINDOW…</button><button id="caStop">STOP</button><span id="caSt" class="note" style="margin:0"></span></div>
+  <div class="row"><span class="note" style="margin:0">crop the casting page's frame:</span>
+    <label class="kv"><span class="sp">LEFT</span><input type="range" id="ca_l" min="0" max="0.45" step="0.005" value="0"></label>
+    <label class="kv"><span class="sp">RIGHT</span><input type="range" id="ca_r" min="0" max="0.45" step="0.005" value="0"></label>
+    <label class="kv"><span class="sp">TOP</span><input type="range" id="ca_t" min="0" max="0.45" step="0.005" value="0"></label>
+    <label class="kv"><span class="sp">BOTTOM</span><input type="range" id="ca_b" min="0" max="0.45" step="0.005" value="0"></label></div>
+  <div class="note">On the Quest: Camera / Cast to Computer, and open oculus.com/casting in Chrome on this laptop. Start the immersive WebXR session in the headset, then pick that tab here (a tab, not the whole window, keeps Chrome's bars out). Keep this desk window open: the capture belongs to it.</div>
+</section>
+<section id="dvS" style="margin:0 16px 14px">
+  <h2>DirroVerse <span class="note" style="text-transform:none;letter-spacing:0">put DIRROVERSE on bus A or B · sets made in the Cyber-Window studio on this laptop</span></h2>
+  <div class="row"><select id="dvSet" style="min-width:180px"></select><button id="dvLoad">LOAD</button><button id="dvList">REFRESH</button>
+    <label class="note" style="margin:0"><input type="checkbox" id="dvCam" checked> live webcam in the windows</label>
+    <a href="http://127.0.0.1:8090/" target="_blank" class="note" style="margin:0 6px">open the studio</a><a href="./dirroverse.html" target="_blank" class="note" style="margin:0">DIRROVERSE page</a></div>
+  <div id="dvSt" class="note"></div>
+  <div class="row"><input id="dvName" placeholder="name on the car's plate, e.g. WELCOME MAYA" style="flex:1;min-width:220px"><button id="dvRender">RENDER ARRIVAL</button><span id="dvJob" class="note" style="margin:0"></span></div>
+  <div class="row"><span class="note" style="margin:0">match the scene:</span><input type="range" id="dvMatch" min="0" max="1" step="0.05" value="0.7" style="width:180px"><b id="dvMatchV" class="note" style="margin:0">0.70</b>
+    <span class="note" style="margin:0">the webcam takes the plate's palette, the set's grade, glass mist, drops, reflection and fog (render the plate loop again once for its fog map)</span></div>
+  <div class="note">An arrival takes about a minute on the RTX 4050; render the night's names before the show. Tap a name to fire it: it plays over the set and hands back to the loop at its end.</div>
+  <div class="row" id="dvArr"></div>
+</section>
 <div id="vjDecks">
   <div class="vjBank">
     <div class="vjBankHead"><h3>DANCER CLIPS</h3><span class="note" id="dzClipNote" style="margin:0">ᯓ🏃🏻‍♀️‍➡️ DANCER dance: click = she blends to it (0.8 s) · ① ④ ⑧ Holodancer performer (2D+depth / 4-view depth / 8-view): click = HOLO plays it</span></div>
@@ -309,10 +360,18 @@
         <input type="password" id="twKey" placeholder="Paste Twitch stream key (saved on this device; or sent from Quest)" autocomplete="off" spellcheck="false">
         <button id="twKeyShow" type="button" title="Show / hide Twitch key" style="padding:5px 8px;font-size:12px">SHOW</button>
       </div>
+      <div class="row"><label for="tvCode" class="note" style="margin:0">DIRROTV (SOLO):</label><input id="tvCode" placeholder="6-digit code on the TV" maxlength="8" style="width:170px"><button id="tvPair">PAIR TV</button><span class="note" style="margin:0">open venue.html on the TV, type its code here; the key stays on this laptop</span></div>
     </section>
+<section id="pmS" style="margin:0 16px 20px">
+  <h2>Projection mapping <span class="note" style="text-transform:none;letter-spacing:0">in the 🎥 projector window (open it, put it on the projector, ⛶ FULL SCREEN) · copies of the program, each on its own 4×4 or 8×8 mesh</span></h2>
+  <div class="row"><button id="pmOn">MAPPING OFF</button><button id="pmEdit">EDIT POINTS</button><button id="pmTest">TEST PATTERN</button>
+    <button id="pmSave">SAVE PROFILE…</button><button id="pmLoadB">LOAD PROFILE…</button><input type="file" id="pmFile" accept=".json" hidden><button id="pmResetAll" class="sm">RESET ALL</button><span id="pmSt" class="note" style="margin:0"></span></div>
+  <div id="pmCopies"></div>
+  <div class="note">On the projector: drag a point; SHIFT-drag moves a whole copy; arrow keys nudge the picked point (SHIFT = 10 px); TAB picks the next point. A copy's grid change keeps its shape. Profiles are saved on this laptop and as a file per venue.</div>
+</section>
 <script>
 const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
-const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'COMICS', dancer: 'DANCER', holo: 'HOLO' };   // #573   // #516, #537, #550, #555 BLACK gone, DIRROCOMICS shortened to COMICS (one line per bus)
+const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'COMICS', dancer: 'DANCER', holo: 'HOLO', dverse: 'DIRROVERSE', cast: 'CAST', hocam: 'HOLO+CAM', dzcam: 'DANCER+CAM' };   // #667 #668 #669   // #662   // #573   // #516, #537, #550, #555 BLACK gone, DIRROCOMICS shortened to COMICS (one line per bus)
 let S = null, lastSeen = 0, realT = 0;   // #519 realT: last state from a real DirroVJ
 for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = document.createElement('button'); b.textContent = NAMES[k]; b.dataset.bus = bus; b.dataset.src = k; b.onclick = () => send({ k: 'bus', bus, v: k }); $(bus === 'a' ? 'busA' : 'busB').append(b); }
 // #552 T-bar: a vision-mixer lever. Grab the handle (or anywhere on the bar) and pull: it moves by how far you pull, it never jumps to the click.
@@ -362,6 +421,9 @@ function render() {
   const D = S.D;
   for (const b of document.querySelectorAll('[data-bus]')) b.classList.toggle('on', D[b.dataset.bus] === b.dataset.src);
   xfT.set(D.x);   // #552
+  { $('bpmV').textContent = D.bpm > 0 ? D.bpm.toFixed(1) : '--.-'; $('tmL').classList.toggle('on', D.tempo !== 'tap'); $('tmT').classList.toggle('on', D.tempo === 'tap');   // #662
+    if (D.beatN !== render.bn) { render.bn = D.beatN; $('beatL').style.background = '#ffd25a'; setTimeout(() => { $('beatL').style.background = '#333'; }, 110); } }
+  renderDv(D.dv);
   for (const [id, b, live] of [['litA', 'a', D.x < 1], ['litB', 'b', D.x > 0]]) { const cue = D.cue === b; $(id).classList.toggle('cue', cue); $(id).classList.toggle('live', live && !cue); }   // #557
   { const t = $('pvTag'); if (D.cue) { t.textContent = `CUE ${D.cue.toUpperCase()} · on air: ${D.x <= 0 ? 'A' : D.x >= 1 ? 'B' : 'A+B'}`; t.classList.add('cue'); $('pv').classList.add('cue'); } else { t.textContent = 'PROGRAM'; t.classList.remove('cue'); $('pv').classList.remove('cue'); } }
   for (const b of document.querySelectorAll('[data-pal]')) b.classList.toggle('on', D.fr.pal === b.dataset.pal);
@@ -748,7 +810,7 @@ function renderHo() {
   $('hoOrbit').classList.toggle('on', !!Z.cam.orbit); $('hoTears').classList.toggle('on', !!Z.tears); $('hoRoom').classList.toggle('on', !!Z.room);
   $('hoGlRow').hidden = Z.layout !== '8b';
   $('hoGram').classList.toggle('on', !!Z.gram); if (document.activeElement !== $('hoPub')) $('hoPub').value = Z.pub || '';   // #575
-  $('hoGramSt').textContent = !Z.gram ? '' : !S.D.qlink ? 'DIRROGRAM: waiting for the Quest link (phones get her once the Quest is linked and this DirroVJ is allowed)' : !Z.loaded ? 'DIRROGRAM: load a performer first' : `DIRROGRAM: sent to the Quest every 2 s · phones load ${Z.pub}${Z.perf}/`;
+  $('hoGramSt').textContent = !Z.gram ? '' : S.D.gram && S.D.gram.on ? (!Z.loaded ? 'DIRROGRAM: load a performer first' : `DIRROGRAM: sent to this laptop's room (${S.D.gram.room}) · phones load ${Z.pub}${Z.perf}/`) : !S.D.qlink ? 'DIRROGRAM: waiting for the Quest link (phones get her once the Quest is linked and this DirroVJ is allowed)' : !Z.loaded ? 'DIRROGRAM: load a performer first' : `DIRROGRAM: sent to the Quest every 2 s · phones load ${Z.pub}${Z.perf}/`;
   if (document.activeElement !== $('hoGlitch')) $('hoGlitch').value = Z.glitch;
   hoSpdT.set(((+Z.speed || 1) - 0.25) / 1.75); if (!$('hoSpeedT').classList.contains('drag')) $('hoSpeedV').textContent = 'SPEED ' + (+Z.speed || 1).toFixed(2) + '×';
   hoZoomT.set(hz2s(Math.max(HZMIN, Math.min(HZMAX, +Z.cam.zoom || 1)))); if (!$('hoZoomT').classList.contains('drag')) $('hoZoomV').textContent = (+Z.cam.zoom || 1).toFixed(1) + '×';
@@ -783,7 +845,7 @@ bc.onmessage = e => {
   if (m.k === 'state') {
     if (m.test && Date.now() - realT < 4000) return;   // #519 the DirroComics test page steps aside when a real DirroVJ answers
     if (!m.test) realT = Date.now();
-    S = m; render(); renderDz(); renderHo(); airBadges(m.air); CX = m.C || null; renderCx(); renderShow(); if (CX) { renderStars(); starBadges(); }   // #523, #524
+    S = m; render(); renderDz(); renderHo(); renderCaHp(); airBadges(m.air); CX = m.C || null; renderCx(); renderShow(); if (CX) { renderStars(); starBadges(); }   // #523, #524
     $('st').textContent = m.test ? 'Connected to the DirroComics TEST page: only the DirroComics section works here (no buses, fractal or program picture). Open dirrovj.html for the real desk.'
       : (m.live || $('pv').getAttribute('src')) ? 'Connected to the DirroVJ output window · SPACE = AUTO fade, C = CUT'
       : 'Connected to DirroVJ, starting program output…';
@@ -794,14 +856,105 @@ bc.onmessage = e => {
   else if (m.k === 'cxlist') { cxThumbs = m.thumbs || {}; cxStarImgs = m.starImgs || cxStarImgs; cxListN++; renderCx(); }
   else if (m.k === 'cxmsg') { $('cxMsg').textContent = m.t; clearTimeout(cxMsgT); cxMsgT = setTimeout(() => { $('cxMsg').textContent = ''; }, 6000); }
 };
+// #667 CAST + #668 HOLO+CAM
+$('caPick').onclick = async () => {
+  let eng = null; try { eng = window.opener && window.opener.spect && window.opener.spect.studio && window.opener.spect.studio.desk; } catch {}
+  if (!eng || !eng.setCast) { $('caSt').textContent = 'Open this desk from the DirroVJ engine page (its DESK button), then pick again.'; return; }
+  try { const st = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 60 }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false, selfBrowserSurface: 'exclude', surfaceSwitching: 'include', preferCurrentTab: false });
+    eng.setCast(st); } catch (e) { $('caSt').textContent = 'Not picked: ' + (e.message || e); }
+};
+$('caStop').onclick = () => send({ k: 'cast', op: 'stop' });
+$('grOn').onclick = () => send({ k: 'gram', on: !(S && S.D.gram && S.D.gram.on) });   // #674
+let grQrFor = '';
+async function grQr(url) {
+  if (url === grQrFor) return; grQrFor = url; const c = $('grQr'); c.style.display = url ? '' : 'none'; if (!url) return;
+  try { const qrcode = (await import('./vendor/qrcode/qrcode.mjs')).default; const q = qrcode(0, 'M'); q.addData(url); q.make();
+    const n = q.getModuleCount(), px = Math.floor(c.width / (n + 8)), o = Math.floor((c.width - px * n) / 2), g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#000';
+    for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) g.fillRect(o + k * px, o + r * px, px, px); } catch (e) { c.style.display = 'none'; }
+}
+for (const k of ['l', 'r', 't', 'b']) $('ca_' + k).oninput = () => send({ k: 'cast', op: 'crop', v: { [k]: +$('ca_' + k).value } });
+let hpOn = false;
+const elV = () => { const v = +$('hp_el').value; $('hp_elV').textContent = (v > 0 ? '+' : '') + v + '° ' + (v > 2 ? 'above' : v < -2 ? 'below' : 'level'); };
+const hpSend = v => send({ k: 'hp', v });
+for (const k of ['h', 'el', 'face', 'shadow', 'light', 'cut']) $('hp_' + k).oninput = () => { hpSend({ [k]: +$('hp_' + k).value }); if (k === 'el') elV(); };
+$('hp_flip').onchange = () => hpSend({ flip: $('hp_flip').checked });
+$('hpReset').onclick = () => send({ k: 'hp', reset: true });
+$('hpPick').onclick = () => { hpOn = !hpOn; $('hpPick').classList.toggle('on', hpOn); $('pv').style.cursor = hpOn ? 'crosshair' : ''; };
+{ const pv = $('pv'); let down = false, lastS = 0;
+  const at = e => { const r = pv.getBoundingClientRect(); return { x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) }; };
+  pv.addEventListener('pointerdown', e => { if (!hpOn) return; e.preventDefault(); down = true; pv.setPointerCapture(e.pointerId); hpSend(at(e)); });
+  pv.addEventListener('pointermove', e => { if (!down || performance.now() - lastS < 30) return; lastS = performance.now(); hpSend(at(e)); });
+  pv.addEventListener('pointerup', e => { if (down) hpSend(at(e)); down = false; });
+  pv.addEventListener('wheel', e => { if (!hpOn || !S || !S.D.hp) return; e.preventDefault(); hpSend({ h: Math.max(0.05, Math.min(1.2, S.D.hp.h * (e.deltaY < 0 ? 1.05 : 1 / 1.05))) }); }, { passive: false });
+  pv.draggable = false; }
+function renderCaHp() {
+  const D = S && S.D; if (!D) return;
+  if (D.gram) { const G = D.gram; $('grOn').textContent = G.on ? 'DIRROGRAM: ON' : 'DIRROGRAM: OFF'; $('grOn').classList.toggle('on', G.on); $('grSt').textContent = G.st || '';
+    $('grUrl').textContent = G.on ? G.url.replace(/^https:\/\//, '') : ''; grQr(G.on ? G.url : ''); }
+  const C = D.cast; if (C) { for (const k of ['l', 'r', 't', 'b']) if (document.activeElement !== $('ca_' + k)) $('ca_' + k).value = C[k];
+    const onBus = D.a === 'cast' || D.b === 'cast';
+    $('caSt').textContent = C.on ? 'Casting: ' + (C.label || 'picked') + (onBus ? '' : ' · put CAST on bus A or B') : $('caSt').textContent.startsWith('Not picked') || $('caSt').textContent.startsWith('Open this') ? $('caSt').textContent : 'No casting window picked.'; }
+  const P = D.hp; if (P) { for (const k of ['h', 'el', 'face', 'shadow', 'light', 'cut']) if (document.activeElement !== $('hp_' + k)) $('hp_' + k).value = P[k];
+    $('hp_flip').checked = !!P.flip; elV();
+    const isC = v => v === 'hocam' || v === 'dzcam', bus = isC(D.a) ? D.a : isC(D.b) ? D.b : '', onBus = !!bus, shown = D.cue ? isC(D[D.cue]) : (D.x < 1 && isC(D.a)) || (D.x > 0 && isC(D.b));
+    $('hpSt').textContent = !onBus ? 'put HOLO+CAM or DANCER+CAM on bus A or B' : !shown ? 'CUE that bus so the monitor shows it while you place the dancer' : bus === 'hocam' && !D.holo.loaded ? 'pick a performer (DANCER CLIPS ① ④ ⑧)' : bus === 'dzcam' && !(D.dz && D.dz.loaded) ? 'DANCER is loading…' : 'feet at ' + Math.round(P.x * 100) + '%, ' + Math.round(P.y * 100) + '% · height ' + Math.round(P.h * 100) + '%'; }
+}
 send({ k: 'hello' });
+// #662 master tempo + DirroVerse + DirroTV pairing in SOLO
+$('tapB').onclick = () => send({ k: 'tap' }); $('tmL').onclick = () => send({ k: 'tempo', v: 'line' }); $('tmT').onclick = () => send({ k: 'tempo', v: 'tap' });
+$('bpmM').onclick = () => send({ k: 'nudge', d: -0.5 }); $('bpmP').onclick = () => send({ k: 'nudge', d: 0.5 });
+document.addEventListener('keydown', e => { if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return; if (e.key === 't' || e.key === 'T') { e.preventDefault(); send({ k: 'tap' }); } });
+$('tvPair').onclick = () => send({ k: 'tvpair', code: $('tvCode').value });
+$('dvList').onclick = () => send({ k: 'dv', act: 'list' }); $('dvLoad').onclick = () => $('dvSet').value && send({ k: 'dv', act: 'load', set: $('dvSet').value });
+$('dvCam').onchange = () => send({ k: 'dv', act: 'cam', v: $('dvCam').checked });
+$('dvRender').onclick = () => { const n = $('dvName').value.trim(); if (n) send({ k: 'dv', act: 'render', name: n }); };
+let dvAsked = false;
+function renderDv(v) {
+  if (!v) return; if (!dvAsked) { dvAsked = true; send({ k: 'dv', act: 'list' }); }
+  const sel = $('dvSet'), want = (v.sets || []).join('|');
+  if (sel.dataset.l !== want) { const cur = sel.value || v.set; sel.innerHTML = (v.sets || []).map(n => `<option>${n}</option>`).join(''); sel.dataset.l = want; if (cur) sel.value = cur; }
+  if (v.set && document.activeElement !== sel && !sel.dataset.touched) sel.value = v.set;
+  if (document.activeElement !== $('dvCam')) $('dvCam').checked = !!v.cam;
+  $('dvSt').textContent = v.studio && v.studio !== 'ok' ? v.studio : (v.status || (v.sets && v.sets.length ? 'Pick a set and LOAD.' : ''));
+  const j = v.job; $('dvJob').textContent = !j ? '' : j.status === 'running' ? `rendering "${j.name}": ${Math.round(j.progress)}%` : j.status === 'done' ? `"${j.name}" ready` : j.status === 'error' ? 'error: ' + j.err : j.status;
+  const want2 = (v.arrivals || []).join('|') + '/' + v.playing;
+  if ($('dvArr').dataset.l !== want2) { $('dvArr').dataset.l = want2; $('dvArr').innerHTML = '';
+    for (const f of v.arrivals || []) { const b = document.createElement('button'); b.textContent = (v.playing === f ? '▶ ' : '') + f.replace(/^arrival_|\.mp4$/g, '').replace(/_/g, ' ');
+      b.className = v.playing === f ? 'on' : ''; b.onclick = () => send({ k: 'dv', act: v.playing === f ? 'stopArr' : 'arrive', file: f }); $('dvArr').append(b); } }
+}
+$('dvSet').onchange = () => { $('dvSet').dataset.touched = '1'; };
+$('dvMatch').oninput = () => { $('dvMatchV').textContent = (+$('dvMatch').value).toFixed(2); send({ k: 'dv', act: 'look', match: +$('dvMatch').value }); };
+// #664 projection mapping: the projector window holds the state; this desk sends changes and shows it
+const pmc = new BroadcastChannel('dirrovj-pm'); let PM = null, pmSeen = 0;
+const pmSend = m => pmc.postMessage(m);
+pmc.onmessage = e => { const m = e.data || {}; if (m.k === 'pmstate') { PM = m.S; pmSeen = Date.now(); renderPm(); } };
+setInterval(() => { pmSend({ k: 'pmget' }); if (Date.now() - pmSeen > 3000) $('pmSt').textContent = 'No projector window: open it with 🎥 (header).'; }, 1500); pmSend({ k: 'pmget' });
+$('pmOn').onclick = () => PM && pmSend({ k: 'pmset', v: { on: !PM.on } });
+$('pmEdit').onclick = () => PM && pmSend({ k: 'pmset', v: { edit: !PM.edit } });
+$('pmTest').onclick = () => PM && pmSend({ k: 'pmset', v: { test: !PM.test } });
+$('pmResetAll').onclick = () => pmSend({ k: 'pmreset' });
+$('pmSave').onclick = () => { if (!PM) return; const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(PM, null, 1)], { type: 'application/json' })); a.download = 'dirrovj-mapping.json'; a.click(); };
+$('pmLoadB').onclick = () => $('pmFile').click();
+$('pmFile').onchange = async () => { const f = $('pmFile').files[0]; if (!f) return; try { pmSend({ k: 'pmload', S: JSON.parse(await f.text()) }); } catch (e) { $('pmSt').textContent = 'Not a mapping profile: ' + e.message; } $('pmFile').value = ''; };
+function renderPm() {
+  if (!PM) return; $('pmSt').textContent = PM.on ? 'Mapping ON in the projector window.' : 'Mapping off: the projector shows the plain program.';
+  $('pmOn').textContent = PM.on ? 'MAPPING ON' : 'MAPPING OFF'; $('pmOn').classList.toggle('on', PM.on); $('pmEdit').classList.toggle('on', PM.edit); $('pmTest').classList.toggle('on', PM.test);
+  const box = $('pmCopies'), sig = PM.copies.map(c => [c.on, c.n, c.bright].join()).join('|'); if (box.dataset.l === sig) return; box.dataset.l = sig; box.innerHTML = '';
+  PM.copies.forEach((c, i) => { const r = document.createElement('div'); r.className = 'row';
+    r.innerHTML = `<b style="color:${i % 2 ? '#ffa24a' : '#39a8ff'};min-width:64px">COPY ${i + 1}</b><button data-a="on" class="${c.on ? 'on' : ''}">${c.on ? 'ON' : 'OFF'}</button>
+      <button data-n="4" class="${c.n === 4 ? 'on' : ''}">4×4</button><button data-n="8" class="${c.n === 8 ? 'on' : ''}">8×8</button>
+      <span class="note" style="margin:0">brightness</span><input type="range" min="0" max="1.5" step="0.05" value="${c.bright ?? 1}" style="width:140px"><button data-a="reset" class="sm">RESET</button>`;
+    r.querySelector('[data-a=on]').onclick = () => pmSend({ k: 'pmcopy', i, v: { on: !c.on } });
+    for (const b of r.querySelectorAll('[data-n]')) b.onclick = () => pmSend({ k: 'pmcopy', i, n: +b.dataset.n });
+    r.querySelector('input').oninput = e => pmSend({ k: 'pmcopy', i, v: { bright: +e.target.value } });
+    r.querySelector('[data-a=reset]').onclick = () => pmSend({ k: 'pmreset', i }); box.append(r); });
+}
 function popScreenWin() {
   try { if (window.opener && window.opener.spect && window.opener.spect.studio) return window.opener.spect.studio.openScreenWin(window); } catch {}
 }
 $('openScreen').onclick = popScreenWin;
-document.addEventListener('click', () => {
-  try { if (window.opener && window.opener.spect && window.opener.spect.studio && window.opener.spect.studio.needScreenWin) window.opener.spect.studio.openScreenWin(window); } catch {}
-}, { capture: true });
+// #663 no more opening the projector window on any click (it doubled the outputs): only the 🎥 button and START SOLO / Connect open it
 // #545 who makes the program picture: DIRROVJ ON AIR (green) once the Quest turned DirroVJ on, else the Quest; and who renders SHOW
 function airBadges(a) {
   const on = $('airOn'), rn = $('airRen'); if (!on || !rn) return;
@@ -809,7 +962,8 @@ function airBadges(a) {
   on.textContent = vjAir ? 'DIRROVJ ON AIR' : 'QUEST ON AIR (DirroVJ off)'; on.classList.toggle('on', vjAir);
   rn.textContent = !vjAir ? 'RENDER: -' : a.mode !== 'show' ? 'WEBCAM' : lap ? 'RENDER: LAPTOP' : 'RENDER: QUEST'; rn.classList.toggle('on', vjAir);
   const lk = $('airLink'), tv = $('airTv');   // #556
-  if (lk) { const l = !!(a && a.link); lk.textContent = l ? (vjAir ? 'QUEST LINK: ON AIR' : 'QUEST LINK: CONNECTED') : 'QUEST LINK: NONE'; lk.classList.toggle('on', l); lk.style.background = l ? '' : '#5a1a1e'; }
+  if (lk) { const l = !!(a && a.link); lk.textContent = l ? (vjAir ? 'LINKED · QUEST ON AIR' : 'LINKED') : 'SOLO'; lk.classList.toggle('on', l); lk.style.background = l ? '' : '#1d3f66';
+    lk.title = l ? 'LINKED: the Quest is connected (QUEST bus, its sound, SHOWTIME!).' : 'SOLO: no Quest. Twitch, DirroTV, the beat (LINE IN / TAP) and all other sources run from this laptop.'; }   // #662
   if (tv) { const s = a && a.tv || 'off'; tv.textContent = 'DIRROTV: ' + (s === 'live' ? 'ON' : s === 'waiting' ? 'WAITING' : a && a.tvKnown ? 'QUEST' : 'NOT PAIRED'); tv.classList.toggle('on', s === 'live'); tv.title = 'ON: a DirroTV screen shows this program. WAITING: DirroVJ answers the paired TV key, no screen yet. QUEST: the Quest answers its TVs. NOT PAIRED: pair a TV on the Quest once (TOOLS > STREAM > DIRROTV), DirroVJ keeps the key after that.'; }
   rn.title = 'RENDER QUEST: the Quest draws the scene and sends it with its matte. RENDER LAPTOP: this laptop draws it from the mirror (sharper, no Wi-Fi video). Switched on the tablet: TWITCH > DIRROVJ.';
 }
