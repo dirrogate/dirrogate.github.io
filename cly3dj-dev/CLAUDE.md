@@ -2223,3 +2223,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Signs: pictures lit by the frame (spill, flicker, fog: local frame / bare plate ratio) and veiled by the fog; neon dims in fog and its halo spreads wider.
 - Car: clear-coat (sharp mirror of the frame, Fresnel), paint darker and less saturated, grime slider (rougher, darker), underside darker, plate colour cast, rim light down to 0.25 with a slider.
 - Studio only. Not part of DirroVJ or the Movie props page yet: that is phase 4 (SET as a DirroVJ source).
+
+## #652 CLUB WINDOW: tube letters, user fonts, name plate on any GLB (owner, 10 Nov)
+- Tube letters (signs and the car plate): the glyph outline (dilate minus erode, ~3.5 % of the size) as a glass tube. club_window/fonts/: any .ttf/.otf dropped there is listed by file name (e.g. Tilt Neon, OFL, not downloaded for the owner).
+- Name plate on other GLBs: "plate on" = auto (a part named like licen / plate / number), any part of the model picked from /api/glbparts (its UVs stretched over the plate texture), or "add a plate" (quad behind the rearmost surface). All are part of the mesh, so the plate moves and banks with the vehicle. space_car.glb and the Dale Aristocrat GLB have no named plate part: auto adds the quad.
