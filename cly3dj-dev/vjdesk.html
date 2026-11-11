@@ -287,7 +287,7 @@
     <div class="panoYawRow"><span class="sp">0°</span><input type="range" id="panoYaw" min="0" max="360" step="1" value="0" title="Panorama view angle (0° leftmost to 360° rightmost)"><span class="sp" id="panoYawVal" style="min-width:68px;text-align:right">0° / 360°</span></div>
   </div>
 </div>
-<div id="bankMenu" hidden><div class="bmT" id="bmT"></div><button id="bmCx">SEND TO DIRROCOMICS</button><button id="bmExp">EXPORT</button><button id="bmDel" class="del">DELETE</button></div>
+<div id="bankMenu" hidden><div class="bmT" id="bmT"></div><button id="bmCx">SEND TO DIRROCOMICS</button><button id="bmDr">SEND TO DROSTE</button><button id="bmExp">EXPORT</button><button id="bmDel" class="del">DELETE</button></div>
 <section style="margin:0 16px 14px">
   <h2>Amiga fractal</h2>
   <div class="row"><button data-ft="mandel">MANDEL</button><button data-ft="julia">JULIA</button><button data-ft="ship">SHIP</button><button data-ft="multi">MULTI</button><span style="width:12px"></span><button data-pal="green">GREEN</button><button data-pal="island">ISLAND</button><button data-pal="lava">LAVA</button><button data-pal="ice">ICE</button><button data-pal="copper">COPPER</button><button data-pal="neon">NEON</button><button id="pump" style="margin-left:auto">PUMP</button><span id="kick" style="width:14px;height:14px;border-radius:50%;background:#333;display:inline-block"></span></div>
@@ -352,6 +352,7 @@
   <div class="row"><b style="min-width:92px">BEAT ZOOM</b><button data-drz="0">OFF</button><button data-drz="4">EVERY 4 BARS</button><button data-drz="8">EVERY 8 BARS</button><button id="drzGo" title="One zoom now">NOW</button><button id="drzTurn">TURN</button>
     <label class="kv"><span style="width:62px">Copy size</span><input type="range" id="drzSize" min="0.2" max="0.65" step="0.01"></label></div>
   <div class="note" id="drzN">The program flies into a copy of itself over one bar. Needs a beat (LINE IN or TAP).</div>
+  <div id="dmRoot"></div>
 </section>
 <section id="grS" style="margin:0 16px 14px">
   <h2>Dirrogram from this laptop <span class="note" style="text-transform:none;letter-spacing:0">SOLO: phones join this laptop's room, no Quest needed</span></h2>
@@ -1068,6 +1069,7 @@ setInterval(() => { send({ k: 'hello', again: true }); if (Date.now() - lastSeen
 <script type="module">/* #527 DirroComics storyboard (AI) + #532 VJ clip banks (IMAGES / VIDEOS / PANOS) */
 import { initStoryboard } from './js/storyboard.js';
 import * as media from './js/medialib.js';
+import { makeDroste } from './js/drostemaker.js';   // #705
 window.SB = initStoryboard({ $, esc, cx, cxRead, get CX() { return CX; }, thumbs: () => cxThumbs });
 
 const MIN_COLS = 15, ROWS = 2, thumbUrls = new Map();   // #549 ROWS was 3
@@ -1244,6 +1246,8 @@ document.addEventListener('pointerdown', e => { if (!$('bankMenu').hidden && !$(
 document.addEventListener('keydown', e => { if (e.key === 'Escape') bmClose(); });
 addEventListener('scroll', bmClose, true);
 $('bmCx').onclick = async () => { const a = bmAt; bmClose(); if (!a) return; const f = await media.getFile(a.folder, a.name); if (!f) return; cx('add', { files: [{ blob: f, name: a.name }] }); $('cxMsg').textContent = 'Sending ' + a.name + ' to DirroComics…'; };
+const droste = makeDroste({ media, root: $('dmRoot'), getBpm: () => (S && S.D && S.D.bpm) || 0, onSaved: () => { const b = BANKS.find(x => x.id === 'Videos'); if (b) loadBank(b); } });   // #705
+$('bmDr').onclick = async () => { const a = bmAt; bmClose(); if (!a) return; const f = await media.getFile(a.folder, a.name); if (!f) return; $('drS').scrollIntoView({ behavior: 'smooth', block: 'start' }); droste.setSource(f, a.name).catch(e => { $('dmSt').textContent = e.message || String(e); }); };   // #705
 $('bmExp').onclick = async () => { const a = bmAt; bmClose(); if (!a) return; const f = await media.getFile(a.folder, a.name); if (!f) return; const u = URL.createObjectURL(f), l = document.createElement('a'); l.href = u; l.download = a.name; document.body.append(l); l.click(); l.remove(); setTimeout(() => URL.revokeObjectURL(u), 30000); };
 $('bmDel').onclick = async () => { const a = bmAt; bmClose(); if (!a || !confirm('Delete ' + a.name + ' from this bank (' + (a.folder === 'Video' ? 'VIDEOS' : 'IMAGES') + ')? The original file on your computer is not touched.')   /* #577 wording */) return;
   await media.remove(a.folder, a.name); thumbUrls.delete(a.folder + '/' + a.name); await loadBank(a.b); };
