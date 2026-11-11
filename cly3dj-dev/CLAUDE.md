@@ -2414,3 +2414,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #695 Fix: "DirroVJ failed: Unexpected token ','" on cabin.dirrodj.club (owner, 11 Nov)
 - #688 put a // comment in the middle of the automatic LINE IN line in vjdesk.js, which commented out the rest of the line (the code that stops the automatic LINE IN and closes its braces). Chrome refused the module (studio.js and spectator-client.js import it), so the DirroVJ engine page failed to start. node --check passed the broken file: from now on JS changes are checked by importing them in Chromium (Playwright), not with node --check.
 - Comment moved to the end of the line; sw.js vire-app-v178 (after the other session's v177 #693). cly3dj (released at #694) never had the broken line. No Node restart. Backups backups/pre695/.
+
+
+## #696 Release #687, #688 and #695 to cly3dj (owner, 11 Nov)
+- cly3dj = cly3dj-dev again (CLAUDE.md, PROJECT.md, _test/, backups/ dev-only), sw.js vire-app-v178: projection mapping masks, no automatic microphone (TAP default, Bluetooth music stays on), the vjdesk.js fix. Checked in Chromium before release.

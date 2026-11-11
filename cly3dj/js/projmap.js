@@ -6,7 +6,7 @@
 const KEY = 'vire.projmap', SUB = 12;   // SUB: mesh triangles per control cell edge
 
 export function pmDefaults() {
-  return { on: false, edit: true, test: false, sel: [0, 0], copies: [copy(4, [0.05, 0.08, 0.47, 0.92]), copy(8, [0.53, 0.08, 0.95, 0.92])] };
+  return { on: false, edit: true, test: false, sel: [0, 0], masks: [], msel: -1, copies: [copy(4, [0.05, 0.08, 0.47, 0.92]), copy(8, [0.53, 0.08, 0.95, 0.92])] };
 }
 function copy(n, r) { return { on: true, n, pts: grid(n, r), src: [0, 0, 1, 1], bright: 1 }; }
 function grid(n, [x0, y0, x1, y1]) { const p = []; for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) p.push([x0 + (x1 - x0) * i / (n - 1), y0 + (y1 - y0) * j / (n - 1)]); return p; }
@@ -19,6 +19,11 @@ function crRow(arr, s) {   // Catmull-Rom through arr (list of [x, y]) at s in [
 export function evalSurf(pts, n, u, v) { const rows = []; for (let j = 0; j < n; j++) rows.push(crRow(pts.slice(j * n, j * n + n), u)); return crRow(rows, v); }
 export function resample(c, n2) { const p = []; for (let j = 0; j < n2; j++) for (let i = 0; i < n2; i++) p.push(evalSurf(c.pts, c.n, i / (n2 - 1), j / (n2 - 1))); return { ...c, n: n2, pts: p }; }
 export function pmLoad() { try { const o = JSON.parse(localStorage.getItem(KEY) || 'null'); if (o && Array.isArray(o.copies)) return { ...pmDefaults(), ...o }; } catch {} return pmDefaults(); }
+// #687 MASKS: black polygons over the projector output (screen space, so one mask can cover any part of either copy), each
+// with its own feather. Edit on the projector: drag a corner, SHIFT-drag inside moves the mask, double-click an edge adds a
+// corner, right-click a corner removes it (3 at least). The desk adds, picks, feathers, switches off and deletes them.
+function newMask(k) { const o = 0.04 * (k % 5); return { on: true, feather: 0, pts: [[0.4 + o, 0.4 + o], [0.6 + o, 0.4 + o], [0.6 + o, 0.6 + o], [0.4 + o, 0.6 + o]] }; }
+const inPoly = (p, q) => { let c = false; for (let i = 0, j = q.length - 1; i < q.length; j = i++) { const [xi, yi] = q[i], [xj, yj] = q[j]; if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
 function pmSave(S) { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} }
 
 const VS = `#version 300 es
@@ -71,7 +76,14 @@ export function attachProjMap(w, doc, video) {
     w.requestAnimationFrame(draw);
   }
   function overlay() {
-    const x = ov.getContext('2d'), W = ov.width, H = ov.height; x.clearRect(0, 0, W, H); if (!S.edit) return;
+    const x = ov.getContext('2d'), W = ov.width, H = ov.height; x.clearRect(0, 0, W, H);
+    (S.masks || []).forEach((m, k) => { if (!m.on || m.pts.length < 3) return;   // #687 masks: solid black on the output (a little see-through while editing)
+      x.save(); const f = Math.max(0, +m.feather || 0) * (w.devicePixelRatio || 1); if (f) x.filter = `blur(${f}px)`;
+      x.fillStyle = S.edit ? 'rgba(0,0,0,0.82)' : '#000'; x.beginPath(); m.pts.forEach((p, i) => i ? x.lineTo(p[0] * W, p[1] * H) : x.moveTo(p[0] * W, p[1] * H)); x.closePath(); x.fill(); x.restore();
+      if (!S.edit) return; const sel = S.msel === k; x.strokeStyle = sel ? '#ff4d6d' : '#b03050'; x.lineWidth = sel ? 2 : 1; x.setLineDash([6, 4]); x.beginPath(); m.pts.forEach((p, i) => i ? x.lineTo(p[0] * W, p[1] * H) : x.moveTo(p[0] * W, p[1] * H)); x.closePath(); x.stroke(); x.setLineDash([]);
+      m.pts.forEach(p => { x.fillStyle = sel ? '#ff4d6d' : '#b03050'; x.fillRect(p[0] * W - 5, p[1] * H - 5, 10, 10); });
+      x.font = '700 13px system-ui'; x.fillStyle = '#ff4d6d'; x.fillText(`MASK ${k + 1}`, m.pts[0][0] * W + 8, m.pts[0][1] * H + 18); });
+    if (!S.edit) return;
     S.copies.forEach((c, k) => { if (!c.on) return; const col = k % 2 ? '#ffa24a' : '#39a8ff', n = c.n;
       x.strokeStyle = col; x.lineWidth = 1;
       for (let j = 0; j < n; j++) { x.beginPath(); for (let s = 0; s <= 40; s++) { const p = evalSurf(c.pts, n, s / 40, j / (n - 1)); s ? x.lineTo(p[0] * W, p[1] * H) : x.moveTo(p[0] * W, p[1] * H); } x.stroke(); }
@@ -80,10 +92,24 @@ export function attachProjMap(w, doc, video) {
       x.font = '700 14px system-ui'; x.fillStyle = col; x.fillText(`COPY ${k + 1} · ${n}×${n}`, c.pts[0][0] * W + 8, c.pts[0][1] * H - 8); });
   }
   const P = e => [e.clientX / w.innerWidth, e.clientY / w.innerHeight];
-  ov.addEventListener('pointerdown', e => { if (!S.edit) return; const p = P(e); let best = null, bd = 18 / w.innerWidth;
-    S.copies.forEach((c, k) => c.on && c.pts.forEach((q, i) => { const d = Math.hypot(q[0] - p[0], (q[1] - p[1]) * w.innerHeight / w.innerWidth); if (d < bd) { bd = d; best = [k, i]; } }));
-    if (best) { S.sel = best; drag = { k: best[0], i: best[1], p0: p, all: e.shiftKey }; ov.setPointerCapture(e.pointerId); } });
-  ov.addEventListener('pointermove', e => { if (!drag) return; const p = P(e), c = S.copies[drag.k];
+  const dist = (q, p) => Math.hypot(q[0] - p[0], (q[1] - p[1]) * w.innerHeight / w.innerWidth);
+  const maskHit = (p, r) => { let b = null, bd = r; (S.masks || []).forEach((m, k) => m.on && m.pts.forEach((q, i) => { const d = dist(q, p); if (d < bd) { bd = d; b = [k, i]; } })); return b; };
+  ov.addEventListener('pointerdown', e => { if (!S.edit || e.button === 2) return; const p = P(e); let best = null, bd = 18 / w.innerWidth;
+    const mh = maskHit(p, 14 / w.innerWidth);   // #687 a mask corner first
+    if (mh) { S.msel = mh[0]; drag = { mask: mh[0], i: mh[1], p0: p, all: e.shiftKey }; ov.setPointerCapture(e.pointerId); tell(); return; }
+    S.copies.forEach((c, k) => c.on && c.pts.forEach((q, i) => { const d = dist(q, p); if (d < bd) { bd = d; best = [k, i]; } }));
+    if (best) { S.sel = best; drag = { k: best[0], i: best[1], p0: p, all: e.shiftKey }; ov.setPointerCapture(e.pointerId); return; }
+    const mi = (S.masks || []).findIndex(m => m.on && inPoly(p, m.pts));   // inside a mask: pick it, SHIFT-drag moves it
+    if (mi >= 0) { S.msel = mi; if (e.shiftKey) { drag = { mask: mi, p0: p, all: true }; ov.setPointerCapture(e.pointerId); } tell(); } });
+  ov.addEventListener('dblclick', e => { if (!S.edit) return; const p = P(e); let best = null, bd = 16 / w.innerWidth;   // #687 add a corner on the nearest mask edge
+    (S.masks || []).forEach((m, k) => m.on && m.pts.forEach((a, i) => { const b = m.pts[(i + 1) % m.pts.length], vx = b[0] - a[0], vy = b[1] - a[1], L = vx * vx + vy * vy || 1;
+      const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / L)), d = dist([a[0] + vx * t, a[1] + vy * t], p); if (d < bd) { bd = d; best = [k, i]; } }));
+    if (best) { S.masks[best[0]].pts.splice(best[1] + 1, 0, p); S.msel = best[0]; pmSave(S); tell(); } });
+  ov.addEventListener('contextmenu', e => { if (!S.edit) return; e.preventDefault(); const mh = maskHit(P(e), 14 / w.innerWidth);   // #687 right-click a corner: remove it
+    if (mh && S.masks[mh[0]].pts.length > 3) { S.masks[mh[0]].pts.splice(mh[1], 1); pmSave(S); tell(); } });
+  ov.addEventListener('pointermove', e => { if (!drag) return; const p = P(e);
+    if (drag.mask != null) { const m = S.masks[drag.mask]; if (!m) return; if (drag.all) { const dx = p[0] - drag.p0[0], dy = p[1] - drag.p0[1]; m.pts = m.pts.map(q => [q[0] + dx, q[1] + dy]); drag.p0 = p; } else m.pts[drag.i] = p; return; }
+    const c = S.copies[drag.k];
     if (drag.all) { const dx = p[0] - drag.p0[0], dy = p[1] - drag.p0[1]; c.pts = c.pts.map(q => [q[0] + dx, q[1] + dy]); drag.p0 = p; } else c.pts[drag.i] = p;
     meshes[drag.k] = build(c); });
   ov.addEventListener('pointerup', () => { if (drag) { drag = null; pmSave(S); tell(); } });
@@ -96,7 +122,15 @@ export function attachProjMap(w, doc, video) {
     if (m.k === 'pmget') tell();
     else if (m.k === 'pmset') { Object.assign(S, m.v || {}); pmSave(S); rebuild(); tell(); }
     else if (m.k === 'pmcopy') { const c = S.copies[m.i]; if (!c) return; if (m.n && m.n !== c.n) S.copies[m.i] = resample(c, m.n); else Object.assign(c, m.v || {}); pmSave(S); rebuild(); tell(); }
-    else if (m.k === 'pmreset') { const d = pmDefaults(); if (m.i == null) S = { ...d, on: S.on }; else S.copies[m.i] = d.copies[m.i] || d.copies[0]; pmSave(S); rebuild(); tell(); }
+    else if (m.k === 'pmreset') { const d = pmDefaults(); if (m.i == null) S = { ...d, on: S.on, masks: S.masks || [] }; else S.copies[m.i] = d.copies[m.i] || d.copies[0]; pmSave(S); rebuild(); tell(); }   // RESET ALL keeps the masks (CLEAR MASKS removes them)
+    else if (m.k === 'pmmask') {   // #687 the desk's mask buttons
+      const M = S.masks || (S.masks = []);
+      if (m.op === 'add') { M.push(newMask(M.length)); S.msel = M.length - 1; S.edit = true; }
+      else if (m.op === 'sel') S.msel = m.i;
+      else if (m.op === 'del') { M.splice(m.i, 1); S.msel = Math.min(S.msel, M.length - 1); }
+      else if (m.op === 'clear') { M.length = 0; S.msel = -1; }
+      else if (M[m.i] && m.v) Object.assign(M[m.i], m.v);
+      pmSave(S); tell(); }
     else if (m.k === 'pmload') { if (m.S && Array.isArray(m.S.copies)) { S = { ...pmDefaults(), ...m.S }; pmSave(S); rebuild(); tell(); } } };
   w.requestAnimationFrame(draw); tell();
   return { get S() { return S; } };

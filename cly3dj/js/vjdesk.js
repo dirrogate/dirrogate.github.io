@@ -140,9 +140,10 @@ const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'holo',
 const HP0 = { x: 0.5, y: 0.8, h: 0.4, el: 8, face: 0, flip: false, shadow: 0.55, light: 0.6, cut: 0 };   // #668 x, y = her feet (0..1, from the top left), h = her height (part of the frame)
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
   const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), holo: holoDefaults(), chDesk: '', audioAuto: false, lsc: '', cue: '',
-    tempo: 'line', bpm: 0, beatN: 0, dv: { set: '', sets: [], files: [], arrivals: [], status: '', studio: '', cam: true, playing: '', job: null, match: 0.7 },
+    tempo: 'tap', bpm: 0, beatN: 0, dv: { set: '', sets: [], files: [], arrivals: [], status: '', studio: '', cam: true, playing: '', job: null, match: 0.7 },
     cast: { on: false, label: '', l: 0, r: 0, t: 0, b: 0 }, hp: { ...HP0 }, gram: { on: false, st: 'Off', url: '', room: '' }, beatT: 0 };   // #667 CAST crop, #668 HOLO+CAM placement   // #662 master tempo (LINE IN / TAP) + DirroVerse   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
-  try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
+  try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}
+  try { if (localStorage.getItem('vire.vjTempo') === 'line') D.tempo = 'line'; } catch {}   // #688 TAP unless LINE IN was picked (no mic opened by itself)   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
   try { const o = JSON.parse(localStorage.getItem('vire.vjCast') || '{}'); for (const k of ['l', 'r', 't', 'b']) if (+o[k] >= 0) D.cast[k] = Math.min(0.45, +o[k]); } catch {}
   try { const o = JSON.parse(localStorage.getItem('vire.vjHp') || '{}'); for (const k of Object.keys(HP0)) if (o[k] != null && k !== 'face') D.hp[k] = typeof HP0[k] === 'boolean' ? !!o[k] : +o[k]; } catch {}   // #680 FACING slider gone (the pad turns the dancer): a saved one is dropped
@@ -277,7 +278,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   }
   function tempoTap(now) {
     const T = tClock.taps; if (T.length && now - T[T.length - 1] > 2000) T.length = 0; T.push(now); while (T.length > 8) T.shift();
-    D.tempo = 'tap';
+    if (D.tempo !== 'tap') { D.tempo = 'tap'; try { localStorage.setItem('vire.vjTempo', 'tap'); } catch {} }
     if (T.length >= 2) { const iv = T.slice(1).map((t, i) => t - T[i]), m = iv.reduce((a, b) => a + b, 0) / iv.length; D.bpm = Math.round(60000 / m * 10) / 10; }
     tClock.next = now; pulse = 1; D.kick++; D.beatN++;   // the tap is the downbeat
   }
@@ -406,12 +407,26 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     post();
   }
   // ---- LINE IN
+  // #687 (owner, 11 Nov: Bluetooth music from this laptop goes bad once DirroVJ runs) opening a Bluetooth headset's microphone makes
+  // Windows switch that headset / speaker from its music profile (A2DP, stereo) to the phone-call one (Hands-Free: mono, muffled),
+  // for every app. So with no input picked, DirroVJ takes the first input that is not Bluetooth; if there is none it opens nothing.
+  const isBt = d => /hands-?free|bluetooth|\bbt\b|headset|airpods|buds|wh-1000|bose|jbl/i.test(d.label || '');
+  async function inputId() {
+    if (D.lineDev) return D.lineDev;
+    let ds = []; try { ds = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput'); } catch {}
+    if (!ds.length || ds.every(d => !d.label)) return undefined;   // no labels yet (no permission): the default, as before
+    const def = ds.find(d => d.deviceId === 'default');
+    if (def && !isBt(def)) return undefined;
+    const ok = ds.find(d => d.deviceId !== 'default' && d.deviceId !== 'communications' && !isBt(d));
+    return ok ? ok.deviceId : null;   // null = only Bluetooth inputs: leave them alone
+  }
   let lineTrack = null;
   async function setAudio(src, dev) {
     D.audio = src; D.lineDev = dev || D.lineDev; D.lineErr = '';
     if (lineTrack) { lineTrack.stop(); lineTrack = null; }
     if (src === 'line') {
-      try { const s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: D.lineDev ? { exact: D.lineDev } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } }); lineTrack = s.getAudioTracks()[0]; }
+      const id = await inputId(); if (id === null) { D.lineErr = 'No LINE IN: the only input is a Bluetooth mic, and opening it would drop Bluetooth speakers / headphones to phone-call sound. Plug in a line in / USB audio, or pick the Bluetooth one by hand.'; D.audio = 'quest'; onAudio && onAudio(); post(); return; }
+      try { const s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: id ? { exact: id } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } }); lineTrack = s.getAudioTracks()[0]; }
       catch (e) { D.lineErr = e.message; D.audio = 'quest'; }
     }
     onAudio && onAudio(); post();
@@ -424,11 +439,12 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   const liveAudio = () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null) || qAudio() || (autoTrack && autoTrack.readyState === 'live' ? autoTrack : null);
   setInterval(async () => {
     const now = performance.now(), q = qAudio();
-    if (q || D.audio !== 'quest') { qGoneT = 0; if (autoTrack) { autoTrack.stop(); autoTrack = null; D.audioAuto = false; onAudio && onAudio(); post(); } return; }
+    if (q || D.audio !== 'quest' || D.tempo !== 'line') { qGoneT = 0; if (autoTrack) { autoTrack.stop(); autoTrack = null; D.audioAuto = false; onAudio && onAudio(); post(); } return; }   // #688 the automatic LINE IN only while the tempo is on LINE IN (TAP = no mic at all)
     if (!qGoneT) qGoneT = now;
     if (autoTrack || autoBusy || now - qGoneT < 3000) return;
     autoBusy = true;
-    try { const s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: D.lineDev ? { ideal: D.lineDev } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } });
+    const id = await inputId(); if (id === null) { D.lineErr = 'automatic LINE IN skipped: only a Bluetooth mic (it would drop Bluetooth sound to phone-call quality)'; qGoneT = performance.now() + 57000; autoBusy = false; post(); return; }
+    try { const s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: id ? { ideal: id } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } });
       if (qAudio() || D.audio !== 'quest') s.getTracks().forEach(t => t.stop()); else { autoTrack = s.getAudioTracks()[0]; D.audioAuto = true; D.lineErr = ''; onAudio && onAudio(); post(); } }
     catch (e) { D.lineErr = 'automatic LINE IN: ' + e.message; qGoneT = now + 27000; post(); }   // try again in 30 s
     finally { autoBusy = false; }
@@ -482,7 +498,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     else if (m.k === 'fr') { Object.assign(D.fr, m.v || {}); try { localStorage.setItem('vire.vjFr', JSON.stringify(D.fr)); } catch {} post(); }
     else if (m.k === 'pump') { pulse = 1; D.kick++; }   // #508 the VJ's own hit
     else if (m.k === 'tap') { tempoTap(performance.now()); post(); }   // #662 TAP (button or T)
-    else if (m.k === 'tempo') { D.tempo = m.v === 'tap' ? 'tap' : 'line'; if (D.tempo === 'line') tClock.kicks.length = 0; post(); }
+    else if (m.k === 'tempo') { D.tempo = m.v === 'tap' ? 'tap' : 'line'; if (D.tempo === 'line') tClock.kicks.length = 0; try { localStorage.setItem('vire.vjTempo', D.tempo); } catch {} post(); }   // #688 remembered
     else if (m.k === 'nudge') { if (D.bpm > 0) D.bpm = Math.max(40, Math.min(220, Math.round((D.bpm + (+m.d || 0)) * 10) / 10)); post(); }
     else if (m.k === 'tvpair') { if (studioCtl && studioCtl.tvPair) studioCtl.tvPair(String(m.code || '')).then(t => bc.postMessage({ k: 'cxmsg', t })).catch(e => bc.postMessage({ k: 'cxmsg', t: 'DirroTV: ' + e.message })); }   // #662 SOLO: pair a TV from the desk
     else if (m.k === 'gram') { gramHost().setOn(!!m.on); gramSt(); setTimeout(holoGram, 300); return; }   // #674
