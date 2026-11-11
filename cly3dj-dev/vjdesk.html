@@ -452,7 +452,8 @@ function render() {
   $('twBtn').classList.toggle('live', tw.state === 'live');
   $('twBtn').classList.toggle('wait', tw.state === 'connecting');
   $('twBtn').textContent = tw.state === 'live' ? 'TWITCH: ON (STOP)' : tw.state === 'connecting' ? 'TWITCH: CONNECTING…' : 'TWITCH ON/OFF';
-  $('twSt').textContent = tw.state === 'live' ? `LIVE · ${(tw.kbps / 1000).toFixed(1)} Mb/s` : tw.msg ? tw.msg : '';
+  { const q = !!(S.air && S.air.qtw) && tw.state !== 'live' && tw.state !== 'connecting'; if (q) { $('twBtn').classList.add('live'); $('twBtn').textContent = 'QUEST LIVE: STOP'; } $('twBtn').title = q ? 'The Quest is streaming to Twitch itself. Press to stop it; then TWITCH ON goes live from here' : 'Start or stop streaming the DirroVJ Program picture + sound to Twitch'; }   // #697
+  $('twSt').textContent = S.air && S.air.qtw && tw.state === 'off' ? 'Quest on Twitch' : tw.state === 'live' ? `LIVE · ${(tw.kbps / 1000).toFixed(1)} Mb/s` : tw.msg ? tw.msg : '';
   if (tw.key && document.activeElement !== $('twKey') && !$('twKey').value) $('twKey').value = tw.key;
   if (D.panoYaw != null && document.activeElement !== $('panoYaw') && !(document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('vjPanoBar'))) {
     $('panoYaw').value = D.panoYaw;

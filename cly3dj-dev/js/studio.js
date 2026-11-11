@@ -156,17 +156,22 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     renderer.setRenderTarget(domeRT); renderer.setClearColor(0x000000, 1); renderer.clear(); renderer.render(skybox.group, domeCam); skybox.group.visible = sv; renderer.setClearColor(cc, ca);
     return domeRT.texture;
   }
+  let takeT = 0;   // #697
   const studioCtl = {
     twState: () => ({ state: S.tw, msg: S.twMsg, kbps: S.kbps, key: getTwKey() }),
-    airState: () => { const L = getLink(); return { qOn: !!S.qOn, local: !!S.local, mode: S.mode, link: !!(L && L.isOpen), tv: S.tv || 'off', tvKnown: !!tvSaved().key }; },   // #545 the desk's ON AIR / RENDER badges, #556 QUEST LINK + DIRROTV
+    airState: () => { const L = getLink(); return { qOn: !!S.qOn, local: !!S.local, mode: S.mode, link: !!(L && L.isOpen), tv: S.tv || 'off', tvKnown: !!tvSaved().key, qtw: !!(S.qtw && L && L.isOpen) }; },   // #697 qtw: the Quest is on Twitch itself   // #545 the desk's ON AIR / RENDER badges, #556 QUEST LINK + DIRROTV
     setTwKey,
     tvPair: async code => {   // #662 SOLO: pair a DirroTV screen from the desk (the TV shows the code on venue.html); the key is kept like #556
       code = String(code || '').replace(/\D/g, ''); if (code.length !== 6) return 'DirroTV: the code on the TV has 6 digits';
       const key = tvNewKey(); try { localStorage.setItem(TVK, JSON.stringify({ key, aud: true })); } catch {}
       tvFollow(key, true); await tvPairSend(code, key); return 'DirroTV: pairing sent; the TV connects in a few seconds';
     },
+    take: () => {   // #697 any desk button while DIRROVJ is off on the Quest: the desk takes the show back (last press wins), at most every 1.5 s
+      const L = getLink(), t = performance.now(); if (!vj || S.qOn || !(L && L.isOpen) || t - takeT < 1500) return; takeT = t; L.send('ctl', { k: 'vjtake' });
+    },
     twToggle: k => {
       if (k != null && String(k).trim()) setTwKey(k);
+      if (S.qtw && S.tw !== 'live' && S.tw !== 'connecting') { const L = getLink(); if (L && L.isOpen) { L.send('ctl', { k: 'qtwStop' }); S.qtw = false; } return; }   // #697 the Quest is live: this press is the deliberate STOP (then the desk has the show; press again to go live here)
       if (S.tw === 'live' || S.tw === 'connecting') twStop('');
       else { if (!S.on) startVj(); twStart(); }
     },
@@ -377,6 +382,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
         const L = fixed.lowLight; if (L && fixed.setLowLight && (!!m.cam.fps25 !== L.fps25 || +m.cam.ev !== L.ev)) fixed.setLowLight({ fps25: !!m.cam.fps25, ev: +m.cam.ev });
       }
       apply();
+    } else if (m.k === 'qtw') { S.qtw = !!m.live; if (desk && desk.post) desk.post();
     } else if (m.k === 'stuLive') {
       { const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'stuAck', on: !!m.on, tok: m.ack || 0 }); }   // #556 the Quest goes live itself if this doesn't arrive within 3 s
       if (m.on) { if (m.key) setTwKey(m.key); twStart(); } else twStop('');
@@ -392,7 +398,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     else { S.linkLost = 0; const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'sst', hello: 1, vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, run: false }); }   // #506 say hello so the Quest can ask the DJ
   }
   setInterval(() => { if (vj) { const L0 = getLink(); if (!(L0 && L0.isOpen) && tvSaved().key && tvKey !== tvSaved().key) tvFollow(tvSaved().key, tvSaved().aud); } }, 3000);   // #556 no Quest: answer DirroTV
-  setInterval(() => { if (S.qOn) return; const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'sst', hello: 1, vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, run: false }); }, 3000);   // #506 also while the studio is off (heartbeat + pairing)
+  setInterval(() => { if (S.qOn) return; const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'sst', hello: 1, vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, run: false, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps }); }, 3000);   // #697 tw: the Quest sees a desk that went live by itself   // #506 also while the studio is off (heartbeat + pairing)
   // ---- stamp read-back (async, 32 x 1 pixels): how late the Quest's frames are, in its clock
   let stripBusy = false;
   function readStampNow() {

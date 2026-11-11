@@ -1766,7 +1766,7 @@ function pcamStatus(S) {   // #374 / #530 shared by the WEBCAM SETUP page and th
   if (S.stu.on) {
     const s8 = S.s8 && performance.now() - S.s8.at < 3500 ? S.s8 : null, ci = s8 && s8.cam;
     return [
-      !S.stuLink ? 'DirroVJ not linked: open dirrovj.html on the laptop and connect.' : !S.vjAllowed ? 'Allow DirroVJ on the DIRROVJ page first.' : ci ? `DirroVJ webcam running (${ci.rate || ci.fps || '?'} fps)${pc6 ? ', calibrated (3D gear active when GEAR is on)' : ', uncalibrated (2D overlays + keying)'}.` : 'DirroVJ linked: webcam starts automatically when WEBCAM is active.',
+      !S.stuLink ? 'DirroVJ not linked: open dirrovj.html on the laptop and connect.' : !S.vjAllowed ? 'Waiting for DirroVJ to say hello.' : ci ? `DirroVJ webcam running (${ci.rate || ci.fps || '?'} fps)${pc6 ? ', calibrated (3D gear active when GEAR is on)' : ', uncalibrated (2D overlays + keying)'}.` : 'DirroVJ linked: webcam starts automatically when WEBCAM is active.',
       S.stu.mode === 'show' ? 'Pick WEBCAM in SHOWTIME! (or on the VJ desk) to put the webcam on air.' : `${C.green ? 'GREEN SCREEN on: keyed over BACK: ' + S.showOpt.backdrop.toUpperCase() : 'GREEN SCREEN off: raw webcam + overlays'}${S.showOpt.gear && pc6 ? ' + 3D gear' : ''}.`,
       `Delay trim: ${S.stu.trim >= 0 ? '+' : ''}${S.stu.trim} ms${s8 && s8.hold != null ? ' · camera held ' + s8.hold + ' ms' : ''}.`,
     ];
@@ -8625,13 +8625,14 @@ function drawToolsPage() {
       if (U.local && !lap) { g.font = '600 11px system-ui'; g.fillStyle = '#ffd040'; g.textAlign = 'center'; g.fillText(s8 ? 'this page can\'t render' : 'waiting', rx + hw * 1.5 + 4, y1 + bh + (P ? 12 : 10)); }
     }
     let y2 = y1 + bh + gap;
-    if (S.vjAsk || (U.on && S.vjLost)) {   // #506 pairing question / heartbeat lost
-      const red = !S.vjAsk; g.font = `700 ${P ? 17 : 15}px system-ui`; g.fillStyle = red ? '#ff6a6a' : '#ffd040'; g.textAlign = 'left';
-      fitText2(g, red ? 'DirroVJ silent for 10 s.' : `${S.vjName || 'A device'} (${S.vjAsk}) wants the show.`, L + 2, y2 + bh * 0.62, R - L - 2 * (w4 + gap) - 6);
-      if (red) btn(R - 2 * w4 - gap, y2, 2 * w4 + gap, bh, 'TAKE BACK', true, () => S.takeBack(), false, fs);
-      else { btn(R - 2 * w4 - gap, y2, w4, bh, 'ALLOW', true, () => S.allowVj(true), false, fs); btn(R - w4, y2, w4, bh, 'DENY', false, () => S.allowVj(false), false, fs); }
+    {   // #697 no ALLOW / DENY: the right code is enough. The code stays until NEW CODE (tap twice), which drops every linked laptop and phone
+      const armed = spNewArm > 0 && performance.now() - spNewArm < 3000, bw = 2 * w4 + gap, lost = U.on && S.vjLost;
+      g.font = `700 ${P ? 17 : 15}px system-ui`; g.fillStyle = lost ? '#ff6a6a' : '#dfe6f2'; g.textAlign = 'left';
+      fitText2(g, lost ? 'DirroVJ silent for 10 s.' : `Code ${spectCode()}${settings.spect !== 'on' ? ' (link off in Settings)' : ''}`, L + 2, y2 + bh * 0.62, R - L - bw - 10);
+      if (lost) btn(R - bw, y2, bw, bh, 'TAKE BACK', true, () => S.takeBack(), false, fs);
+      else btn(R - bw, y2, bw, bh, armed ? 'TAP AGAIN: NEW CODE' : 'NEW CODE', armed, () => { if (armed) { spNewArm = 0; newSpectCode(); } else spNewArm = performance.now(); drawMixScreen(); }, false, fs);
       y2 += bh + gap;
-    } else if (U.on) { btn(R - w4, y2, w4, bh, 'TAKE BACK', false, () => S.takeBack(), false, fs); g.font = '500 13px system-ui'; g.fillStyle = '#8c96a8'; g.textAlign = 'left'; fitText2(g, 'TAKE BACK: DirroVJ off; if it was live, Twitch restarts from the Quest.', L + 2, y2 + bh * 0.62, R - L - w4 - 10); y2 += bh + gap; }
+    }
     const w2 = (R - L - gap) / 2;
     Object.entries(STUDIO_MODES).forEach(([k, label], i) => btn(L + i * (w2 + gap), y2, w2, bh + (P ? 12 : 0), label, U.mode === k, () => S.setStudio('mode', k), false, P ? 22 : 17));
     const y3 = y2 + bh + (P ? 12 : 0) + gap;
@@ -10756,6 +10757,15 @@ if (navigator.xr) {
 }
 
 // ---- spectator camera (#158): loaded only when switched on; default off (`spect` is declared near the top)
+let spNewArm = 0;   // #697 double-tap guard for NEW CODE
+function newSpectCode() {   // #697 a new 5-digit code: every linked DirroVJ / camera phone drops and needs the new one
+  const old = spectCode(); let c = old; while (c === old) c = String(10000 + Math.floor(Math.random() * 90000));
+  try { localStorage.setItem('vire.spectCode', c); } catch {}
+  if (streamer) { if (streamer.stuTw && streamer.live) streamer.stop(); streamer.forgetVjs(); }
+  { const el = $('#spectCode'); if (el) el.textContent = c; }
+  if (spect) { spect.close(); spect = null; applySpect(); }
+  toast('New code ' + c + ': type it on dirrovj.html or the camera phone', 4000);
+}
 function spectCode() {
   let c = null; try { c = localStorage.getItem('vire.spectCode'); } catch {}
   if (!c || !/^\d{5}$/.test(c)) { c = String(10000 + Math.floor(Math.random() * 90000)); try { localStorage.setItem('vire.spectCode', c); } catch {} }
@@ -10778,7 +10788,7 @@ async function applySpect() {
           if (!ok && spect) spect.cxSay('DIRROGRAM is off or the relay is not connected on the Quest'); return;
         }
         if (m.k === 'cxgrab') {   // #520 GRAB RGB-D (DirroComics): only for a DirroVJ the DJ allowed
-          if (!streamer || !streamer.vjAllowed) { if (spect) spect.cxSay('allow this DirroVJ on the Quest\'s DIRROVJ page first'); return; }
+          if (!streamer || !streamer.vjAllowed) { if (spect) spect.cxSay('DirroVJ has not said hello to the Quest yet'); return; }
           if (!rgbd) rgbd = makeRgbdGrab({ renderer, getDepth: () => (realDepth && realDepth.ok ? realDepth : null), getFit: () => streamer && streamer.fit,
             getCamVideo: () => (streamer && streamer.camVideo && streamer.camStream && streamer.camStream.active && streamer.camVideo.videoWidth ? streamer.camVideo : null),
             say: t => spect && spect.cxSay(t), sendFile: (b, n) => spect.sendCx(b, n), toast });

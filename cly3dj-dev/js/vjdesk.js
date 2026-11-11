@@ -460,6 +460,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   }
   bc.onmessage = e => {
     const m = e.data || {}; peers = 1;
+    if (m.k && m.k !== 'hello' && m.k !== 'tw' && studioCtl && studioCtl.take) studioCtl.take();   // #697 a desk press while the Quest has DIRROVJ off: the desk has the show again
     if (m.k === 'hello') { post(); if (!m.again) comics.sendList(); }
     else if (m.k === 'cx') comics.onMsg(m);   // #516 DirroComics
     else if (m.k === 'dz') { const p = dzLoad(); if (p) p.then(z => z && z.onMsg(m)); }
