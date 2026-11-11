@@ -2451,3 +2451,6 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #701 VISUALS top bar (landscape): SCROLLER and CYCLO ▸ off the bar (owner, 11 Nov: 'make it')
 - The bar needed ~830 px for 768 (#700 names), so SCROLLER, CYCLO ▸ and MAIN MENU drew small. Two header rows were turned down: landscape VISUALS tabs lay out from y 48 in a 304 px screen (Images 2 rows, Pano / Video 1 row + bars, Camera / Sync / Look / GoPros / FX packed). Now: CYCLO ▸ stays on the mixer page and this page's bottom bar has the CYCLO buttons; SCROLLER is on VJ TOOLS. MAIN MENU 96, PREVIEW 72, ◀ BACK 66 px; the 8 tabs ~12 % wider. Portrait unchanged.
 - Tests: Images / Pano / Remote Cam drawn in the PC pane, no label cut (_lblOver 0). sw.js v182. No Node restart needed. Backup backups/pre701/.
+
+## #702 Release #699 to #701 to cly3dj (owner, 11 Nov: 'yes, go ahead')
+- cly3dj = cly3dj-dev again: index.html, js/main.js, js/spectator-client.js, js/stream.js, js/studio.js, sw.js (v182), vjdesk.html. node --check on all 86 released JS files: none broken. Dev-only as before: CLAUDE.md, PROJECT.md, _test/, backups/.

@@ -25,7 +25,7 @@ const TVK = 'vire.tv';
 const STUK = 'vire.studio';
 export const STUDIO_DEF = { on: false, mode: 'show', snd: true, local: false, trim: 0,   // #504 local: DirroVJ draws the SHOW scene itself (RENDER: LAPTOP)
   fps25: true, ev: 1, gain: 1.2 };   // #382 LOW LIGHT: the S8 camera held at 25 fps, exposure compensation (EV), the studio's GAIN
-export const STUDIO_MODES = { show: 'SHOW', cam: 'WEBCAM' };   // #530 WEBCAM unifies WEBCAM / LIVE DJ! / LIVE KEY! (keying follows GREEN SCREEN, 3D gear follows GEAR)
+export const STUDIO_MODES = { show: 'SHOWTIME!', cam: 'WEBCAM SHOT' };   // #700 three WEBCAM buttons on one page   // #699 SHOW was ambiguous   // #530 WEBCAM unifies WEBCAM / LIVE DJ! / LIVE KEY! (keying follows GREEN SCREEN, 3D gear follows GEAR)
 export const STU = { PW: 1920, CW: 1280, SX: 1284, SW: 8, MX: 1296, MW: 624, BITS: 28 };   // packed frame layout (studio.js reads the same)
 // timestamp strip: 28 blocks down x 1284..1292: 1, 0 (sync), 24 bits of the Quest's clock in ms (low bit first), 2 bits of the bit count (a check)
 export function stampBits(t) {

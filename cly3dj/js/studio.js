@@ -543,8 +543,8 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     const L = getLink();
     if (L && L.isOpen) L.send('ctl', { k: 'sst', vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, tv: S.tv || 'off', run: !!(S.on && !S.paused && haveQ), fps: S.fps, qfps: S.qfps, hold: S.hold, d: S.D != null ? Math.round(S.D) : null, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps, note,
       clip: led.on && (led.img || (led.video && !led.video.paused)) ? led.name : '', cam: fixed.on && fixed.camInfo ? { ...fixed.camInfo(), rate: camRate } : null });
-    stEl.textContent = `DirroVJ  ${({ show: 'SHOW', dj: 'WEBCAM', key: 'WEBCAM (KEY)', cam: 'WEBCAM' })[S.mode]}  ·  backdrop ${S.bd.toUpperCase()}  ·  out ${S.fps} fps  ·  Quest ${S.qfps} fps\n` +
-      `camera ${camRate} fps  ·  Quest frames ${S.D != null ? Math.round(S.D) + ' ms' : '-'} late  ·  camera held ${S.hold != null ? S.hold + ' ms' : '-'}  ·  trim ${S.trim} ms  ·  sound ${aTrack && S.snd ? 'on' : 'off'}\n` +
+    stEl.textContent = `DirroVJ  ${({ show: 'SHOWTIME!', dj: 'WEBCAM', key: 'WEBCAM (KEY)', cam: 'WEBCAM' })[S.mode]}  ·  backdrop ${S.bd.toUpperCase()}  ·  out ${S.fps} fps  ·  Quest ${S.qfps} fps\n` +
+      `camera ${camRate} fps  ·  Quest frames ${S.D != null ? Math.round(S.D) + ' ms' : '-'} late  ·  ${S.hold != null ? 'camera delay ' + S.hold + ' ms' : 'camera inactive'}  ·  trim ${S.trim} ms  ·  sound ${aTrack && S.snd ? 'on' : 'off'}\n` +
       `Twitch: ${S.tw}${S.twMsg ? ' (' + S.twMsg + ')' : ''}${S.tw === 'live' ? '  ' + (S.kbps / 1000).toFixed(1) + ' Mb/s' : ''}${note ? '\n' + note : ''}`;
     // #556 a lost Quest link no longer stops Twitch after a minute: the desk owns the stream (sound falls back to LINE IN on the desk)
     onState && onState(S);

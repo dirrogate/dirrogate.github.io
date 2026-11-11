@@ -38,7 +38,7 @@
   #hud { position:fixed; top:10px; left:10px; right:10px; display:flex; justify-content:space-between; pointer-events:none; z-index:5; }
   #hud .grp { display:flex; gap:6px; pointer-events:auto; }
   #hud button { font:600 12px system-ui,sans-serif; color:var(--fg); background:var(--panel); border:1px solid #2a3040; border-radius:7px; padding:7px 11px; cursor:pointer; }
-  #hud button.on { border-color:var(--acc); color:#fff; }
+  #hud button.on { border-color:#33e070; background:#1f9d55; color:#fff; }   /* #700 selected = green */
   #tip { position:fixed; pointer-events:none; background:var(--panel); border:1px solid #2a3040; padding:4px 8px; border-radius:6px; font-size:12px; z-index:6; display:none; white-space:nowrap; }
   #toast { position:fixed; left:50%; bottom:28px; transform:translateX(-50%); background:var(--panel); border:1px solid #2a3040; padding:8px 14px; border-radius:8px; opacity:0; transition:opacity .25s; z-index:6; pointer-events:none; }
   #help { position:fixed; right:10px; top:52px; width:330px; background:var(--panel); border:1px solid #2a3040; border-radius:10px; padding:12px 16px; z-index:6; display:none; font-size:13px; }
@@ -245,11 +245,11 @@
 </div>
 <div id="hud">
   <div class="grp">
-    <button data-cam="dj" class="on">DJ view <kbd>1</kbd></button>
-    <button data-cam="top">Overhead <kbd>2</kbd></button>
-    <button data-cam="crate">Crate <kbd>3</kbd></button>
+    <button data-cam="dj" class="on">DJ view <kbd>[1]</kbd></button>
+    <button data-cam="top">Overhead <kbd>[2]</kbd></button>
+    <button data-cam="crate">Crate <kbd>[3]</kbd></button>
   </div>
-  <div class="grp"><button id="resetBtn">Reset layout</button><button id="helpBtn">Help <kbd>H</kbd></button></div>
+  <div class="grp"><button id="resetBtn">Reset layout</button><button id="helpBtn">Help <kbd>[H]</kbd></button></div>
 </div>
 <div id="help">
   <h3>Mouse</h3>
