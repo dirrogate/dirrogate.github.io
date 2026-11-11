@@ -5704,12 +5704,11 @@ function drawVideoPage() {
     btn(22 + 3 * (tw4 + 6), 148, tw4, 34, 'CYCLO ⁺¹', ledMode !== 'off', () => { videoPage = false; setTools('wall'); });   // #379 moved one over for FX   // #342 the scroller editor
   } else {
     let x = 8;   // #214 seven tabs fit left of MIXER; #220 eight (narrower); #363 narrower again for BACK
-    for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam', 'Fx']) { const w = { Pano: 50, Video: 50, Images: 58, Camera: 66, Sync: 44, Look: 44, 'DJ Cam': 62, Fx: 36 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)); x += w + 4; }   // #379 narrower again for FX
-    btn(x, 8, 62, 32, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
-    btn(x + 66, 8, 52, 32, 'CYCLO ⁺¹', ledMode !== 'off', () => { videoPage = false; setTools('wall'); });   // #441, #537
-    btn(W - 8 - 62 - 4 - 66 - 4 - 56, 8, 56, 32, 'MAIN MENU', false, () => setVideoPage(false));   // #225 (#441 narrower for WALL; #603 MAIN = the main menu)
-    btn(W - 8 - 62 - 4 - 66, 8, 66, 32, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW
-    btn(W - 8 - 62, 8, 62, 32, '◀ BACK', false, navCan() ? navBack : null, !navCan());   // #363
+    for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam', 'Fx']) { const w = { Pano: 56, Video: 56, Images: 65, Camera: 74, Sync: 50, Look: 50, 'DJ Cam': 70, Fx: 40 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)); x += w + 4; }   // #379 narrower again for FX
+    // #701 owner: SCROLLER and CYCLO ▸ left the landscape bar (CYCLO ▸ is on the mixer page, the CYCLO buttons on this page's bottom bar, SCROLLER on VJ TOOLS), so MAIN MENU / PREVIEW / BACK draw full size
+    btn(W - 8 - 66 - 4 - 72 - 4 - 96, 8, 96, 32, 'MAIN MENU', false, () => setVideoPage(false));   // #225 (#603 MAIN = the main menu)
+    btn(W - 8 - 66 - 4 - 72, 8, 72, 32, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW
+    btn(W - 8 - 66, 8, 66, 32, '◀ BACK', false, navCan() ? navBack : null, !navCan());   // #363
   }
   const y0 = P ? 192 : 48;   // #363 portrait: one more header row
   if (vpFolder === 'Camera') { drawCamTab(btn, y0); return; }

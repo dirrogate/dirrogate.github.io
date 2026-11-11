@@ -2447,3 +2447,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Start page HUD: DJ view [1], Overhead [2], Crate [3], Help [H] (owner: square brackets).
 - Tests: node --check on all changed JS and inline scripts; tablet DIRROVJ, STREAM and VISUALS pages drawn in the PC pane; desk loads (GO LIVE, QUEST SOUND, selected = rgb(31,157,85)); HUD labels. sw.js v181. No Node restart needed. Backup backups/pre700/.
 - Manual (DirroVJ_DirroDJ_User_Manual .docx / .pdf): new names in the text; the LIVE DJ! / LIVE KEY! rows and the last ALLOW lines (setup steps, troubleshooting) removed; Figures 7, 10 and 11 recaptured with green selected buttons. The manual's other tablet figures still show red selected buttons.
+
+## #701 VISUALS top bar (landscape): SCROLLER and CYCLO ▸ off the bar (owner, 11 Nov: 'make it')
+- The bar needed ~830 px for 768 (#700 names), so SCROLLER, CYCLO ▸ and MAIN MENU drew small. Two header rows were turned down: landscape VISUALS tabs lay out from y 48 in a 304 px screen (Images 2 rows, Pano / Video 1 row + bars, Camera / Sync / Look / GoPros / FX packed). Now: CYCLO ▸ stays on the mixer page and this page's bottom bar has the CYCLO buttons; SCROLLER is on VJ TOOLS. MAIN MENU 96, PREVIEW 72, ◀ BACK 66 px; the 8 tabs ~12 % wider. Portrait unchanged.
+- Tests: Images / Pano / Remote Cam drawn in the PC pane, no label cut (_lblOver 0). sw.js v182. No Node restart needed. Backup backups/pre701/.
