@@ -455,7 +455,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
         U.crop.value.set(K.gl || 0, K.gr || 0, K.gt || 0, K.gb || 0);
         if (vs.mat && vs.mat.uniforms.panoTint) U.tint.value.copy(vs.mat.uniforms.panoTint.value);
       } else S.hold = null;
-      const needComp = !desk || ((desk.D.x < 1 && desk.D.a === 'quest') || (desk.D.x > 0 && desk.D.b === 'quest') || (desk.D.cue && desk.D[desk.D.cue] === 'quest'));   // #557 + QUEST cued
+      const needComp = !desk || ((desk.D.x < 1 && desk.D.a === 'quest') || (desk.D.x > 0 && desk.D.b === 'quest') || (desk.D.cue && desk.D[desk.D.cue] === 'quest') || (desk.needQuest && desk.needQuest()));   // #557 + QUEST cued   // #707 + a DirroVerse window fed with WEBCAM + GEAR
       // backdrop (not for LIVE DJ!, whose camera covers it; not when the Quest's frame is opaque)
       U.bgMode.value = 0;
       if (needComp && S.mode !== 'dj' && S.mode !== 'cam' && !(haveQ && !packed)) {
@@ -541,7 +541,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   function status(now, haveQ, note) {
     S.note = note;
     const L = getLink();
-    if (L && L.isOpen) L.send('ctl', { k: 'sst', vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, tv: S.tv || 'off', run: !!(S.on && !S.paused && haveQ), fps: S.fps, qfps: S.qfps, hold: S.hold, d: S.D != null ? Math.round(S.D) : null, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps, note,
+    if (L && L.isOpen) L.send('ctl', { k: 'sst', vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, tv: S.tv || 'off', run: !!(S.on && !S.paused && haveQ), fps: S.fps, qfps: S.qfps, hold: S.hold, d: S.D != null ? Math.round(S.D) : null, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps, note, cl: desk && desk.cleanPack && desk.cleanPack() ? 1 : 0,   // #707 cl: a clean pack (no overlays) for the DirroVerse window
       clip: led.on && (led.img || (led.video && !led.video.paused)) ? led.name : '', cam: fixed.on && fixed.camInfo ? { ...fixed.camInfo(), rate: camRate } : null });
     stEl.textContent = `DirroVJ  ${({ show: 'SHOWTIME!', dj: 'WEBCAM', key: 'WEBCAM (KEY)', cam: 'WEBCAM' })[S.mode]}  ·  backdrop ${S.bd.toUpperCase()}  ·  out ${S.fps} fps  ·  Quest ${S.qfps} fps\n` +
       `camera ${camRate} fps  ·  Quest frames ${S.D != null ? Math.round(S.D) + ' ms' : '-'} late  ·  ${S.hold != null ? 'camera delay ' + S.hold + ' ms' : 'camera inactive'}  ·  trim ${S.trim} ms  ·  sound ${aTrack && S.snd ? 'on' : 'off'}\n` +

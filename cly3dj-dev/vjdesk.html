@@ -36,6 +36,17 @@
   .dvGrid .vjCell img { inset:0 0 16px 0; }
   #dvMenu { position:fixed; z-index:60; min-width:230px; background:#121722; border:1px solid #4b5d82; border-radius:8px; padding:8px; box-shadow:0 8px 30px rgba(0,0,0,.6); }
   #dvMenu #dvMenuT { font:800 13px system-ui,sans-serif; margin:0 2px 6px; } #dvMenu button { width:100%; } #dvMenu button.del:hover { background:#5a1a1e; }
+  /* #707 DirroVerse banks: a chip per DirroVerse (scene count slug), loose scenes after them, the loaded DirroVerse's scene strip */
+  .dvGrid .vjCell.verse { border-color:#8a6d1e; } .dvGrid .vjCell.verse.act { border-color:#55ff88; }
+  .dvSlug { position:absolute; z-index:2; top:3px; left:3px; padding:1px 6px; border-radius:9px; background:rgba(10,12,18,.82); color:var(--gold); font:800 10px/15px system-ui,sans-serif; letter-spacing:.03em; pointer-events:none; }
+  .dvSep { grid-row:span 2; width:2px; background:#2a3242; margin:0 3px; }
+  #dvStrip { display:flex; gap:3px; overflow-x:auto; padding:3px; }
+  #dvStrip .vjCell { width:128px; height:76px; flex:0 0 auto; }
+  #dvStrip .vjCell.next { border:2px dashed var(--gold); }
+  #dvStrip .dvNum { position:absolute; z-index:2; top:3px; right:4px; font:900 12px system-ui,sans-serif; color:#fff; text-shadow:0 1px 3px #000; pointer-events:none; }
+  #dvFeed button, #dvAuto button { min-width:0; }
+  #dvMenu .grp { margin-top:6px; border-top:1px solid #2a3242; padding-top:6px; } #dvMenu .lbl { font:700 11px system-ui,sans-serif; color:#8c96a8; margin:2px 2px 4px; }
+  #dvMenu input { width:100%; box-sizing:border-box; margin:2px 0 4px; } #dvMenu .two { display:flex; gap:4px; } #dvMenu .two button { flex:1; }
   #dvPeek { position:fixed; z-index:50; width:360px; background:#0b0e15; border:1px solid #4b5d82; border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,.6); padding:6px; pointer-events:none; }
   #dvPeek .pv { position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:5px; overflow:hidden; }
   #dvPeek img, #dvPeek video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
@@ -256,10 +267,18 @@
 <section id="dvS" style="margin:0 16px 14px">
   <h2>DirroVerse <span class="note" style="text-transform:none;letter-spacing:0">put DIRROVERSE on a bus · sets from the Cyber-Window studio</span></h2>
   <div class="row"><select id="dvSet" style="min-width:180px;display:none"></select><button id="dvLoad">LOAD</button><button id="dvList">REFRESH</button>
-    <label class="note" style="margin:0"><input type="checkbox" id="dvCam" checked> live webcam in the windows</label>
+    <input type="checkbox" id="dvCam" checked hidden><span class="note" style="margin:0 2px 0 8px">Windows:</span><span id="dvFeed"><button data-f="off">OFF</button><button data-f="cam">WEBCAM</button><button data-f="gear">WEBCAM + GEAR</button></span>
     <a href="http://127.0.0.1:8090/" target="_blank" class="note" style="margin:0 6px">open the studio</a><a href="./dirroverse.html" target="_blank" class="note" style="margin:0">DIRROVERSE page</a></div>
+  <div id="dvGearSt" class="note" style="margin:2px 0 0"></div>
   <div class="vjBankScroll" style="margin:6px 0"><div class="dvGrid" id="dvGrid"></div></div>
-  <div id="dvMenu" hidden><div id="dvMenuT"></div><button id="dvDel" class="del">DELETE SCENE AND ITS FOLDER</button></div>
+  <div id="dvVerseBox" hidden>
+    <div class="row" style="margin:2px 0"><b id="dvVerseT" style="color:var(--gold)"></b>
+      <button id="dvPrev">◂ PREV</button><button id="dvNext">NEXT ▸</button>
+      <span class="note" style="margin:0 2px 0 8px">AUTO:</span><span id="dvAuto"><button data-b="0">OFF</button><button data-b="8">8 BARS</button><button data-b="16">16 BARS</button><button data-b="32">32 BARS</button></span>
+      <button id="dvHold">HOLD</button><span id="dvAutoSt" class="note" style="margin:0"></span></div>
+    <div id="dvStrip"></div>
+  </div>
+  <div id="dvMenu" hidden><div id="dvMenuT"></div><div id="dvMenuBody"></div><button id="dvDel" class="del">DELETE SCENE AND ITS FOLDER</button></div>
   <div id="dvPeek" hidden><div class="pv"><img alt=""><video muted playsinline hidden></video></div><div class="nm"></div><div class="mt"></div></div>
   <div id="dvSt" class="note"></div>
   <div class="row"><input id="dvName" placeholder="name on the car's plate, e.g. WELCOME MAYA" style="flex:1;min-width:220px"><button id="dvRender">RENDER ARRIVAL</button><span id="dvJob" class="note" style="margin:0"></span></div>
@@ -450,7 +469,7 @@ function render() {
   xfT.set(D.x);   // #552
   { $('bpmV').textContent = D.bpm > 0 ? D.bpm.toFixed(1) : '--.-'; $('tmL').classList.toggle('on', D.tempo !== 'tap'); $('tmT').classList.toggle('on', D.tempo === 'tap');   // #662
     if (D.beatN !== render.bn) { render.bn = D.beatN; $('beatL').style.background = '#ffd25a'; setTimeout(() => { $('beatL').style.background = '#333'; }, 110); } }
-  renderDv(D.dv);
+  window.__dvBpm = D.bpm; renderDv(D.dv);   // #707 AUTO needs the master tempo
   for (const [id, b, live] of [['litA', 'a', D.x < 1], ['litB', 'b', D.x > 0]]) { const cue = D.cue === b; $(id).classList.toggle('cue', cue); $(id).classList.toggle('live', live && !cue); }   // #557
   { const t = $('pvTag'); if (D.cue) { t.textContent = `CUE ${D.cue.toUpperCase()} · on air: ${D.x <= 0 ? 'A' : D.x >= 1 ? 'B' : 'A+B'}`; t.classList.add('cue'); $('pv').classList.add('cue'); } else { t.textContent = 'PROGRAM'; t.classList.remove('cue'); $('pv').classList.remove('cue'); } }
   for (const b of document.querySelectorAll('[data-pal]')) b.classList.toggle('on', D.fr.pal === b.dataset.pal);
@@ -939,16 +958,26 @@ document.addEventListener('keydown', e => { if (['INPUT', 'TEXTAREA', 'SELECT'].
 $('tvPair').onclick = () => send({ k: 'tvpair', code: $('tvCode').value });
 $('dvList').onclick = () => send({ k: 'dv', act: 'list' }); $('dvLoad').onclick = () => $('dvSet').value && send({ k: 'dv', act: 'load', set: $('dvSet').value });
 $('dvCam').onchange = () => send({ k: 'dv', act: 'cam', v: $('dvCam').checked });
+// #707 WINDOWS feed, AUTO bars, HOLD, PREV / NEXT (keys: N next, B back, H hold)
+for (const b of $('dvFeed').querySelectorAll('button')) b.onclick = () => send({ k: 'dv', act: 'feed', v: b.dataset.f });
+for (const b of $('dvAuto').querySelectorAll('button')) b.onclick = () => send({ k: 'dv', act: 'auto', v: +b.dataset.b });
+$('dvHold').onclick = () => send({ k: 'dv', act: 'hold' }); $('dvPrev').onclick = () => send({ k: 'dv', act: 'step', d: -1 }); $('dvNext').onclick = () => send({ k: 'dv', act: 'step', d: 1 });
+document.addEventListener('keydown', e => { if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.ctrlKey || e.metaKey || e.altKey) return; const k = e.key.toLowerCase();
+  if (k === 'n') send({ k: 'dv', act: 'step', d: 1 }); else if (k === 'b') send({ k: 'dv', act: 'step', d: -1 }); else if (k === 'h') send({ k: 'dv', act: 'hold' }); });
 $('dvRender').onclick = () => { const n = $('dvName').value.trim(); if (n) send({ k: 'dv', act: 'render', name: n }); };
 let dvAsked = false;
+let lastDv = null;
 function renderDv(v) {
-  if (!v) return; if (!dvAsked) { dvAsked = true; send({ k: 'dv', act: 'list' }); }
+  if (!v) return; lastDv = v; if (!dvAsked) { dvAsked = true; send({ k: 'dv', act: 'list' }); }
   dvChips(v);
   const sel = $('dvSet'), want = (v.sets || []).join('|');
   if (sel.dataset.l !== want) { const cur = sel.value || v.set; sel.innerHTML = (v.sets || []).map(n => `<option>${n}</option>`).join(''); sel.dataset.l = want; if (cur) sel.value = cur; }
   if (v.set && document.activeElement !== sel && !sel.dataset.touched) sel.value = v.set;
   if (document.activeElement !== $('dvCam')) $('dvCam').checked = !!v.cam;
-  $('dvSt').textContent = v.studio && v.studio !== 'ok' ? v.studio : (v.status || (v.sets && v.sets.length ? 'Click a set to load · hover to preview' : ''));
+  { const f = !v.cam ? 'off' : v.feed === 'gear' ? 'gear' : 'cam'; for (const b of $('dvFeed').querySelectorAll('button')) b.classList.toggle('on', b.dataset.f === f); }   // #707
+  $('dvGearSt').textContent = v.gearSt || '';
+  dvStripDraw(v);
+  $('dvSt').textContent = v.studio && v.studio !== 'ok' ? v.studio : [v.loading ? 'loading ' + v.loading + '…' : v.status || (v.sets && v.sets.length ? 'Click a DirroVerse or a scene to load · hover to preview · right-click to add a scene to a DirroVerse' : ''), v.versesErr || ''].filter(Boolean).join(' · ');
   const j = v.job; $('dvJob').textContent = !j ? '' : j.status === 'running' ? `rendering "${j.name}": ${Math.round(j.progress)}%` : j.status === 'done' ? `"${j.name}" ready` : j.status === 'error' ? 'error: ' + j.err : j.status;
   const want2 = (v.arrivals || []).join('|') + '/' + v.playing;
   if ($('dvArr').dataset.l !== want2) { $('dvArr').dataset.l = want2; $('dvArr').innerHTML = '';
@@ -960,23 +989,84 @@ $('dvSet').onchange = () => { $('dvSet').dataset.touched = '1'; };
 // plate loop shows it stepping at 1 frame a second (straight from the studio on this laptop)
 const DV_STUDIO = 'http://127.0.0.1:8090', dvU = n => encodeURIComponent(n);
 function dvChips(v) {
-  const G = $('dvGrid'), want = (v.sets || []).join('|') + '/' + v.set;
+  const G = $('dvGrid'), sets = v.sets || [], vs = (v.verses || []).map(x => ({ name: x.name, scenes: x.scenes.filter(n => sets.includes(n)) })),
+    inV = new Set(vs.flatMap(x => x.scenes)), loose = sets.filter(n => !inV.has(n)), want = JSON.stringify([vs, loose, v.set, v.verse]);
   if (G.dataset.l === want) return; G.dataset.l = want; G.innerHTML = '';
-  for (const n of v.sets || []) {
-    const c = document.createElement('div'); c.className = 'vjCell' + (n === v.set ? ' act' : ''); c.title = n;
-    c.innerHTML = `<img src="${DV_STUDIO}/api/plateframe?name=${dvU(n)}&t=0&w=300" alt=""><div class="vjCap">${n.replace(/</g, '&lt;')}</div>`;
-    c.onclick = () => { $('dvSet').value = n; $('dvSet').dataset.touched = '1'; send({ k: 'dv', act: 'load', set: n }); };
-    c.onmouseenter = () => dvPeek(n, c); c.onmouseleave = () => dvPeek(null);
-    c.oncontextmenu = e => { e.preventDefault(); dvPeek(null); dvMenuOpen(n, e.clientX, e.clientY); };   // #684
-    fetch(`${DV_STUDIO}/api/set/${dvU(n)}/files`).then(r => r.json()).then(j => { c.title = (j.files || []).includes('plate_loop.mp4') ? `${n} · plate loop rendered` : `${n} · No plate loop yet, render one in the Dirroverse Studio`; }).catch(() => {});
+  dvVs = vs;
+  for (const x of vs) {   // #707 one chip per DirroVerse: scene 1's frame, the scene count
+    const c = document.createElement('div'); c.className = 'vjCell verse' + (x.name === v.verse ? ' act' : ''); c.title = x.name + ' · ' + (x.scenes.join(', ') || 'no scenes yet');
+    c.innerHTML = (x.scenes[0] ? `<img src="${DV_STUDIO}/api/plateframe?name=${dvU(x.scenes[0])}&t=0&w=300" alt="">` : '') + `<div class="dvSlug">${x.scenes.length} scene${x.scenes.length === 1 ? '' : 's'}</div><div class="vjCap">${x.name.replace(/</g, '&lt;')}</div>`;
+    c.onclick = () => send({ k: 'dv', act: 'verse', name: x.name });
+    if (x.scenes[0]) { c.onmouseenter = () => dvPeek(x.scenes[0], c); c.onmouseleave = () => dvPeek(null); }
+    c.oncontextmenu = e => { e.preventDefault(); dvPeek(null); dvMenuOpen({ verse: x.name }, e.clientX, e.clientY); };
     G.append(c);
   }
+  if (vs.length && loose.length) { const d = document.createElement('div'); d.className = 'dvSep'; G.append(d); }
+  for (const n of loose) G.append(dvSceneChip(n, n === v.set && !v.verse, ''));
 }
+let dvVs = [];
+function dvSceneChip(n, act, verse) {
+  const c = document.createElement('div'); c.className = 'vjCell' + (act ? ' act' : ''); c.title = n;
+  c.innerHTML = `<img src="${DV_STUDIO}/api/plateframe?name=${dvU(n)}&t=0&w=300" alt=""><div class="vjCap">${n.replace(/</g, '&lt;')}</div>`;
+  c.onclick = () => { $('dvSet').value = n; $('dvSet').dataset.touched = '1'; send({ k: 'dv', act: 'load', set: n, verse }); };
+  c.onmouseenter = () => dvPeek(n, c); c.onmouseleave = () => dvPeek(null);
+  c.oncontextmenu = e => { e.preventDefault(); dvPeek(null); dvMenuOpen({ set: n, verse }, e.clientX, e.clientY); };   // #684 / #707
+  fetch(`${DV_STUDIO}/api/set/${dvU(n)}/files`).then(r => r.json()).then(j => { c.title = (j.files || []).includes('plate_loop.mp4') ? `${n} · plate loop rendered` : `${n} · No plate loop yet, render one in the Dirroverse Studio`; }).catch(() => {});
+  return c;
+}
+// #707 the loaded DirroVerse: its scenes in play order (the next one dashed gold while it loads a bar ahead), AUTO / HOLD / PREV / NEXT
+function dvStripDraw(v) {
+  const x = (v.verses || []).find(y => y.name === v.verse), box = $('dvVerseBox');
+  box.hidden = !x; if (!x) return;
+  const sc = x.scenes.filter(n => (v.sets || []).includes(n));
+  $('dvVerseT').textContent = x.name + ' · ' + sc.length + ' scene' + (sc.length === 1 ? '' : 's');
+  for (const b of $('dvAuto').querySelectorAll('button')) b.classList.toggle('on', +b.dataset.b === (+v.auto || 0));
+  $('dvHold').classList.toggle('on', !!v.hold);
+  $('dvAutoSt').textContent = !v.auto ? '' : sc.length < 2 ? 'add a second scene for AUTO' : !(window.__dvBpm > 0) ? 'AUTO needs a tempo: TAP or LINE IN' : v.hold ? 'held on this scene' : 'cuts every ' + v.auto + ' bars' + (v.next ? ' · next: ' + v.next + ' ready' : '');
+  const S = $('dvStrip'), want = JSON.stringify([sc, v.set, v.next, x.name]);
+  if (S.dataset.l === want) return; S.dataset.l = want; S.innerHTML = '';
+  sc.forEach((n, i) => { const c = dvSceneChip(n, n === v.set, x.name); if (n === v.next) c.classList.add('next'); const b = document.createElement('div'); b.className = 'dvNum'; b.textContent = i + 1; c.append(b); S.append(c); });
+}
+async function dvSaveVerses(vs) {
+  try { const r = await fetch(`${DV_STUDIO}/api/verses`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ verses: vs }) }), j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || (r.status === 404 || r.status === 405 ? 'the studio has no DirroVerses yet: restart it once (start_set_builder.bat)' : r.status));
+    $('dvGrid').dataset.l = ''; send({ k: 'dv', act: 'list' }); return true; }
+  catch (e) { $('dvSt').textContent = 'DirroVerse not saved: ' + (e.message || e); return false; }
+}
+const dvClone = () => (dvVs.length ? dvVs : (lastDv && lastDv.verses) || []).map(x => ({ name: x.name, scenes: [...x.scenes] }));
 // #684 right-click a set: DELETE SCENE (tap twice). The studio moves its folder to club_window/deleted_sets/ (out of every list).
 let dvMenuSet = '', dvDelT = 0;
-function dvMenuOpen(n, x, y) {
-  const M = $('dvMenu'); dvMenuSet = n; dvDelT = 0; $('dvMenuT').textContent = n; $('dvDel').textContent = 'DELETE SCENE AND ITS FOLDER';
-  M.hidden = false; M.style.left = Math.min(innerWidth - 250, x) + 'px'; M.style.top = Math.min(innerHeight - 110, y) + 'px';
+// #707 right-click a scene: ADD TO a DirroVerse (or a new one), MOVE ◂ / ▸ and TAKE OUT inside its DirroVerse, DELETE (#684).
+// Right-click a DirroVerse: RENAME, DELETE DIRROVERSE (its scenes stay).
+function dvMenuOpen(o, x, y) {
+  const M = $('dvMenu'), B = $('dvMenuBody'); dvMenuSet = o.set || ''; dvDelT = 0; B.innerHTML = '';
+  const btn = (t, f, cls) => { const b = document.createElement('button'); b.textContent = t; if (cls) b.className = cls; b.onclick = async () => { M.hidden = true; await f(); }; return b; };
+  const grp = l => { const d = document.createElement('div'); d.className = 'grp'; if (l) { const t = document.createElement('div'); t.className = 'lbl'; t.textContent = l; d.append(t); } B.append(d); return d; };
+  if (o.verse && !o.set) {   // a DirroVerse chip
+    $('dvMenuT').textContent = 'DirroVerse: ' + o.verse; $('dvDel').hidden = true;
+    const g = grp('Rename'), inp = document.createElement('input'); inp.value = o.verse; inp.maxLength = 40; g.append(inp);
+    const go = async () => { const n = inp.value.trim(); if (!n || n === o.verse) return; const vs = dvClone(); if (vs.some(v => v.name.toLowerCase() === n.toLowerCase())) { $('dvSt').textContent = 'A DirroVerse called "' + n + '" exists already.'; return; } const v = vs.find(v => v.name === o.verse); if (v) v.name = n; M.hidden = true; await dvSaveVerses(vs); };
+    inp.onkeydown = e => { if (e.key === 'Enter') go(); }; const rb = document.createElement('button'); rb.textContent = 'RENAME'; rb.onclick = go; g.append(rb);
+    let t = 0; const db = document.createElement('button'); db.className = 'del'; db.textContent = 'DELETE DIRROVERSE (scenes stay)';
+    db.onclick = async () => { if (Date.now() - t > 3000) { t = Date.now(); db.textContent = 'CLICK AGAIN: DELETE "' + o.verse + '"'; return; } M.hidden = true; await dvSaveVerses(dvClone().filter(v => v.name !== o.verse)); };
+    grp('').append(db);
+  } else {   // a scene chip (loose, or in the strip of its DirroVerse)
+    $('dvMenuT').textContent = o.set; $('dvDel').hidden = false; $('dvDel').textContent = 'DELETE SCENE AND ITS FOLDER';
+    const vs = dvClone(), others = vs.filter(v => !v.scenes.includes(o.set));
+    const g = grp('Add to DirroVerse');
+    for (const v of others) g.append(btn('+ ' + v.name, async () => { const a = dvClone(); a.find(x => x.name === v.name).scenes.push(o.set); await dvSaveVerses(a); }));
+    const inp = document.createElement('input'); inp.placeholder = 'new DirroVerse name'; inp.maxLength = 40; g.append(inp);
+    const mk = async () => { const n = inp.value.trim(); if (!n) return; const a = dvClone(), ex = a.find(x => x.name.toLowerCase() === n.toLowerCase()); if (ex) { if (!ex.scenes.includes(o.set)) ex.scenes.push(o.set); } else a.push({ name: n, scenes: [o.set] }); M.hidden = true; await dvSaveVerses(a); };
+    inp.onkeydown = e => { if (e.key === 'Enter') mk(); }; const nb = document.createElement('button'); nb.textContent = '+ NEW DIRROVERSE'; nb.onclick = mk; g.append(nb);
+    const v = o.verse && vs.find(x => x.name === o.verse);
+    if (v) {
+      const g2 = grp('In ' + v.name), two = document.createElement('div'); two.className = 'two';
+      const mv = d => async () => { const a = dvClone(), w = a.find(x => x.name === v.name), i = w.scenes.indexOf(o.set), j2 = i + d; if (i < 0 || j2 < 0 || j2 >= w.scenes.length) return; [w.scenes[i], w.scenes[j2]] = [w.scenes[j2], w.scenes[i]]; await dvSaveVerses(a); };
+      two.append(btn('MOVE ◂', mv(-1)), btn('MOVE ▸', mv(1))); g2.append(two);
+      g2.append(btn('TAKE OUT OF ' + v.name, async () => { const a = dvClone(), w = a.find(x => x.name === v.name); w.scenes = w.scenes.filter(n => n !== o.set); await dvSaveVerses(a); }));
+    }
+  }
+  M.hidden = false; const h = M.offsetHeight || 200; M.style.left = Math.min(innerWidth - 250, x) + 'px'; M.style.top = Math.max(8, Math.min(innerHeight - h - 8, y)) + 'px';
 }
 document.addEventListener('pointerdown', e => { const M = $('dvMenu'); if (!M.hidden && !M.contains(e.target)) M.hidden = true; });
 $('dvDel').onclick = async () => {

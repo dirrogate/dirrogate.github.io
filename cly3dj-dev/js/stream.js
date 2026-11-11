@@ -311,7 +311,8 @@ export class Streamer {
       lg.globalAlpha = 1; lg.globalCompositeOperation = 'source-over'; this.stuBaked = true;
     } else this.stuBaked = false;
     if (layer) lg.drawImage(layer, 0, 0, W, H);
-    this._overlays(lg, W, H);
+    const clean = this.stu.mode === 'cam' && this.s8 && this.s8.cl && performance.now() - this.s8.at < 3500;   // #707 DirroVJ puts this shot inside a DirroVerse window: no scroller / now playing / logo / chat in it
+    if (!clean) this._overlays(lg, W, H);
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.fillStyle = '#000'; g.fillRect(0, 0, STU.PW, H);
     g.drawImage(lc, 0, 0);
     mg.globalCompositeOperation = 'copy'; mg.drawImage(lc, 0, 0, STU.MW, H);

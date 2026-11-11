@@ -55,22 +55,22 @@ void main() {
 }`;
 
 export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
-  const vid = mkVideo(true), arr = mkVideo(false);
   function mkVideo(loop) { const v = document.createElement('video'); v.crossOrigin = 'anonymous'; v.muted = true; v.loop = loop; v.playsInline = true; v.preload = 'auto'; return v; }
   const vtex = v => { const t = new THREE.VideoTexture(v); t.colorSpace = THREE.NoColorSpace; t.generateMipmaps = false; t.minFilter = t.magFilter = THREE.LinearFilter; return t; };
-  const tLoop = vtex(vid), tArr = vtex(arr), ld = new THREE.TextureLoader(); ld.setCrossOrigin('anonymous');
+  // #707 two loop players: the next scene loads in the idle one while the current plays, then a clean cut (no black frame)
+  const vids = [mkVideo(true), mkVideo(true)], tLoops = vids.map(vtex), arr = mkVideo(false), tArr = vtex(arr), ld = new THREE.TextureLoader(); ld.setCrossOrigin('anonymous');
+  let cur = 0;
   const black = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); black.needsUpdate = true;
-  const U = { tBase: { value: tLoop }, tMask: { value: black }, tSpill: { value: black }, tCam: { value: camTex }, plate: { value: new THREE.Vector2(1920, 1080) },
+  const U = { tBase: { value: tLoops[0] }, tMask: { value: black }, tSpill: { value: black }, tCam: { value: camTex }, plate: { value: new THREE.Vector2(1920, 1080) },
     camSz: { value: new THREE.Vector2(1280, 720) }, nW: { value: 0 }, Hm: { value: [0, 1, 2, 3].map(() => new THREE.Matrix3()) },
     fp: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0.4, 0.5, 1, 0.72)) }, sil: { value: [0, 0, 0, 0] }, crop: { value: 0.86 },
     grade: { value: new THREE.Vector3(2.3, 0.06, 0.88) }, camLight: { value: new THREE.Vector3(1, 1, 1) }, spillK: { value: 0.95 }, cutOld: { value: 0.5 }, camOn: { value: 1 },
-    tFog: { value: null }, match: { value: 0.7 }, mist: { value: 0.35 }, rainK: { value: 0.7 }, reflK: { value: 0.07 }, fogOn: { value: 0 }, time: { value: 0 },
+    tFog: { value: black }, match: { value: 0.7 }, mist: { value: 0.35 }, rainK: { value: 0.7 }, reflK: { value: 0.07 }, fogOn: { value: 0 }, time: { value: 0 },
     camMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, camStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, tgtMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, tgtStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) } };
-  U.tFog.value = black;
   const mat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: FS, depthTest: false, depthWrite: false });
   const sc = new THREE.Scene(), mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); mesh.frustumCulled = false; sc.add(mesh);
   const oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  let rt = null, W = 1920, H = 1080, ready = false;
+  let rt = null, W = 1920, H = 1080, ready = false, air = false, pending = null, loadSeq = 0;
   // the webcam's average colour, a few times a second (the light the club throws out of the windows)
   const avc = document.createElement('canvas'); avc.width = avc.height = 8; const avx = avc.getContext('2d', { willReadFrequently: true });
   let avT = 0, light = [0.25, 0.2, 0.3];
@@ -94,35 +94,65 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
   }
   async function j(u, body) { const r = await fetch(STUDIO + u, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); return r.json(); }
   async function list() {
-    try { const st = await j('/api/status'); S.sets = st.sets || []; S.studio = 'ok'; if (S.set) await files(); }
-    catch (e) { S.studio = 'no studio: start start_set_builder.bat on this laptop (Cyber-Window studio, port 8090)'; S.sets = []; }
+    try { const st = await j('/api/status'); S.sets = st.sets || []; S.studio = 'ok'; }
+    catch (e) { S.studio = 'no studio: start start_set_builder.bat on this laptop (Cyber-Window studio, port 8090)'; S.sets = []; post(); return; }
+    // #707 DirroVerses = banks of scenes, kept by the studio in club_window/verses.json
+    try { const r = await fetch(STUDIO + '/api/verses'); if (!r.ok) throw new Error(r.status); const v = await r.json();
+      S.verses = (v.verses || []).filter(x => x && x.name).map(x => ({ name: String(x.name), scenes: (x.scenes || []).map(String) })); S.versesErr = ''; }
+    catch { S.verses = S.verses || []; S.versesErr = 'Restart the studio once (start_set_builder.bat) so it can keep DirroVerses.'; }
+    if (S.set) { S.files = await filesOf(S.set); S.arrivals = S.files.filter(x => /^arrival_.*\.mp4$/i.test(x)); }
     post();
   }
-  async function files() { try { const f = await j(`/api/set/${encodeURIComponent(S.set)}/files`); S.files = f.files || []; S.arrivals = S.files.filter(x => /^arrival_.*\.mp4$/i.test(x)); } catch { S.files = []; S.arrivals = []; } }
-  async function load(name) {
-    S.set = name; S.status = 'loading ' + name + '…'; ready = false; post();
+  async function filesOf(name) { try { return (await j(`/api/set/${encodeURIComponent(name)}/files`)).files || []; } catch { return []; } }
+  const texLoad = url => new Promise(res => ld.load(url, t => { t.colorSpace = THREE.NoColorSpace; t.generateMipmaps = false; t.minFilter = t.magFilter = THREE.LinearFilter; res(t); }, undefined, () => res(null)));
+  const canPlay = v => new Promise(res => {
+    if (v.readyState >= 2) return res(true);
+    const done = ok => { v.removeEventListener('loadeddata', a); v.removeEventListener('error', b); clearTimeout(t); res(ok); }, a = () => done(true), b = () => done(false);
+    v.addEventListener('loadeddata', a); v.addEventListener('error', b); const t = setTimeout(() => done(v.readyState >= 2), 12000);
+  });
+  const drop = nx => { if (nx) for (const t of [nx.mask, nx.spill, nx.fog]) if (t) t.dispose(); };
+  // load a scene. defer: get it ready in the idle player and wait for commit() (the cut on the bar); otherwise cut as soon as it plays
+  async function load(name, opt = {}) {
+    const seq = ++loadSeq; if (pending) { drop(pending); pending = null; }
+    S.loading = name; if (!ready) S.status = 'loading ' + name + '…'; post();
     try {
-      const set = await j('/api/set/' + encodeURIComponent(name)); await files();
-      if (!S.files.includes('plate_loop.mp4')) { S.status = `"${name}" has no plate loop yet: render "Plate loop" in the studio (or on the DIRROVERSE page).`; post(); return; }
-      const t = Date.now(), base = `${STUDIO}/sets/${encodeURIComponent(name)}/`;
-      vid.src = base + 'plate_loop.mp4?' + t; vid.play().catch(() => {});
-      U.tMask.value = ld.load(base + 'window_mask.png?' + t); U.tSpill.value = ld.load(base + 'spill.png?' + t);
-      U.fogOn.value = 0; U.tFog.value = S.files.includes('fog.png') ? ld.load(base + 'fog.png?' + t, () => { U.fogOn.value = 1; }) : black;
-      plateStats(base + 'plate.png?' + t);
-      for (const tx of [U.tMask.value, U.tSpill.value, U.tFog.value]) { if (tx === black) continue; tx.colorSpace = THREE.NoColorSpace; tx.generateMipmaps = false; tx.minFilter = tx.magFilter = THREE.LinearFilter; }
-      const PW = set.plate_w || 1920, PH = set.plate_h || 1080; U.plate.value.set(PW, PH);
-      W = 1920; H = Math.round(1920 * PH / PW / 2) * 2; if (rt) { rt.dispose(); rt = null; }
-      const ws = (set.windows || []).filter(w => !w.bake).slice(0, 4);
-      ws.forEach((w, i) => { const h = homog(w.quad, [[0, 0], [1, 0], [1, 1], [0, 1]]); U.Hm.value[i].set(...h);
-        U.fp.value[i].set(+w.feed_x || 0.4, w.feed_y ?? 0.5, +w.clip_zoom || 1, (w.size_m ? w.size_m[0] / w.size_m[1] : 0.72)); U.sil.value[i] = +w.silhouette || 0; });
-      U.nW.value = ws.length;
-      const g = set.grade || {}; U.grade.value.set(+g.exposure || 2.3, +g.warmth || 0.06, +g.contrast || 0.88);
-      const gl_ = set.glass || {}; U.mist.value = +gl_.mist || 0; U.rainK.value = gl_.rain ?? 0.7; U.reflK.value = gl_.reflect ?? 0.07;
-      U.crop.value = +(set.feed && set.feed.crop) || 0.86; U.spillK.value = +(set.spill && set.spill.strength) || 0.95; U.cutOld.value = +(set.spill && set.spill.cut_old) || 0.5;
-      ready = true; S.status = `${name}: ${PW}×${PH}, ${ws.length} club window(s)${S.arrivals.length ? ', ' + S.arrivals.length + ' arrival(s)' : ''}`;
-    } catch (e) { S.status = 'could not load ' + name + ': ' + e.message; }
+      const set = await j('/api/set/' + encodeURIComponent(name)), fl = await filesOf(name);
+      if (seq !== loadSeq) return false;
+      if (!fl.includes('plate_loop.mp4')) { S.loading = ''; S.status = `"${name}" has no plate loop yet: render "Plate loop" in the studio (or on the DIRROVERSE page).`; post(); return false; }
+      const t = Date.now(), base = `${STUDIO}/sets/${encodeURIComponent(name)}/`, idx = ready ? 1 - cur : cur, v = vids[idx];
+      v.src = base + 'plate_loop.mp4?' + t; v.load();
+      const [mask, spill, fog] = await Promise.all([texLoad(base + 'window_mask.png?' + t), texLoad(base + 'spill.png?' + t), fl.includes('fog.png') ? texLoad(base + 'fog.png?' + t) : null]);
+      const ok = await canPlay(v), nx = { name, idx, set, fl, mask, spill, fog, base, t };
+      if (seq !== loadSeq) { drop(nx); return false; }   // a newer pick won
+      if (!ok) { drop(nx); throw new Error('its plate_loop.mp4 would not play'); }
+      if (opt.defer) { pending = nx; S.next = name; S.loading = ''; post(); return true; }
+      apply(nx); return true;
+    } catch (e) { if (seq === loadSeq) { S.loading = ''; S.status = 'could not load ' + name + ': ' + e.message; post(); } return false; }
+  }
+  function apply(nx) {
+    pending = null; S.next = '';
+    const old = [U.tMask.value, U.tSpill.value, U.tFog.value];
+    const set = nx.set, PW = set.plate_w || 1920, PH = set.plate_h || 1080; U.plate.value.set(PW, PH);
+    const nH = Math.round(1920 * PH / PW / 2) * 2; if (nH !== H || W !== 1920) { W = 1920; H = nH; if (rt) { rt.dispose(); rt = null; } }
+    U.tMask.value = nx.mask || black; U.tSpill.value = nx.spill || black; U.tFog.value = nx.fog || black; U.fogOn.value = nx.fog ? 1 : 0;
+    for (const t of old) if (t && t !== black) t.dispose();
+    const ws = (set.windows || []).filter(w => !w.bake).slice(0, 4);
+    ws.forEach((w, i) => { const h = homog(w.quad, [[0, 0], [1, 0], [1, 1], [0, 1]]); U.Hm.value[i].set(...h);
+      U.fp.value[i].set(+w.feed_x || 0.4, w.feed_y ?? 0.5, +w.clip_zoom || 1, (w.size_m ? w.size_m[0] / w.size_m[1] : 0.72)); U.sil.value[i] = +w.silhouette || 0; });
+    U.nW.value = ws.length;
+    const g = set.grade || {}; U.grade.value.set(+g.exposure || 2.3, +g.warmth || 0.06, +g.contrast || 0.88);
+    const gl_ = set.glass || {}; U.mist.value = +gl_.mist || 0; U.rainK.value = gl_.rain ?? 0.7; U.reflK.value = gl_.reflect ?? 0.07;
+    U.crop.value = +(set.feed && set.feed.crop) || 0.86; U.spillK.value = +(set.spill && set.spill.strength) || 0.95; U.cutOld.value = +(set.spill && set.spill.cut_old) || 0.5;
+    const prev = vids[cur]; cur = nx.idx; U.tBase.value = tLoops[cur];
+    if (prev !== vids[cur]) { prev.pause(); prev.removeAttribute('src'); prev.load(); }   // free the old scene's decoder
+    vids[cur].currentTime = 0; if (air) vids[cur].play().catch(() => {});
+    if (!arr.paused) arr.pause(); S.playing = '';
+    plateStats(nx.base + 'plate.png?' + nx.t);
+    S.set = nx.name; S.files = nx.fl; S.arrivals = nx.fl.filter(x => /^arrival_.*\.mp4$/i.test(x)); S.loading = '';
+    ready = true; S.status = `${nx.name}: ${PW}×${PH}, ${ws.length} club window(s)${S.arrivals.length ? ', ' + S.arrivals.length + ' arrival(s)' : ''}`;
     post();
   }
+  function commit() { if (!pending) return false; apply(pending); return true; }
   function arrive(file) {
     if (!S.set || !file) return; arr.src = `${STUDIO}/sets/${encodeURIComponent(S.set)}/${encodeURIComponent(file)}?${Date.now()}`;
     arr.currentTime = 0; arr.play().then(() => { S.playing = file; post(); }).catch(e => { S.status = 'arrival: ' + e.message; post(); });
@@ -135,25 +165,28 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
       const poll = setInterval(async () => {
         const s = await j('/api/job/' + jb.id).catch(() => null); if (!s) return;
         S.job = { progress: s.progress || 0, status: s.status, name, err: s.error || '' }; post();
-        if (s.status !== 'running') { clearInterval(poll); await files(); post(); }
+        if (s.status !== 'running') { clearInterval(poll); S.files = await filesOf(S.set); S.arrivals = S.files.filter(x => /^arrival_.*\.mp4$/i.test(x)); post(); }
       }, 1000);
     } catch (e) { S.job = { progress: 0, status: 'error', name, err: e.message }; post(); }
   }
-  function render(now) {
+  // feed: { tex, w, h } = #707 WEBCAM + GEAR (DirroVJ's own composite: the webcam with the Quest's gear drawn over it), else the plain webcam
+  function render(now, feed) {
     if (!ready) return null;
     camAvg(now); U.time.value = now / 1000; U.match.value = S.match ?? 0.7;
-    const useArr = S.playing && arr.readyState >= 2;
-    if (!useArr && vid.paused) vid.play().catch(() => {});
-    U.tBase.value = useArr ? tArr : tLoop;
-    if (camVideo && camVideo.videoWidth) U.camSz.value.set(camVideo.videoWidth, camVideo.videoHeight);
+    const useArr = S.playing && arr.readyState >= 2, v = vids[cur];
+    if (!useArr && v.paused) v.play().catch(() => {});
+    U.tBase.value = useArr ? tArr : tLoops[cur];
+    if (feed && feed.tex) { U.tCam.value = feed.tex; U.camSz.value.set(feed.w, feed.h); }
+    else { U.tCam.value = camTex; if (camVideo && camVideo.videoWidth) U.camSz.value.set(camVideo.videoWidth, camVideo.videoHeight); }
     U.camOn.value = S.cam && camVideo && camVideo.videoWidth ? 1 : 0;
     if (!rt) rt = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
     renderer.setRenderTarget(rt); renderer.render(sc, oc); renderer.setRenderTarget(null);
     return rt.texture;
   }
   function active(on) {   // #666 pause the loop (and an arrival) while DIRROVERSE is off air
-    if (on) { if (ready && vid.paused && !S.playing) vid.play().catch(() => {}); if (S.playing && arr.paused) arr.play().catch(() => {}); }
-    else { if (!vid.paused) vid.pause(); if (!arr.paused) arr.pause(); }
+    air = on; const v = vids[cur];
+    if (on) { if (ready && v.paused && !S.playing) v.play().catch(() => {}); if (S.playing && arr.paused) arr.play().catch(() => {}); }
+    else { if (!v.paused) v.pause(); if (!arr.paused) arr.pause(); }
   }
-  return { list, load, arrive, renderArrival, render, active, get w() { return W; }, get h() { return H; }, get ready() { return ready; } };
+  return { list, load, commit, arrive, renderArrival, render, active, get w() { return W; }, get h() { return H; }, get ready() { return ready; }, get pendingName() { return pending ? pending.name : ''; } };
 }
