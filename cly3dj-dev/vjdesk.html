@@ -381,7 +381,10 @@
   <div class="row"><button id="pmOn">MAPPING OFF</button><button id="pmEdit">EDIT POINTS</button><button id="pmTest">TEST PATTERN</button>
     <button id="pmSave">SAVE PROFILE…</button><button id="pmLoadB">LOAD PROFILE…</button><input type="file" id="pmFile" accept=".json" hidden><button id="pmResetAll" class="sm">RESET ALL</button><span id="pmSt" class="note" style="margin:0"></span></div>
   <div id="pmCopies"></div>
-  <div class="note">On the projector: drag a point; SHIFT-drag moves a whole copy; arrow keys nudge the picked point (SHIFT = 10 px); TAB picks the next point. A copy's grid change keeps its shape. Profiles are saved on this laptop and as a file per venue.</div>
+  <div class="row"><b style="color:#ff4d6d;min-width:64px">MASKS</b><button id="pmMaskAdd">+ MASK</button><button id="pmMaskClear" class="sm">CLEAR MASKS</button>
+    <span class="note" style="margin:0">#687 black shapes over the projector output, anywhere on either copy (MAPPING ON)</span></div>
+  <div id="pmMasks"></div>
+  <div class="note">On the projector: drag a point; SHIFT-drag moves a whole copy; arrow keys nudge the picked point (SHIFT = 10 px); TAB picks the next point. Masks (EDIT POINTS on): drag a red corner; SHIFT-drag inside a mask moves it; double-click a mask edge adds a corner; right-click a corner removes it. A copy's grid change keeps its shape. Profiles are saved on this laptop and as a file per venue.</div>
 </section>
 <script>
 const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
@@ -997,12 +1000,14 @@ $('dvMatch').oninput = () => { $('dvMatchV').textContent = (+$('dvMatch').value)
 // #664 projection mapping: the projector window holds the state; this desk sends changes and shows it
 const pmc = new BroadcastChannel('dirrovj-pm'); let PM = null, pmSeen = 0;
 const pmSend = m => pmc.postMessage(m);
-pmc.onmessage = e => { const m = e.data || {}; if (m.k === 'pmstate') { PM = m.S; pmSeen = Date.now(); renderPm(); } };
+pmc.onmessage = e => { const m = e.data || {}; if (m.k === 'pmstate') { PM = m.S; pmSeen = Date.now(); renderPm(); renderPmMasks(); } };
 setInterval(() => { pmSend({ k: 'pmget' }); if (Date.now() - pmSeen > 3000) $('pmSt').textContent = 'No projector window: open it with 🎥 (header).'; }, 1500); pmSend({ k: 'pmget' });
 $('pmOn').onclick = () => PM && pmSend({ k: 'pmset', v: { on: !PM.on } });
 $('pmEdit').onclick = () => PM && pmSend({ k: 'pmset', v: { edit: !PM.edit } });
 $('pmTest').onclick = () => PM && pmSend({ k: 'pmset', v: { test: !PM.test } });
 $('pmResetAll').onclick = () => pmSend({ k: 'pmreset' });
+$('pmMaskAdd').onclick = () => pmSend({ k: 'pmmask', op: 'add' });   // #687
+let pmClrT = 0; $('pmMaskClear').onclick = () => { if (Date.now() - pmClrT > 3000) { pmClrT = Date.now(); $('pmMaskClear').textContent = 'CLICK AGAIN: CLEAR'; setTimeout(() => { $('pmMaskClear').textContent = 'CLEAR MASKS'; }, 3000); return; } pmSend({ k: 'pmmask', op: 'clear' }); };
 $('pmSave').onclick = () => { if (!PM) return; const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(PM, null, 1)], { type: 'application/json' })); a.download = 'dirrovj-mapping.json'; a.click(); };
 $('pmLoadB').onclick = () => $('pmFile').click();
 $('pmFile').onchange = async () => { const f = $('pmFile').files[0]; if (!f) return; try { pmSend({ k: 'pmload', S: JSON.parse(await f.text()) }); } catch (e) { $('pmSt').textContent = 'Not a mapping profile: ' + e.message; } $('pmFile').value = ''; };
@@ -1018,6 +1023,16 @@ function renderPm() {
     for (const b of r.querySelectorAll('[data-n]')) b.onclick = () => pmSend({ k: 'pmcopy', i, n: +b.dataset.n });
     r.querySelector('input').oninput = e => pmSend({ k: 'pmcopy', i, v: { bright: +e.target.value } });
     r.querySelector('[data-a=reset]').onclick = () => pmSend({ k: 'pmreset', i }); box.append(r); });
+}
+function renderPmMasks() {   // #687 one row a mask: pick, on / off, feather, delete
+  const box = $('pmMasks'), M = (PM && PM.masks) || [], sig = M.map(m => [m.on, m.pts.length].join()).join('|') + '/' + PM.msel; if (box.dataset.l === sig) return; box.dataset.l = sig; box.innerHTML = '';
+  M.forEach((m, i) => { const r = document.createElement('div'); r.className = 'row';
+    r.innerHTML = `<button data-a="sel" class="${PM.msel === i ? 'on' : ''}" style="min-width:86px">MASK ${i + 1}</button><button data-a="on" class="${m.on ? 'on' : ''}">${m.on ? 'ON' : 'OFF'}</button>
+      <span class="note" style="margin:0">${m.pts.length} corners · feather</span><input type="range" min="0" max="60" step="1" value="${m.feather || 0}" style="width:140px"><button data-a="del" class="sm">DELETE</button>`;
+    r.querySelector('[data-a=sel]').onclick = () => pmSend({ k: 'pmmask', op: 'sel', i });
+    r.querySelector('[data-a=on]').onclick = () => pmSend({ k: 'pmmask', op: 'set', i, v: { on: !m.on } });
+    r.querySelector('input').oninput = e => pmSend({ k: 'pmmask', op: 'set', i, v: { feather: +e.target.value } });
+    r.querySelector('[data-a=del]').onclick = () => pmSend({ k: 'pmmask', op: 'del', i }); box.append(r); });
 }
 function popScreenWin() {
   try { if (window.opener && window.opener.spect && window.opener.spect.studio) return window.opener.spect.studio.openScreenWin(window); } catch {}

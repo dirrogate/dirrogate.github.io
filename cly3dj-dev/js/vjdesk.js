@@ -406,12 +406,26 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     post();
   }
   // ---- LINE IN
+  // #687 (owner, 11 Nov: Bluetooth music from this laptop goes bad once DirroVJ runs) opening a Bluetooth headset's microphone makes
+  // Windows switch that headset / speaker from its music profile (A2DP, stereo) to the phone-call one (Hands-Free: mono, muffled),
+  // for every app. So with no input picked, DirroVJ takes the first input that is not Bluetooth; if there is none it opens nothing.
+  const isBt = d => /hands-?free|bluetooth|\bbt\b|headset|airpods|buds|wh-1000|bose|jbl/i.test(d.label || '');
+  async function inputId() {
+    if (D.lineDev) return D.lineDev;
+    let ds = []; try { ds = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput'); } catch {}
+    if (!ds.length || ds.every(d => !d.label)) return undefined;   // no labels yet (no permission): the default, as before
+    const def = ds.find(d => d.deviceId === 'default');
+    if (def && !isBt(def)) return undefined;
+    const ok = ds.find(d => d.deviceId !== 'default' && d.deviceId !== 'communications' && !isBt(d));
+    return ok ? ok.deviceId : null;   // null = only Bluetooth inputs: leave them alone
+  }
   let lineTrack = null;
   async function setAudio(src, dev) {
     D.audio = src; D.lineDev = dev || D.lineDev; D.lineErr = '';
     if (lineTrack) { lineTrack.stop(); lineTrack = null; }
     if (src === 'line') {
-      try { const s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: D.lineDev ? { exact: D.lineDev } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } }); lineTrack = s.getAudioTracks()[0]; }
+      const id = await inputId(); if (id === null) { D.lineErr = 'No LINE IN: the only input is a Bluetooth mic, and opening it would drop Bluetooth speakers / headphones to phone-call sound. Plug in a line in / USB audio, or pick the Bluetooth one by hand.'; D.audio = 'quest'; onAudio && onAudio(); post(); return; }
+      try { const s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: id ? { exact: id } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } }); lineTrack = s.getAudioTracks()[0]; }
       catch (e) { D.lineErr = e.message; D.audio = 'quest'; }
     }
     onAudio && onAudio(); post();
@@ -428,7 +442,8 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if (!qGoneT) qGoneT = now;
     if (autoTrack || autoBusy || now - qGoneT < 3000) return;
     autoBusy = true;
-    try { const s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: D.lineDev ? { ideal: D.lineDev } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } });
+    const id = await inputId(); if (id === null) { D.lineErr = 'automatic LINE IN skipped: only a Bluetooth mic (it would drop Bluetooth sound to phone-call quality)'; qGoneT = performance.now() + 57000; autoBusy = false; post(); return; }
+    try { const s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: id ? { ideal: id } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } });
       if (qAudio() || D.audio !== 'quest') s.getTracks().forEach(t => t.stop()); else { autoTrack = s.getAudioTracks()[0]; D.audioAuto = true; D.lineErr = ''; onAudio && onAudio(); post(); } }
     catch (e) { D.lineErr = 'automatic LINE IN: ' + e.message; qGoneT = now + 27000; post(); }   // try again in 30 s
     finally { autoBusy = false; }

@@ -2399,3 +2399,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #694 Release #693 to cly3dj; docs (owner, 11 Nov: 'release to cly3dj and update .md')
 - cly3dj = cly3dj-dev again: js/acid-tapes.js, js/acid-worklet.js, js/main.js, sw.js (v177). Dev-only as before: CLAUDE.md, PROJECT.md, _test/, the Kitana test models, backups/. Released JS module-checked.
 - PROJECT.md Status (11 Nov): release line (#693), desk / scroller #682-#686 and ACID #687-#693 summaries; project docs claude/cly3dj-project.md and claude/acid-cassette-plan.md updated.
+
+
+## #687 Projection masks; Bluetooth sound spoiled by DirroVJ (owner, 11 Nov)
+- projmap.js MASKS: black polygons drawn over the projector output in screen space (so one mask covers any part of either copy), each with ON / OFF and a feather (0 to 60 px blur). Shown while MAPPING is ON; see-through dark red outline while EDIT POINTS is on. On the projector: drag a red corner, SHIFT-drag inside moves the mask, double-click an edge adds a corner, right-click a corner removes it (3 at least). Desk: + MASK, CLEAR MASKS (click twice), a row per mask (pick, ON / OFF, feather, DELETE). Saved in the profile (S.masks); RESET ALL keeps the masks.
+- Bluetooth: the #556 automatic LINE IN (SOLO: no Quest sound for 3 s) opened the DEFAULT input; when that is a Bluetooth headset / speaker mic, Windows drops the device from A2DP (stereo music) to Hands-Free (mono phone-call sound) for every app, Spotify included. vjdesk.js inputId(): with no input picked, the default only if it is not Bluetooth, else the first non-Bluetooth input, else nothing (a desk note says why). A Bluetooth input picked by hand is still used. The webcam never opened audio. sw.js v173. No Node restart. Backups backups/pre687/.
