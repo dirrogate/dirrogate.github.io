@@ -6185,7 +6185,8 @@ function drawDisc(g, cx, cy, R, bmp, title, s7 = false) {
 const _lblOver = [];   // test hook: labels that had to be cut
 function btnLabel(g, label, x, y, w, h, fs0 = 17, weight = 700) {
   if (label.endsWith('⁺¹')) {   // #441 a tiny +1 in the upper right: this button opens a page of sub menus that is not obvious
-    label = label.slice(0, -2).trimEnd() + ' ▸';   // #700 owner: the tiny +1 read like part of the name; ▸ = opens its own page, like OBJECTS ▸
+    label = label.slice(0, -2).trimEnd(); btnLabel(g, label, x, y, w - 8, h, fs0, weight);   // #700 owner: the tiny +1 read like part of the name: a ▸ in the corner now (= opens its own page, like OBJECTS ▸)
+    g.save(); g.font = '700 12px system-ui'; g.textAlign = 'right'; g.textBaseline = 'top'; g.fillText('▸', x + w - 3, y + 1); g.restore(); return;
   }
   if (label.endsWith('⟳')) {   // #538 a small cycle mark in the upper right: tapping steps through states (drawn, not a font glyph)
     label = label.slice(0, -1).trimEnd(); btnLabel(g, label, x, y, w - 8, h, fs0, weight);
@@ -8996,7 +8997,7 @@ function drawToolsPage() {
       [defArm ? 'TAP AGAIN' : 'DEFAULTS', defArm, portalDefaults],
     ];
     const wl = k => ({ v: WL.val(k), lo: WALL_LIM[k][0], hi: WALL_LIM[k][1], step: WALL_LIM[k][2], set: v => WL.set(k, v) });   // #640 sliders
-    const rainSet = v => { PS.setRain(RAIN_ORDER[v]); if (PS.rain !== 'off' && !PS.revN) toast('GLASS RAIN shows on PANO frames: set a frame\'s TYPE to PANO', 2600); };
+    const rainSet = v => { PS.setRain(RAIN_ORDER[v]); if (PS.rain !== 'off' && !PS.revN && !(facetWall && facetWall.on)) toast('GLASS RAIN shows on the CYCLO glass and on PANO frames', 2600); };   // #703
     const cells = [
       ['PORTALS', `${PS.n}`, null, { v: PS.n, lo: 1, hi: MAX_PORTALS, step: 1, set: v => { PS.setCount(v); if (!PS.on) PS.setOn(true); } }],
       ['WRAP', `${WL.val('arc')}°`, null, wl('arc')],

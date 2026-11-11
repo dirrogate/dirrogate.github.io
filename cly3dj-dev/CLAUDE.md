@@ -2454,3 +2454,10 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 
 ## #702 Release #699 to #701 to cly3dj (owner, 11 Nov: 'yes, go ahead')
 - cly3dj = cly3dj-dev again: index.html, js/main.js, js/spectator-client.js, js/stream.js, js/studio.js, sw.js (v182), vjdesk.html. node --check on all 86 released JS files: none broken. Dev-only as before: CLAUDE.md, PROJECT.md, _test/, backups/.
+
+## #703 CYCLO becomes a glass window wall (owner, 11 Nov: the 'CyberDj' photos; 'replace the current look')
+- facetwall.js: the slats are glass panes; the CYCLO picture (FRACTAL or SCREEN) is the view OUTSIDE. Each eye's ray through a pane lands on a cylinder DEPTH = 1.6 m further out (the far cylinder is (R+1.6)/R taller, same middle), so the view has real parallax like a window. Viewers outside the arc (or a 360 wrap edge case) fall back to the plain UV. Cool tint, a faint grazing-angle sheen and two soft reflection streaks. GLASS RAIN / MIST (PORTALS SETUP, the #639 preset) now also runs on the CYCLO glass: portal.js exports RAIN and its clock runs even with the frames off; the wall's ShaderMaterial is cut by the frames as before (portal _patch ShaderMaterial path).
+- Frame: dark metal mullions (4 x 7 cm) on every other slat joint (~1.06 m) and both ends, a header beam, a sill, a soffit band (up to 55 cm deep) at the top with can lights about every 1.6 m (warm lenses). Two extra draw calls (frame MeshStandardMaterial + lamp lenses), rebuilt while the wrap / height / distance ease (at most every 120 ms) and once when they settle.
+- SCREEN already cover-fits (size up and crop), so 16:9 clips fill the ~2.25:1 wall without stretching.
+- The VISUALS-page '+1' corner mark is a ▸ in the corner again (the #700 appended ' ▸' wrapped CYCLO into two small lines on the mixer bar).
+- Tests (PC pane, offscreen render from the DJ spot with the desktop studio hidden): grid test card (right way round, centred), sky_factory.jpg through the glass, GLASS RAIN 'rain' close up (beads + rivulets). NOT on the Quest yet: parallax comfort, cost, the look in passthrough. sw.js v183. No Node restart needed. Backup backups/pre703/.
