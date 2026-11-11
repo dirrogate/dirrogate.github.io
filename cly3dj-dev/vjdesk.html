@@ -461,7 +461,7 @@ function render() {
   }
   if (window.updateVjDecks) window.updateVjDecks(D.media || D.clip || D.pano || '', false);
   const cur = $('dev').value; $('dev').innerHTML = S.devs.map(([id, l]) => `<option value="${esc(id)}">${esc(l)}</option>`).join(''); if (cur) $('dev').value = cur; else if (D.lineDev) $('dev').value = D.lineDev;
-  $('aSt').textContent = D.lineErr ? 'Line in: ' + D.lineErr : D.audioAuto ? 'No Quest sound: Twitch and DirroTV get this laptop\'s input (automatic LINE IN) until the Quest\'s sound is back.' : D.audio === 'line' ? 'Twitch gets this laptop\'s input (takes effect on the next GO LIVE or within a second if live).' : 'Twitch gets the Quest\'s master sound over the link.';
+  $('aSt').textContent = D.lineErr ? 'Line in: ' + D.lineErr : D.audioAuto ? 'No Quest sound: Twitch and DirroTV get this laptop\'s input (automatic LINE IN) until the Quest\'s sound is back.' : D.audio === 'line' ? 'Twitch gets this laptop\'s input (takes effect on the next GO LIVE or within a second if live).' : !S.D.qlink && D.tempo !== 'line' ? 'No sound for Twitch yet: no Quest, and TAP opens no microphone. Pick LINE IN here when you stream (#688).' : 'Twitch gets the Quest\'s master sound over the link.';
   $('chatSt').textContent = D.ch ? `Twitch chat #${D.ch}${D.chQ ? ' (from the Quest)' : ''}: ${D.chat}` : 'Twitch chat: type the channel under the scroller line, or let the Quest send it (DirroVJ on).';
   if (document.activeElement !== $('chDesk')) $('chDesk').value = D.chDesk || '';
   $('lscSt').textContent = D.qlink ? 'lines go to the Quest\'s scroller' : D.lsc ? 'on the program: ' + D.lsc.slice(0, 40) : 'no Quest: lines scroll on the program';
