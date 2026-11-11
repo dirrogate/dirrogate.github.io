@@ -21,10 +21,34 @@ function dzDefaults() {
 }
 
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
-const MIX_FS = `uniform sampler2D tA, tB; uniform vec4 fA, fB; uniform float kA, kB, x; varying vec2 vUv;
+// #704 BEAT ZOOM (owner: 'a simpler random zoom / rotate to the beat ... every 4 or 8 bars'): the program holds a smaller copy of
+// itself (similarity M: scale dz.y, turn dz.z, centre dzo) and the view flies into it over one bar, then carries on as normal.
+// The copy pops in first (dz.w = its size 0..1), the camera follows the log-spiral from identity to M, and at the end M^-1
+// brings every point back to where it started: no cut. dz.x = 0 off, else the zoom (0..1).
+const MIX_FS = `uniform sampler2D tA, tB; uniform vec4 fA, fB; uniform float kA, kB, x; uniform vec4 dz; uniform vec2 dzo; uniform float asp; varying vec2 vUv;
 vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
-vec3 src(sampler2D t, vec4 f, float k) { if (k < 0.5) return vec3(0.0); vec3 c = texture2D(t, f.xy + vUv * f.zw).rgb; return k > 1.5 ? clamp(srgb(c), 0.0, 1.0) : c; }
-void main() { gl_FragColor = vec4(mix(src(tA, fA, kA), src(tB, fB, kB), x), 1.0); }`;
+vec3 src(sampler2D t, vec4 f, float k, vec2 uv) { if (k < 0.5) return vec3(0.0); vec3 c = texture2D(t, f.xy + uv * f.zw).rgb; return k > 1.5 ? clamp(srgb(c), 0.0, 1.0) : c; }
+vec2 rot(vec2 p, float a) { float c = cos(a), s = sin(a); return vec2(c * p.x - s * p.y, s * p.x + c * p.y); }
+void main() {
+  vec2 uv = vUv; float edge = 1.0;
+  if (dz.x > 0.0) {
+    float s = dz.y * max(dz.w, 0.001), a = dz.z * dz.w; vec2 o = dzo * dz.w;
+    vec2 q = (vUv - 0.5) * vec2(asp, 1.0);
+    // fixed point of M(p) = o + s R(a) p
+    float c = cos(a), sn = sin(a); mat2 A = mat2(1.0 - s * c, -s * sn, s * sn, 1.0 - s * c); float det = A[0][0] * A[1][1] - A[1][0] * A[0][1];
+    vec2 fp = vec2(A[1][1] * o.x - A[1][0] * o.y, -A[0][1] * o.x + A[0][0] * o.y) / det;
+    float z = dz.x - 1.0;   // dz.x = 1 + zoom
+    vec2 p = fp + pow(s, z) * rot(q - fp, a * z);
+    for (int i = 0; i < 8; i++) {   // inside the copy: step back out to the frame it shows
+      vec2 r = rot(p - o, -a) / s;
+      if (abs(r.x) > 0.5 * asp || abs(r.y) > 0.5) break;
+      float d = min(0.5 * asp - abs(r.x), 0.5 - abs(r.y)); edge *= mix(0.55, 1.0, smoothstep(0.0, 0.012, d));
+      p = r;
+    }
+    uv = p / vec2(asp, 1.0) + 0.5; uv = 1.0 - abs(1.0 - mod(uv, 2.0));   // a turned corner past the frame: mirrored, no smear
+  }
+  gl_FragColor = vec4(mix(src(tA, fA, kA, uv), src(tB, fB, kB, uv), x) * edge, 1.0);
+}`;
 // #668 HOLO+CAM: the webcam with the Holodancer stood on a spot in it (feet at F, her height hH of the frame), a soft contact
 // shadow under her feet and her colours pulled toward the webcam's light. cut > 0 hides her below a line (a bar front, a rail)
 const HC_FS = `uniform sampler2D cam, ho; uniform vec4 cf; uniform vec2 F, foot; uniform vec3 mean; uniform float hoOn, A, k, flip, shadow, light, cut, sEl, hH, pm; varying vec2 vUv;
@@ -140,7 +164,7 @@ const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'holo',
 const HP0 = { x: 0.5, y: 0.8, h: 0.4, el: 8, face: 0, flip: false, shadow: 0.55, light: 0.6, cut: 0 };   // #668 x, y = her feet (0..1, from the top left), h = her height (part of the frame)
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
   const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), holo: holoDefaults(), chDesk: '', audioAuto: false, lsc: '', cue: '',
-    tempo: 'tap', bpm: 0, beatN: 0, dv: { set: '', sets: [], files: [], arrivals: [], status: '', studio: '', cam: true, playing: '', job: null, match: 0.7 },
+    tempo: 'tap', bpm: 0, beatN: 0, drz: (() => { try { return { bars: 0, size: 0.4, turn: true, ...JSON.parse(localStorage.getItem('vire.vjDrz') || '{}') }; } catch { return { bars: 0, size: 0.4, turn: true }; } })(), dv: { set: '', sets: [], files: [], arrivals: [], status: '', studio: '', cam: true, playing: '', job: null, match: 0.7 },
     cast: { on: false, label: '', l: 0, r: 0, t: 0, b: 0 }, hp: { ...HP0 }, gram: { on: false, st: 'Off', url: '', room: '' }, beatT: 0 };   // #667 CAST crop, #668 HOLO+CAM placement   // #662 master tempo (LINE IN / TAP) + DirroVerse   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
   try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}
   try { if (localStorage.getItem('vire.vjTempo') === 'line') D.tempo = 'line'; } catch {}   // #688 TAP unless LINE IN was picked (no mic opened by itself)   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
@@ -195,7 +219,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     U.value = C.rt.texture; fit.set(0, 0, 1, 1); return 1;
   }
   let ledTex = null, lastLedVid = null, ledImgTex = null, lastLedImg = null;
-  const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 } };
+  const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 }, dz: { value: new THREE.Vector4() }, dzo: { value: new THREE.Vector2() }, asp: { value: 16 / 9 } };   // #704 dz / dzo: BEAT ZOOM
   const mMat = new THREE.ShaderMaterial({ uniforms: mU, vertexShader: VS, fragmentShader: MIX_FS, depthTest: false, depthWrite: false }), mSc = quad(mMat);
   // #563 every DirroComics grab (GRAB QUEST / GRAB WEBCAM stills, GRAB RGB-D clips and stills) also lands in the desk's IMAGES or VIDEOS bank
   async function toBank(blob, name) {
@@ -299,6 +323,24 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     renderer.setRenderTarget(hRT); renderer.render(hSc, oc);
     renderer.setRenderTarget(fRT); renderer.render(rSc, oc);
   }
+  // #704 BEAT ZOOM: every 4 or 8 bars of the master tempo (LINE IN / TAP; 120 BPM when there is none) one zoom through a copy, one bar long
+  const DRZ = { on: false, t0: 0, len: 0, a: 0, o: new THREE.Vector2(), lastN: -1 };
+  function drzStart(now) {
+    const Z = D.drz, bpm = D.bpm > 0 ? D.bpm : 120;
+    DRZ.on = true; DRZ.t0 = now; DRZ.len = 4 * 60000 / bpm;
+    DRZ.a = Z.turn ? (Math.random() < 0.5 ? -1 : 1) * (0.35 + Math.random() * 1.2) : 0;
+    DRZ.o.set((Math.random() - 0.5) * 0.35 * (1 - Z.size), (Math.random() - 0.5) * 0.2 * (1 - Z.size));
+  }
+  function drzTick(now, asp) {
+    const Z = D.drz, every = (Z.bars || 0) * 4;
+    if (every && D.beatN !== DRZ.lastN) { if (DRZ.lastN >= 0 && D.beatN % every === 0 && !DRZ.on) drzStart(now); DRZ.lastN = D.beatN; }
+    const u = mU.dz.value;
+    if (!DRZ.on) { u.set(0, 0, 0, 0); return; }
+    const e = (now - DRZ.t0) / DRZ.len;
+    if (e >= 1) { DRZ.on = false; u.set(0, 0, 0, 0); return; }
+    const pop = Math.min(1, e / 0.18), zz = Math.max(0, (e - 0.18) / 0.82), ease = zz * zz * (3 - 2 * zz);
+    u.set(1 + ease, Math.max(0.15, Math.min(0.7, Z.size)), DRZ.a, pop * pop * (3 - 2 * pop)); mU.dzo.value.copy(DRZ.o); mU.asp.value = asp;
+  }
   function cover(tw, th, W, H, out) { if (!tw || !th) return out.set(0, 0, 1, 1); const k = Math.max(W / tw, H / th), w = W / (tw * k), h = H / (th * k); return out.set((1 - w) / 2, (1 - h) / 2, w, h); }
   function bind(name, U, fit, W, H, questTex, now) {   // a bus's texture and its cover crop
     if (name === 'quest') { U.value = questTex; fit.set(0, 0, 1, 1); return 1; }
@@ -362,7 +404,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     comics.tick(questTex, now, dt); comicTex = used.includes('comic') ? comics.render(W, H) : null;   // #516
     mU.kA.value = D.x < 1 ? bind(D.a, mU.tA, mU.fA.value, W, H, questTex, now) : 0;
     mU.kB.value = D.x > 0 ? bind(D.b, mU.tB, mU.fB.value, W, H, questTex, now) : 0;
-    mU.x.value = D.x;
+    mU.x.value = D.x; drzTick(now, W / H);
     renderer.setRenderTarget(null); renderer.render(mSc, oc);
     if (lsc.on) { lsc.tick(dt); lscTex.needsUpdate = true; const ac = renderer.autoClear; renderer.autoClear = false; renderer.render(lscSc, oc); renderer.autoClear = ac; }   // #556 local scroller over the program (no Quest)
     if (peers && now - pvT > 250 && cueSrc) {   // #557 CUE: the cued bus alone into a small target, read back for the desk monitor (Twitch / DirroTV keep the program)
@@ -497,6 +539,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     else if (m.k === 'cut') { D.x = D.x < 0.5 ? 1 : 0; D.fadeTo = null; post(); }
     else if (m.k === 'auto') { D.fadeMs = +m.ms || D.fadeMs; D.fadeTo = D.x < 0.5 ? 1 : 0; post(); }
     else if (m.k === 'fr') { Object.assign(D.fr, m.v || {}); try { localStorage.setItem('vire.vjFr', JSON.stringify(D.fr)); } catch {} post(); }
+    else if (m.k === 'drz') { if (m.go) drzStart(performance.now()); else { Object.assign(D.drz, m.v || {}); try { localStorage.setItem('vire.vjDrz', JSON.stringify(D.drz)); } catch {} } post(); }   // #704
     else if (m.k === 'pump') { pulse = 1; D.kick++; }   // #508 the VJ's own hit
     else if (m.k === 'tap') { tempoTap(performance.now()); post(); }   // #662 TAP (button or T)
     else if (m.k === 'tempo') { D.tempo = m.v === 'tap' ? 'tap' : 'line'; if (D.tempo === 'line') tClock.kicks.length = 0; try { localStorage.setItem('vire.vjTempo', D.tempo); } catch {} post(); }   // #688 remembered

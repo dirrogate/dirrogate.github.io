@@ -10,7 +10,7 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v183';   // #695 fix: #688 left vjdesk.js unparseable in Chrome (DirroVJ failed: Unexpected token ',')
+const CACHE = 'vire-app-v184';   // #695 fix: #688 left vjdesk.js unparseable in Chrome (DirroVJ failed: Unexpected token ',')
 // v176:   // #691 cassettes back to the picture look, dark translucent sides
 // v175:   // #689 cassettes: smoked clear shell, paper labels, 3D reels inside
 // v174:   // #688 ACID 303 gate / VCA / accent sweep, DSP sleep when stopped, overdrive DC fix

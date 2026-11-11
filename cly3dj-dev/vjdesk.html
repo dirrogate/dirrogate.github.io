@@ -347,6 +347,12 @@
   </div>
 </section>
 <div class="utilBreak"><span>Utilities:</span></div>
+<section id="drS" style="margin:0 16px 14px">
+  <h2>DROSTE <span class="note" style="text-transform:none;letter-spacing:0">picture inside itself</span></h2>
+  <div class="row"><b style="min-width:92px">BEAT ZOOM</b><button data-drz="0">OFF</button><button data-drz="4">EVERY 4 BARS</button><button data-drz="8">EVERY 8 BARS</button><button id="drzGo" title="One zoom now">NOW</button><button id="drzTurn">TURN</button>
+    <label class="kv"><span style="width:62px">Copy size</span><input type="range" id="drzSize" min="0.2" max="0.65" step="0.01"></label></div>
+  <div class="note" id="drzN">The program flies into a copy of itself over one bar. Needs a beat (LINE IN or TAP).</div>
+</section>
 <section id="grS" style="margin:0 16px 14px">
   <h2>Dirrogram from this laptop <span class="note" style="text-transform:none;letter-spacing:0">SOLO: phones join this laptop's room, no Quest needed</span></h2>
   <div class="row" style="align-items:flex-start"><canvas id="grQr" width="164" height="164" style="background:#fff;border-radius:6px;display:none"></canvas>
@@ -411,6 +417,9 @@ const xfT = makeTBar($('xfT'), { top: 'A', bot: 'B', topVal: 0, horiz: true, onI
 $('litA').onclick = () => send({ k: 'cue', bus: 'a' }); $('litB').onclick = () => send({ k: 'cue', bus: 'b' });   // #557
 $('cut').onclick = () => send({ k: 'cut' }); $('auto').onclick = () => send({ k: 'auto', ms: +$('fadeMs').value });
 for (const b of document.querySelectorAll('[data-pal]')) b.onclick = () => send({ k: 'fr', v: { pal: b.dataset.pal } });
+for (const b of document.querySelectorAll('[data-drz]')) b.onclick = () => send({ k: 'drz', v: { bars: +b.dataset.drz } });   // #704
+$('drzGo').onclick = () => send({ k: 'drz', go: 1 }); $('drzTurn').onclick = () => S.D && send({ k: 'drz', v: { turn: !S.D.drz.turn } });
+$('drzSize').oninput = e => send({ k: 'drz', v: { size: +e.target.value } });
 for (const b of document.querySelectorAll('[data-ft]')) b.onclick = () => send({ k: 'fr', v: { type: b.dataset.ft } });
 $('pump').onclick = () => send({ k: 'pump' });
 for (const [id, key] of [['frSpeed', 'speed'], ['frHeight', 'height'], ['frZoom', 'zoom'], ['frReact', 'react'], ['frBeat', 'beat'], ['frCycle', 'cycle']]) $(id).oninput = e => send({ k: 'fr', v: { [key]: +e.target.value } });
@@ -444,6 +453,8 @@ function render() {
   for (const [id, b, live] of [['litA', 'a', D.x < 1], ['litB', 'b', D.x > 0]]) { const cue = D.cue === b; $(id).classList.toggle('cue', cue); $(id).classList.toggle('live', live && !cue); }   // #557
   { const t = $('pvTag'); if (D.cue) { t.textContent = `CUE ${D.cue.toUpperCase()} · on air: ${D.x <= 0 ? 'A' : D.x >= 1 ? 'B' : 'A+B'}`; t.classList.add('cue'); $('pv').classList.add('cue'); } else { t.textContent = 'PROGRAM'; t.classList.remove('cue'); $('pv').classList.remove('cue'); } }
   for (const b of document.querySelectorAll('[data-pal]')) b.classList.toggle('on', D.fr.pal === b.dataset.pal);
+  if (D.drz) { for (const b of document.querySelectorAll('[data-drz]')) b.classList.toggle('on', (D.drz.bars || 0) === +b.dataset.drz); $('drzTurn').classList.toggle('on', !!D.drz.turn); if (document.activeElement !== $('drzSize')) $('drzSize').value = D.drz.size;   // #704
+    $('drzN').textContent = D.drz.bars && !(D.bpm > 0) ? 'No beat yet: pick LINE IN or TAP the tempo.' : 'The program flies into a copy of itself over one bar.'; }
   for (const b of document.querySelectorAll('[data-ft]')) b.classList.toggle('on', (D.fr.type || 'mandel') === b.dataset.ft);
   if (D.kick !== render.kick) { render.kick = D.kick; $('kick').style.background = '#ff3040'; setTimeout(() => { $('kick').style.background = '#333'; }, 120); }
   for (const [id, key] of [['frSpeed', 'speed'], ['frHeight', 'height'], ['frZoom', 'zoom'], ['frReact', 'react'], ['frBeat', 'beat'], ['frCycle', 'cycle']]) if (document.activeElement !== $(id)) $(id).value = D.fr[key];
