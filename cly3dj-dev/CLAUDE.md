@@ -2426,3 +2426,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - dirrovj.html keeps the code (vire.spectJoin) and links by itself on load (not after SOLO), retries every 5 s while the Quest isn't found or after the link drops. Pop-ups need a click, so the first click anywhere on the page opens the desk + screen window + webcam.
 - Tests: node unit test of stream.js with a fake link (auto on, tablet OFF stays, desk press, desk solo live mirrored + END, Quest live blocks auto-on, desk STOP hands over, GO LIVE adopts). PC browser pane, two tabs over the real relay: reload with a saved code links and comes up DIRROVJ ON AIR + SOUND ON, no ALLOW; NEW CODE (two taps) changed the code and dropped the desk; typing the new code linked again; tablet OFF stayed off; a desk press turned it back on. NOT TESTED: real Twitch either side, the Quest itself.
 - sw.js v179. No Node restart needed. Backup backups/pre697/.
+
+## #698 Release #697 to cly3dj; docs (owner, 11 Nov: 'copy to cly3dj and update relevant .md files')
+- Checked first: web = cly3dj-dev (venue.html differs only in line endings), node --check on all 86 JS files in dev and release and the 14 inline HTML scripts: none broken.
+- cly3dj = cly3dj-dev again: js/main.js, js/spectator-client.js, js/spectator-host.js, js/stream.js, js/studio.js, js/vjdesk.js, sw.js (v179), vjdesk.html. Dev-only as before: CLAUDE.md, PROJECT.md, _test/, backups/.
+- PROJECT.md: DirroVJ pairing paragraph rewritten for #697 (no ALLOW, NEW CODE, last press wins, Twitch deliberate STOP); status line. Project doc cly3dj-project.md and the user manual updated to match.

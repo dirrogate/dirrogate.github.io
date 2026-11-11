@@ -217,7 +217,12 @@ export class Streamer {
     this.layerOk = false; this._stuSync(true); this.env.onChange && this.env.onChange();
   }
   // ---- #506 override: pairing (the tablet allows a new DirroVJ / phone before it gets picture, sound or the stream key), heartbeat, TAKE BACK
-  get vjAllowed() { const s = this.s8; return !!(s && s.vid && this.vjOk.has(s.vid)); }
+  get vjAllowed() { const s = this.s8; return !!(s && s.vid); }   // #697 knowing the code is enough (NEW CODE drops everyone)
+  _vjAuto() {   // #697 DirroVJ said hello or pressed a desk button: it gets the show (DIRROVJ + SOUND on), unless the Quest is on Twitch itself (then the desk shows QUEST LIVE and needs a deliberate STOP)
+    if (this.live && !this.stuTw) return;
+    if (!this.stu.on) { if (!this.stu.snd) this.setStudio('snd', true); this.setStudio('on', true); }
+  }
+  _qtwTell(force) { const L = this.stuLink, q = !!(this.live && !this.stuTw); if (L && (force || q !== this._qtw)) { this._qtw = q; L.ctl({ k: 'qtw', live: q }); } }
   allowVj(yes) {
     const id = this.vjAsk; this.vjAsk = null; if (!id) return;
     if (yes) { this.vjOk.add(id); try { localStorage.setItem('vire.vjOk', JSON.stringify([...this.vjOk].slice(-12))); } catch {} this._stuSync(true); }
@@ -231,15 +236,19 @@ export class Streamer {
     if (wasLive) setTimeout(() => this.start(), 1500);
   }
   onStudio(what, m) {   // from the spectator host: 'open' | 'close' | 'sst' (the S8's status, once a second)
-    if (what === 'open') { this.stuAtt = false; this._stuSync(true); }
+    if (what === 'open') { this.stuAtt = false; this._vjHi = false; this._qtw = null; this._stuSync(true); }
+    else if (what === 'take') { if (this.s8 && this.s8.vj) this._vjAuto(); }   // #697 a desk button: last press wins
+    else if (what === 'qstop') { if (this.live && !this.stuTw) { this.stop(); setTimeout(() => { this._qtwTell(); this._vjAuto(); }, 400); } }   // #697 the desk's deliberate STOP of the Quest's own Twitch
     else if (what === 'close') {
-      this.stuAtt = false; this.s8 = null;
+      this.stuAtt = false; this.s8 = null; this._vjHi = false;
       if (this.stuTw && this.live) this._set('error', 'The DirroVJ link dropped: DirroVJ stays on Twitch by itself (stop it on the desk, or reconnect and press END here)');   // #556
       this._stuIdle();
     } else if (what === 'ack') { if (m.tok && m.tok === this._stuTok) this._stuAck = m.tok;   // #556 DirroVJ got GO LIVE
     } else if (what === 'sst') {
       this.s8 = { ...m, at: performance.now() }; this.vjLost = false;
-      if (m.vid && !this.vjOk.has(m.vid) && this.vjDenied !== m.vid && this.vjAsk !== m.vid) { this.vjAsk = m.vid; this.vjName = m.vj ? 'DirroVJ' : 'Camera phone'; }   // #506
+      if (m.vj && !this._vjHi) { this._vjHi = true; this._vjAuto(); }   // #697 no ALLOW: the right code = the show, once per link (DIRROVJ: OFF on the tablet stays off until the desk presses something)
+      this._qtwTell();
+      if (!this.stuTw && m.tw === 'live' && !this.live) this.stuTw = true;   // #697 DirroVJ went live by itself: the tablet's Twitch button shows it and END stops it
       if (this.stuTw) {
         const tw = m.tw || 'off';
         if (tw === 'live') { if (this.state !== 'live') { this.t0 = this.t0 || performance.now(); this._set('live', ''); } this.kbps = m.kbps || 0; }
@@ -273,7 +282,7 @@ export class Streamer {
     if (!this.stu.on) return;
     if (!L) { this.stuMsg = 'DirroVJ not linked: open dirrovj.html on the laptop (or the camera page on a phone) and connect.'; return; }
     if (!L.ok) { this.stuMsg = 'The DirroVJ page is too old: reload it.'; return; }
-    if (!this.vjAllowed) { this.stuMsg = this.vjAsk ? 'Allow this ' + (this.vjName || 'device') + ' on the DIRROVJ page first.' : 'Waiting for DirroVJ to say hello (reload its page if this stays).'; if (this.stuAtt) { this.stuAtt = false; if (L.ok) L.set(null, null).catch(() => {}); L.ctl({ k: 'stu', on: false }); } return; }   // #506 nothing goes out before the DJ allows it
+    if (!this.vjAllowed) { this.stuMsg = 'Waiting for DirroVJ to say hello (reload its page if this stays).'; if (this.stuAtt) { this.stuAtt = false; if (L.ok) L.set(null, null).catch(() => {}); L.ctl({ k: 'stu', on: false }); } return; }   // #506 nothing goes out before the DJ allows it
     if (!this.stuAtt) this._stuAttach();
     { const list = (this.env.smsList && this.env.smsList()) || [], sent = this._smsSent || (this._smsSent = new Set()), items = list.filter(m => !sent.has(m.id)).slice(0, 10).map(m => [m.id, m.t]);   // #507 HoloSMS to the scroller desk
       if (items.length) { for (const [id] of items) sent.add(id); L.ctl({ k: 'vjsms', items }); } }
@@ -1042,10 +1051,11 @@ export class Streamer {
     if (this.live) return;
     const key = streamKey.get();
     if (!key) { this._set('error', 'No Twitch stream key: enter it on the start page'); return; }
+    if (this.s8 && this.s8.tw === 'live' && this.stuLink && !this.stuTw) { this.stuTw = true; this.t0 = performance.now(); this._set('live', ''); return; }   // #697 never two streams on one key
     if (this.stu.on) {   // #380 the S8 goes live: it gets the key over the link (encrypted, DTLS) and keeps it
       // #556 DirroVJ streams first, the Quest is the fallback: DirroVJ must answer 'stuAck' within 3 s and be live within 20 s, else the
       // Quest switches DirroVJ off (as TAKE BACK) and goes live itself. Not linked / not allowed = the Quest goes live itself at once.
-      if (!this.stuRun || !this.vjAllowed) { this._stuFallback(!this.stuRun ? 'DirroVJ not linked' : 'DirroVJ not allowed'); return; }   // #506 the key never goes to a device the DJ hasn't allowed
+      if (!this.stuRun || !this.vjAllowed) { this._stuFallback(!this.stuRun ? 'DirroVJ not linked' : 'DirroVJ has not said hello yet'); return; }   // #506 the key never goes to a device the DJ hasn't allowed
       if (this.s8 && this.s8.tw === 'live') { this.stuTw = true; this.t0 = this.t0 || performance.now(); this._set('live', ''); return; }   // the desk is already live: adopt it
       const tok = this._stuTok = (this._stuTok || 0) + 1; this._stuAck = 0;
       this.stuTw = true; this.t0 = 0; this.stuLink.ctl({ k: 'stuLive', on: true, key, ack: tok }); this._set('connecting', 'Asking DirroVJ to go live…');

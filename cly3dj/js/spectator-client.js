@@ -153,27 +153,42 @@ export function startCamera(ctx) {
     studio.startVj(); studio.syncScreenWin();
     st('SOLO: DirroVJ runs without the Quest. Twitch key, DirroTV pairing and the beat (LINE IN / TAP) are on the desk. Connect later to go LINKED.');
   };
-  $('#spConnect').onclick = () => {
-    const code = $('#spCode').value.trim();
-    if (VJ) {   // #531 spawn the VJ desk + separate Webcam / Projector window and start the webcam immediately on Connect
-      studio.openDesk();
-      studio.openScreenWin();
-      if (!fixed.on) fixed.start($('#spFixCam').value).then(() => studio.syncScreenWin()).catch(() => {});
-    }
-    if (!/^\d{5}$/.test(code)) { st(VJ ? 'VJ desk + webcam launched. Enter the 5-digit code from the Quest to link the headset.' : 'Enter the 5-digit code from the Quest'); return; }
-    try { localStorage.setItem('vire.spectJoin', code); } catch {}
-    if (link) link.close();
+  let deskUp = false, wantCode = '', retryT = 0;   // #697 the laptop keeps the code and links again by itself
+  const openVjWins = () => {   // #531 the VJ desk + Webcam / Projector window, webcam started (needs a click: browsers block pop-ups otherwise)
+    deskUp = true; studio.openDesk(); studio.openScreenWin();
+    if (!fixed.on) fixed.start($('#spFixCam').value).then(() => studio.syncScreenWin()).catch(() => {});
+  };
+  function linkUp(code) {
+    wantCode = code; clearTimeout(retryT);
+    if (link) { const l = link; link = null; l.close(); }
     st('Reaching the relay…');
-    link = spectatorLink(code, {
-      onStatus: s => { linkState = s; st(STATUS[s] || s); },
+    let me = null; me = link = spectatorLink(code, {
+      onStatus: s => { linkState = s; st(STATUS[s] || s);
+        if (VJ && s === 'quest-offline' && link === me) { clearTimeout(retryT); retryT = setTimeout(() => { if (link === me && wantCode && !me.isOpen) linkUp(wantCode); }, 5000); } },   // #697 the Quest isn't up yet: keep trying
       onState: s => { linkState = s; st(STATUS[s] || s); },
-      onOpen: () => { studio.onLink(true); linkState = 'connected'; st(STATUS.connected); $('#spAR').disabled = false; $('#spFix').disabled = false; lib.onLinkOpen(); sendCst(true); if (VJ) { studio.startVj(); studio.syncScreenWin(); } },
-      onClose: () => { studio.onLink(false); linkState = 'disconnected'; st(STATUS.disconnected); if (liveOn) { liveOn = false; liveStop(); showLiveCard(false); } },
+      onOpen: () => { clearTimeout(retryT); studio.onLink(true); linkState = 'connected'; st(STATUS.connected + (VJ && !deskUp ? ' · click anywhere to open the VJ desk' : '')); $('#spAR').disabled = false; $('#spFix').disabled = false; lib.onLinkOpen(); sendCst(true); if (VJ) { studio.startVj(); studio.syncScreenWin(); } },
+      onClose: () => { studio.onLink(false); linkState = 'disconnected'; st(STATUS.disconnected + (VJ && wantCode ? ': linking again…' : '')); if (liveOn) { liveOn = false; liveStop(); showLiveCard(false); }
+        if (VJ && wantCode && link === me) retryT = setTimeout(() => { if (link === me && wantCode) linkUp(wantCode); }, 5000); },   // #697
       onMessage: onMsg,
       onTrack: t => studio.onTrack(t),   // #380 the Quest's studio picture and sound
       onBinary: onSyncBin,   // #206 media sync: files from the Quest
     });
+  }
+  $('#spConnect').onclick = () => {
+    const code = $('#spCode').value.trim();
+    if (VJ) openVjWins();
+    if (!/^\d{5}$/.test(code)) { st(VJ ? 'VJ desk + webcam launched. Enter the 5-digit code from the Quest to link the headset.' : 'Enter the 5-digit code from the Quest'); return; }
+    try { localStorage.setItem('vire.spectJoin', code); localStorage.setItem('vire.vjMode', 'linked'); } catch {}
+    linkUp(code);
   };
+  if (VJ) {   // #697 a code from last time: link at once; the first click on the page opens the desk
+    let c0 = ''; try { c0 = localStorage.getItem('vire.spectJoin') || ''; if (localStorage.getItem('vire.vjMode') === 'solo') c0 = ''; } catch {}
+    if (/^\d{5}$/.test(c0)) {
+      setTimeout(() => { if (!link) linkUp(c0); }, 300);
+      const first = e => { if (deskUp) return document.removeEventListener('pointerdown', first, true); if (e.target && e.target.closest && e.target.closest('#spConnect, #spSolo')) return; document.removeEventListener('pointerdown', first, true); openVjWins(); };
+      document.addEventListener('pointerdown', first, true);
+    }
+  }
   setInterval(() => { if (link && link.isOpen) link.send('ctl', { k: 'ping', t: performance.now() }); stats.pps = stats.pkts; stats.pkts = 0; }, 1000);
   const questNow = () => performance.now() + (stats.off || 0);
   // #177 VideoVinyl on the phone: its own copies of the videos, following the Quest's playheads

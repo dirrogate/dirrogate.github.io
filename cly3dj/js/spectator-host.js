@@ -430,7 +430,9 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       if (m.k === 'cst') { camState = m; onCam && onCam(m); return; }
       if (m.k === 'camname') { camLast = !!m.last; toast && toast('WEBCAM: ' + String(m.n || 'camera').slice(0, 40) + (m.last ? ' · tap again = OFF' : ''), 2200); return; }   // #591   // #545 after NEXT CAMERA
       if (m.k === 'sst') { onStudio && onStudio('sst', m); return; }   // #380 the S8 studio's status (once a second)
-      if (m.k === 'stuAck') { onStudio && onStudio('ack', m); return; }   // #556 DirroVJ got GO LIVE (else the Quest goes live itself)
+      if (m.k === 'stuAck') { onStudio && onStudio('ack', m); return; }
+      if (m.k === 'vjtake') { onStudio && onStudio('take', m); return; }   // #697 a DirroVJ desk press: last press wins
+      if (m.k === 'qtwStop') { onStudio && onStudio('qstop', m); return; }   // #697 the desk's STOP of the Quest's own Twitch   // #556 DirroVJ got GO LIVE (else the Quest goes live itself)
       if (m.k === 'screen') { onScreen && onScreen(!!m.on); return; }   // #358   // #188 the phone's camera / key / look state
       if (m.k === 'vjsine' || m.k === 'cxgrab' || m.k === 'vjshow' || m.k === 'vjask' || m.k === 'vjclog' || m.k === 'vjholo') { onVj && onVj(m); return; }   // #575 vjholo   // #523 vjshow: SHOWTIME! from the desk, #524 vjask / vjclog   // #507 DirroVJ scroller desk, #520 GRAB RGB-D (main.js checks the pairing)
       if (m.k === 'cover?') { onCoverAsk(m.key); return; }   // #218

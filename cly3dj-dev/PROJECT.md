@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 11 Nov 2026 (decision log up to #694 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 11 Nov 2026 (decision log up to #698 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -146,7 +146,7 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 
 ## DirroVJ (#500 to #515, 26 to 27 Oct)
 
-- The laptop page that makes the audience picture (was S8 STUDIO): `cabin.dirrodj.club/dirrovj.html`, paired to the Quest with the 5-digit code, ALLOW / DENY on the tablet's DIRROVJ page (nothing is sent before ALLOW), heartbeat with TAKE BACK. RENDER: QUEST (default, the Quest's packed frame) or LAPTOP (the laptop draws the mirror scene). Modes SHOW, LIVE DJ!, LIVE KEY!, WEBCAM; a camera without calibration is a plain camera (#515).
+- The laptop page that makes the audience picture (was S8 STUDIO): `cabin.dirrodj.club/dirrovj.html`, paired to the Quest with the 5-digit code. Since #697 the code is the key: no ALLOW step, DIRROVJ and SOUND switch on by themselves when DirroVJ links, the laptop keeps the code and links again by itself, last press (tablet or desk) wins, NEW CODE on the tablet (tap twice) drops every linked device. Twitch never changes hands by itself: whoever is live shows it on both sides and the other side needs a deliberate STOP (desk: QUEST LIVE: STOP). Heartbeat with TAKE BACK when DirroVJ goes silent. RENDER: QUEST (default, the Quest's packed frame) or LAPTOP (the laptop draws the mirror scene). Modes SHOW, LIVE DJ!, LIVE KEY!, WEBCAM; a camera without calibration is a plain camera (#515).
 - VJ desk (`vjdesk.html`, #507): buses A / B with QUEST, FRACTAL (Amiga-style landscape, four formulas, six palettes, BEAT from the kick), WEBCAM, LED CLIP, DIRROCOMICS, BLACK; CUT / AUTO; scroller desk (Twitch chat + HoloSMS, APPROVE); LINE IN; SHOWTIME! camera and object buttons (#523).
 - DirroTV follows DirroVJ when it is on (#509). Names cleaned up (#510): DirroVJ, DirroVJ camera, DirroTV screens, TWITCH.
 
@@ -157,7 +157,7 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 
 ## Status (11 Nov)
 
-- Release (cly3dj) = dev up to #695 (released 11 Nov: #678, #681, #692, #694, #696). cabin.dirrodj.club serves cly3dj-dev; Dirrogram is uploaded by hand from `ViRe_Custom/dirroclub_website` (gram/index.html = web/dirrogram.html, gram/js = web/js).
+- Release (cly3dj) = dev up to #697 (released 11 Nov: #678, #681, #692, #694, #696, #698). cabin.dirrodj.club serves cly3dj-dev; Dirrogram is uploaded by hand from `ViRe_Custom/dirroclub_website` (gram/index.html = web/dirrogram.html, gram/js = web/js).
 - DirroVJ (#662 to #669): SOLO / LINKED; master tempo LINE IN / TAP; DIRROVERSE bus (Cyber-Window studio sets, `claude/cyber-window-dirrovj-plan.md`); projector window with a display picker, OUTPUT HERE, projection mapping (two copies on 4x4 / 8x8 meshes, end of the desk); CAST bus (the Quest 3 casting tab via getDisplayMedia, crop); HOLO+CAM and DANCER+CAM (a dancer placed in the club webcam: spot, height, CAMERA POS -60..+60, facing, shadow, LIGHT MATCH, FRONT EDGE); Dirrogram from this laptop (own room, QR, dirrodj.club/<ROOM>).
 - Holodancer: Blender builder 1-view depth layout (#671), guide `claude/holodancer-guide.md` and `DirroDancer/holo/builder/README.md`; Quest MOVIE PROPS > HOLODANCER + (life size, carried by the ring, PERFORMER / SIZE / SPEED / TEARS / PROJECTOR / TURN 45 deg); holoprojector 0.5 m behind the dancer with bolder scan lines (#675).
 - Dirrogram (phones): no automatic placement (#670); PLACE HOLODANCER in the camera mode on every phone (tilt-based floor spot, drag to turn / nearer, NEXT DANCER), performers from cabin.dirrodj.club/holo/ or the one DirroVJ sends; CLUB LIGHT relights the dancer from the camera picture (#677); the WebXR walk-around was tried (#672) and removed (#676); start screen DIRROGRAMS; no CONNECTING pill without a room.
