@@ -2409,3 +2409,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #688 TAP is the default tempo; no microphone opened by itself (owner, 11 Nov: Spotify on Bluetooth still goes silent when dirrovj.html opens)
 - Cause (still #556): the automatic LINE IN opened the default input 3 s after the engine page started (no Quest sound). Before Chrome has mic permission the input names are hidden, so #687 could not tell a Bluetooth mic and opened it anyway; Windows then moves the Bluetooth device to Hands-Free and its music output (where Spotify plays) goes silent.
 - Now: master tempo TAP by default (remembered: vire.vjTempo; picking LINE IN or tapping changes it). The automatic LINE IN only runs while the tempo is LINE IN (and still skips recognisable Bluetooth mics). With TAP and no Quest, Twitch has no sound until LINE IN is picked in Twitch streaming (the desk says so). The DJ mic (main.js micOpen) only opens from its button. sw.js v174. No Node restart. Backups backups/pre688/.
+
+
+## #695 Fix: "DirroVJ failed: Unexpected token ','" on cabin.dirrodj.club (owner, 11 Nov)
+- #688 put a // comment in the middle of the automatic LINE IN line in vjdesk.js, which commented out the rest of the line (the code that stops the automatic LINE IN and closes its braces). Chrome refused the module (studio.js and spectator-client.js import it), so the DirroVJ engine page failed to start. node --check passed the broken file: from now on JS changes are checked by importing them in Chromium (Playwright), not with node --check.
+- Comment moved to the end of the line; sw.js vire-app-v178 (after the other session's v177 #693). cly3dj (released at #694) never had the broken line. No Node restart. Backups backups/pre695/.

@@ -439,7 +439,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   const liveAudio = () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null) || qAudio() || (autoTrack && autoTrack.readyState === 'live' ? autoTrack : null);
   setInterval(async () => {
     const now = performance.now(), q = qAudio();
-    if (q || D.audio !== 'quest' || D.tempo !== 'line') { qGoneT = 0; if (autoTrack) {   // #688 the automatic LINE IN only while the tempo is on LINE IN (TAP = no mic at all) autoTrack.stop(); autoTrack = null; D.audioAuto = false; onAudio && onAudio(); post(); } return; }
+    if (q || D.audio !== 'quest' || D.tempo !== 'line') { qGoneT = 0; if (autoTrack) { autoTrack.stop(); autoTrack = null; D.audioAuto = false; onAudio && onAudio(); post(); } return; }   // #688 the automatic LINE IN only while the tempo is on LINE IN (TAP = no mic at all)
     if (!qGoneT) qGoneT = now;
     if (autoTrack || autoBusy || now - qGoneT < 3000) return;
     autoBusy = true;
