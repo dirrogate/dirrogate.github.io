@@ -2474,3 +2474,6 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - vendor/mediapipe/face_landmarker.task (float16 v1, sha256 64184e22…, the Git LFS object; storage.googleapis.com is blocked from here). sw.js: drostemaker + mp4-muxer in APP (the MediaPipe files stay out, as before). _test/mouth_test.jpg (the owner's example, dev only).
 - Tests (PC pane): sky_factory.jpg ZOOM and SPIRAL previews; SPIRAL 2-bar render = 4.00 s 1280 x 720 MP4 (5.6 MB) that decodes, deleted again; MOUTH on the owner's open-mouth example: lips found, copy nested in the mouth. NOT tested: a real clip with IN / OUT / SNAP LOOP and MOUTH over time, on the owner's laptop GPU. Lesson: device_commit_files keeps the first copy of a stagedPath; use a new staged name for each re-commit.
 - sw.js v185. No Node restart needed. Backup backups/pre705/.
+
+## #706 Release #703 to #705 to cly3dj (owner, 11 Nov: 'copy #703 to #705 to cly3dj')
+- cly3dj = cly3dj-dev again: js/facetwall.js, js/portal.js, js/main.js, js/vjdesk.js, js/drostemaker.js (new), vjdesk.html, sw.js (v185), vendor/mp4muxer/ (new), vendor/mediapipe/face_landmarker.task (new) + README. node --check on every released JS: none broken. Dev-only as before: CLAUDE.md, PROJECT.md, _test/ (incl. mouth_test.jpg), backups/.

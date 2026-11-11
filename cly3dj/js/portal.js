@@ -68,7 +68,7 @@ const VERT_SM = VERT.replace('transformed', 'position');   // plain ShaderMateri
 // OFF (uniform branch); when on, 1 bead cell + the 2 nearest rivulet columns (skipped early away from a run) per dome
 // pixel INSIDE PANO openings only.
 // Upright frames: beads + rivulets running down. Skylights (portalUp ~0): beads that land, swell and dry, no runs.
-const RAIN = `
+export const RAIN = `
   vec2 rBend = vec2(0.0); float rCore = 0.0, rEdge = 0.0, rBead = 0.0, rClear = 0.0;
   if (portalRain.x + portalRain.y > 0.001 && inRev) {
     float kk = clamp(portalRain.x, 0.0, 1.0), T = portalRain.z, Tf = portalRain.z * portalRain.w, up = clamp(upRev, 0.0, 1.0);
@@ -779,9 +779,9 @@ export class Portals {
   }
   // per frame: keep the clip uniforms in step with wherever the frames have been dragged / resized to
   tick() {
+    if (this.rain !== 'off') { const now = performance.now(); if (this._rainLast) this._rainT += Math.min(0.1, (now - this._rainLast) / 1000); this._rainLast = now; this._u.portalRain.value.z = this._rainT % 3600; } else this._rainLast = 0;   // #639 clock only while it rains (#703 also with the frames off: the CYCLO glass uses it)
     if (!this.on) return;
     this._u.portalRevN.value = this.revN;
-    if (this.rain !== 'off') { const now = performance.now(); if (this._rainLast) this._rainT += Math.min(0.1, (now - this._rainLast) / 1000); this._rainLast = now; this._u.portalRain.value.z = this._rainT % 3600; } else this._rainLast = 0;   // #639 clock only while it rains
     for (let i = 0; i < this.n; i++) {
       const f = this.list[i]; f.obj.updateMatrixWorld();
       this._u.portalUp.value[i] = Math.abs(_up.setFromMatrixColumn(f.obj.matrixWorld, 1).normalize().y);   // #639 1 = upright window, 0 = skylight
