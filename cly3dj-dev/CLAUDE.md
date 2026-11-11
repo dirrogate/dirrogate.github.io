@@ -2431,3 +2431,10 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Checked first: web = cly3dj-dev (venue.html differs only in line endings), node --check on all 86 JS files in dev and release and the 14 inline HTML scripts: none broken.
 - cly3dj = cly3dj-dev again: js/main.js, js/spectator-client.js, js/spectator-host.js, js/stream.js, js/studio.js, js/vjdesk.js, sw.js (v179), vjdesk.html. Dev-only as before: CLAUDE.md, PROJECT.md, _test/, backups/.
 - PROJECT.md: DirroVJ pairing paragraph rewritten for #697 (no ALLOW, NEW CODE, last press wins, Twitch deliberate STOP); status line. Project doc cly3dj-project.md and the user manual updated to match.
+
+## #699 Clearer labels: camera delay / inactive, SHOWTIME! mode button, ON buttons green, short desk hints (owner, 11 Nov)
+- DIRROVJ status: 'camera held N ms' (how long DirroVJ holds the webcam frame to line up with the Quest picture) is now 'camera delay N ms', and 'camera inactive' when no webcam frame is in the shot (main.js tablet + WEBCAM SETUP, studio.js status line).
+- The DIRROVJ mode button SHOW is now SHOWTIME! (STUDIO_MODES; it is the SHOWTIME! shot). studio.js status text too.
+- Owner: 'ON buttons should show in GREEN'. onGREEN(label) in main.js: a pressed tablet button whose label says ON (': ON', ' ON' at the end, or 'ON') is green (#1f9d55) instead of red, in all three tablet button drawers (btn on the VISUALS pages, drawTopBtn, the tools-page btn). Other active buttons (picks like SHOWTIME! / WEBCAM, LIVE, REC) stay red.
+- VJ desk hints shortened (owner: non verbose, concise): section notes, Twitch sound / chat lines, projection mapping keys, QuestCast, Dirrogram, DirroVerse, depth / PEOPLE lines; ticket numbers (#667, #668, #674, #687, #688) gone from the visible text; the stale 'allowed' wording (#697 removed ALLOW) gone; SHOWTIME! note says 'Last press wins'.
+- Tests: node --check; tablet DIRROVJ page drawn in the pane (DIRROVJ: ON and SOUND: ON green, SHOWTIME! label); desk loads, notes checked. sw.js v180. No Node restart needed. Backup backups/pre699/.

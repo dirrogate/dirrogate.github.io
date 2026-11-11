@@ -1768,7 +1768,7 @@ function pcamStatus(S) {   // #374 / #530 shared by the WEBCAM SETUP page and th
     return [
       !S.stuLink ? 'DirroVJ not linked: open dirrovj.html on the laptop and connect.' : !S.vjAllowed ? 'Waiting for DirroVJ to say hello.' : ci ? `DirroVJ webcam running (${ci.rate || ci.fps || '?'} fps)${pc6 ? ', calibrated (3D gear active when GEAR is on)' : ', uncalibrated (2D overlays + keying)'}.` : 'DirroVJ linked: webcam starts automatically when WEBCAM is active.',
       S.stu.mode === 'show' ? 'Pick WEBCAM in SHOWTIME! (or on the VJ desk) to put the webcam on air.' : `${C.green ? 'GREEN SCREEN on: keyed over BACK: ' + S.showOpt.backdrop.toUpperCase() : 'GREEN SCREEN off: raw webcam + overlays'}${S.showOpt.gear && pc6 ? ' + 3D gear' : ''}.`,
-      `Delay trim: ${S.stu.trim >= 0 ? '+' : ''}${S.stu.trim} ms${s8 && s8.hold != null ? ' · camera held ' + s8.hold + ' ms' : ''}.`,
+      `Delay trim: ${S.stu.trim >= 0 ? '+' : ''}${S.stu.trim} ms${s8 && s8.hold != null ? ' · camera delay ' + s8.hold + ' ms' : ' · camera inactive'}.`,
     ];
   }
   const v = livePossible() ? liveVideo : localCam.on ? localCam.video : null, packed = v && v.videoWidth && Math.abs(v.videoWidth / v.videoHeight - 1920 / 720) < 0.06;
@@ -5686,7 +5686,7 @@ function drawVideoPage() {
   VP_HIT.length = 0;
   g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H);
   const btn = (x, y, w, h, label, on, act, dim) => {
-    g.fillStyle = on ? '#c8202c' : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);
+    g.fillStyle = on ? (onGreen(label) ? '#1f9d55' : '#c8202c') : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : dim ? '#56627a' : '#3a4252';
     btnLabel(g, label, x, y, w, h, 17); g.textBaseline = 'alphabetic';   // #198 narrow portrait buttons (#349 two lines)
     if (act) VP_HIT.push({ x, y, w, h, act });
@@ -6052,7 +6052,7 @@ function drawDeckPanel(g, d, x0, y0, w, h, P) {
   }
 }
 function drawTopBtn(g, x, y, w, h, label, on, dim, fs = 22) {
-  g.fillStyle = on ? '#c8202c' : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);
+  g.fillStyle = on ? (onGreen(label) ? '#1f9d55' : '#c8202c') : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);
   g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : dim ? '#56627a' : '#5a6272';
   btnLabel(g, label, x, y, w, h, fs); g.textBaseline = 'alphabetic';   // #349
 }
@@ -6661,6 +6661,7 @@ function drawLooperPage(page, T) {
 // #478 VJ TOOLS > MOVIE PROPS: spawn row, list of the props in the room (tap = select, X = remove) and the selected prop's controls
 const pcs = v => Math.round(v * 100) + '%';
 var btnGreen = false;   // #545 see the tools-page btn (var: drawMixScreen can run before this line)
+function onGreen(label) { return typeof label === 'string' && /(:\s*ON\b|\sON$|^ON$)/.test(label); }   // #699 owner: a button that says ON (SOUND: ON, TV ON, 25 FPS: ON) is green when on
 let holoLibCache = null;   // #671
 let propsClearT = 0, mpTab = 'props', mpSurfName = '', surfDelT = 0;
 function drawPropsPage(T) {
@@ -8235,7 +8236,7 @@ function drawToolsPage() {
   if (toolsPage === 'acid' && ACIDL.tex) g.clearRect(0, 0, W, H);   // #618 transparent overlay over the plate layer
   else { g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H); }
   const btn = (x, y, w, h, label, on, act, dim, fs0 = 17) => {
-    g.fillStyle = on ? (btnGreen ? '#1f9d55' : '#c8202c') : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);   // #545 btnGreen: 'this is what is live now' (DIRROVJ page)
+    g.fillStyle = on ? (btnGreen || onGreen(label) ? '#1f9d55' : '#c8202c') : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);   // #545 btnGreen: 'this is what is live now' (DIRROVJ page)
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : dim ? '#56627a' : '#3a4252';
     btnLabel(g, label, x, y, w, h, fs0); g.textBaseline = 'alphabetic';   // #349 two lines when needed
     if (act) VP_HIT.push({ x, y, w, h, act });
@@ -8611,7 +8612,7 @@ function drawToolsPage() {
     g.textAlign = 'left'; g.font = `700 ${P ? 21 : 18}px system-ui`; g.fillStyle = s8 && s8.run ? '#7dff9a' : '#dfe6f2';
     fitText2(g, title, L + 2, y0 + 20, R - L - 4);
     const tw = s8 ? (s8.tw === 'live' ? `TWITCH LIVE ${((s8.kbps || 0) / 1000).toFixed(1)} Mb/s` : s8.tw === 'connecting' ? 'Twitch connecting' : 'Twitch off') : '';
-    const sub = U.on && s8 ? `out ${s8.fps || 0} fps · Quest frames ${s8.qfps || 0} fps · camera held ${s8.hold != null ? s8.hold + ' ms' : '-'} · ${tw}${s8.tv && s8.tv !== 'off' ? ' · DirroTV ' + (s8.tv === 'live' ? 'ON (from DirroVJ)' : 'waiting for the TV') : ''}${s8.note ? ' · ' + s8.note : ''}` : U.on ? (S.stuMsg || 'Open dirrovj.html (laptop) or the camera page (phone) and connect. LIVE DJ! / KEY! need the camera calibrated; WEBCAM does not.') : 'Turn DirroVJ on with the laptop or phone linked.';
+    const sub = U.on && s8 ? `out ${s8.fps || 0} fps · Quest frames ${s8.qfps || 0} fps · ${s8.hold != null ? 'camera delay ' + s8.hold + ' ms' : 'camera inactive'} · ${tw}${s8.tv && s8.tv !== 'off' ? ' · DirroTV ' + (s8.tv === 'live' ? 'ON (from DirroVJ)' : 'waiting for the TV') : ''}${s8.note ? ' · ' + s8.note : ''}` : U.on ? (S.stuMsg || 'Open dirrovj.html (laptop) or the camera page (phone) and connect. LIVE DJ! / KEY! need the camera calibrated; WEBCAM does not.') : 'Turn DirroVJ on with the laptop or phone linked.';
     g.font = '500 14px system-ui'; g.fillStyle = '#8c96a8';
     const nl = wrapText(g, sub, L + 2, y0 + (P ? 40 : 36), R - L - 4, 18, P ? 3 : 2), y1 = y0 + (P ? 44 : 40) + Math.max(1, nl) * 18;
     const w3 = (R - L - 2 * gap) / 3, w4 = (R - L - 3 * gap) / 4, w5 = (R - L - 4 * gap) / 5, fs = P ? 18 : 15;

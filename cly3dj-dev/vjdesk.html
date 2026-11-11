@@ -180,19 +180,19 @@
       <div class="row"><div class="tbar h" id="xfT" title="T-bar: left = bus A on air, right = bus B on air. Grab and pull; it doesn't jump to a click."></div></div>
       <div class="row" id="busB"><button class="busLit" id="litB" title="Green = B is on air. Tap while A is on air: CUE (flashing yellow), the monitor shows B so you can build it. Tap again to leave CUE.">B</button></div>
       <div class="row"><button id="cut">CUT</button><button id="auto">AUTO</button><select id="fadeMs"><option value="800">0.8 s</option><option value="2000" selected>2 s</option><option value="5000">5 s</option></select></div>
-      <div class="note">QUEST = the picture DirroVJ gets from the Quest (SHOW, LIVE DJ!, KEY, WEBCAM mode as picked on the tablet) with its overlays. WEBCAM = this laptop's webcam as it is (start it on the DirroVJ page). CYCLO = DirroVJ's copy of the Cyclo clip.</div>
+      <div class="note">QUEST: the Quest's picture (mode set on the tablet). WEBCAM: this laptop's webcam. CYCLO: the Cyclo clip.</div>
     </section>
     <section style="margin-top:14px" id="shS">
       <h2>SHOWTIME! <span class="note" style="text-transform:none;letter-spacing:0">the Quest's camera (the QUEST bus)</span></h2>
       <div class="row" id="shCam"></div>
       <div class="row" id="shObj"></div>
-      <div class="note" id="shN">Same buttons as the tablet's SHOWTIME! page; whatever is tapped last wins, the tablet stays in charge.</div>
+      <div class="note" id="shN">Same as the tablet's SHOWTIME! page. Last press wins.</div>
     </section>
     <section style="margin-top:14px">
       <h2>Scroller queue</h2>
       <div id="chatSt" class="note"></div>
       <div id="queue"></div>
-      <div class="note">APPROVE puts the line on the Quest's sine scroller (headset, DirroTV and the stream). The DJ can still switch the scroller off on the Quest.</div>
+      <div class="note">APPROVE: the line goes to the Quest's scroller.</div>
     </section>
   </div>
   <div>
@@ -224,7 +224,7 @@
         <select id="dzFogCol"><option value="cold">COLD</option><option value="warm">WARM</option><option value="violet">VIOLET</option><option value="white">WHITE</option></select></div>
     </section>
     <section style="margin-top:14px" id="hoS">
-      <h2>Holodancer <span class="note" style="text-transform:none;letter-spacing:0">pick a ① / ④ / ⑧ performer in DANCER CLIPS below · made with the Holodancer builder</span></h2>
+      <h2>Holodancer <span class="note" style="text-transform:none;letter-spacing:0">pick a ① ④ ⑧ performer in DANCER CLIPS</span></h2>
       <div class="dzTop">
         <div class="dzCamW">
           <div class="dzPadW"><div id="hoPad" title="Camera. X (left to right) = round the dancer 0 to 360 degrees. Y (bottom to top) = camera height, low to high. Double-click = front, eye level."><div id="hoDot"></div><span class="dzAx x">X</span><span class="dzAx y">Y</span></div><span id="hoXY" class="sp">X 0° · Y 8°</span></div>
@@ -233,14 +233,14 @@
         </div>
       </div>
       <div class="row" id="hoGlRow" hidden><span class="dzL">GLITCH</span><label class="kv"><span class="sp">View change</span><input type="range" id="hoGlitch" min="0" max="1.5" step="0.05" value="1" title="Glitch when the camera passes to the next view (8-view performers)"></label></div>
-      <div class="row"><button id="hoRestart" title="Back to the start of the dance">RESTART</button><button id="hoGram" title="Send this performer to the Dirrogram phones through the Quest (the Quest must be linked and this DirroVJ allowed on it). The phones stand her on their stage and keep in step with this desk.">SEND TO DIRROGRAM</button><input type="text" id="hoPub" spellcheck="false" style="flex:1;min-width:140px" title="Public (https) address of the performer library the phones load from (the deployed site's holo/ folder)"></div>
+      <div class="row"><button id="hoRestart" title="Back to the start of the dance">RESTART</button><button id="hoGram" title="Send this performer to the Dirrogram phones through the Quest (needs the Quest link)">SEND TO DIRROGRAM</button><input type="text" id="hoPub" spellcheck="false" style="flex:1;min-width:140px" title="Public (https) address of the performer library the phones load from (the deployed site's holo/ folder)"></div>
       <div id="hoGramSt" class="note"></div>
       <div id="hoSt" class="note">Not loaded yet: pick HOLO on a bus or a performer.</div>
     </section>
 <section style="margin-top:14px" id="hpS">
       <h2>In the webcam <span class="note" style="text-transform:none;letter-spacing:0">place a dancer on the bar top, the floor, a stage riser</span></h2>
       <div id="hpBox">
-        <div class="row"><span class="note" style="margin:0">#668 / #669 the dancer inside the webcam picture: put HOLO+CAM (Holodancer) or DANCER+CAM (3D Dancer) on a bus, CUE it, then place the dancer on the monitor. One spot for both. Turn and size the dancer with the HOLO / DANCER camera pad and zoom T-bar (X = round the dancer, Y = crane, zoom = bigger / smaller from the feet, ORBIT); the mouse wheel on the monitor sets the starting size.</span></div>
+        <div class="row"><span class="note" style="margin:0">HOLO+CAM / DANCER+CAM on a bus, CUE it, click the monitor to place. Pad: turn / crane. T-bar: size. Wheel: start size.</span></div>
         <div class="row"><button id="hpPick" title="On: click or drag on the monitor = where the feet go, mouse wheel on the monitor = the starting size">PLACE ON THE MONITOR</button>
           <label class="note" style="margin:0"><input type="checkbox" id="hp_flip"> mirror</label><button id="hpReset">RESET</button><span id="hpSt" class="note" style="margin:0"></span></div>
         <div class="row">
@@ -254,7 +254,7 @@
   </div>
 </main>
 <section id="dvS" style="margin:0 16px 14px">
-  <h2>DirroVerse <span class="note" style="text-transform:none;letter-spacing:0">put DIRROVERSE on bus A or B · sets made in the Cyber-Window studio on this laptop</span></h2>
+  <h2>DirroVerse <span class="note" style="text-transform:none;letter-spacing:0">put DIRROVERSE on a bus · sets from the Cyber-Window studio</span></h2>
   <div class="row"><select id="dvSet" style="min-width:180px;display:none"></select><button id="dvLoad">LOAD</button><button id="dvList">REFRESH</button>
     <label class="note" style="margin:0"><input type="checkbox" id="dvCam" checked> live webcam in the windows</label>
     <a href="http://127.0.0.1:8090/" target="_blank" class="note" style="margin:0 6px">open the studio</a><a href="./dirroverse.html" target="_blank" class="note" style="margin:0">DIRROVERSE page</a></div>
@@ -264,13 +264,13 @@
   <div id="dvSt" class="note"></div>
   <div class="row"><input id="dvName" placeholder="name on the car's plate, e.g. WELCOME MAYA" style="flex:1;min-width:220px"><button id="dvRender">RENDER ARRIVAL</button><span id="dvJob" class="note" style="margin:0"></span></div>
   <div class="row"><span class="note" style="margin:0">match the scene:</span><input type="range" id="dvMatch" min="0" max="1" step="0.05" value="0.7" style="width:180px"><b id="dvMatchV" class="note" style="margin:0">0.70</b>
-    <span class="note" style="margin:0">the webcam takes the plate's palette, the set's grade, glass mist, drops, reflection and fog (render the plate loop again once for its fog map)</span></div>
-  <div class="note">An arrival takes about a minute on the RTX 4050; render the night's names before the show. Tap a name to fire it: it plays over the set and hands back to the loop at its end.</div>
+    <span class="note" style="margin:0">the webcam gets the set's grade, mist, drops, reflection and fog (re-render the plate loop once for fog)</span></div>
+  <div class="note">Arrivals take about a minute each: render them before the show. Tap a name to fire it.</div>
   <div class="row" id="dvArr"></div>
 </section>
 <div id="vjDecks">
   <div class="vjBank">
-    <div class="vjBankHead"><h3>DANCER CLIPS</h3><span class="note" id="dzClipNote" style="margin:0">ᯓ🏃🏻‍♀️‍➡️ DANCER dance: click = she blends to it (0.8 s) · ① ④ ⑧ Holodancer performer (2D+depth / 4-view depth / 8-view): click = HOLO plays it</span></div>
+    <div class="vjBankHead"><h3>DANCER CLIPS</h3><span class="note" id="dzClipNote" style="margin:0">ᯓ🏃🏻‍♀️‍➡️ dance: DANCER blends to it · ① ④ ⑧ performer: HOLO plays it</span></div>
     <div class="vjBankScroll"><div class="vjGrid" id="gridDancer"></div></div>
   </div>
   <div class="vjBank">
@@ -282,7 +282,7 @@
     <div class="vjBankScroll"><div class="vjGrid" id="gridVideos"></div></div>
   </div>
   <div class="vjBank">
-    <div class="vjBankHead"><h3>PANOS</h3><span class="note" id="vjPanoNote" style="margin:0">Click a 360° panorama or video pano to play it on CYCLO (and BACK: DOME) · drag bar for 0°–360° view angle</span><button class="vjImp" id="impPanos">+ IMPORT PANOS…</button><input type="file" id="filePanos" multiple accept="image/*,video/*" hidden></div>
+    <div class="vjBankHead"><h3>PANOS</h3><span class="note" id="vjPanoNote" style="margin:0">Click a pano: plays on CYCLO (and BACK: DOME) · bar: view angle</span><button class="vjImp" id="impPanos">+ IMPORT PANOS…</button><input type="file" id="filePanos" multiple accept="image/*,video/*" hidden></div>
     <div class="vjBankScroll"><div class="vjGrid" id="gridPanos"></div></div>
     <div class="panoYawRow"><span class="sp">0°</span><input type="range" id="panoYaw" min="0" max="360" step="1" value="0" title="Panorama view angle (0° leftmost to 360° rightmost)"><span class="sp" id="panoYawVal" style="min-width:68px;text-align:right">0° / 360°</span></div>
   </div>
@@ -299,7 +299,7 @@
     <label class="kv"><span style="width:52px">React</span><input type="range" id="frReact" min="0" max="1.5" step="0.05"></label>
     <label class="kv"><span style="width:52px">Cycle</span><input type="range" id="frCycle" min="0" max="3" step="0.05"></label>
   </div>
-  <div class="note">BEAT: each kick in the Quest's sound shoots the peaks up (the dot flashes); PUMP or P = a hit by hand. REACT: the whole landscape swells with the bass. CYCLE: rolls the colours like Amiga palette cycling (LAVA, ICE, COPPER, NEON).</div>
+  <div class="note">BEAT: kicks lift the peaks (PUMP or P by hand). REACT: swells with the bass. CYCLE: rolls the palette.</div>
 </section>
 <section id="cxS" style="margin:0 16px 16px">
   <h2>DirroComics <span class="note" style="text-transform:none;letter-spacing:0">put COMICS on bus A or B to show the page</span></h2>
@@ -325,7 +325,7 @@
   <div id="cxEd" hidden>
     <div>
       <img id="cxPv" alt="">
-      <div class="note" id="cxArmN">The selected panel (not necessarily on air). POS / TAIL on a text item, then click here to place it.</div>
+      <div class="note" id="cxArmN">Selected panel (may be off air). POS / TAIL, then click to place.</div>
       <div id="cxDep">
         <div class="row"><b class="sp" style="color:#f2c94c">DEPTH MAP</b><span class="sp">white = front, black = back (ANAGLYPH, flat &amp; RGB+D panels)</span><button id="cxDOpen">EDIT DEPTH</button><button id="cxLive" title="Video panels: MediaPipe finds the people in every frame and puts them in front">LIVE PEOPLE</button><span id="cxDSt" class="note" style="margin:0"></span></div>
         <div id="cxDEd" hidden>
@@ -348,21 +348,21 @@
 </section>
 <div class="utilBreak"><span>Utilities:</span></div>
 <section id="grS" style="margin:0 16px 14px">
-  <h2>Dirrogram from this laptop <span class="note" style="text-transform:none;letter-spacing:0">#674 SOLO: phones join this laptop's own room, no Quest needed (LINKED shows use the Quest's room and QR)</span></h2>
+  <h2>Dirrogram from this laptop <span class="note" style="text-transform:none;letter-spacing:0">SOLO: phones join this laptop's room, no Quest needed</span></h2>
   <div class="row" style="align-items:flex-start"><canvas id="grQr" width="164" height="164" style="background:#fff;border-radius:6px;display:none"></canvas>
     <div style="flex:1;min-width:220px"><div class="row"><button id="grOn">DIRROGRAM: OFF</button><span id="grSt" class="note" style="margin:0"></span></div>
       <div id="grUrl" style="font:700 20px system-ui;margin:6px 0;letter-spacing:.03em"></div>
-      <div class="note">Phones scan the QR or open the link: they get the beat (master tempo), the Holodancer when SEND TO DIRROGRAM is on, and send HoloSMS here. Without the room, dirrodj.club/gram still runs on its own (camera mode, and the HOLODANCER button on Android from the performer library).</div></div></div>
+      <div class="note">Phones scan the QR: they get the beat and the Holodancer (SEND TO DIRROGRAM), and send HoloSMS here.</div></div></div>
 </section>
 <section id="caS" style="margin:0 16px 14px">
-  <h2>QuestCast <span class="note" style="text-transform:none;letter-spacing:0">#667 the Quest 3 as the wearer sees it (portals, domes, gear all in place): put QUESTCAST on bus A or B</span></h2>
+  <h2>QuestCast <span class="note" style="text-transform:none;letter-spacing:0">the Quest as the wearer sees it: put QUESTCAST on a bus</span></h2>
   <div class="row"><button id="caPick" title="Pick the Chrome tab or window that shows the Quest casting (oculus.com/casting). Video only, no sound.">PICK THE CASTING WINDOW…</button><button id="caStop">STOP</button><span id="caSt" class="note" style="margin:0"></span></div>
   <div class="row"><span class="note" style="margin:0">crop the casting page's frame:</span>
     <label class="kv"><span class="sp">LEFT</span><input type="range" id="ca_l" min="0" max="0.45" step="0.005" value="0"></label>
     <label class="kv"><span class="sp">RIGHT</span><input type="range" id="ca_r" min="0" max="0.45" step="0.005" value="0"></label>
     <label class="kv"><span class="sp">TOP</span><input type="range" id="ca_t" min="0" max="0.45" step="0.005" value="0"></label>
     <label class="kv"><span class="sp">BOTTOM</span><input type="range" id="ca_b" min="0" max="0.45" step="0.005" value="0"></label></div>
-  <div class="note">On the Quest: Camera / Cast to Computer, and open oculus.com/casting in Chrome on this laptop. Start the immersive WebXR session in the headset, then pick that tab here (a tab, not the whole window, keeps Chrome's bars out). Keep this desk window open: the capture belongs to it.</div>
+  <div class="note">Quest: Cast to Computer. Here: open oculus.com/casting in Chrome, start VR, pick that tab. Keep this window open.</div>
 </section>
 <section id="twS" style="margin:0 16px 16px">
       <h2>Twitch streaming</h2>
@@ -377,14 +377,14 @@
       <div class="row"><label for="tvCode" class="note" style="margin:0">DIRROTV (SOLO):</label><input id="tvCode" placeholder="6-digit code on the TV" maxlength="8" style="width:170px"><button id="tvPair">PAIR TV</button><span class="note" style="margin:0">open venue.html on the TV, type its code here; the key stays on this laptop</span></div>
     </section>
 <section id="pmS" style="margin:0 16px 20px">
-  <h2>Projection mapping <span class="note" style="text-transform:none;letter-spacing:0">in the 🎥 projector window (open it, put it on the projector, ⛶ FULL SCREEN) · copies of the program, each on its own 4×4 or 8×8 mesh</span></h2>
+  <h2>Projection mapping <span class="note" style="text-transform:none;letter-spacing:0">in the 🎥 projector window · program copies on 4×4 / 8×8 meshes</span></h2>
   <div class="row"><button id="pmOn">MAPPING OFF</button><button id="pmEdit">EDIT POINTS</button><button id="pmTest">TEST PATTERN</button>
     <button id="pmSave">SAVE PROFILE…</button><button id="pmLoadB">LOAD PROFILE…</button><input type="file" id="pmFile" accept=".json" hidden><button id="pmResetAll" class="sm">RESET ALL</button><span id="pmSt" class="note" style="margin:0"></span></div>
   <div id="pmCopies"></div>
   <div class="row"><b style="color:#ff4d6d;min-width:64px">MASKS</b><button id="pmMaskAdd">+ MASK</button><button id="pmMaskClear" class="sm">CLEAR MASKS</button>
-    <span class="note" style="margin:0">#687 black shapes over the projector output, anywhere on either copy (MAPPING ON)</span></div>
+    <span class="note" style="margin:0">black shapes over the projector output (MAPPING ON)</span></div>
   <div id="pmMasks"></div>
-  <div class="note">On the projector: drag a point; SHIFT-drag moves a whole copy; arrow keys nudge the picked point (SHIFT = 10 px); TAB picks the next point. Masks (EDIT POINTS on): drag a red corner; SHIFT-drag inside a mask moves it; double-click a mask edge adds a corner; right-click a corner removes it. A copy's grid change keeps its shape. Profiles are saved on this laptop and as a file per venue.</div>
+  <div class="note">Drag a point · SHIFT-drag: whole copy · arrows nudge (SHIFT 10 px) · TAB: next point. Masks: drag a corner · SHIFT-drag moves · double-click an edge: add corner · right-click: remove.</div>
 </section>
 <script>
 const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
@@ -462,8 +462,8 @@ function render() {
   }
   if (window.updateVjDecks) window.updateVjDecks(D.media || D.clip || D.pano || '', false);
   const cur = $('dev').value; $('dev').innerHTML = S.devs.map(([id, l]) => `<option value="${esc(id)}">${esc(l)}</option>`).join(''); if (cur) $('dev').value = cur; else if (D.lineDev) $('dev').value = D.lineDev;
-  $('aSt').textContent = D.lineErr ? 'Line in: ' + D.lineErr : D.audioAuto ? 'No Quest sound: Twitch and DirroTV get this laptop\'s input (automatic LINE IN) until the Quest\'s sound is back.' : D.audio === 'line' ? 'Twitch gets this laptop\'s input (takes effect on the next GO LIVE or within a second if live).' : !S.D.qlink && D.tempo !== 'line' ? 'No sound for Twitch yet: no Quest, and TAP opens no microphone. Pick LINE IN here when you stream (#688).' : 'Twitch gets the Quest\'s master sound over the link.';
-  $('chatSt').textContent = D.ch ? `Twitch chat #${D.ch}${D.chQ ? ' (from the Quest)' : ''}: ${D.chat}` : 'Twitch chat: type the channel under the scroller line, or let the Quest send it (DirroVJ on).';
+  $('aSt').textContent = D.lineErr ? 'Line in: ' + D.lineErr : D.audioAuto ? 'No Quest sound: LINE IN until it is back.' : D.audio === 'line' ? 'Twitch gets LINE IN.' : !S.D.qlink && D.tempo !== 'line' ? 'No sound for Twitch: pick LINE IN.' : 'Twitch gets the Quest\'s master.';
+  $('chatSt').textContent = D.ch ? `Twitch chat #${D.ch}${D.chQ ? ' (from the Quest)' : ''}: ${D.chat}` : 'Twitch chat: type the channel below, or the Quest sends it.';
   if (document.activeElement !== $('chDesk')) $('chDesk').value = D.chDesk || '';
   $('lscSt').textContent = D.qlink ? 'lines go to the Quest\'s scroller' : D.lsc ? 'on the program: ' + D.lsc.slice(0, 40) : 'no Quest: lines scroll on the program';
   $('queue').innerHTML = S.queue.map(q => `<div class="q${q.sent ? ' sent' : ''}"><div class="t"><span class="tag${q.src === 'sms' ? ' sms' : ''}">${q.src === 'sms' ? 'HOLOSMS' : 'CHAT'}</span><span class="w">${esc(q.who)}</span><br>${esc(q.t)}</div>`
@@ -548,7 +548,7 @@ function renderStars() {
 $('cxClog').onclick = () => cx('clog');
 function armUi() {
   for (const b of document.querySelectorAll('#cxItems [data-arm]')) { const i = +b.closest('.cxI').dataset.i; b.classList.toggle('arm', !!cxArm && cxArm.i === i && cxArm.what === b.dataset.arm); }
-  $('cxArmN').textContent = cxArm ? `Click the picture to place the ${ITEM[cxItems[cxArm.i] && cxItems[cxArm.i].t] || 'item'}${cxArm.what === 'tail' ? "'s tail tip" : ''}.` : 'The selected panel (not necessarily on air). POS / TAIL on a text item, then click here to place it.';
+  $('cxArmN').textContent = cxArm ? `Click the picture to place the ${ITEM[cxItems[cxArm.i] && cxItems[cxArm.i].t] || 'item'}${cxArm.what === 'tail' ? "'s tail tip" : ''}.` : 'Selected panel (may be off air). POS / TAIL, then click to place.';
 }
 $('cxPv').onclick = e => {
   if (!cxArm || !CX || !cxItems[cxArm.i]) return; const R = CX.REF, b = e.target.getBoundingClientRect();
@@ -671,7 +671,7 @@ async function deOpen(p) {
   else if (rgbd && rec) { g.drawImage(rec, 0, 0); }   // #534 RGB+D: start from the Quest's recorded grayscale depth map so the VJ can paint/enhance it
   else rampTo(g, W, H);
   $('cxDC').width = W; $('cxDC').height = H; $('cxDEd').hidden = false; deShow();
-  $('cxDSt').textContent = rgbd && !p.depth ? 'Quest RGB+D depth map overlaid at 50%: paint FRONT / NEAR / FAR / BACK or SOFTEN to enhance it.' : p.depth ? (p.kind === 'video' ? 'Painted on a frame near the start of the clip.' : '') : 'No depth map yet: it starts as a ground ramp and saves itself when you paint, PEOPLE, FILL or SOFTEN.';
+  $('cxDSt').textContent = rgbd && !p.depth ? 'Quest depth map at 50%: paint FRONT / NEAR / FAR / BACK or SOFTEN.' : p.depth ? (p.kind === 'video' ? 'Painted on a frame near the start of the clip.' : '') : 'No depth map yet: paint, PEOPLE, FILL or SOFTEN to start one.';
 }
 function deShow() {
   if (!DE.dc) return; const c = $('cxDC'), g = c.getContext('2d'), v = $('cxDView').value;
@@ -724,7 +724,7 @@ $('cxPeople').onclick = async () => {
     const tg = tmp.getContext('2d'), id = tg.createImageData(w, h); let n = 0;
     for (let i = 0; i < w * h; i++) { const a = Math.max(0, Math.min(1, (f[i] - 0.35) / 0.3)); id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = t; id.data[i * 4 + 3] = a * 255; if (a > 0.5) n++; }
     tg.putImageData(id, 0, 0); DE.dc.getContext('2d').drawImage(tmp, 0, 0, DE.dc.width, DE.dc.height); m.close(); if (r.close) r.close();
-    deShow(); deSave(true); $('cxDSt').textContent = n ? `PEOPLE: ${Math.round(n * 100 / (w * h))}% of the picture painted ${t === 255 ? 'FRONT' : 'in the picked tone'}.` : 'PEOPLE: nobody found (the model likes people fairly large in the frame).';
+    deShow(); deSave(true); $('cxDSt').textContent = n ? `PEOPLE: ${Math.round(n * 100 / (w * h))}% of the picture painted ${t === 255 ? 'FRONT' : 'in the picked tone'}.` : 'PEOPLE: nobody found (works best with people large in frame).';
   } catch (e) { $('cxDSt').textContent = 'PEOPLE failed: ' + (e.message || e); }
 };
 
@@ -775,7 +775,7 @@ function renderShow() {
   const sh = S && S.D && S.D.sh;
   for (const b of document.querySelectorAll('[data-sh]')) { b.classList.toggle('on', !!sh && sh.cam === b.dataset.sh); b.disabled = !sh || (b.dataset.sh === 'gopro' && !sh.gp) || (b.dataset.sh === 'gopro2' && !sh.gp2); }
   for (const b of document.querySelectorAll('[data-so]')) { b.classList.toggle('on', !!sh && !!sh.o && !!sh.o[b.dataset.so]); b.disabled = !sh; }
-  $('shN').textContent = sh ? 'Same buttons as the tablet\'s SHOWTIME! page; whatever is tapped last wins, the tablet stays in charge.' : 'Waiting for the Quest: these light up once the Quest has turned DirroVJ on (and allowed this laptop).';
+  $('shN').textContent = sh ? 'Same as the tablet\'s SHOWTIME! page. Last press wins.' : 'Waiting for the Quest link.';
 }
 // ---- #550 DANCER panel
 const dz = (op, o = {}) => send({ k: 'dz', op, ...o });
@@ -828,7 +828,7 @@ function renderHo() {
   $('hoOrbit').classList.toggle('on', !!Z.cam.orbit); $('hoTears').classList.toggle('on', !!Z.tears); $('hoRoom').classList.toggle('on', !!Z.room);
   $('hoGlRow').hidden = Z.layout !== '8b';
   $('hoGram').classList.toggle('on', !!Z.gram); if (document.activeElement !== $('hoPub')) $('hoPub').value = Z.pub || '';   // #575
-  $('hoGramSt').textContent = !Z.gram ? '' : S.D.gram && S.D.gram.on ? (!Z.loaded ? 'DIRROGRAM: load a performer first' : `DIRROGRAM: sent to this laptop's room (${S.D.gram.room}) · phones load ${Z.pub}${Z.perf}/`) : !S.D.qlink ? 'DIRROGRAM: waiting for the Quest link (phones get her once the Quest is linked and this DirroVJ is allowed)' : !Z.loaded ? 'DIRROGRAM: load a performer first' : `DIRROGRAM: sent to the Quest every 2 s · phones load ${Z.pub}${Z.perf}/`;
+  $('hoGramSt').textContent = !Z.gram ? '' : S.D.gram && S.D.gram.on ? (!Z.loaded ? 'DIRROGRAM: load a performer first' : `DIRROGRAM: sent to this laptop's room (${S.D.gram.room}) · phones load ${Z.pub}${Z.perf}/`) : !S.D.qlink ? 'DIRROGRAM: waiting for the Quest link' : !Z.loaded ? 'DIRROGRAM: load a performer first' : `DIRROGRAM: sent to the Quest every 2 s · phones load ${Z.pub}${Z.perf}/`;
   if (document.activeElement !== $('hoGlitch')) $('hoGlitch').value = Z.glitch;
   hoSpdT.set(((+Z.speed || 1) - 0.25) / 1.75); if (!$('hoSpeedT').classList.contains('drag')) $('hoSpeedV').textContent = 'SPEED ' + (+Z.speed || 1).toFixed(2) + '×';
   hoZoomT.set(hz2s(Math.max(HZMIN, Math.min(HZMAX, +Z.cam.zoom || 1)))); if (!$('hoZoomT').classList.contains('drag')) $('hoZoomV').textContent = (+Z.cam.zoom || 1).toFixed(1) + '×';
@@ -936,7 +936,7 @@ function renderDv(v) {
   if (sel.dataset.l !== want) { const cur = sel.value || v.set; sel.innerHTML = (v.sets || []).map(n => `<option>${n}</option>`).join(''); sel.dataset.l = want; if (cur) sel.value = cur; }
   if (v.set && document.activeElement !== sel && !sel.dataset.touched) sel.value = v.set;
   if (document.activeElement !== $('dvCam')) $('dvCam').checked = !!v.cam;
-  $('dvSt').textContent = v.studio && v.studio !== 'ok' ? v.studio : (v.status || (v.sets && v.sets.length ? 'Click a set to load it · hover for a bigger look (rendered loops play at 1 frame a second).' : ''));
+  $('dvSt').textContent = v.studio && v.studio !== 'ok' ? v.studio : (v.status || (v.sets && v.sets.length ? 'Click a set to load · hover to preview' : ''));
   const j = v.job; $('dvJob').textContent = !j ? '' : j.status === 'running' ? `rendering "${j.name}": ${Math.round(j.progress)}%` : j.status === 'done' ? `"${j.name}" ready` : j.status === 'error' ? 'error: ' + j.err : j.status;
   const want2 = (v.arrivals || []).join('|') + '/' + v.playing;
   if ($('dvArr').dataset.l !== want2) { $('dvArr').dataset.l = want2; $('dvArr').innerHTML = '';
@@ -1052,7 +1052,7 @@ function airBadges(a) {
   if (tv) { const s = a && a.tv || 'off'; tv.textContent = 'DIRROTV: ' + (s === 'live' ? 'ON' : s === 'waiting' ? 'WAITING' : a && a.tvKnown ? 'QUEST' : 'NOT PAIRED'); tv.classList.toggle('on', s === 'live'); tv.title = 'ON: a DirroTV screen shows this program. WAITING: DirroVJ answers the paired TV key, no screen yet. QUEST: the Quest answers its TVs. NOT PAIRED: pair a TV on the Quest once (TOOLS > STREAM > DIRROTV), DirroVJ keeps the key after that.'; }
   rn.title = 'RENDER QUEST: the Quest draws the scene and sends it with its matte. RENDER LAPTOP: this laptop draws it from the mirror (sharper, no Wi-Fi video). Switched on the tablet: TWITCH > DIRROVJ.';
 }
-setInterval(() => { send({ k: 'hello', again: true }); if (Date.now() - lastSeen > 4000) $('st').textContent = 'No DirroVJ output window: open dirrovj.html in this browser, connect it and start DirroVJ.'; }, 2000);
+setInterval(() => { send({ k: 'hello', again: true }); if (Date.now() - lastSeen > 4000) $('st').textContent = 'No DirroVJ window: open dirrovj.html and connect.'; }, 2000);
 </script>
 <script type="module">/* #527 DirroComics storyboard (AI) + #532 VJ clip banks (IMAGES / VIDEOS / PANOS) */
 import { initStoryboard } from './js/storyboard.js';
