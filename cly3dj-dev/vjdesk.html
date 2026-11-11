@@ -22,9 +22,9 @@
   section { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; }
   h2 { margin:0 0 10px; font-size:13px; letter-spacing:.08em; color:var(--mute); text-transform:uppercase; }
   button, select, input[type=text], input[type=password] { font:600 14px system-ui,sans-serif; color:var(--fg); background:#1c2230; border:1px solid var(--line); border-radius:9px; padding:9px 12px; cursor:pointer; }
-  button.on { border-color:var(--blue); background:#16304a; color:#fff; } button.red { background:#7a1016; border-color:var(--red); }
+  button.on { border-color:#33e070; background:#1f9d55; color:#fff; }   /* #700 selected = green */ button.red { background:#7a1016; border-color:var(--red); }
   button.twBtn { color:var(--gold); border-color:#6a581c; background:#231f10; font-weight:800; letter-spacing:.03em; }
-  button.twBtn.live { color:#fff; background:#b0141e; border-color:var(--red); box-shadow:0 0 10px rgba(224,32,42,.45); }
+  button.twBtn.live { color:#fff; background:#1f9d55; border-color:#33e070; box-shadow:0 0 10px rgba(51,224,112,.45); } button.twBtn.warn { color:#fff; background:#b0141e; border-color:var(--red); }
   button.twBtn.wait { color:var(--gold); background:#3a3012; border-color:var(--gold); }
   .twKeyRow { display:flex; align-items:center; gap:8px; margin-top:10px; padding:8px 10px; background:#0f131c; border:1px solid var(--line); border-radius:9px; }
   .twKeyRow label { font:800 13px system-ui,sans-serif; color:var(--gold); letter-spacing:.04em; white-space:nowrap; }
@@ -123,7 +123,7 @@
   .cxI .ty { font:800 11px system-ui; width:64px; color:#f2c94c; } .cxI textarea { flex:1; min-width:220px; height:38px; font:14px system-ui; color:var(--fg); background:#1c2230; border:1px solid var(--line); border-radius:8px; padding:6px; resize:vertical; }
   .cxI input[type=range] { min-width:70px; max-width:120px; } .cxI button.arm { border-color:#f2c94c; background:#3a3214; }
   #cxDep { margin-top:10px; } #cxDC { width:100%; display:block; border-radius:8px; border:1px solid var(--line); cursor:crosshair; touch-action:none; background:#000; }
-  [data-tone].on { border-color:#f2c94c; background:#3a3214; }
+  [data-tone].on { border-color:#33e070; background:#1f9d55; color:#fff; }
   /* #550 DANCER panel + DANCER CLIPS bank */
   .dzTop { display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap; }
   .dzPadW { flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:3px; }
@@ -170,7 +170,7 @@
 <body>
 <header><h1>Dirro<span>VJ</span> desk</h1><div id="st">Looking for the DirroVJ output window…</div><span id="airOn" class="air">QUEST ON AIR</span><span id="airRen" class="air">RENDER: QUEST</span><span id="airLink" class="air">QUEST LINK: -</span><span id="airTv" class="air">DIRROTV: -</span>
 <span class="bpmBox" title="Master tempo for BEAT effects. LINE IN: follows the kicks in the live sound. TAP: tap the beat (button or T); 4 taps or more for a steady tempo; - / + nudge.">
-  <b id="bpmV">--.-</b><span class="bpmU">BPM</span><button id="tapB">TAP</button><span id="beatL"></span><button id="tmL" class="sm">LINE IN</button><button id="tmT" class="sm">TAP</button><button id="bpmM" class="sm">−</button><button id="bpmP" class="sm">+</button></span><button id="openScreen" style="margin-left:auto" title="Open the Webcam / Projector output in a separate window (drag to a 2nd monitor or projector and make full screen)">🎥 Projector</button></header>
+  <b id="bpmV">--.-</b><span class="bpmU">BPM</span><button id="tapB">TAP</button><span id="beatL"></span><button id="tmL" class="sm">LINE IN</button><button id="tmT" class="sm">TAP</button><button id="bpmM" class="sm">−</button><button id="bpmP" class="sm">+</button></span><button id="openScreen" style="margin-left:auto" title="Open the Webcam / Projector output in a separate window (drag to a 2nd monitor or projector and make full screen)">🎥 PROJECTOR</button></header>
 <main>
   <div>
     <section>
@@ -242,7 +242,7 @@
       <div id="hpBox">
         <div class="row"><span class="note" style="margin:0">HOLO+CAM / DANCER+CAM on a bus, CUE it, click the monitor to place. Pad: turn / crane. T-bar: size. Wheel: start size.</span></div>
         <div class="row"><button id="hpPick" title="On: click or drag on the monitor = where the feet go, mouse wheel on the monitor = the starting size">PLACE ON THE MONITOR</button>
-          <label class="note" style="margin:0"><input type="checkbox" id="hp_flip"> mirror</label><button id="hpReset">RESET</button><span id="hpSt" class="note" style="margin:0"></span></div>
+          <label class="note" style="margin:0"><input type="checkbox" id="hp_flip"> mirror</label><button id="hpReset">RESET SPOT</button><span id="hpSt" class="note" style="margin:0"></span></div>
         <div class="row">
           <label class="kv" title="Where the webcam is against the dancer's feet: + = above, looking down (camera high on the wall aimed at the bar), 0 = level, - = below, looking up (camera low on the floor, the dancer on the bar top)"><span class="sp">CAMERA POS</span><input type="range" id="hp_el" min="-60" max="60" step="1"><b id="hp_elV" class="note" style="margin:0;min-width:3.5em"></b></label></div>
         <div class="row">
@@ -274,20 +274,20 @@
     <div class="vjBankScroll"><div class="vjGrid" id="gridDancer"></div></div>
   </div>
   <div class="vjBank">
-    <div class="vjBankHead"><h3>IMAGES</h3><span class="note" id="vjImgNote" style="margin:0">Click a thumbnail to show it on CYCLO (and BACK: VISUALS)</span><button class="vjImp" id="impImages">+ IMPORT IMAGES…</button><input type="file" id="fileImages" multiple accept="image/*" hidden></div>
+    <div class="vjBankHead"><h3>IMAGES</h3><span class="note" id="vjImgNote" style="margin:0">Click a thumbnail to show it on CYCLO (and BACKDROP: VISUALS)</span><button class="vjImp" id="impImages">+ IMPORT IMAGES…</button><input type="file" id="fileImages" multiple accept="image/*" hidden></div>
     <div class="vjBankScroll"><div class="vjGrid" id="gridImages"></div></div>
   </div>
   <div class="vjBank">
-    <div class="vjBankHead"><h3>VIDEOS</h3><span class="note" id="vjVidNote" style="margin:0">Click a thumbnail to play it on CYCLO (and BACK: VISUALS)</span><button class="vjImp" id="impVideos">+ IMPORT VIDEOS…</button><input type="file" id="fileVideos" multiple accept="video/*" hidden></div>
+    <div class="vjBankHead"><h3>VIDEOS</h3><span class="note" id="vjVidNote" style="margin:0">Click a thumbnail to play it on CYCLO (and BACKDROP: VISUALS)</span><button class="vjImp" id="impVideos">+ IMPORT VIDEOS…</button><input type="file" id="fileVideos" multiple accept="video/*" hidden></div>
     <div class="vjBankScroll"><div class="vjGrid" id="gridVideos"></div></div>
   </div>
   <div class="vjBank">
-    <div class="vjBankHead"><h3>PANOS</h3><span class="note" id="vjPanoNote" style="margin:0">Click a pano: plays on CYCLO (and BACK: DOME) · bar: view angle</span><button class="vjImp" id="impPanos">+ IMPORT PANOS…</button><input type="file" id="filePanos" multiple accept="image/*,video/*" hidden></div>
+    <div class="vjBankHead"><h3>PANOS</h3><span class="note" id="vjPanoNote" style="margin:0">Click a pano: plays on CYCLO (and BACKDROP: DOME) · bar: view angle</span><button class="vjImp" id="impPanos">+ IMPORT PANOS…</button><input type="file" id="filePanos" multiple accept="image/*,video/*" hidden></div>
     <div class="vjBankScroll"><div class="vjGrid" id="gridPanos"></div></div>
     <div class="panoYawRow"><span class="sp">0°</span><input type="range" id="panoYaw" min="0" max="360" step="1" value="0" title="Panorama view angle (0° leftmost to 360° rightmost)"><span class="sp" id="panoYawVal" style="min-width:68px;text-align:right">0° / 360°</span></div>
   </div>
 </div>
-<div id="bankMenu" hidden><div class="bmT" id="bmT"></div><button id="bmCx">Send to DirroComics</button><button id="bmExp">Export</button><button id="bmDel" class="del">Delete</button></div>
+<div id="bankMenu" hidden><div class="bmT" id="bmT"></div><button id="bmCx">SEND TO DIRROCOMICS</button><button id="bmExp">EXPORT</button><button id="bmDel" class="del">DELETE</button></div>
 <section style="margin:0 16px 14px">
   <h2>Amiga fractal</h2>
   <div class="row"><button data-ft="mandel">MANDEL</button><button data-ft="julia">JULIA</button><button data-ft="ship">SHIP</button><button data-ft="multi">MULTI</button><span style="width:12px"></span><button data-pal="green">GREEN</button><button data-pal="island">ISLAND</button><button data-pal="lava">LAVA</button><button data-pal="ice">ICE</button><button data-pal="copper">COPPER</button><button data-pal="neon">NEON</button><button id="pump" style="margin-left:auto">PUMP</button><span id="kick" style="width:14px;height:14px;border-radius:50%;background:#333;display:inline-block"></span></div>
@@ -330,7 +330,7 @@
         <div class="row"><b class="sp" style="color:#f2c94c">DEPTH MAP</b><span class="sp">white = front, black = back (ANAGLYPH, flat &amp; RGB+D panels)</span><button id="cxDOpen">EDIT DEPTH</button><button id="cxLive" title="Video panels: MediaPipe finds the people in every frame and puts them in front">LIVE PEOPLE</button><span id="cxDSt" class="note" style="margin:0"></span></div>
         <div id="cxDEd" hidden>
           <canvas id="cxDC" width="640" height="360"></canvas>
-          <div class="row"><label class="kv" style="max-width:260px"><span class="sl" id="cxDOpLbl">Overlay 50%</span><input type="range" id="cxDOp" min="0" max="1" step="0.02" value="0.5" title="Depth map overlay opacity on top of the picture"></label><button data-tone="255" class="on">FRONT</button><button data-tone="170">NEAR</button><button data-tone="85">FAR</button><button data-tone="0">BACK</button><label class="kv"><span class="sl">Brush</span><input type="range" id="cxBrush" min="4" max="160" step="1" value="40"></label></div>
+          <div class="row"><label class="kv" style="max-width:260px"><span class="sl" id="cxDOpLbl">Overlay 50%</span><input type="range" id="cxDOp" min="0" max="1" step="0.02" value="0.5" title="Depth map overlay opacity on top of the picture"></label><button data-tone="255" class="on">FRONT</button><button data-tone="170">NEAR</button><button data-tone="85">FAR</button><button data-tone="0">FARTHEST</button><label class="kv"><span class="sl">Brush</span><input type="range" id="cxBrush" min="4" max="160" step="1" value="40"></label></div>
           <div class="row"><button id="cxPeople" title="MediaPipe finds the people and paints them in the tone picked above">PEOPLE</button><button id="cxRamp" title="RGB+D: restore recorded depth · Flat: back at the top, near at the bottom">GROUND RAMP / RESET</button><button id="cxFill" title="The whole map in the tone picked above">FILL</button><button id="cxSoft" title="Blur the map a little: softer edges, fewer tears">SOFTEN</button><button id="cxDImp" title="A grayscale depth image (white = near), e.g. from the Quest or a depth tool">IMPORT DEPTH…</button><input type="file" id="cxDFile" accept="image/*" hidden><button id="cxDClr" class="red">REMOVE</button><select id="cxDView"><option value="mix">picture + depth</option><option value="depth">depth only</option><option value="pic">picture</option></select></div>
         </div>
       </div>
@@ -366,7 +366,7 @@
 </section>
 <section id="twS" style="margin:0 16px 16px">
       <h2>Twitch streaming</h2>
-      <div class="row"><button id="aQ">QuestSound (wifi)</button><button id="aL">LINE IN</button><button id="twBtn" class="twBtn" title="Start or stop streaming the DirroVJ Program picture + sound to Twitch">TWITCH ON/OFF</button><span id="twSt" class="note" style="margin:0"></span></div>
+      <div class="row"><button id="aQ" title="The Quest's master sound over Wi-Fi">QUEST SOUND</button><button id="aL">LINE IN</button><button id="twBtn" class="twBtn" title="Start or stop streaming the DirroVJ Program picture + sound to Twitch">GO LIVE</button><span id="twSt" class="note" style="margin:0"></span></div>
       <div class="row"><select id="dev" style="width:100%"></select></div>
       <div id="aSt" class="note"></div>
       <div class="twKeyRow">
@@ -451,8 +451,8 @@ function render() {
   const tw = S.tw || { state: 'off', msg: '', kbps: 0, key: '' };
   $('twBtn').classList.toggle('live', tw.state === 'live');
   $('twBtn').classList.toggle('wait', tw.state === 'connecting');
-  $('twBtn').textContent = tw.state === 'live' ? 'TWITCH: ON (STOP)' : tw.state === 'connecting' ? 'TWITCH: CONNECTING…' : 'TWITCH ON/OFF';
-  { const q = !!(S.air && S.air.qtw) && tw.state !== 'live' && tw.state !== 'connecting'; if (q) { $('twBtn').classList.add('live'); $('twBtn').textContent = 'QUEST LIVE: STOP'; } $('twBtn').title = q ? 'The Quest is streaming to Twitch itself. Press to stop it; then TWITCH ON goes live from here' : 'Start or stop streaming the DirroVJ Program picture + sound to Twitch'; }   // #697
+  $('twBtn').textContent = tw.state === 'live' ? 'LIVE: STOP' : tw.state === 'connecting' ? 'CONNECTING…' : 'GO LIVE';
+  { const q = !!(S.air && S.air.qtw) && tw.state !== 'live' && tw.state !== 'connecting'; $('twBtn').classList.toggle('warn', q); if (q) { $('twBtn').classList.remove('live'); $('twBtn').textContent = 'QUEST LIVE: STOP'; } $('twBtn').title = q ? 'The Quest is streaming to Twitch itself. Press to stop it; then TWITCH ON goes live from here' : 'Start or stop streaming the DirroVJ Program picture + sound to Twitch'; }   // #697
   $('twSt').textContent = S.air && S.air.qtw && tw.state === 'off' ? 'Quest on Twitch' : tw.state === 'live' ? `LIVE · ${(tw.kbps / 1000).toFixed(1)} Mb/s` : tw.msg ? tw.msg : '';
   if (tw.key && document.activeElement !== $('twKey') && !$('twKey').value) $('twKey').value = tw.key;
   if (D.panoYaw != null && document.activeElement !== $('panoYaw') && !(document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('vjPanoBar'))) {
@@ -1019,7 +1019,7 @@ function renderPm() {
   PM.copies.forEach((c, i) => { const r = document.createElement('div'); r.className = 'row';
     r.innerHTML = `<b style="color:${i % 2 ? '#ffa24a' : '#39a8ff'};min-width:64px">COPY ${i + 1}</b><button data-a="on" class="${c.on ? 'on' : ''}">${c.on ? 'ON' : 'OFF'}</button>
       <button data-n="4" class="${c.n === 4 ? 'on' : ''}">4×4</button><button data-n="8" class="${c.n === 8 ? 'on' : ''}">8×8</button>
-      <span class="note" style="margin:0">brightness</span><input type="range" min="0" max="1.5" step="0.05" value="${c.bright ?? 1}" style="width:140px"><button data-a="reset" class="sm">RESET</button>`;
+      <span class="note" style="margin:0">brightness</span><input type="range" min="0" max="1.5" step="0.05" value="${c.bright ?? 1}" style="width:140px"><button data-a="reset" class="sm">RESET MESH</button>`;
     r.querySelector('[data-a=on]').onclick = () => pmSend({ k: 'pmcopy', i, v: { on: !c.on } });
     for (const b of r.querySelectorAll('[data-n]')) b.onclick = () => pmSend({ k: 'pmcopy', i, n: +b.dataset.n });
     r.querySelector('input').oninput = e => pmSend({ k: 'pmcopy', i, v: { bright: +e.target.value } });

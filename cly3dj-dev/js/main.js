@@ -2390,7 +2390,7 @@ function drawCrateScreen() {
     fitText2(g, plNow.name ? plNow.name + (ed && search.kb ? '▏' : '') : 'tap to name it', f.x + 96, f.y + bh / 2, f.w - 106);
     for (const b of search.btns.slice(1)) {
       const on = (b.id === 'mic' && document.activeElement === searchInput) || (b.id === 'plsets' && sets) || (b.id === 'plclear' && performance.now() < plUI.clearArm);
-      g.fillStyle = b.id === 'plclear' && on ? '#8a2a1a' : on ? '#23527c' : b.id === 'plsave' ? '#1d5a33' : '#1b2128'; g.fillRect(b.x, b.y, b.w, b.h);
+      g.fillStyle = b.id === 'plclear' && on ? '#8a2a1a' : on ? '#1f9d55' : b.id === 'plsave' ? '#1d5a33' : '#1b2128'; g.fillRect(b.x, b.y, b.w, b.h);
       g.textAlign = 'center'; g.fillStyle = '#e6e9ec';
       if (b.id === 'pl') { drawPlIcon(g, b.x + b.w / 2, b.y + bh / 2, true, plNow.items.length); continue; }
       if (b.id === 'plmilk') { drawJumpIcon(g, b.x + b.w / 2, b.y + bh / 2, !!plJump); continue; }
@@ -2416,7 +2416,7 @@ function drawCrateScreen() {
   fitText2(g, hint ? 'Pinch or pull the trigger on 🎤 for the Meta keyboard' : search.q ? search.q + (search.kb ? '▏' : '') : 'Search title, artist, genre, key, BPM', f.x + 58, f.y + bh / 2, f.w - 70);
   for (const b of search.btns.slice(1)) {
     const on = (b.id === 'kb' && search.kb) || (b.id === 'mic' && document.activeElement === searchInput);
-    g.fillStyle = on ? '#23527c' : '#1b2128'; g.fillRect(b.x, b.y, b.w, b.h);
+    g.fillStyle = on ? '#1f9d55' : '#1b2128'; g.fillRect(b.x, b.y, b.w, b.h);   // #700
     g.textAlign = 'center'; g.font = `34px ${EMOJI}`; g.fillStyle = b.id === 'clear' ? (search.q ? '#e6e9ec' : '#3d454e') : '#e6e9ec';
     if (b.id === 'milk') { drawMilkIcon(g, b.x + b.w / 2, b.y + bh / 2, Object.keys(extraMilk).length + 1 < MILK_MAX); continue; }
     if (b.id === 's45') { const pl = lib && lib.playlists[crateState.pl]; draw45Icon(g, b.x + b.w / 2, b.y + bh / 2, !!(pl && pl.name === '45s' && !search.results)); continue; }
@@ -5686,7 +5686,7 @@ function drawVideoPage() {
   VP_HIT.length = 0;
   g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H);
   const btn = (x, y, w, h, label, on, act, dim) => {
-    g.fillStyle = on ? (onGreen(label) ? '#1f9d55' : '#c8202c') : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);
+    g.fillStyle = on ? selFill(label) : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : dim ? '#56627a' : '#3a4252';
     btnLabel(g, label, x, y, w, h, 17); g.textBaseline = 'alphabetic';   // #198 narrow portrait buttons (#349 two lines)
     if (act) VP_HIT.push({ x, y, w, h, act });
@@ -5707,7 +5707,7 @@ function drawVideoPage() {
     for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam', 'Fx']) { const w = { Pano: 50, Video: 50, Images: 58, Camera: 66, Sync: 44, Look: 44, 'DJ Cam': 62, Fx: 36 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)); x += w + 4; }   // #379 narrower again for FX
     btn(x, 8, 62, 32, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #342 the scroller editor
     btn(x + 66, 8, 52, 32, 'CYCLO ⁺¹', ledMode !== 'off', () => { videoPage = false; setTools('wall'); });   // #441, #537
-    btn(W - 8 - 62 - 4 - 66 - 4 - 56, 8, 56, 32, 'MAIN', false, () => setVideoPage(false));   // #225 (#441 narrower for WALL; #603 MAIN = the main menu)
+    btn(W - 8 - 62 - 4 - 66 - 4 - 56, 8, 56, 32, 'MAIN MENU', false, () => setVideoPage(false));   // #225 (#441 narrower for WALL; #603 MAIN = the main menu)
     btn(W - 8 - 62 - 4 - 66, 8, 66, 32, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW
     btn(W - 8 - 62, 8, 62, 32, '◀ BACK', false, navCan() ? navBack : null, !navCan());   // #363
   }
@@ -6052,7 +6052,7 @@ function drawDeckPanel(g, d, x0, y0, w, h, P) {
   }
 }
 function drawTopBtn(g, x, y, w, h, label, on, dim, fs = 22) {
-  g.fillStyle = on ? (onGreen(label) ? '#1f9d55' : '#c8202c') : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);
+  g.fillStyle = on ? selFill(label) : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);
   g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : dim ? '#56627a' : '#5a6272';
   btnLabel(g, label, x, y, w, h, fs); g.textBaseline = 'alphabetic';   // #349
 }
@@ -6186,8 +6186,7 @@ function drawDisc(g, cx, cy, R, bmp, title, s7 = false) {
 const _lblOver = [];   // test hook: labels that had to be cut
 function btnLabel(g, label, x, y, w, h, fs0 = 17, weight = 700) {
   if (label.endsWith('⁺¹')) {   // #441 a tiny +1 in the upper right: this button opens a page of sub menus that is not obvious
-    label = label.slice(0, -2).trimEnd(); btnLabel(g, label, x, y, w - 6, h, fs0, weight);
-    g.save(); g.font = '700 11px system-ui'; g.textAlign = 'right'; g.textBaseline = 'top'; g.fillText('+1', x + w - 3, y + 2); g.restore(); return;
+    label = label.slice(0, -2).trimEnd() + ' ▸';   // #700 owner: the tiny +1 read like part of the name; ▸ = opens its own page, like OBJECTS ▸
   }
   if (label.endsWith('⟳')) {   // #538 a small cycle mark in the upper right: tapping steps through states (drawn, not a font glyph)
     label = label.slice(0, -1).trimEnd(); btnLabel(g, label, x, y, w - 8, h, fs0, weight);
@@ -6634,7 +6633,7 @@ function drawLooperPage(page, T) {
     [x, y, w] = grp(x0 + 126, 108);   // transport
     txt(stTxt, x + (w - bitWidth(stTxt, 2)) / 2, y + 5, 2, AM.cyan);
     { const bh = 2 * rH + gap, hit = gad(x, y + rH, w, bh, '', st !== 'empty', () => pressLooper('tablet'), false, stCol); hit.long = clearLooper;   // #474 REC / PLAY / CLR stacked
-      const lp = 1.75, off = st !== 'empty' ? 1 : 0; ['REC', 'PLAY', 'CLR'].forEach((l, i) => txt(l, x + (w - bitWidth(l, lp)) / 2, y + rH + (bh - 3 * 7 * lp - 2 * 4) / 2 + i * (7 * lp + 4) + off, lp, stCol)); }
+      const lp = 1.75, off = st !== 'empty' ? 1 : 0; ['REC', 'PLAY', 'CLEAR'].forEach((l, i) => txt(l, x + (w - bitWidth(l, lp)) / 2, y + rH + (bh - 3 * 7 * lp - 2 * 4) / 2 + i * (7 * lp + 4) + off, lp, stCol)); }
     [x, y, w] = grp(x0 + 240, 196);   // markers
     { const mw = [38, 44, 40, w - 122 - 3 * gap]; let mx = x; markGads.forEach(([l, on, a], i) => { gad(mx, y, mw[i], rH, l, on, a, dimE, l === 'FIX' ? AM.grn : null); mx += mw[i] + gap; });   // #500 FIX LOOP gets the last slot
       const w4 = (w - 3 * gap) / 4; nudgeGads.forEach(([l, a], i) => gad(x + i * (w4 + gap), y + rH + gap, w4, rH, l, false, a, dimE));
@@ -6662,6 +6661,7 @@ function drawLooperPage(page, T) {
 const pcs = v => Math.round(v * 100) + '%';
 var btnGreen = false;   // #545 see the tools-page btn (var: drawMixScreen can run before this line)
 function onGreen(label) { return typeof label === 'string' && /(:\s*ON\b|\sON$|^ON$)/.test(label); }   // #699 owner: a button that says ON (SOUND: ON, TV ON, 25 FPS: ON) is green when on
+function selFill(label) { return /TAP AGAIN|DELETE|FORGET|END STREAM|TAKES OVER|● REC/.test(String(label || '')) ? '#c8202c' : '#1f9d55'; }   // #700 owner: every selected / on button is green; only confirm-again and destructive presses stay red
 let holoLibCache = null;   // #671
 let propsClearT = 0, mpTab = 'props', mpSurfName = '', surfDelT = 0;
 function drawPropsPage(T) {
@@ -8236,7 +8236,7 @@ function drawToolsPage() {
   if (toolsPage === 'acid' && ACIDL.tex) g.clearRect(0, 0, W, H);   // #618 transparent overlay over the plate layer
   else { g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H); }
   const btn = (x, y, w, h, label, on, act, dim, fs0 = 17) => {
-    g.fillStyle = on ? (btnGreen || onGreen(label) ? '#1f9d55' : '#c8202c') : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);   // #545 btnGreen: 'this is what is live now' (DIRROVJ page)
+    g.fillStyle = on ? (btnGreen ? '#1f9d55' : selFill(label)) : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);   // #545 btnGreen: 'this is what is live now' (DIRROVJ page)
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : dim ? '#56627a' : '#3a4252';
     btnLabel(g, label, x, y, w, h, fs0); g.textBaseline = 'alphabetic';   // #349 two lines when needed
     if (act) VP_HIT.push({ x, y, w, h, act });
@@ -8328,7 +8328,7 @@ function drawToolsPage() {
     g.textBaseline = 'alphabetic';
     const keys = ['card', 'show', 'vj'];   // #389 AVACAM source gone: GOPRO / GOPRO2 do that job   // #374 PHONE and PHONE CAM SETUP moved into SHOWTIME! (camera pick on OBJECTS);   // #347 PHONE CAM   // #338 VJ SETUP where VIDEOWALL was   // #372 HEADSET CAM and PHONE CAM are camera picks inside SHOWTIME! (OBJECTS page)
     const inShow = k => S.source === k || (k === 'show' && (S.source === 'headset' || S.source === 'pcam' || S.source === 'avacam'));
-    const srcBtn = (k, x, y, w, h) => { if (k === 'vj') return btn(x, y, w, h, 'VJ SETUP', false, () => setVideoPage(true), false, P ? 20 : 17);   // #338 the VISUALS pages, as from the main mixer page
+    const srcBtn = (k, x, y, w, h) => { if (k === 'vj') return btn(x, y, w, h, 'VISUALS ▸', false, () => setVideoPage(true), false, P ? 20 : 17);   // #338 the VISUALS pages, as from the main mixer page
       btn(x, y, w, h, k === 'card' ? 'CARD ⁺¹' : STREAM_SRC[k], inShow(k), k === 'card' ? () => { S.setSource('card'); setTools('card'); } : () => S.setSource(k), false, P ? 20 : 18); };   // #445 CARD opens its page
     const ending = performance.now() - (streamEndArm || 0) < 2500;
     const goLabel = live || st === 'connecting' ? (ending ? 'TAP AGAIN TO END' : 'END STREAM') : 'GO LIVE';
@@ -8343,7 +8343,7 @@ function drawToolsPage() {
     const optBtn = ([k, label, ok], x, y, w, h) => {
       if (k === 'objects') return btn(x, y, w, h, 'OBJECTS ▸', false, () => setTools('showobj'), false, P ? 17 : 15);
       if (k === 'chat') return btn(x, y, w, h, chat && chat.msgs.some(m => !m.sys && performance.now() - m.t < 60000) ? 'CHAT ▸ ●' : 'CHAT ▸', false, chat ? () => setTools('chat') : null, !chat, P ? 17 : 15);
-      if (k === 'backdrop') return btn(x, y, w, h, 'BACK: ' + O.backdrop.toUpperCase(), ok && O.backdrop !== 'none', ok ? () => S.nextBackdrop() : null, !ok, P ? 16 : 13);
+      if (k === 'backdrop') return btn(x, y, w, h, 'BACKDROP: ' + O.backdrop.toUpperCase(), ok && O.backdrop !== 'none', ok ? () => S.nextBackdrop() : null, !ok, P ? 16 : 13);
       return btn(x, y, w, h, label, ok && O[k], ok ? () => S.setShowOpt(k, !O[k]) : null, !ok, P ? 17 : 15);
     };
     const gpZoom = () => { const gp = gpActive(); if (gp) { gp.nextZoom(); drawMixScreen(); } };
@@ -8430,7 +8430,7 @@ function drawToolsPage() {
     const y0 = head('TWITCH CHAT · #' + (chat ? chat.channel : ''), 'stream'); if (!chat) return;
     const S = streamer, bw = P ? (R - L - 16) / 3 : 150, bh = P ? 48 : 36;
     btn(L, y0, bw, bh, chatPanel && chatPanel.on ? 'PANEL: ON' : 'PANEL', !!(chatPanel && chatPanel.on), chatPanelTap, !chatPanel, 16);
-    btn(L + bw + 8, y0, bw, bh, 'ON TWITCH', !!(S && S.showOpt.chat), S ? () => S.setShowOpt('chat', !S.showOpt.chat) : null, !S, 16);
+    btn(L + bw + 8, y0, bw, bh, 'TWITCH CHAT', !!(S && S.showOpt.chat), S ? () => S.setShowOpt('chat', !S.showOpt.chat) : null, !S, 16);
     btn(L + 2 * (bw + 8), y0, bw, bh, 'RECONNECT', false, () => { chat.stop(); chat.tries = 0; chat.start(); drawMixScreen(); }, false, 16);
     // #341 CHALKBOARD (a slate with chalks on its ledge; #377 its own object, not the chat panel) and WIPE (tap twice)
     const yb2 = y0 + bh + (P ? 8 : 6), bw2 = P ? (R - L - 8) / 2 : 150, wipeArm = performance.now() - (chalkWipeT || 0) < 2500;
@@ -8441,7 +8441,7 @@ function drawToolsPage() {
     if (P) g.fillText(st, L + 4, y0 + bh + 16); else g.fillText(st, L + 3 * (bw + 8) + 6, y0 + bh / 2);
     g.textBaseline = 'alphabetic';
     const cy = y0 + 2 * bh + (P ? 40 : 14);
-    if (!chat.msgs.some(m => !m.sys)) note('No messages yet. Read-only: replies from the headset need a Twitch login (later). PANEL: a chat screen in the room, grip / pinch to move it, double-tap PANEL = back to its spot. ON TWITCH: chat on the right of SHOWTIME!.', cy + 60);
+    if (!chat.msgs.some(m => !m.sys)) note('No messages yet. Read-only: replies from the headset need a Twitch login (later). PANEL: a chat screen in the room, grip / pinch to move it, double-tap PANEL = back to its spot. TWITCH CHAT: chat on the right of SHOWTIME!.', cy + 60);
     else drawChat(g, L, cy, R - L, H - cy - (P ? 28 : 6), chat.msgs, { fs: P ? 17 : 16, bg: '#0a0c12', onEmote: chatRedraw });
     return;
   }
@@ -8498,7 +8498,7 @@ function drawToolsPage() {
     const r2 = v => Math.round(v * 100) / 100;
     const toggles = [
       [P ? (C.green ? 'GREEN SCREEN: ON' : 'GREEN SCREEN') : (C.green ? 'GREEN SCR: ON' : 'GREEN SCR'), C.green, () => S.setPcam('green', !C.green)],
-      ['BACK: ' + S.showOpt.backdrop.toUpperCase(), C.green && S.showOpt.backdrop !== 'none', () => S.nextBackdrop(), !C.green],   // #374 the shared backdrop (only seen with GREEN SCREEN)
+      ['BACKDROP: ' + S.showOpt.backdrop.toUpperCase(), C.green && S.showOpt.backdrop !== 'none', () => S.nextBackdrop(), !C.green],   // #374 the shared backdrop (only seen with GREEN SCREEN)
       [P ? (C.light ? 'LIGHT MATCH: ON' : 'LIGHT MATCH') : (C.light ? 'LIGHT: ON' : 'LIGHT'), C.light, () => S.setPcam('light', !C.light)],
       [P ? (C.lat ? 'LATENCY: ON' : 'LATENCY MATCH') : (C.lat ? 'LATENCY: ON' : 'LATENCY'), C.lat, () => S.setPcam('lat', !C.lat)],
       [P ? 'KEY: ' + KEY_LABEL[(K && K.col) || 0] : 'KEY ' + ['GRN', 'BLUE', 'MAG'][(K && K.col) || 0], false, K ? () => { keySend('col', (((K.col || 0) + 1) % 3)); drawMixScreen(); } : null, !K],
@@ -8618,11 +8618,11 @@ function drawToolsPage() {
     const w3 = (R - L - 2 * gap) / 3, w4 = (R - L - 3 * gap) / 4, w5 = (R - L - 4 * gap) / 5, fs = P ? 18 : 15;
     btnGreen = !!(s8 && s8.run); btn(L, y1, w4, bh, U.on ? (s8 && s8.run ? 'DIRROVJ: ON AIR' : 'DIRROVJ: ON') : 'DIRROVJ: OFF', U.on, () => S.setStudio('on', !U.on), false, fs); btnGreen = false;   // #545 green once DirroVJ really makes the picture
     btn(L + w4 + gap, y1, w4, bh, U.snd ? 'SOUND: ON' : 'SOUND: OFF', U.snd, () => S.setStudio('snd', !U.snd), false, fs);
-    btn(L + 2 * (w4 + gap), y1, w4, bh, 'BACK: ' + S.showOpt.backdrop.toUpperCase(), S.showOpt.backdrop !== 'none', () => { S.nextBackdrop(); S._stuSync(); }, false, fs);
+    btn(L + 2 * (w4 + gap), y1, w4, bh, 'BACKDROP: ' + S.showOpt.backdrop.toUpperCase(), S.showOpt.backdrop !== 'none', () => { S.nextBackdrop(); S._stuSync(); }, false, fs);
     {   // #545 RENDER as a two-way switch, the side doing the work in green (#504: LAPTOP needs a page that can draw SHOW; a phone falls back to the Quest)
       const lap = U.local && !!(s8 && s8.lr), hw = (w4 - 4) / 2, rx = L + 3 * (w4 + gap); btnGreen = true;
-      btn(rx, y1, hw, bh, P ? 'RENDER QUEST' : 'QUEST', !lap, U.local ? () => S.setStudio('local', false) : null, false, P ? 14 : 12);
-      btn(rx + hw + 4, y1, hw, bh, P ? 'RENDER LAPTOP' : 'LAPTOP', lap, !U.local ? () => S.setStudio('local', true) : null, false, P ? 14 : 12); btnGreen = false;
+      btn(rx, y1, hw, bh, 'RENDER QUEST', !lap, U.local ? () => S.setStudio('local', false) : null, false, P ? 14 : 12);
+      btn(rx + hw + 4, y1, hw, bh, 'RENDER LAPTOP', lap, !U.local ? () => S.setStudio('local', true) : null, false, P ? 14 : 12); btnGreen = false;
       if (U.local && !lap) { g.font = '600 11px system-ui'; g.fillStyle = '#ffd040'; g.textAlign = 'center'; g.fillText(s8 ? 'this page can\'t render' : 'waiting', rx + hw * 1.5 + 4, y1 + bh + (P ? 12 : 10)); }
     }
     let y2 = y1 + bh + gap;
@@ -8630,7 +8630,7 @@ function drawToolsPage() {
       const armed = spNewArm > 0 && performance.now() - spNewArm < 3000, bw = 2 * w4 + gap, lost = U.on && S.vjLost;
       g.font = `700 ${P ? 17 : 15}px system-ui`; g.fillStyle = lost ? '#ff6a6a' : '#dfe6f2'; g.textAlign = 'left';
       fitText2(g, lost ? 'DirroVJ silent for 10 s.' : `Code ${spectCode()}${settings.spect !== 'on' ? ' (link off in Settings)' : ''}`, L + 2, y2 + bh * 0.62, R - L - bw - 10);
-      if (lost) btn(R - bw, y2, bw, bh, 'TAKE BACK', true, () => S.takeBack(), false, fs);
+      if (lost) btn(R - bw, y2, bw, bh, 'QUEST TAKES OVER', true, () => S.takeBack(), false, fs);
       else btn(R - bw, y2, bw, bh, armed ? 'TAP AGAIN: NEW CODE' : 'NEW CODE', armed, () => { if (armed) { spNewArm = 0; newSpectCode(); } else spNewArm = performance.now(); drawMixScreen(); }, false, fs);
       y2 += bh + gap;
     }
@@ -8667,8 +8667,8 @@ function drawToolsPage() {
       g.fillStyle = m.holo ? '#1d2a3c' : '#121722'; g.fillRect(L, y, R - L, rh - 6);
       g.fillStyle = '#8c96a8'; g.font = '600 11px system-ui'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillText(ago ? `${ago} min ago` : 'just now', L + 6, y + 13);
       g.fillStyle = '#ffffff'; g.font = '500 14px system-ui'; wrapText(g, m.t, L + 6, y + 29, bx - L - 14, 16, 2);
-      btn(bx, y + 4, bw, rh - 14, 'HOLO', m.holo, () => d.smsHolo(m.id), false, 15);
-      btn(bx + bw + 6, y + 4, bw, rh - 14, 'SINE', m.sine, () => d.smsSine(m.id), false, 15);
+      btn(bx, y + 4, bw, rh - 14, 'TO HOLO', m.holo, () => d.smsHolo(m.id), false, 15);
+      btn(bx + bw + 6, y + 4, bw, rh - 14, 'TO SCROLLER', m.sine, () => d.smsSine(m.id), false, 15);
       btn(bx + 2 * (bw + 6), y + 4, bw, rh - 14, '✕', false, () => d.smsDelete(m.id), false, 18);
     });
     const fy = y0 + 4 + per * rh + 2, fw = (R - L - 18) / 4;
@@ -9327,7 +9327,7 @@ function drawToolsPage() {
       }
       if (P) { x = L; by2 = by + kh + gap; }   // portrait: emoji on a row of their own
     }
-    const cw = P ? 48 : 70; btn(x, by2, cw, kh, 'CLR', false, () => { kbd.text = ''; }); x += cw + gap;
+    const cw = P ? 48 : 70; btn(x, by2, cw, kh, 'CLEAR', false, () => { kbd.text = ''; }); x += cw + gap;
     const rest = R - x, dw = P ? 50 : 80, ew2 = P ? 64 : 110, sw = rest - dw - ew2 - 2 * gap;
     btn(x, by2, sw, kh, 'SPACE', false, () => kbdKey('SPACE'));
     btn(x + sw + gap, by2, dw, kh, '⌫', false, () => kbdKey('DEL'));
@@ -9439,13 +9439,13 @@ function drawToolsPage() {
     const sub = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 14px system-ui'; g.textAlign = 'left'; fitText2(g, s, x0 + lw, y, R - x0 - lw); };
     let y = cy0;
     row(y, 'SOUND');
-    btn(x0 + lw, y + bo, bw, 34, 'BLANK', maker.kind === 'blank', () => { maker.kind = 'blank'; });
+    btn(x0 + lw, y + bo, bw, 34, 'SILENT', maker.kind === 'blank', () => { maker.kind = 'blank'; });
     btn(x0 + lw + bw + 6, y + bo, bw, 34, 'SONG…', maker.kind === 'song', () => setTools('pickSong'));
     btn(x0 + lw + 2 * (bw + 6), y + bo, bw, 34, 'CLIP…', maker.kind === 'clip', () => setTools('pickVideo'));
     sub(makerSourceText(), y + bo + 52); y += 64 + bo;
     row(y, 'LABEL');
     btn(x0 + lw, y + bo, bw, 34, 'PICTURE…', !!maker.image, () => setTools('pickImage'));
-    btn(x0 + lw + bw + 6, y + bo, bw, 34, 'NONE', !maker.image && !(maker.art && maker.art.label), () => { maker.image = null; if (maker.art) { maker.art.label = null; maker.artLabelBmp = null; } });
+    btn(x0 + lw + bw + 6, y + bo, bw, 34, 'NO LABEL ART', !maker.image && !(maker.art && maker.art.label), () => { maker.image = null; if (maker.art) { maker.art.label = null; maker.artLabelBmp = null; } });
     btn(x0 + lw + 2 * (bw + 6), y + bo, bw, 34, maker.size === 7 ? 'SIZE: 7"  45' : 'SIZE: 12"', maker.size === 7, () => { maker.size = maker.size === 7 ? 12 : 7; });   // #261
     sub((maker.art ? artSummary() : maker.image ? 'Picture: ' + maker.image.replace(/\.[^.]+$/, '') : 'Plain red label with the name') + (maker.size === 7 ? '  ·  7" single, 45 rpm, needs the adapter, into the 45s list' : ''), y + bo + 52); y += 64 + bo;
     row(y, 'NAME');
@@ -9533,10 +9533,10 @@ function drawToolsPage() {
     const SL = [['front', 'SLEEVE'], ['label', 'LABEL A'], ['back', 'BACK']];
     const slot = (key, name, x, y, w, h) => {
       const on = art.slot === key, im = art.slots[key];
-      g.fillStyle = on ? '#c8202c' : '#1a2233'; g.fillRect(x, y, w, h);
+      g.fillStyle = on ? '#1f9d55' : '#1a2233'; g.fillRect(x, y, w, h);   // #700 selected = green
       const ts = h - 8; drawArtThumb(g, im ? artThumb(im.thumb, im.src, artRedraw) : null, x + 4, y + 4, ts, ts, !im);
       g.fillStyle = '#fff'; g.font = '700 15px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
-      if (w - ts > 40) { fitText2(g, name, x + ts + 12, y + h * 0.36, w - ts - 16); g.fillStyle = on ? '#ffd9d9' : '#8c96a8'; g.font = '500 12px system-ui'; fitText2(g, im ? 'tap a picture to change' : on ? 'tap a picture' : 'none', x + ts + 12, y + h * 0.7, w - ts - 16); }
+      if (w - ts > 40) { fitText2(g, name, x + ts + 12, y + h * 0.36, w - ts - 16); g.fillStyle = on ? '#dcffe8' : '#8c96a8'; g.font = '500 12px system-ui'; fitText2(g, im ? 'tap a picture to change' : on ? 'tap a picture' : 'none', x + ts + 12, y + h * 0.7, w - ts - 16); }
       else { g.textAlign = 'center'; g.font = '700 12px system-ui'; g.fillText(name, x + w / 2, y + h - 10); }
       g.textBaseline = 'alphabetic';
       VP_HIT.push({ x, y, w, h, act: () => { art.slot = key; } });

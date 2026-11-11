@@ -71,7 +71,7 @@ export function startCamera(ctx) {
     #spSt { margin:6px 0 10px; font-weight:600; color:#8b909a; min-height:1.4em; }
     #spO { position:fixed; inset:0; pointer-events:none; color:#e6e8ec; font:14px/1.4 system-ui,sans-serif; }
     #spO .bar { position:absolute; left:8px; right:8px; bottom:12px; display:flex; flex-wrap:wrap; gap:6px; justify-content:center; pointer-events:auto; }
-    #spO .bar button { padding:10px 11px; background:rgba(14,16,22,.78); } #spO .bar button.on { border-color:#39a8ff; color:#fff; }
+    #spO .bar button { padding:10px 11px; background:rgba(14,16,22,.78); } #spO .bar button.on { border-color:#33e070; background:#1f9d55; color:#fff; }
     #spO .info { position:absolute; top:8px; left:8px; right:8px; font:12px/1.4 ui-monospace,monospace; background:rgba(14,16,22,.78); padding:6px 9px; border-radius:8px; }
     #spO .hint { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(14,16,22,.82); padding:8px 12px; border-radius:8px; text-align:center; max-width:80%; }
     #spO .hint.go { border:1px solid #39a8ff; font-weight:600; }
@@ -84,7 +84,7 @@ export function startCamera(ctx) {
       <h1>Dirro<span>DJ</span> camera</h1>
       <p>Films the DJ with the virtual gear. On the Quest: Settings, Phone / DirroVJ link On, then read the code shown there.</p>
       <input id="spCode" inputmode="numeric" maxlength="5" placeholder="00000">
-      <button id="spConnect">Connect</button><div id="spSt"></div><button id="spAR" disabled>Start camera (AR)</button><button id="spFix" disabled>Fixed camera: tripod, no AR</button>
+      <button id="spConnect">LINK TO QUEST</button><div id="spSt"></div><button id="spAR" disabled>Start camera (AR)</button><button id="spFix" disabled>Fixed camera: tripod, no AR</button>
       <label style="display:flex;gap:8px;align-items:center;margin-top:8px;color:#8b909a;font-size:14px">Fixed camera uses <select id="spFixCam" style="font:600 14px system-ui;background:#1c2230;color:#e6e8ec;border:1px solid #2e3850;border-radius:8px;padding:6px"><option value="environment">main camera</option><option value="user">selfie camera</option></select></label><button id="spCamTest">Camera access test (no Quest needed)</button>
       <button id="spLibBtn">Library: panoramas, videos, images (synced with the Quest)…</button>
       <!-- #514 the Library (synced with the Quest) gives the panorama and the videos: the two old pickers stay in the page, hidden -->
@@ -126,17 +126,17 @@ export function startCamera(ctx) {
   if (VJ) {   // #500 DirroVJ start page: no AR; the webcam (fixed camera) is optional, only for LIVE DJ! / LIVE KEY!
     document.title = 'DirroVJ';
     $('#spS h1').innerHTML = 'Dirro<span>VJ</span>';
-    $('#spS p').textContent = 'This page is the DirroVJ ENGINE: it draws the program for the desk, the projector window, Twitch and DirroTV, so keep it open (minimise it; closing it stops them). The VJ desk for the cabin laptop. Clicking Connect automatically spawns the DirroVJ desk window, launches the Webcam / Projector window (for your 2nd monitor / projector), and starts the webcam. On the Quest: Settings > Phone / DirroVJ link On and read the code there.';
+    $('#spS p').textContent = 'This page is the DirroVJ ENGINE: it draws the program for the desk, the projector window, Twitch and DirroTV, so keep it open (minimise it; closing it stops them). The VJ desk for the cabin laptop. LINK TO QUEST opens the desk, the projector window and the webcam. On the Quest: Settings > Phone / DirroVJ link On and read the code there.';
     $('#spAR').hidden = true;
     $('#spFix').disabled = false;
-    $('#spConnect').textContent = 'Connect to the Quest (LINKED)';   // #662
+    $('#spConnect').textContent = 'LINK TO QUEST';   // #662
     $('#spConnect').insertAdjacentHTML('beforebegin', '<button id="spSolo" style="background:#1d3f66;color:#fff;font-weight:700">START SOLO (no Quest)</button>');
     $('#spConnect').insertAdjacentHTML('afterend', '<button id="spDesk">Open the VJ desk (control window)</button><button id="spScreen">Open Webcam / Projector window (2nd monitor / full screen)</button>');
     $('#spDesk').onclick = () => studio.openDesk();   // #507
     $('#spScreen').onclick = () => studio.openScreenWin();   // #531
     $('#spScreen').insertAdjacentHTML('afterend', '<button id="spHere" title="Make this window the projector output: one window, nothing copied, and it keeps drawing (a minimised window does not)">OUTPUT HERE (this window = projector)</button>');
     $('#spHere').onclick = () => studio.outputHere(true);   // #665
-    $('#spFix').textContent = 'Start webcam (optional: the WEBCAM source, aim it at the DJ or the crowd)';   // #501
+    $('#spFix').textContent = 'START WEBCAM';   // #501
   }
 
   // ---------------------------------------------------------------- link
