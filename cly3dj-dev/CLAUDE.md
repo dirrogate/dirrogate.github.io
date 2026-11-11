@@ -2446,3 +2446,4 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - dirrovj.html / camera page: Connect -> LINK TO QUEST (both pages); laptop: 'Start webcam (optional…)' -> START WEBCAM, intro line shortened. (The phone-only AR button was already hidden on the laptop.)
 - Start page HUD: DJ view [1], Overhead [2], Crate [3], Help [H] (owner: square brackets).
 - Tests: node --check on all changed JS and inline scripts; tablet DIRROVJ, STREAM and VISUALS pages drawn in the PC pane; desk loads (GO LIVE, QUEST SOUND, selected = rgb(31,157,85)); HUD labels. sw.js v181. No Node restart needed. Backup backups/pre700/.
+- Manual (DirroVJ_DirroDJ_User_Manual .docx / .pdf): new names in the text; the LIVE DJ! / LIVE KEY! rows and the last ALLOW lines (setup steps, troubleshooting) removed; Figures 7, 10 and 11 recaptured with green selected buttons. The manual's other tablet figures still show red selected buttons.
