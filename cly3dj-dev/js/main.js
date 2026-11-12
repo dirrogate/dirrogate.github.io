@@ -5796,6 +5796,7 @@ function tSlider(g, x, y, w, h, label, v, txt, set, dim, lwMax = 110) {   // #42
   VP_HIT.push({ x: tx - 10, y, w: tw + 20, h, drag: true, act: px => set(clamp((px - tx) / tw, 0, 1)) });   // #422 drag: finger / mouse held on the bar keeps moving it
 }
 // #379 VISUALS > FX: FLOAT balls (the DJ drops them on gear in the headset; here the list with each one's float amount) and WATER
+let dvSecQ = null, dvSecT = 0;   // #710 the PER SCENE slider while it is dragged
 let fxClearT = 0;
 function drawFxTab(btn, y0) {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
@@ -8413,16 +8414,27 @@ function drawToolsPage() {
         .forEach(([lb, on, act, off], i) => btn(L + i * (hw + gap), yy + (P ? 6 : 0), hw, bh, lb, on, off ? null : act, off, P ? 15 : 14));
       return yy + (P ? 6 : 0) + bh;
     };
+    // #710 AUTO DIRROVERSE: DirroVJ's desk steps through its DirroVerse bank, one scene every N seconds (30 to 180)
+    const dvRow = yy => {
+      const dv = (S.s8 && S.s8.dv) || null, linked = !!S.stuLink, on = !!(dv && dv.on), sec = dvSecQ != null ? dvSecQ : dv ? +dv.sec || 60 : 60, bw = Math.round((R - L) * 0.36);
+      btn(L, yy, bw, bh, on ? 'AUTO DIRROVERSE: ON' : 'AUTO DIRROVERSE', on, linked ? () => { S.dvAuto(!on, sec); drawMixScreen(); } : null, !linked, P ? 14 : 13);
+      tSlider(g, L + bw + gap, yy, R - L - bw - gap, bh, 'PER SCENE', (sec - 30) / 150, sec + ' s', f => { dvSecQ = Math.round((30 + f * 150) / 5) * 5; clearTimeout(dvSecT); dvSecT = setTimeout(() => { S.dvAuto(null, dvSecQ); dvSecQ = null; drawMixScreen(); }, 350); drawMixScreen(); }, !linked);
+      const st = !linked ? 'DirroVJ not linked' : !dv ? 'Waiting for DirroVJ (reload dirrovj.html if this stays)' : on ? (dv.verse ? dv.verse + (dv.n < 2 ? ': needs two scenes' : dv.left ? ' · next scene in ' + dv.left + ' s' : '') : 'no DirroVerse bank on the desk yet') : 'Put DIRROVERSE on a bus on the desk to see it.';
+      g.fillStyle = '#8c96a8'; g.font = '600 13px system-ui'; g.textAlign = 'left'; g.fillText(st, L + 2, yy + bh + 16);
+      return yy + bh + 24;
+    };
     if (isWeb) {   // #374 / #530 WEBCAM block: status, main switches, and WEBCAM SETUP page
       const C = S.pc_, st = pcamStatus(S), yb = ry + bh + (P ? 44 : 20);
       g.fillStyle = '#dfe6f2'; g.font = '500 14px system-ui'; g.textAlign = 'left';
       const nl = wrapText(g, st[0] + ' ' + st[1], L + 2, yb, R - L - 4, 18, P ? 2 : 1), by = yb + nl * 18 + 2, bw4 = (R - L - 3 * gap) / 4;
       [['GREEN SCREEN', C.green, () => S.setPcam('green', !C.green)], ['LATENCY MATCH', C.lat, () => S.setPcam('lat', !C.lat)], ['LIGHT MATCH', C.light, () => S.setPcam('light', !C.light)], ['SETUP ▸', false, () => setTools('pcam')]]
         .forEach(([lb, on, act], i) => btn(L + i * (bw4 + gap), by, bw4, bh, lb, on, act, false, P ? 14 : 13));
-      note(P ? 'WEBCAM: works with DirroVJ on a laptop or a linked phone/webcam. GREEN SCREEN keys you over the BACK setting (VISUALS, DOME or none). Tap WEBCAM again or SETUP ▸ for key colour, strength, softness, spill and crop.' : 'WEBCAM: GREEN SCREEN keys you over BACK (VISUALS / DOME). Tap SETUP ▸ for key controls.', by + bh + (P ? 22 : 18));
+      const ay = dvRow(by + bh + gap);   // #710
+      note(P ? 'WEBCAM: works with DirroVJ on a laptop or a linked phone/webcam. GREEN SCREEN keys you over the BACK setting (VISUALS, DOME or none). Tap WEBCAM again or SETUP ▸ for key colour, strength, softness, spill and crop.' : 'WEBCAM: GREEN SCREEN keys you over BACK (VISUALS / DOME). Tap SETUP ▸ for key controls.', ay + (P ? 22 : 18));
       return;
     }
     let ny = ry + bh + (P ? 48 : 16); if (S.source === 'headset') ny = handsRow(ry + bh + (P ? 48 : 8)) + (P ? 22 : 18);   // #375
+    if (S.stuLink) ny = dvRow(ny - (P ? 20 : 8)) + (P ? 22 : 14);   // #710
     note(P ? 'DOME is the sky dome (VISUALS > PANO > SKY); it and the VISUALS backdrop behind are one at a time, and NONE is the BACK button on the STREAM page. HEADSET CAM turns ROBO-BODY (the full robot avatar) off while it is the camera. GoPro: a prop other cameras film, hidden from its own camera. NEON is the heaviest object.' : (S.source === 'headset' ? 'HEADSET CAM: ROBO-BODY is off. HANDS: REAL = nothing drawn on your hands. DOME: VISUALS > PANO > SKY.' : 'DOME: VISUALS > PANO > SKY, one at a time with the VISUALS backdrop (NONE = BACK on TWITCH).'), ny);
     return;
   }

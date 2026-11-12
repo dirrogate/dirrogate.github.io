@@ -10,7 +10,9 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v186';   // #707 DirroVerse banks, WEBCAM + GEAR windows
+const CACHE = 'vire-app-v189';   // #711 AUTO ZOOM, MASTER GRADE, DirroVerse sets from selected
+// (v187)   // #709 DirroVerse moving matte (plate_matte.mp4)
+// (v186)   // #707 DirroVerse banks, WEBCAM + GEAR windows
 // (v185)   // #695 fix: #688 left vjdesk.js unparseable in Chrome (DirroVJ failed: Unexpected token ',')
 // v176:   // #691 cassettes back to the picture look, dark translucent sides
 // v175:   // #689 cassettes: smoked clear shell, paper labels, 3D reels inside

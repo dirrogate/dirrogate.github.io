@@ -222,6 +222,7 @@ export class Streamer {
     if (this.live && !this.stuTw) return;
     if (!this.stu.on) { if (!this.stu.snd) this.setStudio('snd', true); this.setStudio('on', true); }
   }
+  dvAuto(on, sec) { const L = this.stuLink; if (!L) return false; L.ctl({ k: 'dvAuto', on, sec }); if (this.s8) this.s8.dv = { ...(this.s8.dv || {}), ...(on != null && on !== 'toggle' ? { on: !!on } : {}), ...(sec != null ? { sec } : {}) }; return true; }   // #710 AUTO DIRROVERSE on DirroVJ's desk
   _qtwTell(force) { const L = this.stuLink, q = !!(this.live && !this.stuTw); if (L && (force || q !== this._qtw)) { this._qtw = q; L.ctl({ k: 'qtw', live: q }); } }
   allowVj(yes) {
     const id = this.vjAsk; this.vjAsk = null; if (!id) return;

@@ -13,15 +13,18 @@ function homog(src, dst) { const A = [], b = []; for (let i = 0; i < 4; i++) { c
 
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
 const FS = `uniform sampler2D tBase, tMask, tSpill, tCam, tFog; uniform vec2 plate, camSz; uniform int nW; uniform mat3 Hm[4]; uniform vec4 fp[4];
-uniform float sil[4]; uniform float crop, spillK, cutOld, camOn, match, mist, rainK, reflK, fogOn, time; uniform vec3 grade, camLight, camMean, camStd, tgtMean, tgtStd;
+uniform float sil[4]; uniform float stack; uniform vec3 zm; uniform float crop, spillK, cutOld, camOn, match, mist, rainK, reflK, fogOn, time; uniform vec3 grade, camLight, camMean, camStd, tgtMean, tgtStd;
 varying vec2 vUv;
+// #709 stacked loop (plate_matte.mp4): the plate on top, a moving matte below (white = the window is clear, black = a car passes in front)
+vec2 bu(vec2 uv) { return stack > 0.5 ? vec2(uv.x, 0.5 + 0.5 * uv.y) : uv; }
 vec3 lin(vec3 c) { return pow(max(c, 0.0), vec3(2.2)); } vec3 gam(vec3 c) { return pow(max(c, 0.0), vec3(1.0 / 2.2)); }
 float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y); }
 void main() {
-  vec3 bl = lin(texture2D(tBase, vUv).rgb); float m = texture2D(tMask, vUv).r; float sp = texture2D(tSpill, vUv).r;
-  vec2 P = vec2(vUv.x, 1.0 - vUv.y) * plate;                    // plate px, y down (as set.json)
+  vec2 zu = zm.yz + (vUv - zm.yz) / max(zm.x, 1.0);   // #711 AUTO ZOOM: the whole set (plate, mask, windows, webcam, fog) seen closer, in plate space
+  vec3 bl = lin(texture2D(tBase, bu(zu)).rgb); float m = texture2D(tMask, zu).r * (stack > 0.5 ? texture2D(tBase, vec2(zu.x, 0.5 * zu.y)).r : 1.0); float sp = texture2D(tSpill, zu).r;
+  vec2 P = vec2(zu.x, 1.0 - zu.y) * plate;                    // plate px, y down (as set.json)
   vec3 club = vec3(0.0); float hit = 0.0;
   for (int i = 0; i < 4; i++) {
     if (i >= nW) break;
@@ -43,11 +46,11 @@ void main() {
       float mi = mist * (0.55 + 0.45 * smoothstep(0.25, 0.0, uv.y) + 0.6 * smoothstep(0.65, 1.0, uv.y)) * (1.0 - bead);   // condensation, heavier top and bottom
       float lu2 = dot(c, vec3(0.2126, 0.7152, 0.0722)); c += ((vec3(lu2) + 0.55 * (c - vec3(lu2))) * 0.8 + vec3(0.016, 0.02, 0.026) - c) * mi * 0.6;
       c *= (1.0 - 0.45 * rim) * (1.0 + 0.1 * bead);
-      c += lin(texture2D(tBase, vec2(1.0 - vUv.x, vUv.y)).rgb) * reflK;   // the street in the glass
+      c += lin(texture2D(tBase, bu(vec2(1.0 - zu.x, zu.y))).rgb) * reflK;   // the street in the glass
       club = c; hit = 1.0;
     }
   }
-  float fd = fogOn * clamp(texture2D(tFog, vUv).r * 3.0 * (0.3 + 0.7 * vnoise(vUv * vec2(6.4, 4.8) + vec2(time * 0.012, 0.0))) * 0.2, 0.0, 0.85);
+  float fd = fogOn * clamp(texture2D(tFog, zu).r * 3.0 * (0.3 + 0.7 * vnoise(zu * vec2(6.4, 4.8) + vec2(time * 0.012, 0.0))) * 0.2, 0.0, 0.85);
   club = club * (1.0 - fd) + vec3(0.05, 0.058, 0.07) * fd;   // the set's fog over the live window, as over the plate
   float k = m * hit * camOn;
   vec3 lit = bl * (1.0 + sp * camOn * (1.0 - m) * (camLight * spillK - cutOld));   // the club's light on the wall, sill and wet ground
@@ -59,14 +62,14 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
   const vtex = v => { const t = new THREE.VideoTexture(v); t.colorSpace = THREE.NoColorSpace; t.generateMipmaps = false; t.minFilter = t.magFilter = THREE.LinearFilter; return t; };
   // #707 two loop players: the next scene loads in the idle one while the current plays, then a clean cut (no black frame)
   const vids = [mkVideo(true), mkVideo(true)], tLoops = vids.map(vtex), arr = mkVideo(false), tArr = vtex(arr), ld = new THREE.TextureLoader(); ld.setCrossOrigin('anonymous');
-  let cur = 0;
+  let cur = 0, curStack = 0, winC = [0.5, 0.5], zS = 1;   // #711 the windows' centre (uv, y up), the zoom
   const black = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); black.needsUpdate = true;
   const U = { tBase: { value: tLoops[0] }, tMask: { value: black }, tSpill: { value: black }, tCam: { value: camTex }, plate: { value: new THREE.Vector2(1920, 1080) },
     camSz: { value: new THREE.Vector2(1280, 720) }, nW: { value: 0 }, Hm: { value: [0, 1, 2, 3].map(() => new THREE.Matrix3()) },
     fp: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0.4, 0.5, 1, 0.72)) }, sil: { value: [0, 0, 0, 0] }, crop: { value: 0.86 },
     grade: { value: new THREE.Vector3(2.3, 0.06, 0.88) }, camLight: { value: new THREE.Vector3(1, 1, 1) }, spillK: { value: 0.95 }, cutOld: { value: 0.5 }, camOn: { value: 1 },
-    tFog: { value: black }, match: { value: 0.7 }, mist: { value: 0.35 }, rainK: { value: 0.7 }, reflK: { value: 0.07 }, fogOn: { value: 0 }, time: { value: 0 },
-    camMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, camStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, tgtMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, tgtStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) } };
+    tFog: { value: black }, stack: { value: 0 }, match: { value: 0.7 }, mist: { value: 0.35 }, rainK: { value: 0.7 }, reflK: { value: 0.07 }, fogOn: { value: 0 }, time: { value: 0 },
+    camMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, camStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, tgtMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, tgtStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, zm: { value: new THREE.Vector3(1, 0.5, 0.5) } };
   const mat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: FS, depthTest: false, depthWrite: false });
   const sc = new THREE.Scene(), mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); mesh.frustumCulled = false; sc.add(mesh);
   const oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -120,9 +123,10 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
       if (seq !== loadSeq) return false;
       if (!fl.includes('plate_loop.mp4')) { S.loading = ''; S.status = `"${name}" has no plate loop yet: render "Plate loop" in the studio (or on the DIRROVERSE page).`; post(); return false; }
       const t = Date.now(), base = `${STUDIO}/sets/${encodeURIComponent(name)}/`, idx = ready ? 1 - cur : cur, v = vids[idx];
-      v.src = base + 'plate_loop.mp4?' + t; v.load();
+      const stk = fl.includes('plate_matte.mp4') ? 1 : 0;   // #709 cars in front of a webcam window: the loop with its moving matte
+      v.src = base + (stk ? 'plate_matte.mp4?' : 'plate_loop.mp4?') + t; v.load();
       const [mask, spill, fog] = await Promise.all([texLoad(base + 'window_mask.png?' + t), texLoad(base + 'spill.png?' + t), fl.includes('fog.png') ? texLoad(base + 'fog.png?' + t) : null]);
-      const ok = await canPlay(v), nx = { name, idx, set, fl, mask, spill, fog, base, t };
+      const ok = await canPlay(v), nx = { name, idx, set, fl, mask, spill, fog, base, t, stk };
       if (seq !== loadSeq) { drop(nx); return false; }   // a newer pick won
       if (!ok) { drop(nx); throw new Error('its plate_loop.mp4 would not play'); }
       if (opt.defer) { pending = nx; S.next = name; S.loading = ''; post(); return true; }
@@ -140,16 +144,17 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     ws.forEach((w, i) => { const h = homog(w.quad, [[0, 0], [1, 0], [1, 1], [0, 1]]); U.Hm.value[i].set(...h);
       U.fp.value[i].set(+w.feed_x || 0.4, w.feed_y ?? 0.5, +w.clip_zoom || 1, (w.size_m ? w.size_m[0] / w.size_m[1] : 0.72)); U.sil.value[i] = +w.silhouette || 0; });
     U.nW.value = ws.length;
+    { let sx = 0, sy = 0, k = 0; for (const w of ws) for (const [x, y] of w.quad) { sx += x; sy += y; k++; } winC = k ? [sx / k / PW, 1 - sy / k / PH] : [0.5, 0.5]; }   // #711 zoom toward the windows
     const g = set.grade || {}; U.grade.value.set(+g.exposure || 2.3, +g.warmth || 0.06, +g.contrast || 0.88);
     const gl_ = set.glass || {}; U.mist.value = +gl_.mist || 0; U.rainK.value = gl_.rain ?? 0.7; U.reflK.value = gl_.reflect ?? 0.07;
     U.crop.value = +(set.feed && set.feed.crop) || 0.86; U.spillK.value = +(set.spill && set.spill.strength) || 0.95; U.cutOld.value = +(set.spill && set.spill.cut_old) || 0.5;
-    const prev = vids[cur]; cur = nx.idx; U.tBase.value = tLoops[cur];
+    const prev = vids[cur]; cur = nx.idx; U.tBase.value = tLoops[cur]; curStack = nx.stk || 0; U.stack.value = curStack;
     if (prev !== vids[cur]) { prev.pause(); prev.removeAttribute('src'); prev.load(); }   // free the old scene's decoder
     vids[cur].currentTime = 0; if (air) vids[cur].play().catch(() => {});
     if (!arr.paused) arr.pause(); S.playing = '';
     plateStats(nx.base + 'plate.png?' + nx.t);
     S.set = nx.name; S.files = nx.fl; S.arrivals = nx.fl.filter(x => /^arrival_.*\.mp4$/i.test(x)); S.loading = '';
-    ready = true; S.status = `${nx.name}: ${PW}×${PH}, ${ws.length} club window(s)${S.arrivals.length ? ', ' + S.arrivals.length + ' arrival(s)' : ''}`;
+    ready = true; S.status = `${nx.name}: ${PW}×${PH}, ${ws.length} club window(s)${nx.stk ? ', moving matte' : ''}${S.arrivals.length ? ', ' + S.arrivals.length + ' arrival(s)' : ''}`;
     post();
   }
   function commit() { if (!pending) return false; apply(pending); return true; }
@@ -175,9 +180,10 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     camAvg(now); U.time.value = now / 1000; U.match.value = S.match ?? 0.7;
     const useArr = S.playing && arr.readyState >= 2, v = vids[cur];
     if (!useArr && v.paused) v.play().catch(() => {});
-    U.tBase.value = useArr ? tArr : tLoops[cur];
+    U.tBase.value = useArr ? tArr : tLoops[cur]; U.stack.value = useArr ? 0 : curStack;
     if (feed && feed.tex) { U.tCam.value = feed.tex; U.camSz.value.set(feed.w, feed.h); }
     else { U.tCam.value = camTex; if (camVideo && camVideo.videoWidth) U.camSz.value.set(camVideo.videoWidth, camVideo.videoHeight); }
+    { const z = Math.max(1, zS), h = 0.5 / z, cl = (v) => Math.max(h, Math.min(1 - h, v)); U.zm.value.set(z, cl(winC[0]), cl(winC[1])); }   // #711 the view stays inside the plate
     U.camOn.value = S.cam && camVideo && camVideo.videoWidth ? 1 : 0;
     if (!rt) rt = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
     renderer.setRenderTarget(rt); renderer.render(sc, oc); renderer.setRenderTarget(null);
@@ -188,5 +194,6 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     if (on) { if (ready && v.paused && !S.playing) v.play().catch(() => {}); if (S.playing && arr.paused) arr.play().catch(() => {}); }
     else { if (!v.paused) v.pause(); if (!arr.paused) arr.pause(); }
   }
-  return { list, load, commit, arrive, renderArrival, render, active, get w() { return W; }, get h() { return H; }, get ready() { return ready; }, get pendingName() { return pending ? pending.name : ''; } };
+  function zoom(z) { zS = Math.max(1, Math.min(3, +z || 1)); }   // #711
+  return { zoom, list, load, commit, arrive, renderArrival, render, active, get w() { return W; }, get h() { return H; }, get ready() { return ready; }, get pendingName() { return pending ? pending.name : ''; } };
 }

@@ -382,6 +382,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
         const L = fixed.lowLight; if (L && fixed.setLowLight && (!!m.cam.fps25 !== L.fps25 || +m.cam.ev !== L.ev)) fixed.setLowLight({ fps25: !!m.cam.fps25, ev: +m.cam.ev });
       }
       apply();
+    } else if (m.k === 'dvAuto') { if (desk && desk.dvAutoSet) desk.dvAutoSet({ on: m.on, sec: m.sec });   // #710 AUTO DIRROVERSE from the Quest's SHOWTIME! OBJECTS
     } else if (m.k === 'qtw') { S.qtw = !!m.live; if (desk && desk.post) desk.post();
     } else if (m.k === 'stuLive') {
       { const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'stuAck', on: !!m.on, tok: m.ack || 0 }); }   // #556 the Quest goes live itself if this doesn't arrive within 3 s
@@ -398,7 +399,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     else { S.linkLost = 0; const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'sst', hello: 1, vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, run: false }); }   // #506 say hello so the Quest can ask the DJ
   }
   setInterval(() => { if (vj) { const L0 = getLink(); if (!(L0 && L0.isOpen) && tvSaved().key && tvKey !== tvSaved().key) tvFollow(tvSaved().key, tvSaved().aud); } }, 3000);   // #556 no Quest: answer DirroTV
-  setInterval(() => { if (S.qOn) return; const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'sst', hello: 1, vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, run: false, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps }); }, 3000);   // #697 tw: the Quest sees a desk that went live by itself   // #506 also while the studio is off (heartbeat + pairing)
+  setInterval(() => { if (S.qOn) return; const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'sst', hello: 1, vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, run: false, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps, dv: desk && desk.dvState ? desk.dvState() : null }); }, 3000);   // #697 tw: the Quest sees a desk that went live by itself   // #506 also while the studio is off (heartbeat + pairing)
   // ---- stamp read-back (async, 32 x 1 pixels): how late the Quest's frames are, in its clock
   let stripBusy = false;
   function readStampNow() {
@@ -541,7 +542,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   function status(now, haveQ, note) {
     S.note = note;
     const L = getLink();
-    if (L && L.isOpen) L.send('ctl', { k: 'sst', vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, tv: S.tv || 'off', run: !!(S.on && !S.paused && haveQ), fps: S.fps, qfps: S.qfps, hold: S.hold, d: S.D != null ? Math.round(S.D) : null, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps, note, cl: desk && desk.cleanPack && desk.cleanPack() ? 1 : 0,   // #707 cl: a clean pack (no overlays) for the DirroVerse window
+    if (L && L.isOpen) L.send('ctl', { k: 'sst', vid, vj: vj ? 1 : 0, lr: vj ? 1 : 0, tv: S.tv || 'off', run: !!(S.on && !S.paused && haveQ), fps: S.fps, qfps: S.qfps, hold: S.hold, d: S.D != null ? Math.round(S.D) : null, tw: S.tw, twMsg: S.twMsg, kbps: S.kbps, note, dv: desk && desk.dvState ? desk.dvState() : null, cl: desk && desk.cleanPack && desk.cleanPack() ? 1 : 0,   // #707 cl: a clean pack (no overlays) for the DirroVerse window
       clip: led.on && (led.img || (led.video && !led.video.paused)) ? led.name : '', cam: fixed.on && fixed.camInfo ? { ...fixed.camInfo(), rate: camRate } : null });
     stEl.textContent = `DirroVJ  ${({ show: 'SHOWTIME!', dj: 'WEBCAM', key: 'WEBCAM (KEY)', cam: 'WEBCAM' })[S.mode]}  ·  backdrop ${S.bd.toUpperCase()}  ·  out ${S.fps} fps  ·  Quest ${S.qfps} fps\n` +
       `camera ${camRate} fps  ·  Quest frames ${S.D != null ? Math.round(S.D) + ' ms' : '-'} late  ·  ${S.hold != null ? 'camera delay ' + S.hold + ' ms' : 'camera inactive'}  ·  trim ${S.trim} ms  ·  sound ${aTrack && S.snd ? 'on' : 'off'}\n` +
