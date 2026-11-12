@@ -475,11 +475,35 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   const qRT = new THREE.WebGLRenderTarget(16, 16, { depthBuffer: false }), qBuf = new Uint8Array(16 * 16 * 4), qCU = { t: { value: null } };
   const qSc = quad(new THREE.ShaderMaterial({ uniforms: qCU, vertexShader: VS, fragmentShader: 'uniform sampler2D t; varying vec2 vUv; void main() { gl_FragColor = vec4(texture2D(t, vUv).rgb, 1.0); }', depthTest: false, depthWrite: false }));
   let qSt = null, qT0 = 0;
+  // #713 a DirroVerse bank's panorama (PANOS bank, browser storage): one frame at 128 x 64, rows weighted by cos(latitude) within 55 degrees
+  // of the horizon (what portals and the dome show most), as the QUEST cast's colour target
+  const PT = { key: '', st: null, busy: false, err: '', name: '' };
+  function panoTarget() {
+    const v = (D.dv.verses || []).find(x => x.name === D.dv.verse), p = v && v.pano; if (!p) return null;
+    const key = p.folder + '/' + p.name; if (PT.key === key) return PT.st;
+    if (PT.busy) return null; PT.busy = true; PT.err = '';
+    (async () => {
+      const f = await media.getFile(p.folder, p.name); if (!f) throw new Error('the pano "' + p.name + '" is not in the PANOS bank on this laptop');
+      const w = 128, h = 64, cv = document.createElement('canvas'); cv.width = w; cv.height = h; const x = cv.getContext('2d', { willReadFrequently: true });
+      if (p.folder === 'Pano') { const bm = await createImageBitmap(f); x.drawImage(bm, 0, 0, w, h); bm.close && bm.close(); }
+      else { const vd = document.createElement('video'), u = URL.createObjectURL(f); vd.muted = true; vd.preload = 'auto'; vd.src = u;
+        try { await new Promise((ok, no) => { vd.onloadeddata = ok; vd.onerror = () => no(new Error('the pano video would not decode')); setTimeout(() => no(new Error('the pano video timed out')), 15000); });
+          await new Promise(ok => { vd.onseeked = ok; vd.currentTime = Math.min(5, (vd.duration || 0) * 0.25); setTimeout(ok, 4000); }); x.drawImage(vd, 0, 0, w, h); }
+        finally { vd.removeAttribute('src'); vd.load(); URL.revokeObjectURL(u); } }
+      const d = x.getImageData(0, 0, w, h).data, wt = new Float32Array(w * h);
+      for (let yy = 0; yy < h; yy++) { const lat = ((yy + 0.5) / h - 0.5) * Math.PI, k = Math.abs(lat) < 0.96 ? Math.cos(lat) : 0; wt.fill(k, yy * w, yy * w + w); }
+      PT.st = colStats(d, wt); PT.name = p.name;
+    })().catch(e => { PT.st = null; PT.err = 'QUEST CAST: ' + (e.message || e); }).finally(() => { PT.key = key; PT.busy = false; qSt = qSt; post(); });
+    return null;
+  }
   function questMatch(questTex, now) {
-    const amt = D.dv.qm === false || D.dv.match === 0 ? 0 : (D.dv.match ?? 0.7), tg = dvx && dvx.ready ? dvx.target() : null;
+    const pt = panoTarget(), sc = dvx && dvx.ready ? dvx.target() : null, tg = pt || sc;   // #713 the bank's pano first, else the loaded scene
+    const src = pt ? 'QUEST CAST matches the pano ' + PT.name : sc ? 'QUEST CAST matches the scene ' + (D.dv.set || '') : PT.err || 'QUEST CAST: load a DirroVerse scene (or give its bank a pano)';
+    if (D.dv.qmSrc !== src) { D.dv.qmSrc = src; post(); }
+    const amt = D.dv.qm === false || D.dv.match === 0 ? 0 : (D.dv.match ?? 0.7);
     const onA = D.a === 'quest', onB = D.b === 'quest';
     if (!amt || !tg || !questTex || !(onA || onB)) { mU.qA.value.set(0, 0); return; }
-    if (now - qT0 > 300 || !qSt) { qT0 = now;
+    if (now - qT0 > 300 || !qSt || tg !== questMatch.tg) { qT0 = now; questMatch.tg = tg;
       try { qCU.t.value = questTex; renderer.setRenderTarget(qRT); renderer.render(qSc, oc); renderer.readRenderTargetPixels(qRT, 0, 0, 16, 16, qBuf); renderer.setRenderTarget(null);
         const st = colStats(qBuf); if (st) { qSt = colLerp(qSt, st, 0.3); const M = mkl(qSt.C, tg.C);
           mU.qM.value.set(M[0][0], M[0][1], M[0][2], M[1][0], M[1][1], M[1][2], M[2][0], M[2][1], M[2][2]); mU.qS.value.set(...qSt.m); mU.qT.value.set(...tg.m); } }

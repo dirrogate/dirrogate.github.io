@@ -141,7 +141,7 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     catch (e) { S.studio = 'no studio: start start_set_builder.bat on this laptop (Cyber-Window studio, port 8090)'; S.sets = []; post(); return; }
     // #707 DirroVerses = banks of scenes, kept by the studio in club_window/verses.json
     try { const r = await fetch(STUDIO + '/api/verses'); if (!r.ok) throw new Error(r.status); const v = await r.json();
-      S.verses = (v.verses || []).filter(x => x && x.name).map(x => ({ name: String(x.name), scenes: (x.scenes || []).map(String) })); S.versesErr = ''; }
+      S.verses = (v.verses || []).filter(x => x && x.name).map(x => ({ name: String(x.name), scenes: (x.scenes || []).map(String), ...(x.pano && x.pano.name ? { pano: { folder: String(x.pano.folder), name: String(x.pano.name) } } : {}) })); S.versesErr = ''; }   // #713 pano
     catch { S.verses = S.verses || []; S.versesErr = 'Restart the studio once (start_set_builder.bat) so it can keep DirroVerses.'; }
     if (S.set) { S.files = await filesOf(S.set); S.arrivals = S.files.filter(x => /^arrival_.*\.mp4$/i.test(x)); }
     post();

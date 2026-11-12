@@ -68,6 +68,7 @@
   .vjCell.empty { cursor:pointer; opacity:.55; } .vjCell.empty:hover { opacity:.85; }
   .vjCell img { position:absolute; inset:0 0 16px 0; width:100%; height:calc(100% - 16px); object-fit:cover; display:block; background:#000; pointer-events:none; }
   .vjCap { position:relative; z-index:1; height:16px; padding:0 4px; font:600 10px/16px system-ui,sans-serif; color:#b9c2d0; background:#1c212c; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .vjCell.dvPanoSel { outline:3px solid #3aa0ff; outline-offset:-3px; }   /* #713 the pano picked for a DirroVerse set */
   .vjCell.act { border:2px solid #55ff88; box-shadow:0 0 0 1px #196b30 inset; }
   .vjCell.act .vjCap { background:#38d864; color:#04190a; font-weight:800; }
   .vjCell.hasPanoBar img { inset:0 0 26px 0; height:calc(100% - 26px); }
@@ -215,7 +216,8 @@
       <div class="row"><label class="kv" style="flex:1"><span style="width:74px">GAMMA</span><input type="range" id="mgGam" min="0.4" max="2.5" step="0.01" style="flex:1"><b id="mgGamV" style="min-width:58px"></b></label></div>
       <div class="row"><label class="kv" style="flex:1"><span style="width:74px">TINT HUE</span><input type="range" id="mgHue" min="0" max="359" step="1" style="flex:1;background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);border-radius:4px"><b id="mgHueV" style="min-width:58px;border-radius:3px;text-align:center"></b></label></div>
       <div class="row"><label class="kv" style="flex:1"><span style="width:74px">TINT</span><input type="range" id="mgTint" min="0" max="1" step="0.01" style="flex:1"><b id="mgTintV" style="min-width:58px"></b></label><button id="mgRst" title="Exposure 0, gamma 1, no tint (the hue is kept)">RESET</button></div>
-      <div class="row"><label class="kv" style="flex:1"><span style="width:74px" title="The webcam in the DirroVerse windows, and the QUEST cast when it is on air, take the loaded scene's colour and light">MATCH SCENE</span><input type="range" id="dvMatch" min="0" max="1" step="0.05" value="0.7" style="flex:1"><b id="dvMatchV" style="min-width:58px">70%</b></label><button id="dvQm" title="Also match the QUEST cast to the loaded DirroVerse scene when it is on the Program">QUEST CAST</button></div>
+      <div class="row"><label class="kv" style="flex:1"><span style="width:74px" title="The webcam in the DirroVerse windows, and the QUEST cast when it is on air, take the loaded scene's colour and light">MATCH SCENE</span><input type="range" id="dvMatch" min="0" max="1" step="0.05" value="0.7" style="flex:1"><b id="dvMatchV" style="min-width:58px">70%</b></label><button id="dvQm" title="Also match the QUEST cast when it is on the Program: to the DirroVerse bank's panorama if it has one, else to the loaded scene">QUEST CAST</button></div>
+      <div class="note" id="dvQmSt" style="margin:0 0 4px"></div>
       <div class="note">Double-click a slider to reset it. MATCH SCENE needs a DirroVerse scene loaded. The local scroller stays ungraded.</div>
     </section>
     <section style="margin-top:14px">
@@ -487,7 +489,7 @@ function render() {
   for (const [id, b, live] of [['litA', 'a', D.x < 1], ['litB', 'b', D.x > 0]]) { const cue = D.cue === b; $(id).classList.toggle('cue', cue); $(id).classList.toggle('live', live && !cue); }   // #557
   { const t = $('pvTag'); if (D.cue) { t.textContent = `CUE ${D.cue.toUpperCase()} · on air: ${D.x <= 0 ? 'A' : D.x >= 1 ? 'B' : 'A+B'}`; t.classList.add('cue'); $('pv').classList.add('cue'); } else { t.textContent = 'PROGRAM'; t.classList.remove('cue'); $('pv').classList.remove('cue'); } }
   for (const b of document.querySelectorAll('[data-pal]')) b.classList.toggle('on', D.fr.pal === b.dataset.pal);
-  if (D.dv) { const mt = D.dv.match ?? 0.7; if (document.activeElement !== $('dvMatch')) $('dvMatch').value = mt; $('dvMatchV').textContent = Math.round(mt * 100) + '%'; $('dvQm').classList.toggle('on', D.dv.qm !== false); }   // #712
+  if (D.dv) { const mt = D.dv.match ?? 0.7; if (document.activeElement !== $('dvMatch')) $('dvMatch').value = mt; $('dvMatchV').textContent = Math.round(mt * 100) + '%'; $('dvQm').classList.toggle('on', D.dv.qm !== false); $('dvQmSt').textContent = D.dv.qm === false ? '' : D.dv.qmSrc || ''; }   // #712 / #713
   if (D.mg) { const G = D.mg;   // #711
     for (const [id, k] of [['mgEv', 'ev'], ['mgGam', 'gam'], ['mgHue', 'hue'], ['mgTint', 'tint']]) if (document.activeElement !== $(id)) $(id).value = G[k];
     $('mgEvV').textContent = (G.ev > 0 ? '+' : '') + G.ev.toFixed(2) + ' EV'; $('mgGamV').textContent = G.gam.toFixed(2); $('mgHueV').textContent = Math.round(G.hue) + '°';
@@ -1015,14 +1017,14 @@ $('dvSet').onchange = () => { $('dvSet').dataset.touched = '1'; };
 // plate loop shows it stepping at 1 frame a second (straight from the studio on this laptop)
 const DV_STUDIO = 'http://127.0.0.1:8090', dvU = n => encodeURIComponent(n);
 function dvChips(v) {
-  const G = $('dvGrid'), sets = v.sets || [], vs = (v.verses || []).map(x => ({ name: x.name, scenes: x.scenes.filter(n => sets.includes(n)) })),
+  const G = $('dvGrid'), sets = v.sets || [], vs = (v.verses || []).map(x => ({ name: x.name, scenes: x.scenes.filter(n => sets.includes(n)), ...(x.pano ? { pano: x.pano } : {}) })),
     inV = new Set(vs.flatMap(x => x.scenes)), loose = sets.filter(n => !inV.has(n)), want = JSON.stringify([vs, loose, v.set, v.verse]);
   if (G.dataset.l === want) return; G.dataset.l = want; G.innerHTML = '';
   dvVs = vs; dvSel = dvSel.filter(n => loose.includes(n));
   const GV = document.createElement('div'), GL = document.createElement('div'); GV.className = GL.className = 'dvSub';
   for (const x of vs) {   // #707 one chip per DirroVerse: scene 1's frame, the scene count
-    const c = document.createElement('div'); c.className = 'vjCell verse' + (x.name === v.verse ? ' act' : ''); c.title = x.name + ' · ' + (x.scenes.join(', ') || 'no scenes yet');
-    c.innerHTML = (x.scenes[0] ? `<img src="${DV_STUDIO}/api/plateframe?name=${dvU(x.scenes[0])}&t=0&w=300" alt="">` : '') + `<div class="dvSlug">${x.scenes.length} scene${x.scenes.length === 1 ? '' : 's'}</div><div class="vjCap">${x.name.replace(/</g, '&lt;')}</div>`;
+    const c = document.createElement('div'); c.className = 'vjCell verse' + (x.name === v.verse ? ' act' : ''); c.title = x.name + ' · ' + (x.scenes.join(', ') || 'no scenes yet') + (x.pano ? ' · pano: ' + x.pano.name : '');
+    c.innerHTML = (x.scenes[0] ? `<img src="${DV_STUDIO}/api/plateframe?name=${dvU(x.scenes[0])}&t=0&w=300" alt="">` : '') + `<div class="dvSlug">${x.scenes.length} scene${x.scenes.length === 1 ? '' : 's'}${x.pano ? ' + 360' : ''}</div><div class="vjCap">${x.name.replace(/</g, '&lt;')}</div>`;
     c.onclick = () => send({ k: 'dv', act: 'verse', name: x.name });
     if (x.scenes[0]) { c.onmouseenter = () => dvPeek(x.scenes[0], c); c.onmouseleave = () => dvPeek(null); }
     c.oncontextmenu = e => { e.preventDefault(); dvPeek(null); dvMenuOpen({ verse: x.name }, e.clientX, e.clientY); };
@@ -1035,7 +1037,8 @@ function dvChips(v) {
   dvSelDraw();
 }
 // #711 CTRL/SHIFT-click loose scenes to pick up to 4 (in pick order), right-click one: MAKE DIRROVERSE SET FROM SELECTED
-let dvSel = [];
+let dvSel = [], dvPano = null;   // #713 dvPano: { folder, name } from the PANOS bank (one only)
+function dvPanoDraw() { for (const c of document.querySelectorAll('#gridPanos .vjCell[data-vjkey]')) c.classList.toggle('dvPanoSel', !!dvPano && c.dataset.folder === dvPano.folder && c.dataset.name === dvPano.name); }
 function dvSelDraw() {
   for (const c of $('dvGrid').querySelectorAll('.dvSub .vjCell:not(.verse)')) {
     const i = dvSel.indexOf(c.dataset.n); c.classList.toggle('sel', i >= 0);
@@ -1073,7 +1076,7 @@ async function dvSaveVerses(vs) {
     $('dvGrid').dataset.l = ''; send({ k: 'dv', act: 'list' }); return true; }
   catch (e) { $('dvSt').textContent = 'DirroVerse not saved: ' + (e.message || e); return false; }
 }
-const dvClone = () => (dvVs.length ? dvVs : (lastDv && lastDv.verses) || []).map(x => ({ name: x.name, scenes: [...x.scenes] }));
+const dvClone = () => (dvVs.length ? dvVs : (lastDv && lastDv.verses) || []).map(x => ({ name: x.name, scenes: [...x.scenes], ...(x.pano ? { pano: { ...x.pano } } : {}) }));
 // #684 right-click a set: DELETE SCENE (tap twice). The studio moves its folder to club_window/deleted_sets/ (out of every list).
 let dvMenuSet = '', dvDelT = 0;
 // #707 right-click a scene: ADD TO a DirroVerse (or a new one), MOVE ◂ / ▸ and TAKE OUT inside its DirroVerse, DELETE (#684).
@@ -1089,17 +1092,23 @@ function dvMenuOpen(o, x, y) {
     inp.onkeydown = e => { if (e.key === 'Enter') go(); }; const rb = document.createElement('button'); rb.textContent = 'RENAME'; rb.onclick = go; g.append(rb);
     let t = 0; const db = document.createElement('button'); db.className = 'del'; db.textContent = 'DELETE DIRROVERSE (scenes stay)';
     db.onclick = async () => { if (Date.now() - t > 3000) { t = Date.now(); db.textContent = 'CLICK AGAIN: DELETE "' + o.verse + '"'; return; } M.hidden = true; await dvSaveVerses(dvClone().filter(v => v.name !== o.verse)); };
+    {   // #713 the bank's panorama: the QUEST cast matches its grade (the Quest usually shows the same pano)
+      const cv = dvClone().find(v => v.name === o.verse), gp = grp('Panorama' + (cv && cv.pano ? ': ' + cv.pano.name : ': none (CTRL-click one in PANOS)'));
+      const setP = p => async () => { const a = dvClone(), w = a.find(v => v.name === o.verse); if (!w) return; if (p) w.pano = { ...p }; else delete w.pano; dvPano = null; dvPanoDraw(); await dvSaveVerses(a); };
+      if (dvPano && !(cv && cv.pano && cv.pano.name === dvPano.name && cv.pano.folder === dvPano.folder)) gp.append(btn('USE PICKED PANO: ' + dvPano.name, setP(dvPano)));
+      if (cv && cv.pano) gp.append(btn('REMOVE PANO', setP(null)));
+    }
     grp('').append(db);
   } else {   // a scene chip (loose, or in the strip of its DirroVerse)
     $('dvMenuT').textContent = o.set; $('dvDel').hidden = false; $('dvDel').textContent = 'DELETE SCENE AND ITS FOLDER';
     const vs = dvClone(), others = vs.filter(v => !v.scenes.includes(o.set));
     if (!o.verse && dvSel.length && dvSel.includes(o.set)) {   // #711 the picked scenes become a new DirroVerse bank, in pick order
-      const gs = grp('Make DirroVerse set from selected (' + dvSel.length + ': ' + dvSel.join(', ') + ')'), si = document.createElement('input');
+      const gs = grp('Make DirroVerse set from selected (' + dvSel.length + ': ' + dvSel.join(', ') + (dvPano ? ' + pano ' + dvPano.name : '') + ')'), si = document.createElement('input');
       let k = 1; while (vs.some(v => v.name.toLowerCase() === ('dirroverse set ' + k))) k++; si.value = 'DirroVerse Set ' + k; si.maxLength = 40; gs.append(si);
       const mkS = async () => { const nm = si.value.trim(); if (!nm) return; const a = dvClone(); if (a.some(v => v.name.toLowerCase() === nm.toLowerCase())) { $('dvSt').textContent = 'A DirroVerse called "' + nm + '" exists already.'; return; }
-        a.push({ name: nm, scenes: dvSel.slice(0, 4) }); dvSel = []; M.hidden = true; await dvSaveVerses(a); $('dvSt').textContent = 'Made "' + nm + '". Right-click its chip to rename it.'; };
+        a.push({ name: nm, scenes: dvSel.slice(0, 4), ...(dvPano ? { pano: { ...dvPano } } : {}) }); dvSel = []; dvPano = null; dvPanoDraw(); M.hidden = true; await dvSaveVerses(a); $('dvSt').textContent = 'Made "' + nm + '". Right-click its chip to rename it.'; };
       si.onkeydown = e => { if (e.key === 'Enter') mkS(); }; const sb = document.createElement('button'); sb.textContent = 'MAKE DIRROVERSE SET FROM SELECTED'; sb.onclick = mkS; gs.append(sb);
-      gs.append(btn('CLEAR SELECTION', async () => { dvSel = []; dvSelDraw(); }));
+      gs.append(btn('CLEAR SELECTION', async () => { dvSel = []; dvPano = null; dvSelDraw(); dvPanoDraw(); }));
     }
     const g = grp('Add to DirroVerse');
     for (const v of others) g.append(btn('+ ' + v.name, async () => { const a = dvClone(); a.find(x => x.name === v.name).scenes.push(o.set); await dvSaveVerses(a); }));
@@ -1239,7 +1248,7 @@ async function loadBank(b) {
     for (const it of list) items.push({ folder: f, name: it.name, size: it.size });
   }
   b.items = items;
-  renderBank(b);
+  renderBank(b); if (b.id === 'Panos') dvPanoDraw();
   for (const it of items) {
     const key = it.folder + '/' + it.name;
     if (!thumbUrls.get(key)) thumbUrlFor(it.folder, it.name).then(u => {
@@ -1275,8 +1284,11 @@ function renderBank(b) {
   el.innerHTML = html;
   for (const cell of el.querySelectorAll('.vjCell')) {
     if (cell.dataset.vjkey) {
-      cell.onclick = () => {
+      cell.onclick = e => {
         const folder = cell.dataset.folder, name = cell.dataset.name, key = folder + '/' + name;
+        if (b.id === 'Panos' && (e.ctrlKey || e.metaKey || e.shiftKey)) {   // #713 pick this pano for a DirroVerse set (one only; again = unpick)
+          dvPano = dvPano && dvPano.folder === folder && dvPano.name === name ? null : { folder, name }; dvPanoDraw();
+          $('dvSt').textContent = dvPano ? 'Pano picked: ' + name + '. Pick scenes too, then right-click one: MAKE DIRROVERSE SET FROM SELECTED (or right-click a DirroVerse chip: USE PICKED PANO).' : 'Pano unpicked.'; return; }
         actMedia = key; lastMediaPickT = Date.now();
         send({ k: 'media', folder, name });
         updateVjDecks(actMedia, true);
