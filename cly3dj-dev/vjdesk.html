@@ -215,7 +215,8 @@
       <div class="row"><label class="kv" style="flex:1"><span style="width:74px">GAMMA</span><input type="range" id="mgGam" min="0.4" max="2.5" step="0.01" style="flex:1"><b id="mgGamV" style="min-width:58px"></b></label></div>
       <div class="row"><label class="kv" style="flex:1"><span style="width:74px">TINT HUE</span><input type="range" id="mgHue" min="0" max="359" step="1" style="flex:1;background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);border-radius:4px"><b id="mgHueV" style="min-width:58px;border-radius:3px;text-align:center"></b></label></div>
       <div class="row"><label class="kv" style="flex:1"><span style="width:74px">TINT</span><input type="range" id="mgTint" min="0" max="1" step="0.01" style="flex:1"><b id="mgTintV" style="min-width:58px"></b></label><button id="mgRst" title="Exposure 0, gamma 1, no tint (the hue is kept)">RESET</button></div>
-      <div class="note">Double-click a slider to reset it. The local scroller stays ungraded.</div>
+      <div class="row"><label class="kv" style="flex:1"><span style="width:74px" title="The webcam in the DirroVerse windows, and the QUEST cast when it is on air, take the loaded scene's colour and light">MATCH SCENE</span><input type="range" id="dvMatch" min="0" max="1" step="0.05" value="0.7" style="flex:1"><b id="dvMatchV" style="min-width:58px">70%</b></label><button id="dvQm" title="Also match the QUEST cast to the loaded DirroVerse scene when it is on the Program">QUEST CAST</button></div>
+      <div class="note">Double-click a slider to reset it. MATCH SCENE needs a DirroVerse scene loaded. The local scroller stays ungraded.</div>
     </section>
     <section style="margin-top:14px">
       <h2>Scroller desk</h2>
@@ -294,8 +295,6 @@
   <div id="dvPeek" hidden><div class="pv"><img alt=""><video muted playsinline hidden></video></div><div class="nm"></div><div class="mt"></div></div>
   <div id="dvSt" class="note"></div>
   <div class="row"><input id="dvName" placeholder="name on the car's plate, e.g. WELCOME MAYA" style="flex:1;min-width:220px"><button id="dvRender">RENDER ARRIVAL</button><span id="dvJob" class="note" style="margin:0"></span></div>
-  <div class="row"><span class="note" style="margin:0">match the scene:</span><input type="range" id="dvMatch" min="0" max="1" step="0.05" value="0.7" style="width:180px"><b id="dvMatchV" class="note" style="margin:0">0.70</b>
-    <span class="note" style="margin:0">the webcam gets the set's grade, mist, drops, reflection and fog (re-render the plate loop once for fog)</span></div>
   <div class="note">Arrivals take about a minute each: render them before the show. Tap a name to fire it.</div>
   <div class="row" id="dvArr"></div>
 </section>
@@ -488,6 +487,7 @@ function render() {
   for (const [id, b, live] of [['litA', 'a', D.x < 1], ['litB', 'b', D.x > 0]]) { const cue = D.cue === b; $(id).classList.toggle('cue', cue); $(id).classList.toggle('live', live && !cue); }   // #557
   { const t = $('pvTag'); if (D.cue) { t.textContent = `CUE ${D.cue.toUpperCase()} · on air: ${D.x <= 0 ? 'A' : D.x >= 1 ? 'B' : 'A+B'}`; t.classList.add('cue'); $('pv').classList.add('cue'); } else { t.textContent = 'PROGRAM'; t.classList.remove('cue'); $('pv').classList.remove('cue'); } }
   for (const b of document.querySelectorAll('[data-pal]')) b.classList.toggle('on', D.fr.pal === b.dataset.pal);
+  if (D.dv) { const mt = D.dv.match ?? 0.7; if (document.activeElement !== $('dvMatch')) $('dvMatch').value = mt; $('dvMatchV').textContent = Math.round(mt * 100) + '%'; $('dvQm').classList.toggle('on', D.dv.qm !== false); }   // #712
   if (D.mg) { const G = D.mg;   // #711
     for (const [id, k] of [['mgEv', 'ev'], ['mgGam', 'gam'], ['mgHue', 'hue'], ['mgTint', 'tint']]) if (document.activeElement !== $(id)) $(id).value = G[k];
     $('mgEvV').textContent = (G.ev > 0 ? '+' : '') + G.ev.toFixed(2) + ' EV'; $('mgGamV').textContent = G.gam.toFixed(2); $('mgHueV').textContent = Math.round(G.hue) + '°';
@@ -1147,7 +1147,8 @@ async function dvPeek(n, el) {
     step(); dvPk.t = setInterval(step, 1000);
   };
 }
-$('dvMatch').oninput = () => { $('dvMatchV').textContent = (+$('dvMatch').value).toFixed(2); send({ k: 'dv', act: 'look', match: +$('dvMatch').value }); };
+$('dvMatch').oninput = () => { $('dvMatchV').textContent = Math.round(+$('dvMatch').value * 100) + '%'; send({ k: 'dv', act: 'look', match: +$('dvMatch').value }); };
+$('dvMatch').ondblclick = () => send({ k: 'dv', act: 'look', match: 0.7 }); $('dvQm').onclick = () => S.D && send({ k: 'dv', act: 'look', qm: S.D.dv.qm === false });   // #712
 // #664 projection mapping: the projector window holds the state; this desk sends changes and shows it
 const pmc = new BroadcastChannel('dirrovj-pm'); let PM = null, pmSeen = 0;
 const pmSend = m => pmc.postMessage(m);
