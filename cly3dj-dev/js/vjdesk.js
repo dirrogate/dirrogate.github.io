@@ -11,7 +11,7 @@ import * as media from './medialib.js';   // #532 IMAGES / VIDEOS / PANOS clip d
 import { holoDefaults, makeHoloDesk } from './holodesk.js';   // #573 HOLO: Holodancer performers (small modules; the atlas video loads on first use)
 import { Scroller } from './tools.js';
 import { DirroHost, fanUrl, roomKey } from './dirro-host.js';   // #674 DIRROGRAM from this laptop (SOLO)
-import { makeDirroverse, mkl, colStats, colLerp } from './dirroverse.js';   // #662 DIRROVERSE: Cyber-Window sets (the studio on this laptop) on the buses   // #556 the same bitmap sine scroller as the Quest's, for the program when there is no Quest
+import { makeDirroverse, levelStats, lvLerp, lvGain } from './dirroverse.js';   // #662 DIRROVERSE: Cyber-Window sets (the studio on this laptop) on the buses   // #556 the same bitmap sine scroller as the Quest's, for the program when there is no Quest
 // #550 DANCER: js/dancerdesk.js is imported only when the desk first needs her (its loaders, post chain and the 5 MB GLB stay out of the start)
 function dzDefaults() {
   const S = { loaded: false, loading: false, err: '', clip: '', clips: [], stage: 'rim', outfit: 'Red', speed: 1, soft: { c1: '#35d6ff', c2: '#ffa24a', rim: 1, face: 1 }, props: { manhole: false, pumpkin: false, fog: false }, fog: { den: 0.5, h: 0.8, speed: 0.6, col: 'cold' }, cam: { mode: 'orbit', x: 0, y: 8, zoom: 1 }, pv: false, rec: { on: false, t: 0, msg: '' } };
@@ -25,9 +25,10 @@ const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(positio
 // itself (similarity M: scale dz.y, turn dz.z, centre dzo) and the view flies into it over one bar, then carries on as normal.
 // The copy pops in first (dz.w = its size 0..1), the camera follows the log-spiral from identity to M, and at the end M^-1
 // brings every point back to where it started: no cut. dz.x = 0 off, else the zoom (0..1).
-const MIX_FS = `uniform sampler2D tA, tB; uniform vec4 fA, fB; uniform float kA, kB, x; uniform vec4 dz; uniform vec2 dzo; uniform float asp; uniform vec4 mg; uniform vec3 mgT; uniform mat3 qM; uniform vec3 qS, qT; uniform vec2 qA; varying vec2 vUv;
+const MIX_FS = `uniform sampler2D tA, tB; uniform vec4 fA, fB; uniform float kA, kB, x; uniform vec4 dz; uniform vec2 dzo; uniform float asp; uniform vec4 mg; uniform vec3 mgT; uniform vec3 qS, qB, qG; uniform vec2 qA; varying vec2 vUv;
 vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
 vec3 src(sampler2D t, vec4 f, float k, vec2 uv) { if (k < 0.5) return vec3(0.0); vec3 c = texture2D(t, f.xy + uv * f.zw).rgb; return k > 1.5 ? clamp(srgb(c), 0.0, 1.0) : c; }
+vec3 qLv(vec3 c) { vec3 l = qB + (pow(max(c, vec3(0.0)), vec3(2.2)) - qS) * qG; l = max(l, 0.0); float m = dot(l, vec3(0.2126, 0.7152, 0.0722)); l = vec3(m) + (l - vec3(m)) * 0.85; return pow(clamp(l, 0.0, 1.0), vec3(1.0 / 2.2)); }
 vec2 rot(vec2 p, float a) { float c = cos(a), s = sin(a); return vec2(c * p.x - s * p.y, s * p.x + c * p.y); }
 void main() {
   vec2 uv = vUv; float edge = 1.0;
@@ -48,8 +49,8 @@ void main() {
     uv = p / vec2(asp, 1.0) + 0.5; uv = 1.0 - abs(1.0 - mod(uv, 2.0));   // a turned corner past the frame: mirrored, no smear
   }
   vec3 ca = src(tA, fA, kA, uv), cb = src(tB, fB, kB, uv);   // #712 MATCH SCENE on a QUEST bus: the cast takes the DirroVerse scene's palette
-  if (qA.x > 0.0) ca = mix(ca, clamp(qM * (ca - qS) + qT, 0.0, 1.0), qA.x);
-  if (qA.y > 0.0) cb = mix(cb, clamp(qM * (cb - qS) + qT, 0.0, 1.0), qA.y);
+  if (qA.x > 0.0) ca = mix(ca, qLv(ca), qA.x);   // #714 levels: the cast's blacks onto the target's shadows, its whites onto its lit parts
+  if (qA.y > 0.0) cb = mix(cb, qLv(cb), qA.y);
   vec3 pc = mix(ca, cb, x) * edge;
   if (mg.w > 0.5) {   // #711 MASTER GRADE: exposure (stops, in linear light), gamma, colour tint (keeps brightness)
     vec3 l = pow(max(pc, vec3(0.0)), vec3(2.2)) * exp2(mg.x) * mgT;
@@ -230,7 +231,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     U.value = C.rt.texture; fit.set(0, 0, 1, 1); return 1;
   }
   let ledTex = null, lastLedVid = null, ledImgTex = null, lastLedImg = null;
-  const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 }, dz: { value: new THREE.Vector4() }, dzo: { value: new THREE.Vector2() }, asp: { value: 16 / 9 }, mg: { value: new THREE.Vector4(0, 1, 0, 0) }, mgT: { value: new THREE.Vector3(1, 1, 1) }, qM: { value: new THREE.Matrix3() }, qS: { value: new THREE.Vector3() }, qT: { value: new THREE.Vector3() }, qA: { value: new THREE.Vector2() } };   // #712 qM / qS / qT / qA: MATCH SCENE on the QUEST bus   // #704 dz / dzo: BEAT ZOOM   // #711 mg / mgT: MASTER GRADE
+  const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 }, dz: { value: new THREE.Vector4() }, dzo: { value: new THREE.Vector2() }, asp: { value: 16 / 9 }, mg: { value: new THREE.Vector4(0, 1, 0, 0) }, mgT: { value: new THREE.Vector3(1, 1, 1) }, qS: { value: new THREE.Vector3() }, qB: { value: new THREE.Vector3() }, qG: { value: new THREE.Vector3(1, 1, 1) }, qA: { value: new THREE.Vector2() } };   // #712 qM / qS / qT / qA: MATCH SCENE on the QUEST bus   // #704 dz / dzo: BEAT ZOOM   // #711 mg / mgT: MASTER GRADE
   const mMat = new THREE.ShaderMaterial({ uniforms: mU, vertexShader: VS, fragmentShader: MIX_FS, depthTest: false, depthWrite: false }), mSc = quad(mMat);
   // #563 every DirroComics grab (GRAB QUEST / GRAB WEBCAM stills, GRAB RGB-D clips and stills) also lands in the desk's IMAGES or VIDEOS bank
   async function toBank(blob, name) {
@@ -472,7 +473,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     mU.mgT.value.set(1 + G.tint * (c[0] / Y - 1), 1 + G.tint * (c[1] / Y - 1), 1 + G.tint * (c[2] / Y - 1));
   }
   // #712 MATCH SCENE on the QUEST bus: the cast's colour spread read back at 16 x 16 a few times a second, mapped onto the loaded DirroVerse scene's (MKL)
-  const qRT = new THREE.WebGLRenderTarget(16, 16, { depthBuffer: false }), qBuf = new Uint8Array(16 * 16 * 4), qCU = { t: { value: null } };
+  const qRT = new THREE.WebGLRenderTarget(32, 32, { depthBuffer: false }), qBuf = new Uint8Array(32 * 32 * 4), qCU = { t: { value: null } };
   const qSc = quad(new THREE.ShaderMaterial({ uniforms: qCU, vertexShader: VS, fragmentShader: 'uniform sampler2D t; varying vec2 vUv; void main() { gl_FragColor = vec4(texture2D(t, vUv).rgb, 1.0); }', depthTest: false, depthWrite: false }));
   let qSt = null, qT0 = 0;
   // #713 a DirroVerse bank's panorama (PANOS bank, browser storage): one frame at 128 x 64, rows weighted by cos(latitude) within 55 degrees
@@ -492,7 +493,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
         finally { vd.removeAttribute('src'); vd.load(); URL.revokeObjectURL(u); } }
       const d = x.getImageData(0, 0, w, h).data, wt = new Float32Array(w * h);
       for (let yy = 0; yy < h; yy++) { const lat = ((yy + 0.5) / h - 0.5) * Math.PI, k = Math.abs(lat) < 0.96 ? Math.cos(lat) : 0; wt.fill(k, yy * w, yy * w + w); }
-      PT.st = colStats(d, wt); PT.name = p.name;
+      PT.st = levelStats(d, { lo: 0.05, hi: 0.02, satMax: 0.75, keep: k => wt[k] > 0 }); PT.name = p.name;
     })().catch(e => { PT.st = null; PT.err = 'QUEST CAST: ' + (e.message || e); }).finally(() => { PT.key = key; PT.busy = false; qSt = qSt; post(); });
     return null;
   }
@@ -504,9 +505,8 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     const onA = D.a === 'quest', onB = D.b === 'quest';
     if (!amt || !tg || !questTex || !(onA || onB)) { mU.qA.value.set(0, 0); return; }
     if (now - qT0 > 300 || !qSt || tg !== questMatch.tg) { qT0 = now; questMatch.tg = tg;
-      try { qCU.t.value = questTex; renderer.setRenderTarget(qRT); renderer.render(qSc, oc); renderer.readRenderTargetPixels(qRT, 0, 0, 16, 16, qBuf); renderer.setRenderTarget(null);
-        const st = colStats(qBuf); if (st) { qSt = colLerp(qSt, st, 0.3); const M = mkl(qSt.C, tg.C);
-          mU.qM.value.set(M[0][0], M[0][1], M[0][2], M[1][0], M[1][1], M[1][2], M[2][0], M[2][1], M[2][2]); mU.qS.value.set(...qSt.m); mU.qT.value.set(...tg.m); } }
+      try { qCU.t.value = questTex; renderer.setRenderTarget(qRT); renderer.render(qSc, oc); renderer.readRenderTargetPixels(qRT, 0, 0, 32, 32, qBuf); renderer.setRenderTarget(null);
+        const st = levelStats(qBuf); if (st) { qSt = lvLerp(qSt, st, 0.25); mU.qS.value.set(...qSt.b); mU.qB.value.set(...tg.b); mU.qG.value.set(...lvGain(qSt, tg)); } }
       catch { renderer.setRenderTarget(null); } }
     mU.qA.value.set(onA && qSt ? amt : 0, onB && qSt ? amt : 0);
   }

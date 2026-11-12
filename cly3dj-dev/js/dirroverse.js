@@ -37,12 +37,27 @@ export function colStats(d, wt) { const m = [0, 0, 0], C = [[0, 0, 0], [0, 0, 0]
   for (let i = 0, k = 0; i < d.length; i += 4, k++) { const w = wt ? wt[k] : 1; if (!(w > 0)) continue; const v = [d[i] / 255 - m[0], d[i + 1] / 255 - m[1], d[i + 2] / 255 - m[2]];
     for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) C[a][b] += w * v[a] * v[b]; }
   return { m, C: C.map(r => r.map(v => v / W)) }; }
+// #714 MATCH SCENE by levels (what a compositor does first): the black point and the white point of a picture, in linear light.
+// black = mean colour of its darkest lo share, white = mean colour of its brightest hi share (skipping strongly coloured pixels:
+// neon is not the scene's white). keep(i) false leaves a pixel out; pre(rgb) changes a linear sample first (the set's grade).
+export function levelStats(d, { lo = 0.04, hi = 0.03, satMax = 1, keep = null, pre = null } = {}) {
+  const px = [], L = [];
+  for (let i = 0, k = 0; i < d.length; i += 4, k++) { if (keep && !keep(k)) continue; let c = [(d[i] / 255) ** 2.2, (d[i + 1] / 255) ** 2.2, (d[i + 2] / 255) ** 2.2]; if (pre) c = pre(c); px.push(c); L.push(0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]); }
+  if (px.length < 8) return null;
+  const o = [...px.keys()].sort((a, b) => L[a] - L[b]), n = o.length, mean = ix => { const m = [0, 0, 0]; for (const i of ix) for (let c = 0; c < 3; c++) m[c] += px[i][c] / ix.length; return m; };
+  const sat = c => (Math.max(...c) - Math.min(...c)) / Math.max(1e-4, Math.max(...c)), br = [];
+  for (let j = n - 1; j >= 0 && br.length < Math.max(1, Math.round(n * hi)); j--) if (sat(px[o[j]]) <= satMax) br.push(o[j]);
+  return { b: mean(o.slice(0, Math.max(1, Math.round(n * lo)))), w: mean(br.length ? br : [o[n - 1]]) };
+}
+export const lvLerp = (a, b, k) => !a ? b : { b: a.b.map((v, i) => v + (b.b[i] - v) * k), w: a.w.map((v, i) => v + (b.w[i] - v) * k) };
+// out = bT + (c - bS) * (wT - bT) / (wS - bS), per channel: the source's blacks land on the scene's shadows (the air's colour), its whites on the scene's lit windows
+export const lvGain = (S, T) => [0, 1, 2].map(i => Math.max(0.03, Math.min(6, (T.w[i] - T.b[i]) / Math.max(0.03, S.w[i] - S.b[i]))));
 // smooth one stats object toward another (fast enough for a moving webcam, no flicker)
 export const colLerp = (a, b, k) => !a ? b : { m: a.m.map((v, i) => v + (b.m[i] - v) * k), C: a.C.map((r, i) => r.map((v, j) => v + (b.C[i][j] - v) * k)) };
 
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
 const FS = `uniform sampler2D tBase, tMask, tSpill, tCam, tFog; uniform vec2 plate, camSz; uniform int nW; uniform mat3 Hm[4]; uniform vec4 fp[4];
-uniform float sil[4]; uniform float stack; uniform vec3 zm; uniform mat3 tM; uniform float crop, spillK, cutOld, camOn, match, mist, rainK, reflK, fogOn, time; uniform vec3 grade, camLight, camMean, camStd, tgtMean, tgtStd;
+uniform float sil[4]; uniform float stack; uniform vec3 zm; uniform vec3 lvS, lvB, lvG; uniform float lvSat; uniform float crop, spillK, cutOld, camOn, match, mist, rainK, reflK, fogOn, time; uniform vec3 grade, camLight, camMean, camStd, tgtMean, tgtStd;
 varying vec2 vUv;
 // #709 stacked loop (plate_matte.mp4): the plate on top, a moving matte below (white = the window is clear, black = a car passes in front)
 vec2 bu(vec2 uv) { return stack > 0.5 ? vec2(uv.x, 0.5 + 0.5 * uv.y) : uv; }
@@ -67,10 +82,10 @@ void main() {
       float bead = rr > 0.0 ? smoothstep(rr, rr * 0.7, dd) : 0.0, rim = rr > 0.0 ? smoothstep(rr * 0.55, rr, dd) * bead : 0.0;
       vec2 cuv = vec2(f.x / camSz.x, 1.0 - f.y / camSz.y) - vec2(cf.x, -cf.y) * bead * 0.06;
       vec3 cs = texture2D(tCam, clamp(cuv, 0.0, 1.0)).rgb;
-      cs = mix(cs, clamp(tM * (cs - camMean) + tgtMean, 0.0, 1.0), match);   // #712 the scene's palette (MKL transfer)
       vec3 c = lin(cs);
       c = c * grade.x * vec3(1.0 + grade.y, 1.0, 1.0 - 1.3 * grade.y);
       c = 0.18 * pow(max(c, 0.0) / 0.18, vec3(grade.z));
+      { vec3 cm = max(lvB + (c - lvS) * lvG, 0.0); float lm = dot(cm, vec3(0.2126, 0.7152, 0.0722)); cm = vec3(lm) + (cm - vec3(lm)) * lvSat; c = mix(c, cm, match); }   // #714 MATCH SCENE: levels onto the scene
       if (sil[i] > 0.0) { float lu = dot(c, vec3(0.2126, 0.7152, 0.0722)); float keep = 0.15 + 0.85 * smoothstep(1.6, 4.5, lu / 0.18); c *= 1.0 - sil[i] * (1.0 - keep); }
       float mi = mist * (0.55 + 0.45 * smoothstep(0.25, 0.0, uv.y) + 0.6 * smoothstep(0.65, 1.0, uv.y)) * (1.0 - bead);   // condensation, heavier top and bottom
       float lu2 = dot(c, vec3(0.2126, 0.7152, 0.0722)); c += ((vec3(lu2) + 0.55 * (c - vec3(lu2))) * 0.8 + vec3(0.016, 0.02, 0.026) - c) * mi * 0.6;
@@ -98,18 +113,20 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     fp: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0.4, 0.5, 1, 0.72)) }, sil: { value: [0, 0, 0, 0] }, crop: { value: 0.86 },
     grade: { value: new THREE.Vector3(2.3, 0.06, 0.88) }, camLight: { value: new THREE.Vector3(1, 1, 1) }, spillK: { value: 0.95 }, cutOld: { value: 0.5 }, camOn: { value: 1 },
     tFog: { value: black }, stack: { value: 0 }, match: { value: 0.7 }, mist: { value: 0.35 }, rainK: { value: 0.7 }, reflK: { value: 0.07 }, fogOn: { value: 0 }, time: { value: 0 },
-    camMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, camStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, tgtMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, tgtStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, zm: { value: new THREE.Vector3(1, 0.5, 0.5) }, tM: { value: new THREE.Matrix3() } };
+    camMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, camStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, tgtMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, tgtStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, zm: { value: new THREE.Vector3(1, 0.5, 0.5) }, lvS: { value: new THREE.Vector3(0, 0, 0) }, lvB: { value: new THREE.Vector3(0, 0, 0) }, lvG: { value: new THREE.Vector3(1, 1, 1) }, lvSat: { value: 0.85 } };
   const mat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: FS, depthTest: false, depthWrite: false });
   const sc = new THREE.Scene(), mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); mesh.frustumCulled = false; sc.add(mesh);
   const oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   let rt = null, W = 1920, H = 1080, ready = false, air = false, pending = null, loadSeq = 0;
   // the webcam's average colour, a few times a second (the light the club throws out of the windows)
-  const avc = document.createElement('canvas'); avc.width = avc.height = 16;   // #712 16 x 16 for the colour spread (was 8 x 8 means only) const avx = avc.getContext('2d', { willReadFrequently: true });
+  const avc = document.createElement('canvas'); avc.width = avc.height = 32;   // #714 32 x 32 for its black and white points
+  const avx = avc.getContext('2d', { willReadFrequently: true });   // #714 this line had been swallowed by a comment in #712: the webcam was never measured
   let avT = 0, light = [0.25, 0.2, 0.3];
   function camAvg(now) {
     if (now - avT < 250 || !camVideo || !camVideo.videoWidth) return; avT = now;
-    try { avx.drawImage(camVideo, 0, 0, 16, 16); const d = avx.getImageData(0, 0, 16, 16).data; let r = 0, g = 0, b = 0; for (let i = 0; i < d.length; i += 4) { r += (d[i] / 255) ** 2.2; g += (d[i + 1] / 255) ** 2.2; b += (d[i + 2] / 255) ** 2.2; }
-      { const st = colStats(d); if (st) { srcS = colLerp(srcS, st, 0.3); U.camMean.value.set(...srcS.m); remap(); } }   // #712
+    try { avx.drawImage(camVideo, 0, 0, 32, 32); const d = avx.getImageData(0, 0, 32, 32).data; let r = 0, g = 0, b = 0; for (let i = 0; i < d.length; i += 4) { r += (d[i] / 255) ** 2.2; g += (d[i + 1] / 255) ** 2.2; b += (d[i + 2] / 255) ** 2.2; }
+      { const G = U.grade.value, st = levelStats(d, { pre: c => [c[0] * G.x * (1 + G.y), c[1] * G.x, c[2] * G.x * (1 - 1.3 * G.y)].map(v => 0.18 * Math.pow(Math.max(v, 0) / 0.18, G.z)) });   // #714 after the set's grade, as in the shader
+        if (st) { srcS = lvLerp(srcS, st, 0.25); remap(); } }
       const n = d.length / 4, c = [r / n, g / n, b / n].map(x => x * U.grade.value.x), up = c.map((x, i) => x > light[i]);
       light = light.map((x, i) => x + (c[i] - x) * (up[i] ? 0.65 : 0.18));               // fast attack, slow release (as the studio)
       const lum = Math.max(1e-4, 0.2126 * light[0] + 0.7152 * light[1] + 0.0722 * light[2]), inten = Math.min(2.8, Math.max(0.2, 0.25 + 2.6 * lum));
@@ -118,12 +135,12 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
   }
   function stats(d) { const m = [0, 0, 0], q = [0, 0, 0], n = d.length / 4; for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) { const v = d[i + c] / 255; m[c] += v; q[c] += v * v; }
     return { m: m.map(x => x / n), s: m.map((x, c) => Math.sqrt(Math.max(1e-5, q[c] / n - (x / n) ** 2))) }; }
-  // #712 the target: the plate around the windows (weighted toward them, the window holes left out), so the webcam takes the light of that wall
+  // #714 the target: the plate's black point (its darkest 5%, the air's colour) and white point (its brightest 2% that isn't neon: the lit windows), window holes left out
   let srcS = null, tgtS = null;
-  function remap() { if (!srcS || !tgtS) return; const M = mkl(srcS.C, tgtS.C); U.tM.value.set(M[0][0], M[0][1], M[0][2], M[1][0], M[1][1], M[1][2], M[2][0], M[2][1], M[2][2]); }
+  function remap() { if (!srcS || !tgtS) return; U.lvS.value.set(...srcS.b); U.lvB.value.set(...tgtS.b); U.lvG.value.set(...lvGain(srcS, tgtS)); }
   function plateStats(url, ws, PW, PH) {
     const im = new Image(); im.crossOrigin = 'anonymous';
-    im.onload = () => { try { const w = 96, h = Math.max(8, Math.round(96 * PH / PW)), c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.drawImage(im, 0, 0, w, h);
+    im.onload = () => { try { const w = 160, h = Math.max(8, Math.round(160 * PH / PW)), c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.drawImage(im, 0, 0, w, h);
       const d = x.getImageData(0, 0, w, h).data, wt = new Float32Array(w * h);
       const inQ = (q, px, py) => { let s0 = 0; for (let k = 0; k < 4; k++) { const [ax, ay] = q[k], [bx, by] = q[(k + 1) % 4], cr = (bx - ax) * (py - ay) - (by - ay) * (px - ax); if (cr !== 0) { if (s0 && Math.sign(cr) !== s0) return false; s0 = Math.sign(cr); } } return true; };
       const cs = ws.map(q => { const xs = q.map(p => p[0]), ys = q.map(p => p[1]); return { cx: xs.reduce((a, b) => a + b) / 4, cy: ys.reduce((a, b) => a + b) / 4, r: 1.5 * Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) }; });
@@ -131,7 +148,7 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
         if (ws.some(q => inQ(q, px, py))) continue;
         let near = 0; for (const o of cs) near = Math.max(near, Math.exp(-((px - o.cx) ** 2 + (py - o.cy) ** 2) / (o.r * o.r)));
         wt[yy * w + xx] = 0.25 + near; }
-      const st = colStats(d, wt); if (!st) return; tgtS = st; U.tgtMean.value.set(...st.m); remap(); } catch {} };
+      const st = levelStats(d, { lo: 0.05, hi: 0.02, satMax: 0.75, keep: k => wt[k] > 0 }); if (!st) return; tgtS = st; remap(); } catch {} };
     im.src = url;
   }
   const target = () => tgtS;
