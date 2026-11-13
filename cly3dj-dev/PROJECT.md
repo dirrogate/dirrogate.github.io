@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 13 Nov 2026 (decision log up to #723 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 13 Nov 2026 (decision log up to #727 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -27,7 +27,7 @@ Owner: Clyde DeSouza (c3souza).
   - **Reading the Drive copy from the cloud:** the Drive connector's `search_files` with maximum snippets returns a file's text (Markdown-escaped, indents collapsed, the end of very large files cut off). It is good for reading and for checking a rebuild (compare with whitespace collapsed, then match the exact byte size), not for copying files back verbatim.
 - **Git lock files:** commits from Claude's shell leave `.git/*.lock` and `tmp_obj_*` files; delete them after every commit (needs the owner's delete permission for the repo folder, asked once per session), or the owner's next push fails.
 - **Backups:** `ViRe_Custom/backups/`, per-change folders (`pre-…`) plus full zips. Files Claude can't delete go to `ViRe_Custom/_to_delete/`.
-- **DirroVerse SET studio (laptop only, never on the Quest):** `ViRe_Custom/club_window/` (FastAPI on `127.0.0.1:8090`, torch CUDA on the RTX 4050; start with `club_window\start_set_builder.bat`). Self-contained since #717 (Real-ESRGAN, sprites, moon picture, `space_car.glb`, fx clips, `ephem.py` all inside it); `DirroVJcyberdomes/` can be archived once no set's moving plate source points into it. Sets in `club_window/sets/<name>/` (set.json, plate.png, plate_loop.mp4, bake_n.mp4, takes). Plan docs `claude/club-window-plan.md`, `claude/dirroverse-shots-plan.md`.
+- **DirroVerse SET studio (laptop only, never on the Quest):** `ViRe_Custom/club_window/` (FastAPI on `127.0.0.1:8090`, torch CUDA on the RTX 4050; start with `club_window\start_set_builder.bat`). Self-contained since #717 (Real-ESRGAN, sprites, moon picture, `space_car.glb`, fx clips, `ephem.py` all inside it); `DirroVJcyberdomes/` can be archived once no set's moving plate source points into it. Sets in `club_window/sets/<name>/` (set.json, plate.png, plate_loop.mp4, bake_n.mp4, takes). Manual: `club_window/STUDIO_MANUAL.md`. Pano template for Gemini: `club_window/pano_template.html`. Plan docs `claude/club-window-plan.md`, `claude/dirroverse-shots-plan.md`.
 - **Blender sources:** `ViRe_Custom/blender/`. **Renders:** `ViRe_Custom/renders/`. **Tools:** `ViRe_Custom/tools/` (`make_sleeve_demo.py` builds `web/examples/`). **Test panoramas:** `ViRe_Custom/test_panos/`.
 - **Models:** decks `web/models/` (GLB turntable, AO bake `turntable_ao.png/json`); avatars `web/models/avatar/avatar_robot_v2.glb` (the Cly3DJ robot, see Video and avatar), the older `avatar_robot.glb` (licensed model as delivered, #245) and `gemini_emboss.png` (its cup crest), `dirroface.glb` (owner's Ready Player Me avatar). Controller and hand models are vendored in `web/vendor/webxr-input-profiles/` (`meta-quest-touch-plus`, `generic-hand`).
 
@@ -169,6 +169,10 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
   - #721 360 LOOK: look round the whole panorama frame at the scrub time (drag, wheel zoom).
   - #722 NIGHT SKY: moon for a place and time (or full moon), stars, puffy / rain clouds, seamless loop; + SKY areas say where (else everything above the horizon); bright plate lights stay in front.
   - #723 numbered takes (right-click SAVE -> name_n.mp4), padlocks on items, BAKE LOCKED (locked items into bake_n.mp4, later renders skip them), stacking bakes = double exposure.
+  - #724 GrungeHut: Gemini panoramas cured (sparkle cloned over, 16:9 stretched to 2:1, pano prep to 6144 x 3072), five scenes plus two panorama sets, DirroVerse bank `GrungeHut`.
+  - #725 `club_window/pano_template.html`: a flat picture placed at its true size and direction in an empty panorama (field of view, turn / tilt / roll), saved with a mask and a Gemini prompt that fills only the empty area. grungehut_exterior got rain at three depths, drip lines, steam, smoke, fog and wet ground; falling rain now joins at a panorama's left / right seam.
+  - #726 big panorama plate loops no longer run x264 out of memory.
+  - #727 manuals: `club_window/STUDIO_MANUAL.md` (the SET studio, incl. the pano template and layered rain); the DirroVJ / DirroDJ manual (.docx) has a new section 9 part "DirroVerse scenes and the SET studio" (PDF remade).
 - Next: surf and sea zone; then a patch-only re-render for bakes if needed.
 
 ## Status (11 Nov)
