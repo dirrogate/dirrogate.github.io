@@ -148,15 +148,13 @@ export function startCamera(ctx) {
     connecting: 'Connecting to the Quest…', connected: 'Connected to the Quest', disconnected: 'Link lost', failed: 'Link failed (are both on the same Wi-Fi?)' };
   if (VJ && $('#spSolo')) $('#spSolo').onclick = () => {   // #662 SOLO: desk, projector window, webcam and the program output, no pairing
     try { localStorage.setItem('vire.vjMode', 'solo'); } catch {}
-    studio.openDesk(); studio.openScreenWin();
-    if (!fixed.on) fixed.start($('#spFixCam').value).then(() => studio.syncScreenWin()).catch(() => {});
+    studio.openDesk(); studio.openScreenWin();   // #716 no webcam here: it opens when a bus needs it
     studio.startVj(); studio.syncScreenWin();
     st('SOLO: DirroVJ runs without the Quest. Twitch key, DirroTV pairing and the beat (LINE IN / TAP) are on the desk. Connect later to go LINKED.');
   };
   let deskUp = false, wantCode = '', retryT = 0;   // #697 the laptop keeps the code and links again by itself
   const openVjWins = () => {   // #531 the VJ desk + Webcam / Projector window, webcam started (needs a click: browsers block pop-ups otherwise)
-    deskUp = true; studio.openDesk(); studio.openScreenWin();
-    if (!fixed.on) fixed.start($('#spFixCam').value).then(() => studio.syncScreenWin()).catch(() => {});
+    deskUp = true; studio.openDesk(); studio.openScreenWin();   // #716 webcam on demand
   };
   function linkUp(code) {
     wantCode = code; clearTimeout(retryT);

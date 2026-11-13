@@ -417,7 +417,25 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   }
   // ---- one frame; true = the studio drew the screen (the page skips its mirror render)
   let fpsT = 0;
+  // #716 the laptop webcam is open only while something uses it: a bus on air or cued (WEBCAM, HOLO+CAM, DANCER+CAM, a DirroVerse scene with the webcam in its windows,
+  // QUEST in the WEBCAM shot or with no Quest picture yet), the projector window on WEBCAM ONLY, or calibration; closed 10 s after (60 s after a start by hand)
+  let camIdle = 0, camOpening = false, camWasWanted = false, camGrace = 10000;
+  function camManage(now) {
+    if (!vj || !desk || !fixed.start || !fixed.stop) return;
+    const D = desk.D, sh = src => (D.x < 1 && D.a === src) || (D.x > 0 && D.b === src) || (!!D.cue && D[D.cue] === src);
+    const qCam = sh('quest') && ((S.on && S.mode !== 'show') || (now - qLast > 1500 && !S.local));
+    const want = (desk.camWanted && desk.camWanted()) || qCam || (scrMode === 'cam' && scrWin && !scrWin.closed) || !!(fixed.S && fixed.S.cal);
+    if (want) {
+      camIdle = 0; camGrace = 10000; camWasWanted = true;
+      if (!fixed.on && !camOpening) { camOpening = true; fixed.start().then(() => syncScreenWin()).catch(() => {}).finally(() => { camOpening = false; }); }
+      return;
+    }
+    if (!fixed.on || camOpening) { camIdle = 0; return; }
+    if (!camIdle) { camIdle = now; if (!camWasWanted) camGrace = 60000; }   // opened by hand (start page button): a longer wait
+    if (now - camIdle > camGrace) { camIdle = 0; camWasWanted = false; fixed.stop(); syncScreenWin(); }
+  }
   function frame(now) {
+    camManage(now);
     if ((!S.on && !vj) || S.paused) return false;
     if (now - (S.drawT || 0) < 30) return true;   // ~30 fps is all the inputs have (a 60 Hz screen would draw every picture twice)
     S.drawT = now;
