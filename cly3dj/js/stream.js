@@ -222,6 +222,7 @@ export class Streamer {
     if (this.live && !this.stuTw) return;
     if (!this.stu.on) { if (!this.stu.snd) this.setStudio('snd', true); this.setStudio('on', true); }
   }
+  dvAuto(on, sec) { const L = this.stuLink; if (!L) return false; L.ctl({ k: 'dvAuto', on, sec }); if (this.s8) this.s8.dv = { ...(this.s8.dv || {}), ...(on != null && on !== 'toggle' ? { on: !!on } : {}), ...(sec != null ? { sec } : {}) }; return true; }   // #710 AUTO DIRROVERSE on DirroVJ's desk
   _qtwTell(force) { const L = this.stuLink, q = !!(this.live && !this.stuTw); if (L && (force || q !== this._qtw)) { this._qtw = q; L.ctl({ k: 'qtw', live: q }); } }
   allowVj(yes) {
     const id = this.vjAsk; this.vjAsk = null; if (!id) return;
@@ -311,7 +312,8 @@ export class Streamer {
       lg.globalAlpha = 1; lg.globalCompositeOperation = 'source-over'; this.stuBaked = true;
     } else this.stuBaked = false;
     if (layer) lg.drawImage(layer, 0, 0, W, H);
-    this._overlays(lg, W, H);
+    const clean = this.stu.mode === 'cam' && this.s8 && this.s8.cl && performance.now() - this.s8.at < 3500;   // #707 DirroVJ puts this shot inside a DirroVerse window: no scroller / now playing / logo / chat in it
+    if (!clean) this._overlays(lg, W, H);
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.fillStyle = '#000'; g.fillRect(0, 0, STU.PW, H);
     g.drawImage(lc, 0, 0);
     mg.globalCompositeOperation = 'copy'; mg.drawImage(lc, 0, 0, STU.MW, H);
