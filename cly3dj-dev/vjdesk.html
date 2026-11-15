@@ -236,6 +236,7 @@
   <h2>DirroVerse <span class="note" style="text-transform:none;letter-spacing:0">put DIRROVERSE on a bus · sets from the Cyber-Window studio</span></h2>
   <div class="row"><select id="dvSet" style="min-width:180px;display:none"></select><button id="dvLoad">LOAD</button><button id="dvList">REFRESH</button>
     <input type="checkbox" id="dvCam" checked hidden><span class="note" style="margin:0 2px 0 8px">Windows:</span><span id="dvFeed"><button data-f="off">OFF</button><button data-f="cam">WEBCAM</button><button data-f="gear">WEBCAM + GEAR</button></span>
+    <label class="kv" title="How big the webcam picture is in the DirroVerse windows (you and the gear strip together). Double-click = 1x."><span class="sp" style="width:88px">WEBCAM SIZE</span><input type="range" id="dvCs" min="0.4" max="3" step="0.05" value="1" style="width:120px"><b id="dvCsV" style="min-width:40px">1.00×</b></label>
     <span hidden style="display:inline-flex;align-items:center;gap:6px;margin-left:10px"><button id="dvTa" title="AUTO DIRROVERSE: step through the loaded DirroVerse bank, one scene every N seconds (also on the Quest: SHOWTIME! OBJECTS)">AUTO DIRROVERSE</button><input type="range" id="dvTs" min="30" max="180" step="5" value="60" style="width:130px"><b id="dvTsV" style="min-width:52px">60 s</b><span id="dvTaSt" class="note" style="margin:0"></span></span>
     <span hidden style="display:inline-flex;align-items:center;gap:6px;margin-left:10px"><button id="dvZm" title="AUTO ZOOM: each scene holds wide for a third of its time, eases 1.5x in (mid), then a further 1.25x (close-up). Slot = AUTO DIRROVERSE seconds, AUTO bars, or the seconds slider for a manual pick.">AUTO ZOOM</button><label class="note" style="margin:0;display:inline-flex;align-items:center;gap:4px" title="A scene you pick by hand stays at its wide framing (AUTO steps still zoom)"><input type="checkbox" id="dvNz">noZoom</label><b id="dvZst" class="note" style="margin:0;min-width:70px"></b></span>
     <a href="http://127.0.0.1:8090/" target="_blank" class="note" style="margin:0 6px">open the studio</a><a href="./dirroverse.html" target="_blank" class="note" style="margin:0">DIRROVERSE page</a></div>
@@ -459,7 +460,8 @@
 </section>
 </div></div>
 <script>
-const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
+const POPS = window.__pops = new Set();   // #749 documents of popped-out panels: $ and querySelectorAll look there too
+const bc = new BroadcastChannel('dirrovj'), $ = id => { const e = document.getElementById(id); if (e) return e; for (const d of POPS) { const x = d.getElementById(id); if (x) return x; } return null; }, send = m => bc.postMessage(m);
 const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLOWALL', comic: 'COMICS', dancer: 'DANCER', holo: 'HOLO', dverse: 'DIRROVERSE', hocam: 'HOLO+CAM', dzcam: 'DANCER+CAM' };   // #667 #668 #669   // #662   // #573   // #516, #537, #550, #555 BLACK gone, DIRROCOMICS shortened to COMICS (one line per bus)
 let S = null, lastSeen = 0, realT = 0;   // #519 realT: last state from a real DirroVJ
 const BUS7 = [['quest', 'QUEST'], ['webcam', 'WEBCAM'], ['led', 'CYCLOWALL'], ['dverse', 'DIRROVERSE'], ['performer', 'PERFORMER'], ['fractal', 'FRACTAL'], ['comic', 'COMICS']], PERF = ['dancer', 'holo', 'dzcam', 'hocam'];   // #743 7 sources: DANCER / HOLO and their +CAM forms are one PERFORMER
@@ -536,9 +538,9 @@ function renderTop(D) {
   for (const b of document.querySelectorAll('[data-it]')) b.classList.toggle('on', !inspAll && b.dataset.it === show);
   $('inspAll').classList.toggle('on', inspAll);
   { const sb = $('sbS'); if (sb && !sb.dataset.src) sb.dataset.src = 'comic'; }   // the AI storyboard goes with COMICS
-  for (const el of document.querySelectorAll('#insp [data-src]')) el.hidden = !inspAll && !el.dataset.src.split(' ').includes(show);   // #748 a section can belong to several sources (the webcam picker)
+  for (const el of document.querySelectorAll('#insp [data-src]')) el.hidden = el.ownerDocument !== document ? false : !inspAll && !el.dataset.src.split(' ').includes(show);   // #749 a popped-out panel always shows   // #748 a section can belong to several sources (the webcam picker)
   const pk = D.perf ? D.perf.kind : 'dancer', pc = !!(D.perf && D.perf.cam);
-  for (const el of document.querySelectorAll('#insp [data-perf]')) el.hidden = !inspAll && (el.dataset.perf === 'cam' ? !pc : el.dataset.perf !== pk);
+  for (const el of document.querySelectorAll('#insp [data-perf]')) el.hidden = el.ownerDocument !== document ? false : !inspAll && (el.dataset.perf === 'cam' ? !pc : el.dataset.perf !== pk);
   $('pcamB').classList.toggle('on', pc);
   if (D.pk) { const K = D.pk; for (const id of ['pkB', 'pkOn']) $(id).classList.toggle('on', !!K.on); $('pkHolo').classList.toggle('on', !!K.holo); $('pkMir').classList.toggle('on', !!K.mir);   // #745
     for (const [id, k] of [['pkS', 's'], ['pkX', 'x'], ['pkY', 'y']]) if (document.activeElement !== $(id)) $(id).value = K[k]; $('pkSt').textContent = K.on ? (K.st || 'on air over the program') : ''; }
@@ -1089,6 +1091,7 @@ $('dvList').onclick = () => send({ k: 'dv', act: 'list' }); $('dvLoad').onclick 
 $('dvCam').onchange = () => send({ k: 'dv', act: 'cam', v: $('dvCam').checked });
 // #707 WINDOWS feed, AUTO bars, HOLD, PREV / NEXT (keys: N next, B back, H hold)
 for (const b of $('dvFeed').querySelectorAll('button')) b.onclick = () => send({ k: 'dv', act: 'feed', v: b.dataset.f });
+$('dvCs').oninput = e => { send({ k: 'dv', act: 'csize', v: +e.target.value }); $('dvCsV').textContent = (+e.target.value).toFixed(2) + '×'; }; $('dvCs').ondblclick = () => send({ k: 'dv', act: 'csize', v: 1 });   // #749
 for (const b of $('dvAuto').querySelectorAll('button')) b.onclick = () => send({ k: 'dv', act: 'auto', v: +b.dataset.b });
 $('dvTa').onclick = () => send({ k: 'dv', act: 'tauto' });   // #710 AUTO DIRROVERSE
 $('dvZm').onclick = () => send({ k: 'dv', act: 'zoom' }); $('dvNz').onchange = e => send({ k: 'dv', act: 'nozoom', v: e.target.checked });   // #711 AUTO ZOOM
@@ -1108,6 +1111,7 @@ function renderDv(v) {
   if (document.activeElement !== $('dvCam')) $('dvCam').checked = !!v.cam;
   { const f = !v.cam ? 'off' : v.feed === 'gear' ? 'gear' : 'cam'; for (const b of $('dvFeed').querySelectorAll('button')) b.classList.toggle('on', b.dataset.f === f); }   // #707
   $('dvGearSt').textContent = v.gearSt || '';
+  if (document.activeElement !== $('dvCs')) { $('dvCs').value = v.cs || 1; $('dvCsV').textContent = (+(v.cs || 1)).toFixed(2) + '×'; }   // #749
   $('dvZm').classList.toggle('on', v.zm !== false); $('dvNz').checked = !!v.nz; $('dvZst').textContent = v.zm === false ? '' : v.zst || '';   // #711
   $('dvTa').classList.toggle('on', !!v.ta); if (document.activeElement !== $('dvTs')) { $('dvTs').value = v.tsec || 60; $('dvTsV').textContent = (v.tsec || 60) + ' s'; }   // #710
   { const vv = (v.verses || []).find(y => y.name === v.verse), n = vv ? vv.scenes.filter(x => (v.sets || []).includes(x)).length : 0;
@@ -1327,6 +1331,47 @@ function airBadges(a) {
   rn.style.cursor = 'pointer'; rn.onclick = () => { if (!vjAir) { $('st').textContent = 'RENDER: turn DIRROVJ on first (tablet: TWITCH > DIRROVJ).'; return; } if (a.mode !== 'show') { $('st').textContent = 'RENDER only applies to SHOWTIME! (a GoPro); WEBCAM is drawn on this laptop already.'; return; } send({ k: 'show', render: lap ? 'quest' : 'laptop' }); };   // #748
 }
 setInterval(() => { send({ k: 'hello', again: true }); if (Date.now() - lastSeen > 4000) $('st').textContent = 'No DirroVJ window: open dirrovj.html and connect.'; }, 2000);
+</script>
+<script>/* #749 POP OUT / DOCK: any panel can go into its own window and come back. The panel's own elements move (their
+   handlers keep working); $ (above), querySelectorAll, querySelector and activeElement also look in the popped windows. */
+(() => {
+  const D = Document.prototype, qa = D.querySelectorAll, q1 = D.querySelector, ae = Object.getOwnPropertyDescriptor(D, 'activeElement');
+  document.querySelectorAll = function (sel) { const a = [...qa.call(this, sel)]; for (const d of POPS) a.push(...qa.call(d, sel)); return a; };
+  document.querySelector = function (sel) { const e = q1.call(this, sel); if (e) return e; for (const d of POPS) { const x = q1.call(d, sel); if (x) return x; } return null; };
+  Object.defineProperty(document, 'activeElement', { configurable: true, get() { for (const d of POPS) { try { if (d.hasFocus()) return ae.get.call(d); } catch {} } return ae.get.call(this); } });
+  for (const id of ['dvMenu', 'dvPeek']) { const e = document.getElementById(id); if (e) document.body.append(e); }   // the scene menu / peek stay in the desk
+  const css = [...qa.call(document, 'style')].map(s => s.textContent).join('\n') + '\n.popB{display:none!important} body{margin:8px;overflow:auto} #popBar{position:sticky;top:0;z-index:99;display:flex;gap:8px;align-items:center;background:#0b0e14;padding:4px 0 6px;font:700 12px system-ui,sans-serif;color:#8c96a8}';
+  const name = el => { const h = el.querySelector('h2'); return (h ? h.firstChild && h.firstChild.textContent || h.textContent : el.id || 'panel').trim().slice(0, 40) || 'panel'; };
+  function popOut(el) {
+    if (el.__pop && !el.__pop.closed) { el.__pop.focus(); return; }
+    const r = el.getBoundingClientRect(), nm = name(el);
+    const w = window.open('', 'vjpop_' + (el.id || nm.replace(/\W+/g, '_')), `width=${Math.max(420, Math.min(1400, Math.round(r.width) + 40))},height=${Math.max(260, Math.min(1000, Math.round(r.height) + 80))}`);
+    if (!w) { const st = $('st'); if (st) st.textContent = 'POP OUT: allow pop-ups for this page (address bar icon) and try again.'; return; }
+    const d = w.document; d.open(); d.write('<!doctype html><html><head><meta charset="utf-8"><title>DirroVJ · ' + nm.replace(/</g, '') + '</title></head><body></body></html>'); d.close();
+    const st = d.createElement('style'); st.textContent = css; d.head.append(st); d.body.className = document.body.className;
+    const bar = d.createElement('div'); bar.id = 'popBar'; const db = d.createElement('button'); db.textContent = '⇲ DOCK BACK'; db.onclick = () => dock(el); bar.append(db, d.createTextNode(nm + ' · closing this window docks it back')); d.body.append(bar);
+    const ph = document.createComment('pop ' + nm); el.before(ph); el.__ph = ph; el.__pop = w; el.__wasHidden = el.hidden; el.hidden = false;
+    d.body.append(d.adoptNode(el)); POPS.add(d);
+    d.addEventListener('keydown', e => { if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return; document.dispatchEvent(new KeyboardEvent('keydown', { key: e.key, code: e.code, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey, bubbles: true, cancelable: true })); if (['Tab', ' '].includes(e.key)) e.preventDefault(); });
+    w.addEventListener('pagehide', () => dock(el));
+    try { if (typeof S !== 'undefined' && S) render(); } catch {}
+  }
+  function dock(el) {
+    const w = el.__pop; if (!w) return; el.__pop = null; POPS.delete(w.document);
+    if (el.__ph && el.__ph.parentNode) el.__ph.replaceWith(document.adoptNode(el)); el.__ph = null;
+    try { if (!w.closed) w.close(); } catch {}
+    try { if (typeof S !== 'undefined' && S) render(); } catch {}
+  }
+  window.addEventListener('pagehide', () => { for (const d of [...POPS]) { try { d.defaultView.close(); } catch {} } });
+  const targets = [...qa.call(document, '#topStrip, #insp section:not(#inspHead), #rcol > section, #vjDecks')].filter(e => e.id !== 'mcS');
+  for (const el of targets) {
+    if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
+    const b = document.createElement('button'); b.className = 'popB'; b.textContent = '⧉'; b.title = 'POP OUT: this panel in its own window (close that window, or DOCK BACK, to bring it back)';
+    b.style.cssText = 'position:absolute;top:2px;right:2px;z-index:5;min-width:0;padding:1px 6px;font-size:12px;line-height:16px;opacity:.65';
+    b.onclick = e => { e.stopPropagation(); popOut(el); }; el.append(b);
+  }
+  window.vjPop = { popOut, dock, targets };
+})();
 </script>
 <script type="module">/* #527 DirroComics storyboard (AI) + #532 VJ clip banks (IMAGES / VIDEOS / PANOS) */
 import { initStoryboard } from './js/storyboard.js';

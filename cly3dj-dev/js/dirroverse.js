@@ -59,7 +59,7 @@ export const colLerp = (a, b, k) => !a ? b : { m: a.m.map((v, i) => v + (b.m[i] 
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
 const FS = `uniform sampler2D tBase, tMask, tSpill, tCam, tFog; uniform vec4 wgr; uniform vec2 plate, camSz; uniform int nW; uniform mat3 Hm[4]; uniform vec4 fp[4];
 uniform float sil[4]; uniform float stack; uniform vec3 zm; uniform vec3 lvS, lvB, lvG; uniform float lvSat; uniform sampler2D tPlate; uniform float winOrig; uniform float crop, spillK, cutOld, camOn, match, mist, rainK, reflK, fogOn, time; uniform vec3 grade, camLight, camMean, camStd, tgtMean, tgtStd;
-uniform sampler2D tQ, tPM; uniform float qOn, pmOn, wHolo; uniform vec3 hcol;   // #747 HOLOEDGE: the Quest's pack (gear + matte), the person mask
+uniform sampler2D tQ, tPM; uniform float qOn, pmOn, wHolo, camScale; uniform vec3 hcol;   // #747 HOLOEDGE: the Quest's pack (gear + matte), the person mask
 varying vec2 vUv;
 // #709 stacked loop (plate_matte.mp4): the plate on top, a moving matte below (white = the window is clear, black = a car passes in front)
 vec2 bu(vec2 uv) { return stack > 0.5 ? vec2(uv.x, 0.5 + 0.5 * uv.y) : uv; }
@@ -70,7 +70,7 @@ float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 *
 ${HOLO_GLSL}
 vec2 camUV(vec2 zz, mat3 H, vec4 f4) {   // #747 a plate point (zoomed) -> the webcam picture, through a window's homography and framing
   vec2 P = vec2(zz.x, 1.0 - zz.y) * plate; vec3 q = H * vec3(P, 1.0); vec2 uv = q.xy / q.z;
-  float chf = crop * camSz.y / max(0.05, f4.z), cwf = chf * f4.w;
+  float chf = crop * camSz.y / max(0.05, f4.z) / camScale, cwf = chf * f4.w;
   vec2 f = vec2(camSz.x * f4.x + (uv.x - 0.5) * cwf, camSz.y * f4.y + (uv.y - 0.5) * chf); return vec2(f.x / camSz.x, 1.0 - f.y / camSz.y); }
 vec3 gradeCam(vec3 c) {   // the window grade, MATCH SCENE and the desk's GRADE · WEBCAM (linear in, linear out)
   c = c * grade.x * vec3(1.0 + grade.y, 1.0, 1.0 - 1.3 * grade.y);
@@ -87,7 +87,7 @@ void main() {
     if (i >= nW) break;
     vec3 q = Hm[i] * vec3(P, 1.0); vec2 uv = q.xy / q.z;
     if (hit < 0.5 && uv.x >= -0.01 && uv.x <= 1.01 && uv.y >= -0.01 && uv.y <= 1.01) {
-      float chf = crop * camSz.y / max(0.05, fp[i].z), cwf = chf * fp[i].w;
+      float chf = crop * camSz.y / max(0.05, fp[i].z) / camScale, cwf = chf * fp[i].w;   // #749 WEBCAM SIZE
       vec2 f = vec2(camSz.x * fp[i].x + (uv.x - 0.5) * cwf, camSz.y * fp[i].y + (uv.y - 0.5) * chf);
       // drops on the glass: beads in a grid of cells, each refracting and darkening its rim, slowly coming and going
       vec2 gc = uv * vec2(18.0, 26.0), ci = floor(gc), cf = fract(gc) - 0.5; float hh = h21(ci + floor(time * 0.05 + h21(ci) * 7.0));
@@ -95,13 +95,14 @@ void main() {
       float bead = rr > 0.0 ? smoothstep(rr, rr * 0.7, dd) : 0.0, rim = rr > 0.0 ? smoothstep(rr * 0.55, rr, dd) * bead : 0.0;
       vec2 cuv = vec2(f.x / camSz.x, 1.0 - f.y / camSz.y) - vec2(cf.x, -cf.y) * bead * 0.06;
       vec3 cs = texture2D(tCam, clamp(cuv, 0.0, 1.0)).rgb;
-      vec3 c = gradeCam(lin(cs));   // #714 MATCH SCENE, #744 GRADE · WEBCAM (now in gradeCam, #747)
+      vec3 c = gradeCam(lin(cs)) * step(0.0, cuv.x) * step(cuv.x, 1.0) * step(0.0, cuv.y) * step(cuv.y, 1.0);   // #749 a smaller webcam leaves the rest of the window dark   // #714 MATCH SCENE, #744 GRADE · WEBCAM (now in gradeCam, #747)
       if (wHolo > 0.5) {   // #747 HOLOEDGE: the plate's own window behind, you cut out on your own layer, the gear strip in front; AUTO ZOOM slides them apart
         float zf = max(zm.x, 1.0);
         vec2 zb = zm.yz + (vUv - zm.yz) / (1.0 + (zf - 1.0) * 0.7), zg = zm.yz + (vUv - zm.yz) / (1.0 + (zf - 1.0) * 1.3);
         vec3 back = lin(texture2D(tPlate, zb).rgb);
         float sh = holoShear(cuv, time, 70.0); vec2 cp = clamp(cuv + vec2(sh, 0.0), 0.0, 1.0);
-        float pr = pmOn > 0.5 ? texture2D(tPM, vec2(cp.x, 1.0 - cp.y)).r : 0.0, pm = smoothstep(0.35, 0.75, pr), pe = clamp(1.0 - abs(2.0 * pr - 1.0), 0.0, 1.0);
+        float inC = step(0.0, cuv.x) * step(cuv.x, 1.0) * step(0.0, cuv.y) * step(cuv.y, 1.0);
+        float pr = pmOn > 0.5 ? texture2D(tPM, vec2(cp.x, 1.0 - cp.y)).r * inC : 0.0, pm = smoothstep(0.35, 0.75, pr), pe = clamp(1.0 - abs(2.0 * pr - 1.0), 0.0, 1.0);
         vec3 pc = gradeCam(lin(texture2D(tCam, cp).rgb));
         pc = lin(holoLook(gam(pc), mix(0.35, 1.0, pe), pe * pe, cp, time, 220.0, hcol));
         c = mix(back, pc, pm * 0.95);
@@ -138,7 +139,7 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     camSz: { value: new THREE.Vector2(1280, 720) }, wgr: { value: new THREE.Vector4(0, 0, 0, 0) }, nW: { value: 0 }, Hm: { value: [0, 1, 2, 3].map(() => new THREE.Matrix3()) },
     fp: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0.4, 0.5, 1, 0.72)) }, sil: { value: [0, 0, 0, 0] }, crop: { value: 0.86 },
     grade: { value: new THREE.Vector3(2.3, 0.06, 0.88) }, camLight: { value: new THREE.Vector3(1, 1, 1) }, spillK: { value: 0.95 }, cutOld: { value: 0.5 }, camOn: { value: 1 },
-    tFog: { value: black }, tPlate: { value: black }, winOrig: { value: 0 }, tQ: { value: black }, tPM: { value: black }, qOn: { value: 0 }, pmOn: { value: 0 }, wHolo: { value: 0 }, hcol: { value: new THREE.Vector3(0.35, 0.92, 1.0) }, stack: { value: 0 }, match: { value: 0.7 }, mist: { value: 0.35 }, rainK: { value: 0.7 }, reflK: { value: 0.07 }, fogOn: { value: 0 }, time: { value: 0 },
+    tFog: { value: black }, tPlate: { value: black }, winOrig: { value: 0 }, tQ: { value: black }, tPM: { value: black }, qOn: { value: 0 }, pmOn: { value: 0 }, wHolo: { value: 0 }, camScale: { value: 1 }, hcol: { value: new THREE.Vector3(0.35, 0.92, 1.0) }, stack: { value: 0 }, match: { value: 0.7 }, mist: { value: 0.35 }, rainK: { value: 0.7 }, reflK: { value: 0.07 }, fogOn: { value: 0 }, time: { value: 0 },
     camMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, camStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, tgtMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, tgtStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, zm: { value: new THREE.Vector3(1, 0.5, 0.5) }, lvS: { value: new THREE.Vector3(0, 0, 0) }, lvB: { value: new THREE.Vector3(0, 0, 0) }, lvG: { value: new THREE.Vector3(1, 1, 1) }, lvSat: { value: 0.85 } };
   const mat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: FS, depthTest: false, depthWrite: false });
   const sc = new THREE.Scene(), mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); mesh.frustumCulled = false; sc.add(mesh);
@@ -265,7 +266,7 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     const useArr = S.playing && arr.readyState >= 2, v = vids[cur];
     if (!useArr && v.paused) v.play().catch(() => {});
     U.tBase.value = useArr ? tArr : tLoops[cur]; U.stack.value = useArr ? 0 : curStack;
-    U.wHolo.value = wMode() === 'holo' ? 1 : 0;
+    U.wHolo.value = wMode() === 'holo' ? 1 : 0; U.camScale.value = Math.max(0.4, Math.min(3, +S.cs || 1));   // #749
     if (feed && feed.holo) { U.tCam.value = camTex; if (camVideo && camVideo.videoWidth) U.camSz.value.set(camVideo.videoWidth, camVideo.videoHeight); U.tQ.value = feed.q || black; U.qOn.value = feed.q && feed.qok ? 1 : 0; U.tPM.value = feed.pm || black; U.pmOn.value = feed.pm ? 1 : 0; }   // #747
     else if (feed && feed.tex) { U.tCam.value = feed.tex; U.camSz.value.set(feed.w, feed.h); }
     else { U.tCam.value = camTex; if (camVideo && camVideo.videoWidth) U.camSz.value.set(camVideo.videoWidth, camVideo.videoHeight); }
