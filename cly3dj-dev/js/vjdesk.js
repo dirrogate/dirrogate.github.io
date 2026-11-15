@@ -25,10 +25,11 @@ const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(positio
 // itself (similarity M: scale dz.y, turn dz.z, centre dzo) and the view flies into it over one bar, then carries on as normal.
 // The copy pops in first (dz.w = its size 0..1), the camera follows the log-spiral from identity to M, and at the end M^-1
 // brings every point back to where it started: no cut. dz.x = 0 off, else the zoom (0..1).
-const MIX_FS = `uniform sampler2D tA, tB; uniform vec4 fA, fB; uniform float kA, kB, x; uniform vec4 dz; uniform vec2 dzo; uniform float asp; uniform vec4 mg; uniform vec3 mgT; uniform vec3 qS, qB, qG; uniform vec2 qA; uniform float tr; varying vec2 vUv;
+const MIX_FS = `uniform sampler2D tA, tB; uniform vec4 fA, fB; uniform float kA, kB, x; uniform vec4 dz; uniform vec2 dzo; uniform float asp; uniform vec4 mg; uniform vec3 mgT; uniform vec3 qS, qB, qG; uniform vec2 qA; uniform float tr; uniform vec4 wg; uniform vec2 wB; varying vec2 vUv;
 vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
 vec3 src(sampler2D t, vec4 f, float k, vec2 uv) { if (k < 0.5) return vec3(0.0); vec3 c = texture2D(t, f.xy + uv * f.zw).rgb; return k > 1.5 ? clamp(srgb(c), 0.0, 1.0) : c; }
 vec3 qLv(vec3 c) { vec3 l = qB + (pow(max(c, vec3(0.0)), vec3(2.2)) - qS) * qG; l = max(l, 0.0); float m = dot(l, vec3(0.2126, 0.7152, 0.0722)); l = vec3(m) + (l - vec3(m)) * 0.85; return pow(clamp(l, 0.0, 1.0), vec3(1.0 / 2.2)); }
+vec3 wgr(vec3 c) { vec3 l = pow(max(c, vec3(0.0)), vec3(2.2)) * exp2(wg.x) * vec3(1.0 + 0.15 * wg.z, 1.0 - 0.3 * wg.z, 1.0 + 0.15 * wg.z); return pow(clamp(l, 0.0, 1.0), vec3(1.0 / (2.2 * wg.y))); }   /* #741 WEBCAM grade: exposure (stops), gamma, tint (- green, + magenta) */
 vec2 rot(vec2 p, float a) { float c = cos(a), s = sin(a); return vec2(c * p.x - s * p.y, s * p.x + c * p.y); }
 void main() {
   vec2 uv = vUv; float edge = 1.0;
@@ -51,6 +52,7 @@ void main() {
   vec3 ca = src(tA, fA, kA, uv), cb = src(tB, fB, kB, uv);   // #712 MATCH SCENE on a QUEST bus: the cast takes the DirroVerse scene's palette
   if (qA.x > 0.0) ca = mix(ca, qLv(ca), qA.x);   // #714 levels: the cast's blacks onto the target's shadows, its whites onto its lit parts
   if (qA.y > 0.0) cb = mix(cb, qLv(cb), qA.y);
+  if (wB.x > 0.5) ca = wgr(ca); if (wB.y > 0.5) cb = wgr(cb);   /* #741 */
   float kx = x;   // #735 T-bar WIPE: bus B comes in from the top (tr 1) or from the bottom (tr 2), a soft edge
   if (tr > 0.5) { float sf = 0.025, e = tr < 1.5 ? 1.0 + sf - x * (1.0 + 2.0 * sf) : x * (1.0 + 2.0 * sf) - sf; kx = tr < 1.5 ? smoothstep(e - sf, e + sf, vUv.y) : 1.0 - smoothstep(e - sf, e + sf, vUv.y); }
   vec3 pc = mix(ca, cb, kx) * edge;
@@ -181,6 +183,8 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}
   try { if (localStorage.getItem('vire.vjTempo') === 'line') D.tempo = 'line'; } catch {}   // #688 TAP unless LINE IN was picked (no mic opened by itself)   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
+  D.wg = { ev: 0, gam: 1, tint: 0 };   // #741 WEBCAM grade on the desk
+  try { const g = JSON.parse(localStorage.getItem('vire.vjWg') || '{}'); for (const k of Object.keys(D.wg)) if (Number.isFinite(+g[k])) D.wg[k] = +g[k]; } catch {}
   D.mg = { ev: 0, gam: 1, hue: 35, tint: 0 };   // #711 MASTER GRADE on the program: exposure in stops, gamma, tint hue (degrees) and amount (0..1)
   try { const g = JSON.parse(localStorage.getItem('vire.vjMg') || '{}'); for (const k of Object.keys(D.mg)) if (Number.isFinite(+g[k])) D.mg[k] = +g[k]; } catch {}
   try { const o = JSON.parse(localStorage.getItem('vire.vjCast') || '{}'); for (const k of ['l', 'r', 't', 'b']) if (+o[k] >= 0) D.cast[k] = Math.min(0.45, +o[k]); } catch {}
@@ -244,7 +248,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       qcy.tex.needsUpdate = true; qcy.w = b.width; qcy.h = b.height; qcy.t = performance.now();
     }).catch(() => { qcy.busy = false; });
   }
-  const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 }, dz: { value: new THREE.Vector4() }, tr: { value: 0 }, dzo: { value: new THREE.Vector2() }, asp: { value: 16 / 9 }, mg: { value: new THREE.Vector4(0, 1, 0, 0) }, mgT: { value: new THREE.Vector3(1, 1, 1) }, qS: { value: new THREE.Vector3() }, qB: { value: new THREE.Vector3() }, qG: { value: new THREE.Vector3(1, 1, 1) }, qA: { value: new THREE.Vector2() } };   // #712 qM / qS / qT / qA: MATCH SCENE on the QUEST bus   // #704 dz / dzo: BEAT ZOOM   // #711 mg / mgT: MASTER GRADE
+  const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 }, dz: { value: new THREE.Vector4() }, tr: { value: 0 }, wg: { value: new THREE.Vector4(0, 1, 0, 0) }, wB: { value: new THREE.Vector2() }, dzo: { value: new THREE.Vector2() }, asp: { value: 16 / 9 }, mg: { value: new THREE.Vector4(0, 1, 0, 0) }, mgT: { value: new THREE.Vector3(1, 1, 1) }, qS: { value: new THREE.Vector3() }, qB: { value: new THREE.Vector3() }, qG: { value: new THREE.Vector3(1, 1, 1) }, qA: { value: new THREE.Vector2() } };   // #712 qM / qS / qT / qA: MATCH SCENE on the QUEST bus   // #704 dz / dzo: BEAT ZOOM   // #711 mg / mgT: MASTER GRADE
   const mMat = new THREE.ShaderMaterial({ uniforms: mU, vertexShader: VS, fragmentShader: MIX_FS, depthTest: false, depthWrite: false }), mSc = quad(mMat);
   // #563 every DirroComics grab (GRAB QUEST / GRAB WEBCAM stills, GRAB RGB-D clips and stills) also lands in the desk's IMAGES or VIDEOS bank
   async function toBank(blob, name) {
@@ -515,7 +519,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     const pt = panoTarget(), sc = dvx && dvx.ready ? dvx.target() : null, tg = pt || sc;   // #713 the bank's pano first, else the loaded scene
     const src = pt ? 'QUEST CAST matches the pano ' + PT.name : sc ? 'QUEST CAST matches the scene ' + (D.dv.set || '') : PT.err || 'QUEST CAST: load a DirroVerse scene (or give its bank a pano)';
     if (D.dv.qmSrc !== src) { D.dv.qmSrc = src; post(); }
-    const amt = D.dv.qm === false || D.dv.match === 0 ? 0 : (D.dv.match ?? 0.7);
+    const amt = true || D.dv.qm === false || D.dv.match === 0 ? 0 :   /* #741 QUEST CAST matching gone with its button */ (D.dv.match ?? 0.7);
     const onA = D.a === 'quest', onB = D.b === 'quest';
     if (!amt || !tg || !questTex || !(onA || onB)) { mU.qA.value.set(0, 0); return; }
     if (now - qT0 > 300 || !qSt || tg !== questMatch.tg) { qT0 = now; questMatch.tg = tg;
@@ -548,6 +552,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     comics.tick(questTex, now, dt); comicTex = used.includes('comic') ? comics.render(W, H) : null;   // #516
     mU.kA.value = D.x < 1 ? bind(D.a, mU.tA, mU.fA.value, W, H, questTex, now) : 0;
     mU.kB.value = D.x > 0 ? bind(D.b, mU.tB, mU.fB.value, W, H, questTex, now) : 0;
+    { const G = D.wg, on = Math.abs(G.ev) > 0.001 || Math.abs(G.gam - 1) > 0.001 || Math.abs(G.tint) > 0.001; mU.wg.value.set(G.ev, G.gam, G.tint, 1); mU.wB.value.set(on && D.a === 'webcam' ? 1 : 0, on && D.b === 'webcam' ? 1 : 0); }   // #741
     mU.x.value = D.x; mU.tr.value = D.tr === 'down' ? 1 : D.tr === 'up' ? 2 : 0; drzTick(now, W / H); mgSet(); questMatch(questTex, now);
     renderer.setRenderTarget(null); renderer.render(mSc, oc);
     if (lsc.on) { lsc.tick(dt); lscTex.needsUpdate = true; const ac = renderer.autoClear; renderer.autoClear = false; renderer.render(lscSc, oc); renderer.autoClear = ac; }   // #556 local scroller over the program (no Quest)
@@ -555,7 +560,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if (peers && now - pvT > 250 && cueSrc) {   // #557 CUE: the cued bus alone into a small target, read back for the desk monitor (Twitch / DirroTV keep the program)
       pvT = now;
       try {
-        mU.kA.value = bind(cueSrc, mU.tA, mU.fA.value, W, H, questTex, now); mU.kB.value = 0; mU.x.value = 0; mU.qA.value.set(cueSrc === 'quest' ? mU.qA.value.x || mU.qA.value.y : 0, 0);
+        mU.kA.value = bind(cueSrc, mU.tA, mU.fA.value, W, H, questTex, now); mU.kB.value = 0; mU.x.value = 0; mU.qA.value.set(cueSrc === 'quest' ? mU.qA.value.x || mU.qA.value.y : 0, 0); mU.wB.value.set(cueSrc === 'webcam' && (mU.wB.value.x || mU.wB.value.y) ? 1 : 0, 0);
         renderer.setRenderTarget(pvRT); renderer.render(mSc, oc); renderer.readRenderTargetPixels(pvRT, 0, 0, PVW, PVH, pvBuf); renderer.setRenderTarget(null);
         const row = PVW * 4; for (let y = 0; y < PVH; y++) pvImg.data.set(pvBuf.subarray((PVH - 1 - y) * row, (PVH - y) * row), y * row);
         pv.getContext('2d').putImageData(pvImg, 0, 0); bc.postMessage({ k: 'pv', img: pv.toDataURL('image/jpeg', 0.7), cue: D.cue });
@@ -713,6 +718,9 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       if (v.ev != null) G.ev = Math.max(-3, Math.min(3, +v.ev || 0)); if (v.gam != null) G.gam = Math.max(0.4, Math.min(2.5, +v.gam || 1));
       if (v.hue != null) G.hue = ((+v.hue || 0) % 360 + 360) % 360; if (v.tint != null) G.tint = Math.max(0, Math.min(1, +v.tint || 0));
       try { localStorage.setItem('vire.vjMg', JSON.stringify(G)); } catch {} post(); }
+    else if (m.k === 'wg') { const G = D.wg, v = m.reset ? { ev: 0, gam: 1, tint: 0 } : (m.v || {});   // #741 WEBCAM grade
+      if (v.ev != null) G.ev = Math.max(-2, Math.min(2, +v.ev || 0)); if (v.gam != null) G.gam = Math.max(0.5, Math.min(2, +v.gam || 1)); if (v.tint != null) G.tint = Math.max(-1, Math.min(1, +v.tint || 0));
+      try { localStorage.setItem('vire.vjWg', JSON.stringify(G)); } catch {} post(); }
     else if (m.k === 'drz') { if (m.go) drzStart(performance.now()); else { Object.assign(D.drz, m.v || {}); try { localStorage.setItem('vire.vjDrz', JSON.stringify(D.drz)); } catch {} } post(); }   // #704
     else if (m.k === 'pump') { pulse = 1; D.kick++; }   // #508 the VJ's own hit
     else if (m.k === 'tap') { tempoTap(performance.now()); post(); }   // #662 TAP (button or T)
