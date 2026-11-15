@@ -137,9 +137,9 @@ void main() { vec4 g = texture2D(map, vec2(vUv.x, 1.0 - vUv.y)); float a = clamp
 // exposure levelled from the person only, re-tinted to the pano, light wrap, a glow on the side the key light comes
 // from). LATENCY MATCH: hands and gear drawn as they were when the frame was filmed, the stream sound delayed as much.
 // Layers back to front: background, person, gear + hands, overlays (scroller, now playing, logo, chat).
-export const PCAM_DEF = { green: false, light: true, lightStr: 0.7, wrap: 0.5, glow: 0.4, expo: 0, gam: 1, tint: 0, lat: false, trim: 0, manual: 150, matte: false };   // #734 expo = EV, gam, tint
+export const PCAM_DEF = { green: false, light: true, lightStr: 0.7, wrap: 0.5, glow: 0.4, expo: 0, gam: 1, temp: 0, tint: 0, lat: false, trim: 0, manual: 150, matte: false };   // #734 expo = EV, gam, tint
 const PCAM_FS = `uniform sampler2D map; uniform sampler2D cam; uniform sampler2D bg; varying vec2 vUv;
-uniform float green, bgLin, showMatte, wrap, glow, gEv, gGam, gTint; uniform vec4 pack; uniform vec3 gain, wrapCol, glowCol; uniform vec2 glowDir, texel;
+uniform float green, bgLin, showMatte, wrap, glow, gEv, gGam, gTint, gTemp; uniform vec4 pack; uniform vec3 gain, wrapCol, glowCol; uniform vec2 glowDir, texel;
 vec3 rrt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
 vec3 aces(vec3 c) {
   const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
@@ -149,6 +149,7 @@ vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.05
 vec3 camGrade(vec3 k) {   // #734 the tablet's EXPOSURE (EV) / GAMMA / TINT on the webcam picture (- green, + magenta)
   k = pow(max(k, vec3(0.0)), vec3(2.2)) * exp2(gEv); k = pow(clamp(k, 0.0, 1.0), vec3(1.0 / 2.2));
   k = pow(k, vec3(1.0 / max(gGam, 0.2)));
+  k *= vec3(1.0 + 0.16 * gTemp, 1.0 + 0.02 * gTemp, 1.0 - 0.16 * gTemp);   /* #742 TEMP: - blue (cool), + amber (warm) */
   return clamp(k * vec3(1.0 + 0.14 * gTint, 1.0 - 0.14 * gTint, 1.0 + 0.14 * gTint), 0.0, 1.0); }
 float matteAt(vec2 uv) { uv = clamp(uv, vec2(0.0), vec2(1.0)); return texture2D(cam, vec2(pack.z + uv.x * pack.w, uv.y)).r; }
 void main() { vec2 uv = vec2(vUv.x, 1.0 - vUv.y); vec4 g = texture2D(map, uv);
@@ -303,7 +304,7 @@ export class Streamer {
       if (items.length) { for (const x of items) x.sent = 1; L.ctl({ k: 'vjstar', items: items.map(x => x.m) }); } }
     const O = this.showOpt, stuMode = this.stu.mode === 'cam' ? (this.pc_.green ? 'key' : 'cam') : 'show';
     L.ctl({ k: 'stu', on: true, sh: this.env.showState ? this.env.showState() : null, mode: stuMode, bd: O.backdrop, snd: !!this.stu.snd, ch: chatChannel.get(), tv: this.tvSet.key && this.tvSet.on ? this.tvSet.key : '', tvA: !!this.tvSet.audio,   // #509 DirroVJ answers the paired TVs while it is on (sent only after ALLOW)
-      local: !!this.stu.local, O: { gear: !!O.gear, robot: !!O.robot, neon: !!O.neon }, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain, expo: this.pc_.expo || 0, gam: this.pc_.gam || 1, tint: this.pc_.tint || 0, matte: !!this.pc_.matte }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
+      local: !!this.stu.local, O: { gear: !!O.gear, robot: !!O.robot, neon: !!O.neon }, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain, expo: this.pc_.expo || 0, gam: this.pc_.gam || 1, tint: this.pc_.tint || 0, temp: this.pc_.temp || 0, matte: !!this.pc_.matte }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
   }
   _ledClip() { const c = this.env.ledClip && this.env.ledClip(); return c || ''; }
   get s8HasClip() { const c = this._ledClip(); return !!c && !!this.s8 && this.s8.clip === c; }
@@ -779,7 +780,7 @@ export class Streamer {
       this.bgC = this.bgC || Object.assign(document.createElement('canvas'), { width: W, height: H }); this.bgC.width = W; this.bgC.height = H;
       pk.bgTex = new THREE.CanvasTexture(this.bgC); pk.bgTex.colorSpace = THREE.NoColorSpace;
       pk.mat = new THREE.ShaderMaterial({ uniforms: {
-        map: { value: pk.rt.texture }, cam: { value: pk.tex }, bg: { value: pk.bgTex }, green: { value: 0 }, bgLin: { value: 0 }, showMatte: { value: 0 }, gEv: { value: 0 }, gGam: { value: 1 }, gTint: { value: 0 },
+        map: { value: pk.rt.texture }, cam: { value: pk.tex }, bg: { value: pk.bgTex }, green: { value: 0 }, bgLin: { value: 0 }, showMatte: { value: 0 }, gEv: { value: 0 }, gGam: { value: 1 }, gTint: { value: 0 }, gTemp: { value: 0 },
         wrap: { value: 0 }, glow: { value: 0 }, pack: { value: new THREE.Vector4(1280 / 1920, 0, 1296 / 1920, 624 / 1920) },
         gain: { value: new THREE.Vector3(1, 1, 1) }, wrapCol: { value: new THREE.Vector3() }, glowCol: { value: new THREE.Vector3() }, glowDir: { value: new THREE.Vector2(1, 0) }, texel: { value: new THREE.Vector2(1 / W, 1 / H) } },
         vertexShader: COPY_VS, fragmentShader: PCAM_FS, depthTest: false, depthWrite: false });
@@ -811,7 +812,7 @@ export class Streamer {
         g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; pk.bgTex.needsUpdate = true;
       }
     }
-    U.bg.value = bgLin ? pk.bgRT.texture : pk.bgTex; U.bgLin.value = bgLin; U.green.value = green ? 1 : 0; U.showMatte.value = P.matte ? 1 : 0; U.gEv.value = +P.expo || 0; U.gGam.value = +P.gam || 1; U.gTint.value = +P.tint || 0;   // #734
+    U.bg.value = bgLin ? pk.bgRT.texture : pk.bgTex; U.bgLin.value = bgLin; U.green.value = green ? 1 : 0; U.showMatte.value = P.matte ? 1 : 0; U.gEv.value = +P.expo || 0; U.gGam.value = +P.gam || 1; U.gTint.value = +P.tint || 0; U.gTemp.value = +P.temp || 0;   // #734 #742
     // LIGHT MATCH
     const gt = this.gradeTo || [1, 1, 1]; this.grade.lerp(_v3.set(gt[0], gt[1], gt[2]), 0.25); U.gain.value.copy(this.grade);
     const lm = P.light && green; U.wrap.value = lm ? P.wrap : 0; U.glow.value = lm && ok && li.keyDir ? P.glow : 0;

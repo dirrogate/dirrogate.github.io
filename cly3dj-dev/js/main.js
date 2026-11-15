@@ -8653,6 +8653,7 @@ function drawToolsPage() {
       ['WRAP', Math.round(C.wrap * 100) + '%', d => S.setPcam('wrap', Math.min(1, Math.max(0, r2(C.wrap + d * 0.1)))), { v: C.wrap, lo: 0, hi: 1, step: 0.1, set: v => S.setPcam('wrap', v) }],
       ['EXPOSURE', (C.expo > 0 ? '+' : '') + C.expo.toFixed(1) + ' EV', d => S.setPcam('expo', Math.min(2, Math.max(-2, r2(C.expo + d * 0.1)))), { v: C.expo, lo: -2, hi: 2, step: 0.1, set: v => S.setPcam('expo', v) }],   // #734 a real EV, on the plain webcam too
       ['GAMMA', (C.gam || 1).toFixed(2), d => S.setPcam('gam', Math.min(2, Math.max(0.5, r2((C.gam || 1) + d * 0.05)))), { v: C.gam || 1, lo: 0.5, hi: 2, step: 0.05, set: v => S.setPcam('gam', v) }],   // #734
+      ['TEMP', (C.temp || 0) === 0 ? '0' : (C.temp < 0 ? 'COOL ' : 'WARM ') + Math.round(Math.abs(C.temp) * 100), d => S.setPcam('temp', Math.min(1, Math.max(-1, r2((C.temp || 0) + d * 0.05)))), { v: C.temp || 0, lo: -1, hi: 1, step: 0.05, set: v => S.setPcam('temp', v) }],   // #742 - blue, + amber
       ['TINT', (C.tint || 0) === 0 ? '0' : (C.tint < 0 ? 'GRN ' : 'MAG ') + Math.round(Math.abs(C.tint) * 100), d => S.setPcam('tint', Math.min(1, Math.max(-1, r2((C.tint || 0) + d * 0.05)))), { v: C.tint || 0, lo: -1, hi: 1, step: 0.05, set: v => S.setPcam('tint', v) }],   // #734 - green, + magenta
       S.stu.on
         ? ['DELAY TRIM', `${S.stu.trim >= 0 ? '+' : ''}${S.stu.trim} ms`, d => S.setStudio('trim', S.stu.trim + d * 10)]
@@ -8684,13 +8685,13 @@ function drawToolsPage() {
       toggles.forEach(([lb, on, act, dim], i) => btn(L + (i % 2) * (tw + 8), y0 + Math.floor(i / 2) * 50, tw, 44, lb, on, act, !!dim, 16));
       const y1 = y0 + Math.ceil(toggles.length / 2) * 50 + 6;   // #545 9 toggles (NEXT CAMERA)
       cells.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 58, tw, 54));
-      const pw = Math.round((R - L) * 0.42); pcamPrev(R - pw, y1 + 4 * 58 + 12, pw);
-      text(L + 4, y1 + 4 * 58 + 16, R - L - 8 - pw - 8, 19, Math.max(3, Math.floor((H - 10 - (y1 + 4 * 58 + 16)) / 19) + 1), 14);   // #378 never past the bottom edge
+      const cr = Math.ceil(cells.length / 2), pw = Math.round((R - L) * 0.42); pcamPrev(R - pw, y1 + cr * 58 + 12, pw);   // #742 5 rows with TEMP
+      text(L + 4, y1 + cr * 58 + 16, R - L - 8 - pw - 8, 19, Math.max(3, Math.floor((H - 10 - (y1 + cr * 58 + 16)) / 19) + 1), 14);   // #378 never past the bottom edge
     } else {
       const tw = (R - L - 6 * (toggles.length - 1)) / toggles.length;
       toggles.forEach(([lb, on, act, dim], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, !!dim, 12));
-      const cw = (R - L - 24) / 4, y1 = y0 + 48;
-      cells.forEach((c, i) => cell(c, L + (i % 4) * (cw + 8), y1 + Math.floor(i / 4) * 48, cw, 44));
+      const nc = cells.length > 8 ? 5 : 4, cw = (R - L - 8 * (nc - 1)) / nc, y1 = y0 + 48;   // #742 9 cells = 5 a row
+      cells.forEach((c, i) => cell(c, L + (i % nc) * (cw + 8), y1 + Math.floor(i / nc) * 48, cw, 44));
       const pw = Math.min(210, Math.round((R - L) * 0.34)); pcamPrev(R - pw, y1 + 2 * 48 + 8, pw);
       text(L + 4, y1 + 2 * 48 + 14, R - L - 8 - pw - 10, 16, Math.max(3, Math.floor((H - 10 - (y1 + 2 * 48 + 14)) / 16) + 1), 13);   // #378 never past the bottom edge
     }

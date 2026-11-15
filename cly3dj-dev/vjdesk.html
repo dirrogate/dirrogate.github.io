@@ -219,10 +219,11 @@
       <div class="row"><label class="kv" style="flex:1"><span style="width:74px">TINT HUE</span><input type="range" id="mgHue" min="0" max="359" step="1" style="flex:1;background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);border-radius:4px"><b id="mgHueV" style="min-width:58px;border-radius:3px;text-align:center"></b></label></div>
       <div class="row"><label class="kv" style="flex:1"><span style="width:74px">TINT</span><input type="range" id="mgTint" min="0" max="1" step="0.01" style="flex:1"><b id="mgTintV" style="min-width:58px"></b></label><button id="mgRst" title="Exposure 0, gamma 1, no tint (the hue is kept)">RESET</button></div>
       <div class="row"><label class="kv" style="flex:1"><span style="width:74px" title="The webcam in the DirroVerse windows, take the loaded scene's colour and light">MATCH SCENE</span><input type="range" id="dvMatch" min="0" max="1" step="0.05" value="0.7" style="flex:1"><b id="dvMatchV" style="min-width:58px">70%</b></label></div>
-            <div class="note" style="margin:6px 0 2px">WEBCAM grade (the WEBCAM bus)</div>
+            <div class="note" style="margin:6px 0 2px">WEBCAM grade (the WEBCAM bus) · TEMP blue to amber, TINT green to magenta</div>
       <div class="row"><label class="kv" style="flex:1"><span style="width:74px">EXPOSURE</span><input type="range" id="wgEv" min="-2" max="2" step="0.05" style="flex:1"><b id="wgEvV" style="min-width:58px"></b></label></div>
       <div class="row"><label class="kv" style="flex:1"><span style="width:74px">GAMMA</span><input type="range" id="wgGam" min="0.5" max="2" step="0.01" style="flex:1"><b id="wgGamV" style="min-width:58px"></b></label></div>
-      <div class="row"><label class="kv" style="flex:1"><span style="width:74px">TINT</span><input type="range" id="wgTint" min="-1" max="1" step="0.01" style="flex:1"><b id="wgTintV" style="min-width:58px"></b></label><button id="wgRst" title="Exposure 0, gamma 1, tint 0">RESET</button></div>
+      <div class="row"><label class="kv" style="flex:1"><span style="width:74px">TEMP</span><input type="range" id="wgTemp" min="-1" max="1" step="0.01" style="flex:1;background:linear-gradient(90deg,#4a8cff,#888,#ffa53a);border-radius:4px"><b id="wgTempV" style="min-width:58px"></b></label></div>
+      <div class="row"><label class="kv" style="flex:1"><span style="width:74px">TINT</span><input type="range" id="wgTint" min="-1" max="1" step="0.01" style="flex:1"><b id="wgTintV" style="min-width:58px"></b></label><button id="wgRst" title="Exposure 0, gamma 1, temp 0, tint 0">RESET</button></div>
       <div class="note">Double-click a slider to reset it. MATCH SCENE needs a DirroVerse scene loaded. The local scroller stays ungraded.</div>
     </section>
     <section style="margin-top:14px">
@@ -454,7 +455,7 @@ $('drzSize').oninput = e => send({ k: 'drz', v: { size: +e.target.value } });
 for (const [id, k, d] of [['mgEv', 'ev', 0], ['mgGam', 'gam', 1], ['mgHue', 'hue', 35], ['mgTint', 'tint', 0]]) { $(id).oninput = e => send({ k: 'mg', v: { [k]: +e.target.value } }); $(id).ondblclick = () => send({ k: 'mg', v: { [k]: d } }); }
 $('mgRst').onclick = () => send({ k: 'mg', reset: 1 });
 // #741 WEBCAM grade
-for (const [id, k, d] of [['wgEv', 'ev', 0], ['wgGam', 'gam', 1], ['wgTint', 'tint', 0]]) { $(id).oninput = e => send({ k: 'wg', v: { [k]: +e.target.value } }); $(id).ondblclick = () => send({ k: 'wg', v: { [k]: d } }); }
+for (const [id, k, d] of [['wgEv', 'ev', 0], ['wgGam', 'gam', 1], ['wgTemp', 'temp', 0], ['wgTint', 'tint', 0]]) { $(id).oninput = e => send({ k: 'wg', v: { [k]: +e.target.value } }); $(id).ondblclick = () => send({ k: 'wg', v: { [k]: d } }); }
 $('wgRst').onclick = () => send({ k: 'wg', reset: 1 });
 for (const b of document.querySelectorAll('[data-ft]')) b.onclick = () => send({ k: 'fr', v: { type: b.dataset.ft } });
 $('pump').onclick = () => send({ k: 'pump' });
@@ -492,8 +493,8 @@ function render() {
   for (const b of document.querySelectorAll('[data-tr]')) b.classList.toggle('on', (D.tr || 'mix') === b.dataset.tr);   // #735
   if (D.dv) { const mt = D.dv.match ?? 0.7; if (document.activeElement !== $('dvMatch')) $('dvMatch').value = mt; $('dvMatchV').textContent = Math.round(mt * 100) + '%';  }   // #712 / #713
   if (D.wg) { const G = D.wg;   // #741
-    for (const [id, k] of [['wgEv', 'ev'], ['wgGam', 'gam'], ['wgTint', 'tint']]) if (document.activeElement !== $(id)) $(id).value = G[k];
-    $('wgEvV').textContent = (G.ev > 0 ? '+' : '') + G.ev.toFixed(2) + ' EV'; $('wgGamV').textContent = G.gam.toFixed(2); $('wgTintV').textContent = (G.tint > 0 ? 'MAG ' : G.tint < 0 ? 'GRN ' : '') + Math.round(Math.abs(G.tint) * 100) + '%'; }
+    for (const [id, k] of [['wgEv', 'ev'], ['wgGam', 'gam'], ['wgTemp', 'temp'], ['wgTint', 'tint']]) if (document.activeElement !== $(id)) $(id).value = G[k];
+    $('wgEvV').textContent = (G.ev > 0 ? '+' : '') + G.ev.toFixed(2) + ' EV'; $('wgGamV').textContent = G.gam.toFixed(2); $('wgTempV').textContent = (G.temp > 0 ? 'WARM ' : G.temp < 0 ? 'COOL ' : '') + Math.round(Math.abs(G.temp || 0) * 100) + '%'; $('wgTintV').textContent = (G.tint > 0 ? 'MAG ' : G.tint < 0 ? 'GRN ' : '') + Math.round(Math.abs(G.tint) * 100) + '%'; }
   if (D.mg) { const G = D.mg;   // #711
     for (const [id, k] of [['mgEv', 'ev'], ['mgGam', 'gam'], ['mgHue', 'hue'], ['mgTint', 'tint']]) if (document.activeElement !== $(id)) $(id).value = G[k];
     $('mgEvV').textContent = (G.ev > 0 ? '+' : '') + G.ev.toFixed(2) + ' EV'; $('mgGamV').textContent = G.gam.toFixed(2); $('mgHueV').textContent = Math.round(G.hue) + '°';

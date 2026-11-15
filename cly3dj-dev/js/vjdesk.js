@@ -29,7 +29,7 @@ const MIX_FS = `uniform sampler2D tA, tB; uniform vec4 fA, fB; uniform float kA,
 vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
 vec3 src(sampler2D t, vec4 f, float k, vec2 uv) { if (k < 0.5) return vec3(0.0); vec3 c = texture2D(t, f.xy + uv * f.zw).rgb; return k > 1.5 ? clamp(srgb(c), 0.0, 1.0) : c; }
 vec3 qLv(vec3 c) { vec3 l = qB + (pow(max(c, vec3(0.0)), vec3(2.2)) - qS) * qG; l = max(l, 0.0); float m = dot(l, vec3(0.2126, 0.7152, 0.0722)); l = vec3(m) + (l - vec3(m)) * 0.85; return pow(clamp(l, 0.0, 1.0), vec3(1.0 / 2.2)); }
-vec3 wgr(vec3 c) { vec3 l = pow(max(c, vec3(0.0)), vec3(2.2)) * exp2(wg.x) * vec3(1.0 + 0.15 * wg.z, 1.0 - 0.3 * wg.z, 1.0 + 0.15 * wg.z); return pow(clamp(l, 0.0, 1.0), vec3(1.0 / (2.2 * wg.y))); }   /* #741 WEBCAM grade: exposure (stops), gamma, tint (- green, + magenta) */
+vec3 wgr(vec3 c) { vec3 l = pow(max(c, vec3(0.0)), vec3(2.2)) * exp2(wg.x) * vec3(1.0 + 0.15 * wg.z, 1.0 - 0.3 * wg.z, 1.0 + 0.15 * wg.z) * vec3(1.0 + 0.16 * wg.w, 1.0 + 0.02 * wg.w, 1.0 - 0.16 * wg.w);   /* #742 TEMP in wg.w */ return pow(clamp(l, 0.0, 1.0), vec3(1.0 / (2.2 * wg.y))); }   /* #741 WEBCAM grade: exposure (stops), gamma, tint (- green, + magenta) */
 vec2 rot(vec2 p, float a) { float c = cos(a), s = sin(a); return vec2(c * p.x - s * p.y, s * p.x + c * p.y); }
 void main() {
   vec2 uv = vUv; float edge = 1.0;
@@ -183,7 +183,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}
   try { if (localStorage.getItem('vire.vjTempo') === 'line') D.tempo = 'line'; } catch {}   // #688 TAP unless LINE IN was picked (no mic opened by itself)   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
   try { Object.assign(D.fr, JSON.parse(localStorage.getItem('vire.vjFr') || '{}')); } catch {}
-  D.wg = { ev: 0, gam: 1, tint: 0 };   // #741 WEBCAM grade on the desk
+  D.wg = { ev: 0, gam: 1, temp: 0, tint: 0 };   // #741 WEBCAM grade on the desk
   try { const g = JSON.parse(localStorage.getItem('vire.vjWg') || '{}'); for (const k of Object.keys(D.wg)) if (Number.isFinite(+g[k])) D.wg[k] = +g[k]; } catch {}
   D.mg = { ev: 0, gam: 1, hue: 35, tint: 0 };   // #711 MASTER GRADE on the program: exposure in stops, gamma, tint hue (degrees) and amount (0..1)
   try { const g = JSON.parse(localStorage.getItem('vire.vjMg') || '{}'); for (const k of Object.keys(D.mg)) if (Number.isFinite(+g[k])) D.mg[k] = +g[k]; } catch {}
@@ -552,7 +552,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     comics.tick(questTex, now, dt); comicTex = used.includes('comic') ? comics.render(W, H) : null;   // #516
     mU.kA.value = D.x < 1 ? bind(D.a, mU.tA, mU.fA.value, W, H, questTex, now) : 0;
     mU.kB.value = D.x > 0 ? bind(D.b, mU.tB, mU.fB.value, W, H, questTex, now) : 0;
-    { const G = D.wg, on = Math.abs(G.ev) > 0.001 || Math.abs(G.gam - 1) > 0.001 || Math.abs(G.tint) > 0.001; mU.wg.value.set(G.ev, G.gam, G.tint, 1); mU.wB.value.set(on && D.a === 'webcam' ? 1 : 0, on && D.b === 'webcam' ? 1 : 0); }   // #741
+    { const G = D.wg, on = Math.abs(G.ev) > 0.001 || Math.abs(G.gam - 1) > 0.001 || Math.abs(G.tint) > 0.001 || Math.abs(G.temp) > 0.001; mU.wg.value.set(G.ev, G.gam, G.tint, G.temp); mU.wB.value.set(on && D.a === 'webcam' ? 1 : 0, on && D.b === 'webcam' ? 1 : 0); }   // #741
     mU.x.value = D.x; mU.tr.value = D.tr === 'down' ? 1 : D.tr === 'up' ? 2 : 0; drzTick(now, W / H); mgSet(); questMatch(questTex, now);
     renderer.setRenderTarget(null); renderer.render(mSc, oc);
     if (lsc.on) { lsc.tick(dt); lscTex.needsUpdate = true; const ac = renderer.autoClear; renderer.autoClear = false; renderer.render(lscSc, oc); renderer.autoClear = ac; }   // #556 local scroller over the program (no Quest)
@@ -718,8 +718,8 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       if (v.ev != null) G.ev = Math.max(-3, Math.min(3, +v.ev || 0)); if (v.gam != null) G.gam = Math.max(0.4, Math.min(2.5, +v.gam || 1));
       if (v.hue != null) G.hue = ((+v.hue || 0) % 360 + 360) % 360; if (v.tint != null) G.tint = Math.max(0, Math.min(1, +v.tint || 0));
       try { localStorage.setItem('vire.vjMg', JSON.stringify(G)); } catch {} post(); }
-    else if (m.k === 'wg') { const G = D.wg, v = m.reset ? { ev: 0, gam: 1, tint: 0 } : (m.v || {});   // #741 WEBCAM grade
-      if (v.ev != null) G.ev = Math.max(-2, Math.min(2, +v.ev || 0)); if (v.gam != null) G.gam = Math.max(0.5, Math.min(2, +v.gam || 1)); if (v.tint != null) G.tint = Math.max(-1, Math.min(1, +v.tint || 0));
+    else if (m.k === 'wg') { const G = D.wg, v = m.reset ? { ev: 0, gam: 1, temp: 0, tint: 0 } : (m.v || {});   // #741 WEBCAM grade
+      if (v.ev != null) G.ev = Math.max(-2, Math.min(2, +v.ev || 0)); if (v.gam != null) G.gam = Math.max(0.5, Math.min(2, +v.gam || 1)); if (v.tint != null) G.tint = Math.max(-1, Math.min(1, +v.tint || 0)); if (v.temp != null) G.temp = Math.max(-1, Math.min(1, +v.temp || 0));
       try { localStorage.setItem('vire.vjWg', JSON.stringify(G)); } catch {} post(); }
     else if (m.k === 'drz') { if (m.go) drzStart(performance.now()); else { Object.assign(D.drz, m.v || {}); try { localStorage.setItem('vire.vjDrz', JSON.stringify(D.drz)); } catch {} } post(); }   // #704
     else if (m.k === 'pump') { pulse = 1; D.kick++; }   // #508 the VJ's own hit

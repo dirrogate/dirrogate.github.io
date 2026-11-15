@@ -2731,3 +2731,9 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - vjdesk.html: the QUEST CAST button (#712, it matched the QUEST bus to the DirroVerse scene) and its status line are removed; js/vjdesk.js keeps that matching off. MATCH SCENE stays for the webcam in the DirroVerse windows.
 - New WEBCAM grade rows right under MATCH SCENE: EXPOSURE (-2..+2 EV), GAMMA (0.5..2), TINT (-1 green .. +1 magenta), RESET; double-click a slider to reset it. Applied in the desk mixer shader (wgr) to the WEBCAM bus only, on air and on CUE, before the master grade. Saved on the laptop (vire.vjWg). Separate from the tablet's WEBCAM SETUP grade (#734), which grades the webcam for the Quest-side shots.
 - Checked in the PC pane (localhost:8100): rows drawn in place, message reaches DirroVJ and is saved, no shader errors. Real webcam picture not tested (the pane blocks cameras). sw.js v207. No Node restart. Backup backups/pre741/.
+
+## #742 TEMP (colour temperature) next to TINT on both webcam grades (owner, 15 Nov)
+- TEMP = blue (cool, -1) to amber (warm, +1): multiplies the webcam picture by (1 + 0.16 t, 1 + 0.02 t, 1 - 0.16 t) after exposure / gamma, before the green-magenta TINT. TINT stays the green-magenta axis (the usual split: temperature + tint).
+- VJ desk: TEMP row (blue-grey-amber track) between GAMMA and TINT under MATCH SCENE; saved with vire.vjWg; RESET clears it.
+- Tablet WEBCAM SETUP: TEMP cell before TINT (COOL n / WARM n); PCAM_DEF.temp; applied in stream.js PCAM_FS and, through the 'stu' cam message, in studio.js COMP_FS. Landscape cells now 5 a row (9 cells, 2 rows); portrait 5 rows, preview and help moved down (checked: help ends at y 750 of 768).
+- Checked in the PC pane: both tablet layouts draw, desk row present, syntax clean. Not tried on a real webcam. sw.js v208. No Node restart. Backup backups/pre742/.
