@@ -6518,7 +6518,7 @@ const PINCH_FIT_DEF = {
 };
 // #513 the TV's address, from where this page runs (cabin.dirrodj.club/ = the cly3dj-dev folder on Cloudflare; github.io/cly3dj/ ...); no 'https://'
 const venueUrl = () => new URL('venue.html', location.href).href.replace(/[?#].*$/, '').replace(/^https?:\/\//, '');
-const TOOLS_NAME = { dverse: 'DIRROVERSE', acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', rooms: 'ROOMS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530 / Gemini_acid
+const TOOLS_NAME = { desk: 'VJ DESK', dverse: 'DIRROVERSE', acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', rooms: 'ROOMS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530 / Gemini_acid
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -8767,10 +8767,13 @@ function drawToolsPage() {
     }
     let y2 = y1 + bh + gap;
     {   // #697 no ALLOW / DENY: the right code is enough. The code stays until NEW CODE (tap twice), which drops every linked laptop and phone
-      const armed = spNewArm > 0 && performance.now() - spNewArm < 3000, bw = 2 * w4 + gap, lost = U.on && S.vjLost;
+      const armed = spNewArm > 0 && performance.now() - spNewArm < 3000, bw = P ? 2 * w4 + gap : w4, lost = U.on && S.vjLost;
       g.font = `700 ${P ? 17 : 15}px system-ui`; g.fillStyle = lost ? '#ff6a6a' : '#dfe6f2'; g.textAlign = 'left';
-      fitText2(g, lost ? 'DirroVJ silent for 10 s.' : `Code ${spectCode()}${settings.spect !== 'on' ? ' (link off in Settings)' : ''}`, L + 2, y2 + bh * 0.62, R - L - bw - w4 - 2 * gap - 4);
-      btn(R - bw - gap - w4, y2, w4, bh, 'DIRROVERSE ▸', false, () => setTools('dverse'), false, fs);   // #735 the DirroVerse scenes on the laptop
+      const codeT = lost ? 'DirroVJ silent for 10 s.' : `Code ${spectCode()}${settings.spect !== 'on' ? ' (link off in Settings)' : ''}`;
+      if (P) { fitText2(g, codeT, L + 2, y2 + 18, R - L - 4); y2 += 28; }   // #743 portrait: the code on its own line, three buttons under it
+      else fitText2(g, codeT, L + 2, y2 + bh * 0.62, R - L - bw - 2 * w4 - 3 * gap - 4);
+      btn(R - bw - 2 * gap - 2 * w4, y2, w4, bh, P ? 'DESK' : 'DESK ▸', false, () => setTools('desk'), false, fs);   // #743 the VJ desk's live controls
+      btn(R - bw - gap - w4, y2, w4, bh, P ? 'SCENES' : 'DIRROVERSE ▸', false, () => setTools('dverse'), false, fs);   // #735 the DirroVerse scenes on the laptop
       if (lost) btn(R - bw, y2, bw, bh, 'QUEST TAKES OVER', true, () => S.takeBack(), false, fs);
       else btn(R - bw, y2, bw, bh, armed ? 'TAP AGAIN: NEW CODE' : 'NEW CODE', armed, () => { if (armed) { spNewArm = 0; newSpectCode(); } else spNewArm = performance.now(); drawMixScreen(); }, false, fs);
       y2 += bh + gap;
@@ -9722,6 +9725,48 @@ function drawToolsPage() {
     else { fitText2(g, info, gx + 4, iy + 12, gw - 100); btn(R - 86, iy - 4, 40, 32, '‹', false, () => { art.ipg = Math.max(0, art.ipg - 1); }, art.ipg === 0); btn(R - 40, iy - 4, 40, 32, '›', false, () => { art.ipg = Math.min(pages - 1, art.ipg + 1); }, art.ipg >= pages - 1); }
     g.textBaseline = 'alphabetic';
     if (art.msg && art.imgs.length) { g.fillStyle = '#c86a5a'; g.font = '600 13px system-ui'; g.textAlign = 'left'; fitText2(g, art.msg, gx + 4, P ? gy - 6 : iy - 8, gw - 8); }
+    return;
+  }
+  if (page === 'desk') {   // #743 the VJ desk from the headset: the A / B sources, CUT / AUTO, AUTOPILOT, the scroller queue, a program thumbnail
+    const y0 = head(P ? 'DESK' : 'VJ DESK', 'studio'), S = streamer, L_ = S && S.stuLink, st = deskRemote.st;
+    const send = o => { const l = S && S.stuLink; if (l) l.ctl({ k: 'qdesk', ...o }); else toast('DirroVJ is not linked', 2000); };
+    if (L_ && performance.now() - deskRemote.watchT > 2500) { deskRemote.watchT = performance.now(); L_.ctl({ k: 'qdesk', act: 'watch' }); }
+    if (!L_ || !st || performance.now() - deskRemote.at > 8000) { note(!L_ ? 'DirroVJ is not linked: open dirrovj.html on the laptop and type the code.' : 'Waiting for the VJ desk on the laptop…', y0 + 24); return; }
+    const SRC = [['quest', 'QUEST'], ['webcam', 'WEBCAM'], ['led', 'CYCLOWALL'], ['dverse', 'DIRROVERSE'], ['performer', 'PERFORMER'], ['fractal', 'FRACTAL'], ['comic', 'COMICS']];
+    const isP = v => ['dancer', 'holo', 'dzcam', 'hocam'].includes(v), same = (bv, k) => k === 'performer' ? isP(bv) : bv === k;
+    const tw = P ? R - L : R - L - 176, thW = P ? R - L : 168, thH = Math.round(thW * 9 / 16), thX = P ? L : R - thW, thY = P ? y0 : y0;
+    {   // the program thumbnail
+      g.fillStyle = '#05070c'; g.fillRect(thX, thY, thW, thH); const im = deskRemote.img;
+      if (im && im.naturalWidth) g.drawImage(im, thX, thY, thW, thH); else { g.fillStyle = '#8c96a8'; g.font = '500 12px system-ui'; g.textAlign = 'center'; g.fillText('program…', thX + thW / 2, thY + thH / 2); }
+      g.strokeStyle = '#33e070'; g.lineWidth = 2; g.strokeRect(thX + 1, thY + 1, thW - 2, thH - 2);
+    }
+    let y = P ? y0 + thH + 10 : y0; const rowH = P ? 40 : 30, gap = 4, cols = P ? 3 : SRC.length, lw = P ? 30 : 30, bw = (tw - lw - gap * cols) / cols, fs = P ? 12 : 11, rows = Math.ceil(SRC.length / cols);
+    for (const bus of ['a', 'b']) {   // portrait: each bus on three rows (3 + 3 + 1)
+      const live = bus === 'a' ? st.x < 1 : st.x > 0, cue = st.cue === bus;
+      btnGreen = live && !cue; btn(L, y, lw, rows * rowH + (rows - 1) * gap, bus.toUpperCase(), live || cue, () => send({ act: 'cue', bus }), false, P ? 18 : 15); btnGreen = false;
+      SRC.forEach(([k, lb], i) => btn(L + lw + gap + (i % cols) * (bw + gap), y + Math.floor(i / cols) * (rowH + gap), bw, rowH, lb, same(st[bus], k), () => send({ act: 'bus', bus, v: k }), false, fs));
+      y += rows * (rowH + gap) + (P ? 4 : 0);
+    }
+    {   // CUT / AUTO, AUTOPILOT
+      const A = st.ap || {}, c2 = P ? 2 : 4, w = (tw - (c2 - 1) * gap) / c2, at = i => [L + (i % c2) * (w + gap), y + Math.floor(i / c2) * (rowH + gap)];
+      btn(...at(0), w, rowH, 'CUT', false, () => send({ act: 'cut' }), false, P ? 16 : 14);
+      btn(...at(1), w, rowH, 'AUTO', false, () => send({ act: 'auto' }), false, P ? 16 : 14);
+      btnGreen = !!A.on; btn(...at(2), w, rowH, A.on ? `AUTOPILOT${A.left ? ' · ' + A.left : ''}` : 'AUTOPILOT', !!A.on, () => send({ act: 'ap', v: { on: !A.on } }), false, P ? 14 : 12); btnGreen = false;
+      btn(...at(3), w, rowH, `${A.bars || 16} BARS ⟳`, false, () => send({ act: 'ap', v: { bars: A.bars === 8 ? 16 : A.bars === 16 ? 32 : 8 } }), false, P ? 14 : 12);
+      y += Math.ceil(4 / c2) * (rowH + gap) + 4;
+    }
+    g.textAlign = 'left'; g.font = `700 ${P ? 14 : 12}px system-ui`; g.fillStyle = '#8c96a8';
+    fitText2(g, `SCROLLER QUEUE${st.bpm ? ' · ' + st.bpm.toFixed(1) + ' BPM' : ''}`, L + 2, y + 10, tw - 4); y += 16;
+    const q = st.q || [], qh = P ? 44 : 26, maxQ = Math.max(1, Math.floor((H - 8 - y) / (qh + 4)));
+    if (!q.length) { g.font = '500 12px system-ui'; g.fillStyle = '#6f7a8c'; g.fillText('Nothing waiting.', L + 2, y + 14); }
+    q.slice(0, maxQ).forEach((it, i) => {
+      const yy = y + i * (qh + 4), aw = P ? 96 : 76, xw = P ? 44 : 34;
+      g.fillStyle = '#121824'; g.fillRect(L, yy, tw, qh); g.font = `500 ${P ? 13 : 12}px system-ui`; g.fillStyle = it.src === 'sms' ? '#f2a7f0' : '#9cc8ff';
+      if (P) { fitText2(g, (it.src === 'sms' ? 'HOLOSMS ' : 'CHAT ') + (it.who || ''), L + 6, yy + 15, tw - aw - xw - 16); g.fillStyle = '#dfe6f2'; fitText2(g, it.t, L + 6, yy + 34, tw - aw - xw - 16); }
+      else { g.fillStyle = '#dfe6f2'; fitText2(g, (it.who ? it.who + ': ' : '') + it.t, L + 6, yy + 17, tw - aw - xw - 16); }
+      btnGreen = true; btn(L + tw - aw - xw - 4, yy, aw, qh, 'APPROVE', true, () => send({ act: 'approve', id: it.id }), false, P ? 14 : 11); btnGreen = false;
+      btn(L + tw - xw, yy, xw, qh, '✕', false, () => send({ act: 'reject', id: it.id }), false, P ? 16 : 13);
+    });
     return;
   }
   if (page === 'dverse') {   // #735 the DirroVerse scenes on the DirroVJ laptop: thumbnails and status from the desk, tap = that scene (on a bus)
@@ -11027,7 +11072,8 @@ if (navigator.xr) {
 
 // ---- spectator camera (#158): loaded only when switched on; default off (`spect` is declared near the top)
 let spNewArm = 0;
-const dvRemote = { st: null, thumbs: new Map(), pg: 0 };   // #735 tablet DIRROVERSE page   // #697 double-tap guard for NEW CODE
+const dvRemote = { st: null, thumbs: new Map(), pg: 0 };
+const deskRemote = { st: null, img: null, at: 0, watchT: 0 };   // #743 tablet DESK page   // #735 tablet DIRROVERSE page   // #697 double-tap guard for NEW CODE
 function newSpectCode() {   // #697 a new 5-digit code: every linked DirroVJ / camera phone drops and needs the new one
   const old = spectCode(); let c = old; while (c === old) c = String(10000 + Math.floor(Math.random() * 90000));
   try { localStorage.setItem('vire.spectCode', c); } catch {}
@@ -11050,6 +11096,7 @@ async function applySpect() {
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => ({ ...led.state(), curve: 0 }),   /* #358 */ onScreen: onPhoneScreen, getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
       getSpiders: spidersState,   // #262
       onVj: m => {   // #507 DirroVJ's scroller desk: an approved line onto the Quest's sine scroller (only from a DirroVJ the DJ allowed)
+        if (m.k === 'vjdesk') { if (m.img) { const im = new Image(); im.onload = () => { deskRemote.img = im; if (toolsPage === 'desk') drawMixScreen(); }; im.src = m.img; } else { deskRemote.st = m; deskRemote.at = performance.now(); if (toolsPage === 'desk') drawMixScreen(); } return; }   // #743 the VJ desk for the tablet DESK page
         if (m.k === 'vjdvs') { dvRemote.st = m; if (toolsPage === 'dverse') drawMixScreen(); return; }   // #735 the desk's DirroVerse state for the tablet
         if (m.k === 'vjdvt') { if (m.n && m.img) { const im = new Image(); im.onload = () => { if (toolsPage === 'dverse') drawMixScreen(); }; im.src = m.img; dvRemote.thumbs.set(m.n, im); } return; }
         if (m.k === 'vjcyc') { if (streamer && streamer.vjAllowed) cycFeed.want = m.on ? performance.now() + 6000 : 0; return; }   // #740 the desk shows the CYCLOWALL bus
