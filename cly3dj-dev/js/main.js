@@ -6330,7 +6330,7 @@ async function useArt() {
     maker.artLabelBmp = label ? await createImageBitmap(label) : front && !maker.image ? await createImageBitmap(front) : null;   // the preview (a sleeve only: the label shows the sleeve, as with MP3s)
     if (!maker.name) maker.name = cleanText(art.rel.title || '', 32);
     art.busy = false; setTools('maker');
-    makerSay(`Art ready: ${artSummary().replace(/^Art: /, '')}. STAMP RECORD when you are set.`, true, 5000);
+    makerSay(`Art ready: ${artSummary().replace(/^Art: /, '')}. ${maker.kind === 'song' && maker.song && maker.song.rec ? 'RE-LABEL = this record, STAMP RECORD = a new one.' : 'STAMP RECORD when you are set.'}`, true, 5000);   // #739
   } catch (e) { art.busy = false; art.msg = 'Pictures not fetched: ' + e.message; drawMixScreen(); }
 }
 // #738 RE-LABEL (owner): a record picked with SONG… from a playlist, given fetched art (or a PICTURE…) and stamped as a 12", is not
@@ -6374,12 +6374,24 @@ async function relabelRecord() {
   drawCrateScreen(); layoutSleeves();
   return lib.playlists[pi].name;
 }
+async function relabelNow() {   // #739 RE-LABEL: the picked SONG… record gets the fetched / picked pictures for good, back in its list
+  if (maker.busy) return;
+  if (!(maker.kind === 'song' && maker.song && maker.song.rec)) { makerSay('RE-LABEL: pick a record from a list first (SONG…)', false, 3500); return; }
+  if (!maker.art && !maker.image) { makerSay('RE-LABEL: get pictures first (FETCH ART… or PICTURE…)', false, 3500); return; }
+  maker.busy = true; drawMixScreen();
+  try {
+    const where = await relabelRecord(), t = maker.song.title;
+    maker.busy = false; maker.name = ''; maker.art = null; maker.artLabelBmp = null; maker.song = null; maker.image = null;
+    makerSay(`✓ NEW ART on "${t}": back in its list, ${where}`, true, 6000);
+  } catch (e) { maker.busy = false; makerSay('Not re-labelled: ' + e.message, false, 6000); }
+  drawMixScreen();
+}
 async function pressRecord() {
   if (maker.busy) return;
   if (maker.kind === 'song' && !maker.song) { makerSay('Pick a song first (SONG…)', false, 3000); return; }
   if (maker.kind === 'clip' && !maker.video) { makerSay('Pick a clip first (CLIP…)', false, 3000); return; }
   if (maker.size === 7 && maker.kind === 'song' && maker.song.duration > 6.5 * 60) { makerSay(`Too long for a 7" side (${fmt(maker.song.duration)}; up to about 6:30 at 45 rpm)`, false, 5000); return; }   // #261
-  if (maker.kind === 'song' && maker.song.rec && maker.size !== 7 && (maker.art || maker.image)) {   // #738 new art on a playlist record: re-label it, no new pressing
+  if (false) {   // #739 STAMP RECORD always presses a new record again; re-labelling is the RE-LABEL button (relabelNow)
     maker.busy = true; drawMixScreen();
     try {
       const where = await relabelRecord(), t = maker.song.title;
@@ -9589,7 +9601,11 @@ function drawToolsPage() {
       g.fillStyle = '#fff'; g.font = '700 16px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
       fitText2Center(g, maker.msg, x0 + (R - x0) / 2, y + sh / 2 + 1, R - x0 - 16); g.textBaseline = 'alphabetic';
       VP_HIT.push({ x: x0, y, w: R - x0, h: sh, act: () => { maker.msg = ''; clearTimeout(makerMsgT); } });
-    } else btn(x0, y, R - x0, sh, maker.busy ? 'STAMPING…' : 'STAMP RECORD', maker.busy, maker.busy ? null : pressRecord, false, 22);
+    } else {   // #739 RE-LABEL beside STAMP RECORD: new pictures on the picked playlist record, in place (STAMP RECORD always presses a new record)
+      const canRel = maker.kind === 'song' && maker.song && maker.song.rec && (maker.art || maker.image), rw = Math.round((R - x0 - 6) * 0.4);
+      btn(x0, y, R - x0 - rw - 6, sh, maker.busy ? 'STAMPING…' : 'STAMP RECORD', maker.busy, maker.busy ? null : pressRecord, false, 22);
+      btn(R - rw, y, rw, sh, 'RE-LABEL', false, maker.busy || !canRel ? null : relabelNow, !canRel, 20);
+    }
     return;
   }
   if (page === 'pickSong') {
