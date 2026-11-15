@@ -2805,3 +2805,10 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Desk: PROGRAM REC button in the header (flashing ● REC m:ss · size while on; stop = two taps within 3 s); ⚙ SETUP > Program recordings: SIZE 720p / 1080p, the takes with SAVE… (pick a folder; streamed, no memory copy) and DELETE (two taps), free space. Desk message 'prec' {op start | stop, res}; state carries prec. Test hook window.__prec on the DirroVJ page.
 - Checked in the browser pane on the owner's PC (RTX 4050): hardware encoder accepted; an 18 s take: 544 video frames 0..18.1 s, 905 Opus packets, 10 clusters every 2 s, Chrome's video element opened it (1280 x 720, 18.1 s) and decoded frames. Fixed on the way: the recorder was made before DirroVJ's canvas existed (killed the studio page). Not tried: a long show, 1080p under real load, real LINE IN.
 - sw.js v217. No Node restart. Backup backups/pre751/.
+
+## #752 PERSON KEY goes into the DirroVerse windows: one copy of you (owner, 16 Nov, screenshot: a flat holo cut-out over the program plus the full webcam still in the window)
+- vjdesk.js pkWin(): PERSON KEY on + DIRROVERSE on a bus (and the scene's window not ORIGINAL WINDOW) = no flat overlay over the program; instead the windows draw the HOLOEDGE layering: the plate's own window picture behind, you cut out (holo look only when HOLO is on), the gear strip in front only when the scene's window is WEBCAM + GEAR (or HOLOEDGE). PERSON KEY SIZE / X / Y move and size you inside the window (dirroverse.js uniform pkT: offset, size, holo on / off; default 0, 0, 1, 1 for HOLOEDGE); WEBCAM SIZE still scales the whole window picture. The plate window loads for this too (S.pkWin in refreshOrig). Without DIRROVERSE up, PERSON KEY stays the flat overlay (#745).
+- Desk note under PERSON KEY says so.
+- Fixed on the way: a // comment added mid-line in the GLSL uniform line hid hcol (shader would not compile); now /* */.
+- Checked in the browser pane: shader compiles; synthetic test: room behind, one cut-out, moved right / down and smaller, plain look with HOLO off. Not tried with the real webcam.
+- sw.js v218. No Node restart. Backup backups/pre752/.

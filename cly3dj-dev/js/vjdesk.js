@@ -397,6 +397,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   const wmOf = n => (D.dv.wm && D.dv.wm[n]) || (D.dv.feed === 'gear' ? 'gear' : 'cam');   // #747 a set's window: cam | gear | orig | holo
   const linkCam = () => { const a = air(); return !!a && !!a.link && (a.mode === 'cam' || a.mode === 'dj' || a.mode === 'key'); };
   const holoWin = () => !!D.dv.cam && wmOf(D.dv.set) === 'holo';
+  const pkWin = () => !!(D.pk && D.pk.on) && shown('dverse') && !!D.dv.cam && wmOf(D.dv.set) !== 'orig';   // #752 PERSON KEY goes INTO the DirroVerse windows (no second, flat copy over the program)
   function gearFeed() { if (!D.dv.cam || wmOf(D.dv.set) !== 'gear') return false; const a = air(); return !!a && !!a.link && (a.mode === 'cam' || a.mode === 'dj' || a.mode === 'key'); }   // SOLO: no gear to draw, the plain webcam (no extra composite pass)
   const needQuest = () => !!dvx && dvx.ready && shown('dverse') && gearFeed();   // studio.js draws its composite for the window even with QUEST off the buses
   const cleanPack = () => (needQuest() || (!!dvx && dvx.ready && shown('dverse') && holoWin() && linkCam())) && !shown('quest');   // #747 HOLOEDGE too   // the Quest leaves the scroller / now playing / logo / chat out of its pack (not wanted inside a window)
@@ -491,7 +492,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if (name === 'dancer') { if (!dz || !dz.ready) return 0; U.value = dz.tex; cover(1280, 720, W, H, fit); return 1; }   // #550
     if (name === 'holo') { if (!ho || !ho.ready) return 0; U.value = ho.tex; cover(1280, 720, W, H, fit); return 1; }   // #573
     if (name === 'comic') { if (!comicTex) return 0; U.value = comicTex; cover(1920, 1080, W, H, fit); return 1; }   // #516
-    if (name === 'dverse') { const hq = holoWin() && studioCtl && studioCtl.qInfo ? studioCtl.qInfo() : null; const t = dvx && dvx.ready ? dvx.render(now, holoWin() ? { holo: true, q: hq && hq.tex, qok: !!(hq && hq.ok) && linkCam(), pm: pkMask.state === 'ready' ? pkMask.tex : null } : gearFeed() ? { tex: questTex, w: W, h: H } : null) : null; if (!t) return 0; U.value = t; cover(dvx.w, dvx.h, W, H, fit); return 1; }   // #662
+    if (name === 'dverse') { const hq = (holoWin() || pkWin()) && studioCtl && studioCtl.qInfo ? studioCtl.qInfo() : null; const pw = pkWin() && !holoWin(), gearOn = wmOf(D.dv.set) === 'gear' || holoWin(); const t = dvx && dvx.ready ? dvx.render(now, holoWin() || pw ? { holo: true, q: hq && hq.tex, qok: !!(hq && hq.ok) && linkCam() && gearOn, pm: pkMask.state === 'ready' ? pkMask.tex : null, pkT: pw ? [D.pk.x - 0.5, 0.5 - D.pk.y, D.pk.s / 0.9, D.pk.holo ? 1 : 0] : [0, 0, 1, 1] } : gearFeed() ? { tex: questTex, w: W, h: H } : null) : null; if (!t) return 0; U.value = t; cover(dvx.w, dvx.h, W, H, fit); return 1; }   // #662
     if (name === 'cast') { const v = castV; if (!D.cast.on || !v.videoWidth) return 0;   // #667 crop off the casting page's own frame, then cover
       const C = D.cast, w = Math.max(0.05, 1 - C.l - C.r), h = Math.max(0.05, 1 - C.t - C.b); cover(v.videoWidth * w, v.videoHeight * h, W, H, fit);
       fit.set(C.l + fit.x * w, C.b + fit.y * h, fit.z * w, fit.w * h); U.value = castTex; return 1; }
@@ -601,9 +602,10 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     mU.kB.value = D.x > 0 ? bind(D.b, mU.tB, mU.fB.value, W, H, questTex, now) : 0;
     { const G = D.wg, on = Math.abs(G.ev) > 0.001 || Math.abs(G.gam - 1) > 0.001 || Math.abs(G.tint) > 0.001 || Math.abs(G.temp) > 0.001; mU.wg.value.set(G.ev, G.gam, G.tint, G.temp); mU.wB.value.set(on && D.a === 'webcam' ? 1 : 0, on && D.b === 'webcam' ? 1 : 0); if (dvx && dvx.camGrade) dvx.camGrade(G); }   // #741, #744 the webcam inside the DirroVerse windows too
     {   // #745 PERSON KEY: step the mask (20 a second at most), place the cut-out
-      const P = D.pk, U = mU, v = fixed.video, ok = P.on && fixed.on && v && v.videoWidth && pkMask.tex;
+      const P = D.pk, U = mU, v = fixed.video, inWin = pkWin(), ok = P.on && !inWin && fixed.on && v && v.videoWidth && pkMask.tex;   // #752 in the windows instead when DIRROVERSE is up
+      if (dvx && (D.dv.pkWin || false) !== inWin) { D.dv.pkWin = inWin; dvx.refreshOrig(); }
       if ((P.on || (shown('dverse') && holoWin())) && fixed.on && v) pkMask.step(v, now);   // #747 HOLOEDGE uses the same mask
-      if (shown('dverse') && holoWin() && pkMask.state === 'off') pkMask.load().then(() => post());
+      if (shown('dverse') && (holoWin() || pkWin()) && pkMask.state === 'off') pkMask.load().then(() => post());
       U.pkOn.value.set(ok ? 1 : 0, P.holo ? 1 : 0, now / 1000, P.mir ? 1 : 0);
       if (ok) { const h = P.s, w = h * (v.videoWidth / v.videoHeight) / (W / H); U.pkR.value.set(P.x, 1 - P.y, w, h); U.tP.value = camTex; U.tPM.value = pkMask.tex;
         const G = D.wg; U.wg.value.set(G.ev, G.gam, G.tint, G.temp || 0); }
