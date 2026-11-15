@@ -62,7 +62,7 @@ const params = new URLSearchParams(location.search);
 const CAMERA_ROLE = params.get('role') === 'camera';   // #161: this page is the spectator phone (spectator.html sends it here)
 // start-screen settings, remembered per browser
 const SETTINGS_DEFAULT = { needleLift: 7, source: 'pc', xml: 'rekordbox.xml', hands: '3d', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
-  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off', arRefl: 60, occlusion: false, roomHits: true,   // #411 (#415 occlusion off by default: owner prefers seeing the beams in DOME scenes)
+  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'on', sky: 'off', arRefl: 60, occlusion: false, roomHits: true,   // #411 (#415 occlusion off by default: owner prefers seeing the beams in DOME scenes)
   skyH: 1.5, skyTurn: 0, skyType: 'auto', skyKey: 'on', skyFile: '', skyMedia: '' };   // turntable physics (#120)
 const settings = (() => { try { return { ...SETTINGS_DEFAULT, ...JSON.parse(localStorage.getItem('vire.settings') || '{}') }; } catch { return { ...SETTINGS_DEFAULT }; } })();
 if (params.get('xml')) { settings.source = 'pc'; settings.xml = params.get('xml'); }
@@ -1665,7 +1665,17 @@ const engine = new AudioEngine();
 // #598 REC MASTER (main tablet page): the master after the limiter (music + mic, no cue) to a WAV in private storage, to Downloads on stop
 const masterRec = new MasterRec(engine, { toast, onChange: () => { if (!toolsPage && !videoPage) drawMixScreen(); }, inXR: () => renderer.xr.isPresenting });
 renderer.xr.addEventListener('sessionend', () => { if (masterRec.pending.length) setTimeout(() => masterRec.offer(), 400); });   // #598 files stopped in VR go to Downloads once out of it; #637 via a SAVE button on the page (a tap = a gesture the Quest Browser honours)
-setInterval(() => { if (masterRec.on && !toolsPage && !videoPage) drawMixScreen(); }, 1000);   // #598 the running time on the button
+setInterval(() => { if ((masterRec.on || (vidRec() && vidRec().on)) && !toolsPage && !videoPage) drawMixScreen(); }, 600);   // #753 + VIDREC's time
+// #753 VIDREC: the tablet starts / stops DirroVJ's PROGRAM REC (the laptop records the Program + sound as .mkv); stop = two taps within 3 s
+let vidArm = 0;
+const vidRec = () => (streamer && streamer.s8 && streamer.s8.pr) || null;
+const vidTime = s => { s = Math.floor(s || 0); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s % 60).padStart(2, '0'); };
+function vidRecTap() {
+  const L = streamer && streamer.stuLink, P = vidRec();
+  if (!L) { toast('VIDREC: link DirroVJ first (TWITCH > DIRROVJ): the laptop does the recording', 4000); return; }
+  if (P && P.on) { if (performance.now() - vidArm < 3000) { vidArm = 0; L.ctl({ k: 'prec', op: 'stop' }); toast('VIDREC: DirroVJ stops and saves the take', 2500); } else vidArm = performance.now(); drawMixScreen(); return; }
+  L.ctl({ k: 'prec', op: 'start' }); toast('VIDREC: DirroVJ records the Program (size from its desk: SETUP > Program recordings)', 3500);
+}   // #598 the running time on the button
 // #331 LIVE STREAM: master bus (never CUE) + a picture source, straight to Twitch from the headset (stream.js)
 streamer = CAMERA_ROLE ? null : new Streamer({
   smsList: () => (dirro && dirro.sms) || [],   // #507 HoloSMS for DirroVJ's scroller desk
@@ -9933,7 +9943,7 @@ function drawMixScreen() {
     SP_HIT.push({ x: vx - 3, y: y - 8, w: vw + 6, h: h + 16, act: () => setMonitor(!monOn) });
     // #537 MR GUI removed from Deck A top bar (unneeded on mixer screen)
     { const S = streamer, bw3 = (W - 40 - 3 * 6) / 4, by3 = H - 96;   // #389 STREAM, CLY3DTV, STUDIO on a row above TOOLS / RESET MIX; #439 + WALL
-      [[S && S.live ? '● LIVE' : 'TWITCH', !!(S && S.live), () => setTools('stream'), !S], ['DIRROTV', !!(S && S.tvUp), () => setTools('tv'), !S], ['DIRROVJ', !!(S && S.stu.on), () => setTools('studio'), !S], ['CYCLOWALL ⁺¹', ledMode !== 'off', openCycloWall, false]].forEach(([l, o, a, dim], i) => {
+      [[S && S.live ? '● LIVE' : 'TWITCH', !!(S && S.live), () => setTools('stream'), !S], [(() => { const P = vidRec(); return P && P.on ? (performance.now() - vidArm < 3000 ? 'TAP: STOP' : '● ' + vidTime(P.sec)) : 'VIDREC'; })(), !!(vidRec() && vidRec().on), vidRecTap, !(S && S.stuLink)] /* #753 */, ['DIRROVJ', !!(S && S.stu.on), () => setTools('studio'), !S], ['CYCLOWALL ⁺¹', ledMode !== 'off', openCycloWall, false]].forEach(([l, o, a, dim], i) => {
         const bx3 = 20 + i * (bw3 + 6); drawTopBtn(g, bx3, by3, bw3, 36, l, o, dim, 15); if (!dim) SP_HIT.push({ x: bx3 - 3, y: by3 - 4, w: bw3 + 6, h: 44, act: a }); });
     }
     drawTopBtn(g, 20, H - 52, 64, 36, 'TOOLS', !!(scroller && scroller.on));   // #224
@@ -9966,7 +9976,7 @@ function drawMixScreen() {
     tb('TOOLS', !!(scroller && scroller.on), () => setTools('home'), false, 74);
     drawResetMix(g, x, y, 100, h); x += 100 + gap;   // #254
     tb(S && S.live ? '● LIVE' : 'TWITCH', !!(S && S.live), () => setTools('stream'), !S, 82);
-    tb('DIRROTV', !!(S && S.tvUp), () => setTools('tv'), !S, 88);
+    { const P = vidRec(), armed = P && P.on && performance.now() - vidArm < 3000; tb(armed ? 'TAP: STOP' : P && P.on ? '● ' + vidTime(P.sec) : P && P.starting ? 'REC…' : 'VIDREC', !!(P && P.on) && (armed || Math.floor(performance.now() / 600) % 2 === 0), vidRecTap, !(S && S.stuLink), 88); }   // #753 VIDREC (DirroVJ's PROGRAM REC) where DIRROTV was; DIRROTV is on TWITCH
     tb('DIRROVJ', !!(S && S.stu.on), () => setTools('studio'), !S, 80);
     tb('CYCLOWALL ⁺¹', ledMode !== 'off', openCycloWall, false, 116);   // #439, #537 the CYCLOWALL page, one tap from the mixer
     drawLoopMainBtn(g, x, y, 74, h, 17); SP_HIT.push({ x: x - 3, y: y - 8, w: 80, h: h + 14, act: () => setTools('looper') }); x += 74 + gap;   // #470 LOOP: state colour, opens the LOOPER page
@@ -10926,6 +10936,23 @@ function syncSettingsUI() {
 }
 // Browsers may wipe site storage unless it is marked persistent (CLAUDE.md #40). Installed apps get it
 // most reliably, so the page is also an installable app (manifest + service worker).
+// #753 keep this site's storage (keys, settings, songs) from being cleared by the browser: ask once per load, silently (Chrome grants it
+// to sites you use often or installed; it never shows a prompt), and offer a settings file as the backup
+(async () => { try { if (navigator.storage && navigator.storage.persisted && !(await navigator.storage.persisted())) await navigator.storage.persist(); } catch {} })();
+function settingsFileSave() {
+  const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('vire.')) { const v = localStorage.getItem(k); if (v != null && v.length < 3e6) o[k] = v; } }
+  const d = new Date(), p2 = n => String(n).padStart(2, '0'), name = `DirroDJ_settings_${location.host.replace(/[^\w.-]/g, '_')}_${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}.json`;
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ app: 'DirroDJ', host: location.host, saved: d.toISOString(), keys: o })], { type: 'application/json' })); a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  toast('Settings file saved to Downloads (it holds your Twitch and Discogs keys: keep it private)', 5000);
+}
+async function settingsFileLoad(f) {
+  try { const j = JSON.parse(await f.text()); const ks = j && j.keys; if (!ks || typeof ks !== 'object') throw new Error('not a DirroDJ settings file');
+    let n = 0; for (const [k, v] of Object.entries(ks)) if (k.startsWith('vire.') && typeof v === 'string') { localStorage.setItem(k, v); n++; }
+    toast(n + ' settings loaded: reloading', 2500); setTimeout(() => location.reload(), 900);
+  } catch (e) { toast('Settings file: ' + e.message, 5000); }
+}
+{ const b = document.getElementById('bSetSave'), l = document.getElementById('bSetLoad'), fi = document.getElementById('fSetLoad');
+  if (b) b.onclick = settingsFileSave; if (l && fi) { l.onclick = () => fi.click(); fi.onchange = () => { if (fi.files[0]) settingsFileLoad(fi.files[0]); fi.value = ''; }; } }
 async function showPersist() {
   let p = false; try { p = await navigator.storage.persisted(); } catch {}
   $('#persistStatus').textContent = p
