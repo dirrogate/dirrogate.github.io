@@ -1165,7 +1165,7 @@ function openPhoneCam(openSetup = false) {
     if (S.stu.on) S.setStudio('mode', 'show'); else S.setSource('show');
     toast('WEBCAM off', 1500); drawMixScreen();
   };
-  const next = () => { if (spect && spect.camLast) { camOff(); return; } if (spect && spect.camNext && spect.camNext()) toast('WEBCAM: next camera…', 1500); drawMixScreen(); };
+  const next = camOff;   // #729 owner: no camera stepping (it muddled the laptop's cameras); the camera is picked from the list on the VJ desk. A second tap = WEBCAM off
   if (S.stu.on) {
     const was = S.stu.mode !== 'show';
     if (was) { next(); return; }
@@ -1182,11 +1182,11 @@ function openPhoneCam(openSetup = false) {
     if (openSetup) setTools('pcam'); else drawMixScreen();
     return;
   }
-  if (was && localCam.on && localCam.last) { camOff(); return; }   // #591 this device's cameras: after the last one comes OFF
-  localCamOpen(was && localCam.on).then(name => {
+  if (was && localCam.on) { camOff(); return; }   // #729 a second tap = OFF (no stepping)
+  localCamOpen(false).then(name => {
     if (!name) { toast(why + ' (and no camera on this device)', 3500); if (openSetup) setTools('pcam'); return; }
     if (!was) S.setSource('pcam');
-    toast('WEBCAM: ' + name + ' (this device)' + (localCam.last ? ' · tap again = OFF' : ''), 2200);
+    toast('WEBCAM: ' + name + ' (this device) · tap again = OFF', 2200);
     if (openSetup && !was) setTools('pcam'); else drawMixScreen();
   });
 }
@@ -1644,7 +1644,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     if (isLive(ledMode) || ledMode === 'screen') return [{ el: liveVideo }];   // #358 the phone's screen too
     if (isFxMode(ledMode)) return [{ el: fxBig }];   // #439 MANDEL / RETRO-SCENE, with the LED grid
     if (ledMode === 'clips' && led.video) return [{ el: led.video }];
-    if (ledMode === 'clips' && led.img && led.curImage && !led.silent) return [{ el: led.curImage }];
+    if (ledMode === 'clips' && led.img && led.curImage && !led.silent) return [{ el: led.curImage.up || led.curImage }];   // #729 the upright copy (2D users)
     if (ledMode === 'off' && !cycloBg) return [];   // #545 CYCLO OFF is black (Cyclo and the VISUALS backdrop); only the CYCLO page's OFF: BG VISUALS keeps the clip playlist running
     return streamClip();   // #337 the stream decodes the clip itself (follows the playlist, or runs the LED LIST on its own)
   },
@@ -8379,7 +8379,7 @@ function drawToolsPage() {
     const O = S.showOpt, bh = P ? 52 : 30, gap = P ? 8 : 5;
     const isWeb = S.source === 'pcam' || (S.stu.on && S.stu.mode !== 'show');
     // #530 camera pick: GOPRO, GOPRO2, WEBCAM (external laptop or phone), HEADSET CAM
-    const cams = [['gopro', 'GOPRO', !gopro], ['gopro2', 'GOPRO2', !gopro2], ['pcam', 'WEBCAM ⟳', false], ['headset', P ? 'HEADSET' : 'HEADSET CAM', false]];   // #547 ⟳: tapped again it steps to the next camera
+    const cams = [['gopro', 'GOPRO', !gopro], ['gopro2', 'GOPRO2', !gopro2], ['pcam', 'WEBCAM', false], ['headset', P ? 'HEADSET' : 'HEADSET CAM', false]];   // #547 ⟳: tapped again it steps to the next camera
     const colsCam = P ? 2 : 4, bwCam = (R - L - gap * (colsCam - 1)) / colsCam;
     const camOn = k => k === 'pcam' ? isWeb : k === 'headset' ? (!isWeb && S.source === 'headset') : (!isWeb && S.source !== 'headset' && djSet.preset === k);
     g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; if (P) g.fillText('CAMERA', L + 2, y0 + 8);
@@ -9127,7 +9127,7 @@ function drawToolsPage() {
         () => btn(x, y, w, h, portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), portalsTap, !portals, fs),
         () => btn(x, y, w, h, 'PORTALS SETUP', false, portals ? () => setTools('portals') : null, !portals, fs),
         () => btn(x, y, w, h, 'CAM FIT', false, () => setTools('streamfit'), !streamer, fs),
-        () => { btn(x, y, w, h, 'WEBCAM ⟳', isWeb, () => openPhoneCam(true), !streamer, fs); if (streamer) VP_HIT[VP_HIT.length - 1].long = () => setTools('pcam'); },   // #545 long press = WEBCAM SETUP
+        () => { btn(x, y, w, h, 'WEBCAM', isWeb, () => openPhoneCam(true), !streamer, fs); if (streamer) VP_HIT[VP_HIT.length - 1].long = () => setTools('pcam'); },   // #545 long press = WEBCAM SETUP
         () => btn(x, y, w, h, perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false, fs),
         () => btn(x, y, w, h, laser && laser.on ? 'LASER: ON' : 'LASER', !!(laser && laser.on), () => setTools('laser'), !laser, fs),   // #406
         () => btn(x, y, w, h, mprops && mprops.props().length ? `MOVIE PROPS (${mprops.props().length})` : 'MOVIE PROPS', !!(mprops && mprops.props().length), () => setTools('props'), !mprops, fs),   // #478
@@ -10202,7 +10202,7 @@ function frameBody() {
     beat.want = !!((facetWall && facetWall.on && facetWall.beat) || (laser && laser.on && laser.auto) || (dirro && dirro.on) || isFxMode(ledMode) || (portals && portals.holo.beat && portals.holoN > 0));   // #598 HOLO glitches on the beat   // #427 the phones follow the beat; #439 the wall visuals
     const bp = beat.tick(dt);
     if (portals) portals.beat = bp || 0;   // #598
-    if (facetWall) facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource, bp);
+    if (facetWall) { facetWall.setRain(portals ? portals.rain : 'off'); facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource, bp); }   /* #729 the glass rain follows the PORTALS SETUP preset */
     if (laser && laser.on) laser.tick(dt, beat, camera.getWorldPosition(_laserCam));
   }
   stepWallFx(performance.now());   // #439
@@ -10603,6 +10603,7 @@ async function showStorage() {
   $('#impStatus').textContent = `${idx.filter(f => !/\.xml$/i.test(f.path) && !VIDEO_EXT.test(f.path)).length} songs, ${idx.filter(f => VIDEO_EXT.test(f.path)).length} VideoVinyl videos, ${idx.filter(f => /\.xml$/i.test(f.path)).length} XML stored` +
     (est ? ` · using ${mb(est.usage || 0)} of ${mb(est.quota || 0)} available to this site` : '');
 }
+{ const d = $('#sDiscogs'); if (d) { d.value = discogsToken(); d.addEventListener('change', () => { setDiscogsToken(d.value.trim()); drawMixScreen(); }); } }   // #729 Discogs token on the 2D page
 { const k = $('#sTwitchKey'); if (k) { k.value = streamKey.get(); k.addEventListener('change', () => { streamKey.set(k.value); drawMixScreen(); }); } }   // #331
 { const c = $('#sTwitchChan'); if (c) { c.value = chatChannel.get(); c.addEventListener('change', () => { chatChannel.set(c.value); if (chat) { chat.stop(); chat.tries = 0; if (chatChannel.get()) chat.start(); } }); } }   // #340
 $('#sHands').addEventListener('change', e => { if (xr) { xr.setCtlLook(e.target.value); drawMixScreen(); } });   // #286 (owner) 3D hands / controllers from the start page

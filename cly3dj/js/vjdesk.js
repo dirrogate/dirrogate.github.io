@@ -167,7 +167,7 @@ const FRACTALS = {   // #508 per formula: start centre and span, zoom targets
   multi: { t: 3, c: [0, 0], span: 2.8, tg: [[0.38, 0.0], [-0.19, 0.33], [-0.19, -0.33]] },
 };
 const PALS = ['green', 'island', 'lava', 'ice', 'copper', 'neon'];
-const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'holo', 'dverse', 'cast', 'hocam', 'dzcam'];   // #667 cast = the Quest 3 casting window, #668 hocam = Holodancer stood in the webcam, #669 dzcam = the 3D Dancer stood in it   // #573 holo = Holodancer, #662 dverse = DirroVerse
+const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'holo', 'dverse', 'hocam', 'dzcam'];   // #729 QUESTCAST (cast) removed (owner)   // #667 cast = the Quest 3 casting window, #668 hocam = Holodancer stood in the webcam, #669 dzcam = the 3D Dancer stood in it   // #573 holo = Holodancer, #662 dverse = DirroVerse
 // (was) const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer'];   // #516 comic = DirroComics page, #550 dancer = DirroDancer, #555 BLACK removed (owner: never used)
 
 const HP0 = { x: 0.5, y: 0.8, h: 0.4, el: 8, face: 0, flip: false, shadow: 0.55, light: 0.6, cut: 0 };   // #668 x, y = her feet (0..1, from the top left), h = her height (part of the frame)
@@ -535,6 +535,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     mU.x.value = D.x; drzTick(now, W / H); mgSet(); questMatch(questTex, now);
     renderer.setRenderTarget(null); renderer.render(mSc, oc);
     if (lsc.on) { lsc.tick(dt); lscTex.needsUpdate = true; const ac = renderer.autoClear; renderer.autoClear = false; renderer.render(lscSc, oc); renderer.autoClear = ac; }   // #556 local scroller over the program (no Quest)
+    if (moon.on) { moonMesh.scale.x = H / W; const ac = renderer.autoClear; renderer.autoClear = false; renderer.render(moonSc, oc); renderer.autoClear = ac; }   // #724 MOON CASE: the Moon, top right of the program
     if (peers && now - pvT > 250 && cueSrc) {   // #557 CUE: the cued bus alone into a small target, read back for the desk monitor (Twitch / DirroTV keep the program)
       pvT = now;
       try {
@@ -568,6 +569,22 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   const lsc = new Scroller(); lsc.save = () => {};
   const lscTex = new THREE.CanvasTexture(lsc.canvas); lscTex.colorSpace = THREE.SRGBColorSpace; lscTex.generateMipmaps = false; lscTex.minFilter = THREE.LinearFilter;
   const lscSc = new THREE.Scene(); { const h = 2 * (1280 * 128 / 768) / 720, m = new THREE.Mesh(new THREE.PlaneGeometry(2, h), new THREE.MeshBasicMaterial({ map: lscTex, transparent: true, depthTest: false, depthWrite: false })); m.position.y = -1 + h / 2 + 0.03; m.frustumCulled = false; lscSc.add(m); }
+  // #724 MOON CASE: the Moon over the program (desk mooncase.js sends {k:'moon', on, v}); v = how much is still lit, eaten by a shadow disc from the left
+  const moon = { on: false, v: -1, cv: document.createElement('canvas') }; moon.cv.width = moon.cv.height = 256;
+  const moonTex = new THREE.CanvasTexture(moon.cv); moonTex.colorSpace = THREE.SRGBColorSpace;
+  const moonSc = new THREE.Scene(), moonMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.36), new THREE.MeshBasicMaterial({ map: moonTex, transparent: true, depthTest: false, depthWrite: false }));
+  moonMesh.geometry.translate(-0.18, -0.18, 0); moonMesh.position.set(0.97, 0.93, 0); moonMesh.frustumCulled = false; moonSc.add(moonMesh);
+  function drawMoon(v) {
+    const g = moon.cv.getContext('2d'), c = 128, r = 96; g.clearRect(0, 0, 256, 256);
+    const halo = g.createRadialGradient(c, c, r * 0.9, c, c, 126); halo.addColorStop(0, `rgba(220,230,255,${0.35 * v})`); halo.addColorStop(1, 'rgba(220,230,255,0)');
+    g.fillStyle = halo; g.fillRect(0, 0, 256, 256);
+    const disc = g.createRadialGradient(c - 30, c - 30, 10, c, c, r); disc.addColorStop(0, '#fbf8ef'); disc.addColorStop(1, '#c9c4b6');
+    g.save(); g.beginPath(); g.arc(c, c, r, 0, 7); g.clip(); g.fillStyle = disc; g.fillRect(0, 0, 256, 256);
+    let sd = 7; const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 22; i++) { const x = c + (rnd() - 0.5) * 1.7 * r, y = c + (rnd() - 0.5) * 1.7 * r, rr = 4 + rnd() * 16; g.fillStyle = `rgba(120,112,98,${0.18 + rnd() * 0.2})`; g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill(); }
+    g.fillStyle = 'rgba(6,8,22,0.94)'; g.beginPath(); g.arc(c - 2 * r * v, c, r * 1.04, 0, 7); g.fill(); g.restore();
+    moonTex.needsUpdate = true;
+  }
   const questLinked = () => { const L = getLink(); return !!(L && L.isOpen); };
   function approve(id, t) {
     const q = id != null ? queue.find(x => x.id === id) : null, text = q ? q.t : t; if (!text) return;
@@ -623,11 +640,18 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   async function devices() { const now = performance.now(); if (devCache && now - devT < 5000) return devCache; devT = now; try { devCache = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput').map(d => [d.deviceId, d.label || 'Input']); } catch { devCache = []; } return devCache; }
   // ---- the control window
   const bc = new BroadcastChannel('dirrovj'); let peers = 0, postT = 0;
+  // #729 the laptop's cameras for the desk's WEBCAM list (names appear once the browser has been allowed a camera)
+  let camCache = [], camT = -1e9;
+  async function cams() {
+    const now = performance.now(); if (now - camT < 4000) return camCache; camT = now;
+    try { camCache = (fixed.devList ? await fixed.devList() : []).map((d, i) => ({ id: d.deviceId, label: (d.label || 'Camera ' + (i + 1)).replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)/i, '') })).filter(d => d.id); } catch { camCache = []; }
+    return camCache;
+  }
   async function post() {
     const now = performance.now(); if (now - postT < 60) { clearTimeout(post.t); post.t = setTimeout(post, 70); return; } postT = now;
     D.dv.gearSt = gearSt();   // #707
     D.qlink = questLinked(); if (!D.qlink && D.chQ) { D.chQ = ''; chatFollow(); }   // #556 the Quest's chat channel only counts while it is linked
-    bc.postMessage({ k: 'state', D: { ...D, fr: { ...D.fr } }, tw: studioCtl && studioCtl.twState ? studioCtl.twState() : null, air: studioCtl && studioCtl.airState ? studioCtl.airState() : null, queue, devs: await devices(), sources: SOURCES, C: comics.state(), live: outT > 0 && performance.now() - outT < 3000 });
+    bc.postMessage({ k: 'state', D: { ...D, fr: { ...D.fr } }, tw: studioCtl && studioCtl.twState ? studioCtl.twState() : null, air: studioCtl && studioCtl.airState ? studioCtl.airState() : null, queue, devs: await devices(), cams: await cams(), cam: fixed.devId ? fixed.devId() : '', sources: SOURCES, C: comics.state(), live: outT > 0 && performance.now() - outT < 3000 });
   }
   bc.onmessage = e => {
     const m = e.data || {}; peers = 1;
@@ -679,6 +703,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     else if (m.k === 'nudge') { if (D.bpm > 0) D.bpm = Math.max(40, Math.min(220, Math.round((D.bpm + (+m.d || 0)) * 10) / 10)); post(); }
     else if (m.k === 'tvpair') { if (studioCtl && studioCtl.tvPair) studioCtl.tvPair(String(m.code || '')).then(t => bc.postMessage({ k: 'cxmsg', t })).catch(e => bc.postMessage({ k: 'cxmsg', t: 'DirroTV: ' + e.message })); }   // #662 SOLO: pair a TV from the desk
     else if (m.k === 'gram') { gramHost().setOn(!!m.on); gramSt(); setTimeout(holoGram, 300); return; }   // #674
+    else if (m.k === 'wcam') { if (fixed.useDev) fixed.useDev(String(m.id || '')).catch(() => {}).then(() => { camT = -1e9; post(); }); }   // #729 pick the webcam by name
     else if (m.k === 'cast') { if (m.op === 'stop') setCast(null); else if (m.op === 'crop' && m.v) { for (const k of ['l', 'r', 't', 'b']) if (m.v[k] != null) D.cast[k] = Math.max(0, Math.min(0.45, +m.v[k] || 0)); try { localStorage.setItem('vire.vjCast', JSON.stringify({ l: D.cast.l, r: D.cast.r, t: D.cast.t, b: D.cast.b })); } catch {} } post(); }   // #667
     else if (m.k === 'hp') { if (m.reset) Object.assign(D.hp, HP0); else if (m.v) for (const k of Object.keys(HP0)) if (m.v[k] != null) D.hp[k] = typeof HP0[k] === 'boolean' ? !!m.v[k] : +m.v[k];   // #668
       try { localStorage.setItem('vire.vjHp', JSON.stringify(D.hp)); } catch {} post(); }
@@ -710,6 +735,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     else if (m.k === 'say') approve(null, String(m.t || '').slice(0, 120));
     else if (m.k === 'audio') setAudio(m.v, m.dev);
     else if (m.k === 'chan') { D.chDesk = String(m.v || '').replace(/^#/, '').trim().toLowerCase().slice(0, 40); try { localStorage.setItem('vire.vjChat', D.chDesk); } catch {} chatFollow(); }   // #556
+    else if (m.k === 'moon') { moon.on = !!m.on; const v = Math.max(0, Math.min(1, +m.v || 0)); if (v !== moon.v) { moon.v = v; drawMoon(v); } }   // #724
     else if (m.k === 'lsc') { lsc.stop(); D.lsc = ''; post(); }   // #556 CLEAR the local scroller
   };
   setInterval(() => { if (peers) post(); }, 1500);

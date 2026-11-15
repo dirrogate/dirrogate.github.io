@@ -586,7 +586,7 @@ void main(){
     $('#fxInfo').textContent = `${S.dev ? devName() || 'camera' : S.facing === 'user' ? 'selfie' : 'main'} ${S.vw}x${S.vh}` + (P ? ` · zoom ${P.fov.toFixed(1)}°` : '') + (P && P.k ? ` · lens k1 ${P.k[0]}` + (U.on ? ' (corrected)' : '') : '') + (!S.placed ? ' · plain camera (Calibrate to draw the gear over it)' : (S.err != null ? ` · cal ${S.err.toFixed(1)} px` : ' · placed by hand') + (S.plain ? ' · gear off' : ''))
       + (ec != null ? ` · exp ${ec > 0 ? '+' : ''}${(+ec).toFixed(1)}` : '') + (S.swap ? ` · swap ${S.swap}` : '') + (extra ? ' · ' + extra : '');
   }
-  return { S, video, raw, nextCam, camName, get gear() { return S.on && gearOn(); }, start, stop, frame, camState, setLowLight, camInfo, lowLight, onCalPoint, nudge, setCoarse, resetView, calCancel, get coarse() { return coarse; }, calSkip, calStart, calRescan, detect, info, get on() { return S.on; } };
+  return { S, video, raw, nextCam, camName, devList: async () => { await listDevs(); return S.devs; }, devId: () => S.dev, useDev: async id => { if (S.on) await pickDev(id); else setDev(id); },   /* #729 the desk's WEBCAM list */ get gear() { return S.on && gearOn(); }, start, stop, frame, camState, setLowLight, camInfo, lowLight, onCalPoint, nudge, setCoarse, resetView, calCancel, get coarse() { return coarse; }, calSkip, calStart, calRescan, detect, info, get on() { return S.on; } };
 }
 
 // ---------------------------------------------------------------- pose solve
