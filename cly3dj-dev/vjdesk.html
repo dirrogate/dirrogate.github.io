@@ -212,7 +212,7 @@
 <div class="row"><div class="tbar h" id="xfT" title="T-bar: left = bus A on air, right = bus B on air. Grab and pull; it doesn't jump to a click."></div></div>
 <div class="row" id="busB"><button class="busLit" id="litB" title="Green = B is on air. Tap while A is on air: CUE (flashing yellow), the monitor shows B so you can build it. Tap again to leave CUE.">B</button></div>
 <div class="row"><button id="cut">CUT</button><button id="auto">AUTO</button><span style="width:6px"></span><button data-tr="mix" title="the T-bar dissolves">MIX</button><button data-tr="down" title="the T-bar wipes bus B in from the top">WIPE ↓</button><button data-tr="up" title="the T-bar wipes bus B in from the bottom">WIPE ↑</button><select id="fadeMs"><option value="800">0.8 s</option><option value="2000" selected>2 s</option><option value="5000">5 s</option></select></div>
-      <div class="row" id="fxRow"><b class="tsL">FX</b><button id="drzGo" title="DROSTE: the program flies into a copy of itself over one bar">DROSTE NOW</button><button id="drzTurn" title="Droste copy turns as it zooms">TURN</button><label class="kv" style="flex:0 1 150px" title="Droste copy size"><span class="sp">size</span><input type="range" id="drzSize" min="0.2" max="0.65" step="0.01" style="min-width:60px"></label><button id="pump" title="A hit on the fractal (P)">PUMP</button><span id="kick" style="width:14px;height:14px;border-radius:50%;background:#333;display:inline-block"></span><button id="pcamB" title="PERFORMERCAM+: the PERFORMER stands in the webcam picture (place her in the PERFORMER settings)">PERFORMERCAM+</button><span hidden><button data-drz="0"></button><button data-drz="4"></button><button data-drz="8"></button></span></div>
+      <div class="row" id="fxRow"><b class="tsL">FX</b><button id="drzGo" title="DROSTE: the program flies into a copy of itself over one bar">DROSTE NOW</button><button id="drzTurn" title="Droste copy turns as it zooms">TURN</button><label class="kv" style="flex:0 1 150px" title="Droste copy size"><span class="sp">size</span><input type="range" id="drzSize" min="0.2" max="0.65" step="0.01" style="min-width:60px"></label><button id="pump" title="A hit on the fractal (P)">PUMP</button><span id="kick" style="width:14px;height:14px;border-radius:50%;background:#333;display:inline-block"></span><button id="pkB" title="PERSON KEY: you, cut out of the webcam by MediaPipe (no green screen), over the program: stand in front of a plain wall. Settings: WEBCAM">PERSON KEY</button><button id="pcamB" title="PERFORMERCAM+: the PERFORMER stands in the webcam picture (place her in the PERFORMER settings)">PERFORMERCAM+</button><span hidden><button data-drz="0"></button><button data-drz="4"></button><button data-drz="8"></button></span></div>
       <div class="row" id="apRow"><button id="apOn" title="AUTOPILOT: on the master beat, every N bars it changes what is ticked">AUTOPILOT</button><button data-apb="8">8</button><button data-apb="16">16</button><button data-apb="32">32 BARS</button><button data-apk="dv" title="Next DirroVerse scene">SCENES</button><button data-apk="zoom" title="DirroVerse wide > mid > close inside each scene">ZOOM</button><button data-apk="drz" title="A Droste zoom">DROSTE</button><button data-apk="cx" title="Next comic page">COMICS</button><button data-apk="swap" title="AUTO fade to the other bus">A↔B</button><b id="apSt" class="sp"></b></div>
   </div>
 </div>
@@ -226,7 +226,11 @@
       <div class="note" id="shN">Same as the tablet's SHOWTIME! page. Last press wins.</div>
     </section>
 <section data-src="webcam" style="margin-top:14px"><h2>Webcam</h2><div class="row"><span class="sp" title="Which camera WEBCAM, the DirroVerse windows, HOLO+CAM and DANCER+CAM use. Names show once Chrome has been allowed a camera.">WEBCAM</span><select id="wcDev" style="max-width:260px"><option value="">Default camera</option></select><span id="wcSt" class="note" style="margin:0"></span></div>
-<div class="note">The camera for WEBCAM, the DirroVerse windows and PERFORMERCAM+. Its colour: GRADE · WEBCAM.</div></section>
+<div class="note">The camera for WEBCAM, the DirroVerse windows and PERFORMERCAM+. Its colour: GRADE · WEBCAM.</div>
+<h2 style="margin-top:12px">Person key</h2>
+<div class="row"><button id="pkOn">PERSON KEY</button><button id="pkHolo" title="The HOLO portal look on you: cyan edge glow, scanlines, glitch bands">HOLO</button><button id="pkMir">MIRROR</button><button id="pkRst">RESET SPOT</button><span id="pkSt" class="sp"></span></div>
+<div class="row"><label class="kv"><span class="sp" style="width:40px">SIZE</span><input type="range" id="pkS" min="0.2" max="2" step="0.01"></label><label class="kv"><span class="sp" style="width:16px">X</span><input type="range" id="pkX" min="0" max="1" step="0.005"></label><label class="kv"><span class="sp" style="width:16px">Y</span><input type="range" id="pkY" min="0" max="1" step="0.005"></label></div>
+<div class="note">You, cut out of the webcam by MediaPipe and laid over whatever is on air (DIRROVERSE, the DOME, a clip). No green screen: stand in front of a plain wall, lit from the front. Graded by GRADE · WEBCAM. First use loads the model (about 11 MB).</div></section>
 <section data-src="led" style="margin-top:14px"><h2>CYCLOWALL</h2><div class="note">The Quest's CYCLOWALL picture, or the clip / picture / pano you click in the library (it goes to the bus that is off air and cues it). Pano view angle: the PANOS tab.</div></section>
 <section data-src="dverse" id="dvS" style="margin-top:14px">
   <h2>DirroVerse <span class="note" style="text-transform:none;letter-spacing:0">put DIRROVERSE on a bus · sets from the Cyber-Window studio</span></h2>
@@ -536,6 +540,8 @@ function renderTop(D) {
   const pk = D.perf ? D.perf.kind : 'dancer', pc = !!(D.perf && D.perf.cam);
   for (const el of document.querySelectorAll('#insp [data-perf]')) el.hidden = !inspAll && (el.dataset.perf === 'cam' ? !pc : el.dataset.perf !== pk);
   $('pcamB').classList.toggle('on', pc);
+  if (D.pk) { const K = D.pk; for (const id of ['pkB', 'pkOn']) $(id).classList.toggle('on', !!K.on); $('pkHolo').classList.toggle('on', !!K.holo); $('pkMir').classList.toggle('on', !!K.mir);   // #745
+    for (const [id, k] of [['pkS', 's'], ['pkX', 'x'], ['pkY', 'y']]) if (document.activeElement !== $(id)) $(id).value = K[k]; $('pkSt').textContent = K.on ? (K.st || 'on air over the program') : ''; }
   const A = D.ap || {}; $('apOn').classList.toggle('on', !!A.on); $('apOn').textContent = A.on ? 'AUTOPILOT: ON' : 'AUTOPILOT: OFF';
   for (const b of document.querySelectorAll('[data-apb]')) b.classList.toggle('on', +b.dataset.apb === A.bars);
   for (const b of document.querySelectorAll('[data-apk]')) b.classList.toggle('on', !!A[b.dataset.apk]);
@@ -546,6 +552,10 @@ function renderTop(D) {
 for (const b of document.querySelectorAll('[data-it]')) b.onclick = () => { inspAll = false; inspPin = b.dataset.it; inspPinFrom = S ? focusSrc(S.D) : ''; if (S) render(); };
 $('inspAll').onclick = () => { inspAll = !inspAll; inspPin = ''; if (S) render(); };
 $('pcamB').onclick = () => S && send({ k: 'perf', cam: !(S.D.perf && S.D.perf.cam) });
+const pkSend = v => send({ k: 'pk', v });   // #745 PERSON KEY
+$('pkB').onclick = $('pkOn').onclick = () => S && pkSend({ on: !(S.D.pk && S.D.pk.on) });
+$('pkHolo').onclick = () => S && pkSend({ holo: !S.D.pk.holo }); $('pkMir').onclick = () => S && pkSend({ mir: !S.D.pk.mir }); $('pkRst').onclick = () => send({ k: 'pk', reset: 1 });
+for (const [id, k] of [['pkS', 's'], ['pkX', 'x'], ['pkY', 'y']]) $(id).oninput = e => pkSend({ [k]: +e.target.value });
 $('apOn').onclick = () => S && send({ k: 'ap', v: { on: !S.D.ap.on } });
 for (const b of document.querySelectorAll('[data-apb]')) b.onclick = () => send({ k: 'ap', v: { bars: +b.dataset.apb } });
 for (const b of document.querySelectorAll('[data-apk]')) b.onclick = () => S && send({ k: 'ap', v: { [b.dataset.apk]: !S.D.ap[b.dataset.apk] } });

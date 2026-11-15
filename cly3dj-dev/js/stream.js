@@ -11,6 +11,7 @@
 // Each camera frame's capture time (requestVideoFrameCallback) picks the head pose from a short history, so the gear
 // doesn't swim against the picture. GEAR OFF sends the raw camera as before.
 // The key is kept on this headset only (localStorage 'vire.twitchKey') and goes nowhere but the Twitch endpoint.
+import { HOLO_GLSL, HOLO_COL } from './holofx.js';   // #745
 import * as THREE from 'three';
 import { drawChat, chatChannel } from './chat.js';
 import { tvHost, tvNewKey, tvPairSend } from './net-link.js';   // #376 Cly3DTV
@@ -93,7 +94,8 @@ void main() { vec3 c = texture2D(map, vec2(vUv.x, 1.0 - vUv.y)).rgb; gl_FragColo
 
 // MR: gear rendered on transparent black (linear HDR, premultiplied by MSAA), tone-mapped like the scene and laid
 // over the raw camera picture (sRGB as it comes, not tone-mapped).
-const MR_FS = `uniform sampler2D map; uniform sampler2D cam; uniform vec2 cv; varying vec2 vUv;   // #590 cv: the camera picture's v offset / scale (16:9 crop of the 4:3 camera)
+const MR_FS = `uniform sampler2D map; uniform sampler2D cam; uniform vec2 cv; uniform sampler2D hm; uniform vec4 hk; uniform vec3 hcol; varying vec2 vUv;   // #745 hm: the near-hands mask (soft occlusion pass), hk: mode (0 off, 1 soft, 2 holo), time, texel
+${HOLO_GLSL}   // #590 cv: the camera picture's v offset / scale (16:9 crop of the 4:3 camera)
 vec3 rrt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
 vec3 aces(vec3 c) {
   const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
@@ -101,6 +103,11 @@ vec3 aces(vec3 c) {
   c *= 1.0 / 0.6; return clamp(O * rrt(I * c), 0.0, 1.0); }
 vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
 void main() { vec2 uv = vec2(vUv.x, 1.0 - vUv.y); vec4 g = texture2D(map, uv); vec3 c = texture2D(cam, vec2(uv.x, cv.x + uv.y * cv.y)).rgb;
+  if (hk.x > 1.5) {   // #745 HOLO hands: the near-hands mask, softened; the camera picture sheared in glitch bands, tinted, scanlined, edge glow
+    vec2 tx = hk.zw * 2.0; float m = 0.0; for (int i = -2; i <= 2; i++) for (int j = -2; j <= 2; j++) m += texture2D(hm, uv + vec2(float(i), float(j)) * tx).r; m /= 25.0;
+    if (m > 0.01) { float sh = holoShear(uv, hk.y, 90.0) * smoothstep(0.1, 0.6, m); vec3 c2 = texture2D(cam, vec2(uv.x + sh, cv.x + uv.y * cv.y)).rgb;
+      float e = clamp(1.0 - abs(2.0 * m - 1.0), 0.0, 1.0); e *= e; c = holoLook(c2, smoothstep(0.05, 0.5, m), e, uv, hk.y, 260.0, hcol); }
+  }
   float a = clamp(g.a, 0.0, 1.0); vec3 gc = srgb(aces(g.rgb / max(a, 0.001)));
   vec3 L = srgb(aces(g.rgb)) * (1.0 - smoothstep(0.0, 0.05, a));   // #412 additive light (laser beams, neon glow) leaves alpha at 0: add it on top
   gl_FragColor = vec4(min(mix(c, gc, a) + L, 1.0), 1.0); }`;
@@ -185,7 +192,9 @@ export class Streamer {
     this.g = this.canvas.getContext('2d');
     this.canvasTrack = null; this.cardT = 0; this.frameT = 0; this.busy = false; this.camN = -1; this.cardPic = null;   // #445 cardPic: a picture / GIF on the CARD instead of the main card
     this.fit = { ...FIT_DEF, ...(lsJ(FIT) || {}) };
-    this.hres = ls.get('vire.hcamRes') === '1280' ? 1280 : 960;   // #590 HEADSET CAM out: 960 (camera shape, 960 x 720) or 1280 (16:9 crop, 1280 x 720)
+    this.hres = ls.get('vire.hcamRes') === '1280' ? 1280 : 960;
+    this.hocc = ['soft', 'holo'].includes(ls.get('vire.hcamOcc')) ? ls.get('vire.hcamOcc') : 'off';   // #745 HEADSET CAM occlusion: off / soft / holo (real hands in front of the gear)
+    this.hnear = Math.max(0.4, Math.min(1.5, +(ls.get('vire.hcamNear') || 0.85)));   // #745 HOLO: real things closer than this (metres) are 'you'   // #590 HEADSET CAM out: 960 (camera shape, 960 x 720) or 1280 (16:9 crop, 1280 x 720)
     this.testing = false;   // CAM FIT TEST: the MR picture runs off air, for lining up
     this.rehearse = false;
     this.hist = []; this.mr = null;
@@ -466,6 +475,8 @@ export class Streamer {
   }
   _sizeFor(src) { if (src === 'avacam') this._sizeCanvas(960, 540); else if (src === 'headset') { if (this.camStream) this._mrSize(); } else this._sizeCanvas(1280, 720); }
   setFit(k, v) { if (k in FIT_DEF) { this.fit[k] = v; ls.set(FIT, JSON.stringify(this.fit)); if (k === 'gear') this._gearChanged(); this.env.onChange && this.env.onChange(); } }
+  setHocc(v) { this.hocc = ['soft', 'holo'].includes(v) ? v : 'off'; ls.set('vire.hcamOcc', this.hocc); this.env.onChange && this.env.onChange(); }   // #745
+  setHnear(v) { this.hnear = Math.max(0.4, Math.min(1.5, Math.round(v * 20) / 20)); ls.set('vire.hcamNear', String(this.hnear)); this.env.onChange && this.env.onChange(); }
   setHres(w) { this.hres = w === 1280 ? 1280 : 960; ls.set('vire.hcamRes', String(this.hres)); if (this.source === 'headset' && this.camStream) { this._mrSize(); this._caps(); } this.env.onChange && this.env.onChange(); }   // #590
   resetFit() { const g = this.fit.gear; this.fit = { ...FIT_DEF, gear: g }; ls.set(FIT, JSON.stringify(this.fit)); this.env.onChange && this.env.onChange(); }
   async _gearChanged() {   // HEADSET CAM on air: switch between the MR canvas and the raw camera
@@ -641,14 +652,15 @@ export class Streamer {
     this.camNew = false;
     const W = this.canvas.width, H = this.canvas.height, F = this.fit;
     if (!this.mr || this.mr.W !== W || this.mr.H !== H) {
-      if (this.mr) { this.mr.rt.dispose(); this.mr.out.dispose(); }
+      if (this.mr) { this.mr.rt.dispose(); this.mr.out.dispose(); this.mr.hmRT.dispose(); }
       const half = r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float');
       const mr = this.mr = { W, H };
       mr.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 }); mr.rt.vireAces = true;
       mr.out = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false });
+      mr.hmRT = new THREE.WebGLRenderTarget(Math.round(W / 2), Math.round(H / 2), { depthBuffer: true });   // #745 the near-hands mask (half size)
       mr.cam = new THREE.PerspectiveCamera(50, W / H, 0.05, 40);
       mr.tex = new THREE.VideoTexture(v); mr.tex.colorSpace = THREE.NoColorSpace;
-      mr.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: mr.rt.texture }, cam: { value: mr.tex }, cv: { value: new THREE.Vector2(0, 1) } }, vertexShader: COPY_VS, fragmentShader: MR_FS, depthTest: false, depthWrite: false });
+      mr.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: mr.rt.texture }, cam: { value: mr.tex }, cv: { value: new THREE.Vector2(0, 1) }, hm: { value: mr.hmRT.texture }, hk: { value: new THREE.Vector4(0, 0, 2 / W, 2 / H) }, hcol: { value: new THREE.Vector3(...HOLO_COL) } }, vertexShader: COPY_VS, fragmentShader: MR_FS, depthTest: false, depthWrite: false });
       mr.scene = new THREE.Scene(); const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mr.mat); q.frustumCulled = false; mr.scene.add(q);
       mr.oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
       mr.buf = new Uint8Array(W * H * 4); mr.img = new ImageData(new Uint8ClampedArray(mr.buf.buffer), W, H);
@@ -670,6 +682,12 @@ export class Streamer {
       r.xr.enabled = false; r.shadowMap.autoUpdate = false; r.setClearColor(0x000000, 0);
       mr.cam.updateMatrixWorld = () => {};   // keep the composed pose (three would rebuild it from position / quaternion)
       r.setRenderTarget(mr.rt); r.clear(); r.render(sc, mr.cam);
+      {   // #745 SOFT / HOLO: the headset's depth (redrawn from this camera's pose) cuts the gear where real things are in front; HOLO also marks your hands
+        const rd = this.hocc !== 'off' && this.env.realDepth && this.env.realDepth(), cp = rd ? rd.camPasses() : null, go = !!(cp && cp.set(true, this.hnear)), ac = r.autoClear;
+        mr.mat.uniforms.hk.value.x = go ? (this.hocc === 'holo' ? 2 : 1) : 0; mr.mat.uniforms.hk.value.y = performance.now() / 1000; this.hoccOk = go;
+        if (go) { r.autoClear = false; r.render(cp.occ, mr.cam); r.autoClear = ac;
+          if (this.hocc === 'holo') { r.setRenderTarget(mr.hmRT); r.setClearColor(0x000000, 1); r.clear(); r.render(cp.mask, mr.cam); r.setClearColor(0x000000, 0); } }
+      }
       r.setRenderTarget(mr.out); r.render(mr.scene, mr.oc);
     } finally {
       r.setClearColor(prevCol, prevA); r.xr.enabled = prevXR; r.shadowMap.autoUpdate = prevSh; r.setRenderTarget(prevRT);

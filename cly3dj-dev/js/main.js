@@ -16,7 +16,7 @@ import { onRelayFallback } from './net-link.js';   // #467 note on the tablet wh
 import { KEY_LABEL } from './keycol.js';   // #347 key colour names   // #331 LIVE STREAM (Twitch)
 import { GoPro, ZOOMS as GOPRO_ZOOMS } from './gopro.js';
 import { RealDepth } from './realdepth.js';
-import { solveCamFit, CAL_TARGETS } from './camfit.js';   // #415 HEADSET CAM auto fit   // #413 depth-camera-correct occlusion
+import { solveCamFit, CAL_TARGETS, QUICK_TARGETS } from './camfit.js';   // #415 HEADSET CAM auto fit   // #413 depth-camera-correct occlusion
 import { Laser, PATTERNS as LASER_PATS, PAT_LABEL as LASER_PL, COLOURS as LASER_COLS, COL_LABEL as LASER_CL } from './laser.js';   // #406 laser head prop   // #337 movable camera for SHOW / AVACAM
 import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #340 Twitch chat
 import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whiteboard, markers and duster
@@ -1007,11 +1007,13 @@ void main() {
 let realDepth = null, rdBinding = null, rdSession = null, rgbd = null;   // #520 rgbd: GRAB RGB-D
 const cxQ = []; let cxQn = 0;   // #524 STAR IN IT messages from the relay waiting for DirroVJ (stream.js _stuSync sends them while it is linked and allowed)
 // #415 HEADSET CAM AUTO FIT (CAM FIT page): 9 crosshairs on the camera picture; the controller's front tip on each + trigger
-const camCal = { on: false, k: 0, samples: [], prev: {}, msg: '', handsWas: false };
+let fitNudge = null;   // #745 CAM FIT: drag on the picture = turn / tilt
+const camCal = { on: false, k: 0, samples: [], prev: {}, msg: '', handsWas: false, T: CAL_TARGETS, quick: false };   // #745 T: the crosses (9, or 3 for QUICK FIT)
 const _ccM = new THREE.Matrix4(), _ccH = new THREE.Matrix4(), _ccV = new THREE.Vector3();
-function camCalStart() {
+function camCalStart(quick) {
   const S = streamer; if (!S) return;
-  if (!renderer.xr.isPresenting) { camCal.msg = 'AUTO FIT runs in the headset (passthrough).'; drawMixScreen(); return; }
+  if (!renderer.xr.isPresenting) { camCal.msg = (quick ? 'QUICK FIT' : 'AUTO FIT') + ' runs in the headset (passthrough).'; drawMixScreen(); return; }
+  camCal.quick = !!quick; camCal.T = quick ? QUICK_TARGETS : CAL_TARGETS;
   if (S.source !== 'headset') S.setSource('headset');
   camCal.handsWas = !!S.showOpt.handsReal; if (!camCal.handsWas) S.setShowOpt('handsReal', true);   // drawn hands / controllers would cover the real tip in the picture
   if (!S.testing && !S.live) S.setTesting(true);
@@ -1031,13 +1033,13 @@ function camCalStep() {   // per frame while on: a trigger press = one sample at
     const pose = frame.getPose(src.gripSpace, ref); if (!pose) continue;
     _ccM.fromArray(pose.transform.matrix); _ccV.set(0, -0.007, -0.05).applyMatrix4(_ccM);   // the controller's front tip (#140), in the room
     _ccH.copy(renderer.xr.getCamera().matrixWorld).invert(); _ccV.applyMatrix4(_ccH);         // -> the headset's own frame
-    const S = streamer, W = S.canvas.width, H = S.canvas.height, t = CAL_TARGETS[camCal.k];
+    const S = streamer, W = S.canvas.width, H = S.canvas.height, t = camCal.T[camCal.k];
     camCal.samples.push({ P: _ccV.toArray(), px: [t[0] * W, t[1] * H] }); camCal.k++;
-    if (camCal.k >= CAL_TARGETS.length) {
-      const r = solveCamFit(camCal.samples, W, H, S.fit);
-      if (!r) { camCalStop('AUTO FIT failed: try again, with the tip exactly on each cross.'); return; }
+    if (camCal.k >= camCal.T.length) {
+      const r = solveCamFit(camCal.samples, W, H, S.fit, camCal.quick ? { min: 3, pw: 600 } : {});   // #745 QUICK FIT keeps the position close to the last full fit
+      if (!r) { camCalStop((camCal.quick ? 'QUICK' : 'AUTO') + ' FIT failed: try again, with the tip exactly on each cross.'); return; }
       for (const [k, v] of Object.entries(r.fit)) S.setFit(k, v);
-      camCalStop(`AUTO FIT done: ${r.rms.toFixed(1)} px off on average${r.rms > 12 ? ' (high: run it again)' : ''}. Turn your head: if the gear trails the picture, raise LAG.`);
+      camCalStop(`${camCal.quick ? 'QUICK' : 'AUTO'} FIT done: ${r.rms.toFixed(1)} px off on average${r.rms > 12 ? ' (high: run it again)' : ''}. Turn your head: if the gear trails the picture, raise LAG.`);
     } else drawMixScreen();
     return;
   }
@@ -1666,7 +1668,7 @@ setInterval(() => { if (masterRec.on && !toolsPage && !videoPage) drawMixScreen(
 // #331 LIVE STREAM: master bus (never CUE) + a picture source, straight to Twitch from the headset (stream.js)
 streamer = CAMERA_ROLE ? null : new Streamer({
   smsList: () => (dirro && dirro.sms) || [],   // #507 HoloSMS for DirroVJ's scroller desk
-  engine, renderer, djcam, scene, camera,   // #333 scene / camera for the MR headset picture
+  engine, renderer, djcam, scene, camera, realDepth: () => realDepth,   // #745 HEADSET CAM soft occlusion   // #333 scene / camera for the MR headset picture
   // #336 SHOW / VIDEOWALL
   avLayer: AV_LAYER, showCam: () => djcam && djcam.cam, scroller: () => scroller, chat: () => chat,   // #340
   showState: () => vjShowState(),   // #523 SHOWTIME! state for DirroVJ's desk
@@ -9199,16 +9201,27 @@ function drawToolsPage() {
     else { g.fillStyle = '#8c96a8'; g.font = '600 15px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
       g.fillText(S.source !== 'headset' ? 'Pick HEADSET CAM on TWITCH' : !F.gear ? 'GEAR OFF: raw camera' : 'Press TEST to see it', L + pw / 2, y0 + ph / 2); g.textBaseline = 'alphabetic'; }
     if (camCal.on) {   // #415 the crosshair to put the controller tip on
-      const t = CAL_TARGETS[Math.min(camCal.k, CAL_TARGETS.length - 1)], cx = L + t[0] * pw, cy = y0 + t[1] * ph;
+      const t = camCal.T[Math.min(camCal.k, camCal.T.length - 1)], cx = L + t[0] * pw, cy = y0 + t[1] * ph;
       g.strokeStyle = '#000'; g.lineWidth = 5; g.beginPath(); g.moveTo(cx - 16, cy); g.lineTo(cx + 16, cy); g.moveTo(cx, cy - 16); g.lineTo(cx, cy + 16); g.stroke();
       g.strokeStyle = '#ff3030'; g.lineWidth = 2; g.beginPath(); g.moveTo(cx - 16, cy); g.lineTo(cx + 16, cy); g.moveTo(cx, cy - 16); g.lineTo(cx, cy + 16); g.stroke();
       g.beginPath(); g.arc(cx, cy, 7, 0, Math.PI * 2); g.stroke();
-      g.fillStyle = 'rgba(0,0,0,0.65)'; g.fillRect(L, y0, 110, 22); g.fillStyle = '#ff5050'; g.font = '700 14px system-ui'; g.textAlign = 'left'; g.fillText(`${camCal.k + 1}/9  ${t[2] === 'near' ? 'CLOSE' : 'ARM OUT'}`, L + 6, y0 + 16);
+      g.fillStyle = 'rgba(0,0,0,0.65)'; g.fillRect(L, y0, 110, 22); g.fillStyle = '#ff5050'; g.font = '700 14px system-ui'; g.textAlign = 'left'; g.fillText(`${camCal.k + 1}/${camCal.T.length}  ${t[2] === 'near' ? 'CLOSE' : 'ARM OUT'}`, L + 6, y0 + 16);
     }
-    const aBtn = (x, y, w, h) => btn(x, y, w, h, camCal.on ? `CANCEL ${camCal.k}/9` : 'AUTO FIT', camCal.on, () => { if (camCal.on) camCalStop('AUTO FIT cancelled.'); else camCalStart(); }, false, 18);
+    if (run && S.mrFrames && !camCal.on) VP_HIT.push({ x: L, y: y0, w: pw, h: ph, drag: true, act: (px, py) => {   // #745 NUDGE: drag the gear onto your hands (turn / tilt)
+      if (!fitNudge) fitNudge = { x: px, y: py, turn: F.turn, tilt: F.tilt };
+      const vf = 2 * Math.atan(Math.tan(F.hfov * Math.PI / 360) / ((S.canvas.width / S.canvas.height) || 4 / 3)) * 180 / Math.PI;
+      S.setFit('turn', Math.round((fitNudge.turn + (px - fitNudge.x) / pw * F.hfov) * 10) / 10); S.setFit('tilt', Math.round((fitNudge.tilt + (py - fitNudge.y) / ph * vf) * 10) / 10); }, release: () => { fitNudge = null; } });
+    const aBtn = (x, y, w, h) => {   // #745 AUTO FIT (9 crosses, once per headset) and QUICK FIT (3 crosses)
+      if (camCal.on) { btn(x, y, w, h, `CANCEL ${camCal.k}/${camCal.T.length}`, true, () => camCalStop((camCal.quick ? 'QUICK' : 'AUTO') + ' FIT cancelled.'), false, 16); return; }
+      const hw = (w - 6) / 2; btn(x, y, hw, h, 'AUTO FIT', false, () => camCalStart(false), false, 16); btn(x + hw + 6, y, hw, h, 'QUICK FIT', false, () => camCalStart(true), false, 16); };
+    const occBtn = (x, y, w, h) => btn(x, y, w, h, `OCCLUSION: ${S.hocc.toUpperCase()} ⟳`, S.hocc !== 'off', () => { const n = { off: 'soft', soft: 'holo', holo: 'off' }[S.hocc]; S.setHocc(n);
+      toast(n === 'off' ? 'HEADSET CAM: gear drawn over everything' : (n === 'soft' ? 'SOFT: your real hands hide the gear, soft edges' : 'HOLO: soft occlusion + your hands and arms in the holo look') + (S.showOpt.handsReal ? '' : ' (turn REAL HANDS on so no drawn hands cover yours)'), 3500); drawMixScreen(); }, false, 15);
+    const nearBtns = (x, y, w, h) => { const bw = 34; btn(x, y, bw, h, '−', false, S.hocc === 'holo' ? () => S.setHnear(S.hnear - 0.05) : null, S.hocc !== 'holo');
+      g.fillStyle = S.hocc === 'holo' ? '#fff' : '#5c6678'; g.font = '700 13px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(`YOU < ${S.hnear.toFixed(2)} m`, x + w / 2, y + h / 2); g.textBaseline = 'alphabetic';
+      btn(x + w - bw, y, bw, h, '+', false, S.hocc === 'holo' ? () => S.setHnear(S.hnear + 0.05) : null, S.hocc !== 'holo'); };
     const uBtn = (x, y, w, h) => btn(x, y, w, h, 'UNDO', false, camCal.on && camCal.k > 0 ? () => { camCal.k--; camCal.samples.pop(); drawMixScreen(); } : null, !(camCal.on && camCal.k > 0), 16);
-    const calText = camCal.on ? `Hold a controller so its FRONT TIP sits on the red cross in the picture (${(CAL_TARGETS[camCal.k] || CAL_TARGETS[0])[2] === 'near' ? 'close, about 30 cm' : 'arm out'}), keep still, pull the trigger.`
-      : camCal.msg || 'AUTO FIT: line a controller tip up with 9 crosses on the picture; it works out where the camera sits and how wide it sees.';
+    const calText = camCal.on ? `Hold a controller so its FRONT TIP sits on the red cross in the picture (${(camCal.T[camCal.k] || camCal.T[0])[2] === 'near' ? 'close, about 30 cm' : 'arm out'}), keep still, pull the trigger.`
+      : camCal.msg || 'Drag the picture to slide the gear onto your hands (turn / tilt). QUICK FIT: 3 crosses. AUTO FIT: 9, once per headset.' + (S.hocc !== 'off' && S.running && S.source === 'headset' && !S.hoccOk ? ' Occlusion needs passthrough with depth.' : '');
     const rows = [['x', 'LEFT / RIGHT', 'mm', 5], ['y', 'DOWN / UP', 'mm', 5], ['z', 'FWD / BACK', 'mm', 5], ['hfov', 'ZOOM (FOV)', '°', 0.5],
       ['tilt', 'TILT', '°', 0.5], ['turn', 'TURN', '°', 0.5], ['roll', 'ROLL', '°', 0.5], ['lag', 'LAG', 'ms', 5]];
     const cell = (k, label, unit, step, x, y, w, h) => {
@@ -9226,13 +9239,15 @@ function drawToolsPage() {
       const y1 = y0 + ph + 8, cw = (R - L - 8) / 2;
       rows.forEach((r, i) => cell(...r, L + (i % 2) * (cw + 8), y1 + Math.floor(i / 2) * 58, cw, 54));
       const yb = y1 + 4 * 58 + 6, bw = (R - L - 24) / 4; tBtn(L, yb, bw, 50); gBtn(L + bw + 8, yb, bw, 50); rBtn(L + 2 * (bw + 8), yb, bw, 50); oBtn(L + 3 * (bw + 8), yb, bw, 50);
-      const ya = yb + 58, aw = (R - L - 8) * 0.65; aBtn(L, ya, aw, 50); uBtn(L + aw + 8, ya, R - L - aw - 8, 50);   // #415
-      g.fillStyle = camCal.on ? '#fff' : '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; wrapText(g, calText, L + 4, ya + 72, R - L - 8, 20, 6);
+      const ya = yb + 58, aw = (R - L - 8) * 0.72; aBtn(L, ya, aw, 50); uBtn(L + aw + 8, ya, R - L - aw - 8, 50);   // #415
+      const yo = ya + 58, ow = (R - L - 8) / 2; occBtn(L, yo, ow, 46); nearBtns(L + ow + 8, yo, ow, 46);   // #745
+      g.fillStyle = camCal.on ? '#fff' : '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; wrapText(g, calText, L + 4, yo + 68, R - L - 8, 20, 4);
     } else {
       const x1 = L + pw + 10, cw = (R - x1 - 8) / 2;
       rows.forEach((r, i) => cell(...r, x1 + (i % 2) * (cw + 8), y0 + Math.floor(i / 2) * 46, cw, 42));
       const yb = y0 + ph + 8, bw = (pw - 18) / 4; tBtn(L, yb, bw, 40); gBtn(L + bw + 6, yb, bw, 40); rBtn(L + 2 * (bw + 6), yb, bw, 40); oBtn(L + 3 * (bw + 6), yb, bw, 40);
-      const ya = y0 + 4 * 46 + 2, aw = (R - x1) * 0.62; aBtn(x1, ya, aw, 30); uBtn(x1 + aw + 6, ya, R - x1 - aw - 6, 30);   // #415
+      const ya = y0 + 4 * 46 + 2, aw = (R - x1) * 0.74; aBtn(x1, ya, aw, 30); uBtn(x1 + aw + 6, ya, R - x1 - aw - 6, 30);   // #415
+      { const yo = yb + 44, ow = (pw - 6) * 0.55; occBtn(L, yo, ow, 32); nearBtns(L + ow + 6, yo, pw - ow - 6, 32); }   // #745
       g.fillStyle = camCal.on ? '#fff' : '#8c96a8'; g.font = '500 12px system-ui'; g.textAlign = 'left'; wrapText(g, calText, x1, ya + 44, R - x1, 14, 2);
     }
     return;
