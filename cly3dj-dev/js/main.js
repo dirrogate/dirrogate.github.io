@@ -972,6 +972,7 @@ const snapDeck = (k, y) => isDeckKey(k) ? Math.round(y / DECK_STEP) * DECK_STEP 
 // #337 GOPRO: starts on the audience side of the mixer, just over its far edge, facing the DJ (the BOOTH angle)
 const gopro = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 0.3, mixer.position.z - 0.55), yaw: Math.PI }));
 // #389 GOPRO2 (owner): a second action camera, by default overhead: above the mixer and decks, looking straight down
+if (gopro) { gopro.defZoom = 'wide'; try { if (!localStorage.getItem('vire.gpWide732')) { gopro.setZoom('wide'); localStorage.setItem('vire.gpWide732', '1'); } } catch (e) {} }   // #732 the main GoPro starts WIDE
 const gopro2 = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 1.4, mixer.position.z), yaw: 0, pitch: -Math.PI / 2 }), 'vire.gopro2', 'wide');
 // #406 LASER: one movable head; start spot behind the DJ, 2.1 m up, firing forward (-z) over his head toward the audience side
 const laser = CAMERA_ROLE ? null : new Laser(rig, () => ({ p: new THREE.Vector3(mixer.position.x, 2.1, mixer.position.z + 0.9), yaw: 0, pitch: -0.1 }));
@@ -10226,6 +10227,7 @@ function frameBody() {
     beat.want = !!((facetWall && facetWall.on && facetWall.beat) || (laser && laser.on && laser.auto) || (dirro && dirro.on) || isFxMode(ledMode) || (portals && portals.holo.beat && portals.holoN > 0));   // #598 HOLO glitches on the beat   // #427 the phones follow the beat; #439 the wall visuals
     const bp = beat.tick(dt);
     if (portals) portals.beat = bp || 0;   // #598
+    wallCamTick();   // #732
     if (facetWall) { facetWall.setRain(portals ? portals.rain : 'off'); facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource, bp); }   /* #729 the glass rain follows the PORTALS SETUP preset */
     if (laser && laser.on) laser.tick(dt, beat, camera.getWorldPosition(_laserCam));
   }
@@ -10294,10 +10296,23 @@ function stepDjCam(dt) {
   }
   const dj = rig.worldToLocal(pose.head.p.clone()); djLastRig = dj.clone();   // #731
   const gcam = gpActive(); if (gcam) goproToDjcam(gcam); else djcam.aimAt(gear, dj);   // #337 the GoPro, when it is out, is the camera
-  if (ledMode === 'cam' || !streamer || streamer.needsCamRT || ((gopro && gopro.aiming || gopro2 && gopro2.aiming) && !(streamer.live && streamer.source === 'show'))) roboRender(pose, gear, dt, () => djcam.render(scene, dt, xrOn ? (testState.cam2 ? 2 : 3) : 2, djPrep));   // #258 CAM 2ND FRAME test (#336: SHOW renders its own layer from this camera)
+  if (ledMode === 'cam' || !streamer || streamer.needsCamRT || ((gopro && gopro.aiming || gopro2 && gopro2.aiming) && !(streamer.live && streamer.source === 'show'))) { const did = roboRender(pose, gear, dt, () => djcam.render(scene, dt, xrOn ? (testState.cam2 ? 2 : 3) : 2, djPrep)); if (did && ledMode === 'cam') camToWall(); }   // #258 CAM 2ND FRAME test (#336: SHOW renders its own layer from this camera)
   else djcam.t += dt;
 }
 const _djFloor = new THREE.Vector3();
+// #732 DirroDj📹 on the CYCLOWALL: the DJ CAM picture is copied (a 1-quad pass) into its own target after each render and the
+// wall samples the copy, so the camera can film the wall without reading and writing the same texture (one frame behind = the tunnel).
+let camCopy = null; const camCopyScene = new THREE.Scene(), camCopyCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const camCopyMat = new THREE.MeshBasicMaterial({ toneMapped: false, depthTest: false, depthWrite: false });
+camCopyScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), camCopyMat));
+function camToWall() {
+  if (!djcam || !facetWall || !facetWall.on) return;
+  if (!camCopy) camCopy = new THREE.WebGLRenderTarget(djcam.rt.width, djcam.rt.height, { type: djcam.rt.texture.type, depthBuffer: false });
+  camCopyMat.map = djcam.rt.texture;
+  const r = renderer, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled;
+  r.xr.enabled = false; r.setRenderTarget(camCopy); r.render(camCopyScene, camCopyCam); r.setRenderTarget(prevRT); r.xr.enabled = prevXR;
+}
+function wallCamTick() { if (facetWall) facetWall.ext = ledMode === 'cam' && camCopy ? camCopy.texture : null; }
 // #731 (owner) DirroDj📹 (CYCLOWALL and the stream's DirroDj📹 source) has its own invisible camera: a hand-held shot of the robot DJ,
 // framing his head and hands, drifting a little closer and back (13 s) and about 10 degrees to each side of him (19 s), with a
 // small hand-held wander. It only takes the DJ CAM camera for its own renders; GoPro / SHOWTIME! keep their pose.
