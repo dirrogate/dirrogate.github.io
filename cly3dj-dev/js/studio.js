@@ -22,7 +22,12 @@ const STRIP_FS = `uniform sampler2D q; uniform float H, bh; varying vec2 vUv;
 void main() { float i = floor(gl_FragCoord.x); float y = 12.0 + i * bh + bh * 0.5;
   float v = texture2D(q, vec2(${((STU.SX + STU.SW / 2) / STU.PW).toFixed(6)}, 1.0 - y / H)).r; gl_FragColor = vec4(v, v, v, 1.0); }`;
 const COMP_FS = `uniform sampler2D q, cam, bgT, loc; uniform float qMode, camMode, bgMode, locMode, t; uniform vec4 bgUv, qFit; uniform vec4 crop;
-uniform float thr, soft, spill, cmatch, camGain, showMatte; uniform vec3 tint; varying vec2 vUv;
+uniform float thr, soft, spill, cmatch, camGain, showMatte, gEv, gGam, gTint; uniform vec3 tint; varying vec2 vUv;
+vec3 camGrade(vec3 k) {   // #734 the tablet's EXPOSURE (EV) / GAMMA / TINT on the webcam picture (- green, + magenta)
+  k = pow(max(k, vec3(0.0)), vec3(2.2)) * exp2(gEv); k = pow(clamp(k, 0.0, 1.0), vec3(1.0 / 2.2));
+  k = pow(k, vec3(1.0 / max(gGam, 0.2)));
+  return clamp(k * vec3(1.0 + 0.14 * gTint, 1.0 - 0.14 * gTint, 1.0 + 0.14 * gTint), 0.0, 1.0); }
+
 uniform float keyCol;
 float keyOf(vec3 c) {
   if (keyCol < 0.5) return (c.g - max(c.r, c.b)) / max(c.g, 0.15);
@@ -50,6 +55,7 @@ void main() {
   // 2. camera
   if (camMode > 0.5) {
     vec3 k = texture2D(cam, uv).rgb;
+    k = camGrade(k);   // #734
     k = 1.0 - pow(1.0 - k, vec3(camGain));                                        // #382 GAIN: lifts the dark and the mids, the highlights stay (1 = as filmed)
     if (camMode < 1.5) c = k;                                                     // LIVE DJ!: the real room
     else {
@@ -127,7 +133,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   const setTwKey = k => { k = String(k || '').trim(); try { localStorage.setItem(KEYK, k); if (k) localStorage.setItem('vire.twitchKey', k); } catch {} };
   const U = { q: { value: qTex }, cam: { value: null }, bgT: { value: null }, qMode: { value: 0 }, camMode: { value: 0 }, bgMode: { value: 0 }, t: { value: 0 },
     bgUv: { value: new THREE.Vector4(0, 0, 1, 1) }, qFit: { value: new THREE.Vector4(0, 0, 1, 1) }, crop: { value: new THREE.Vector4() },
-    loc: { value: null }, locMode: { value: 0 }, thr: { value: 0.1 }, soft: { value: 0.1 }, spill: { value: 0.7 }, cmatch: { value: 0.4 }, tint: { value: new THREE.Vector3(1, 1, 1) }, keyCol: { value: 0 }, camGain: { value: 1 }, showMatte: { value: 0 } };
+    loc: { value: null }, locMode: { value: 0 }, thr: { value: 0.1 }, soft: { value: 0.1 }, spill: { value: 0.7 }, cmatch: { value: 0.4 }, tint: { value: new THREE.Vector3(1, 1, 1) }, keyCol: { value: 0 }, camGain: { value: 1 }, showMatte: { value: 0 }, gEv: { value: 0 }, gGam: { value: 1 }, gTint: { value: 0 } };
   const compMat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: COMP_FS, depthTest: false, depthWrite: false }), compSc = quad(compMat);
   function renderDome(W, H, now) {
     if (!skybox.tex) return null;
@@ -377,7 +383,8 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       tvFollow(vj && m.on ? m.tv || '' : '', !!m.tvA);   // #509
       if (S.on && S.bd === 'dome') { vs.ensure().catch(() => {}); vs.playPano && vs.playPano(true); }
       if (m.cam) {   // #382 LOW LIGHT + #530 WEBCAM exposure/matte from the tablet
-        U.camGain.value = Math.max(0.25, Math.min(4, (+m.cam.gain || 1) * Math.pow(2, +m.cam.expo || 0)));
+        U.camGain.value = Math.max(0.25, Math.min(4, +m.cam.gain || 1));   // #734 LOW LIGHT gain only; EXPOSURE is now a real EV (camGrade)
+        U.gEv.value = +m.cam.expo || 0; U.gGam.value = +m.cam.gam || 1; U.gTint.value = +m.cam.tint || 0;
         U.showMatte.value = m.cam.matte ? 1 : 0;
         const L = fixed.lowLight; if (L && fixed.setLowLight && (!!m.cam.fps25 !== L.fps25 || +m.cam.ev !== L.ev)) fixed.setLowLight({ fps25: !!m.cam.fps25, ev: +m.cam.ev });
       }

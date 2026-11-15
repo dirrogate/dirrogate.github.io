@@ -663,6 +663,14 @@ export function startCamera(ctx) {
         const last = camSteps >= Math.max(2, fixed.S.devs.length) - 1;   // #591 the tablet's next tap after the last camera = WEBCAM OFF
         if (link && link.isOpen) link.send('ctl', { k: 'camname', n, last }); sendCst(true); })();
     }
+    else if (m.k === 'camlist?') {   // #734 WEBCAM SETUP > WEBCAMS⟳: every camera on this machine
+      (async () => { let list = []; try { list = (await fixed.devList()).map((d, i) => ({ id: d.deviceId, n: (d.label || 'Camera ' + (i + 1)).replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)/i, '').slice(0, 40) })).filter(d => d.id); } catch (e) {}
+        if (link && link.isOpen) link.send('ctl', { k: 'camlist', list, cur: fixed.devId() || '' }); })();
+    }
+    else if (m.k === 'camset') {   // #734 CONFIRM: use this camera (starts the webcam if it isn't running)
+      (async () => { let n = ''; try { await fixed.useDev(String(m.id || '')); if (!fixed.on) await fixed.start(); n = fixed.camName(); } catch (e) { n = 'camera error: ' + (e.message || e); }
+        if (link && link.isOpen) link.send('ctl', { k: 'camname', n, last: false }); sendCst(true); })();
+    }
     else if (m.k === 'camoff') { if (fixed.on) fixed.stop(); camSteps = 0; sendCst(true); }   // #591 WEBCAM off from the tablet
     else if (m.k === 'live') { const was = liveOn, wasG = liveGreen, wasP = livePcam; liveOn = !!m.on; liveSolo = !!m.solo; livePcam = !!m.pcam; liveGreen = !!m.green; if (liveOn && (!was || wasG !== liveGreen || wasP !== livePcam)) liveStart(); else if (!liveOn) liveStop(); showLiveCard(liveOn); }   // #238 LIVE CAM (#239 SOLO, #347 PHONE CAM pcam / green)   // #238 LIVE CAM (#239 SOLO)
     else if (m.k === 'scroll' && scroller) {   // #236 the Quest's VJ scroller, drawn here from its text, wave and speed

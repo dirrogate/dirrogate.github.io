@@ -546,7 +546,7 @@ function stepMonitor(now) {
   const tag = live ? '● LIVE ' + S.elapsed() : con ? 'CONNECTING…' : 'REHEARSAL · OFF AIR';
   g.font = '700 13px system-ui,sans-serif'; g.textBaseline = 'middle'; const tw = g.measureText(tag).width;
   g.fillStyle = live ? 'rgba(200,20,30,0.85)' : 'rgba(0,0,0,0.6)'; g.fillRect(6, 6, tw + 14, 20); g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(tag, 13, 16.5);
-  g.textAlign = 'right'; g.fillStyle = 'rgba(0,0,0,0.6)'; const sl = STREAM_SRC[S.source] || ''; const sw = g.measureText(sl).width; g.fillRect(W - sw - 20, 6, sw + 14, 20); g.fillStyle = '#dfe6f2'; g.fillText(sl, W - 13, 16.5);
+  g.textAlign = 'right'; g.fillStyle = 'rgba(0,0,0,0.6)'; const sl = S.stu && S.stu.on ? 'DIRROVJ · ' + (S.stu.mode === 'show' ? 'SHOWTIME!' : 'WEBCAM+GEAR!') : STREAM_SRC[S.source] || '';   // #734 const sw = g.measureText(sl).width; g.fillRect(W - sw - 20, 6, sw + 14, 20); g.fillStyle = '#dfe6f2'; g.fillText(sl, W - 13, 16.5);
   g.textBaseline = 'alphabetic'; monTex.needsUpdate = true;
 }
 function setPreview(on) {
@@ -1237,6 +1237,32 @@ function localCamClose() {
   localCam.stream = null; localCam.on = false; if (localCam.video) localCam.video.srcObject = null;
 }
 setInterval(() => { if (localCam.on && (!streamer || streamer.source !== 'pcam' || streamer.stu.on || livePossible())) localCamClose(); }, 1000);   // off WEBCAM, or a phone / DirroVJ took over
+// #734 WEBCAM SETUP: WEBCAMS⟳ steps through the cameras of the linked DirroVJ laptop / phone (or this device's own), CONFIRM switches
+const camPick = { list: [], i: 0, cur: '', local: false };
+async function camPickLoad() {
+  if (spect && spect.camListAsk && pcamReadyLink()) {
+    spect.camListAsk(); camPick.local = false;
+    for (let k = 0; k < 20 && !(spect.camList && spect.camList.list); k++) await new Promise(r => setTimeout(r, 100));
+    const L = spect.camList; camPick.list = L ? L.list : []; camPick.cur = L ? L.cur : '';
+  } else {
+    let devs = []; try { devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput'); } catch (e) {}
+    camPick.list = devs.map((d, i) => ({ id: d.deviceId, n: (d.label || 'Camera ' + (i + 1)).slice(0, 40) })).filter(d => d.id); camPick.cur = localCam.id; camPick.local = true;
+  }
+  const j = camPick.list.findIndex(c => c.id === camPick.cur); camPick.i = j >= 0 ? j : 0;
+}
+function pcamReadyLink() { const S = streamer; return !!(S && (S.stu.on || !pcamReady())); }
+async function camPickStep() {
+  const fresh = !camPick.list.length; await camPickLoad();
+  if (!camPick.list.length) { toast('No cameras listed (start the webcam once so the browser can name them)', 3000); drawMixScreen(); return; }
+  if (!fresh) camPick.i = (camPick.i + 1) % camPick.list.length;
+  toast('WEBCAMS: ' + camPick.list[camPick.i].n + ' · CONFIRM to use it', 2000); drawMixScreen();
+}
+async function camPickConfirm() {
+  const c = camPick.list[camPick.i]; if (!c) return;
+  if (!camPick.local && spect && spect.camSetDev) { spect.camSetDev(c.id); camPick.cur = c.id; }
+  else { localCam.id = c.id; await localCamOpen(false); camPick.cur = localCam.id; if (streamer && streamer.source !== 'pcam' && !streamer.stu.on) streamer.setSource('pcam'); }
+  toast('WEBCAM: ' + c.n, 2000); drawMixScreen();
+}
 function chalkTap() {   // #377 the chalkboard object: tap = out / away; double-tap = back to its start spot and size, out
   if (!chalkboard) return; const now = performance.now();
   if (now - chalkTapT < 350) { chalkTapT = 0; chalkboard.reset(); chalkboard.setOn(true); chalkboard.save(); drawMixScreen(); return; }
@@ -1686,7 +1712,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     if (sk) kd.copy(sk.dir).applyAxisAngle(_yAxis, settings.skyTurn * DEG + skySpin.ang).applyQuaternion(rig.getWorldQuaternion(new THREE.Quaternion())).normalize();
     return { keyDir: kd, keyCol: sk ? [sk.color.r, sk.color.g, sk.color.b] : [key.color.r, key.color.g, key.color.b], pano: skyAvg, skyReady: !!skybox.tex };
   },
-  pcamPrep: cam => pcamPrep(cam),
+  pcamPrep: cam => pcamPrep(cam), pcamLayers: () => pcamExtra,   // #734
   studio: () => (spect && spect.studio) || null,   // #380 S8 STUDIO: the spectator link's studio slots
   ledClip: () => (ledMode === 'clips' && led.on && led.name && led.video ? led.name : ''),   // #380 the LED clip the S8 can play from its own copy
   monitorOn: () => monOn,   // #376 the venue screen keeps the shot running unless PREVIEW wants it   // #374 the phone camera, for the 'behind the DJ' rule
@@ -1813,6 +1839,16 @@ function handsHides(hide, O, force) {   // force: PHONE CAM always shows your ow
 const tvLbl = S => S.stu.on ? (S.stuRun ? 'DIRROVJ: ON' : 'DIRROVJ') : S.tvUp ? 'DIRROTV: ON' : 'DIRROTV';   // #380 the STREAM page's screen button
 let tvDigits = '', tvForgetArm = 0;   // #376 the code being typed on the tablet; double-tap guard for FORGET TV
 let pcamAutoReh = false;   // #374 the PHONE CAM page started the off-air shot for its preview (so leaving the page stops it again)
+// #734 (owner) WEBCAM / WEBCAM+GEAR!: the robot DJ's hands only, where the controllers are (they follow the drawn hands, #469).
+// Needs the robot avatar (AVATAR on, style ROBOT): its helmet, bust and crests are hidden for this render. Otherwise natural hands.
+var pcamExtra = 0;
+function robotHandsOnly(hide, cam) {
+  const a = avatar; if (!a || a !== avatars.robot || !a.ready || !a.root || !a.root.visible || !a.hands) return false;
+  if (!renderer.xr.isPresenting) return false;   // no controllers (desktop): nothing to put hands on
+  const keep = new Set(); for (const H of a.hands) if (H && H.node) H.node.traverse(o => keep.add(o));
+  a.root.traverse(o => { if (o.isMesh && !keep.has(o)) hide(o); });
+  return true;
+}
 function pcamPrep(cam) {
   const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
   hide(room); hide(skybox.group); hide(skyShadow);
@@ -1821,7 +1857,8 @@ function pcamPrep(cam) {
     for (const o of [neon, chatPanel && chatPanel.obj, chalkboard && chalkboard.obj, gopro && gopro.obj, gopro2 && gopro2.obj]) if (behindDj(o, cam)) hide(o);   // #374 props behind the DJ are left out
   }
   if (spect && spect.helpers) spect.helpers.forEach(hide);
-  if (avatar && avatar.root) hide(avatar.root);   // #385 the real DJ is in this picture
+  pcamExtra = robotHandsOnly(hide, cam) ? 1 << AV_LAYER : 0;   // #734 just the robot DJ's hands where the controllers are
+  if (!pcamExtra && avatar && avatar.root) hide(avatar.root);   // #385 the real DJ is in this picture
   if (xr) for (const st of xr.inputs) { hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); }
   const bg = scene.background; scene.background = null;
   if (armSleeves) armSleeves.group.visible = false;   // #377 natural hands: no sleeves either
@@ -1830,7 +1867,7 @@ function pcamPrep(cam) {
     const d = skyKeyLight.dir.clone().applyAxisAngle(_yAxis, settings.skyTurn * DEG + skySpin.ang), hz = Math.hypot(d.x, d.z) || 1, up = Math.max(d.y, Math.sin(35 * DEG)), k = Math.sqrt(1 - up * up) / hz;
     key.position.set(d.x * k, up, d.z * k).multiplyScalar(2.7).add(key.target.position); key.color.setRGB(1, 1, 1).lerp(skyKeyLight.color, 0.5);
   }
-  return () => { for (const o of undo) o.visible = true; scene.background = bg; if (armSleeves) armSleeves.group.visible = false; key.position.copy(kp); key.color.copy(kc); };
+  return () => { pcamExtra = 0; for (const o of undo) o.visible = true; scene.background = bg; if (armSleeves) armSleeves.group.visible = false; key.position.copy(kp); key.color.copy(kc); };
 }
 function pcamMovers() {   // LATENCY MATCH: everything that follows the hands (joints, grips, drawn hands / glove, sleeves)
   const out = [], add = o => { if (o) o.traverse(n => out.push(n)); };
@@ -8540,24 +8577,25 @@ function drawToolsPage() {
       [P ? 'KEY: ' + KEY_LABEL[(K && K.col) || 0] : 'KEY ' + ['GRN', 'BLUE', 'MAG'][(K && K.col) || 0], false, K ? () => { keySend('col', (((K.col || 0) + 1) % 3)); drawMixScreen(); } : null, !K],
       ['AUTO KEY', false, K ? () => { spect.camSet({ what: 'auto' }); toast('Auto key: point the webcam at the empty key screen', 3000); } : null, !K],
       [K && (K.gl || K.gr || K.gt || K.gb) ? 'CROP: ON' : 'CROP', !!(K && (K.gl || K.gr || K.gt || K.gb)), () => setTools('pcamcrop')],   // #353 garbage matte page
-      ['PREVIEW', monOn, () => setMonitor(!monOn)],
-      ['NEXT CAMERA', false, () => openPhoneCam(false)],   // #545 same as tapping WEBCAM again
+      ['WEBCAMS ⟳', !!camPick.list.length, camPickStep],   // #734 steps through the machine's cameras (shown here, nothing switches yet)
+      ['CONFIRM', false, camPick.list.length ? camPickConfirm : null, !camPick.list.length],   // #734 switches to the camera WEBCAMS⟳ shows
     ];
     const lat = S.delay != null ? Math.round(S.delay) : null;
     const cells = [
       ['STRENGTH', K ? r2(K.thr).toFixed(2) : '--', d => K && keySend('thr', Math.min(0.8, Math.max(0, r2(K.thr + d * 0.01)))), { v: K ? K.thr : null, lo: 0, hi: 0.8, step: 0.01, set: v => keySend('thr', v) }],
       ['SOFTNESS', K ? r2(K.soft).toFixed(2) : '--', d => K && keySend('soft', Math.min(0.4, Math.max(0.02, r2(K.soft + d * 0.01)))), { v: K ? K.soft : null, lo: 0.02, hi: 0.4, step: 0.01, set: v => keySend('soft', v) }],
       ['SPILL', K ? r2(K.spill).toFixed(2) : '--', d => K && keySend('spill', Math.min(1, Math.max(0, r2(K.spill + d * 0.05)))), { v: K ? K.spill : null, lo: 0, hi: 1, step: 0.05, set: v => keySend('spill', v) }],
-      ['LIGHT', Math.round(C.lightStr * 100) + '%', d => S.setPcam('lightStr', Math.min(1, Math.max(0, r2(C.lightStr + d * 0.1)))), { v: C.lightStr, lo: 0, hi: 1, step: 0.1, set: v => S.setPcam('lightStr', v) }],
       ['WRAP', Math.round(C.wrap * 100) + '%', d => S.setPcam('wrap', Math.min(1, Math.max(0, r2(C.wrap + d * 0.1)))), { v: C.wrap, lo: 0, hi: 1, step: 0.1, set: v => S.setPcam('wrap', v) }],
-      ['KEY GLOW', Math.round(C.glow * 100) + '%', d => S.setPcam('glow', Math.min(1, Math.max(0, r2(C.glow + d * 0.1)))), { v: C.glow, lo: 0, hi: 1, step: 0.1, set: v => S.setPcam('glow', v) }],
-      ['EXPOSURE', (C.expo > 0 ? '+' : '') + C.expo.toFixed(1), d => S.setPcam('expo', Math.min(1, Math.max(-1, r2(C.expo + d * 0.1)))), { v: C.expo, lo: -1, hi: 1, step: 0.1, set: v => S.setPcam('expo', v) }],
+      ['EXPOSURE', (C.expo > 0 ? '+' : '') + C.expo.toFixed(1) + ' EV', d => S.setPcam('expo', Math.min(2, Math.max(-2, r2(C.expo + d * 0.1)))), { v: C.expo, lo: -2, hi: 2, step: 0.1, set: v => S.setPcam('expo', v) }],   // #734 a real EV, on the plain webcam too
+      ['GAMMA', (C.gam || 1).toFixed(2), d => S.setPcam('gam', Math.min(2, Math.max(0.5, r2((C.gam || 1) + d * 0.05)))), { v: C.gam || 1, lo: 0.5, hi: 2, step: 0.05, set: v => S.setPcam('gam', v) }],   // #734
+      ['TINT', (C.tint || 0) === 0 ? '0' : (C.tint < 0 ? 'GRN ' : 'MAG ') + Math.round(Math.abs(C.tint) * 100), d => S.setPcam('tint', Math.min(1, Math.max(-1, r2((C.tint || 0) + d * 0.05)))), { v: C.tint || 0, lo: -1, hi: 1, step: 0.05, set: v => S.setPcam('tint', v) }],   // #734 - green, + magenta
       S.stu.on
         ? ['DELAY TRIM', `${S.stu.trim >= 0 ? '+' : ''}${S.stu.trim} ms`, d => S.setStudio('trim', S.stu.trim + d * 10)]
         : [lat != null ? 'DELAY TRIM' : 'DELAY', lat != null ? `${lat}${C.trim >= 0 ? '+' : ''}${C.trim} ms` : `${C.manual} ms`, d => lat != null ? S.setPcam('trim', C.trim + d * 10) : S.setPcam('manual', Math.max(0, C.manual + d * 10))],
     ];
     const cell = (c, x, y, w, h) => ctl(c, x, y, w, h);   // #640 sliders (DELAY keeps − / +: open-ended ms)
     const st = pcamStatus(S);   // #374 shared with the OBJECTS page
+    if (camPick.list.length) { const c = camPick.list[camPick.i]; st.unshift(`WEBCAMS: ${camPick.i + 1}/${camPick.list.length} ${c ? c.n : ''}${c && c.id === camPick.cur ? ' (in use)' : ' · CONFIRM to use it'}`); }   // #734
     if (C.green && C.light) { const h = S.lampHint(); if (h) st.push(h); }
     if (C.green && S.showOpt.backdrop === 'dome' && !skybox.tex) st.push('BACK DOME: no sky picked yet (VISUALS > PANO > SKY).');
     const help = 'CROP: the garbage matte (cut away stands and the room past the cloth). GREEN SCREEN off: the webcam video is the background and overlays (plus 3D gear if calibrated and GEAR is on) are drawn over it. On: you are keyed over the BACK setting (VISUALS, DOME or none). LIGHT MATCH grades you toward the panorama (pick it with SKY) and lights the gear from it.';
