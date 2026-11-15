@@ -2327,6 +2327,7 @@ async function pumpArt() {
           const t = readID3(tag); useID3Bpm(track, t); if (t.picture) { art = await createImageBitmap(t.picture); artBlobs.set(track.id, t.picture); } await keepExtraPics(track, t);
         }
       } catch (e) { /* no art */ }
+      try { const a2 = await applyRelabel(track); if (a2) art = a2; } catch (e) {}   // #738 pictures stamped onto this record win over the MP3's
       artCache.set(track.id, art); artPending.delete(track.id); res(art);
     })().finally(() => { artActive--; pumpArt(); });
   }
@@ -2355,6 +2356,7 @@ function fetchSide(track) {
       if (tag.picture) { art = await createImageBitmap(tag.picture); artBlobs.set(track.id, tag.picture); }
       await keepExtraPics(track, tag);
     } catch (e) { console.warn('art', e); }
+    try { const a2 = await applyRelabel(track); if (a2) art = a2; } catch (e) {}   // #738
     artCache.set(track.id, art);
     return { bytes, art: labelArt.get(track.id) || (track.side === 'B' && labelArtB.get(track.id)) || art };   // #231 the record's label (#232 a _b file's 'Label B' is its own)
   })();
@@ -6331,11 +6333,61 @@ async function useArt() {
     makerSay(`Art ready: ${artSummary().replace(/^Art: /, '')}. STAMP RECORD when you are set.`, true, 5000);
   } catch (e) { art.busy = false; art.msg = 'Pictures not fetched: ' + e.message; drawMixScreen(); }
 }
+// #738 RE-LABEL (owner): a record picked with SONG… from a playlist, given fetched art (or a PICTURE…) and stamped as a 12", is not
+// pressed again: the pictures are stamped onto that record for good (OPFS vire-relabel/<key>_cover|label|back.jpg, key = artist|title),
+// they win over the MP3's own pictures everywhere (sleeve, label, back), and the crate goes back to the list it came from.
+var relabelIdx = null, relabelP = null;
+function relKey(rec) { const s = ((rec.artist || '') + '|' + (rec.title || '')).toLowerCase(); let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; } return 'r' + h.toString(36); }
+async function relDir(create) { const root = await navigator.storage.getDirectory(); return root.getDirectoryHandle('vire-relabel', { create }); }
+function relReady() {
+  if (!relabelP) relabelP = (async () => {
+    relabelIdx = new Map();
+    try { const d = await relDir(false); for await (const [name, h] of d.entries()) { const m = /^(r[0-9a-z]+)_(cover|label|back)\.jpg$/.exec(name); if (!m) continue; const e = relabelIdx.get(m[1]) || {}; e[m[2]] = h; relabelIdx.set(m[1], e); } } catch (e) {}
+  })();
+  return relabelP;
+}
+async function applyRelabel(track) {   // after the MP3's own pictures: the stamped ones replace them (the cover is returned, the label / back are set aside)
+  if (!track || !track.record || track.press) return null;
+  await relReady(); const e = relabelIdx.get(relKey(track.record)); if (!e) return null;
+  let art = null;
+  if (e.cover) { const f = await e.cover.getFile(); art = await createImageBitmap(f); artBlobs.set(track.id, f); }
+  if (e.label && track.side !== 'B') labelArt.set(track.id, await createImageBitmap(await e.label.getFile()));
+  if (e.back) backBlobs.set(track.id, await e.back.getFile());
+  return art;
+}
+async function relabelRecord() {
+  const s = maker.song, r = s.rec, A = maker.art || {}, key = relKey(r);
+  let label = null;
+  if (A.label) label = await labelFrom(A.label);
+  else if (maker.image) { const f = await media.getFile('Images', maker.image); if (f) label = await labelFrom(f); }
+  const cover = A.front ? await labelFrom(A.front, 1024) : null, back = A.back ? await labelFrom(A.back, 1024) : null;
+  if (!label && !cover && !back) throw new Error('no pictures to stamp (FETCH ART… or PICTURE…)');
+  await relReady(); const d = await relDir(true), e = relabelIdx.get(key) || {};
+  const put = async (k, blob) => { const fh = await d.getFileHandle(key + '_' + k + '.jpg', { create: true }); const w = await fh.createWritable(); await w.write(blob); await w.close(); return fh; };
+  if (label) e.label = await put('label', label); if (cover) e.cover = await put('cover', cover); if (back) e.back = await put('back', back);
+  relabelIdx.set(key, e);
+  for (const t of [r.sides.A, r.sides.B]) if (t) { artCache.delete(t.id); sideCache.delete(t.id); labelArt.delete(t.id); backBlobs.delete(t.id); artBlobs.delete(t.id); }
+  let pi = s.pl >= 0 && lib.playlists[s.pl] && lib.playlists[s.pl].records.includes(r) ? s.pl : lib.playlists.findIndex(p => p.records.includes(r));   // back to the list it came from
+  if (pi < 0) pi = 0;
+  search.q = ''; search.results = null; searchInput.value = '';
+  crateState.pl = pi; crateState.sel = Math.max(0, lib.playlists[pi].records.indexOf(r));
+  drawCrateScreen(); layoutSleeves();
+  return lib.playlists[pi].name;
+}
 async function pressRecord() {
   if (maker.busy) return;
   if (maker.kind === 'song' && !maker.song) { makerSay('Pick a song first (SONG…)', false, 3000); return; }
   if (maker.kind === 'clip' && !maker.video) { makerSay('Pick a clip first (CLIP…)', false, 3000); return; }
   if (maker.size === 7 && maker.kind === 'song' && maker.song.duration > 6.5 * 60) { makerSay(`Too long for a 7" side (${fmt(maker.song.duration)}; up to about 6:30 at 45 rpm)`, false, 5000); return; }   // #261
+  if (maker.kind === 'song' && maker.song.rec && maker.size !== 7 && (maker.art || maker.image)) {   // #738 new art on a playlist record: re-label it, no new pressing
+    maker.busy = true; drawMixScreen();
+    try {
+      const where = await relabelRecord(), t = maker.song.title;
+      maker.busy = false; maker.name = ''; maker.art = null; maker.artLabelBmp = null; maker.song = null; maker.image = null;
+      makerSay(`✓ NEW ART on "${t}": back in its list, ${where}`, true, 6000);
+    } catch (e) { maker.busy = false; makerSay('Not stamped: ' + e.message, false, 6000); }
+    drawMixScreen(); return;
+  }
   const title = maker.name.trim() || `DUBPLATE ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`;
   maker.busy = true; drawMixScreen();
   try {
@@ -9550,7 +9602,7 @@ function drawToolsPage() {
       g.fillStyle = '#0d1422'; g.fillRect(L, y, R - L, RH - 6);
       g.fillStyle = ok ? '#dfe6f2' : '#56627a'; g.font = '600 16px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
       fitText2(g, `${r.title}${r.artist ? '  ·  ' + r.artist : ''}${r.bpm ? '  ·  ' + (+r.bpm).toFixed(0) + ' BPM' : ''}`, L + 10, y + (RH - 6) / 2, R - L - 20); g.textBaseline = 'alphabetic';
-      if (ok) VP_HIT.push({ x: L, y, w: R - L, h: RH - 6, act: () => { maker.kind = 'song'; maker.song = { title: r.title, artist: r.artist || '', opfs: t.opfs || null, url: t.url || null, bpm: r.bpm || t.bpm || 0, duration: t.duration || r.duration || 0 }; if (!maker.name) maker.name = cleanText(r.title, 32); setTools('maker'); } });
+      if (ok) VP_HIT.push({ x: L, y, w: R - L, h: RH - 6, act: () => { maker.kind = 'song'; maker.song = { title: r.title, artist: r.artist || '', opfs: t.opfs || null, url: t.url || null, bpm: r.bpm || t.bpm || 0, duration: t.duration || r.duration || 0, rec: r, pl: search.results ? -1 : crateState.pl };   /* #738 the record it came from: STAMP with new art re-labels it */ if (!maker.name) maker.name = cleanText(r.title, 32); setTools('maker'); } });
     });
     const by = P ? H - 62 : H - 44;
     btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
