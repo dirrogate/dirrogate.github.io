@@ -9,10 +9,10 @@
 const DEG = Math.PI / 180;
 
 // samples: [{ P: [x, y, z] metres in head frame, px: [x, y] pixels (y down) }], W x H picture, fit: the current FIT values
-export function solveCamFit(samples, W, H, fit) {
-  const N = samples.length; if (N < 5) return null;
+export function solveCamFit(samples, W, H, fit, opt = {}) {   // #745 opt: { min: fewest samples (QUICK FIT 3), pw: pull toward the start position }
+  const N = samples.length; if (N < (opt.min || 5)) return null;
   const x0 = [fit.x / 1000, fit.y / 1000, fit.z / 1000, fit.turn * DEG, fit.tilt * DEG, fit.roll * DEG, Math.log((W / 2) / Math.tan(fit.hfov * DEG / 2))];
-  const PW = 150;   // pull toward the starting position: 150 px per metre (3 cm = 4.5 px)
+  const PW = opt.pw || 150;   // pull toward the starting position: 150 px per metre (3 cm = 4.5 px)
   const cx = W / 2, cy = H / 2, NR = 2 * N + 3;
   const proj = (x, P, out) => {
     const [px, py, pz, yaw, pitch, roll, lf] = x, f = Math.exp(lf);
@@ -68,4 +68,5 @@ function solve(A, b) {
   return xs;
 }
 // the 9 crosshair places (share of the picture, y down), centre first; NEAR / FAR alternate so depth varies
+export const QUICK_TARGETS = [[0.5, 0.5, 'near'], [0.18, 0.5, 'near'], [0.82, 0.5, 'near']];   // #745 QUICK FIT: centre, left, right, all at hand distance
 export const CAL_TARGETS = [[0.5, 0.5, 'near'], [0.2, 0.25, 'far'], [0.8, 0.25, 'near'], [0.8, 0.75, 'far'], [0.2, 0.75, 'near'], [0.5, 0.22, 'far'], [0.82, 0.5, 'near'], [0.5, 0.78, 'far'], [0.18, 0.5, 'near']];

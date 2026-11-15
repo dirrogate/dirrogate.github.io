@@ -15,14 +15,14 @@ import * as THREE from 'three';
 const N = 128;
 const VS = `uniform sampler2DArray uDepth; uniform float uLayer; uniform float uOn; uniform float uBias;
 uniform mat4 uInvProj; uniform mat4 uPose; uniform mat4 uInvNorm;
-varying float vZ; varying float vFar; varying float vEdge;
+varying float vZ; varying float vFar; varying float vEdge; varying float vSoft;
 vec3 lift(vec2 buf) {   // depth texel -> point in the depth camera's space
   float d = min(textureLod(uDepth, vec3(buf, uLayer), 0.0).r, 0.9999);
   vec2 nv = (uInvNorm * vec4(buf, 0.0, 1.0)).xy;
   vec4 v = uInvProj * vec4(nv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0); return v.xyz / v.w;
 }
 void main() {
-  vZ = 0.0; vFar = 1.0; vEdge = 1.0;
+  vZ = 0.0; vFar = 1.0; vEdge = 1.0; vSoft = 1.0;
   if (uOn < 0.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   vec2 buf = position.xy;
   float d = textureLod(uDepth, vec3(buf, uLayer), 0.0).r;
@@ -31,6 +31,8 @@ void main() {
   jump = max(jump, abs(length(lift(buf + vec2(g, 0.0))) - r)); jump = max(jump, abs(length(lift(buf - vec2(g, 0.0))) - r));
   jump = max(jump, abs(length(lift(buf + vec2(0.0, g))) - r)); jump = max(jump, abs(length(lift(buf - vec2(0.0, g))) - r));
   vEdge = jump > 0.08 * r + 0.04 ? 1.0 : 0.0;
+  float j2 = max(max(abs(length(lift(buf + vec2(2.0 * g, 0.0))) - r), abs(length(lift(buf - vec2(2.0 * g, 0.0))) - r)), max(abs(length(lift(buf + vec2(0.0, 2.0 * g))) - r), abs(length(lift(buf - vec2(0.0, 2.0 * g))) - r)));
+  vSoft = max(vEdge, j2 > 0.08 * r + 0.04 ? 0.5 : 0.0);   // #745 HEADSET CAM soft edge: fades over two grid cells
   vFar = (d >= 0.9998 || r > 25.0) ? 1.0 : 0.0;
   v *= (r + uBias + 0.02 * r) / max(r, 1e-4);
   vZ = r;
@@ -81,6 +83,38 @@ export class RealDepth {
     return this.ok;
   }
   clear() { this.ok = false; this.tex = null; for (const e of this.eye) e.ok = false; }
+  // #745 HEADSET CAM: the same depth sheet drawn from the headset camera's pose (any camera, left depth view).
+  // occ: after the gear, multiplies the gear's colour and alpha by (1 - m) where the real surface is in front of it
+  // (depth test against the gear), m fades to 0 over one grid cell at a depth edge = a soft edge (soft) or hard (not soft).
+  // mask: writes how NEAR the real surface is (hands / arms closer than uNear metres) for the HOLO look, nearest wins.
+  camPasses() {
+    if (this.cam) return this.cam;
+    const U = { uDepth: { value: null }, uLayer: { value: 0 }, uOn: { value: 0 }, uBias: { value: 0.03 }, uInvProj: { value: new THREE.Matrix4() }, uPose: { value: new THREE.Matrix4() }, uInvNorm: { value: new THREE.Matrix4() }, uSoft: { value: 1 }, uNear: { value: 0.85 } };
+    const OCC_FS = `uniform float uSoft; varying float vZ; varying float vFar; varying float vEdge; varying float vSoft;
+void main() {
+  if (vFar > 0.5) discard;
+  if (uSoft < 0.5 && vEdge > 0.01) discard;
+  float m = uSoft > 0.5 ? 1.0 - smoothstep(0.0, 1.0, vSoft) : 1.0;
+  if (m < 0.004) discard;
+  gl_FragColor = vec4(0.0, 0.0, 0.0, m);
+}`;
+    const MASK_FS = `uniform float uNear; varying float vZ; varying float vFar; varying float vEdge; varying float vSoft;
+void main() {
+  if (vFar > 0.5 || vEdge > 0.97) discard;
+  float n = (1.0 - smoothstep(uNear, uNear + 0.3, vZ)) * (1.0 - smoothstep(0.0, 1.0, vSoft));
+  gl_FragColor = vec4(n, 0.0, 0.0, 1.0);
+}`;
+    const occM = new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: OCC_FS, uniforms: U, side: THREE.DoubleSide, transparent: true, depthTest: true, depthWrite: false,
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.ZeroFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor });
+    const maskM = new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: MASK_FS, uniforms: U, side: THREE.DoubleSide, depthTest: true, depthWrite: true });
+    const mk = m => { const me = new THREE.Mesh(this.mesh.geometry, m); me.frustumCulled = false; const sc = new THREE.Scene(); sc.add(me); return sc; };
+    this.cam = { U, occ: mk(occM), mask: mk(maskM), set: (soft, near) => {
+      const e = this.eye[0].ok ? this.eye[0] : this.eye[1].ok ? this.eye[1] : null;
+      const go = !!(this.ok && e && this.tex); U.uOn.value = go ? 1 : 0; if (!go) return false;
+      U.uDepth.value = this.tex; U.uLayer.value = e.layer; U.uInvProj.value.copy(e.invProj); U.uPose.value.copy(e.pose); U.uInvNorm.value.copy(e.invNorm);
+      U.uSoft.value = soft ? 1 : 0; U.uNear.value = near || 0.85; return true; } };
+    return this.cam;
+  }
   laserData() {   // the left depth view (or the right if only that one is valid)
     const e = this.eye[0].ok ? this.eye[0] : this.eye[1].ok ? this.eye[1] : null;
     return this.ok && e ? { tex: this.tex, layer: e.layer, view: e.invPose, proj: e.proj, invProj: e.invProj, norm: e.norm } : null;

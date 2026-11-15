@@ -49,6 +49,7 @@ export function startCamera(ctx) {
   }
   let cxrx = null;   // #520 GRAB RGB-D file from the Quest (whole file in memory, a few MB)
   function onSyncBin(buf, label) {
+    if (label === 'prev') { if (studio && studio.onCyclo) studio.onCyclo(buf); return; }   // #740 the Quest's CYCLOWALL picture
     if (label !== 'file') return;
     if (cxrx) { cxrx.parts.push(buf); cxrx.got += buf.byteLength; if (cxrx.got >= cxrx.size) { const r = cxrx; cxrx = null; studio.onCx({ blob: new Blob(r.parts, { type: r.type }), name: r.n }); } return; }
     const r = qrx; if (!r) return;
@@ -651,7 +652,8 @@ export function startCamera(ctx) {
     else if (m.k === 'recdel') onRecDel(m.uid);
     else if (m.k === 'slv') onSlv(m);   // #503
     else if (m.k === 'vjsms') studio.onVjSms(m);   // #507 HoloSMS for the scroller desk
-    else if (m.k === 'qdv') studio.onQdv(m);   // #735 the tablet's DIRROVERSE page
+    else if (m.k === 'qdv') studio.onQdv(m);
+    else if (m.k === 'qdesk') studio.onQdesk(m);   // #743 the tablet's DESK page   // #735 the tablet's DIRROVERSE page
     else if (m.k === 'cxput') { cxrx = { n: m.n, size: m.size, type: m.type || '', parts: [], got: 0 }; studio.onCx({ t: 'receiving ' + m.n + '…' }); if (!m.size) { cxrx = null; } }   // #520
     else if (m.k === 'cxst') studio.onCx({ t: m.t });
     else if (m.k === 'vjstar') { for (const x of m.items || []) studio.onCx({ star: x }); }   // #524 STAR IN IT from the relay, via the Quest

@@ -16,7 +16,7 @@ import { onRelayFallback } from './net-link.js';   // #467 note on the tablet wh
 import { KEY_LABEL } from './keycol.js';   // #347 key colour names   // #331 LIVE STREAM (Twitch)
 import { GoPro, ZOOMS as GOPRO_ZOOMS } from './gopro.js';
 import { RealDepth } from './realdepth.js';
-import { solveCamFit, CAL_TARGETS } from './camfit.js';   // #415 HEADSET CAM auto fit   // #413 depth-camera-correct occlusion
+import { solveCamFit, CAL_TARGETS, QUICK_TARGETS } from './camfit.js';   // #415 HEADSET CAM auto fit   // #413 depth-camera-correct occlusion
 import { Laser, PATTERNS as LASER_PATS, PAT_LABEL as LASER_PL, COLOURS as LASER_COLS, COL_LABEL as LASER_CL } from './laser.js';   // #406 laser head prop   // #337 movable camera for SHOW / AVACAM
 import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #340 Twitch chat
 import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whiteboard, markers and duster
@@ -1007,11 +1007,13 @@ void main() {
 let realDepth = null, rdBinding = null, rdSession = null, rgbd = null;   // #520 rgbd: GRAB RGB-D
 const cxQ = []; let cxQn = 0;   // #524 STAR IN IT messages from the relay waiting for DirroVJ (stream.js _stuSync sends them while it is linked and allowed)
 // #415 HEADSET CAM AUTO FIT (CAM FIT page): 9 crosshairs on the camera picture; the controller's front tip on each + trigger
-const camCal = { on: false, k: 0, samples: [], prev: {}, msg: '', handsWas: false };
+let fitNudge = null;   // #745 CAM FIT: drag on the picture = turn / tilt
+const camCal = { on: false, k: 0, samples: [], prev: {}, msg: '', handsWas: false, T: CAL_TARGETS, quick: false };   // #745 T: the crosses (9, or 3 for QUICK FIT)
 const _ccM = new THREE.Matrix4(), _ccH = new THREE.Matrix4(), _ccV = new THREE.Vector3();
-function camCalStart() {
+function camCalStart(quick) {
   const S = streamer; if (!S) return;
-  if (!renderer.xr.isPresenting) { camCal.msg = 'AUTO FIT runs in the headset (passthrough).'; drawMixScreen(); return; }
+  if (!renderer.xr.isPresenting) { camCal.msg = (quick ? 'QUICK FIT' : 'AUTO FIT') + ' runs in the headset (passthrough).'; drawMixScreen(); return; }
+  camCal.quick = !!quick; camCal.T = quick ? QUICK_TARGETS : CAL_TARGETS;
   if (S.source !== 'headset') S.setSource('headset');
   camCal.handsWas = !!S.showOpt.handsReal; if (!camCal.handsWas) S.setShowOpt('handsReal', true);   // drawn hands / controllers would cover the real tip in the picture
   if (!S.testing && !S.live) S.setTesting(true);
@@ -1031,13 +1033,13 @@ function camCalStep() {   // per frame while on: a trigger press = one sample at
     const pose = frame.getPose(src.gripSpace, ref); if (!pose) continue;
     _ccM.fromArray(pose.transform.matrix); _ccV.set(0, -0.007, -0.05).applyMatrix4(_ccM);   // the controller's front tip (#140), in the room
     _ccH.copy(renderer.xr.getCamera().matrixWorld).invert(); _ccV.applyMatrix4(_ccH);         // -> the headset's own frame
-    const S = streamer, W = S.canvas.width, H = S.canvas.height, t = CAL_TARGETS[camCal.k];
+    const S = streamer, W = S.canvas.width, H = S.canvas.height, t = camCal.T[camCal.k];
     camCal.samples.push({ P: _ccV.toArray(), px: [t[0] * W, t[1] * H] }); camCal.k++;
-    if (camCal.k >= CAL_TARGETS.length) {
-      const r = solveCamFit(camCal.samples, W, H, S.fit);
-      if (!r) { camCalStop('AUTO FIT failed: try again, with the tip exactly on each cross.'); return; }
+    if (camCal.k >= camCal.T.length) {
+      const r = solveCamFit(camCal.samples, W, H, S.fit, camCal.quick ? { min: 3, pw: 600 } : {});   // #745 QUICK FIT keeps the position close to the last full fit
+      if (!r) { camCalStop((camCal.quick ? 'QUICK' : 'AUTO') + ' FIT failed: try again, with the tip exactly on each cross.'); return; }
       for (const [k, v] of Object.entries(r.fit)) S.setFit(k, v);
-      camCalStop(`AUTO FIT done: ${r.rms.toFixed(1)} px off on average${r.rms > 12 ? ' (high: run it again)' : ''}. Turn your head: if the gear trails the picture, raise LAG.`);
+      camCalStop(`${camCal.quick ? 'QUICK' : 'AUTO'} FIT done: ${r.rms.toFixed(1)} px off on average${r.rms > 12 ? ' (high: run it again)' : ''}. Turn your head: if the gear trails the picture, raise LAG.`);
     } else drawMixScreen();
     return;
   }
@@ -1115,6 +1117,7 @@ function vjShow(m) {
       what = 'WEBCAM';
     }
   }
+  if (m.render) { S.setStudio('local', m.render === 'laptop'); what = 'RENDER: ' + (m.render === 'laptop' ? 'LAPTOP' : 'QUEST'); }   // #748 the desk's RENDER badge
   if (m.opt === 'dome') { S.setShowOpt('backdrop', m.v ? 'dome' : 'visuals'); what = 'DOME ' + (m.v ? 'on' : 'off'); }
   else if (m.opt && VJ_SHOW_OPTS.includes(m.opt)) { S.setShowOpt(m.opt, !!m.v); what = m.opt.toUpperCase() + (m.v ? ' on' : ' off'); }
   if (what) { drawMixScreen(); toast('DirroVJ: SHOWTIME! ' + what, 1200); }
@@ -1193,8 +1196,7 @@ function openPhoneCam(openSetup = false) {
   if (S.stu.on) {
     const was = S.stu.mode !== 'show';
     if (was) { next(); return; }
-    S.setStudio('mode', 'cam');
-    if (gopro) gopro.setOn(false); if (gopro2) gopro2.setOn(false);
+    S.setStudio('mode', 'cam');   // #735 the chosen GoPro stays out (picture-in-picture on the lower half)
     if (openSetup) setTools('pcam'); else drawMixScreen();
     return;
   }
@@ -1248,13 +1250,14 @@ async function camPickLoad() {
     let devs = []; try { devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput'); } catch (e) {}
     camPick.list = devs.map((d, i) => ({ id: d.deviceId, n: (d.label || 'Camera ' + (i + 1)).slice(0, 40) })).filter(d => d.id); camPick.cur = localCam.id; camPick.local = true;
   }
-  const j = camPick.list.findIndex(c => c.id === camPick.cur); camPick.i = j >= 0 ? j : 0;
 }
 function pcamReadyLink() { const S = streamer; return !!(S && (S.stu.on || !pcamReady())); }
-async function camPickStep() {
-  const fresh = !camPick.list.length; await camPickLoad();
+async function camPickStep() {   // #735 the list is read on the first tap (starting on the camera in use), then each tap steps and loops round
+  const fresh = !camPick.list.length;
+  if (fresh) { await camPickLoad(); const j = camPick.list.findIndex(c => c.id === camPick.cur); camPick.i = j >= 0 ? j : 0; }
+  else camPickLoad().then(() => { if (camPick.i >= camPick.list.length) camPick.i = 0; drawMixScreen(); });   // refreshed in the background (a camera plugged in)
   if (!camPick.list.length) { toast('No cameras listed (start the webcam once so the browser can name them)', 3000); drawMixScreen(); return; }
-  if (!fresh) camPick.i = (camPick.i + 1) % camPick.list.length;
+  if (!fresh) camPick.i = (camPick.i + 1) % camPick.list.length;   // after the last camera: back to the first
   toast('WEBCAMS: ' + camPick.list[camPick.i].n + ' · CONFIRM to use it', 2000); drawMixScreen();
 }
 async function camPickConfirm() {
@@ -1666,7 +1669,7 @@ setInterval(() => { if (masterRec.on && !toolsPage && !videoPage) drawMixScreen(
 // #331 LIVE STREAM: master bus (never CUE) + a picture source, straight to Twitch from the headset (stream.js)
 streamer = CAMERA_ROLE ? null : new Streamer({
   smsList: () => (dirro && dirro.sms) || [],   // #507 HoloSMS for DirroVJ's scroller desk
-  engine, renderer, djcam, scene, camera,   // #333 scene / camera for the MR headset picture
+  engine, renderer, djcam, scene, camera, realDepth: () => realDepth,   // #745 HEADSET CAM soft occlusion   // #333 scene / camera for the MR headset picture
   // #336 SHOW / VIDEOWALL
   avLayer: AV_LAYER, showCam: () => djcam && djcam.cam, scroller: () => scroller, chat: () => chat,   // #340
   showState: () => vjShowState(),   // #523 SHOWTIME! state for DirroVJ's desk
@@ -1713,6 +1716,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     return { keyDir: kd, keyCol: sk ? [sk.color.r, sk.color.g, sk.color.b] : [key.color.r, key.color.g, key.color.b], pano: skyAvg, skyReady: !!skybox.tex };
   },
   pcamPrep: cam => pcamPrep(cam), pcamLayers: () => pcamExtra,   // #734
+  boothCam: () => boothCamPose(), boothPrep: () => boothPrep(),   // #746 WEBCAM+GEAR!: the gear strip along the bottom of the webcam picture
   studio: () => (spect && spect.studio) || null,   // #380 S8 STUDIO: the spectator link's studio slots
   ledClip: () => (ledMode === 'clips' && led.on && led.name && led.video ? led.name : ''),   // #380 the LED clip the S8 can play from its own copy
   monitorOn: () => monOn,   // #376 the venue screen keeps the shot running unless PREVIEW wants it   // #374 the phone camera, for the 'behind the DJ' rule
@@ -1754,7 +1758,7 @@ if (streamer) {
   const rawSource = streamer.setSource.bind(streamer);
   streamer.setSource = async (src, ...a) => {   // #402 / #530 one camera choice: HEADSET CAM / WEBCAM put the GoPro away, SHOW brings the active GoPro back out
     const r = await rawSource(src, ...a);
-    const gpOn = src === 'show' && (!streamer.stu.on || streamer.stu.mode === 'show');
+    const gpOn = (src === 'show' && (!streamer.stu.on || streamer.stu.mode === 'show')) || (streamer.stu.on && streamer.stu.mode === 'cam');   // #735 WEBCAM+GEAR! keeps the chosen GoPro (its picture-in-picture)
     if (gopro) gopro.setOn(gpOn && djSet.preset === 'gopro');
     if (gopro2) gopro2.setOn(gpOn && djSet.preset === 'gopro2');
     return r;
@@ -1762,7 +1766,7 @@ if (streamer) {
   const rawStudio = streamer.setStudio.bind(streamer);
   streamer.setStudio = (k, v) => {
     rawStudio(k, v);
-    const gpOn = streamer.source === 'show' && (!streamer.stu.on || streamer.stu.mode === 'show');
+    const gpOn = (streamer.source === 'show' && (!streamer.stu.on || streamer.stu.mode === 'show')) || (streamer.stu.on && streamer.stu.mode === 'cam');   // #735
     if (gopro) gopro.setOn(gpOn && djSet.preset === 'gopro');
     if (gopro2) gopro2.setOn(gpOn && djSet.preset === 'gopro2');
   };
@@ -1848,6 +1852,33 @@ function robotHandsOnly(hide, cam) {
   const keep = new Set(); for (const H of a.hands) if (H && H.node) H.node.traverse(o => keep.add(o));
   a.root.traverse(o => { if (o.isMesh && !keep.has(o)) hide(o); });
   return true;
+}
+// #746 WEBCAM+GEAR! (uncalibrated webcam): a camera on the audience side of the mixer (the DJ faces -z, so the audience is
+// at -z of the mixer), a little above the decks, framing both decks across a wide strip; only the gear and its case show
+const BOOTH_ASP = 4.8; const boothCam = new THREE.PerspectiveCamera(30, BOOTH_ASP, 0.05, 20); rig.add(boothCam);
+const _bT = new THREE.Vector3(), _bO = new THREE.Vector3();
+function boothCamPose() {
+  if (!mixer || !deckGroups[0] || !deckGroups[1]) return null;
+  const m = mixer.position, yaw = mixer.rotation.y, top = deckGroups[0].position.y + DECK.H, d = 1.05;
+  const ax = new THREE.Vector3(1, 0, 0).applyAxisAngle(_yAxis, yaw);
+  const span = Math.abs(_bO.subVectors(deckGroups[0].position, deckGroups[1].position).dot(ax)) + 0.5;
+  _bO.set(0, 0, -d).applyAxisAngle(_yAxis, yaw); boothCam.position.set(m.x + _bO.x, top + 0.26, m.z + _bO.z);
+  boothCam.updateMatrixWorld(); boothCam.lookAt(rig.localToWorld(_bT.set(m.x, top - 0.05, m.z)));
+  const hf = 2 * Math.atan(span * 0.5 * 0.92 / d), vf = 2 * Math.atan(Math.tan(hf / 2) / BOOTH_ASP) / DEG;
+  if (boothCam.aspect !== BOOTH_ASP || Math.abs(boothCam.fov - vf) > 0.01) { boothCam.aspect = BOOTH_ASP; boothCam.fov = vf; boothCam.updateProjectionMatrix(); }
+  boothCam.updateMatrixWorld();
+  return boothCam;
+}
+function boothPrep() {
+  const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
+  hide(room); hide(skybox.group); hide(skyShadow); hide(neon); hide(facetWall && facetWall.obj);
+  for (const o of [chatPanel && chatPanel.obj, chalkboard && chalkboard.obj, gopro && gopro.obj, gopro2 && gopro2.obj]) hide(o);
+  if (avatar && avatar.root) hide(avatar.root);   // the real DJ is in the webcam picture
+  if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand) hide(st.ctlHand.root); }
+  if (xr && xr.glove) hide(xr.glove.root);
+  if (spect && spect.helpers) spect.helpers.forEach(hide);
+  const bg = scene.background; scene.background = null;
+  return () => { for (const o of undo) o.visible = true; scene.background = bg; };
 }
 function pcamPrep(cam) {
   const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
@@ -2225,7 +2256,7 @@ async function loadLibrary() {
           'SONGSXML/rekordbox.xml',
           'rekordbox.xml',
           'ViRE_rekordbox.xml'
-        ].filter(Boolean);
+        ].filter(Boolean).flatMap(x => store.PC_BASE ? [x, store.PC_BASE + x] : [x]);   // #737 off the laptop: also from its test server
         for (const x of tryXml) {
           try {
             const r = await fetch(x);
@@ -2326,6 +2357,7 @@ async function pumpArt() {
           const t = readID3(tag); useID3Bpm(track, t); if (t.picture) { art = await createImageBitmap(t.picture); artBlobs.set(track.id, t.picture); } await keepExtraPics(track, t);
         }
       } catch (e) { /* no art */ }
+      try { const a2 = await applyRelabel(track); if (a2) art = a2; } catch (e) {}   // #738 pictures stamped onto this record win over the MP3's
       artCache.set(track.id, art); artPending.delete(track.id); res(art);
     })().finally(() => { artActive--; pumpArt(); });
   }
@@ -2354,6 +2386,7 @@ function fetchSide(track) {
       if (tag.picture) { art = await createImageBitmap(tag.picture); artBlobs.set(track.id, tag.picture); }
       await keepExtraPics(track, tag);
     } catch (e) { console.warn('art', e); }
+    try { const a2 = await applyRelabel(track); if (a2) art = a2; } catch (e) {}   // #738
     artCache.set(track.id, art);
     return { bytes, art: labelArt.get(track.id) || (track.side === 'B' && labelArtB.get(track.id)) || art };   // #231 the record's label (#232 a _b file's 'Label B' is its own)
   })();
@@ -5551,7 +5584,7 @@ async function lightPhone(folder, name) {
   vpFolder = 'Look'; vpLoad();
 }
 // #220 DJ CAM tab: the LED wall's virtual camera (angle, mirror) and the avatar
-function setDjPreset(k) { djSet.preset = k; if (djcam) djcam.preset = k; const gpOn = !streamer || (streamer.source === 'show' && (!streamer.stu.on || streamer.stu.mode === 'show')); if (gopro) gopro.setOn(gpOn && k === 'gopro'); if (gopro2) gopro2.setOn(gpOn && k === 'gopro2'); saveDjSet(); drawMixScreen(); }   // #338 / #530 the GOPRO angle = the GoPro object out
+function setDjPreset(k) { djSet.preset = k; if (djcam) djcam.preset = k; const gpOn = !streamer || (streamer.source === 'show' && (!streamer.stu.on || streamer.stu.mode === 'show')) || (streamer.stu.on && streamer.stu.mode === 'cam');   /* #735 */ if (gopro) gopro.setOn(gpOn && k === 'gopro'); if (gopro2) gopro2.setOn(gpOn && k === 'gopro2'); saveDjSet(); drawMixScreen(); }   // #338 / #530 the GOPRO angle = the GoPro object out
 function setDjMirror(on) { djSet.mirror = on; saveDjSet(); drawMixScreen(); }
 function setDjAvatar(on) { djSet.avatar = on; saveDjSet(); if (avatar) avatar.root.visible = on; drawMixScreen(); }
 // #278 (avatar-stage-plan.md step 1): the robot DJ on the spectator phone. The phone already gets the head and the
@@ -6327,14 +6360,76 @@ async function useArt() {
     maker.artLabelBmp = label ? await createImageBitmap(label) : front && !maker.image ? await createImageBitmap(front) : null;   // the preview (a sleeve only: the label shows the sleeve, as with MP3s)
     if (!maker.name) maker.name = cleanText(art.rel.title || '', 32);
     art.busy = false; setTools('maker');
-    makerSay(`Art ready: ${artSummary().replace(/^Art: /, '')}. STAMP RECORD when you are set.`, true, 5000);
+    makerSay(`Art ready: ${artSummary().replace(/^Art: /, '')}. ${maker.kind === 'song' && maker.song && maker.song.rec ? 'RE-LABEL = this record, STAMP RECORD = a new one.' : 'STAMP RECORD when you are set.'}`, true, 5000);   // #739
   } catch (e) { art.busy = false; art.msg = 'Pictures not fetched: ' + e.message; drawMixScreen(); }
+}
+// #738 RE-LABEL (owner): a record picked with SONG… from a playlist, given fetched art (or a PICTURE…) and stamped as a 12", is not
+// pressed again: the pictures are stamped onto that record for good (OPFS vire-relabel/<key>_cover|label|back.jpg, key = artist|title),
+// they win over the MP3's own pictures everywhere (sleeve, label, back), and the crate goes back to the list it came from.
+var relabelIdx = null, relabelP = null;
+function relKey(rec) { const s = ((rec.artist || '') + '|' + (rec.title || '')).toLowerCase(); let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; } return 'r' + h.toString(36); }
+async function relDir(create) { const root = await navigator.storage.getDirectory(); return root.getDirectoryHandle('vire-relabel', { create }); }
+function relReady() {
+  if (!relabelP) relabelP = (async () => {
+    relabelIdx = new Map();
+    try { const d = await relDir(false); for await (const [name, h] of d.entries()) { const m = /^(r[0-9a-z]+)_(cover|label|back)\.jpg$/.exec(name); if (!m) continue; const e = relabelIdx.get(m[1]) || {}; e[m[2]] = h; relabelIdx.set(m[1], e); } } catch (e) {}
+  })();
+  return relabelP;
+}
+async function applyRelabel(track) {   // after the MP3's own pictures: the stamped ones replace them (the cover is returned, the label / back are set aside)
+  if (!track || !track.record || track.press) return null;
+  await relReady(); const e = relabelIdx.get(relKey(track.record)); if (!e) return null;
+  let art = null;
+  if (e.cover) { const f = await e.cover.getFile(); art = await createImageBitmap(f); artBlobs.set(track.id, f); }
+  if (e.label && track.side !== 'B') labelArt.set(track.id, await createImageBitmap(await e.label.getFile()));
+  if (e.back) backBlobs.set(track.id, await e.back.getFile());
+  return art;
+}
+async function relabelRecord() {
+  const s = maker.song, r = s.rec, A = maker.art || {}, key = relKey(r);
+  let label = null;
+  if (A.label) label = await labelFrom(A.label);
+  else if (maker.image) { const f = await media.getFile('Images', maker.image); if (f) label = await labelFrom(f); }
+  const cover = A.front ? await labelFrom(A.front, 1024) : null, back = A.back ? await labelFrom(A.back, 1024) : null;
+  if (!label && !cover && !back) throw new Error('no pictures to stamp (FETCH ART… or PICTURE…)');
+  await relReady(); const d = await relDir(true), e = relabelIdx.get(key) || {};
+  const put = async (k, blob) => { const fh = await d.getFileHandle(key + '_' + k + '.jpg', { create: true }); const w = await fh.createWritable(); await w.write(blob); await w.close(); return fh; };
+  if (label) e.label = await put('label', label); if (cover) e.cover = await put('cover', cover); if (back) e.back = await put('back', back);
+  relabelIdx.set(key, e);
+  for (const t of [r.sides.A, r.sides.B]) if (t) { artCache.delete(t.id); sideCache.delete(t.id); labelArt.delete(t.id); backBlobs.delete(t.id); artBlobs.delete(t.id); }
+  let pi = s.pl >= 0 && lib.playlists[s.pl] && lib.playlists[s.pl].records.includes(r) ? s.pl : lib.playlists.findIndex(p => p.records.includes(r));   // back to the list it came from
+  if (pi < 0) pi = 0;
+  search.q = ''; search.results = null; searchInput.value = '';
+  crateState.pl = pi; crateState.sel = Math.max(0, lib.playlists[pi].records.indexOf(r));
+  drawCrateScreen(); layoutSleeves();
+  return lib.playlists[pi].name;
+}
+async function relabelNow() {   // #739 RE-LABEL: the picked SONG… record gets the fetched / picked pictures for good, back in its list
+  if (maker.busy) return;
+  if (!(maker.kind === 'song' && maker.song && maker.song.rec)) { makerSay('RE-LABEL: pick a record from a list first (SONG…)', false, 3500); return; }
+  if (!maker.art && !maker.image) { makerSay('RE-LABEL: get pictures first (FETCH ART… or PICTURE…)', false, 3500); return; }
+  maker.busy = true; drawMixScreen();
+  try {
+    const where = await relabelRecord(), t = maker.song.title;
+    maker.busy = false; maker.name = ''; maker.art = null; maker.artLabelBmp = null; maker.song = null; maker.image = null;
+    makerSay(`✓ NEW ART on "${t}": back in its list, ${where}`, true, 6000);
+  } catch (e) { maker.busy = false; makerSay('Not re-labelled: ' + e.message, false, 6000); }
+  drawMixScreen();
 }
 async function pressRecord() {
   if (maker.busy) return;
   if (maker.kind === 'song' && !maker.song) { makerSay('Pick a song first (SONG…)', false, 3000); return; }
   if (maker.kind === 'clip' && !maker.video) { makerSay('Pick a clip first (CLIP…)', false, 3000); return; }
   if (maker.size === 7 && maker.kind === 'song' && maker.song.duration > 6.5 * 60) { makerSay(`Too long for a 7" side (${fmt(maker.song.duration)}; up to about 6:30 at 45 rpm)`, false, 5000); return; }   // #261
+  if (false) {   // #739 STAMP RECORD always presses a new record again; re-labelling is the RE-LABEL button (relabelNow)
+    maker.busy = true; drawMixScreen();
+    try {
+      const where = await relabelRecord(), t = maker.song.title;
+      maker.busy = false; maker.name = ''; maker.art = null; maker.artLabelBmp = null; maker.song = null; maker.image = null;
+      makerSay(`✓ NEW ART on "${t}": back in its list, ${where}`, true, 6000);
+    } catch (e) { maker.busy = false; makerSay('Not stamped: ' + e.message, false, 6000); }
+    drawMixScreen(); return;
+  }
   const title = maker.name.trim() || `DUBPLATE ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`;
   maker.busy = true; drawMixScreen();
   try {
@@ -6453,7 +6548,7 @@ const PINCH_FIT_DEF = {
 };
 // #513 the TV's address, from where this page runs (cabin.dirrodj.club/ = the cly3dj-dev folder on Cloudflare; github.io/cly3dj/ ...); no 'https://'
 const venueUrl = () => new URL('venue.html', location.href).href.replace(/[?#].*$/, '').replace(/^https?:\/\//, '');
-const TOOLS_NAME = { dverse: 'DIRROVERSE', acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', rooms: 'ROOMS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530 / Gemini_acid
+const TOOLS_NAME = { desk: 'VJ DESK', dverse: 'DIRROVERSE', acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', rooms: 'ROOMS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530 / Gemini_acid
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -8577,7 +8672,7 @@ function drawToolsPage() {
       [P ? 'KEY: ' + KEY_LABEL[(K && K.col) || 0] : 'KEY ' + ['GRN', 'BLUE', 'MAG'][(K && K.col) || 0], false, K ? () => { keySend('col', (((K.col || 0) + 1) % 3)); drawMixScreen(); } : null, !K],
       ['AUTO KEY', false, K ? () => { spect.camSet({ what: 'auto' }); toast('Auto key: point the webcam at the empty key screen', 3000); } : null, !K],
       [K && (K.gl || K.gr || K.gt || K.gb) ? 'CROP: ON' : 'CROP', !!(K && (K.gl || K.gr || K.gt || K.gb)), () => setTools('pcamcrop')],   // #353 garbage matte page
-      ['WEBCAMS ⟳', !!camPick.list.length, camPickStep],   // #734 steps through the machine's cameras (shown here, nothing switches yet)
+      [(camPick.list.length ? camPick.list[camPick.i].n : 'WEBCAMS') + ' ⟳', !!camPick.list.length, camPickStep],   // #735 shows the camera it is on   // #734 steps through the machine's cameras (shown here, nothing switches yet)
       ['CONFIRM', false, camPick.list.length ? camPickConfirm : null, !camPick.list.length],   // #734 switches to the camera WEBCAMS⟳ shows
     ];
     const lat = S.delay != null ? Math.round(S.delay) : null;
@@ -8588,6 +8683,7 @@ function drawToolsPage() {
       ['WRAP', Math.round(C.wrap * 100) + '%', d => S.setPcam('wrap', Math.min(1, Math.max(0, r2(C.wrap + d * 0.1)))), { v: C.wrap, lo: 0, hi: 1, step: 0.1, set: v => S.setPcam('wrap', v) }],
       ['EXPOSURE', (C.expo > 0 ? '+' : '') + C.expo.toFixed(1) + ' EV', d => S.setPcam('expo', Math.min(2, Math.max(-2, r2(C.expo + d * 0.1)))), { v: C.expo, lo: -2, hi: 2, step: 0.1, set: v => S.setPcam('expo', v) }],   // #734 a real EV, on the plain webcam too
       ['GAMMA', (C.gam || 1).toFixed(2), d => S.setPcam('gam', Math.min(2, Math.max(0.5, r2((C.gam || 1) + d * 0.05)))), { v: C.gam || 1, lo: 0.5, hi: 2, step: 0.05, set: v => S.setPcam('gam', v) }],   // #734
+      ['TEMP', (C.temp || 0) === 0 ? '0' : (C.temp < 0 ? 'COOL ' : 'WARM ') + Math.round(Math.abs(C.temp) * 100), d => S.setPcam('temp', Math.min(1, Math.max(-1, r2((C.temp || 0) + d * 0.05)))), { v: C.temp || 0, lo: -1, hi: 1, step: 0.05, set: v => S.setPcam('temp', v) }],   // #742 - blue, + amber
       ['TINT', (C.tint || 0) === 0 ? '0' : (C.tint < 0 ? 'GRN ' : 'MAG ') + Math.round(Math.abs(C.tint) * 100), d => S.setPcam('tint', Math.min(1, Math.max(-1, r2((C.tint || 0) + d * 0.05)))), { v: C.tint || 0, lo: -1, hi: 1, step: 0.05, set: v => S.setPcam('tint', v) }],   // #734 - green, + magenta
       S.stu.on
         ? ['DELAY TRIM', `${S.stu.trim >= 0 ? '+' : ''}${S.stu.trim} ms`, d => S.setStudio('trim', S.stu.trim + d * 10)]
@@ -8619,13 +8715,13 @@ function drawToolsPage() {
       toggles.forEach(([lb, on, act, dim], i) => btn(L + (i % 2) * (tw + 8), y0 + Math.floor(i / 2) * 50, tw, 44, lb, on, act, !!dim, 16));
       const y1 = y0 + Math.ceil(toggles.length / 2) * 50 + 6;   // #545 9 toggles (NEXT CAMERA)
       cells.forEach((c, i) => cell(c, L + (i % 2) * (tw + 8), y1 + Math.floor(i / 2) * 58, tw, 54));
-      const pw = Math.round((R - L) * 0.42); pcamPrev(R - pw, y1 + 4 * 58 + 12, pw);
-      text(L + 4, y1 + 4 * 58 + 16, R - L - 8 - pw - 8, 19, Math.max(3, Math.floor((H - 10 - (y1 + 4 * 58 + 16)) / 19) + 1), 14);   // #378 never past the bottom edge
+      const cr = Math.ceil(cells.length / 2), pw = Math.round((R - L) * 0.42); pcamPrev(R - pw, y1 + cr * 58 + 12, pw);   // #742 5 rows with TEMP
+      text(L + 4, y1 + cr * 58 + 16, R - L - 8 - pw - 8, 19, Math.max(3, Math.floor((H - 10 - (y1 + cr * 58 + 16)) / 19) + 1), 14);   // #378 never past the bottom edge
     } else {
       const tw = (R - L - 6 * (toggles.length - 1)) / toggles.length;
       toggles.forEach(([lb, on, act, dim], i) => btn(L + i * (tw + 6), y0, tw, 40, lb, on, act, !!dim, 12));
-      const cw = (R - L - 24) / 4, y1 = y0 + 48;
-      cells.forEach((c, i) => cell(c, L + (i % 4) * (cw + 8), y1 + Math.floor(i / 4) * 48, cw, 44));
+      const nc = cells.length > 8 ? 5 : 4, cw = (R - L - 8 * (nc - 1)) / nc, y1 = y0 + 48;   // #742 9 cells = 5 a row
+      cells.forEach((c, i) => cell(c, L + (i % nc) * (cw + 8), y1 + Math.floor(i / nc) * 48, cw, 44));
       const pw = Math.min(210, Math.round((R - L) * 0.34)); pcamPrev(R - pw, y1 + 2 * 48 + 8, pw);
       text(L + 4, y1 + 2 * 48 + 14, R - L - 8 - pw - 10, 16, Math.max(3, Math.floor((H - 10 - (y1 + 2 * 48 + 14)) / 16) + 1), 13);   // #378 never past the bottom edge
     }
@@ -8690,27 +8786,30 @@ function drawToolsPage() {
     g.font = '500 14px system-ui'; g.fillStyle = '#8c96a8';
     const nl = wrapText(g, sub, L + 2, y0 + (P ? 40 : 36), R - L - 4, 18, P ? 3 : 2), y1 = y0 + (P ? 44 : 40) + Math.max(1, nl) * 18;
     const w3 = (R - L - 2 * gap) / 3, w4 = (R - L - 3 * gap) / 4, w5 = (R - L - 4 * gap) / 5, fs = P ? 18 : 15;
-    btnGreen = !!(s8 && s8.run); btn(L, y1, w4, bh, U.on ? (s8 && s8.run ? 'DIRROVJ: ON AIR' : 'DIRROVJ: ON') : 'DIRROVJ: OFF', U.on, () => S.setStudio('on', !U.on), false, fs); btnGreen = false;   // #545 green once DirroVJ really makes the picture
-    btn(L + w4 + gap, y1, w4, bh, U.snd ? 'SOUND: ON' : 'SOUND: OFF', U.snd, () => S.setStudio('snd', !U.snd), false, fs);
-    btn(L + 2 * (w4 + gap), y1, w4, bh, 'BACKDROP: ' + S.showOpt.backdrop.toUpperCase(), S.showOpt.backdrop !== 'none', () => { S.nextBackdrop(); S._stuSync(); }, false, fs);
+    btnGreen = !!(s8 && s8.run); btn(L, y1, w3, bh, U.on ? (s8 && s8.run ? 'DIRROVJ: ON AIR' : 'DIRROVJ: ON') : 'DIRROVJ: OFF', U.on, () => S.setStudio('on', !U.on), false, fs); btnGreen = false;   // #545 green once DirroVJ really makes the picture
+    // #736 SOUND button gone (owner): the Quest's master mix always goes to DirroVJ; the laptop's VJ desk picks QUEST, LINE IN or none
+    btn(L + w3 + gap, y1, w3, bh, 'BACKDROP: ' + S.showOpt.backdrop.toUpperCase(), S.showOpt.backdrop !== 'none', () => { S.nextBackdrop(); S._stuSync(); }, false, fs);
     {   // #545 RENDER as a two-way switch, the side doing the work in green (#504: LAPTOP needs a page that can draw SHOW; a phone falls back to the Quest)
-      const lap = U.local && !!(s8 && s8.lr), hw = (w4 - 4) / 2, rx = L + 3 * (w4 + gap); btnGreen = true;
+      const lap = U.local && !!(s8 && s8.lr), hw = (w3 - 4) / 2, rx = L + 2 * (w3 + gap); btnGreen = true;
       btn(rx, y1, hw, bh, 'RENDER QUEST', !lap, U.local ? () => S.setStudio('local', false) : null, false, P ? 14 : 12);
       btn(rx + hw + 4, y1, hw, bh, 'RENDER LAPTOP', lap, !U.local ? () => S.setStudio('local', true) : null, false, P ? 14 : 12); btnGreen = false;
       if (U.local && !lap) { g.font = '600 11px system-ui'; g.fillStyle = '#ffd040'; g.textAlign = 'center'; g.fillText(s8 ? 'this page can\'t render' : 'waiting', rx + hw * 1.5 + 4, y1 + bh + (P ? 12 : 10)); }
     }
     let y2 = y1 + bh + gap;
     {   // #697 no ALLOW / DENY: the right code is enough. The code stays until NEW CODE (tap twice), which drops every linked laptop and phone
-      const armed = spNewArm > 0 && performance.now() - spNewArm < 3000, bw = 2 * w4 + gap, lost = U.on && S.vjLost;
+      const armed = spNewArm > 0 && performance.now() - spNewArm < 3000, bw = P ? 2 * w4 + gap : w4, lost = U.on && S.vjLost;
       g.font = `700 ${P ? 17 : 15}px system-ui`; g.fillStyle = lost ? '#ff6a6a' : '#dfe6f2'; g.textAlign = 'left';
-      fitText2(g, lost ? 'DirroVJ silent for 10 s.' : `Code ${spectCode()}${settings.spect !== 'on' ? ' (link off in Settings)' : ''}`, L + 2, y2 + bh * 0.62, R - L - bw - w4 - 2 * gap - 4);
-      btn(R - bw - gap - w4, y2, w4, bh, 'DIRROVERSE ▸', false, () => setTools('dverse'), false, fs);   // #735 the DirroVerse scenes on the laptop
+      const codeT = lost ? 'DirroVJ silent for 10 s.' : `Code ${spectCode()}${settings.spect !== 'on' ? ' (link off in Settings)' : ''}`;
+      if (P) { fitText2(g, codeT, L + 2, y2 + 18, R - L - 4); y2 += 28; }   // #743 portrait: the code on its own line, three buttons under it
+      else fitText2(g, codeT, L + 2, y2 + bh * 0.62, R - L - bw - 2 * w4 - 3 * gap - 4);
+      btn(R - bw - 2 * gap - 2 * w4, y2, w4, bh, P ? 'DESK' : 'DESK ▸', false, () => setTools('desk'), false, fs);   // #743 the VJ desk's live controls
+      btn(R - bw - gap - w4, y2, w4, bh, P ? 'SCENES' : 'DIRROVERSE ▸', false, () => setTools('dverse'), false, fs);   // #735 the DirroVerse scenes on the laptop
       if (lost) btn(R - bw, y2, bw, bh, 'QUEST TAKES OVER', true, () => S.takeBack(), false, fs);
       else btn(R - bw, y2, bw, bh, armed ? 'TAP AGAIN: NEW CODE' : 'NEW CODE', armed, () => { if (armed) { spNewArm = 0; newSpectCode(); } else spNewArm = performance.now(); drawMixScreen(); }, false, fs);
       y2 += bh + gap;
     }
     const w2 = (R - L - gap) / 2;
-    Object.entries(STUDIO_MODES).forEach(([k, label], i) => btn(L + i * (w2 + gap), y2, w2, bh + (P ? 12 : 0), label, U.mode === k, () => S.setStudio('mode', k), false, P ? 22 : 17));
+    Object.entries(STUDIO_MODES).forEach(([k, label], i) => btn(L + i * (w2 + gap), y2, w2, bh + (P ? 12 : 0), label, U.mode === k, () => { S.setStudio('mode', k); if (k === 'cam' && camPick.cur && spect && spect.camSetDev) spect.camSetDev(camPick.cur); }, false, P ? 22 : 17));   // #735 straight to the webcam picked on WEBCAM SETUP
     const y3 = y2 + bh + (P ? 12 : 0) + gap;
     const fs5 = P ? 15 : 14;
     btn(L, y3, w5, bh, 'DELAY −10', false, () => S.setStudio('trim', U.trim - 10), false, fs5);
@@ -9130,16 +9229,27 @@ function drawToolsPage() {
     else { g.fillStyle = '#8c96a8'; g.font = '600 15px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
       g.fillText(S.source !== 'headset' ? 'Pick HEADSET CAM on TWITCH' : !F.gear ? 'GEAR OFF: raw camera' : 'Press TEST to see it', L + pw / 2, y0 + ph / 2); g.textBaseline = 'alphabetic'; }
     if (camCal.on) {   // #415 the crosshair to put the controller tip on
-      const t = CAL_TARGETS[Math.min(camCal.k, CAL_TARGETS.length - 1)], cx = L + t[0] * pw, cy = y0 + t[1] * ph;
+      const t = camCal.T[Math.min(camCal.k, camCal.T.length - 1)], cx = L + t[0] * pw, cy = y0 + t[1] * ph;
       g.strokeStyle = '#000'; g.lineWidth = 5; g.beginPath(); g.moveTo(cx - 16, cy); g.lineTo(cx + 16, cy); g.moveTo(cx, cy - 16); g.lineTo(cx, cy + 16); g.stroke();
       g.strokeStyle = '#ff3030'; g.lineWidth = 2; g.beginPath(); g.moveTo(cx - 16, cy); g.lineTo(cx + 16, cy); g.moveTo(cx, cy - 16); g.lineTo(cx, cy + 16); g.stroke();
       g.beginPath(); g.arc(cx, cy, 7, 0, Math.PI * 2); g.stroke();
-      g.fillStyle = 'rgba(0,0,0,0.65)'; g.fillRect(L, y0, 110, 22); g.fillStyle = '#ff5050'; g.font = '700 14px system-ui'; g.textAlign = 'left'; g.fillText(`${camCal.k + 1}/9  ${t[2] === 'near' ? 'CLOSE' : 'ARM OUT'}`, L + 6, y0 + 16);
+      g.fillStyle = 'rgba(0,0,0,0.65)'; g.fillRect(L, y0, 110, 22); g.fillStyle = '#ff5050'; g.font = '700 14px system-ui'; g.textAlign = 'left'; g.fillText(`${camCal.k + 1}/${camCal.T.length}  ${t[2] === 'near' ? 'CLOSE' : 'ARM OUT'}`, L + 6, y0 + 16);
     }
-    const aBtn = (x, y, w, h) => btn(x, y, w, h, camCal.on ? `CANCEL ${camCal.k}/9` : 'AUTO FIT', camCal.on, () => { if (camCal.on) camCalStop('AUTO FIT cancelled.'); else camCalStart(); }, false, 18);
+    if (run && S.mrFrames && !camCal.on) VP_HIT.push({ x: L, y: y0, w: pw, h: ph, drag: true, act: (px, py) => {   // #745 NUDGE: drag the gear onto your hands (turn / tilt)
+      if (!fitNudge) fitNudge = { x: px, y: py, turn: F.turn, tilt: F.tilt };
+      const vf = 2 * Math.atan(Math.tan(F.hfov * Math.PI / 360) / ((S.canvas.width / S.canvas.height) || 4 / 3)) * 180 / Math.PI;
+      S.setFit('turn', Math.round((fitNudge.turn + (px - fitNudge.x) / pw * F.hfov) * 10) / 10); S.setFit('tilt', Math.round((fitNudge.tilt + (py - fitNudge.y) / ph * vf) * 10) / 10); }, release: () => { fitNudge = null; } });
+    const aBtn = (x, y, w, h) => {   // #745 AUTO FIT (9 crosses, once per headset) and QUICK FIT (3 crosses)
+      if (camCal.on) { btn(x, y, w, h, `CANCEL ${camCal.k}/${camCal.T.length}`, true, () => camCalStop((camCal.quick ? 'QUICK' : 'AUTO') + ' FIT cancelled.'), false, 16); return; }
+      const hw = (w - 6) / 2; btn(x, y, hw, h, 'AUTO FIT', false, () => camCalStart(false), false, 16); btn(x + hw + 6, y, hw, h, 'QUICK FIT', false, () => camCalStart(true), false, 16); };
+    const occBtn = (x, y, w, h) => btn(x, y, w, h, `OCCLUSION: ${S.hocc.toUpperCase()} ⟳`, S.hocc !== 'off', () => { const n = { off: 'soft', soft: 'holo', holo: 'off' }[S.hocc]; S.setHocc(n);
+      toast(n === 'off' ? 'HEADSET CAM: gear drawn over everything' : (n === 'soft' ? 'SOFT: your real hands hide the gear, soft edges' : 'HOLO: soft occlusion + your hands and arms in the holo look') + (S.showOpt.handsReal ? '' : ' (turn REAL HANDS on so no drawn hands cover yours)'), 3500); drawMixScreen(); }, false, 15);
+    const nearBtns = (x, y, w, h) => { const bw = 34; btn(x, y, bw, h, '−', false, S.hocc === 'holo' ? () => S.setHnear(S.hnear - 0.05) : null, S.hocc !== 'holo');
+      g.fillStyle = S.hocc === 'holo' ? '#fff' : '#5c6678'; g.font = '700 13px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(`YOU < ${S.hnear.toFixed(2)} m`, x + w / 2, y + h / 2); g.textBaseline = 'alphabetic';
+      btn(x + w - bw, y, bw, h, '+', false, S.hocc === 'holo' ? () => S.setHnear(S.hnear + 0.05) : null, S.hocc !== 'holo'); };
     const uBtn = (x, y, w, h) => btn(x, y, w, h, 'UNDO', false, camCal.on && camCal.k > 0 ? () => { camCal.k--; camCal.samples.pop(); drawMixScreen(); } : null, !(camCal.on && camCal.k > 0), 16);
-    const calText = camCal.on ? `Hold a controller so its FRONT TIP sits on the red cross in the picture (${(CAL_TARGETS[camCal.k] || CAL_TARGETS[0])[2] === 'near' ? 'close, about 30 cm' : 'arm out'}), keep still, pull the trigger.`
-      : camCal.msg || 'AUTO FIT: line a controller tip up with 9 crosses on the picture; it works out where the camera sits and how wide it sees.';
+    const calText = camCal.on ? `Hold a controller so its FRONT TIP sits on the red cross in the picture (${(camCal.T[camCal.k] || camCal.T[0])[2] === 'near' ? 'close, about 30 cm' : 'arm out'}), keep still, pull the trigger.`
+      : camCal.msg || 'Drag the picture to slide the gear onto your hands (turn / tilt). QUICK FIT: 3 crosses. AUTO FIT: 9, once per headset.' + (S.hocc !== 'off' && S.running && S.source === 'headset' && !S.hoccOk ? ' Occlusion needs passthrough with depth.' : '');
     const rows = [['x', 'LEFT / RIGHT', 'mm', 5], ['y', 'DOWN / UP', 'mm', 5], ['z', 'FWD / BACK', 'mm', 5], ['hfov', 'ZOOM (FOV)', '°', 0.5],
       ['tilt', 'TILT', '°', 0.5], ['turn', 'TURN', '°', 0.5], ['roll', 'ROLL', '°', 0.5], ['lag', 'LAG', 'ms', 5]];
     const cell = (k, label, unit, step, x, y, w, h) => {
@@ -9157,13 +9267,15 @@ function drawToolsPage() {
       const y1 = y0 + ph + 8, cw = (R - L - 8) / 2;
       rows.forEach((r, i) => cell(...r, L + (i % 2) * (cw + 8), y1 + Math.floor(i / 2) * 58, cw, 54));
       const yb = y1 + 4 * 58 + 6, bw = (R - L - 24) / 4; tBtn(L, yb, bw, 50); gBtn(L + bw + 8, yb, bw, 50); rBtn(L + 2 * (bw + 8), yb, bw, 50); oBtn(L + 3 * (bw + 8), yb, bw, 50);
-      const ya = yb + 58, aw = (R - L - 8) * 0.65; aBtn(L, ya, aw, 50); uBtn(L + aw + 8, ya, R - L - aw - 8, 50);   // #415
-      g.fillStyle = camCal.on ? '#fff' : '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; wrapText(g, calText, L + 4, ya + 72, R - L - 8, 20, 6);
+      const ya = yb + 58, aw = (R - L - 8) * 0.72; aBtn(L, ya, aw, 50); uBtn(L + aw + 8, ya, R - L - aw - 8, 50);   // #415
+      const yo = ya + 58, ow = (R - L - 8) / 2; occBtn(L, yo, ow, 46); nearBtns(L + ow + 8, yo, ow, 46);   // #745
+      g.fillStyle = camCal.on ? '#fff' : '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; wrapText(g, calText, L + 4, yo + 68, R - L - 8, 20, 4);
     } else {
       const x1 = L + pw + 10, cw = (R - x1 - 8) / 2;
       rows.forEach((r, i) => cell(...r, x1 + (i % 2) * (cw + 8), y0 + Math.floor(i / 2) * 46, cw, 42));
       const yb = y0 + ph + 8, bw = (pw - 18) / 4; tBtn(L, yb, bw, 40); gBtn(L + bw + 6, yb, bw, 40); rBtn(L + 2 * (bw + 6), yb, bw, 40); oBtn(L + 3 * (bw + 6), yb, bw, 40);
-      const ya = y0 + 4 * 46 + 2, aw = (R - x1) * 0.62; aBtn(x1, ya, aw, 30); uBtn(x1 + aw + 6, ya, R - x1 - aw - 6, 30);   // #415
+      const ya = y0 + 4 * 46 + 2, aw = (R - x1) * 0.74; aBtn(x1, ya, aw, 30); uBtn(x1 + aw + 6, ya, R - x1 - aw - 6, 30);   // #415
+      { const yo = yb + 44, ow = (pw - 6) * 0.55; occBtn(L, yo, ow, 32); nearBtns(L + ow + 6, yo, pw - ow - 6, 32); }   // #745
       g.fillStyle = camCal.on ? '#fff' : '#8c96a8'; g.font = '500 12px system-ui'; g.textAlign = 'left'; wrapText(g, calText, x1, ya + 44, R - x1, 14, 2);
     }
     return;
@@ -9536,7 +9648,11 @@ function drawToolsPage() {
       g.fillStyle = '#fff'; g.font = '700 16px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
       fitText2Center(g, maker.msg, x0 + (R - x0) / 2, y + sh / 2 + 1, R - x0 - 16); g.textBaseline = 'alphabetic';
       VP_HIT.push({ x: x0, y, w: R - x0, h: sh, act: () => { maker.msg = ''; clearTimeout(makerMsgT); } });
-    } else btn(x0, y, R - x0, sh, maker.busy ? 'STAMPING…' : 'STAMP RECORD', maker.busy, maker.busy ? null : pressRecord, false, 22);
+    } else {   // #739 RE-LABEL beside STAMP RECORD: new pictures on the picked playlist record, in place (STAMP RECORD always presses a new record)
+      const canRel = maker.kind === 'song' && maker.song && maker.song.rec && (maker.art || maker.image), rw = Math.round((R - x0 - 6) * 0.4);
+      btn(x0, y, R - x0 - rw - 6, sh, maker.busy ? 'STAMPING…' : 'STAMP RECORD', maker.busy, maker.busy ? null : pressRecord, false, 22);
+      btn(R - rw, y, rw, sh, 'RE-LABEL', false, maker.busy || !canRel ? null : relabelNow, !canRel, 20);
+    }
     return;
   }
   if (page === 'pickSong') {
@@ -9549,7 +9665,7 @@ function drawToolsPage() {
       g.fillStyle = '#0d1422'; g.fillRect(L, y, R - L, RH - 6);
       g.fillStyle = ok ? '#dfe6f2' : '#56627a'; g.font = '600 16px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
       fitText2(g, `${r.title}${r.artist ? '  ·  ' + r.artist : ''}${r.bpm ? '  ·  ' + (+r.bpm).toFixed(0) + ' BPM' : ''}`, L + 10, y + (RH - 6) / 2, R - L - 20); g.textBaseline = 'alphabetic';
-      if (ok) VP_HIT.push({ x: L, y, w: R - L, h: RH - 6, act: () => { maker.kind = 'song'; maker.song = { title: r.title, artist: r.artist || '', opfs: t.opfs || null, url: t.url || null, bpm: r.bpm || t.bpm || 0, duration: t.duration || r.duration || 0 }; if (!maker.name) maker.name = cleanText(r.title, 32); setTools('maker'); } });
+      if (ok) VP_HIT.push({ x: L, y, w: R - L, h: RH - 6, act: () => { maker.kind = 'song'; maker.song = { title: r.title, artist: r.artist || '', opfs: t.opfs || null, url: t.url || null, bpm: r.bpm || t.bpm || 0, duration: t.duration || r.duration || 0, rec: r, pl: search.results ? -1 : crateState.pl };   /* #738 the record it came from: STAMP with new art re-labels it */ if (!maker.name) maker.name = cleanText(r.title, 32); setTools('maker'); } });
     });
     const by = P ? H - 62 : H - 44;
     btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
@@ -9652,6 +9768,48 @@ function drawToolsPage() {
     else { fitText2(g, info, gx + 4, iy + 12, gw - 100); btn(R - 86, iy - 4, 40, 32, '‹', false, () => { art.ipg = Math.max(0, art.ipg - 1); }, art.ipg === 0); btn(R - 40, iy - 4, 40, 32, '›', false, () => { art.ipg = Math.min(pages - 1, art.ipg + 1); }, art.ipg >= pages - 1); }
     g.textBaseline = 'alphabetic';
     if (art.msg && art.imgs.length) { g.fillStyle = '#c86a5a'; g.font = '600 13px system-ui'; g.textAlign = 'left'; fitText2(g, art.msg, gx + 4, P ? gy - 6 : iy - 8, gw - 8); }
+    return;
+  }
+  if (page === 'desk') {   // #743 the VJ desk from the headset: the A / B sources, CUT / AUTO, AUTOPILOT, the scroller queue, a program thumbnail
+    const y0 = head(P ? 'DESK' : 'VJ DESK', 'studio'), S = streamer, L_ = S && S.stuLink, st = deskRemote.st;
+    const send = o => { const l = S && S.stuLink; if (l) l.ctl({ k: 'qdesk', ...o }); else toast('DirroVJ is not linked', 2000); };
+    if (L_ && performance.now() - deskRemote.watchT > 2500) { deskRemote.watchT = performance.now(); L_.ctl({ k: 'qdesk', act: 'watch' }); }
+    if (!L_ || !st || performance.now() - deskRemote.at > 8000) { note(!L_ ? 'DirroVJ is not linked: open dirrovj.html on the laptop and type the code.' : 'Waiting for the VJ desk on the laptop…', y0 + 24); return; }
+    const SRC = [['quest', 'QUEST'], ['webcam', 'WEBCAM'], ['led', 'CYCLOWALL'], ['dverse', 'DIRROVERSE'], ['performer', 'PERFORMER'], ['fractal', 'FRACTAL'], ['comic', 'COMICS']];
+    const isP = v => ['dancer', 'holo', 'dzcam', 'hocam'].includes(v), same = (bv, k) => k === 'performer' ? isP(bv) : bv === k;
+    const tw = P ? R - L : R - L - 176, thW = P ? R - L : 168, thH = Math.round(thW * 9 / 16), thX = P ? L : R - thW, thY = P ? y0 : y0;
+    {   // the program thumbnail
+      g.fillStyle = '#05070c'; g.fillRect(thX, thY, thW, thH); const im = deskRemote.img;
+      if (im && im.naturalWidth) g.drawImage(im, thX, thY, thW, thH); else { g.fillStyle = '#8c96a8'; g.font = '500 12px system-ui'; g.textAlign = 'center'; g.fillText('program…', thX + thW / 2, thY + thH / 2); }
+      g.strokeStyle = '#33e070'; g.lineWidth = 2; g.strokeRect(thX + 1, thY + 1, thW - 2, thH - 2);
+    }
+    let y = P ? y0 + thH + 10 : y0; const rowH = P ? 40 : 30, gap = 4, cols = P ? 3 : SRC.length, lw = P ? 30 : 30, bw = (tw - lw - gap * cols) / cols, fs = P ? 12 : 11, rows = Math.ceil(SRC.length / cols);
+    for (const bus of ['a', 'b']) {   // portrait: each bus on three rows (3 + 3 + 1)
+      const live = bus === 'a' ? st.x < 1 : st.x > 0, cue = st.cue === bus;
+      btnGreen = live && !cue; btn(L, y, lw, rows * rowH + (rows - 1) * gap, bus.toUpperCase(), live || cue, () => send({ act: 'cue', bus }), false, P ? 18 : 15); btnGreen = false;
+      SRC.forEach(([k, lb], i) => btn(L + lw + gap + (i % cols) * (bw + gap), y + Math.floor(i / cols) * (rowH + gap), bw, rowH, lb, same(st[bus], k), () => send({ act: 'bus', bus, v: k }), false, fs));
+      y += rows * (rowH + gap) + (P ? 4 : 0);
+    }
+    {   // CUT / AUTO, AUTOPILOT
+      const A = st.ap || {}, c2 = P ? 2 : 4, w = (tw - (c2 - 1) * gap) / c2, at = i => [L + (i % c2) * (w + gap), y + Math.floor(i / c2) * (rowH + gap)];
+      btn(...at(0), w, rowH, 'CUT', false, () => send({ act: 'cut' }), false, P ? 16 : 14);
+      btn(...at(1), w, rowH, 'AUTO', false, () => send({ act: 'auto' }), false, P ? 16 : 14);
+      btnGreen = !!A.on; btn(...at(2), w, rowH, A.on ? `AUTOPILOT${A.left ? ' · ' + A.left : ''}` : 'AUTOPILOT', !!A.on, () => send({ act: 'ap', v: { on: !A.on } }), false, P ? 14 : 12); btnGreen = false;
+      btn(...at(3), w, rowH, `${A.bars || 16} BARS ⟳`, false, () => send({ act: 'ap', v: { bars: A.bars === 8 ? 16 : A.bars === 16 ? 32 : 8 } }), false, P ? 14 : 12);
+      y += Math.ceil(4 / c2) * (rowH + gap) + 4;
+    }
+    g.textAlign = 'left'; g.font = `700 ${P ? 14 : 12}px system-ui`; g.fillStyle = '#8c96a8';
+    fitText2(g, `SCROLLER QUEUE${st.bpm ? ' · ' + st.bpm.toFixed(1) + ' BPM' : ''}`, L + 2, y + 10, tw - 4); y += 16;
+    const q = st.q || [], qh = P ? 44 : 26, maxQ = Math.max(1, Math.floor((H - 8 - y) / (qh + 4)));
+    if (!q.length) { g.font = '500 12px system-ui'; g.fillStyle = '#6f7a8c'; g.fillText('Nothing waiting.', L + 2, y + 14); }
+    q.slice(0, maxQ).forEach((it, i) => {
+      const yy = y + i * (qh + 4), aw = P ? 96 : 76, xw = P ? 44 : 34;
+      g.fillStyle = '#121824'; g.fillRect(L, yy, tw, qh); g.font = `500 ${P ? 13 : 12}px system-ui`; g.fillStyle = it.src === 'sms' ? '#f2a7f0' : '#9cc8ff';
+      if (P) { fitText2(g, (it.src === 'sms' ? 'HOLOSMS ' : 'CHAT ') + (it.who || ''), L + 6, yy + 15, tw - aw - xw - 16); g.fillStyle = '#dfe6f2'; fitText2(g, it.t, L + 6, yy + 34, tw - aw - xw - 16); }
+      else { g.fillStyle = '#dfe6f2'; fitText2(g, (it.who ? it.who + ': ' : '') + it.t, L + 6, yy + 17, tw - aw - xw - 16); }
+      btnGreen = true; btn(L + tw - aw - xw - 4, yy, aw, qh, 'APPROVE', true, () => send({ act: 'approve', id: it.id }), false, P ? 14 : 11); btnGreen = false;
+      btn(L + tw - xw, yy, xw, qh, '✕', false, () => send({ act: 'reject', id: it.id }), false, P ? 16 : 13);
+    });
     return;
   }
   if (page === 'dverse') {   // #735 the DirroVerse scenes on the DirroVJ laptop: thumbnails and status from the desk, tap = that scene (on a bus)
@@ -10298,6 +10456,7 @@ function frameBody() {
     const bp = beat.tick(dt);
     if (portals) portals.beat = bp || 0;   // #598
     wallCamTick();   // #732
+    cycFeedTick();   // #740
     if (facetWall) { facetWall.setRain(portals ? portals.rain : 'off'); facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource, bp); }   /* #729 the glass rain follows the PORTALS SETUP preset */
     if (laser && laser.on) laser.tick(dt, beat, camera.getWorldPosition(_laserCam));
   }
@@ -10339,7 +10498,13 @@ if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr
   onSms: t => toast('HoloSMS: ' + (t.length > 46 ? t.slice(0, 45) + '…' : t), 2500),
   onStar: m => { cxQ.push({ id: ++cxQn, m }); if (cxQ.length > 200) cxQ.splice(0, cxQ.length - 200); if (m.k === 'star') toast('⭐ ' + (m.name || 'A guest') + ' joined the DirroComics cast', 2500); },   // #524 queued for DirroVJ
   onChange: () => { if (toolsPage === 'dirro' || toolsPage === 'home' || toolsPage === 'holosms' || toolsPage === 'wall') drawMixScreen(); } });
-renderer.setAnimationLoop(frame);
+let rafT = 0; renderer.setAnimationLoop(t => { rafT = performance.now(); frame(t); });
+// #748 DirroDJ on the desktop hidden behind DirroVJ on the same laptop: Chrome stops animation frames in a hidden tab or a covered
+// window, so the gear strip, the DirroVJ pack and the stream stopped. While something is being sent, a worker tick keeps it drawing.
+if (!CAMERA_ROLE) try {
+  const wu = URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 33);'], { type: 'text/javascript' })), tw = new Worker(wu);
+  tw.onmessage = () => { const now = performance.now(); if (now - rafT < 80 || renderer.xr.isPresenting || !streamer || !(streamer.stuRun || streamer.active || streamer.sending)) return; frame(now); };
+} catch (e) { console.warn('DirroDJ keep-alive tick', e); }
 // #220 DJ CAM: pose the avatar (headset: head + hands; desktop: a demo DJ), then render the camera into the LED wall
 const _djT0 = performance.now();
 const DJ_HIDE_NEON = new Set(['low']);   // #338 the GOPRO sees what is in front of it
@@ -10381,6 +10546,42 @@ function camToWall() {
   camCopyMat.map = djcam.rt.texture;
   const r = renderer, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled;
   r.xr.enabled = false; r.setRenderTarget(camCopy); r.render(camCopyScene, camCopyCam); r.setRenderTarget(prevRT); r.xr.enabled = prevXR;
+}
+// #740 the CYCLOWALL picture to DirroVJ while its desk shows the CYCLOWALL bus (DirroVJ only has its own copy of library clips; DirroDj📹,
+// MANDEL, RETRO-SCENE, VIDVINYL, CARD ... exist only here). 480 x 270 JPEG, ~10 a second, on the link's unordered preview channel.
+// DirroDj📹 is read back from the GPU (tone-mapped like the stream); the 2D sources are drawn from the same layers the stream uses.
+var cycFeed = { want: 0, busy: false, t: 0 };
+function cycFeedTick() {
+  const now = performance.now();
+  if (!spect || !spect.sendCyclo || now > cycFeed.want || ledMode === 'off' || ledMode === 'clips' || cycFeed.busy || now - cycFeed.t < 100) return;
+  cycFeed.t = now; const W = 480, H = 270;
+  if (!cycFeed.c) { cycFeed.c = document.createElement('canvas'); cycFeed.c.width = W; cycFeed.c.height = H; cycFeed.g = cycFeed.c.getContext('2d'); }
+  const c = cycFeed.c, g = cycFeed.g, send = () => c.toBlob(b => { if (!b) { cycFeed.busy = false; return; } b.arrayBuffer().then(buf => { spect.sendCyclo(buf); cycFeed.busy = false; }); }, 'image/jpeg', 0.7);
+  cycFeed.busy = true;
+  if (ledMode === 'cam') {
+    if (!djcam) { cycFeed.busy = false; return; }
+    if (!cycFeed.rt) {
+      cycFeed.rt = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false }); cycFeed.buf = new Uint8Array(W * H * 4); cycFeed.img = new ImageData(new Uint8ClampedArray(cycFeed.buf.buffer), W, H);
+      cycFeed.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: null } }, depthTest: false, depthWrite: false,
+        vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+        fragmentShader: 'uniform sampler2D map; varying vec2 vUv; void main() { vec3 c = texture2D(map, vec2(vUv.x, 1.0 - vUv.y)).rgb; c = clamp((c * (2.51 * c + 0.03)) / (c * (2.43 * c + 0.59) + 0.14), 0.0, 1.0); gl_FragColor = vec4(pow(c, vec3(1.0 / 2.2)), 1.0); }' });
+      cycFeed.scene = new THREE.Scene(); const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), cycFeed.mat); q.frustumCulled = false; cycFeed.scene.add(q); cycFeed.cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    }
+    cycFeed.mat.uniforms.map.value = djcam.rt.texture;   // the robot cam's own picture (the wall itself may be off)
+    const r = renderer, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled;
+    r.xr.enabled = false; r.setRenderTarget(cycFeed.rt); r.render(cycFeed.scene, cycFeed.cam); r.setRenderTarget(prevRT); r.xr.enabled = prevXR;
+    r.readRenderTargetPixelsAsync(cycFeed.rt, 0, 0, W, H, cycFeed.buf).then(() => { g.putImageData(cycFeed.img, 0, 0); send(); }).catch(() => { cycFeed.busy = false; });
+    return;
+  }
+  const layers = (streamer && streamer.env && streamer.env.wallSource && streamer.env.wallSource()) || [];
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  for (const L of layers) {
+    if (!L || !L.el || L.gain === 0) continue; const el = L.el, ew = el.videoWidth || el.width, eh = el.videoHeight || el.height; if (!ew || !eh) continue;
+    const k = Math.max(W / ew, H / eh), dw = ew * k, dh = eh * k;
+    g.globalAlpha = L.gain == null ? 1 : Math.min(1, L.gain); g.globalCompositeOperation = L.add ? 'lighter' : 'source-over';
+    try { if (L.flip) { g.save(); g.translate(0, H); g.scale(1, -1); g.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh); g.restore(); } else g.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh); } catch (e) {}
+  }
+  g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; send();
 }
 function wallCamTick() { if (facetWall) facetWall.ext = ledMode === 'cam' && camCopy ? camCopy.texture : null; }
 // #731 (owner) DirroDj📹 (CYCLOWALL and the stream's DirroDj📹 source) has its own invisible camera: a hand-held shot of the robot DJ,
@@ -10920,7 +11121,8 @@ if (navigator.xr) {
 
 // ---- spectator camera (#158): loaded only when switched on; default off (`spect` is declared near the top)
 let spNewArm = 0;
-const dvRemote = { st: null, thumbs: new Map(), pg: 0 };   // #735 tablet DIRROVERSE page   // #697 double-tap guard for NEW CODE
+const dvRemote = { st: null, thumbs: new Map(), pg: 0 };
+const deskRemote = { st: null, img: null, at: 0, watchT: 0 };   // #743 tablet DESK page   // #735 tablet DIRROVERSE page   // #697 double-tap guard for NEW CODE
 function newSpectCode() {   // #697 a new 5-digit code: every linked DirroVJ / camera phone drops and needs the new one
   const old = spectCode(); let c = old; while (c === old) c = String(10000 + Math.floor(Math.random() * 90000));
   try { localStorage.setItem('vire.spectCode', c); } catch {}
@@ -10943,8 +11145,10 @@ async function applySpect() {
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => ({ ...led.state(), curve: 0 }),   /* #358 */ onScreen: onPhoneScreen, getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
       getSpiders: spidersState,   // #262
       onVj: m => {   // #507 DirroVJ's scroller desk: an approved line onto the Quest's sine scroller (only from a DirroVJ the DJ allowed)
+        if (m.k === 'vjdesk') { if (m.img) { const im = new Image(); im.onload = () => { deskRemote.img = im; if (toolsPage === 'desk') drawMixScreen(); }; im.src = m.img; } else { deskRemote.st = m; deskRemote.at = performance.now(); if (toolsPage === 'desk') drawMixScreen(); } return; }   // #743 the VJ desk for the tablet DESK page
         if (m.k === 'vjdvs') { dvRemote.st = m; if (toolsPage === 'dverse') drawMixScreen(); return; }   // #735 the desk's DirroVerse state for the tablet
         if (m.k === 'vjdvt') { if (m.n && m.img) { const im = new Image(); im.onload = () => { if (toolsPage === 'dverse') drawMixScreen(); }; im.src = m.img; dvRemote.thumbs.set(m.n, im); } return; }
+        if (m.k === 'vjcyc') { if (streamer && streamer.vjAllowed) cycFeed.want = m.on ? performance.now() + 6000 : 0; return; }   // #740 the desk shows the CYCLOWALL bus
         if (m.k === 'vjholo') { if (streamer && streamer.vjAllowed && dirro) dirro.setHolo(m); return; }   // #575 Holodancer to the Dirrogram phones (allowed DirroVJ only)
         if (m.k === 'vjshow') { if (streamer && streamer.vjAllowed) vjShow(m); return; }   // #523 SHOWTIME! from the VJ desk (allowed DirroVJ only)
         if (m.k === 'vjask' || m.k === 'vjclog') {   // #524 a line for a guest / the consent log, to the relay

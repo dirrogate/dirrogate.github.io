@@ -11,6 +11,7 @@
 // Each camera frame's capture time (requestVideoFrameCallback) picks the head pose from a short history, so the gear
 // doesn't swim against the picture. GEAR OFF sends the raw camera as before.
 // The key is kept on this headset only (localStorage 'vire.twitchKey') and goes nowhere but the Twitch endpoint.
+import { HOLO_GLSL, HOLO_COL } from './holofx.js';   // #745
 import * as THREE from 'three';
 import { drawChat, chatChannel } from './chat.js';
 import { tvHost, tvNewKey, tvPairSend } from './net-link.js';   // #376 Cly3DTV
@@ -93,7 +94,8 @@ void main() { vec3 c = texture2D(map, vec2(vUv.x, 1.0 - vUv.y)).rgb; gl_FragColo
 
 // MR: gear rendered on transparent black (linear HDR, premultiplied by MSAA), tone-mapped like the scene and laid
 // over the raw camera picture (sRGB as it comes, not tone-mapped).
-const MR_FS = `uniform sampler2D map; uniform sampler2D cam; uniform vec2 cv; varying vec2 vUv;   // #590 cv: the camera picture's v offset / scale (16:9 crop of the 4:3 camera)
+const MR_FS = `uniform sampler2D map; uniform sampler2D cam; uniform vec2 cv; uniform sampler2D hm; uniform vec4 hk; uniform vec3 hcol; varying vec2 vUv;   // #745 hm: the near-hands mask (soft occlusion pass), hk: mode (0 off, 1 soft, 2 holo), time, texel
+${HOLO_GLSL}   // #590 cv: the camera picture's v offset / scale (16:9 crop of the 4:3 camera)
 vec3 rrt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
 vec3 aces(vec3 c) {
   const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
@@ -101,6 +103,11 @@ vec3 aces(vec3 c) {
   c *= 1.0 / 0.6; return clamp(O * rrt(I * c), 0.0, 1.0); }
 vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
 void main() { vec2 uv = vec2(vUv.x, 1.0 - vUv.y); vec4 g = texture2D(map, uv); vec3 c = texture2D(cam, vec2(uv.x, cv.x + uv.y * cv.y)).rgb;
+  if (hk.x > 1.5) {   // #745 HOLO hands: the near-hands mask, softened; the camera picture sheared in glitch bands, tinted, scanlined, edge glow
+    vec2 tx = hk.zw * 2.0; float m = 0.0; for (int i = -2; i <= 2; i++) for (int j = -2; j <= 2; j++) m += texture2D(hm, uv + vec2(float(i), float(j)) * tx).r; m /= 25.0;
+    if (m > 0.01) { float sh = holoShear(uv, hk.y, 90.0) * smoothstep(0.1, 0.6, m); vec3 c2 = texture2D(cam, vec2(uv.x + sh, cv.x + uv.y * cv.y)).rgb;
+      float e = clamp(1.0 - abs(2.0 * m - 1.0), 0.0, 1.0); e *= e; c = holoLook(c2, smoothstep(0.05, 0.5, m), e, uv, hk.y, 260.0, hcol); }
+  }
   float a = clamp(g.a, 0.0, 1.0); vec3 gc = srgb(aces(g.rgb / max(a, 0.001)));
   vec3 L = srgb(aces(g.rgb)) * (1.0 - smoothstep(0.0, 0.05, a));   // #412 additive light (laser beams, neon glow) leaves alpha at 0: add it on top
   gl_FragColor = vec4(min(mix(c, gc, a) + L, 1.0), 1.0); }`;
@@ -108,6 +115,14 @@ void main() { vec2 uv = vec2(vUv.x, 1.0 - vUv.y); vec4 g = texture2D(map, uv); v
 const DEG = Math.PI / 180, _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _s1 = new THREE.Vector3(1, 1, 1), _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _e1 = new THREE.Euler(), _c1 = new THREE.Color();
 
 // SHOW layer: gear / robot on transparent black, tone-mapped, sRGB, flipped, with its alpha (un-premultiplied) for 2D drawing
+const PIP_FS = `uniform sampler2D map; varying vec2 vUv;
+vec3 rrt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
+vec3 aces(vec3 c) {
+  const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
+  const mat3 O = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
+  c *= 1.0 / 0.6; return clamp(O * rrt(I * c), 0.0, 1.0); }
+vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
+void main() { vec4 g = texture2D(map, vec2(vUv.x, 1.0 - vUv.y)); gl_FragColor = vec4(srgb(aces(g.rgb)), 1.0); }`;   // #735 the GoPro PiP: opaque
 const SHOW_FS = `uniform sampler2D map; varying vec2 vUv;
 vec3 rrt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
 vec3 aces(vec3 c) {
@@ -129,9 +144,9 @@ void main() { vec4 g = texture2D(map, vec2(vUv.x, 1.0 - vUv.y)); float a = clamp
 // exposure levelled from the person only, re-tinted to the pano, light wrap, a glow on the side the key light comes
 // from). LATENCY MATCH: hands and gear drawn as they were when the frame was filmed, the stream sound delayed as much.
 // Layers back to front: background, person, gear + hands, overlays (scroller, now playing, logo, chat).
-export const PCAM_DEF = { green: false, light: true, lightStr: 0.7, wrap: 0.5, glow: 0.4, expo: 0, gam: 1, tint: 0, lat: false, trim: 0, manual: 150, matte: false };   // #734 expo = EV, gam, tint
+export const PCAM_DEF = { green: false, light: true, lightStr: 0.7, wrap: 0.5, glow: 0.4, expo: 0, gam: 1, temp: 0, tint: 0, lat: false, trim: 0, manual: 150, matte: false };   // #734 expo = EV, gam, tint
 const PCAM_FS = `uniform sampler2D map; uniform sampler2D cam; uniform sampler2D bg; varying vec2 vUv;
-uniform float green, bgLin, showMatte, wrap, glow, gEv, gGam, gTint; uniform vec4 pack; uniform vec3 gain, wrapCol, glowCol; uniform vec2 glowDir, texel;
+uniform float green, bgLin, showMatte, wrap, glow, gEv, gGam, gTint, gTemp; uniform vec4 pack; uniform vec3 gain, wrapCol, glowCol; uniform vec2 glowDir, texel;
 vec3 rrt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
 vec3 aces(vec3 c) {
   const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
@@ -141,6 +156,7 @@ vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.05
 vec3 camGrade(vec3 k) {   // #734 the tablet's EXPOSURE (EV) / GAMMA / TINT on the webcam picture (- green, + magenta)
   k = pow(max(k, vec3(0.0)), vec3(2.2)) * exp2(gEv); k = pow(clamp(k, 0.0, 1.0), vec3(1.0 / 2.2));
   k = pow(k, vec3(1.0 / max(gGam, 0.2)));
+  k *= vec3(1.0 + 0.16 * gTemp, 1.0 + 0.02 * gTemp, 1.0 - 0.16 * gTemp);   /* #742 TEMP: - blue (cool), + amber (warm) */
   return clamp(k * vec3(1.0 + 0.14 * gTint, 1.0 - 0.14 * gTint, 1.0 + 0.14 * gTint), 0.0, 1.0); }
 float matteAt(vec2 uv) { uv = clamp(uv, vec2(0.0), vec2(1.0)); return texture2D(cam, vec2(pack.z + uv.x * pack.w, uv.y)).r; }
 void main() { vec2 uv = vec2(vUv.x, 1.0 - vUv.y); vec4 g = texture2D(map, uv);
@@ -170,13 +186,15 @@ export class Streamer {
     this.env = env;
     this.state = 'off';   // off | connecting | live | error
     this.msg = ''; this.kbps = 0; this.t0 = 0; this.retries = 0;
-    this.source = SOURCES[ls.get(SRC)] ? ls.get(SRC) : 'card';
+    this.source = 'avacam'; ls.set(SRC, 'avacam');   // #736 every start: the CYCLOWALL's DirroDj📹 robot cam (not the card, not the last source); #735 at start the CYCLOWALL's DirroDj📹 robot cam, never the Twitch card (CARD is still a button on the TWITCH page)
     this.pc = null; this.vSender = null; this.aTrack = null; this.vTrack = null; this.camStream = null;
     this.canvas = document.createElement('canvas'); this.canvas.width = 1280; this.canvas.height = 720;
     this.g = this.canvas.getContext('2d');
     this.canvasTrack = null; this.cardT = 0; this.frameT = 0; this.busy = false; this.camN = -1; this.cardPic = null;   // #445 cardPic: a picture / GIF on the CARD instead of the main card
     this.fit = { ...FIT_DEF, ...(lsJ(FIT) || {}) };
-    this.hres = ls.get('vire.hcamRes') === '1280' ? 1280 : 960;   // #590 HEADSET CAM out: 960 (camera shape, 960 x 720) or 1280 (16:9 crop, 1280 x 720)
+    this.hres = ls.get('vire.hcamRes') === '1280' ? 1280 : 960;
+    this.hocc = ['soft', 'holo'].includes(ls.get('vire.hcamOcc')) ? ls.get('vire.hcamOcc') : 'off';   // #745 HEADSET CAM occlusion: off / soft / holo (real hands in front of the gear)
+    this.hnear = Math.max(0.4, Math.min(1.5, +(ls.get('vire.hcamNear') || 0.85)));   // #745 HOLO: real things closer than this (metres) are 'you'   // #590 HEADSET CAM out: 960 (camera shape, 960 x 720) or 1280 (16:9 crop, 1280 x 720)
     this.testing = false;   // CAM FIT TEST: the MR picture runs off air, for lining up
     this.rehearse = false;
     this.hist = []; this.mr = null;
@@ -190,7 +208,7 @@ export class Streamer {
     this.tvSet = { key: '', on: true, audio: true, ...(lsJ(TVK) || {}) }; this.tvLink = null; this.tvUp = false; this.tvMsg = ''; this.tvPairing = 0; this.tvKbps = 0; this.tvFps = 0;
     if (this.tvSet.key && this.tvSet.on) this._tvOpen();
     this.pk = null; this.pkNew = false; this.pkMsg = ''; this.delay = null; this.grade = new THREE.Vector3(1, 1, 1); this.gradeT = 0;   // #347
-    this.stu = { ...STUDIO_DEF, ...(lsJ(STUK) || {}) }; if (!this.stu.q506) { this.stu.local = false; this.stu.q506 = 1; }   // #506 RENDER: QUEST is the default (owner)
+    this.stu = { ...STUDIO_DEF, ...(lsJ(STUK) || {}) }; if (!this.stu.q506) { this.stu.local = false; this.stu.q506 = 1; } this.stu.snd = true;   // #736 the sound always goes to DirroVJ   // #506 RENDER: QUEST is the default (owner)
     if (this.stu.mode === 'dj' || this.stu.mode === 'key') { if (this.stu.mode === 'key') { this.pc_.green = true; ls.set(PCAMK, JSON.stringify(this.pc_)); } this.stu.mode = 'cam'; ls.set(STUK, JSON.stringify(this.stu)); }   // #530 unified WEBCAM
     try { this.vjOk = new Set(JSON.parse(localStorage.getItem('vire.vjOk') || '[]')); } catch { this.vjOk = new Set(); }   // #506 DirroVJs / phones allowed to receive the show
     this.vjAsk = null; this.vjLost = false; this.s8 = null; this.stuAtt = false; this.stuTw = false; this.stuMsg = ''; this.stuFrames = 0; this.stuH = 720;   // #380
@@ -295,7 +313,7 @@ export class Streamer {
       if (items.length) { for (const x of items) x.sent = 1; L.ctl({ k: 'vjstar', items: items.map(x => x.m) }); } }
     const O = this.showOpt, stuMode = this.stu.mode === 'cam' ? (this.pc_.green ? 'key' : 'cam') : 'show';
     L.ctl({ k: 'stu', on: true, sh: this.env.showState ? this.env.showState() : null, mode: stuMode, bd: O.backdrop, snd: !!this.stu.snd, ch: chatChannel.get(), tv: this.tvSet.key && this.tvSet.on ? this.tvSet.key : '', tvA: !!this.tvSet.audio,   // #509 DirroVJ answers the paired TVs while it is on (sent only after ALLOW)
-      local: !!this.stu.local, O: { gear: !!O.gear, robot: !!O.robot, neon: !!O.neon }, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain, expo: this.pc_.expo || 0, gam: this.pc_.gam || 1, tint: this.pc_.tint || 0, matte: !!this.pc_.matte }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
+      local: !!this.stu.local, O: { gear: !!O.gear, robot: !!O.robot, neon: !!O.neon }, trim: this.stu.trim, cam: { fps25: !!this.stu.fps25, ev: this.stu.ev, gain: this.stu.gain, expo: this.pc_.expo || 0, gam: this.pc_.gam || 1, tint: this.pc_.tint || 0, temp: this.pc_.temp || 0, matte: !!this.pc_.matte }, src: this.source, mon: !!(this.env.monitorOn && this.env.monitorOn()), clip: this._ledClip() });
   }
   _ledClip() { const c = this.env.ledClip && this.env.ledClip(); return c || ''; }
   get s8HasClip() { const c = this._ledClip(); return !!c && !!this.s8 && this.s8.clip === c; }
@@ -337,7 +355,13 @@ export class Streamer {
     if (!this.showOpt.gear || !c6 || !c6.ff || !rig) {
       const ps = c6 || (this.env.phoneSize && this.env.phoneSize()), asp = ps && ps.vw && ps.vh ? ps.vw / ps.vh : 16 / 9, H = Math.round(STU.CW / asp / 2) * 2;
       if (H !== this.stuH) { this.stuH = H; this._sizeCanvas(STU.PW, H); }
-      this._stuPack(null, performance.now()); return;
+      let lay = null;   // #735 the GoPro picture-in-picture, even with an uncalibrated webcam
+      if (this.showOpt.gear && this.env.boothCam && this.env.boothCam()) {   // #746 the gear as a strip along the bottom (the old GoPro box, #735)
+        if (!this.pipLay) this.pipLay = document.createElement('canvas');
+        const pl = this.pipLay; if (pl.width !== STU.CW || pl.height !== this.stuH) { pl.width = STU.CW; pl.height = this.stuH; }
+        const pg = pl.getContext('2d'); pg.clearRect(0, 0, pl.width, pl.height); if (this._pipDraw(pg, pl.width, pl.height)) lay = pl;
+      }
+      this._stuPack(lay, performance.now()); return;
     }
     const asp = c6.vw && c6.vh ? c6.vw / c6.vh : 16 / 9, W = STU.CW, H = Math.round(W / asp / 2) * 2;
     if (H !== this.stuH) { this.stuH = H; this._sizeCanvas(STU.PW, H); }
@@ -376,8 +400,46 @@ export class Streamer {
     this.busy = true;
     r.readRenderTargetPixelsAsync(sp.out, 0, 0, W, H, sp.buf).then(() => {
       this.busy = false; if (this.sp !== sp || !this.stuRun || this.stu.mode === 'show') return;
-      sp.g.putImageData(sp.img, 0, 0); this._stuPack(sp.canvas, stamp);
+      sp.g.putImageData(sp.img, 0, 0); this._stuPack(sp.canvas, stamp);   // #746 calibrated: the gear stands where it is, no strip
     }).catch(() => { this.busy = false; });
+  }
+  // #746 WEBCAM+GEAR! with an uncalibrated webcam: the decks and mixer seen from the audience side (crossfader toward the DJ),
+  // see-through, as a strip across the whole bottom of the webcam picture, so the DJ stands behind them (a DirroVerse window
+  // may cut the sides). Own 1024 x 214 render, ~15 fps, read back without stalling; the last strip is reused between renders.
+  _pipTick() {
+    const cam = this.env.boothCam && this.env.boothCam(), r = this.env.renderer; if (!cam) { this.ppOk = false; return null; }
+    const W = 1024, H = 214;   // = BOOTH_ASP 4.8 in main.js
+    if (!this.pp) {
+      const half = r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float'), pp = this.pp = {};
+      pp.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 }); pp.rt.vireAces = true;
+      pp.out = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false });
+      pp.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: pp.rt.texture } }, vertexShader: COPY_VS, fragmentShader: SHOW_FS, depthTest: false, depthWrite: false });
+      pp.scene = new THREE.Scene(); const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), pp.mat); q.frustumCulled = false; pp.scene.add(q);
+      pp.oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+      pp.buf = new Uint8Array(W * H * 4); pp.img = new ImageData(new Uint8ClampedArray(pp.buf.buffer), W, H);
+      pp.canvas = document.createElement('canvas'); pp.canvas.width = W; pp.canvas.height = H; pp.g = pp.canvas.getContext('2d');
+    }
+    const pp = this.pp, now = performance.now();
+    if (!this.ppBusy && now - (this.ppT || 0) > 66) {
+      this.ppT = now;
+      const sc = this.env.scene, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled, prevSh = r.shadowMap.autoUpdate, prevCol = r.getClearColor(_c1).clone(), prevA = r.getClearAlpha();
+      const undo = this.env.boothPrep ? this.env.boothPrep() : null;
+      try {
+        r.xr.enabled = false; r.shadowMap.autoUpdate = false; r.setClearColor(0x000000, 0);
+        r.setRenderTarget(pp.rt); r.clear(); r.render(sc, cam); r.setRenderTarget(pp.out); r.render(pp.scene, pp.oc);
+      } finally {
+        r.setClearColor(prevCol, prevA); r.xr.enabled = prevXR; r.shadowMap.autoUpdate = prevSh; r.setRenderTarget(prevRT); if (undo) undo();
+      }
+      this.ppBusy = true;
+      r.readRenderTargetPixelsAsync(pp.out, 0, 0, W, H, pp.buf).then(() => { this.ppBusy = false; if (this.pp === pp) { pp.g.putImageData(pp.img, 0, 0); this.ppOk = true; } }).catch(() => { this.ppBusy = false; });
+    }
+    return this.ppOk ? pp.canvas : null;
+  }
+  _pipDraw(g, W, H) {   // #746 full width, on the bottom edge
+    const c = this._pipTick(); if (!c) return false;
+    const h = Math.round(W * c.height / c.width);
+    g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.drawImage(c, 0, H - h, W, h);
+    return true;
   }
   _stuPose(cam, W, H, stamp) {   // SHOW: the show camera's rig-space pose for the S8's dome, tagged with the frame's stamp
     const L = this.stuLink, rig = this.env.rig; if (!L || !rig) return;
@@ -412,6 +474,8 @@ export class Streamer {
   }
   _sizeFor(src) { if (src === 'avacam') this._sizeCanvas(960, 540); else if (src === 'headset') { if (this.camStream) this._mrSize(); } else this._sizeCanvas(1280, 720); }
   setFit(k, v) { if (k in FIT_DEF) { this.fit[k] = v; ls.set(FIT, JSON.stringify(this.fit)); if (k === 'gear') this._gearChanged(); this.env.onChange && this.env.onChange(); } }
+  setHocc(v) { this.hocc = ['soft', 'holo'].includes(v) ? v : 'off'; ls.set('vire.hcamOcc', this.hocc); this.env.onChange && this.env.onChange(); }   // #745
+  setHnear(v) { this.hnear = Math.max(0.4, Math.min(1.5, Math.round(v * 20) / 20)); ls.set('vire.hcamNear', String(this.hnear)); this.env.onChange && this.env.onChange(); }
   setHres(w) { this.hres = w === 1280 ? 1280 : 960; ls.set('vire.hcamRes', String(this.hres)); if (this.source === 'headset' && this.camStream) { this._mrSize(); this._caps(); } this.env.onChange && this.env.onChange(); }   // #590
   resetFit() { const g = this.fit.gear; this.fit = { ...FIT_DEF, gear: g }; ls.set(FIT, JSON.stringify(this.fit)); this.env.onChange && this.env.onChange(); }
   async _gearChanged() {   // HEADSET CAM on air: switch between the MR canvas and the raw camera
@@ -587,14 +651,15 @@ export class Streamer {
     this.camNew = false;
     const W = this.canvas.width, H = this.canvas.height, F = this.fit;
     if (!this.mr || this.mr.W !== W || this.mr.H !== H) {
-      if (this.mr) { this.mr.rt.dispose(); this.mr.out.dispose(); }
+      if (this.mr) { this.mr.rt.dispose(); this.mr.out.dispose(); this.mr.hmRT.dispose(); }
       const half = r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float');
       const mr = this.mr = { W, H };
       mr.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 }); mr.rt.vireAces = true;
       mr.out = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false });
+      mr.hmRT = new THREE.WebGLRenderTarget(Math.round(W / 2), Math.round(H / 2), { depthBuffer: true });   // #745 the near-hands mask (half size)
       mr.cam = new THREE.PerspectiveCamera(50, W / H, 0.05, 40);
       mr.tex = new THREE.VideoTexture(v); mr.tex.colorSpace = THREE.NoColorSpace;
-      mr.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: mr.rt.texture }, cam: { value: mr.tex }, cv: { value: new THREE.Vector2(0, 1) } }, vertexShader: COPY_VS, fragmentShader: MR_FS, depthTest: false, depthWrite: false });
+      mr.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: mr.rt.texture }, cam: { value: mr.tex }, cv: { value: new THREE.Vector2(0, 1) }, hm: { value: mr.hmRT.texture }, hk: { value: new THREE.Vector4(0, 0, 2 / W, 2 / H) }, hcol: { value: new THREE.Vector3(...HOLO_COL) } }, vertexShader: COPY_VS, fragmentShader: MR_FS, depthTest: false, depthWrite: false });
       mr.scene = new THREE.Scene(); const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mr.mat); q.frustumCulled = false; mr.scene.add(q);
       mr.oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
       mr.buf = new Uint8Array(W * H * 4); mr.img = new ImageData(new Uint8ClampedArray(mr.buf.buffer), W, H);
@@ -616,6 +681,12 @@ export class Streamer {
       r.xr.enabled = false; r.shadowMap.autoUpdate = false; r.setClearColor(0x000000, 0);
       mr.cam.updateMatrixWorld = () => {};   // keep the composed pose (three would rebuild it from position / quaternion)
       r.setRenderTarget(mr.rt); r.clear(); r.render(sc, mr.cam);
+      {   // #745 SOFT / HOLO: the headset's depth (redrawn from this camera's pose) cuts the gear where real things are in front; HOLO also marks your hands
+        const rd = this.hocc !== 'off' && this.env.realDepth && this.env.realDepth(), cp = rd ? rd.camPasses() : null, go = !!(cp && cp.set(true, this.hnear)), ac = r.autoClear;
+        mr.mat.uniforms.hk.value.x = go ? (this.hocc === 'holo' ? 2 : 1) : 0; mr.mat.uniforms.hk.value.y = performance.now() / 1000; this.hoccOk = go;
+        if (go) { r.autoClear = false; r.render(cp.occ, mr.cam); r.autoClear = ac;
+          if (this.hocc === 'holo') { r.setRenderTarget(mr.hmRT); r.setClearColor(0x000000, 1); r.clear(); r.render(cp.mask, mr.cam); r.setClearColor(0x000000, 0); } }
+      }
       r.setRenderTarget(mr.out); r.render(mr.scene, mr.oc);
     } finally {
       r.setClearColor(prevCol, prevA); r.xr.enabled = prevXR; r.shadowMap.autoUpdate = prevSh; r.setRenderTarget(prevRT);
@@ -726,7 +797,7 @@ export class Streamer {
       this.bgC = this.bgC || Object.assign(document.createElement('canvas'), { width: W, height: H }); this.bgC.width = W; this.bgC.height = H;
       pk.bgTex = new THREE.CanvasTexture(this.bgC); pk.bgTex.colorSpace = THREE.NoColorSpace;
       pk.mat = new THREE.ShaderMaterial({ uniforms: {
-        map: { value: pk.rt.texture }, cam: { value: pk.tex }, bg: { value: pk.bgTex }, green: { value: 0 }, bgLin: { value: 0 }, showMatte: { value: 0 }, gEv: { value: 0 }, gGam: { value: 1 }, gTint: { value: 0 },
+        map: { value: pk.rt.texture }, cam: { value: pk.tex }, bg: { value: pk.bgTex }, green: { value: 0 }, bgLin: { value: 0 }, showMatte: { value: 0 }, gEv: { value: 0 }, gGam: { value: 1 }, gTint: { value: 0 }, gTemp: { value: 0 },
         wrap: { value: 0 }, glow: { value: 0 }, pack: { value: new THREE.Vector4(1280 / 1920, 0, 1296 / 1920, 624 / 1920) },
         gain: { value: new THREE.Vector3(1, 1, 1) }, wrapCol: { value: new THREE.Vector3() }, glowCol: { value: new THREE.Vector3() }, glowDir: { value: new THREE.Vector2(1, 0) }, texel: { value: new THREE.Vector2(1 / W, 1 / H) } },
         vertexShader: COPY_VS, fragmentShader: PCAM_FS, depthTest: false, depthWrite: false });
@@ -758,7 +829,7 @@ export class Streamer {
         g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; pk.bgTex.needsUpdate = true;
       }
     }
-    U.bg.value = bgLin ? pk.bgRT.texture : pk.bgTex; U.bgLin.value = bgLin; U.green.value = green ? 1 : 0; U.showMatte.value = P.matte ? 1 : 0; U.gEv.value = +P.expo || 0; U.gGam.value = +P.gam || 1; U.gTint.value = +P.tint || 0;   // #734
+    U.bg.value = bgLin ? pk.bgRT.texture : pk.bgTex; U.bgLin.value = bgLin; U.green.value = green ? 1 : 0; U.showMatte.value = P.matte ? 1 : 0; U.gEv.value = +P.expo || 0; U.gGam.value = +P.gam || 1; U.gTint.value = +P.tint || 0; U.gTemp.value = +P.temp || 0;   // #734 #742
     // LIGHT MATCH
     const gt = this.gradeTo || [1, 1, 1]; this.grade.lerp(_v3.set(gt[0], gt[1], gt[2]), 0.25); U.gain.value.copy(this.grade);
     const lm = P.light && green; U.wrap.value = lm ? P.wrap : 0; U.glow.value = lm && ok && li.keyDir ? P.glow : 0;
