@@ -2780,3 +2780,10 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - All on the laptop: dirroverse.js (camUV(), gradeCam(), wHolo branch), vjdesk.js (wmOf, holoWin, the 'wmode' message, mask stepping), studio.js studioCtl.qInfo() (the pack texture). The Quest's only part is the strip it already sends (cleanPack keeps the scroller / logo out of it). Choosing GEAR or HOLOEDGE switches SHOWTIME! to WEBCAM if the Quest is linked.
 - Checked in the browser pane on the owner's PC: the DirroVerse shader compiles; a synthetic test (room picture, a grey-backed figure with a mask, a pack with a gear strip) gave room behind, figure cut out, gear in front. Not checked with a live set, a real webcam or the Quest.
 - sw.js v214. No Node restart. Backup backups/pre747/.
+
+## #748 Desk webcam picker in DIRROVERSE / PERFORMER too, RENDER badge clickable, DirroDJ keeps drawing when hidden (owner, 16 Nov)
+- The WEBCAM picker (Settings > WEBCAM, #729) was only shown when the inspector was on WEBCAM. Its section now also shows on the DIRROVERSE and PERFORMER tabs (data-src may list several sources).
+- The header's RENDER badge is a switch now: click = RENDER: QUEST <-> LAPTOP (desk 'show' {render} -> DirroVJ -> Quest 'vjshow' {render} -> streamer.setStudio('local'); allowed DirroVJ only). Only for SHOWTIME! (a GoPro); in WEBCAM mode it says WEBCAM is drawn on the laptop already. Needs DIRROVJ on.
+- Gear missing when DirroDJ (desktop) and DirroVJ both run on the laptop: Chrome stops animation frames in a hidden tab or covered window, so the DirroDJ page stopped drawing the gear strip and the DirroVJ pack. main.js: a worker tick (33 ms) calls frame() when no animation frame came for 80 ms, not in XR, and the streamer is sending (DirroVJ, Twitch, DirroTV) or active.
+- Checked in the browser pane: DirroDJ desktop + DirroVJ linked, WEBCAM mode: the strip shows on DirroVJ's QUEST bus over a fake webcam; desk DIRROVERSE tab shows the picker; RENDER badge switched QUEST -> LAPTOP. The hidden-tab case itself can't be reproduced in the pane.
+- sw.js v215. No Node restart. Backup backups/pre748/.

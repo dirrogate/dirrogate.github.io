@@ -762,7 +762,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     else if (m.k === 'show') {
       if (m.cam === 'pcam' && !fixed.on && fixed.start) fixed.start().catch(() => {});
       if (m.cam) { const act = D.x < 0.5 ? 'a' : 'b'; if (D[act] === 'webcam') { D[act] = 'quest'; post(); } }
-      const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'vjshow', cam: m.cam || '', opt: m.opt || '', v: !!m.v }); else bc.postMessage({ k: 'cxmsg', t: 'SHOWTIME!: no Quest link' });
+      const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'vjshow', cam: m.cam || '', opt: m.opt || '', v: !!m.v, render: m.render || '' });   // #748 render: laptop | quest else bc.postMessage({ k: 'cxmsg', t: 'SHOWTIME!: no Quest link' });
     }   // #523 / #530
     else if (m.k === 'bus' && m.v === 'performer') bc.onmessage({ data: { ...m, v: perfSrc() }, fromQuest: e.fromQuest });   // #743 PERFORMER = the library's pick
     else if (m.k === 'perf') {   // #743 the library picked a dance (DANCER) or a performer (HOLO), or PERFORMERCAM+ changed: buses holding a performer follow

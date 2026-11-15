@@ -1117,6 +1117,7 @@ function vjShow(m) {
       what = 'WEBCAM';
     }
   }
+  if (m.render) { S.setStudio('local', m.render === 'laptop'); what = 'RENDER: ' + (m.render === 'laptop' ? 'LAPTOP' : 'QUEST'); }   // #748 the desk's RENDER badge
   if (m.opt === 'dome') { S.setShowOpt('backdrop', m.v ? 'dome' : 'visuals'); what = 'DOME ' + (m.v ? 'on' : 'off'); }
   else if (m.opt && VJ_SHOW_OPTS.includes(m.opt)) { S.setShowOpt(m.opt, !!m.v); what = m.opt.toUpperCase() + (m.v ? ' on' : ' off'); }
   if (what) { drawMixScreen(); toast('DirroVJ: SHOWTIME! ' + what, 1200); }
@@ -10497,7 +10498,13 @@ if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr
   onSms: t => toast('HoloSMS: ' + (t.length > 46 ? t.slice(0, 45) + '…' : t), 2500),
   onStar: m => { cxQ.push({ id: ++cxQn, m }); if (cxQ.length > 200) cxQ.splice(0, cxQ.length - 200); if (m.k === 'star') toast('⭐ ' + (m.name || 'A guest') + ' joined the DirroComics cast', 2500); },   // #524 queued for DirroVJ
   onChange: () => { if (toolsPage === 'dirro' || toolsPage === 'home' || toolsPage === 'holosms' || toolsPage === 'wall') drawMixScreen(); } });
-renderer.setAnimationLoop(frame);
+let rafT = 0; renderer.setAnimationLoop(t => { rafT = performance.now(); frame(t); });
+// #748 DirroDJ on the desktop hidden behind DirroVJ on the same laptop: Chrome stops animation frames in a hidden tab or a covered
+// window, so the gear strip, the DirroVJ pack and the stream stopped. While something is being sent, a worker tick keeps it drawing.
+if (!CAMERA_ROLE) try {
+  const wu = URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 33);'], { type: 'text/javascript' })), tw = new Worker(wu);
+  tw.onmessage = () => { const now = performance.now(); if (now - rafT < 80 || renderer.xr.isPresenting || !streamer || !(streamer.stuRun || streamer.active || streamer.sending)) return; frame(now); };
+} catch (e) { console.warn('DirroDJ keep-alive tick', e); }
 // #220 DJ CAM: pose the avatar (headset: head + hands; desktop: a demo DJ), then render the camera into the LED wall
 const _djT0 = performance.now();
 const DJ_HIDE_NEON = new Set(['low']);   // #338 the GOPRO sees what is in front of it

@@ -225,7 +225,7 @@
       <div class="row" id="shObj"></div>
       <div class="note" id="shN">Same as the tablet's SHOWTIME! page. Last press wins.</div>
     </section>
-<section data-src="webcam" style="margin-top:14px"><h2>Webcam</h2><div class="row"><span class="sp" title="Which camera WEBCAM, the DirroVerse windows, HOLO+CAM and DANCER+CAM use. Names show once Chrome has been allowed a camera.">WEBCAM</span><select id="wcDev" style="max-width:260px"><option value="">Default camera</option></select><span id="wcSt" class="note" style="margin:0"></span></div>
+<section data-src="webcam dverse performer" style="margin-top:14px"><h2>Webcam</h2><div class="row"><span class="sp" title="Which camera WEBCAM, the DirroVerse windows, HOLO+CAM and DANCER+CAM use. Names show once Chrome has been allowed a camera.">WEBCAM</span><select id="wcDev" style="max-width:260px"><option value="">Default camera</option></select><span id="wcSt" class="note" style="margin:0"></span></div>
 <div class="note">The camera for WEBCAM, the DirroVerse windows and PERFORMERCAM+. Its colour: GRADE · WEBCAM.</div>
 <h2 style="margin-top:12px">Person key</h2>
 <div class="row"><button id="pkOn">PERSON KEY</button><button id="pkHolo" title="The HOLO portal look on you: cyan edge glow, scanlines, glitch bands">HOLO</button><button id="pkMir">MIRROR</button><button id="pkRst">RESET SPOT</button><span id="pkSt" class="sp"></span></div>
@@ -536,7 +536,7 @@ function renderTop(D) {
   for (const b of document.querySelectorAll('[data-it]')) b.classList.toggle('on', !inspAll && b.dataset.it === show);
   $('inspAll').classList.toggle('on', inspAll);
   { const sb = $('sbS'); if (sb && !sb.dataset.src) sb.dataset.src = 'comic'; }   // the AI storyboard goes with COMICS
-  for (const el of document.querySelectorAll('#insp [data-src]')) el.hidden = !inspAll && el.dataset.src !== show;
+  for (const el of document.querySelectorAll('#insp [data-src]')) el.hidden = !inspAll && !el.dataset.src.split(' ').includes(show);   // #748 a section can belong to several sources (the webcam picker)
   const pk = D.perf ? D.perf.kind : 'dancer', pc = !!(D.perf && D.perf.cam);
   for (const el of document.querySelectorAll('#insp [data-perf]')) el.hidden = !inspAll && (el.dataset.perf === 'cam' ? !pc : el.dataset.perf !== pk);
   $('pcamB').classList.toggle('on', pc);
@@ -1323,7 +1323,8 @@ function airBadges(a) {
   if (lk) { const l = !!(a && a.link); lk.textContent = l ? (vjAir ? 'LINKED · QUEST ON AIR' : 'LINKED') : 'SOLO'; lk.classList.toggle('on', l); lk.style.background = l ? '' : '#1d3f66';
     lk.title = l ? 'LINKED: the Quest is connected (QUEST bus, its sound, SHOWTIME!).' : 'SOLO: no Quest. Twitch, DirroTV, the beat (LINE IN / TAP) and all other sources run from this laptop.'; }   // #662
   if (tv) { const s = a && a.tv || 'off'; tv.textContent = 'DIRROTV: ' + (s === 'live' ? 'ON' : s === 'waiting' ? 'WAITING' : a && a.tvKnown ? 'QUEST' : 'NOT PAIRED'); tv.classList.toggle('on', s === 'live'); tv.title = 'ON: a DirroTV screen shows this program. WAITING: DirroVJ answers the paired TV key, no screen yet. QUEST: the Quest answers its TVs. NOT PAIRED: pair a TV on the Quest once (TOOLS > STREAM > DIRROTV), DirroVJ keeps the key after that.'; }
-  rn.title = 'RENDER QUEST: the Quest draws the scene and sends it with its matte. RENDER LAPTOP: this laptop draws it from the mirror (sharper, no Wi-Fi video). Switched on the tablet: TWITCH > DIRROVJ.';
+  rn.title = 'Click to switch. RENDER QUEST: the Quest draws the SHOWTIME! scene and sends it with its matte (robot, lasers, everything). RENDER LAPTOP: this laptop draws it from its copy of the scene (sharper, less Wi-Fi video; no robot or lasers). Only for SHOWTIME! (the GoPros); WEBCAM always comes from this laptop. Also on the tablet: TWITCH > DIRROVJ.';
+  rn.style.cursor = 'pointer'; rn.onclick = () => { if (!vjAir) { $('st').textContent = 'RENDER: turn DIRROVJ on first (tablet: TWITCH > DIRROVJ).'; return; } if (a.mode !== 'show') { $('st').textContent = 'RENDER only applies to SHOWTIME! (a GoPro); WEBCAM is drawn on this laptop already.'; return; } send({ k: 'show', render: lap ? 'quest' : 'laptop' }); };   // #748
 }
 setInterval(() => { send({ k: 'hello', again: true }); if (Date.now() - lastSeen > 4000) $('st').textContent = 'No DirroVJ window: open dirrovj.html and connect.'; }, 2000);
 </script>
