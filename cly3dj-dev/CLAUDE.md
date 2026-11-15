@@ -2794,3 +2794,6 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Note to the owner: popping panels does not affect DirroVJ's rendering; the output page keeps drawing via its worker tick, and DirroDJ now too (#748). Keep the DirroVJ output / projector window from being minimised.
 - Checked in the browser pane (it can't open windows, so a same-origin frame stood in): GRADE popped, slider in the popped panel sent the grade and the readout updated, DOCK BACK returned it; shader compiles with camScale. Not checked with real pop-up windows.
 - sw.js v216. No Node restart. Backup backups/pre749/.
+
+## #750 Release #745 to #749 to cly3dj; PROJECT.md status 16 Nov (owner, 16 Nov)
+- cly3dj = cly3dj-dev again (commit 5da8dc4; excluded as before: CLAUDE.md, PROJECT.md, _test/, backups/, the two kitana dev-only files). PROJECT.md: header and a Status (16 Nov) section for #729 to #749. Project doc claude/cly3dj-project.md = PROJECT.md.

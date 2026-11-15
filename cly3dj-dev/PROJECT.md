@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 13 Nov 2026 (decision log up to #727 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 16 Nov 2026 (decision log up to #750 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -155,6 +155,19 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 
 - A live comic strip drawn by DirroVJ as a bus source (1950s / 60s newsprint, CyberGrunge meets Steampunk). Details and owner decisions: project doc `dirrocomics-plan.md`; user steps: section 8 of `DirroVJ_DirroDJ_User_Manual.docx`.
 - Built: page with peeks, five inking styles, captions / balloons / SFX, black and white ANAGLYPH with depth (SBS, RGB+D, painted depth maps, MediaPipe PEOPLE, LIVE PEOPLE), GRAB QUEST / WEBCAM / RGB-D, issues (.dirrocomic), MP4, PDF STRIP, Instagram REEL 9:16 and CAROUSEL 4:5 (posted by hand), STAR IN IT (Dirrogram card, YES / NO per line, hash-chained consent log on the relay, WITHDRAW), terms text on the Dirrogram, AI storyboard (Gemini free tier or Claude API, 8 to 12 panels), the owner's DirroComics mark.
+
+## Status (16 Nov)
+
+- Release (cly3dj) = dev up to #749 (released 16 Nov, commit 5da8dc4). The SET studio is still not in the repo.
+- CYCLOWALL and robot cam (#729 to #733, #740): CYCLO DOME, the CYCLOWALL name, it spawns behind the robot DJ, DirroDj📹 shows on the wall without filming itself; the desk's CYCLOWALL bus shows the Quest's wall.
+- WEBCAM work (#734, #741, #742, #744): robot hands in WEBCAM+GEAR!, WEBCAMS ⟳ / CONFIRM, EXPOSURE / GAMMA / TEMP / TINT on the webcam (tablet and desk), the desk's GRADE · WEBCAM also reaches the DirroVerse windows.
+- VJ desk redesign (#743): status lights (TWITCH flashing red when live, REC), sticky top strip (monitor, buses with keys 1 to 7, T-bar, FX, AUTOPILOT), Settings panel that follows the cued / live bus, one GRADE panel (MASTER / WEBCAM), PERFORMER bus (dancer / Holodancer, PERFORMERCAM+), library tabs, SETUP drawer, HELP; tablet VJ DESK page.
+- HEADSET CAM (#745): OCCLUSION OFF / SOFT / HOLO (Quest depth hides the gear where real hands are in front; HOLO gives your near hands the holoportal look; YOU < x m), QUICK FIT (3 crosses) and drag nudge on CAM FIT.
+- Desk PERSON KEY (#745): MediaPipe cutout of the webcam over the program, HOLO / MIRROR / SIZE / X / Y.
+- WEBCAM+GEAR! without calibration (#746): the decks, mixer and case as a see-through strip along the bottom of the webcam picture, seen from the audience side (the old GoPro box is gone).
+- DirroVerse windows (#747, #749): right-click a scene > Window: WEBCAM + GEAR, WEBCAM (no gear, REAR WINDOW / DirroComics), ORIGINAL WINDOW, HOLOEDGE (plate window behind, you cut out with a holo edge, gear strip in front, AUTO ZOOM parallax); WEBCAM SIZE slider. All on the laptop.
+- Desk (#748, #749): webcam picker also under DIRROVERSE / PERFORMER, the RENDER badge switches QUEST / LAPTOP, ⧉ POP OUT / DOCK BACK for the Program strip, Settings panels, GRADE, SCROLLER and the library. DirroDJ keeps drawing while hidden behind DirroVJ on the same laptop (worker tick).
+- Not yet tried on the Quest: #745 occlusion and QUICK FIT, #747 HOLOEDGE with a real person, real pop-up windows.
 
 ## Status (13 Nov)
 
