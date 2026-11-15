@@ -1157,7 +1157,7 @@ function dvSelDraw() {
 let dvVs = [];
 function dvSceneChip(n, act, verse) {
   const c = document.createElement('div'); c.className = 'vjCell' + (act ? ' act' : ''); c.title = n; c.dataset.n = n;
-  c.innerHTML = `<img src="${DV_STUDIO}/api/plateframe?name=${dvU(n)}&t=0&w=300" alt=""><div class="vjCap">${n.replace(/</g, '&lt;')}</div>` + (lastDv && (lastDv.orig || []).includes(n) ? '<div class="dvOrig" title="ORIGINAL WINDOW: the plate\'s own window, no webcam">ORIG</div>' : '');   // #735
+  c.innerHTML = `<img src="${DV_STUDIO}/api/plateframe?name=${dvU(n)}&t=0&w=300" alt=""><div class="vjCap">${n.replace(/</g, '&lt;')}</div>` + (lastDv && lastDv.wm && lastDv.wm[n] ? '<div class="dvOrig" title="Window: ' + ({ cam: 'WEBCAM', gear: 'WEBCAM + GEAR', orig: 'ORIGINAL WINDOW', holo: 'HOLOEDGE' })[lastDv.wm[n]] + '">' + ({ cam: 'CAM', gear: 'GEAR', orig: 'ORIG', holo: 'HOLO' })[lastDv.wm[n]] + '</div>' : '');   // #735 #747
   c.onclick = e => { if (!verse && (e.ctrlKey || e.metaKey || e.shiftKey)) { const i = dvSel.indexOf(n); if (i >= 0) dvSel.splice(i, 1); else if (dvSel.length < 4) dvSel.push(n); else $('dvSt').textContent = 'A DirroVerse set takes 4 scenes at most.'; dvSelDraw(); return; }
     $('dvSet').value = n; $('dvSet').dataset.touched = '1'; send({ k: 'dv', act: 'load', set: n, verse }); };
   c.onmouseenter = () => dvPeek(n, c); c.onmouseleave = () => dvPeek(null);
@@ -1219,9 +1219,10 @@ function dvMenuOpen(o, x, y) {
       gs.append(btn('CLEAR SELECTION', async () => { dvSel = []; dvPano = null; dvSelDraw(); dvPanoDraw(); }));
     }
     {   // #735 the scene's window: the live webcam behind it (the cutout) or the plate's own window
-      const og = grp('Window'), orig = !!(lastDv && (lastDv.orig || []).includes(o.set));
-      og.append(btn(orig ? 'USE WINDOW AS MASK (live webcam)' : 'KEEP ORIGINAL WINDOW (no webcam)', async () => { send({ k: 'dv', act: 'orig', set: o.set, v: !orig }); $('dvGrid').dataset.l = ''; }));
-      const n = document.createElement('div'); n.className = 'note'; n.style.margin = '2px 0 0'; n.textContent = orig ? 'Now: the plate\'s own window.' : 'Now: the live webcam shows in the window.'; og.append(n); }
+      const og = grp('Window'), cur = (lastDv && lastDv.wm && lastDv.wm[o.set]) || (lastDv && lastDv.feed === 'gear' ? 'gear' : 'cam');   // #747 four window modes per scene
+      const WM = [['gear', 'WEBCAM + GEAR', 'the whole webcam picture, the decks along the bottom'], ['cam', 'WEBCAM', 'the whole webcam picture, no gear (REAR WINDOW scenes, DirroComics)'], ['orig', 'ORIGINAL WINDOW', 'the plate\'s own window, no webcam'], ['holo', 'HOLOEDGE', 'the plate\'s window behind you, you cut out with a holo edge, the decks in front']];
+      for (const [k, l, t] of WM) { const b = btn((k === cur ? '● ' : '') + l, async () => { send({ k: 'dv', act: 'wmode', set: o.set, v: k }); $('dvGrid').dataset.l = ''; }); b.title = t; if (k === cur) b.style.borderColor = '#3fd27f'; og.append(b); }
+      const n = document.createElement('div'); n.className = 'note'; n.style.margin = '2px 0 0'; n.textContent = 'Now: ' + (WM.find(w => w[0] === cur) || WM[0])[2] + '.'; og.append(n); }
     const g = grp('Add to DirroVerse');
     for (const v of others) g.append(btn('+ ' + v.name, async () => { const a = dvClone(); a.find(x => x.name === v.name).scenes.push(o.set); await dvSaveVerses(a); }));
     const inp = document.createElement('input'); inp.placeholder = 'new DirroVerse name'; inp.maxLength = 40; g.append(inp);

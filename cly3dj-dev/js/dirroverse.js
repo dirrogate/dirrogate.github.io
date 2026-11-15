@@ -4,6 +4,7 @@
 // set.json), grades it like the studio does, and lets its light spill onto the plate. ARRIVAL clips (arrival_<name>.mp4, rendered by
 // the studio with a typed name on the car) play in place of the loop and hand back to it at their end.
 export const STUDIO = 'http://127.0.0.1:8090';
+import { HOLO_GLSL } from './holofx.js';   // #747 HOLOEDGE
 
 function solve(A, b) { const n = b.length; for (let i = 0; i < n; i++) { let m = i; for (let r = i + 1; r < n; r++) if (Math.abs(A[r][i]) > Math.abs(A[m][i])) m = r; [A[i], A[m]] = [A[m], A[i]]; [b[i], b[m]] = [b[m], b[i]];
   for (let r = i + 1; r < n; r++) { const f = A[r][i] / A[i][i]; for (let c = i; c < n; c++) A[r][c] -= f * A[i][c]; b[r] -= f * b[i]; } }
@@ -58,6 +59,7 @@ export const colLerp = (a, b, k) => !a ? b : { m: a.m.map((v, i) => v + (b.m[i] 
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
 const FS = `uniform sampler2D tBase, tMask, tSpill, tCam, tFog; uniform vec4 wgr; uniform vec2 plate, camSz; uniform int nW; uniform mat3 Hm[4]; uniform vec4 fp[4];
 uniform float sil[4]; uniform float stack; uniform vec3 zm; uniform vec3 lvS, lvB, lvG; uniform float lvSat; uniform sampler2D tPlate; uniform float winOrig; uniform float crop, spillK, cutOld, camOn, match, mist, rainK, reflK, fogOn, time; uniform vec3 grade, camLight, camMean, camStd, tgtMean, tgtStd;
+uniform sampler2D tQ, tPM; uniform float qOn, pmOn, wHolo; uniform vec3 hcol;   // #747 HOLOEDGE: the Quest's pack (gear + matte), the person mask
 varying vec2 vUv;
 // #709 stacked loop (plate_matte.mp4): the plate on top, a moving matte below (white = the window is clear, black = a car passes in front)
 vec2 bu(vec2 uv) { return stack > 0.5 ? vec2(uv.x, 0.5 + 0.5 * uv.y) : uv; }
@@ -65,6 +67,17 @@ vec3 lin(vec3 c) { return pow(max(c, 0.0), vec3(2.2)); } vec3 gam(vec3 c) { retu
 float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y); }
+${HOLO_GLSL}
+vec2 camUV(vec2 zz, mat3 H, vec4 f4) {   // #747 a plate point (zoomed) -> the webcam picture, through a window's homography and framing
+  vec2 P = vec2(zz.x, 1.0 - zz.y) * plate; vec3 q = H * vec3(P, 1.0); vec2 uv = q.xy / q.z;
+  float chf = crop * camSz.y / max(0.05, f4.z), cwf = chf * f4.w;
+  vec2 f = vec2(camSz.x * f4.x + (uv.x - 0.5) * cwf, camSz.y * f4.y + (uv.y - 0.5) * chf); return vec2(f.x / camSz.x, 1.0 - f.y / camSz.y); }
+vec3 gradeCam(vec3 c) {   // the window grade, MATCH SCENE and the desk's GRADE · WEBCAM (linear in, linear out)
+  c = c * grade.x * vec3(1.0 + grade.y, 1.0, 1.0 - 1.3 * grade.y);
+  c = 0.18 * pow(max(c, 0.0) / 0.18, vec3(grade.z));
+  { vec3 cm = max(lvB + (c - lvS) * lvG, 0.0); float lm = dot(cm, vec3(0.2126, 0.7152, 0.0722)); cm = vec3(lm) + (cm - vec3(lm)) * lvSat; c = mix(c, cm, match); }
+  if (wgr.y > 0.0) c = pow(max(c, 0.0), vec3(1.0 / wgr.y)) * exp2(wgr.x) * vec3(1.0 + 0.15 * wgr.z, 1.0 - 0.3 * wgr.z, 1.0 + 0.15 * wgr.z) * vec3(1.0 + 0.16 * wgr.w, 1.0 + 0.02 * wgr.w, 1.0 - 0.16 * wgr.w);
+  return c; }
 void main() {
   vec2 zu = zm.yz + (vUv - zm.yz) / max(zm.x, 1.0);   // #711 AUTO ZOOM: the whole set (plate, mask, windows, webcam, fog) seen closer, in plate space
   vec3 bl = lin(texture2D(tBase, bu(zu)).rgb); float m = texture2D(tMask, zu).r * (stack > 0.5 ? texture2D(tBase, vec2(zu.x, 0.5 * zu.y)).r : 1.0); float sp = texture2D(tSpill, zu).r;
@@ -82,12 +95,23 @@ void main() {
       float bead = rr > 0.0 ? smoothstep(rr, rr * 0.7, dd) : 0.0, rim = rr > 0.0 ? smoothstep(rr * 0.55, rr, dd) * bead : 0.0;
       vec2 cuv = vec2(f.x / camSz.x, 1.0 - f.y / camSz.y) - vec2(cf.x, -cf.y) * bead * 0.06;
       vec3 cs = texture2D(tCam, clamp(cuv, 0.0, 1.0)).rgb;
-      vec3 c = lin(cs);
-      c = c * grade.x * vec3(1.0 + grade.y, 1.0, 1.0 - 1.3 * grade.y);
-      c = 0.18 * pow(max(c, 0.0) / 0.18, vec3(grade.z));
-      { vec3 cm = max(lvB + (c - lvS) * lvG, 0.0); float lm = dot(cm, vec3(0.2126, 0.7152, 0.0722)); cm = vec3(lm) + (cm - vec3(lm)) * lvSat; c = mix(c, cm, match); }   // #714 MATCH SCENE: levels onto the scene
-      if (wgr.y > 0.0) c = pow(max(c, 0.0), vec3(1.0 / wgr.y)) * exp2(wgr.x) * vec3(1.0 + 0.15 * wgr.z, 1.0 - 0.3 * wgr.z, 1.0 + 0.15 * wgr.z) * vec3(1.0 + 0.16 * wgr.w, 1.0 + 0.02 * wgr.w, 1.0 - 0.16 * wgr.w);   // #744 the desk's GRADE · WEBCAM, after MATCH SCENE so the match can't undo it
-      if (sil[i] > 0.0) { float lu = dot(c, vec3(0.2126, 0.7152, 0.0722)); float keep = 0.15 + 0.85 * smoothstep(1.6, 4.5, lu / 0.18); c *= 1.0 - sil[i] * (1.0 - keep); }
+      vec3 c = gradeCam(lin(cs));   // #714 MATCH SCENE, #744 GRADE · WEBCAM (now in gradeCam, #747)
+      if (wHolo > 0.5) {   // #747 HOLOEDGE: the plate's own window behind, you cut out on your own layer, the gear strip in front; AUTO ZOOM slides them apart
+        float zf = max(zm.x, 1.0);
+        vec2 zb = zm.yz + (vUv - zm.yz) / (1.0 + (zf - 1.0) * 0.7), zg = zm.yz + (vUv - zm.yz) / (1.0 + (zf - 1.0) * 1.3);
+        vec3 back = lin(texture2D(tPlate, zb).rgb);
+        float sh = holoShear(cuv, time, 70.0); vec2 cp = clamp(cuv + vec2(sh, 0.0), 0.0, 1.0);
+        float pr = pmOn > 0.5 ? texture2D(tPM, vec2(cp.x, 1.0 - cp.y)).r : 0.0, pm = smoothstep(0.35, 0.75, pr), pe = clamp(1.0 - abs(2.0 * pr - 1.0), 0.0, 1.0);
+        vec3 pc = gradeCam(lin(texture2D(tCam, cp).rgb));
+        pc = lin(holoLook(gam(pc), mix(0.35, 1.0, pe), pe * pe, cp, time, 220.0, hcol));
+        c = mix(back, pc, pm * 0.95);
+        vec2 cg = camUV(zg, Hm[i], fp[i]);
+        if (qOn > 0.5 && cg.x > 0.0 && cg.x < 1.0 && cg.y > 0.0 && cg.y < 1.0) {   // the Quest's pack: colour 1280 wide (premultiplied), matte at 1296..1920 of 1920
+          vec3 s = texture2D(tQ, vec2(cg.x * 0.666667, cg.y)).rgb; float ga = texture2D(tQ, vec2(0.675 + cg.x * 0.325, cg.y)).r; ga = clamp((ga - 0.03) / 0.94, 0.0, 1.0);
+          c = lin(s / max(ga, 0.001)) * ga + c * (1.0 - ga);
+        }
+      }
+      if (sil[i] > 0.0 && wHolo < 0.5) { float lu = dot(c, vec3(0.2126, 0.7152, 0.0722)); float keep = 0.15 + 0.85 * smoothstep(1.6, 4.5, lu / 0.18); c *= 1.0 - sil[i] * (1.0 - keep); }
       float mi = mist * (0.55 + 0.45 * smoothstep(0.25, 0.0, uv.y) + 0.6 * smoothstep(0.65, 1.0, uv.y)) * (1.0 - bead);   // condensation, heavier top and bottom
       float lu2 = dot(c, vec3(0.2126, 0.7152, 0.0722)); c += ((vec3(lu2) + 0.55 * (c - vec3(lu2))) * 0.8 + vec3(0.016, 0.02, 0.026) - c) * mi * 0.6;
       c *= (1.0 - 0.45 * rim) * (1.0 + 0.1 * bead);
@@ -114,7 +138,7 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     camSz: { value: new THREE.Vector2(1280, 720) }, wgr: { value: new THREE.Vector4(0, 0, 0, 0) }, nW: { value: 0 }, Hm: { value: [0, 1, 2, 3].map(() => new THREE.Matrix3()) },
     fp: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0.4, 0.5, 1, 0.72)) }, sil: { value: [0, 0, 0, 0] }, crop: { value: 0.86 },
     grade: { value: new THREE.Vector3(2.3, 0.06, 0.88) }, camLight: { value: new THREE.Vector3(1, 1, 1) }, spillK: { value: 0.95 }, cutOld: { value: 0.5 }, camOn: { value: 1 },
-    tFog: { value: black }, tPlate: { value: black }, winOrig: { value: 0 }, stack: { value: 0 }, match: { value: 0.7 }, mist: { value: 0.35 }, rainK: { value: 0.7 }, reflK: { value: 0.07 }, fogOn: { value: 0 }, time: { value: 0 },
+    tFog: { value: black }, tPlate: { value: black }, winOrig: { value: 0 }, tQ: { value: black }, tPM: { value: black }, qOn: { value: 0 }, pmOn: { value: 0 }, wHolo: { value: 0 }, hcol: { value: new THREE.Vector3(0.35, 0.92, 1.0) }, stack: { value: 0 }, match: { value: 0.7 }, mist: { value: 0.35 }, rainK: { value: 0.7 }, reflK: { value: 0.07 }, fogOn: { value: 0 }, time: { value: 0 },
     camMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, camStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, tgtMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, tgtStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, zm: { value: new THREE.Vector3(1, 0.5, 0.5) }, lvS: { value: new THREE.Vector3(0, 0, 0) }, lvB: { value: new THREE.Vector3(0, 0, 0) }, lvG: { value: new THREE.Vector3(1, 1, 1) }, lvSat: { value: 0.85 } };
   const mat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: FS, depthTest: false, depthWrite: false });
   const sc = new THREE.Scene(), mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); mesh.frustumCulled = false; sc.add(mesh);
@@ -241,7 +265,9 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     const useArr = S.playing && arr.readyState >= 2, v = vids[cur];
     if (!useArr && v.paused) v.play().catch(() => {});
     U.tBase.value = useArr ? tArr : tLoops[cur]; U.stack.value = useArr ? 0 : curStack;
-    if (feed && feed.tex) { U.tCam.value = feed.tex; U.camSz.value.set(feed.w, feed.h); }
+    U.wHolo.value = wMode() === 'holo' ? 1 : 0;
+    if (feed && feed.holo) { U.tCam.value = camTex; if (camVideo && camVideo.videoWidth) U.camSz.value.set(camVideo.videoWidth, camVideo.videoHeight); U.tQ.value = feed.q || black; U.qOn.value = feed.q && feed.qok ? 1 : 0; U.tPM.value = feed.pm || black; U.pmOn.value = feed.pm ? 1 : 0; }   // #747
+    else if (feed && feed.tex) { U.tCam.value = feed.tex; U.camSz.value.set(feed.w, feed.h); }
     else { U.tCam.value = camTex; if (camVideo && camVideo.videoWidth) U.camSz.value.set(camVideo.videoWidth, camVideo.videoHeight); }
     { const z = Math.max(1, zS), h = 0.5 / z, cl = (v) => Math.max(h, Math.min(1 - h, v)); U.zm.value.set(z, cl(winC[0]), cl(winC[1])); }   // #711 the view stays inside the plate
     U.camOn.value = S.cam && camVideo && camVideo.videoWidth ? 1 : 0;
@@ -257,11 +283,12 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
   function zoom(z) { zS = Math.max(1, Math.min(3, +z || 1)); }   // #711
   // #735 ORIGINAL WINDOW (right-click a scene on the desk): the plate's own window picture instead of the webcam
   let curBase = '', origUrl = '', origSeq = 0;
+  const wMode = () => (S.wm && S.wm[S.set]) || (S.feed === 'gear' ? 'gear' : 'cam');   // #747 the set's window: cam | gear | orig | holo
   async function refreshOrig() {
-    const on = !!(S.set && (S.orig || []).includes(S.set)), seq = ++origSeq;
+    const md = wMode(), on = !!S.set && (md === 'orig' || md === 'holo'), seq = ++origSeq;   // #747 HOLOEDGE uses the plate's window as the room behind you
     if (!on) { U.winOrig.value = 0; return; }
     if (origUrl !== curBase || U.tPlate.value === black) { const t = await texLoad(curBase); if (seq !== origSeq) { if (t) t.dispose(); return; } if (U.tPlate.value !== black) U.tPlate.value.dispose(); U.tPlate.value = t || black; origUrl = curBase; }
-    U.winOrig.value = U.tPlate.value !== black ? 1 : 0;
+    U.winOrig.value = md === 'orig' && U.tPlate.value !== black ? 1 : 0;
   }
   const camGrade = G => { const on = G && (Math.abs(G.ev) > 0.001 || Math.abs(G.gam - 1) > 0.001 || Math.abs(G.tint) > 0.001 || Math.abs(G.temp || 0) > 0.001); U.wgr.value.set(on ? G.ev : 0, on ? G.gam : 0, on ? G.tint : 0, on ? (G.temp || 0) : 0); };   // #744
   return { camGrade, refreshOrig, target, zoom, list, load, commit, arrive, renderArrival, render, active, get w() { return W; }, get h() { return H; }, get ready() { return ready; }, get pendingName() { return pending ? pending.name : ''; } };

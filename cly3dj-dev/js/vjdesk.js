@@ -192,7 +192,7 @@ const HP0 = { x: 0.5, y: 0.8, h: 0.4, el: 8, face: 0, flip: false, shadow: 0.55,
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
   const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), holo: holoDefaults(), chDesk: '', audioAuto: false, lsc: '', cue: '',
     tempo: 'tap', bpm: 0, beatN: 0, tr: (() => { try { return localStorage.getItem('vire.vjTr') || 'mix'; } catch { return 'mix'; } })(), drz: (() => { try { return { bars: 0, size: 0.4, turn: true, ...JSON.parse(localStorage.getItem('vire.vjDrz') || '{}') }; } catch { return { bars: 0, size: 0.4, turn: true }; } })(), dv: (() => { const o = { set: '', sets: [], files: [], arrivals: [], status: '', studio: '', cam: true, playing: '', job: null, match: 0.7, feed: 'cam', verses: [], verse: '', auto: 0, ta: false, tsec: 60, tleft: 0, hold: false, loading: '', next: '', versesErr: '', gearSt: '' };   // #707 feed cam | gear, DirroVerse banks, AUTO bars
-      try { const v = JSON.parse(localStorage.getItem('vire.vjDv') || '{}'); if (v.feed === 'gear' || v.feed === 'cam') o.feed = v.feed; if (v.cam === false) o.cam = false; if ([0, 8, 16, 32].includes(+v.auto)) o.auto = +v.auto; if (v.ta) o.ta = true; if (v.zm === false) o.zm = false; if (v.nz) o.nz = true; if (Number.isFinite(+v.match) && v.match !== null) o.match = Math.max(0, Math.min(1, +v.match)); if (v.qm === false) o.qm = false; if (+v.tsec >= 30 && +v.tsec <= 180) o.tsec = +v.tsec; if (v.verse) o.verse = String(v.verse); if (Array.isArray(v.orig)) o.orig = v.orig.filter(x => typeof x === 'string').slice(0, 200); } catch {} return o; })(),
+      try { const v = JSON.parse(localStorage.getItem('vire.vjDv') || '{}'); if (v.feed === 'gear' || v.feed === 'cam') o.feed = v.feed; if (v.cam === false) o.cam = false; if ([0, 8, 16, 32].includes(+v.auto)) o.auto = +v.auto; if (v.ta) o.ta = true; if (v.zm === false) o.zm = false; if (v.nz) o.nz = true; if (Number.isFinite(+v.match) && v.match !== null) o.match = Math.max(0, Math.min(1, +v.match)); if (v.qm === false) o.qm = false; if (+v.tsec >= 30 && +v.tsec <= 180) o.tsec = +v.tsec; if (v.verse) o.verse = String(v.verse); o.wm = {}; if (v.wm && typeof v.wm === 'object') for (const [k, m] of Object.entries(v.wm)) if (['cam', 'gear', 'orig', 'holo'].includes(m)) o.wm[k] = m; if (Array.isArray(v.orig)) for (const n of v.orig) if (typeof n === 'string' && !o.wm[n]) o.wm[n] = 'orig'; } catch {} return o; })(),   // #747 per-set window mode (the #735 orig list moves in)
     cast: { on: false, label: '', l: 0, r: 0, t: 0, b: 0 }, hp: { ...HP0 }, gram: { on: false, st: 'Off', url: '', room: '' }, beatT: 0 };   // #667 CAST crop, #668 HOLO+CAM placement   // #662 master tempo (LINE IN / TAP) + DirroVerse   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
   try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}
   try { if (localStorage.getItem('vire.vjTempo') === 'line') D.tempo = 'line'; } catch {}   // #688 TAP unless LINE IN was picked (no mic opened by itself)   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
@@ -394,11 +394,15 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   // records, sleeves and hands drawn from the calibrated webcam's pose; no robot). Linked but SHOWTIME! on another camera: the plain webcam.
   const shown = src => (D.x < 1 && D.a === src) || (D.x > 0 && D.b === src) || (!!D.cue && D[D.cue] === src);
   let airC = null, airT = 0; const air = () => { const t = performance.now(); if (!airC || t - airT > 400) { airT = t; airC = studioCtl && studioCtl.airState ? studioCtl.airState() : null; } return airC; };
-  function gearFeed() { if (!D.dv.cam || D.dv.feed !== 'gear') return false; const a = air(); return !!a && !!a.link && (a.mode === 'cam' || a.mode === 'dj' || a.mode === 'key'); }   // SOLO: no gear to draw, the plain webcam (no extra composite pass)
+  const wmOf = n => (D.dv.wm && D.dv.wm[n]) || (D.dv.feed === 'gear' ? 'gear' : 'cam');   // #747 a set's window: cam | gear | orig | holo
+  const linkCam = () => { const a = air(); return !!a && !!a.link && (a.mode === 'cam' || a.mode === 'dj' || a.mode === 'key'); };
+  const holoWin = () => !!D.dv.cam && wmOf(D.dv.set) === 'holo';
+  function gearFeed() { if (!D.dv.cam || wmOf(D.dv.set) !== 'gear') return false; const a = air(); return !!a && !!a.link && (a.mode === 'cam' || a.mode === 'dj' || a.mode === 'key'); }   // SOLO: no gear to draw, the plain webcam (no extra composite pass)
   const needQuest = () => !!dvx && dvx.ready && shown('dverse') && gearFeed();   // studio.js draws its composite for the window even with QUEST off the buses
-  const cleanPack = () => needQuest() && !shown('quest');   // the Quest leaves the scroller / now playing / logo / chat out of its pack (not wanted inside a window)
+  const cleanPack = () => (needQuest() || (!!dvx && dvx.ready && shown('dverse') && holoWin() && linkCam())) && !shown('quest');   // #747 HOLOEDGE too   // the Quest leaves the scroller / now playing / logo / chat out of its pack (not wanted inside a window)
   function gearSt() {
-    if (D.dv.feed !== 'gear' || !D.dv.cam) return '';
+    const md = wmOf(D.dv.set); if ((md !== 'gear' && md !== 'holo') || !D.dv.cam) return '';
+    if (md === 'holo' && pkMask.state !== 'ready') return 'HOLOEDGE: loading the person cutout (MediaPipe)…';
     const a = air(); if (!a || !a.link) return 'SOLO: no Quest, so no gear. The window shows the plain webcam.';
     if (!(a.mode === 'cam' || a.mode === 'dj' || a.mode === 'key')) return 'SHOWTIME! is on another camera: press SHOWTIME! WEBCAM (the window shows the plain webcam until then).';
     return fixed.gear ? 'Gear drawn over the webcam by the Quest (calibrated).' : 'Webcam not calibrated (or Gear off): calibrate it on the DirroVJ page so the gear lines up.';
@@ -479,7 +483,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     dvSave(); post();
   }
   const dvState = () => ({ on: !!D.dv.ta, sec: D.dv.tsec, left: D.dv.tleft || 0, verse: D.dv.verse || '', set: D.dv.set || '', n: dvScenes().length });
-  const dvSave = () => { try { localStorage.setItem('vire.vjDv', JSON.stringify({ orig: D.dv.orig || [], feed: D.dv.feed, cam: D.dv.cam, auto: D.dv.auto, verse: D.dv.verse, ta: D.dv.ta, tsec: D.dv.tsec, zm: D.dv.zm, nz: D.dv.nz, match: D.dv.match, qm: D.dv.qm })); } catch {} };
+  const dvSave = () => { try { localStorage.setItem('vire.vjDv', JSON.stringify({ wm: D.dv.wm || {}, feed: D.dv.feed, cam: D.dv.cam, auto: D.dv.auto, verse: D.dv.verse, ta: D.dv.ta, tsec: D.dv.tsec, zm: D.dv.zm, nz: D.dv.nz, match: D.dv.match, qm: D.dv.qm })); } catch {} };
   function cover(tw, th, W, H, out) { if (!tw || !th) return out.set(0, 0, 1, 1); const k = Math.max(W / tw, H / th), w = W / (tw * k), h = H / (th * k); return out.set((1 - w) / 2, (1 - h) / 2, w, h); }
   function bind(name, U, fit, W, H, questTex, now) {   // a bus's texture and its cover crop
     if (name === 'quest') { U.value = questTex; fit.set(0, 0, 1, 1); return 1; }
@@ -487,7 +491,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if (name === 'dancer') { if (!dz || !dz.ready) return 0; U.value = dz.tex; cover(1280, 720, W, H, fit); return 1; }   // #550
     if (name === 'holo') { if (!ho || !ho.ready) return 0; U.value = ho.tex; cover(1280, 720, W, H, fit); return 1; }   // #573
     if (name === 'comic') { if (!comicTex) return 0; U.value = comicTex; cover(1920, 1080, W, H, fit); return 1; }   // #516
-    if (name === 'dverse') { const t = dvx && dvx.ready ? dvx.render(now, gearFeed() ? { tex: questTex, w: W, h: H } : null) : null; if (!t) return 0; U.value = t; cover(dvx.w, dvx.h, W, H, fit); return 1; }   // #662
+    if (name === 'dverse') { const hq = holoWin() && studioCtl && studioCtl.qInfo ? studioCtl.qInfo() : null; const t = dvx && dvx.ready ? dvx.render(now, holoWin() ? { holo: true, q: hq && hq.tex, qok: !!(hq && hq.ok) && linkCam(), pm: pkMask.state === 'ready' ? pkMask.tex : null } : gearFeed() ? { tex: questTex, w: W, h: H } : null) : null; if (!t) return 0; U.value = t; cover(dvx.w, dvx.h, W, H, fit); return 1; }   // #662
     if (name === 'cast') { const v = castV; if (!D.cast.on || !v.videoWidth) return 0;   // #667 crop off the casting page's own frame, then cover
       const C = D.cast, w = Math.max(0.05, 1 - C.l - C.r), h = Math.max(0.05, 1 - C.t - C.b); cover(v.videoWidth * w, v.videoHeight * h, W, H, fit);
       fit.set(C.l + fit.x * w, C.b + fit.y * h, fit.z * w, fit.w * h); U.value = castTex; return 1; }
@@ -598,7 +602,8 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     { const G = D.wg, on = Math.abs(G.ev) > 0.001 || Math.abs(G.gam - 1) > 0.001 || Math.abs(G.tint) > 0.001 || Math.abs(G.temp) > 0.001; mU.wg.value.set(G.ev, G.gam, G.tint, G.temp); mU.wB.value.set(on && D.a === 'webcam' ? 1 : 0, on && D.b === 'webcam' ? 1 : 0); if (dvx && dvx.camGrade) dvx.camGrade(G); }   // #741, #744 the webcam inside the DirroVerse windows too
     {   // #745 PERSON KEY: step the mask (20 a second at most), place the cut-out
       const P = D.pk, U = mU, v = fixed.video, ok = P.on && fixed.on && v && v.videoWidth && pkMask.tex;
-      if (P.on && fixed.on && v) pkMask.step(v, now);
+      if ((P.on || (shown('dverse') && holoWin())) && fixed.on && v) pkMask.step(v, now);   // #747 HOLOEDGE uses the same mask
+      if (shown('dverse') && holoWin() && pkMask.state === 'off') pkMask.load().then(() => post());
       U.pkOn.value.set(ok ? 1 : 0, P.holo ? 1 : 0, now / 1000, P.mir ? 1 : 0);
       if (ok) { const h = P.s, w = h * (v.videoWidth / v.videoHeight) / (W / H); U.pkR.value.set(P.x, 1 - P.y, w, h); U.tP.value = camTex; U.tPM.value = pkMask.tex;
         const G = D.wg; U.wg.value.set(G.ev, G.gam, G.tint, G.temp || 0); }
@@ -806,8 +811,13 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       else if (m.act === 'zoom') { D.dv.zm = m.v == null ? D.dv.zm === false : !!m.v; DVZ.t0 = performance.now(); dvSave(); post(); }   // #711
       else if (m.act === 'nozoom') { D.dv.nz = m.v == null ? !D.dv.nz : !!m.v; dvSave(); post(); }
       else if (m.act === 'load') { DVZ.nextMan = true; DVZ.set = ''; if (m.verse != null) { D.dv.verse = String(m.verse); dvSave(); } x.load(String(m.set || '')); if (!fixed.on && fixed.start) fixed.start().catch(() => {}); }
-      else if (m.act === 'orig') {   // #735 a scene's window: ORIGINAL (the plate's own window) or the live webcam (the cutout)
-        const n = String(m.set || ''), a = new Set(D.dv.orig || []); if (m.v) a.add(n); else a.delete(n); D.dv.orig = [...a]; dvSave(); x.refreshOrig(); post(); }
+      else if (m.act === 'orig' || m.act === 'wmode') {   // #735 / #747 a scene's window: WEBCAM + GEAR, WEBCAM, ORIGINAL WINDOW or HOLOEDGE
+        const n = String(m.set || ''), md = m.act === 'orig' ? (m.v ? 'orig' : 'cam') : String(m.v || ''); if (!n || !['cam', 'gear', 'orig', 'holo'].includes(md)) return;
+        D.dv.wm = { ...(D.dv.wm || {}), [n]: md }; if (md !== 'orig') D.dv.cam = true; dvSave(); x.refreshOrig();
+        if (md !== 'orig' && !fixed.on && fixed.start) fixed.start().catch(() => {});
+        if (md === 'holo') pkMask.load().then(() => post());
+        if (md === 'gear' || md === 'holo') { const a = air(), L = getLink(); if (a && a.link && L && L.isOpen && !linkCam()) { L.send('ctl', { k: 'vjshow', cam: 'pcam', opt: '', v: false }); bc.postMessage({ k: 'cxmsg', t: (md === 'holo' ? 'HOLOEDGE' : 'WEBCAM + GEAR') + ': SHOWTIME! switched to WEBCAM so the Quest draws the gear strip' }); airC = null; } }
+        post(); }
       else if (m.act === 'cam') { D.dv.cam = !!m.v; dvSave(); if (D.dv.cam && !fixed.on && fixed.start) fixed.start().catch(() => {}); post(); }
       else if (m.act === 'feed') {   // #707 WINDOWS: OFF / WEBCAM / WEBCAM + GEAR
         D.dv.cam = m.v !== 'off'; if (m.v === 'gear' || m.v === 'cam') D.dv.feed = m.v; dvSave();

@@ -164,6 +164,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     return domeRT.texture;
   }
   let takeT = 0;   // #697
+  let qInfoOk = false;
   const studioCtl = {
     twState: () => ({ state: S.tw, msg: S.twMsg, kbps: S.kbps, key: getTwKey() }),
     airState: () => { const L = getLink(); return { qOn: !!S.qOn, local: !!S.local, mode: S.mode, link: !!(L && L.isOpen), tv: S.tv || 'off', tvKnown: !!tvSaved().key, qtw: !!(S.qtw && L && L.isOpen) }; },   // #697 qtw: the Quest is on Twitch itself   // #545 the desk's ON AIR / RENDER badges, #556 QUEST LINK + DIRROTV
@@ -194,6 +195,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       if (skybox && skybox.setTurn) skybox.setTurn(S.panoYaw * Math.PI / 180);
     },
     renderDome,
+    qInfo: () => ({ tex: qTex, ok: qInfoOk }),   // #747 HOLOEDGE: the Quest's pack (gear + matte) for the DirroVerse window
   };
   const desk = vj ? makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio: () => aTrack, studioCtl }) : null;   // #507 / #532
   // ---- the screen: 1280 x 720 drawing buffer, shown full screen with bars (the HDMI picture), the page's own UI hidden
@@ -460,7 +462,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
       if (qBlind) { qNew = true; qLast = now; }
     }
     if ((qPoll || qBlind) && qNew) qTex.needsUpdate = true;
-    const packed = qv.videoWidth === STU.PW || (qv.videoHeight > 0 && qv.videoWidth / qv.videoHeight > 2.2) /* #502 a pack that arrived scaled down is still a pack (colour | strip | matte, ~2.67:1) */, haveQ = qv.readyState >= 2 && qv.videoWidth > 0 && now - qLast < 1500;
+    const packed = qv.videoWidth === STU.PW || (qv.videoHeight > 0 && qv.videoWidth / qv.videoHeight > 2.2) /* #502 a pack that arrived scaled down is still a pack (colour | strip | matte, ~2.67:1) */, haveQ = qv.readyState >= 2 && qv.videoWidth > 0 && now - qLast < 1500; qInfoOk = haveQ && packed;
     const prevRT = renderer.getRenderTarget(), prevXR = renderer.xr.enabled, ac = renderer.autoClear;
     renderer.xr.enabled = false; renderer.autoClear = true;
     try {
