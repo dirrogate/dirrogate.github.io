@@ -2661,3 +2661,6 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Main GOPRO defaults to WIDE (defZoom 'wide'); a saved zoom is moved to WIDE once (flag vire.gpWide732). Zoom can still be changed on the TWITCH page.
 - Answered: OFF: BG VISUALS = step 2 of the CYCLOWALL page's OFF ⟳ tile: the wall goes off (black) but the stream / DirroTV backdrop keeps playing the VISUALS clip playlist; next tap = DOME ONLY, next = back on.
 - Checked in the PC pane: CYCLOWALL with the wall off -> DirroDj📹, the glass samples the copy (hdr 1), a render from the audience side shows the camera picture on the wall behind the booth (robot helmets in the tunnel). Not on the Quest. sw.js v198. No Node restart. Backup backups/pre732/.
+
+## #733 Robot cam doesn't film the CYCLOWALL (owner, 15 Nov: no tunnel / mirror effect)
+- roboRender hides the facet wall (CYCLOWALL) for the robot cam's own renders only and shows it again straight after; the headset, GoPros and SHOWTIME! still see it. Behind the robot the camera now sees the studio backdrop (passthrough: djPrep's floor + dark backdrop, Full VR: the room / sky). Checked in the PC pane: DJ CAM picture = robot, gloves, decks, no wall. The #732 copy target stays (harmless, keeps the wall's texture separate from the one being rendered). sw.js v199. No Node restart.

@@ -10338,8 +10338,9 @@ function roboRender(pose, gear, dt, render) {
   const c = djcam.cam, p0 = c.position.clone(), q0 = c.quaternion.clone(), f0 = c.fov;
   c.position.copy(RC.p); c.updateMatrixWorld(); c.lookAt(rig.localToWorld(_rcA.copy(RC.a))); c.rotateZ(0.006 * Math.sin(RC.t * 0.8));
   if (c.fov !== 50) { c.fov = 50; c.updateProjectionMatrix(); } c.updateMatrixWorld(true);
+  const fwV = !!(facetWall && facetWall.obj.visible); if (fwV) facetWall.obj.visible = false;   // #733 the robot cam never films the CYCLOWALL (no tunnel)
   try { return render(); }
-  finally { c.position.copy(p0); c.quaternion.copy(q0); if (c.fov !== f0) { c.fov = f0; c.updateProjectionMatrix(); } c.updateMatrixWorld(true); }
+  finally { if (fwV) facetWall.obj.visible = true; c.position.copy(p0); c.quaternion.copy(q0); if (c.fov !== f0) { c.fov = f0; c.updateProjectionMatrix(); } c.updateMatrixWorld(true); }
 }
 function robotNeon() {   // #355 the AVACAM robot's helmet and gloves reflect the neon room (HAND FIT > NEON CHROME, on by default)
   let on = true; try { on = !xr || xr.handFit.neon !== 0; } catch (e) {}
