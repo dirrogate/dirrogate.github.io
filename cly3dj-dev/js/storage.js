@@ -20,7 +20,12 @@ export function plainPath(loc) {   // decoded, forward slashes, no file:// / dri
   p = p.replace(/^file:\/\/(localhost)?\/*/i, '');   // file://localhost/D:/..  file:///D:/..  file:///storage/..
   return p.replace(/^\/+(?=[A-Za-z]:\/)/, '');
 }
-export function pcResolver(loc) {
+// #737 'This PC' from a page that isn't on this machine (cabin.dirrodj.club): the songs and XMLs come from the laptop's test
+// server (start_dirro_test.bat, port 8100). Chrome asks once to let the site reach the local network.
+const ON_PC = typeof location !== 'undefined' && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+export const PC_BASE = ON_PC ? '' : 'http://localhost:8100/vire/';
+export function pcResolver(loc) { const r = pcResolve0(loc); return r && PC_BASE ? { url: PC_BASE + r.url } : r; }
+function pcResolve0(loc) {
   if (!loc) return null;
   const raw = String(loc).trim();
   const absolute = /^file:/i.test(raw) || /^[A-Za-z]:[\\/]/.test(raw) || /^[\\/]/.test(raw) || raw.includes('\\');

@@ -2226,7 +2226,7 @@ async function loadLibrary() {
           'SONGSXML/rekordbox.xml',
           'rekordbox.xml',
           'ViRE_rekordbox.xml'
-        ].filter(Boolean);
+        ].filter(Boolean).flatMap(x => store.PC_BASE ? [x, store.PC_BASE + x] : [x]);   // #737 off the laptop: also from its test server
         for (const x of tryXml) {
           try {
             const r = await fetch(x);
