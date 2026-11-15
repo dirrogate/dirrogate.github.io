@@ -853,6 +853,16 @@ function cycloOffCycle() {
   }
   drawMixScreen();
 }
+// #730 VISUALS page CYCLO ⟳ (owner): ... SOLO > DOME (the Cyclo off and the last pano as the dome) > CLIPS ... Leaving DOME
+// puts back the backdrop it had before.
+var visDomeBack;
+function visCycle() {
+  const n = nextLedMode(ledMode);
+  if (n === 'off') { visDomeBack = curBackdrop(); setLedMode('off'); setBackdrop('dome'); toast('CYCLO DOME: last pano', 1800); }
+  else { if (ledMode === 'off' && dome.on) { setBackdrop(visDomeBack && visDomeBack !== 'dome' ? visDomeBack : 'visuals'); visDomeBack = null; } setLedMode(n); }
+  drawMixScreen();
+}
+function visCycLabel() { return ledMode === 'off' ? (dome.on ? 'CYCLO DOME' : 'CYCLO OFF') : LED_LABEL[ledMode]; }
 function cycloOffLabel() { return (ledMode !== 'off' ? 'OFF' : dome.on ? 'DOME ONLY' : 'OFF: BG VISUALS') + ' ⟳'; }
 // #589 SCREEN portal frames: one shared feed. CYCLO = what the Cyclo shows (redrawn from the same 2D layers the stream uses,
 // 640x360 at ~20 fps, no extra decoding), IMAGE = a still from the library, VIDEO = a library clip, looped and muted (one decoder
@@ -5751,7 +5761,7 @@ function drawVideoPage() {
       const folder = itF, name = it.name;
       VP_HIT.push({ x: xx - 4, y: xy - 4, w: xs + 8, h: xs + 8, del: true, act: () => deleteMedia(folder, name) });
     }
-    VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, item: it.name, act: () => { if (vd.pick != null && !it.loopId) { vdAssign(it.name); return; } vpSel = it.name === vpSel ? null : it.name; vpSelFolder = vpSel ? itF : null; drawMixScreen(); } });
+    VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, item: it.name, act: () => { if (vd.pick != null && !it.loopId) { vdAssign(it.name); return; } vpSel = it.name === vpSel ? null : it.name; vpSelFolder = vpSel ? itF : null; if (vpSel && vpFolder === 'Pano') panoToDome(itF, it.name); drawMixScreen(); } });
   });
   if (vd.pick != null) { g.strokeStyle = '#ff3040'; g.lineWidth = 4; g.strokeRect(2, 2, W - 4, H - 4); g.fillStyle = '#ff6070'; g.font = '700 15px system-ui'; g.textAlign = 'right'; g.fillText(`PICK THE MATTE FOR SLOT ${vd.pick + 1}`, W - 12, y0 + 12); }   // #442
   // bottom bar: pages, targets for this folder, LED mode (portrait: targets get a row of their own)
@@ -5779,7 +5789,7 @@ function drawVideoPage() {
   const hasList = vpFolder === 'Video' || vpFolder === 'Images';   // #222 the LED playlist, one tap away
   if (hasList) btn(P ? 124 : 522, by, P ? 70 : 92, bh, `CYCLO LIST ${led.files.length}`, false, () => { vpBack = vpFolder; vpFolder = 'LedList'; vpLoad(); });
   const mw = P && hasList ? 78 : 140;
-  btn(W - (P ? 26 : 8) - mw, by, mw, bh, LED_LABEL[ledMode] + ' ⟳', ledMode !== 'off', () => setLedMode(nextLedMode(ledMode)));   // #238 + LIVE; #538 ⟳ = taps step through the states
+  btn(W - (P ? 26 : 8) - mw, by, mw, bh, visCycLabel() + ' ⟳', ledMode !== 'off' || dome.on, visCycle);   // #730 OFF = DOME   // #238 + LIVE; #538 ⟳ = taps step through the states
 }
 // #379 tablet slider: tap (or keep tapping) anywhere along it to set the value
 function tSlider(g, x, y, w, h, label, v, txt, set, dim, lwMax = 110) {   // #423 lwMax: room for a longer label
@@ -5873,7 +5883,7 @@ function drawLedList(btn, y0) {
   btn(x2, row2, w2, bh, '◀ ' + (VP_TABS[vpBack] || 'BACK'), false, () => { vpFolder = vpBack; vpLoad(); });   // #363 named, so it isn't mistaken for the top-right BACK
   btn(x2 + w2 + 6, row2, w2, bh, led.order === 'list' ? 'IN ORDER' : 'RANDOM', led.order === 'list', () => { led.order = led.order === 'list' ? 'random' : 'list'; saveLedList(); });
   btn(x2 + 2 * (w2 + 6), row2, w2, bh, 'NEXT ▶▶', false, files.length ? () => { clipsMode(); led.next(); } : null, !files.length);
-  btn(W - (P ? 26 : 8) - 140, by, 140, bh, LED_LABEL[ledMode], ledMode !== 'off', () => setLedMode(nextLedMode(ledMode)));   // #238 + LIVE
+  btn(W - (P ? 26 : 8) - 140, by, 140, bh, visCycLabel() + ' ⟳', ledMode !== 'off' || dome.on, visCycle);   // #238 + LIVE; #730 OFF = DOME
 }
 const NOTES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
 function parseKey(k) {
@@ -8836,6 +8846,7 @@ function drawToolsPage() {
       btn(L, y, tw, 44, acts[2][0], acts[2][1], acts[2][2], acts[2][3], 16); tapB(L + tw + 6, y, tw, 44, 18); y += 52;
       steps.forEach(([l, v, dn, up]) => { stp(L, y, R - L, 40, l, v, dn, up); y += 46; });
       pxSlider(L, y, R - L, 38); y += 44;
+      if (ledMode === 'off' && dome.on) { tSlider(g, L, y, R - L, 38, 'DOME TURN', dome.turn / 359, `${dome.turn}°`, v => setDomeTurn(v * 359)); y += 44; }   // #730
       note(info, y + 14);
     } else {
       const tw = (R - L - 6 * (tiles.length - 1)) / tiles.length, th = 80;   // #538 six tiles across
@@ -8844,7 +8855,8 @@ function drawToolsPage() {
       acts.forEach(([l, on, a, dim], i) => btn(L + i * (a4 + 6), y0 + 88, a4, 38, l, on, dim ? null : a, dim, 16)); tapB(L + 3 * (a4 + 6), y0 + 88, a4, 38, 16);
       steps.forEach(([l, v, dn, up], i) => stp(L + i * (aw + 6), y0 + 132, aw, 38, l, v, dn, up));
       pxSlider(L, y0 + 176, R - L, 32);
-      g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, info, L + 4, y0 + 226, R - L - 8, 16, 2);
+      if (ledMode === 'off' && dome.on) tSlider(g, L, y0 + 214, R - L, 32, 'DOME TURN', dome.turn / 359, `${dome.turn}°`, v => setDomeTurn(v * 359));   // #730 rotate the dome (DOME ONLY)
+      else { g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, info, L + 4, y0 + 226, R - L - 8, 16, 2); }
     }
     return;
   }
@@ -10443,6 +10455,16 @@ async function useFactorySky() {
 // #185 sky from the library: a still (Pano) or a looping video panorama (Video pano)
 let skyVid = null;
 function closeSkyVideo() { if (skyVid) { closePanoVideo(skyVid); skyVid = null; } }
+// #730 (owner) a tap on a PANO thumbnail puts it straight on the DOME: it becomes the sky, the DOME and the stream's backdrop
+// DOME turn on; with a GoPro out the stream shows the GoPro shot over it, and portals stay in the scene as they are.
+async function panoToDome(folder, name) {
+  try {
+    await useSkyMedia(folder, name);
+    setBackdrop('dome'); if (!dome.on) await setDome(true);
+    const gp = gpActive(); if (gp && streamer && streamer.source !== 'show') streamer.setSource('show');
+  } catch (e) { toast('Dome: ' + e.message, 4000); }
+  drawMixScreen();
+}
 async function useSkyMedia(folder, name) {
   const f = await media.getFile(folder, name); if (!f) { toast('Not on this headset: ' + name); return; }
   settings.skyMedia = folder + '/' + name; settings.skyFile = name + ':' + f.size;
