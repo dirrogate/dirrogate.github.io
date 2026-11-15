@@ -90,8 +90,8 @@ export function startCamera(ctx) {
       <!-- #514 the Library (synced with the Quest) gives the panorama and the videos: the two old pickers stay in the page, hidden -->
       <button id="spPano" hidden>Virtual set panorama (same picture as the Quest)…</button><input type="file" id="spPanoF" accept="image/*" hidden>
       <div id="spPanoSt" hidden style="color:#8b909a;font-size:13px;margin-top:6px">For the green-screen virtual set: pick the same 360 picture the Quest shows. Kept on this phone.</div>
-      <button id="spLed" hidden>Videos: Cyclo clips + VideoVinyls (same files as the Quest)…</button><input type="file" id="spLedF" accept="video/*" multiple hidden>
-      <div id="spLedList" hidden style="color:#8b909a;font-size:13px;margin-top:6px">Optional: pick the same videos as on the Quest so the Cyclo plays here too.</div>
+      <button id="spLed" hidden>Videos: CYCLOWALL clips + VideoVinyls (same files as the Quest)…</button><input type="file" id="spLedF" accept="video/*" multiple hidden>
+      <div id="spLedList" hidden style="color:#8b909a;font-size:13px;margin-top:6px">Optional: pick the same videos as on the Quest so the CYCLOWALL plays here too.</div>
       </div></div>
     <div id="spO" hidden>
       <div class="info" id="spInfo">…</div>
@@ -651,6 +651,7 @@ export function startCamera(ctx) {
     else if (m.k === 'recdel') onRecDel(m.uid);
     else if (m.k === 'slv') onSlv(m);   // #503
     else if (m.k === 'vjsms') studio.onVjSms(m);   // #507 HoloSMS for the scroller desk
+    else if (m.k === 'qdv') studio.onQdv(m);   // #735 the tablet's DIRROVERSE page
     else if (m.k === 'cxput') { cxrx = { n: m.n, size: m.size, type: m.type || '', parts: [], got: 0 }; studio.onCx({ t: 'receiving ' + m.n + '…' }); if (!m.size) { cxrx = null; } }   // #520
     else if (m.k === 'cxst') studio.onCx({ t: m.t });
     else if (m.k === 'vjstar') { for (const x of m.items || []) studio.onCx({ star: x }); }   // #524 STAR IN IT from the relay, via the Quest
@@ -662,6 +663,14 @@ export function startCamera(ctx) {
       (async () => { let n = ''; try { if (!fixed.on) { await fixed.start($('#spFixCam') ? $('#spFixCam').value : 'environment'); n = fixed.camName(); camSteps = 0; } else { n = await fixed.nextCam(); camSteps++; } } catch (e) { n = 'camera error: ' + (e.message || e); }
         const last = camSteps >= Math.max(2, fixed.S.devs.length) - 1;   // #591 the tablet's next tap after the last camera = WEBCAM OFF
         if (link && link.isOpen) link.send('ctl', { k: 'camname', n, last }); sendCst(true); })();
+    }
+    else if (m.k === 'camlist?') {   // #734 WEBCAM SETUP > WEBCAMS⟳: every camera on this machine
+      (async () => { let list = []; try { list = (await fixed.devList()).map((d, i) => ({ id: d.deviceId, n: (d.label || 'Camera ' + (i + 1)).replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)/i, '').slice(0, 40) })).filter(d => d.id); } catch (e) {}
+        if (link && link.isOpen) link.send('ctl', { k: 'camlist', list, cur: fixed.devId() || '' }); })();
+    }
+    else if (m.k === 'camset') {   // #734 CONFIRM: use this camera (starts the webcam if it isn't running)
+      (async () => { let n = ''; try { await fixed.useDev(String(m.id || '')); if (!fixed.on) await fixed.start(); n = fixed.camName(); } catch (e) { n = 'camera error: ' + (e.message || e); }
+        if (link && link.isOpen) link.send('ctl', { k: 'camname', n, last: false }); sendCst(true); })();
     }
     else if (m.k === 'camoff') { if (fixed.on) fixed.stop(); camSteps = 0; sendCst(true); }   // #591 WEBCAM off from the tablet
     else if (m.k === 'live') { const was = liveOn, wasG = liveGreen, wasP = livePcam; liveOn = !!m.on; liveSolo = !!m.solo; livePcam = !!m.pcam; liveGreen = !!m.green; if (liveOn && (!was || wasG !== liveGreen || wasP !== livePcam)) liveStart(); else if (!liveOn) liveStop(); showLiveCard(liveOn); }   // #238 LIVE CAM (#239 SOLO, #347 PHONE CAM pcam / green)   // #238 LIVE CAM (#239 SOLO)

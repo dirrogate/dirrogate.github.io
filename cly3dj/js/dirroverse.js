@@ -57,7 +57,7 @@ export const colLerp = (a, b, k) => !a ? b : { m: a.m.map((v, i) => v + (b.m[i] 
 
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
 const FS = `uniform sampler2D tBase, tMask, tSpill, tCam, tFog; uniform vec2 plate, camSz; uniform int nW; uniform mat3 Hm[4]; uniform vec4 fp[4];
-uniform float sil[4]; uniform float stack; uniform vec3 zm; uniform vec3 lvS, lvB, lvG; uniform float lvSat; uniform float crop, spillK, cutOld, camOn, match, mist, rainK, reflK, fogOn, time; uniform vec3 grade, camLight, camMean, camStd, tgtMean, tgtStd;
+uniform float sil[4]; uniform float stack; uniform vec3 zm; uniform vec3 lvS, lvB, lvG; uniform float lvSat; uniform sampler2D tPlate; uniform float winOrig; uniform float crop, spillK, cutOld, camOn, match, mist, rainK, reflK, fogOn, time; uniform vec3 grade, camLight, camMean, camStd, tgtMean, tgtStd;
 varying vec2 vUv;
 // #709 stacked loop (plate_matte.mp4): the plate on top, a moving matte below (white = the window is clear, black = a car passes in front)
 vec2 bu(vec2 uv) { return stack > 0.5 ? vec2(uv.x, 0.5 + 0.5 * uv.y) : uv; }
@@ -98,6 +98,7 @@ void main() {
   club = club * (1.0 - fd) + vec3(0.05, 0.058, 0.07) * fd;   // the set's fog over the live window, as over the plate
   float k = m * hit * camOn;
   vec3 lit = bl * (1.0 + sp * camOn * (1.0 - m) * (camLight * spillK - cutOld));   // the club's light on the wall, sill and wet ground
+  if (winOrig > 0.5) { club = lin(texture2D(tPlate, zu).rgb); k = m; lit = bl; }   // #735 ORIGINAL WINDOW: the plate's own window (a still), no webcam, no club light
   gl_FragColor = vec4(gam(mix(lit, club, k)), 1.0);
 }`;
 
@@ -112,7 +113,7 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     camSz: { value: new THREE.Vector2(1280, 720) }, nW: { value: 0 }, Hm: { value: [0, 1, 2, 3].map(() => new THREE.Matrix3()) },
     fp: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0.4, 0.5, 1, 0.72)) }, sil: { value: [0, 0, 0, 0] }, crop: { value: 0.86 },
     grade: { value: new THREE.Vector3(2.3, 0.06, 0.88) }, camLight: { value: new THREE.Vector3(1, 1, 1) }, spillK: { value: 0.95 }, cutOld: { value: 0.5 }, camOn: { value: 1 },
-    tFog: { value: black }, stack: { value: 0 }, match: { value: 0.7 }, mist: { value: 0.35 }, rainK: { value: 0.7 }, reflK: { value: 0.07 }, fogOn: { value: 0 }, time: { value: 0 },
+    tFog: { value: black }, tPlate: { value: black }, winOrig: { value: 0 }, stack: { value: 0 }, match: { value: 0.7 }, mist: { value: 0.35 }, rainK: { value: 0.7 }, reflK: { value: 0.07 }, fogOn: { value: 0 }, time: { value: 0 },
     camMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, camStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, tgtMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, tgtStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, zm: { value: new THREE.Vector3(1, 0.5, 0.5) }, lvS: { value: new THREE.Vector3(0, 0, 0) }, lvB: { value: new THREE.Vector3(0, 0, 0) }, lvG: { value: new THREE.Vector3(1, 1, 1) }, lvSat: { value: 0.85 } };
   const mat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: FS, depthTest: false, depthWrite: false });
   const sc = new THREE.Scene(), mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); mesh.frustumCulled = false; sc.add(mesh);
@@ -210,8 +211,9 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     vids[cur].currentTime = 0; if (air) vids[cur].play().catch(() => {});
     if (!arr.paused) arr.pause(); S.playing = '';
     plateStats(nx.base + 'plate.png?' + nx.t, ws.map(w => w.quad), PW, PH);
+    curBase = nx.base + 'plate.png?' + nx.t;
     S.set = nx.name; S.files = nx.fl; S.arrivals = nx.fl.filter(x => /^arrival_.*\.mp4$/i.test(x)); S.loading = '';
-    ready = true; S.status = `${nx.name}: ${PW}×${PH}, ${ws.length} club window(s)${nx.stk ? ', moving matte' : ''}${S.arrivals.length ? ', ' + S.arrivals.length + ' arrival(s)' : ''}`;
+    ready = true; refreshOrig(); S.status = `${nx.name}: ${PW}×${PH}, ${ws.length} club window(s)${nx.stk ? ', moving matte' : ''}${S.arrivals.length ? ', ' + S.arrivals.length + ' arrival(s)' : ''}`;
     post();
   }
   function commit() { if (!pending) return false; apply(pending); return true; }
@@ -252,5 +254,13 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     else { if (!v.paused) v.pause(); if (!arr.paused) arr.pause(); }
   }
   function zoom(z) { zS = Math.max(1, Math.min(3, +z || 1)); }   // #711
-  return { target, zoom, list, load, commit, arrive, renderArrival, render, active, get w() { return W; }, get h() { return H; }, get ready() { return ready; }, get pendingName() { return pending ? pending.name : ''; } };
+  // #735 ORIGINAL WINDOW (right-click a scene on the desk): the plate's own window picture instead of the webcam
+  let curBase = '', origUrl = '', origSeq = 0;
+  async function refreshOrig() {
+    const on = !!(S.set && (S.orig || []).includes(S.set)), seq = ++origSeq;
+    if (!on) { U.winOrig.value = 0; return; }
+    if (origUrl !== curBase || U.tPlate.value === black) { const t = await texLoad(curBase); if (seq !== origSeq) { if (t) t.dispose(); return; } if (U.tPlate.value !== black) U.tPlate.value.dispose(); U.tPlate.value = t || black; origUrl = curBase; }
+    U.winOrig.value = U.tPlate.value !== black ? 1 : 0;
+  }
+  return { refreshOrig, target, zoom, list, load, commit, arrive, renderArrival, render, active, get w() { return W; }, get h() { return H; }, get ready() { return ready; }, get pendingName() { return pending ? pending.name : ''; } };
 }

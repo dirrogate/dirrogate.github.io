@@ -324,7 +324,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
   }
 
   // #185 media pushes from the phone's library: one file at a time, resumable (medialib.beginReceive)
-  let rx = null, rxQ = Promise.resolve(), camState = null, camLast = false;   // #591
+  let rx = null, rxQ = Promise.resolve(), camState = null, camLast = false, camList = null;   // #734 camList: the linked machine's cameras   // #591
   async function mediaList() { const all = await media.listAll(); const items = []; for (const f of media.FOLDERS) for (const it of all[f]) items.push([f, it.name, it.size]); return items; }
   function sendList() { mediaList().then(items => { if (link.isOpen) link.send('ctl', { k: 'mls', items }); }); }
   function onMediaMsg(m) {
@@ -428,13 +428,14 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       if (m.k === 'qgo' || m.k === 'qok') { resolveWait(m.f, m.n, m.k, m); return; }   // #206 media sync, Quest to phone
       if (m.k[0] === 'm' && m.k !== 'mr') { onMediaMsg(m); return; }   // #185 mls? / mput / mdel (#206 mls / mpullx)
       if (m.k === 'cst') { camState = m; onCam && onCam(m); return; }
+      if (m.k === 'camlist') { camList = { list: m.list || [], cur: m.cur || '' }; onCam && onCam(camState); return; }   // #734
       if (m.k === 'camname') { camLast = !!m.last; toast && toast('WEBCAM: ' + String(m.n || 'camera').slice(0, 40) + (m.last ? ' · tap again = OFF' : ''), 2200); return; }   // #591   // #545 after NEXT CAMERA
       if (m.k === 'sst') { onStudio && onStudio('sst', m); return; }   // #380 the S8 studio's status (once a second)
       if (m.k === 'stuAck') { onStudio && onStudio('ack', m); return; }
       if (m.k === 'vjtake') { onStudio && onStudio('take', m); return; }   // #697 a DirroVJ desk press: last press wins
       if (m.k === 'qtwStop') { onStudio && onStudio('qstop', m); return; }   // #697 the desk's STOP of the Quest's own Twitch   // #556 DirroVJ got GO LIVE (else the Quest goes live itself)
       if (m.k === 'screen') { onScreen && onScreen(!!m.on); return; }   // #358   // #188 the phone's camera / key / look state
-      if (m.k === 'vjsine' || m.k === 'cxgrab' || m.k === 'vjshow' || m.k === 'vjask' || m.k === 'vjclog' || m.k === 'vjholo') { onVj && onVj(m); return; }   // #575 vjholo   // #523 vjshow: SHOWTIME! from the desk, #524 vjask / vjclog   // #507 DirroVJ scroller desk, #520 GRAB RGB-D (main.js checks the pairing)
+      if (m.k === 'vjsine' || m.k === 'cxgrab' || m.k === 'vjshow' || m.k === 'vjask' || m.k === 'vjclog' || m.k === 'vjholo' || m.k === 'vjdvs' || m.k === 'vjdvt') { onVj && onVj(m); return; }   // #575 vjholo   // #523 vjshow: SHOWTIME! from the desk, #524 vjask / vjclog   // #507 DirroVJ scroller desk, #520 GRAB RGB-D (main.js checks the pairing)
       if (m.k === 'cover?') { onCoverAsk(m.key); return; }   // #218
       if (m.k === 'covhave') { if (haveWait) { const w = haveWait; haveWait = null; w(m.keys || []); } return; }
       if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }
@@ -519,6 +520,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     get cam() { return link.isOpen && performance.now() - lastPing < 3500 ? camState : null; },
     camSet: o => link.isOpen && link.send('ctl', { k: 'cset', ...o }),
     camNext: () => link.isOpen && link.send('ctl', { k: 'camnext' }),
+    camListAsk: () => link.isOpen && link.send('ctl', { k: 'camlist?' }), get camList() { return link.isOpen ? camList : null; }, camSetDev: id => link.isOpen && link.send('ctl', { k: 'camset', id }),   // #734
     get camLast() { return link.isOpen && camLast; }, camOff: () => { camLast = false; return link.isOpen && link.send('ctl', { k: 'camoff' }); },   // #591   // #545 the linked phone / DirroVJ steps to its next camera
     // #380 S8 STUDIO: the packed scene + master sound on the phone's receive slots, its commands ('ctl') and the show camera's pose ('state')
     studio: { get ok() { return link.studioOk; }, get open() { return link.isOpen; }, set: (v, a, kbps) => link.setStudio(v, a, kbps),

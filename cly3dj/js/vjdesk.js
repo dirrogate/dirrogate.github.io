@@ -11,7 +11,7 @@ import * as media from './medialib.js';   // #532 IMAGES / VIDEOS / PANOS clip d
 import { holoDefaults, makeHoloDesk } from './holodesk.js';   // #573 HOLO: Holodancer performers (small modules; the atlas video loads on first use)
 import { Scroller } from './tools.js';
 import { DirroHost, fanUrl, roomKey } from './dirro-host.js';   // #674 DIRROGRAM from this laptop (SOLO)
-import { makeDirroverse, levelStats, lvLerp, lvGain } from './dirroverse.js';   // #662 DIRROVERSE: Cyber-Window sets (the studio on this laptop) on the buses   // #556 the same bitmap sine scroller as the Quest's, for the program when there is no Quest
+import { makeDirroverse, levelStats, lvLerp, lvGain, STUDIO as DV_STUDIO } from './dirroverse.js';   // #662 DIRROVERSE: Cyber-Window sets (the studio on this laptop) on the buses   // #556 the same bitmap sine scroller as the Quest's, for the program when there is no Quest
 // #550 DANCER: js/dancerdesk.js is imported only when the desk first needs her (its loaders, post chain and the 5 MB GLB stay out of the start)
 function dzDefaults() {
   const S = { loaded: false, loading: false, err: '', clip: '', clips: [], stage: 'rim', outfit: 'Red', speed: 1, soft: { c1: '#35d6ff', c2: '#ffa24a', rim: 1, face: 1 }, props: { manhole: false, pumpkin: false, fog: false }, fog: { den: 0.5, h: 0.8, speed: 0.6, col: 'cold' }, cam: { mode: 'orbit', x: 0, y: 8, zoom: 1 }, pv: false, rec: { on: false, t: 0, msg: '' } };
@@ -25,7 +25,7 @@ const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(positio
 // itself (similarity M: scale dz.y, turn dz.z, centre dzo) and the view flies into it over one bar, then carries on as normal.
 // The copy pops in first (dz.w = its size 0..1), the camera follows the log-spiral from identity to M, and at the end M^-1
 // brings every point back to where it started: no cut. dz.x = 0 off, else the zoom (0..1).
-const MIX_FS = `uniform sampler2D tA, tB; uniform vec4 fA, fB; uniform float kA, kB, x; uniform vec4 dz; uniform vec2 dzo; uniform float asp; uniform vec4 mg; uniform vec3 mgT; uniform vec3 qS, qB, qG; uniform vec2 qA; varying vec2 vUv;
+const MIX_FS = `uniform sampler2D tA, tB; uniform vec4 fA, fB; uniform float kA, kB, x; uniform vec4 dz; uniform vec2 dzo; uniform float asp; uniform vec4 mg; uniform vec3 mgT; uniform vec3 qS, qB, qG; uniform vec2 qA; uniform float tr; varying vec2 vUv;
 vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
 vec3 src(sampler2D t, vec4 f, float k, vec2 uv) { if (k < 0.5) return vec3(0.0); vec3 c = texture2D(t, f.xy + uv * f.zw).rgb; return k > 1.5 ? clamp(srgb(c), 0.0, 1.0) : c; }
 vec3 qLv(vec3 c) { vec3 l = qB + (pow(max(c, vec3(0.0)), vec3(2.2)) - qS) * qG; l = max(l, 0.0); float m = dot(l, vec3(0.2126, 0.7152, 0.0722)); l = vec3(m) + (l - vec3(m)) * 0.85; return pow(clamp(l, 0.0, 1.0), vec3(1.0 / 2.2)); }
@@ -51,7 +51,9 @@ void main() {
   vec3 ca = src(tA, fA, kA, uv), cb = src(tB, fB, kB, uv);   // #712 MATCH SCENE on a QUEST bus: the cast takes the DirroVerse scene's palette
   if (qA.x > 0.0) ca = mix(ca, qLv(ca), qA.x);   // #714 levels: the cast's blacks onto the target's shadows, its whites onto its lit parts
   if (qA.y > 0.0) cb = mix(cb, qLv(cb), qA.y);
-  vec3 pc = mix(ca, cb, x) * edge;
+  float kx = x;   // #735 T-bar WIPE: bus B comes in from the top (tr 1) or from the bottom (tr 2), a soft edge
+  if (tr > 0.5) { float sf = 0.025, e = tr < 1.5 ? 1.0 + sf - x * (1.0 + 2.0 * sf) : x * (1.0 + 2.0 * sf) - sf; kx = tr < 1.5 ? smoothstep(e - sf, e + sf, vUv.y) : 1.0 - smoothstep(e - sf, e + sf, vUv.y); }
+  vec3 pc = mix(ca, cb, kx) * edge;
   if (mg.w > 0.5) {   // #711 MASTER GRADE: exposure (stops, in linear light), gamma, colour tint (keeps brightness)
     vec3 l = pow(max(pc, vec3(0.0)), vec3(2.2)) * exp2(mg.x) * mgT;
     pc = pow(clamp(l, 0.0, 1.0), vec3(1.0 / (2.2 * mg.y)));
@@ -173,8 +175,8 @@ const SOURCES = ['quest', 'fractal', 'webcam', 'led', 'comic', 'dancer', 'holo',
 const HP0 = { x: 0.5, y: 0.8, h: 0.4, el: 8, face: 0, flip: false, shadow: 0.55, light: 0.6, cut: 0 };   // #668 x, y = her feet (0..1, from the top left), h = her height (part of the frame)
 export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, studioCtl }) {
   const D = { a: 'quest', b: 'fractal', x: 0, fadeTo: null, fadeMs: 2000, fr: { type: 'mandel', pal: 'green', speed: 1, height: 1, react: 0, beat: 0.8, cycle: 0.3, zoom: 1 }, kick: 0, audio: 'quest', lineDev: '', lineErr: '', sine: true, ch: '', chat: 'off', media: '', ledKind: 'clip', panoYaw: 0, dz: dzDefaults(), holo: holoDefaults(), chDesk: '', audioAuto: false, lsc: '', cue: '',
-    tempo: 'tap', bpm: 0, beatN: 0, drz: (() => { try { return { bars: 0, size: 0.4, turn: true, ...JSON.parse(localStorage.getItem('vire.vjDrz') || '{}') }; } catch { return { bars: 0, size: 0.4, turn: true }; } })(), dv: (() => { const o = { set: '', sets: [], files: [], arrivals: [], status: '', studio: '', cam: true, playing: '', job: null, match: 0.7, feed: 'cam', verses: [], verse: '', auto: 0, ta: false, tsec: 60, tleft: 0, hold: false, loading: '', next: '', versesErr: '', gearSt: '' };   // #707 feed cam | gear, DirroVerse banks, AUTO bars
-      try { const v = JSON.parse(localStorage.getItem('vire.vjDv') || '{}'); if (v.feed === 'gear' || v.feed === 'cam') o.feed = v.feed; if (v.cam === false) o.cam = false; if ([0, 8, 16, 32].includes(+v.auto)) o.auto = +v.auto; if (v.ta) o.ta = true; if (v.zm === false) o.zm = false; if (v.nz) o.nz = true; if (Number.isFinite(+v.match) && v.match !== null) o.match = Math.max(0, Math.min(1, +v.match)); if (v.qm === false) o.qm = false; if (+v.tsec >= 30 && +v.tsec <= 180) o.tsec = +v.tsec; if (v.verse) o.verse = String(v.verse); } catch {} return o; })(),
+    tempo: 'tap', bpm: 0, beatN: 0, tr: (() => { try { return localStorage.getItem('vire.vjTr') || 'mix'; } catch { return 'mix'; } })(), drz: (() => { try { return { bars: 0, size: 0.4, turn: true, ...JSON.parse(localStorage.getItem('vire.vjDrz') || '{}') }; } catch { return { bars: 0, size: 0.4, turn: true }; } })(), dv: (() => { const o = { set: '', sets: [], files: [], arrivals: [], status: '', studio: '', cam: true, playing: '', job: null, match: 0.7, feed: 'cam', verses: [], verse: '', auto: 0, ta: false, tsec: 60, tleft: 0, hold: false, loading: '', next: '', versesErr: '', gearSt: '' };   // #707 feed cam | gear, DirroVerse banks, AUTO bars
+      try { const v = JSON.parse(localStorage.getItem('vire.vjDv') || '{}'); if (v.feed === 'gear' || v.feed === 'cam') o.feed = v.feed; if (v.cam === false) o.cam = false; if ([0, 8, 16, 32].includes(+v.auto)) o.auto = +v.auto; if (v.ta) o.ta = true; if (v.zm === false) o.zm = false; if (v.nz) o.nz = true; if (Number.isFinite(+v.match) && v.match !== null) o.match = Math.max(0, Math.min(1, +v.match)); if (v.qm === false) o.qm = false; if (+v.tsec >= 30 && +v.tsec <= 180) o.tsec = +v.tsec; if (v.verse) o.verse = String(v.verse); if (Array.isArray(v.orig)) o.orig = v.orig.filter(x => typeof x === 'string').slice(0, 200); } catch {} return o; })(),
     cast: { on: false, label: '', l: 0, r: 0, t: 0, b: 0 }, hp: { ...HP0 }, gram: { on: false, st: 'Off', url: '', room: '' }, beatT: 0 };   // #667 CAST crop, #668 HOLO+CAM placement   // #662 master tempo (LINE IN / TAP) + DirroVerse   // #557 cue: 'a' | 'b' = the desk monitor shows that bus alone (program unchanged)
   try { D.chDesk = localStorage.getItem('vire.vjChat') || ''; } catch {}
   try { if (localStorage.getItem('vire.vjTempo') === 'line') D.tempo = 'line'; } catch {}   // #688 TAP unless LINE IN was picked (no mic opened by itself)   // #556 the desk's own Twitch chat channel (the Quest's wins while linked)
@@ -231,7 +233,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     U.value = C.rt.texture; fit.set(0, 0, 1, 1); return 1;
   }
   let ledTex = null, lastLedVid = null, ledImgTex = null, lastLedImg = null;
-  const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 }, dz: { value: new THREE.Vector4() }, dzo: { value: new THREE.Vector2() }, asp: { value: 16 / 9 }, mg: { value: new THREE.Vector4(0, 1, 0, 0) }, mgT: { value: new THREE.Vector3(1, 1, 1) }, qS: { value: new THREE.Vector3() }, qB: { value: new THREE.Vector3() }, qG: { value: new THREE.Vector3(1, 1, 1) }, qA: { value: new THREE.Vector2() } };   // #712 qM / qS / qT / qA: MATCH SCENE on the QUEST bus   // #704 dz / dzo: BEAT ZOOM   // #711 mg / mgT: MASTER GRADE
+  const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 }, dz: { value: new THREE.Vector4() }, tr: { value: 0 }, dzo: { value: new THREE.Vector2() }, asp: { value: 16 / 9 }, mg: { value: new THREE.Vector4(0, 1, 0, 0) }, mgT: { value: new THREE.Vector3(1, 1, 1) }, qS: { value: new THREE.Vector3() }, qB: { value: new THREE.Vector3() }, qG: { value: new THREE.Vector3(1, 1, 1) }, qA: { value: new THREE.Vector2() } };   // #712 qM / qS / qT / qA: MATCH SCENE on the QUEST bus   // #704 dz / dzo: BEAT ZOOM   // #711 mg / mgT: MASTER GRADE
   const mMat = new THREE.ShaderMaterial({ uniforms: mU, vertexShader: VS, fragmentShader: MIX_FS, depthTest: false, depthWrite: false }), mSc = quad(mMat);
   // #563 every DirroComics grab (GRAB QUEST / GRAB WEBCAM stills, GRAB RGB-D clips and stills) also lands in the desk's IMAGES or VIDEOS bank
   async function toBank(blob, name) {
@@ -422,7 +424,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     dvSave(); post();
   }
   const dvState = () => ({ on: !!D.dv.ta, sec: D.dv.tsec, left: D.dv.tleft || 0, verse: D.dv.verse || '', set: D.dv.set || '', n: dvScenes().length });
-  const dvSave = () => { try { localStorage.setItem('vire.vjDv', JSON.stringify({ feed: D.dv.feed, cam: D.dv.cam, auto: D.dv.auto, verse: D.dv.verse, ta: D.dv.ta, tsec: D.dv.tsec, zm: D.dv.zm, nz: D.dv.nz, match: D.dv.match, qm: D.dv.qm })); } catch {} };
+  const dvSave = () => { try { localStorage.setItem('vire.vjDv', JSON.stringify({ orig: D.dv.orig || [], feed: D.dv.feed, cam: D.dv.cam, auto: D.dv.auto, verse: D.dv.verse, ta: D.dv.ta, tsec: D.dv.tsec, zm: D.dv.zm, nz: D.dv.nz, match: D.dv.match, qm: D.dv.qm })); } catch {} };
   function cover(tw, th, W, H, out) { if (!tw || !th) return out.set(0, 0, 1, 1); const k = Math.max(W / tw, H / th), w = W / (tw * k), h = H / (th * k); return out.set((1 - w) / 2, (1 - h) / 2, w, h); }
   function bind(name, U, fit, W, H, questTex, now) {   // a bus's texture and its cover crop
     if (name === 'quest') { U.value = questTex; fit.set(0, 0, 1, 1); return 1; }
@@ -532,7 +534,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     comics.tick(questTex, now, dt); comicTex = used.includes('comic') ? comics.render(W, H) : null;   // #516
     mU.kA.value = D.x < 1 ? bind(D.a, mU.tA, mU.fA.value, W, H, questTex, now) : 0;
     mU.kB.value = D.x > 0 ? bind(D.b, mU.tB, mU.fB.value, W, H, questTex, now) : 0;
-    mU.x.value = D.x; drzTick(now, W / H); mgSet(); questMatch(questTex, now);
+    mU.x.value = D.x; mU.tr.value = D.tr === 'down' ? 1 : D.tr === 'up' ? 2 : 0; drzTick(now, W / H); mgSet(); questMatch(questTex, now);
     renderer.setRenderTarget(null); renderer.render(mSc, oc);
     if (lsc.on) { lsc.tick(dt); lscTex.needsUpdate = true; const ac = renderer.autoClear; renderer.autoClear = false; renderer.render(lscSc, oc); renderer.autoClear = ac; }   // #556 local scroller over the program (no Quest)
     if (moon.on) { moonMesh.scale.x = H / W; const ac = renderer.autoClear; renderer.autoClear = false; renderer.render(moonSc, oc); renderer.autoClear = ac; }   // #724 MOON CASE: the Moon, top right of the program
@@ -655,7 +657,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   }
   bc.onmessage = e => {
     const m = e.data || {}; peers = 1;
-    if (m.k && m.k !== 'hello' && m.k !== 'tw' && studioCtl && studioCtl.take) studioCtl.take();   // #697 a desk press while the Quest has DIRROVJ off: the desk has the show again
+    if (!e.fromQuest && m.k && m.k !== 'hello' && m.k !== 'tw' && studioCtl && studioCtl.take) studioCtl.take();   // (#735 a tablet press is not a desk press)   // #697 a desk press while the Quest has DIRROVJ off: the desk has the show again
     if (m.k === 'hello') { post(); if (!m.again) comics.sendList(); }
     else if (m.k === 'cx') comics.onMsg(m);   // #516 DirroComics
     else if (m.k === 'dz') { const p = dzLoad(); if (p) p.then(z => z && z.onMsg(m)); }
@@ -688,6 +690,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     }   // #523 / #530
     else if (m.k === 'bus') { if (SOURCES.includes(m.v)) { if (m.v === 'webcam' && !fixed.on && fixed.start) fixed.start().catch(() => {}); if (m.v === 'dancer') dzLoad(); if (m.v === 'holo') hoLoad(); if (m.v === 'dzcam') { if (!fixed.on && fixed.start) fixed.start().catch(() => {}); dzLoad(); } if (m.v === 'hocam') { if (!fixed.on && fixed.start) fixed.start().catch(() => {}); hoLoad(); } if (m.v === 'dverse') { const x = dvGet(); if (!D.dv.sets.length) x.list(); } D[m.bus === 'b' ? 'b' : 'a'] = m.v; } post(); }
     else if (m.k === 'x') { D.x = Math.max(0, Math.min(1, +m.v)); D.fadeTo = null; post(); }
+    else if (m.k === 'tr') { D.tr = ['mix', 'down', 'up'].includes(m.v) ? m.v : 'mix'; try { localStorage.setItem('vire.vjTr', D.tr); } catch {} post(); }   // #735 T-bar: MIX / WIPE ↓ / WIPE ↑
     else if (m.k === 'cue') { const b = m.bus === 'a' || m.bus === 'b' ? m.bus : ''; const live = b && ((b === 'a' && D.x <= 0) || (b === 'b' && D.x >= 1)); D.cue = !b || live || D.cue === b ? '' : b; post(); }   // #557 tap = CUE, tap again = out of CUE; the fully live bus can't be cued
     else if (m.k === 'cut') { D.x = D.x < 0.5 ? 1 : 0; D.fadeTo = null; post(); }
     else if (m.k === 'auto') { D.fadeMs = +m.ms || D.fadeMs; D.fadeTo = D.x < 0.5 ? 1 : 0; post(); }
@@ -713,6 +716,8 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       else if (m.act === 'zoom') { D.dv.zm = m.v == null ? D.dv.zm === false : !!m.v; DVZ.t0 = performance.now(); dvSave(); post(); }   // #711
       else if (m.act === 'nozoom') { D.dv.nz = m.v == null ? !D.dv.nz : !!m.v; dvSave(); post(); }
       else if (m.act === 'load') { DVZ.nextMan = true; DVZ.set = ''; if (m.verse != null) { D.dv.verse = String(m.verse); dvSave(); } x.load(String(m.set || '')); if (!fixed.on && fixed.start) fixed.start().catch(() => {}); }
+      else if (m.act === 'orig') {   // #735 a scene's window: ORIGINAL (the plate's own window) or the live webcam (the cutout)
+        const n = String(m.set || ''), a = new Set(D.dv.orig || []); if (m.v) a.add(n); else a.delete(n); D.dv.orig = [...a]; dvSave(); x.refreshOrig(); post(); }
       else if (m.act === 'cam') { D.dv.cam = !!m.v; dvSave(); if (D.dv.cam && !fixed.on && fixed.start) fixed.start().catch(() => {}); post(); }
       else if (m.act === 'feed') {   // #707 WINDOWS: OFF / WEBCAM / WEBCAM + GEAR
         D.dv.cam = m.v !== 'off'; if (m.v === 'gear' || m.v === 'cam') D.dv.feed = m.v; dvSave();
@@ -746,5 +751,28 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
   let idleT = 0; setInterval(() => { const now = performance.now(); if (now - outT < 1000 || !peers) return; if (dzNeed([])) try { dz.render(now); } catch (e) { console.warn('dancer idle', e); }   // #550 REC with no program frames
     const dt = idleT ? Math.min(0.25, (now - idleT) / 1000) : 0.12; idleT = now; try { comics.tick(null, now, dt); } catch (e) { console.warn('comics idle', e); } }, 120);
   const camWanted = () => shown('webcam') || shown('hocam') || shown('dzcam') || (shown('dverse') && !!D.dv.cam);   // #716 studio.js opens / closes the webcam from this
-  return { D, camWanted, dvAutoSet, dvState, post, output, setCast, needQuest, cleanPack, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null) || (autoTrack && autoTrack.readyState === 'live' ? autoTrack : null), queue, comics, onCx: m => { if (m.star) { comics.onStar(m.star); return; } if (m.blob) { comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); toBank(m.blob, m.name || 'quest-rgbd'); } else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
+  // #735 the tablet's DIRROVERSE page: the scene list (with whether each has a plate loop), a small picture of each, what is loaded / next / on air
+  const dvR = { L: null, sent: new Set(), last: '', lastT: 0, has: new Map(), hasT: 0, busy: false };
+  async function dvRemoteTick() {
+    const L = getLink(); if (!(L && L.isOpen)) { dvR.L = null; return; }
+    if (dvR.L !== L) { dvR.L = L; dvR.sent.clear(); dvR.last = ''; }
+    const dv = D.dv || {}, sets = dv.sets || [], now = performance.now();
+    if (sets.length && now - dvR.hasT > 60000 && !dvR.busy) { dvR.busy = true; dvR.hasT = now;   // which scenes can play (a plate loop), once a minute
+      Promise.all(sets.map(n => fetch(`${DV_STUDIO}/api/set/${encodeURIComponent(n)}/files`).then(r => r.json()).then(j => dvR.has.set(n, (j.files || []).includes('plate_loop.mp4') ? 1 : 0)).catch(() => {}))).finally(() => { dvR.busy = false; dvR.last = ''; }); }
+    const st = { k: 'vjdvs', set: dv.set || '', next: dv.next || '', loading: dv.loading || '', status: dv.status || '', verse: dv.verse || '', a: D.a, b: D.b, x: Math.round(D.x * 100) / 100, list: sets.map(n => [n, dvR.has.has(n) ? dvR.has.get(n) : null]) };
+    const js = JSON.stringify(st); if (js !== dvR.last || now - dvR.lastT > 5000) { dvR.last = js; dvR.lastT = now; L.send('ctl', st); }
+    const n = sets.find(x => !dvR.sent.has(x)); if (n && !dvR.thumbBusy) { dvR.thumbBusy = true; dvR.sent.add(n);   // one small picture a second
+      try { const im = new Image(); im.crossOrigin = 'anonymous'; im.src = `${DV_STUDIO}/api/plateframe?name=${encodeURIComponent(n)}&t=0&w=240`; await im.decode();
+        const c = document.createElement('canvas'); c.width = 192; c.height = Math.round(192 * im.naturalHeight / im.naturalWidth) || 108; c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+        const l2 = getLink(); if (l2 && l2.isOpen) l2.send('ctl', { k: 'vjdvt', n, img: c.toDataURL('image/jpeg', 0.7) }); } catch { } finally { dvR.thumbBusy = false; } }
+  }
+  setInterval(() => { dvRemoteTick().catch(() => {}); }, 1000);
+  function onQdv(m) {   // the tablet: load a scene (and put DIRROVERSE on the off-air bus if it is on neither), or put it on a bus
+    const run = d => bc.onmessage({ data: d, fromQuest: true });
+    if (m.act === 'list') { if (!(D.dv.sets || []).length) run({ k: 'dv', act: 'list' }); }
+    else if (m.act === 'bus' && (m.bus === 'a' || m.bus === 'b')) run({ k: 'bus', bus: m.bus, v: 'dverse' });
+    else if (m.act === 'load' && m.set) { if (D.a !== 'dverse' && D.b !== 'dverse') run({ k: 'bus', bus: D.x < 0.5 ? 'b' : 'a', v: 'dverse' }); run({ k: 'dv', act: 'load', set: String(m.set) }); }
+    dvR.last = '';
+  }
+  return { onQdv, D, camWanted, dvAutoSet, dvState, post, output, setCast, needQuest, cleanPack, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null) || (autoTrack && autoTrack.readyState === 'live' ? autoTrack : null), queue, comics, onCx: m => { if (m.star) { comics.onStar(m.star); return; } if (m.blob) { comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); toBank(m.blob, m.name || 'quest-rgbd'); } else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
 }

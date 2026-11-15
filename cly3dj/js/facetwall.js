@@ -46,7 +46,7 @@ const GLASS_VS = `varying vec2 vUv; varying vec3 vLoc; varying vec3 vWN; varying
 void main() {
   vUv = uv; vLoc = position; vec4 wp = modelMatrix * vec4(position, 1.0); vWP = wp.xyz; vWN = normalize(mat3(modelMatrix) * normalize(vec3(-position.x, 0.0, -position.z)));
   gl_Position = projectionMatrix * viewMatrix * wp; }`;
-const GLASS_FS = `uniform sampler2D map; uniform sampler2D rainMap; uniform vec4 rainP; uniform float gain; uniform mat4 wallInv; uniform vec4 wallG; uniform float wallT; varying vec2 vUv; varying vec3 vLoc; varying vec3 vWN; varying vec3 vWP;
+const GLASS_FS = `uniform sampler2D map; uniform float hdr; uniform sampler2D rainMap; uniform vec4 rainP; uniform float gain; uniform mat4 wallInv; uniform vec4 wallG; uniform float wallT; varying vec2 vUv; varying vec3 vLoc; varying vec3 vWN; varying vec3 vWP;
 void main() {
   // wallG = (arc radians, radius, height, y offset)
   vec2 uv = vUv; float arc = wallG.x, R = wallG.y, H = wallG.z;
@@ -71,6 +71,7 @@ void main() {
   }
   uv += bend / vec2(max(arc * R, 0.1), H) * 1.6;
   vec3 col = texture2D(map, uv).rgb * gain;
+  if (hdr > 0.5) col = clamp((col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14), 0.0, 1.0);   // #732 DirroDj📹: the DJ CAM picture is linear HDR (ACES, like the stream)
   col *= vec3(0.86, 0.92, 1.0);   // cool glass tint
   vec3 V = normalize(cameraPosition - vWP); float fr = pow(1.0 - abs(dot(V, normalize(vWN))), 4.0);
   float streak = smoothstep(0.75, 1.0, sin((vUv.x * arc * R * 1.3 + vUv.y * H * 0.9) * 2.1)) * 0.035 + smoothstep(0.9, 1.0, sin((vUv.x * arc * R * 0.7 - vUv.y * H * 0.4) * 1.3 + 1.7)) * 0.02;
@@ -96,7 +97,7 @@ export class FacetWall {
     this.canvas = document.createElement('canvas'); this.canvas.width = 1024; this.canvas.height = 456;
     this.g2d = this.canvas.getContext('2d'); this.screenTex = this._canvasTex();
     this._buildFractalRT();
-    this.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: this.fractalRT.texture }, gain: { value: 1 }, wallInv: { value: new THREE.Matrix4() }, wallG: { value: new THREE.Vector4(2.6, 1.85, 2.15, YOFF) }, wallT: { value: 0 }, rainMap: { value: null }, rainP: { value: new THREE.Vector4(0, 0, 0, 0) } },
+    this.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: this.fractalRT.texture }, gain: { value: 1 }, wallInv: { value: new THREE.Matrix4() }, wallG: { value: new THREE.Vector4(2.6, 1.85, 2.15, YOFF) }, wallT: { value: 0 }, hdr: { value: 0 }, rainMap: { value: null }, rainP: { value: new THREE.Vector4(0, 0, 0, 0) } },
       vertexShader: GLASS_VS, fragmentShader: GLASS_FS, side: THREE.DoubleSide, toneMapped: false });   // #703 the glass window wall
     this.mesh = new THREE.Mesh(this._buildGeo(), this.mat); this.mesh.userData.noMirror = true; g.add(this.mesh);
     this.frameMat = new THREE.MeshStandardMaterial({ color: FRAME_COL, metalness: 0.65, roughness: 0.4 });
@@ -243,12 +244,15 @@ export class FacetWall {
     this.obj.updateMatrixWorld(); this.mat.uniforms.wallInv.value.copy(this.obj.matrixWorld).invert();   // #703 each eye's ray, in the wall's own space
     const p = this.beat ? pulse : 0;
     this.mat.uniforms.gain.value = 1 + 0.6 * p;   // not tone-mapped: above 1 = brighter
+    const U = this.mat.uniforms;   // #732 ext: a GPU picture (DirroDj📹's camera) in place of the 2D screen canvas
+    if (this.mode === 'screen' && this.ext) { U.map.value = this.ext; U.hdr.value = 1; }
+    else { U.hdr.value = 0; if (this.mode === 'screen' && U.map.value !== this.screenTex) U.map.value = this.screenTex; }
     if (this.mode === 'fractal') {
       const u = this.fractalMat.uniforms;
       u.time.value += dt * this.v.speed; this.hue += dt * 0.06 * this.v.cycle; u.hue.value = this.hue; u.pulse.value = p;
       const r = this.renderer, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled;
       r.xr.enabled = false; r.setRenderTarget(this.fractalRT); r.render(this.fractalScene, this.fractalCam); r.setRenderTarget(prevRT); r.xr.enabled = prevXR;
-    } else if (wallSource && performance.now() - this._lastDraw > 50) {   // ~20 fps is plenty for a backdrop
+    } else if (!this.ext && wallSource && performance.now() - this._lastDraw > 50) {   // ~20 fps is plenty for a backdrop
       this._lastDraw = performance.now();
       const g = this.g2d, W = this.canvas.width, H = this.canvas.height, layers = wallSource() || [];
       g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.fillStyle = '#060608'; g.fillRect(0, 0, W, H);

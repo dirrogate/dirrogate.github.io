@@ -546,7 +546,7 @@ function stepMonitor(now) {
   const tag = live ? '● LIVE ' + S.elapsed() : con ? 'CONNECTING…' : 'REHEARSAL · OFF AIR';
   g.font = '700 13px system-ui,sans-serif'; g.textBaseline = 'middle'; const tw = g.measureText(tag).width;
   g.fillStyle = live ? 'rgba(200,20,30,0.85)' : 'rgba(0,0,0,0.6)'; g.fillRect(6, 6, tw + 14, 20); g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(tag, 13, 16.5);
-  g.textAlign = 'right'; g.fillStyle = 'rgba(0,0,0,0.6)'; const sl = STREAM_SRC[S.source] || ''; const sw = g.measureText(sl).width; g.fillRect(W - sw - 20, 6, sw + 14, 20); g.fillStyle = '#dfe6f2'; g.fillText(sl, W - 13, 16.5);
+  g.textAlign = 'right'; g.fillStyle = 'rgba(0,0,0,0.6)'; const sl = S.stu && S.stu.on ? 'DIRROVJ · ' + (S.stu.mode === 'show' ? 'SHOWTIME!' : 'WEBCAM+GEAR!') : STREAM_SRC[S.source] || '';   // #734 const sw = g.measureText(sl).width; g.fillRect(W - sw - 20, 6, sw + 14, 20); g.fillStyle = '#dfe6f2'; g.fillText(sl, W - 13, 16.5);
   g.textBaseline = 'alphabetic'; monTex.needsUpdate = true;
 }
 function setPreview(on) {
@@ -603,17 +603,17 @@ function onLiveTrack(t) {
 const livePossible = () => !!(liveTrack && spect && spect.ui && spect.ui().phone);
 function isLive(m) { return m === 'live' || m === 'solo'; }   // #239 SOLO = the phone's camera only, no gear
 function nextLedMode(m) {   // OFF > CLIPS > VIDVINYL ('decks') > MANDEL > RETRO-SCENE (#439) > AVACAM ('cam', #240 names) > LIVE > SOLO (the last two only with the phone linked) > OFF
-  const order = ['off', 'clips', 'decks', 'mandel', 'retro', 'vdancer', 'meta', 'cam', 'live', 'solo', 'screen'];   // #358 PHONE SCREEN only while the phone shares
+  const order = ['off', 'clips', 'decks', 'mandel', 'retro', 'vdancer', 'meta', 'cam', 'screen'];   // #731 LIVE and SOLO removed (owner)   // #358 PHONE SCREEN only while the phone shares
   let i = order.indexOf(m);
   for (let k = 0; k < order.length; k++) { i = (i + 1) % order.length; const o = order[i]; if (o === 'screen' ? phoneScreen && livePossible() : !isLive(o) || livePossible()) return o; }
   return 'off';
 }
 function clipsMode() { if (isLive(ledMode) && spect && spect.liveCam && !streamPhone()) spect.liveCam(false); ledMode = 'clips'; led.kind = null; fxTex = null; }   // #238 a clip from the LED list ends LIVE
-const LED_LABEL = { off: 'CYCLO OFF', clips: 'CYCLO CLIPS', decks: 'CYCLO VIDVINYL', mandel: 'CYCLO MANDEL', retro: 'CYCLO RETRO-SCENE', card: 'CYCLO CARD', vdancer: 'CYCLO VECTOR-DANCER', meta: 'CYCLO METABALLS', cam: 'CYCLO DirroDj📹', live: 'CYCLO LIVE', solo: 'CYCLO SOLO', screen: 'CYCLO PHONE SCREEN' };   // #537
+const LED_LABEL = { off: 'CYCLOWALL OFF', clips: 'CYCLOWALL CLIPS', decks: 'CYCLOWALL VIDVINYL', mandel: 'CYCLOWALL MANDEL', retro: 'CYCLOWALL RETRO-SCENE', card: 'CYCLOWALL CARD', vdancer: 'CYCLOWALL VECTOR-DANCER', meta: 'CYCLOWALL METABALLS', cam: 'CYCLOWALL DirroDj📹', live: 'CYCLOWALL LIVE', solo: 'CYCLOWALL SOLO', screen: 'CYCLOWALL PHONE SCREEN' };   // #537
 let phoneScreen = false;   // #358 the spectator phone is sharing its screen (its video slot carries it)
 function onPhoneScreen(on) {
   phoneScreen = on;
-  if (on) toast('Phone is sharing its screen: CYCLO PHONE SCREEN on the VISUALS page', 3500);
+  if (on) toast('Phone is sharing its screen: CYCLOWALL PHONE SCREEN on the VISUALS page', 3500);
   else if (ledMode === 'screen') setLedMode('off');
   drawMixScreen();
 }
@@ -665,10 +665,10 @@ async function cardWallSet(file, show = true) {   // the CARD page's pick (null 
   cardWall.pic = null; cardWall.loop = null; cardWall.file = file || null; cardWall.name = file ? file.name : '';
   if (!file) { if (ledMode === 'card') setLedMode(cardWall.prev && cardWall.prev !== 'card' ? cardWall.prev : 'off'); return; }
   if ((/\.gif$/i.test(file.name) || file.type === 'image/gif') && typeof ImageDecoder !== 'undefined') {
-    toast('Preparing the GIF for the Cyclo…', 2000);
-    try { cardWall.loop = await gifLoop(file); } catch (e) { console.warn('GIF for the Cyclo', e); }
+    toast('Preparing the GIF for the CYCLOWALL…', 2000);
+    try { cardWall.loop = await gifLoop(file); } catch (e) { console.warn('GIF for the CYCLOWALL', e); }
   }
-  if (!cardWall.loop) { try { cardWall.pic = await createImageBitmap(file); } catch (e) { toast('That picture would not open for the Cyclo', 2500); return; } }
+  if (!cardWall.loop) { try { cardWall.pic = await createImageBitmap(file); } catch (e) { toast('That picture would not open for the CYCLOWALL', 2500); return; } }
   if (cardWall.file !== file) return;   // another pick came meanwhile
   if (show && cardWall.on) { if (ledMode !== 'card') cardWall.prev = ledMode; setLedMode('card'); ledFx.loopT0 = performance.now(); }
   else drawMixScreen();
@@ -799,18 +799,18 @@ async function grabLoop() {
   grab.loops.unshift(L); while (grab.loops.length > 4) grab.loops.pop();
   grab.on = false;
   showLoop(L);
-  toast('Loop grabbed: on the Cyclo now (also in VISUALS > Video)', 2500); if (videoPage && vpFolder === 'Video') vpLoad(); else drawMixScreen();
+  toast('Loop grabbed: on the CYCLOWALL now (also in VISUALS > Video)', 2500); if (videoPage && vpFolder === 'Video') vpLoad(); else drawMixScreen();
 }
-function showLoop(L) {   // #441 a grabbed loop on the Cyclo (RETRO-SCENE shows it)
+function showLoop(L) {   // #441 a grabbed loop on the CYCLOWALL (RETRO-SCENE shows it)
   if (ledMode !== 'retro') setLedMode('retro');
   ledFx.s = 'loop'; ledFx.li = Math.max(0, grab.loops.indexOf(L)); ledFx.loop = L; ledFx.loopT0 = performance.now(); ledFx.sBar = ledFx.bar; drawMixScreen();
 }
 const retroIcon = new Image(); retroIcon.onload = () => { if (toolsPage === 'wall') drawMixScreen(); }; retroIcon.src = 'retroscene.png';   // the owner's RETRO SCENE disk
-var ledPreCam, ledLastOn, ledLastVis, ledLastBack, cycloBg;   // #545 cycloBg: the CYCLO page's 'OFF: BG VISUALS' step; any other OFF is black   // #538 (see toggleDjCam / cycloOffCycle below); var with no value: setLedMode may run before this line
+var ledPreCam, ledLastOn, ledLastVis, ledLastBack, cycloBg;   // #545 cycloBg: the CYCLOWALL page's 'OFF: BG VISUALS' step; any other OFF is black   // #538 (see toggleDjCam / cycloOffCycle below); var with no value: setLedMode may run before this line
 function setLedMode(m, kind) {
   if (m === 'clips') {   // #439 kind: 'video' = CLIPS, 'image' = PICTURES (the WALL page's tiles); none = the whole LED LIST
     led.kind = kind || null;
-    if (!led.pool().length) { if (kind) { toast(kind === 'image' ? 'No pictures in the CYCLO LIST (VISUALS > Images > + CYCLO)' : 'No clips in the CYCLO LIST (VISUALS > Video > + CYCLO)', 3000); return; } m = 'decks'; }
+    if (!led.pool().length) { if (kind) { toast(kind === 'image' ? 'No pictures in the CYCLOWALL LIST (VISUALS > Images > + CYCLOWALL)' : 'No clips in the CYCLOWALL LIST (VISUALS > Video > + CYCLOWALL)', 3000); return; } m = 'decks'; }
   }
   if (!isFxMode(m)) fxTex = null;
   if (m === 'vdancer') vdLoad(); else if (vd.vid && !vd.vid.paused) vd.vid.pause();   // #442
@@ -828,8 +828,8 @@ function setLedMode(m, kind) {
   else if (isFxMode(m)) { ledFx.t0 = performance.now(); ledFx.s = 'dancer'; ledFx.sBar = ledFx.autoBar = ledFx.bar; fxPaint(); }   // #439
   drawMixScreen();
 }
-// #538 (owner) DirroDJ📹 switches only the DirroDJ avatar camera on the Cyclo: off goes back to what the Cyclo showed
-// before (or the last visual), never CYCLO OFF. The CYCLO page's OFF ⟳ steps: ON (any source) > OFF with the background
+// #538 (owner) DirroDJ📹 switches only the DirroDJ avatar camera on the CYCLOWALL: off goes back to what the CYCLOWALL showed
+// before (or the last visual), never CYCLOWALL OFF. The CYCLOWALL page's OFF ⟳ steps: ON (any source) > OFF with the background
 // visuals > DOME only > back ON to the last state (and the backdrop it had).
 function restoreLed(s, fb) {
   if (s && s.m !== 'off') { if (s.m === 'clips') setLedMode('clips', s.kind || undefined); else setLedMode(s.m); }
@@ -845,7 +845,7 @@ function curBackdrop() { return streamer && streamer.showOpt ? streamer.showOpt.
 function cycloOffCycle() {
   if (ledMode !== 'off') {
     ledLastBack = curBackdrop(); setLedMode('off'); cycloBg = true; setBackdrop('visuals');
-    toast('CYCLO OFF: background visuals', 1800);
+    toast('CYCLOWALL OFF: background visuals', 1800);
   } else if (!dome.on) { setBackdrop('dome'); toast('DOME only', 1800); }
   else {
     setBackdrop(ledLastBack && ledLastBack !== 'dome' ? ledLastBack : 'visuals'); ledLastBack = null;
@@ -853,8 +853,31 @@ function cycloOffCycle() {
   }
   drawMixScreen();
 }
+// #730 VISUALS page CYCLOWALL ⟳ (owner): ... SOLO > DOME (the CYCLOWALL off and the last pano as the dome) > CLIPS ... Leaving DOME
+// puts back the backdrop it had before.
+var visDomeBack;
+function visCycle() {
+  const n = nextLedMode(ledMode);
+  if (n === 'off') { visDomeBack = curBackdrop(); setLedMode('off'); setBackdrop('dome'); toast('CYCLOWALL DOME: last pano', 1800); }
+  else { if (ledMode === 'off' && dome.on) { setBackdrop(visDomeBack && visDomeBack !== 'dome' ? visDomeBack : 'visuals'); visDomeBack = null; } setLedMode(n); }
+  drawMixScreen();
+}
+// #731 (owner) the CYCLOWALL button: if the wall isn't in the scene, it comes out as a 150 degree cyclorama behind the robot DJ
+// (screen mode: it shows the CYCLOWALL picture) and the CYCLOWALL switches to DirroDj📹; then the CYCLOWALL page opens.
+var djLastRig;
+function openCycloWall() {
+  if (facetWall && !facetWall.on) {
+    const dj = djLastRig || new THREE.Vector3(mixer.position.x, 1.6, mixer.position.z + 0.62);
+    facetWall.set('arc', 150); facetWall.setMode('screen', false);
+    facetWall.obj.position.set(dj.x, 0, dj.z); facetWall.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);   // panels behind the DJ (the DJ faces -z)
+    facetWall.setOn(true);
+    if (djcam) setLedMode('cam'); toast('CYCLOWALL behind the DJ: DirroDj📹', 2200);
+  }
+  setTools('wall');
+}
+function visCycLabel() { return ledMode === 'off' ? (dome.on ? 'CYCLOWALL DOME' : 'CYCLOWALL OFF') : LED_LABEL[ledMode]; }
 function cycloOffLabel() { return (ledMode !== 'off' ? 'OFF' : dome.on ? 'DOME ONLY' : 'OFF: BG VISUALS') + ' ⟳'; }
-// #589 SCREEN portal frames: one shared feed. CYCLO = what the Cyclo shows (redrawn from the same 2D layers the stream uses,
+// #589 SCREEN portal frames: one shared feed. CYCLOWALL = what the CYCLOWALL shows (redrawn from the same 2D layers the stream uses,
 // 640x360 at ~20 fps, no extra decoding), IMAGE = a still from the library, VIDEO = a library clip, looped and muted (one decoder
 // for every screen). Closed again as soon as no SCREEN frame is out.
 var pfeed = null, pScrLast = null;
@@ -863,7 +886,7 @@ function pScrSet(src, name, folder) {
   if (!portals) return; const m = pScrMem();
   if (src !== 'cyclo') { m[src] = { name, folder }; try { localStorage.setItem('vire.portalScr', JSON.stringify(m)); } catch (e) {} }
   portals.setScreenSrc({ src, name, folder });
-  toast(portals.screenN ? `Portal screens: ${src === 'cyclo' ? 'CYCLO' : name}` : `Portal screens set to ${src === 'cyclo' ? 'CYCLO' : name}. Make a frame a SCREEN on PORTALS SETUP (TYPE) to see it.`, 3000);
+  toast(portals.screenN ? `Portal screens: ${src === 'cyclo' ? 'CYCLOWALL' : name}` : `Portal screens set to ${src === 'cyclo' ? 'CYCLOWALL' : name}. Make a frame a SCREEN on PORTALS SETUP (TYPE) to see it.`, 3000);
   drawMixScreen();
 }
 function pScrStep() {
@@ -949,6 +972,7 @@ const snapDeck = (k, y) => isDeckKey(k) ? Math.round(y / DECK_STEP) * DECK_STEP 
 // #337 GOPRO: starts on the audience side of the mixer, just over its far edge, facing the DJ (the BOOTH angle)
 const gopro = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 0.3, mixer.position.z - 0.55), yaw: Math.PI }));
 // #389 GOPRO2 (owner): a second action camera, by default overhead: above the mixer and decks, looking straight down
+if (gopro) { gopro.defZoom = 'wide'; try { if (!localStorage.getItem('vire.gpWide732')) { gopro.setZoom('wide'); localStorage.setItem('vire.gpWide732', '1'); } } catch (e) {} }   // #732 the main GoPro starts WIDE
 const gopro2 = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 1.4, mixer.position.z), yaw: 0, pitch: -Math.PI / 2 }), 'vire.gopro2', 'wide');
 // #406 LASER: one movable head; start spot behind the DJ, 2.1 m up, firing forward (-z) over his head toward the audience side
 const laser = CAMERA_ROLE ? null : new Laser(rig, () => ({ p: new THREE.Vector3(mixer.position.x, 2.1, mixer.position.z + 0.9), yaw: 0, pitch: -0.1 }));
@@ -1213,6 +1237,32 @@ function localCamClose() {
   localCam.stream = null; localCam.on = false; if (localCam.video) localCam.video.srcObject = null;
 }
 setInterval(() => { if (localCam.on && (!streamer || streamer.source !== 'pcam' || streamer.stu.on || livePossible())) localCamClose(); }, 1000);   // off WEBCAM, or a phone / DirroVJ took over
+// #734 WEBCAM SETUP: WEBCAMS⟳ steps through the cameras of the linked DirroVJ laptop / phone (or this device's own), CONFIRM switches
+const camPick = { list: [], i: 0, cur: '', local: false };
+async function camPickLoad() {
+  if (spect && spect.camListAsk && pcamReadyLink()) {
+    spect.camListAsk(); camPick.local = false;
+    for (let k = 0; k < 20 && !(spect.camList && spect.camList.list); k++) await new Promise(r => setTimeout(r, 100));
+    const L = spect.camList; camPick.list = L ? L.list : []; camPick.cur = L ? L.cur : '';
+  } else {
+    let devs = []; try { devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput'); } catch (e) {}
+    camPick.list = devs.map((d, i) => ({ id: d.deviceId, n: (d.label || 'Camera ' + (i + 1)).slice(0, 40) })).filter(d => d.id); camPick.cur = localCam.id; camPick.local = true;
+  }
+  const j = camPick.list.findIndex(c => c.id === camPick.cur); camPick.i = j >= 0 ? j : 0;
+}
+function pcamReadyLink() { const S = streamer; return !!(S && (S.stu.on || !pcamReady())); }
+async function camPickStep() {
+  const fresh = !camPick.list.length; await camPickLoad();
+  if (!camPick.list.length) { toast('No cameras listed (start the webcam once so the browser can name them)', 3000); drawMixScreen(); return; }
+  if (!fresh) camPick.i = (camPick.i + 1) % camPick.list.length;
+  toast('WEBCAMS: ' + camPick.list[camPick.i].n + ' · CONFIRM to use it', 2000); drawMixScreen();
+}
+async function camPickConfirm() {
+  const c = camPick.list[camPick.i]; if (!c) return;
+  if (!camPick.local && spect && spect.camSetDev) { spect.camSetDev(c.id); camPick.cur = c.id; }
+  else { localCam.id = c.id; await localCamOpen(false); camPick.cur = localCam.id; if (streamer && streamer.source !== 'pcam' && !streamer.stu.on) streamer.setSource('pcam'); }
+  toast('WEBCAM: ' + c.n, 2000); drawMixScreen();
+}
 function chalkTap() {   // #377 the chalkboard object: tap = out / away; double-tap = back to its start spot and size, out
   if (!chalkboard) return; const now = performance.now();
   if (now - chalkTapT < 350) { chalkTapT = 0; chalkboard.reset(); chalkboard.setOn(true); chalkboard.save(); drawMixScreen(); return; }
@@ -1289,7 +1339,7 @@ function snapProp(p) {
 }
 // #600 SNAP SCAN and #601 SKYLIGHT removed (owner): with ROOM SNAP on, a frame carried near a scanned wall or the ceiling sticks to it;
 // a skylight is just a frame (not a doorway) carried up to the ceiling, with TYPE set to PANO
-// #597 playback SPEED: the dome's video pano (PANO tab) and the clips on the VIDEO tab (Cyclo / LED wall, the stream's copy,
+// #597 playback SPEED: the dome's video pano (PANO tab) and the clips on the VIDEO tab (CYCLOWALL / LED wall, the stream's copy,
 // SCREEN portals). Deck video vinyl is not touched (it follows the platter). 0.25x .. 2x, saved in settings.
 const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 const rateTxt = r => (r === 1 ? '1x' : r + 'x');
@@ -1645,7 +1695,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     if (isFxMode(ledMode)) return [{ el: fxBig }];   // #439 MANDEL / RETRO-SCENE, with the LED grid
     if (ledMode === 'clips' && led.video) return [{ el: led.video }];
     if (ledMode === 'clips' && led.img && led.curImage && !led.silent) return [{ el: led.curImage.up || led.curImage }];   // #729 the upright copy (2D users)
-    if (ledMode === 'off' && !cycloBg) return [];   // #545 CYCLO OFF is black (Cyclo and the VISUALS backdrop); only the CYCLO page's OFF: BG VISUALS keeps the clip playlist running
+    if (ledMode === 'off' && !cycloBg) return [];   // #545 CYCLOWALL OFF is black (CYCLOWALL and the VISUALS backdrop); only the CYCLOWALL page's OFF: BG VISUALS keeps the clip playlist running
     return streamClip();   // #337 the stream decodes the clip itself (follows the playlist, or runs the LED LIST on its own)
   },
   phoneTrack: () => (livePossible() ? liveTrack : null),
@@ -1662,7 +1712,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     if (sk) kd.copy(sk.dir).applyAxisAngle(_yAxis, settings.skyTurn * DEG + skySpin.ang).applyQuaternion(rig.getWorldQuaternion(new THREE.Quaternion())).normalize();
     return { keyDir: kd, keyCol: sk ? [sk.color.r, sk.color.g, sk.color.b] : [key.color.r, key.color.g, key.color.b], pano: skyAvg, skyReady: !!skybox.tex };
   },
-  pcamPrep: cam => pcamPrep(cam),
+  pcamPrep: cam => pcamPrep(cam), pcamLayers: () => pcamExtra,   // #734
   studio: () => (spect && spect.studio) || null,   // #380 S8 STUDIO: the spectator link's studio slots
   ledClip: () => (ledMode === 'clips' && led.on && led.name && led.video ? led.name : ''),   // #380 the LED clip the S8 can play from its own copy
   monitorOn: () => monOn,   // #376 the venue screen keeps the shot running unless PREVIEW wants it   // #374 the phone camera, for the 'behind the DJ' rule
@@ -1789,6 +1839,16 @@ function handsHides(hide, O, force) {   // force: PHONE CAM always shows your ow
 const tvLbl = S => S.stu.on ? (S.stuRun ? 'DIRROVJ: ON' : 'DIRROVJ') : S.tvUp ? 'DIRROTV: ON' : 'DIRROTV';   // #380 the STREAM page's screen button
 let tvDigits = '', tvForgetArm = 0;   // #376 the code being typed on the tablet; double-tap guard for FORGET TV
 let pcamAutoReh = false;   // #374 the PHONE CAM page started the off-air shot for its preview (so leaving the page stops it again)
+// #734 (owner) WEBCAM / WEBCAM+GEAR!: the robot DJ's hands only, where the controllers are (they follow the drawn hands, #469).
+// Needs the robot avatar (AVATAR on, style ROBOT): its helmet, bust and crests are hidden for this render. Otherwise natural hands.
+var pcamExtra = 0;
+function robotHandsOnly(hide, cam) {
+  const a = avatar; if (!a || a !== avatars.robot || !a.ready || !a.root || !a.root.visible || !a.hands) return false;
+  if (!renderer.xr.isPresenting) return false;   // no controllers (desktop): nothing to put hands on
+  const keep = new Set(); for (const H of a.hands) if (H && H.node) H.node.traverse(o => keep.add(o));
+  a.root.traverse(o => { if (o.isMesh && !keep.has(o)) hide(o); });
+  return true;
+}
 function pcamPrep(cam) {
   const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
   hide(room); hide(skybox.group); hide(skyShadow);
@@ -1797,7 +1857,8 @@ function pcamPrep(cam) {
     for (const o of [neon, chatPanel && chatPanel.obj, chalkboard && chalkboard.obj, gopro && gopro.obj, gopro2 && gopro2.obj]) if (behindDj(o, cam)) hide(o);   // #374 props behind the DJ are left out
   }
   if (spect && spect.helpers) spect.helpers.forEach(hide);
-  if (avatar && avatar.root) hide(avatar.root);   // #385 the real DJ is in this picture
+  pcamExtra = robotHandsOnly(hide, cam) ? 1 << AV_LAYER : 0;   // #734 just the robot DJ's hands where the controllers are
+  if (!pcamExtra && avatar && avatar.root) hide(avatar.root);   // #385 the real DJ is in this picture
   if (xr) for (const st of xr.inputs) { hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); }
   const bg = scene.background; scene.background = null;
   if (armSleeves) armSleeves.group.visible = false;   // #377 natural hands: no sleeves either
@@ -1806,7 +1867,7 @@ function pcamPrep(cam) {
     const d = skyKeyLight.dir.clone().applyAxisAngle(_yAxis, settings.skyTurn * DEG + skySpin.ang), hz = Math.hypot(d.x, d.z) || 1, up = Math.max(d.y, Math.sin(35 * DEG)), k = Math.sqrt(1 - up * up) / hz;
     key.position.set(d.x * k, up, d.z * k).multiplyScalar(2.7).add(key.target.position); key.color.setRGB(1, 1, 1).lerp(skyKeyLight.color, 0.5);
   }
-  return () => { for (const o of undo) o.visible = true; scene.background = bg; if (armSleeves) armSleeves.group.visible = false; key.position.copy(kp); key.color.copy(kc); };
+  return () => { pcamExtra = 0; for (const o of undo) o.visible = true; scene.background = bg; if (armSleeves) armSleeves.group.visible = false; key.position.copy(kp); key.color.copy(kc); };
 }
 function pcamMovers() {   // LATENCY MATCH: everything that follows the hands (joints, grips, drawn hands / glove, sleeves)
   const out = [], add = o => { if (o) o.traverse(n => out.push(n)); };
@@ -5363,18 +5424,18 @@ async function vpAct(what) {
   if (what === 'skyoff') { settings.sky = 'off'; saveSettings(); syncSettingsUI(); if (dome.on) { dome.on = false; saveDome(); } applySky(); drawMixScreen(); return; }   // applySky pauses a video pano while hidden
   const name = vpSel; if (!name) { toast('Pick a thumbnail first'); return; }
   const vpFolder = videoPageFolder();   // #224 the Pano tab holds two library folders (local, shadows the tab name)
-  if (what === 'sky') return useSkyMedia(vpFolder, name).catch(e => toast('Sky: ' + e.message, 4000));
+  if (what === 'sky') return panoToDome(vpFolder, name);   // #731 SKY = the picked pano as the sky AND the DOME (a thumbnail tap only picks it)
   if (what === 'light') return lightPhone(vpFolder, name);   // #214
-  const lpItem = vpItems.find(i => i.name === name && i.loopId);   // #441 a grabbed loop: only the Cyclo
-  if (what === 'portal') { if (lpItem) { toast('A grabbed loop plays on the Cyclo: set SCREEN to CYCLO', 2500); return; } pScrSet(vpFolder === 'Images' ? 'image' : 'video', name, vpFolder); return; }   // #589
-  if (lpItem) { const L = grab.loops.find(x => x.id === lpItem.loopId); if (what === 'lednow' || what === 'ledadd') { if (L) showLoop(L); } else toast('A grabbed loop plays on the Cyclo (CYCLO NOW)', 2500); return; }
+  const lpItem = vpItems.find(i => i.name === name && i.loopId);   // #441 a grabbed loop: only the CYCLOWALL
+  if (what === 'portal') { if (lpItem) { toast('A grabbed loop plays on the CYCLOWALL: set SCREEN to CYCLOWALL', 2500); return; } pScrSet(vpFolder === 'Images' ? 'image' : 'video', name, vpFolder); return; }   // #589
+  if (lpItem) { const L = grab.loops.find(x => x.id === lpItem.loopId); if (what === 'lednow' || what === 'ledadd') { if (L) showLoop(L); } else toast('A grabbed loop plays on the CYCLOWALL (CYCLOWALL NOW)', 2500); return; }
   const f = await media.getFile(vpFolder, name); if (!f) return;
   if (what === 'deckA' || what === 'deckB') {
     const d = decks[what === 'deckA' ? 0 : 1];
     if (!d.record) { toast(`No record on ${d.name}: put one on first`); return; }
     vvOverride[d.i] = { rec: d.record, name }; toast(`${d.name}: ${name} (until this record comes off)`, 2500);
-  } else if (what === 'lednow') { ledSrc.set(f.name, vpFolder); led.play(f, !led.files.length); clipsMode(); }   // #546 plays now without joining the CYCLO LIST (+ CYCLO builds the list); with a list it carries on with the list after this clip, else it loops
-  else if (what === 'ledadd') { const n = led.add(f); ledSrc.set(f.name, vpFolder); saveLedList(); toast(`CYCLO playlist: ${n} item${n > 1 ? 's' : ''} (CYCLO LIST to see it)`, 2000); }
+  } else if (what === 'lednow') { ledSrc.set(f.name, vpFolder); led.play(f, !led.files.length); clipsMode(); }   // #546 plays now without joining the CYCLOWALL LIST (+ CYCLOWALL builds the list); with a list it carries on with the list after this clip, else it loops
+  else if (what === 'ledadd') { const n = led.add(f); ledSrc.set(f.name, vpFolder); saveLedList(); toast(`CYCLOWALL playlist: ${n} item${n > 1 ? 's' : ''} (CYCLOWALL LIST to see it)`, 2000); }
   drawMixScreen();
 }
 // #188 CAMERA tab: the spectator phone's virtual set, key and Look match, changed from here; the phone applies each
@@ -5514,7 +5575,7 @@ function drawDjCamTab(btn, y0) {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   const on = ledMode === 'cam';
   const top = [
-    ['CYCLO DirroDj📹', on, toggleDjCam],   // #240, #537 was LED CAM; #538 off = back to what the Cyclo showed, not CYCLO OFF
+    ['CYCLOWALL DirroDj📹', on, toggleDjCam],   // #240, #537 was LED CAM; #538 off = back to what the CYCLOWALL showed, not CYCLOWALL OFF
     ['MIRROR', djSet.mirror, () => setDjMirror(!djSet.mirror)],
     ['AVATAR', djSet.avatar, () => setDjAvatar(!djSet.avatar)],
     ['STYLE: ' + (AVATAR_STYLES[djSet.style] || AVATAR_STYLES.robot).label, false, nextDjStyle],   // #539 ROBOT / DIRROFACE / DIRROCROW
@@ -5528,8 +5589,8 @@ function drawDjCamTab(btn, y0) {
   const ty = y0b + 50 + Math.ceil(keys.length / pp) * 42 + 18;
   g.fillStyle = '#8c96a8'; g.font = '500 16px system-ui'; g.textAlign = 'left';
   const av = !avatar ? 'no avatar' : avatar.status === 'ready' ? 'avatar ready' : 'avatar ' + avatar.status;
-  const lines = [`${av} · ${on && djcam ? `cam ${djcam.ms.toFixed(1)} ms a frame (every 3rd headset frame)` : 'CYCLO not on DirroDj📹'}`,
-    'Look at the Cyclo to put the camera in the Meta cast.'];
+  const lines = [`${av} · ${on && djcam ? `cam ${djcam.ms.toFixed(1)} ms a frame (every 3rd headset frame)` : 'CYCLOWALL not on DirroDj📹'}`,
+    'Look at the CYCLOWALL to put the camera in the Meta cast.'];
   lines.forEach((t, i) => fitText2(g, t, 12, Math.min(H - 12, ty + i * 24), W - 24));
 }
 function drawLookTab(btn, y0) {
@@ -5701,11 +5762,11 @@ function drawVideoPage() {
     const tw4 = (W - 30 - 18) / 4;   // #441 the last row has four: two tabs, SCROLLER and WALL +1
     tabs.forEach((f, i) => btn(i < 6 ? 22 + (i % 3) * (tw + 6) : 22 + (i - 6) * (tw4 + 6), 68 + Math.floor(i / 3) * 40, i < 6 ? tw : tw4, 34, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)));
     btn(22 + 2 * (tw4 + 6), 148, tw4, 34, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);
-    btn(22 + 3 * (tw4 + 6), 148, tw4, 34, 'CYCLO ⁺¹', ledMode !== 'off', () => { videoPage = false; setTools('wall'); });   // #379 moved one over for FX   // #342 the scroller editor
+    btn(22 + 3 * (tw4 + 6), 148, tw4, 34, 'CYCLOWALL ⁺¹', ledMode !== 'off', () => { videoPage = false; openCycloWall(); });   // #379 moved one over for FX   // #342 the scroller editor
   } else {
     let x = 8;   // #214 seven tabs fit left of MIXER; #220 eight (narrower); #363 narrower again for BACK
     for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam', 'Fx']) { const w = { Pano: 56, Video: 56, Images: 65, Camera: 74, Sync: 50, Look: 50, 'DJ Cam': 70, Fx: 40 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)); x += w + 4; }   // #379 narrower again for FX
-    // #701 owner: SCROLLER and CYCLO ▸ left the landscape bar (CYCLO ▸ is on the mixer page, the CYCLO buttons on this page's bottom bar, SCROLLER on VJ TOOLS), so MAIN MENU / PREVIEW / BACK draw full size
+    // #701 owner: SCROLLER and CYCLOWALL ▸ left the landscape bar (CYCLOWALL ▸ is on the mixer page, the CYCLOWALL buttons on this page's bottom bar, SCROLLER on VJ TOOLS), so MAIN MENU / PREVIEW / BACK draw full size
     btn(W - 8 - 66 - 4 - 72 - 4 - 96, 8, 96, 32, 'MAIN MENU', false, () => setVideoPage(false));   // #225 (#603 MAIN = the main menu)
     btn(W - 8 - 66 - 4 - 72, 8, 72, 32, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW
     btn(W - 8 - 66, 8, 66, 32, '◀ BACK', false, navCan() ? navBack : null, !navCan());   // #363
@@ -5736,7 +5797,7 @@ function drawVideoPage() {
     }
     drawTypeBadge(g, cx + CW - 30, cy + TH - 22, itF === 'Video' || itF === 'Video pano');   // #224
     const on = [vvOverride[0], vvOverride[1]].map(o => o && vpFolder === 'Video' && o.name === it.name);
-    const tag = lp ? (ledMode === 'retro' && ledFx.s === 'loop' && ledFx.loop === lp ? 'CYCLO' : 'LOOP') : cur === itF + '/' + it.name ? 'SKY' : on[0] ? 'A' : on[1] ? 'B' : led.name === it.name ? 'CYCLO' : '';
+    const tag = lp ? (ledMode === 'retro' && ledFx.s === 'loop' && ledFx.loop === lp ? 'CYCLOWALL' : 'LOOP') : cur === itF + '/' + it.name ? 'SKY' : on[0] ? 'A' : on[1] ? 'B' : led.name === it.name ? 'CYCLOWALL' : '';
     if (tag) { g.fillStyle = '#40d080'; g.fillRect(cx + 4, cy + 4, 14 + tag.length * 11, 20); g.fillStyle = '#05070c'; g.font = '700 14px system-ui'; g.textAlign = 'left'; g.fillText(tag, cx + 9, cy + 19); }
     if (it.name === vpSel) { g.strokeStyle = '#39a8ff'; g.lineWidth = 4; g.strokeRect(cx + 2, cy + 2, CW - 4, TH + 16); }
     g.fillStyle = it.name === vpSel ? '#fff' : '#b8c0cf'; g.font = '500 14px system-ui'; g.textAlign = 'left';
@@ -5759,7 +5820,7 @@ function drawVideoPage() {
   btn(bx, by, 44, bh, '‹', false, () => { vpPg = Math.max(0, vpPg - 1); drawMixScreen(); }, vpPg === 0);
   btn(bx + 48, by, 44, bh, '›', false, () => { vpPg = Math.min(pages - 1, vpPg + 1); drawMixScreen(); }, vpPg >= pages - 1);
   const T = { Pano: [['SKY', 'sky'], ['SKY OFF', 'skyoff'], ['LIGHT PHONE', 'light']], 'Video pano': [['SKY', 'sky'], ['SKY OFF', 'skyoff'], ['LIGHT PHONE', 'light']],
-    Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['CYCLO NOW', 'lednow'], ['+ CYCLO', 'ledadd'], ['→ PORTAL', 'portal']], Images: [['CYCLO NOW', 'lednow'], ['+ CYCLO', 'ledadd'], ['→ PORTAL', 'portal']] }[vpFolder];   // #589 → PORTAL: the SCREEN frames' feed
+    Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal']], Images: [['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal']] }[vpFolder];   // #589 → PORTAL: the SCREEN frames' feed
   const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : T.length > 4 ? 76 : 86, ty = P ? H - 106 : by;   // #589 five targets on Video
   let x = P ? 8 : 108;
   for (const [label, what] of T) { const dim = (!vpSel && what !== 'skyoff'); btn(x, ty, tw, bh, label, false, dim ? null : () => vpAct(what), dim); x += tw + 6; }
@@ -5772,14 +5833,14 @@ function drawVideoPage() {
     tSlider(g, P ? rx + hw + 8 : rx + 2 * (hw + 8), P ? ry + 44 : ry, hw, bh, 'GAMMA', gamPos(dome.gam), dome.gam.toFixed(2), v => setDomeGam(gamOf(v)), false, 100);   // #638 the same DOME GAMMA as PORTALS SETUP
     tSlider(g, P ? rx : rx + 3 * (hw + 8), P ? ry + 44 : ry, hw, bh, 'SPEED', RATES.indexOf(pr) / (RATES.length - 1), rateTxt(pr), v => setRate('panoRate', RATES[Math.round(v * (RATES.length - 1))]), false, 100);   // #597 video panos only
   }
-  if (vpFolder === 'Video') {   // #597 SPEED for the clips (Cyclo / LED wall, SCREEN portals): a row of its own above the buttons
+  if (vpFolder === 'Video') {   // #597 SPEED for the clips (CYCLOWALL / LED wall, SCREEN portals): a row of its own above the buttons
     const vr = settings.vidRate || 1;
     tSlider(g, P ? 26 : 8, P ? H - 150 : by - bh - 10, P ? W - 52 : W - 16, bh, 'CLIP SPEED', RATES.indexOf(vr) / (RATES.length - 1), rateTxt(vr), v => setRate('vidRate', RATES[Math.round(v * (RATES.length - 1))]), false, 120);
   }
   const hasList = vpFolder === 'Video' || vpFolder === 'Images';   // #222 the LED playlist, one tap away
-  if (hasList) btn(P ? 124 : 522, by, P ? 70 : 92, bh, `CYCLO LIST ${led.files.length}`, false, () => { vpBack = vpFolder; vpFolder = 'LedList'; vpLoad(); });
+  if (hasList) btn(P ? 124 : 522, by, P ? 70 : 92, bh, `CYCLOWALL LIST ${led.files.length}`, false, () => { vpBack = vpFolder; vpFolder = 'LedList'; vpLoad(); });
   const mw = P && hasList ? 78 : 140;
-  btn(W - (P ? 26 : 8) - mw, by, mw, bh, LED_LABEL[ledMode] + ' ⟳', ledMode !== 'off', () => setLedMode(nextLedMode(ledMode)));   // #238 + LIVE; #538 ⟳ = taps step through the states
+  btn(W - (P ? 26 : 8) - mw, by, mw, bh, visCycLabel() + ' ⟳', ledMode !== 'off' || dome.on, visCycle);   // #730 OFF = DOME   // #238 + LIVE; #538 ⟳ = taps step through the states
 }
 // #379 tablet slider: tap (or keep tapping) anywhere along it to set the value
 function tSlider(g, x, y, w, h, label, v, txt, set, dim, lwMax = 110) {   // #423 lwMax: room for a longer label
@@ -5851,7 +5912,7 @@ function drawLedList(btn, y0) {
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   const RH = 42, rows = P ? 11 : 4, files = led.files, pages = Math.max(1, Math.ceil(files.length / rows)); ledPg = Math.min(ledPg, pages - 1);
   g.textBaseline = 'middle';
-  if (!files.length) { g.fillStyle = '#8c96a8'; g.font = '500 17px system-ui'; g.textAlign = 'left'; wrapText(g, 'The CYCLO playlist is empty. In VIDEO or IMAGES pick a thumbnail, then + CYCLO (or CYCLO NOW).', 14, y0 + 24, W - 28, 24, 4); }
+  if (!files.length) { g.fillStyle = '#8c96a8'; g.font = '500 17px system-ui'; g.textAlign = 'left'; wrapText(g, 'The CYCLOWALL playlist is empty. In VIDEO or IMAGES pick a thumbnail, then + CYCLOWALL (or CYCLOWALL NOW).', 14, y0 + 24, W - 28, 24, 4); }
   files.slice(ledPg * rows, ledPg * rows + rows).forEach((f, k) => {
     const i = ledPg * rows + k, y = y0 + k * RH, cur = led.on && led.name === f.name;
     g.fillStyle = cur ? '#14324a' : '#0d1422'; g.fillRect(8, y, W - 16, RH - 6);
@@ -5873,7 +5934,7 @@ function drawLedList(btn, y0) {
   btn(x2, row2, w2, bh, '◀ ' + (VP_TABS[vpBack] || 'BACK'), false, () => { vpFolder = vpBack; vpLoad(); });   // #363 named, so it isn't mistaken for the top-right BACK
   btn(x2 + w2 + 6, row2, w2, bh, led.order === 'list' ? 'IN ORDER' : 'RANDOM', led.order === 'list', () => { led.order = led.order === 'list' ? 'random' : 'list'; saveLedList(); });
   btn(x2 + 2 * (w2 + 6), row2, w2, bh, 'NEXT ▶▶', false, files.length ? () => { clipsMode(); led.next(); } : null, !files.length);
-  btn(W - (P ? 26 : 8) - 140, by, 140, bh, LED_LABEL[ledMode], ledMode !== 'off', () => setLedMode(nextLedMode(ledMode)));   // #238 + LIVE
+  btn(W - (P ? 26 : 8) - 140, by, 140, bh, visCycLabel() + ' ⟳', ledMode !== 'off' || dome.on, visCycle);   // #238 + LIVE; #730 OFF = DOME
 }
 const NOTES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
 function parseKey(k) {
@@ -6392,7 +6453,7 @@ const PINCH_FIT_DEF = {
 };
 // #513 the TV's address, from where this page runs (cabin.dirrodj.club/ = the cly3dj-dev folder on Cloudflare; github.io/cly3dj/ ...); no 'https://'
 const venueUrl = () => new URL('venue.html', location.href).href.replace(/[?#].*$/, '').replace(/^https?:\/\//, '');
-const TOOLS_NAME = { acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', rooms: 'ROOMS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530 / Gemini_acid
+const TOOLS_NAME = { dverse: 'DIRROVERSE', acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', rooms: 'ROOMS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530 / Gemini_acid
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -8310,12 +8371,12 @@ function drawToolsPage() {
       btn(L, y0 + 224, R - L, 96, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
       btn(L, y0 + 332, R - L, 80, streamer ? tvLbl(streamer) : 'DIRROTV', !!(streamer && (streamer.tvUp || streamer.stuRun)), () => setTools('tv'), !streamer, 24);   // #389 was CHALKBOARD (now on VJ TOOLS)
       btn(L, y0 + 424, R - L, 72, dirroLbl(), !!(dirro && dirro.on), () => setTools('dirro'), !dirro, 24);   // #427
-      note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, Cyclo, neon, whiteboard, portals, cameras. TWITCH: go live (master mix only, never the cue). DIRROTV: screens in the venue (any TV with a browser: Fire Stick, smart TV, laptop). DIRROGRAM: the show on the audience\'s phones.', y0 + 520); }   // #363 was under the CHALKBOARD button
+      note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, CYCLOWALL, neon, whiteboard, portals, cameras. TWITCH: go live (master mix only, never the cue). DIRROTV: screens in the venue (any TV with a browser: Fire Stick, smart TV, laptop). DIRROGRAM: the show on the audience\'s phones.', y0 + 520); }   // #363 was under the CHALKBOARD button
     else { const bw = (R - L - 48) / 5; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 24); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 24);   // #427 five across
       btn(L + 2 * (bw + 12), y0 + 8, bw, 130, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 24);
       btn(L + 3 * (bw + 12), y0 + 8, bw, 130, streamer ? tvLbl(streamer) : 'DIRROTV', !!(streamer && (streamer.tvUp || streamer.stuRun)), () => setTools('tv'), !streamer, 21);   // #389 was CHALKBOARD (now on VJ TOOLS)
       btn(L + 4 * (bw + 12), y0 + 8, bw, 130, dirroLbl(), !!(dirro && dirro.on), () => setTools('dirro'), !dirro, 21);   // #427
-      note('DJ TOOLS: Record Maker, milk crate.  VJ TOOLS: Scroller, Cyclo, neon, whiteboard, portals, cameras.  TWITCH: go live.  DIRROTV: screens in the venue (any TV with a browser).  DIRROGRAM: the show on the audience\'s phones.', y0 + 160); }
+      note('DJ TOOLS: Record Maker, milk crate.  VJ TOOLS: Scroller, CYCLOWALL, neon, whiteboard, portals, cameras.  TWITCH: go live.  DIRROTV: screens in the venue (any TV with a browser).  DIRROGRAM: the show on the audience\'s phones.', y0 + 160); }
     return;
   }
   if (page === 'stream') {   // #331 LIVE STREAM to Twitch
@@ -8516,24 +8577,25 @@ function drawToolsPage() {
       [P ? 'KEY: ' + KEY_LABEL[(K && K.col) || 0] : 'KEY ' + ['GRN', 'BLUE', 'MAG'][(K && K.col) || 0], false, K ? () => { keySend('col', (((K.col || 0) + 1) % 3)); drawMixScreen(); } : null, !K],
       ['AUTO KEY', false, K ? () => { spect.camSet({ what: 'auto' }); toast('Auto key: point the webcam at the empty key screen', 3000); } : null, !K],
       [K && (K.gl || K.gr || K.gt || K.gb) ? 'CROP: ON' : 'CROP', !!(K && (K.gl || K.gr || K.gt || K.gb)), () => setTools('pcamcrop')],   // #353 garbage matte page
-      ['PREVIEW', monOn, () => setMonitor(!monOn)],
-      ['NEXT CAMERA', false, () => openPhoneCam(false)],   // #545 same as tapping WEBCAM again
+      ['WEBCAMS ⟳', !!camPick.list.length, camPickStep],   // #734 steps through the machine's cameras (shown here, nothing switches yet)
+      ['CONFIRM', false, camPick.list.length ? camPickConfirm : null, !camPick.list.length],   // #734 switches to the camera WEBCAMS⟳ shows
     ];
     const lat = S.delay != null ? Math.round(S.delay) : null;
     const cells = [
       ['STRENGTH', K ? r2(K.thr).toFixed(2) : '--', d => K && keySend('thr', Math.min(0.8, Math.max(0, r2(K.thr + d * 0.01)))), { v: K ? K.thr : null, lo: 0, hi: 0.8, step: 0.01, set: v => keySend('thr', v) }],
       ['SOFTNESS', K ? r2(K.soft).toFixed(2) : '--', d => K && keySend('soft', Math.min(0.4, Math.max(0.02, r2(K.soft + d * 0.01)))), { v: K ? K.soft : null, lo: 0.02, hi: 0.4, step: 0.01, set: v => keySend('soft', v) }],
       ['SPILL', K ? r2(K.spill).toFixed(2) : '--', d => K && keySend('spill', Math.min(1, Math.max(0, r2(K.spill + d * 0.05)))), { v: K ? K.spill : null, lo: 0, hi: 1, step: 0.05, set: v => keySend('spill', v) }],
-      ['LIGHT', Math.round(C.lightStr * 100) + '%', d => S.setPcam('lightStr', Math.min(1, Math.max(0, r2(C.lightStr + d * 0.1)))), { v: C.lightStr, lo: 0, hi: 1, step: 0.1, set: v => S.setPcam('lightStr', v) }],
       ['WRAP', Math.round(C.wrap * 100) + '%', d => S.setPcam('wrap', Math.min(1, Math.max(0, r2(C.wrap + d * 0.1)))), { v: C.wrap, lo: 0, hi: 1, step: 0.1, set: v => S.setPcam('wrap', v) }],
-      ['KEY GLOW', Math.round(C.glow * 100) + '%', d => S.setPcam('glow', Math.min(1, Math.max(0, r2(C.glow + d * 0.1)))), { v: C.glow, lo: 0, hi: 1, step: 0.1, set: v => S.setPcam('glow', v) }],
-      ['EXPOSURE', (C.expo > 0 ? '+' : '') + C.expo.toFixed(1), d => S.setPcam('expo', Math.min(1, Math.max(-1, r2(C.expo + d * 0.1)))), { v: C.expo, lo: -1, hi: 1, step: 0.1, set: v => S.setPcam('expo', v) }],
+      ['EXPOSURE', (C.expo > 0 ? '+' : '') + C.expo.toFixed(1) + ' EV', d => S.setPcam('expo', Math.min(2, Math.max(-2, r2(C.expo + d * 0.1)))), { v: C.expo, lo: -2, hi: 2, step: 0.1, set: v => S.setPcam('expo', v) }],   // #734 a real EV, on the plain webcam too
+      ['GAMMA', (C.gam || 1).toFixed(2), d => S.setPcam('gam', Math.min(2, Math.max(0.5, r2((C.gam || 1) + d * 0.05)))), { v: C.gam || 1, lo: 0.5, hi: 2, step: 0.05, set: v => S.setPcam('gam', v) }],   // #734
+      ['TINT', (C.tint || 0) === 0 ? '0' : (C.tint < 0 ? 'GRN ' : 'MAG ') + Math.round(Math.abs(C.tint) * 100), d => S.setPcam('tint', Math.min(1, Math.max(-1, r2((C.tint || 0) + d * 0.05)))), { v: C.tint || 0, lo: -1, hi: 1, step: 0.05, set: v => S.setPcam('tint', v) }],   // #734 - green, + magenta
       S.stu.on
         ? ['DELAY TRIM', `${S.stu.trim >= 0 ? '+' : ''}${S.stu.trim} ms`, d => S.setStudio('trim', S.stu.trim + d * 10)]
         : [lat != null ? 'DELAY TRIM' : 'DELAY', lat != null ? `${lat}${C.trim >= 0 ? '+' : ''}${C.trim} ms` : `${C.manual} ms`, d => lat != null ? S.setPcam('trim', C.trim + d * 10) : S.setPcam('manual', Math.max(0, C.manual + d * 10))],
     ];
     const cell = (c, x, y, w, h) => ctl(c, x, y, w, h);   // #640 sliders (DELAY keeps − / +: open-ended ms)
     const st = pcamStatus(S);   // #374 shared with the OBJECTS page
+    if (camPick.list.length) { const c = camPick.list[camPick.i]; st.unshift(`WEBCAMS: ${camPick.i + 1}/${camPick.list.length} ${c ? c.n : ''}${c && c.id === camPick.cur ? ' (in use)' : ' · CONFIRM to use it'}`); }   // #734
     if (C.green && C.light) { const h = S.lampHint(); if (h) st.push(h); }
     if (C.green && S.showOpt.backdrop === 'dome' && !skybox.tex) st.push('BACK DOME: no sky picked yet (VISUALS > PANO > SKY).');
     const help = 'CROP: the garbage matte (cut away stands and the room past the cloth). GREEN SCREEN off: the webcam video is the background and overlays (plus 3D gear if calibrated and GEAR is on) are drawn over it. On: you are keyed over the BACK setting (VISUALS, DOME or none). LIGHT MATCH grades you toward the panorama (pick it with SKY) and lights the gear from it.';
@@ -8641,7 +8703,8 @@ function drawToolsPage() {
     {   // #697 no ALLOW / DENY: the right code is enough. The code stays until NEW CODE (tap twice), which drops every linked laptop and phone
       const armed = spNewArm > 0 && performance.now() - spNewArm < 3000, bw = 2 * w4 + gap, lost = U.on && S.vjLost;
       g.font = `700 ${P ? 17 : 15}px system-ui`; g.fillStyle = lost ? '#ff6a6a' : '#dfe6f2'; g.textAlign = 'left';
-      fitText2(g, lost ? 'DirroVJ silent for 10 s.' : `Code ${spectCode()}${settings.spect !== 'on' ? ' (link off in Settings)' : ''}`, L + 2, y2 + bh * 0.62, R - L - bw - 10);
+      fitText2(g, lost ? 'DirroVJ silent for 10 s.' : `Code ${spectCode()}${settings.spect !== 'on' ? ' (link off in Settings)' : ''}`, L + 2, y2 + bh * 0.62, R - L - bw - w4 - 2 * gap - 4);
+      btn(R - bw - gap - w4, y2, w4, bh, 'DIRROVERSE ▸', false, () => setTools('dverse'), false, fs);   // #735 the DirroVerse scenes on the laptop
       if (lost) btn(R - bw, y2, bw, bh, 'QUEST TAKES OVER', true, () => S.takeBack(), false, fs);
       else btn(R - bw, y2, bw, bh, armed ? 'TAP AGAIN: NEW CODE' : 'NEW CODE', armed, () => { if (armed) { spNewArm = 0; newSpectCode(); } else spNewArm = performance.now(); drawMixScreen(); }, false, fs);
       y2 += bh + gap;
@@ -8712,11 +8775,11 @@ function drawToolsPage() {
       btn(x + bw3 + 6, y, bw3, h, dirroMark.want === 'R' ? 'TOUCH RIGHT…' : d.bcn.R ? 'BEACON R ✓' : 'MARK BEACON R', !!d.bcn.R || dirroMark.want === 'R', mk('R'), false, 14);
       btn(x + 2 * (bw3 + 6), y, bw3, h, 'CLEAR BEACONS', false, d.bcn.L || d.bcn.R ? () => { const now = performance.now(); if (now - dirroRoomT < 2500) { dirroRoomT = 0; d.clearBeacons(); } else { dirroRoomT = now; toast('Tap CLEAR BEACONS again', 2000); } } : null, !(d.bcn.L || d.bcn.R), 13);
     };
-    const wallBtn = (x, y, w, h) => btn(x, y, w, h, 'CYCLO: ' + WALL_LABEL[W8.src], W8.src !== 'follow', () => d.setWall('src', cyc(WALL_SRC, W8.src, 1)), false, 16);
+    const wallBtn = (x, y, w, h) => btn(x, y, w, h, 'CYCLOWALL: ' + WALL_LABEL[W8.src], W8.src !== 'follow', () => d.setWall('src', cyc(WALL_SRC, W8.src, 1)), false, 16);
     const steps = [
-      ['CYCLO GRID', W8.cols ? `${W8.cols} across` : 'OFF', () => d.setWall('cols', cyc(WALL_COLS, W8.cols, -1)), () => d.setWall('cols', cyc(WALL_COLS, W8.cols, 1))],
-      ['CYCLO DOT', `${Math.round(W8.fill * 100)} %`, () => d.setWall('fill', Math.max(0.4, Math.round((W8.fill - 0.05) * 100) / 100)), () => d.setWall('fill', Math.min(1, Math.round((W8.fill + 0.05) * 100) / 100))],
-      ['CYCLO GLOW', `${W8.glow.toFixed(1)}x`, () => d.setWall('glow', Math.max(0.5, Math.round((W8.glow - 0.1) * 10) / 10)), () => d.setWall('glow', Math.min(2, Math.round((W8.glow + 0.1) * 10) / 10))],
+      ['CYCLOWALL GRID', W8.cols ? `${W8.cols} across` : 'OFF', () => d.setWall('cols', cyc(WALL_COLS, W8.cols, -1)), () => d.setWall('cols', cyc(WALL_COLS, W8.cols, 1))],
+      ['CYCLOWALL DOT', `${Math.round(W8.fill * 100)} %`, () => d.setWall('fill', Math.max(0.4, Math.round((W8.fill - 0.05) * 100) / 100)), () => d.setWall('fill', Math.min(1, Math.round((W8.fill + 0.05) * 100) / 100))],
+      ['CYCLOWALL GLOW', `${W8.glow.toFixed(1)}x`, () => d.setWall('glow', Math.max(0.5, Math.round((W8.glow - 0.1) * 10) / 10)), () => d.setWall('glow', Math.min(2, Math.round((W8.glow + 0.1) * 10) / 10))],
       ['TV FRAMES / S', String(W8.fps), () => d.setWall('fps', Math.max(1, W8.fps - 1)), () => d.setWall('fps', Math.min(6, W8.fps + 1))]];
     let ty, tx = L + 4, tw;
     if (P) {
@@ -8799,14 +8862,13 @@ function drawToolsPage() {
     return;
   }
   if (page === 'wall') {   // #439 LED WALL: one tap a source. It drives the 3D wall, the stream's / DIRROTV's VIDEOWALL and the Dirrogram phones (FOLLOW)
-    const y0 = head('CYCLO', 'mixer'), d = dirro, LK = d ? d.wall : null, cyc = (arr, v, dir) => arr[(arr.indexOf(v) + dir + arr.length) % arr.length];
+    const y0 = head('CYCLOWALL', 'mixer'), d = dirro, LK = d ? d.wall : null, cyc = (arr, v, dir) => arr[(arr.indexOf(v) + dir + arr.length) % arr.length];
     const tiles = [   // #538 OFF ⟳ cycles (OFF + background visuals > DOME only > back ON); CLIPS and PICTURES gave way to VISUALS⁺¹ (the clips and pictures live there)
       [cycloOffLabel(), ledMode === 'off', cycloOffCycle, false],
       ['VISUALS ⁺¹', false, () => { setTools(null); setVideoPage(true); }, false],
       ['MANDEL', ledMode === 'mandel', () => setLedMode('mandel'), false],
       ['RETRO-SCENE', ledMode === 'retro' || ledMode === 'vdancer' || ledMode === 'meta', () => { if (!isFxMode(ledMode) || ledMode === 'mandel') setLedMode('retro'); setTools('retro'); }, false],
-      ['DirroDj📹', ledMode === 'cam', toggleDjCam, !djcam],   // #538 on / off for the avatar camera only; the Cyclo keeps running
-      ['LIVE', isLive(ledMode), () => setLedMode('live'), !livePossible()]];
+      ['DirroDj📹', ledMode === 'cam', toggleDjCam, !djcam]];   // #538 on / off for the avatar camera only; the CYCLOWALL keeps running   // #731 LIVE removed
     const tile = (x, y, w, h, [label, on, act, dim]) => {
       if (label !== 'RETRO-SCENE') { btn(x, y, w, h, label, on, dim ? null : act, dim, P ? 19 : 17); return; }
       btn(x, y, w, h, '', on, act, false);
@@ -8823,10 +8885,10 @@ function drawToolsPage() {
       g.fillStyle = '#fff'; g.font = '700 17px system-ui'; g.fillText(val, x + w / 2, y + h - 7);
     };
     const steps = d ? [
-      ['CYCLO GRID', LK.cols ? `${LK.cols} across` : 'OFF', () => d.setWall('cols', cyc(WALL_COLS, LK.cols, -1)), () => d.setWall('cols', cyc(WALL_COLS, LK.cols, 1))],
-      ['CYCLO DOT', `${Math.round(LK.fill * 100)} %`, () => d.setWall('fill', Math.max(0.4, Math.round((LK.fill - 0.05) * 100) / 100)), () => d.setWall('fill', Math.min(1, Math.round((LK.fill + 0.05) * 100) / 100))],
-      ['CYCLO GLOW', `${LK.glow.toFixed(1)}x`, () => d.setWall('glow', Math.max(0.5, Math.round((LK.glow - 0.1) * 10) / 10)), () => d.setWall('glow', Math.min(2, Math.round((LK.glow + 0.1) * 10) / 10))]] : [];
-    const info = `Showing ${LED_LABEL[ledMode].replace('CYCLO ', '')}${ledMode === 'retro' && ledFx.s === 'loop' ? ' (loop)' : ''}. The same picture is the stream's and DIRROTV's CYCLO / VIDEOWALL${d && d.on ? ', and the phones on FOLLOW' : ''}. PIXELS sets the picture size and the CYCLO grid together (MANDEL keeps its own). TAP BPM: tap the beat in; a long press hands it back to the music.`;
+      ['CYCLOWALL GRID', LK.cols ? `${LK.cols} across` : 'OFF', () => d.setWall('cols', cyc(WALL_COLS, LK.cols, -1)), () => d.setWall('cols', cyc(WALL_COLS, LK.cols, 1))],
+      ['CYCLOWALL DOT', `${Math.round(LK.fill * 100)} %`, () => d.setWall('fill', Math.max(0.4, Math.round((LK.fill - 0.05) * 100) / 100)), () => d.setWall('fill', Math.min(1, Math.round((LK.fill + 0.05) * 100) / 100))],
+      ['CYCLOWALL GLOW', `${LK.glow.toFixed(1)}x`, () => d.setWall('glow', Math.max(0.5, Math.round((LK.glow - 0.1) * 10) / 10)), () => d.setWall('glow', Math.min(2, Math.round((LK.glow + 0.1) * 10) / 10))]] : [];
+    const info = `Showing ${LED_LABEL[ledMode].replace('CYCLOWALL ', '')}${ledMode === 'retro' && ledFx.s === 'loop' ? ' (loop)' : ''}. The same picture is the stream's and DIRROTV's CYCLOWALL / VIDEOWALL${d && d.on ? ', and the phones on FOLLOW' : ''}. PIXELS sets the picture size and the CYCLOWALL grid together (MANDEL keeps its own). TAP BPM: tap the beat in; a long press hands it back to the music.`;
     if (P) {
       const tw = (R - L - 6) / 2, th = 66;
       tiles.forEach((t, i) => tile(L + (i % 2) * (tw + 6), y0 + 2 + Math.floor(i / 2) * (th + 6), tw, th, t));
@@ -8836,6 +8898,7 @@ function drawToolsPage() {
       btn(L, y, tw, 44, acts[2][0], acts[2][1], acts[2][2], acts[2][3], 16); tapB(L + tw + 6, y, tw, 44, 18); y += 52;
       steps.forEach(([l, v, dn, up]) => { stp(L, y, R - L, 40, l, v, dn, up); y += 46; });
       pxSlider(L, y, R - L, 38); y += 44;
+      if (ledMode === 'off' && dome.on) { tSlider(g, L, y, R - L, 38, 'DOME TURN', dome.turn / 359, `${dome.turn}°`, v => setDomeTurn(v * 359)); y += 44; }   // #730
       note(info, y + 14);
     } else {
       const tw = (R - L - 6 * (tiles.length - 1)) / tiles.length, th = 80;   // #538 six tiles across
@@ -8844,7 +8907,8 @@ function drawToolsPage() {
       acts.forEach(([l, on, a, dim], i) => btn(L + i * (a4 + 6), y0 + 88, a4, 38, l, on, dim ? null : a, dim, 16)); tapB(L + 3 * (a4 + 6), y0 + 88, a4, 38, 16);
       steps.forEach(([l, v, dn, up], i) => stp(L + i * (aw + 6), y0 + 132, aw, 38, l, v, dn, up));
       pxSlider(L, y0 + 176, R - L, 32);
-      g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, info, L + 4, y0 + 226, R - L - 8, 16, 2);
+      if (ledMode === 'off' && dome.on) tSlider(g, L, y0 + 214, R - L, 32, 'DOME TURN', dome.turn / 359, `${dome.turn}°`, v => setDomeTurn(v * 359));   // #730 rotate the dome (DOME ONLY)
+      else { g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, info, L + 4, y0 + 226, R - L - 8, 16, 2); }
     }
     return;
   }
@@ -9000,7 +9064,7 @@ function drawToolsPage() {
       [WL.beat ? 'BEAT: ON' : 'BEAT', WL.beat, () => { WL.setBeat(!WL.beat); drawMixScreen(); }],
       [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)],
       [settings.domeLight !== false ? 'DOME LIGHT: ON' : 'DOME LIGHT', settings.domeLight !== false, () => { settings.domeLight = settings.domeLight === false; saveSettings(); domeLightTick(); toast(settings.domeLight ? 'DOME LIGHT: the dome\'s sky lights the gear and frames' : 'DOME LIGHT off: Settings > Lighting', 2200); drawMixScreen(); }],   // #611
-      [`SCREEN: ${({ cyclo: 'CYCLO', image: 'IMAGE', video: 'VIDEO' })[PS.scrSrc.src] || 'CYCLO'} ⟳`, PS.screenN > 0, pScrStep],   // #589 the one feed every SCREEN frame shows
+      [`SCREEN: ${({ cyclo: 'CYCLOWALL', image: 'IMAGE', video: 'VIDEO' })[PS.scrSrc.src] || 'CYCLOWALL'} ⟳`, PS.screenN > 0, pScrStep],   // #589 the one feed every SCREEN frame shows
       [settings.roomSnap !== false ? 'ROOM SNAP: ON' : 'ROOM SNAP: OFF', settings.roomSnap !== false, roomSnapToggle],   // #598 owner: snap can be switched off
       ['FRAME LOOK ›', JSON.stringify(PS.grade) !== JSON.stringify(GRADE0), () => setTools('pgrade')],
       ['NIGHT LOOK ›', !!(night && night.S.on), () => setTools('night')],
@@ -9009,7 +9073,7 @@ function drawToolsPage() {
       [defArm ? 'TAP AGAIN' : 'DEFAULTS', defArm, portalDefaults],
     ];
     const wl = k => ({ v: WL.val(k), lo: WALL_LIM[k][0], hi: WALL_LIM[k][1], step: WALL_LIM[k][2], set: v => WL.set(k, v) });   // #640 sliders
-    const rainSet = v => { PS.setRain(RAIN_ORDER[v]); if (PS.rain !== 'off' && !PS.revN && !(facetWall && facetWall.on)) toast('GLASS RAIN shows on the CYCLO glass and on PANO frames', 2600); };   // #703
+    const rainSet = v => { PS.setRain(RAIN_ORDER[v]); if (PS.rain !== 'off' && !PS.revN && !(facetWall && facetWall.on)) toast('GLASS RAIN shows on the CYCLOWALL glass and on PANO frames', 2600); };   // #703
     const cells = [
       ['PORTALS', `${PS.n}`, null, { v: PS.n, lo: 1, hi: MAX_PORTALS, step: 1, set: v => { PS.setCount(v); if (!PS.on) PS.setOn(true); } }],
       ['WRAP', `${WL.val('arc')}°`, null, wl('arc')],
@@ -9310,7 +9374,7 @@ function drawToolsPage() {
       ctl([label, String(scroller[k]), null, { v: scroller[k], lo: k === 'speed' ? 1 : 0, hi: 10, step: 1, set: v => { scroller[k] = v; scroller.save(); } }], L, y, Math.min(R - L, 380), 44, { lf: 13 });
       y += 50;
     }
-    if (!P) note('ENTER on the keyboard starts it at the bottom of the Cyclo, over whatever is playing.', y + 14);
+    if (!P) note('ENTER on the keyboard starts it at the bottom of the CYCLOWALL, over whatever is playing.', y + 14);
     return;
   }
   if (page === 'kbd') {
@@ -9590,6 +9654,37 @@ function drawToolsPage() {
     if (art.msg && art.imgs.length) { g.fillStyle = '#c86a5a'; g.font = '600 13px system-ui'; g.textAlign = 'left'; fitText2(g, art.msg, gx + 4, P ? gy - 6 : iy - 8, gw - 8); }
     return;
   }
+  if (page === 'dverse') {   // #735 the DirroVerse scenes on the DirroVJ laptop: thumbnails and status from the desk, tap = that scene (on a bus)
+    const y0 = head('DIRROVERSE', 'studio'), st = dvRemote.st, S = streamer, L_ = S && S.stuLink;
+    if (L_ && dvRemote.asked !== L_) { dvRemote.asked = L_; L_.ctl({ k: 'qdv', act: 'list' }); }   // the desk fetches the studio's scene list
+    if (!st || !L_) { note(!L_ ? 'DirroVJ is not linked: open dirrovj.html on the laptop and type the code.' : 'Waiting for the DirroVJ desk… (the SET studio must run on the laptop for scenes).', y0 + 24); return; }
+    const onA = st.a === 'dverse', onB = st.b === 'dverse', air = (onA && st.x < 1) || (onB && st.x > 0), send = o => { const l = S.stuLink; if (l) l.ctl({ k: 'qdv', ...o }); else toast('DirroVJ is not linked', 2000); };
+    const bw = P ? (R - L - 8) / 2 : 150, bh = 34;
+    btn(R - 2 * bw - 6, y0, bw, bh, 'DIRROVERSE ON A', onA, () => send({ act: 'bus', bus: 'a' }), false, P ? 15 : 14);
+    btn(R - bw, y0, bw, bh, 'DIRROVERSE ON B', onB, () => send({ act: 'bus', bus: 'b' }), false, P ? 15 : 14);
+    g.textAlign = 'left'; g.font = `600 ${P ? 13 : 13}px system-ui`; g.fillStyle = air ? '#7dff9a' : '#dfe6f2';
+    if (!P) fitText2(g, st.loading ? 'Loading ' + st.loading + '…' : st.set ? (air ? 'ON AIR: ' : 'LOADED: ') + st.set + (st.next ? ' · next ' + st.next : '') : (st.status || 'No scene loaded'), L + 2, y0 + 22, R - L - 2 * bw - 16);
+    const list = st.list || [], COLS = P ? 2 : 4, PER = P ? 8 : 8, ty = y0 + bh + (P ? 26 : 8), CW = (R - L - (COLS - 1) * 8) / COLS, TH = P ? 62 : 64, CH = TH + 18;
+    if (P) fitText2(g, st.set ? (air ? 'ON AIR: ' : 'LOADED: ') + st.set : (st.status || ''), L + 2, y0 + bh + 16, R - L - 4);
+    if (!list.length) { note(st.status || 'No scenes: render a plate loop in the SET studio on the laptop.', ty + 20); return; }
+    const pages = Math.max(1, Math.ceil(list.length / PER)); dvRemote.pg = Math.min(dvRemote.pg, pages - 1);
+    list.slice(dvRemote.pg * PER, dvRemote.pg * PER + PER).forEach(([n, ok], i) => {
+      const cx = L + (i % COLS) * (CW + 8), cy = ty + Math.floor(i / COLS) * (CH + 6), t = dvRemote.thumbs.get(n), cur = st.set === n;
+      g.fillStyle = '#121824'; g.fillRect(cx, cy, CW, TH);
+      if (t && t.complete && t.naturalWidth) { const s = Math.max(CW / t.naturalWidth, TH / t.naturalHeight), sw = CW / s, sh = TH / s; g.drawImage(t, (t.naturalWidth - sw) / 2, (t.naturalHeight - sh) / 2, sw, sh, cx, cy, CW, TH); }
+      if (ok === 0) { g.fillStyle = 'rgba(5,7,12,0.6)'; g.fillRect(cx, cy, CW, TH); }
+      const tag = st.loading === n ? ['LOADING…', '#ffd24a'] : cur ? (air ? ['ON AIR', '#40d080'] : ['LOADED', '#39a8ff']) : st.next === n ? ['NEXT', '#ffd24a'] : ok === 0 ? ['NO LOOP', '#8c96a8'] : null;
+      if (tag) { g.font = '800 12px system-ui'; const tw = g.measureText(tag[0]).width + 12; g.fillStyle = tag[1]; g.fillRect(cx + 4, cy + 4, tw, 18); g.fillStyle = '#05070c'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(tag[0], cx + 10, cy + 13); g.textBaseline = 'alphabetic'; }
+      if (cur) { g.strokeStyle = air ? '#40d080' : '#39a8ff'; g.lineWidth = 3; g.strokeRect(cx + 1.5, cy + 1.5, CW - 3, TH + 14); }
+      g.fillStyle = cur ? '#fff' : ok === 0 ? '#6f7a8c' : '#b8c0cf'; g.font = '500 13px system-ui'; g.textAlign = 'left'; fitText2(g, n, cx + 2, cy + TH + 14, CW - 4);
+      VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, act: () => { if (ok === 0) { toast(n + ' has no plate loop yet: render one in the SET studio', 2500); return; } send({ act: 'load', set: n }); dvRemote.st = { ...st, loading: n }; drawMixScreen(); } });
+    });
+    const by = P ? H - 62 : H - 40;
+    btn(L, by, 44, 34, '‹', false, () => { dvRemote.pg = Math.max(0, dvRemote.pg - 1); }, dvRemote.pg === 0);
+    btn(L + 48, by, 44, 34, '›', false, () => { dvRemote.pg = Math.min(pages - 1, dvRemote.pg + 1); }, dvRemote.pg >= pages - 1);
+    g.fillStyle = '#8c96a8'; g.font = '500 12px system-ui'; g.textAlign = 'left'; fitText2(g, `${list.length} scene${list.length === 1 ? '' : 's'}${st.verse ? ' · DirroVerse ' + st.verse : ''} · tap = load (it goes on the bus that is off air if DIRROVERSE is on neither)`, L + 100, by + 21, R - L - 104);
+    return;
+  }
   if (page === 'card') {   // #445 the stream's CARD: the main card (always the first slot), or any picture / animated GIF from IMAGES (sponsor, theme night, a QR code)
     const S = streamer, y0 = head('TWITCH CARD', 'stream');
     if (!S) { note('The card is part of the stream, which runs on the headset.', y0 + 20); return; }
@@ -9617,9 +9712,9 @@ function drawToolsPage() {
     const by = P ? H - 62 : H - 44;
     btn(L, by, 44, 36, '‹', false, () => { pickPg = Math.max(0, pickPg - 1); }, pickPg === 0);
     btn(L + 48, by, 44, 36, '›', false, () => { pickPg = Math.min(pages - 1, pickPg + 1); }, pickPg >= pages - 1);
-    btn(R - 150, by, 150, 36, cardWall.on ? 'CYCLO: ON' : 'CYCLO: OFF', cardWall.on, () => { cardWall.on = !cardWall.on; try { localStorage.setItem('vire.cardWall', cardWall.on ? '1' : '0'); } catch (e) {} if (cardWall.on) { if (cardWall.file) cardWallSet(cardWall.file); } else if (ledMode === 'card') setLedMode(cardWall.prev && cardWall.prev !== 'card' ? cardWall.prev : 'off'); drawMixScreen(); }, false, 15);   // #446, #537
+    btn(R - 150, by, 150, 36, cardWall.on ? 'CYCLOWALL: ON' : 'CYCLOWALL: OFF', cardWall.on, () => { cardWall.on = !cardWall.on; try { localStorage.setItem('vire.cardWall', cardWall.on ? '1' : '0'); } catch (e) {} if (cardWall.on) { if (cardWall.file) cardWallSet(cardWall.file); } else if (ledMode === 'card') setLedMode(cardWall.prev && cardWall.prev !== 'card' ? cardWall.prev : 'off'); drawMixScreen(); }, false, 15);   // #446, #537
     g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left';
-    wrapText(g, 'Tap a picture or GIF (add them in IMAGES on the start page, or Library > Import on the phone). It goes to Twitch, DIRROTV and, with CYCLO on, the Cyclo and the phones (a GIF is cut to 64 frames for them). MAIN CARD is the DirroDJ card with the Twitch QR.', L + 104, by + 8, R - L - 270, 14, 3);
+    wrapText(g, 'Tap a picture or GIF (add them in IMAGES on the start page, or Library > Import on the phone). It goes to Twitch, DIRROTV and, with CYCLOWALL on, the CYCLOWALL and the phones (a GIF is cut to 64 frames for them). MAIN CARD is the DirroDJ card with the Twitch QR.', L + 104, by + 8, R - L - 270, 14, 3);
     return;
   }
   if (page === 'pickVideo' || page === 'pickImage') {
@@ -9680,7 +9775,7 @@ function drawMixScreen() {
     SP_HIT.push({ x: vx - 3, y: y - 8, w: vw + 6, h: h + 16, act: () => setMonitor(!monOn) });
     // #537 MR GUI removed from Deck A top bar (unneeded on mixer screen)
     { const S = streamer, bw3 = (W - 40 - 3 * 6) / 4, by3 = H - 96;   // #389 STREAM, CLY3DTV, STUDIO on a row above TOOLS / RESET MIX; #439 + WALL
-      [[S && S.live ? '● LIVE' : 'TWITCH', !!(S && S.live), () => setTools('stream'), !S], ['DIRROTV', !!(S && S.tvUp), () => setTools('tv'), !S], ['DIRROVJ', !!(S && S.stu.on), () => setTools('studio'), !S], ['CYCLO ⁺¹', ledMode !== 'off', () => setTools('wall'), false]].forEach(([l, o, a, dim], i) => {
+      [[S && S.live ? '● LIVE' : 'TWITCH', !!(S && S.live), () => setTools('stream'), !S], ['DIRROTV', !!(S && S.tvUp), () => setTools('tv'), !S], ['DIRROVJ', !!(S && S.stu.on), () => setTools('studio'), !S], ['CYCLOWALL ⁺¹', ledMode !== 'off', openCycloWall, false]].forEach(([l, o, a, dim], i) => {
         const bx3 = 20 + i * (bw3 + 6); drawTopBtn(g, bx3, by3, bw3, 36, l, o, dim, 15); if (!dim) SP_HIT.push({ x: bx3 - 3, y: by3 - 4, w: bw3 + 6, h: 44, act: a }); });
     }
     drawTopBtn(g, 20, H - 52, 64, 36, 'TOOLS', !!(scroller && scroller.on));   // #224
@@ -9710,15 +9805,15 @@ function drawMixScreen() {
   { // #389 bottom menu bar: TOOLS, RESET MIX, STREAM, CLY3DTV, STUDIO
     const h = 28, y = H - 40, gap = 6; let x = 14;
     const S = streamer, tb = (label, on, act, dim, w) => { drawTopBtn(g, x, y, w, h, label, on, dim); if (!dim) SP_HIT.push({ x: x - 3, y: y - 8, w: w + 6, h: h + 14, act }); x += w + gap; };
-    tb('TOOLS', !!(scroller && scroller.on), () => setTools('home'), false, 80);
+    tb('TOOLS', !!(scroller && scroller.on), () => setTools('home'), false, 74);
     drawResetMix(g, x, y, 100, h); x += 100 + gap;   // #254
     tb(S && S.live ? '● LIVE' : 'TWITCH', !!(S && S.live), () => setTools('stream'), !S, 82);
     tb('DIRROTV', !!(S && S.tvUp), () => setTools('tv'), !S, 88);
     tb('DIRROVJ', !!(S && S.stu.on), () => setTools('studio'), !S, 80);
-    tb('CYCLO ⁺¹', ledMode !== 'off', () => setTools('wall'), false, 72);   // #439, #537 the CYCLO page, one tap from the mixer
+    tb('CYCLOWALL ⁺¹', ledMode !== 'off', openCycloWall, false, 116);   // #439, #537 the CYCLOWALL page, one tap from the mixer
     drawLoopMainBtn(g, x, y, 74, h, 17); SP_HIT.push({ x: x - 3, y: y - 8, w: 80, h: h + 14, act: () => setTools('looper') }); x += 74 + gap;   // #470 LOOP: state colour, opens the LOOPER page
     // Gemini_acid: ACID button placed where REC MASTER currently was at the bottom right
-    tb(acidUI.running ? '● ACID' : 'ACID', acidUI.running, () => setTools('acid'), false, 116);
+    tb(acidUI.running ? '● ACID' : 'ACID', acidUI.running, () => setTools('acid'), false, 76);
     if (testState.fps) {   // #258 live frame rate (kept for the console: window.vire)
       const st = fpsStats(); g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '700 15px system-ui';
       g.fillStyle = !st ? '#8c96a8' : st.drops > 3 ? '#ff5050' : st.drops ? '#f1b650' : '#40d080';
@@ -10202,6 +10297,7 @@ function frameBody() {
     beat.want = !!((facetWall && facetWall.on && facetWall.beat) || (laser && laser.on && laser.auto) || (dirro && dirro.on) || isFxMode(ledMode) || (portals && portals.holo.beat && portals.holoN > 0));   // #598 HOLO glitches on the beat   // #427 the phones follow the beat; #439 the wall visuals
     const bp = beat.tick(dt);
     if (portals) portals.beat = bp || 0;   // #598
+    wallCamTick();   // #732
     if (facetWall) { facetWall.setRain(portals ? portals.rain : 'off'); facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource, bp); }   /* #729 the glass rain follows the PORTALS SETUP preset */
     if (laser && laser.on) laser.tick(dt, beat, camera.getWorldPosition(_laserCam));
   }
@@ -10268,12 +10364,54 @@ function stepDjCam(dt) {
     try { avatar.update({ ...pose, floorY: rig.getWorldPosition(_djFloor).y, mic: micLevel(), dt }); }
     catch (e) { if (!stepDjCam.err) { stepDjCam.err = true; console.error(e); toast('Avatar error (headset keeps running): ' + e.message, 5000); } }
   }
-  const dj = rig.worldToLocal(pose.head.p.clone());
+  const dj = rig.worldToLocal(pose.head.p.clone()); djLastRig = dj.clone();   // #731
   const gcam = gpActive(); if (gcam) goproToDjcam(gcam); else djcam.aimAt(gear, dj);   // #337 the GoPro, when it is out, is the camera
-  if (ledMode === 'cam' || !streamer || streamer.needsCamRT || ((gopro && gopro.aiming || gopro2 && gopro2.aiming) && !(streamer.live && streamer.source === 'show'))) djcam.render(scene, dt, xrOn ? (testState.cam2 ? 2 : 3) : 2, djPrep);   // #258 CAM 2ND FRAME test (#336: SHOW renders its own layer from this camera)
+  if (ledMode === 'cam' || !streamer || streamer.needsCamRT || ((gopro && gopro.aiming || gopro2 && gopro2.aiming) && !(streamer.live && streamer.source === 'show'))) { const did = roboRender(pose, gear, dt, () => djcam.render(scene, dt, xrOn ? (testState.cam2 ? 2 : 3) : 2, djPrep)); if (did && ledMode === 'cam') camToWall(); }   // #258 CAM 2ND FRAME test (#336: SHOW renders its own layer from this camera)
   else djcam.t += dt;
 }
 const _djFloor = new THREE.Vector3();
+// #732 DirroDj📹 on the CYCLOWALL: the DJ CAM picture is copied (a 1-quad pass) into its own target after each render and the
+// wall samples the copy, so the camera can film the wall without reading and writing the same texture (one frame behind = the tunnel).
+let camCopy = null; const camCopyScene = new THREE.Scene(), camCopyCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const camCopyMat = new THREE.MeshBasicMaterial({ toneMapped: false, depthTest: false, depthWrite: false });
+camCopyScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), camCopyMat));
+function camToWall() {
+  if (!djcam || !facetWall || !facetWall.on) return;
+  if (!camCopy) camCopy = new THREE.WebGLRenderTarget(djcam.rt.width, djcam.rt.height, { type: djcam.rt.texture.type, depthBuffer: false });
+  camCopyMat.map = djcam.rt.texture;
+  const r = renderer, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled;
+  r.xr.enabled = false; r.setRenderTarget(camCopy); r.render(camCopyScene, camCopyCam); r.setRenderTarget(prevRT); r.xr.enabled = prevXR;
+}
+function wallCamTick() { if (facetWall) facetWall.ext = ledMode === 'cam' && camCopy ? camCopy.texture : null; }
+// #731 (owner) DirroDj📹 (CYCLOWALL and the stream's DirroDj📹 source) has its own invisible camera: a hand-held shot of the robot DJ,
+// framing his head and hands, drifting a little closer and back (13 s) and about 10 degrees to each side of him (19 s), with a
+// small hand-held wander. It only takes the DJ CAM camera for its own renders; GoPro / SHOWTIME! keep their pose.
+const RC = { t: 0, p: null, a: null }, _rcP = new THREE.Vector3(), _rcA = new THREE.Vector3(), _rcQ = new THREE.Quaternion(), _rcV = new THREE.Vector3();
+function roboStep(pose, gear, dt) {
+  const t = RC.t += dt, TAU = Math.PI * 2;
+  const head = rig.worldToLocal(_rcV.copy(pose.head.p)).clone(), aim = head.clone();
+  const hs = (pose.hands || []).filter(h => h && h.p).map(h => rig.worldToLocal(h.p.clone()));
+  if (hs.length) { const hm = hs.reduce((a, b) => a.add(b), new THREE.Vector3()).multiplyScalar(1 / hs.length); aim.lerp(hm, 0.42); }
+  const m = gear.mixer; let fx = m.x - head.x, fz = m.z - head.z, L = Math.hypot(fx, fz);
+  if (L < 0.05) { fx = 0; fz = -1; L = 1; }
+  const ang = Math.atan2(fx / L, fz / L) + 0.1745 * Math.sin(t * TAU / 19), d = 1.25 + 0.22 * Math.sin(t * TAU / 13);
+  _rcP.set(aim.x + Math.sin(ang) * d, aim.y + 0.1, aim.z + Math.cos(ang) * d);
+  _rcP.x += 0.006 * Math.sin(t * 1.7) + 0.003 * Math.sin(t * 4.3); _rcP.y += 0.005 * Math.sin(t * 1.3 + 1) + 0.002 * Math.sin(t * 5.1); _rcP.z += 0.004 * Math.sin(t * 2.1 + 2);
+  aim.x += 0.012 * Math.sin(t * 0.9 + 0.5) + 0.004 * Math.sin(t * 3.7); aim.y += 0.01 * Math.sin(t * 1.1 + 2) + 0.003 * Math.sin(t * 4.9);
+  if (!RC.p) { RC.p = _rcP.clone(); RC.a = aim.clone(); }
+  RC.p.lerp(_rcP, 1 - Math.exp(-dt * 3)); RC.a.lerp(aim, 1 - Math.exp(-dt * 5));
+}
+function roboRender(pose, gear, dt, render) {
+  const on = !!djcam && (ledMode === 'cam' || !!(streamer && streamer.active && streamer.source === 'avacam'));
+  if (!on) { RC.p = null; return render(); }
+  roboStep(pose, gear, dt);
+  const c = djcam.cam, p0 = c.position.clone(), q0 = c.quaternion.clone(), f0 = c.fov;
+  c.position.copy(RC.p); c.updateMatrixWorld(); c.lookAt(rig.localToWorld(_rcA.copy(RC.a))); c.rotateZ(0.006 * Math.sin(RC.t * 0.8));
+  if (c.fov !== 50) { c.fov = 50; c.updateProjectionMatrix(); } c.updateMatrixWorld(true);
+  const fwV = !!(facetWall && facetWall.obj.visible); if (fwV) facetWall.obj.visible = false;   // #733 the robot cam never films the CYCLOWALL (no tunnel)
+  try { return render(); }
+  finally { if (fwV) facetWall.obj.visible = true; c.position.copy(p0); c.quaternion.copy(q0); if (c.fov !== f0) { c.fov = f0; c.updateProjectionMatrix(); } c.updateMatrixWorld(true); }
+}
 function robotNeon() {   // #355 the AVACAM robot's helmet and gloves reflect the neon room (HAND FIT > NEON CHROME, on by default)
   let on = true; try { on = !xr || xr.handFit.neon !== 0; } catch (e) {}
   if (avatars.robot && avatars.robot.root) applyNeon(avatars.robot.root, renderer, on);
@@ -10443,6 +10581,16 @@ async function useFactorySky() {
 // #185 sky from the library: a still (Pano) or a looping video panorama (Video pano)
 let skyVid = null;
 function closeSkyVideo() { if (skyVid) { closePanoVideo(skyVid); skyVid = null; } }
+// #730 / #731 (owner) VISUALS > PANO: pick a thumbnail, then SKY puts it it becomes the sky, the DOME and the stream's backdrop
+// DOME turn on; with a GoPro out the stream shows the GoPro shot over it, and portals stay in the scene as they are.
+async function panoToDome(folder, name) {
+  try {
+    await useSkyMedia(folder, name);
+    setBackdrop('dome'); if (!dome.on) await setDome(true);
+    const gp = gpActive(); if (gp && streamer && streamer.source !== 'show') streamer.setSource('show');
+  } catch (e) { toast('Dome: ' + e.message, 4000); }
+  drawMixScreen();
+}
 async function useSkyMedia(folder, name) {
   const f = await media.getFile(folder, name); if (!f) { toast('Not on this headset: ' + name); return; }
   settings.skyMedia = folder + '/' + name; settings.skyFile = name + ':' + f.size;
@@ -10540,11 +10688,11 @@ $('#fMedia').onchange = async e => {
   const info = $('#mediaAddInfo'), say = t => { info.textContent = t; };
   say(await importMedia(fs, null, say));
 };
-$('#fLed').onchange = async e => {   // #546 the start page only adds videos to the VIDEO library; the VJ plays them (CYCLO NOW) or builds the CYCLO LIST (+ CYCLO) on the VISUALS page
+$('#fLed').onchange = async e => {   // #546 the start page only adds videos to the VIDEO library; the VJ plays them (CYCLOWALL NOW) or builds the CYCLOWALL LIST (+ CYCLOWALL) on the VISUALS page
   const all = [...(e.target.files || [])].filter(f => /^video\//.test(f.type) || /\.(mp4|webm|mov|m4v)$/i.test(f.name)); e.target.value = '';
   if (!all.length) { $('#ledList').textContent = 'No playable videos in that pick (mp4 / webm).'; return; }
   $('#ledList').textContent = 'Copying into the VIDEO library…';
-  try { const msg = await importMedia(all, 'Video'); $('#ledList').textContent = `${msg}: ${all.map(f => f.name).join(' · ')}. Play them from VISUALS > Video (CYCLO NOW, or + CYCLO to build a playlist).`; }
+  try { const msg = await importMedia(all, 'Video'); $('#ledList').textContent = `${msg}: ${all.map(f => f.name).join(' · ')}. Play them from VISUALS > Video (CYCLOWALL NOW, or + CYCLOWALL to build a playlist).`; }
   catch (er) { $('#ledList').textContent = 'Could not copy: ' + (er.message || er); }
   drawMixScreen();
 };
@@ -10771,7 +10919,8 @@ if (navigator.xr) {
 }
 
 // ---- spectator camera (#158): loaded only when switched on; default off (`spect` is declared near the top)
-let spNewArm = 0;   // #697 double-tap guard for NEW CODE
+let spNewArm = 0;
+const dvRemote = { st: null, thumbs: new Map(), pg: 0 };   // #735 tablet DIRROVERSE page   // #697 double-tap guard for NEW CODE
 function newSpectCode() {   // #697 a new 5-digit code: every linked DirroVJ / camera phone drops and needs the new one
   const old = spectCode(); let c = old; while (c === old) c = String(10000 + Math.floor(Math.random() * 90000));
   try { localStorage.setItem('vire.spectCode', c); } catch {}
@@ -10794,6 +10943,8 @@ async function applySpect() {
       getRecords: () => [decks[0].record, decks[1].record, held, ...loose.map(l => l.rec)].filter(Boolean), artBlobs, getLed: () => ({ ...led.state(), curve: 0 }),   /* #358 */ onScreen: onPhoneScreen, getScroll: () => ({ on: scroller.on, text: scroller.text, wave: scroller.wave, speed: scroller.speed }), onLive: onLiveTrack, coverFor,   // #218
       getSpiders: spidersState,   // #262
       onVj: m => {   // #507 DirroVJ's scroller desk: an approved line onto the Quest's sine scroller (only from a DirroVJ the DJ allowed)
+        if (m.k === 'vjdvs') { dvRemote.st = m; if (toolsPage === 'dverse') drawMixScreen(); return; }   // #735 the desk's DirroVerse state for the tablet
+        if (m.k === 'vjdvt') { if (m.n && m.img) { const im = new Image(); im.onload = () => { if (toolsPage === 'dverse') drawMixScreen(); }; im.src = m.img; dvRemote.thumbs.set(m.n, im); } return; }
         if (m.k === 'vjholo') { if (streamer && streamer.vjAllowed && dirro) dirro.setHolo(m); return; }   // #575 Holodancer to the Dirrogram phones (allowed DirroVJ only)
         if (m.k === 'vjshow') { if (streamer && streamer.vjAllowed) vjShow(m); return; }   // #523 SHOWTIME! from the VJ desk (allowed DirroVJ only)
         if (m.k === 'vjask' || m.k === 'vjclog') {   // #524 a line for a guest / the consent log, to the relay
@@ -10830,7 +10981,7 @@ if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
 try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media.getFile('Images', cn).then(f => { if (f) { streamer.setCardPic(f); cardWallSet(f, false); } }).catch(() => {}); } catch (e) {}   // #445 the CARD picture of last time
-window.vire = { get mprops() { return mprops; } /* #586 test hook */, _acid: { cassStyle: st => { CAS3D.style = st; for (const m of CAS3D.meshes.values()) if (m.parent) m.parent.remove(m); CAS3D.meshes.clear(); } /* #690 look comparison hook: 'label' | 'clear' | 'png' */, AK, ACID_KNOBS, acidUI, tick: acidKnobTick, end: acidKnobEnd, acidTape, acidTray, trayPress, trayDrag, trayRelease, CAS3D, cassGrab, cassRelease, acidReelAt, acidReelTurn } /* #608 test hook */, THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { get mprops() { return mprops; } /* #586 test hook */, get _dvRemote() { return dvRemote; } /* #735 test hook */, _acid: { cassStyle: st => { CAS3D.style = st; for (const m of CAS3D.meshes.values()) if (m.parent) m.parent.remove(m); CAS3D.meshes.clear(); } /* #690 look comparison hook: 'label' | 'clear' | 'png' */, AK, ACID_KNOBS, acidUI, tick: acidKnobTick, end: acidKnobEnd, acidTape, acidTray, trayPress, trayDrag, trayRelease, CAS3D, cassGrab, cassRelease, acidReelAt, acidReelTurn } /* #608 test hook */, THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._deck = { pullRecord, placeOnDeck, setMotor, dropNeedleAt, get held() { return held; } };   // #497 test hook: put a record on a deck from the console
 window.vire._phase = { gridOf, beatPhase, phaseOff, envCache, gridCache };   // #643 test hook
 window.vire._loop = { loopFix, loopClip, loopCopy, loopPaste, loopUndo, loopUndoDo, loopDeleteBank, looper, loopSlots, loopUI, pressLooper, clearLooper, loopSlotTap, loopRegion, loopNudge, loopSaveBank, loopLoadBank, loopOpenBanks, stepLooper, releaseLooper };   // #470 test hook
