@@ -578,7 +578,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     comics.tick(questTex, now, dt); comicTex = used.includes('comic') ? comics.render(W, H) : null;   // #516
     mU.kA.value = D.x < 1 ? bind(D.a, mU.tA, mU.fA.value, W, H, questTex, now) : 0;
     mU.kB.value = D.x > 0 ? bind(D.b, mU.tB, mU.fB.value, W, H, questTex, now) : 0;
-    { const G = D.wg, on = Math.abs(G.ev) > 0.001 || Math.abs(G.gam - 1) > 0.001 || Math.abs(G.tint) > 0.001 || Math.abs(G.temp) > 0.001; mU.wg.value.set(G.ev, G.gam, G.tint, G.temp); mU.wB.value.set(on && D.a === 'webcam' ? 1 : 0, on && D.b === 'webcam' ? 1 : 0); }   // #741
+    { const G = D.wg, on = Math.abs(G.ev) > 0.001 || Math.abs(G.gam - 1) > 0.001 || Math.abs(G.tint) > 0.001 || Math.abs(G.temp) > 0.001; mU.wg.value.set(G.ev, G.gam, G.tint, G.temp); mU.wB.value.set(on && D.a === 'webcam' ? 1 : 0, on && D.b === 'webcam' ? 1 : 0); if (dvx && dvx.camGrade) dvx.camGrade(G); }   // #741, #744 the webcam inside the DirroVerse windows too
     mU.x.value = D.x; mU.tr.value = D.tr === 'down' ? 1 : D.tr === 'up' ? 2 : 0; drzTick(now, W / H); mgSet(); questMatch(questTex, now);
     renderer.setRenderTarget(null); renderer.render(mSc, oc);
     if (lsc.on) { lsc.tick(dt); lscTex.needsUpdate = true; const ac = renderer.autoClear; renderer.autoClear = false; renderer.render(lscSc, oc); renderer.autoClear = ac; }   // #556 local scroller over the program (no Quest)

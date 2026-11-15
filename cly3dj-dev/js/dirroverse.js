@@ -56,7 +56,7 @@ export const lvGain = (S, T) => [0, 1, 2].map(i => Math.max(0.03, Math.min(6, (T
 export const colLerp = (a, b, k) => !a ? b : { m: a.m.map((v, i) => v + (b.m[i] - v) * k), C: a.C.map((r, i) => r.map((v, j) => v + (b.C[i][j] - v) * k)) };
 
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
-const FS = `uniform sampler2D tBase, tMask, tSpill, tCam, tFog; uniform vec2 plate, camSz; uniform int nW; uniform mat3 Hm[4]; uniform vec4 fp[4];
+const FS = `uniform sampler2D tBase, tMask, tSpill, tCam, tFog; uniform vec4 wgr; uniform vec2 plate, camSz; uniform int nW; uniform mat3 Hm[4]; uniform vec4 fp[4];
 uniform float sil[4]; uniform float stack; uniform vec3 zm; uniform vec3 lvS, lvB, lvG; uniform float lvSat; uniform sampler2D tPlate; uniform float winOrig; uniform float crop, spillK, cutOld, camOn, match, mist, rainK, reflK, fogOn, time; uniform vec3 grade, camLight, camMean, camStd, tgtMean, tgtStd;
 varying vec2 vUv;
 // #709 stacked loop (plate_matte.mp4): the plate on top, a moving matte below (white = the window is clear, black = a car passes in front)
@@ -86,6 +86,7 @@ void main() {
       c = c * grade.x * vec3(1.0 + grade.y, 1.0, 1.0 - 1.3 * grade.y);
       c = 0.18 * pow(max(c, 0.0) / 0.18, vec3(grade.z));
       { vec3 cm = max(lvB + (c - lvS) * lvG, 0.0); float lm = dot(cm, vec3(0.2126, 0.7152, 0.0722)); cm = vec3(lm) + (cm - vec3(lm)) * lvSat; c = mix(c, cm, match); }   // #714 MATCH SCENE: levels onto the scene
+      if (wgr.y > 0.0) c = pow(max(c, 0.0), vec3(1.0 / wgr.y)) * exp2(wgr.x) * vec3(1.0 + 0.15 * wgr.z, 1.0 - 0.3 * wgr.z, 1.0 + 0.15 * wgr.z) * vec3(1.0 + 0.16 * wgr.w, 1.0 + 0.02 * wgr.w, 1.0 - 0.16 * wgr.w);   // #744 the desk's GRADE · WEBCAM, after MATCH SCENE so the match can't undo it
       if (sil[i] > 0.0) { float lu = dot(c, vec3(0.2126, 0.7152, 0.0722)); float keep = 0.15 + 0.85 * smoothstep(1.6, 4.5, lu / 0.18); c *= 1.0 - sil[i] * (1.0 - keep); }
       float mi = mist * (0.55 + 0.45 * smoothstep(0.25, 0.0, uv.y) + 0.6 * smoothstep(0.65, 1.0, uv.y)) * (1.0 - bead);   // condensation, heavier top and bottom
       float lu2 = dot(c, vec3(0.2126, 0.7152, 0.0722)); c += ((vec3(lu2) + 0.55 * (c - vec3(lu2))) * 0.8 + vec3(0.016, 0.02, 0.026) - c) * mi * 0.6;
@@ -110,7 +111,7 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
   let cur = 0, curStack = 0, winC = [0.5, 0.5], zS = 1;   // #711 the windows' centre (uv, y up), the zoom
   const black = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); black.needsUpdate = true;
   const U = { tBase: { value: tLoops[0] }, tMask: { value: black }, tSpill: { value: black }, tCam: { value: camTex }, plate: { value: new THREE.Vector2(1920, 1080) },
-    camSz: { value: new THREE.Vector2(1280, 720) }, nW: { value: 0 }, Hm: { value: [0, 1, 2, 3].map(() => new THREE.Matrix3()) },
+    camSz: { value: new THREE.Vector2(1280, 720) }, wgr: { value: new THREE.Vector4(0, 0, 0, 0) }, nW: { value: 0 }, Hm: { value: [0, 1, 2, 3].map(() => new THREE.Matrix3()) },
     fp: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0.4, 0.5, 1, 0.72)) }, sil: { value: [0, 0, 0, 0] }, crop: { value: 0.86 },
     grade: { value: new THREE.Vector3(2.3, 0.06, 0.88) }, camLight: { value: new THREE.Vector3(1, 1, 1) }, spillK: { value: 0.95 }, cutOld: { value: 0.5 }, camOn: { value: 1 },
     tFog: { value: black }, tPlate: { value: black }, winOrig: { value: 0 }, stack: { value: 0 }, match: { value: 0.7 }, mist: { value: 0.35 }, rainK: { value: 0.7 }, reflK: { value: 0.07 }, fogOn: { value: 0 }, time: { value: 0 },
@@ -262,5 +263,6 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     if (origUrl !== curBase || U.tPlate.value === black) { const t = await texLoad(curBase); if (seq !== origSeq) { if (t) t.dispose(); return; } if (U.tPlate.value !== black) U.tPlate.value.dispose(); U.tPlate.value = t || black; origUrl = curBase; }
     U.winOrig.value = U.tPlate.value !== black ? 1 : 0;
   }
-  return { refreshOrig, target, zoom, list, load, commit, arrive, renderArrival, render, active, get w() { return W; }, get h() { return H; }, get ready() { return ready; }, get pendingName() { return pending ? pending.name : ''; } };
+  const camGrade = G => { const on = G && (Math.abs(G.ev) > 0.001 || Math.abs(G.gam - 1) > 0.001 || Math.abs(G.tint) > 0.001 || Math.abs(G.temp || 0) > 0.001); U.wgr.value.set(on ? G.ev : 0, on ? G.gam : 0, on ? G.tint : 0, on ? (G.temp || 0) : 0); };   // #744
+  return { camGrade, refreshOrig, target, zoom, list, load, commit, arrive, renderArrival, render, active, get w() { return W; }, get h() { return H; }, get ready() { return ready; }, get pendingName() { return pending ? pending.name : ''; } };
 }
