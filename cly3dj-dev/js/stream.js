@@ -356,7 +356,7 @@ export class Streamer {
       const ps = c6 || (this.env.phoneSize && this.env.phoneSize()), asp = ps && ps.vw && ps.vh ? ps.vw / ps.vh : 16 / 9, H = Math.round(STU.CW / asp / 2) * 2;
       if (H !== this.stuH) { this.stuH = H; this._sizeCanvas(STU.PW, H); }
       let lay = null;   // #735 the GoPro picture-in-picture, even with an uncalibrated webcam
-      if (this.env.pipCam && this.env.pipCam()) {
+      if (this.showOpt.gear && this.env.boothCam && this.env.boothCam()) {   // #746 the gear as a strip along the bottom (the old GoPro box, #735)
         if (!this.pipLay) this.pipLay = document.createElement('canvas');
         const pl = this.pipLay; if (pl.width !== STU.CW || pl.height !== this.stuH) { pl.width = STU.CW; pl.height = this.stuH; }
         const pg = pl.getContext('2d'); pg.clearRect(0, 0, pl.width, pl.height); if (this._pipDraw(pg, pl.width, pl.height)) lay = pl;
@@ -400,19 +400,20 @@ export class Streamer {
     this.busy = true;
     r.readRenderTargetPixelsAsync(sp.out, 0, 0, W, H, sp.buf).then(() => {
       this.busy = false; if (this.sp !== sp || !this.stuRun || this.stu.mode === 'show') return;
-      sp.g.putImageData(sp.img, 0, 0); this._pipDraw(sp.g, W, H); this._stuPack(sp.canvas, stamp);   // #735
+      sp.g.putImageData(sp.img, 0, 0); this._stuPack(sp.canvas, stamp);   // #746 calibrated: the gear stands where it is, no strip
     }).catch(() => { this.busy = false; });
   }
-  // #735 WEBCAM+GEAR!: the chosen GoPro's picture on the lower half of the webcam image (its own render, ~15 fps, tone-mapped,
-  // read back without stalling; the last picture is reused between renders)
+  // #746 WEBCAM+GEAR! with an uncalibrated webcam: the decks and mixer seen from the audience side (crossfader toward the DJ),
+  // see-through, as a strip across the whole bottom of the webcam picture, so the DJ stands behind them (a DirroVerse window
+  // may cut the sides). Own 1024 x 214 render, ~15 fps, read back without stalling; the last strip is reused between renders.
   _pipTick() {
-    const cam = this.env.pipCam && this.env.pipCam(), r = this.env.renderer; if (!cam) { this.ppOk = false; return null; }
-    const W = 640, H = 360;
+    const cam = this.env.boothCam && this.env.boothCam(), r = this.env.renderer; if (!cam) { this.ppOk = false; return null; }
+    const W = 1024, H = 214;   // = BOOTH_ASP 4.8 in main.js
     if (!this.pp) {
       const half = r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float'), pp = this.pp = {};
-      pp.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 });
+      pp.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 }); pp.rt.vireAces = true;
       pp.out = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false });
-      pp.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: pp.rt.texture } }, vertexShader: COPY_VS, fragmentShader: PIP_FS, depthTest: false, depthWrite: false });
+      pp.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: pp.rt.texture } }, vertexShader: COPY_VS, fragmentShader: SHOW_FS, depthTest: false, depthWrite: false });
       pp.scene = new THREE.Scene(); const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), pp.mat); q.frustumCulled = false; pp.scene.add(q);
       pp.oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
       pp.buf = new Uint8Array(W * H * 4); pp.img = new ImageData(new Uint8ClampedArray(pp.buf.buffer), W, H);
@@ -421,25 +422,23 @@ export class Streamer {
     const pp = this.pp, now = performance.now();
     if (!this.ppBusy && now - (this.ppT || 0) > 66) {
       this.ppT = now;
-      const sc = this.env.scene, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled, prevSh = r.shadowMap.autoUpdate, pa = cam.aspect;
-      const undo = this.env.pipPrep ? this.env.pipPrep() : null;
+      const sc = this.env.scene, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled, prevSh = r.shadowMap.autoUpdate, prevCol = r.getClearColor(_c1).clone(), prevA = r.getClearAlpha();
+      const undo = this.env.boothPrep ? this.env.boothPrep() : null;
       try {
-        if (cam.aspect !== 16 / 9) { cam.aspect = 16 / 9; cam.updateProjectionMatrix(); }
-        r.xr.enabled = false; r.shadowMap.autoUpdate = false;
+        r.xr.enabled = false; r.shadowMap.autoUpdate = false; r.setClearColor(0x000000, 0);
         r.setRenderTarget(pp.rt); r.clear(); r.render(sc, cam); r.setRenderTarget(pp.out); r.render(pp.scene, pp.oc);
       } finally {
-        if (cam.aspect !== pa) { cam.aspect = pa; cam.updateProjectionMatrix(); }
-        r.xr.enabled = prevXR; r.shadowMap.autoUpdate = prevSh; r.setRenderTarget(prevRT); if (undo) undo();
+        r.setClearColor(prevCol, prevA); r.xr.enabled = prevXR; r.shadowMap.autoUpdate = prevSh; r.setRenderTarget(prevRT); if (undo) undo();
       }
       this.ppBusy = true;
       r.readRenderTargetPixelsAsync(pp.out, 0, 0, W, H, pp.buf).then(() => { this.ppBusy = false; if (this.pp === pp) { pp.g.putImageData(pp.img, 0, 0); this.ppOk = true; } }).catch(() => { this.ppBusy = false; });
     }
     return this.ppOk ? pp.canvas : null;
   }
-  _pipDraw(g, W, H) {   // the lower half: a 16:9 box as tall as half the picture, centred (#736 no frame)
+  _pipDraw(g, W, H) {   // #746 full width, on the bottom edge
     const c = this._pipTick(); if (!c) return false;
-    const h = Math.round(H / 2), w = Math.round(h * 16 / 9), x = Math.round((W - w) / 2), y = H - h;
-    g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.drawImage(c, x, y, w, h);
+    const h = Math.round(W * c.height / c.width);
+    g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.drawImage(c, 0, H - h, W, h);
     return true;
   }
   _stuPose(cam, W, H, stamp) {   // SHOW: the show camera's rig-space pose for the S8's dome, tagged with the frame's stamp

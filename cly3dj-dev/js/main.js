@@ -1715,7 +1715,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     return { keyDir: kd, keyCol: sk ? [sk.color.r, sk.color.g, sk.color.b] : [key.color.r, key.color.g, key.color.b], pano: skyAvg, skyReady: !!skybox.tex };
   },
   pcamPrep: cam => pcamPrep(cam), pcamLayers: () => pcamExtra,   // #734
-  pipCam: () => (djcam && gpActive() ? djcam.cam : null), pipPrep: () => djPrep(),   // #735 WEBCAM+GEAR!: the chosen GoPro's picture-in-picture
+  boothCam: () => boothCamPose(), boothPrep: () => boothPrep(),   // #746 WEBCAM+GEAR!: the gear strip along the bottom of the webcam picture
   studio: () => (spect && spect.studio) || null,   // #380 S8 STUDIO: the spectator link's studio slots
   ledClip: () => (ledMode === 'clips' && led.on && led.name && led.video ? led.name : ''),   // #380 the LED clip the S8 can play from its own copy
   monitorOn: () => monOn,   // #376 the venue screen keeps the shot running unless PREVIEW wants it   // #374 the phone camera, for the 'behind the DJ' rule
@@ -1851,6 +1851,33 @@ function robotHandsOnly(hide, cam) {
   const keep = new Set(); for (const H of a.hands) if (H && H.node) H.node.traverse(o => keep.add(o));
   a.root.traverse(o => { if (o.isMesh && !keep.has(o)) hide(o); });
   return true;
+}
+// #746 WEBCAM+GEAR! (uncalibrated webcam): a camera on the audience side of the mixer (the DJ faces -z, so the audience is
+// at -z of the mixer), a little above the decks, framing both decks across a wide strip; only the gear and its case show
+const BOOTH_ASP = 4.8; const boothCam = new THREE.PerspectiveCamera(30, BOOTH_ASP, 0.05, 20); rig.add(boothCam);
+const _bT = new THREE.Vector3(), _bO = new THREE.Vector3();
+function boothCamPose() {
+  if (!mixer || !deckGroups[0] || !deckGroups[1]) return null;
+  const m = mixer.position, yaw = mixer.rotation.y, top = deckGroups[0].position.y + DECK.H, d = 1.05;
+  const ax = new THREE.Vector3(1, 0, 0).applyAxisAngle(_yAxis, yaw);
+  const span = Math.abs(_bO.subVectors(deckGroups[0].position, deckGroups[1].position).dot(ax)) + 0.5;
+  _bO.set(0, 0, -d).applyAxisAngle(_yAxis, yaw); boothCam.position.set(m.x + _bO.x, top + 0.26, m.z + _bO.z);
+  boothCam.updateMatrixWorld(); boothCam.lookAt(rig.localToWorld(_bT.set(m.x, top - 0.05, m.z)));
+  const hf = 2 * Math.atan(span * 0.5 * 0.92 / d), vf = 2 * Math.atan(Math.tan(hf / 2) / BOOTH_ASP) / DEG;
+  if (boothCam.aspect !== BOOTH_ASP || Math.abs(boothCam.fov - vf) > 0.01) { boothCam.aspect = BOOTH_ASP; boothCam.fov = vf; boothCam.updateProjectionMatrix(); }
+  boothCam.updateMatrixWorld();
+  return boothCam;
+}
+function boothPrep() {
+  const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
+  hide(room); hide(skybox.group); hide(skyShadow); hide(neon); hide(facetWall && facetWall.obj);
+  for (const o of [chatPanel && chatPanel.obj, chalkboard && chalkboard.obj, gopro && gopro.obj, gopro2 && gopro2.obj]) hide(o);
+  if (avatar && avatar.root) hide(avatar.root);   // the real DJ is in the webcam picture
+  if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand) hide(st.ctlHand.root); }
+  if (xr && xr.glove) hide(xr.glove.root);
+  if (spect && spect.helpers) spect.helpers.forEach(hide);
+  const bg = scene.background; scene.background = null;
+  return () => { for (const o of undo) o.visible = true; scene.background = bg; };
 }
 function pcamPrep(cam) {
   const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
