@@ -13,6 +13,7 @@
 import { STU, readStamp, stampBlock } from './stream.js';
 import { opusStereo, tvHost, tvNewKey, tvPairSend } from './net-link.js';
 import { makeDesk } from './vjdesk.js';
+import { makeProgRec } from './progrec.js';   // #751 PROGRAM REC
 import { attachProjMap } from './projmap.js';   // #664 projection mapping in the projector window   // #507 DirroVJ desk (buses, fractal, scroller desk, line in)
 
 const TWITCH_WHIP = 'https://g.webrtc.live-video.net:4443/v2/offer', KEYK = 'vire.s8twitchKey', RING = 12;
@@ -87,7 +88,7 @@ void main() {
 
 export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fixed, led, getLink, questNow, onState, vj, prepLocal }) {   // #504 vj: DirroVJ (can draw SHOW itself); prepLocal(O): hide what the shot leaves out, returns undo
   const S = { on: false, mode: 'show', bd: 'none', snd: true, trim: 0, mon: false, src: 'show', paused: false, gest: false,
-    D: null, hold: null, fps: 0, qfps: 0, note: '', tw: 'off', twMsg: '', kbps: 0, W: 1280, H: 720 };
+    D: null, hold: null, fps: 0, qfps: 0, note: '', tw: 'off', twMsg: '', kbps: 0, W: 1280, H: 720, res: 720 };   // #751 res: 1080 while PROGRAM REC records 1080p
   // ---- media in
   const qv = Object.assign(document.createElement('video'), { muted: true, playsInline: true, autoplay: true });
   const au = Object.assign(document.createElement('audio'), { autoplay: true });
@@ -198,6 +199,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     qInfo: () => ({ tex: qTex, ok: qInfoOk }),   // #747 HOLOEDGE: the Quest's pack (gear + matte) for the DirroVerse window
   };
   const desk = vj ? makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio: () => aTrack, studioCtl }) : null;   // #507 / #532
+  let prec = null;   // #751 PROGRAM REC, made below once the canvas exists
   // ---- the screen: 1280 x 720 drawing buffer, shown full screen with bars (the HDMI picture), the page's own UI hidden
   document.head.insertAdjacentHTML('beforeend', `<style>
     body.stuOn #spO, body.stuOn #fxO, body.stuOn #fxTap, body.stuOn #spS, body.stuOn .fxMark { display:none !important; }
@@ -367,8 +369,8 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     }
   }
   function size() {
-    const v = fixed.video, H = v && v.videoWidth ? Math.round(1280 * v.videoHeight / v.videoWidth / 2) * 2 : 720;
-    S.W = 1280; S.H = Math.max(360, Math.min(1280, H));
+    const base = S.res === 1080 ? 1920 : 1280, v = fixed.video, H = v && v.videoWidth ? Math.round(base * v.videoHeight / v.videoWidth / 2) * 2 : Math.round(base * 9 / 16);
+    S.W = base; S.H = Math.max(360, Math.min(base, H));
     if (renderer.getPixelRatio() !== 1) renderer.setPixelRatio(1);
     if (cv.width !== S.W || cv.height !== S.H) renderer.setSize(S.W, S.H, false);
   }
@@ -555,6 +557,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
     if (twTrack && twTrack.requestFrame) twTrack.requestFrame();
     if (tvTrack && tvTrack.requestFrame) tvTrack.requestFrame();   // #509
     if (scrTrack && scrTrack.requestFrame) scrTrack.requestFrame();   // #531
+    if (prec) prec.frame(now);   // #751 PROGRAM REC (same task as the draw: the picture is still in the drawing buffer)
     if (now - fpsT > 1000) { S.fps = outN; S.qfps = qN; camRate = camN; outN = qN = camN = 0; fpsT = now; status(now, haveQ, needNote(haveQ, packed)); }
     return true;
   }
@@ -599,6 +602,7 @@ export function makeStudio({ THREE, renderer, scene, camera, rig, skybox, vs, fi
   }
   setInterval(() => { if (tvH && tvAud) { const a = twAudio(); if (a && tvH.isUp) tvH.setAudio(a).catch(() => {}); } }, 5000);   // the sound after a Quest reconnect / LINE IN
   const twAudio = () => (desk && desk.audioTrack()) || (aTrack && aTrack.readyState === 'live' ? aTrack : null);   // #507 LINE IN wins when picked
+  prec = vj ? makeProgRec({ canvas: cv, audioTrack: () => twAudio(), setRes: r => { S.res = r; size(); }, onChange: () => { if (desk && desk.post) desk.post(); } }) : null; studioCtl.prec = prec; if (prec) window.__prec = prec;   // #751 test hook; (made here: cv and twAudio exist now)
   async function twStart() {
     if (twPc) return;
     const key = getTwKey();

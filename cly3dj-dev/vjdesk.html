@@ -200,7 +200,7 @@
 </style>
 </head>
 <body>
-<header><h1>Dirro<span>VJ</span> desk</h1><div id="st">Looking for the DirroVJ output window…</div><span id="airLink" class="air">QUEST LINK: -</span><span id="airOn" class="air">QUEST ON AIR</span><span id="airRen" class="air">RENDER: QUEST</span><button id="twLight" class="air lightB" title="Twitch: tap to go live or stop (key and sound in ⚙ SETUP)">TWITCH: OFF</button><span id="airTv" class="air">DIRROTV: -</span><span id="recLight" class="air" hidden>● REC</span>
+<header><h1>Dirro<span>VJ</span> desk</h1><div id="st">Looking for the DirroVJ output window…</div><span id="airLink" class="air">QUEST LINK: -</span><span id="airOn" class="air">QUEST ON AIR</span><span id="airRen" class="air">RENDER: QUEST</span><button id="twLight" class="air lightB" title="Twitch: tap to go live or stop (key and sound in ⚙ SETUP)">TWITCH: OFF</button><span id="airTv" class="air">DIRROTV: -</span><span id="recLight" class="air" hidden>● REC</span><button id="prB" class="air lightB" title="PROGRAM REC: record the Program picture + the Twitch sound on this laptop (.mkv, NVENC when the GPU has it). Takes: ⚙ SETUP > Program recordings.">PROGRAM REC</button>
 <span class="bpmBox" title="Master tempo for BEAT effects. LINE IN: follows the kicks in the live sound. TAP: tap the beat (button or T); 4 taps or more for a steady tempo; - / + nudge.">
   <b id="bpmV">--.-</b><span class="bpmU">BPM</span><button id="tapB">TAP</button><span id="beatL"></span><button id="tmL" class="sm">LINE IN</button><button id="tmT" class="sm">TAP</button><button id="bpmM" class="sm">−</button><button id="bpmP" class="sm">+</button></span><button id="helpB" style="margin-left:auto" title="Show or hide the help lines (hover tips stay)">? HELP</button><button id="setupB" title="Setup: Twitch key and sound, DirroTV pairing, webcam picker, Dirrogram SOLO, projection mapping, Droste maker, comics files">⚙ SETUP</button><button id="openScreen" title="Open the Webcam / Projector output in a separate window (drag to a 2nd monitor or projector and make full screen)">🎥 PROJECTOR</button></header>
 <div id="topStrip">
@@ -415,6 +415,12 @@
 </div>
 <div id="bankMenu" hidden><div class="bmT" id="bmT"></div><button id="bmCx">SEND TO DIRROCOMICS</button><button id="bmDr">SEND TO DROSTE</button><button id="bmExp">EXPORT</button><button id="bmDel" class="del">DELETE</button></div>
 <div id="setupD" hidden><div class="setupIn"><div class="row" style="margin:0 0 8px"><b style="font:800 18px system-ui;color:var(--gold)">⚙ SETUP</b><span class="note" style="margin:0 8px">set once before the show</span><button id="setupX" style="margin-left:auto">CLOSE ✕</button></div>
+<section id="prS">
+  <h2>Program recordings <span class="note" style="text-transform:none;letter-spacing:0">PROGRAM REC in the header</span></h2>
+  <div class="row"><span class="sp">SIZE</span><button data-prres="720">720p</button><button data-prres="1080">1080p</button><span id="prSt" class="note" style="margin:0 0 0 8px"></span></div>
+  <div id="prList" class="note"></div>
+  <div class="note">The picture and sound that go to Twitch, recorded on this laptop as .mkv (H.264, the GPU's encoder when Chrome can use it; Opus sound), a steady 30 fps. Written as it goes into the browser's private storage, so a crash keeps all but the last 2 seconds; SAVE copies a take to a folder you pick (a crashed take: play it in VLC, or remux with ffmpeg -i in.mkv -c copy out.mkv). 1080p also draws the Program (and so Twitch / DirroTV) at 1080p while it records. About 3.6 GB an hour at 720p, 6.3 GB at 1080p.</div>
+</section>
 <section id="twS">
       <h2>Twitch and sound</h2>
       <div class="row"><button id="aQ" title="The Quest's master sound over Wi-Fi">QUEST SOUND</button><button id="aL">LINE IN</button><button id="twBtn" class="twBtn" title="Start or stop streaming the DirroVJ Program picture + sound to Twitch">GO LIVE</button><span id="twSt" class="note" style="margin:0"></span></div>
@@ -1331,6 +1337,57 @@ function airBadges(a) {
   rn.style.cursor = 'pointer'; rn.onclick = () => { if (!vjAir) { $('st').textContent = 'RENDER: turn DIRROVJ on first (tablet: TWITCH > DIRROVJ).'; return; } if (a.mode !== 'show') { $('st').textContent = 'RENDER only applies to SHOWTIME! (a GoPro); WEBCAM is drawn on this laptop already.'; return; } send({ k: 'show', render: lap ? 'quest' : 'laptop' }); };   // #748
 }
 setInterval(() => { send({ k: 'hello', again: true }); if (Date.now() - lastSeen > 4000) $('st').textContent = 'No DirroVJ window: open dirrovj.html and connect.'; }, 2000);
+</script>
+<script>/* #751 PROGRAM REC on the desk: header button, SETUP > Program recordings (takes in this browser's private storage, folder vire-progrec) */
+(() => {
+  const bc2 = new BroadcastChannel('dirrovj'); let P = null, armT = 0, prRes = (() => { try { return localStorage.getItem('vire.prRes') === '1080' ? 1080 : 720; } catch { return 720; } })();
+  const fmtB = b => b > 1e9 ? (b / 1e9).toFixed(2) + ' GB' : b > 1e6 ? (b / 1e6).toFixed(0) + ' MB' : Math.round(b / 1e3) + ' KB', fmtT = s => { s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return (h ? h + ':' : '') + String(m).padStart(h ? 2 : 1, '0') + ':' + String(s % 60).padStart(2, '0'); };
+  function draw() {
+    const b = $('prB'); if (!b) return; const on = !!(P && P.on);
+    b.classList.toggle('recLive', on); b.classList.toggle('err', !on && !!(P && P.err));
+    b.textContent = P && P.starting ? 'REC…' : on ? (Date.now() - armT < 3000 ? 'TAP AGAIN: STOP' : `● REC ${fmtT(P.sec)} · ${fmtB(P.bytes)}`) : 'PROGRAM REC';
+    for (const x of document.querySelectorAll('[data-prres]')) x.classList.toggle('on', +x.dataset.prres === prRes);
+    const st = $('prSt'); if (st) st.textContent = !P ? 'needs the DirroVJ page' : on ? `${P.w}×${P.h} · ${P.hw}${P.audio ? ' · sound' : ' · no sound'} · ${P.frames} frames${P.dup ? ', ' + P.dup + ' repeated' : ''}${P.dropped ? ', ' + P.dropped + ' dropped' : ''}` : P.err ? 'Error: ' + P.err : '';
+  }
+  bc2.onmessage = e => { const m = e.data; if (m.k === 'state' && 'prec' in m) { const was = P && P.on; P = m.prec; draw(); if (was && P && !P.on) setTimeout(list, 1500); } };
+  $('prB').onclick = () => {
+    if (!P) { $('st').textContent = 'PROGRAM REC: open the DirroVJ page first.'; return; }
+    if (P.on) { if (Date.now() - armT < 3000) { armT = 0; send({ k: 'prec', op: 'stop' }); } else armT = Date.now(); draw(); return; }
+    send({ k: 'prec', op: 'start', res: prRes });
+  };
+  for (const x of document.querySelectorAll('[data-prres]')) x.onclick = () => { if (P && P.on) return; prRes = +x.dataset.prres; try { localStorage.setItem('vire.prRes', String(prRes)); } catch {} draw(); };
+  async function dir() { const r = await navigator.storage.getDirectory(); return r.getDirectoryHandle('vire-progrec', { create: true }); }
+  async function list() {
+    const box = $('prList'); if (!box) return;
+    try {
+      const d = await dir(), rows = []; for await (const [n, h] of d.entries()) if (h.kind === 'file') { const f = await h.getFile(); rows.push({ n, size: f.size, t: f.lastModified }); }
+      rows.sort((a, b) => b.t - a.t); box.innerHTML = '';
+      const est = navigator.storage.estimate ? await navigator.storage.estimate() : null;
+      if (!rows.length) box.textContent = 'No takes yet.';
+      for (const r of rows) {
+        const row = document.createElement('div'); row.className = 'row'; row.style.margin = '2px 0';
+        const live = P && P.on && P.name === r.n;
+        const lab = document.createElement('span'); lab.textContent = `${r.n} · ${fmtB(r.size)}${live ? ' · RECORDING' : ''}`; lab.style.flex = '1';
+        const sv = document.createElement('button'); sv.textContent = 'SAVE…'; sv.disabled = live; sv.onclick = () => save(r.n, sv);
+        let dt = 0; const del = document.createElement('button'); del.textContent = 'DELETE'; del.disabled = live; del.onclick = async () => { if (Date.now() - dt > 3000) { dt = Date.now(); del.textContent = 'TAP AGAIN'; return; } try { await (await dir()).removeEntry(r.n); } catch {} list(); };
+        row.append(lab, sv, del); box.append(row);
+      }
+      if (est) { const n = document.createElement('div'); n.textContent = `Free for takes in this browser: about ${fmtB(Math.max(0, est.quota - est.usage))}.`; box.append(n); }
+    } catch (e) { box.textContent = 'Takes: ' + e.message; }
+  }
+  async function save(n, btn) {
+    const f = await (await (await dir()).getFileHandle(n)).getFile();
+    if (window.showSaveFilePicker) {
+      try { const h = await showSaveFilePicker({ suggestedName: n, types: [{ description: 'Matroska video', accept: { 'video/x-matroska': ['.mkv'] } }] }); btn.textContent = 'SAVING…'; const w = await h.createWritable(); await f.stream().pipeTo(w); btn.textContent = 'SAVED ✓'; return; }
+      catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = n; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  }
+  $('setupB').addEventListener('click', () => setTimeout(list, 50));
+  setInterval(() => { if (P && P.on) draw(); }, 1000);
+  draw(); list();
+  window.vjProgRec = { list, save, draw };
+})();
 </script>
 <script>/* #749 POP OUT / DOCK: any panel can go into its own window and come back. The panel's own elements move (their
    handlers keep working); $ (above), querySelectorAll, querySelector and activeElement also look in the popped windows. */

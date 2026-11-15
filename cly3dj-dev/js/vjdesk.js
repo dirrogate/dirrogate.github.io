@@ -728,7 +728,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     const now = performance.now(); if (now - postT < 60) { clearTimeout(post.t); post.t = setTimeout(post, 70); return; } postT = now;
     D.dv.gearSt = gearSt();   // #707
     D.qlink = questLinked(); if (!D.qlink && D.chQ) { D.chQ = ''; chatFollow(); }   // #556 the Quest's chat channel only counts while it is linked
-    bc.postMessage({ k: 'state', D: { ...D, fr: { ...D.fr } }, tw: studioCtl && studioCtl.twState ? studioCtl.twState() : null, air: studioCtl && studioCtl.airState ? studioCtl.airState() : null, queue, devs: await devices(), cams: await cams(), cam: fixed.devId ? fixed.devId() : '', sources: SOURCES, C: comics.state(), live: outT > 0 && performance.now() - outT < 3000 });
+    bc.postMessage({ k: 'state', D: { ...D, fr: { ...D.fr } }, tw: studioCtl && studioCtl.twState ? studioCtl.twState() : null, air: studioCtl && studioCtl.airState ? studioCtl.airState() : null, prec: studioCtl && studioCtl.prec ? studioCtl.prec.state() : null, queue, devs: await devices(), cams: await cams(), cam: fixed.devId ? fixed.devId() : '', sources: SOURCES, C: comics.state(), live: outT > 0 && performance.now() - outT < 3000 });
   }
   bc.onmessage = e => {
     const m = e.data || {}; peers = 1;
@@ -759,6 +759,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       }
     }
     else if (m.k === 'panoYaw') { D.panoYaw = Math.max(0, Math.min(360, +m.v || 0)); if (studioCtl && studioCtl.setPanoYaw) studioCtl.setPanoYaw(D.panoYaw); post(); }
+    else if (m.k === 'prec') { const P = studioCtl && studioCtl.prec; if (!P) bc.postMessage({ k: 'cxmsg', t: 'PROGRAM REC: only on the DirroVJ page' }); else if (m.op === 'start') P.start(m.res); else if (m.op === 'stop') P.stop(); post(); }   // #751
     else if (m.k === 'show') {
       if (m.cam === 'pcam' && !fixed.on && fixed.start) fixed.start().catch(() => {});
       if (m.cam) { const act = D.x < 0.5 ? 'a' : 'b'; if (D[act] === 'webcam') { D[act] = 'quest'; post(); } }
