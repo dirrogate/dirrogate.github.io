@@ -49,6 +49,7 @@ export function startCamera(ctx) {
   }
   let cxrx = null;   // #520 GRAB RGB-D file from the Quest (whole file in memory, a few MB)
   function onSyncBin(buf, label) {
+    if (label === 'prev') { if (studio && studio.onCyclo) studio.onCyclo(buf); return; }   // #740 the Quest's CYCLOWALL picture
     if (label !== 'file') return;
     if (cxrx) { cxrx.parts.push(buf); cxrx.got += buf.byteLength; if (cxrx.got >= cxrx.size) { const r = cxrx; cxrx = null; studio.onCx({ blob: new Blob(r.parts, { type: r.type }), name: r.n }); } return; }
     const r = qrx; if (!r) return;

@@ -286,6 +286,7 @@ export function hostLink(code, handlers) {
   }, handlers.onStatus, 'Spectator phone');
   const link = { get pipe() { return pipe; }, set pipe(p) {}, send: (l, o) => !!pipe && pipe.send(l, o), get isOpen() { return !!pipe && pipe.isOpen; }, get fileOpen() { return !!pipe && pipe.fileOpen; },
     sendBin: buf => pipe ? pipe.sendBin(buf) : Promise.reject(new Error('not connected')),   // #206 media sync, Quest to phone
+    sendPrev: buf => !!pipe && pipe.sendPrev(buf),   // #740 the Quest's CYCLOWALL picture to DirroVJ (same unordered channel the phone's previews use)
     get studioOk() { return !!pipe && pipe.isOpen && pipe.studioOk; },   // #380 the phone page has the studio slots
     setStudio: (v, a, kbps) => pipe ? pipe.setStudio(v, a, kbps) : Promise.resolve(false),
     close() { relay.close(); if (pipe) pipe.close(); } };

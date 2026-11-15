@@ -435,7 +435,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
       if (m.k === 'vjtake') { onStudio && onStudio('take', m); return; }   // #697 a DirroVJ desk press: last press wins
       if (m.k === 'qtwStop') { onStudio && onStudio('qstop', m); return; }   // #697 the desk's STOP of the Quest's own Twitch   // #556 DirroVJ got GO LIVE (else the Quest goes live itself)
       if (m.k === 'screen') { onScreen && onScreen(!!m.on); return; }   // #358   // #188 the phone's camera / key / look state
-      if (m.k === 'vjsine' || m.k === 'cxgrab' || m.k === 'vjshow' || m.k === 'vjask' || m.k === 'vjclog' || m.k === 'vjholo' || m.k === 'vjdvs' || m.k === 'vjdvt') { onVj && onVj(m); return; }   // #575 vjholo   // #523 vjshow: SHOWTIME! from the desk, #524 vjask / vjclog   // #507 DirroVJ scroller desk, #520 GRAB RGB-D (main.js checks the pairing)
+      if (m.k === 'vjsine' || m.k === 'cxgrab' || m.k === 'vjshow' || m.k === 'vjask' || m.k === 'vjclog' || m.k === 'vjholo' || m.k === 'vjdvs' || m.k === 'vjdvt' || m.k === 'vjcyc') { onVj && onVj(m); return; }   // #575 vjholo   // #523 vjshow: SHOWTIME! from the desk, #524 vjask / vjclog   // #507 DirroVJ scroller desk, #520 GRAB RGB-D (main.js checks the pairing)
       if (m.k === 'cover?') { onCoverAsk(m.key); return; }   // #218
       if (m.k === 'covhave') { if (haveWait) { const w = haveWait; haveWait = null; w(m.keys || []); } return; }
       if (m.k === 'ping') { lastPing = performance.now(); link.send('ctl', { k: 'pong', t: m.t, qt: performance.now() }); }
@@ -510,7 +510,7 @@ export function startHost({ code, stage, rig, scene, renderer, camera, toast, ge
     link.send('ctl', { k: 'cxput', n: name, size: blob.size, type: blob.type });
     for (let pos = 0; pos < blob.size; pos += CH) await link.sendBin(await blob.slice(pos, Math.min(blob.size, pos + CH)).arrayBuffer());
   }
-  return { tick, close: () => { link.close(); scene.remove(panel); rig.remove(frustum); }, sendCx, cxSay: t => link.send('ctl', { k: 'cxst', t }),   // #520
+  return { tick, close: () => { link.close(); scene.remove(panel); rig.remove(frustum); }, sendCx, sendCyclo: buf => link.isOpen && link.sendPrev(buf),   /* #740 */ cxSay: t => link.send('ctl', { k: 'cxst', t }),   // #520
     ui: () => ({ mr, phone: link.isOpen && performance.now() - lastPing < 3500 }), setMR,
     liveCam: (on, solo = false, o = {}) => link.send('ctl', { k: 'live', on: !!on, solo: !!solo, pcam: !!o.pcam, green: !!o.green }),   // #347 o: PHONE CAM plain / green-screen packed
     helpers: [frustum, panel],   // #347 hidden from the PHONE CAM render

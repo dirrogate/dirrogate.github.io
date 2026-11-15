@@ -233,6 +233,17 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     U.value = C.rt.texture; fit.set(0, 0, 1, 1); return 1;
   }
   let ledTex = null, lastLedVid = null, ledImgTex = null, lastLedImg = null;
+  // #740 the Quest's CYCLOWALL picture (it only sends while this desk shows the CYCLOWALL bus and its wall isn't on a library clip)
+  const qcy = { start: 0, mediaT: 0, tex: null, t: 0, w: 480, h: 270, old: null, busy: false }; let cycAskT = 0, cycAskOn = false;
+  function onCyclo(buf) {
+    if (qcy.busy) return; qcy.busy = true; if (performance.now() - qcy.t > 1500) qcy.start = performance.now();   // a new run of the Quest's wall (it switched to a Quest-only source)
+    createImageBitmap(new Blob([buf], { type: 'image/jpeg' }), { imageOrientation: 'flipY' }).then(b => {
+      qcy.busy = false;
+      if (!qcy.tex || qcy.w !== b.width || qcy.h !== b.height) { if (qcy.tex) qcy.tex.dispose(); qcy.tex = new THREE.Texture(b); qcy.tex.flipY = false; qcy.tex.colorSpace = THREE.NoColorSpace; qcy.tex.generateMipmaps = false; qcy.tex.minFilter = qcy.tex.magFilter = THREE.LinearFilter; }
+      else { if (qcy.old) qcy.old.close(); qcy.old = qcy.tex.image; qcy.tex.image = b; }
+      qcy.tex.needsUpdate = true; qcy.w = b.width; qcy.h = b.height; qcy.t = performance.now();
+    }).catch(() => { qcy.busy = false; });
+  }
   const mU = { tA: { value: null }, tB: { value: null }, fA: { value: new THREE.Vector4(0, 0, 1, 1) }, fB: { value: new THREE.Vector4(0, 0, 1, 1) }, kA: { value: 0 }, kB: { value: 0 }, x: { value: 0 }, dz: { value: new THREE.Vector4() }, tr: { value: 0 }, dzo: { value: new THREE.Vector2() }, asp: { value: 16 / 9 }, mg: { value: new THREE.Vector4(0, 1, 0, 0) }, mgT: { value: new THREE.Vector3(1, 1, 1) }, qS: { value: new THREE.Vector3() }, qB: { value: new THREE.Vector3() }, qG: { value: new THREE.Vector3(1, 1, 1) }, qA: { value: new THREE.Vector2() } };   // #712 qM / qS / qT / qA: MATCH SCENE on the QUEST bus   // #704 dz / dzo: BEAT ZOOM   // #711 mg / mgT: MASTER GRADE
   const mMat = new THREE.ShaderMaterial({ uniforms: mU, vertexShader: VS, fragmentShader: MIX_FS, depthTest: false, depthWrite: false }), mSc = quad(mMat);
   // #563 every DirroComics grab (GRAB QUEST / GRAB WEBCAM stills, GRAB RGB-D clips and stills) also lands in the desk's IMAGES or VIDEOS bank
@@ -440,6 +451,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if (name === 'dzcam') { const v = fixed.video; if (!fixed.on || !v.videoWidth) return 0; return inCam('dancer', U, fit, W, H, now); }   // #669
     if (name === 'webcam') { const v = fixed.video; if (!fixed.on || !v.videoWidth) return 0; U.value = camTex; cover(v.videoWidth, v.videoHeight, W, H, fit); return 1; }
     if (name === 'led') {
+      if (D.ledKind !== 'pano' && qcy.tex && performance.now() - qcy.t < 1500 && qcy.start > qcy.mediaT) {   /* the later of the two wins: the Quest's wall switching, or a clip picked on this desk */ U.value = qcy.tex; cover(qcy.w, qcy.h, W, H, fit); return 1; }   // #740 the Quest's CYCLOWALL picture (DirroDj📹, MANDEL ...), else this laptop's own clip
       if (D.ledKind === 'pano') {
         const dt = studioCtl && studioCtl.renderDome ? studioCtl.renderDome(W, H, now) : null;
         if (!dt) return 0;
@@ -520,6 +532,8 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     if ((D.cue === 'a' && D.x <= 0) || (D.cue === 'b' && D.x >= 1)) { D.cue = ''; post(); }   // #557 the T-bar reached the cued bus: it is LIVE now, CUE ends
     const onAir = (D.x < 1 ? [D.a] : []).concat(D.x > 0 ? [D.b] : []), cueSrc = D.cue ? D[D.cue] : '';
     const used = cueSrc && !onAir.includes(cueSrc) ? onAir.concat([cueSrc]) : onAir;   // a cued source is drawn too (FRACTAL, DANCER, COMICS)
+    { const want = used.includes('led') && D.ledKind !== 'pano', tn = performance.now();   // #740 ask the Quest for its CYCLOWALL picture while the bus is used
+      if ((want && tn - cycAskT > 2500) || (!want && cycAskOn)) { const L = getLink(); if (L && L.isOpen) L.send('ctl', { k: 'vjcyc', on: want }); cycAskT = tn; cycAskOn = want; } }
     analyse(dt, now);   // #662 the master tempo runs whatever is on the buses
     dvTick();   // #707 AUTO scene steps on the bar
     dvTime();   // #710 AUTO DIRROVERSE every N seconds
@@ -668,7 +682,7 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
       D.media = folder + '/' + name;
       const actBus = D.x <= 0.5 ? 'a' : 'b';
       if (folder === 'Images' || folder === 'Video') {
-        D.ledKind = 'clip'; D[actBus] = 'led'; post();
+        D.ledKind = 'clip'; D[actBus] = 'led'; qcy.mediaT = performance.now(); post();   // #740 a desk pick wins over the Quest's wall
         media.getFile(folder, name).then(f => {
           if (!f) return;
           led.play(f, true);
@@ -774,5 +788,5 @@ export function makeDesk({ THREE, renderer, fixed, led, getLink, getQuestAudio, 
     else if (m.act === 'load' && m.set) { if (D.a !== 'dverse' && D.b !== 'dverse') run({ k: 'bus', bus: D.x < 0.5 ? 'b' : 'a', v: 'dverse' }); run({ k: 'dv', act: 'load', set: String(m.set) }); }
     dvR.last = '';
   }
-  return { onQdv, D, camWanted, dvAutoSet, dvState, post, output, setCast, needQuest, cleanPack, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null) || (autoTrack && autoTrack.readyState === 'live' ? autoTrack : null), queue, comics, onCx: m => { if (m.star) { comics.onStar(m.star); return; } if (m.blob) { comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); toBank(m.blob, m.name || 'quest-rgbd'); } else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
+  return { onCyclo, onQdv, D, camWanted, dvAutoSet, dvState, post, output, setCast, needQuest, cleanPack, onStu, onVjSms, set onAudio(f) { onAudio = f; }, audioTrack: () => (D.audio === 'line' && lineTrack && lineTrack.readyState === 'live' ? lineTrack : null) || (autoTrack && autoTrack.readyState === 'live' ? autoTrack : null), queue, comics, onCx: m => { if (m.star) { comics.onStar(m.star); return; } if (m.blob) { comics.onMsg({ k: 'cx', op: 'add', files: [{ blob: m.blob, name: m.name || 'quest-rgbd' }] }); toBank(m.blob, m.name || 'quest-rgbd'); } else if (m.t) bc.postMessage({ k: 'cxmsg', t: 'Quest: ' + m.t }); }, _F: F };   // #520 GRAB RGB-D replies
 }

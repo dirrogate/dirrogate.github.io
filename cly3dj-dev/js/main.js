@@ -10367,6 +10367,7 @@ function frameBody() {
     const bp = beat.tick(dt);
     if (portals) portals.beat = bp || 0;   // #598
     wallCamTick();   // #732
+    cycFeedTick();   // #740
     if (facetWall) { facetWall.setRain(portals ? portals.rain : 'off'); facetWall.tick(dt, streamer && streamer.env && streamer.env.wallSource, bp); }   /* #729 the glass rain follows the PORTALS SETUP preset */
     if (laser && laser.on) laser.tick(dt, beat, camera.getWorldPosition(_laserCam));
   }
@@ -10450,6 +10451,42 @@ function camToWall() {
   camCopyMat.map = djcam.rt.texture;
   const r = renderer, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled;
   r.xr.enabled = false; r.setRenderTarget(camCopy); r.render(camCopyScene, camCopyCam); r.setRenderTarget(prevRT); r.xr.enabled = prevXR;
+}
+// #740 the CYCLOWALL picture to DirroVJ while its desk shows the CYCLOWALL bus (DirroVJ only has its own copy of library clips; DirroDj📹,
+// MANDEL, RETRO-SCENE, VIDVINYL, CARD ... exist only here). 480 x 270 JPEG, ~10 a second, on the link's unordered preview channel.
+// DirroDj📹 is read back from the GPU (tone-mapped like the stream); the 2D sources are drawn from the same layers the stream uses.
+var cycFeed = { want: 0, busy: false, t: 0 };
+function cycFeedTick() {
+  const now = performance.now();
+  if (!spect || !spect.sendCyclo || now > cycFeed.want || ledMode === 'off' || ledMode === 'clips' || cycFeed.busy || now - cycFeed.t < 100) return;
+  cycFeed.t = now; const W = 480, H = 270;
+  if (!cycFeed.c) { cycFeed.c = document.createElement('canvas'); cycFeed.c.width = W; cycFeed.c.height = H; cycFeed.g = cycFeed.c.getContext('2d'); }
+  const c = cycFeed.c, g = cycFeed.g, send = () => c.toBlob(b => { if (!b) { cycFeed.busy = false; return; } b.arrayBuffer().then(buf => { spect.sendCyclo(buf); cycFeed.busy = false; }); }, 'image/jpeg', 0.7);
+  cycFeed.busy = true;
+  if (ledMode === 'cam') {
+    if (!djcam) { cycFeed.busy = false; return; }
+    if (!cycFeed.rt) {
+      cycFeed.rt = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false }); cycFeed.buf = new Uint8Array(W * H * 4); cycFeed.img = new ImageData(new Uint8ClampedArray(cycFeed.buf.buffer), W, H);
+      cycFeed.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: null } }, depthTest: false, depthWrite: false,
+        vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+        fragmentShader: 'uniform sampler2D map; varying vec2 vUv; void main() { vec3 c = texture2D(map, vec2(vUv.x, 1.0 - vUv.y)).rgb; c = clamp((c * (2.51 * c + 0.03)) / (c * (2.43 * c + 0.59) + 0.14), 0.0, 1.0); gl_FragColor = vec4(pow(c, vec3(1.0 / 2.2)), 1.0); }' });
+      cycFeed.scene = new THREE.Scene(); const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), cycFeed.mat); q.frustumCulled = false; cycFeed.scene.add(q); cycFeed.cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    }
+    cycFeed.mat.uniforms.map.value = djcam.rt.texture;   // the robot cam's own picture (the wall itself may be off)
+    const r = renderer, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled;
+    r.xr.enabled = false; r.setRenderTarget(cycFeed.rt); r.render(cycFeed.scene, cycFeed.cam); r.setRenderTarget(prevRT); r.xr.enabled = prevXR;
+    r.readRenderTargetPixelsAsync(cycFeed.rt, 0, 0, W, H, cycFeed.buf).then(() => { g.putImageData(cycFeed.img, 0, 0); send(); }).catch(() => { cycFeed.busy = false; });
+    return;
+  }
+  const layers = (streamer && streamer.env && streamer.env.wallSource && streamer.env.wallSource()) || [];
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  for (const L of layers) {
+    if (!L || !L.el || L.gain === 0) continue; const el = L.el, ew = el.videoWidth || el.width, eh = el.videoHeight || el.height; if (!ew || !eh) continue;
+    const k = Math.max(W / ew, H / eh), dw = ew * k, dh = eh * k;
+    g.globalAlpha = L.gain == null ? 1 : Math.min(1, L.gain); g.globalCompositeOperation = L.add ? 'lighter' : 'source-over';
+    try { if (L.flip) { g.save(); g.translate(0, H); g.scale(1, -1); g.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh); g.restore(); } else g.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh); } catch (e) {}
+  }
+  g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; send();
 }
 function wallCamTick() { if (facetWall) facetWall.ext = ledMode === 'cam' && camCopy ? camCopy.texture : null; }
 // #731 (owner) DirroDj📹 (CYCLOWALL and the stream's DirroDj📹 source) has its own invisible camera: a hand-held shot of the robot DJ,
@@ -11014,6 +11051,7 @@ async function applySpect() {
       onVj: m => {   // #507 DirroVJ's scroller desk: an approved line onto the Quest's sine scroller (only from a DirroVJ the DJ allowed)
         if (m.k === 'vjdvs') { dvRemote.st = m; if (toolsPage === 'dverse') drawMixScreen(); return; }   // #735 the desk's DirroVerse state for the tablet
         if (m.k === 'vjdvt') { if (m.n && m.img) { const im = new Image(); im.onload = () => { if (toolsPage === 'dverse') drawMixScreen(); }; im.src = m.img; dvRemote.thumbs.set(m.n, im); } return; }
+        if (m.k === 'vjcyc') { if (streamer && streamer.vjAllowed) cycFeed.want = m.on ? performance.now() + 6000 : 0; return; }   // #740 the desk shows the CYCLOWALL bus
         if (m.k === 'vjholo') { if (streamer && streamer.vjAllowed && dirro) dirro.setHolo(m); return; }   // #575 Holodancer to the Dirrogram phones (allowed DirroVJ only)
         if (m.k === 'vjshow') { if (streamer && streamer.vjAllowed) vjShow(m); return; }   // #523 SHOWTIME! from the VJ desk (allowed DirroVJ only)
         if (m.k === 'vjask' || m.k === 'vjclog') {   // #524 a line for a guest / the consent log, to the relay
