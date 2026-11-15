@@ -194,7 +194,8 @@
       <div class="row"><div class="tbar h" id="xfT" title="T-bar: left = bus A on air, right = bus B on air. Grab and pull; it doesn't jump to a click."></div></div>
       <div class="row" id="busB"><button class="busLit" id="litB" title="Green = B is on air. Tap while A is on air: CUE (flashing yellow), the monitor shows B so you can build it. Tap again to leave CUE.">B</button></div>
       <div class="row"><button id="cut">CUT</button><button id="auto">AUTO</button><select id="fadeMs"><option value="800">0.8 s</option><option value="2000" selected>2 s</option><option value="5000">5 s</option></select></div>
-      <div class="note">QUEST: the Quest's picture (mode set on the tablet). WEBCAM: this laptop's webcam. CYCLO: the Cyclo clip.</div>
+      <div class="row"><span class="sp" title="Which camera WEBCAM, the DirroVerse windows, HOLO+CAM and DANCER+CAM use. Names show once Chrome has been allowed a camera.">WEBCAM</span><select id="wcDev" style="max-width:260px"><option value="">Default camera</option></select><span id="wcSt" class="note" style="margin:0"></span></div>
+      <div class="note">QUEST: the Quest's picture (mode set on the tablet). WEBCAM: the camera picked above. CYCLO: the Cyclo clip.</div>
     </section>
     <section style="margin-top:14px" id="shS">
       <h2>SHOWTIME! <span class="note" style="text-transform:none;letter-spacing:0">the Quest's camera (the QUEST bus)</span></h2>
@@ -225,6 +226,7 @@
       <div class="row"><input type="text" id="say" maxlength="120" placeholder="Type a line for the sine scroller" style="flex:1"><button id="sayB">SEND</button><button id="lscClr" title="No Quest: lines go to a scroller drawn over DirroVJ's own program. CLEAR stops it.">CLEAR</button></div>
       <div class="row"><span class="sp" style="white-space:nowrap">TWITCH CHAT #</span><input type="text" id="chDesk" maxlength="40" placeholder="channel (used when the Quest doesn't send one)" style="flex:1;min-width:120px"><span id="lscSt" class="sp"></span></div>
     </section>
+    <section style="margin-top:14px" id="mcS"></section>
     <section style="margin-top:14px" id="dzS">
       <h2>Dancer <span class="note" style="text-transform:none;letter-spacing:0">put DANCER on bus A or B · her dances are in DANCER CLIPS below</span></h2>
       <div class="dzTop">
@@ -393,16 +395,6 @@
       <div id="grUrl" style="font:700 20px system-ui;margin:6px 0;letter-spacing:.03em"></div>
       <div class="note">Phones scan the QR: they get the beat and the Holodancer (SEND TO DIRROGRAM), and send HoloSMS here.</div></div></div>
 </section>
-<section id="caS" style="margin:0 16px 14px">
-  <h2>QuestCast <span class="note" style="text-transform:none;letter-spacing:0">the Quest as the wearer sees it: put QUESTCAST on a bus</span></h2>
-  <div class="row"><button id="caPick" title="Pick the Chrome tab or window that shows the Quest casting (oculus.com/casting). Video only, no sound.">PICK THE CASTING WINDOW…</button><button id="caStop">STOP</button><span id="caSt" class="note" style="margin:0"></span></div>
-  <div class="row"><span class="note" style="margin:0">crop the casting page's frame:</span>
-    <label class="kv"><span class="sp">LEFT</span><input type="range" id="ca_l" min="0" max="0.45" step="0.005" value="0"></label>
-    <label class="kv"><span class="sp">RIGHT</span><input type="range" id="ca_r" min="0" max="0.45" step="0.005" value="0"></label>
-    <label class="kv"><span class="sp">TOP</span><input type="range" id="ca_t" min="0" max="0.45" step="0.005" value="0"></label>
-    <label class="kv"><span class="sp">BOTTOM</span><input type="range" id="ca_b" min="0" max="0.45" step="0.005" value="0"></label></div>
-  <div class="note">Quest: Cast to Computer. Here: open oculus.com/casting in Chrome, start VR, pick that tab. Keep this window open.</div>
-</section>
 <section id="twS" style="margin:0 16px 16px">
       <h2>Twitch streaming</h2>
       <div class="row"><button id="aQ" title="The Quest's master sound over Wi-Fi">QUEST SOUND</button><button id="aL">LINE IN</button><button id="twBtn" class="twBtn" title="Start or stop streaming the DirroVJ Program picture + sound to Twitch">GO LIVE</button><span id="twSt" class="note" style="margin:0"></span></div>
@@ -427,7 +419,7 @@
 </section>
 <script>
 const bc = new BroadcastChannel('dirrovj'), $ = id => document.getElementById(id), send = m => bc.postMessage(m);
-const NAMES = { quest: 'QUEST', cast: 'QUESTCAST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'COMICS', dancer: 'DANCER', holo: 'HOLO', dverse: 'DIRROVERSE', hocam: 'HOLO+CAM', dzcam: 'DANCER+CAM' };   // #667 #668 #669   // #662   // #573   // #516, #537, #550, #555 BLACK gone, DIRROCOMICS shortened to COMICS (one line per bus)
+const NAMES = { quest: 'QUEST', fractal: 'FRACTAL', webcam: 'WEBCAM', led: 'CYCLO', comic: 'COMICS', dancer: 'DANCER', holo: 'HOLO', dverse: 'DIRROVERSE', hocam: 'HOLO+CAM', dzcam: 'DANCER+CAM' };   // #667 #668 #669   // #662   // #573   // #516, #537, #550, #555 BLACK gone, DIRROCOMICS shortened to COMICS (one line per bus)
 let S = null, lastSeen = 0, realT = 0;   // #519 realT: last state from a real DirroVJ
 for (const bus of ['a', 'b']) for (const k of Object.keys(NAMES)) { const b = document.createElement('button'); b.textContent = NAMES[k]; b.dataset.bus = bus; b.dataset.src = k; b.onclick = () => send({ k: 'bus', bus, v: k }); $(bus === 'a' ? 'busA' : 'busB').append(b); }
 // #552 T-bar: a vision-mixer lever. Grab the handle (or anywhere on the bar) and pull: it moves by how far you pull, it never jumps to the click.
@@ -912,6 +904,12 @@ function renderDz() {
 }
 bc.onmessage = e => {
   const m = e.data || {}; lastSeen = Date.now();
+  if (m.k === 'state' && m.cams) {   // #729 the WEBCAM list
+    const sel = $('wcDev'), want = JSON.stringify(m.cams);
+    if (sel.dataset.l !== want) { sel.dataset.l = want; sel.innerHTML = '<option value="">Default camera</option>' + m.cams.map(c => `<option value="${c.id}">${String(c.label).replace(/[<>&"]/g, '').slice(0, 44)}</option>`).join(''); }
+    if (document.activeElement !== sel) sel.value = m.cam && m.cams.some(c => c.id === m.cam) ? m.cam : '';
+    $('wcSt').textContent = m.cams.length ? '' : 'no cameras yet: put WEBCAM on a bus once and allow the camera';
+  }
   if (m.k === 'state') {
     if (m.test && Date.now() - realT < 4000) return;   // #519 the DirroComics test page steps aside when a real DirroVJ answers
     if (!m.test) realT = Date.now();
@@ -927,13 +925,7 @@ bc.onmessage = e => {
   else if (m.k === 'cxmsg') { $('cxMsg').textContent = m.t; clearTimeout(cxMsgT); cxMsgT = setTimeout(() => { $('cxMsg').textContent = ''; }, 6000); }
 };
 // #667 CAST + #668 HOLO+CAM
-$('caPick').onclick = async () => {
-  let eng = null; try { eng = window.opener && window.opener.spect && window.opener.spect.studio && window.opener.spect.studio.desk; } catch {}
-  if (!eng || !eng.setCast) { $('caSt').textContent = 'Open this desk from the DirroVJ engine page (its DESK button), then pick again.'; return; }
-  try { const st = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 60 }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false, selfBrowserSurface: 'exclude', surfaceSwitching: 'include', preferCurrentTab: false });
-    eng.setCast(st); } catch (e) { $('caSt').textContent = 'Not picked: ' + (e.message || e); }
-};
-$('caStop').onclick = () => send({ k: 'cast', op: 'stop' });
+$('wcDev').onchange = e => send({ k: 'wcam', id: e.target.value });   // #729
 $('grOn').onclick = () => send({ k: 'gram', on: !(S && S.D.gram && S.D.gram.on) });   // #674
 let grQrFor = '';
 async function grQr(url) {
@@ -943,7 +935,6 @@ async function grQr(url) {
     g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#000';
     for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) g.fillRect(o + k * px, o + r * px, px, px); } catch (e) { c.style.display = 'none'; }
 }
-for (const k of ['l', 'r', 't', 'b']) $('ca_' + k).oninput = () => send({ k: 'cast', op: 'crop', v: { [k]: +$('ca_' + k).value } });
 let hpOn = false;
 const elV = () => { const v = +$('hp_el').value; $('hp_elV').textContent = (v > 0 ? '+' : '') + v + '° ' + (v > 2 ? 'above' : v < -2 ? 'below' : 'level'); };
 const hpSend = v => send({ k: 'hp', v });
@@ -962,9 +953,6 @@ function renderCaHp() {
   const D = S && S.D; if (!D) return;
   if (D.gram) { const G = D.gram; $('grOn').textContent = G.on ? 'DIRROGRAM: ON' : 'DIRROGRAM: OFF'; $('grOn').classList.toggle('on', G.on); $('grSt').textContent = G.st || '';
     $('grUrl').textContent = G.on ? G.url.replace(/^https:\/\//, '') : ''; grQr(G.on ? G.url : ''); }
-  const C = D.cast; if (C) { for (const k of ['l', 'r', 't', 'b']) if (document.activeElement !== $('ca_' + k)) $('ca_' + k).value = C[k];
-    const onBus = D.a === 'cast' || D.b === 'cast';
-    $('caSt').textContent = C.on ? 'Casting: ' + (C.label || 'picked') + (onBus ? '' : ' · put QUESTCAST on bus A or B') : $('caSt').textContent.startsWith('Not picked') || $('caSt').textContent.startsWith('Open this') ? $('caSt').textContent : 'No casting window picked.'; }
   const P = D.hp; if (P) { for (const k of ['el', 'shadow', 'light', 'cut']) if (document.activeElement !== $('hp_' + k)) $('hp_' + k).value = P[k];
     $('hp_flip').checked = !!P.flip; elV();
     const isC = v => v === 'hocam' || v === 'dzcam', bus = isC(D.a) ? D.a : isC(D.b) ? D.b : '', onBus = !!bus, shown = D.cue ? isC(D[D.cue]) : (D.x < 1 && isC(D.a)) || (D.x > 0 && isC(D.b));
@@ -1403,5 +1391,6 @@ $('bmExp').onclick = async () => { const a = bmAt; bmClose(); if (!a) return; co
 $('bmDel').onclick = async () => { const a = bmAt; bmClose(); if (!a || !confirm('Delete ' + a.name + ' from this bank (' + (a.folder === 'Video' ? 'VIDEOS' : 'IMAGES') + ')? The original file on your computer is not touched.')   /* #577 wording */) return;
   await media.remove(a.folder, a.name); thumbUrls.delete(a.folder + '/' + a.name); await loadBank(a.b); };
 </script>
+<script type="module">/* #724 MOON CASE */ import { initMoonCase } from './js/mooncase.js'; initMoonCase();</script>
 </body>
 </html>

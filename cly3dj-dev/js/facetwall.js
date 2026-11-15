@@ -12,7 +12,7 @@
 // pulse on the music (beat.js: a bass onset on the master) -- brighter, and the fractal kicks in a little.
 import * as THREE from 'three';
 import { mergeGeometries } from '../vendor/three/utils/BufferGeometryUtils.js';
-import { RAIN } from './portal.js';
+import { RAIN_PRESETS } from './portal.js';
 
 const KEY = 'vire.facetwall';
 const DEG = Math.PI / 180, YOFF = 0.02;      // the panels' bottom edge sits 2 cm off the floor
@@ -46,7 +46,7 @@ const GLASS_VS = `varying vec2 vUv; varying vec3 vLoc; varying vec3 vWN; varying
 void main() {
   vUv = uv; vLoc = position; vec4 wp = modelMatrix * vec4(position, 1.0); vWP = wp.xyz; vWN = normalize(mat3(modelMatrix) * normalize(vec3(-position.x, 0.0, -position.z)));
   gl_Position = projectionMatrix * viewMatrix * wp; }`;
-const GLASS_FS = `uniform sampler2D map; uniform float gain; uniform mat4 wallInv; uniform vec4 wallG; uniform float wallT; varying vec2 vUv; varying vec3 vLoc; varying vec3 vWN; varying vec3 vWP;
+const GLASS_FS = `uniform sampler2D map; uniform sampler2D rainMap; uniform vec4 rainP; uniform float gain; uniform mat4 wallInv; uniform vec4 wallG; uniform float wallT; varying vec2 vUv; varying vec3 vLoc; varying vec3 vWN; varying vec3 vWP;
 void main() {
   // wallG = (arc radians, radius, height, y offset)
   vec2 uv = vUv; float arc = wallG.x, R = wallG.y, H = wallG.z;
@@ -58,14 +58,17 @@ void main() {
     uv = vec2(th / arc + 0.5, (q.y - wallG.w - 0.5 * H) / (H * k) + 0.5);   // the far cylinder is k times taller, same middle
   }
   uv = clamp(uv, vec2(0.001), vec2(0.999));
-  vec2 bend = vec2(0.0); float core = 0.0, edge = 0.0, bead = 0.0, clear = 0.0, mist = 0.0;
-#ifdef USE_PORTAL
-  {   // GLASS RAIN on the pane, in metres (u along the arc, y up), the #639 maths
-    bool inRev = true; vec2 pRev = vec2((vUv.x - 0.5) * arc * R, (vUv.y - 0.5) * H), hRev = vec2(0.5 * arc * R, 0.5 * H); float upRev = 1.0;
-    ${RAIN}
-    bend = rBend; core = rCore; edge = rEdge; bead = rBead; clear = rClear; mist = portalRain.y;
+  vec2 bend = vec2(0.0), rG = vec2(0.0); float core = 0.0, edge = 0.0, clear = 0.0, mist = 0.0;
+  if (rainP.x + rainP.y > 0.001) {   // #729 GLASS RAIN from real footage: fx/rain_glass.mp4 is a looping water map (white = water), one tile = the wall's height, 16:9, mirrored along the arc
+    mist = rainP.y;
+    if (rainP.x > 0.001) {
+      vec2 ruv = vec2((vUv.x - 0.5) * arc * R / (H * 1.7778) + 0.5, vUv.y), e = vec2(1.5 / 1280.0, 1.5 / 720.0);
+      float w0 = texture2D(rainMap, ruv).g, wx = texture2D(rainMap, ruv + vec2(e.x, 0.0)).g, wy = texture2D(rainMap, ruv + vec2(0.0, e.y)).g;
+      float lo = 0.25 * (1.0 - rainP.x), w = smoothstep(lo, lo + 0.25, w0);   /* less rain = only the heavier drops */
+      rG = vec2(wx - w0, wy - w0) * w; bend = -rG * 0.35; core = w; clear = w;   /* each drop is a small lens: the view behind it flips and shrinks */
+      edge = smoothstep(0.03, 0.2, length(rG));
+    }
   }
-#endif
   uv += bend / vec2(max(arc * R, 0.1), H) * 1.6;
   vec3 col = texture2D(map, uv).rgb * gain;
   col *= vec3(0.86, 0.92, 1.0);   // cool glass tint
@@ -74,7 +77,11 @@ void main() {
   col += vec3(0.55, 0.65, 0.8) * (fr * 0.22 + streak);
   float m = mist * (1.0 - clear);
   col = mix(col, vec3(dot(col, vec3(0.3, 0.5, 0.2))) * 0.7 + vec3(0.06, 0.07, 0.09), m * 0.55);
-  col += vec3(0.75, 0.85, 1.0) * (edge * 0.18 + core * 0.06) + vec3(0.9) * bead * 0.04;
+  if (core > 0.001) {   // #729 drops: brighter lens, a dark rim where the water curves away, a small glint from the room lights
+    vec3 n = normalize(vec3(-rG * 6.0, 1.0));
+    float glint = pow(max(dot(n, normalize(vec3(-0.35, 0.55, 0.76))), 0.0), 24.0);
+    col = col * (1.0 + 0.35 * core) * (1.0 - 0.55 * edge) + vec3(0.85, 0.92, 1.0) * (glint * 0.9 * core + core * 0.035);
+  }
   gl_FragColor = vec4(col, 1.0);
   #include <colorspace_fragment>
 }`;
@@ -89,7 +96,7 @@ export class FacetWall {
     this.canvas = document.createElement('canvas'); this.canvas.width = 1024; this.canvas.height = 456;
     this.g2d = this.canvas.getContext('2d'); this.screenTex = this._canvasTex();
     this._buildFractalRT();
-    this.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: this.fractalRT.texture }, gain: { value: 1 }, wallInv: { value: new THREE.Matrix4() }, wallG: { value: new THREE.Vector4(2.6, 1.85, 2.15, YOFF) }, wallT: { value: 0 } },
+    this.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: this.fractalRT.texture }, gain: { value: 1 }, wallInv: { value: new THREE.Matrix4() }, wallG: { value: new THREE.Vector4(2.6, 1.85, 2.15, YOFF) }, wallT: { value: 0 }, rainMap: { value: null }, rainP: { value: new THREE.Vector4(0, 0, 0, 0) } },
       vertexShader: GLASS_VS, fragmentShader: GLASS_FS, side: THREE.DoubleSide, toneMapped: false });   // #703 the glass window wall
     this.mesh = new THREE.Mesh(this._buildGeo(), this.mat); this.mesh.userData.noMirror = true; g.add(this.mesh);
     this.frameMat = new THREE.MeshStandardMaterial({ color: FRAME_COL, metalness: 0.65, roughness: 0.4 });
@@ -97,6 +104,7 @@ export class FacetWall {
     this.frame = new THREE.Mesh(new THREE.BufferGeometry(), this.frameMat); this.frame.userData.noMirror = true; g.add(this.frame);
     this.lamps = new THREE.Mesh(new THREE.BufferGeometry(), this.lampMat); this.lamps.userData.noMirror = true; g.add(this.lamps);
     this._frameT = 0;
+    this._rainBlank = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); this._rainBlank.needsUpdate = true; this.mat.uniforms.rainMap.value = this._rainBlank; this._rainKey = 'off';
     this._lastDraw = 0;
     this._load();
     this._layout();
@@ -182,7 +190,22 @@ export class FacetWall {
   }
   save() { try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, mode: this.mode, beat: this.beat, ...this.v, p: this.obj.position.toArray(), q: this.obj.quaternion.toArray() })); } catch {} }
   reset(save = true) { const h = this.home(); this.obj.position.copy(h.p); this.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), h.yaw); if (save) this.save(); }
-  setOn(on, save = true) { this.on = !!on; this.obj.visible = this.on; if (save) this.save(); }
+  setOn(on, save = true) { this.on = !!on; this.obj.visible = this.on; if (!this.on && this._rainV && !this._rainV.paused) this._rainV.pause(); if (save) this.save(); }
+  // #729 GLASS RAIN: the PORTALS SETUP preset (off / mist / drizzle / rain / storm). The footage only decodes while the wall is on and it rains.
+  setRain(k) { this._rainKey = RAIN_PRESETS[k] ? k : 'off'; }
+  _rain() {
+    const P = RAIN_PRESETS[this._rainKey] || RAIN_PRESETS.off, U = this.mat.uniforms; let amt = P[0];
+    if (amt > 0) {
+      if (!this._rainV) {
+        const v = this._rainV = document.createElement('video'); v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto'; v.src = 'fx/rain_glass.mp4';
+        const t = this._rainTex = new THREE.VideoTexture(v); t.colorSpace = THREE.NoColorSpace; t.generateMipmaps = false; t.minFilter = t.magFilter = THREE.LinearFilter; t.wrapS = THREE.MirroredRepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
+      }
+      const v = this._rainV; if (v.playbackRate !== P[2]) v.playbackRate = P[2];
+      if (v.paused && performance.now() - (this._rainTry || 0) > 1000) { this._rainTry = performance.now(); v.play().catch(() => {}); }
+      if (v.readyState >= 2) U.rainMap.value = this._rainTex; else amt = 0;   /* no picture yet = no drops */
+    } else if (this._rainV && !this._rainV.paused) this._rainV.pause();
+    U.rainP.value.set(amt, P[1], 0, 0);
+  }
   setMode(m, save = true) {
     this.mode = m === 'screen' ? 'screen' : 'fractal';
     this.mat.uniforms.map.value = this.mode === 'screen' ? this.screenTex : this.fractalRT.texture;
@@ -216,6 +239,7 @@ export class FacetWall {
     }
     if (moving) { this._settled = false; this._layout(); }
     else if (!this._settled) { this._settled = true; this._layout(); this._fitTextures(); }
+    this._rain();
     this.obj.updateMatrixWorld(); this.mat.uniforms.wallInv.value.copy(this.obj.matrixWorld).invert();   // #703 each eye's ray, in the wall's own space
     const p = this.beat ? pulse : 0;
     this.mat.uniforms.gain.value = 1 + 0.6 * p;   // not tone-mapped: above 1 = brighter

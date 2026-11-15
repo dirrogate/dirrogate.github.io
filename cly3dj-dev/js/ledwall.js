@@ -9,6 +9,10 @@ export const LED_CURVE_MAX = 150;
 // plays whatever clip name + time the Quest reports, if it has a file with the same name.
 const IMG_SECONDS = 8;
 const isImage = f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|avif)$/i.test(f.name);
+// #729 a still for the Cyclo: the bitmap itself is flipped for WebGL users (textures with flipY off: DirroVJ's desk / studio),
+// and carries .up = the same picture the right way up for 2D canvas users (the Quest's Cyclo wall, stream backdrop, SCREEN
+// portals). Before, the 2D users drew the flipped one: stills came out upside down (which also reads as mirrored).
+async function bmpPair(f) { const [b, up] = await Promise.all([createImageBitmap(f, { imageOrientation: 'flipY' }), createImageBitmap(f)]); b.up = up; return b; }
 export class LedPlayer {
   constructor() {
     const self = this;
@@ -25,7 +29,7 @@ export class LedPlayer {
     const onEnded = this._ended || null;
     this.silent = s;
     if (!f) return;
-    if (img) { if (!s) createImageBitmap(f, { imageOrientation: 'flipY' }).then(b => { if (this.name === f.name && this.img && !this.silent) this.curImage = b; }).catch(() => {}); else this.curImage = null; return; }
+    if (img) { if (!s) bmpPair(f).then(b => { if (this.name === f.name && this.img && !this.silent) this.curImage = b; }).catch(() => {}); else this.curImage = null; return; }
     this._open(f, loop ? null : onEnded, t, dur); if (loop) this._loop(true);
   }
   _loop(on) { if (this.video) this.video.loop = on; if (this.clk) { this.clk.loop = on; this._arm(); } }
@@ -56,7 +60,7 @@ export class LedPlayer {
     this._close(); this._ended = onEnded;
     if (isImage(file)) {   // #185 still image
       const name = file.name; this.name = name; this.img = true;
-      if (!this.silent) createImageBitmap(file, { imageOrientation: 'flipY' }).then(b => { if (this.name === name && this.img && !this.silent) this.curImage = b; }).catch(() => {});
+      if (!this.silent) bmpPair(file).then(b => { if (this.name === name && this.img && !this.silent) this.curImage = b; }).catch(() => {});
       if (onEnded) this.imgT = setTimeout(() => { if (this.name === name) onEnded(); }, IMG_SECONDS * 1000);
       return;
     }
