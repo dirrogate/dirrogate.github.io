@@ -108,6 +108,14 @@ void main() { vec2 uv = vec2(vUv.x, 1.0 - vUv.y); vec4 g = texture2D(map, uv); v
 const DEG = Math.PI / 180, _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _s1 = new THREE.Vector3(1, 1, 1), _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _e1 = new THREE.Euler(), _c1 = new THREE.Color();
 
 // SHOW layer: gear / robot on transparent black, tone-mapped, sRGB, flipped, with its alpha (un-premultiplied) for 2D drawing
+const PIP_FS = `uniform sampler2D map; varying vec2 vUv;
+vec3 rrt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
+vec3 aces(vec3 c) {
+  const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
+  const mat3 O = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
+  c *= 1.0 / 0.6; return clamp(O * rrt(I * c), 0.0, 1.0); }
+vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
+void main() { vec4 g = texture2D(map, vec2(vUv.x, 1.0 - vUv.y)); gl_FragColor = vec4(srgb(aces(g.rgb)), 1.0); }`;   // #735 the GoPro PiP: opaque
 const SHOW_FS = `uniform sampler2D map; varying vec2 vUv;
 vec3 rrt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
 vec3 aces(vec3 c) {
@@ -170,7 +178,7 @@ export class Streamer {
     this.env = env;
     this.state = 'off';   // off | connecting | live | error
     this.msg = ''; this.kbps = 0; this.t0 = 0; this.retries = 0;
-    this.source = SOURCES[ls.get(SRC)] ? ls.get(SRC) : 'card';
+    this.source = SOURCES[ls.get(SRC)] && ls.get(SRC) !== 'card' ? ls.get(SRC) : 'avacam';   // #735 at start the CYCLOWALL's DirroDj📹 robot cam, never the Twitch card (CARD is still a button on the TWITCH page)
     this.pc = null; this.vSender = null; this.aTrack = null; this.vTrack = null; this.camStream = null;
     this.canvas = document.createElement('canvas'); this.canvas.width = 1280; this.canvas.height = 720;
     this.g = this.canvas.getContext('2d');
@@ -337,7 +345,13 @@ export class Streamer {
     if (!this.showOpt.gear || !c6 || !c6.ff || !rig) {
       const ps = c6 || (this.env.phoneSize && this.env.phoneSize()), asp = ps && ps.vw && ps.vh ? ps.vw / ps.vh : 16 / 9, H = Math.round(STU.CW / asp / 2) * 2;
       if (H !== this.stuH) { this.stuH = H; this._sizeCanvas(STU.PW, H); }
-      this._stuPack(null, performance.now()); return;
+      let lay = null;   // #735 the GoPro picture-in-picture, even with an uncalibrated webcam
+      if (this.env.pipCam && this.env.pipCam()) {
+        if (!this.pipLay) this.pipLay = document.createElement('canvas');
+        const pl = this.pipLay; if (pl.width !== STU.CW || pl.height !== this.stuH) { pl.width = STU.CW; pl.height = this.stuH; }
+        const pg = pl.getContext('2d'); pg.clearRect(0, 0, pl.width, pl.height); if (this._pipDraw(pg, pl.width, pl.height)) lay = pl;
+      }
+      this._stuPack(lay, performance.now()); return;
     }
     const asp = c6.vw && c6.vh ? c6.vw / c6.vh : 16 / 9, W = STU.CW, H = Math.round(W / asp / 2) * 2;
     if (H !== this.stuH) { this.stuH = H; this._sizeCanvas(STU.PW, H); }
@@ -376,8 +390,48 @@ export class Streamer {
     this.busy = true;
     r.readRenderTargetPixelsAsync(sp.out, 0, 0, W, H, sp.buf).then(() => {
       this.busy = false; if (this.sp !== sp || !this.stuRun || this.stu.mode === 'show') return;
-      sp.g.putImageData(sp.img, 0, 0); this._stuPack(sp.canvas, stamp);
+      sp.g.putImageData(sp.img, 0, 0); this._pipDraw(sp.g, W, H); this._stuPack(sp.canvas, stamp);   // #735
     }).catch(() => { this.busy = false; });
+  }
+  // #735 WEBCAM+GEAR!: the chosen GoPro's picture on the lower half of the webcam image (its own render, ~15 fps, tone-mapped,
+  // read back without stalling; the last picture is reused between renders)
+  _pipTick() {
+    const cam = this.env.pipCam && this.env.pipCam(), r = this.env.renderer; if (!cam) { this.ppOk = false; return null; }
+    const W = 640, H = 360;
+    if (!this.pp) {
+      const half = r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float'), pp = this.pp = {};
+      pp.rt = new THREE.WebGLRenderTarget(W, H, { type: half ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4 });
+      pp.out = new THREE.WebGLRenderTarget(W, H, { depthBuffer: false });
+      pp.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: pp.rt.texture } }, vertexShader: COPY_VS, fragmentShader: PIP_FS, depthTest: false, depthWrite: false });
+      pp.scene = new THREE.Scene(); const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), pp.mat); q.frustumCulled = false; pp.scene.add(q);
+      pp.oc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+      pp.buf = new Uint8Array(W * H * 4); pp.img = new ImageData(new Uint8ClampedArray(pp.buf.buffer), W, H);
+      pp.canvas = document.createElement('canvas'); pp.canvas.width = W; pp.canvas.height = H; pp.g = pp.canvas.getContext('2d');
+    }
+    const pp = this.pp, now = performance.now();
+    if (!this.ppBusy && now - (this.ppT || 0) > 66) {
+      this.ppT = now;
+      const sc = this.env.scene, prevRT = r.getRenderTarget(), prevXR = r.xr.enabled, prevSh = r.shadowMap.autoUpdate, pa = cam.aspect;
+      const undo = this.env.pipPrep ? this.env.pipPrep() : null;
+      try {
+        if (cam.aspect !== 16 / 9) { cam.aspect = 16 / 9; cam.updateProjectionMatrix(); }
+        r.xr.enabled = false; r.shadowMap.autoUpdate = false;
+        r.setRenderTarget(pp.rt); r.clear(); r.render(sc, cam); r.setRenderTarget(pp.out); r.render(pp.scene, pp.oc);
+      } finally {
+        if (cam.aspect !== pa) { cam.aspect = pa; cam.updateProjectionMatrix(); }
+        r.xr.enabled = prevXR; r.shadowMap.autoUpdate = prevSh; r.setRenderTarget(prevRT); if (undo) undo();
+      }
+      this.ppBusy = true;
+      r.readRenderTargetPixelsAsync(pp.out, 0, 0, W, H, pp.buf).then(() => { this.ppBusy = false; if (this.pp === pp) { pp.g.putImageData(pp.img, 0, 0); this.ppOk = true; } }).catch(() => { this.ppBusy = false; });
+    }
+    return this.ppOk ? pp.canvas : null;
+  }
+  _pipDraw(g, W, H) {   // the lower half: a 16:9 box as tall as half the picture, centred, with a thin frame
+    const c = this._pipTick(); if (!c) return false;
+    const h = Math.round(H / 2), w = Math.round(h * 16 / 9), x = Math.round((W - w) / 2), y = H - h;
+    g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.drawImage(c, x, y, w, h);
+    g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 3; g.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3);
+    return true;
   }
   _stuPose(cam, W, H, stamp) {   // SHOW: the show camera's rig-space pose for the S8's dome, tagged with the frame's stamp
     const L = this.stuLink, rig = this.env.rig; if (!L || !rig) return;

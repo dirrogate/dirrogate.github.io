@@ -1193,8 +1193,7 @@ function openPhoneCam(openSetup = false) {
   if (S.stu.on) {
     const was = S.stu.mode !== 'show';
     if (was) { next(); return; }
-    S.setStudio('mode', 'cam');
-    if (gopro) gopro.setOn(false); if (gopro2) gopro2.setOn(false);
+    S.setStudio('mode', 'cam');   // #735 the chosen GoPro stays out (picture-in-picture on the lower half)
     if (openSetup) setTools('pcam'); else drawMixScreen();
     return;
   }
@@ -1248,13 +1247,14 @@ async function camPickLoad() {
     let devs = []; try { devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput'); } catch (e) {}
     camPick.list = devs.map((d, i) => ({ id: d.deviceId, n: (d.label || 'Camera ' + (i + 1)).slice(0, 40) })).filter(d => d.id); camPick.cur = localCam.id; camPick.local = true;
   }
-  const j = camPick.list.findIndex(c => c.id === camPick.cur); camPick.i = j >= 0 ? j : 0;
 }
 function pcamReadyLink() { const S = streamer; return !!(S && (S.stu.on || !pcamReady())); }
-async function camPickStep() {
-  const fresh = !camPick.list.length; await camPickLoad();
+async function camPickStep() {   // #735 the list is read on the first tap (starting on the camera in use), then each tap steps and loops round
+  const fresh = !camPick.list.length;
+  if (fresh) { await camPickLoad(); const j = camPick.list.findIndex(c => c.id === camPick.cur); camPick.i = j >= 0 ? j : 0; }
+  else camPickLoad().then(() => { if (camPick.i >= camPick.list.length) camPick.i = 0; drawMixScreen(); });   // refreshed in the background (a camera plugged in)
   if (!camPick.list.length) { toast('No cameras listed (start the webcam once so the browser can name them)', 3000); drawMixScreen(); return; }
-  if (!fresh) camPick.i = (camPick.i + 1) % camPick.list.length;
+  if (!fresh) camPick.i = (camPick.i + 1) % camPick.list.length;   // after the last camera: back to the first
   toast('WEBCAMS: ' + camPick.list[camPick.i].n + ' · CONFIRM to use it', 2000); drawMixScreen();
 }
 async function camPickConfirm() {
@@ -1713,6 +1713,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     return { keyDir: kd, keyCol: sk ? [sk.color.r, sk.color.g, sk.color.b] : [key.color.r, key.color.g, key.color.b], pano: skyAvg, skyReady: !!skybox.tex };
   },
   pcamPrep: cam => pcamPrep(cam), pcamLayers: () => pcamExtra,   // #734
+  pipCam: () => (djcam && gpActive() ? djcam.cam : null), pipPrep: () => djPrep(),   // #735 WEBCAM+GEAR!: the chosen GoPro's picture-in-picture
   studio: () => (spect && spect.studio) || null,   // #380 S8 STUDIO: the spectator link's studio slots
   ledClip: () => (ledMode === 'clips' && led.on && led.name && led.video ? led.name : ''),   // #380 the LED clip the S8 can play from its own copy
   monitorOn: () => monOn,   // #376 the venue screen keeps the shot running unless PREVIEW wants it   // #374 the phone camera, for the 'behind the DJ' rule
@@ -1754,7 +1755,7 @@ if (streamer) {
   const rawSource = streamer.setSource.bind(streamer);
   streamer.setSource = async (src, ...a) => {   // #402 / #530 one camera choice: HEADSET CAM / WEBCAM put the GoPro away, SHOW brings the active GoPro back out
     const r = await rawSource(src, ...a);
-    const gpOn = src === 'show' && (!streamer.stu.on || streamer.stu.mode === 'show');
+    const gpOn = (src === 'show' && (!streamer.stu.on || streamer.stu.mode === 'show')) || (streamer.stu.on && streamer.stu.mode === 'cam');   // #735 WEBCAM+GEAR! keeps the chosen GoPro (its picture-in-picture)
     if (gopro) gopro.setOn(gpOn && djSet.preset === 'gopro');
     if (gopro2) gopro2.setOn(gpOn && djSet.preset === 'gopro2');
     return r;
@@ -1762,7 +1763,7 @@ if (streamer) {
   const rawStudio = streamer.setStudio.bind(streamer);
   streamer.setStudio = (k, v) => {
     rawStudio(k, v);
-    const gpOn = streamer.source === 'show' && (!streamer.stu.on || streamer.stu.mode === 'show');
+    const gpOn = (streamer.source === 'show' && (!streamer.stu.on || streamer.stu.mode === 'show')) || (streamer.stu.on && streamer.stu.mode === 'cam');   // #735
     if (gopro) gopro.setOn(gpOn && djSet.preset === 'gopro');
     if (gopro2) gopro2.setOn(gpOn && djSet.preset === 'gopro2');
   };
@@ -5551,7 +5552,7 @@ async function lightPhone(folder, name) {
   vpFolder = 'Look'; vpLoad();
 }
 // #220 DJ CAM tab: the LED wall's virtual camera (angle, mirror) and the avatar
-function setDjPreset(k) { djSet.preset = k; if (djcam) djcam.preset = k; const gpOn = !streamer || (streamer.source === 'show' && (!streamer.stu.on || streamer.stu.mode === 'show')); if (gopro) gopro.setOn(gpOn && k === 'gopro'); if (gopro2) gopro2.setOn(gpOn && k === 'gopro2'); saveDjSet(); drawMixScreen(); }   // #338 / #530 the GOPRO angle = the GoPro object out
+function setDjPreset(k) { djSet.preset = k; if (djcam) djcam.preset = k; const gpOn = !streamer || (streamer.source === 'show' && (!streamer.stu.on || streamer.stu.mode === 'show')) || (streamer.stu.on && streamer.stu.mode === 'cam');   /* #735 */ if (gopro) gopro.setOn(gpOn && k === 'gopro'); if (gopro2) gopro2.setOn(gpOn && k === 'gopro2'); saveDjSet(); drawMixScreen(); }   // #338 / #530 the GOPRO angle = the GoPro object out
 function setDjMirror(on) { djSet.mirror = on; saveDjSet(); drawMixScreen(); }
 function setDjAvatar(on) { djSet.avatar = on; saveDjSet(); if (avatar) avatar.root.visible = on; drawMixScreen(); }
 // #278 (avatar-stage-plan.md step 1): the robot DJ on the spectator phone. The phone already gets the head and the
@@ -8577,7 +8578,7 @@ function drawToolsPage() {
       [P ? 'KEY: ' + KEY_LABEL[(K && K.col) || 0] : 'KEY ' + ['GRN', 'BLUE', 'MAG'][(K && K.col) || 0], false, K ? () => { keySend('col', (((K.col || 0) + 1) % 3)); drawMixScreen(); } : null, !K],
       ['AUTO KEY', false, K ? () => { spect.camSet({ what: 'auto' }); toast('Auto key: point the webcam at the empty key screen', 3000); } : null, !K],
       [K && (K.gl || K.gr || K.gt || K.gb) ? 'CROP: ON' : 'CROP', !!(K && (K.gl || K.gr || K.gt || K.gb)), () => setTools('pcamcrop')],   // #353 garbage matte page
-      ['WEBCAMS ⟳', !!camPick.list.length, camPickStep],   // #734 steps through the machine's cameras (shown here, nothing switches yet)
+      [(camPick.list.length ? camPick.list[camPick.i].n : 'WEBCAMS') + ' ⟳', !!camPick.list.length, camPickStep],   // #735 shows the camera it is on   // #734 steps through the machine's cameras (shown here, nothing switches yet)
       ['CONFIRM', false, camPick.list.length ? camPickConfirm : null, !camPick.list.length],   // #734 switches to the camera WEBCAMS⟳ shows
     ];
     const lat = S.delay != null ? Math.round(S.delay) : null;
@@ -8710,7 +8711,7 @@ function drawToolsPage() {
       y2 += bh + gap;
     }
     const w2 = (R - L - gap) / 2;
-    Object.entries(STUDIO_MODES).forEach(([k, label], i) => btn(L + i * (w2 + gap), y2, w2, bh + (P ? 12 : 0), label, U.mode === k, () => S.setStudio('mode', k), false, P ? 22 : 17));
+    Object.entries(STUDIO_MODES).forEach(([k, label], i) => btn(L + i * (w2 + gap), y2, w2, bh + (P ? 12 : 0), label, U.mode === k, () => { S.setStudio('mode', k); if (k === 'cam' && camPick.cur && spect && spect.camSetDev) spect.camSetDev(camPick.cur); }, false, P ? 22 : 17));   // #735 straight to the webcam picked on WEBCAM SETUP
     const y3 = y2 + bh + (P ? 12 : 0) + gap;
     const fs5 = P ? 15 : 14;
     btn(L, y3, w5, bh, 'DELAY −10', false, () => S.setStudio('trim', U.trim - 10), false, fs5);

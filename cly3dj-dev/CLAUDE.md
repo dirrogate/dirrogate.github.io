@@ -2690,3 +2690,10 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 
 ## #737 Release #730 to #735 to cly3dj (owner, 15 Nov)
 - cly3dj = cly3dj-dev (CYCLO DOME, CYCLOWALL name, DirroDj📹 robot cam, WEBCAM robot hands / EXPOSURE / GAMMA / TINT, WEBCAMS + CONFIRM, tablet DIRROVERSE page, T-bar WIPE, ORIGINAL WINDOW). sw v201. node --check clean on every dev js. No Node restart.
+
+## #735 Preview starts on DirroDj📹, GoPro picture-in-picture in WEBCAM+GEAR!, WEBCAMS button shows the name and loops (owner, 15 Nov)
+- stream.js: the stream source starts on 'avacam' (DirroDj📹, the CYCLOWALL robot cam, #731) whenever the saved source is CARD or none, so PREVIEW at start shows the robot cam, never the Twitch card. CARD is still on the TWITCH page.
+- WEBCAM+GEAR! (DirroVJ): the chosen GoPro (gpActive) stays out in this mode (gpOn includes stu mode 'cam'; openPhoneCam no longer puts it away) and its picture goes into the lower half of the webcam image: stream.js _pipTick renders the scene from the DJ CAM camera (= the GoPro pose) into its own 640x360 HalfFloat MSAA target with djPrep (env.pipPrep), PIP_FS tone-maps it opaque, async read-back ~15 fps; _pipDraw puts it as a centred 16:9 box filling the lower half (thin white frame) into the pack layer, calibrated (over the gear layer) or not. The DIRROVJ page's WEBCAM+GEAR! button also sends the camera confirmed on WEBCAM SETUP (camPick.cur) to DirroVJ.
+- WEBCAM SETUP: the WEBCAMS ⟳ button shows the camera it is on; it reads the list on the first tap (starting on the camera in use) and then steps and loops round (the #734 version re-read the list on every tap and reset to the camera in use, so it stuck on the 2nd camera, e.g. the Meta Quest 3 one).
+- Answered: SOUND: ON on the DIRROVJ page = the Quest sends its master mix (after the limiter, no cue) to DirroVJ in the same stream as the picture, for DirroVJ's Twitch / DirroTV / HDMI; OFF = picture only (DirroVJ then uses LINE IN or nothing).
+- Syntax checked only: the Node server at localhost:8000 was not reachable from the PC pane, so not tested. sw.js v201. No Node restart. Backup backups/pre735/.
