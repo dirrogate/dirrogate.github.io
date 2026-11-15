@@ -178,7 +178,7 @@ export class Streamer {
     this.env = env;
     this.state = 'off';   // off | connecting | live | error
     this.msg = ''; this.kbps = 0; this.t0 = 0; this.retries = 0;
-    this.source = SOURCES[ls.get(SRC)] && ls.get(SRC) !== 'card' ? ls.get(SRC) : 'avacam';   // #735 at start the CYCLOWALL's DirroDj📹 robot cam, never the Twitch card (CARD is still a button on the TWITCH page)
+    this.source = 'avacam'; ls.set(SRC, 'avacam');   // #736 every start: the CYCLOWALL's DirroDj📹 robot cam (not the card, not the last source); #735 at start the CYCLOWALL's DirroDj📹 robot cam, never the Twitch card (CARD is still a button on the TWITCH page)
     this.pc = null; this.vSender = null; this.aTrack = null; this.vTrack = null; this.camStream = null;
     this.canvas = document.createElement('canvas'); this.canvas.width = 1280; this.canvas.height = 720;
     this.g = this.canvas.getContext('2d');
@@ -198,7 +198,7 @@ export class Streamer {
     this.tvSet = { key: '', on: true, audio: true, ...(lsJ(TVK) || {}) }; this.tvLink = null; this.tvUp = false; this.tvMsg = ''; this.tvPairing = 0; this.tvKbps = 0; this.tvFps = 0;
     if (this.tvSet.key && this.tvSet.on) this._tvOpen();
     this.pk = null; this.pkNew = false; this.pkMsg = ''; this.delay = null; this.grade = new THREE.Vector3(1, 1, 1); this.gradeT = 0;   // #347
-    this.stu = { ...STUDIO_DEF, ...(lsJ(STUK) || {}) }; if (!this.stu.q506) { this.stu.local = false; this.stu.q506 = 1; }   // #506 RENDER: QUEST is the default (owner)
+    this.stu = { ...STUDIO_DEF, ...(lsJ(STUK) || {}) }; if (!this.stu.q506) { this.stu.local = false; this.stu.q506 = 1; } this.stu.snd = true;   // #736 the sound always goes to DirroVJ   // #506 RENDER: QUEST is the default (owner)
     if (this.stu.mode === 'dj' || this.stu.mode === 'key') { if (this.stu.mode === 'key') { this.pc_.green = true; ls.set(PCAMK, JSON.stringify(this.pc_)); } this.stu.mode = 'cam'; ls.set(STUK, JSON.stringify(this.stu)); }   // #530 unified WEBCAM
     try { this.vjOk = new Set(JSON.parse(localStorage.getItem('vire.vjOk') || '[]')); } catch { this.vjOk = new Set(); }   // #506 DirroVJs / phones allowed to receive the show
     this.vjAsk = null; this.vjLost = false; this.s8 = null; this.stuAtt = false; this.stuTw = false; this.stuMsg = ''; this.stuFrames = 0; this.stuH = 720;   // #380
@@ -426,11 +426,10 @@ export class Streamer {
     }
     return this.ppOk ? pp.canvas : null;
   }
-  _pipDraw(g, W, H) {   // the lower half: a 16:9 box as tall as half the picture, centred, with a thin frame
+  _pipDraw(g, W, H) {   // the lower half: a 16:9 box as tall as half the picture, centred (#736 no frame)
     const c = this._pipTick(); if (!c) return false;
     const h = Math.round(H / 2), w = Math.round(h * 16 / 9), x = Math.round((W - w) / 2), y = H - h;
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.drawImage(c, x, y, w, h);
-    g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 3; g.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3);
     return true;
   }
   _stuPose(cam, W, H, stamp) {   // SHOW: the show camera's rig-space pose for the S8's dome, tagged with the frame's stamp
