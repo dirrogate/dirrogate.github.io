@@ -9,7 +9,7 @@ import { REC, REC7, dimsOf, timeToRadius, radiusToTime, Screen, fitText, drawRec
 import { setupXR } from './xr.js';
 import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeNeon } from './neon.js';
 import { LedPlayer, LED } from './ledwall.js';
-import { WallFx, LOOP, RP_DEF, MP_DEF, FX_W, FX_H, PX_DEF, pxSize, OUT_W, OUT_H } from './wallfx.js';   // #439 MANDEL / RETRO-SCENE on the LED wall (and the phones)
+import { WallFx, LOOP, RP_DEF, MP_DEF, FLOOR_NAMES, FS_PATTERNS, FX_W, FX_H, PX_DEF, pxSize, OUT_W, OUT_H } from './wallfx.js';   // #439 MANDEL / RETRO-SCENE on the LED wall (and the phones)
 import { Avatar, DjCam, CAM_PRESETS, xrPose, demoPose, AV_LAYER } from './director.js';
 import { Streamer, SOURCES as STREAM_SRC, streamKey, STUDIO_MODES } from './stream.js';
 import { onRelayFallback } from './net-link.js';   // #467 note on the tablet when a handshake falls back to ntfy.sh   // #380 STUDIO_MODES
@@ -33,7 +33,7 @@ import qrcode from '../vendor/qrcode/qrcode.mjs';   // #427 the room's QR (MIT, 
 import { RobotAvatar } from './robot.js';
 import { RobotAvatar2, ROBOT_GLB } from './robot2.js';
 import { applyNeon } from './neonenv.js';   // #355 NEON CHROME   // #245 the licensed AvatarRobot (EntroPi Games)
-import { Scroller, drawBitText, bitWidth, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, readPic, labelFrom, blankWav } from './tools.js';
+import { Scroller, drawBitText, bitWidth, glyph, isEmoji, cleanText, FONT_OK, EMOJI as BIT_EMOJI, KEY_ROWS, listPressings, savePressing, deletePressing, readLabel, readPic, labelFrom, blankWav } from './tools.js';
 import { discogsToken, setDiscogsToken, initDiscogsToken, splitQuery, searchArt, releaseImages, guessSlots, imageBlob, artThumb } from './artfetch.js';   // #393 FETCH ART
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
@@ -691,6 +691,23 @@ const isFxMode = m => m === 'mandel' || m === 'retro' || m === 'vdancer' || m ==
 const VD_SLOTS = 6, VD_BUILTIN = 'mattes/matte1.mp4';
 const vd = { rp: { ...RP_DEF }, mp: { ...MP_DEF }, slots: ['@builtin', '', '', '', '', ''], sel: 0, pick: null, ok: false, vid: null, cv: null, g: null, url: '', cur: null, mask: new Uint8Array(FX_W * FX_H) };
 try { const o = JSON.parse(localStorage.getItem('vire.vd') || '{}'); if (o.rp) Object.assign(vd.rp, o.rp); if (o.mp) Object.assign(vd.mp, o.mp); if (Array.isArray(o.slots) && o.slots.length === VD_SLOTS) vd.slots = o.slots.map(x => (typeof x === 'string' ? x : '')); if (typeof o.sel === 'number') vd.sel = o.sel; } catch (e) {}
+// #761 the floor scroller's text for BOUNCE BALLS: one number per bitmap-font column (rows, colour code, character index), so the
+// worker and the phones draw it without the font
+let ftCache = { t: null, a: null };
+function floorText() {
+  const t = scroller.text || '';
+  if (t !== ftCache.t) {
+    const a = []; let ci = 0;
+    for (const ch of cleanText(t, 120)) {
+      const gl = glyph(ch), code = isEmoji(ch) ? (ch === '\u2665' ? 2 : 1) : 0;
+      for (let c = 0; c <= gl[0].length; c++) { let m = 0; if (c < gl[0].length) for (let r = 0; r < gl.length; r++) if (gl[r][c]) m |= 1 << r; a.push(m | (code << 9) | (ci << 11)); }
+      ci++;
+    }
+    ftCache = { t, a };
+  }
+  return ftCache.a;
+}
+function mpOut() { return vd.mp.fs ? { ...vd.mp, ft: floorText() } : vd.mp; }
 function vdSave() { try { localStorage.setItem('vire.vd', JSON.stringify({ rp: vd.rp, mp: vd.mp, slots: vd.slots, sel: vd.sel })); } catch (e) {} }
 function vdLabel(i) { const s = vd.slots[i]; return s === '@builtin' ? 'DANCER 1' : s ? s.replace(/\.[^.]+$/, '') : ''; }
 async function vdLoad() {   // the selected slot's matte into the hidden video
@@ -763,7 +780,7 @@ function stepWallFx(now) {
   }
   const mode = ledMode === 'mandel' ? 'mandel' : ledMode === 'vdancer' ? 'rings' : ledMode === 'meta' ? 'meta' : ledMode === 'card' ? (cardWall.loop ? 'loop' : 'pic') : ledFx.s === 'loop' && ledFx.loop ? 'loop' : 'dancer';
   const cl = ledMode === 'card' ? cardWall.loop : null;   // #446
-  if (wfx.frame({ mode, t: now - ledFx.t0, bp, kick, loop: cl ? cl.sheet : ledFx.loop && ledFx.loop.sheet, ln: cl ? cl.n : 0, lfps: cl ? cl.fps : 0, fwd: !!cl, pic: cardWall.pic, lw: LOOP.W2, lh: LOOP.H2, lt: now - ledFx.loopT0, px: wallPx, mask: mode === 'rings' ? vdMask(...pxSize(wallPx)) : null, rp: vd.rp, mp: vd.mp })) fxPaint();
+  if (wfx.frame({ mode, t: now - ledFx.t0, bp, kick, loop: cl ? cl.sheet : ledFx.loop && ledFx.loop.sheet, ln: cl ? cl.n : 0, lfps: cl ? cl.fps : 0, fwd: !!cl, pic: cardWall.pic, lw: LOOP.W2, lh: LOOP.H2, lt: now - ledFx.loopT0, px: wallPx, mask: mode === 'rings' ? vdMask(...pxSize(wallPx)) : null, rp: vd.rp, mp: mpOut() })) fxPaint();
 }
 function setWallAuto(n) { ledFx.auto = n; ledFx.autoBar = ledFx.bar; try { localStorage.setItem('vire.wallAuto', String(n)); } catch (e) {} if (n && !isFxMode(ledMode)) setLedMode('mandel'); else drawMixScreen(); }
 // GRAB LOOP: 5.3 s (#441), 12 pictures a second, 112 x 63 each on an 8 x 8 sheet (a JPEG under 60 KB for the phones). From the
@@ -1697,7 +1714,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
   smsList: () => (dirro && dirro.sms) || [],   // #507 HoloSMS for DirroVJ's scroller desk
   engine, renderer, djcam, scene, camera, realDepth: () => realDepth,   // #745 HEADSET CAM soft occlusion   // #333 scene / camera for the MR headset picture
   // #336 SHOW / VIDEOWALL
-  avLayer: AV_LAYER, showCam: () => djcam && djcam.cam, scroller: () => scroller, chat: () => chat,   // #340
+  avLayer: AV_LAYER, showCam: () => djcam && djcam.cam, scroller: () => (ledMode === 'meta' && vd.mp.fs ? null : scroller), chat: () => chat,   /* #761 the flat scroller hides while the floor scroller runs */   // #340
   showState: () => vjShowState(),   // #523 SHOWTIME! state for DirroVJ's desk
   cxQueue: () => cxQ,   // #524 STAR IN IT messages for DirroVJ
   showPrep: () => {   // #372 the SHOWTIME! 3D layer: each prop is in or out by its own toggle; no XR hands, nothing behind
@@ -6578,7 +6595,7 @@ const PINCH_FIT_DEF = {
 };
 // #513 the TV's address, from where this page runs (cabin.dirrodj.club/ = the cly3dj-dev folder on Cloudflare; github.io/cly3dj/ ...); no 'https://'
 const venueUrl = () => new URL('venue.html', location.href).href.replace(/[?#].*$/, '').replace(/^https?:\/\//, '');
-const TOOLS_NAME = { desk: 'VJ DESK', dverse: 'DIRROVERSE', acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', rooms: 'ROOMS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530 / Gemini_acid
+const TOOLS_NAME = { balls: 'BOUNCE BALLS', desk: 'VJ DESK', dverse: 'DIRROVERSE', acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', rooms: 'ROOMS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530 / Gemini_acid
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -8938,10 +8955,48 @@ function drawToolsPage() {
     // #463 the portrait help text (WALL on the phones: FOLLOW / AUTO / PICTURES / DIRROTV) was dropped: it was drawn over the QR
     return;
   }
+  if (page === 'balls') {   // #761 BOUNCE BALLS: floor colours, ball height / size, the floor scroller (bounces on the beat)
+    const y0 = head('BOUNCE BALLS', 'retro'), M = vd.mp, on = ledMode === 'meta', gv = k => M[k] != null ? M[k] : MP_DEF[k];
+    const set = (k, v) => { M[k] = v; vdSave(); drawMixScreen(); };
+    const editTxt = () => openKbd('FLOOR SCROLLER TEXT', scroller.text, true, 120, t => { t = cleanText(t, 120); if (t.trim()) { scroller.text = t; scroller.save(); } }, 'balls');
+    const tg = [
+      [on ? 'ON THE CYCLOWALL' : 'SHOW IT', on, () => { setLedMode('meta'); cycloWallOut(); drawMixScreen(); }],
+      [`FLOOR: ${FLOOR_NAMES[gv('fc') | 0]} ⟳`, false, () => set('fc', ((gv('fc') | 0) + 1) % FLOOR_NAMES.length)],
+      [gv('fs') ? 'FLOOR SCROLLER: ON' : 'FLOOR SCROLLER: OFF', !!gv('fs'), () => set('fs', !gv('fs'))],
+      [`PATH: ${FS_PATTERNS[gv('fp') | 0]} ⟳`, false, () => set('fp', ((gv('fp') | 0) + 1) % FS_PATTERNS.length)],
+      ['EDIT TEXT', false, editTxt]];
+    const r2 = v => Math.round(v * 100) / 100, spd = gv('spd'), bh = gv('bh'), bs = gv('bs'), fh = gv('fh'), tsp = gv('tsp');
+    const sl = [
+      ['FLOOR SPEED', spd / 6, spd ? spd.toFixed(1) + ' tiles/s' : 'STOPPED', v => set('spd', Math.round(v * 60) / 10)],
+      ['BALL HEIGHT', (bh - 0.2) / 1.3, Math.round(bh * 100) + ' %', v => set('bh', r2(0.2 + v * 1.3))],
+      ['BALL SIZE', (bs - 0.5) / 1, Math.round(bs * 100) + ' %', v => set('bs', r2(0.5 + v))],
+      ['SCROLL BOUNCE', fh / 1.5, fh ? fh.toFixed(2) + ' m' : 'NO BOUNCE', v => set('fh', r2(v * 1.5))],
+      ['SCROLL SPEED', (tsp - 0.3) / 2.7, tsp.toFixed(1) + ' m/s', v => set('tsp', r2(0.3 + v * 2.7))]];
+    const stp = (x, y, w, h) => {
+      btn(x, y, 40, h, '−', false, () => set('n', Math.max(1, M.n - (M.n > 10 ? 2 : 1)))); btn(x + w - 40, y, 40, h, '+', false, () => set('n', Math.min(40, M.n + (M.n >= 10 ? 2 : 1))));
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.fillText('BALLS', x + w / 2, y + 14);
+      g.fillStyle = '#fff'; g.font = '700 17px system-ui'; g.fillText(M.n + ' balls', x + w / 2, y + h - 7);
+    };
+    const info = 'The floor scroller uses the SCROLLER text (EDIT TEXT) and hops on the beat (music BPM or TAP); while it is on, the flat scroller strip hides.';
+    if (P) {
+      let y = y0 + 4; const hw = (R - L - 6) / 2;
+      tg.forEach(([l, o, a], i) => btn(L + (i % 2) * (hw + 6), y + Math.floor(i / 2) * 50, i === 4 ? R - L : hw, 44, l, o, a, false, 15)); y += 150;
+      stp(L, y, hw, 44); tapB(L + hw + 6, y, hw, 44, 18); y += 52;
+      sl.forEach(([l, v, t, f]) => { tSlider(g, L, y, R - L, 40, l, v, t, f, false, 120); y += 48; });
+      pxSlider(L, y, R - L, 40); y += 48;
+      note(info, y + 14);
+    } else {
+      const tw = (R - L - 24) / 5; tg.forEach(([l, o, a], i) => btn(L + i * (tw + 6), y0 + 4, tw, 42, l, o, a, false, 14));
+      const hw = (R - L - 6) / 2; stp(L, y0 + 52, hw, 38); tapB(L + hw + 6, y0 + 52, hw, 38, 16);
+      [...sl, null].forEach((e, i) => { const x = L + (i % 2) * (hw + 6), y = y0 + 96 + Math.floor(i / 2) * 38; if (e) tSlider(g, x, y, hw, 32, e[0], e[1], e[2], e[3], false, 120); else pxSlider(x, y, hw, 32); });
+      g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, info, L + 4, y0 + 222, R - L - 8, 16, 2);
+    }
+    return;
+  }
   if (page === 'retro') {   // #442 RETRO-SCENE: the effect-driven visuals, one tap each
     const y0 = head('RETRO-SCENE', 'wall'), cyc = (arr, v, dir) => arr[(arr.indexOf(v) + dir + arr.length) % arr.length];
     const tiles = [['DANCER', ledMode === 'retro' && ledFx.s !== 'loop', () => setLedMode('retro')], ['MANDEL', ledMode === 'mandel', () => setLedMode('mandel')],
-      ['VECTOR-DANCER ⁺¹', ledMode === 'vdancer', () => { setLedMode('vdancer'); setTools('vdancer'); }], ['BOUNCE BALLS', ledMode === 'meta', () => setLedMode('meta')]];
+      ['VECTOR-DANCER ⁺¹', ledMode === 'vdancer', () => { setLedMode('vdancer'); setTools('vdancer'); }], ['BOUNCE BALLS ⁺¹', ledMode === 'meta', () => { setLedMode('meta'); cycloWallOut(); setTools('balls'); }]];
     const grabLbl = grab.on ? (grab.n < 0 ? 'CAMERA…' : `GRABBING ${Math.max(0, Math.ceil((LOOP.n - grab.n) / LOOP.fps))} s`) : 'GRAB LOOP' + (grab.loops.length ? ` (${grab.loops.length})` : '');
     const stp = (x, y, w, h) => {
       btn(x, y, 40, h, '−', false, () => { vd.mp.n = Math.max(1, vd.mp.n - (vd.mp.n > 10 ? 2 : 1)); vdSave(); drawMixScreen(); }); btn(x + w - 40, y, 40, h, '+', false, () => { vd.mp.n = Math.min(40, vd.mp.n + (vd.mp.n >= 10 ? 2 : 1)); vdSave(); drawMixScreen(); });
@@ -10523,7 +10578,7 @@ if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr
   getLed: () => (ledMode === 'card' && cardWall.pic ? { img: true, name: 'card:' + cardWall.name, file: cardWall.file } : { img: !!(led.on && led.img), name: led.name, file: led.name ? led.fileNamed(led.name) : null }),   // #434 (#446 the card's still)   // #434 the LED wall's picture
   tvCanvas: () => (streamer && streamer.active ? streamer.canvas : null),   // #434 the stream / venue-screen picture
   // #439 FOLLOW: what the LED wall shows, the GRAB LOOP sheets, and the wall's own clip / live picture for the frames
-  wallState: () => ({ m: ledMode === 'clips' ? (led.img ? 'pics' : 'clips') : ledMode === 'card' ? (cardWall.loop ? 'card' : 'pics') : ledMode === 'vdancer' && vd.sel >= 0 && vd.slots[vd.sel] ? 'vmat' : ledMode, rp: vd.rp, mp: vd.mp, px: wallPx, s: ledFx.s, t0: Math.round(ledFx.t0), lp: ledMode === 'card' && cardWall.loop && cardWall.loop.d ? cardWall.loop.id : ledMode === 'retro' && ledFx.s === 'loop' && ledFx.loop && ledFx.loop.d ? ledFx.loop.id : '', ln: cardWall.loop ? cardWall.loop.n : 0, lf: cardWall.loop ? Math.round(cardWall.loop.fps * 10) / 10 : 0, lt0: Math.round(ledFx.loopT0) }),
+  wallState: () => ({ m: ledMode === 'clips' ? (led.img ? 'pics' : 'clips') : ledMode === 'card' ? (cardWall.loop ? 'card' : 'pics') : ledMode === 'vdancer' && vd.sel >= 0 && vd.slots[vd.sel] ? 'vmat' : ledMode, rp: vd.rp, mp: mpOut(), px: wallPx, s: ledFx.s, t0: Math.round(ledFx.t0), lp: ledMode === 'card' && cardWall.loop && cardWall.loop.d ? cardWall.loop.id : ledMode === 'retro' && ledFx.s === 'loop' && ledFx.loop && ledFx.loop.d ? ledFx.loop.id : '', ln: cardWall.loop ? cardWall.loop.n : 0, lf: cardWall.loop ? Math.round(cardWall.loop.fps * 10) / 10 : 0, lt0: Math.round(ledFx.loopT0) }),
   loopData: id => { const l = grab.loops.find(x => x.id === id); return l ? l.d : cardWall.loop && cardWall.loop.id === id ? cardWall.loop.d : null; },
   wallFrame: () => (ledMode === 'vdancer' ? fxBig : ledMode === 'clips' && led.video ? led.video : isLive(ledMode) || ledMode === 'screen' ? liveVideo : ledMode === 'decks' ? deckVid[0].v : streamer && streamer.active ? streamer.canvas : null),
   sineText: t => { const c = cleanText(t, 120); if (c.trim()) { scroller.start(c); toast('On the sine scroller', 1500); } },   // #435 a HoloSMS on the Quest's own scroller
