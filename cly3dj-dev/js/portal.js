@@ -42,9 +42,17 @@ export const RAIN_ORDER = ['off', 'mist', 'drizzle', 'rain', 'storm'];
 // #586 REAL WINDOW, REAL DOOR, PANO WINDOW, PANO DOOR; #588 + ROUND (cross grill), ARCH (cross grill), PORTHOLE (no grill), each REAL or PANO.
 // A leading 'p' means PANO (the sky only through it), so the porthole is 'hole' / 'phole'.
 // #589 + SCREEN BAY / SCREEN DOOR / SCREEN PORTHOLE ('s' + shape): the opening shows the shared screen feed (CYCLO, an image or a video).
-export const KINDS = ['window', 'door', 'round', 'arch', 'hole', 'pwindow', 'pdoor', 'pround', 'parch', 'phole', 'swindow', 'sdoor', 'shole'];
+export const KINDS = ['window', 'door', 'round', 'arch', 'hole', 'pwindow', 'pdoor', 'pround', 'parch', 'phole', 'fwindow', 'fdoor', 'fround', 'farch', 'fhole', 'swindow', 'sdoor', 'shole'];   // #771 f = FRAME (cuts nothing)
+// #771 (owner) four kinds: HOLE = cut into the DOME, the real room shows through; WINDOW = in the real room, the DOME shows through;
+// FRAME = only the frame, round a real object (a floor mirror); SCREEN = a picture / video on its glass. Shape is separate.
+export const TYPES = ['r', 'p', 'f', 's'], TYPE_LABEL = { r: 'HOLE', p: 'WINDOW', f: 'FRAME', s: 'SCREEN' }, TYPE_HINT = { r: 'room shows', p: 'dome shows', f: 'frame only', s: 'picture' };
+export const typeOf = k => (/^[psf]/.test(k) && k !== 'door' ? k[0] : 'r');
+const SHAPES_ALL = ['window', 'door', 'round', 'arch', 'hole'], SHAPES_SCR = ['window', 'door', 'hole'];
+export const shapeKey = k => (typeOf(k) === 'r' ? k : k.slice(1));
+export const shapesFor = t => (t === 's' ? SHAPES_SCR : SHAPES_ALL);
+export const kindOfTS = (t, sh) => { const L = shapesFor(t); if (!L.includes(sh)) sh = sh === 'round' ? 'hole' : 'window'; return (t === 'r' ? '' : t) + sh; };
 export const KIND_LABEL = { window: 'REAL WINDOW', door: 'REAL DOOR', round: 'REAL ROUND', arch: 'REAL ARCH', hole: 'REAL PORTHOLE', pwindow: 'PANO WINDOW', pdoor: 'PANO DOOR', pround: 'PANO ROUND', parch: 'PANO ARCH', phole: 'PANO PORTHOLE', swindow: 'SCREEN BAY', sdoor: 'SCREEN DOOR', shole: 'SCREEN PORTHOLE' };
-export const SHAPE_OF = k => { const b = /^[ps](window|door|round|arch|hole)$/.test(k) ? k.slice(1) : k; return b === 'door' ? 'door' : b === 'round' || b === 'arch' || b === 'hole' ? b : 'rect'; };   // #588
+export const SHAPE_OF = k => { const b = /^[psf](window|door|round|arch|hole)$/.test(k) ? k.slice(1) : k; return b === 'door' ? 'door' : b === 'round' || b === 'arch' || b === 'hole' ? b : 'rect'; };   // #588
 export const SHAPE_LABEL = { rect: 'BAY', door: 'DOOR', round: 'ROUND', arch: 'ARCH', hole: 'PORTHOLE' };
 
 // Shared GLSL injected into any material's own shader. World position -> each portal's local space (its inverse world
@@ -109,6 +117,7 @@ const FRAG = `
   bool inRev = false; vec2 pRev = vec2(0.0), hRev = vec2(1.0); float upRev = 1.0;   // #639 where the eye ray crosses the PANO glass (metres, frame centre = 0)
   for (int i = 0; i < ${MAX_PORTALS}; i++) {
     if (i >= portalN) break;
+    if (portalRev[i] < -0.5) continue;   // #771 FRAME and SCREEN frames cut nothing
     vec3 pc = (portalInv[i] * vec4(cameraPosition, 1.0)).xyz, pf = (portalInv[i] * vec4(vPortalWP, 1.0)).xyz;
     if (pc.z * pf.z < 0.0) {   // camera and fragment on opposite sides of the window's plane
       vec2 h = portalHalf[i], p = mix(pc.xy, pf.xy, pc.z / (pc.z - pf.z)), q = abs(p);
@@ -713,7 +722,7 @@ export class Portals {
   }
   _show() { this.list.forEach((f, i) => { f.obj.visible = this.on && i < this.n; }); this._u.portalN.value = this.on ? this.n : 0; this._u.portalRevN.value = this.revN; }
   // #585 the first `doors` frames are doorways (on the floor, open at the bottom), the rest bay windows; TRIM LIGHT colour
-  _styles() { this.list.forEach((f, i) => { const k = this.kinds[i] || 'window'; f.setShape(SHAPE_OF(k)); f.rev = k[0] === 'p'; f.setScreen(k[0] === 's'); f.setGlow(this.glow); f.setStyle(this.styles[i]); }); }   // #588 shape from the kind, #589 screen   // #588 shape from the kind
+  _styles() { this.list.forEach((f, i) => { const k = this.kinds[i] || 'window'; f.setShape(SHAPE_OF(k)); f.rev = k[0] === 'p'; f.noCut = k[0] === 'f' || k[0] === 's'; f.setScreen(k[0] === 's'); f.setGlow(this.glow); f.setStyle(this.styles[i]); }); }   // #588 shape from the kind, #589 screen   // #588 shape from the kind
   get doors() { return this.kinds.slice(0, this.n).filter(k => k === 'door' || k === 'pdoor').length; }
   kindOf(i) { return this.kinds[i] || 'window'; }
   setKind(i, k) { if (!KINDS.includes(k)) return; this.kinds[i] = k; this._styles(); this.save(); this.flash(i); }
@@ -785,7 +794,7 @@ export class Portals {
     for (let i = 0; i < this.n; i++) {
       const f = this.list[i]; f.obj.updateMatrixWorld();
       this._u.portalUp.value[i] = Math.abs(_up.setFromMatrixColumn(f.obj.matrixWorld, 1).normalize().y);   // #639 1 = upright window, 0 = skylight
-      this._u.portalInv.value[i].copy(f.obj.matrixWorld).invert(); this._u.portalHalf.value[i].copy(f.half); this._u.portalR.value[i].copy(f.r); this._u.portalRev.value[i] = f.rev ? 1 : 0;
+      this._u.portalInv.value[i].copy(f.obj.matrixWorld).invert(); this._u.portalHalf.value[i].copy(f.half); this._u.portalR.value[i].copy(f.r); this._u.portalRev.value[i] = f.noCut ? -1 : f.rev ? 1 : 0;
       if (f.screen && f.scr) {   // #589 the shared feed, cover-fitted to this opening
         const F = this.feed && this.feed(), U = f.scr.material.uniforms;
         if (F && F.tex && F.w && F.h) {

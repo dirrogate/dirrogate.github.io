@@ -22,7 +22,7 @@ import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #
 import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whiteboard, markers and duster
 import { InkLabel } from './inklabel.js';   // #394 milk crate labels
 import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
-import { Portals, GRADE0, HOLO_ORDER, SHAPE_OF, SHAPE_LABEL, HMIN as P_HMIN, HMAX as P_HMAX, RAIN_ORDER, MAX_PORTALS } from './portal.js';
+import { Portals, GRADE0, HOLO_ORDER, SHAPE_OF, TYPES, TYPE_LABEL, TYPE_HINT, typeOf, shapeKey, shapesFor, kindOfTS, SHAPE_LABEL, HMIN as P_HMIN, HMAX as P_HMAX, RAIN_ORDER, MAX_PORTALS } from './portal.js';
 import { MasterRec } from './recmaster.js';   // #598 REC MASTER: the clean master to a WAV file
 import { RoomSnap, SNAP_IN, SNAP_OUT } from './roomsnap.js';
 import { NightLook } from './night.js';   // #612 NIGHT LOOK   // #592 Space Setup planes for portal frames   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
@@ -1860,6 +1860,8 @@ function stepProgram() {
   if (want && !streamer.active) { streamer.setRehearse(true); progRehearse = true; }
   else if (!want && progRehearse) { progRehearse = false; if (!streamer.live && !monOn && !streamer.tvUp) streamer.setRehearse(false); }
 }
+// #771 (owner) the reminder on pages where buttons have a second job
+function longHint(g, x, y) { g.fillStyle = '#6f7a8e'; g.font = 'italic 600 12px system-ui'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillText('A long press does more.', x, y); }
 function propHides(hide, O, ownCam) {   // #372 the object toggles (OBJECTS page), one list for every camera: gear, neon, GoPro prop, chat panel / chalkboard, scroller
   if (!O.neon) hide(neon);   // on = seen from every angle, the back of the sign too
   for (const gp of [gopro, gopro2]) if (gp && (!O.gopro || (ownCam && gp.on))) hide(gp.obj);   // a prop other cameras film; hidden only from its own camera
@@ -5483,7 +5485,7 @@ const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set whil
 let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null, vpSelFolder = null, toolsPage = null;   // #224 vpSelFolder: Pano tab mixes Pano + Video pano
 const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
 const VP_LIB = ['Pano', 'Video', 'Images'];   // #224 one PANO tab for still and video panoramas
-const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'VIDEO', Images: 'IMAGES', Camera: 'REMOTE CAM', Sync: 'SYNC', Look: 'LOOK', 'DJ Cam': 'GOPROS', Fx: 'FX' };   // #389 CAMERA is REMOTE CAM; the AVACAM tab is GOPROS, which opens SHOWTIME! OBJECTS   // #379 FX   // #241 the DJ CAM tab is AVACAM (owner)
+const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'CLIPS', Images: 'IMAGES', Camera: 'REMOTE CAM', Sync: 'SYNC', Look: 'LOOK', 'DJ Cam': 'GOPROS', Fx: 'FX' };   // #389 CAMERA is REMOTE CAM; the AVACAM tab is GOPROS, which opens SHOWTIME! OBJECTS   // #379 FX   // #241 the DJ CAM tab is AVACAM (owner)
 // #234 add pictures and videos from the Quest's own files (Downloads, Pictures, Movies) to the media library, from
 // the start page ('Add pictures / videos…'). Folder by shape: 2:1 (or a big square, over-under stereo) = 360.
 // (#235: the in-VR + IMPORT tile was removed: the Quest did not open its file picker from inside a VR session.)
@@ -5871,18 +5873,20 @@ function drawVideoPage() {
   };
   const pick = f => () => { vpFolder = f; vpSel = null; vpSelFolder = null; vpPg = 0; vpLoad(); };
   if (P) {   // #198 portrait: tabs in rows of 3 (#206: 3 rows, SYNC added, MIXER last); top and bottom keep clear of the corner L
-    const tabs = [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam', 'Fx'], tw = (W - 30 - 12) / 3;   // #379 + FX   // #214 LOOK, #220 DJ CAM
+    const tabs = ['Video', 'Images', 'Pano', 'Fx'], tw = (W - 30 - 12) / 3;   // #771 CLIPS, IMAGES, PANO, FX (REMOTE CAM / LOOK left the tablet, SYNC is in SETUP, GOPROS in SHOWTIME!)   // #379 + FX   // #214 LOOK, #220 DJ CAM
     // #363 a top row of its own: title, then DJ MIXER and BACK at the top right; the tabs move down a row
     btn(22, 28, tw, 34, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW (where the title was)
     btn(22 + (tw + 6), 28, tw, 34, 'MAIN MENU', false, () => setVideoPage(false));   // #603
     btn(22 + 2 * (tw + 6), 28, tw, 34, '◀ BACK', false, navCan() ? navBack : null, !navCan());
-    const tw4 = (W - 30 - 18) / 4;   // #441 the last row has four: two tabs, SCROLLER and WALL +1
-    tabs.forEach((f, i) => btn(i < 6 ? 22 + (i % 3) * (tw + 6) : 22 + (i - 6) * (tw4 + 6), 68 + Math.floor(i / 3) * 40, i < 6 ? tw : tw4, 34, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)));
-    btn(22 + 2 * (tw4 + 6), 148, tw4, 34, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);
-    btn(22 + 3 * (tw4 + 6), 148, tw4, 34, 'CYCLOWALL ⁺¹', cycloState() === 'on', () => { videoPage = false; openCycloWall(); });   // #379 moved one over for FX   // #342 the scroller editor
+    const pos = i => [22 + (i % 3) * (tw + 6), 68 + Math.floor(i / 3) * 40];
+    btn(...pos(0), tw, 34, 'CYCLOWALL ⁺¹', cycloState() === 'on', () => { videoPage = false; openCycloWall(); });   // #771 first: the wall and its generators
+    tabs.forEach((f, i) => btn(...pos(i + 1), tw, 34, VP_TABS[f], f === vpFolder, pick(f)));
+    btn(...pos(5), tw, 34, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #379 moved one over for FX   // #342 the scroller editor
   } else {
     let x = 8;   // #214 seven tabs fit left of MIXER; #220 eight (narrower); #363 narrower again for BACK
-    for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam', 'Fx']) { const w = { Pano: 56, Video: 56, Images: 65, Camera: 74, Sync: 50, Look: 50, 'DJ Cam': 70, Fx: 40 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)); x += w + 4; }   // #379 narrower again for FX
+    btn(x, 8, 112, 32, 'CYCLOWALL ⁺¹', cycloState() === 'on', () => { videoPage = false; openCycloWall(); }); x += 116;   // #771 the wall and its generators first
+    for (const f of ['Video', 'Images', 'Pano', 'Fx']) { const w = { Pano: 56, Video: 62, Images: 70, Fx: 44 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 4; }   // #771 CLIPS, IMAGES, PANO, FX
+    btn(x, 8, 88, 32, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP); x += 92;   // #379 narrower again for FX
     // #701 owner: SCROLLER and CYCLOWALL ▸ left the landscape bar (CYCLOWALL ▸ is on the mixer page, the CYCLOWALL buttons on this page's bottom bar, SCROLLER on VJ TOOLS), so MAIN MENU / PREVIEW / BACK draw full size
     btn(W - 8 - 66 - 4 - 72 - 4 - 96, 8, 96, 32, 'MAIN MENU', false, () => setVideoPage(false));   // #225 (#603 MAIN = the main menu)
     btn(W - 8 - 66 - 4 - 72, 8, 72, 32, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW
@@ -5986,12 +5990,15 @@ function drawFxTab(btn, y0) {
     [wt.on ? 'WATER: ON' : 'WATER', wt.on, () => wt.tap(), false],
     ['WATER HERE', false, () => { wt.here(); if (!wt.on) wt.tap(); }, false],
     [clearArm ? 'TAP AGAIN' : 'CLEAR FLOATS', clearArm, nb ? () => { if (performance.now() - fxClearT < 3000) { fxClearT = 0; fx.clearFloats(); toast('Floats cleared', 1500); } else fxClearT = performance.now(); } : null, !nb],
+    [pieceOn('neon') ? 'NEON: ON' : 'NEON', pieceOn('neon'), () => setPiece('neon', !pieceOn('neon')), false],   // #771 the stage extras live here now (was VJ TOOLS)
+    [laser && laser.on ? 'LASER: ON ▸' : 'LASER ▸', !!(laser && laser.on), () => { videoPage = false; setTools('laser'); }, !laser],
+    [mprops && mprops.props().length ? `PROPS (${mprops.props().length}) ▸` : 'MOVIE PROPS ▸', !!(mprops && mprops.props().length), () => { videoPage = false; setTools('props'); }, !mprops],
   ];
-  const per = P ? 2 : 4, bw = (W - 16 - (per - 1) * 6) / per;
+  const per = P ? 2 : 7, bw = (W - 16 - (per - 1) * 6) / per;
   top.forEach(([l, on, act, dim], i) => btn(8 + (i % per) * (bw + 6), y0 + Math.floor(i / per) * 40, bw, 34, l, on, act, dim));
-  const RH = P ? 34 : 29, ly = y0 + (P ? 84 : 44), colW = P ? W - 16 : (W - 24) / 2, lx = 8, rowsF = P ? 5 : Math.floor((H - 8 - ly) / RH);
+  const RH = P ? 34 : 29, ly = y0 + (P ? 164 : 44), colW = P ? W - 16 : (W - 24) / 2, lx = 8, rowsF = P ? 5 : Math.floor((H - 8 - ly) / RH);
   if (!nb) {
-    g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui';
+    g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left';
     wrapText(g, 'FLOAT + puts a see-through blue ball in front of you (only you see it, never the stream). Grip it and drop it on a deck, the mixer, a crate, the flight case, a sleeve or a record: it floats as if on water, and whatever sits on it rides along. Slide the bar over the ball to set how much. Grip the ball twice quickly to remove it.', lx + 4, ly + 12, colW - 8, 20, P ? 8 : 10);
   }
   fx.balls.slice(0, rowsF).forEach((b, i) => {
@@ -6263,7 +6270,9 @@ function navBack() {
 }
 const navCan = () => navHist.length > 0;
 function setTools(p) {
-  if (p === 'showobj' || p === 'pcam' || p === 'pcamcrop' || p === 'studiokey') p = 'stream';   // #769 one SHOWTIME! page; WEBCAM pages left the tablet
+  if (p === 'showobj' || p === 'pcam' || p === 'pcamcrop' || p === 'studiokey') p = 'stream';
+  if (p === 'home') p = 'setup';   // #771 TOOLS became SETUP
+  if (p === 'vj') { openFxPage(); return; }   // #771 VJ TOOLS folded into VISUALS (FX tab: neon, laser, props)   // #769 one SHOWTIME! page; WEBCAM pages left the tablet
   if (toolsPage === 'streamfit' && p !== 'streamfit' && streamer) streamer.setTesting(false);   // #333 TEST ends with the page
   clearInterval(setTools.fitIv); if (p === 'streamfit') setTools.fitIv = setInterval(() => { if (toolsPage === 'streamfit' && streamer && streamer.running) drawMixScreen(); }, 250);
   if (p === 'tv') setTools.fitIv = setInterval(() => { if (toolsPage === 'tv') drawMixScreen(); }, 1000);   // #376 status numbers
@@ -8534,19 +8543,22 @@ function drawToolsPage() {
   if (page === 'acid') { drawAcidPage({ g, W, H, P, L, R, btn, head, note }); return; }   // Gemini_acid: Roland TB-303
   if (page === 'props') { drawPropsPage({ g, W, H, P, L, R, btn, head, note }); return; }   // #478
   if (page === 'looper' || page === 'loopbanks') { drawLooperPage(page, { g, W, H, P, L, R, btn, head, note }); return; }   // #470
-  if (page === 'home') {
-    const y0 = head('TOOLS', 'mixer');
-    const stLbl = twLbl(streamer, true);   // #331 / #758
-    if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
-      btn(L, y0 + 224, R - L, 96, stLbl, twOn(streamer), () => setTools('stream'), !streamer, 26);
-      btn(L, y0 + 332, R - L, 80, streamer ? tvLbl(streamer) : 'DIRROTV', !!(streamer && (streamer.tvUp || streamer.stuRun)), () => setTools('tv'), !streamer, 24);   // #389 was CHALKBOARD (now on VJ TOOLS)
-      btn(L, y0 + 424, R - L, 72, dirroLbl(), !!(dirro && dirro.on), () => setTools('dirro'), !dirro, 24);   // #427
-      note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, CYCLOWALL, neon, whiteboard, portals, cameras. TWITCH: go live (master mix only, never the cue). DIRROTV: screens in the venue (any TV with a browser: Fire Stick, smart TV, laptop). DIRROGRAM: the show on the audience\'s phones.', y0 + 520); }   // #363 was under the CHALKBOARD button
-    else { const bw = (R - L - 48) / 5; btn(L, y0 + 8, bw, 130, 'DJ TOOLS', false, () => setTools('dj'), false, 24); btn(L + bw + 12, y0 + 8, bw, 130, 'VJ TOOLS', false, () => setTools('vj'), false, 24);   // #427 five across
-      btn(L + 2 * (bw + 12), y0 + 8, bw, 130, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 24);
-      btn(L + 3 * (bw + 12), y0 + 8, bw, 130, streamer ? tvLbl(streamer) : 'DIRROTV', !!(streamer && (streamer.tvUp || streamer.stuRun)), () => setTools('tv'), !streamer, 21);   // #389 was CHALKBOARD (now on VJ TOOLS)
-      btn(L + 4 * (bw + 12), y0 + 8, bw, 130, dirroLbl(), !!(dirro && dirro.on), () => setTools('dirro'), !dirro, 21);   // #427
-      note('DJ TOOLS: Record Maker, milk crate.  VJ TOOLS: Scroller, CYCLOWALL, neon, whiteboard, portals, cameras.  TWITCH: go live.  DIRROTV: screens in the venue (any TV with a browser).  DIRROGRAM: the show on the audience\'s phones.', y0 + 160); }
+  if (page === 'setup' || page === 'home') {   // #771 SETUP: things touched once a night or less (TOOLS and VJ TOOLS were folded away)
+    const y0 = head('SETUP', 'mixer');
+    const items = [
+      [dirroLbl(), !!(dirro && dirro.on), () => setTools('dirro'), !dirro],
+      [streamer ? (streamer.tvUp ? 'DIRROTV: ON' : 'DIRROTV') : 'DIRROTV', !!(streamer && streamer.tvUp), () => setTools('tv'), !streamer],
+      [vjOnAir(streamer) ? 'DIRROVJ: ON' : 'DIRROVJ LINK', vjOnAir(streamer), () => setTools('studio'), !streamer],
+      ['CAM FIT', false, () => setTools('streamfit'), !streamer],
+      ['MEDIA SYNC', false, () => { setTools(null); videoPage = true; vpFolder = 'Sync'; vpLoad(); drawMixScreen(); }, false],
+      [perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false],
+      [settings.occlusion !== false ? 'REAL OCCLUSION: ON' : 'REAL OCCLUSION: OFF', settings.occlusion !== false, () => { settings.occlusion = settings.occlusion === false; saveSettings(); const c = document.getElementById('cOccl'); if (c) c.checked = settings.occlusion; drawMixScreen(); }, false],
+      [`AVATAR: ${(AVATAR_STYLES[djSet.style] || AVATAR_STYLES.robot).label}`, djSet.style !== 'robot', nextDjStyle, false],
+    ];
+    const cols = P ? 2 : 4, gap = 8, bh = P ? 76 : 86, bw = (R - L - gap * (cols - 1)) / cols;
+    items.forEach(([l, on, a, dim], i) => btn(L + (i % cols) * (bw + gap), y0 + 6 + Math.floor(i / cols) * (bh + gap), bw, bh, l, on, dim ? null : a, dim, P ? 18 : 18));
+    const ny = y0 + 6 + Math.ceil(items.length / cols) * (bh + gap) + 14;
+    note(P ? 'DIRROGRAM: the audience phones. DIRROTV: venue screens. DIRROVJ LINK: the laptop (code, render, desk). CAM FIT: line HEADSET CAM up. MEDIA SYNC: copy pictures / videos between the Quest and a phone.' : 'DIRROGRAM = audience phones · DIRROTV = venue screens · DIRROVJ LINK = the laptop · MEDIA SYNC = copy media with a phone', ny);
     return;
   }
   if (page === 'stream') {   // #769 SHOWTIME!: one page. CAMERA (GOPRO 1, GOPRO 2, HEADSET CAM), SCENE (CYCLOWALL, DOME, ROBOT, GEAR), EXTRAS, SEND TO
@@ -8579,7 +8591,8 @@ function drawToolsPage() {
       ['SEND TO', [
         [live || st === 'connecting' ? (ending ? 'TAP AGAIN TO END' : 'END TWITCH') : 'GO LIVE ON TWITCH', live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, null, true],
         [tvLbl(S), !!(S.tvUp || S.stuRun), () => setTools('tv'), false],
-        ['DIRROVJ ▸', !!S.stuRun, () => setTools('studio'), false]]]];
+        ['DIRROVJ ▸', !!S.stuRun, () => setTools('studio'), false],
+        [(() => { const Pv = vidRec(); return Pv && Pv.on ? (performance.now() - vidArm < 3000 ? 'TAP: STOP' : '● ' + vidTime(Pv.sec)) : 'VIDREC'; })(), !!(vidRec() && vidRec().on), vidRecTap, !S.stuLink]]]];   // #771 DirroVJ's PROGRAM REC (was on the main bar)
     const stLine = (live ? `● LIVE ${S.elapsed()} · ${(S.kbps / 1000).toFixed(1)} Mb/s` : st === 'connecting' ? S.msg || 'Connecting…' : st === 'error' ? S.msg : 'OFF AIR') + (S.stu.on ? ' · via DirroVJ' : '') + ' · ' + (hs ? 'HEADSET CAM' : card ? 'CARD' : gpOut('gopro') ? 'GOPRO 1' : gpOut('gopro2') ? 'GOPRO 2' : 'no camera yet: pick GOPRO 1 or 2');
     const put = (x, y, w, h, [label, on, act, dim, long, wide], fs) => { btnGreen = /: ON$/.test(label) && on; btn(x, y, w, h, label, on, dim ? null : act, dim, fs); btnGreen = false; if (long && !dim) VP_HIT[VP_HIT.length - 1].long = long; };
     g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '800 15px system-ui'; g.fillStyle = live ? '#ff3b3b' : st === 'connecting' || st === 'error' ? '#f1b650' : '#8c96a8';
@@ -8588,22 +8601,24 @@ function drawToolsPage() {
       let y = y0 + 26;
       for (const [lab, items] of rows) {
         g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(lab, L + 2, y + 10); y += 16;
-        if (lab === 'SEND TO') { put(L, y, R - L, 70, items[0], 22); y += 76; const w2 = (R - L - 8) / 2; put(L, y, w2, 50, items[1], 16); put(L + w2 + 8, y, w2, 50, items[2], 16); y += 58; continue; }
+        if (lab === 'SEND TO') { put(L, y, R - L, 56, items[0], 21); y += 62; const w3 = (R - L - 16) / 3; for (let q = 1; q < 4; q++) put(L + (q - 1) * (w3 + 8), y, w3, 44, items[q], 14); y += 50; continue; }
         const cols = 2, bw = (R - L - 8) / 2;
-        items.forEach((it, i) => put(L + (i % cols) * (bw + 8), y + Math.floor(i / cols) * 56, bw, 50, it, 16));
-        y += Math.ceil(items.length / cols) * 56 + 6;
+        items.forEach((it, i) => put(L + (i % cols) * (bw + 8), y + Math.floor(i / cols) * 50, bw, 44, it, 16));
+        y += Math.ceil(items.length / cols) * 50 + 4;
       }
+      longHint(g, L + 2, y + 6);   // #771
     } else {
       fitText2(g, stLine, L + 4, y0 + 6, R - L - 8); g.textBaseline = 'alphabetic';
       const lw = 66, x0 = L + lw, rw = R - x0; let y = y0 + 20;
       for (const [lab, items] of rows) {
         const h = lab === 'SEND TO' ? 50 : 42;
         g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(lab, L + 2, y + h / 2 + 4);
-        if (lab === 'SEND TO') { const gw = Math.round(rw * 0.46), w2 = (rw - gw - 16) / 2; put(x0, y, gw, h, items[0], 19); put(x0 + gw + 8, y, w2, h, items[1], 15); put(x0 + gw + w2 + 16, y, w2, h, items[2], 15); y += h + 6; continue; }
+        if (lab === 'SEND TO') { const gw = Math.round(rw * 0.40), w3 = (rw - gw - 24) / 3; put(x0, y, gw, h, items[0], 18); for (let q = 1; q < 4; q++) put(x0 + gw + 8 + (q - 1) * (w3 + 8), y, w3, h, items[q], 15); y += h + 6; continue; }
         const n = items.length, bw = (rw - 8 * (n - 1)) / n;
         items.forEach((it, i) => put(x0 + i * (bw + 8), y, bw, h, it, 15));
         y += h + 6;
       }
+      longHint(g, L + 2, H - 8);   // #771
     }
     return;
   }
@@ -9099,7 +9114,7 @@ function drawToolsPage() {
       steps.forEach(([l, v, dn, up]) => { stp(L, y, R - L, 40, l, v, dn, up); y += 46; });
       pxSlider(L, y, R - L, 38); y += 44;
       if (dome.on) { tSlider(g, L, y, R - L, 38, 'DOME TURN', dome.turn / 359, `${dome.turn}°`, v => setDomeTurn(v * 359)); y += 44; }   // #730
-      note(info, y + 14);
+      note(info, y + 14); longHint(g, L + 2, H - 10);   // #771
     } else {
       const tw = (R - L - 6 * (tiles.length - 1)) / tiles.length, th = 80;   // #538 six tiles across
       tiles.forEach((t, i) => tile(L + i * (tw + 6), y0 + 2, tw, th, t));
@@ -9108,7 +9123,8 @@ function drawToolsPage() {
       steps.forEach(([l, v, dn, up], i) => stp(L + i * (aw + 6), y0 + 132, aw, 38, l, v, dn, up));
       pxSlider(L, y0 + 176, R - L, 32);
       if (dome.on) tSlider(g, L, y0 + 214, R - L, 32, 'DOME TURN', dome.turn / 359, `${dome.turn}°`, v => setDomeTurn(v * 359));   // #730 rotate the dome (DOME ONLY)
-      else { g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, info, L + 4, y0 + 226, R - L - 8, 16, 2); }
+      else { g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, info, L + 4, y0 + 226, R - L - 8 - 150, 16, 2); }
+      longHint(g, R - 146, H - 8);   // #771
     }
     return;
   }
@@ -9259,7 +9275,7 @@ function drawToolsPage() {
     const defArm = performance.now() - portalDefArm < 3000;
     const toggles = [
       [PS.on ? 'PORTALS: ON' : 'PORTALS', PS.on, portalsTap],
-      [WL.on ? 'WALL: ON' : 'WALL', WL.on, wallTap],
+      [WL.on ? 'CYCLOWALL: ON' : 'CYCLOWALL', WL.on, wallTap],
       [WL.mode === 'screen' ? 'SCREEN ⟳' : 'FRACTAL ⟳', false, () => { WL.toggleMode(); drawMixScreen(); }],   // #755 ⟳: it steps SCREEN / FRACTAL
       [WL.beat ? 'BEAT: ON' : 'BEAT', WL.beat, () => { WL.setBeat(!WL.beat); drawMixScreen(); }],
       [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)],
@@ -9287,16 +9303,17 @@ function drawToolsPage() {
       ['FRACTAL SPEED', `${WL.val('speed')}x`, null, wl('speed')],
       ['COLOUR CYCLE', `${WL.val('cycle')}x`, null, wl('cycle')],
       ['FRAME', `${PS.edit + 1} of ${PS.n}`, null, { v: PS.edit + 1, lo: 1, hi: PS.n, step: 1, set: v => PS.setEdit(v - 1), dim: PS.n < 2 }],   // #586 which frame TYPE sets (it blinks white)
-      [`TYPE · ${PS.kindOf(PS.edit)[0] === 'p' ? 'PANO (SKY)' : PS.kindOf(PS.edit)[0] === 's' ? 'SCREEN' : 'REAL (ROOM)'}`, SHAPE_LABEL[SHAPE_OF(PS.kindOf(PS.edit))], d => { PS.stepKind(PS.edit, d); if (PS.kindOf(PS.edit)[0] === 'p' && !dome.on) setDome(true); }, 'cycle'],   // #585 doorway / #586 PANO frames
+      [`TYPE · ${TYPE_HINT[typeOf(PS.kindOf(PS.edit))]}`, TYPE_LABEL[typeOf(PS.kindOf(PS.edit))], d => { const k = PS.kindOf(PS.edit), t = TYPES[(TYPES.indexOf(typeOf(k)) + d + 4) % 4]; PS.setKind(PS.edit, kindOfTS(t, shapeKey(k))); if (t === 'p' && !dome.on) setDome(true); }, 'cycle'],   // #771 HOLE / WINDOW / FRAME / SCREEN
+      ['SHAPE', SHAPE_LABEL[SHAPE_OF(PS.kindOf(PS.edit))], d => { const k = PS.kindOf(PS.edit), t = typeOf(k), L = shapesFor(t), i = L.indexOf(shapeKey(k)); PS.setKind(PS.edit, kindOfTS(t, L[(i + d + L.length) % L.length])); }, 'cycle'],   // #585 doorway / #586 PANO frames
       ['TRIM LIGHT', PS.glow.toUpperCase(), d => PS.stepGlow(d), 'cycle'],
       ['LOCK', PS.list[PS.edit] && PS.list[PS.edit].locked ? 'LOCKED' : 'OPEN', () => { PS.toggleLock(PS.edit); }, 'cycle'],   // #626 FRAME's padlock
       ['STYLE', PS.styleOf(PS.edit).toUpperCase(), d => { const o = ['iron', 'holo', 'bamboo'], i = o.indexOf(PS.styleOf(PS.edit)); PS.setStyle(PS.edit, o[(i + d + 3) % 3]); }, 'cycle'],   // #598 FRAME's style: IRON / HOLO / BAMBOO
       ['DOME TURN', `${dome.turn}°`, null, { v: dome.turn, lo: 0, hi: 355, step: 5, set: setDomeTurn, dim: !dome.on }],   // #389 / #640 a slider in both orientations
     ];
     const cell = (c, x, y, w, h) => ctl(c, x, y, w, h);   // #640
-    const warn = dome.on && !skybox.tex ? 'DOME: loading the spaceship interior. Your own: VISUALS > PANO, pick a panorama or video pano, tap SKY.' : PS.revN && !dome.on ? 'PANO frames show the DOME: turn DOME on.' : '';
+    const warn = dome.on && !skybox.tex ? 'DOME: loading the spaceship interior. Your own: VISUALS > PANO, tap a panorama.' : PS.revN && !dome.on ? 'WINDOW frames show the DOME: turn DOME on.' : PS.screenN && PS.scrSrc.src === 'video' ? 'A SCREEN playing its own video is a second video decoding: switch it to IMAGE or CYCLOWALL if the mix ever stutters.' : '';   // #771
     const help = 'B laser: aim + GRIP = move / turn with the hand (stick = distance), aim + TRIGGER = resize. With ROOM SNAP on, a frame near a scanned wall or ceiling snaps flat onto it. For a skylight, carry a frame (not a doorway) up to the ceiling and set its TYPE to PANO. PANO frames show the DOME sky.';
-    const helpP = 'B laser: GRIP = move, TRIGGER = resize; frames snap to scanned walls. PANO frames show the DOME sky.';   // #585 portrait: short
+    const helpP = 'B laser: GRIP = move, TRIGGER = resize. HOLE: the real room through the dome. WINDOW: the dome through it. FRAME: only the frame. SCREEN: a picture.';   // #771   // #585 portrait: short
     const text = (x, y, w, lh, max, fs, hp) => {
       g.textAlign = 'left'; g.font = `500 ${fs}px system-ui`; let n = 0;
       if (warn) { g.fillStyle = '#f1b650'; n = wrapText(g, warn, x, y, w, lh, 2); }
@@ -10035,11 +10052,11 @@ function drawMixScreen() {
     SP_HIT.push({ x: vx - 3, y: y - 8, w: vw + 6, h: h + 16, act: () => setMonitor(!monOn) });
     // #537 MR GUI removed from Deck A top bar (unneeded on mixer screen)
     { const S = streamer, bw3 = (W - 40 - 3 * 6) / 4, by3 = H - 96;   // #389 STREAM, CLY3DTV, STUDIO on a row above TOOLS / RESET MIX; #439 + WALL
-      [[twLbl(S), twOn(S), () => setTools('stream'), !S], [(() => { const P = vidRec(); return P && P.on ? (performance.now() - vidArm < 3000 ? 'TAP: STOP' : '● ' + vidTime(P.sec)) : 'VIDREC'; })(), !!(vidRec() && vidRec().on), vidRecTap, !(S && S.stuLink)] /* #753 */, ['DIRROVJ', vjOnAir(S), () => setTools('studio'), !S], ['CYCLOWALL ⁺¹', cycloState() === 'on', openCycloWall, false]].forEach(([l, o, a, dim], i) => {
-        const bx3 = 20 + i * (bw3 + 6); drawTopBtn(g, bx3, by3, bw3, 36, l, o, dim, 15); if (!dim) SP_HIT.push({ x: bx3 - 3, y: by3 - 4, w: bw3 + 6, h: 44, act: a }); });
+      [['VISUALS', cycloState() === 'on', () => setVideoPage(true), false], [twLbl(S).replace('SHOWTIME!', 'SHOW TIME!'), twOn(S), () => setTools('stream'), !S], [portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), () => setTools('portals'), !portals], ['SETUP', !!(dirro && dirro.on), () => setTools('setup'), false]].forEach(([l, o, a, dim], i) => {   // #771
+        const bx3 = 20 + i * (bw3 + 6); drawTopBtn(g, bx3, by3, bw3, 36, l, o, dim, 13); if (!dim) SP_HIT.push({ x: bx3 - 3, y: by3 - 4, w: bw3 + 6, h: 44, act: a }); });
     }
-    drawTopBtn(g, 20, H - 52, 64, 36, 'TOOLS', !!(scroller && scroller.on));   // #224
-    SP_HIT.push({ x: 14, y: H - 60, w: 74, h: 52, act: () => setTools('home') });
+    drawTopBtn(g, 20, H - 52, 64, 36, 'DJ TOOLS', false, false, 13);   // #771 was TOOLS
+    SP_HIT.push({ x: 14, y: H - 60, w: 74, h: 52, act: () => setTools('dj') });
     drawResetMix(g, 90, H - 52, 82, 36);   // #254
     drawLoopMainBtn(g, 178, H - 52, 48, 36, 14); SP_HIT.push({ x: 175, y: H - 60, w: 54, h: 52, act: () => setTools('looper') });   // #470
     // Gemini_acid: ACID button on portrait bottom bar right
@@ -10065,15 +10082,16 @@ function drawMixScreen() {
   { // #389 bottom menu bar: TOOLS, RESET MIX, STREAM, CLY3DTV, STUDIO
     const h = 28, y = H - 40, gap = 6; let x = 14;
     const S = streamer, tb = (label, on, act, dim, w) => { drawTopBtn(g, x, y, w, h, label, on, dim); if (!dim) SP_HIT.push({ x: x - 3, y: y - 8, w: w + 6, h: h + 14, act }); x += w + gap; };
-    tb('TOOLS', !!(scroller && scroller.on), () => setTools('home'), false, 74);
-    drawResetMix(g, x, y, 100, h); x += 100 + gap;   // #254
-    tb(twLbl(S), twOn(S), () => setTools('stream'), !S, 82);
-    { const P = vidRec(), armed = P && P.on && performance.now() - vidArm < 3000; tb(armed ? 'TAP: STOP' : P && P.on ? '● ' + vidTime(P.sec) : P && P.starting ? 'REC…' : 'VIDREC', !!(P && P.on) && (armed || Math.floor(performance.now() / 600) % 2 === 0), vidRecTap, !(S && S.stuLink), 88); }   // #753 VIDREC (DirroVJ's PROGRAM REC) where DIRROTV was; DIRROTV is on TWITCH
-    tb('DIRROVJ', vjOnAir(S), () => setTools('studio'), !S, 80);
-    tb('CYCLOWALL ⁺¹', cycloState() === 'on', openCycloWall, false, 116);   // #439, #537 the CYCLOWALL page, one tap from the mixer
-    drawLoopMainBtn(g, x, y, 74, h, 17); SP_HIT.push({ x: x - 3, y: y - 8, w: 80, h: h + 14, act: () => setTools('looper') }); x += 74 + gap;   // #470 LOOP: state colour, opens the LOOPER page
+    drawResetMix(g, x, y, 88, h); x += 88 + gap;   // #254
+    tb('VISUALS', cycloState() === 'on', () => setVideoPage(true), false, 80);   // #771 the bar: VISUALS, SHOWTIME!, PORTALS, DJ TOOLS, SETUP
+    tb(twLbl(S), twOn(S), () => setTools('stream'), !S, 104);
+    tb(portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), () => setTools('portals'), !portals, 92);
+    tb('DJ TOOLS', false, () => setTools('dj'), false, 102);
+    tb('SETUP', !!(dirro && dirro.on), () => setTools('setup'), false, 68);
+    // #771 VIDREC and DIRROVJ moved into SHOWTIME! (SEND TO), CYCLOWALL into VISUALS
+    drawLoopMainBtn(g, x, y, 70, h, 17); SP_HIT.push({ x: x - 3, y: y - 8, w: 76, h: h + 14, act: () => setTools('looper') }); x += 70 + gap;   // #470 LOOP: state colour, opens the LOOPER page
     // Gemini_acid: ACID button placed where REC MASTER currently was at the bottom right
-    tb(acidUI.running ? '● ACID' : 'ACID', acidUI.running, () => setTools('acid'), false, 76);
+    tb(acidUI.running ? '● ACID' : 'ACID', acidUI.running, () => setTools('acid'), false, 66);
     if (testState.fps) {   // #258 live frame rate (kept for the console: window.vire)
       const st = fpsStats(); g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '700 15px system-ui';
       g.fillStyle = !st ? '#8c96a8' : st.drops > 3 ? '#ff5050' : st.drops ? '#f1b650' : '#40d080';
