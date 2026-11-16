@@ -8625,7 +8625,7 @@ function drawToolsPage() {
     g.fillStyle = '#8c96a8'; if (P) g.fillText('OBJECTS', L + 2, cy2 + 8);
     const items = [['neon', 'NEON', false], ['panel', 'CHAT PANEL', false], ['chalk', 'WHITEBOARD', false], ['gear', 'GEAR', false], ['robot', 'ROBO-BODY', S.source === 'headset' || isWeb], ['dome', 'DOME', false]];
     const colsObj = P ? 3 : 6, bwObj = (R - L - gap * (colsObj - 1)) / colsObj;
-    const domeTap = () => { if (dome.on) S.setShowOpt('backdrop', 'visuals'); else { S.setShowOpt('backdrop', 'dome'); if (!skybox.tex) toast('DOME needs a sky: VISUALS > PANO > SKY', 3200); } drawMixScreen(); };
+    const domeTap = () => { if (dome.on) S.setShowOpt('backdrop', 'visuals'); else { S.setShowOpt('backdrop', 'dome'); if (!skybox.tex) toast('DOME: the spaceship interior until you pick a sky (VISUALS > PANO > SKY)', 3200); } drawMixScreen(); };
     items.forEach(([k, label, off], i) => { const on = k === 'dome' ? !!dome.on : !!O[k]; btn(L + (i % colsObj) * (bwObj + gap), cy2 + (P ? 14 : 0) + Math.floor(i / colsObj) * (bh + gap), bwObj, bh, label, !off && on, off ? null : k === 'dome' ? domeTap : () => S.setShowOpt(k, !O[k]), off, P ? 16 : 15); });
     const ry = cy2 + (P ? 14 : 0) + Math.ceil(items.length / colsObj) * (bh + gap) + (P ? 6 : 4);
     const ms = djcam ? djcam.ms : 0;
@@ -8764,7 +8764,7 @@ function drawToolsPage() {
     const st = pcamStatus(S);   // #374 shared with the OBJECTS page
     if (camPick.list.length) { const c = camPick.list[camPick.i]; st.unshift(`WEBCAMS: ${camPick.i + 1}/${camPick.list.length} ${c ? c.n : ''}${c && c.id === camPick.cur ? ' (in use)' : ' · CONFIRM to use it'}`); }   // #734
     if (C.green && C.light) { const h = S.lampHint(); if (h) st.push(h); }
-    if (C.green && S.showOpt.backdrop === 'dome' && !skybox.tex) st.push('BACK DOME: no sky picked yet (VISUALS > PANO > SKY).');
+    if (C.green && S.showOpt.backdrop === 'dome' && !skybox.tex) st.push('BACK DOME: loading the spaceship interior (pick your own on VISUALS > PANO > SKY).');
     const help = 'CROP: the garbage matte (cut away stands and the room past the cloth). GREEN SCREEN off: the webcam video is the background and overlays (plus 3D gear if calibrated and GEAR is on) are drawn over it. On: you are keyed over the BACK setting (VISUALS, DOME or none). LIGHT MATCH grades you toward the panorama (pick it with SKY) and lights the gear from it.';
     // #374 a small live preview of what goes out (the stream picture, redrawn about 5 times a second by the page's timer)
     const pcamPrev = (x, y, w) => {
@@ -9304,7 +9304,7 @@ function drawToolsPage() {
       ['DOME TURN', `${dome.turn}°`, null, { v: dome.turn, lo: 0, hi: 355, step: 5, set: setDomeTurn, dim: !dome.on }],   // #389 / #640 a slider in both orientations
     ];
     const cell = (c, x, y, w, h) => ctl(c, x, y, w, h);   // #640
-    const warn = dome.on && !skybox.tex ? 'DOME: no sky picked yet. On VISUALS > PANO pick a panorama or video pano and tap SKY.' : PS.revN && !dome.on ? 'PANO frames show the DOME: turn DOME on.' : '';
+    const warn = dome.on && !skybox.tex ? 'DOME: loading the spaceship interior. Your own: VISUALS > PANO, pick a panorama or video pano, tap SKY.' : PS.revN && !dome.on ? 'PANO frames show the DOME: turn DOME on.' : '';
     const help = 'B laser: aim + GRIP = move / turn with the hand (stick = distance), aim + TRIGGER = resize. With ROOM SNAP on, a frame near a scanned wall or ceiling snaps flat onto it. For a skylight, carry a frame (not a doorway) up to the ceiling and set its TYPE to PANO. PANO frames show the DOME sky.';
     const helpP = 'B laser: GRIP = move, TRIGGER = resize; frames snap to scanned walls. PANO frames show the DOME sky.';   // #585 portrait: short
     const text = (x, y, w, lh, max, fs, hp) => {
@@ -10961,7 +10961,16 @@ function applySkyTurn() {
   } else { key.position.copy(KEY_POS); key.color.setRGB(1, 1, 1); }
 }
 const _skyD = new THREE.Vector3();
+var domeLoading = false;   // #765 the DOME always has a sky: the picked one, else the spaceship interior (img/sky_factory.jpg)
+function domeSkyEnsure() {
+  if (CAMERA_ROLE || !dome.on || skybox.tex || domeLoading) return;
+  domeLoading = true;
+  ensureSky(true).catch(e => console.warn('dome sky', e))
+    .then(() => (skybox.tex ? null : useFactorySky()))
+    .finally(() => { domeLoading = false; if (skybox.tex) applySky(); drawMixScreen(); });
+}
 function applySky() {
+  domeSkyEnsure();   // #765 any DOME switch (PORTALS SETUP, SHOWTIME!, CYCLOWALL, VJ desk, a saved DOME at start) gets a sky
   const want = !arMode && settings.env === 'image' && settings.sky === 'on';
   const full = want && !!skybox.tex, bg = want && !full && envLight.skyTex;
   const domeOn = !CAMERA_ROLE && dome.on && !!skybox.tex;   // #346 the DOME: this sky in any mode, passthrough too, at its own size
