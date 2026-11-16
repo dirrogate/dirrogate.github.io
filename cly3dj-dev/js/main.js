@@ -8580,6 +8580,7 @@ function drawToolsPage() {
       ['SCENE', [
         [cycloState() === 'on' ? 'CYCLOWALL: ON' : 'CYCLOWALL', cycloState() === 'on', cycloOffCycle, !facetWall, () => setTools('wall')],
         [dome.on ? 'DOME: ON' : 'DOME', !!dome.on, () => { S.setShowOpt('backdrop', dome.on ? 'none' : 'dome'); drawMixScreen(); }, false, () => { videoPage = true; vpFolder = 'Pano'; toolsPage = null; vpLoad(); drawMixScreen(); }],
+        [portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), portalsTap, !portals, () => setTools('portals')],   // #772 tap = on / off, long press = PORTALS SETUP
         [hs ? 'ROBOT (off in HEADSET CAM)' : robotOn ? 'ROBOT: ON' : 'ROBOT', robotOn && !hs, () => { const v = !robotOn; setDjAvatar(v); S.setShowOpt('robot', v); drawMixScreen(); }, hs],
         [O.gear ? 'GEAR: ON' : 'GEAR', !!O.gear, () => { S.setShowOpt('gear', !O.gear); drawMixScreen(); }, false]]],
       ['EXTRAS', [
@@ -8591,8 +8592,7 @@ function drawToolsPage() {
       ['SEND TO', [
         [live || st === 'connecting' ? (ending ? 'TAP AGAIN TO END' : 'END TWITCH') : 'GO LIVE ON TWITCH', live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, null, true],
         [tvLbl(S), !!(S.tvUp || S.stuRun), () => setTools('tv'), false],
-        ['DIRROVJ ▸', !!S.stuRun, () => setTools('studio'), false],
-        [(() => { const Pv = vidRec(); return Pv && Pv.on ? (performance.now() - vidArm < 3000 ? 'TAP: STOP' : '● ' + vidTime(Pv.sec)) : 'VIDREC'; })(), !!(vidRec() && vidRec().on), vidRecTap, !S.stuLink]]]];   // #771 DirroVJ's PROGRAM REC (was on the main bar)
+        ['DIRROVJ ▸', !!S.stuRun, () => setTools('studio'), false]]]];   // #772 VIDREC went back to the main bar
     const stLine = (live ? `● LIVE ${S.elapsed()} · ${(S.kbps / 1000).toFixed(1)} Mb/s` : st === 'connecting' ? S.msg || 'Connecting…' : st === 'error' ? S.msg : 'OFF AIR') + (S.stu.on ? ' · via DirroVJ' : '') + ' · ' + (hs ? 'HEADSET CAM' : card ? 'CARD' : gpOut('gopro') ? 'GOPRO 1' : gpOut('gopro2') ? 'GOPRO 2' : 'no camera yet: pick GOPRO 1 or 2');
     const put = (x, y, w, h, [label, on, act, dim, long, wide], fs) => { btnGreen = /: ON$/.test(label) && on; btn(x, y, w, h, label, on, dim ? null : act, dim, fs); btnGreen = false; if (long && !dim) VP_HIT[VP_HIT.length - 1].long = long; };
     g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '800 15px system-ui'; g.fillStyle = live ? '#ff3b3b' : st === 'connecting' || st === 'error' ? '#f1b650' : '#8c96a8';
@@ -8601,7 +8601,7 @@ function drawToolsPage() {
       let y = y0 + 26;
       for (const [lab, items] of rows) {
         g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(lab, L + 2, y + 10); y += 16;
-        if (lab === 'SEND TO') { put(L, y, R - L, 56, items[0], 21); y += 62; const w3 = (R - L - 16) / 3; for (let q = 1; q < 4; q++) put(L + (q - 1) * (w3 + 8), y, w3, 44, items[q], 14); y += 50; continue; }
+        if (lab === 'SEND TO') { put(L, y, R - L, 56, items[0], 21); y += 62; const w2 = (R - L - 8) / 2; put(L, y, w2, 44, items[1], 15); put(L + w2 + 8, y, w2, 44, items[2], 15); y += 50; continue; }
         const cols = 2, bw = (R - L - 8) / 2;
         items.forEach((it, i) => put(L + (i % cols) * (bw + 8), y + Math.floor(i / cols) * 50, bw, 44, it, 16));
         y += Math.ceil(items.length / cols) * 50 + 4;
@@ -8613,7 +8613,7 @@ function drawToolsPage() {
       for (const [lab, items] of rows) {
         const h = lab === 'SEND TO' ? 50 : 42;
         g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; g.fillText(lab, L + 2, y + h / 2 + 4);
-        if (lab === 'SEND TO') { const gw = Math.round(rw * 0.40), w3 = (rw - gw - 24) / 3; put(x0, y, gw, h, items[0], 18); for (let q = 1; q < 4; q++) put(x0 + gw + 8 + (q - 1) * (w3 + 8), y, w3, h, items[q], 15); y += h + 6; continue; }
+        if (lab === 'SEND TO') { const gw = Math.round(rw * 0.46), w2 = (rw - gw - 16) / 2; put(x0, y, gw, h, items[0], 19); put(x0 + gw + 8, y, w2, h, items[1], 15); put(x0 + gw + w2 + 16, y, w2, h, items[2], 15); y += h + 6; continue; }
         const n = items.length, bw = (rw - 8 * (n - 1)) / n;
         items.forEach((it, i) => put(x0 + i * (bw + 8), y, bw, h, it, 15));
         y += h + 6;
@@ -10052,7 +10052,7 @@ function drawMixScreen() {
     SP_HIT.push({ x: vx - 3, y: y - 8, w: vw + 6, h: h + 16, act: () => setMonitor(!monOn) });
     // #537 MR GUI removed from Deck A top bar (unneeded on mixer screen)
     { const S = streamer, bw3 = (W - 40 - 3 * 6) / 4, by3 = H - 96;   // #389 STREAM, CLY3DTV, STUDIO on a row above TOOLS / RESET MIX; #439 + WALL
-      [['VISUALS', cycloState() === 'on', () => setVideoPage(true), false], [twLbl(S).replace('SHOWTIME!', 'SHOW TIME!'), twOn(S), () => setTools('stream'), !S], [portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), () => setTools('portals'), !portals], ['SETUP', !!(dirro && dirro.on), () => setTools('setup'), false]].forEach(([l, o, a, dim], i) => {   // #771
+      [['VISUALS', cycloState() === 'on', () => setVideoPage(true), false], [twLbl(S).replace('SHOWTIME!', 'SHOW TIME!'), twOn(S), () => setTools('stream'), !S], [(() => { const Pv = vidRec(), armed = Pv && Pv.on && performance.now() - vidArm < 3000; return armed ? 'TAP: STOP' : Pv && Pv.on ? '● ' + vidTime(Pv.sec) : Pv && Pv.starting ? 'REC…' : 'VIDREC'; })(), !!(vidRec() && vidRec().on), vidRecTap, !(S && S.stuLink)], ['SETUP', !!(dirro && dirro.on), () => setTools('setup'), false]].forEach(([l, o, a, dim], i) => {   // #771
         const bx3 = 20 + i * (bw3 + 6); drawTopBtn(g, bx3, by3, bw3, 36, l, o, dim, 13); if (!dim) SP_HIT.push({ x: bx3 - 3, y: by3 - 4, w: bw3 + 6, h: 44, act: a }); });
     }
     drawTopBtn(g, 20, H - 52, 64, 36, 'DJ TOOLS', false, false, 13);   // #771 was TOOLS
@@ -10085,7 +10085,7 @@ function drawMixScreen() {
     drawResetMix(g, x, y, 88, h); x += 88 + gap;   // #254
     tb('VISUALS', cycloState() === 'on', () => setVideoPage(true), false, 80);   // #771 the bar: VISUALS, SHOWTIME!, PORTALS, DJ TOOLS, SETUP
     tb(twLbl(S), twOn(S), () => setTools('stream'), !S, 104);
-    tb(portals && portals.on ? 'PORTALS: ON' : 'PORTALS', !!(portals && portals.on), () => setTools('portals'), !portals, 92);
+    { const Pv = vidRec(); tb((() => { const Pv = vidRec(), armed = Pv && Pv.on && performance.now() - vidArm < 3000; return armed ? 'TAP: STOP' : Pv && Pv.on ? '● ' + vidTime(Pv.sec) : Pv && Pv.starting ? 'REC…' : 'VIDREC'; })(), !!(Pv && Pv.on) && (performance.now() - vidArm < 3000 || Math.floor(performance.now() / 600) % 2 === 0), vidRecTap, !(S && S.stuLink), 92); }   // #772 VIDREC back on the bar (PORTALS moved to SHOWTIME!)
     tb('DJ TOOLS', false, () => setTools('dj'), false, 102);
     tb('SETUP', !!(dirro && dirro.on), () => setTools('setup'), false, 68);
     // #771 VIDREC and DIRROVJ moved into SHOWTIME! (SEND TO), CYCLOWALL into VISUALS

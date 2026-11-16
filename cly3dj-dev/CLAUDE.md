@@ -2930,3 +2930,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - "A long press does more." in small italics on SHOWTIME! and the CYCLOWALL page (longHint()).
 - Checked in the PC pane: main page, SETUP, VISUALS (CLIPS, FX), PORTALS, SHOWTIME!, CYCLOWALL in landscape and portrait; FRAME / SCREEN noCut, WINDOW rev; portal shaders compile with portals and the dome on (0 bad programs). Not on the Quest.
 - sw.js v235. No Node restart. Backup backups/pre771/.
+
+## #772 VIDREC back on the main bar, PORTALS on SHOWTIME! (owner, 16 Nov)
+- Main bar: VIDREC (DirroVJ's PROGRAM REC; dim until DirroVJ is linked, blinks while recording, stop = two taps) in PORTALS' place, landscape and portrait. SHOWTIME! SCENE row: CYCLOWALL, DOME, PORTALS, ROBOT, GEAR; PORTALS tap = on / off (double-tap = back to their spots), long press = PORTALS SETUP. VIDREC left SEND TO (TWITCH, DIRROTV, DIRROVJ).
+- Checked in the PC pane, both orientations. sw.js v236. No Node restart. Backup backups/pre771/main.771.js.
