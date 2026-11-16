@@ -222,7 +222,7 @@ export function renderMeta(px, W, H, t, bp, kick, mp) {
   const It = [];   // the balls stay in the back part of the floor (ZB on), BALL HEIGHT / BALL SIZE
   for (let k = 0; k < N; k++) {
     const b = BALLS[k], z = ZB + pmod(b.z0 * span - scroll, span), r = b.rad * bs;
-    const hop = Math.abs(Math.sin(Math.PI * (bp / b.per + b.ph))), y = r + b.amp * bh * hop;
+    const ph = bp / b.per + b.ph, fr = ph - Math.floor(ph), hop = 4 * fr * (1 - fr), y = r + b.amp * bh * hop;   // #770 a real throw: a parabola (gravity), fastest at the floor, slowing to the top
     const a = Math.min(1, (ZF - z) / 5) * Math.min(1, (z - ZB) / 1.5);
     if (a > 0.01) It.push({ b, z, y, a, r: r * (1 + 0.05 * kick * (hop < 0.3 ? 1 : 0)) });
   }
@@ -347,7 +347,7 @@ export class WallFx {
       return fresh;
     }
     if (this.busy && now - this.reqT > 2000) this.busy = false;   // a lost answer
-    if (!this.busy && now - this.reqT >= 66) {
+    if (!this.busy && now - this.reqT >= Math.max(33, this.ms * 1.25)) {   // #770 30 frames a second when the worker keeps up (was 15)
       this.reqT = now;
       const mode = o.mode, W = mode === 'mandel' ? FX_W : pw, H = mode === 'mandel' ? FX_H : ph, t = o.t || 0, bp = o.bp || 0, kick = o.kick || 0;
       this.rw = W; this.rh = H;

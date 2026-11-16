@@ -765,7 +765,7 @@ function vdPickFor(i) {   // to the clips page (VISUALS > Video): the next thumb
 function vdAssign(name) { const i = vd.pick; vd.pick = null; if (i == null) return; vd.slots[i] = name; vd.sel = i; vdSave(); videoPage = false; setTools('vdancer'); if (ledMode === 'vdancer') vdLoad(); else setLedMode('vdancer'); }
 function fxPaint() {
   const L = dirro ? dirro.wall : { cols: pxSize(wallPx)[2], fill: 0.78, glow: 1 }, g = fxBigG, cols = ledMode === 'mandel' ? FX_W : L.cols;   // #444 MANDEL always on its own 160 grid
-  g.globalCompositeOperation = 'source-over'; g.imageSmoothingEnabled = false;
+  g.globalCompositeOperation = 'source-over'; g.imageSmoothingEnabled = wallPx < 2 && ledMode !== 'mandel';   /* #770 PIXELS 0 / 1 = smooth */
   g.filter = L.glow !== 1 ? `brightness(${L.glow})` : 'none'; g.drawImage(wfx.canvas, 0, 0, OUT_W, OUT_H); g.filter = 'none';
   if (cols > 0) {
     const k = cols + '|' + L.fill;
@@ -778,13 +778,23 @@ function fxPaint() {
     g.globalCompositeOperation = 'multiply'; g.drawImage(fxMask, 0, 0); g.globalCompositeOperation = 'source-over';
   }
   if (fxTex) fxTex.needsUpdate = true;
+  if (fxWallTex && facetWall && facetWall.ext === fxWallTex) fxWallTex.needsUpdate = true;   // #770 one upload per new frame
 }
 function wallBeat(now) {   // beat position (beats: onset count + the part of a beat since) and the kick, as the phones work it out
   if (wtapOn()) { const ph = now - wtap.anchor; return { bp: wtap.n + ph / wtap.iv, kick: Math.exp(-(ph % wtap.iv) / 180) }; }   // #444 tapped in
   let iv = 0; const bpm = (dirroNow() || {}).bpm;
   if (bpm >= 60 && bpm <= 200) { iv = 60000 / bpm; while (iv < 300) iv *= 2; while (iv > 1000) iv /= 2; }
-  if (iv && beat && beat.last && now - beat.last < 4000) return { bp: beat.count + (now - beat.last) / iv, kick: Math.exp(-(now - beat.last) / 180) };
-  return { bp: now / 500, kick: 0 };   // no music: 120 BPM on the clock
+  if (iv && beat && beat.last && now - beat.last < 4000) return { bp: smoothBp(beat.count + (now - beat.last) / iv, iv, now), kick: Math.exp(-(now - beat.last) / 180) };
+  return { bp: smoothBp(now / 500, 500, now), kick: 0 };   // no music: 120 BPM on the clock
+}
+// #770 the beat position the balls and floor follow runs on its own clock at the tempo and is pulled gently toward the detected beats,
+// so a kick heard a few ms early or late no longer jumps every ball (the jerk that read as stutter). A big change (new track) snaps.
+const wbSm = { bp: 0, t: 0 };
+function smoothBp(target, iv, now) {
+  const dt = wbSm.t ? Math.min(100, now - wbSm.t) : 0; wbSm.t = now;
+  wbSm.bp += dt / iv; const err = target - wbSm.bp;
+  if (!dt || Math.abs(err) > 1) wbSm.bp = target; else wbSm.bp += err * Math.min(1, dt / 400);
+  return wbSm.bp;
 }
 function stepWallFx(now) {
   if (!wallPxApplied && dirro) { wallPxApplied = true; try { if (!localStorage.getItem('vire.wallPxA')) { localStorage.setItem('vire.wallPxA', '1'); dirro.setWall('cols', pxSize(wallPx)[2]); } } catch (e) {} }   // #444 once: the grid follows PIXELS
@@ -8552,8 +8562,8 @@ function drawToolsPage() {
       ['CAMERA', [
         ['GOPRO 1', gpOut('gopro'), () => { toShow(); goproPick('gopro'); drawMixScreen(); }, !gopro, gopro ? () => goproReset('gopro') : null],
         ['GOPRO 2', gpOut('gopro2'), () => { toShow(); goproPick('gopro2'); drawMixScreen(); }, !gopro2, gopro2 ? () => goproReset('gopro2') : null],
-        ['HEADSET CAM', hs, () => { if (S.stu.on && S.stu.mode !== 'show') S.setStudio('mode', 'show'); S.setSource('headset'); drawMixScreen(); }, false, () => setTools('streamfit')],
         [(() => { const ga = gpActive(); return ga && !hs ? GOPRO_ZOOMS[ga.zoom].label : 'ZOOM'; })(), false, () => { const ga = gpActive(); if (ga) { ga.nextZoom(); drawMixScreen(); } }, !gpActive() || hs],
+        ['HEADSET CAM', hs, () => { if (S.stu.on && S.stu.mode !== 'show') S.setStudio('mode', 'show'); S.setSource('headset'); drawMixScreen(); }, false, () => setTools('streamfit')],
         ['CARD ⁺¹', card, () => { S.setSource('card'); setTools('card'); }, false]]],
       ['SCENE', [
         [cycloState() === 'on' ? 'CYCLOWALL: ON' : 'CYCLOWALL', cycloState() === 'on', cycloOffCycle, !facetWall, () => setTools('wall')],
@@ -10677,7 +10687,16 @@ function cycFeedTick() {
   }
   g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; send();
 }
-function wallCamTick() { if (facetWall) facetWall.ext = ledMode === 'cam' && camCopy ? camCopy.texture : null; }
+// #770 the CYCLOWALL samples the visuals picture (fxBig) straight on the GPU: no 20 fps copy into its canvas (that beat against the
+// worker's frames and stuttered), and nearest filtering keeps PIXELS 2+ crisp instead of smeared. PIXELS 0 / 1 stay smooth.
+let fxWallTex = null;
+function fxWallTexture() {
+  if (!fxWallTex) { fxWallTex = new THREE.CanvasTexture(fxBig); fxWallTex.colorSpace = THREE.SRGBColorSpace; fxWallTex.generateMipmaps = false; fxWallTex.minFilter = THREE.LinearFilter; }
+  const mag = wallPx >= 2 && ledMode !== 'card' ? THREE.NearestFilter : THREE.LinearFilter;
+  if (fxWallTex.magFilter !== mag) { fxWallTex.magFilter = mag; fxWallTex.needsUpdate = true; }
+  return fxWallTex;
+}
+function wallCamTick() { if (facetWall) { facetWall.ext = isFxMode(ledMode) ? fxWallTexture() : null; facetWall.extHdr = false; } }
 // #731 (owner) DirroDj📹 (CYCLOWALL and the stream's DirroDj📹 source) has its own invisible camera: a hand-held shot of the robot DJ,
 // framing his head and hands, drifting a little closer and back (13 s) and about 10 degrees to each side of him (19 s), with a
 // small hand-held wander. It only takes the DJ CAM camera for its own renders; GoPro / SHOWTIME! keep their pose.
