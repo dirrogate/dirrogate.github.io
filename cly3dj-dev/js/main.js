@@ -121,7 +121,7 @@ const KEY_POS = key.position.clone();
 // #182 grounded panorama skybox (skybox.js). Centred where the DJ stands: the XR origin, which is rig (0.05, 0, 0.62)
 // because the rig is moved by (-0.05, 0, -0.62) in the headset. With real-time shadows a shadow-only floor
 // catches the gear's shadows on the panorama's floor (the studio floor is hidden then).
-const skybox = new Skybox(renderer); skybox.set3D(settings.dome3d === true);   // #756 DOME 3D / 2D (default 2D: the left eye for both) rig.add(skybox.group); skybox.group.position.x = 0.05; skybox.group.position.z = 0.62;
+const skybox = new Skybox(renderer); skybox.set3D(settings.dome3d === true);   /* #756 DOME 3D / 2D (default 2D: the left eye for both) */ rig.add(skybox.group); skybox.group.position.x = 0.05; skybox.group.position.z = 0.62;
 // #346 DOME (PORTALS SETUP): the same grounded sky, shown even in passthrough and with any light setting, sized 3-20 m
 const dome = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.dome') || 'null'); } catch {} return { on: !!(s && s.on), r: Math.min(20, Math.max(3, (s && s.r) || 10)), turn: Math.min(359, Math.max(0, (s && s.turn) || 0)), ev: Math.min(1, Math.max(-3, +(s && s.ev) || 0)), gam: Math.min(2, Math.max(0.5, +(s && s.gam) || 1)) }; })();   // #638 gam: DOME GAMMA   // #404 ev: DOME EXPOSURE   // #389 turn: the dome's own angle
 const skyShadow = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.ShadowMaterial({ opacity: 0.4 }));
@@ -546,7 +546,7 @@ function stepMonitor(now) {
   const tag = live ? '● LIVE ' + S.elapsed() : con ? 'CONNECTING…' : 'REHEARSAL · OFF AIR';
   g.font = '700 13px system-ui,sans-serif'; g.textBaseline = 'middle'; const tw = g.measureText(tag).width;
   g.fillStyle = live ? 'rgba(200,20,30,0.85)' : 'rgba(0,0,0,0.6)'; g.fillRect(6, 6, tw + 14, 20); g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(tag, 13, 16.5);
-  g.textAlign = 'right'; g.fillStyle = 'rgba(0,0,0,0.6)'; const sl = S.stu && S.stu.on ? 'DIRROVJ · ' + (S.stu.mode === 'show' ? 'SHOWTIME!' : 'WEBCAM+GEAR!') : STREAM_SRC[S.source] || '';   // #734 const sw = g.measureText(sl).width; g.fillRect(W - sw - 20, 6, sw + 14, 20); g.fillStyle = '#dfe6f2'; g.fillText(sl, W - 13, 16.5);
+  g.textAlign = 'right'; g.fillStyle = 'rgba(0,0,0,0.6)'; const sl = S.stu && S.stu.on ? 'DIRROVJ · ' + (S.stu.mode === 'show' ? 'SHOWTIME!' : 'WEBCAM+GEAR!') : STREAM_SRC[S.source] || '';   /* #734 */ const sw = g.measureText(sl).width; g.fillRect(W - sw - 20, 6, sw + 14, 20); g.fillStyle = '#dfe6f2'; g.fillText(sl, W - 13, 16.5);
   g.textBaseline = 'alphabetic'; monTex.needsUpdate = true;
 }
 function setPreview(on) {
@@ -5453,8 +5453,11 @@ function clearTaps(d) {
 }
 function ledBeat(d) {
   if (!d.loaded || !d.track) return null;
-  const t = d.track, a = beat1Of(t), bpm = tapRuns[d.i] && tapRuns[d.i].track === t && tapRuns[d.i].bpm && !fileBpmSrc(t) ? tapRuns[d.i].bpm : bpmOf(t);
-  if (a === null || !bpm) return null;
+  const t = d.track, bpm = tapRuns[d.i] && tapRuns[d.i].track === t && tapRuns[d.i].bpm && !fileBpmSrc(t) ? tapRuns[d.i].bpm : bpmOf(t);
+  if (!bpm) return null;
+  // #768 the BEAT 1 buttons are gone (#499), so without a tapped beat 1 the dots follow the track's own beat grid
+  // (its BPM laid on its onsets, gridOf); the first dot is the grid's first beat, not always the bar's downbeat.
+  let a = beat1Of(t); if (a === null) { const gr = gridOf(t, bpm); if (!gr) return null; a = gr.g; }
   const b = (heardPos(d) - a) * bpm / 60;
   return ((Math.floor(b + 1e-6) % 4) + 4) % 4;
 }
@@ -6196,17 +6199,7 @@ function drawDeckPanel(g, d, x0, y0, w, h, P) {
     // beat phase dots
     const beatInBar = ledBeat(d);   // #117: grey until beat 1 and a BPM exist
     for (let k = 0; k < 4; k++) { g.fillStyle = k === beatInBar ? '#39a8ff' : '#26324a'; g.fillRect(x0 + 12 + k * 30, DOTS, 24, 10); }
-    // #643 phase meter (display only, nothing moves): this deck's beat against the other deck's, 0.25 beat each way
-    const ph = phaseOff(d);
-    if (ph) {
-      const bx = x0 + 140, bw = w - 152, cx = bx + bw / 2, by = DOTS + 1;
-      g.fillStyle = '#26324a'; g.fillRect(bx, by, bw, 8);
-      const okw = Math.max(3, bw * (ph.okMs / (ph.per * 500)));   // green zone: +-okMs
-      g.fillStyle = '#1d5a34'; g.fillRect(cx - okw / 2, by, okw, 8);
-      g.fillStyle = '#56627a'; g.fillRect(cx - 1, by - 2, 2, 12);
-      const f = Math.max(-1, Math.min(1, ph.off / 0.25)), ok = Math.abs(ph.ms) <= ph.okMs;
-      g.fillStyle = ok ? '#40ff70' : Math.abs(f) >= 1 ? '#ff4b4b' : '#f2b640'; g.fillRect(cx + f * (bw / 2 - 3) - 3, by - 2, 6, 12);
-    }
+    // #768 phase meter removed (owner: distracting); it was display only and never moved a record
     if (t && tapEntry(t)) {   // sidecar save state for this track (portrait: its own line, the panel is narrower)
       const tx = { saved: 'taps saved', saving: 'saving…', retry: 'not saved: retrying', static: 'saved on this device', local: 'saved on this device' }[taps.status] || '';
       g.textAlign = P ? 'left' : 'right'; g.fillStyle = taps.status === 'saved' ? '#56627a' : '#c9a040'; g.font = '500 13px system-ui';
