@@ -418,6 +418,7 @@
 <section id="prS">
   <h2>Program recordings <span class="note" style="text-transform:none;letter-spacing:0">PROGRAM REC in the header</span></h2>
   <div class="row"><span class="sp">SIZE</span><button data-prres="720">720p</button><button data-prres="1080">1080p</button><span id="prSt" class="note" style="margin:0 0 0 8px"></span></div>
+  <div class="row"><button id="prDir" title="Every take is copied here when it ends (VIDREC / PROGRAM REC .mkv, and REC MASTER .wav on this laptop)">RECORDINGS FOLDER…</button><button id="prPend" hidden>COPY PENDING</button><span id="prDirSt" class="note" style="margin:0 0 0 8px"></span></div>
   <div id="prList" class="note"></div>
   <div class="note">The picture and sound that go to Twitch, recorded on this laptop as .mkv (H.264, the GPU's encoder when Chrome can use it; Opus sound), a steady 30 fps. Written as it goes into the browser's private storage, so a crash keeps all but the last 2 seconds; SAVE copies a take to a folder you pick (a crashed take: play it in VLC, or remux with ffmpeg -i in.mkv -c copy out.mkv). 1080p also draws the Program (and so Twitch / DirroTV) at 1080p while it records. About 3.6 GB an hour at 720p, 6.3 GB at 1080p.</div>
 </section>
@@ -1384,6 +1385,18 @@ setInterval(() => { send({ k: 'hello', again: true }); if (Date.now() - lastSeen
     const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = n; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
   }
   $('setupB').addEventListener('click', () => setTimeout(list, 50));
+  // #754 the recordings folder: picked once here; each finished take is copied by DirroVJ, or waits until a click allows the folder
+  let rc = null; import('./js/reccopy.js').then(m => { rc = m; dirShow(); });
+  async function dirShow() {
+    if (!rc) return; const st = $('prDirSt'), pb = $('prPend'); if (!rc.canPick()) { st.textContent = 'This browser cannot write to a folder: use SAVE…'; $('prDir').disabled = true; return; }
+    const h = await rc.getFolder(), ok = h && await rc.folderPerm(h, false), n = rc.pending().length;
+    st.textContent = (h ? 'Copies go to: ' + h.name + (ok ? '' : ' (click RECORDINGS FOLDER… to allow it again)') : 'No folder yet: takes stay here until you SAVE them') + (P && P.copy ? ' · last take: ' + P.copy : '');
+    pb.hidden = !n; pb.textContent = 'COPY PENDING (' + n + ')';
+  }
+  $('prDir').onclick = async () => { if (!rc) return; try { const h = await rc.getFolder(); if (h && !(await rc.folderPerm(h, false)) && await rc.folderPerm(h, true)) { dirShow(); return; } await rc.chooseFolder(); } catch {} dirShow(); };
+  $('prPend').onclick = async () => { if (!rc) return; const r = await rc.copyPending(true); $('prDirSt').textContent = r.ok + ' copied' + (r.bad ? ', ' + r.bad + ' still waiting' : ''); setTimeout(dirShow, 2500); list(); };
+  $('prB').addEventListener('click', async () => { if (rc && P && !P.on) { const h = await rc.getFolder(); if (h) rc.folderPerm(h, true); } });   // allow the folder now (a click) so the copy at the end needs nothing
+  setInterval(dirShow, 3000);
   setInterval(() => { if (P && P.on) draw(); }, 1000);
   draw(); list();
   window.vjProgRec = { list, save, draw };

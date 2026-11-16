@@ -842,14 +842,17 @@ function toggleDjCam() {
 }
 function setBackdrop(v) { if (streamer) streamer.setShowOpt('backdrop', v); else setDome(v === 'dome'); }
 function curBackdrop() { return streamer && streamer.showOpt ? streamer.showOpt.backdrop : dome.on ? 'dome' : 'visuals'; }
+var cycloGeoWas = false;   // #755 was the CYCLOWALL geometry out before OFF
 function cycloOffCycle() {
   if (ledMode !== 'off') {
     ledLastBack = curBackdrop(); setLedMode('off'); cycloBg = true; setBackdrop('visuals');
+    cycloGeoWas = !!(facetWall && facetWall.on); if (facetWall && facetWall.on) facetWall.setOn(false);   // #755 OFF takes the CYCLOWALL geometry out of the scene too
     toast('CYCLOWALL OFF: background visuals', 1800);
-  } else if (!dome.on) { setBackdrop('dome'); toast('DOME only', 1800); }
+  } else if (!dome.on) { setBackdrop('dome'); if (facetWall && facetWall.on) { cycloGeoWas = true; facetWall.setOn(false); } toast('DOME only', 1800); }   // #755 no CYCLOWALL geometry while off
   else {
     setBackdrop(ledLastBack && ledLastBack !== 'dome' ? ledLastBack : 'visuals'); ledLastBack = null;
     restoreLed(ledLastOn, 'mandel'); toast(LED_LABEL[ledMode], 1800);
+    if (cycloGeoWas && facetWall && !facetWall.on) facetWall.setOn(true); cycloGeoWas = false;   // #755 and puts it back
   }
   drawMixScreen();
 }
@@ -9169,7 +9172,7 @@ function drawToolsPage() {
     const toggles = [
       [PS.on ? 'PORTALS: ON' : 'PORTALS', PS.on, portalsTap],
       [WL.on ? 'WALL: ON' : 'WALL', WL.on, wallTap],
-      [WL.mode === 'screen' ? 'SCREEN' : 'FRACTAL', false, () => { WL.toggleMode(); drawMixScreen(); }],
+      [WL.mode === 'screen' ? 'SCREEN ⟳' : 'FRACTAL ⟳', false, () => { WL.toggleMode(); drawMixScreen(); }],   // #755 ⟳: it steps SCREEN / FRACTAL
       [WL.beat ? 'BEAT: ON' : 'BEAT', WL.beat, () => { WL.setBeat(!WL.beat); drawMixScreen(); }],
       [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)],
       [settings.domeLight !== false ? 'DOME LIGHT: ON' : 'DOME LIGHT', settings.domeLight !== false, () => { settings.domeLight = settings.domeLight === false; saveSettings(); domeLightTick(); toast(settings.domeLight ? 'DOME LIGHT: the dome\'s sky lights the gear and frames' : 'DOME LIGHT off: Settings > Lighting', 2200); drawMixScreen(); }],   // #611
@@ -10950,6 +10953,16 @@ async function settingsFileLoad(f) {
     let n = 0; for (const [k, v] of Object.entries(ks)) if (k.startsWith('vire.') && typeof v === 'string') { localStorage.setItem(k, v); n++; }
     toast(n + ' settings loaded: reloading', 2500); setTimeout(() => location.reload(), 900);
   } catch (e) { toast('Settings file: ' + e.message, 5000); }
+}
+{ // #754 recordings folder (laptop Chrome; the Quest's browser has no folder picker, REC MASTER keeps using Downloads there)
+  const row = document.getElementById('recDirRow'), st = document.getElementById('recDirSt'), pb = document.getElementById('bRecPend');
+  if (row) import('./reccopy.js').then(rc => {
+    if (!rc.canPick()) return; row.hidden = false;
+    const show = async () => { const h = await rc.getFolder(), ok = h && await rc.folderPerm(h, false), n = rc.pending().length; st.textContent = h ? 'Takes are copied to: ' + h.name + (ok ? '' : ' (click to allow again)') : 'No folder: takes go to Downloads (REC MASTER) / stay in the browser (VIDREC).'; pb.hidden = !n; pb.textContent = 'Copy waiting takes (' + n + ')'; };
+    document.getElementById('bRecDir').onclick = async () => { try { const h = await rc.getFolder(); if (h && !(await rc.folderPerm(h, false)) && await rc.folderPerm(h, true)) { show(); return; } await rc.chooseFolder(); } catch {} show(); };
+    pb.onclick = async () => { const r = await rc.copyPending(true); toast(r.ok + ' take(s) copied' + (r.bad ? ', ' + r.bad + ' still waiting' : ''), 4000); show(); };
+    show();
+  });
 }
 { const b = document.getElementById('bSetSave'), l = document.getElementById('bSetLoad'), fi = document.getElementById('fSetLoad');
   if (b) b.onclick = settingsFileSave; if (l && fi) { l.onclick = () => fi.click(); fi.onchange = () => { if (fi.files[0]) settingsFileLoad(fi.files[0]); fi.value = ''; }; } }

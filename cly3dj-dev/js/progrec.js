@@ -4,6 +4,7 @@
 // through our own 48 kHz context so a source change mid-show keeps one continuous track, Opus 192 kbit/s. Container: Matroska (.mkv)
 // with live-style unknown sizes, written as it goes by a worker into the browser's private storage with a sync access handle (written
 // in place and flushed every 2 s), so a crash keeps everything up to the last flush; the desk lists the takes and saves them out.
+import { copyTake, copyLabel } from './reccopy.js';   // #754 the copy to the recordings folder
 const FPS = 30, SLOT = 1e6 / FPS, GOP = 2 * FPS;
 const te = new TextEncoder();
 // ---- tiny Matroska writer
@@ -102,7 +103,7 @@ export function makeProgRec({ canvas, audioTrack, setRes, onChange }) {
       const d = new Date(), p2 = n => String(n).padStart(2, '0');
       R.name = `DirroVJ_show_${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}_${R.res}p.mkv`;
       worker = new Worker(new URL('./progrec-worker.js', import.meta.url), { type: 'module' });
-      const opened = new Promise((ok, no) => { worker.onmessage = e => { const m = e.data; if (m.k === 'open') ok(); else if (m.k === 'err') { R.err = 'disk: ' + m.e; no(new Error(m.e)); post(); } else if (m.k === 'closed') { R.last = R.name; post(); } }; });
+      const opened = new Promise((ok, no) => { worker.onmessage = e => { const m = e.data; if (m.k === 'open') ok(); else if (m.k === 'err') { R.err = 'disk: ' + m.e; no(new Error(m.e)); post(); } else if (m.k === 'closed') { const nm = R.name; R.last = nm; R.copy = 'copying to the recordings folder…'; post(); copyTake('progrec', nm).then(r => { R.copy = copyLabel(r); post(); }); } }; });
       worker.postMessage({ k: 'open', name: R.name }); await opened;
       Object.assign(R, { bytes: 0, frames: 0, dropped: 0, dup: 0 }); vConf = null; headerDone = false; clusterTs = -1; lastSlot = -1; vq = []; aq = []; out = []; outN = 0; aFirst = null; keyN = 0; lastATs = -1; lastAWall = 0;
       ve = new VideoEncoder({ output: (ch, meta) => { if (meta && meta.decoderConfig && meta.decoderConfig.description && !vConf) vConf = new Uint8Array(meta.decoderConfig.description instanceof ArrayBuffer ? meta.decoderConfig.description : meta.decoderConfig.description.buffer.slice(meta.decoderConfig.description.byteOffset, meta.decoderConfig.description.byteOffset + meta.decoderConfig.description.byteLength)); const b = new Uint8Array(ch.byteLength); ch.copyTo(b); vq.push({ ts: ch.timestamp, key: ch.type === 'key', d: b }); pump(false); }, error: e => { R.err = 'video: ' + e.message; post(); } });
@@ -136,6 +137,6 @@ export function makeProgRec({ canvas, audioTrack, setRes, onChange }) {
     if (worker) { const w = worker; worker = null; w.postMessage({ k: 'close' }); setTimeout(() => w.terminate(), 5000); }
     setRes && setRes(720); post();
   }
-  const state = () => ({ on: R.on, starting: R.starting, name: R.name, sec: R.on ? (performance.now() - R.t0) / 1000 : 0, bytes: R.bytes, frames: R.frames, dropped: R.dropped, dup: R.dup, hw: R.hw, res: R.res, w: R.w, h: R.h, audio: R.audio, err: R.err, last: R.last });
+  const state = () => ({ copy: R.copy || '', on: R.on, starting: R.starting, name: R.name, sec: R.on ? (performance.now() - R.t0) / 1000 : 0, bytes: R.bytes, frames: R.frames, dropped: R.dropped, dup: R.dup, hw: R.hw, res: R.res, w: R.w, h: R.h, audio: R.audio, err: R.err, last: R.last });
   return { start, stop, frame, state, R };
 }

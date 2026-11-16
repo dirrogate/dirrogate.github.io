@@ -57,7 +57,11 @@ export class MasterRec {
       const mb = (cur.bytes + 44) / 1e6, m = Math.floor(cur.bytes / cur.rate / 4 / 60), s = Math.round(cur.bytes / cur.rate / 4 % 60);
       this.last = cur.name;
       if (this.inXR()) { this.pending.push(cur.name); this.toast(`REC MASTER saved: ${m}:${pad(s)}, ${mb.toFixed(0)} MB. Leave VR, then tap SAVE on the page to put it in Downloads.`, 5000); }
-      else { this.toast(`REC MASTER saved: ${m}:${pad(s)}, ${mb.toFixed(0)} MB, to Downloads`, 4000); await this.download(cur.name); }
+      else {   // #754 the recordings folder when one is chosen (and allowed), else Downloads as before
+        let r = 'no-folder'; try { r = await (await import('./reccopy.js')).copyTake('master', cur.name); } catch {}
+        if (r === 'copied') this.toast(`REC MASTER saved: ${m}:${pad(s)}, ${mb.toFixed(0)} MB, copied to the recordings folder`, 4000);
+        else { this.toast(`REC MASTER saved: ${m}:${pad(s)}, ${mb.toFixed(0)} MB, to Downloads` + (r === 'need-permission' ? ' (the recordings folder needs a click to allow: start page)' : ''), 4500); await this.download(cur.name); }
+      }
     } catch (e) { this.toast('REC MASTER: could not finish the file: ' + (e.message || e), 5000); }
     finally { this.busy = false; this.onChange(); }
   }
