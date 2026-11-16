@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 16 Nov 2026 (decision log up to #757 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 16 Nov 2026 (decision log up to #765 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -94,7 +94,7 @@ Owner: Clyde DeSouza (c3souza).
 
 ## LED wall (VISUALS LED button, and the WALL page since #439)
 
-Sources: OFF, CLIPS, VIDVINYL, AVACAM, LIVE, SOLO plus the effect modes MANDEL, RETRO-SCENE+1 (VECTOR-DANCER, METABALLS, ZOOM) and CARD+1 (pictures and GIFs), with PIXELS 0 to 10, TAP BPM and a 5.3 s GRAB LOOP (8x8 sheet, 112x63 cells, under 60 KB for phones). A button with a tiny "+1" opens its own page. Output is 640x360 and also feeds the stream, CLY3DTV and the Dirrogram phones. Details: audience-ar-plan.md and CLAUDE.md #441 to #447. Tested in the browser pane only.
+Now called the CYCLOWALL (#729 onward). Since #758 the CYCLOWALL page's first tile is a state cycle that shows where you are: ON ⟳ (green, the curved wall is drawn) > OFF ⟳ (no wall, no backdrop) > BG: VISUALS ⟳ (no wall, the CYCLOWALL picture full frame behind you, #762) > DOME ⟳ (no wall, the dome on) > ON. Every CYCLOWALL picture is the VISUALS background whether the wall is out or not. Sources: OFF, CLIPS, VIDVINYL, AVACAM, LIVE, SOLO plus the effect modes MANDEL, RETRO-SCENE+1 (VECTOR-DANCER, BOUNCE BALLS+1 with its own page since #759 to #764: checked balls bouncing on the beat over a smooth scrolling checker floor in four colours, a chrome floor scroller on STRAIGHT / SINE / CIRCLE paths with SCROLL BOUNCE / SPEED / DISTANCE, a SKY picture from IMAGES or the stars; the DANCER retired in #763) and CARD+1 (pictures and GIFs), with PIXELS 0 to 10, TAP BPM and a 5.3 s GRAB LOOP (8x8 sheet, 112x63 cells, under 60 KB for phones). A button with a tiny "+1" opens its own page. Output is 640x360 and also feeds the stream, CLY3DTV and the Dirrogram phones. Details: audience-ar-plan.md and CLAUDE.md #441 to #447. Tested in the browser pane only.
 
 ## Backdrop and portal (#345)
 
@@ -158,7 +158,10 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 
 ## Status (16 Nov)
 
-- Release (cly3dj) = dev up to #756 (released 16 Nov, commit 95a2cb3). The SET studio is still not in the repo.
+- Release (cly3dj) = dev up to #765 (released 16 Nov, commit 6d357f3).
+- Tablet switches show the real state (#758): the CYCLOWALL ⟳ state cycle (above), TWITCH green / ● LIVE only once really live (CONNECTING… while connecting), DIRROVJ green only while DirroVJ makes the picture, DOME / GoPro buttons lit from the real objects, SKY / SKY OFF lit.
+- BOUNCE BALLS (#759 to #764) replaced METABALLS; the DANCER tile retired (#763); the DOME always has a sky: the spaceship interior (img/sky_factory.jpg) until a pano is picked, from every DOME switch (#765). SKY OFF turns off the dome and sky (passthrough then shows, unless the CYCLOWALL wall, PANO frames or movie props stand in front).
+- Earlier, released before: up to #756 (commit 95a2cb3). The SET studio is still not in the repo.
 - Recording (#751, #753, #754): PROGRAM REC on DirroVJ (WebCodecs H.264 on the GPU encoder, Opus, steady 30 fps, Matroska written as it goes into the browser's private storage and flushed every 2 s, crash-safe; 720p / 1080p, 1080p draws the Program at 1080p); header button on the desk, VIDREC on the tablet's main bottom bar (DIRROTV moved off it). Takes listed in desk SETUP > Program recordings (SAVE / DELETE); a RECORDINGS FOLDER gets an automatic copy of each VIDREC take and of REC MASTER .wav files (laptop Chrome; the Quest keeps Downloads).
 - PERSON KEY goes into the DirroVerse windows when DIRROVERSE is up (#752): one copy of you, SIZE / X / Y inside the window, holo only with HOLO.
 - 2D page (#753): Phone / DirroVJ link On by default, persistent storage asked for silently, Save / Load settings file (keys included); each address keeps its own settings.
