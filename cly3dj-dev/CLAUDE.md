@@ -2856,3 +2856,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - RETRO-SCENE page: METABALLS tile is now BOUNCE BALLS; the stepper runs 1 to 40 balls (steps of 2 above 10); a saved count stays. LED label CYCLOWALL BOUNCE BALLS. dirroclub_website/gram/js/wallfx.js updated (upload the whole site folder for the phones).
 - Answered: the Twitch / Discogs keys are in the start page's Save settings file / Load settings file (#753; every vire.* key in one JSON in Downloads).
 - sw.js v224. No Node restart. Backup backups/pre759/ (tools/patch759.py).
+
+## #760 BOUNCE BALLS: smooth floor + FLOOR SPEED slider (owner, 16 Nov: the floor stuttered to the beat)
+- The floor (and the balls riding it) now scrolls by the clock, not the beat count: smooth whatever the BPM / TAP does. The bounces still land on the beats.
+- RETRO-SCENE page: FLOOR SPEED slider, 0 (STOPPED) to 6 tiles a second, default 2 (vd.mp.spd, saved in vire.vd, sent to the phones with mp). Landscape under PIXELS, portrait after it.
+- gram/js/wallfx.js updated. sw.js v225. No Node restart. Backups backups/pre759/*.759.js.

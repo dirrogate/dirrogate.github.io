@@ -152,9 +152,9 @@ export function renderRings(px, W, H, t, bp, kick, mask, rp) {
 
 // ------------------------------------------------------------------ #759 BOUNCE BALLS (replaces #442 METABALLS, same mode key 'meta'):
 // red / white checked balls bouncing over a mirror-glossy checker floor that scrolls toward you, stars above. Everything moves on
-// the beat count bp (music BPM or TAP BPM): the floor moves one tile a beat, the balls ride it and touch down on the beats.
+// the beat count bp (music BPM or TAP BPM): the balls touch down on the beats; the floor scrolls smoothly (#760 FLOOR SPEED).
 // Drawn by hand on the CPU (in the worker): floor per row, then shadows, mirrored balls in the floor, balls far to near.
-export const MP_DEF = { n: 16 };
+export const MP_DEF = { n: 16, spd: 2 };   // #760 spd: floor tiles a second (smooth, by the clock)
 const STARS = (() => { let q = 7919; const r = () => (q = (q * 16807) % 2147483647) / 2147483647, a = []; for (let i = 0; i < 700; i++) a.push([r(), r(), 0.2 + 0.8 * r() * r() * r(), r() * 6.28, 0.5 + 2 * r()]); return a; })();
 const BALLS = (() => { let q = 4242; const r = () => (q = (q * 16807) % 2147483647) / 2147483647, a = [];
   for (let i = 0; i < 40; i++) a.push({ x: (r() * 2 - 1) * 6.5, z0: r(), rad: 0.32 + 0.42 * r() * r(), per: r() < 0.6 ? 1 : 2, ph: r() < 0.5 ? 0 : 0.5, amp: 1.4 + 3.0 * r(), spin: (0.6 + 1.6 * r()) * (r() < 0.5 ? -1 : 1), tilt: 0.25 + 0.25 * r() });
@@ -171,7 +171,7 @@ function ballCol(nx, ny, nz, b, ang, out) {   // checker on the spinning ball, l
 }
 export function renderMeta(px, W, H, t, bp, kick, mp) {
   const N = Math.max(1, Math.min(40, (mp && mp.n) | 0 || MP_DEF.n)), ts = t * 0.001;
-  const f = W * 0.82, cx = W / 2, hy = H * 0.58, camH = 1.15, ZN = 1.6, ZF = 30, span = ZF - ZN, CELL = 1.1, scroll = bp * CELL;
+  const f = W * 0.82, cx = W / 2, hy = H * 0.58, camH = 1.15, ZN = 1.6, ZF = 30, span = ZF - ZN, CELL = 1.1, scroll = ts * CELL * (mp && mp.spd != null ? mp.spd : MP_DEF.spd);   // #760 smooth: by time, not the beat count
   // sky: black with stars
   for (let k = 0, n = W * H * 4; k < n; k += 4) { px[k] = 0; px[k + 1] = 0; px[k + 2] = 0; px[k + 3] = 255; }
   for (const [sx, sy, b, p, w] of STARS) {

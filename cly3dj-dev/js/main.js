@@ -8948,21 +8948,22 @@ function drawToolsPage() {
       g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.fillText('BOUNCE BALLS', x + w / 2, y + 14);
       g.fillStyle = '#fff'; g.font = '700 17px system-ui'; g.fillText(vd.mp.n + ' balls', x + w / 2, y + h - 7);
     };
+    const spd = vd.mp.spd != null ? vd.mp.spd : 2, spdS = (x, y, w, h) => tSlider(g, x, y, w, h, 'FLOOR SPEED', spd / 6, spd ? spd.toFixed(1) + ' tiles/s' : 'STOPPED', v => { vd.mp.spd = Math.round(v * 60) / 10; vdSave(); drawMixScreen(); }, false, 120);   // #760 BOUNCE BALLS floor
     const info = 'DANCER: the vector dancer, and your grabbed loops every 8 bars. VECTOR-DANCER: moire circles through a matte clip (open it for the matte slots, circle sets, gap and beat motion). BOUNCE BALLS: checked balls on a scrolling checker floor, landing on the beat (music BPM or TAP). All of them go to the stream, DIRROTV and the phones too.';
     if (P) {
       const tw = (R - L - 6) / 2, th = 84;
       tiles.forEach(([l, on, a], i) => btn(L + (i % 2) * (tw + 6), y0 + 2 + Math.floor(i / 2) * (th + 6), tw, th, l, on, a, false, 19));
       let y = y0 + 2 + 2 * (th + 6) + 4;
       btn(L, y, R - L, 50, grabLbl, grab.on, grabLoop, false, 20); y += 58; stp(L, y, R - L, 44); y += 52;
-      tapB(L, y, R - L, 50, 20); y += 58; pxSlider(L, y, R - L, 40); y += 48;
+      tapB(L, y, R - L, 50, 20); y += 58; pxSlider(L, y, R - L, 40); y += 48; spdS(L, y, R - L, 40); y += 48;
       note(info, y + 14);
     } else {
       const tw = (R - L - 18) / 4, th = 96;
       tiles.forEach(([l, on, a], i) => btn(L + i * (tw + 6), y0 + 2, tw, th, l, on, a, false, 19));
       const aw = (R - L - 12) / 3;
       btn(L, y0 + 106, aw, 42, grabLbl, grab.on, grabLoop, false, 17); stp(L + aw + 6, y0 + 106, aw, 42); tapB(L + 2 * (aw + 6), y0 + 106, aw, 42);
-      pxSlider(L, y0 + 154, R - L, 32);
-      g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, info, L + 4, y0 + 206, R - L - 8, 16, 3);
+      pxSlider(L, y0 + 154, R - L, 32); spdS(L, y0 + 192, R - L, 32);
+      g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, info, L + 4, y0 + 240, R - L - 8, 16, 2);
     }
     return;
   }
