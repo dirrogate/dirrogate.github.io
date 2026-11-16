@@ -23,10 +23,8 @@ const MAX_PIX = 8192 * 4096; // biggest texture kept (about 180 MB with mipmaps)
 //  Still pictures keep full resolution, trilinear mipmaps and 4x anisotropy.
 const VERT = /* glsl */`
 varying vec3 vDir;
-varying vec2 vUv;
 void main() {
-  vDir = position;
-  vUv = vec2(1.0 - uv.x, uv.y);   // SphereGeometry's u runs the other way round from atan(z, x)
+  vDir = position;   // #756 the panorama position is worked out per pixel from this (exact on the flattened floor at any segment count)
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   gl_Position.z = gl_Position.w * 0.99999;   // just inside the far plane: behind everything, drawn only where nothing else is
 }`;
@@ -47,10 +45,16 @@ vec3 acesInv(vec3 y) {      // the value ACES maps back onto the pano's own colo
   return max(inverse(I) * ((-b + sqrt(max(b * b - 4.0 * a * c, 0.0))) / (2.0 * a)) * 0.6, 0.0);
 }
 varying vec3 vDir;
-varying vec2 vUv;
 void main() {
-  vec2 uv = vec2(vUv.x * so.x + so.y, vUv.y * so.z + so.w);
-  vec2 dx = dFdx(uv), dy = dFdy(uv);
+  // #756 per pixel: every point of the dome, flattened or not, lies on the ray from the centre to its panorama direction.
+  // The same mapping as SphereGeometry's uv (u mirrored), so nothing moves; derivatives taken from whichever of two
+  // copies of u is continuous here, so the 0 / 1 seam gets no line of wrong mip level.
+  vec3 d = normalize(vDir);
+  vec2 bs = vec2(1.0 - fract(atan(d.z, -d.x) / 6.28318530718), 0.5 + asin(clamp(d.y, -1.0, 1.0)) / 3.14159265359);
+  vec2 bx = dFdx(bs), by = dFdy(bs), ba = vec2(fract(bs.x + 0.5), bs.y), ax = dFdx(ba), ay = dFdy(ba);
+  if (abs(ax.x) < abs(bx.x)) bx.x = ax.x; if (abs(ay.x) < abs(by.x)) by.x = ay.x;
+  vec2 uv = vec2(bs.x * so.x + so.y, bs.y * so.z + so.w);
+  vec2 dx = bx * so.xz, dy = by * so.xz;
 #ifdef PORTAL_SKY
   {   // #639 GLASS RAIN (portal.js): the bend is in metres on the frame's glass; map it to texture space with the screen
       // derivatives of both (works for any frame angle, each eye, and the flattened floor). Derivatives taken outside any branch.
@@ -61,9 +65,9 @@ void main() {
   vec4 c;
   float fp = max(length(dx * texSize), length(dy * texSize));
   if (aa > 0.5 && fp > 1.2) {
-    c = 0.25 * (texture2D(map, uv + dx * 0.125 + dy * 0.375) + texture2D(map, uv + dx * 0.375 - dy * 0.125)
-              + texture2D(map, uv - dx * 0.125 - dy * 0.375) + texture2D(map, uv - dx * 0.375 + dy * 0.125));
-  } else c = texture2D(map, uv);
+    c = 0.25 * (textureGrad(map, uv + dx * 0.125 + dy * 0.375, dx, dy) + textureGrad(map, uv + dx * 0.375 - dy * 0.125, dx, dy)
+              + textureGrad(map, uv - dx * 0.125 - dy * 0.375, dx, dy) + textureGrad(map, uv - dx * 0.375 + dy * 0.125, dx, dy));
+  } else c = textureGrad(map, uv, dx, dy);
   vec3 o = c.rgb * gain; o = 0.18 * pow(max(o, vec3(0.0)) / 0.18, vec3(uCon)); o = pow(o, vec3(1.0 / uGam));
 #ifdef PORTAL_SKY
   if (portalRain.x + portalRain.y > 0.001 && inRev) {   // #639 the water itself: condensation (milky, cooler, lower contrast) wiped clear where water runs; dark rims, bright lens cores
@@ -130,7 +134,7 @@ export class Skybox {
   constructor(renderer) {
     this.maxTex = Math.min(16384, renderer.capabilities.maxTextureSize || 8192);
     this.group = new THREE.Group(); this.group.visible = false; this.group.name = 'skybox';
-    this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.tex = null;
+    this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.allow3d = false; this.tex = null;   // #756 allow3d: DOME 3D (stereo panoramas shown in stereo); off = the left eye for both
     this.mats = [0, 1].map(() => new THREE.ShaderMaterial({
       uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 } },
       vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthWrite: false, toneMapped: false,
@@ -207,10 +211,11 @@ export class Skybox {
   // In the headset with a stereo picture: mesh 0 only in the left eye (layer 1), mesh 1 only in the right (layer 2).
   // Otherwise mesh 0 on layer 0 (desktop, mono, recordings) and mesh 1 hidden.
   setStereo(on) {
-    this.stereoOn = on; const st = on && this.layout !== 'mono';
+    this.stereoOn = on; const st = on && this.allow3d && this.layout !== 'mono';
     this.meshes[0].layers.set(st ? 1 : 0);
     this.meshes[1].layers.set(2); this.meshes[1].visible = st;
   }
+  set3D(on) { this.allow3d = !!on; this.setStereo(this.stereoOn); }   // #756 DOME 3D / 2D
   setTurn(rad) { this.group.rotation.y = rad; }
   setGamma(k) { this.mats.forEach(m => { m.uniforms.uGam.value = k || 1; }); }   // #638 DOME GAMMA
   setContrast(k) { this.mats.forEach(m => { m.uniforms.uCon.value = k || 1; }); }   // #629 DOME CONTRAST

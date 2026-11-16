@@ -59,7 +59,7 @@ export const colLerp = (a, b, k) => !a ? b : { m: a.m.map((v, i) => v + (b.m[i] 
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
 const FS = `uniform sampler2D tBase, tMask, tSpill, tCam, tFog; uniform vec4 wgr; uniform vec2 plate, camSz; uniform int nW; uniform mat3 Hm[4]; uniform vec4 fp[4];
 uniform float sil[4]; uniform float stack; uniform vec3 zm; uniform vec3 lvS, lvB, lvG; uniform float lvSat; uniform sampler2D tPlate; uniform float winOrig; uniform float crop, spillK, cutOld, camOn, match, mist, rainK, reflK, fogOn, time; uniform vec3 grade, camLight, camMean, camStd, tgtMean, tgtStd;
-uniform sampler2D tQ, tPM; uniform float qOn, pmOn, wHolo, camScale; uniform vec3 hcol;   // #747 HOLOEDGE: the Quest's pack (gear + matte), the person mask
+uniform sampler2D tQ, tPM; uniform float qOn, pmOn, wHolo, camScale; uniform vec4 pkT; /* #752 pkT: the cut-out's offset (x, y), size, holo look on / off */ uniform vec3 hcol;   // #747 HOLOEDGE: the Quest's pack (gear + matte), the person mask
 varying vec2 vUv;
 // #709 stacked loop (plate_matte.mp4): the plate on top, a moving matte below (white = the window is clear, black = a car passes in front)
 vec2 bu(vec2 uv) { return stack > 0.5 ? vec2(uv.x, 0.5 + 0.5 * uv.y) : uv; }
@@ -100,11 +100,12 @@ void main() {
         float zf = max(zm.x, 1.0);
         vec2 zb = zm.yz + (vUv - zm.yz) / (1.0 + (zf - 1.0) * 0.7), zg = zm.yz + (vUv - zm.yz) / (1.0 + (zf - 1.0) * 1.3);
         vec3 back = lin(texture2D(tPlate, zb).rgb);
-        float sh = holoShear(cuv, time, 70.0); vec2 cp = clamp(cuv + vec2(sh, 0.0), 0.0, 1.0);
-        float inC = step(0.0, cuv.x) * step(cuv.x, 1.0) * step(0.0, cuv.y) * step(cuv.y, 1.0);
+        vec2 cq = vec2(0.5) + (cuv - vec2(0.5) - pkT.xy) / max(pkT.z, 0.05);   // #752 PERSON KEY moves / sizes you inside the window
+        float sh = pkT.w > 0.5 ? holoShear(cq, time, 70.0) : 0.0; vec2 cp = clamp(cq + vec2(sh, 0.0), 0.0, 1.0);
+        float inC = step(0.0, cq.x) * step(cq.x, 1.0) * step(0.0, cq.y) * step(cq.y, 1.0);
         float pr = pmOn > 0.5 ? texture2D(tPM, vec2(cp.x, 1.0 - cp.y)).r * inC : 0.0, pm = smoothstep(0.35, 0.75, pr), pe = clamp(1.0 - abs(2.0 * pr - 1.0), 0.0, 1.0);
         vec3 pc = gradeCam(lin(texture2D(tCam, cp).rgb));
-        pc = lin(holoLook(gam(pc), mix(0.35, 1.0, pe), pe * pe, cp, time, 220.0, hcol));
+        if (pkT.w > 0.5) pc = lin(holoLook(gam(pc), mix(0.35, 1.0, pe), pe * pe, cp, time, 220.0, hcol));
         c = mix(back, pc, pm * 0.95);
         vec2 cg = camUV(zg, Hm[i], fp[i]);
         if (qOn > 0.5 && cg.x > 0.0 && cg.x < 1.0 && cg.y > 0.0 && cg.y < 1.0) {   // the Quest's pack: colour 1280 wide (premultiplied), matte at 1296..1920 of 1920
@@ -139,7 +140,7 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     camSz: { value: new THREE.Vector2(1280, 720) }, wgr: { value: new THREE.Vector4(0, 0, 0, 0) }, nW: { value: 0 }, Hm: { value: [0, 1, 2, 3].map(() => new THREE.Matrix3()) },
     fp: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0.4, 0.5, 1, 0.72)) }, sil: { value: [0, 0, 0, 0] }, crop: { value: 0.86 },
     grade: { value: new THREE.Vector3(2.3, 0.06, 0.88) }, camLight: { value: new THREE.Vector3(1, 1, 1) }, spillK: { value: 0.95 }, cutOld: { value: 0.5 }, camOn: { value: 1 },
-    tFog: { value: black }, tPlate: { value: black }, winOrig: { value: 0 }, tQ: { value: black }, tPM: { value: black }, qOn: { value: 0 }, pmOn: { value: 0 }, wHolo: { value: 0 }, camScale: { value: 1 }, hcol: { value: new THREE.Vector3(0.35, 0.92, 1.0) }, stack: { value: 0 }, match: { value: 0.7 }, mist: { value: 0.35 }, rainK: { value: 0.7 }, reflK: { value: 0.07 }, fogOn: { value: 0 }, time: { value: 0 },
+    tFog: { value: black }, tPlate: { value: black }, winOrig: { value: 0 }, tQ: { value: black }, tPM: { value: black }, qOn: { value: 0 }, pmOn: { value: 0 }, wHolo: { value: 0 }, camScale: { value: 1 }, pkT: { value: new THREE.Vector4(0, 0, 1, 1) }, hcol: { value: new THREE.Vector3(0.35, 0.92, 1.0) }, stack: { value: 0 }, match: { value: 0.7 }, mist: { value: 0.35 }, rainK: { value: 0.7 }, reflK: { value: 0.07 }, fogOn: { value: 0 }, time: { value: 0 },
     camMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, camStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, tgtMean: { value: new THREE.Vector3(0.3, 0.3, 0.3) }, tgtStd: { value: new THREE.Vector3(0.2, 0.2, 0.2) }, zm: { value: new THREE.Vector3(1, 0.5, 0.5) }, lvS: { value: new THREE.Vector3(0, 0, 0) }, lvB: { value: new THREE.Vector3(0, 0, 0) }, lvG: { value: new THREE.Vector3(1, 1, 1) }, lvSat: { value: 0.85 } };
   const mat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: VS, fragmentShader: FS, depthTest: false, depthWrite: false });
   const sc = new THREE.Scene(), mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); mesh.frustumCulled = false; sc.add(mesh);
@@ -266,7 +267,7 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
     const useArr = S.playing && arr.readyState >= 2, v = vids[cur];
     if (!useArr && v.paused) v.play().catch(() => {});
     U.tBase.value = useArr ? tArr : tLoops[cur]; U.stack.value = useArr ? 0 : curStack;
-    U.wHolo.value = wMode() === 'holo' ? 1 : 0; U.camScale.value = Math.max(0.4, Math.min(3, +S.cs || 1));   // #749
+    U.wHolo.value = wMode() === 'holo' || (feed && feed.holo) ? 1 : 0; if (feed && feed.pkT) U.pkT.value.fromArray(feed.pkT); else U.pkT.value.set(0, 0, 1, 1); U.camScale.value = Math.max(0.4, Math.min(3, +S.cs || 1));   // #749
     if (feed && feed.holo) { U.tCam.value = camTex; if (camVideo && camVideo.videoWidth) U.camSz.value.set(camVideo.videoWidth, camVideo.videoHeight); U.tQ.value = feed.q || black; U.qOn.value = feed.q && feed.qok ? 1 : 0; U.tPM.value = feed.pm || black; U.pmOn.value = feed.pm ? 1 : 0; }   // #747
     else if (feed && feed.tex) { U.tCam.value = feed.tex; U.camSz.value.set(feed.w, feed.h); }
     else { U.tCam.value = camTex; if (camVideo && camVideo.videoWidth) U.camSz.value.set(camVideo.videoWidth, camVideo.videoHeight); }
@@ -286,7 +287,7 @@ export function makeDirroverse({ THREE, renderer, camTex, camVideo, S, post }) {
   let curBase = '', origUrl = '', origSeq = 0;
   const wMode = () => (S.wm && S.wm[S.set]) || (S.feed === 'gear' ? 'gear' : 'cam');   // #747 the set's window: cam | gear | orig | holo
   async function refreshOrig() {
-    const md = wMode(), on = !!S.set && (md === 'orig' || md === 'holo'), seq = ++origSeq;   // #747 HOLOEDGE uses the plate's window as the room behind you
+    const md = wMode(), on = !!S.set && (md === 'orig' || md === 'holo' || !!S.pkWin), seq = ++origSeq;   // #752 PERSON KEY in the windows uses the plate's window behind you too   // #747 HOLOEDGE uses the plate's window as the room behind you
     if (!on) { U.winOrig.value = 0; return; }
     if (origUrl !== curBase || U.tPlate.value === black) { const t = await texLoad(curBase); if (seq !== origSeq) { if (t) t.dispose(); return; } if (U.tPlate.value !== black) U.tPlate.value.dispose(); U.tPlate.value = t || black; origUrl = curBase; }
     U.winOrig.value = md === 'orig' && U.tPlate.value !== black ? 1 : 0;

@@ -62,7 +62,7 @@ const params = new URLSearchParams(location.search);
 const CAMERA_ROLE = params.get('role') === 'camera';   // #161: this page is the spectator phone (spectator.html sends it here)
 // start-screen settings, remembered per browser
 const SETTINGS_DEFAULT = { needleLift: 7, source: 'pc', xml: 'rekordbox.xml', hands: '3d', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
-  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'off', sky: 'off', arRefl: 60, occlusion: false, roomHits: true,   // #411 (#415 occlusion off by default: owner prefers seeing the beams in DOME scenes)
+  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, dome3d: false, spect: 'on', sky: 'off', arRefl: 60, occlusion: false, roomHits: true,   // #411 (#415 occlusion off by default: owner prefers seeing the beams in DOME scenes)
   skyH: 1.5, skyTurn: 0, skyType: 'auto', skyKey: 'on', skyFile: '', skyMedia: '' };   // turntable physics (#120)
 const settings = (() => { try { return { ...SETTINGS_DEFAULT, ...JSON.parse(localStorage.getItem('vire.settings') || '{}') }; } catch { return { ...SETTINGS_DEFAULT }; } })();
 if (params.get('xml')) { settings.source = 'pc'; settings.xml = params.get('xml'); }
@@ -121,7 +121,7 @@ const KEY_POS = key.position.clone();
 // #182 grounded panorama skybox (skybox.js). Centred where the DJ stands: the XR origin, which is rig (0.05, 0, 0.62)
 // because the rig is moved by (-0.05, 0, -0.62) in the headset. With real-time shadows a shadow-only floor
 // catches the gear's shadows on the panorama's floor (the studio floor is hidden then).
-const skybox = new Skybox(renderer); rig.add(skybox.group); skybox.group.position.x = 0.05; skybox.group.position.z = 0.62;
+const skybox = new Skybox(renderer); skybox.set3D(settings.dome3d === true);   // #756 DOME 3D / 2D (default 2D: the left eye for both) rig.add(skybox.group); skybox.group.position.x = 0.05; skybox.group.position.z = 0.62;
 // #346 DOME (PORTALS SETUP): the same grounded sky, shown even in passthrough and with any light setting, sized 3-20 m
 const dome = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.dome') || 'null'); } catch {} return { on: !!(s && s.on), r: Math.min(20, Math.max(3, (s && s.r) || 10)), turn: Math.min(359, Math.max(0, (s && s.turn) || 0)), ev: Math.min(1, Math.max(-3, +(s && s.ev) || 0)), gam: Math.min(2, Math.max(0.5, +(s && s.gam) || 1)) }; })();   // #638 gam: DOME GAMMA   // #404 ev: DOME EXPOSURE   // #389 turn: the dome's own angle
 const skyShadow = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.ShadowMaterial({ opacity: 0.4 }));
@@ -842,14 +842,17 @@ function toggleDjCam() {
 }
 function setBackdrop(v) { if (streamer) streamer.setShowOpt('backdrop', v); else setDome(v === 'dome'); }
 function curBackdrop() { return streamer && streamer.showOpt ? streamer.showOpt.backdrop : dome.on ? 'dome' : 'visuals'; }
+var cycloGeoWas = false;   // #755 was the CYCLOWALL geometry out before OFF
 function cycloOffCycle() {
   if (ledMode !== 'off') {
     ledLastBack = curBackdrop(); setLedMode('off'); cycloBg = true; setBackdrop('visuals');
+    cycloGeoWas = !!(facetWall && facetWall.on); if (facetWall && facetWall.on) facetWall.setOn(false);   // #755 OFF takes the CYCLOWALL geometry out of the scene too
     toast('CYCLOWALL OFF: background visuals', 1800);
-  } else if (!dome.on) { setBackdrop('dome'); toast('DOME only', 1800); }
+  } else if (!dome.on) { setBackdrop('dome'); if (facetWall && facetWall.on) { cycloGeoWas = true; facetWall.setOn(false); } toast('DOME only', 1800); }   // #755 no CYCLOWALL geometry while off
   else {
     setBackdrop(ledLastBack && ledLastBack !== 'dome' ? ledLastBack : 'visuals'); ledLastBack = null;
     restoreLed(ledLastOn, 'mandel'); toast(LED_LABEL[ledMode], 1800);
+    if (cycloGeoWas && facetWall && !facetWall.on) facetWall.setOn(true); cycloGeoWas = false;   // #755 and puts it back
   }
   drawMixScreen();
 }
@@ -1665,7 +1668,17 @@ const engine = new AudioEngine();
 // #598 REC MASTER (main tablet page): the master after the limiter (music + mic, no cue) to a WAV in private storage, to Downloads on stop
 const masterRec = new MasterRec(engine, { toast, onChange: () => { if (!toolsPage && !videoPage) drawMixScreen(); }, inXR: () => renderer.xr.isPresenting });
 renderer.xr.addEventListener('sessionend', () => { if (masterRec.pending.length) setTimeout(() => masterRec.offer(), 400); });   // #598 files stopped in VR go to Downloads once out of it; #637 via a SAVE button on the page (a tap = a gesture the Quest Browser honours)
-setInterval(() => { if (masterRec.on && !toolsPage && !videoPage) drawMixScreen(); }, 1000);   // #598 the running time on the button
+setInterval(() => { if ((masterRec.on || (vidRec() && vidRec().on)) && !toolsPage && !videoPage) drawMixScreen(); }, 600);   // #753 + VIDREC's time
+// #753 VIDREC: the tablet starts / stops DirroVJ's PROGRAM REC (the laptop records the Program + sound as .mkv); stop = two taps within 3 s
+let vidArm = 0;
+const vidRec = () => (streamer && streamer.s8 && streamer.s8.pr) || null;
+const vidTime = s => { s = Math.floor(s || 0); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s % 60).padStart(2, '0'); };
+function vidRecTap() {
+  const L = streamer && streamer.stuLink, P = vidRec();
+  if (!L) { toast('VIDREC: link DirroVJ first (TWITCH > DIRROVJ): the laptop does the recording', 4000); return; }
+  if (P && P.on) { if (performance.now() - vidArm < 3000) { vidArm = 0; L.ctl({ k: 'prec', op: 'stop' }); toast('VIDREC: DirroVJ stops and saves the take', 2500); } else vidArm = performance.now(); drawMixScreen(); return; }
+  L.ctl({ k: 'prec', op: 'start' }); toast('VIDREC: DirroVJ records the Program (size from its desk: SETUP > Program recordings)', 3500);
+}   // #598 the running time on the button
 // #331 LIVE STREAM: master bus (never CUE) + a picture source, straight to Twitch from the headset (stream.js)
 streamer = CAMERA_ROLE ? null : new Streamer({
   smsList: () => (dirro && dirro.sms) || [],   // #507 HoloSMS for DirroVJ's scroller desk
@@ -9159,10 +9172,11 @@ function drawToolsPage() {
     const toggles = [
       [PS.on ? 'PORTALS: ON' : 'PORTALS', PS.on, portalsTap],
       [WL.on ? 'WALL: ON' : 'WALL', WL.on, wallTap],
-      [WL.mode === 'screen' ? 'SCREEN' : 'FRACTAL', false, () => { WL.toggleMode(); drawMixScreen(); }],
+      [WL.mode === 'screen' ? 'SCREEN ⟳' : 'FRACTAL ⟳', false, () => { WL.toggleMode(); drawMixScreen(); }],   // #755 ⟳: it steps SCREEN / FRACTAL
       [WL.beat ? 'BEAT: ON' : 'BEAT', WL.beat, () => { WL.setBeat(!WL.beat); drawMixScreen(); }],
       [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)],
       [settings.domeLight !== false ? 'DOME LIGHT: ON' : 'DOME LIGHT', settings.domeLight !== false, () => { settings.domeLight = settings.domeLight === false; saveSettings(); domeLightTick(); toast(settings.domeLight ? 'DOME LIGHT: the dome\'s sky lights the gear and frames' : 'DOME LIGHT off: Settings > Lighting', 2200); drawMixScreen(); }],   // #611
+      [settings.dome3d ? 'DOME 3D' : 'DOME 2D', !!settings.dome3d, () => { settings.dome3d = !settings.dome3d; saveSettings(); skybox.set3D(settings.dome3d); toast(settings.dome3d ? 'DOME 3D: a stereo panorama (over-under / side-by-side) shows in stereo in the headset' : 'DOME 2D: one picture for both eyes (a stereo panorama shows its left eye)', 3000); drawMixScreen(); }],   // #756
       [`SCREEN: ${({ cyclo: 'CYCLOWALL', image: 'IMAGE', video: 'VIDEO' })[PS.scrSrc.src] || 'CYCLOWALL'} ⟳`, PS.screenN > 0, pScrStep],   // #589 the one feed every SCREEN frame shows
       [settings.roomSnap !== false ? 'ROOM SNAP: ON' : 'ROOM SNAP: OFF', settings.roomSnap !== false, roomSnapToggle],   // #598 owner: snap can be switched off
       ['FRAME LOOK ›', JSON.stringify(PS.grade) !== JSON.stringify(GRADE0), () => setTools('pgrade')],
@@ -9933,7 +9947,7 @@ function drawMixScreen() {
     SP_HIT.push({ x: vx - 3, y: y - 8, w: vw + 6, h: h + 16, act: () => setMonitor(!monOn) });
     // #537 MR GUI removed from Deck A top bar (unneeded on mixer screen)
     { const S = streamer, bw3 = (W - 40 - 3 * 6) / 4, by3 = H - 96;   // #389 STREAM, CLY3DTV, STUDIO on a row above TOOLS / RESET MIX; #439 + WALL
-      [[S && S.live ? '● LIVE' : 'TWITCH', !!(S && S.live), () => setTools('stream'), !S], ['DIRROTV', !!(S && S.tvUp), () => setTools('tv'), !S], ['DIRROVJ', !!(S && S.stu.on), () => setTools('studio'), !S], ['CYCLOWALL ⁺¹', ledMode !== 'off', openCycloWall, false]].forEach(([l, o, a, dim], i) => {
+      [[S && S.live ? '● LIVE' : 'TWITCH', !!(S && S.live), () => setTools('stream'), !S], [(() => { const P = vidRec(); return P && P.on ? (performance.now() - vidArm < 3000 ? 'TAP: STOP' : '● ' + vidTime(P.sec)) : 'VIDREC'; })(), !!(vidRec() && vidRec().on), vidRecTap, !(S && S.stuLink)] /* #753 */, ['DIRROVJ', !!(S && S.stu.on), () => setTools('studio'), !S], ['CYCLOWALL ⁺¹', ledMode !== 'off', openCycloWall, false]].forEach(([l, o, a, dim], i) => {
         const bx3 = 20 + i * (bw3 + 6); drawTopBtn(g, bx3, by3, bw3, 36, l, o, dim, 15); if (!dim) SP_HIT.push({ x: bx3 - 3, y: by3 - 4, w: bw3 + 6, h: 44, act: a }); });
     }
     drawTopBtn(g, 20, H - 52, 64, 36, 'TOOLS', !!(scroller && scroller.on));   // #224
@@ -9966,7 +9980,7 @@ function drawMixScreen() {
     tb('TOOLS', !!(scroller && scroller.on), () => setTools('home'), false, 74);
     drawResetMix(g, x, y, 100, h); x += 100 + gap;   // #254
     tb(S && S.live ? '● LIVE' : 'TWITCH', !!(S && S.live), () => setTools('stream'), !S, 82);
-    tb('DIRROTV', !!(S && S.tvUp), () => setTools('tv'), !S, 88);
+    { const P = vidRec(), armed = P && P.on && performance.now() - vidArm < 3000; tb(armed ? 'TAP: STOP' : P && P.on ? '● ' + vidTime(P.sec) : P && P.starting ? 'REC…' : 'VIDREC', !!(P && P.on) && (armed || Math.floor(performance.now() / 600) % 2 === 0), vidRecTap, !(S && S.stuLink), 88); }   // #753 VIDREC (DirroVJ's PROGRAM REC) where DIRROTV was; DIRROTV is on TWITCH
     tb('DIRROVJ', !!(S && S.stu.on), () => setTools('studio'), !S, 80);
     tb('CYCLOWALL ⁺¹', ledMode !== 'off', openCycloWall, false, 116);   // #439, #537 the CYCLOWALL page, one tap from the mixer
     drawLoopMainBtn(g, x, y, 74, h, 17); SP_HIT.push({ x: x - 3, y: y - 8, w: 80, h: h + 14, act: () => setTools('looper') }); x += 74 + gap;   // #470 LOOP: state colour, opens the LOOPER page
@@ -10926,6 +10940,33 @@ function syncSettingsUI() {
 }
 // Browsers may wipe site storage unless it is marked persistent (CLAUDE.md #40). Installed apps get it
 // most reliably, so the page is also an installable app (manifest + service worker).
+// #753 keep this site's storage (keys, settings, songs) from being cleared by the browser: ask once per load, silently (Chrome grants it
+// to sites you use often or installed; it never shows a prompt), and offer a settings file as the backup
+(async () => { try { if (navigator.storage && navigator.storage.persisted && !(await navigator.storage.persisted())) await navigator.storage.persist(); } catch {} })();
+function settingsFileSave() {
+  const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('vire.')) { const v = localStorage.getItem(k); if (v != null && v.length < 3e6) o[k] = v; } }
+  const d = new Date(), p2 = n => String(n).padStart(2, '0'), name = `DirroDJ_settings_${location.host.replace(/[^\w.-]/g, '_')}_${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}.json`;
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ app: 'DirroDJ', host: location.host, saved: d.toISOString(), keys: o })], { type: 'application/json' })); a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  toast('Settings file saved to Downloads (it holds your Twitch and Discogs keys: keep it private)', 5000);
+}
+async function settingsFileLoad(f) {
+  try { const j = JSON.parse(await f.text()); const ks = j && j.keys; if (!ks || typeof ks !== 'object') throw new Error('not a DirroDJ settings file');
+    let n = 0; for (const [k, v] of Object.entries(ks)) if (k.startsWith('vire.') && typeof v === 'string') { localStorage.setItem(k, v); n++; }
+    toast(n + ' settings loaded: reloading', 2500); setTimeout(() => location.reload(), 900);
+  } catch (e) { toast('Settings file: ' + e.message, 5000); }
+}
+{ // #754 recordings folder (laptop Chrome; the Quest's browser has no folder picker, REC MASTER keeps using Downloads there)
+  const row = document.getElementById('recDirRow'), st = document.getElementById('recDirSt'), pb = document.getElementById('bRecPend');
+  if (row) import('./reccopy.js').then(rc => {
+    if (!rc.canPick()) return; row.hidden = false;
+    const show = async () => { const h = await rc.getFolder(), ok = h && await rc.folderPerm(h, false), n = rc.pending().length; st.textContent = h ? 'Takes are copied to: ' + h.name + (ok ? '' : ' (click to allow again)') : 'No folder: takes go to Downloads (REC MASTER) / stay in the browser (VIDREC).'; pb.hidden = !n; pb.textContent = 'Copy waiting takes (' + n + ')'; };
+    document.getElementById('bRecDir').onclick = async () => { try { const h = await rc.getFolder(); if (h && !(await rc.folderPerm(h, false)) && await rc.folderPerm(h, true)) { show(); return; } await rc.chooseFolder(); } catch {} show(); };
+    pb.onclick = async () => { const r = await rc.copyPending(true); toast(r.ok + ' take(s) copied' + (r.bad ? ', ' + r.bad + ' still waiting' : ''), 4000); show(); };
+    show();
+  });
+}
+{ const b = document.getElementById('bSetSave'), l = document.getElementById('bSetLoad'), fi = document.getElementById('fSetLoad');
+  if (b) b.onclick = settingsFileSave; if (l && fi) { l.onclick = () => fi.click(); fi.onchange = () => { if (fi.files[0]) settingsFileLoad(fi.files[0]); fi.value = ''; }; } }
 async function showPersist() {
   let p = false; try { p = await navigator.storage.persisted(); } catch {}
   $('#persistStatus').textContent = p

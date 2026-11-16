@@ -682,7 +682,7 @@ export function startCamera(ctx) {
       else if (!scroller.on || scroller.text !== m.text) { scroller.on = true; scroller.text = m.text; scroller.x = scroller.canvas.width; scroller.mesh.visible = true; }
     }
     else if (m.k === 'sky') vs.onSky(m);
-    else if (m.k === 'stu' || m.k === 'stuLive') studio.onMsg(m);   // #380 S8 STUDIO: mode / backdrop / sound / Twitch
+    else if (m.k === 'stu' || m.k === 'stuLive' || m.k === 'prec') studio.onMsg(m);   // #753 prec: VIDREC from the tablet   // #380 S8 STUDIO: mode / backdrop / sound / Twitch
     else if (m.k === 'scp') studio.onScp(m);   // #380 the SHOW camera's pose (for the DOME)
     else if (m.k === 'cset') onCset(m);   // #188
     else if (m.k === 'mls' || m.k === 'mgo' || m.k === 'mok') lib.onMsg(m);
