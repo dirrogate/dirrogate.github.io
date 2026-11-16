@@ -1861,7 +1861,7 @@ function stepProgram() {
   else if (!want && progRehearse) { progRehearse = false; if (!streamer.live && !monOn && !streamer.tvUp) streamer.setRehearse(false); }
 }
 // #771 (owner) the reminder on pages where buttons have a second job
-function longHint(g, x, y) { drawHoldMark(g, x, y - 13, 16); g.fillStyle = '#6f7a8e'; g.font = 'italic 600 12px system-ui'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillText('A long press does more.', x + 21, y); }   // #773 with the mark
+function longHint(g, x, y) { drawHoldMark(g, x, y - 14, 17); g.fillStyle = '#6f7a8e'; g.font = 'italic 600 12px system-ui'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillText('A long press does more.', x + 21, y); }   // #773 with the mark
 function propHides(hide, O, ownCam) {   // #372 the object toggles (OBJECTS page), one list for every camera: gear, neon, GoPro prop, chat panel / chalkboard, scroller
   if (!O.neon) hide(neon);   // on = seen from every angle, the back of the sign too
   for (const gp of [gopro, gopro2]) if (gp && (!O.gopro || (ownCam && gp.on))) hide(gp.obj);   // a prop other cameras film; hidden only from its own camera
@@ -6387,23 +6387,17 @@ function btnLabel(g, label, x, y, w, h, fs0 = 17, weight = 700) {
   _lblOver.push(label); fitText2Center(g, label, x + w / 2, y + h / 2 + 1, room);
 }
 function fitText2Center(g, s, x, y, w) { let t = s; while (t.length > 3 && g.measureText(t).width > w) t = t.slice(0, -2); if (t !== s) t = t.slice(0, -1) + '…'; g.fillText(t, x, y); }
-// #773 our long-press mark: a fingertip pressing, with a three-quarter ring round it (the hold filling up), on a small dark badge in
-// the button's top-left corner so it reads on light, green and red buttons alike. Drawn after each page on every hit that has a long press.
-function drawHoldMark(g, x, y, s = 15) {
-  const r = s / 2, cx = x + r, cy = y + r, k = s / 18;
-  g.save(); g.fillStyle = '#f1b650'; g.strokeStyle = '#0b0e15'; g.lineWidth = 1.4; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill(); g.stroke();   // amber badge with a dark rim: reads on dark, light, green and red
-  g.strokeStyle = '#141a26'; g.fillStyle = '#141a26'; g.lineCap = 'round'; g.lineJoin = 'round';
-  const fx = cx - 2.2 * k;   // the hand: one finger up (thick rounded stroke) on a small palm
-  g.lineWidth = 2.8 * k; g.beginPath(); g.moveTo(fx, cy + 1.5 * k); g.lineTo(fx, cy - 4.6 * k); g.stroke();
-  g.beginPath(); g.roundRect(fx - 1.6 * k, cy + 0.6 * k, 6.6 * k, 5.4 * k, 1.8 * k); g.fill();
-  const tx = cx + 3.4 * k, ty = cy - 3.6 * k, tr = 2.9 * k;   // the hold timer beside the fingertip: a faint full ring, three quarters already filled
-  g.lineWidth = 1.2 * k; g.globalAlpha = 0.35; g.beginPath(); g.arc(tx, ty, tr, 0, Math.PI * 2); g.stroke();
-  g.globalAlpha = 1; g.lineWidth = 1.5 * k; g.beginPath(); g.arc(tx, ty, tr, -Math.PI / 2, Math.PI); g.stroke();
+// #774 (owner) the long-press mark: a 👆 with a ring under the index fingertip (the press), at the right end of each button that has a long press
+function drawHoldMark(g, x, y, s = 18) {   // x, y = top-left of an s x s box
+  g.save(); const cx = x + s * 0.5, tipY = y + s * 0.2;
+  g.strokeStyle = '#1e90ff'; g.lineWidth = Math.max(1.5, s * 0.1); g.beginPath(); g.arc(cx, tipY, s * 0.38, 0, Math.PI * 2); g.stroke();   /* a white ring round the fingertip, under the emoji */   // the ring round the fingertip, behind the emoji
+  g.font = `${Math.round(s * 0.9)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top';
+  g.fillStyle = '#fff'; g.fillText('👆', cx, y + s * 0.08);
   g.restore();
 }
 function holdMarks() {
   const { g } = scr();
-  for (const h of VP_HIT) if (h.long && !h.del && h.w >= 34 && h.h >= 22) drawHoldMark(g, h.x - 5, h.y - 5, 19);   // sits on the corner, half in the gap, clear of the label
+  for (const h of VP_HIT) if (h.long && !h.del && h.w >= 34 && h.h >= 22) { const s = Math.min(20, h.h - 6); drawHoldMark(g, h.x + h.w - s - 3, h.y + (h.h - s) / 2, s); }
 }
 function drawCycMark(g, cx, cy, r) {   // #538 ⟳: an open clockwise ring with an arrow head, in the label colour
   g.save(); g.strokeStyle = g.fillStyle; g.lineWidth = 2; g.lineCap = 'round';
@@ -6918,7 +6912,7 @@ function drawLooperPage(page, T) {
 }
 // #478 VJ TOOLS > MOVIE PROPS: spawn row, list of the props in the room (tap = select, X = remove) and the selected prop's controls
 const pcs = v => Math.round(v * 100) + '%';
-var btnGreen = false;   // #545 see the tools-page btn (var: drawMixScreen can run before this line)
+var btnGreen = false; var btnHold = false;   // #774 the next btn has a long press: its label keeps clear of the 👆 at the right   // #545 see the tools-page btn (var: drawMixScreen can run before this line)
 function onGreen(label) { return typeof label === 'string' && /(:\s*ON\b|\sON$|^ON$)/.test(label); }   // #699 owner: a button that says ON (SOUND: ON, TV ON, 25 FPS: ON) is green when on
 function selFill(label) { return /TAP AGAIN|DELETE|FORGET|END STREAM|TAKES OVER|● REC/.test(String(label || '')) ? '#c8202c' : '#1f9d55'; }   // #700 owner: every selected / on button is green; only confirm-again and destructive presses stay red
 let holoLibCache = null;   // #671
@@ -8497,7 +8491,8 @@ function drawToolsPage() {
   const btn = (x, y, w, h, label, on, act, dim, fs0 = 17) => {
     g.fillStyle = on ? (btnGreen ? '#1f9d55' : selFill(label)) : dim ? '#2a3140' : '#c9ced8'; g.fillRect(x, y, w, h);   // #545 btnGreen: 'this is what is live now' (DIRROVJ page)
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : dim ? '#56627a' : '#3a4252';
-    btnLabel(g, label, x, y, w, h, fs0); g.textBaseline = 'alphabetic';   // #349 two lines when needed
+    const hs = btnHold ? Math.min(20, h - 6) + 4 : 0; btnHold = false;
+    btnLabel(g, label, x, y, w - hs, h, fs0); g.textBaseline = 'alphabetic';   // #349 two lines when needed
     if (act) VP_HIT.push({ x, y, w, h, act });
   };
   const L = P ? 24 : 8, R = W - (P ? 26 : 8);   // portrait keeps clear of the silver corner L
@@ -8553,7 +8548,7 @@ function drawToolsPage() {
     g.textBaseline = 'alphabetic';
     return y + 46;
   };
-  const tapB = (x, y, w, h, fs = 17) => { btn(x, y, w, h, tapLbl(), wtapOn(), tapWall, false, fs); VP_HIT[VP_HIT.length - 1].long = tapClear; };   // #444 a long press hands the beat back to the music
+  const tapB = (x, y, w, h, fs = 17) => { btnHold = true; btn(x, y, w, h, tapLbl(), wtapOn(), tapWall, false, fs); VP_HIT[VP_HIT.length - 1].long = tapClear; };   // #444 a long press hands the beat back to the music
   const pxSlider = (x, y, w, h) => tSlider(g, x, y, w, h, 'PIXELS', wallPx / 10, wallPx === 0 ? '0 SMOOTH' : String(wallPx), v => setWallPx(v * 10));   // #444
   const note = (s, y) => { g.fillStyle = '#8c96a8'; g.font = '500 15px system-ui'; g.textAlign = 'left'; return wrapText(g, s, L + 4, y, R - L - 8, 20, 5); };
   const lockBtn = (x, y, w, h) => btn(x, y, w, h, gearLock ? 'GEAR LOCKDOWN: ON' : 'GEAR LOCKDOWN: OFF', gearLock, () => { gearLock = !gearLock; toast(gearLock ? 'Gear locked' : 'Gear unlocked: decks and mixer can be moved and turned', 2400); drawMixScreen(); }, false, 18);   // #378 DJ TOOLS
@@ -8612,7 +8607,7 @@ function drawToolsPage() {
         [tvLbl(S), !!(S.tvUp || S.stuRun), () => setTools('tv'), false],
         ['DIRROVJ ▸', !!S.stuRun, () => setTools('studio'), false]]]];   // #772 VIDREC went back to the main bar
     const stLine = (live ? `● LIVE ${S.elapsed()} · ${(S.kbps / 1000).toFixed(1)} Mb/s` : st === 'connecting' ? S.msg || 'Connecting…' : st === 'error' ? S.msg : 'OFF AIR') + (S.stu.on ? ' · via DirroVJ' : '') + ' · ' + (hs ? 'HEADSET CAM' : card ? 'CARD' : gpOut('gopro') ? 'GOPRO 1' : gpOut('gopro2') ? 'GOPRO 2' : 'no camera yet: pick GOPRO 1 or 2');
-    const put = (x, y, w, h, [label, on, act, dim, long, wide], fs) => { btnGreen = /: ON$/.test(label) && on; btn(x, y, w, h, label, on, dim ? null : act, dim, fs); btnGreen = false; if (long && !dim) VP_HIT[VP_HIT.length - 1].long = long; };
+    const put = (x, y, w, h, [label, on, act, dim, long, wide], fs) => { btnGreen = /: ON$/.test(label) && on; btnHold = !!long && !dim; btn(x, y, w, h, label, on, dim ? null : act, dim, fs); btnGreen = false; if (long && !dim) VP_HIT[VP_HIT.length - 1].long = long; };
     g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '800 15px system-ui'; g.fillStyle = live ? '#ff3b3b' : st === 'connecting' || st === 'error' ? '#f1b650' : '#8c96a8';
     if (P) {
       fitText2(g, stLine, L + 4, y0 + 10, R - L - 8); g.textBaseline = 'alphabetic';

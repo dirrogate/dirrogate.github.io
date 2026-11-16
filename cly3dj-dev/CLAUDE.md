@@ -2939,3 +2939,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - drawHoldMark(): a small amber badge (#f1b650, dark rim) with a dark glyph: one finger raised on a small palm and, beside the fingertip, a hold timer (faint full ring, three quarters filled). holdMarks() draws it after every tools / VISUALS page on each hit that has .long (19 px, on the button's top-left corner, half in the gap so it clears the label). longHint() puts the same mark in front of "A long press does more."
 - Covers every long-press button automatically: SHOWTIME! (GOPRO 1 / 2, HEADSET CAM, CYCLOWALL, DOME, PORTALS, SCROLLER), TAP BPM, the LOOP MASTER transport / slots / banks, and any future one with .long.
 - Checked in the PC pane. sw.js v237. No Node restart.
+
+## #774 Long-press mark is now a 👆 inside the right end of the button (owner, 16 Nov: the #773 badge looked ugly)
+- drawHoldMark(): the 👆 emoji (Apple / Segoe / Noto colour emoji fonts) with a blue ring (#1e90ff) round the index fingertip, drawn under it. holdMarks() puts it inside each long-press button at its right end, vertically centred (up to 20 px). The tools-page btn takes `btnHold` (set by SHOWTIME!'s put() for buttons with a long press, and by TAP BPM): the label is laid out in the width left of the mark, so they never overlap. longHint() uses the same mark. The #773 amber badge is gone.
+- Checked in the PC pane (SHOWTIME!). sw.js v238. No Node restart.
