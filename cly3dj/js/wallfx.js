@@ -150,26 +150,138 @@ export function renderRings(px, W, H, t, bp, kick, mask, rp) {
   }
 }
 
-// ------------------------------------------------------------------ #442 METABALLS bouncing on the beat (they touch the floor on the beat)
-export const MP_DEF = { n: 5 };
-export function renderMeta(px, W, H, t, bp, kick, mp) {
-  const N = Math.max(2, Math.min(9, (mp && mp.n) | 0 || MP_DEF.n)), ts = t * 0.001, hh = H / 2, B = [];
-  for (let i = 0; i < N; i++) {
-    const half = i % 3 === 2 ? 2 : 1, ph = (bp / half + i * 0.37), r = 0.23 + 0.1 * ((i * 37) % 5) / 4 + 0.04 * kick;
-    B.push([0.95 * Math.sin(ts * (0.17 + 0.031 * i) + i * 2.1) * (1 + 0.1 * (i % 2)), -0.62 + (1.15 + 0.12 * Math.sin(i * 1.7)) * Math.abs(Math.sin(Math.PI * ph)), r * r]);
+// ------------------------------------------------------------------ #759 BOUNCE BALLS (replaces #442 METABALLS, same mode key 'meta'):
+// red / white checked balls bouncing over a mirror-glossy checker floor that scrolls toward you, stars above. Everything moves on
+// the beat count bp (music BPM or TAP BPM): the balls touch down on the beats; the floor scrolls smoothly (#760 FLOOR SPEED).
+// Drawn by hand on the CPU (in the worker): floor per row, then shadows, mirrored balls in the floor, balls far to near.
+export const MP_DEF = { n: 16, spd: 2, fc: 0, bh: 1, bs: 1, fs: false, fp: 0, fh: 0.5, tsp: 1.2, fz: 0 };   // #764 fz: the floor scroller's distance (m, + further away)   // #761 fc floor colours, bh / bs ball height / size, fs floor scroller on, fp its path, fh its hop on the beat (m), tsp its speed (m/s)
+export const FLOOR_NAMES = ['BLACK / WHITE', 'BLUE', 'AMBER', 'RED'];
+export const FS_PATTERNS = ['STRAIGHT', 'SINE', 'CIRCLE'];
+export const SKY_HY = 0.58;   // #762 the horizon (share of the height): a SKY picture fills the frame above it
+const FLOOR_COL = [[[205, 205, 210], [14, 14, 14]], [[44, 84, 240], [6, 10, 70]], [[255, 168, 40], [58, 28, 4]], [[232, 40, 44], [60, 6, 8]]];
+const STARS = (() => { let q = 7919; const r = () => (q = (q * 16807) % 2147483647) / 2147483647, a = []; for (let i = 0; i < 700; i++) a.push([r(), r(), 0.2 + 0.8 * r() * r() * r(), r() * 6.28, 0.5 + 2 * r()]); return a; })();
+const BALLS = (() => { let q = 4242; const r = () => (q = (q * 16807) % 2147483647) / 2147483647, a = [];
+  for (let i = 0; i < 40; i++) a.push({ x: (r() * 2 - 1) * 6.5, z0: r(), rad: 0.3 + 0.36 * r() * r(), per: r() < 0.6 ? 1 : 2, ph: r() < 0.5 ? 0 : 0.5, amp: 0.6 + 1.4 * r(), spin: (0.6 + 1.6 * r()) * (r() < 0.5 ? -1 : 1), tilt: 0.25 + 0.25 * r() });
+  return a; })();
+const BL = (() => { const l = [-0.5, 0.78, -0.42], n = Math.hypot(...l); return l.map(v => v / n); })();
+const BH = (() => { const h = [BL[0], BL[1], BL[2] - 1], n = Math.hypot(...h); return h.map(v => v / n); })();
+function ballCol(nx, ny, nz, b, ang, out) {   // checker on the spinning ball, lit from upper left, a hot highlight
+  const c = Math.cos(b.tilt), s = Math.sin(b.tilt), x1 = nx * c - ny * s, y1 = nx * s + ny * c;
+  const u = Math.atan2(nz, x1) + ang, v = Math.asin(Math.max(-1, Math.min(1, y1)));
+  const ck = (Math.floor(u * 2.546479) + Math.floor((v + 1.5708) * 2.546479)) & 1;   // 16 around, 8 pole to pole
+  const d = Math.max(0, nx * BL[0] + ny * BL[1] + nz * BL[2]) * 0.82 + 0.22, sp = Math.pow(Math.max(0, nx * BH[0] + ny * BH[1] + nz * BH[2]), 36) * 220;
+  const rr = ck ? 214 : 238, gg = ck ? 26 : 236, bb = ck ? 38 : 236;
+  out[0] = rr * d + sp; out[1] = gg * d + sp; out[2] = bb * d + sp;
+}
+function chrome(v, out) {   // #761 chrome letters: white sky on top, a dark horizon band, warm ground light underneath
+  if (v < 0.46) { const k = v / 0.46; out[0] = 255 - 115 * k; out[1] = 255 - 95 * k; out[2] = 255 - 60 * k; }
+  else if (v < 0.56) { out[0] = 34; out[1] = 34; out[2] = 48; }
+  else { const k = (v - 0.56) / 0.44; out[0] = 80 + 165 * k; out[1] = 72 + 160 * k; out[2] = 64 + 150 * k; }
+}
+const pmod = (a, m) => ((a % m) + m) % m;
+// #761 the floor scroller's letters: mp.ft = one number a column of the scroller text (built on the Quest from the bitmap font):
+// bits 0..7 the lit rows (top first), bits 9..10 a colour code (0 chrome, 1 yellow, 2 red emoji), bits 11.. the character index
+function floorLetters(mp, ts, bp, P) {
+  const ft = mp.ft, out = []; if (!ft || !ft.length) return out;
+  const PXW = 0.13, Lt = ft.length * PXW, fp = P('fp') | 0, fh = P('fh'), sOff = ts * P('tsp'), fz = Math.max(-2, Math.min(8, P('fz')));
+  for (let c = 0; c < ft.length;) {
+    const ci = ft[c] >> 11, st = c, cols = []; while (c < ft.length && (ft[c] >> 11) === ci) cols.push(ft[c++]);
+    const code = (cols[0] >> 9) & 3, s = (st + cols.length / 2) * PXW, y = fh * Math.abs(Math.sin(Math.PI * (bp + ci * 0.07)));
+    let x, z, a = 1;
+    if (fp === 2) {   // CIRCLE: a ring on the floor, the text runs round it, front and centre at the middle of the ring's run
+      const Rc = 3.6, Zc = 9.5 + fz, C = 2 * Math.PI * Rc, per = Math.max(C, Lt + 2), u = pmod(s - sOff, per); if (u >= C) continue;
+      const an = (u - C / 2) / Rc; x = Rc * Math.sin(an); z = Zc - Rc * Math.cos(an); a = Math.min(1, u / 1.2, (C - u) / 1.2);
+    } else {   // STRAIGHT / SINE: across the floor in front of the balls, in from the right
+      const Zt = 5.6 + fz, E = Zt * 0.62 + 1.3, u = pmod(s - sOff, Lt + 2 * E); x = u - E; if (x < -E || x > E) continue;
+      z = Zt + (fp === 1 ? 1.3 * Math.sin(x * 0.8 + ts * 1.2) : 0);
+    }
+    if (a > 0.01) out.push({ L: 1, x, y, z, a, cols, code, rows: code ? 8 : 7, pw: PXW });
   }
-  const sh = bp / 16;
-  for (let j = 0; j < H; j++) {
-    const y = (hh - j - 0.5) / hh;
+  return out;
+}
+export function renderMeta(px, W, H, t, bp, kick, mp) {
+  mp = mp || MP_DEF; const P = k => (mp[k] != null ? mp[k] : MP_DEF[k]);
+  const N = Math.max(1, Math.min(40, mp.n | 0 || MP_DEF.n)), ts = t * 0.001;
+  const f = W * 0.82, cx = W / 2, hy = H * SKY_HY, camH = 1.15, ZB = 5.5, ZF = 30, span = ZF - ZB, CELL = 1.1, scroll = ts * CELL * P('spd');
+  const FC = FLOOR_COL[P('fc') | 0] || FLOOR_COL[0], bh = P('bh'), bs = P('bs'), jh = Math.ceil(hy);
+  const sky = !!mp.skyOn, skyEnd = jh * W * 4;   // #762 a SKY picture: the sky is left see-through (WallFx draws the picture under it), no stars
+  for (let k = 0, n = W * H * 4; k < n; k += 4) { px[k] = 0; px[k + 1] = 0; px[k + 2] = 0; px[k + 3] = sky && k < skyEnd ? 0 : 255; }
+  if (!sky) for (const [sx, sy, b, p, w] of STARS) {
+    const i = (sx * W) | 0, j = (sy * hy) | 0; if (j >= hy - 1) continue;
+    const v = 255 * b * (0.7 + 0.3 * Math.sin(ts * w + p)), o = (j * W + i) * 4; px[o] = px[o + 1] = px[o + 2] = Math.min(255, v);
+  }
+  const flash = 1 + 0.12 * kick;   // the floor: tiles scroll toward you smoothly (FLOOR SPEED), fading to black at the horizon
+  for (let j = jh; j < H; j++) {
+    const z = camH * f / (j + 0.5 - hy); if (z > ZF * 1.6) continue;
+    const fade = Math.exp(-z / 11), rz = Math.floor((z + scroll) / CELL);
     for (let i = 0; i < W; i++) {
-      const x = (i + 0.5 - W / 2) / hh, o = (j * W + i) * 4;
-      let fl = 0; for (let k = 0; k < N; k++) { const d = B[k], dx = x - d[0], dy = y - d[1]; fl += d[2] / (dx * dx + dy * dy + 1e-4); }
-      let R, G, Bl;
-      if (fl >= 1) { const u = (fl * 0.18 + sh) % 1, q = ((u < 0 ? u + 1 : u) * 256 | 0) * 3, gn = 0.85 + 0.35 * kick; R = PAL[q] * gn; G = PAL[q + 1] * gn; Bl = PAL[q + 2] * gn; if (fl < 1.25) { R = 255; G = 240; Bl = 250; } }   // a bright rim, the body in the palette
-      else { const h = fl * fl * 0.6; R = 8 + 90 * h; G = 0 + 20 * h; Bl = 26 + 120 * h; }   // the glow round them
-      px[o] = R; px[o + 1] = G; px[o + 2] = Bl; px[o + 3] = 255;
+      const x = (i + 0.5 - cx) * z / f, c = FC[(Math.floor(x / CELL) + rz) & 1 ? 0 : 1], o = (j * W + i) * 4;
+      px[o] = (c[0] * fade + 4 * (1 - fade)) * flash; px[o + 1] = (c[1] * fade + 4 * (1 - fade)) * flash; px[o + 2] = (c[2] * fade + 4 * (1 - fade)) * flash;
     }
   }
+  const It = [];   // the balls stay in the back part of the floor (ZB on), BALL HEIGHT / BALL SIZE
+  for (let k = 0; k < N; k++) {
+    const b = BALLS[k], z = ZB + pmod(b.z0 * span - scroll, span), r = b.rad * bs;
+    const hop = Math.abs(Math.sin(Math.PI * (bp / b.per + b.ph))), y = r + b.amp * bh * hop;
+    const a = Math.min(1, (ZF - z) / 5) * Math.min(1, (z - ZB) / 1.5);
+    if (a > 0.01) It.push({ b, z, y, a, r: r * (1 + 0.05 * kick * (hop < 0.3 ? 1 : 0)) });
+  }
+  if (P('fs')) for (const l of floorLetters(mp, ts, bp, P)) { l.a *= Math.min(1, (ZF - l.z) / 5); It.push(l); }
+  It.sort((p, q) => q.z - p.z);
+  const col = [0, 0, 0];
+  const blend = (o, r, g, b, al) => {   // 'over' with straight alpha (#762: over a see-through sky too)
+    const A = px[o + 3] / 255; if (A >= 0.999) { px[o] += (r - px[o]) * al; px[o + 1] += (g - px[o + 1]) * al; px[o + 2] += (b - px[o + 2]) * al; return; }
+    const na = al + A * (1 - al); if (na <= 0) return; const k = A * (1 - al) / na, q = al / na;
+    px[o] = r * q + px[o] * k; px[o + 1] = g * q + px[o + 1] * k; px[o + 2] = b * q + px[o + 2] * k; px[o + 3] = na * 255;
+  };
+  const splat = (b, z, yc, rad, a, mirror) => {
+    const sx = cx + f * b.x / z, sy = hy - f * (yc - camH) / z, rr = f * rad / z; if (rr < 0.4) return;
+    const i0 = Math.max(0, Math.floor(sx - rr)), i1 = Math.min(W - 1, Math.ceil(sx + rr)), j0 = Math.max(mirror ? jh : 0, Math.floor(sy - rr)), j1 = Math.min(H - 1, Math.ceil(sy + rr));
+    const ang = ts * b.spin;
+    for (let j = j0; j <= j1; j++) {
+      const dy = (j + 0.5 - sy) / rr;
+      for (let i = i0; i <= i1; i++) {
+        const dx = (i + 0.5 - sx) / rr, d2 = dx * dx + dy * dy; if (d2 >= 1) continue;
+        ballCol(dx, mirror ? dy : -dy, -Math.sqrt(1 - d2), b, ang, col);
+        let al = a * Math.min(1, (1 - Math.sqrt(d2)) * rr * 1.5); if (mirror) al *= 0.5 * Math.exp(-(j - sy + rr) / (2.5 * rr + 1)) + 0.08;
+        blend((j * W + i) * 4, col[0], col[1], col[2], al);
+      }
+    }
+  };
+  const letter = (l, mirror) => {   // a sprite of bitmap-font cells standing on the floor, chrome shaded, dark outline; mirror = its reflection
+    const z = l.z, ps = f * l.pw / z; if (ps < 0.35) return;
+    const sxL = cx + f * l.x / z, nc = l.cols.length, R = l.rows, ol = Math.max(1, ps * 0.22), al0 = l.a * (mirror ? 0.42 : 1), jmin = mirror ? jh : 0;
+    const ys = yy => hy - f * (yy - camH) / z;
+    for (let pass = 0; pass < 2; pass++) for (let c = 0; c < nc; c++) {
+      const m = l.cols[c] & 255; if (!m) continue;
+      const x0 = sxL + (c - nc / 2) * ps, x1 = x0 + ps * 1.02;
+      for (let r = 0; r < R; r++) {
+        if (!(m & (1 << r))) continue;
+        let yt = l.y + (R - r) * l.pw, yb = yt - l.pw; if (mirror) { const q = yt; yt = -yb; yb = -q; }
+        let top = ys(yt), bot = ys(yb); const e = pass ? 0 : ol;
+        const i0 = Math.max(0, Math.floor(x0 - e)), i1 = Math.min(W - 1, Math.ceil(x1 + e) - 1), j0 = Math.max(jmin, Math.floor(top - e)), j1 = Math.min(H - 1, Math.ceil(bot + e) - 1);
+        for (let j = j0; j <= j1; j++) {
+          let rr, gg, bb;
+          if (!pass) { rr = 8; gg = 8; bb = 16; }
+          else if (l.code) { const k = 0.75 + 0.25 * (1 - (r / R)); rr = (l.code === 2 ? 255 : 255) * k; gg = (l.code === 2 ? 45 : 210) * k; bb = (l.code === 2 ? 85 : 58) * k; }
+          else { let v = (r + (j + 0.5 - top) / Math.max(1, bot - top)) / R; if (mirror) v = 1 - v; chrome(Math.max(0, Math.min(1, v)), col); rr = col[0]; gg = col[1]; bb = col[2]; }
+          const al = mirror ? al0 * Math.exp(-(j - jh) / (H * 0.25)) : al0;
+          for (let i = i0; i <= i1; i++) blend((j * W + i) * 4, rr, gg, bb, al);
+        }
+      }
+    }
+  };
+  for (const e of It) {   // soft contact shadows under the balls
+    if (e.L) continue;
+    const sx = cx + f * e.b.x / e.z, sy = hy + f * camH / e.z, rx = f * e.r / e.z * 1.1, ry = rx * 0.28, dk = e.a * 0.55 * Math.max(0, 1 - (e.y - e.r) / 3);
+    if (dk < 0.02 || rx < 0.5) continue;
+    for (let j = Math.max(jh, Math.floor(sy - ry)); j <= Math.min(H - 1, Math.ceil(sy + ry)); j++) for (let i = Math.max(0, Math.floor(sx - rx)); i <= Math.min(W - 1, Math.ceil(sx + rx)); i++) {
+      const q = ((i + 0.5 - sx) / rx) ** 2 + ((j + 0.5 - sy) / ry) ** 2; if (q >= 1) continue;
+      const m = 1 - dk * (1 - q), o = (j * W + i) * 4; px[o] *= m; px[o + 1] *= m; px[o + 2] *= m;
+    }
+  }
+  for (const e of It) if (e.L) letter(e, true); else splat(e.b, e.z, -e.y, e.r, e.a, true);   // reflections in the glossy floor
+  for (const e of It) if (e.L) letter(e, false); else splat(e.b, e.z, e.y, e.r, e.a, false);
 }
 
 // ------------------------------------------------------------------ the engine
@@ -194,19 +306,29 @@ export class WallFx {
     } catch (e) { this.w = null; }
   }
   _size(w, h) { if (this.low.width !== w || this.low.height !== h) { this.low.width = w; this.low.height = h; } }
+  _put(id) {   // #762 with a SKY picture (BOUNCE BALLS) the frame comes with a see-through sky: the picture goes under it
+    this._size(id.width, id.height);
+    if (!(this.mode === 'meta' && this.sky)) { this.lg.putImageData(id, 0, 0); return; }
+    if (!this.tmp) { this.tmp = document.createElement('canvas'); this.tg = this.tmp.getContext('2d'); }
+    if (this.tmp.width !== id.width || this.tmp.height !== id.height) { this.tmp.width = id.width; this.tmp.height = id.height; }
+    this.tg.putImageData(id, 0, 0); const g = this.lg, sh = Math.ceil(id.height * SKY_HY);
+    g.imageSmoothingEnabled = true; g.fillStyle = '#000'; g.fillRect(0, 0, id.width, id.height);
+    try { g.drawImage(this.sky, 0, 0, id.width, sh); } catch (e) {}
+    g.drawImage(this.tmp, 0, 0);
+  }
   _present() {   // the two softest levels scale smoothly, the rest blocky
     const g = this.g; g.imageSmoothingEnabled = this.low.width >= 384; g.drawImage(this.low, 0, 0, OUT_W, OUT_H);
   }
   _done(buf) {
     this.busy = false; this.ms = performance.now() - this.reqT;
-    if (this.mode !== 'loop') { this._size(this.rw, this.rh); this.lg.putImageData(new ImageData(new Uint8ClampedArray(buf), this.rw, this.rh), 0, 0); this._present(); this.fresh = true; }
+    if (this.mode !== 'loop') { this._put(new ImageData(new Uint8ClampedArray(buf), this.rw, this.rh)); this._present(); this.fresh = true; }
     this.pool.push(buf); if (this.pool.length > 3) this.pool.shift();
   }
   // o: { mode: 'mandel' | 'dancer' | 'loop' | 'rings' (mask: bytes at the render size, rp) | 'meta' (mp), px (PIXELS 0 to 10), t (ms), bp (beats), kick (0..1),
   //      loop (sheet image / canvas), lw / lh (its cell size), lt (ms into the loop) }
   // returns true when the canvas has a new picture (about 15 a second; loops 12)
   frame(o) {
-    const now = performance.now(); this.mode = o.mode;
+    const now = performance.now(); this.mode = o.mode; this.sky = o.sky || null;
     let fresh = this.fresh; this.fresh = false;
     const lvl = o.px == null ? 5 : o.px, [pw, ph] = pxSize(lvl);
     if (o.mode === 'loop') {
@@ -236,7 +358,7 @@ export class WallFx {
       } else {
         this._size(W, H); const id = this.lg.createImageData(W, H);
         renderMode(mode, id.data, W, H, t, bp, kick, o.rp, o.mp, o.mask && o.mask.length === W * H ? o.mask : null);
-        this.lg.putImageData(id, 0, 0); this._present(); this.ms = performance.now() - now; fresh = true;
+        this._put(id); this._present(); this.ms = performance.now() - now; fresh = true;
       }
     }
     return fresh;
