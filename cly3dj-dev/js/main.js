@@ -1861,7 +1861,7 @@ function stepProgram() {
   else if (!want && progRehearse) { progRehearse = false; if (!streamer.live && !monOn && !streamer.tvUp) streamer.setRehearse(false); }
 }
 // #771 (owner) the reminder on pages where buttons have a second job
-function longHint(g, x, y) { g.fillStyle = '#6f7a8e'; g.font = 'italic 600 12px system-ui'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillText('A long press does more.', x, y); }
+function longHint(g, x, y) { drawHoldMark(g, x, y - 13, 16); g.fillStyle = '#6f7a8e'; g.font = 'italic 600 12px system-ui'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillText('A long press does more.', x + 21, y); }   // #773 with the mark
 function propHides(hide, O, ownCam) {   // #372 the object toggles (OBJECTS page), one list for every camera: gear, neon, GoPro prop, chat panel / chalkboard, scroller
   if (!O.neon) hide(neon);   // on = seen from every angle, the back of the sign too
   for (const gp of [gopro, gopro2]) if (gp && (!O.gopro || (ownCam && gp.on))) hide(gp.obj);   // a prop other cameras film; hidden only from its own camera
@@ -6387,6 +6387,24 @@ function btnLabel(g, label, x, y, w, h, fs0 = 17, weight = 700) {
   _lblOver.push(label); fitText2Center(g, label, x + w / 2, y + h / 2 + 1, room);
 }
 function fitText2Center(g, s, x, y, w) { let t = s; while (t.length > 3 && g.measureText(t).width > w) t = t.slice(0, -2); if (t !== s) t = t.slice(0, -1) + '…'; g.fillText(t, x, y); }
+// #773 our long-press mark: a fingertip pressing, with a three-quarter ring round it (the hold filling up), on a small dark badge in
+// the button's top-left corner so it reads on light, green and red buttons alike. Drawn after each page on every hit that has a long press.
+function drawHoldMark(g, x, y, s = 15) {
+  const r = s / 2, cx = x + r, cy = y + r, k = s / 18;
+  g.save(); g.fillStyle = '#f1b650'; g.strokeStyle = '#0b0e15'; g.lineWidth = 1.4; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill(); g.stroke();   // amber badge with a dark rim: reads on dark, light, green and red
+  g.strokeStyle = '#141a26'; g.fillStyle = '#141a26'; g.lineCap = 'round'; g.lineJoin = 'round';
+  const fx = cx - 2.2 * k;   // the hand: one finger up (thick rounded stroke) on a small palm
+  g.lineWidth = 2.8 * k; g.beginPath(); g.moveTo(fx, cy + 1.5 * k); g.lineTo(fx, cy - 4.6 * k); g.stroke();
+  g.beginPath(); g.roundRect(fx - 1.6 * k, cy + 0.6 * k, 6.6 * k, 5.4 * k, 1.8 * k); g.fill();
+  const tx = cx + 3.4 * k, ty = cy - 3.6 * k, tr = 2.9 * k;   // the hold timer beside the fingertip: a faint full ring, three quarters already filled
+  g.lineWidth = 1.2 * k; g.globalAlpha = 0.35; g.beginPath(); g.arc(tx, ty, tr, 0, Math.PI * 2); g.stroke();
+  g.globalAlpha = 1; g.lineWidth = 1.5 * k; g.beginPath(); g.arc(tx, ty, tr, -Math.PI / 2, Math.PI); g.stroke();
+  g.restore();
+}
+function holdMarks() {
+  const { g } = scr();
+  for (const h of VP_HIT) if (h.long && !h.del && h.w >= 34 && h.h >= 22) drawHoldMark(g, h.x - 5, h.y - 5, 19);   // sits on the corner, half in the gap, clear of the label
+}
 function drawCycMark(g, cx, cy, r) {   // #538 ⟳: an open clockwise ring with an arrow head, in the label colour
   g.save(); g.strokeStyle = g.fillStyle; g.lineWidth = 2; g.lineCap = 'round';
   const a0 = -Math.PI * 0.35, a1 = Math.PI * 1.35;
@@ -10031,8 +10049,8 @@ function drawMixScreen() {
   navTrack();   // #363
   syncShowFromRoom();   // #401 one switch per object
   syncScrMap();   // #617
-  if (toolsPage) { drawToolsPage(); scr().commit(); return; }   // #224
-  if (videoPage) { drawVideoPage(); scr().commit(); return; }   // #185
+  if (toolsPage) { drawToolsPage(); holdMarks(); scr().commit(); return; }   // #224 (#773 hold marks on buttons with a long press)
+  if (videoPage) { drawVideoPage(); holdMarks(); scr().commit(); return; }   // #185
   const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
   const sp = settings.spect === 'on' && spect ? spect.ui() : null;   // #164/#167: MR GUI toggle
   g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H);

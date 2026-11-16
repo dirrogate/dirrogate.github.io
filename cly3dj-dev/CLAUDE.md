@@ -2934,3 +2934,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #772 VIDREC back on the main bar, PORTALS on SHOWTIME! (owner, 16 Nov)
 - Main bar: VIDREC (DirroVJ's PROGRAM REC; dim until DirroVJ is linked, blinks while recording, stop = two taps) in PORTALS' place, landscape and portrait. SHOWTIME! SCENE row: CYCLOWALL, DOME, PORTALS, ROBOT, GEAR; PORTALS tap = on / off (double-tap = back to their spots), long press = PORTALS SETUP. VIDREC left SEND TO (TWITCH, DIRROTV, DIRROVJ).
 - Checked in the PC pane, both orientations. sw.js v236. No Node restart. Backup backups/pre771/main.771.js.
+
+## #773 Our own long-press mark on buttons that have a long press (owner, 16 Nov; his reference: a pointing hand with press rings, not copied)
+- drawHoldMark(): a small amber badge (#f1b650, dark rim) with a dark glyph: one finger raised on a small palm and, beside the fingertip, a hold timer (faint full ring, three quarters filled). holdMarks() draws it after every tools / VISUALS page on each hit that has .long (19 px, on the button's top-left corner, half in the gap so it clears the label). longHint() puts the same mark in front of "A long press does more."
+- Covers every long-press button automatically: SHOWTIME! (GOPRO 1 / 2, HEADSET CAM, CYCLOWALL, DOME, PORTALS, SCROLLER), TAP BPM, the LOOP MASTER transport / slots / banks, and any future one with .long.
+- Checked in the PC pane. sw.js v237. No Node restart.
