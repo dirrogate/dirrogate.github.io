@@ -715,7 +715,7 @@ function starBadges() {
 let cxStarKey = '', cxStarImgs = {};
 function renderStars() {
   const L = (CX && CX.stars) || [], key = L.map(s => s.cid + (s.wd ? 'w' : '')).join(',') + '|' + Object.keys(cxStarImgs).length; if (key === cxStarKey) return; cxStarKey = key;
-  $('cxStars').innerHTML = L.slice().reverse().map(s => `<div class="stC${s.wd ? ' wd' : ''}"><img src="${cxStarImgs[s.cid] || ''}" alt=""><div><b>⭐ ${esc(s.name)}</b> · ${esc(s.genre)}${s.wd ? ' · WITHDRAWN' : ''}<div class="ln">${(s.lines || []).map(l => '“' + esc(l) + '”').join('<br>')}</div><div class="ln">receipt ${esc(s.cid)}</div>${s.wd ? '' : `<button data-sp="${esc(s.cid)}" style="margin-top:4px;padding:4px 8px;font-size:12px">ADD AS PANEL</button>`}</div></div>`).join('');
+  $('cxStars').innerHTML = L.slice().reverse().map(s => `<div class="stC${s.wd ? ' wd' : ''}"><img src="${cxStarImgs[s.cid] || ''}" alt=""><div><b>⭐ ${esc(s.name)}</b> · ${esc(s.genre)}${s.table ? ' · TABLE ' + esc(s.table) : ''}${s.wd ? ' · WITHDRAWN' : ''}<div class="ln">${(s.lines || []).map(l => '“' + esc(l) + '”').join('<br>')}</div><div class="ln">receipt ${esc(s.cid)}</div>${s.wd ? '' : `<button data-sp="${esc(s.cid)}" style="margin-top:4px;padding:4px 8px;font-size:12px">ADD AS PANEL</button>`}</div></div>`).join('');
   for (const b of document.querySelectorAll('[data-sp]')) b.onclick = () => cx('starpanel', { cid: b.dataset.sp });
 }
 $('cxClog').onclick = () => cx('clog');

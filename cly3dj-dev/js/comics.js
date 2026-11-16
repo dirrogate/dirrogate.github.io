@@ -667,7 +667,7 @@ export function makeComics({ THREE, renderer, fixed, send, onChange, store = 'vi
   async function onStar(m) {
     if (m.k === 'star') {
       if (stars.some(x => x.cid === m.cid)) return;
-      stars.push({ cid: m.cid, seq: m.seq, at: m.at, dev: m.dev, name: m.name, genre: m.genre, lines: m.lines || [], img: m.img, media: m.media, wd: false });
+      stars.push({ cid: m.cid, seq: m.seq, at: m.at, dev: m.dev, name: m.name, genre: m.genre, lines: m.lines || [], img: m.img, media: m.media, table: m.table || '', wd: false });
       changed(true); send({ k: 'cxmsg', t: `⭐ ${m.name} joined the cast (${m.genre})` });
     } else if (m.k === 'ans') {
       let n = 0; for (const p of panels) for (const it of p.items || []) if (it && it.ask === m.ask) { it.ok = m.yes ? 'yes' : 'no'; it.cid = m.cid; n++; if (res.get(p.id)) res.get(p.id).ov.key = ''; }
