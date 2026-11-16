@@ -609,7 +609,7 @@ function nextLedMode(m) {   // OFF > CLIPS > VIDVINYL ('decks') > MANDEL > RETRO
   return 'off';
 }
 function clipsMode() { if (isLive(ledMode) && spect && spect.liveCam && !streamPhone()) spect.liveCam(false); ledMode = 'clips'; led.kind = null; fxTex = null; }   // #238 a clip from the LED list ends LIVE
-const LED_LABEL = { off: 'CYCLOWALL OFF', clips: 'CYCLOWALL CLIPS', decks: 'CYCLOWALL VIDVINYL', mandel: 'CYCLOWALL MANDEL', retro: 'CYCLOWALL RETRO-SCENE', card: 'CYCLOWALL CARD', vdancer: 'CYCLOWALL VECTOR-DANCER', meta: 'CYCLOWALL METABALLS', cam: 'CYCLOWALL DirroDj📹', live: 'CYCLOWALL LIVE', solo: 'CYCLOWALL SOLO', screen: 'CYCLOWALL PHONE SCREEN' };   // #537
+const LED_LABEL = { off: 'CYCLOWALL OFF', clips: 'CYCLOWALL CLIPS', decks: 'CYCLOWALL VIDVINYL', mandel: 'CYCLOWALL MANDEL', retro: 'CYCLOWALL RETRO-SCENE', card: 'CYCLOWALL CARD', vdancer: 'CYCLOWALL VECTOR-DANCER', meta: 'CYCLOWALL BOUNCE BALLS', cam: 'CYCLOWALL DirroDj📹', live: 'CYCLOWALL LIVE', solo: 'CYCLOWALL SOLO', screen: 'CYCLOWALL PHONE SCREEN' };   // #537
 let phoneScreen = false;   // #358 the spectator phone is sharing its screen (its video slot carries it)
 function onPhoneScreen(on) {
   phoneScreen = on;
@@ -8941,14 +8941,14 @@ function drawToolsPage() {
   if (page === 'retro') {   // #442 RETRO-SCENE: the effect-driven visuals, one tap each
     const y0 = head('RETRO-SCENE', 'wall'), cyc = (arr, v, dir) => arr[(arr.indexOf(v) + dir + arr.length) % arr.length];
     const tiles = [['DANCER', ledMode === 'retro' && ledFx.s !== 'loop', () => setLedMode('retro')], ['MANDEL', ledMode === 'mandel', () => setLedMode('mandel')],
-      ['VECTOR-DANCER ⁺¹', ledMode === 'vdancer', () => { setLedMode('vdancer'); setTools('vdancer'); }], ['METABALLS', ledMode === 'meta', () => setLedMode('meta')]];
+      ['VECTOR-DANCER ⁺¹', ledMode === 'vdancer', () => { setLedMode('vdancer'); setTools('vdancer'); }], ['BOUNCE BALLS', ledMode === 'meta', () => setLedMode('meta')]];
     const grabLbl = grab.on ? (grab.n < 0 ? 'CAMERA…' : `GRABBING ${Math.max(0, Math.ceil((LOOP.n - grab.n) / LOOP.fps))} s`) : 'GRAB LOOP' + (grab.loops.length ? ` (${grab.loops.length})` : '');
     const stp = (x, y, w, h) => {
-      btn(x, y, 40, h, '−', false, () => { vd.mp.n = Math.max(2, vd.mp.n - 1); vdSave(); drawMixScreen(); }); btn(x + w - 40, y, 40, h, '+', false, () => { vd.mp.n = Math.min(9, vd.mp.n + 1); vdSave(); drawMixScreen(); });
-      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.fillText('METABALLS', x + w / 2, y + 14);
+      btn(x, y, 40, h, '−', false, () => { vd.mp.n = Math.max(1, vd.mp.n - (vd.mp.n > 10 ? 2 : 1)); vdSave(); drawMixScreen(); }); btn(x + w - 40, y, 40, h, '+', false, () => { vd.mp.n = Math.min(40, vd.mp.n + (vd.mp.n >= 10 ? 2 : 1)); vdSave(); drawMixScreen(); });
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.fillText('BOUNCE BALLS', x + w / 2, y + 14);
       g.fillStyle = '#fff'; g.font = '700 17px system-ui'; g.fillText(vd.mp.n + ' balls', x + w / 2, y + h - 7);
     };
-    const info = 'DANCER: the vector dancer, and your grabbed loops every 8 bars. VECTOR-DANCER: moire circles through a matte clip (open it for the matte slots, circle sets, gap and beat motion). METABALLS bounce on the beat. All of them go to the stream, DIRROTV and the phones too.';
+    const info = 'DANCER: the vector dancer, and your grabbed loops every 8 bars. VECTOR-DANCER: moire circles through a matte clip (open it for the matte slots, circle sets, gap and beat motion). BOUNCE BALLS: checked balls on a scrolling checker floor, landing on the beat (music BPM or TAP). All of them go to the stream, DIRROTV and the phones too.';
     if (P) {
       const tw = (R - L - 6) / 2, th = 84;
       tiles.forEach(([l, on, a], i) => btn(L + (i % 2) * (tw + 6), y0 + 2 + Math.floor(i / 2) * (th + 6), tw, th, l, on, a, false, 19));

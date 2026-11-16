@@ -150,26 +150,78 @@ export function renderRings(px, W, H, t, bp, kick, mask, rp) {
   }
 }
 
-// ------------------------------------------------------------------ #442 METABALLS bouncing on the beat (they touch the floor on the beat)
-export const MP_DEF = { n: 5 };
+// ------------------------------------------------------------------ #759 BOUNCE BALLS (replaces #442 METABALLS, same mode key 'meta'):
+// red / white checked balls bouncing over a mirror-glossy checker floor that scrolls toward you, stars above. Everything moves on
+// the beat count bp (music BPM or TAP BPM): the floor moves one tile a beat, the balls ride it and touch down on the beats.
+// Drawn by hand on the CPU (in the worker): floor per row, then shadows, mirrored balls in the floor, balls far to near.
+export const MP_DEF = { n: 16 };
+const STARS = (() => { let q = 7919; const r = () => (q = (q * 16807) % 2147483647) / 2147483647, a = []; for (let i = 0; i < 700; i++) a.push([r(), r(), 0.2 + 0.8 * r() * r() * r(), r() * 6.28, 0.5 + 2 * r()]); return a; })();
+const BALLS = (() => { let q = 4242; const r = () => (q = (q * 16807) % 2147483647) / 2147483647, a = [];
+  for (let i = 0; i < 40; i++) a.push({ x: (r() * 2 - 1) * 6.5, z0: r(), rad: 0.32 + 0.42 * r() * r(), per: r() < 0.6 ? 1 : 2, ph: r() < 0.5 ? 0 : 0.5, amp: 1.4 + 3.0 * r(), spin: (0.6 + 1.6 * r()) * (r() < 0.5 ? -1 : 1), tilt: 0.25 + 0.25 * r() });
+  return a; })();
+const BL = (() => { const l = [-0.5, 0.78, -0.42], n = Math.hypot(...l); return l.map(v => v / n); })();
+const BH = (() => { const h = [BL[0], BL[1], BL[2] - 1], n = Math.hypot(...h); return h.map(v => v / n); })();
+function ballCol(nx, ny, nz, b, ang, out) {   // checker on the spinning ball, lit from upper left, a hot highlight
+  const c = Math.cos(b.tilt), s = Math.sin(b.tilt), x1 = nx * c - ny * s, y1 = nx * s + ny * c;
+  const u = Math.atan2(nz, x1) + ang, v = Math.asin(Math.max(-1, Math.min(1, y1)));
+  const ck = (Math.floor(u * 2.546479) + Math.floor((v + 1.5708) * 2.546479)) & 1;   // 16 around, 8 pole to pole
+  const d = Math.max(0, nx * BL[0] + ny * BL[1] + nz * BL[2]) * 0.82 + 0.22, sp = Math.pow(Math.max(0, nx * BH[0] + ny * BH[1] + nz * BH[2]), 36) * 220;
+  const rr = ck ? 214 : 238, gg = ck ? 26 : 236, bb = ck ? 38 : 236;
+  out[0] = rr * d + sp; out[1] = gg * d + sp; out[2] = bb * d + sp;
+}
 export function renderMeta(px, W, H, t, bp, kick, mp) {
-  const N = Math.max(2, Math.min(9, (mp && mp.n) | 0 || MP_DEF.n)), ts = t * 0.001, hh = H / 2, B = [];
-  for (let i = 0; i < N; i++) {
-    const half = i % 3 === 2 ? 2 : 1, ph = (bp / half + i * 0.37), r = 0.23 + 0.1 * ((i * 37) % 5) / 4 + 0.04 * kick;
-    B.push([0.95 * Math.sin(ts * (0.17 + 0.031 * i) + i * 2.1) * (1 + 0.1 * (i % 2)), -0.62 + (1.15 + 0.12 * Math.sin(i * 1.7)) * Math.abs(Math.sin(Math.PI * ph)), r * r]);
+  const N = Math.max(1, Math.min(40, (mp && mp.n) | 0 || MP_DEF.n)), ts = t * 0.001;
+  const f = W * 0.82, cx = W / 2, hy = H * 0.58, camH = 1.15, ZN = 1.6, ZF = 30, span = ZF - ZN, CELL = 1.1, scroll = bp * CELL;
+  // sky: black with stars
+  for (let k = 0, n = W * H * 4; k < n; k += 4) { px[k] = 0; px[k + 1] = 0; px[k + 2] = 0; px[k + 3] = 255; }
+  for (const [sx, sy, b, p, w] of STARS) {
+    const i = (sx * W) | 0, j = (sy * hy) | 0; if (j >= hy - 1) continue;
+    const v = 255 * b * (0.7 + 0.3 * Math.sin(ts * w + p)), o = (j * W + i) * 4; px[o] = px[o + 1] = px[o + 2] = Math.min(255, v);
   }
-  const sh = bp / 16;
-  for (let j = 0; j < H; j++) {
-    const y = (hh - j - 0.5) / hh;
+  // floor: checker tiles scrolling toward you one tile a beat, black toward the horizon
+  const flash = 1 + 0.12 * kick;
+  for (let j = Math.ceil(hy); j < H; j++) {
+    const z = camH * f / (j + 0.5 - hy); if (z > ZF * 1.6) continue;
+    const fade = Math.exp(-z / 11), zz = z + scroll, rz = Math.floor(zz / CELL);
     for (let i = 0; i < W; i++) {
-      const x = (i + 0.5 - W / 2) / hh, o = (j * W + i) * 4;
-      let fl = 0; for (let k = 0; k < N; k++) { const d = B[k], dx = x - d[0], dy = y - d[1]; fl += d[2] / (dx * dx + dy * dy + 1e-4); }
-      let R, G, Bl;
-      if (fl >= 1) { const u = (fl * 0.18 + sh) % 1, q = ((u < 0 ? u + 1 : u) * 256 | 0) * 3, gn = 0.85 + 0.35 * kick; R = PAL[q] * gn; G = PAL[q + 1] * gn; Bl = PAL[q + 2] * gn; if (fl < 1.25) { R = 255; G = 240; Bl = 250; } }   // a bright rim, the body in the palette
-      else { const h = fl * fl * 0.6; R = 8 + 90 * h; G = 0 + 20 * h; Bl = 26 + 120 * h; }   // the glow round them
-      px[o] = R; px[o + 1] = G; px[o + 2] = Bl; px[o + 3] = 255;
+      const x = (i + 0.5 - cx) * z / f, ck = (Math.floor(x / CELL) + rz) & 1, base = ck ? 205 : 14, v = (base * fade + 4 * (1 - fade)) * flash, o = (j * W + i) * 4;
+      px[o] = v; px[o + 1] = v; px[o + 2] = v * 1.02;
     }
   }
+  // the balls, ride the floor and land on the beats; fade in far away and out right in front of you
+  const L = [];
+  for (let k = 0; k < N; k++) {
+    const b = BALLS[k], zr = ((b.z0 * span - scroll) % span + span) % span, z = ZN + zr;
+    const hop = Math.abs(Math.sin(Math.PI * (bp / b.per + b.ph))), y = b.rad + b.amp * hop;
+    const a = Math.min(1, (ZF - z) / 5) * Math.min(1, (z - ZN) / 1.2);
+    if (a > 0.01) L.push({ b, z, y, a, r: b.rad * (1 + 0.05 * kick * (hop < 0.3 ? 1 : 0)) });
+  }
+  L.sort((p, q) => q.z - p.z);
+  const col = [0, 0, 0];
+  const splat = (b, z, yc, rad, a, mirror) => {
+    const sx = cx + f * b.x / z, sy = hy - f * (yc - camH) / z, rr = f * rad / z; if (rr < 0.4) return;
+    const i0 = Math.max(0, Math.floor(sx - rr)), i1 = Math.min(W - 1, Math.ceil(sx + rr)), j0 = Math.max(mirror ? Math.ceil(hy) : 0, Math.floor(sy - rr)), j1 = Math.min(H - 1, Math.ceil(sy + rr));
+    const ang = ts * b.spin;
+    for (let j = j0; j <= j1; j++) {
+      const dy = (j + 0.5 - sy) / rr;
+      for (let i = i0; i <= i1; i++) {
+        const dx = (i + 0.5 - sx) / rr, d2 = dx * dx + dy * dy; if (d2 >= 1) continue;
+        const nz = -Math.sqrt(1 - d2); ballCol(dx, mirror ? dy : -dy, nz, b, ang, col);
+        let al = a * Math.min(1, (1 - Math.sqrt(d2)) * rr * 1.5); if (mirror) al *= 0.5 * Math.exp(-(j - sy + rr) / (2.5 * rr + 1)) + 0.08;
+        const o = (j * W + i) * 4; px[o] += (col[0] - px[o]) * al; px[o + 1] += (col[1] - px[o + 1]) * al; px[o + 2] += (col[2] - px[o + 2]) * al;
+      }
+    }
+  };
+  for (const e of L) {   // soft contact shadow on the floor
+    const sx = cx + f * e.b.x / e.z, sy = hy + f * camH / e.z, rx = f * e.r / e.z * 1.1, ry = rx * 0.28, dk = e.a * 0.55 * Math.max(0, 1 - (e.y - e.r) / 3);
+    if (dk < 0.02 || rx < 0.5) continue;
+    for (let j = Math.max(Math.ceil(hy), Math.floor(sy - ry)); j <= Math.min(H - 1, Math.ceil(sy + ry)); j++) for (let i = Math.max(0, Math.floor(sx - rx)); i <= Math.min(W - 1, Math.ceil(sx + rx)); i++) {
+      const q = ((i + 0.5 - sx) / rx) ** 2 + ((j + 0.5 - sy) / ry) ** 2; if (q >= 1) continue;
+      const m = 1 - dk * (1 - q), o = (j * W + i) * 4; px[o] *= m; px[o + 1] *= m; px[o + 2] *= m;
+    }
+  }
+  for (const e of L) splat(e.b, e.z, -e.y, e.r, e.a, true);   // reflections in the glossy floor
+  for (const e of L) splat(e.b, e.z, e.y, e.r, e.a, false);
 }
 
 // ------------------------------------------------------------------ the engine
