@@ -1043,16 +1043,27 @@ $('stSend').onclick = () => {
   if (!stImg) { toast('TAKE PHOTO first'); return; } if (!name) { toast('Give yourself a comic name'); return; }
   if (!$('stAge').checked) { toast('Only for people 18 or older'); return; } if (!$('stOk').checked) { toast('Tick the terms to join'); return; }
   if (!netOpen()) { toast('Not connected to the show yet'); return; }
-  NET.ws.send(JSON.stringify({ k: 'star', dev: STAR_DEV, name, genre: $('stGenre').value, lines, img: stImg, terms: termsVer, age: true })); toast('Sending your card…');
+  if (Date.now() < stLock) { toast('Next photo in ' + lockTxt()); return; }
+  const table = $('stTable').value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+  try { localStorage.setItem('vire.dirro.star', JSON.stringify({ name, genre: $('stGenre').value, table })); } catch (e) {}
+  NET.ws.send(JSON.stringify({ k: 'star', dev: STAR_DEV, name, genre: $('stGenre').value, lines, img: stImg, terms: termsVer, age: true, table })); toast('Sending your photo…');
 };
+// #767 every photo is a new opt-in; one every 5 minutes (the relay keeps the time per device too). Name, genre and table code remembered.
+let stLock = 0; try { stLock = +localStorage.getItem('vire.dirro.starLock') || 0; } catch (e) {}
+const lockTxt = () => { const s = Math.max(0, Math.ceil((stLock - Date.now()) / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+const setLock = s => { stLock = Date.now() + s * 1000; try { localStorage.setItem('vire.dirro.starLock', String(stLock)); } catch (e) {} };
+const stOkBtn = () => { const b = $('stSend'), ok = $('stAge').checked && $('stOk').checked, lk = Date.now() < stLock;
+  b.textContent = lk ? 'NEXT PHOTO IN ' + lockTxt() : "I'M IN · SEND"; b.disabled = lk || !ok; b.style.opacity = lk || !ok ? 0.45 : 1; };
+$('stAge').onchange = $('stOk').onchange = stOkBtn; setInterval(stOkBtn, 1000); stOkBtn();
+try { const p = JSON.parse(localStorage.getItem('vire.dirro.star') || 'null'); if (p) { if (p.name) $('stName').value = p.name; if (p.genre) $('stGenre').value = p.genre; if (p.table) $('stTable').value = p.table; } } catch (e) {}
 $('stMine').onclick = () => { if (!netOpen()) { toast('Not connected to the show yet'); return; } NET.ws.send(JSON.stringify({ k: 'mine', dev: STAR_DEV })); };
 function nextAsk() { if (askCur || !askQ.length) return; askCur = askQ.shift(); $('askWho').textContent = askCur.who || 'you'; $('askText').textContent = askCur.text; show('star', false); show('ask', true); }
 function answer(yes) { if (!askCur) return; if (netOpen()) NET.ws.send(JSON.stringify({ k: 'ans', dev: STAR_DEV, ask: askCur.ask, yes })); else toast('Not connected: answer again when you are back'); askCur = null; show('ask', false); setTimeout(nextAsk, 300); }
 $('askYes').onclick = () => answer(true); $('askNo').onclick = () => answer(false);
 const fmtT = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 function starMsg(m) {
-  if (m.k === 'starok') { rcpt({ type: 'OPT_IN', cid: m.cid, at: m.at, name: m.name }); toast(`You're in the cast, ${m.name}! Receipt ${m.cid}`); show('star', false); return; }
-  if (m.k === 'starx' || m.k === 'ansx') { toast(m.e || 'Not sent'); return; }
+  if (m.k === 'starok') { rcpt({ type: 'OPT_IN', cid: m.cid, at: m.at, name: m.name }); setLock(m.wait || 300); stImg = ''; $('stPic').src = ''; stOkBtn(); toast(`Photo in, ${m.name}! Receipt ${m.cid}`); show('star', false); return; }
+  if (m.k === 'starx' || m.k === 'ansx') { if (m.wait) { setLock(m.wait); stOkBtn(); } toast(m.e || 'Not sent'); return; }
   if (m.k === 'ask') { if (!askQ.some(a => a.ask === m.ask) && (!askCur || askCur.ask !== m.ask)) askQ.push(m); nextAsk(); return; }
   if (m.k === 'ansok') { rcpt({ type: m.yes ? 'LINE_YES' : 'LINE_NO', cid: m.cid, at: m.at, text: m.text }); toast((m.yes ? 'YES sent' : 'NO sent') + `, receipt ${m.cid}`); return; }
   if (m.k === 'wdok') { rcpt({ type: 'WITHDRAW', cid: m.cid, at: m.at }); toast(`Withdrawn, receipt ${m.cid}. Your panels come out of future reprints.`); $('stList').classList.add('hide'); return; }

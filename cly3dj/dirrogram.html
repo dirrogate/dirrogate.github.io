@@ -109,10 +109,12 @@
   <div class="stRow"><img id="stPic" alt=""><button class="btn ghost" id="stSnap">TAKE PHOTO</button><span class="stTip">Uses what your camera shows now (PEOPLE and FX too)</span></div>
   <input id="stName" maxlength="24" placeholder="Comic name, e.g. NEON NINA">
   <select id="stGenre"><option>NOIR</option><option>ACTION</option><option>HORROR</option><option>DRAMA</option><option>SCI-FI</option><option>ROMANCE</option></select>
+  <input id="stTable" maxlength="6" placeholder="Table code (optional, on your table card)" autocapitalize="characters" style="text-transform:uppercase">
   <input id="stL1" maxlength="100" placeholder="A line you'd say (optional)">
   <input id="stL2" maxlength="100" placeholder="Another line (optional)">
-  <label class="stChk"><input type="checkbox" id="stAge"> I'm 18 or older</label>
-  <label class="stChk"><input type="checkbox" id="stOk"> <span id="stTerms"></span></label>
+  <label class="stChk"><input type="checkbox" id="stAge" checked> I'm 18 or older</label>
+  <label class="stChk"><input type="checkbox" id="stOk" checked> <span id="stTerms"></span></label>
+  <div class="stHelp"><b>Every photo you send agrees to the ticked boxes.</b> Untick either one and nothing is sent. One photo every 5 minutes.</div>
   <div class="stHelp">You can withdraw at any time under MY CONSENTS: your panels then come out of future reprints. Copies already shared stay as they are.</div>
   <div class="smsRow"><button class="btn ghost" id="stMine">MY CONSENTS</button><span></span><button class="btn ghost" id="stCancel">CANCEL</button><button class="btn" id="stSend">I'M IN</button></div>
   <div id="stList" class="hide"></div>
