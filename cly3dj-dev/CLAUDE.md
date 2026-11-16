@@ -2838,3 +2838,6 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - DOME 3D / 2D on PORTALS SETUP right after DOME LIGHT (settings.dome3d, default 2D): 2D = one picture for both eyes (a stereo panorama shows its left eye; one mesh drawn); 3D = a stereo panorama (over-under / side-by-side) in stereo in the headset. Skybox.set3D().
 - Checked in the browser pane: a synthetic panorama of a 0.5 m floor grid seen from 1.5 m renders with straight grid lines out to the curved band; shader compiles with the portal patch. Not seen in the headset.
 - sw.js v222. No Node restart. Backup backups/pre756/.
+
+## #757 Release #751 to #756 to cly3dj; PROJECT.md status (owner, 16 Nov)
+- cly3dj = cly3dj-dev again (commit 95a2cb3; same exclusions as #750). PROJECT.md Status (16 Nov) extended with #751 to #756; project doc claude/cly3dj-project.md = PROJECT.md.
