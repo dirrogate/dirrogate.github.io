@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 16 Nov 2026 (decision log up to #765 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 16 Nov 2026 (decision log up to #775 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -92,9 +92,22 @@ Owner: Clyde DeSouza (c3souza).
 - **Alignment with the real hand:** not solved; parked by the owner. HAND FIT on the tablet (move / turn, 5 mm / 5 deg steps, saved as `vire.handFit`, sent to the phone) is there for that day.
 - **Controller mode ball:** placed from the owner's 1 mm crosshair renders (#285).
 
+## Tablet menus (#769 to #774, 16 Nov): the current map
+
+The owner's simplification. Rules: the Quest's first job is a stutter-free mix; Twitch, DirroTV, Dirrogram and SCREEN portals show the same picture; only two backgrounds (CYCLOWALL and DOME); HEADSET CAM is the only camera on the tablet (webcam and phone camera live on the DirroVJ laptop); every switch shows the real state (green = really on); a 👆 with a blue ring at a button's right end means a long press does more ("A long press does more." under those pages).
+
+- **Main bar:** RESET MIX · VISUALS · SHOWTIME! (● LIVE when on Twitch) · VIDREC · DJ TOOLS · SETUP · LOOP · ACID. Portrait: VISUALS · SHOW TIME! · VIDREC · SETUP over DJ TOOLS · RESET MIX · LOOP · ACID. TOOLS and VJ TOOLS are gone (setTools('home') opens SETUP, setTools('vj') opens VISUALS > FX).
+- **VISUALS:** tabs CYCLOWALL ⁺¹ (its page: CYCLOWALL ON / OFF, VISUALS, MANDEL, RETRO-SCENE ⁺¹ with BOUNCE BALLS / VECTOR-DANCER, PROGRAM, GRAB LOOP, AUTO, PHONES, TAP BPM, grid / dot / glow, PIXELS) · CLIPS · IMAGES · PANO (one DOME: ON / OFF button; tap a pano = on the DOME) · FX (FLOAT, WATER, NEON, LASER ▸, MOVIE PROPS ▸) · SCROLLER.
+- **SHOWTIME!** (one page): CAMERA GOPRO 1, GOPRO 2, WIDE, HEADSET CAM, CARD ⁺¹; SCENE CYCLOWALL, DOME, PORTALS, ROBOT, GEAR; EXTRAS SCROLLER, CHAT ▸, WHITEBOARD, NOW PLAYING, LOGO; SEND TO GO LIVE ON TWITCH, DIRROTV, DIRROVJ ▸. Long presses: GOPRO = back to its start, HEADSET CAM = CAM FIT, CYCLOWALL = its page, DOME = the panos, PORTALS = PORTALS SETUP, SCROLLER = its text.
+- **SETUP:** DIRROGRAM, DIRROTV, DIRROVJ LINK, CAM FIT, MEDIA SYNC (phone library), PERFCAP, REAL OCCLUSION, AVATAR style.
+- **PORTALS SETUP** (long press PORTALS): four kinds with the shape separate. HOLE = cut into the DOME, the real room shows; WINDOW = the DOME shows through it; FRAME = only the frame (round a real object, cuts nothing); SCREEN = a picture / clip / the CYCLOWALL on its glass (warns when it plays its own video, a second decode).
+- **CYCLOWALL PROGRAM:** the wall shows what Twitch sees (the stream canvas); inside that shot the wall is black, so no tunnel; the shot keeps running off air while PROGRAM is up. DirroDj📹 (robot close-up camera on the wall) is gone.
+- **Backdrop:** DOME or nothing (BG: VISUALS, SKY / SKY OFF and the flat VISUALS layer behind the stream are gone). With both CYCLOWALL and DOME off you see the real room.
+- **CYCLOWALL visuals (#770):** the wall samples the visuals picture (640 x 360) straight on the GPU, ~30 fps worker, a smooth beat clock, balls on a real parabola; PIXELS 0 is the sharpest.
+
 ## LED wall (VISUALS LED button, and the WALL page since #439)
 
-Now called the CYCLOWALL (#729 onward). Since #758 the CYCLOWALL page's first tile is a state cycle that shows where you are: ON ⟳ (green, the curved wall is drawn) > OFF ⟳ (no wall, no backdrop) > BG: VISUALS ⟳ (no wall, the CYCLOWALL picture full frame behind you, #762) > DOME ⟳ (no wall, the dome on) > ON. Every CYCLOWALL picture is the VISUALS background whether the wall is out or not. Sources: OFF, CLIPS, VIDVINYL, AVACAM, LIVE, SOLO plus the effect modes MANDEL, RETRO-SCENE+1 (VECTOR-DANCER, BOUNCE BALLS+1 with its own page since #759 to #764: checked balls bouncing on the beat over a smooth scrolling checker floor in four colours, a chrome floor scroller on STRAIGHT / SINE / CIRCLE paths with SCROLL BOUNCE / SPEED / DISTANCE, a SKY picture from IMAGES or the stars; the DANCER retired in #763) and CARD+1 (pictures and GIFs), with PIXELS 0 to 10, TAP BPM and a 5.3 s GRAB LOOP (8x8 sheet, 112x63 cells, under 60 KB for phones). A button with a tiny "+1" opens its own page. Output is 640x360 and also feeds the stream, CLY3DTV and the Dirrogram phones. Details: audience-ar-plan.md and CLAUDE.md #441 to #447. Tested in the browser pane only.
+Now called the CYCLOWALL (#729 onward). Superseded by the map above (#769): the first tile is a plain CYCLOWALL ON / OFF; the BG: VISUALS and DOME steps are gone.
 
 ## Backdrop and portal (#345)
 
@@ -155,6 +168,14 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 
 - A live comic strip drawn by DirroVJ as a bus source (1950s / 60s newsprint, CyberGrunge meets Steampunk). Details and owner decisions: project doc `dirrocomics-plan.md`; user steps: section 8 of `DirroVJ_DirroDJ_User_Manual.docx`.
 - Built: page with peeks, five inking styles, captions / balloons / SFX, black and white ANAGLYPH with depth (SBS, RGB+D, painted depth maps, MediaPipe PEOPLE, LIVE PEOPLE), GRAB QUEST / WEBCAM / RGB-D, issues (.dirrocomic), MP4, PDF STRIP, Instagram REEL 9:16 and CAROUSEL 4:5 (posted by hand), STAR IN IT (Dirrogram card, YES / NO per line, hash-chained consent log on the relay, WITHDRAW), terms text on the Dirrogram, AI storyboard (Gemini free tier or Claude API, 8 to 12 panels), the owner's DirroComics mark.
+
+## Status (16 Nov, evening)
+
+- Release (cly3dj) = dev up to #774 (commit 5b95b04).
+- #766 user manual updated; #767 STAR photos as evidence: tick boxes start ticked (untick = no send; every photo is a new opt-in), one photo per phone every 5 minutes (relay per device), TABLE CODE field, MOON CASE table codes + TABLE CARDS + EVIDENCE CALL (scroller line, 5 minute window, NO ALIBI? suggestions); relay needs `npx wrangler deploy`, site needs the dirroclub_website upload.
+- #768: DOME back (a mid-line comment in #756 had stopped it being added to the scene), beat LEDs follow the auto beat grid, phase meter removed.
+- #769 to #774: the menu simplification (map above), PROGRAM, four portal kinds, SETUP, sharper smooth CYCLOWALL visuals, the 👆 long-press mark.
+- Not yet tried on the Quest: all of #767 to #774.
 
 ## Status (16 Nov)
 
