@@ -9029,7 +9029,7 @@ function drawToolsPage() {
       g.fillStyle = '#fff'; g.font = '700 17px system-ui'; g.fillText(vd.mp.n + ' balls', x + w / 2, y + h - 7);
     };
     const spd = vd.mp.spd != null ? vd.mp.spd : 2, spdS = (x, y, w, h) => tSlider(g, x, y, w, h, 'FLOOR SPEED', spd / 6, spd ? spd.toFixed(1) + ' tiles/s' : 'STOPPED', v => { vd.mp.spd = Math.round(v * 60) / 10; vdSave(); drawMixScreen(); }, false, 120);   // #760 BOUNCE BALLS floor
-    const info = 'GRAB LOOP plays your grabbed loops. VECTOR-DANCER: moire circles through a matte clip (open it for the matte slots, circle sets, gap and beat motion). BOUNCE BALLS: checked balls on a scrolling checker floor, landing on the beat (music BPM or TAP). All of them go to the stream, DIRROTV and the phones too.';
+    const info = 'VECTOR-DANCER: moire circles through a matte clip. BOUNCE BALLS: checked balls on a scrolling floor, on the beat (music BPM or TAP); its page has the floor scroller and sky. All go to the stream, DIRROTV and the phones.';   // #766 shorter (it ran off the screen)
     if (P) {
       const tw = (R - L - 6) / 2, th = 84;
       tiles.forEach(([l, on, a], i) => btn(L + (i % 2) * (tw + 6), y0 + 2 + Math.floor(i / 2) * (th + 6), tw, th, l, on, a, false, 19));
@@ -9043,7 +9043,7 @@ function drawToolsPage() {
       const aw = (R - L - 12) / 3;
       btn(L, y0 + 106, aw, 42, grabLbl, grab.on, grabLoop, false, 17); stp(L + aw + 6, y0 + 106, aw, 42); tapB(L + 2 * (aw + 6), y0 + 106, aw, 42);
       pxSlider(L, y0 + 154, R - L, 32); spdS(L, y0 + 192, R - L, 32);
-      g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, info, L + 4, y0 + 240, R - L - 8, 16, 2);
+      g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, 'BOUNCE BALLS ▸ its own page: floor colours, the floor scroller and the sky picture.', L + 4, y0 + 240, R - L - 8, 16, 1);   // #766 one line fits
     }
     return;
   }
