@@ -62,7 +62,7 @@ const params = new URLSearchParams(location.search);
 const CAMERA_ROLE = params.get('role') === 'camera';   // #161: this page is the spectator phone (spectator.html sends it here)
 // start-screen settings, remembered per browser
 const SETTINGS_DEFAULT = { needleLift: 7, source: 'pc', xml: 'rekordbox.xml', hands: '3d', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
-  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, spect: 'on', sky: 'off', arRefl: 60, occlusion: false, roomHits: true,   // #411 (#415 occlusion off by default: owner prefers seeing the beams in DOME scenes)
+  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, dome3d: false, spect: 'on', sky: 'off', arRefl: 60, occlusion: false, roomHits: true,   // #411 (#415 occlusion off by default: owner prefers seeing the beams in DOME scenes)
   skyH: 1.5, skyTurn: 0, skyType: 'auto', skyKey: 'on', skyFile: '', skyMedia: '' };   // turntable physics (#120)
 const settings = (() => { try { return { ...SETTINGS_DEFAULT, ...JSON.parse(localStorage.getItem('vire.settings') || '{}') }; } catch { return { ...SETTINGS_DEFAULT }; } })();
 if (params.get('xml')) { settings.source = 'pc'; settings.xml = params.get('xml'); }
@@ -121,7 +121,7 @@ const KEY_POS = key.position.clone();
 // #182 grounded panorama skybox (skybox.js). Centred where the DJ stands: the XR origin, which is rig (0.05, 0, 0.62)
 // because the rig is moved by (-0.05, 0, -0.62) in the headset. With real-time shadows a shadow-only floor
 // catches the gear's shadows on the panorama's floor (the studio floor is hidden then).
-const skybox = new Skybox(renderer); rig.add(skybox.group); skybox.group.position.x = 0.05; skybox.group.position.z = 0.62;
+const skybox = new Skybox(renderer); skybox.set3D(settings.dome3d === true);   // #756 DOME 3D / 2D (default 2D: the left eye for both) rig.add(skybox.group); skybox.group.position.x = 0.05; skybox.group.position.z = 0.62;
 // #346 DOME (PORTALS SETUP): the same grounded sky, shown even in passthrough and with any light setting, sized 3-20 m
 const dome = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.dome') || 'null'); } catch {} return { on: !!(s && s.on), r: Math.min(20, Math.max(3, (s && s.r) || 10)), turn: Math.min(359, Math.max(0, (s && s.turn) || 0)), ev: Math.min(1, Math.max(-3, +(s && s.ev) || 0)), gam: Math.min(2, Math.max(0.5, +(s && s.gam) || 1)) }; })();   // #638 gam: DOME GAMMA   // #404 ev: DOME EXPOSURE   // #389 turn: the dome's own angle
 const skyShadow = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.ShadowMaterial({ opacity: 0.4 }));
@@ -9176,6 +9176,7 @@ function drawToolsPage() {
       [WL.beat ? 'BEAT: ON' : 'BEAT', WL.beat, () => { WL.setBeat(!WL.beat); drawMixScreen(); }],
       [dome.on ? 'DOME: ON' : 'DOME', dome.on, () => setDome(!dome.on)],
       [settings.domeLight !== false ? 'DOME LIGHT: ON' : 'DOME LIGHT', settings.domeLight !== false, () => { settings.domeLight = settings.domeLight === false; saveSettings(); domeLightTick(); toast(settings.domeLight ? 'DOME LIGHT: the dome\'s sky lights the gear and frames' : 'DOME LIGHT off: Settings > Lighting', 2200); drawMixScreen(); }],   // #611
+      [settings.dome3d ? 'DOME 3D' : 'DOME 2D', !!settings.dome3d, () => { settings.dome3d = !settings.dome3d; saveSettings(); skybox.set3D(settings.dome3d); toast(settings.dome3d ? 'DOME 3D: a stereo panorama (over-under / side-by-side) shows in stereo in the headset' : 'DOME 2D: one picture for both eyes (a stereo panorama shows its left eye)', 3000); drawMixScreen(); }],   // #756
       [`SCREEN: ${({ cyclo: 'CYCLOWALL', image: 'IMAGE', video: 'VIDEO' })[PS.scrSrc.src] || 'CYCLOWALL'} ⟳`, PS.screenN > 0, pScrStep],   // #589 the one feed every SCREEN frame shows
       [settings.roomSnap !== false ? 'ROOM SNAP: ON' : 'ROOM SNAP: OFF', settings.roomSnap !== false, roomSnapToggle],   // #598 owner: snap can be switched off
       ['FRAME LOOK ›', JSON.stringify(PS.grade) !== JSON.stringify(GRADE0), () => setTools('pgrade')],

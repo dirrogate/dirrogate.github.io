@@ -2832,3 +2832,9 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - PORTALS SETUP: the wall's SCREEN / FRACTAL button carries the ⟳ mark (it steps between the two).
 - CYCLOWALL page OFF ⟳: OFF and DOME ONLY now also hide the CYCLOWALL geometry (facetWall off); stepping back ON puts it back if it was out before. Checked in the browser pane: wall on -> DOME ONLY hidden -> ON back -> OFF hidden -> DOME ONLY hidden.
 - sw.js v221. No Node restart. Backup backups/pre755/.
+
+## #756 Dome / sky looked up per pixel (straight floor at 64 x 32 segments); DOME 3D / 2D (owner, 16 Nov)
+- Cause of the crooked floor: since #403 the panorama position came from the sphere's vertices and was blended straight across each triangle; #536 cut the sphere to 64 x 32, so the flattened floor rows became big slabs where that blend bends lines and kinks them at triangle edges. skybox.js now works out each pixel's panorama position from its own direction (normalize(position) from the centre, atan / asin; same mapping as SphereGeometry's uv, mirrored), exact on the floor and the curved band at any segment count. The 0 / 1 seam: derivatives from whichever of two copies of u is continuous there, sampled with textureGrad (no line of wrong mip level). The video 4-tap and the PORTAL_SKY glass-rain bend use the same derivatives. Segments stay 64 x 32 (two meshes, one per eye; the second only for a stereo picture in 3D).
+- DOME 3D / 2D on PORTALS SETUP right after DOME LIGHT (settings.dome3d, default 2D): 2D = one picture for both eyes (a stereo panorama shows its left eye; one mesh drawn); 3D = a stereo panorama (over-under / side-by-side) in stereo in the headset. Skybox.set3D().
+- Checked in the browser pane: a synthetic panorama of a 0.5 m floor grid seen from 1.5 m renders with straight grid lines out to the curved band; shader compiles with the portal patch. Not seen in the headset.
+- sw.js v222. No Node restart. Backup backups/pre756/.
