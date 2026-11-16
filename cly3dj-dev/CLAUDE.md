@@ -2869,3 +2869,12 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - While the floor scroller is on (and BOUNCE BALLS is the CYCLOWALL picture) the flat scroller strip on the stream hides (env.scroller returns null).
 - Not built: the 'super snurkel' (Fairlight 1989) path. Easy as a flat sky-level pattern: letters placed along a moving looping curve and turned along it.
 - ~9 ms a frame at 480x270 with 16 balls and the scroller on the PC. gram/js/wallfx.js updated. sw.js v226. No Node restart. Backups backups/pre761/.
+
+## #762 BG: VISUALS keeps the CYCLOWALL picture; BOUNCE BALLS SKY picture (owner, 16 Nov)
+- CYCLOWALL OFF ⟳ cycle: the BG: VISUALS step now keeps what the CYCLOWALL was playing (BOUNCE BALLS, MANDEL, VECTOR-DANCER, clips...) full frame behind you with the wall hidden; only when nothing was playing does it fall back to the clip list. OFF and DOME still switch the picture off; ON brings it back. (Every CYCLOWALL picture is the VISUALS background whether the wall geometry is out or not.)
+- BOUNCE BALLS page: SKY ⟳ (STARS, then each picture in VISUALS > IMAGES in turn). The picture is cut once to the sky's shape (768 x 250, cover) and drawn above the horizon (SKY_HY 0.58); the worker leaves the sky see-through (straight-alpha 'over' blending so balls and letters in the sky keep clean edges) and WallFx._put draws the picture under the frame. The stars are unchanged when no picture is picked. vd.mp.sky = the file name; mp.skyOn / skyId go to the phones; dirro-host sends the picture once per connection as an 'i' message (JPEG under 60 KB); the phones show stars until it arrives.
+- Checked in the PC pane: cycle ON > OFF > BG: VISUALS (still BOUNCE BALLS, wall hidden) > DOME > ON; a test picture as the sky with balls and the floor scroller over it (test picture removed).
+
+## #763 The DANCER retires from RETRO-SCENE (owner, 16 Nov)
+- RETRO-SCENE page: the DANCER tile is gone (MANDEL, VECTOR-DANCER ⁺¹, BOUNCE BALLS ⁺¹, three across). The CYCLOWALL page's RETRO-SCENE tile starts BOUNCE BALLS; AUTO swaps MANDEL / BOUNCE BALLS; the VISUALS ⟳ cycle skips it. GRAB LOOP still plays its loops in the old 'retro' mode (between loops that mode still shows the dancer every 8 bars).
+- gram/js: wallfx.js, dirrogram.js, dirro-host.js updated. sw.js v227. No Node restart. Backups backups/pre762/.

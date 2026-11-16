@@ -769,7 +769,8 @@ function wallFx(now, q) {
   const qn = now - (NET.cd || 0), iv = beatIv(), lv = NET.b && iv && now - NET.anchor < 4000;
   const bp = lv ? NET.bn + (now - NET.anchor) / iv : qn / 500, L = q.lp ? NET.imgs.get(q.lp) : null;
   const mode = q.m === 'mandel' ? 'mandel' : q.m === 'vdancer' ? 'rings' : q.m === 'meta' ? 'meta' : q.m === 'card' ? 'loop' : q.s === 'loop' && L ? 'loop' : 'dancer';   // #446 card: a GIF   // #442
-  if (wfx.frame({ mode, t: qn - (q.t0 || 0), bp, kick: beat.kick, loop: L && L.image, lt: qn - (q.lt0 || 0), rp: q.rp, mp: q.mp, px: q.px, lw: LOOP.w, lh: LOOP.h, ln: q.m === 'card' ? q.ln : 0, lfps: q.m === 'card' ? q.lf : 0, fwd: q.m === 'card' })) wfxTex.needsUpdate = true;
+  const SK = q.m === 'meta' && q.mp && q.mp.skyOn && q.mp.skyId ? NET.imgs.get(q.mp.skyId) : null, mp = q.mp && q.mp.skyOn && !SK ? { ...q.mp, skyOn: false } : q.mp;   // #762 BOUNCE BALLS' SKY
+  if (wfx.frame({ mode, t: qn - (q.t0 || 0), bp, kick: beat.kick, sky: SK && SK.image, loop: L && L.image, lt: qn - (q.lt0 || 0), rp: q.rp, mp, px: q.px, lw: LOOP.w, lh: LOOP.h, ln: q.m === 'card' ? q.ln : 0, lfps: q.m === 'card' ? q.lf : 0, fwd: q.m === 'card' })) wfxTex.needsUpdate = true;
   return wfxTex;
 }
 const _cq = new THREE.Quaternion();

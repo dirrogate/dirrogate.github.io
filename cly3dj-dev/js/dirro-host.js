@@ -152,6 +152,11 @@ export class DirroHost {
     if (now - this.pingT > PING_MS) { this.pingT = now; this._send({ k: 'ping', c: Math.round(now) }); }
     // config: scroller text and NOW SPINNING (the relay keeps the last one for phones that join later)
     const np = (this.env.nowPlaying && this.env.nowPlaying()) || {}, scroll = (this.env.scrollText && this.env.scrollText()) || '';
+    const SK = this.env.getSky && this.env.getSky();   // #762 BOUNCE BALLS' SKY picture, once per connection
+    if (SK && SK.cv && SK.id && !this.imgSent.has(SK.id) && this._skyBusy !== SK.id) {
+      this._skyBusy = SK.id; let d = ''; for (const q of [0.8, 0.65, 0.5, 0.35]) { d = SK.cv.toDataURL('image/jpeg', q); if (d.length < 60000) break; }
+      if (d.length < 60000) { this._send({ k: 'i', id: SK.id, d }); this.imgSent.add(SK.id); this.cfgKey = ''; } this._skyBusy = '';
+    }
     const L = this.env.getLed && this.env.getLed();   // #434 the LED wall's current picture, if it shows one
     if (L && L.img && L.file && L.name) { if (L.name !== this.imgName) { this.imgName = L.name; this._sendImg(L.file, L.name); } }
     else if (this.imgName) { this.imgName = ''; this.imgId = ''; }

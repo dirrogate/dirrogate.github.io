@@ -157,6 +157,7 @@ export function renderRings(px, W, H, t, bp, kick, mask, rp) {
 export const MP_DEF = { n: 16, spd: 2, fc: 0, bh: 1, bs: 1, fs: false, fp: 0, fh: 0.5, tsp: 1.2 };   // #761 fc floor colours, bh / bs ball height / size, fs floor scroller on, fp its path, fh its hop on the beat (m), tsp its speed (m/s)
 export const FLOOR_NAMES = ['BLACK / WHITE', 'BLUE', 'AMBER', 'RED'];
 export const FS_PATTERNS = ['STRAIGHT', 'SINE', 'CIRCLE'];
+export const SKY_HY = 0.58;   // #762 the horizon (share of the height): a SKY picture fills the frame above it
 const FLOOR_COL = [[[205, 205, 210], [14, 14, 14]], [[44, 84, 240], [6, 10, 70]], [[255, 168, 40], [58, 28, 4]], [[232, 40, 44], [60, 6, 8]]];
 const STARS = (() => { let q = 7919; const r = () => (q = (q * 16807) % 2147483647) / 2147483647, a = []; for (let i = 0; i < 700; i++) a.push([r(), r(), 0.2 + 0.8 * r() * r() * r(), r() * 6.28, 0.5 + 2 * r()]); return a; })();
 const BALLS = (() => { let q = 4242; const r = () => (q = (q * 16807) % 2147483647) / 2147483647, a = [];
@@ -201,10 +202,11 @@ function floorLetters(mp, ts, bp, P) {
 export function renderMeta(px, W, H, t, bp, kick, mp) {
   mp = mp || MP_DEF; const P = k => (mp[k] != null ? mp[k] : MP_DEF[k]);
   const N = Math.max(1, Math.min(40, mp.n | 0 || MP_DEF.n)), ts = t * 0.001;
-  const f = W * 0.82, cx = W / 2, hy = H * 0.58, camH = 1.15, ZB = 5.5, ZF = 30, span = ZF - ZB, CELL = 1.1, scroll = ts * CELL * P('spd');
+  const f = W * 0.82, cx = W / 2, hy = H * SKY_HY, camH = 1.15, ZB = 5.5, ZF = 30, span = ZF - ZB, CELL = 1.1, scroll = ts * CELL * P('spd');
   const FC = FLOOR_COL[P('fc') | 0] || FLOOR_COL[0], bh = P('bh'), bs = P('bs'), jh = Math.ceil(hy);
-  for (let k = 0, n = W * H * 4; k < n; k += 4) { px[k] = 0; px[k + 1] = 0; px[k + 2] = 0; px[k + 3] = 255; }
-  for (const [sx, sy, b, p, w] of STARS) {
+  const sky = !!mp.skyOn, skyEnd = jh * W * 4;   // #762 a SKY picture: the sky is left see-through (WallFx draws the picture under it), no stars
+  for (let k = 0, n = W * H * 4; k < n; k += 4) { px[k] = 0; px[k + 1] = 0; px[k + 2] = 0; px[k + 3] = sky && k < skyEnd ? 0 : 255; }
+  if (!sky) for (const [sx, sy, b, p, w] of STARS) {
     const i = (sx * W) | 0, j = (sy * hy) | 0; if (j >= hy - 1) continue;
     const v = 255 * b * (0.7 + 0.3 * Math.sin(ts * w + p)), o = (j * W + i) * 4; px[o] = px[o + 1] = px[o + 2] = Math.min(255, v);
   }
@@ -227,7 +229,11 @@ export function renderMeta(px, W, H, t, bp, kick, mp) {
   if (P('fs')) for (const l of floorLetters(mp, ts, bp, P)) { l.a *= Math.min(1, (ZF - l.z) / 5); It.push(l); }
   It.sort((p, q) => q.z - p.z);
   const col = [0, 0, 0];
-  const blend = (o, r, g, b, al) => { px[o] += (r - px[o]) * al; px[o + 1] += (g - px[o + 1]) * al; px[o + 2] += (b - px[o + 2]) * al; };
+  const blend = (o, r, g, b, al) => {   // 'over' with straight alpha (#762: over a see-through sky too)
+    const A = px[o + 3] / 255; if (A >= 0.999) { px[o] += (r - px[o]) * al; px[o + 1] += (g - px[o + 1]) * al; px[o + 2] += (b - px[o + 2]) * al; return; }
+    const na = al + A * (1 - al); if (na <= 0) return; const k = A * (1 - al) / na, q = al / na;
+    px[o] = r * q + px[o] * k; px[o + 1] = g * q + px[o + 1] * k; px[o + 2] = b * q + px[o + 2] * k; px[o + 3] = na * 255;
+  };
   const splat = (b, z, yc, rad, a, mirror) => {
     const sx = cx + f * b.x / z, sy = hy - f * (yc - camH) / z, rr = f * rad / z; if (rr < 0.4) return;
     const i0 = Math.max(0, Math.floor(sx - rr)), i1 = Math.min(W - 1, Math.ceil(sx + rr)), j0 = Math.max(mirror ? jh : 0, Math.floor(sy - rr)), j1 = Math.min(H - 1, Math.ceil(sy + rr));
@@ -300,19 +306,29 @@ export class WallFx {
     } catch (e) { this.w = null; }
   }
   _size(w, h) { if (this.low.width !== w || this.low.height !== h) { this.low.width = w; this.low.height = h; } }
+  _put(id) {   // #762 with a SKY picture (BOUNCE BALLS) the frame comes with a see-through sky: the picture goes under it
+    this._size(id.width, id.height);
+    if (!(this.mode === 'meta' && this.sky)) { this.lg.putImageData(id, 0, 0); return; }
+    if (!this.tmp) { this.tmp = document.createElement('canvas'); this.tg = this.tmp.getContext('2d'); }
+    if (this.tmp.width !== id.width || this.tmp.height !== id.height) { this.tmp.width = id.width; this.tmp.height = id.height; }
+    this.tg.putImageData(id, 0, 0); const g = this.lg, sh = Math.ceil(id.height * SKY_HY);
+    g.imageSmoothingEnabled = true; g.fillStyle = '#000'; g.fillRect(0, 0, id.width, id.height);
+    try { g.drawImage(this.sky, 0, 0, id.width, sh); } catch (e) {}
+    g.drawImage(this.tmp, 0, 0);
+  }
   _present() {   // the two softest levels scale smoothly, the rest blocky
     const g = this.g; g.imageSmoothingEnabled = this.low.width >= 384; g.drawImage(this.low, 0, 0, OUT_W, OUT_H);
   }
   _done(buf) {
     this.busy = false; this.ms = performance.now() - this.reqT;
-    if (this.mode !== 'loop') { this._size(this.rw, this.rh); this.lg.putImageData(new ImageData(new Uint8ClampedArray(buf), this.rw, this.rh), 0, 0); this._present(); this.fresh = true; }
+    if (this.mode !== 'loop') { this._put(new ImageData(new Uint8ClampedArray(buf), this.rw, this.rh)); this._present(); this.fresh = true; }
     this.pool.push(buf); if (this.pool.length > 3) this.pool.shift();
   }
   // o: { mode: 'mandel' | 'dancer' | 'loop' | 'rings' (mask: bytes at the render size, rp) | 'meta' (mp), px (PIXELS 0 to 10), t (ms), bp (beats), kick (0..1),
   //      loop (sheet image / canvas), lw / lh (its cell size), lt (ms into the loop) }
   // returns true when the canvas has a new picture (about 15 a second; loops 12)
   frame(o) {
-    const now = performance.now(); this.mode = o.mode;
+    const now = performance.now(); this.mode = o.mode; this.sky = o.sky || null;
     let fresh = this.fresh; this.fresh = false;
     const lvl = o.px == null ? 5 : o.px, [pw, ph] = pxSize(lvl);
     if (o.mode === 'loop') {
@@ -342,7 +358,7 @@ export class WallFx {
       } else {
         this._size(W, H); const id = this.lg.createImageData(W, H);
         renderMode(mode, id.data, W, H, t, bp, kick, o.rp, o.mp, o.mask && o.mask.length === W * H ? o.mask : null);
-        this.lg.putImageData(id, 0, 0); this._present(); this.ms = performance.now() - now; fresh = true;
+        this._put(id); this._present(); this.ms = performance.now() - now; fresh = true;
       }
     }
     return fresh;
