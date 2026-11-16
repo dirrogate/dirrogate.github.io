@@ -842,28 +842,41 @@ function toggleDjCam() {
 }
 function setBackdrop(v) { if (streamer) streamer.setShowOpt('backdrop', v); else setDome(v === 'dome'); }
 function curBackdrop() { return streamer && streamer.showOpt ? streamer.showOpt.backdrop : dome.on ? 'dome' : 'visuals'; }
-var cycloGeoWas = false;   // #755 was the CYCLOWALL geometry out before OFF
-function cycloOffCycle() {
-  if (ledMode !== 'off') {
-    ledLastBack = curBackdrop(); setLedMode('off'); cycloBg = true; setBackdrop('visuals');
-    cycloGeoWas = !!(facetWall && facetWall.on); if (facetWall && facetWall.on) facetWall.setOn(false);   // #755 OFF takes the CYCLOWALL geometry out of the scene too
-    toast('CYCLOWALL OFF: background visuals', 1800);
-  } else if (!dome.on) { setBackdrop('dome'); if (facetWall && facetWall.on) { cycloGeoWas = true; facetWall.setOn(false); } toast('DOME only', 1800); }   // #755 no CYCLOWALL geometry while off
-  else {
-    setBackdrop(ledLastBack && ledLastBack !== 'dome' ? ledLastBack : 'visuals'); ledLastBack = null;
-    restoreLed(ledLastOn, 'mandel'); toast(LED_LABEL[ledMode], 1800);
-    if (cycloGeoWas && facetWall && !facetWall.on) facetWall.setOn(true); cycloGeoWas = false;   // #755 and puts it back
+var cycloGeoWas = false;   // #755 (unused since #758)
+// #758 (owner) the CYCLOWALL is a state you can read off the tablet: ON (the curved wall is drawn) > OFF (no wall, no backdrop)
+// > BG: VISUALS (no wall, the clip list plays behind) > DOME (no wall, the dome switches on) > ON. The tile shows where you ARE.
+function cycloState() {
+  if (facetWall && facetWall.on) return 'on';
+  if (dome.on) return 'dome';
+  if (curBackdrop() === 'visuals' && (cycloBg || ledMode !== 'off')) return 'bg';
+  return 'off';
+}
+function cycloWallOut() { if (facetWall && !facetWall.on) facetWall.setOn(true); }
+function setCycloState(st) {
+  if (cycloState() === 'on' && st !== 'on') ledLastBack = curBackdrop();
+  if (st === 'on') {
+    if (ledLastBack) { setBackdrop(ledLastBack); ledLastBack = null; }
+    if (ledMode === 'off') restoreLed(ledLastOn, 'mandel');
+    cycloWallOut(); toast('CYCLOWALL ON: ' + LED_LABEL[ledMode].replace('CYCLOWALL ', ''), 1800);
+  } else {
+    if (facetWall && facetWall.on) facetWall.setOn(false);
+    if (ledMode !== 'off') setLedMode('off');
+    if (st === 'off') { cycloBg = false; setBackdrop('none'); toast('CYCLOWALL OFF', 1600); }
+    else if (st === 'bg') { setBackdrop('visuals'); cycloBg = true; toast('BG: VISUALS (the clip list plays behind)', 1800); }
+    else { cycloBg = false; setBackdrop('dome'); if (!dome.on) setDome(true); toast('DOME', 1600); }
   }
   drawMixScreen();
 }
+const CYC_NEXT = { on: 'off', off: 'bg', bg: 'dome', dome: 'on' }, CYC_NAME = { on: 'ON', off: 'OFF', bg: 'BG: VISUALS', dome: 'DOME' };
+function cycloOffCycle() { setCycloState(CYC_NEXT[cycloState()]); }
 // #730 VISUALS page CYCLOWALL ⟳ (owner): ... SOLO > DOME (the CYCLOWALL off and the last pano as the dome) > CLIPS ... Leaving DOME
 // puts back the backdrop it had before.
 var visDomeBack;
-function visCycle() {
+function visCycle() {   // #758 the same states as the CYCLOWALL page
+  if (cycloState() !== 'on' && ledMode === 'off') { setCycloState('on'); return; }
   const n = nextLedMode(ledMode);
-  if (n === 'off') { visDomeBack = curBackdrop(); setLedMode('off'); setBackdrop('dome'); toast('CYCLOWALL DOME: last pano', 1800); }
-  else { if (ledMode === 'off' && dome.on) { setBackdrop(visDomeBack && visDomeBack !== 'dome' ? visDomeBack : 'visuals'); visDomeBack = null; } setLedMode(n); }
-  drawMixScreen();
+  if (n === 'off') { setCycloState('dome'); return; }
+  setLedMode(n); cycloWallOut(); drawMixScreen();
 }
 // #731 (owner) the CYCLOWALL button: if the wall isn't in the scene, it comes out as a 150 degree cyclorama behind the robot DJ
 // (screen mode: it shows the CYCLOWALL picture) and the CYCLOWALL switches to DirroDj📹; then the CYCLOWALL page opens.
@@ -878,8 +891,8 @@ function openCycloWall() {
   }
   setTools('wall');
 }
-function visCycLabel() { return ledMode === 'off' ? (dome.on ? 'CYCLOWALL DOME' : 'CYCLOWALL OFF') : LED_LABEL[ledMode]; }
-function cycloOffLabel() { return (ledMode !== 'off' ? 'OFF' : dome.on ? 'DOME ONLY' : 'OFF: BG VISUALS') + ' ⟳'; }
+function visCycLabel() { const st = cycloState(); return ledMode !== 'off' ? LED_LABEL[ledMode] : 'CYCLOWALL ' + CYC_NAME[st]; }
+function cycloOffLabel() { return CYC_NAME[cycloState()] + ' ⟳'; }   // #758 where it IS
 // #589 SCREEN portal frames: one shared feed. CYCLOWALL = what the CYCLOWALL shows (redrawn from the same 2D layers the stream uses,
 // 640x360 at ~20 fps, no extra decoding), IMAGE = a still from the library, VIDEO = a library clip, looped and muted (one decoder
 // for every screen). Closed again as soon as no SCREEN frame is out.
@@ -1853,6 +1866,10 @@ function handsHides(hide, O, force) {   // force: PHONE CAM always shows your ow
   for (const st of xr.inputs) { hide(st.hand); hide(st.grip); if (st.ctlHand) hide(st.ctlHand.root); }
   if (xr.glove) hide(xr.glove.root);
 }
+// #758 lit = what is really happening (not the last tap): Twitch live (not connecting), DirroVJ on air
+const twOn = S => !!(S && S.state === 'live');
+const twLbl = (S, t) => !S ? 'TWITCH' : S.state === 'live' ? '● LIVE' + (t ? ' ' + S.elapsed() : '') : S.state === 'connecting' ? 'CONNECTING…' : 'TWITCH';
+const vjOnAir = S => !!(S && S.stuRun && S.s8 && S.s8.run && performance.now() - S.s8.at < 3500);
 const tvLbl = S => S.stu.on ? (S.stuRun ? 'DIRROVJ: ON' : 'DIRROVJ') : S.tvUp ? 'DIRROTV: ON' : 'DIRROTV';   // #380 the STREAM page's screen button
 let tvDigits = '', tvForgetArm = 0;   // #376 the code being typed on the tablet; double-tap guard for FORGET TV
 let pcamAutoReh = false;   // #374 the PHONE CAM page started the off-air shot for its preview (so leaving the page stops it again)
@@ -5808,7 +5825,7 @@ function drawVideoPage() {
     const tw4 = (W - 30 - 18) / 4;   // #441 the last row has four: two tabs, SCROLLER and WALL +1
     tabs.forEach((f, i) => btn(i < 6 ? 22 + (i % 3) * (tw + 6) : 22 + (i - 6) * (tw4 + 6), 68 + Math.floor(i / 3) * 40, i < 6 ? tw : tw4, 34, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)));
     btn(22 + 2 * (tw4 + 6), 148, tw4, 34, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);
-    btn(22 + 3 * (tw4 + 6), 148, tw4, 34, 'CYCLOWALL ⁺¹', ledMode !== 'off', () => { videoPage = false; openCycloWall(); });   // #379 moved one over for FX   // #342 the scroller editor
+    btn(22 + 3 * (tw4 + 6), 148, tw4, 34, 'CYCLOWALL ⁺¹', cycloState() === 'on', () => { videoPage = false; openCycloWall(); });   // #379 moved one over for FX   // #342 the scroller editor
   } else {
     let x = 8;   // #214 seven tabs fit left of MIXER; #220 eight (narrower); #363 narrower again for BACK
     for (const f of [...VP_LIB, 'Camera', 'Sync', 'Look', 'DJ Cam', 'Fx']) { const w = { Pano: 56, Video: 56, Images: 65, Camera: 74, Sync: 50, Look: 50, 'DJ Cam': 70, Fx: 40 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, f === 'DJ Cam' ? openGoprosPage : pick(f)); x += w + 4; }   // #379 narrower again for FX
@@ -5869,7 +5886,7 @@ function drawVideoPage() {
     Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal']], Images: [['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal']] }[vpFolder];   // #589 → PORTAL: the SCREEN frames' feed
   const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : T.length > 4 ? 76 : 86, ty = P ? H - 106 : by;   // #589 five targets on Video
   let x = P ? 8 : 108;
-  for (const [label, what] of T) { const dim = (!vpSel && what !== 'skyoff'); btn(x, ty, tw, bh, label, false, dim ? null : () => vpAct(what), dim); x += tw + 6; }
+  for (const [label, what] of T) { const dim = (!vpSel && what !== 'skyoff'); btn(x, ty, tw, bh, label, what === 'sky' ? !!dome.on : what === 'skyoff' ? !dome.on : false, dim ? null : () => vpAct(what), dim); x += tw + 6; }
   if (vpFolder === 'Pano') {   // #379 PANO SPIN 0 to 5 (degrees a second); landscape: between the SKY buttons and the LED button, portrait: a row of its own
     // #596 / #597 three bars: PANO TURN, EXPOSURE (the same DOME EXPOSURE as PORTALS SETUP) and SPEED (video panos);
     // landscape: a full-width row above the buttons; portrait: TURN + EXPOSURE, then SPEED under them
@@ -8474,9 +8491,9 @@ function drawToolsPage() {
   if (page === 'looper' || page === 'loopbanks') { drawLooperPage(page, { g, W, H, P, L, R, btn, head, note }); return; }   // #470
   if (page === 'home') {
     const y0 = head('TOOLS', 'mixer');
-    const stLbl = streamer && streamer.live ? '● LIVE ' + streamer.elapsed() : 'TWITCH';   // #331
+    const stLbl = twLbl(streamer, true);   // #331 / #758
     if (P) { btn(L, y0 + 8, R - L, 96, 'DJ TOOLS', false, () => setTools('dj'), false, 26); btn(L, y0 + 116, R - L, 96, 'VJ TOOLS', false, () => setTools('vj'), false, 26);
-      btn(L, y0 + 224, R - L, 96, stLbl, !!(streamer && streamer.live), () => setTools('stream'), !streamer, 26);
+      btn(L, y0 + 224, R - L, 96, stLbl, twOn(streamer), () => setTools('stream'), !streamer, 26);
       btn(L, y0 + 332, R - L, 80, streamer ? tvLbl(streamer) : 'DIRROTV', !!(streamer && (streamer.tvUp || streamer.stuRun)), () => setTools('tv'), !streamer, 24);   // #389 was CHALKBOARD (now on VJ TOOLS)
       btn(L, y0 + 424, R - L, 72, dirroLbl(), !!(dirro && dirro.on), () => setTools('dirro'), !dirro, 24);   // #427
       note('DJ TOOLS: Record Maker, milk crate on / off. VJ TOOLS: Scroller, CYCLOWALL, neon, whiteboard, portals, cameras. TWITCH: go live (master mix only, never the cue). DIRROTV: screens in the venue (any TV with a browser: Fire Stick, smart TV, laptop). DIRROGRAM: the show on the audience\'s phones.', y0 + 520); }   // #363 was under the CHALKBOARD button
@@ -8550,7 +8567,7 @@ function drawToolsPage() {
     // #530 camera pick: GOPRO, GOPRO2, WEBCAM (external laptop or phone), HEADSET CAM
     const cams = [['gopro', 'GOPRO', !gopro], ['gopro2', 'GOPRO2', !gopro2], ['pcam', 'WEBCAM', false], ['headset', P ? 'HEADSET' : 'HEADSET CAM', false]];   // #547 ⟳: tapped again it steps to the next camera
     const colsCam = P ? 2 : 4, bwCam = (R - L - gap * (colsCam - 1)) / colsCam;
-    const camOn = k => k === 'pcam' ? isWeb : k === 'headset' ? (!isWeb && S.source === 'headset') : (!isWeb && S.source !== 'headset' && djSet.preset === k);
+    const camOn = k => k === 'pcam' ? isWeb : k === 'headset' ? (!isWeb && S.source === 'headset') : (!isWeb && S.source !== 'headset' && djSet.preset === k && !!((k === 'gopro' ? gopro : gopro2) || {}).on);   // #758 only while that GoPro is out
     g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.textAlign = 'left'; if (P) g.fillText('CAMERA', L + 2, y0 + 8);
     const camPick = k => {
       if (k === 'pcam') { openPhoneCam(false); return; }   // #374 / #389 / #530
@@ -8567,8 +8584,8 @@ function drawToolsPage() {
     g.fillStyle = '#8c96a8'; if (P) g.fillText('OBJECTS', L + 2, cy2 + 8);
     const items = [['neon', 'NEON', false], ['panel', 'CHAT PANEL', false], ['chalk', 'WHITEBOARD', false], ['gear', 'GEAR', false], ['robot', 'ROBO-BODY', S.source === 'headset' || isWeb], ['dome', 'DOME', false]];
     const colsObj = P ? 3 : 6, bwObj = (R - L - gap * (colsObj - 1)) / colsObj;
-    const domeTap = () => { if (O.backdrop === 'dome') S.setShowOpt('backdrop', 'visuals'); else { S.setShowOpt('backdrop', 'dome'); if (!skybox.tex) toast('DOME needs a sky: VISUALS > PANO > SKY', 3200); } drawMixScreen(); };
-    items.forEach(([k, label, off], i) => { const on = k === 'dome' ? O.backdrop === 'dome' : !!O[k]; btn(L + (i % colsObj) * (bwObj + gap), cy2 + (P ? 14 : 0) + Math.floor(i / colsObj) * (bh + gap), bwObj, bh, label, !off && on, off ? null : k === 'dome' ? domeTap : () => S.setShowOpt(k, !O[k]), off, P ? 16 : 15); });
+    const domeTap = () => { if (dome.on) S.setShowOpt('backdrop', 'visuals'); else { S.setShowOpt('backdrop', 'dome'); if (!skybox.tex) toast('DOME needs a sky: VISUALS > PANO > SKY', 3200); } drawMixScreen(); };
+    items.forEach(([k, label, off], i) => { const on = k === 'dome' ? !!dome.on : !!O[k]; btn(L + (i % colsObj) * (bwObj + gap), cy2 + (P ? 14 : 0) + Math.floor(i / colsObj) * (bh + gap), bwObj, bh, label, !off && on, off ? null : k === 'dome' ? domeTap : () => S.setShowOpt(k, !O[k]), off, P ? 16 : 15); });
     const ry = cy2 + (P ? 14 : 0) + Math.ceil(items.length / colsObj) * (bh + gap) + (P ? 6 : 4);
     const ms = djcam ? djcam.ms : 0;
     g.fillStyle = '#8c96a8'; g.font = '600 15px system-ui'; g.textAlign = 'left';
@@ -8976,13 +8993,13 @@ function drawToolsPage() {
   if (page === 'wall') {   // #439 LED WALL: one tap a source. It drives the 3D wall, the stream's / DIRROTV's VIDEOWALL and the Dirrogram phones (FOLLOW)
     const y0 = head('CYCLOWALL', 'mixer'), d = dirro, LK = d ? d.wall : null, cyc = (arr, v, dir) => arr[(arr.indexOf(v) + dir + arr.length) % arr.length];
     const tiles = [   // #538 OFF ⟳ cycles (OFF + background visuals > DOME only > back ON); CLIPS and PICTURES gave way to VISUALS⁺¹ (the clips and pictures live there)
-      [cycloOffLabel(), ledMode === 'off', cycloOffCycle, false],
+      [cycloOffLabel(), cycloState() === 'on', cycloOffCycle, false, true],   // #758 green while the wall is drawn
       ['VISUALS ⁺¹', false, () => { setTools(null); setVideoPage(true); }, false],
-      ['MANDEL', ledMode === 'mandel', () => setLedMode('mandel'), false],
-      ['RETRO-SCENE', ledMode === 'retro' || ledMode === 'vdancer' || ledMode === 'meta', () => { if (!isFxMode(ledMode) || ledMode === 'mandel') setLedMode('retro'); setTools('retro'); }, false],
-      ['DirroDj📹', ledMode === 'cam', toggleDjCam, !djcam]];   // #538 on / off for the avatar camera only; the CYCLOWALL keeps running   // #731 LIVE removed
-    const tile = (x, y, w, h, [label, on, act, dim]) => {
-      if (label !== 'RETRO-SCENE') { btn(x, y, w, h, label, on, dim ? null : act, dim, P ? 19 : 17); return; }
+      ['MANDEL', ledMode === 'mandel', () => { setLedMode('mandel'); cycloWallOut(); drawMixScreen(); }, false],   // #758 a pick brings the wall out
+      ['RETRO-SCENE', ledMode === 'retro' || ledMode === 'vdancer' || ledMode === 'meta', () => { if (!isFxMode(ledMode) || ledMode === 'mandel') setLedMode('retro'); cycloWallOut(); setTools('retro'); }, false],
+      ['DirroDj📹', ledMode === 'cam', () => { toggleDjCam(); if (ledMode === 'cam') cycloWallOut(); drawMixScreen(); }, !djcam]];   // #538 on / off for the avatar camera only; the CYCLOWALL keeps running   // #731 LIVE removed
+    const tile = (x, y, w, h, [label, on, act, dim, grn]) => {
+      if (label !== 'RETRO-SCENE') { btnGreen = !!grn; btn(x, y, w, h, label, on, dim ? null : act, dim, P ? 19 : 17); btnGreen = false; return; }
       btn(x, y, w, h, '', on, act, false);
       const s = Math.min(h - 28, w - 16); if (retroIcon.complete && retroIcon.naturalWidth) g.drawImage(retroIcon, x + (w - s) / 2, y + 5, s, s);
       g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = on ? '#fff' : '#3a4252'; g.font = '800 13px system-ui'; g.fillText('RETRO-SCENE', x + w / 2, y + h - 12);
@@ -9010,7 +9027,7 @@ function drawToolsPage() {
       btn(L, y, tw, 44, acts[2][0], acts[2][1], acts[2][2], acts[2][3], 16); tapB(L + tw + 6, y, tw, 44, 18); y += 52;
       steps.forEach(([l, v, dn, up]) => { stp(L, y, R - L, 40, l, v, dn, up); y += 46; });
       pxSlider(L, y, R - L, 38); y += 44;
-      if (ledMode === 'off' && dome.on) { tSlider(g, L, y, R - L, 38, 'DOME TURN', dome.turn / 359, `${dome.turn}°`, v => setDomeTurn(v * 359)); y += 44; }   // #730
+      if (dome.on) { tSlider(g, L, y, R - L, 38, 'DOME TURN', dome.turn / 359, `${dome.turn}°`, v => setDomeTurn(v * 359)); y += 44; }   // #730
       note(info, y + 14);
     } else {
       const tw = (R - L - 6 * (tiles.length - 1)) / tiles.length, th = 80;   // #538 six tiles across
@@ -9019,7 +9036,7 @@ function drawToolsPage() {
       acts.forEach(([l, on, a, dim], i) => btn(L + i * (a4 + 6), y0 + 88, a4, 38, l, on, dim ? null : a, dim, 16)); tapB(L + 3 * (a4 + 6), y0 + 88, a4, 38, 16);
       steps.forEach(([l, v, dn, up], i) => stp(L + i * (aw + 6), y0 + 132, aw, 38, l, v, dn, up));
       pxSlider(L, y0 + 176, R - L, 32);
-      if (ledMode === 'off' && dome.on) tSlider(g, L, y0 + 214, R - L, 32, 'DOME TURN', dome.turn / 359, `${dome.turn}°`, v => setDomeTurn(v * 359));   // #730 rotate the dome (DOME ONLY)
+      if (dome.on) tSlider(g, L, y0 + 214, R - L, 32, 'DOME TURN', dome.turn / 359, `${dome.turn}°`, v => setDomeTurn(v * 359));   // #730 rotate the dome (DOME ONLY)
       else { g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, info, L + 4, y0 + 226, R - L - 8, 16, 2); }
     }
     return;
@@ -9947,7 +9964,7 @@ function drawMixScreen() {
     SP_HIT.push({ x: vx - 3, y: y - 8, w: vw + 6, h: h + 16, act: () => setMonitor(!monOn) });
     // #537 MR GUI removed from Deck A top bar (unneeded on mixer screen)
     { const S = streamer, bw3 = (W - 40 - 3 * 6) / 4, by3 = H - 96;   // #389 STREAM, CLY3DTV, STUDIO on a row above TOOLS / RESET MIX; #439 + WALL
-      [[S && S.live ? '● LIVE' : 'TWITCH', !!(S && S.live), () => setTools('stream'), !S], [(() => { const P = vidRec(); return P && P.on ? (performance.now() - vidArm < 3000 ? 'TAP: STOP' : '● ' + vidTime(P.sec)) : 'VIDREC'; })(), !!(vidRec() && vidRec().on), vidRecTap, !(S && S.stuLink)] /* #753 */, ['DIRROVJ', !!(S && S.stu.on), () => setTools('studio'), !S], ['CYCLOWALL ⁺¹', ledMode !== 'off', openCycloWall, false]].forEach(([l, o, a, dim], i) => {
+      [[twLbl(S), twOn(S), () => setTools('stream'), !S], [(() => { const P = vidRec(); return P && P.on ? (performance.now() - vidArm < 3000 ? 'TAP: STOP' : '● ' + vidTime(P.sec)) : 'VIDREC'; })(), !!(vidRec() && vidRec().on), vidRecTap, !(S && S.stuLink)] /* #753 */, ['DIRROVJ', vjOnAir(S), () => setTools('studio'), !S], ['CYCLOWALL ⁺¹', cycloState() === 'on', openCycloWall, false]].forEach(([l, o, a, dim], i) => {
         const bx3 = 20 + i * (bw3 + 6); drawTopBtn(g, bx3, by3, bw3, 36, l, o, dim, 15); if (!dim) SP_HIT.push({ x: bx3 - 3, y: by3 - 4, w: bw3 + 6, h: 44, act: a }); });
     }
     drawTopBtn(g, 20, H - 52, 64, 36, 'TOOLS', !!(scroller && scroller.on));   // #224
@@ -9979,10 +9996,10 @@ function drawMixScreen() {
     const S = streamer, tb = (label, on, act, dim, w) => { drawTopBtn(g, x, y, w, h, label, on, dim); if (!dim) SP_HIT.push({ x: x - 3, y: y - 8, w: w + 6, h: h + 14, act }); x += w + gap; };
     tb('TOOLS', !!(scroller && scroller.on), () => setTools('home'), false, 74);
     drawResetMix(g, x, y, 100, h); x += 100 + gap;   // #254
-    tb(S && S.live ? '● LIVE' : 'TWITCH', !!(S && S.live), () => setTools('stream'), !S, 82);
+    tb(twLbl(S), twOn(S), () => setTools('stream'), !S, 82);
     { const P = vidRec(), armed = P && P.on && performance.now() - vidArm < 3000; tb(armed ? 'TAP: STOP' : P && P.on ? '● ' + vidTime(P.sec) : P && P.starting ? 'REC…' : 'VIDREC', !!(P && P.on) && (armed || Math.floor(performance.now() / 600) % 2 === 0), vidRecTap, !(S && S.stuLink), 88); }   // #753 VIDREC (DirroVJ's PROGRAM REC) where DIRROTV was; DIRROTV is on TWITCH
-    tb('DIRROVJ', !!(S && S.stu.on), () => setTools('studio'), !S, 80);
-    tb('CYCLOWALL ⁺¹', ledMode !== 'off', openCycloWall, false, 116);   // #439, #537 the CYCLOWALL page, one tap from the mixer
+    tb('DIRROVJ', vjOnAir(S), () => setTools('studio'), !S, 80);
+    tb('CYCLOWALL ⁺¹', cycloState() === 'on', openCycloWall, false, 116);   // #439, #537 the CYCLOWALL page, one tap from the mixer
     drawLoopMainBtn(g, x, y, 74, h, 17); SP_HIT.push({ x: x - 3, y: y - 8, w: 80, h: h + 14, act: () => setTools('looper') }); x += 74 + gap;   // #470 LOOP: state colour, opens the LOOPER page
     // Gemini_acid: ACID button placed where REC MASTER currently was at the bottom right
     tb(acidUI.running ? '● ACID' : 'ACID', acidUI.running, () => setTools('acid'), false, 76);

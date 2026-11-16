@@ -2841,3 +2841,12 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 
 ## #757 Release #751 to #756 to cly3dj; PROJECT.md status (owner, 16 Nov)
 - cly3dj = cly3dj-dev again (commit 95a2cb3; same exclusions as #750). PROJECT.md Status (16 Nov) extended with #751 to #756; project doc claude/cly3dj-project.md = PROJECT.md.
+
+## #758 Tablet switches show the real state (owner, 16 Nov)
+- CYCLOWALL page, the first tile is a state cycle that shows where you ARE (cycloState / setCycloState / CYC_NEXT in main.js): ON ⟳ (green, the curved wall is drawn) > OFF ⟳ (wall out of the scene, ledMode off, backdrop none) > BG: VISUALS ⟳ (wall out, backdrop visuals, the clip list plays behind) > DOME ⟳ (wall out, the dome switched on even if it was off everywhere) > ON (wall back, the source and backdrop it had). MANDEL, RETRO-SCENE and DirroDj📹 bring the wall out if it was hidden. DOME TURN slider shows whenever the dome is on.
+- VISUALS page CYCLOWALL ⟳: steps the sources (wall out), after the last source DOME, then back ON; same state names.
+- CYCLOWALL ⁺¹ (main bar, VISUALS) lit only while the wall is drawn. VISUALS > PANO: SKY lit while the dome shows, SKY OFF lit while it doesn't.
+- SHOWTIME! OBJECTS: DOME lit / toggled from the room dome itself; GOPRO / GOPRO2 lit only while that GoPro is out and on air.
+- TWITCH (main bar, TOOLS home): green and ● LIVE only once Twitch is really live, CONNECTING… while it connects (streamer.live also counts connecting). DIRROVJ on the main bar: green only while DirroVJ really makes the picture (stuRun + a fresh 'sst' with run).
+- PORTALS SETUP and VJ TOOLS already read the real objects; not changed. The gray curved panel left as is (owner).
+- Checked in the PC pane: 5 presses ON > OFF > BG: VISUALS > DOME > ON > OFF with wall / dome / ledMode as above; MANDEL from OFF brings the wall out; home, TWITCH, OBJECTS, PORTALS, DIRROVJ, VJ TOOLS and main pages draw with no errors. Not tried on the Quest. sw.js v223. No Node restart. Backup backups/pre758/ (tools/patch758.py).
