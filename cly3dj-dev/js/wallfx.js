@@ -154,7 +154,7 @@ export function renderRings(px, W, H, t, bp, kick, mask, rp) {
 // red / white checked balls bouncing over a mirror-glossy checker floor that scrolls toward you, stars above. Everything moves on
 // the beat count bp (music BPM or TAP BPM): the balls touch down on the beats; the floor scrolls smoothly (#760 FLOOR SPEED).
 // Drawn by hand on the CPU (in the worker): floor per row, then shadows, mirrored balls in the floor, balls far to near.
-export const MP_DEF = { n: 16, spd: 2, fc: 0, bh: 1, bs: 1, fs: false, fp: 0, fh: 0.5, tsp: 1.2 };   // #761 fc floor colours, bh / bs ball height / size, fs floor scroller on, fp its path, fh its hop on the beat (m), tsp its speed (m/s)
+export const MP_DEF = { n: 16, spd: 2, fc: 0, bh: 1, bs: 1, fs: false, fp: 0, fh: 0.5, tsp: 1.2, fz: 0 };   // #764 fz: the floor scroller's distance (m, + further away)   // #761 fc floor colours, bh / bs ball height / size, fs floor scroller on, fp its path, fh its hop on the beat (m), tsp its speed (m/s)
 export const FLOOR_NAMES = ['BLACK / WHITE', 'BLUE', 'AMBER', 'RED'];
 export const FS_PATTERNS = ['STRAIGHT', 'SINE', 'CIRCLE'];
 export const SKY_HY = 0.58;   // #762 the horizon (share of the height): a SKY picture fills the frame above it
@@ -183,16 +183,16 @@ const pmod = (a, m) => ((a % m) + m) % m;
 // bits 0..7 the lit rows (top first), bits 9..10 a colour code (0 chrome, 1 yellow, 2 red emoji), bits 11.. the character index
 function floorLetters(mp, ts, bp, P) {
   const ft = mp.ft, out = []; if (!ft || !ft.length) return out;
-  const PXW = 0.13, Lt = ft.length * PXW, fp = P('fp') | 0, fh = P('fh'), sOff = ts * P('tsp');
+  const PXW = 0.13, Lt = ft.length * PXW, fp = P('fp') | 0, fh = P('fh'), sOff = ts * P('tsp'), fz = Math.max(-2, Math.min(8, P('fz')));
   for (let c = 0; c < ft.length;) {
     const ci = ft[c] >> 11, st = c, cols = []; while (c < ft.length && (ft[c] >> 11) === ci) cols.push(ft[c++]);
     const code = (cols[0] >> 9) & 3, s = (st + cols.length / 2) * PXW, y = fh * Math.abs(Math.sin(Math.PI * (bp + ci * 0.07)));
     let x, z, a = 1;
     if (fp === 2) {   // CIRCLE: a ring on the floor, the text runs round it, front and centre at the middle of the ring's run
-      const Rc = 3.6, Zc = 9.5, C = 2 * Math.PI * Rc, per = Math.max(C, Lt + 2), u = pmod(s - sOff, per); if (u >= C) continue;
+      const Rc = 3.6, Zc = 9.5 + fz, C = 2 * Math.PI * Rc, per = Math.max(C, Lt + 2), u = pmod(s - sOff, per); if (u >= C) continue;
       const an = (u - C / 2) / Rc; x = Rc * Math.sin(an); z = Zc - Rc * Math.cos(an); a = Math.min(1, u / 1.2, (C - u) / 1.2);
     } else {   // STRAIGHT / SINE: across the floor in front of the balls, in from the right
-      const Zt = 5.6, E = 4.8, u = pmod(s - sOff, Lt + 2 * E); x = u - E; if (x < -E || x > E) continue;
+      const Zt = 5.6 + fz, E = Zt * 0.62 + 1.3, u = pmod(s - sOff, Lt + 2 * E); x = u - E; if (x < -E || x > E) continue;
       z = Zt + (fp === 1 ? 1.3 * Math.sin(x * 0.8 + ts * 1.2) : 0);
     }
     if (a > 0.01) out.push({ L: 1, x, y, z, a, cols, code, rows: code ? 8 : 7, pw: PXW });

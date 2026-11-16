@@ -2878,3 +2878,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #763 The DANCER retires from RETRO-SCENE (owner, 16 Nov)
 - RETRO-SCENE page: the DANCER tile is gone (MANDEL, VECTOR-DANCER ⁺¹, BOUNCE BALLS ⁺¹, three across). The CYCLOWALL page's RETRO-SCENE tile starts BOUNCE BALLS; AUTO swaps MANDEL / BOUNCE BALLS; the VISUALS ⟳ cycle skips it. GRAB LOOP still plays its loops in the old 'retro' mode (between loops that mode still shows the dancer every 8 bars).
 - gram/js: wallfx.js, dirrogram.js, dirro-host.js updated. sw.js v227. No Node restart. Backups backups/pre762/.
+
+## #764 BOUNCE BALLS: DISTANCE for the floor scroller (owner, 16 Nov)
+- BOUNCE BALLS page: DISTANCE slider, -2 m (toward you) to +8 m (further away), default 0 (vd.mp.fz). Moves the STRAIGHT / SINE line (5.6 m + fz, its run widens with distance) and the CIRCLE's centre (9.5 m + fz). Landscape: sliders in four rows of two, the note dropped (it ran off the screen).
+- PREVIEW not updating with RETRO (owner report): not reproduced in the PC pane: with SHOWTIME! (GOPRO) and the VISUALS backdrop the PREVIEW screen follows BOUNCE BALLS live. Waiting for the owner's details (backdrop DOME / NONE shows no CYCLOWALL picture; with DIRROVJ on, PREVIEW shows DirroVJ's own output).
+- gram/js/wallfx.js updated. sw.js v228. No Node restart. Backups backups/pre764/.

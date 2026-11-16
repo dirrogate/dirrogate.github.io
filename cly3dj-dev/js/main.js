@@ -8990,13 +8990,14 @@ function drawToolsPage() {
       [`PATH: ${FS_PATTERNS[gv('fp') | 0]} ⟳`, false, () => set('fp', ((gv('fp') | 0) + 1) % FS_PATTERNS.length)],
       ['EDIT TEXT', false, editTxt],
       [`SKY: ${vd.mp.sky ? (vd.mp.sky.length > 14 ? vd.mp.sky.slice(0, 13) + '…' : vd.mp.sky) : 'STARS'} ⟳`, !!vd.mp.sky, nextBallSky]];   // #762
-    const r2 = v => Math.round(v * 100) / 100, spd = gv('spd'), bh = gv('bh'), bs = gv('bs'), fh = gv('fh'), tsp = gv('tsp');
+    const r2 = v => Math.round(v * 100) / 100, spd = gv('spd'), bh = gv('bh'), bs = gv('bs'), fh = gv('fh'), tsp = gv('tsp'), fz = gv('fz');
     const sl = [
       ['FLOOR SPEED', spd / 6, spd ? spd.toFixed(1) + ' tiles/s' : 'STOPPED', v => set('spd', Math.round(v * 60) / 10)],
       ['BALL HEIGHT', (bh - 0.2) / 1.3, Math.round(bh * 100) + ' %', v => set('bh', r2(0.2 + v * 1.3))],
       ['BALL SIZE', (bs - 0.5) / 1, Math.round(bs * 100) + ' %', v => set('bs', r2(0.5 + v))],
       ['SCROLL BOUNCE', fh / 1.5, fh ? fh.toFixed(2) + ' m' : 'NO BOUNCE', v => set('fh', r2(v * 1.5))],
-      ['SCROLL SPEED', (tsp - 0.3) / 2.7, tsp.toFixed(1) + ' m/s', v => set('tsp', r2(0.3 + v * 2.7))]];
+      ['SCROLL SPEED', (tsp - 0.3) / 2.7, tsp.toFixed(1) + ' m/s', v => set('tsp', r2(0.3 + v * 2.7))],
+      ['DISTANCE', (fz + 2) / 10, (fz > 0 ? '+' : '') + fz.toFixed(1) + ' m', v => set('fz', Math.round((v * 10 - 2) * 10) / 10)]];   // #764 + further away, - toward you
     const stp = (x, y, w, h) => {
       btn(x, y, 40, h, '−', false, () => set('n', Math.max(1, M.n - (M.n > 10 ? 2 : 1)))); btn(x + w - 40, y, 40, h, '+', false, () => set('n', Math.min(40, M.n + (M.n >= 10 ? 2 : 1))));
       g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = '#8c96a8'; g.font = '700 12px system-ui'; g.fillText('BALLS', x + w / 2, y + 14);
@@ -9013,8 +9014,7 @@ function drawToolsPage() {
     } else {
       const tw = (R - L - 30) / 6; tg.forEach(([l, o, a], i) => btn(L + i * (tw + 6), y0 + 4, tw, 42, l, o, a, false, 13));
       const hw = (R - L - 6) / 2; stp(L, y0 + 52, hw, 38); tapB(L + hw + 6, y0 + 52, hw, 38, 16);
-      [...sl, null].forEach((e, i) => { const x = L + (i % 2) * (hw + 6), y = y0 + 96 + Math.floor(i / 2) * 38; if (e) tSlider(g, x, y, hw, 32, e[0], e[1], e[2], e[3], false, 120); else pxSlider(x, y, hw, 32); });
-      g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; wrapText(g, info, L + 4, y0 + 222, R - L - 8, 16, 2);
+      [...sl, null].forEach((e, i) => { const x = L + (i % 2) * (hw + 6), y = y0 + 94 + Math.floor(i / 2) * 36; if (e) tSlider(g, x, y, hw, 30, e[0], e[1], e[2], e[3], false, 120); else pxSlider(x, y, hw, 30); });   // #764 four rows, no note (it would run off the screen)
     }
     return;
   }
