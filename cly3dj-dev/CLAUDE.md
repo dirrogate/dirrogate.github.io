@@ -2989,3 +2989,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
   - `library.js` infers unsuffixed tracks as Side A when a matching `_b` exists and exports `attachSideBFiles()` (matching by leading TrackID, stem, or title) called right after `parseLibrary()`.
   - `id3.js` parses `TXXX:SIDEB_BANDS` into `tag.sideb`.
 - **`LOOP MASTER` `SIDE B` button (`web/js/main.js`)**: replaces the redundant `DJ TOOLS` button below `LOAD BANK` (and adds `SIDE B` to the portrait row). Pressing `SIDE B` cycles turntables checking for a record with Side B facing up (`d.record && d.side === 'B'`); if none, does nothing; if found, pushes undo, clears the 4 looper slots, slices 1× single-cycle Loop → Slot 1 and the first 3 VOX → Slots 2–4 routed through that deck's existing looper channel (`bufs[d.i]`), saves to OPFS, and arms Slot 1.
+
+## #779 Quest right controller thumbstick click toggles armed Looper playback (owner, 19 Nov, gemini_neon 2026-11-19)
+- **`web/js/xr.js`**: edge-detected check on right controller `gamepad.buttons[3]` (disabled during Movie Props placement laser) calling `ctx.onRightStick(st)` with haptic feedback (`buzz(st, 0.45, 30)`).
+- **`web/js/main.js`**: `onRightStick` toggles `looper` between `stop` (armed) and `play` (ignores `empty` and `rec` so stray clicks never start recording or clear a slot), redrawing `LOOP MASTER` if open.

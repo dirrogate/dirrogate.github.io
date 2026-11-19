@@ -10938,6 +10938,15 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, toast, mixScreenRelease, mixScreenDrag, mixScreenDragging, mixScreenGrabAt,
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
+  // gemini_neon 2026-11-19: Quest right thumbstick click toggles play/stop of currently armed Looper slot (never records/clears)
+  onRightStick: () => {
+    if (!engine.ctx || !engine.looper || !looper.data) return false;
+    if (looper.state === 'stop') { engine.looperPlay(); looper.state = 'play'; }
+    else if (looper.state === 'play') { engine.looperStop(); looper.state = 'stop'; }
+    else return false;
+    if (toolsPage === 'looper') drawMixScreen();
+    return true;
+  },
 });
 
 // ------------------------------------------------------------------ start screen / XR
