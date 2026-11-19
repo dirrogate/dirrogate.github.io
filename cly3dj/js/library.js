@@ -62,18 +62,22 @@ export function parseLibrary(xmlText, resolve = defaultResolve) {
   }
 
   // Records: group by base title (case-insensitive).
+  // gemini_neon 2026-11-19: infer unsuffixed tracks as Side A when a matching *_b / *_b_s track exists
   const byKey = new Map();
   const records = [];
+  const hasBSide = new Set();
+  for (const t of tracks.values()) if (t.side === 'B') hasBSide.add(t.title.toLowerCase());
   for (const t of tracks.values()) {
-    if (!t.side) {
+    const key = t.title.toLowerCase();
+    const effSide = t.side || (hasBSide.has(key) ? 'A' : null);
+    if (!effSide) {
       const r = { id: 'r' + t.id, title: t.title, sides: { A: t, B: null } };
       records.push(r); t.record = r;
       continue;
     }
-    const key = t.title.toLowerCase();
     let r = byKey.get(key);
     if (!r) { r = { id: 'p' + t.id, title: t.title, sides: { A: null, B: null } }; byKey.set(key, r); records.push(r); }
-    if (!r.sides[t.side]) r.sides[t.side] = t;   // first wins on duplicates
+    if (!r.sides[effSide]) r.sides[effSide] = t;   // first wins on duplicates
     t.record = r;
   }
   for (const r of records) {
@@ -141,4 +145,74 @@ export function addUnsorted(lib, index) {
   const all = lib.playlists[0]; all.records.push(...recs); all.records.sort((a, b) => (a.missing - b.missing) || a.title.localeCompare(b.title));
   lib.playlists.splice(1, 0, { name: 'Unsorted', path: 'Unsorted (on this headset)', records: recs });
   return recs.length;
+}
+
+// gemini_neon 2026-11-19: auto-pair *_b / *_b_s audio files in Collection (PC or Quest OPFS) onto existing XML A-side records
+// Matches by: (1) leading TrackID ("132137352 - ..._b.mp3" -> TrackID="132137352"), (2) exact A-side filename stem, or (3) base title.
+export function attachSideBFiles(lib, entries) {
+  if (!lib || !entries || !entries.length) return 0;
+  const usedLoc = new Set();
+  for (const t of lib.tracks.values()) {
+    if (t.opfs) usedLoc.add(t.opfs.toLowerCase());
+    if (t.url) usedLoc.add(t.url.toLowerCase());
+  }
+  const stemOf = p => {
+    const fn = decodeURIComponent(String(p || '')).replace(/\\/g, '/').split('/').pop() || '';
+    return fn.replace(/\.[^.]+$/, '').trim();
+  };
+  const byStem = new Map(), byTitle = new Map();
+  for (const r of lib.records) {
+    const a = r.sides && r.sides.A;
+    if (!a || r.sides.B) continue;
+    const st = stemOf(a.opfs || a.location).replace(/_a$/i, '').trim().toLowerCase();
+    if (st && !byStem.has(st)) byStem.set(st, r);
+    const tk = (a.title || r.title || '').trim().toLowerCase();
+    if (tk && !byTitle.has(tk)) byTitle.set(tk, r);
+  }
+  let added = 0;
+  for (const ent of entries) {
+    const p = ent.opfs || ent.path || '';
+    if (!/_b(_s)?\.(mp3|m4a|aac|wav|aiff?|flac|ogg)$/i.test(p)) continue;
+    if ((ent.opfs && usedLoc.has(ent.opfs.toLowerCase())) || (ent.url && usedLoc.has(ent.url.toLowerCase()))) continue;
+    const rawStem = stemOf(p), m = rawStem.match(SUFFIX);
+    if (!m || m[2].toUpperCase() !== 'B') continue;
+    const baseStem = m[1].trim(), split = !!m[3];
+    const idm = /^(\d+)\s*-\s*(.*)$/.exec(baseStem);
+    let r = null;
+    if (idm) {
+      const a = lib.tracks.get(idm[1]);
+      if (a && a.record && !a.record.sides.B) r = a.record;
+    }
+    if (!r) r = byStem.get(baseStem.toLowerCase()) || null;
+    if (!r && idm) r = byTitle.get(idm[2].trim().toLowerCase()) || null;
+    if (!r) r = byTitle.get(baseStem.toLowerCase()) || null;
+    if (!r || r.sides.B) continue;
+    const a = r.sides.A;
+    const id = 'sb_' + (a ? a.id : added);
+    const bt = {
+      id,
+      name: `${r.title}${split ? '_b_s' : '_b'}`,
+      title: r.title,
+      side: 'B',
+      split,
+      artist: a ? a.artist : '',
+      album: a ? a.album : '',
+      genre: a ? a.genre : '',
+      key: a ? a.key : '',
+      bpm: a ? a.bpm : 0,
+      duration: 0,
+      location: p,
+      url: ent.url || null,
+      opfs: ent.opfs || null,
+      missing: !(ent.url || ent.opfs),
+      cues: [],
+      record: r,
+    };
+    lib.tracks.set(id, bt);
+    r.sides.B = bt;
+    r.paired = !!(r.sides.A && r.sides.B);
+    r.missing = !((r.sides.A && !r.sides.A.missing) || (r.sides.B && !r.sides.B.missing));
+    added++;
+  }
+  return added;
 }

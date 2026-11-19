@@ -940,6 +940,11 @@ export function setupXR(ctx) {
       // #404 A on the right controller (gamepad button 4): ctx.onA (brings the camera GoPro to that hand)
       { const g4 = !st.isHand && st.source && st.source.handedness === 'right' && st.source.gamepad && st.source.gamepad.buttons[4];
         const down = !!(g4 && g4.pressed); if (down && !st.aWas && ctx.onA && ctx.onA(st)) buzz(st, 0.5, 40); st.aWas = down; }
+      // gemini_neon 2026-11-19: Quest right thumbstick click (gamepad button 3) -> toggle playback of currently armed Looper slot
+      { const g3 = !st.isHand && st.source && st.source.handedness === 'right' && st.source.gamepad && st.source.gamepad.buttons[3];
+        const down = !!(g3 && g3.pressed && !(ctx.mprops && ctx.mprops.placer.active(st)));
+        if (down && !st.rStickWas && ctx.onRightStick && ctx.onRightStick(st)) buzz(st, 0.45, 30);
+        st.rStickWas = down; }
       if (ctx.mprops && !st.isHand && st.source && st.source.handedness === 'right') ctx.mprops.placer.step(st, dt, buzz);   // #479 B = placement laser for the MOVIE PROPS
       // thumbstick: rotate / raise furniture while moving it, scroll the crate while the hand is at it
       const gp = st.source && st.source.gamepad;

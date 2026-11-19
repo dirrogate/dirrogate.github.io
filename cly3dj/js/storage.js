@@ -70,8 +70,17 @@ export async function importFiles(fileList, onProgress, extraXml = [], filter = 
   for (const f of files) if (/\.xml$/i.test(f.name)) xmlTexts.push(await f.text());
   const want = new Set(); for (const t of xmlTexts) for (const n of xmlSongNames(t)) want.add(n);
   const stem = n => n.toLowerCase().replace(/\.[^.]+$/, ''), wantStem = new Set([...want].map(stem));
+  // gemini_neon 2026-11-19: also keep *_b / *_b_s B-side files matching a wanted TrackID prefix or stem during folder import
+  const idOf = n => { const m = /^(\d+)\s*-\s*/.exec(n); return m ? m[1] : ''; };
+  const wantIds = new Set([...want].map(idOf).filter(Boolean));
+  const isSideBMatch = fn => {
+    if (!/_b(_s)?\.(mp3|m4a|aac|wav|aiff?|flac|ogg)$/i.test(fn)) return false;
+    const tid = idOf(fn); if (tid && wantIds.has(tid)) return true;
+    const base = stem(fn).replace(/_b(_s)?$/i, '').trim();
+    return wantStem.has(base) || wantStem.has(base + '_a');
+  };
   const picked = files.length;
-  if (filter && want.size) files = files.filter(f => /\.xml$/i.test(f.name) || want.has(f.name.toLowerCase()) || (/\.(mp4|m4v|webm|mov)$/i.test(f.name) && wantStem.has(stem(f.name))));
+  if (filter && want.size) files = files.filter(f => /\.xml$/i.test(f.name) || want.has(f.name.toLowerCase()) || isSideBMatch(f.name) || (/\.(mp4|m4v|webm|mov)$/i.test(f.name) && wantStem.has(stem(f.name))));
   const have = new Map((await loadIndex()).map(x => [x.path.toLowerCase(), x.size]));
   const relOf = f => (f.webkitRelativePath || f.name).replace(/\\/g, '/');
   const skipped = files.filter(f => have.get(relOf(f).toLowerCase()) === f.size).length;
