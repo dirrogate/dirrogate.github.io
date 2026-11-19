@@ -28,7 +28,7 @@ function skipString(enc, b, o) {
 }
 
 export function readID3(arrayBuffer) {
-  const res = { title: '', artist: '', bpm: 0, key: '', picture: null, back: null, media: null, mediaB: null };
+  const res = { title: '', artist: '', bpm: 0, key: '', picture: null, back: null, media: null, mediaB: null, sideb: null };   // gemini_neon 2026-11-19: added sideb (TXXX:SIDEB_BANDS)
   const b = new Uint8Array(arrayBuffer);
   if (b.length < 10 || b[0] !== 0x49 || b[1] !== 0x44 || b[2] !== 0x33) return res;
   const ver = b[3], flags = b[5];
@@ -57,6 +57,13 @@ export function readID3(arrayBuffer) {
     }
     else if (id === 'TKEY' || id === 'TKE') res.key = decodeText(data[0], data.subarray(1)).replace(/\0+$/, '').trim();   // #116: initial key
     else if (id === 'TPE1' || id === 'TP1') res.artist = decodeText(data[0], data.subarray(1)).replace(/\0+$/, '');
+    else if (id === 'TXXX') {   // gemini_neon 2026-11-19: parse SideBrecords embedded band metadata (TXXX:SIDEB_BANDS)
+      const enc = data[0], p = skipString(enc, data, 1);
+      const desc = decodeText(enc, data.subarray(1, Math.max(1, p - (enc === 1 || enc === 2 ? 2 : 1)))).replace(/\0+$/, '').trim();
+      if (desc.toUpperCase() === 'SIDEB_BANDS' && p < data.length) {
+        try { res.sideb = JSON.parse(decodeText(enc, data.subarray(p)).replace(/\0+$/, '')); } catch {}
+      }
+    }
     else if (id === 'APIC' || id === 'PIC') {
       const enc = data[0]; let p = 1, mime;
       if (id === 'PIC') { const f = String.fromCharCode(...data.subarray(1, 4)).toLowerCase(); mime = f === 'png' ? 'image/png' : 'image/jpeg'; p = 4; }

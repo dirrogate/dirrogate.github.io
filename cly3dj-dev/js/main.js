@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from '../vendor/three/OrbitControls.js';
 import { mergeGeometries } from '../vendor/three/utils/BufferGeometryUtils.js';   // #689 cassette reels
 import { RoomEnvironment } from '../vendor/three/RoomEnvironment.js';
-import { parseLibrary, addUnsorted, emptyLibrary } from './library.js';
+import { parseLibrary, addUnsorted, emptyLibrary, attachSideBFiles } from './library.js';   // gemini_neon 2026-11-19: added attachSideBFiles
 import { readID3 } from './id3.js';
 import { AudioEngine, PITCH_RANGE } from './audio.js';
 import { REC, REC7, dimsOf, timeToRadius, radiusToTime, Screen, fitText, drawRecordSide, recordMaterial, setRecordSide, grooveAnisoMap } from './textures.js';
@@ -2351,6 +2351,19 @@ async function loadLibrary() {
       resolve = store.pcResolver;
     }
     lib = text ? parseLibrary(text, resolve) : emptyLibrary();
+    // gemini_neon 2026-11-19: auto-attach *_b / *_b_s B-side MP3s from Collection (Quest OPFS or PC test server) onto matching XML A-side records
+    if (index) {
+      attachSideBFiles(lib, index.map(f => ({ path: f.path, opfs: f.path })));
+    } else if (lib.records.length) {
+      try {
+        const sbRes = await fetch((store.PC_BASE || '') + 'api/sideb-files');
+        if (sbRes.ok) {
+          const sbJson = await sbRes.json();
+          const sbFiles = (sbJson && sbJson.files) || [];
+          attachSideBFiles(lib, sbFiles.map(p => ({ path: p, url: (store.PC_BASE || '') + p.split('/').map(encodeURIComponent).join('/') })));
+        }
+      } catch {}
+    }
     const unsorted = index ? addUnsorted(lib, index) : 0;   // #222
     if (unsorted) scanUnsorted(lib);
     const pairs = lib.records.filter(r => r.paired).length;
@@ -4700,6 +4713,111 @@ async function loopLoadBank(name) {
     setTools('looper'); loopSay(`Bank "${name}" in the 4 slots (${s.filter(Boolean).length} loops). Tap a slot to arm it`, 2600);
   } catch (e) { loopSay('Loading the bank failed: ' + e.message, 4000); }
 }
+// gemini_neon 2026-11-19: SIDE B -> LOOPER: cycles turntables checking for Side B facing up; clears 4 slots and loads 1 Loop + first 3 VOX routed to that deck's looper channel
+let sideBLastDeck = -1, sideBLastTrackId = '', sideBBusy = false;
+const sideBDecodeCache = new Map();
+function detectSideBBandsFromAudio(ab) {
+  const sr = ab.sampleRate, ch0 = ab.getChannelData(0), ch1 = ab.numberOfChannels > 1 ? ab.getChannelData(1) : ch0;
+  const win = Math.max(1, Math.round(sr * 0.05)), nW = Math.floor(ch0.length / win), thr = 0.002;
+  const segs = []; let inSeg = false, s0 = 0, sil = 0;
+  for (let w = 0; w < nW; w++) {
+    let e = 0; const st = w * win, en = Math.min(ch0.length, st + win);
+    for (let i = st; i < en; i += 4) { const v = (ch0[i] + ch1[i]) * 0.5; e += v * v; }
+    const rms = Math.sqrt(e / Math.max(1, (en - st) / 4));
+    if (rms >= thr) { if (!inSeg) { inSeg = true; s0 = w; } sil = 0; }
+    else if (inSeg) { if (++sil >= 30) { segs.push([s0 * 0.05, (w - sil + 1) * 0.05]); inSeg = false; sil = 0; } }
+  }
+  if (inSeg) segs.push([s0 * 0.05, ab.duration]);
+  return segs.filter(([a, b]) => b - a >= 0.25).map(([a, b], i) => {
+    const dur = b - a, kind = dur >= 10 ? 'loop' : 'vocal';
+    return { code: `B${i + 1}`, kind, label: kind === 'loop' ? `LOOP ${i + 1}` : `VOX ${i + 1}`, start_sec: a, duration_sec: dur };
+  });
+}
+function hasSideBOnPlatter(d) { return !!(d && d.record && d.side === 'B' && d.track && !d.track.missing); }
+async function loopLoadSideB() {
+  if (!engine.ctx || sideBBusy) return;
+  if (looper.state === 'rec') { loopSay('Finish the take first (press LOOP)'); return; }
+  // Cycle to the next turntable first; if only one turntable has Side B up, pick it on first press (or if its record changed)
+  let target = null;
+  if (sideBLastDeck < 0) {
+    target = decks.find(hasSideBOnPlatter) || null;
+  } else {
+    const next = decks[(sideBLastDeck + 1) % decks.length];
+    const cur = decks[sideBLastDeck];
+    if (hasSideBOnPlatter(next)) target = next;
+    else if (hasSideBOnPlatter(cur) && cur.track.id !== sideBLastTrackId) target = cur;
+  }
+  if (!target) {
+    const nextName = sideBLastDeck >= 0 ? decks[(sideBLastDeck + 1) % decks.length].name : 'A/B';
+    loopSay(sideBLastDeck >= 0 ? `Deck ${nextName}: no Side B facing up` : 'No Side B facing up on Deck A or B', 2000);
+    drawMixScreen();
+    return;
+  }
+  sideBBusy = true;
+  try {
+    const t = target.track, ch = target.i, sr = engine.ctx.sampleRate;
+    loopSay(`Loading Side B (Deck ${target.name})…`, 8000);
+    const data = await fetchSide(t);
+    if (!data || !data.bytes) throw new Error('could not read Side B audio');
+    const tag = readID3(data.bytes);
+    let ab = sideBDecodeCache.get(t.id);
+    if (!ab || ab.sampleRate !== sr) {
+      ab = await engine.ctx.decodeAudioData(data.bytes.slice(0));
+      if (sideBDecodeCache.size >= 4) sideBDecodeCache.delete(sideBDecodeCache.keys().next().value);
+      sideBDecodeCache.set(t.id, ab);
+    }
+    let bands = tag.sideb && Array.isArray(tag.sideb.bands) && tag.sideb.bands.length ? tag.sideb.bands : null;
+    if (!bands && t.cues && t.cues.length) {
+      const cs = t.cues.slice().sort((x, y) => x.time - y.time);
+      bands = cs.map((c, i) => {
+        const end = i + 1 < cs.length ? Math.max(c.time + 0.3, cs[i + 1].time - 3.0) : ab.duration;
+        const kind = /^vox\b|vocal/i.test(c.name) ? 'vocal' : 'loop';
+        return { code: `B${i + 1}`, kind, label: c.name || `B${i + 1}`, start_sec: c.time, duration_sec: end - c.time };
+      });
+    }
+    if (!bands || !bands.length) bands = detectSideBBandsFromAudio(ab);
+    const loops = bands.filter(b => b.kind === 'loop');
+    const voxes = bands.filter(b => b.kind === 'vocal');
+    const picks = [loops[0] || null, voxes[0] || null, voxes[1] || null, voxes[2] || null];
+    if (!picks.some(Boolean)) { loopSay(`Deck ${target.name} Side B: no loops or VOX found`, 2500); return; }
+    const maxSamp = Math.round(29.9 * sr), bpm = (tag.sideb && tag.sideb.bpm) || bpmOf(t) || 0;
+    const ch0 = ab.getChannelData(0), ch1 = ab.numberOfChannels > 1 ? ab.getChannelData(1) : ch0;
+    const nextSlots = picks.map(b => {
+      if (!b) return null;
+      const start = Math.max(0, Number(b.start_sec) || 0);
+      let dur = Number(b.duration_sec) || 0;
+      if (b.kind === 'loop') {
+        if (b.single_cycle_sec && b.single_cycle_sec > 0.25) dur = Number(b.single_cycle_sec);
+        else if (dur > 28) dur = dur / 4;
+      }
+      const s0 = Math.max(0, Math.min(ch0.length - 1, Math.round(start * sr)));
+      const s1 = Math.max(s0 + 64, Math.min(ch0.length, s0 + Math.min(maxSamp, Math.round(Math.max(0.25, dur) * sr))));
+      const L = ch0.slice(s0, s1), R = ch1.slice(s0, s1);
+      const bufs = [null, null]; bufs[ch] = [L, R];
+      return { len: L.length, sr, a: 0, b: L.length, mask: [ch === 0, ch === 1], bufs, src: target.name, bpm, t: Date.now(), name: b.label || '' };
+    });
+    undoPush({ kind: 'slots', prev: loopSlots.slice() });
+    for (let i = 0; i < loopDb.SLOTS; i++) { loopSlots[i] = nextSlots[i]; await loopDb.saveSlot(i + 1, nextSlots[i]); }
+    const firstIdx = nextSlots.findIndex(Boolean);
+    if (firstIdx >= 0) {
+      const S = nextSlots[firstIdx];
+      if (engine.looper) engine.looperLoad(S);
+      looper.data = S; looper.slot = firstIdx + 1; looper.peaks = null; looper.state = 'stop'; looper.r = S.a;
+    } else {
+      if (engine.looper) engine.looperClear();
+      looper.data = null; looper.slot = 0; looper.state = 'empty';
+    }
+    sideBLastDeck = target.i; sideBLastTrackId = t.id;
+    const filled = nextSlots.filter(Boolean).length;
+    loopSay(`SIDE B Deck ${target.name}: ${t.title} (${filled} slots armed)`, 2600);
+    drawMixScreen();
+  } catch (e) {
+    console.warn('sideb looper', e);
+    loopSay('SIDE B load failed: ' + e.message, 4000);
+  } finally {
+    sideBBusy = false;
+  }
+}
 // microphone (CLAUDE.md #60): first press asks for the mic (if not already allowed on the start screen)
 let micOn = false, micBusy = false;
 async function toggleMic() {
@@ -6873,6 +6991,9 @@ function drawLooperPage(page, T) {
   const storeG = (x, y, w, h) => gad(x, y, w, h, loopUI.store ? 'TAP SLOT' : 'STORE', loopUI.store, () => { if (!looper.data) { loopSay('Nothing to store: record a loop first'); return; } loopUI.store = !loopUI.store; loopUI.del = 0; }, !looper.data);
   const saveG = (x, y, w, h) => gad(x, y, w, h, 'SAVE BANK', false, () => { const d = new Date(), def = `BANK ${d.getDate()} ${d.toLocaleString('en', { month: 'short' }).toUpperCase()} ${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`; openKbd('LOOP BANK NAME (saves all 4 slots)', def, false, 40, t => loopSaveBank(t.trim() || def), 'looper'); }, !loopSlots.some(Boolean));
   const loadG = (x, y, w, h) => gad(x, y, w, h, 'LOAD BANK', false, loopOpenBanks);
+  // gemini_neon 2026-11-19: SIDE B button replaces redundant DJ TOOLS below LOAD BANK (DJ TOOLS stays in top title bar)
+  const anySideB = decks.some(hasSideBOnPlatter);
+  const sideBG = (x, y, w, h) => gad(x, y, w, h, sideBBusy ? 'LOADING…' : 'SIDE B', false, loopLoadSideB, sideBBusy, anySideB ? AM.cyan : AM.dimT);
   const zoomTo = f => { const c = loopUI.sel === 'in' ? Ld.a : Ld.b, s = (v1 - v0) * f; setView(c - s / 2, c + s / 2); };
   const viewGads = [[P ? 'SHOW RNG' : 'SHOW RANGE', () => { const m = (Ld.b - Ld.a) * 0.06; setView(Ld.a - m, Ld.b + m); }], ['SHOW ALL', () => setView(0, len)], ['ZOOM', () => zoomTo(0.25)], ['TELE', () => zoomTo(4)]];
   const markGads = [['IN', loopUI.sel === 'in', () => { loopUI.sel = 'in'; }], ['OUT', loopUI.sel === 'out', () => { loopUI.sel = 'out'; }], ['ALL', false, () => loopRegion(0, Ld.len)], ['FIX', false, loopFix]];   // #500 FIX LOOP
@@ -6895,13 +7016,13 @@ function drawLooperPage(page, T) {
     { const w2 = (w - gap) / 2; viewGads.forEach(([l, a], i) => gad(x + (i % 2) * (w2 + gap), y + Math.floor(i / 2) * (rH + gap), w2, rH, l, false, a, dimV)); volG(x, y + 2 * (rH + gap), w, rH); }
     [x, y, w] = grp(x0 + 634, W - 8 - (x0 + 634));   // banks
     saveG(x, y, w, rH); loadG(x, y + rH + gap, w, rH);
-    gad(x, y + 2 * (rH + gap), w, rH, 'DJ TOOLS', false, () => setTools('dj'));
+    sideBG(x, y + 2 * (rH + gap), w, rH);   // gemini_neon 2026-11-19: replaced DJ TOOLS with SIDE B
     logo(8, gy + gH + 4, W - 16, H - (gy + gH + 4) - 4);
   } else {
     const rH = 34, x = L, w = R - L; let y = sy;
     panel(x, y, w, 2 * rH + 18); txt(stTxt, x + 8, y + 7, 2, AM.cyan); { const hit = gad(x + 4, y + 26, w - 8, rH + 18 - 6, act, st !== 'empty', () => pressLooper('tablet'), false, stCol); hit.long = clearLooper; } y += 2 * rH + 22;
     const w4 = (w - 3 * gap) / 4; for (let n = 1; n <= 4; n++) slotG(x + (n - 1) * (w4 + gap), y, w4, rH + 6, n); y += rH + 6 + gap;
-    const w3 = (w - 2 * gap) / 3; storeG(x, y, w3, rH); saveG(x + w3 + gap, y, w3, rH); loadG(x + 2 * (w3 + gap), y, w3, rH); y += rH + gap;
+    storeG(x, y, w4, rH); saveG(x + w4 + gap, y, w4, rH); loadG(x + 2 * (w4 + gap), y, w4, rH); sideBG(x + 3 * (w4 + gap), y, w4, rH); y += rH + gap;   // gemini_neon 2026-11-19: added SIDE B in portrait row
     markGads.forEach(([l, on, a], i) => gad(x + i * (w4 + gap), y, w4, rH, l, on, a, dimE, l === 'FIX' ? AM.grn : null)); y += rH + gap;
     nudgeGads.forEach(([l, a], i) => gad(x + i * (w4 + gap), y, w4, rH, l, false, a, dimE)); y += rH + gap;
     editGads.forEach(([l, a, dim], i) => gad(x + i * (w4 + gap), y, w4, rH, l, false, a, dim, l === 'UNDO' ? AM.amb : null)); y += rH + gap;
