@@ -10737,7 +10737,9 @@ function frameBody() {
   if ((ledMode === 'cam' || (streamer && streamer.wantsCam) || (gopro && gopro.aiming) || (gopro2 && gopro2.aiming)) && djcam) stepDjCam(dt);   // #220 (#331 also while the stream shows AVACAM)
   stepArmSleeves();   // #347
   if (streamer) streamer.tick();   // #331
-  const domeSolid = skybox.group.visible && !(portals && (portals.holeN > 0 || portals.revN > 0)) && !(realDepth && realDepth.on && realDepth.ok);
+  const occOn = !!(realDepth && realDepth.on && realDepth.ok);
+  skybox.setDepthTest(occOn);
+  const domeSolid = skybox.group.visible && !(portals && (portals.holeN > 0 || portals.revN > 0)) && !occOn;
   const prevAuto = renderer.autoClear;
   if (arMode && renderer.xr.isPresenting) {
     renderer.autoClear = false;
@@ -10935,7 +10937,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack, gearLocked, gearLockMsg, snapYaw: isDeckKey, mixFeel: () => MIXFEEL, targetLightOn: () => !!settings.targetLight,   // #605   // #378
   REC, DECK, CRATE, ARM,
-  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : []), ...(mprops ? mprops.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
+  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, scrDir: () => scrDir, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : []), ...(mprops ? mprops.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
   trayScreen: () => (acidTray.open ? pvScreen : null), trayPress, trayDrag, trayRelease,   // #619
   reelAt: acidReelAt, reelTurn: acidReelTurn, reelEnd: () => acidNudge(0), cassGrab, cassRelease,   // #621

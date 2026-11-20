@@ -312,7 +312,9 @@ export function setupXR(ctx) {
         tb.updateMatrixWorld();
         const l = tb.worldToLocal(v2.copy(P)), corner = tb.localToWorld(v1.set(0.095, 0.035, 0));   // #196b the silver corner L (#202 top-right)
         const onCorner = corner.distanceTo(P) < 0.03 * Math.max(1, tb.scale.x * 0.8);
-        const inside = Math.abs(l.x) < 0.115 && Math.abs(l.y) < 0.05 && l.z > -0.035 && l.z < 0.035;
+        const dir = ctx.scrDir ? ctx.scrDir() : 'up';
+        const botQuarter = dir === 'px' ? l.x < -0.05 : dir === 'nx' ? l.x > 0.05 : l.y < -0.02;   // bottom quarter non-grabbable to avoid accidental bottom-row button presses
+        const inside = !botQuarter && Math.abs(l.x) < 0.115 && Math.abs(l.y) < 0.05 && l.z > -0.035 && l.z < 0.035;
         const docked = tb.position.distanceTo(ctx.mixer.userData.tabletDock.p) < 1e-4;
         if (onCorner && !docked && (st.isHand || btn !== 'grip')) {
           const c = tb.getWorldPosition(new THREE.Vector3());

@@ -26,7 +26,6 @@ varying vec3 vDir;
 void main() {
   vDir = position;   // #756 the panorama position is worked out per pixel from this (exact on the flattened floor at any segment count)
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  gl_Position.z = gl_Position.w * 0.9998;   // safely inside the far plane (avoids Adreno/MSAA far-plane clip flicker)
 }`;
 const FRAG = /* glsl */`
 uniform sampler2D map;
@@ -62,12 +61,13 @@ void main() {
     if (dot(rBend, rBend) > 1e-10 && abs(jd) > 1e-14) { vec2 duv = mat2(dx, dy) * (inverse(Jp) * rBend); uv += duv * min(1.0, 0.03 / max(length(duv), 1e-6)); }
   }
 #endif
-  vec4 c;
+  vec4 c = textureGrad(map, uv, dx, dy);
   float fp = max(length(dx * texSize), length(dy * texSize));
-  if (aa > 0.5 && fp > 1.2) {
-    c = 0.25 * (textureGrad(map, uv + dx * 0.125 + dy * 0.375, dx, dy) + textureGrad(map, uv + dx * 0.375 - dy * 0.125, dx, dy)
-              + textureGrad(map, uv - dx * 0.125 - dy * 0.375, dx, dy) + textureGrad(map, uv - dx * 0.375 + dy * 0.125, dx, dy));
-  } else c = textureGrad(map, uv, dx, dy);
+  if (aa > 0.5 && fp > 1.0) {
+    vec4 c4 = 0.25 * (textureGrad(map, uv + dx * 0.125 + dy * 0.375, dx, dy) + textureGrad(map, uv + dx * 0.375 - dy * 0.125, dx, dy)
+                    + textureGrad(map, uv - dx * 0.125 - dy * 0.375, dx, dy) + textureGrad(map, uv - dx * 0.375 + dy * 0.125, dx, dy));
+    c = mix(c, c4, smoothstep(1.0, 1.6, fp));
+  }
   vec3 o = c.rgb * gain; o = 0.18 * pow(max(o, vec3(0.0)) / 0.18, vec3(uCon)); o = pow(o, vec3(1.0 / uGam));
 #ifdef PORTAL_SKY
   if (portalRain.x + portalRain.y > 0.001 && inRev) {   // #639 the water itself: condensation (milky, cooler, lower contrast) wiped clear where water runs; dark rims, bright lens cores
@@ -138,11 +138,11 @@ export class Skybox {
     this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.allow3d = false; this.tex = null;   // #756 allow3d: DOME 3D (stereo panoramas shown in stereo); off = the left eye for both
     this.mats = [0, 1].map(() => new THREE.ShaderMaterial({
       uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 } },
-      vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthWrite: false, toneMapped: false, transparent: false, opacity: 1.0,
+      vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthTest: false, depthWrite: false, toneMapped: false, transparent: false, opacity: 1.0,
     }));
     this.geo = null; this.setHeight(this.height);
     this.meshes = this.mats.map(m => {
-      const s = new THREE.Mesh(this.geo, m); s.onBeforeRender = r => { const t = r.getRenderTarget(); m.uniforms.uAces.value = t && t.vireAces ? 1 : 0; };   /* #594 */ s.frustumCulled = false; s.renderOrder = 1000; s.raycast = () => {};   // #403 last of the opaque objects (was -1000, first)
+      const s = new THREE.Mesh(this.geo, m); s.onBeforeRender = r => { const t = r.getRenderTarget(); m.uniforms.uAces.value = t && t.vireAces ? 1 : 0; };   /* #594 */ s.frustumCulled = false; s.renderOrder = -900; s.raycast = () => {};   // drawn first (after realDepth at -1000), behind everything, no far-plane z-hack
       this.group.add(s); return s;
     });
     this.setStereo(false);
@@ -217,6 +217,7 @@ export class Skybox {
     this.meshes[1].layers.set(2); this.meshes[1].visible = st;
   }
   set3D(on) { this.allow3d = !!on; this.setStereo(this.stereoOn); }   // #756 DOME 3D / 2D
+  setDepthTest(on) { const v = !!on; for (const m of this.mats) m.depthTest = v; }
   setTurn(rad) { this.group.rotation.y = rad; }
   setGamma(k) { this.mats.forEach(m => { m.uniforms.uGam.value = k || 1; }); }   // #638 DOME GAMMA
   setContrast(k) { this.mats.forEach(m => { m.uniforms.uCon.value = k || 1; }); }   // #629 DOME CONTRAST
