@@ -7843,8 +7843,8 @@ function acidLayers() {
   if (!ACIDL.plate) {
     const mk = (map, z, tr) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.075), new THREE.MeshBasicMaterial({ map, toneMapped: false, transparent: tr, depthWrite: !tr }));
       m.position.z = z; m.renderOrder = tr ? 3 : 1; m.raycast = () => {}; m.visible = false; padCull(m); sm.add(m); return m; };
-    ACIDL.plate = mk(null, 0.00008, false);
-    ACIDL.over = mk(acidScreen.texture, 0.00016, true);
+    ACIDL.plate = mk(null, 0.00015, false);
+    ACIDL.over = mk(acidScreen.texture, 0.0003, true);
   }
   if (!ACIDL.tex) {
     const c = acidPlateCanvas(); if (!c) return;

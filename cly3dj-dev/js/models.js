@@ -707,8 +707,8 @@ diffuseColor.rgb = diffuseColor.rgb * vireHs * 1.5 + vec3(0.45) * smoothstep(0.7
   part(0.2, 0.0025, REC_D, 0, 0.03875, fz); part(0.2, 0.0025, REC_D, 0, -0.03875, fz);   // bezel top / bottom
   part(0.005, 0.075, REC_D, 0.0975, 0, fz); part(0.005, 0.075, REC_D, -0.0975, 0, fz);   // bezel sides
   const stand = new THREE.Mesh(mergeGeometries(bez), tabletBodyMat()); bez.forEach(b => b.dispose()); tab.add(stand);
-  const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.075), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
-  scr.position.set(0, 0, TABLET_T / 2 - REC_D + 0.0004);   // #201 recessed inside the 1 mm bezel, 0.4 mm + polygonOffset to prevent oblique-angle stereo Z-fighting
+  const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.075), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
+  scr.position.set(0, 0, TABLET_T / 2 - REC_D + 0.0004);   // #201 recessed inside the 1 mm bezel (0.4 mm ahead of back slab; tabletBodyMat pushes back with positive polygonOffset)
   tab.add(scr); u.screen = scr; scr.userData.mixScreen = true;   // BPM / ORIG / KEY readout taps (#116)
   tab.traverse(o => { if (o.isMesh) padCull(o); });   // #440
   u.tablet = tab; u.tabletDock = { p: tab.position.clone(), q: tab.quaternion.clone() };
@@ -761,7 +761,7 @@ export function tabletBodyMat() {
   let s = 991; const r = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
   for (let y = 0; y < 256; y++) { const v = Math.round(150 + r() * 70 + (r() < 0.08 ? 35 : 0)); g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(0, y, 16, 1); }
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1, 3);
-  TABLET_MAT = new THREE.MeshPhysicalMaterial({ color: 0x16171a, metalness: 0.85, roughness: 0.55, roughnessMap: t, anisotropy: 0.7 });
+  TABLET_MAT = new THREE.MeshPhysicalMaterial({ color: 0x16171a, metalness: 0.85, roughness: 0.55, roughnessMap: t, anisotropy: 0.7, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2 });
   TABLET_MAT.name = 'tablet_brushed_black';
   return TABLET_MAT;
 }
