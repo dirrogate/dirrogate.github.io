@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 3 Nov 2026 (decision log up to #602 in `ViRe_Custom/CLAUDE.md`; #530–#537 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 17 Nov 2026 (decision log up to #776 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -27,6 +27,7 @@ Owner: Clyde DeSouza (c3souza).
   - **Reading the Drive copy from the cloud:** the Drive connector's `search_files` with maximum snippets returns a file's text (Markdown-escaped, indents collapsed, the end of very large files cut off). It is good for reading and for checking a rebuild (compare with whitespace collapsed, then match the exact byte size), not for copying files back verbatim.
 - **Git lock files:** commits from Claude's shell leave `.git/*.lock` and `tmp_obj_*` files; delete them after every commit (needs the owner's delete permission for the repo folder, asked once per session), or the owner's next push fails.
 - **Backups:** `ViRe_Custom/backups/`, per-change folders (`pre-…`) plus full zips. Files Claude can't delete go to `ViRe_Custom/_to_delete/`.
+- **DirroVerse SET studio (laptop only, never on the Quest):** `ViRe_Custom/club_window/` (FastAPI on `127.0.0.1:8090`, torch CUDA on the RTX 4050; start with `club_window\start_set_builder.bat`). Self-contained since #717 (Real-ESRGAN, sprites, moon picture, `space_car.glb`, fx clips, `ephem.py` all inside it); `DirroVJcyberdomes/` can be archived once no set's moving plate source points into it. Sets in `club_window/sets/<name>/` (set.json, plate.png, plate_loop.mp4, bake_n.mp4, takes). Manual: `club_window/STUDIO_MANUAL.md`. Pano template for Gemini: `club_window/pano_template.html`. Plan docs `claude/club-window-plan.md`, `claude/dirroverse-shots-plan.md`.
 - **Blender sources:** `ViRe_Custom/blender/`. **Renders:** `ViRe_Custom/renders/`. **Tools:** `ViRe_Custom/tools/` (`make_sleeve_demo.py` builds `web/examples/`). **Test panoramas:** `ViRe_Custom/test_panos/`.
 - **Models:** decks `web/models/` (GLB turntable, AO bake `turntable_ao.png/json`); avatars `web/models/avatar/avatar_robot_v2.glb` (the Cly3DJ robot, see Video and avatar), the older `avatar_robot.glb` (licensed model as delivered, #245) and `gemini_emboss.png` (its cup crest), `dirroface.glb` (owner's Ready Player Me avatar). Controller and hand models are vendored in `web/vendor/webxr-input-profiles/` (`meta-quest-touch-plus`, `generic-hand`).
 
@@ -91,9 +92,22 @@ Owner: Clyde DeSouza (c3souza).
 - **Alignment with the real hand:** not solved; parked by the owner. HAND FIT on the tablet (move / turn, 5 mm / 5 deg steps, saved as `vire.handFit`, sent to the phone) is there for that day.
 - **Controller mode ball:** placed from the owner's 1 mm crosshair renders (#285).
 
+## Tablet menus (#769 to #774, 16 Nov): the current map
+
+The owner's simplification. Rules: the Quest's first job is a stutter-free mix; Twitch, DirroTV, Dirrogram and SCREEN portals show the same picture; only two backgrounds (CYCLOWALL and DOME); HEADSET CAM is the only camera on the tablet (webcam and phone camera live on the DirroVJ laptop); every switch shows the real state (green = really on); a 👆 with a blue ring at a button's right end means a long press does more ("A long press does more." under those pages).
+
+- **Main bar:** RESET MIX · VISUALS · SHOWTIME! (● LIVE when on Twitch) · VIDREC · DJ TOOLS · SETUP · LOOP · ACID. Portrait: VISUALS · SHOW TIME! · VIDREC · SETUP over DJ TOOLS · RESET MIX · LOOP · ACID. TOOLS and VJ TOOLS are gone (setTools('home') opens SETUP, setTools('vj') opens VISUALS > FX).
+- **VISUALS:** tabs CYCLOWALL ⁺¹ (its page: CYCLOWALL ON / OFF, VISUALS, MANDEL, RETRO-SCENE ⁺¹ with BOUNCE BALLS / VECTOR-DANCER, PROGRAM, GRAB LOOP, AUTO, PHONES, TAP BPM, grid / dot / glow, PIXELS) · CLIPS · IMAGES · PANO (one DOME: ON / OFF button; tap a pano = on the DOME) · FX (FLOAT, WATER, NEON, LASER ▸, MOVIE PROPS ▸) · SCROLLER.
+- **SHOWTIME!** (one page): CAMERA GOPRO 1, GOPRO 2, WIDE, HEADSET CAM, CARD ⁺¹; SCENE CYCLOWALL, DOME, PORTALS, ROBOT, GEAR; EXTRAS SCROLLER, CHAT ▸, WHITEBOARD, NOW PLAYING, LOGO; SEND TO GO LIVE ON TWITCH, DIRROTV, DIRROVJ ▸. Long presses: GOPRO = back to its start, HEADSET CAM = CAM FIT, CYCLOWALL = its page, DOME = the panos, PORTALS = PORTALS SETUP, SCROLLER = its text.
+- **SETUP:** DIRROGRAM, DIRROTV, DIRROVJ LINK, CAM FIT, MEDIA SYNC (phone library), PERFCAP, REAL OCCLUSION, AVATAR style.
+- **PORTALS SETUP** (long press PORTALS): four kinds with the shape separate. HOLE = cut into the DOME, the real room shows; WINDOW = the DOME shows through it; FRAME = only the frame (round a real object, cuts nothing); SCREEN = a picture / clip / the CYCLOWALL on its glass (warns when it plays its own video, a second decode).
+- **CYCLOWALL PROGRAM:** the wall shows what Twitch sees (the stream canvas); inside that shot the wall is black, so no tunnel; the shot keeps running off air while PROGRAM is up. DirroDj📹 (robot close-up camera on the wall) is gone.
+- **Backdrop:** DOME or nothing (BG: VISUALS, SKY / SKY OFF and the flat VISUALS layer behind the stream are gone). With both CYCLOWALL and DOME off you see the real room.
+- **CYCLOWALL visuals (#770):** the wall samples the visuals picture (640 x 360) straight on the GPU, ~30 fps worker, a smooth beat clock, balls on a real parabola; PIXELS 0 is the sharpest.
+
 ## LED wall (VISUALS LED button, and the WALL page since #439)
 
-Sources: OFF, CLIPS, VIDVINYL, AVACAM, LIVE, SOLO plus the effect modes MANDEL, RETRO-SCENE+1 (VECTOR-DANCER, METABALLS, ZOOM) and CARD+1 (pictures and GIFs), with PIXELS 0 to 10, TAP BPM and a 5.3 s GRAB LOOP (8x8 sheet, 112x63 cells, under 60 KB for phones). A button with a tiny "+1" opens its own page. Output is 640x360 and also feeds the stream, CLY3DTV and the Dirrogram phones. Details: audience-ar-plan.md and CLAUDE.md #441 to #447. Tested in the browser pane only.
+Now called the CYCLOWALL (#729 onward). Superseded by the map above (#769): the first tile is a plain CYCLOWALL ON / OFF; the BG: VISUALS and DOME steps are gone.
 
 ## Backdrop and portal (#345)
 
@@ -146,7 +160,7 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 
 ## DirroVJ (#500 to #515, 26 to 27 Oct)
 
-- The laptop page that makes the audience picture (was S8 STUDIO): `cabin.dirrodj.club/dirrovj.html`, paired to the Quest with the 5-digit code, ALLOW / DENY on the tablet's DIRROVJ page (nothing is sent before ALLOW), heartbeat with TAKE BACK. RENDER: QUEST (default, the Quest's packed frame) or LAPTOP (the laptop draws the mirror scene). Modes SHOW, LIVE DJ!, LIVE KEY!, WEBCAM; a camera without calibration is a plain camera (#515).
+- The laptop page that makes the audience picture (was S8 STUDIO): `cabin.dirrodj.club/dirrovj.html`, paired to the Quest with the 5-digit code. Since #697 the code is the key: no ALLOW step, DIRROVJ and SOUND switch on by themselves when DirroVJ links, the laptop keeps the code and links again by itself, last press (tablet or desk) wins, NEW CODE on the tablet (tap twice) drops every linked device. Twitch never changes hands by itself: whoever is live shows it on both sides and the other side needs a deliberate STOP (desk: QUEST LIVE: STOP). Heartbeat with TAKE BACK when DirroVJ goes silent. RENDER: QUEST (default, the Quest's packed frame) or LAPTOP (the laptop draws the mirror scene). Modes SHOW, LIVE DJ!, LIVE KEY!, WEBCAM; a camera without calibration is a plain camera (#515).
 - VJ desk (`vjdesk.html`, #507): buses A / B with QUEST, FRACTAL (Amiga-style landscape, four formulas, six palettes, BEAT from the kick), WEBCAM, LED CLIP, DIRROCOMICS, BLACK; CUT / AUTO; scroller desk (Twitch chat + HoloSMS, APPROVE); LINE IN; SHOWTIME! camera and object buttons (#523).
 - DirroTV follows DirroVJ when it is on (#509). Names cleaned up (#510): DirroVJ, DirroVJ camera, DirroTV screens, TWITCH.
 
@@ -155,6 +169,93 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 - A live comic strip drawn by DirroVJ as a bus source (1950s / 60s newsprint, CyberGrunge meets Steampunk). Details and owner decisions: project doc `dirrocomics-plan.md`; user steps: section 8 of `DirroVJ_DirroDJ_User_Manual.docx`.
 - Built: page with peeks, five inking styles, captions / balloons / SFX, black and white ANAGLYPH with depth (SBS, RGB+D, painted depth maps, MediaPipe PEOPLE, LIVE PEOPLE), GRAB QUEST / WEBCAM / RGB-D, issues (.dirrocomic), MP4, PDF STRIP, Instagram REEL 9:16 and CAROUSEL 4:5 (posted by hand), STAR IN IT (Dirrogram card, YES / NO per line, hash-chained consent log on the relay, WITHDRAW), terms text on the Dirrogram, AI storyboard (Gemini free tier or Claude API, 8 to 12 panels), the owner's DirroComics mark.
 
+## gemini_neon_ Status (19–20 Nov)
+
+- **Release (`cly3dj`)**: up to `#779` (19 Nov, commit `16b443e`). **Dev (`cly3dj-dev`)**: up to `#790` (20 Nov, commit `2858753`, `sw.js` `vire-app-v248`, ready to push in GitHub Desktop).
+- **gemini_neon_ #778–#779 (19 Nov) — SideBrecords LOOPER & Quest Right Thumbstick**:
+  - `TXXX:SIDEB_BANDS` metadata in `*_b` / `*_b_s` MP3s, auto-pairing in `Collection/` without editing XML, and `LOOP MASTER` `SIDE B` button slicing 1× Loop + first 3 VOX into the 4 looper slots.
+  - Right Quest controller thumbstick click (`gamepad.buttons[3]`) toggles armed Looper playback (`stop` ↔ `play`) with haptic feedback.
+- **gemini_neon_ #780–#786 (19–20 Nov) — DirroVerse SET Studio (`club_window/`)**:
+  - `+ OBJECT` upgraded for any static or animated GLB (node & 4-bone skeletal skinning, clip/speed/offset/loop-sync, pitch/roll).
+  - Depth Anything V2 Polygon-to-3D photo-textured `.glb` extruder (`poly_extrude.py`, `KHR_materials_unlit`, `face_camera`).
+  - Interactive UX: Preview zoom/pan/direct GLB drag, 6–10× faster GPU/CPU cached Preview + `Live canvas: ON/OFF`, ZBrush-style 3D Globe Manipulation Gizmo (translate/rotate/directional `scale_xyz`), built-in WebGL 360° equirectangular Preview viewer, GLB map-driven cavity wetness + HDR clear-coat, and live 2-layer mesh-projected soft cast + contact shadows.
+- **gemini_neon_ #787–#790 (20 Nov) — Quest 3 Dome, Full VR, Tablet & VISUALS UX**:
+  - **Dome passthrough & video optimization (`#787`)**: forced `gl_FragColor.a = 1.0`, `transparent: false`, `frustumCulled = false`; added `Portals.holeN`; bypassed Three.js r169's `hasDepthSensing()` clear-skip & `alpha-blend` clearAlpha override with explicit XR clear; switched transparent/additive scene overlays to destination-alpha-preserving `THREE.CustomBlending`; fast single-tap `texture2D` path with early-Z (`renderOrder = 1000`) for video panos; generated Quest-friendly `1_dome_quest.mp4` (`2560×1280`, 11 Mbps).
+  - **Full VR fix (`#788`)**: removed AR-only `'anchors'` and `anchorSetup` from `immersive-vr` — Full VR now launches cleanly on Quest 3 with smooth still and 4K video domes.
+  - **Remote tablet (`#789`)**: eliminated oblique-angle left-eye Z-fighting via `0.4 mm` screen offset + positive `polygonOffset` on `tabletBodyMat()` (preserving ACID faceplate layers), and made the bottom 25% of the tablet non-grabbable (landscape & portrait) to prevent accidental bottom-row button presses.
+  - **VISUALS double-tap (`#790`)**: double-tapping a thumbnail (700 ms window) immediately activates it — Pano → DOME, Images/Video → CYCLOWALL NOW.
+
+## Status (16 Nov, evening)
+
+- Release (cly3dj) = dev up to #774 (commit 5b95b04).
+- #766 user manual updated; #767 STAR photos as evidence: tick boxes start ticked (untick = no send; every photo is a new opt-in), one photo per phone every 5 minutes (relay per device), TABLE CODE field, MOON CASE table codes + TABLE CARDS + EVIDENCE CALL (scroller line, 5 minute window, NO ALIBI? suggestions); relay needs `npx wrangler deploy`, site needs the dirroclub_website upload.
+- #768: DOME back (a mid-line comment in #756 had stopped it being added to the scene), beat LEDs follow the auto beat grid, phase meter removed.
+- #769 to #774: the menu simplification (map above), PROGRAM, four portal kinds, SETUP, sharper smooth CYCLOWALL visuals, the 👆 long-press mark.
+- #776: Panorama cutout billboard in the puddle (`grungehut_exterior`): per-pixel equirect lookup + slow yaw drift and zenith tilt, open-air MediaPipe cutout billboard in the yellow puddle using the existing `3840 × 1920` `plate_loop.mp4`, rippled puddle reflection + contact shadow, and optional **FLIGHT CASE** button on the desk below the working turntables strip for waist-up webcam shots.
+- Not yet tried on the Quest: all of #767 to #776.
+
+## Status (16 Nov)
+
+- Release (cly3dj) = dev up to #765 (released 16 Nov, commit 6d357f3).
+- Tablet switches show the real state (#758): the CYCLOWALL ⟳ state cycle (above), TWITCH green / ● LIVE only once really live (CONNECTING… while connecting), DIRROVJ green only while DirroVJ makes the picture, DOME / GoPro buttons lit from the real objects, SKY / SKY OFF lit.
+- BOUNCE BALLS (#759 to #764) replaced METABALLS; the DANCER tile retired (#763); the DOME always has a sky: the spaceship interior (img/sky_factory.jpg) until a pano is picked, from every DOME switch (#765). SKY OFF turns off the dome and sky (passthrough then shows, unless the CYCLOWALL wall, PANO frames or movie props stand in front).
+- Earlier, released before: up to #756 (commit 95a2cb3). The SET studio is still not in the repo.
+- Recording (#751, #753, #754): PROGRAM REC on DirroVJ (WebCodecs H.264 on the GPU encoder, Opus, steady 30 fps, Matroska written as it goes into the browser's private storage and flushed every 2 s, crash-safe; 720p / 1080p, 1080p draws the Program at 1080p); header button on the desk, VIDREC on the tablet's main bottom bar (DIRROTV moved off it). Takes listed in desk SETUP > Program recordings (SAVE / DELETE); a RECORDINGS FOLDER gets an automatic copy of each VIDREC take and of REC MASTER .wav files (laptop Chrome; the Quest keeps Downloads).
+- PERSON KEY goes into the DirroVerse windows when DIRROVERSE is up (#752): one copy of you, SIZE / X / Y inside the window, holo only with HOLO.
+- 2D page (#753): Phone / DirroVJ link On by default, persistent storage asked for silently, Save / Load settings file (keys included); each address keeps its own settings.
+- #755: PORTALS SETUP SCREEN / FRACTAL ⟳; CYCLOWALL OFF / DOME ONLY take the wall geometry out.
+- Dome / sky (#756): looked up per pixel (straight floor at 64 x 32 segments); DOME 3D / 2D on PORTALS SETUP (default 2D).
+- CYCLOWALL and robot cam (#729 to #733, #740): CYCLO DOME, the CYCLOWALL name, it spawns behind the robot DJ, DirroDj📹 shows on the wall without filming itself; the desk's CYCLOWALL bus shows the Quest's wall.
+- WEBCAM work (#734, #741, #742, #744): robot hands in WEBCAM+GEAR!, WEBCAMS ⟳ / CONFIRM, EXPOSURE / GAMMA / TEMP / TINT on the webcam (tablet and desk), the desk's GRADE · WEBCAM also reaches the DirroVerse windows.
+- VJ desk redesign (#743): status lights (TWITCH flashing red when live, REC), sticky top strip (monitor, buses with keys 1 to 7, T-bar, FX, AUTOPILOT), Settings panel that follows the cued / live bus, one GRADE panel (MASTER / WEBCAM), PERFORMER bus (dancer / Holodancer, PERFORMERCAM+), library tabs, SETUP drawer, HELP; tablet VJ DESK page.
+- HEADSET CAM (#745): OCCLUSION OFF / SOFT / HOLO (Quest depth hides the gear where real hands are in front; HOLO gives your near hands the holoportal look; YOU < x m), QUICK FIT (3 crosses) and drag nudge on CAM FIT.
+- Desk PERSON KEY (#745): MediaPipe cutout of the webcam over the program, HOLO / MIRROR / SIZE / X / Y.
+- WEBCAM+GEAR! without calibration (#746): the decks, mixer and case as a see-through strip along the bottom of the webcam picture, seen from the audience side (the old GoPro box is gone).
+- DirroVerse windows (#747, #749): right-click a scene > Window: WEBCAM + GEAR, WEBCAM (no gear, REAR WINDOW / DirroComics), ORIGINAL WINDOW, HOLOEDGE (plate window behind, you cut out with a holo edge, gear strip in front, AUTO ZOOM parallax); WEBCAM SIZE slider. All on the laptop.
+- Desk (#748, #749): webcam picker also under DIRROVERSE / PERFORMER, the RENDER badge switches QUEST / LAPTOP, ⧉ POP OUT / DOCK BACK for the Program strip, Settings panels, GRADE, SCROLLER and the library. DirroDJ keeps drawing while hidden behind DirroVJ on the same laptop (worker tick).
+- Not yet tried on the Quest: #745 occlusion and QUICK FIT, #747 HOLOEDGE with a real person, real pop-up windows.
+
+## Status (13 Nov)
+
+- Release (cly3dj) = dev up to #716 (released 13 Nov, commit 52fdfc6): DirroVerse banks and WEBCAM + GEAR windows (#707), moving matte, AUTO DIRROVERSE, AUTO ZOOM, MASTER GRADE (#708 to #711), MATCH SCENE (#712 to #714), webcam on demand (#716). The SET studio is not in the repo.
+
+- DirroVJ webcam on demand (#716, `web/` and cly3dj-dev): the webcam opens only while a bus, the projector's WEBCAM ONLY, calibration or the Quest's WEBCAM shot needs it, and closes after 10 s idle (60 s after a manual start).
+- SET studio (#715 to #723), all on the laptop:
+  - Panorama prep: upscale 4K / 5K / 6K, 21:9 padded to 2:1, seam evening, nadir / zenith fill, HEAL brush with undo; panorama views (gnomonic child sets) and DOME render (views warped back into the panorama).
+  - #718 GLB shading: GGX + prefiltered 360 environment (the set's panorama, or the plate wrapped round), normal / occlusion maps, clear coat, glass, soft contact shadow.
+  - #719 + OBJECT (was + CAR): any GLB, one click = a still object (facing, spin), more clicks = a flight path; no-plate option; works on panorama sets (path drawn on the equirect).
+  - #720 + SPRITES: PNG, animated GIF (own timing, transparency) or PNG frame set (name_0.png ...); SIDE VIEW or FROM BELOW (turns with its travel); bob; paths round the whole panorama sphere.
+  - #721 360 LOOK: look round the whole panorama frame at the scrub time (drag, wheel zoom).
+  - #722 NIGHT SKY: moon for a place and time (or full moon), stars, puffy / rain clouds, seamless loop; + SKY areas say where (else everything above the horizon); bright plate lights stay in front.
+  - #723 numbered takes (right-click SAVE -> name_n.mp4), padlocks on items, BAKE LOCKED (locked items into bake_n.mp4, later renders skip them), stacking bakes = double exposure.
+  - #724 GrungeHut: Gemini panoramas cured (sparkle cloned over, 16:9 stretched to 2:1, pano prep to 6144 x 3072), five scenes plus two panorama sets, DirroVerse bank `GrungeHut`.
+  - #725 `club_window/pano_template.html`: a flat picture placed at its true size and direction in an empty panorama (field of view, turn / tilt / roll), saved with a mask and a Gemini prompt that fills only the empty area. grungehut_exterior got rain at three depths, drip lines, steam, smoke, fog and wet ground; falling rain now joins at a panorama's left / right seam.
+  - #726 big panorama plate loops no longer run x264 out of memory.
+  - #727 manuals: `club_window/STUDIO_MANUAL.md` (the SET studio, incl. the pano template and layered rain); the DirroVJ / DirroDJ manual (.docx) has a new section 9 part "DirroVerse scenes and the SET studio" (PDF remade).
+- Next: surf and sea zone; then a patch-only re-render for bakes if needed.
+
+## Status (11 Nov)
+
+- Release (cly3dj) = dev up to #705 (released 11 Nov: #678, #681, #692, #694, #696, #698, #702, #706). New 11 Nov: CYCLO glass window wall (#703), desk DROSTE BEAT ZOOM (#704) and DROSTE MAKER (#705). cabin.dirrodj.club serves cly3dj-dev; Dirrogram is uploaded by hand from `ViRe_Custom/dirroclub_website` (gram/index.html = web/dirrogram.html, gram/js = web/js).
+- DirroVJ (#662 to #669): SOLO / LINKED; master tempo LINE IN / TAP; DIRROVERSE bus (Cyber-Window studio sets, `claude/cyber-window-dirrovj-plan.md`); projector window with a display picker, OUTPUT HERE, projection mapping (two copies on 4x4 / 8x8 meshes, end of the desk); CAST bus (the Quest 3 casting tab via getDisplayMedia, crop); HOLO+CAM and DANCER+CAM (a dancer placed in the club webcam: spot, height, CAMERA POS -60..+60, facing, shadow, LIGHT MATCH, FRONT EDGE); Dirrogram from this laptop (own room, QR, dirrodj.club/<ROOM>).
+- Holodancer: Blender builder 1-view depth layout (#671), guide `claude/holodancer-guide.md` and `DirroDancer/holo/builder/README.md`; Quest MOVIE PROPS > HOLODANCER + (life size, carried by the ring, PERFORMER / SIZE / SPEED / TEARS / PROJECTOR / TURN 45 deg); holoprojector 0.5 m behind the dancer with bolder scan lines (#675).
+- Dirrogram (phones): no automatic placement (#670); PLACE HOLODANCER in the camera mode on every phone (tilt-based floor spot, drag to turn / nearer, NEXT DANCER), performers from cabin.dirrodj.club/holo/ or the one DirroVJ sends; CLUB LIGHT relights the dancer from the camera picture (#677); the WebXR walk-around was tried (#672) and removed (#676); start screen DIRROGRAMS; no CONNECTING pill without a room.
+- Desk / scroller (#682 to #686): VJ desk Utilities section and compact header, DirroVerse set chips (hover preview, right-click DELETE SCENE), scroller font with lowercase / accents / emoji, acid! and thumb! floaters.
+- ACID / DIRROACID (#687 to #693, plan doc `claude/acid-cassette-plan.md`): ACID channel gain 3.0 (+25 % on #617, plus make-up for the shorter gate); 303 articulation (gate closes half way through a step unless it slides, proper 303 slide meaning, VCA fade / 10 ms close, accent sweep that builds over runs of accents); the worklet sleeps when stopped and silent; overdrive DC offset fixed. Cassettes back to the original picture look with dark translucent sides (#691; the label + 3D-reel look stays behind a test hook). 16 new factory tapes (#693): whole 2-4 bar Goa acid phrases chained as a TB-03 track, Phrygian / Phrygian dominant / harmonic minor / minor / double harmonic, side B = breakdown, each with its own filter curve over the phrase (on top of the CUTOFF knob). Preview: `ViRe_Custom/renders/acid_tapes_preview.wav`.
+- Not yet tried on the Quest or real phones: most of the above, including the new ACID sound and tapes. User-facing text calls the performer "the dancer" (male or female performers).
+
+## Status (8 Nov)
+
+- Release (cly3dj) = dev up to #608 (released 8 Nov). Only CLAUDE.md, PROJECT.md, `_test/` and the Kitana test models stay dev-only. cabin.dirrodj.club serves cly3dj-dev.
+- #603–#605: MAIN MENU on every tablet page, smooth deck twist, MIXER FEEL (knob friction), TARGET LIGHT toggle.
+- ACID / DIRROACID (TB-03 acid synth on the tablet: #606 by Gemini, reviewed and fixed by Claude in #607, raised knobs #608):
+  - Tablet: ACID button on the mixer page opens the TB-03 panel (landscape only). 76 patterns (3 TB-03 banks + 4 Goa presets as bank 4) and 7 tracks, RUN / STOP, keyboard, TEMPO / VALUE, overdrive and delay.
+  - Mixer: ACID VOL = the TB-03's channel fader into the master (same law as a deck fader); ACID CUE = pre-fader pre-listen into the headphones, like a deck CUE (never mutes the master). Pokeable in the headset.
+  - Synth level: the default patch sits near a mastered track (about -9.5 dBFS RMS); the filter is a true 4-pole now (brighter than Gemini's version), cutoff to 5 kHz, soft safety stage.
+  - Headset: on the ACID page all 12 knobs rise out of the tablet as 3D knobs (with acid smileys floating away), turned like the mixer knobs; TRACK / MODE notch with the slightest haptic tick, no other knob haptics. Desktop keeps the flat panel.
+  - The tablet's glass plate is gone (owner: glare).
+- Not yet tried on the Quest: the raised knobs (grab feel, size, tick strength), the new synth level against real records.
+
 ## Status (3 Nov)
 
 - Release (cly3dj) = dev up to #601 (released in #602, 3 Nov). Only CLAUDE.md, PROJECT.md, `_test/` and the Kitana test models stay dev-only. cabin.dirrodj.club serves cly3dj-dev.
@@ -162,33 +263,14 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 - 3 Nov (#598–#601): REC MASTER (WAV of the clean master; with split cue on, the Quest's own video has the master on its left channel for syncing in Premiere); ROOM SNAP ON / OFF on PORTALS SETUP; WALL SNAP ON / OFF on MOVIE PROPS; PUMPKIN + removed (load it with GLB +); SNAP SCAN and SKYLIGHT removed (owner: too complicated; a skylight = a non-doorway frame carried up to the ceiling, TYPE PANO).
 - Not yet tried on the Quest: REC MASTER (48 kHz, the download after leaving VR), ROOM SNAP / WALL SNAP with a real Space Setup, the #589–#597 portal work in passthrough.
 
-## Status (29 Oct — Gemini_flash8_)
+## Status (29 Oct, Gemini sessions)
 
-- Gemini_acid (#606, Phase 1):
-  - **Gemini_acid Roland TB-303 analog acid synthesizer, presets & tablet interface (#606):**
-    - High-fidelity analog-modeled discrete-time TB-303 synthesizer AudioWorklet (`acid-worklet.js`) featuring bandlimited PolyBLEP Sawtooth and asymmetric Square oscillators, 4-pole non-linear saturated diode ladder filter (`tanh` feedback clipping), ~60ms slide portamento, and snappy accent response (boosted gain, increased cutoff spike, shortened decay).
-    - 4 Goa trance acid sequence presets assigned to Pattern Keys 1–4 ("Astral Drive" 142 BPM, "Hallucinogenic Squelch" 144 BPM, "Juno Hypnosis" 140 BPM, "Acperience Euphoria" 145 BPM).
-    - Dual volume bus audio routing: TB-303 panel VOLUME knob feeds `cueBus` only (private headphone audition/cueing); main mixer `ACID VOL` knob (positioned directly above `LOOP VOL` on Deck B column) feeds `masterBus` (live stream & audience).
-    - Remote tablet interface: `ACID` button added as the last button on the bottom row of the mixer menu (pulsing state indicator). Tapping opens full-screen TB-303 panel (`tb303_panel.png`) with photorealistic turnable knob cutouts (TUNING, CUTOFF, RESONANCE, ENV MOD, DECAY, ACCENT, TEMPO, VOLUME), working RUN/STOP button and pulsing LED, pattern selector keys with active LEDs, live keyboard key auditioning, and top navigation header (`MAIN MENU`, `PREVIEW`, `◀ BACK`) drawn over the clean top chassis allowing continuous acid playback while navigating other tablet pages.
-    - PSD asset integration & precision alignment: cutouts and cleaned panel extracted directly from `tb303_panel_and_knobs.psd` with exact centers and non-uniform canvas scaling (`scale(sx, sy)`).
-    - Full extent dial sweeps: adjusted rotation angles to full hardware span ($\pm 150^\circ$) across all knobs. Small knobs now hit all 11 dial dots, Tempo sweeps full 80–180 BPM (SLOW to FAST) without 50% truncation, and Volume reaches POWER SW OFF to MAX with zero notch shortfall.
-    - Accurate physical hitzones: RUN/STOP at `x:[72..178], y:[592..658]`, LED at `(125, 569)`, WAVEFORM at `x:[305..385], y:[28..72]`, and Pattern keys 1..4 at `y:[590..658]`.
-    - Top navigation header refinement: `MAIN MENU`, `PREVIEW`, and `◀ BACK` kerned tightly ($4$ px gap) and positioned at $y=3..19$, staying entirely above the graphic divider line and over 60px clear of the Accent knob lettering.
-    - Clean black status typography: RUN text line removed from top left (redundant with pulsing hardware LED); BPM and preset name preserved at top-left margin in crisp black font (`#111`, 9px) above MIX IN.
-    - Removed erratic switch-off from Volume knob (smooth CUE volume control).
-- Gemini_flash8_ (#537, in `cly3dj-dev`, waiting for the owner's go before copying to `cly3dj`):
-  - **Gemini_flash8_ Rename LED / LED WALL to CYCLO across UI (#537):** Renamed all user-facing `LED`, `LED WALL`, and `LED CLIP` labels, buttons, notes and toasts across the app to `CYCLO` (`main.js`, `vjdesk.html`, `index.html`, `spectator-client.js`, `dirrogram.html`, `dirrogram.js`). Mixer modes display `CYCLO OFF`, `CYCLO CLIPS`, `CYCLO VIDVINYL`, `CYCLO MANDEL`, etc., header and navigation shortcuts are `CYCLO` and `CYCLO ⁺¹`, playlist controls are `CYCLO NOW`, `+ CYCLO`, `CYCLO LIST`, and VJ Desk A/B monitors display `CYCLO`.
-  - **Gemini_flash8_ Remove MR GUI from tablet remote mixer screen (#537):** Safely removed the spectator AR debug/viewfinder button `MR GUI` from Deck A's top row in both portrait and landscape orientations (`main.js`), decluttering the mixer interface.
-- gemini_argon_ (#530–#536, in `cly3dj-dev`, waiting for the owner's go before copying to `cly3dj`):
-  - **gemini_argon_ 3D LED wall removed (#530):** `makeLedWall()` and the 3D `ledwall` mesh / curve / tilt / portrait / VR grab-turn-scale handlers are removed (`ledwall.js`, `tools.js`, `xr.js`, `main.js`, `stream.js`, `vjdesk.html`). `LedPlayer`, `WallFx`, `DeckVideo` and `Scroller` (now pure 2D canvas) drive `BACK: VISUALS` (the 2D visual backdrop across SHOWTIME!, DirroTV, Dirrogram and Twitch).
-  - **gemini_argon_ SHOWTIME! cameras trimmed to 4 (#530):** `FRONT` and `FADERS` removed from `CAM_PRESETS` (`director.js`, `main.js`, `vjdesk.html`), leaving `GOPRO`, `GOPRO2`, `WEBCAM` and `HEADSET CAM` (default `'gopro'`). `SHOWTIME! OBJECTS` has 6 object toggles (`NEON`, `CHAT PANEL`, `WHITEBOARD`, `GEAR`, `ROBO-BODY`, `DOME`).
-  - **gemini_argon_ WEBCAM unified (#530):** `PHONE CAM` and DirroVJ `LIVE DJ!` / `LIVE KEY!` / `WEBCAM` are unified into `WEBCAM` (`stream.js`, `studio.js`, `vjdesk.js`, `main.js`). All keying (`GREEN SCREEN`, `AUTO KEY`, `KEY: GRN/BLUE/MAG`, `STRENGTH`, `SOFTNESS`, `SPILL`, `MATTE`, `CROP`, `LIGHT MATCH`, `EXPOSURE`, `DELAY TRIM`) and `GEAR: ON/OFF` apply to `WEBCAM` whether running on the external DirroVJ laptop or over the WebRTC camera link, and `WEBCAM` can be triggered bidirectionally from either the Quest tablet (`SHOWTIME!`) or the external VJ desk (`vjdesk.html`).
-  - **gemini_argon_ Smooth DirroVJ workflow & always-live Program output (#531):** Fixed `"No program picture yet: DirroVJ starts drawing when the Quest turns it on."` overlaying the VJ Desk preview (`studio.js`, `vjdesk.js`, `vjdesk.html`, `spectator-client.js`) by running `studio.frame(now)` immediately in `vj` mode plus a background timer when `dirrovj.html` is occluded behind another window. Clicking **Connect** on `dirrovj.html` now automatically starts the laptop webcam, spawns the **DirroVJ Desk** (`vjdesk.html`) as an independent browser window, and launches a separate **Webcam / Projector** window (`PROGRAM MIX` / `WEBCAM ONLY` / `MIRROR` / `⛶ FULL SCREEN`, double-click or `F` for fullscreen) ready to drag to a second monitor or projector.
-  - **gemini_argon_ VJ Desk clip banks, Twitch controls & Desktop tablet pop-out/resize (#532):** Removed the `#pvWait` overlay message from `vjdesk.html`, moved `SHOWTIME!` into the top-right column under `SOUND FOR TWITCH`, added `TWITCH ON/OFF` and `TWITCH KEY:` input directly to `SOUND FOR TWITCH` (shared with `studio.js` so Twitch streaming can be controlled from either the VJ Desk or the Quest), added 3×15+ horizontally scrollable thumbnail clip banks (`IMAGES`, `VIDEOS`, `PANOS`) with visible horizontal/vertical scrollbars, and made the top-right corner of the mixer's remote tablet clickable to pop out / dock and left-click draggable to resize in Desktop mode (`main.js`).
-  - **gemini_argon_ VJ Desk IMAGES / VIDEOS / PANOS A/B playback & single-cell selection fix (#533):** Fixed `IMAGES` going black after 2 s (`ledwall.js` `vjLocal` guards against the Quest's 2 s `{ k: 'led', on: false }` heartbeat and flips `ImageBitmap` Y-orientation), fixed `VIDEOS` not playing (`vjdesk.js` and `studio.js` now dynamically bind `led.video` and mark `needsUpdate = true` each frame instead of checking `led.video` only at startup), fixed `PANOS` not playing (`vset.js`, `studio.js` `renderDome`, and `vjdesk.js` `D.ledKind = 'pano'` render 360° still and video panoramas directly on the active A/B monitor bus), and enforced strict single-cell selection (`actMedia` / `D.media`) across all three clip banks (`vjdesk.html`).
-  - **gemini_argon_ Manual 0°–360° Panorama angle bar & DirroComics RGB+D 50% depth map overlay + opacity slider (#534):** Replaced panorama auto-rotation with a manual `0°`–`360°` view angle slider bar (both under each Pano thumbnail cell and under the `PANOS` bank, driving `studio.js` `S.panoYaw` and `vs.onSky({ turn })`), and for DirroComics RGB+D panels overlaid the Quest's recorded grayscale depth map at `50%` default opacity with an opacity slider right under the thumbnail and in `#cxDEd` (`vjdesk.html`, `comics.js`) so the VJ can paint (`FRONT` / `NEAR` / `FAR` / `BACK`) or `SOFTEN` to enhance the recorded depth map.
-  - **gemini_argon_ Fix Three.js r169 VideoTexture playback for VIDEOS, Pano framerate & window-occlusion optimizations, and Cell-Center True Stereoscopic dot/hatch shader (#535):** Fixed `VIDEOS` failing to upload in Three.js r169 (`vjdesk.js`, `studio.js`, `ledwall.js` now instantiate `new THREE.VideoTexture(v)` per video clip instead of a plain `THREE.Texture` whose immutable `texStorage2D` read `video.width = 0`), eliminated Pano framerate drops (`skybox.js` skips redundant 33k-vertex `setHeight` rebuilds, `studio.js` caches `renderDome` per frame and skips `compSc` when `quest` bus is inactive, `spectator-client.js` runs a 30 fps fallback loop + silent WebAudio keep-alive when `dirrovj.html` is covered by overlapping windows), and upgraded `comics.js` `PANEL_FS` to **Cell-Center True Stereoscopic** halftone/Ben-Day/hatch shading so every dot stays 100% circular with zero stretching at depth edges while floating at its true 3D stereo depth.
-  - **gemini_argon_ Lightweight 64×32 skybox sphere (2,145 vertices) & fast 3840×1920 panorama load path (#536):** Reduced the skybox sphere from `256×128` (`33,153` vertices) to `64×32` (`2,145` vertices — 15× lighter), eliminated the redundant `createImageBitmap` `resizeQuality: 'high'` pass in `Skybox.load` when panoramas already fit (such as `3840×1920`), reduced the `leftEyeCanvas` / video snap helper canvas from `2048` to `512` wide (16× fewer pixels), and skipped redundant `PMREMGenerator` rebuilds in `EnvLight.setImage`.
+- Full wording of these entries is in `CLAUDE.md` (#530 to #537, #606).
+- #530: 3D LED wall removed (the CYCLO is a 2D backdrop; `LedPlayer`, `WallFx`, `DeckVideo`, `Scroller` stay); SHOWTIME! cameras trimmed to GOPRO, GOPRO2, WEBCAM, HEADSET CAM; PHONE CAM and DirroVJ LIVE DJ! / LIVE KEY! unified into WEBCAM (keying, crop, light match, delay, GEAR on / off on both the laptop and the phone link).
+- #531 to #533: DirroVJ program output always live (also when its window is covered); Connect opens the desk and a webcam / projector window; desk clip banks IMAGES / VIDEOS / PANOS with single selection; Twitch ON / OFF and key on the desk; desktop pop-out / resize of the tablet; IMAGES going black, VIDEOS not playing (three r169 VideoTexture) and PANOS on the buses fixed.
+- #534 to #536: manual 0 to 360 pano angle bar; DirroComics RGB+D depth overlay with opacity; cell-centre stereo halftone / hatch shading; lighter skybox sphere (64 x 32) and faster pano loading.
+- #537: LED / LED WALL renamed CYCLO everywhere; MR GUI removed from the tablet mixer page.
+- #606 (Gemini_acid): first TB-303 synth worklet, presets and tablet panel (reviewed and replaced in #607, see Status 8 Nov).
 
 ## Status (27 Oct)
 
