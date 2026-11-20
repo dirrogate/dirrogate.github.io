@@ -707,8 +707,8 @@ diffuseColor.rgb = diffuseColor.rgb * vireHs * 1.5 + vec3(0.45) * smoothstep(0.7
   part(0.2, 0.0025, REC_D, 0, 0.03875, fz); part(0.2, 0.0025, REC_D, 0, -0.03875, fz);   // bezel top / bottom
   part(0.005, 0.075, REC_D, 0.0975, 0, fz); part(0.005, 0.075, REC_D, -0.0975, 0, fz);   // bezel sides
   const stand = new THREE.Mesh(mergeGeometries(bez), tabletBodyMat()); bez.forEach(b => b.dispose()); tab.add(stand);
-  const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.075), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
-  scr.position.set(0, 0, TABLET_T / 2 - REC_D + 0.0001);   // #201 on the recess floor, 1 mm below the bezel
+  const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.075), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  scr.position.set(0, 0, TABLET_T / 2 - REC_D + 0.0004);   // #201 recessed inside the 1 mm bezel, 0.4 mm + polygonOffset to prevent oblique-angle stereo Z-fighting
   tab.add(scr); u.screen = scr; scr.userData.mixScreen = true;   // BPM / ORIG / KEY readout taps (#116)
   tab.traverse(o => { if (o.isMesh) padCull(o); });   // #440
   u.tablet = tab; u.tabletDock = { p: tab.position.clone(), q: tab.quaternion.clone() };
