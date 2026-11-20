@@ -10738,8 +10738,19 @@ function frameBody() {
   stepArmSleeves();   // #347
   if (streamer) streamer.tick();   // #331
   const domeSolid = skybox.group.visible && !(portals && (portals.holeN > 0 || portals.revN > 0)) && !(realDepth && realDepth.on && realDepth.ok);
-  renderer.setClearAlpha(domeSolid ? 1.0 : 0.0);
+  const prevAuto = renderer.autoClear;
+  if (arMode && renderer.xr.isPresenting) {
+    renderer.autoClear = false;
+    renderer.setScissorTest(false);
+    renderer.state.buffers.depth.setMask(true);
+    renderer.state.buffers.color.setMask(true);
+    renderer.setClearColor(0x000000, domeSolid ? 1.0 : 0.0);
+    renderer.clear(true, true, true);
+  } else {
+    renderer.setClearAlpha(domeSolid ? 1.0 : 0.0);
+  }
   renderer.render(scene, camera);
+  renderer.autoClear = prevAuto;
   if (fx) fx.postRender();   // #379 the floated gear back in its real place for hands, grabs and saving
 }
 // #427 DIRROGRAM: the show to the audience phones through the relay (dirro-host.js)
@@ -10963,7 +10974,7 @@ async function begin(mode) {
     setRecordTexSize(2048); // only a few full-detail records exist at once; grooves need the resolution
     applyShadows(false);   // real-time shadows per the Shadows setting (#96)
     renderer.setPixelRatio(1);
-    const base = ['local-floor', 'bounded-floor', 'hand-tracking', 'anchors'];   // #210 anchors
+    const base = mode === 'immersive-ar' ? ['local-floor', 'bounded-floor', 'hand-tracking', 'anchors'] : ['local-floor', 'bounded-floor', 'hand-tracking'];   // #210 anchors (AR only: Quest Browser drops immersive-vr if AR anchors are requested/restored)
     let session = null;
     if (mode === 'immersive-ar') {   // #411 (#408 depth test): Quest 3 depth for occlusion, Space Setup planes for the laser
       try { session = await navigator.xr.requestSession(mode, { optionalFeatures: [...base, 'depth-sensing', 'plane-detection', 'mesh-detection'], depthSensing: { usagePreference: ['gpu-optimized'], dataFormatPreference: ['luminance-alpha', 'float32'] } }); }
@@ -10979,7 +10990,7 @@ async function begin(mode) {
       if (rates.includes(want)) session.updateTargetFrameRate(want).catch(() => {});
     }
     rig.position.set(-0.05, 0, -0.62); rig.rotation.set(0, 0, 0);
-    anchorSetup(session);   // #210 pin the gear to the room (restores the saved pin in a known room)
+    if (mode === 'immersive-ar') anchorSetup(session);   // #210 pin the gear to the room (restores the saved pin in a known room)
     xr.setHandMode('3d');   // #268 (owner): no passthrough cut-out for tracked hands; always the 3D hands
     // passthrough rooms are much dimmer than the studio environment: tone reflections down so metal isn't self-lit
     arMode = mode === 'immersive-ar';
@@ -10996,7 +11007,7 @@ async function begin(mode) {
     });
     session.addEventListener('end', () => { rigAnchor = null; anchorPending = false; rig.rotation.set(0, 0, 0); arMode = false; applyArLook(); applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
     toast('Reach out and touch: pinch or grip right at a knob, fader, tonearm or record', 5000);
-  } catch (e) { toast('Could not start XR: ' + e.message, 4000); }
+  } catch (e) { $('#start').style.display = ''; toast('Could not start XR: ' + e.message, 4000); }
 }
 
 // ---- environment light

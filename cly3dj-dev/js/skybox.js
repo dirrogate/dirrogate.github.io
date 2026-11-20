@@ -26,7 +26,7 @@ varying vec3 vDir;
 void main() {
   vDir = position;   // #756 the panorama position is worked out per pixel from this (exact on the flattened floor at any segment count)
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  gl_Position.z = gl_Position.w * 0.99999;   // just inside the far plane: behind everything, drawn only where nothing else is
+  gl_Position.z = gl_Position.w * 0.9998;   // safely inside the far plane (avoids Adreno/MSAA far-plane clip flicker)
 }`;
 const FRAG = /* glsl */`
 uniform sampler2D map;
