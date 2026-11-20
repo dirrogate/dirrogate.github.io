@@ -10737,9 +10737,7 @@ function frameBody() {
   if ((ledMode === 'cam' || (streamer && streamer.wantsCam) || (gopro && gopro.aiming) || (gopro2 && gopro2.aiming)) && djcam) stepDjCam(dt);   // #220 (#331 also while the stream shows AVACAM)
   stepArmSleeves();   // #347
   if (streamer) streamer.tick();   // #331
-  const occOn = !!(realDepth && realDepth.on && realDepth.ok);
-  skybox.setDepthTest(occOn);
-  const domeSolid = skybox.group.visible && !(portals && (portals.holeN > 0 || portals.revN > 0)) && !occOn;
+  const domeSolid = skybox.group.visible && !(portals && (portals.holeN > 0 || portals.revN > 0)) && !(realDepth && realDepth.on && realDepth.ok);
   const prevAuto = renderer.autoClear;
   if (arMode && renderer.xr.isPresenting) {
     renderer.autoClear = false;

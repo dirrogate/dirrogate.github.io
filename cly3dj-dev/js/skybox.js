@@ -26,6 +26,7 @@ varying vec3 vDir;
 void main() {
   vDir = position;   // #756 the panorama position is worked out per pixel from this (exact on the flattened floor at any segment count)
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  gl_Position.z = gl_Position.w * 0.9999;   // just inside the far plane: early-Z skips every dome pixel behind gear, tablet, hands & walls
 }`;
 const FRAG = /* glsl */`
 uniform sampler2D map;
@@ -50,23 +51,30 @@ void main() {
   // copies of u is continuous here, so the 0 / 1 seam gets no line of wrong mip level.
   vec3 d = normalize(vDir);
   vec2 bs = vec2(1.0 - fract(atan(d.z, -d.x) / 6.28318530718), 0.5 + asin(clamp(d.y, -1.0, 1.0)) / 3.14159265359);
-  vec2 bx = dFdx(bs), by = dFdy(bs), ba = vec2(fract(bs.x + 0.5), bs.y), ax = dFdx(ba), ay = dFdy(ba);
-  if (abs(ax.x) < abs(bx.x)) bx.x = ax.x; if (abs(ay.x) < abs(by.x)) by.x = ay.x;
   vec2 uv = vec2(bs.x * so.x + so.y, bs.y * so.z + so.w);
-  vec2 dx = bx * so.xz, dy = by * so.xz;
+  vec4 c;
+  if (aa > 0.5) {
 #ifdef PORTAL_SKY
-  {   // #639 GLASS RAIN (portal.js): the bend is in metres on the frame's glass; map it to texture space with the screen
-      // derivatives of both (works for any frame angle, each eye, and the flattened floor). Derivatives taken outside any branch.
-    vec2 pdx = dFdx(pRev), pdy = dFdy(pRev); mat2 Jp = mat2(pdx, pdy); float jd = determinant(Jp);
-    if (dot(rBend, rBend) > 1e-10 && abs(jd) > 1e-14) { vec2 duv = mat2(dx, dy) * (inverse(Jp) * rBend); uv += duv * min(1.0, 0.03 / max(length(duv), 1e-6)); }
-  }
+    if (portalRain.x + portalRain.y > 0.001) {
+      vec2 bx = dFdx(bs), by = dFdy(bs), ba = vec2(fract(bs.x + 0.5), bs.y), ax = dFdx(ba), ay = dFdy(ba);
+      if (abs(ax.x) < abs(bx.x)) bx.x = ax.x; if (abs(ay.x) < abs(by.x)) by.x = ay.x;
+      vec2 dx = bx * so.xz, dy = by * so.xz;
+      vec2 pdx = dFdx(pRev), pdy = dFdy(pRev); mat2 Jp = mat2(pdx, pdy); float jd = determinant(Jp);
+      if (dot(rBend, rBend) > 1e-10 && abs(jd) > 1e-14) { vec2 duv = mat2(dx, dy) * (inverse(Jp) * rBend); uv += duv * min(1.0, 0.03 / max(length(duv), 1e-6)); }
+    }
 #endif
-  vec4 c = textureGrad(map, uv, dx, dy);
-  float fp = max(length(dx * texSize), length(dy * texSize));
-  if (aa > 0.5 && fp > 1.0) {
-    vec4 c4 = 0.25 * (textureGrad(map, uv + dx * 0.125 + dy * 0.375, dx, dy) + textureGrad(map, uv + dx * 0.375 - dy * 0.125, dx, dy)
-                    + textureGrad(map, uv - dx * 0.125 - dy * 0.375, dx, dy) + textureGrad(map, uv - dx * 0.375 + dy * 0.125, dx, dy));
-    c = mix(c, c4, smoothstep(1.0, 1.6, fp));
+    c = texture2D(map, uv);   // video has no mipmaps: single fast tap (no dFdx/dFdy or multi-tap stall on Quest 3)
+  } else {
+    vec2 bx = dFdx(bs), by = dFdy(bs), ba = vec2(fract(bs.x + 0.5), bs.y), ax = dFdx(ba), ay = dFdy(ba);
+    if (abs(ax.x) < abs(bx.x)) bx.x = ax.x; if (abs(ay.x) < abs(by.x)) by.x = ay.x;
+    vec2 dx = bx * so.xz, dy = by * so.xz;
+#ifdef PORTAL_SKY
+    if (portalRain.x + portalRain.y > 0.001) {
+      vec2 pdx = dFdx(pRev), pdy = dFdy(pRev); mat2 Jp = mat2(pdx, pdy); float jd = determinant(Jp);
+      if (dot(rBend, rBend) > 1e-10 && abs(jd) > 1e-14) { vec2 duv = mat2(dx, dy) * (inverse(Jp) * rBend); uv += duv * min(1.0, 0.03 / max(length(duv), 1e-6)); }
+    }
+#endif
+    c = textureGrad(map, uv, dx, dy);
   }
   vec3 o = c.rgb * gain; o = 0.18 * pow(max(o, vec3(0.0)) / 0.18, vec3(uCon)); o = pow(o, vec3(1.0 / uGam));
 #ifdef PORTAL_SKY
@@ -138,11 +146,11 @@ export class Skybox {
     this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.allow3d = false; this.tex = null;   // #756 allow3d: DOME 3D (stereo panoramas shown in stereo); off = the left eye for both
     this.mats = [0, 1].map(() => new THREE.ShaderMaterial({
       uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 } },
-      vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthTest: false, depthWrite: false, toneMapped: false, transparent: false, opacity: 1.0,
+      vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthTest: true, depthWrite: false, toneMapped: false, transparent: false, opacity: 1.0,
     }));
     this.geo = null; this.setHeight(this.height);
     this.meshes = this.mats.map(m => {
-      const s = new THREE.Mesh(this.geo, m); s.onBeforeRender = r => { const t = r.getRenderTarget(); m.uniforms.uAces.value = t && t.vireAces ? 1 : 0; };   /* #594 */ s.frustumCulled = false; s.renderOrder = -900; s.raycast = () => {};   // drawn first (after realDepth at -1000), behind everything, no far-plane z-hack
+      const s = new THREE.Mesh(this.geo, m); s.onBeforeRender = r => { const t = r.getRenderTarget(); m.uniforms.uAces.value = t && t.vireAces ? 1 : 0; };   /* #594 */ s.frustumCulled = false; s.renderOrder = 1000; s.raycast = () => {};   // #403 last of the opaque objects: early-Z skips every dome pixel behind gear, tablet, hands & walls
       this.group.add(s); return s;
     });
     this.setStereo(false);
