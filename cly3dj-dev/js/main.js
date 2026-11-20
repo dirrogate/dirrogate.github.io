@@ -5600,7 +5600,7 @@ const SP_HIT = [];   // #164 spectator strip buttons
 const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set while drawing
 // ---- #185 mixer Video page: the media library pushed from the phone (Pano, Video pano, Video, Images), 8 thumbnails a
 // page; pick one, then where it goes (sky, a deck's VideoVinyl, the LED wall). LED WALL mode lives here too now.
-let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null, vpSelFolder = null, toolsPage = null;   // #224 vpSelFolder: Pano tab mixes Pano + Video pano
+let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null, vpSelFolder = null, toolsPage = null, vpLastTap = { name: '', t: 0 };   // #224 vpSelFolder: Pano tab mixes Pano + Video pano
 const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
 const VP_LIB = ['Pano', 'Video', 'Images'];   // #224 one PANO tab for still and video panoramas
 const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'CLIPS', Images: 'IMAGES', Camera: 'REMOTE CAM', Sync: 'SYNC', Look: 'LOOK', 'DJ Cam': 'GOPROS', Fx: 'FX' };   // #389 CAMERA is REMOTE CAM; the AVACAM tab is GOPROS, which opens SHOWTIME! OBJECTS   // #379 FX   // #241 the DJ CAM tab is AVACAM (owner)
@@ -6051,7 +6051,17 @@ function drawVideoPage() {
       const folder = itF, name = it.name;
       VP_HIT.push({ x: xx - 4, y: xy - 4, w: xs + 8, h: xs + 8, del: true, act: () => deleteMedia(folder, name) });
     }
-    VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, item: it.name, act: () => { if (vd.pick != null && !it.loopId) { vdAssign(it.name); return; } vpSel = it.name === vpSel ? null : it.name; vpSelFolder = vpSel ? itF : null; drawMixScreen(); } });
+    VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, item: it.name, act: () => {
+      if (vd.pick != null && !it.loopId) { vdAssign(it.name); return; }
+      const now = performance.now(), isDbl = vpLastTap.name === it.name && now - vpLastTap.t < 700;
+      if (isDbl) {
+        vpLastTap.name = ''; vpLastTap.t = 0; vpSel = it.name; vpSelFolder = itF;
+        vpAct(vpFolder === 'Pano' || vpFolder === 'Video pano' ? 'sky' : 'lednow');
+        drawMixScreen(); return;
+      }
+      vpLastTap.name = it.name; vpLastTap.t = now;
+      vpSel = it.name === vpSel ? null : it.name; vpSelFolder = vpSel ? itF : null; drawMixScreen();
+    } });
   });
   if (vd.pick != null) { g.strokeStyle = '#ff3040'; g.lineWidth = 4; g.strokeRect(2, 2, W - 4, H - 4); g.fillStyle = '#ff6070'; g.font = '700 15px system-ui'; g.textAlign = 'right'; g.fillText(`PICK THE MATTE FOR SLOT ${vd.pick + 1}`, W - 12, y0 + 12); }   // #442
   // bottom bar: pages, targets for this folder, LED mode (portrait: targets get a row of their own)

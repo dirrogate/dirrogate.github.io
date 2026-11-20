@@ -10,7 +10,7 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v247';   // gemini_neon 2026-11-20: #785 Fix ACID tablet background going dark (move polygonOffset off scr onto tabletBodyMat + cleaner ACIDL z-spacing)
+const CACHE = 'vire-app-v248';   // gemini_neon 2026-11-20: #786 VISUALS double-tap thumbnail activates Pano (DOME) or Image/Video (CYCLOWALL NOW)
 // (v187)   // #709 DirroVerse moving matte (plate_matte.mp4)
 // (v186)   // #707 DirroVerse banks, WEBCAM + GEAR windows
 // (v185)   // #695 fix: #688 left vjdesk.js unparseable in Chrome (DirroVJ failed: Unexpected token ',')
