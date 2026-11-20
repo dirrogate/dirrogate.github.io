@@ -85,6 +85,7 @@ function tubeMat() {
         float a = max(core * (0.25 + 0.75 * uOn), max(0.14 * fill * uOn, 0.05) + rim * 0.45);
         gl_FragColor = vec4(col, clamp(a, 0.0, 1.0)); }`,
     transparent: true, depthWrite: false,
+    blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
   });
 }
 
@@ -105,6 +106,7 @@ function coreMat() {
 function glassMat() {
   return new THREE.ShaderMaterial({
     uniforms: { uOn: { value: 1 } }, vertexColors: true, transparent: true, depthWrite: false,
+    blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     vertexShader: `varying vec3 vN; varying vec3 vV; varying float vEl;
       void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz);
         vEl = 1.0 - step(0.5, color.r); gl_Position = projectionMatrix * mv; }`,

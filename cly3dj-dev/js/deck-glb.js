@@ -253,7 +253,7 @@ function legendMat(text, aspect, withLed) {
   if (withLed) { x.textAlign = 'left'; x.fillText(text, W * 0.1, H * 0.54); }
   else { x.textAlign = 'center'; while (x.measureText(text).width > W * 0.8) { fs -= 2; x.font = `600 ${fs}px system-ui, Arial, sans-serif`; } x.fillText(text, W / 2, H / 2); }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
-  const m = new THREE.MeshStandardMaterial({ map: t, transparent: true, depthWrite: false, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+  const m = new THREE.MeshStandardMaterial({ map: t, transparent: true, depthWrite: false, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
   legendCache.set(key, m); return m;
 }
 
@@ -383,7 +383,7 @@ export function makeGlbDeck(name) {
     const bulb = new THREE.Mesh(new THREE.CircleGeometry(0.0019, 20), new THREE.MeshStandardMaterial({ color: 0x1a2640, emissive: 0x3d7bff, toneMapped: false, emissiveIntensity: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     bulb.position.set(axis.x + toPlatter.x * (reach - 0.0002), lensY, axis.z + toPlatter.z * (reach - 0.0002));
     bulb.lookAt(bulb.position.clone().add(toPlatter)); grp.add(bulb);
-    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0x5aa0ff, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0 }));
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0x5aa0ff, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor, transparent: true, depthWrite: false, opacity: 0 }));
     glow.visible = false; glow.raycast = () => {}; grp.add(glow);   // no halo sprite: it read as a bulge
     // low, grazing beam aimed past the record centre, so it washes across the vinyl rather than the cartridge
     const spot = new THREE.SpotLight(0x2f6bff, 0, 0.8, 0.5, 0.9, 0.4);

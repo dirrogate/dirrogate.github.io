@@ -36,7 +36,8 @@ function related(a, b) { for (let o = a; o; o = o.parent) if (o === b) return tr
 
 // ---------------------------------------------------------------- FLOAT
 const BALL_GEO = new THREE.SphereGeometry(R, 24, 16);
-const BALL_MAT = new THREE.MeshStandardMaterial({ color: 0x2f8fff, emissive: 0x0b2c6e, roughness: 0.12, metalness: 0, transparent: true, opacity: 0.42, depthWrite: false });
+const BLEND_ALPHA = { blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor };
+const BALL_MAT = new THREE.MeshStandardMaterial({ color: 0x2f8fff, emissive: 0x0b2c6e, roughness: 0.12, metalness: 0, transparent: true, opacity: 0.42, depthWrite: false, ...BLEND_ALPHA });
 const RING_GEO = new THREE.TorusGeometry(R * 1.12, 0.0025, 8, 40);
 const RING_MAT = new THREE.MeshBasicMaterial({ color: 0xcfe8ff, toneMapped: false });
 const TRACK_GEO = new THREE.BoxGeometry(TRACK, 0.005, 0.005), FILL_GEO = new THREE.BoxGeometry(TRACK, 0.0065, 0.0065), KNOB_GEO = new THREE.SphereGeometry(0.009, 16, 10);
@@ -58,7 +59,7 @@ class FloatBall {
     this.knobM = new THREE.Mesh(KNOB_GEO, KNOB_MAT); s.add(this.knobM);
     this.cv = document.createElement('canvas'); this.cv.width = 320; this.cv.height = 60;
     this.tex = new THREE.CanvasTexture(this.cv); this.tex.colorSpace = THREE.SRGBColorSpace;
-    this.labMat = new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, depthWrite: false, toneMapped: false });
+    this.labMat = new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, depthWrite: false, toneMapped: false, ...BLEND_ALPHA });
     const lab = new THREE.Mesh(LABEL_GEO, this.labMat); lab.position.y = 0.022; s.add(lab);
     fx.rig.add(g); fx.rig.add(s); userOnly(g); userOnly(s);
     this.setV(this.v);
@@ -205,12 +206,12 @@ class Water {
     this.mat = new THREE.ShaderMaterial({
       uniforms: { uT: { value: 0 }, uRip: { value: 1 }, uClar: { value: 0.7 }, uHasSky: { value: 0 }, uSize: { value: new THREE.Vector2(3, 3) }, uC: { value: new THREE.Vector2() },
         uTint: { value: tint }, uSky: { value: null }, uSO: { value: new THREE.Vector4(1, 0, 1, 0) }, uSkyR: { value: new THREE.Matrix3() } },
-      vertexShader: WVERT, fragmentShader: WFRAG, transparent: true, depthWrite: false, toneMapped: false,
+      vertexShader: WVERT, fragmentShader: WFRAG, transparent: true, depthWrite: false, toneMapped: false, ...BLEND_ALPHA,
     });
     const m = this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat); m.rotation.x = -Math.PI / 2; m.raycast = () => {}; m.renderOrder = 2; m.name = 'fxWaterPlane'; g.add(m);
     // handles, only the DJ sees them: a post with a ring (grip / pinch carries the water), a post with a cube on the corner (trigger / pinch sizes it)
     const h = this.handles = new THREE.Group(); g.add(h);
-    const pm = new THREE.MeshBasicMaterial({ color: 0x39a8ff, transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false });
+    const pm = new THREE.MeshBasicMaterial({ color: 0x39a8ff, transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false, ...BLEND_ALPHA });
     const stick = () => { const s = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, POST_H, 6), pm); s.position.y = POST_H / 2; return s; };
     this.post = new THREE.Group(); this.post.add(stick());
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.008, 10, 32), new THREE.MeshBasicMaterial({ color: 0x39a8ff, toneMapped: false })); ring.rotation.x = Math.PI / 2; ring.position.y = POST_H; this.post.add(ring);

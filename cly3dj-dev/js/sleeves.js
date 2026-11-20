@@ -19,7 +19,7 @@ function fadeMap() {   // alpha along the tube: v 0 = wrist (solid) .. 1 = elbow
 
 export function makeSleeves() {
   const geo = new THREE.CylinderGeometry(R_ELBOW, R_WRIST, 1, 14, 1, true); geo.translate(0, 0.5, 0);   // y 0 = wrist end, 1 = elbow end
-  const mat = new THREE.MeshStandardMaterial({ color: 0x0c0c0e, roughness: 0.9, metalness: 0, transparent: true, alphaMap: fadeMap(), depthWrite: false, side: THREE.DoubleSide });
+  const mat = new THREE.MeshStandardMaterial({ color: 0x0c0c0e, roughness: 0.9, metalness: 0, transparent: true, alphaMap: fadeMap(), depthWrite: false, side: THREE.DoubleSide, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
   const group = new THREE.Group(); group.name = 'sleeves'; group.visible = false;
   const tubes = [0, 1].map(() => { const m = new THREE.Mesh(geo, mat); m.visible = false; m.raycast = () => {}; m.renderOrder = 1; group.add(m); return m; });
   // pose: { head: { p, q }, hands: [left, right] with { p: wrist (world), f: wrist -> fingers } } (director.js xrPose / demoPose)

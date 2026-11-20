@@ -56,7 +56,7 @@ export class RobotAvatar {
     this.head = add(this.root, new THREE.Group());
     const helmet = by('Helmet'); helmet.position.set(0, 0, 0); this.head.add(helmet);
     const visor = by('Visor'); visor.position.set(0, 0, 0);
-    visor.material = new THREE.MeshStandardMaterial({ color: 0x050507, roughness: 0.05, metalness: 0.3, transparent: true, opacity: 0.55, depthWrite: false });
+    visor.material = new THREE.MeshStandardMaterial({ color: 0x050507, roughness: 0.05, metalness: 0.3, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
     visor.renderOrder = 2; this.head.add(visor);
     const scan = by('Scanner'); scan.position.set(0, 0, 0);
     this.ledData = new Uint8Array(N_LED * 4); this.ledTex = new THREE.DataTexture(this.ledData, N_LED, 1);

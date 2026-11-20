@@ -68,7 +68,7 @@ export function makeLED(color, size = 0.004, glowSize = 0.03) {
   const m = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: new THREE.Color(color), emissiveIntensity: 0, roughness: 0.3 });
   const led = new THREE.Mesh(new THREE.CylinderGeometry(size, size, 0.002, 16), m);
   g.add(led);
-  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0 }));
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor, transparent: true, depthWrite: false, opacity: 0 }));
   sp.scale.setScalar(glowSize); sp.position.y = 0.002; g.add(sp);
   g.userData.set = (v) => { m.emissiveIntensity = v * 2.5; sp.material.opacity = v * 0.9; };
   return g;
@@ -542,7 +542,7 @@ export function makeMixer() {
       label('BPM', x - 0.033, -0.0065, 0.0024);
 
       // Yellow flashing ring / collar around the TAP button
-      const tapRingMat = new THREE.MeshBasicMaterial({ color: 0xffea00, toneMapped: false, transparent: true, opacity: 0 });
+      const tapRingMat = new THREE.MeshBasicMaterial({ color: 0xffea00, toneMapped: false, transparent: true, opacity: 0, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
       const tapRing = new THREE.Mesh(roundedTop(0.024, 0.016, 0.0035, 0.0006), tapRingMat);
       tapRing.position.set(x - 0.033, top + 0.0002, 0.030);
       tapRing.raycast = () => {};
@@ -595,7 +595,7 @@ export function makeMixer() {
     } else {   // LOOPER (owner): replaces deck B's BEAT 1 button; LOOP VOL knob above it, same column
       addButton('looper', 0.02, 0.012, 0xff6a30, 'LOOP', x + 0.033, 0.030);
       {   // #470 LED ring round the LOOP button (state colour: red / green / amber blinking; main.js drives it)
-        const ringMat = new THREE.MeshBasicMaterial({ color: 0xff6a30, toneMapped: false, transparent: true, opacity: 0 });
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0xff6a30, toneMapped: false, transparent: true, opacity: 0, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
         const ring = new THREE.Mesh(roundedTop(0.024, 0.016, 0.0035, 0.0006), ringMat);
         ring.position.set(x + 0.033, top + 0.0002, 0.030); ring.raycast = () => {};
         g.add(ring); u.loopRing = ringMat;
@@ -607,7 +607,7 @@ export function makeMixer() {
       addKnob('acid.vol', x + 0.033, -0.052, 0x40ff90, 0.0075);
       addButton('acid.cue', 0.02, 0.012, 0xffb020, 'ACID CUE', x + 0.033, -0.028);
       {
-        const acRingMat = new THREE.MeshBasicMaterial({ color: 0xffb020, toneMapped: false, transparent: true, opacity: 0 });
+        const acRingMat = new THREE.MeshBasicMaterial({ color: 0xffb020, toneMapped: false, transparent: true, opacity: 0, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
         const acRing = new THREE.Mesh(roundedTop(0.024, 0.016, 0.0035, 0.0006), acRingMat);
         acRing.position.set(x + 0.033, top + 0.0002, -0.028); acRing.raycast = () => {};
         g.add(acRing); u.acidCueRing = acRingMat;

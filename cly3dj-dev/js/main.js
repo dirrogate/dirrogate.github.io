@@ -124,7 +124,7 @@ const KEY_POS = key.position.clone();
 const skybox = new Skybox(renderer); skybox.set3D(settings.dome3d === true);   /* #756 DOME 3D / 2D (default 2D: the left eye for both) */ rig.add(skybox.group); skybox.group.position.x = 0.05; skybox.group.position.z = 0.62;
 // #346 DOME (PORTALS SETUP): the same grounded sky, shown even in passthrough and with any light setting, sized 3-20 m
 const dome = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.dome') || 'null'); } catch {} return { on: !!(s && s.on), r: Math.min(20, Math.max(3, (s && s.r) || 10)), turn: Math.min(359, Math.max(0, (s && s.turn) || 0)), ev: Math.min(1, Math.max(-3, +(s && s.ev) || 0)), gam: Math.min(2, Math.max(0.5, +(s && s.gam) || 1)) }; })();   // #638 gam: DOME GAMMA   // #404 ev: DOME EXPOSURE   // #389 turn: the dome's own angle
-const skyShadow = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.ShadowMaterial({ opacity: 0.4 }));
+const skyShadow = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.ShadowMaterial({ opacity: 0.4, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor }));
 skyShadow.rotation.x = -Math.PI / 2; skyShadow.position.y = 0.001; skyShadow.receiveShadow = true; skyShadow.visible = false; skyShadow.raycast = () => {};
 rig.add(skyShadow);
 let skyKeyLight = null;   // brightest direction + colour of the chosen image (for the key light)
@@ -7666,7 +7666,7 @@ function cassGeos() {
   const front = face.clone(); front.translate(0, 0, CASS3_T / 2 + 0.00005);
   const back = face.clone(); back.rotateY(Math.PI); back.translate(0, 0, -CASS3_T / 2 - 0.00005);   // turned round: side B reads right way round from behind
   const side = new THREE.ExtrudeGeometry(sh, { depth: CASS3_T, bevelEnabled: false, steps: 1, curveSegments: 1 }); side.translate(0, 0, -CASS3_T / 2);
-  CAS3D.edge = new THREE.MeshStandardMaterial({ color: 0x24211f, roughness: 0.25, metalness: 0, transparent: true, opacity: 0.86, depthWrite: false });   // #691 owner: sides dark translucent, not see-through   // #622 / #623 smoky plastic; #689 warm smoke like a clear cassette shell
+  CAS3D.edge = new THREE.MeshStandardMaterial({ color: 0x24211f, roughness: 0.25, metalness: 0, transparent: true, opacity: 0.86, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });   // #691 owner: sides dark translucent, not see-through   // #622 / #623 smoky plastic; #689 warm smoke like a clear cassette shell
   CAS3D.noCap = new THREE.MeshBasicMaterial({ visible: false });   // the extrusion's own caps: the picture faces cover them
   return (CAS3D.geo = { front, back, side });
 }
@@ -7693,7 +7693,7 @@ function cassReelParts() {
 function cassMesh(t) {
   let m = CAS3D.meshes.get(t); if (m) return m;
   const G = cassGeos(), RP = cassReelParts();
-  const face = side => new THREE.MeshBasicMaterial({ map: cassTex(t, side), toneMapped: false, transparent: true, depthWrite: false });   // #689 smoked shell + labels
+  const face = side => new THREE.MeshBasicMaterial({ map: cassTex(t, side), toneMapped: false, transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });   // #689 smoked shell + labels
   m = new THREE.Group();
   const add = (o, x = 0, y = 0) => { o.position.set(x, y, 0); o.raycast = () => {}; padCull(o); m.add(o); return o; };
   if (CAS3D.style === 'png') m.userData.reels = null; else m.userData.reels = [0, 1].map(i => {   // turn with the sequencer when this cassette plays (stepCas3D)
@@ -10737,6 +10737,8 @@ function frameBody() {
   if ((ledMode === 'cam' || (streamer && streamer.wantsCam) || (gopro && gopro.aiming) || (gopro2 && gopro2.aiming)) && djcam) stepDjCam(dt);   // #220 (#331 also while the stream shows AVACAM)
   stepArmSleeves();   // #347
   if (streamer) streamer.tick();   // #331
+  const domeSolid = skybox.group.visible && !(portals && (portals.holeN > 0 || portals.revN > 0)) && !(realDepth && realDepth.on && realDepth.ok);
+  renderer.setClearAlpha(domeSolid ? 1.0 : 0.0);
   renderer.render(scene, camera);
   if (fx) fx.postRender();   // #379 the floated gear back in its real place for hands, grabs and saving
 }

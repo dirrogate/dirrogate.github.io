@@ -160,7 +160,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
   function buildHalf(R, H) {
     const v0 = P.views[0]; if (!v0) return;
     const un = Object.assign({}, v0.un);
-    const mb = new THREE.ShaderMaterial({ uniforms: un, vertexShader: VS4, fragmentShader: FS4B, side: THREE.BackSide, transparent: true, depthWrite: false });
+    const mb = new THREE.ShaderMaterial({ uniforms: un, vertexShader: VS4, fragmentShader: FS4B, side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
     mb.extensions = { derivatives: true };
     P.back = new THREE.Mesh(v0.mesh.geometry, mb); P.back.frustumCulled = false; P.back.visible = false; P.back.renderOrder = 1;
     v0.mesh.parent.add(P.back);
@@ -173,11 +173,11 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     const gR = new THREE.BufferGeometry(), au = [], pos = [];
     for (let i = 0; i < RAYS - 1; i++) { const a = i / (RAYS - 1), b = (i + 1) / (RAYS - 1); au.push(-1, a, b); pos.push(0, 0, 0, 0, 0, 0, 0, 0, 0); }
     gR.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); gR.setAttribute('aU', new THREE.Float32BufferAttribute(au, 1));
-    const sheet = new THREE.Mesh(gR, new THREE.ShaderMaterial({ uniforms: bu, vertexShader: VSRAY, fragmentShader: FSRAY, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+    const sheet = new THREE.Mesh(gR, new THREE.ShaderMaterial({ uniforms: bu, vertexShader: VSRAY, fragmentShader: FSRAY, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor }));
     const gD = new THREE.BufferGeometry(), du = [];
     for (let i = 0; i < RAYS; i++) du.push(i / (RAYS - 1));
     gD.setAttribute('position', new THREE.Float32BufferAttribute(new Array(RAYS * 3).fill(0), 3)); gD.setAttribute('aU', new THREE.Float32BufferAttribute(du, 1));
-    const dots = new THREE.Points(gD, new THREE.ShaderMaterial({ uniforms: bu, vertexShader: VSDOT, fragmentShader: FSDOT, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    const dots = new THREE.Points(gD, new THREE.ShaderMaterial({ uniforms: bu, vertexShader: VSDOT, fragmentShader: FSDOT, transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor }));
     sheet.frustumCulled = dots.frustumCulled = false; sheet.renderOrder = 3; dots.renderOrder = 4;
     // the projector: a cube with glowing ports, the lens face (+Z after lookAt) toward her
     // #581 a 12 cm cube: four big ports (the front one projects; left, right and back match it), plain top and bottom
@@ -247,7 +247,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
       for (let v = 0; v < R.n; v++) {
         const un = { map: { value: tex }, uView: { value: v }, uZn: { value: d.near }, uZf: { value: d.far }, uTh: { value: R.th }, uTv: { value: R.tv }, uKeep: { value: 1 }, uStep: { value: new THREE.Vector2(1 / grid[0], 1 / grid[1]) }, ...shared };
         const mat = new THREE.ShaderMaterial({ uniforms: un, vertexShader: VS4, fragmentShader: FS4, polygonOffset: true });
-        const mt = new THREE.ShaderMaterial({ uniforms: un, vertexShader: VS4, fragmentShader: FS4T, transparent: true, depthWrite: false });
+        const mt = new THREE.ShaderMaterial({ uniforms: un, vertexShader: VS4, fragmentShader: FS4T, transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
         mat.extensions = mt.extensions = { derivatives: true };
         const mesh = new THREE.Mesh(geo, mat), tear = new THREE.Mesh(geo, mt);
         mesh.frustumCulled = tear.frustumCulled = false; tear.renderOrder = 2;
@@ -261,7 +261,7 @@ export function makeHoloPlayer({ THREE, grid = [160, 180] }) {
     } else {
       const H = 2 * R.dist * R.tv, W = H * (R.th / R.tv);
       P.bU = { map: { value: tex }, uView: { value: 0 }, uPrev: { value: 0 }, uG: { value: 0 }, uT: { value: 0 }, uSeed: { value: 0 }, uOp: { value: 1 } };
-      const mat = new THREE.ShaderMaterial({ uniforms: P.bU, vertexShader: VS8, fragmentShader: FS8, transparent: true, premultipliedAlpha: true, depthWrite: false, side: THREE.DoubleSide });
+      const mat = new THREE.ShaderMaterial({ uniforms: P.bU, vertexShader: VS8, fragmentShader: FS8, transparent: true, premultipliedAlpha: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
       P.board = new THREE.Mesh(new THREE.PlaneGeometry(W, H), mat); P.board.position.y = R.aimH; P.board.frustumCulled = false;
       group.add(P.board);
     }

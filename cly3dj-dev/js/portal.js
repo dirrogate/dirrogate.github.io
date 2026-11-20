@@ -206,6 +206,7 @@ void main() {
 }`;
 function makeHoloMat() {
   return new THREE.ShaderMaterial({ vertexShader: HOLO_VS, fragmentShader: HOLO_FS, transparent: true, depthWrite: false, toneMapped: false,
+    blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     uniforms: { uHalf: { value: new THREE.Vector2() }, uR: { value: new THREE.Vector2() }, uT: { value: 0 }, uCol: { value: new THREE.Color(HOLO_COLS.cyan) }, uInt: { value: 1 }, uScan: { value: 1 }, uGlass: { value: 0.5 }, uGlitch: { value: 1 }, uBeat: { value: 0 } } });
 }
 // #598 BAMBOO frame style (a shack roof / skylight): poles round the edge and one layer of slats across the opening, all
@@ -585,7 +586,7 @@ class PortalFrame {
   setScreen(on) { on = !!on; if (on === this.screen) return; this.screen = on; this._scrFit(); }   // #589
   setLocked(on) { this.locked = !!on; if (this.lk) this.lk.material.map = lockTex(this.locked), this.lk.material.needsUpdate = true; }   // #626
   _lockFit() {
-    if (!this.lk) { this.lk = new THREE.Mesh(new THREE.PlaneGeometry(LOCK_S, LOCK_S), new THREE.MeshBasicMaterial({ map: lockTex(this.locked), transparent: true, toneMapped: false, depthTest: false })); this.lk.renderOrder = 20; this.lk.raycast = () => {}; this.lk.visible = false; this.obj.add(this.lk); }
+    if (!this.lk) { this.lk = new THREE.Mesh(new THREE.PlaneGeometry(LOCK_S, LOCK_S), new THREE.MeshBasicMaterial({ map: lockTex(this.locked), transparent: true, toneMapped: false, depthTest: false, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor })); this.lk.renderOrder = 20; this.lk.raycast = () => {}; this.lk.visible = false; this.obj.add(this.lk); }
     this.lk.position.set(-this.half.x - RIM - 0.07, this.half.y + RIM + 0.07, 0.03);
   }
   setStyle(st) { const h = st === 'holo', b = st === 'bamboo'; if (h === !!this.holo && b === !!this.bamboo) return; this.holo = h; this.bamboo = b; this._fit(); }   // #598 iron / holo / bamboo
@@ -732,6 +733,7 @@ export class Portals {
   get screenN() { let n = 0; for (let i = 0; i < this.n; i++) if (this.kindOf(i)[0] === 's') n++; return this.on ? n : 0; }   // #589
   setScreenSrc(o) { this.scrSrc = { src: o.src || 'cyclo', name: o.name || '', folder: o.folder || '' }; this.save(); }
   get revN() { let n = 0; for (let i = 0; i < this.n; i++) if (this.kindOf(i)[0] === 'p') n++; return this.on ? n : 0; }
+  get holeN() { let n = 0; for (let i = 0; i < this.n; i++) { const c = this.kindOf(i)[0]; if (c !== 'p' && c !== 'f' && c !== 's') n++; } return this.on ? n : 0; }
   setDoors(k) { for (let i = 0; i < MAX_PORTALS; i++) { const rev = this.kindOf(i)[0] === 'p'; this.kinds[i] = (i < k ? (rev ? 'pdoor' : 'door') : (rev ? 'pwindow' : 'window')); } this._styles(); this.save(); }
   stepGlow(d) { const i = GLOW_ORDER.indexOf(this.glow); this.glow = GLOW_ORDER[((i < 0 ? 0 : i) + d + GLOW_ORDER.length) % GLOW_ORDER.length]; this._styles(); this.save(); }
   lockAll(on) { for (let i = 0; i < this.n; i++) this._frame(i).setLocked(on); this.save(); }   // #626

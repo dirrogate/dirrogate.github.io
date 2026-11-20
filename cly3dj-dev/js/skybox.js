@@ -77,8 +77,9 @@ void main() {
   }
 #endif
   if (uAces > 0.5) o = acesInv(clamp(o, 0.0, 1.0));
-  gl_FragColor = vec4(o, c.a);
+  gl_FragColor = vec4(o, 1.0);
   #include <colorspace_fragment>
+  gl_FragColor.a = 1.0;
 }`;
 
 // Stereo layout from the picture's shape: 1:1 = over-under, 4:1 = side-by-side, 2:1 = mono. Anything else isn't a panorama.
@@ -137,7 +138,7 @@ export class Skybox {
     this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.allow3d = false; this.tex = null;   // #756 allow3d: DOME 3D (stereo panoramas shown in stereo); off = the left eye for both
     this.mats = [0, 1].map(() => new THREE.ShaderMaterial({
       uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 } },
-      vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthWrite: false, toneMapped: false,
+      vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthWrite: false, toneMapped: false, transparent: false, opacity: 1.0,
     }));
     this.geo = null; this.setHeight(this.height);
     this.meshes = this.mats.map(m => {

@@ -18,13 +18,13 @@ export function glowMaterial(map) {
         // what is behind, so on a light wall the glow reads deep red instead of washing the wall out to salmon/orange
         gl_FragColor = vec4(c, uTint > 0.5 ? a : 0.75 * a); }`,
     transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
   });
 }
 export function setGlowMode(mat, mode) {
   const tint = mode === 'tint'; mat.uniforms.uTint.value = tint ? 1 : 0;
   mat.blending = THREE.CustomBlending; mat.blendSrc = THREE.OneFactor; mat.blendDst = THREE.OneMinusSrcAlphaFactor;
-  mat.blendSrcAlpha = THREE.OneFactor; mat.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;   // both modes premultiplied; they differ in alpha only
+  mat.blendSrcAlpha = THREE.ZeroFactor; mat.blendDstAlpha = THREE.OneFactor;   // preserve destination alpha over opaque dome
   mat.needsUpdate = true;
 }
 
@@ -45,6 +45,7 @@ export function makeBlob(kind = 'box') {
   TEX[kind] = TEX[kind] || blobTex(kind);
   const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({
     color: 0x000000, alphaMap: TEX[kind], transparent: true, depthWrite: false, opacity: 0.5,
+    blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 }));
   m.renderOrder = 1; m.raycast = () => {}; m.matrixAutoUpdate = true;
   return m;

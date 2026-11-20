@@ -17,6 +17,8 @@ import { makeMilkCrate, MILK } from './models.js';
 
 const WALL_LAMP_YAW = Math.PI / 2;
 const KEY = 'vire.movieprops', POST_H = 0.26;
+const BLEND_ALPHA = { blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor };
+const BLEND_ADD = { blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor };
 const YAX = new THREE.Vector3(0, 1, 0), _r = new THREE.Ray(), _inv = new THREE.Matrix4(), _bx = new THREE.Box3();
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _m = new THREE.Matrix4(), _e = new THREE.Euler();
@@ -396,7 +398,7 @@ class Prop {
     this.cube = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.035, 0.035), new THREE.MeshStandardMaterial({ color: 0xd8dde6, roughness: 0.3, metalness: 0.8 }));
     this.handles = new THREE.Group(); this.handles.add(this.ring, this.cube); g.add(this.handles);
     if (floor) {   // posts like the WATER's
-      const pm = new THREE.MeshBasicMaterial({ color: 0x39a8ff, transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false });
+      const pm = new THREE.MeshBasicMaterial({ color: 0x39a8ff, transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false, ...BLEND_ALPHA });
       const stick = () => { const s = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, POST_H, 6), pm); s.position.y = -POST_H / 2; return s; };
       this.ring.add(stick()); this.cube.add(stick()); this.torus.rotation.x = Math.PI / 2;
     }
@@ -458,7 +460,7 @@ class Puddle extends BoxProp {
       uSI: { value: [0, 1, 2, 3].map(() => new THREE.Matrix4()) }, uSD: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
     };
     this.mat = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: PUD_V, fragmentShader: PUD_F, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide,
-      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     const m = this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat); m.rotation.x = -Math.PI / 2; m.renderOrder = 2; m.frustumCulled = false; noRay(m); this.obj.add(m);
     this.onSize = () => { this.mesh.scale.set(this.w, this.d, 1); this.U.uSize.value = Math.max(this.w, this.d); };
@@ -501,9 +503,9 @@ class Rain extends BoxProp {
     for (let i = 0; i < N; i++) { const x = Math.random(), y = Math.random(), z = Math.random(), r = Math.random(); for (let k = 0; k < 2; k++) { pos.set([x, y, z], (i * 2 + k) * 3); aR[i * 2 + k] = r; aE[i * 2 + k] = k; } }
     const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('aR', new THREE.BufferAttribute(aR, 1)); geo.setAttribute('aEnd', new THREE.BufferAttribute(aE, 1));
     this.U = { uBox: { value: new THREE.Vector3(4, 3, 4) }, uT: { value: 0 }, uSpeed: { value: 7 }, uLen: { value: 0.5 }, uWind: { value: 0.1 }, uA: { value: 0.4 }, uCol: { value: new THREE.Color(0.75, 0.85, 1) } };
-    this.mat = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: RAIN_V, fragmentShader: RAIN_F, transparent: true, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
+    this.mat = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: RAIN_V, fragmentShader: RAIN_F, transparent: true, depthWrite: false, toneMapped: false, ...BLEND_ADD });
     this.lines = new THREE.LineSegments(geo, this.mat); this.lines.frustumCulled = false; noRay(this.lines); this.obj.add(this.lines);
-    const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({ color: 0x39a8ff, transparent: true, opacity: 0.35, toneMapped: false }));
+    const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({ color: 0x39a8ff, transparent: true, opacity: 0.35, toneMapped: false, ...BLEND_ALPHA }));
     this.edge = edge; this.obj.add(edge); userOnly(edge);
     this.onSize = () => { this.U.uBox.value.set(this.w, this.h, this.d); this.edge.scale.set(this.w, this.h, this.d); this.edge.position.y = this.h / 2; };
     this.layout();
@@ -521,9 +523,9 @@ class Fog extends BoxProp {
     geo.setAttribute('aC', new THREE.InstancedBufferAttribute(aC, 3)); geo.setAttribute('aP', new THREE.InstancedBufferAttribute(aP, 3));
     this.U = { uBox: { value: new THREE.Vector3(4, 2.5, 4) }, uT: { value: 0 }, uSpeed: { value: 1 }, uSmoke: { value: 0 }, uFlow: { value: 0 }, uSize: { value: 2 }, uTex: { value: cloud() }, uCol: { value: new THREE.Color(FOG_COLORS[0][1]) }, uDen: { value: 0.5 }, uAmb: { value: 0.5 }, uLit: { value: 1 }, uFloor: { value: 0 }, uLP: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, -99, 0, 1)) }, uLC: { value: [0, 1, 2, 3].map(() => new THREE.Vector3()) },
       uDepth: { value: null }, uDOn: { value: 0 }, uDLayer: { value: 0 }, uDView: { value: new THREE.Matrix4() }, uDProj: { value: new THREE.Matrix4() }, uDInvProj: { value: new THREE.Matrix4() }, uDNorm: { value: new THREE.Matrix4() } };
-    this.mat = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: FOG_V, fragmentShader: FOG_F, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+    this.mat = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: FOG_V, fragmentShader: FOG_F, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, ...BLEND_ALPHA });
     this.mesh = new THREE.Mesh(geo, this.mat); this.mesh.frustumCulled = false; this.mesh.renderOrder = 5; this.mat.uniforms.uT = this.U.uT; noRay(this.mesh); this.obj.add(this.mesh);
-    const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({ color: 0x39a8ff, transparent: true, opacity: 0.35, toneMapped: false }));
+    const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({ color: 0x39a8ff, transparent: true, opacity: 0.35, toneMapped: false, ...BLEND_ALPHA }));
     this.edge = edge; this.obj.add(edge); userOnly(edge);
     this.onSize = () => { this.edge.scale.set(this.w, this.h, this.d); this.edge.position.y = this.h / 2; };
     this.layout();
@@ -545,7 +547,7 @@ class Fog extends BoxProp {
 class NeonSign extends Prop {
   constructor(mp) {
     super(mp, 'neon', false); this.text = 'DIRRO DJ'; this.font = 0; this.vert = false; this.col = 0; this.frame = false; this.flick = 0.3; this.glow = 1; this.hw = 0.5; this.hh = 0.15; this.tex = DUMMY; this.fl = 1; this.seq = 0;
-    this.mat = new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, opacity: 1 }); this.bias = biasMat(this.mat);
+    this.mat = new THREE.MeshBasicMaterial({ transparent: true, ...BLEND_ADD, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, opacity: 1 }); this.bias = biasMat(this.mat);
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat); this.mesh.renderOrder = 4; noRay(this.mesh); this.obj.add(this.mesh);
     mp.neons.push(this); this.mesh.visible = false; this.render();
   }
@@ -577,7 +579,7 @@ class NeonSign extends Prop {
 class Lamp extends Prop {   // a warm glow (street lamp, window, bulb): a halo card that always faces the viewer, lights the fog and is reflected in the wet ground
   constructor(mp) {
     super(mp, 'lamp', false); this.col = 2; this.bright = 1; this.flick = 0; this.size = 0.7; this.fl = 1; this.tex = DUMMY; this.hw = this.hh = 0.35;
-    this.mat = new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }); this.mat.fog = false;
+    this.mat = new THREE.MeshBasicMaterial({ transparent: true, ...BLEND_ADD, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }); this.mat.fog = false;
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat); this.mesh.renderOrder = 4; noRay(this.mesh); this.obj.add(this.mesh);
     mp.neons.push(this); this.paint(); this.ringAt.set(-0.45, -0.45, 0); this.cubeAt.set(0.45, 0.45, 0); this.placeHandles();
   }
@@ -607,7 +609,7 @@ class Lamp extends Prop {   // a warm glow (street lamp, window, bulb): a halo c
 class Graffiti extends Prop {
   constructor(mp, floor = false) {
     super(mp, 'graffiti', floor); this.src = 'graff1.png'; this.tint = 1; this.bright = 1; this.opac = 1; this.glow = false; this.hw = 0.5; this.hh = 0.5; this.seq = 0;
-    this.mat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }); this.bias = biasMat(this.mat);
+    this.mat = new THREE.MeshBasicMaterial({ transparent: true, ...BLEND_ALPHA, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }); this.bias = biasMat(this.mat);
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat); this.mesh.renderOrder = 3; noRay(this.mesh); this.obj.add(this.mesh); this.mesh.visible = false; this.load();
   }
   async load() {
@@ -624,7 +626,7 @@ class Graffiti extends Prop {
     this.ringAt.set(-this.hw - 0.07, -this.hh - 0.07, 0); this.cubeAt.set(this.hw + 0.07, this.hh + 0.07, 0); this.placeHandles(); this.look();
   }
   tick() { this.bias.value = this.mp.cocFor(this.obj); }
-  look() { const m = this.mat; m.blending = this.glow ? THREE.AdditiveBlending : THREE.NormalBlending; m.opacity = clamp(this.opac, 0, 1); m.color.setScalar(this.bright); m.needsUpdate = true; }
+  look() { const m = this.mat; Object.assign(m, this.glow ? BLEND_ADD : BLEND_ALPHA); m.opacity = clamp(this.opac, 0, 1); m.color.setScalar(this.bright); m.needsUpdate = true; }
   set(k, v) { this[k] = v; if (k === 'src') this.tint = v === 'graff1.png' ? 1 : 0; if (k === 'src' || k === 'tint') this.load(); else this.look(); this.save(); }
   snap() { return { ...this.base(), src: this.src, tint: this.tint, bright: this.bright, opac: this.opac, glow: this.glow }; }
   apply(d) { for (const k of ['src', 'tint', 'bright', 'opac', 'glow']) if (d[k] !== undefined) this[k] = d[k]; this.setBase(d); this.load(); }
@@ -687,7 +689,7 @@ class Decal extends Graffiti {
     super(mp, floor); this.type = floor ? 'decal' : 'walldecal'; this.obj.name = 'movieprop_' + this.type; this.tint = 0; this.wet = 0.5; this.rainAmt = 0.8; this.flow = 1; this.amb = 0.15;
     this.U = { uTex: { value: DUMMY }, uCol: { value: new THREE.Color(1, 1, 1) }, uSky: { value: new THREE.Color(0.014, 0.02, 0.032) }, uOp: { value: 1 }, uWet: { value: 0.5 }, uRain: { value: 0.8 }, uT: { value: 0 }, uTf: { value: 0 }, uWall: { value: floor ? 0 : 1 }, uAmb: { value: 0.15 }, uSize: { value: 1 },
       uLP: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, -99, 0, 1)) }, uLC: { value: [0, 1, 2, 3].map(() => new THREE.Color()) } };
-    const m = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: DEC_V, fragmentShader: DEC_F, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const m = new THREE.ShaderMaterial({ uniforms: this.U, vertexShader: DEC_V, fragmentShader: DEC_F, transparent: true, ...BLEND_ALPHA, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     Object.defineProperty(m, 'map', { get() { return this.uniforms.uTex.value; }, set(v) { this.uniforms.uTex.value = v || DUMMY; } });
     m.color = this.U.uCol.value; this.mat.dispose(); this.mat = m; this.mesh.material = m; this.bias = { value: 0 };
     if (floor) { this.mesh.rotation.x = -Math.PI / 2; this.mesh.position.y = 0.004; }
@@ -697,7 +699,7 @@ class Decal extends Graffiti {
     if (this.floor) { this.ringAt.set(-this.hw, POST_H, this.hh); this.cubeAt.set(this.hw, POST_H, this.hh); this.placeHandles(); }
   }
   localBox() { const hw = this.hw || 0.1, hh = this.hh || 0.1; return this.floor ? _bx.set(_v.set(-hw, -0.05, -hh), _v2.set(hw, 0.05, hh)) : super.localBox(); }
-  look() { const m = this.mat; if (!m || !m.uniforms) return; m.blending = this.glow ? THREE.AdditiveBlending : THREE.NormalBlending; const U = this.U; U.uOp.value = clamp(this.opac, 0, 1); U.uCol.value.setScalar(this.bright); m.needsUpdate = true; }
+  look() { const m = this.mat; if (!m || !m.uniforms) return; Object.assign(m, this.glow ? BLEND_ADD : BLEND_ALPHA); const U = this.U; U.uOp.value = clamp(this.opac, 0, 1); U.uCol.value.setScalar(this.bright); m.needsUpdate = true; }
   tick() {
     const U = this.U; U.uT.value += 0.016; U.uTf.value += 0.016 * this.flow; U.uWet.value = this.wet; U.uRain.value = this.rainAmt; U.uAmb.value = this.amb; U.uSize.value = this.obj.scale.x * Math.max(this.hw, this.hh) * 2;
     this.obj.updateMatrixWorld(); const Lx = this.mp.neonsNear(_v.setFromMatrixPosition(this.obj.matrixWorld), 4);
@@ -839,7 +841,7 @@ class Placer {
   constructor(mp) {
     this.mp = mp; this.on = false; this.base = 1; this.pull = 0; this.held = null; this.hover = null; this.bWas = false; this.trigWas = false;
     const g = this.g = new THREE.Group(); g.name = 'placerLaser'; g.visible = false;
-    this.beamMat = new THREE.MeshBasicMaterial({ color: 0x39d0ff, transparent: true, opacity: 0.85, toneMapped: false });
+    this.beamMat = new THREE.MeshBasicMaterial({ color: 0x39d0ff, transparent: true, opacity: 0.85, toneMapped: false, ...BLEND_ALPHA });
     this.beam = new THREE.Mesh(new THREE.CylinderGeometry(0.0018, 0.0018, 1, 6), this.beamMat); g.add(this.beam);
     this.dot = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), this.beamMat); g.add(this.dot);
     this.hl = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({ color: 0x39d0ff, toneMapped: false })); this.hl.visible = false;
