@@ -63,6 +63,7 @@ export class Avatar {
     const gltf = await new GLTFLoader().loadAsync(url);
     const m = gltf.scene; this.root.add(m);
     const B = {}; this.mouth = [];
+    this.clothesMats = { beanie: [], shirt: [] };
     m.traverse(o => {
       if (o.isBone) B[o.name.replace(/^mixamorig:?/, '')] = o;
       if (o.isMesh) {
@@ -70,6 +71,13 @@ export class Avatar {
         const d = o.morphTargetDictionary;
         const mk = d ? (d.mouthOpen ?? d.jawOpen) : null;
         if (mk != null) this.mouth.push([o, mk]);
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const mt of mats) {
+          if (!mt || !mt.color) continue;
+          const mn = (mt.name || '').toLowerCase();
+          if (mn === 'beanie_mat' || mn === 'hat') { if (!this.clothesMats.beanie.includes(mt)) this.clothesMats.beanie.push(mt); }
+          if (mn === 'outfit_top' || mn === 'wolf3d_outfit_top') { if (!this.clothesMats.shirt.includes(mt)) this.clothesMats.shirt.push(mt); }
+        }
       }
     });
     for (const n of ['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head', 'LeftEye', 'RightEye', 'LeftArm', 'RightArm']) if (!B[n]) throw new Error('avatar rig: no ' + n + ' bone (Ready Player Me rig expected)');
@@ -94,7 +102,14 @@ export class Avatar {
       return { inv: basisQ(f, sd, new THREE.Quaternion()).invert(), q: this.rq[s + 'Hand'] };
     });
     this.ready = true; this.status = 'ready';
+    if (this._clothes) this.setClothes(...this._clothes);
     return this;
+  }
+  setClothes(beanieHex, shirtHex) {
+    this._clothes = [beanieHex, shirtHex];
+    if (!this.clothesMats) return;
+    if (beanieHex != null) this.clothesMats.beanie.forEach(m => { m.color.setHex(beanieHex); m.needsUpdate = true; });
+    if (shirtHex != null) this.clothesMats.shirt.forEach(m => { m.color.setHex(shirtHex); m.needsUpdate = true; });
   }
 
   // pose: { head: {p: Vector3 world eye point, q: Quaternion world (XR camera)}, hands: [left, right] each null or
