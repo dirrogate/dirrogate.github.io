@@ -124,7 +124,7 @@ const KEY_POS = key.position.clone();
 const skybox = new Skybox(renderer); skybox.set3D(settings.dome3d === true);   /* #756 DOME 3D / 2D (default 2D: the left eye for both) */ rig.add(skybox.group); skybox.group.position.x = 0.05; skybox.group.position.z = 0.62;
 // #346 DOME (PORTALS SETUP): the same grounded sky, shown even in passthrough and with any light setting, sized 3-20 m
 const dome = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.dome') || 'null'); } catch {} return { on: !!(s && s.on), r: Math.min(20, Math.max(3, (s && s.r) || 10)), turn: Math.min(359, Math.max(0, (s && s.turn) || 0)), ev: Math.min(1, Math.max(-3, +(s && s.ev) || 0)), gam: Math.min(2, Math.max(0.5, +(s && s.gam) || 1)) }; })();   // #638 gam: DOME GAMMA   // #404 ev: DOME EXPOSURE   // #389 turn: the dome's own angle
-const skyShadow = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.ShadowMaterial({ opacity: 0.4 }));
+const skyShadow = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.ShadowMaterial({ opacity: 0.4, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor }));
 skyShadow.rotation.x = -Math.PI / 2; skyShadow.position.y = 0.001; skyShadow.receiveShadow = true; skyShadow.visible = false; skyShadow.raycast = () => {};
 rig.add(skyShadow);
 let skyKeyLight = null;   // brightest direction + colour of the chosen image (for the key light)
@@ -440,10 +440,16 @@ const pcamOpts = () => (streamer && streamer.active && streamer.source === 'pcam
 if (!CAM_PRESETS[djSet.preset]) djSet.preset = 'gopro';   // #530 only GOPRO and GOPRO2 are in CAM_PRESETS
 if (djcam) djcam.preset = djSet.preset;
 // #221 avatar styles: ROBOT (Blender model models/avatar/robot.glb, robot.js, default) or HUMAN (the Ready Player Me GLB, loaded when first picked)
-// #539 (owner) pick the avatar on DJ TOOLS: ROBOT, DIRROFACE or DIRROCROW. The two Dirro GLBs share the Ready Player Me
-// rig (67 bones, mouthOpen morph), so both run on director.js Avatar. Old saved 'human' = DIRROFACE.
-const AVATAR_STYLES = { robot: { label: 'ROBOT' }, face: { label: 'DIRROFACE', url: 'models/avatar/dirroface.glb' }, crow: { label: 'DIRROCROW', url: 'models/avatar/dirrocrow.glb' } };
-const AVATAR_ORDER = ['robot', 'face', 'crow'];
+// #539 (owner) pick the avatar on DJ TOOLS: ROBOT, DIRROFACE, DIRROCROW or DIRRO_REAL. The Dirro GLBs share the Ready Player Me
+// rig (67 bones, mouthOpen morph), so they all run on director.js Avatar. Old saved 'human' = DIRROFACE.
+const AVATAR_STYLES = {
+  robot: { label: 'ROBOT' },
+  meta: { label: 'METAPERSON', url: 'models/avatar/cly3d_metaperson_black.glb' },
+  face: { label: 'DIRROFACE', url: 'models/avatar/dirroface.glb' },
+  real: { label: 'DIRRO REAL', url: 'models/avatar/dirro_real.glb' },
+  crow: { label: 'DIRROCROW', url: 'models/avatar/dirrocrow.glb' }
+};
+const AVATAR_ORDER = ['robot', 'meta', 'real', 'face', 'crow'];
 if (djSet.style === 'human') djSet.style = 'face';
 if (!AVATAR_STYLES[djSet.style]) djSet.style = 'robot';
 const avatars = {};
@@ -5600,7 +5606,7 @@ const SP_HIT = [];   // #164 spectator strip buttons
 const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set while drawing
 // ---- #185 mixer Video page: the media library pushed from the phone (Pano, Video pano, Video, Images), 8 thumbnails a
 // page; pick one, then where it goes (sky, a deck's VideoVinyl, the LED wall). LED WALL mode lives here too now.
-let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null, vpSelFolder = null, toolsPage = null;   // #224 vpSelFolder: Pano tab mixes Pano + Video pano
+let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null, vpSelFolder = null, toolsPage = null, vpLastTap = { name: '', t: 0 };   // #224 vpSelFolder: Pano tab mixes Pano + Video pano
 const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
 const VP_LIB = ['Pano', 'Video', 'Images'];   // #224 one PANO tab for still and video panoramas
 const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'CLIPS', Images: 'IMAGES', Camera: 'REMOTE CAM', Sync: 'SYNC', Look: 'LOOK', 'DJ Cam': 'GOPROS', Fx: 'FX' };   // #389 CAMERA is REMOTE CAM; the AVACAM tab is GOPROS, which opens SHOWTIME! OBJECTS   // #379 FX   // #241 the DJ CAM tab is AVACAM (owner)
@@ -6051,7 +6057,17 @@ function drawVideoPage() {
       const folder = itF, name = it.name;
       VP_HIT.push({ x: xx - 4, y: xy - 4, w: xs + 8, h: xs + 8, del: true, act: () => deleteMedia(folder, name) });
     }
-    VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, item: it.name, act: () => { if (vd.pick != null && !it.loopId) { vdAssign(it.name); return; } vpSel = it.name === vpSel ? null : it.name; vpSelFolder = vpSel ? itF : null; drawMixScreen(); } });
+    VP_HIT.push({ x: cx, y: cy, w: CW, h: CH, item: it.name, act: () => {
+      if (vd.pick != null && !it.loopId) { vdAssign(it.name); return; }
+      const now = performance.now(), isDbl = vpLastTap.name === it.name && now - vpLastTap.t < 700;
+      if (isDbl) {
+        vpLastTap.name = ''; vpLastTap.t = 0; vpSel = it.name; vpSelFolder = itF;
+        vpAct(vpFolder === 'Pano' || vpFolder === 'Video pano' ? 'sky' : 'lednow');
+        drawMixScreen(); return;
+      }
+      vpLastTap.name = it.name; vpLastTap.t = now;
+      vpSel = it.name === vpSel ? null : it.name; vpSelFolder = vpSel ? itF : null; drawMixScreen();
+    } });
   });
   if (vd.pick != null) { g.strokeStyle = '#ff3040'; g.lineWidth = 4; g.strokeRect(2, 2, W - 4, H - 4); g.fillStyle = '#ff6070'; g.font = '700 15px system-ui'; g.textAlign = 'right'; g.fillText(`PICK THE MATTE FOR SLOT ${vd.pick + 1}`, W - 12, y0 + 12); }   // #442
   // bottom bar: pages, targets for this folder, LED mode (portrait: targets get a row of their own)
@@ -7666,7 +7682,7 @@ function cassGeos() {
   const front = face.clone(); front.translate(0, 0, CASS3_T / 2 + 0.00005);
   const back = face.clone(); back.rotateY(Math.PI); back.translate(0, 0, -CASS3_T / 2 - 0.00005);   // turned round: side B reads right way round from behind
   const side = new THREE.ExtrudeGeometry(sh, { depth: CASS3_T, bevelEnabled: false, steps: 1, curveSegments: 1 }); side.translate(0, 0, -CASS3_T / 2);
-  CAS3D.edge = new THREE.MeshStandardMaterial({ color: 0x24211f, roughness: 0.25, metalness: 0, transparent: true, opacity: 0.86, depthWrite: false });   // #691 owner: sides dark translucent, not see-through   // #622 / #623 smoky plastic; #689 warm smoke like a clear cassette shell
+  CAS3D.edge = new THREE.MeshStandardMaterial({ color: 0x24211f, roughness: 0.25, metalness: 0, transparent: true, opacity: 0.86, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });   // #691 owner: sides dark translucent, not see-through   // #622 / #623 smoky plastic; #689 warm smoke like a clear cassette shell
   CAS3D.noCap = new THREE.MeshBasicMaterial({ visible: false });   // the extrusion's own caps: the picture faces cover them
   return (CAS3D.geo = { front, back, side });
 }
@@ -7693,7 +7709,7 @@ function cassReelParts() {
 function cassMesh(t) {
   let m = CAS3D.meshes.get(t); if (m) return m;
   const G = cassGeos(), RP = cassReelParts();
-  const face = side => new THREE.MeshBasicMaterial({ map: cassTex(t, side), toneMapped: false, transparent: true, depthWrite: false });   // #689 smoked shell + labels
+  const face = side => new THREE.MeshBasicMaterial({ map: cassTex(t, side), toneMapped: false, transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });   // #689 smoked shell + labels
   m = new THREE.Group();
   const add = (o, x = 0, y = 0) => { o.position.set(x, y, 0); o.raycast = () => {}; padCull(o); m.add(o); return o; };
   if (CAS3D.style === 'png') m.userData.reels = null; else m.userData.reels = [0, 1].map(i => {   // turn with the sequencer when this cassette plays (stepCas3D)
@@ -7843,8 +7859,8 @@ function acidLayers() {
   if (!ACIDL.plate) {
     const mk = (map, z, tr) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.075), new THREE.MeshBasicMaterial({ map, toneMapped: false, transparent: tr, depthWrite: !tr }));
       m.position.z = z; m.renderOrder = tr ? 3 : 1; m.raycast = () => {}; m.visible = false; padCull(m); sm.add(m); return m; };
-    ACIDL.plate = mk(null, 0.00008, false);
-    ACIDL.over = mk(acidScreen.texture, 0.00016, true);
+    ACIDL.plate = mk(null, 0.00015, false);
+    ACIDL.over = mk(acidScreen.texture, 0.0003, true);
   }
   if (!ACIDL.tex) {
     const c = acidPlateCanvas(); if (!c) return;
@@ -10737,7 +10753,20 @@ function frameBody() {
   if ((ledMode === 'cam' || (streamer && streamer.wantsCam) || (gopro && gopro.aiming) || (gopro2 && gopro2.aiming)) && djcam) stepDjCam(dt);   // #220 (#331 also while the stream shows AVACAM)
   stepArmSleeves();   // #347
   if (streamer) streamer.tick();   // #331
+  const domeSolid = skybox.group.visible && !(portals && (portals.holeN > 0 || portals.revN > 0)) && !(realDepth && realDepth.on && realDepth.ok);
+  const prevAuto = renderer.autoClear;
+  if (arMode && renderer.xr.isPresenting) {
+    renderer.autoClear = false;
+    renderer.setScissorTest(false);
+    renderer.state.buffers.depth.setMask(true);
+    renderer.state.buffers.color.setMask(true);
+    renderer.setClearColor(0x000000, domeSolid ? 1.0 : 0.0);
+    renderer.clear(true, true, true);
+  } else {
+    renderer.setClearAlpha(domeSolid ? 1.0 : 0.0);
+  }
   renderer.render(scene, camera);
+  renderer.autoClear = prevAuto;
   if (fx) fx.postRender();   // #379 the floated gear back in its real place for hands, grabs and saving
 }
 // #427 DIRROGRAM: the show to the audience phones through the relay (dirro-host.js)
@@ -10922,7 +10951,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack, gearLocked, gearLockMsg, snapYaw: isDeckKey, mixFeel: () => MIXFEEL, targetLightOn: () => !!settings.targetLight,   // #605   // #378
   REC, DECK, CRATE, ARM,
-  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : []), ...(mprops ? mprops.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
+  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, scrDir: () => scrDir, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : []), ...(mprops ? mprops.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
   trayScreen: () => (acidTray.open ? pvScreen : null), trayPress, trayDrag, trayRelease,   // #619
   reelAt: acidReelAt, reelTurn: acidReelTurn, reelEnd: () => acidNudge(0), cassGrab, cassRelease,   // #621
@@ -10961,7 +10990,7 @@ async function begin(mode) {
     setRecordTexSize(2048); // only a few full-detail records exist at once; grooves need the resolution
     applyShadows(false);   // real-time shadows per the Shadows setting (#96)
     renderer.setPixelRatio(1);
-    const base = ['local-floor', 'bounded-floor', 'hand-tracking', 'anchors'];   // #210 anchors
+    const base = mode === 'immersive-ar' ? ['local-floor', 'bounded-floor', 'hand-tracking', 'anchors'] : ['local-floor', 'bounded-floor', 'hand-tracking'];   // #210 anchors (AR only: Quest Browser drops immersive-vr if AR anchors are requested/restored)
     let session = null;
     if (mode === 'immersive-ar') {   // #411 (#408 depth test): Quest 3 depth for occlusion, Space Setup planes for the laser
       try { session = await navigator.xr.requestSession(mode, { optionalFeatures: [...base, 'depth-sensing', 'plane-detection', 'mesh-detection'], depthSensing: { usagePreference: ['gpu-optimized'], dataFormatPreference: ['luminance-alpha', 'float32'] } }); }
@@ -10977,7 +11006,7 @@ async function begin(mode) {
       if (rates.includes(want)) session.updateTargetFrameRate(want).catch(() => {});
     }
     rig.position.set(-0.05, 0, -0.62); rig.rotation.set(0, 0, 0);
-    anchorSetup(session);   // #210 pin the gear to the room (restores the saved pin in a known room)
+    if (mode === 'immersive-ar') anchorSetup(session);   // #210 pin the gear to the room (restores the saved pin in a known room)
     xr.setHandMode('3d');   // #268 (owner): no passthrough cut-out for tracked hands; always the 3D hands
     // passthrough rooms are much dimmer than the studio environment: tone reflections down so metal isn't self-lit
     arMode = mode === 'immersive-ar';
@@ -10994,7 +11023,7 @@ async function begin(mode) {
     });
     session.addEventListener('end', () => { rigAnchor = null; anchorPending = false; rig.rotation.set(0, 0, 0); arMode = false; applyArLook(); applyShadows(false); xr.end(); rig.position.set(0, 0, 0); applySky(); scene.environmentIntensity = envLight.intensity; });
     toast('Reach out and touch: pinch or grip right at a knob, fader, tonearm or record', 5000);
-  } catch (e) { toast('Could not start XR: ' + e.message, 4000); }
+  } catch (e) { $('#start').style.display = ''; toast('Could not start XR: ' + e.message, 4000); }
 }
 
 // ---- environment light

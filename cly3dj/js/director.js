@@ -64,10 +64,12 @@ export class Avatar {
     const m = gltf.scene; this.root.add(m);
     const B = {}; this.mouth = [];
     m.traverse(o => {
-      if (o.isBone) B[o.name] = o;
+      if (o.isBone) B[o.name.replace(/^mixamorig:?/, '')] = o;
       if (o.isMesh) {
         o.layers.set(AV_LAYER); o.frustumCulled = false; o.castShadow = o.receiveShadow = false;
-        const d = o.morphTargetDictionary; if (d && d.mouthOpen != null) this.mouth.push([o, d.mouthOpen]);
+        const d = o.morphTargetDictionary;
+        const mk = d ? (d.mouthOpen ?? d.jawOpen) : null;
+        if (mk != null) this.mouth.push([o, mk]);
       }
     });
     for (const n of ['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head', 'LeftEye', 'RightEye', 'LeftArm', 'RightArm']) if (!B[n]) throw new Error('avatar rig: no ' + n + ' bone (Ready Player Me rig expected)');
