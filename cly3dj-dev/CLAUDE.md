@@ -2982,7 +2982,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - **Works across all Render modes**:
   - `Preview (GPU)` (`window`, `mid`, `whole`, `360 LOOK`), `Composite (pull-back)` (with the new **`1080p (1920×1080)` / `720p (1280×720)`** selector next to the button, using `plate_loop.mp4` automatically when present on a panorama set and falling back to full `Renderer` otherwise), and `Plate loop` (which automatically bakes `cutout_glass` windows that have a clip assigned into `plate_loop.mp4`).
 
-## #778 SideBrecords -> LOOP MASTER `SIDE B` integration & auto-pairing `*_b` in Collection (owner, 19 Nov, gemini_neon 2026-11-19)
+## gemini_neon_ #778 SideBrecords -> LOOP MASTER `SIDE B` integration & auto-pairing `*_b` in Collection (owner, 19 Nov)
 - **SideBrecords metadata (`D:\SideBrecords\backend\renderer.py`)**: records `single_cycle_sec`, `bars`, `repeats` per loop band and embeds compact `TXXX:SIDEB_BANDS` JSON in every rendered `*_b.mp3` / `*_b_s.mp3` (backfilled onto the 7 existing output MP3s without re-encoding).
 - **Auto-pairing `*_b` / `*_b_s` without editing XML (`tools/vire-test-server.mjs`, `web/js/storage.js`, `web/js/library.js`, `web/js/id3.js`, `web/js/main.js`)**:
   - `GET /vire/api/sideb-files` lists `*_b` / `*_b_s` audio files in `Collection/` on PC; `storage.js` `importFiles()` keeps matching `*_b` files on Quest folder import.
@@ -2990,6 +2990,99 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
   - `id3.js` parses `TXXX:SIDEB_BANDS` into `tag.sideb`.
 - **`LOOP MASTER` `SIDE B` button (`web/js/main.js`)**: replaces the redundant `DJ TOOLS` button below `LOAD BANK` (and adds `SIDE B` to the portrait row). Pressing `SIDE B` cycles turntables checking for a record with Side B facing up (`d.record && d.side === 'B'`); if none, does nothing; if found, pushes undo, clears the 4 looper slots, slices 1× single-cycle Loop → Slot 1 and the first 3 VOX → Slots 2–4 routed through that deck's existing looper channel (`bufs[d.i]`), saves to OPFS, and arms Slot 1.
 
-## #779 Quest right controller thumbstick click toggles armed Looper playback (owner, 19 Nov, gemini_neon 2026-11-19)
+## gemini_neon_ #779 Quest right controller thumbstick click toggles armed Looper playback (owner, 19 Nov)
 - **`web/js/xr.js`**: edge-detected check on right controller `gamepad.buttons[3]` (disabled during Movie Props placement laser) calling `ctx.onRightStick(st)` with haptic feedback (`buzz(st, 0.45, 30)`).
 - **`web/js/main.js`**: `onRightStick` toggles `looper` between `stop` (armed) and `play` (ignores `empty` and `rec` so stray clicks never start recording or clear a slot), redrawing `LOOP MASTER` if open.
+
+## gemini_neon_ #780 DirroVerse SET `+ OBJECT` upgraded for any static or animated GLB (node & skeletal/skinned) (owner, 19 Nov)
+- **`club_window/glb_ibl_engine.py`**:
+  - Added clear error guards for `KHR_draco_mesh_compression` and `EXT_meshopt_compression`.
+  - `_read_accessor` now handles missing `bufferView` (zero-filled) and `normalized` integer accessors (`uint8`/`uint16`/`int8`/`int16`, needed for `WEIGHTS_0`).
+  - Parses glTF `skins` (`joints`, `inverseBindMatrices`) and per-clip animation metadata (`name`, `duration`, `LINEAR` / `STEP` / `CUBICSPLINE` interpolation).
+  - `compute_node_world_matrices(t_sec, anim_idx=0)` evaluates only the selected clip and preserves static node `matrix` transforms on non-animated nodes.
+- **`club_window/car3d.py` & `club_window/cinemagraph.py`**:
+  - `CarModel` normalizes by longest bounding-box axis (safe for tall characters/props, identical for cars), computes frame-0 skinned bounds, and exposes GPU `eval_pose(t)` for per-frame node-hierarchy and 4-bone linear-blend skeletal skinning (~35 ms/frame on RTX 4050 for a 28k-tri Mixamo character).
+  - Added `pitch`, `roll`, `anim`, `anim_speed`, `anim_offset`, and `anim_loop_sync` (snaps cycles cleanly to `loop_s` for `Plate loop` and `Render DOME`), plus float64-safe `_uv_tangents`.
+- **`club_window/set_builder_server.py` & `club_window/builder.html`**:
+  - `/api/glbparts` returns `animations` (`name`, `duration`) and `skinned` flag, freeing VRAM after inspection.
+  - Selected → OBJECT now leads with **`Choose GLB… (opens Explorer)`**, auto-disables the vehicle name plate and hover bob for non-car GLBs, shows dynamic **GLB Animation** controls (clip selector, speed, offset, loop sync), adds **pitch / roll** sliders, and tucks **Name plate** into a collapsible `<details>`.
+
+## gemini_neon_ #781 Depth Anything V2 Polygon-to-3D Photo-Textured `.glb` Extruder (owner, 19 Nov)
+- **`club_window/poly_extrude.py`**: `extrude_polygon_glb()` takes any 2D polygon traced on `plate.png`, runs Depth Anything V2 (`cg._raw_depth_map` + `_unload_da`) on a padded context crop, plane-detrends the perspective ramp inside the polygon, triangulates the interior + boundary with `scipy.spatial.Delaunay`, extrudes shaded stone sidewalls + flat back cap for a watertight mesh, embeds the cropped photo PNG texture + PBR clearcoat/roughness (`wetness`), and writes a binary glTF 2.0 `.glb`.
+- **`club_window/set_builder_server.py` (`POST /api/extrude_glb`) & `club_window/builder.html` (`Selected → IN FRONT`)**:
+  - Adds **`3D relief (bumps)`**, **`side thickness`**, **`wetness / gloss`**, **`remove this IN FRONT polygon after extruding`**, and **`Extrude polygon → 3D GLB prop…`**.
+  - Saves to `club_window/sets/<set>/props/brick_prop_<N>.glb` and spawns a ready-to-place `+ OBJECT` (with `plate: '(none)'`, `hover: 0`, `rim_k: 0`, `in_loop: true`) that renders **in front of** open-air billboard cutouts in Preview, Composite, Plate loop, and Render DOME.
+
+## gemini_neon_ #782 Real-plate fixes for `+ OBJECT` GLBs & Extrude-to-GLB props (owner, 20 Nov)
+- **`club_window/car3d.py`**:
+  - Added glTF `KHR_materials_unlit` + `cfg.unlit` / `cfg.unlit_gain` so photo-textured props render at their authored plate brightness instead of getting relit/crushed by a dark night plate's ~0.04 irradiance. (Fixed `(N,1) * (N,)` broadcast bug on `alpha = alpha * (1 - unl) + unl`.)
+  - Added `cfg.face_camera` for 1-point still objects so photo cards always face the viewer anywhere on a flat plate or 360° panorama.
+  - Auto-disables `car_paint` darkening/clearcoat for non-car GLBs so imported characters/props don't look dark or plastic.
+- **`club_window/poly_extrude.py` & `club_window/set_builder_server.py`**:
+  - Writes `KHR_materials_unlit` on extruded materials, lowers default `relief` and `thickness` from `0.18`/`0.25` to `0.03`/`0.03`, and raises sidewall base factor to `0.55`.
+- **`club_window/builder.html`**:
+  - Fixed `S.front_areas` typo → `S.front.splice(sel.i, 1)` so removing the helper `IN FRONT` polygon actually deletes it instead of masking out the extruded prop.
+  - Spawned extruded props default to `face_camera: true`, `unlit: true`, `shadow: 0`, `clearcoat: 0`, `grime: 0`, `rim_k: 0`.
+  - Added UI controls under Selected → OBJECT: 0-point placement warning, `face camera`, `unlit / photo-lit` + `photo brightness`, `contact shadow`, and non-car GLB exposure/clearcoat defaults in `applyGlb`.
+- **Verified visually** on real `grungehut_alley` and `cafe_pano` plates (`verify_alley_fixed.jpg`, `verify_cafe_fixed.jpg`).
+
+## gemini_neon_ #783 DirroVerse SET interactive UX: Preview zoom/drag, 3D Gizmo, Playhead auto-preview, 6–10× faster cached preview & Live Canvas (owner, 20 Nov)
+- **Preview panel zoom & direct GLB dragging (`club_window/builder.html`)**:
+  - Cursor-anchored wheel zoom (`1×..12×`), right/middle/Space-drag pan, double-click / `Fit` reset inside `#pvWrap`.
+  - Left-drag selected `+ OBJECT` GLB directly in Preview (both rectilinear flat/panorama shots via inverse gnomonic projection and equirectangular `whole`/`equirect`), enlarged 1-point hit area on compose canvas, `Shift+drag` in `360 LOOK`, and auto-`livePreview()` on scrub-bar release/click/pause.
+- **Toggleable 3D Manipulation Gizmo (`club_window/builder.html`)**:
+  - Auto-enabled on GLB import/extrude; toggled via `3D Gizmo: ON/OFF (G)` or `G` key. Center free-move, Red `X` / Green `Y` axis-locked slide, Blue yaw/facing ring, Cyan `P` pitch, Magenta `R` roll, Orange `S` size, White `Z` distance, live HUD pill, and auto-`livePreview()` on release.
+- **6–10× faster cached Preview + `Live canvas: ON/OFF` (`club_window/car3d.py`, `club_window/cinemagraph.py`, `club_window/set_builder_server.py`, `club_window/builder.html`)**:
+  - Added GPU/CPU LRU caches for `CarModel` (`_MODEL_CACHE`), prefiltered 360° IBL (`_PANO_ENV_CACHE`), decoded `plate.png` / `plate_loop.mp4` frames (`_PV_BG_CACHE`), and window `Feeds` (`_PV_FEED_CACHE`), plus `fast=True` (`ss=1`, capped preview base) for interactive drags (benchmarked: `cafe_pano` `783 ms -> 77 ms`, `grungehut_alley` `2249 ms -> 398 ms`).
+  - Added **`Live canvas: ON/OFF`** button next to `Fit` so the main compose canvas displays the live GPU-rendered windows, billboard cutouts, and 3D GLBs directly underneath the wireframes and 3D Gizmo.
+
+## gemini_neon_ #784–#786 ZBrush-style 3D Globe Gizmo, 360° Preview Viewer, GLB Wetness/Clear-Coat & Mesh Soft Cast Shadows (owner, 20 Nov)
+- **ZBrush-style 3D Globe Manipulation Gizmo + directional scale (`club_window/builder.html`, `club_window/car3d.py`)**:
+  - Real 3D rotated globe gizmo with X/Y/Z translation cones, X/Y/Z directional scale blocks (`scale_xyz` with inverse-transpose normal scaling in `car3d.py`), 4 corner brackets for uniform scale, 3D gimbal rotation rings (front hemisphere bold, back faint), yellow center XY move square, and `↺` reset button.
+- **Panorama-aware 360° Globe Preview (`club_window/builder.html`)**:
+  - Built-in WebGL 360° equirectangular sphere viewer (`#pvGl`) inside `#pvWrap` for panorama and 2:1 sets: right-drag orbits smoothly at 60 fps, wheel zooms FOV (`18°–115°`), left-drag moves selected GLB in spherical space, double-click resets view, and reuses the single equirectangular render for `Live canvas`.
+- **GLB map-driven Wetness, Clear-Coat & `0.01` sliders (`club_window/car3d.py`, `club_window/builder.html`)**:
+  - Fixed `clear-coat (plastic)` for all GLBs (no longer gated by `car_paint`), decoupled `coat` from low night-scene diffuse `exposure`, and added a `1024×512` HDR-expanded reflection map (`_hdr_expand` + `_env_sharp_hdr`).
+  - `wetness (rain)` drives smooth cavity puddles from the GLB's own AO (`occ`), roughness (`rough_orig`), and normal map (`Nn`) — keeping gritty wet concrete grain outside puddles and calm flat water inside puddles. All Look sliders upgraded to `0.01` increments.
+- **Mesh-projected 2-layer Soft Cast + Contact Shadows (`club_window/car3d.py`, `club_window/builder.html`)**:
+  - Replaced the generic ellipse shadow with live 3D mesh-projected contact + directional soft penumbra shadows (`shadow_angle`, `shadow_len`, `shadow_soft`, `ground_m`) working in both rectilinear plates and 360° panoramas (~89 ms warm including full curb render).
+
+## gemini_neon_ #787 Quest 3 Dome Passthrough Bleed, Explicit XR Clear & Fast Video Dome (owner, 20 Nov, `cly3dj-dev` commits `0c8ac13`, `718e7ae`, `e68bdd9`)
+- **Dome mesh & shader (`web/js/skybox.js`)**:
+  - Forced `gl_FragColor.a = 1.0;` after `#include <colorspace_fragment>` (HOLE/WINDOW `Portal.cutInto` `discard;` still runs first), `transparent: false`, `opacity: 1.0`, `frustumCulled = false`.
+  - Restored early-Z rejection (`renderOrder = 1000`, `depthTest = true`, `gl_Position.z = gl_Position.w * 0.9999`) and added a fast single-tap `texture2D(map, uv)` path for video panos (`aa > 0.5`), skipping `dFdx`/`dFdy`, `textureGrad`, and multi-tap lookups when no mipmaps exist.
+- **Conditional explicit XR clear (`web/js/portal.js`, `web/js/main.js`)**:
+  - Added `Portals.holeN` getter to distinguish active HOLE portals from WINDOW (`revN`), FRAME, and SCREEN frames.
+  - Bypassed Three.js r169's `hasDepthSensing()` clear-skip and `alpha-blend` `clearAlpha = 0` override in `immersive-ar`: temporarily sets `renderer.autoClear = false`, resets scissor/depth/color masks, and calls `renderer.setClearColor(0x000000, domeSolid ? 1.0 : 0.0)` + `renderer.clear(true, true, true)` before `renderer.render(scene, camera)` (`domeSolid` = dome visible, no HOLE/WINDOW portals, and REAL OCCLUSION off).
+- **Destination-alpha-preserving `THREE.CustomBlending`** (`blendSrcAlpha: ZeroFactor`, `blendDstAlpha: OneFactor`):
+  - Applied across transparent and additive scene overlays drawn in front of the dome in `fakelight.js`, `movieprops.js`, `fx.js`, `neon.js`, `portal.js`, `deck-glb.js`, `models.js`, `holoplayer.js`, `xr.js`, `robot.js`, `sleeves.js`, and `main.js` (`skyShadow`, `CAS3D`).
+- **Quest-optimized dome video**: generated `club_window/sets/grungehut_exterior/1_dome_quest.mp4` (`2560×1280`, H.264 Main, 30 fps, 11.0 Mbps, 26.9 MB — 2.56× lighter WebGL `texImage2D` upload than the 4096×2048 26.7 Mbps master).
+
+## gemini_neon_ #788 Full VR (`immersive-vr`) Fix on Meta Quest Browser (owner, 20 Nov, `cly3dj-dev` commit `718e7ae`)
+- **`web/js/main.js` (`begin`)**: stopped requesting the AR-only `'anchors'` feature and calling `anchorSetup(session)` (`restorePersistentAnchor`) in `immersive-vr`, which had caused Quest Browser to drop Full VR sessions at `0.0 s, 0 frames`; also restores the `#start` overlay if `requestSession` fails. Verified on Quest 3: both still panos and `1_dome.mp4` play smoothly in Full VR.
+
+## gemini_neon_ #789 Remote Tablet Oblique-Angle Z-Fighting Fix, ACID Background Fix & Bottom-Quarter Non-Grabbable (owner, 20 Nov, `cly3dj-dev` commits `124ab13`, `d6ae31d`, `5874b51`)
+- **`web/js/models.js` & `web/js/main.js`**: raised tablet screen offset from `0.1 mm` → `0.4 mm` inside the 1 mm bezel, added positive `polygonOffset (+2, +2)` to `tabletBodyMat()` (pushing the back slab behind `scr` at oblique angles without occluding `ACIDL.plate` / `ACIDL.over` on the ACID page), and increased `ACIDL.plate` / `ACIDL.over` Z-spacing to `0.15 mm` / `0.30 mm`.
+- **`web/js/xr.js` & `web/js/main.js`**: passed `scrDir: () => scrDir` into `setupXR` and excluded the bottom 25% of the tablet (`l.y < -0.02` in landscape; matching bottom edge in portrait `px`/`nx`) from the grab hit-box to prevent accidental bottom-row button presses when picking up the tablet.
+
+## gemini_neon_ #790 VISUALS Double-Tap Thumbnail Activation (owner, 20 Nov, `cly3dj-dev` commit `2858753`, `sw.js` `vire-app-v248`)
+- **`web/js/main.js`**: double-tapping any thumbnail within 700 ms on VISUALS immediately activates it — **Pano** (still or video pano) → DOME (`vpAct('sky')`), **Images** / **Video** (including grabbed loops) → CYCLOWALL NOW (`vpAct('lednow')`); single-tap still selects/deselects as before.
+
+
+## #787 Photorealistic Custom Avatar: `dirro_real.glb` (owner, 22 Nov)
+- Replaced the cartoon-proportioned face with a photorealistic, lightweight 3D avatar built via Blender 5.1 (`blender/avatar_photo/build_avatar.py`) using the owner's frontal photograph.
+- **Sculpted Geometry**:
+  - Tapered chin and jawline contours matching real facial structure.
+  - Refined nose bridge width and brow contours while maintaining original vertex counts and bone weights.
+  - Removed cartoon glasses mesh (`Wolf3D_Glasses`).
+- **Separate Beanie Geometry**:
+  - Hand-modeled fitted knit dome beanie (`Wolf3D_Beanie`, ~480 polygons) weighted directly to the `Head` bone.
+  - Own PBR material (`Beanie_Mat`) initialized to the photo's dark indigo/charcoal knit.
+- **Texture Projection**:
+  - Sampled and blended high-resolution frontal facial skin texture from the reference photo into `Wolf3D_Skin` UV space with cosine falloff edge blending.
+- **Total Performance Budget**:
+  - Full body model is ~15.2k triangles (well within Quest 3 72-90 FPS budget).
+  - 100% compatible with `director.js` (67 RPM bones, `mouthOpen` / `mouthSmile` audio lip-sync morph targets).
+- **Wiring & Integration**:
+  - `web/js/main.js`: Added `'real'` (`DIRRO REAL`, `models/avatar/dirro_real.glb`) to `AVATAR_STYLES` and `AVATAR_ORDER`. Available directly via DJ TOOLS `AVATAR: <style>` button cycle.
+  - `web/sw.js`: Added `models/avatar/dirro_real.glb` to pre-cached assets. Cache bumped to `vire-app-v249`.

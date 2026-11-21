@@ -440,10 +440,15 @@ const pcamOpts = () => (streamer && streamer.active && streamer.source === 'pcam
 if (!CAM_PRESETS[djSet.preset]) djSet.preset = 'gopro';   // #530 only GOPRO and GOPRO2 are in CAM_PRESETS
 if (djcam) djcam.preset = djSet.preset;
 // #221 avatar styles: ROBOT (Blender model models/avatar/robot.glb, robot.js, default) or HUMAN (the Ready Player Me GLB, loaded when first picked)
-// #539 (owner) pick the avatar on DJ TOOLS: ROBOT, DIRROFACE or DIRROCROW. The two Dirro GLBs share the Ready Player Me
-// rig (67 bones, mouthOpen morph), so both run on director.js Avatar. Old saved 'human' = DIRROFACE.
-const AVATAR_STYLES = { robot: { label: 'ROBOT' }, face: { label: 'DIRROFACE', url: 'models/avatar/dirroface.glb' }, crow: { label: 'DIRROCROW', url: 'models/avatar/dirrocrow.glb' } };
-const AVATAR_ORDER = ['robot', 'face', 'crow'];
+// #539 (owner) pick the avatar on DJ TOOLS: ROBOT, DIRROFACE, DIRROCROW or DIRRO_REAL. The Dirro GLBs share the Ready Player Me
+// rig (67 bones, mouthOpen morph), so they all run on director.js Avatar. Old saved 'human' = DIRROFACE.
+const AVATAR_STYLES = {
+  robot: { label: 'ROBOT' },
+  face: { label: 'DIRROFACE', url: 'models/avatar/dirroface.glb' },
+  real: { label: 'DIRRO REAL', url: 'models/avatar/dirro_real.glb' },
+  crow: { label: 'DIRROCROW', url: 'models/avatar/dirrocrow.glb' }
+};
+const AVATAR_ORDER = ['robot', 'real', 'face', 'crow'];
 if (djSet.style === 'human') djSet.style = 'face';
 if (!AVATAR_STYLES[djSet.style]) djSet.style = 'robot';
 const avatars = {};
