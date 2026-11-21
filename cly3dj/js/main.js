@@ -10355,12 +10355,12 @@ function drawRecMaster(g, x, y, w, h, fs = 15) {
     drawMixScreen();
   } });
 }
-function drawTakesBtn(g, x, y, w, h, fs = 15) {   // #637 TAKES: the last recordings in storage to Downloads (in VR: offered on leaving it)
-  const n = masterRec.pending.length;
+function drawTakesBtn(g, x, y, w, h, fs = 15) {   // #637 / #796 TAKES: the last recordings (Master WAVs + GOPRO 2 MP4s) in storage to Downloads (in VR: offered on leaving it)
+  const n = masterRec.pending.length + (goproRec ? goproRec.pending.length : 0);
   g.fillStyle = n ? '#4a2a10' : '#2a3140'; g.fillRect(x, y, w, h);
   g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = n ? '#ffb070' : '#c9ced8';
   btnLabel(g, n ? `TAKES ${n}` : 'TAKES', x, y, w, h, fs); g.textBaseline = 'alphabetic';
-  SP_HIT.push({ x, y: y - 4, w, h: h + 8, act: () => { if (!masterRec.busy) masterRec.saveTakes().then(drawMixScreen); } });
+  SP_HIT.push({ x, y: y - 4, w, h: h + 8, act: () => { if (!masterRec.busy) masterRec.saveTakes(goproRec && goproRec.on ? goproRec.name : null).then(drawMixScreen); } });
 }
 // #210 GEAR HERE (in XR): tap twice within 3 s; a small pin status beside it
 function drawPin(g, x, y, w, h) {

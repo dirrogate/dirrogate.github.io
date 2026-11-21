@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { Muxer, FileSystemWritableFileStreamTarget } from '../vendor/mp4muxer/mp4-muxer.mjs';
 
-const DIR = 'vire-rec', KEEP = 4, W = 1280, H = 720, FPS = 30;
+const DIR = 'vire-rec', KEEP = 3, W = 1280, H = 720, FPS = 30;
 const pad = n => String(n).padStart(2, '0');
 const stamp = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
 

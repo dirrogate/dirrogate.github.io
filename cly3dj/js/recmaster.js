@@ -72,13 +72,13 @@ export class MasterRec {
   // #637 TAKES (owner: nothing turned up in Downloads). A download fired by the browser on leaving VR has no tap behind it,
   // and the Quest Browser can drop it silently. So the takes kept in storage (the last KEEP) are offered on a big button
   // on the 2D page after leaving VR; tapping it IS the user gesture, and the files go to Downloads one after another.
-  async takes() {   // the finished WAVs in storage, newest first: [{ name, size }]
+  async takes(skipName = null) {   // the finished WAVs + GOPRO 2 MP4s in storage, newest first: [{ name, size }]
     const dir = await this.dir(), out = [];
-    for await (const [n, h] of dir.entries()) if (h.kind === 'file' && /\.wav$/i.test(n) && !(this.cur && this.cur.name === n)) { try { out.push({ name: n, size: (await h.getFile()).size }); } catch {} }
+    for await (const [n, h] of dir.entries()) if (h.kind === 'file' && /\.(wav|mp4)$/i.test(n) && !(this.cur && this.cur.name === n) && n !== skipName) { try { out.push({ name: n, size: (await h.getFile()).size }); } catch {} }
     return out.sort((a, b) => a.name < b.name ? 1 : -1);
   }
-  async saveTakes() {   // the tablet's TAKES key
-    let list; try { list = await this.takes(); } catch (e) { this.toast('TAKES: storage not readable (' + (e.message || e) + ')', 4000); return; }
+  async saveTakes(skipName = null) {   // the tablet's TAKES key (includes Master WAVs + GOPRO 2 MP4s)
+    let list; try { list = await this.takes(skipName); } catch (e) { this.toast('TAKES: storage not readable (' + (e.message || e) + ')', 4000); return; }
     if (!list.length) { this.toast('TAKES: no recordings in storage yet', 3000); return; }
     for (const t of list) if (!this.pending.includes(t.name)) this.pending.push(t.name);
     if (this.inXR()) this.toast(`TAKES: ${list.length} recording${list.length > 1 ? 's' : ''} ready. Leave VR, then tap the SAVE button on the page`, 5000);
