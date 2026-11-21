@@ -4,6 +4,7 @@
 // reaches the Meta cast when the DJ looks at the wall.
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from '../vendor/three/libs/meshopt_decoder.module.js';
 import { skinHandEntry } from './ctlhands.js';   // #469
 
 export const AV_LAYER = 6;   // 1/2 = three's XR eyes, 5 = deck-inst HIDE_LAYER
@@ -57,20 +58,30 @@ export class Avatar {
   constructor(rig) {
     this.rig = rig; this.root = new THREE.Group(); this.root.name = 'avatar'; rig.add(this.root);
     this.ready = false; this.standEye = null; this.yaw = null; this.hipsXZ = null; this.mouthV = 0;
+    this.visV = { open: 0, round: 0, wide: 0, fric: 0, brow: 0 };
+    this.blinkT = 2.5 + Math.random() * 2.5; this.blinkPhase = -1; this.blinkDbl = false;
     this.arm = [null, null]; this.foot = [null, null]; this.status = 'loading';
   }
   async load(url) {
-    const gltf = await new GLTFLoader().loadAsync(url);
+    const loader = new GLTFLoader();
+    if (MeshoptDecoder) loader.setMeshoptDecoder(MeshoptDecoder);
+    const gltf = await loader.loadAsync(url);
     const m = gltf.scene; this.root.add(m);
-    const B = {}; this.mouth = [];
+    const B = {}; this.mouth = []; this.morphs = {};
     this.clothesMats = { beanie: [], shirt: [] };
+    const TRACK_MORPHS = ['jawOpen', 'mouthOpen', 'mouthFunnel', 'mouthPucker', 'mouthSmileLeft', 'mouthSmileRight', 'mouthSmile', 'mouthStretchLeft', 'mouthStretchRight', 'mouthClose', 'mouthRollLower', 'mouthRollUpper', 'mouthPressLeft', 'mouthPressRight', 'eyeBlinkLeft', 'eyeBlinkRight', 'browInnerUp'];
     m.traverse(o => {
       if (o.isBone) B[o.name.replace(/^mixamorig:?/, '')] = o;
       if (o.isMesh) {
         o.layers.set(AV_LAYER); o.frustumCulled = false; o.castShadow = o.receiveShadow = false;
         const d = o.morphTargetDictionary;
-        const mk = d ? (d.mouthOpen ?? d.jawOpen) : null;
-        if (mk != null) this.mouth.push([o, mk]);
+        if (d) {
+          const mk = d.mouthOpen ?? d.jawOpen;
+          if (mk != null) this.mouth.push([o, mk]);
+          for (const mn of TRACK_MORPHS) {
+            if (d[mn] != null) (this.morphs[mn] || (this.morphs[mn] = [])).push([o, d[mn]]);
+          }
+        }
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         for (const mt of mats) {
           if (!mt || !mt.color) continue;
@@ -202,10 +213,62 @@ export class Avatar {
       twoBone(ul, lg, ft, this.foot[i], hp.clone().addScaledVector(fwd, 0.6).addScaledVector(down, 0.4));
       setWorldQ(ft, new THREE.Quaternion().setFromAxisAngle(UP, rootYaw).multiply(this.rq[side + 'Foot']));
     });
-    // mouth from the mic
-    const mv = clamp(((pose.mic || 0) - 0.02) * 4, 0, 1);
-    this.mouthV += (mv - this.mouthV) * Math.min(1, dt * (mv > this.mouthV ? 25 : 10));
-    for (const [o, k] of this.mouth) o.morphTargetInfluences[k] = this.mouthV * 0.8;
+    // Real-time formant viseme lip-sync + natural auto-blinking (#793)
+    const setM = (name, val) => { const arr = this.morphs && this.morphs[name]; if (!arr) return; for (const [o, k] of arr) o.morphTargetInfluences[k] = val; };
+    const vis = pose.vis;
+    const mv = clamp(((vis ? vis.rms : (pose.mic || 0)) - 0.018) * 4.2, 0, 1);
+    this.mouthV += (mv - this.mouthV) * Math.min(1, dt * (mv > this.mouthV ? 28 : 12));
+    if (vis && this.morphs && (this.morphs.jawOpen || this.morphs.mouthFunnel)) {
+      const sp = clamp((vis.rms - 0.015) * 4.5, 0, 1);
+      const sum = vis.lo + vis.mid + vis.hi + 1e-4;
+      const rLo = vis.lo / sum, rMid = vis.mid / sum, rHi = vis.hi / sum;
+      // Map live speech formants to ARKit mouth visemes:
+      // AA/AH (open vowel), OO/OH (round low formant), EE/IH (wide mid formant), S/F/V/T (high fricative)
+      const tOpen  = clamp(sp * (0.35 + 0.95 * rLo + 0.55 * rMid - 0.45 * rHi), 0, 0.85);
+      const tRound = clamp(sp * Math.max(0, (rLo - 0.36) * 2.2) * (1 - rHi * 1.4), 0, 0.72);
+      const tWide  = clamp(sp * Math.max(0, (rMid - 0.28) * 2.1), 0, 0.58);
+      const tFric  = clamp(sp * Math.max(0, (rHi - 0.24) * 2.4), 0, 0.65);
+      const tBrow  = clamp((sp - 0.45) * 0.65, 0, 0.35);
+      const vv = this.visV;
+      const sm = (cur, tgt) => cur + (tgt - cur) * Math.min(1, dt * (tgt > cur ? 28 : 13));
+      vv.open = sm(vv.open, tOpen); vv.round = sm(vv.round, tRound);
+      vv.wide = sm(vv.wide, tWide); vv.fric = sm(vv.fric, tFric); vv.brow = sm(vv.brow, tBrow);
+      setM('jawOpen', vv.open * 0.78);
+      setM('mouthOpen', vv.open * 0.80);
+      setM('mouthFunnel', vv.round * 0.65);
+      setM('mouthPucker', vv.round * 0.55);
+      setM('mouthStretchLeft', vv.wide * 0.55);
+      setM('mouthStretchRight', vv.wide * 0.55);
+      setM('mouthSmileLeft', vv.wide * 0.28);
+      setM('mouthSmileRight', vv.wide * 0.28);
+      setM('mouthClose', vv.fric * 0.38);
+      setM('mouthRollLower', vv.fric * 0.45);
+      setM('mouthPressLeft', vv.fric * 0.28);
+      setM('mouthPressRight', vv.fric * 0.28);
+      setM('browInnerUp', vv.brow);
+    } else {
+      for (const [o, k] of this.mouth) o.morphTargetInfluences[k] = this.mouthV * 0.8;
+    }
+    // Natural auto-blinking (every 2.6 - 5.4s, with occasional natural double-blink)
+    if (this.morphs && (this.morphs.eyeBlinkLeft || this.morphs.eyeBlinkRight)) {
+      let blinkV = 0;
+      if (this.blinkPhase >= 0) {
+        this.blinkPhase += dt;
+        const dur = 0.14;
+        if (this.blinkPhase < 0.06) blinkV = this.blinkPhase / 0.06;
+        else if (this.blinkPhase < dur) blinkV = 1 - (this.blinkPhase - 0.06) / (dur - 0.06);
+        else {
+          this.blinkPhase = -1;
+          this.blinkT = this.blinkDbl ? 0.12 : (2.6 + Math.random() * 2.8);
+          this.blinkDbl = !this.blinkDbl && Math.random() < 0.15;
+        }
+      } else {
+        this.blinkT -= dt;
+        if (this.blinkT <= 0) this.blinkPhase = 0;
+      }
+      setM('eyeBlinkLeft', blinkV);
+      setM('eyeBlinkRight', blinkV);
+    }
   }
   fingers(side, i, h) {
     const B = this.B;

@@ -4928,6 +4928,29 @@ function micLevel() {
   const m = engine.mic; if (!m || !micOn) return 0;
   m.meter.getFloatTimeDomainData(m.meterBuf); let p = 0; for (const x of m.meterBuf) { const a = Math.abs(x); if (a > p) p = a; } return p;
 }
+// #793 Real-time speech formant bands (low/mid/high) for ARKit viseme lip-sync on MetaPerson / RPM avatars
+const _micVisOut = { rms: 0, lo: 0, mid: 0, hi: 0 };
+function micVisemes() {
+  const m = engine.mic;
+  if (!m || !micOn) { _micVisOut.rms = _micVisOut.lo = _micVisOut.mid = _micVisOut.hi = 0; return _micVisOut; }
+  m.meter.getFloatTimeDomainData(m.meterBuf);
+  let sum2 = 0;
+  for (let i = 0; i < m.meterBuf.length; i++) { const x = m.meterBuf[i]; sum2 += x * x; }
+  _micVisOut.rms = Math.sqrt(sum2 / m.meterBuf.length) * 2.2;
+  const nBins = m.meter.frequencyBinCount;
+  if (!m.freqBuf || m.freqBuf.length !== nBins) m.freqBuf = new Uint8Array(nBins);
+  m.meter.getByteFrequencyData(m.freqBuf);
+  const binHz = ((engine.ctx && engine.ctx.sampleRate) || 48000) / m.meter.fftSize;
+  const avg = (hz0, hz1) => {
+    const a = Math.max(1, Math.floor(hz0 / binHz)), b = Math.min(nBins - 1, Math.ceil(hz1 / binHz));
+    let s = 0; for (let i = a; i <= b; i++) s += m.freqBuf[i];
+    return b >= a ? s / ((b - a + 1) * 255) : 0;
+  };
+  _micVisOut.lo = avg(180, 900);
+  _micVisOut.mid = avg(900, 3000);
+  _micVisOut.hi = avg(3000, 7500);
+  return _micVisOut;
+}
 function crateScreenPress(uv) {
   const c = crateScreen.canvas; const px = uv.x * c.width, py = (1 - uv.y) * c.height;
   const inR = b => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h;
@@ -10841,7 +10864,7 @@ function stepDjCam(dt) {
   const gear = djGear(), xrOn = renderer.xr.isPresenting;
   const pose = xrOn ? xrPose(renderer, xr && xr.inputs) : demoPose(rig, gear, (performance.now() - _djT0) / 1000);
   if (avatar && avatar.ready && avatar.root.visible) {   // #221 robot or human
-    try { avatar.update({ ...pose, floorY: rig.getWorldPosition(_djFloor).y, mic: micLevel(), dt }); }
+    try { const vis = micVisemes(); avatar.update({ ...pose, floorY: rig.getWorldPosition(_djFloor).y, mic: vis.rms, vis, dt }); }
     catch (e) { if (!stepDjCam.err) { stepDjCam.err = true; console.error(e); toast('Avatar error (headset keeps running): ' + e.message, 5000); } }
   }
   const dj = rig.worldToLocal(pose.head.p.clone()); djLastRig = dj.clone();   // #731
