@@ -85,11 +85,11 @@ export function setupXR(ctx) {
       hand.remove(st.handModel);
       try { st.handModel = hmf.createHandModel(hand, 'mesh'); hand.add(st.handModel); st.handMatFor = null; hand.dispatchEvent({ type: 'connected', data: src }); } catch (err) { console.warn(err); }
     });
-    const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0x7cc4ff, transparent: true, opacity: 0.7 }));
+    const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0x7cc4ff, transparent: true, opacity: 0.7, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor }));
     line.visible = false; // no pointing rays
     // #140 (owner): a solid, depth-tested ball, so it reads as a nub on the controller's nose (it used to be drawn
     // over the model and looked like a dot floating off to one side). Hands keep the same ball at the fingertip.
-    const tipDot = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0xd2d6dc, transparent: true, opacity: 0.225, depthWrite: false }));   // #295 light grey, 25 % more see-through   // #279 semi-transparent; #282 40 % more (0.5 -> 0.3)
+    const tipDot = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0xd2d6dc, transparent: true, opacity: 0.225, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor }));   // #295 light grey, 25 % more see-through   // #279 semi-transparent; #282 40 % more (0.5 -> 0.3)
     tipDot.visible = false; scene.add(tipDot);
     const hitDot = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
     hitDot.visible = false; scene.add(hitDot);
@@ -273,6 +273,8 @@ export function setupXR(ctx) {
       if (holder && (btn === 'grip' || st.isHand) && pr.hit(P)) {
         st.direct = { kind: 'propStretch', prop: pr, other: holder, d0: Math.max(0.02, pinchOf(holder).distanceTo(P)), s0: pr.obj.scale.x }; buzz(st, 0.5, 40); buzz(holder, 0.5, 40); return true;
       }
+      // #795 GOPRO 2 red record button on top: finger pinch or controller trigger toggles 720p30 recording
+      if (pr.recBtnHit && (st.isHand || btn !== 'grip') && pr.recBtnHit(P)) { pr.onRecTap(); buzz(st, 0.5, 40); return true; }
       // #379 props with a slider or handle of their own (FLOAT slider, WATER corner): trigger / pinch on it, then drag
       if (pr.knob && (st.isHand || btn !== 'grip') && pr.knob(P)) { st.direct = { kind: 'propKnob', prop: pr }; pr.knobMove(P); buzz(st, 0.3, 20); return true; }
       if (pr.scaleTo && pr.corner && (st.isHand || btn !== 'grip') && pr.corner(P)) {
@@ -312,7 +314,9 @@ export function setupXR(ctx) {
         tb.updateMatrixWorld();
         const l = tb.worldToLocal(v2.copy(P)), corner = tb.localToWorld(v1.set(0.095, 0.035, 0));   // #196b the silver corner L (#202 top-right)
         const onCorner = corner.distanceTo(P) < 0.03 * Math.max(1, tb.scale.x * 0.8);
-        const inside = Math.abs(l.x) < 0.115 && Math.abs(l.y) < 0.05 && l.z > -0.035 && l.z < 0.035;
+        const dir = ctx.scrDir ? ctx.scrDir() : 'up';
+        const botQuarter = dir === 'px' ? l.x < -0.05 : dir === 'nx' ? l.x > 0.05 : l.y < -0.02;   // bottom quarter non-grabbable to avoid accidental bottom-row button presses
+        const inside = !botQuarter && Math.abs(l.x) < 0.115 && Math.abs(l.y) < 0.05 && l.z > -0.035 && l.z < 0.035;
         const docked = tb.position.distanceTo(ctx.mixer.userData.tabletDock.p) < 1e-4;
         if (onCorner && !docked && (st.isHand || btn !== 'grip')) {
           const c = tb.getWorldPosition(new THREE.Vector3());

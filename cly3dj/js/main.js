@@ -24,6 +24,7 @@ import { InkLabel } from './inklabel.js';   // #394 milk crate labels
 import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
 import { Portals, GRADE0, HOLO_ORDER, SHAPE_OF, TYPES, TYPE_LABEL, TYPE_HINT, typeOf, shapeKey, shapesFor, kindOfTS, SHAPE_LABEL, HMIN as P_HMIN, HMAX as P_HMAX, RAIN_ORDER, MAX_PORTALS } from './portal.js';
 import { MasterRec } from './recmaster.js';   // #598 REC MASTER: the clean master to a WAV file
+import { GoProRec } from './goprorec.js';   // #795 GOPRO 2 Selfie Recorder (720p30 H.264 + master audio -> OPFS .mp4)
 import { RoomSnap, SNAP_IN, SNAP_OUT } from './roomsnap.js';
 import { NightLook } from './night.js';   // #612 NIGHT LOOK   // #592 Space Setup planes for portal frames   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF, WALL_LIM } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
@@ -1056,7 +1057,7 @@ const snapDeck = (k, y) => isDeckKey(k) ? Math.round(y / DECK_STEP) * DECK_STEP 
 const gopro = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 0.3, mixer.position.z - 0.55), yaw: Math.PI }));
 // #389 GOPRO2 (owner): a second action camera, by default overhead: above the mixer and decks, looking straight down
 if (gopro) { gopro.defZoom = 'wide'; try { if (!localStorage.getItem('vire.gpWide732')) { gopro.setZoom('wide'); localStorage.setItem('vire.gpWide732', '1'); } } catch (e) {} }   // #732 the main GoPro starts WIDE
-const gopro2 = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 1.4, mixer.position.z), yaw: 0, pitch: -Math.PI / 2 }), 'vire.gopro2', 'wide');
+const gopro2 = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 1.4, mixer.position.z), yaw: 0, pitch: -Math.PI / 2 }), 'vire.gopro2', 'wide', { selfie: true });
 // #406 LASER: one movable head; start spot behind the DJ, 2.1 m up, firing forward (-z) over his head toward the audience side
 const laser = CAMERA_ROLE ? null : new Laser(rig, () => ({ p: new THREE.Vector3(mixer.position.x, 2.1, mixer.position.z + 0.9), yaw: 0, pitch: -0.1 }));
 let laserTapT = 0;
@@ -1747,7 +1748,26 @@ $('#helpBtn').onclick = () => { const h = $('#help'); h.style.display = h.style.
 const engine = new AudioEngine();
 // #598 REC MASTER (main tablet page): the master after the limiter (music + mic, no cue) to a WAV in private storage, to Downloads on stop
 const masterRec = new MasterRec(engine, { toast, onChange: () => { if (!toolsPage && !videoPage) drawMixScreen(); }, inXR: () => renderer.xr.isPresenting });
-renderer.xr.addEventListener('sessionend', () => { if (masterRec.pending.length) setTimeout(() => masterRec.offer(), 400); });   // #598 files stopped in VR go to Downloads once out of it; #637 via a SAVE button on the page (a tap = a gesture the Quest Browser honours)
+const goproRec = CAMERA_ROLE ? null : new GoProRec(engine, {
+  toast,
+  onChange: () => {
+    if (gopro2) gopro2.setRec(goproRec.on);
+    if (djcam) djcam.setSize(goproRec.on ? 1280 : 1024, goproRec.on ? 720 : 576);
+    drawMixScreen();
+  },
+  inXR: () => renderer.xr.isPresenting
+});
+if (gopro2 && goproRec) {
+  gopro2.onRecTap = () => {
+    if (goproRec.busy) return;
+    if (goproRec.on) goproRec.stop();
+    else goproRec.start();
+  };
+}
+renderer.xr.addEventListener('sessionend', () => {
+  if (masterRec.pending.length) setTimeout(() => masterRec.offer(), 400);
+  if (goproRec && goproRec.pending.length) setTimeout(() => goproRec.offer(), 550);
+});   // #598 / #795 files stopped in VR go to Downloads once out of it via SAVE buttons on the 2D page
 setInterval(() => { if ((masterRec.on || (vidRec() && vidRec().on)) && !toolsPage && !videoPage) drawMixScreen(); }, 600);   // #753 + VIDREC's time
 // #753 VIDREC: the tablet starts / stops DirroVJ's PROGRAM REC (the laptop records the Program + sound as .mkv); stop = two taps within 3 s
 let vidArm = 0;
@@ -10856,6 +10876,8 @@ function djPrep() {   // what the camera must not see: XR hand / controller mode
   if (xr && xr.glove) hide(xr.glove.root);   // #287 the DJ CAM robot has its own gloves
   if (gopro && gopro.on) hide(gopro.obj);   // #337 #372 hidden only from its own camera
   if (gopro2 && gopro2.on) hide(gopro2.obj);
+  // #795 Tunnel-feedback guard: if CYCLOWALL DirroDj📹 is showing the live camera while GOPRO 2 is active/recording, hide the wall from DjCam so no infinite mirror tunnel is filmed
+  if (gopro2 && gopro2.on && ledMode === 'cam' && facetWall && facetWall.obj) hide(facetWall.obj);
   const bg = scene.background, roomV = room.visible;
   if (!bg && !skybox.group.visible) { scene.background = BG; room.visible = true; }   // passthrough: studio floor + dark backdrop for the camera
   return () => { for (const o of undo) o.visible = true; scene.background = bg; room.visible = roomV; };
@@ -10869,7 +10891,18 @@ function stepDjCam(dt) {
   }
   const dj = rig.worldToLocal(pose.head.p.clone()); djLastRig = dj.clone();   // #731
   const gcam = gpActive(); if (gcam) goproToDjcam(gcam); else djcam.aimAt(gear, dj);   // #337 the GoPro, when it is out, is the camera
-  if (ledMode === 'cam' || !streamer || streamer.needsCamRT || ((gopro && gopro.aiming || gopro2 && gopro2.aiming) && !(streamer.live && streamer.source === 'show'))) { const did = roboRender(pose, gear, dt, () => djcam.render(scene, dt, xrOn ? (testState.cam2 ? 2 : 3) : 2, djPrep)); if (did && ledMode === 'cam') camToWall(); }   // #258 CAM 2ND FRAME test (#336: SHOW renders its own layer from this camera)
+  const gp2Live = !!(gopro2 && gopro2.on);
+  const gp2Rec = !!(goproRec && goproRec.on);
+  if (gp2Rec && !gp2Live) goproRec.stop();   // auto-stop recording if GOPRO 2 is hidden/switched away
+  if (gp2Live || gp2Rec || ledMode === 'cam' || !streamer || streamer.needsCamRT || ((gopro && gopro.aiming) && !(streamer.live && streamer.source === 'show'))) {
+    const did = roboRender(pose, gear, dt, () => djcam.render(scene, dt, xrOn ? (testState.cam2 ? 2 : 3) : 2, djPrep));
+    if (did) {
+      const isHdr = djcam.rt.texture.type !== THREE.UnsignedByteType;
+      if (ledMode === 'cam' && !(gp2Live && gp2Rec)) camToWall();
+      if (gp2Live) gopro2.setView(djcam.rt.texture, isHdr, false);
+      if (gp2Rec) goproRec.pushFrame(renderer, djcam.rt.texture, isHdr);
+    }
+  }   // #258 CAM 2ND FRAME test (#336: SHOW renders its own layer from this camera; #795 GOPRO 2 selfie preview & 720p30 H.264 rec)
   else djcam.t += dt;
 }
 const _djFloor = new THREE.Vector3();

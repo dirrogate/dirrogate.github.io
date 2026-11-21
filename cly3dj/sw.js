@@ -10,7 +10,7 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v256';   // #794 Compressed cly3dj_beanie.glb (4.61MB) & cly3d_metaperson_black.glb (4.47MB)
+const CACHE = 'vire-app-v257';   // #795 GOPRO 2 Selfie Recorder (50% longer handle, mirrored front screen, red REC button, 720p30 H.264 + master audio -> OPFS .mp4, tunnel guard)
 // v248   // gemini_neon 2026-11-20: #786 VISUALS double-tap thumbnail activates Pano (DOME) or Image/Video (CYCLOWALL NOW)
 // (v187)   // #709 DirroVerse moving matte (plate_matte.mp4)
 // (v186)   // #707 DirroVerse banks, WEBCAM + GEAR windows
@@ -60,7 +60,7 @@ const NET_WAIT = 2500, OFFLINE_HOLD = 30000;
 const APP = [
   'index.html', 'spectator.html', 'dirrovj.html', 'vjdesk.html', 'venue.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png',
   ...['artfetch', 'acid-worklet', 'acid-tapes', 'loopbank', 'inklabel', 'whiteboard', 'audio', 'beat', 'bump-worker', 'camtest', 'chat', 'deck-glb', 'deck-inst', 'deck-worklet', 'decode-worker', 'director', 'env', 'fakelight', 'fixedcam', 'fixlook',
-    'facetwall', 'flightcase', 'fx', 'dirro-host', 'dirrogram', 'wallfx', 'wallfx-worker', 'gopro', 'laser', 'realdepth', 'holofx', 'progrec', 'progrec-worker', 'reccopy', 'camfit', 'id3', 'layout', 'ledwall', 'library', 'lookmatch', 'main', 'medialib', 'merge', 'mic-worklet', 'models', 'movieprops', 'neon', 'net-link',
+    'facetwall', 'flightcase', 'fx', 'dirro-host', 'dirrogram', 'wallfx', 'wallfx-worker', 'gopro', 'goprorec', 'laser', 'realdepth', 'holofx', 'progrec', 'progrec-worker', 'reccopy', 'camfit', 'id3', 'layout', 'ledwall', 'library', 'lookmatch', 'main', 'medialib', 'merge', 'mic-worklet', 'models', 'movieprops', 'neon', 'net-link',
     'keycol', 'neonenv', 'pcampack', 'perfcap', 'sleeves', 'phonelib', 'portal', 'robot', 'robot2', 'skybox', 'spectator-client', 'spectator-host', 'spectator', 'storage', 'stream', 'studio', 'vjdesk', 'dancer', 'dancerdesk', 'holodesk', 'holoplayer', 'comics', 'cxfiles', 'storyboard', 'mooncase', 'drostemaker', 'rgbdgrab', 'recmaster', 'rec-worklet', 'textures', 'tools', 'venue', 'videovinyl', 'vset', 'xr'].map(n => `js/${n}.js`),
   ...['flight_case_kit', 'flight_case_kit_ktx', 'milk_crate', 'milk_crate_ktx', 'mixer_parts', 'neon_sign_glass', 'neon_sign_glass_ktx',
     'record_crate', 'record_crate_ktx', 'turntable', 'avatar/robot', 'avatar/avatar_robot', 'avatar/avatar_robot_v2', 'avatar/dirroface', 'avatar/dirrocrow', 'avatar/dirro_real', 'avatar/cly3d_metaperson_black', 'avatar/cly3dj_beanie'].map(n => `models/${n}.glb`),

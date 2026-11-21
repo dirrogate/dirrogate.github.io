@@ -366,6 +366,9 @@ export class DjCam {
     this.rt.texture.generateMipmaps = false; this.rt.texture.minFilter = THREE.LinearFilter;
     this.preset = 'gopro'; this.n = 0; this.t = 0; this.lastMs = 0; this.ms = 0;
   }
+  setSize(w, h) {   // #795 bump to 1280x720 while GOPRO 2 is recording, restore 1024x576 on stop
+    if (this.rt.width !== w || this.rt.height !== h) this.rt.setSize(w, h);
+  }
   aimAt(gear, dj) {   // fallback rig-local positions if no GoPro object is active
     const now = performance.now(), k = this.zT ? Math.min(1, (now - this.zT) / 2000) : 1; this.zT = now;
     this.zs = this.zs == null ? dj.z : this.zs + (dj.z - this.zs) * k;
