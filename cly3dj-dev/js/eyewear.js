@@ -56,6 +56,7 @@ export class Eyewear {
     this.hudCtx = this.hudCanvas.getContext('2d');
     this.hudTex = new THREE.CanvasTexture(this.hudCanvas);
     this.hudTex.colorSpace = THREE.SRGBColorSpace;
+    this.hudTex.flipY = false;   // glTF V=0 is top of image -> match canvas y=0 at top!
     this.hudTex.minFilter = THREE.LinearFilter;
     this.hudTex.magFilter = THREE.LinearFilter;
     this.hudTex.generateMipmaps = false;
@@ -63,9 +64,10 @@ export class Eyewear {
       map: this.hudTex,
       transparent: true,
       blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
       depthWrite: false,
       toneMapped: false,
-      opacity: 0.94,
+      opacity: 0.46,   // subtly faint phosphor glow read through the dark smoked glass layer
     });
     this._hudScroll = 0;
     this._hudAcc = 1;   // force initial paint on first tick
@@ -134,7 +136,7 @@ export class Eyewear {
         o.castShadow = o.receiveShadow = false;
         meshes.push(o);
         if (/temples_rear/i.test(o.name)) rearMeshes.push(o);
-        if (/visor_hud/i.test(o.name)) {
+        if (/visor_hud/i.test(o.name) || (o.material && /visor_hud/i.test(o.material.name || ''))) {
           o.material = this.hudMat;
           o.renderOrder = 2;
           return;
@@ -202,35 +204,30 @@ export class Eyewear {
     }
 
     g.save();
-    g.fillStyle = '#3dff72';
-    g.shadowColor = '#18ff52';
-    g.shadowBlur = 6;
+    g.fillStyle = 'rgba(72, 245, 122, 0.88)';
+    g.shadowColor = 'rgba(32, 235, 92, 0.75)';
+    g.shadowBlur = 4;
     g.textBaseline = 'middle';
 
-    // Line 1: tiny phosphor-green scrolling song title & artist
+    // Line 1: always-scrolling phosphor-green song title & artist/band name marquee
     g.font = '700 20px "Courier New", Consolas, monospace';
     const gap = '   •   ';
     const full = label + gap;
-    const tw = g.measureText(label).width;
-    const fw = g.measureText(full).width;
+    const fw = Math.max(40, g.measureText(full).width);
+    this._hudScroll = (this._hudScroll + stepDt * 30) % fw;
     g.textAlign = 'left';
-    if (tw > W - 12) {
-      this._hudScroll = (this._hudScroll + stepDt * 34) % fw;
-      const x0 = 6 - this._hudScroll;
-      g.fillText(full, x0, 21);
-      g.fillText(full, x0 + fw, 21);
-    } else {
-      g.fillText(label, 6, 21);
+    for (let x = -this._hudScroll; x < W + fw; x += fw) {
+      g.fillText(full, x, 21);
     }
 
     // Subtle phosphor divider rule
-    g.shadowBlur = 2;
-    g.fillStyle = 'rgba(61, 255, 114, 0.30)';
+    g.shadowBlur = 1;
+    g.fillStyle = 'rgba(68, 240, 118, 0.22)';
     g.fillRect(6, 35, W - 12, 1);
 
     // Line 2: live BPM + remaining minutes:seconds countdown
-    g.fillStyle = '#36f56b';
-    g.shadowBlur = 5;
+    g.fillStyle = 'rgba(60, 232, 110, 0.78)';
+    g.shadowBlur = 3;
     g.font = '700 18px "Courier New", Consolas, monospace';
     const bpmStr = (info && info.bpm > 0) ? `${info.bpm.toFixed(1)} BPM` : '--.- BPM';
     let remStr = '--:--';
