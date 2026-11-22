@@ -10929,7 +10929,15 @@ function stepDjCam(dt) {
   const gear = djGear(), xrOn = renderer.xr.isPresenting;
   const pose = xrOn ? xrPose(renderer, xr && xr.inputs) : demoPose(rig, gear, (performance.now() - _djT0) / 1000);
   if (avatar && avatar.ready && avatar.root.visible) {   // #221 robot or human
-    try { const vis = micVisemes(); avatar.update({ ...pose, floorY: rig.getWorldPosition(_djFloor).y, mic: vis.rms, vis, dt }); }
+    try {
+      const vis = micVisemes();
+      let lookAt = null;
+      if (gopro2 && gopro2.on) {
+        gopro2.obj.updateMatrixWorld();
+        lookAt = gopro2.obj.localToWorld(_gp2Look.copy(gopro2.lensLocal));
+      }
+      avatar.update({ ...pose, floorY: rig.getWorldPosition(_djFloor).y, mic: vis.rms, vis, lookAt, dt });
+    }
     catch (e) { if (!stepDjCam.err) { stepDjCam.err = true; console.error(e); toast('Avatar error (headset keeps running): ' + e.message, 5000); } }
   }
   if (eyewear) eyewear.sync(avatar, pose, !!(avatar && avatar.root.visible), dt, eyewearHudInfo());
@@ -10950,7 +10958,7 @@ function stepDjCam(dt) {
   }   // #258 CAM 2ND FRAME test (#336: SHOW renders its own layer from this camera; #795 GOPRO 2 selfie preview & 720p30 H.264 rec)
   else djcam.t += dt;
 }
-const _djFloor = new THREE.Vector3();
+const _djFloor = new THREE.Vector3(), _gp2Look = new THREE.Vector3();
 // #732 DirroDj📹 on the CYCLOWALL: the DJ CAM picture is copied (a 1-quad pass) into its own target after each render and the
 // wall samples the copy, so the camera can film the wall without reading and writing the same texture (one frame behind = the tunnel).
 let camCopy = null; const camCopyScene = new THREE.Scene(), camCopyCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);

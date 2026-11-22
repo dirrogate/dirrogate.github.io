@@ -13,6 +13,10 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const _v = [...Array(12)].map(() => new THREE.Vector3());
 const _q = [...Array(6)].map(() => new THREE.Quaternion());
 const _m = new THREE.Matrix4();
+const _ev1 = new THREE.Vector3(), _ev2 = new THREE.Vector3(), _ev3 = new THREE.Vector3();
+const _eq1 = new THREE.Quaternion(), _eq2 = new THREE.Quaternion(), _eq3 = new THREE.Quaternion();
+const EYE_MAX = 10 * Math.PI / 180;     // #813 follow GOPRO 2 up to 10 deg N/S/E/W relative to headset
+const EYE_REL = 10.8 * Math.PI / 180;   // subtle release hysteresis to avoid jitter at 10 deg boundary
 
 // orientation from a "fingers" direction and an index -> pinky direction (same construction for target and rest)
 function basisQ(f, s, out) {
@@ -60,6 +64,7 @@ export class Avatar {
     this.ready = false; this.standEye = null; this.yaw = null; this.hipsXZ = null; this.mouthV = 0;
     this.visV = { open: 0, round: 0, wide: 0, fric: 0, brow: 0 };
     this.blinkT = 2.5 + Math.random() * 2.5; this.blinkPhase = -1; this.blinkDbl = false;
+    this.eyeYaw = 0; this.eyePitch = 0; this.eyeLocked = false;   // #813 GOPRO 2 eye-contact gaze state
     this.arm = [null, null]; this.foot = [null, null]; this.status = 'loading';
   }
   async load(url) {
@@ -70,7 +75,7 @@ export class Avatar {
     const B = {}; this.mouth = []; this.morphs = {};
     this.clothesMats = { beanie: [], shirt: [] };
     this.shadesMeshes = [];
-    const TRACK_MORPHS = ['jawOpen', 'mouthOpen', 'mouthFunnel', 'mouthPucker', 'mouthSmileLeft', 'mouthSmileRight', 'mouthSmile', 'mouthStretchLeft', 'mouthStretchRight', 'mouthClose', 'mouthRollLower', 'mouthRollUpper', 'mouthPressLeft', 'mouthPressRight', 'eyeBlinkLeft', 'eyeBlinkRight', 'browInnerUp'];
+    const TRACK_MORPHS = ['jawOpen', 'mouthOpen', 'mouthFunnel', 'mouthPucker', 'mouthSmileLeft', 'mouthSmileRight', 'mouthSmile', 'mouthStretchLeft', 'mouthStretchRight', 'mouthClose', 'mouthRollLower', 'mouthRollUpper', 'mouthPressLeft', 'mouthPressRight', 'eyeBlinkLeft', 'eyeBlinkRight', 'browInnerUp', 'vrTemples'];
     m.traverse(o => {
       if (o.isBone) B[o.name.replace(/^mixamorig:?/, '')] = o;
       if (o.isMesh) {
@@ -126,6 +131,12 @@ export class Avatar {
     if (!this.clothesMats) return;
     if (beanieHex != null) this.clothesMats.beanie.forEach(m => { m.color.setHex(beanieHex); m.needsUpdate = true; });
     if (shirtHex != null) this.clothesMats.shirt.forEach(m => { m.color.setHex(shirtHex); m.needsUpdate = true; });
+  }
+  // #810 DIRRO REAL 2: the beanie's vrTemples morph shows the VR glasses arms tucked under the knit (eased)
+  setVrTemples(on, dt = 0.016) {
+    const arr = this.morphs && this.morphs.vrTemples; if (!arr) return;
+    const t = on ? 1 : 0; this._vrT = this._vrT == null ? t : this._vrT + (t - this._vrT) * Math.min(1, dt * 8);
+    for (const [o, k] of arr) o.morphTargetInfluences[k] = this._vrT;
   }
   setShades(on) {
     this._shades = !!on;
@@ -193,6 +204,41 @@ export class Avatar {
     const err = head.p.clone().sub(eyeW());
     this.root.position.add(err.applyQuaternion(rigQ.clone().invert()));
     this.root.updateMatrixWorld(true);
+    // #813 DJ eye-contact tracking toward GOPRO 2: follow up to +/-10 deg N/S/E/W relative to headset,
+    // smoothly returning to headset forward gaze once outside 10 deg.
+    if (B.LeftEye && B.RightEye) {
+      let tgtYaw = 0, tgtPitch = 0;
+      if (pose.lookAt) {
+        _ev1.copy(pose.lookAt).sub(head.p).applyQuaternion(_eq1.copy(head.q).invert());
+        const fwdD = -_ev1.z;
+        if (fwdD > 0.05) {
+          const rawYaw = Math.atan2(-_ev1.x, fwdD);
+          const rawPitch = Math.atan2(_ev1.y, Math.hypot(_ev1.x, fwdD));
+          const lim = this.eyeLocked ? EYE_REL : EYE_MAX;
+          if (Math.abs(rawYaw) <= lim && Math.abs(rawPitch) <= lim) {
+            this.eyeLocked = true;
+            tgtYaw = clamp(rawYaw, -EYE_MAX, EYE_MAX);
+            tgtPitch = clamp(rawPitch, -EYE_MAX, EYE_MAX);
+          } else {
+            this.eyeLocked = false;
+          }
+        } else {
+          this.eyeLocked = false;
+        }
+      } else {
+        this.eyeLocked = false;
+      }
+      const ek = 1 - Math.exp(-dt * (this.eyeLocked ? 12 : 5.5));
+      this.eyeYaw += (tgtYaw - this.eyeYaw) * ek;
+      this.eyePitch += (tgtPitch - this.eyePitch) * ek;
+      if (Math.abs(this.eyeYaw) > 1e-4 || Math.abs(this.eyePitch) > 1e-4) {
+        const headUp = _ev2.set(0, 1, 0).applyQuaternion(head.q);
+        const headRight = _ev3.set(1, 0, 0).applyQuaternion(head.q);
+        const dqEye = _eq2.setFromAxisAngle(headUp, this.eyeYaw).multiply(_eq3.setFromAxisAngle(headRight, this.eyePitch));
+        rotWorld(B.LeftEye, dqEye);
+        rotWorld(B.RightEye, dqEye);
+      }
+    }
     // arms
     const down = new THREE.Vector3(0, -1, 0);
     ['Left', 'Right'].forEach((side, i) => {
