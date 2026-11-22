@@ -10,7 +10,7 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v263';   // #801 cly3dj_tripo.glb V19: watertight single-mesh bridged neck (0 holes/bulge/stray polys), authentic rich matte Tripo skin (2.87 MB)
+const CACHE = 'vire-app-v264';   // #802 cly3dj_tripo.glb V22: smooth concave neck (no Adam's apple/jutting), invisible neck color match, dark-blue cheek wire 100% cleaned (2.86 MB)
 // v248   // gemini_neon 2026-11-20: #786 VISUALS double-tap thumbnail activates Pano (DOME) or Image/Video (CYCLOWALL NOW)
 // (v187)   // #709 DirroVerse moving matte (plate_matte.mp4)
 // (v186)   // #707 DirroVerse banks, WEBCAM + GEAR windows
