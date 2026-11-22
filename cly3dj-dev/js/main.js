@@ -10905,6 +10905,25 @@ function djPrep() {   // what the camera must not see: XR hand / controller mode
   if (!bg && !skybox.group.visible) { scene.background = BG; room.visible = true; }   // passthrough: studio floor + dark backdrop for the camera
   return () => { for (const o of undo) o.visible = true; scene.background = bg; room.visible = roomV; };
 }
+function eyewearHudInfo() {
+  const on = decks.filter(d => d.track && engine.state.decks[d.i] && engine.state.decks[d.i].needle && Math.abs(engine.state.decks[d.i].rate) > 0.2);
+  const loud = d => (mixVal[(d.i ? 'B' : 'A') + '.fader'] || 0) * (d.i ? Math.min(1, 1 + mixVal.xfader) : Math.min(1, 1 - mixVal.xfader));
+  on.sort((a, b) => loud(a) - loud(b));
+  const top = on[on.length - 1] || decks.find(d => d.track);
+  if (!top || !top.track) return null;
+  const t = top.track, st = engine.state.decks[top.i] || {};
+  let bpm = 0; try { bpm = bpmOf(t) * Math.abs(st.rate || 1); } catch {}
+  const pos = engine.ctx ? engine.pos(top.i) : 0;
+  const dur = top.duration || t.duration || 0;
+  const rem = dur > 0 ? Math.max(0, dur - pos) : -1;
+  const title = (t.title || t.name || '').trim(), artist = (t.artist || '').trim();
+  return {
+    label: artist && title ? `${title} - ${artist}` : (title || artist || 'UNKNOWN TRACK'),
+    bpm,
+    rem,
+    playing: !!(st.needle && Math.abs(st.rate || 0) > 0.2),
+  };
+}
 function stepDjCam(dt) {
   const gear = djGear(), xrOn = renderer.xr.isPresenting;
   const pose = xrOn ? xrPose(renderer, xr && xr.inputs) : demoPose(rig, gear, (performance.now() - _djT0) / 1000);
@@ -10912,7 +10931,7 @@ function stepDjCam(dt) {
     try { const vis = micVisemes(); avatar.update({ ...pose, floorY: rig.getWorldPosition(_djFloor).y, mic: vis.rms, vis, dt }); }
     catch (e) { if (!stepDjCam.err) { stepDjCam.err = true; console.error(e); toast('Avatar error (headset keeps running): ' + e.message, 5000); } }
   }
-  if (eyewear) eyewear.sync(avatar, pose, !!(avatar && avatar.root.visible), dt);
+  if (eyewear) eyewear.sync(avatar, pose, !!(avatar && avatar.root.visible), dt, eyewearHudInfo());
   const dj = rig.worldToLocal(pose.head.p.clone()); djLastRig = dj.clone();   // #731
   const gcam = gpActive(); if (gcam) goproToDjcam(gcam); else djcam.aimAt(gear, dj);   // #337 the GoPro, when it is out, is the camera
   const gp2Live = !!(gopro2 && gopro2.on);

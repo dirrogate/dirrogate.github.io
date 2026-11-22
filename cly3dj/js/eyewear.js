@@ -49,6 +49,29 @@ export class Eyewear {
     this._hasFace = false;
     this._lastScale = 1;
 
+    // Live phosphor-green VR visor micro-HUD (256x64 CanvasTexture, 1 draw call, runs both worn & off-face!)
+    this.hudCanvas = document.createElement('canvas');
+    this.hudCanvas.width = 256;
+    this.hudCanvas.height = 64;
+    this.hudCtx = this.hudCanvas.getContext('2d');
+    this.hudTex = new THREE.CanvasTexture(this.hudCanvas);
+    this.hudTex.colorSpace = THREE.SRGBColorSpace;
+    this.hudTex.minFilter = THREE.LinearFilter;
+    this.hudTex.magFilter = THREE.LinearFilter;
+    this.hudTex.generateMipmaps = false;
+    this.hudMat = new THREE.MeshBasicMaterial({
+      map: this.hudTex,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+      opacity: 0.94,
+    });
+    this._hudScroll = 0;
+    this._hudAcc = 1;   // force initial paint on first tick
+    this._hudT = 0;
+    this._hudLastLabel = '';
+
     this._loadState();
   }
 
@@ -111,6 +134,11 @@ export class Eyewear {
         o.castShadow = o.receiveShadow = false;
         meshes.push(o);
         if (/temples_rear/i.test(o.name)) rearMeshes.push(o);
+        if (/visor_hud/i.test(o.name)) {
+          o.material = this.hudMat;
+          o.renderOrder = 2;
+          return;
+        }
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         for (const mt of mats) {
           if (!mt) continue;
@@ -157,8 +185,73 @@ export class Eyewear {
     }
   }
 
-  // Per-frame sync: lock to avatar head when worn, and animate smooth temple extension/retraction.
-  sync(avatar, pose, avatarVisible, dt = 1 / 60) {
+  _drawHud(dt, info) {
+    this._hudT += dt;
+    this._hudAcc += dt;
+    if (this._hudAcc < 0.08) return;   // ~12.5 fps: smooth marquee & countdown, negligible CPU/GPU cost
+    const stepDt = this._hudAcc;
+    this._hudAcc = 0;
+
+    const g = this.hudCtx, W = 256, H = 64;
+    g.clearRect(0, 0, W, H);
+
+    const label = (info && info.label) ? info.label.toUpperCase() : 'DIRRODJ  ·  STANDBY';
+    if (label !== this._hudLastLabel) {
+      this._hudLastLabel = label;
+      this._hudScroll = 0;
+    }
+
+    g.save();
+    g.fillStyle = '#3dff72';
+    g.shadowColor = '#18ff52';
+    g.shadowBlur = 6;
+    g.textBaseline = 'middle';
+
+    // Line 1: tiny phosphor-green scrolling song title & artist
+    g.font = '700 20px "Courier New", Consolas, monospace';
+    const gap = '   •   ';
+    const full = label + gap;
+    const tw = g.measureText(label).width;
+    const fw = g.measureText(full).width;
+    g.textAlign = 'left';
+    if (tw > W - 12) {
+      this._hudScroll = (this._hudScroll + stepDt * 34) % fw;
+      const x0 = 6 - this._hudScroll;
+      g.fillText(full, x0, 21);
+      g.fillText(full, x0 + fw, 21);
+    } else {
+      g.fillText(label, 6, 21);
+    }
+
+    // Subtle phosphor divider rule
+    g.shadowBlur = 2;
+    g.fillStyle = 'rgba(61, 255, 114, 0.30)';
+    g.fillRect(6, 35, W - 12, 1);
+
+    // Line 2: live BPM + remaining minutes:seconds countdown
+    g.fillStyle = '#36f56b';
+    g.shadowBlur = 5;
+    g.font = '700 18px "Courier New", Consolas, monospace';
+    const bpmStr = (info && info.bpm > 0) ? `${info.bpm.toFixed(1)} BPM` : '--.- BPM';
+    let remStr = '--:--';
+    if (info && info.rem != null && info.rem >= 0) {
+      const total = Math.ceil(info.rem);
+      const mins = Math.floor(total / 60);
+      const secs = total % 60;
+      remStr = `-${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+    const dot = (info && info.playing && Math.floor(this._hudT * 2) % 2 === 0) ? '● ' : '  ';
+    g.textAlign = 'left';
+    g.fillText(bpmStr, 6, 51);
+    g.textAlign = 'right';
+    g.fillText(dot + remStr, W - 6, 51);
+    g.restore();
+
+    this.hudTex.needsUpdate = true;
+  }
+
+  // Per-frame sync: lock to avatar head when worn, animate temples, and keep VR phosphor HUD live (worn OR placed anywhere!).
+  sync(avatar, pose, avatarVisible, dt = 1 / 60, hudInfo = null) {
     const rec = this.models[this.style];
     if (!rec) { this.obj.visible = false; return; }
 
@@ -203,6 +296,11 @@ export class Eyewear {
       this.ext += (targetExt - this.ext) * k;
       if (Math.abs(this.ext - targetExt) < 0.01) this.ext = targetExt;
       this._applyTemples(this.ext);
+    }
+
+    // Keep VR phosphor HUD scrolling & counting down whenever VR glasses are visible (worn OR resting anywhere on set!)
+    if (this.style === 'vr' && this.obj.visible) {
+      this._drawHud(dt, hudInfo);
     }
   }
 
