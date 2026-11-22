@@ -24,6 +24,7 @@ import { InkLabel } from './inklabel.js';   // #394 milk crate labels
 import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
 import { Portals, GRADE0, HOLO_ORDER, SHAPE_OF, TYPES, TYPE_LABEL, TYPE_HINT, typeOf, shapeKey, shapesFor, kindOfTS, SHAPE_LABEL, HMIN as P_HMIN, HMAX as P_HMAX, RAIN_ORDER, MAX_PORTALS } from './portal.js';
 import { MasterRec } from './recmaster.js';   // #598 REC MASTER: the clean master to a WAV file
+import { GoProRec } from './goprorec.js';   // #795 GOPRO 2 Selfie Recorder (720p30 H.264 + master audio -> OPFS .mp4)
 import { RoomSnap, SNAP_IN, SNAP_OUT } from './roomsnap.js';
 import { NightLook } from './night.js';   // #612 NIGHT LOOK   // #592 Space Setup planes for portal frames   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF, WALL_LIM } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
@@ -431,7 +432,7 @@ applyShadows(false);   // desktop default: per the Shadows setting (blob by defa
 const led = new LedPlayer();
 const scroller = new Scroller();
 // #220 DJ CAM: virtual camera (GOPRO / GOPRO2 angles) with an avatar copying the DJ's head and hands
-const djSet = (() => { try { return { preset: 'gopro', mirror: true, avatar: true, style: 'robot', ...JSON.parse(localStorage.getItem('vire.djcam') || '{}') }; } catch { return { preset: 'gopro', mirror: true, avatar: true, style: 'robot' }; } })();
+const djSet = (() => { try { return { preset: 'gopro', mirror: true, avatar: true, style: 'robot', beanieCol: 0, shirtCol: 0, ...JSON.parse(localStorage.getItem('vire.djcam') || '{}') }; } catch { return { preset: 'gopro', mirror: true, avatar: true, style: 'robot', beanieCol: 0, shirtCol: 0 }; } })();
 function saveDjSet() { try { localStorage.setItem('vire.djcam', JSON.stringify(djSet)); } catch {} }
 const djcam = CAMERA_ROLE ? null : new DjCam(renderer, rig);
 let streamer = null;   // #331 set up once the audio engine exists (below)
@@ -444,11 +445,39 @@ if (djcam) djcam.preset = djSet.preset;
 // rig (67 bones, mouthOpen morph), so they all run on director.js Avatar. Old saved 'human' = DIRROFACE.
 const AVATAR_STYLES = {
   robot: { label: 'ROBOT' },
+  beanie: { label: 'CLY3DJ BEANIE', url: 'models/avatar/cly3dj_beanie.glb' },
+  meta: { label: 'METAPERSON', url: 'models/avatar/cly3d_metaperson_black.glb' },
   face: { label: 'DIRROFACE', url: 'models/avatar/dirroface.glb' },
   real: { label: 'DIRRO REAL', url: 'models/avatar/dirro_real.glb' },
   crow: { label: 'DIRROCROW', url: 'models/avatar/dirrocrow.glb' }
 };
-const AVATAR_ORDER = ['robot', 'real', 'face', 'crow'];
+const AVATAR_ORDER = ['robot', 'beanie', 'meta', 'real', 'face', 'crow'];
+const CLOTHES_SHADES = [
+  { label: 'BLACK', hex: 0x161618 },
+  { label: 'CHARCOAL', hex: 0x3e4046 },
+  { label: 'GREY', hex: 0x868a92 },
+  { label: 'WHITE', hex: 0xf0f0f2 },
+];
+function applyAvatarClothes(a) {
+  if (!a || typeof a.setClothes !== 'function') return;
+  const b = CLOTHES_SHADES[(djSet.beanieCol || 0) % CLOTHES_SHADES.length];
+  const s = CLOTHES_SHADES[(djSet.shirtCol || 0) % CLOTHES_SHADES.length];
+  a.setClothes(b.hex, s.hex);
+}
+function nextBeanieCol() {
+  djSet.beanieCol = ((djSet.beanieCol || 0) + 1) % CLOTHES_SHADES.length;
+  saveDjSet();
+  Object.values(avatars).forEach(applyAvatarClothes);
+  drawMixScreen();
+  toast('Beanie: ' + CLOTHES_SHADES[djSet.beanieCol].label, 1600);
+}
+function nextShirtCol() {
+  djSet.shirtCol = ((djSet.shirtCol || 0) + 1) % CLOTHES_SHADES.length;
+  saveDjSet();
+  Object.values(avatars).forEach(applyAvatarClothes);
+  drawMixScreen();
+  toast('T-Shirt: ' + CLOTHES_SHADES[djSet.shirtCol].label, 1600);
+}
 if (djSet.style === 'human') djSet.style = 'face';
 if (!AVATAR_STYLES[djSet.style]) djSet.style = 'robot';
 const avatars = {};
@@ -458,11 +487,12 @@ function useAvatarStyle(st) {
   if (!AVATAR_STYLES[st]) st = 'robot';
   if (!avatars[st]) {
     const S = AVATAR_STYLES[st];
-    if (S.url) { const a = new Avatar(rig); avatars[st] = a; a.load(S.url).catch(e => { a.status = 'failed: ' + e.message; console.warn('avatar not loaded', S.url, e); }); }
+    if (S.url) { const a = new Avatar(rig); avatars[st] = a; applyAvatarClothes(a); a.load(S.url).catch(e => { a.status = 'failed: ' + e.message; console.warn('avatar not loaded', S.url, e); }); }
     else { const a = new RobotAvatar2(rig); avatars.robot = a; a.load(ROBOT_GLB).then(() => robotNeon()).catch(e => { a.status = 'failed: ' + e.message; console.warn('robot avatar not loaded', e); }); }   // #355 NEON CHROME
   }
   for (const a of Object.values(avatars)) a.root.visible = false;
   avatar = avatars[st]; avatar.root.visible = djSet.avatar;
+  applyAvatarClothes(avatar);
 }
 useAvatarStyle(djSet.style);
 // #188 / #195 / #196 camera preview: the spectator phone's picture (small JPEGs, ~6 a second) while grading from the
@@ -1027,7 +1057,7 @@ const snapDeck = (k, y) => isDeckKey(k) ? Math.round(y / DECK_STEP) * DECK_STEP 
 const gopro = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 0.3, mixer.position.z - 0.55), yaw: Math.PI }));
 // #389 GOPRO2 (owner): a second action camera, by default overhead: above the mixer and decks, looking straight down
 if (gopro) { gopro.defZoom = 'wide'; try { if (!localStorage.getItem('vire.gpWide732')) { gopro.setZoom('wide'); localStorage.setItem('vire.gpWide732', '1'); } } catch (e) {} }   // #732 the main GoPro starts WIDE
-const gopro2 = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 1.4, mixer.position.z), yaw: 0, pitch: -Math.PI / 2 }), 'vire.gopro2', 'wide');
+const gopro2 = CAMERA_ROLE ? null : new GoPro(rig, () => ({ p: new THREE.Vector3(mixer.position.x, deckGroups[0].position.y + DECK.H + 1.4, mixer.position.z), yaw: 0, pitch: -Math.PI / 2 }), 'vire.gopro2', 'wide', { selfie: true });
 // #406 LASER: one movable head; start spot behind the DJ, 2.1 m up, firing forward (-z) over his head toward the audience side
 const laser = CAMERA_ROLE ? null : new Laser(rig, () => ({ p: new THREE.Vector3(mixer.position.x, 2.1, mixer.position.z + 0.9), yaw: 0, pitch: -0.1 }));
 let laserTapT = 0;
@@ -1718,7 +1748,26 @@ $('#helpBtn').onclick = () => { const h = $('#help'); h.style.display = h.style.
 const engine = new AudioEngine();
 // #598 REC MASTER (main tablet page): the master after the limiter (music + mic, no cue) to a WAV in private storage, to Downloads on stop
 const masterRec = new MasterRec(engine, { toast, onChange: () => { if (!toolsPage && !videoPage) drawMixScreen(); }, inXR: () => renderer.xr.isPresenting });
-renderer.xr.addEventListener('sessionend', () => { if (masterRec.pending.length) setTimeout(() => masterRec.offer(), 400); });   // #598 files stopped in VR go to Downloads once out of it; #637 via a SAVE button on the page (a tap = a gesture the Quest Browser honours)
+const goproRec = CAMERA_ROLE ? null : new GoProRec(engine, {
+  toast,
+  onChange: () => {
+    if (gopro2) gopro2.setRec(goproRec.on);
+    if (djcam) djcam.setSize(goproRec.on ? 1280 : 1024, goproRec.on ? 720 : 576);
+    drawMixScreen();
+  },
+  inXR: () => renderer.xr.isPresenting
+});
+if (gopro2 && goproRec) {
+  gopro2.onRecTap = () => {
+    if (goproRec.busy) return;
+    if (goproRec.on) goproRec.stop();
+    else goproRec.start();
+  };
+}
+renderer.xr.addEventListener('sessionend', () => {
+  if (masterRec.pending.length) setTimeout(() => masterRec.offer(), 400);
+  if (goproRec && goproRec.pending.length) setTimeout(() => goproRec.offer(), 550);
+});   // #598 / #795 files stopped in VR go to Downloads once out of it via SAVE buttons on the 2D page
 setInterval(() => { if ((masterRec.on || (vidRec() && vidRec().on)) && !toolsPage && !videoPage) drawMixScreen(); }, 600);   // #753 + VIDREC's time
 // #753 VIDREC: the tablet starts / stops DirroVJ's PROGRAM REC (the laptop records the Program + sound as .mkv); stop = two taps within 3 s
 let vidArm = 0;
@@ -4898,6 +4947,29 @@ async function makeDirroCard() {
 function micLevel() {
   const m = engine.mic; if (!m || !micOn) return 0;
   m.meter.getFloatTimeDomainData(m.meterBuf); let p = 0; for (const x of m.meterBuf) { const a = Math.abs(x); if (a > p) p = a; } return p;
+}
+// #793 Real-time speech formant bands (low/mid/high) for ARKit viseme lip-sync on MetaPerson / RPM avatars
+const _micVisOut = { rms: 0, lo: 0, mid: 0, hi: 0 };
+function micVisemes() {
+  const m = engine.mic;
+  if (!m || !micOn) { _micVisOut.rms = _micVisOut.lo = _micVisOut.mid = _micVisOut.hi = 0; return _micVisOut; }
+  m.meter.getFloatTimeDomainData(m.meterBuf);
+  let sum2 = 0;
+  for (let i = 0; i < m.meterBuf.length; i++) { const x = m.meterBuf[i]; sum2 += x * x; }
+  _micVisOut.rms = Math.sqrt(sum2 / m.meterBuf.length) * 2.2;
+  const nBins = m.meter.frequencyBinCount;
+  if (!m.freqBuf || m.freqBuf.length !== nBins) m.freqBuf = new Uint8Array(nBins);
+  m.meter.getByteFrequencyData(m.freqBuf);
+  const binHz = ((engine.ctx && engine.ctx.sampleRate) || 48000) / m.meter.fftSize;
+  const avg = (hz0, hz1) => {
+    const a = Math.max(1, Math.floor(hz0 / binHz)), b = Math.min(nBins - 1, Math.ceil(hz1 / binHz));
+    let s = 0; for (let i = a; i <= b; i++) s += m.freqBuf[i];
+    return b >= a ? s / ((b - a + 1) * 255) : 0;
+  };
+  _micVisOut.lo = avg(180, 900);
+  _micVisOut.mid = avg(900, 3000);
+  _micVisOut.hi = avg(3000, 7500);
+  return _micVisOut;
 }
 function crateScreenPress(uv) {
   const c = crateScreen.canvas; const px = uv.x * c.width, py = (1 - uv.y) * c.height;
@@ -8703,6 +8775,8 @@ function drawToolsPage() {
       [perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false],
       [settings.occlusion !== false ? 'REAL OCCLUSION: ON' : 'REAL OCCLUSION: OFF', settings.occlusion !== false, () => { settings.occlusion = settings.occlusion === false; saveSettings(); const c = document.getElementById('cOccl'); if (c) c.checked = settings.occlusion; drawMixScreen(); }, false],
       [`AVATAR: ${(AVATAR_STYLES[djSet.style] || AVATAR_STYLES.robot).label}`, djSet.style !== 'robot', nextDjStyle, false],
+      [`BEANIE: ${CLOTHES_SHADES[(djSet.beanieCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.beanieCol || 0) > 0, nextBeanieCol, false],
+      [`TSHIRT: ${CLOTHES_SHADES[(djSet.shirtCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.shirtCol || 0) > 0, nextShirtCol, false],
     ];
     const cols = P ? 2 : 4, gap = 8, bh = P ? 76 : 86, bw = (R - L - gap * (cols - 1)) / cols;
     items.forEach(([l, on, a, dim], i) => btn(L + (i % cols) * (bw + gap), y0 + 6 + Math.floor(i / cols) * (bh + gap), bw, bh, l, on, dim ? null : a, dim, P ? 18 : 18));
@@ -10281,12 +10355,12 @@ function drawRecMaster(g, x, y, w, h, fs = 15) {
     drawMixScreen();
   } });
 }
-function drawTakesBtn(g, x, y, w, h, fs = 15) {   // #637 TAKES: the last recordings in storage to Downloads (in VR: offered on leaving it)
-  const n = masterRec.pending.length;
+function drawTakesBtn(g, x, y, w, h, fs = 15) {   // #637 / #796 TAKES: the last recordings (Master WAVs + GOPRO 2 MP4s) in storage to Downloads (in VR: offered on leaving it)
+  const n = masterRec.pending.length + (goproRec ? goproRec.pending.length : 0);
   g.fillStyle = n ? '#4a2a10' : '#2a3140'; g.fillRect(x, y, w, h);
   g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = n ? '#ffb070' : '#c9ced8';
   btnLabel(g, n ? `TAKES ${n}` : 'TAKES', x, y, w, h, fs); g.textBaseline = 'alphabetic';
-  SP_HIT.push({ x, y: y - 4, w, h: h + 8, act: () => { if (!masterRec.busy) masterRec.saveTakes().then(drawMixScreen); } });
+  SP_HIT.push({ x, y: y - 4, w, h: h + 8, act: () => { if (!masterRec.busy) masterRec.saveTakes(goproRec && goproRec.on ? goproRec.name : null).then(drawMixScreen); } });
 }
 // #210 GEAR HERE (in XR): tap twice within 3 s; a small pin status beside it
 function drawPin(g, x, y, w, h) {
@@ -10802,6 +10876,8 @@ function djPrep() {   // what the camera must not see: XR hand / controller mode
   if (xr && xr.glove) hide(xr.glove.root);   // #287 the DJ CAM robot has its own gloves
   if (gopro && gopro.on) hide(gopro.obj);   // #337 #372 hidden only from its own camera
   if (gopro2 && gopro2.on) hide(gopro2.obj);
+  // #795 Tunnel-feedback guard: if CYCLOWALL DirroDj📹 is showing the live camera while GOPRO 2 is active/recording, hide the wall from DjCam so no infinite mirror tunnel is filmed
+  if (gopro2 && gopro2.on && ledMode === 'cam' && facetWall && facetWall.obj) hide(facetWall.obj);
   const bg = scene.background, roomV = room.visible;
   if (!bg && !skybox.group.visible) { scene.background = BG; room.visible = true; }   // passthrough: studio floor + dark backdrop for the camera
   return () => { for (const o of undo) o.visible = true; scene.background = bg; room.visible = roomV; };
@@ -10810,12 +10886,23 @@ function stepDjCam(dt) {
   const gear = djGear(), xrOn = renderer.xr.isPresenting;
   const pose = xrOn ? xrPose(renderer, xr && xr.inputs) : demoPose(rig, gear, (performance.now() - _djT0) / 1000);
   if (avatar && avatar.ready && avatar.root.visible) {   // #221 robot or human
-    try { avatar.update({ ...pose, floorY: rig.getWorldPosition(_djFloor).y, mic: micLevel(), dt }); }
+    try { const vis = micVisemes(); avatar.update({ ...pose, floorY: rig.getWorldPosition(_djFloor).y, mic: vis.rms, vis, dt }); }
     catch (e) { if (!stepDjCam.err) { stepDjCam.err = true; console.error(e); toast('Avatar error (headset keeps running): ' + e.message, 5000); } }
   }
   const dj = rig.worldToLocal(pose.head.p.clone()); djLastRig = dj.clone();   // #731
   const gcam = gpActive(); if (gcam) goproToDjcam(gcam); else djcam.aimAt(gear, dj);   // #337 the GoPro, when it is out, is the camera
-  if (ledMode === 'cam' || !streamer || streamer.needsCamRT || ((gopro && gopro.aiming || gopro2 && gopro2.aiming) && !(streamer.live && streamer.source === 'show'))) { const did = roboRender(pose, gear, dt, () => djcam.render(scene, dt, xrOn ? (testState.cam2 ? 2 : 3) : 2, djPrep)); if (did && ledMode === 'cam') camToWall(); }   // #258 CAM 2ND FRAME test (#336: SHOW renders its own layer from this camera)
+  const gp2Live = !!(gopro2 && gopro2.on);
+  const gp2Rec = !!(goproRec && goproRec.on);
+  if (gp2Rec && !gp2Live) goproRec.stop();   // auto-stop recording if GOPRO 2 is hidden/switched away
+  if (gp2Live || gp2Rec || ledMode === 'cam' || !streamer || streamer.needsCamRT || ((gopro && gopro.aiming) && !(streamer.live && streamer.source === 'show'))) {
+    const did = roboRender(pose, gear, dt, () => djcam.render(scene, dt, xrOn ? (testState.cam2 ? 2 : 3) : 2, djPrep));
+    if (did) {
+      const isHdr = djcam.rt.texture.type !== THREE.UnsignedByteType;
+      if (ledMode === 'cam' && !(gp2Live && gp2Rec)) camToWall();
+      if (gp2Live) gopro2.setView(djcam.rt.texture, isHdr, false);
+      if (gp2Rec) goproRec.pushFrame(renderer, djcam.rt.texture, isHdr);
+    }
+  }   // #258 CAM 2ND FRAME test (#336: SHOW renders its own layer from this camera; #795 GOPRO 2 selfie preview & 720p30 H.264 rec)
   else djcam.t += dt;
 }
 const _djFloor = new THREE.Vector3();

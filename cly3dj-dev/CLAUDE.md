@@ -3086,3 +3086,32 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - **Wiring & Integration**:
   - `web/js/main.js`: Added `'real'` (`DIRRO REAL`, `models/avatar/dirro_real.glb`) to `AVATAR_STYLES` and `AVATAR_ORDER`. Available directly via DJ TOOLS `AVATAR: <style>` button cycle.
   - `web/sw.js`: Added `models/avatar/dirro_real.glb` to pre-cached assets. Cache bumped to `vire-app-v249`.
+
+### #788 – #790 — Photorealistic `dirro_real.glb` Refinement (`sw.js` v250–v252)
+- Rebuilt `blender/avatar_photo/build_avatar.py` with Thin-Plate Spline 3D-to-UV photo projection (31 facial landmarks), 3D mesh sculpting synced across `Basis`/`mouthOpen`/`mouthSmile` shape keys, 1024×1024 skin micro-pore Normal Map & T-zone Roughness Map, matched neck/ears/hands (`Wolf3D_Body`), photo-mapped dark espresso eyes (`Wolf3D_Eye`), and a tailored 2,064-tri navy-indigo knit beanie (`Wolf3D_Beanie`, `Beanie_Mat`).
+
+### #791 — MetaPerson Mixamo Rig Support & `cly3d_metaperson_black.glb` (`sw.js` v253)
+- `web/js/director.js`: Stripped `mixamorig:` bone prefixes on load and added `jawOpen` fallback alongside `mouthOpen` so any Mixamo/MetaPerson GLB runs natively on `Avatar`.
+- Built `web/models/avatar/cly3d_metaperson_black.glb` from `blender/avatar_photo/cly3d_metaperson.glb` with matte black T-shirt (`outfit_top`) and black denim jeans (`outfit_bottom`), wired as `METAPERSON` in `AVATAR_STYLES`.
+
+### #792 — `cly3dj_beanie.glb` + DJ TOOLS Beanie/T-Shirt Color Cycler (`sw.js` v254)
+- Built `web/models/avatar/cly3dj_beanie.glb` (`blender/avatar_photo/build_cly3dj_beanie.py`): replaced MetaPerson's baseball cap with our 2,064-tri knit beanie conformed to `AvatarHead`, and converted `Beanie_Mat` + `outfit_top` to bright neutral grayscale AO textures so Three.js `material.color` cleanly cycles Black → Charcoal → Grey → White at runtime.
+- `web/js/director.js`: Added `Avatar.setClothes(beanieHex, shirtHex)`.
+- `web/js/main.js`: Added `CLY3DJ BEANIE` to `AVATAR_STYLES` and `BEANIE` / `TSHIRT` color cyclers (`BLACK`, `CHARCOAL`, `GREY`, `WHITE`) on the DJ TOOLS / SETUP screen.
+
+### #793 — Real-Time Formant Viseme Lip-Sync, Auto-Blinking & MeshoptDecoder (`sw.js` v255)
+- `web/js/main.js`: Added `micVisemes()` reading live 512-pt FFT speech formant bands (Low 180–900 Hz, Mid 900–3000 Hz, High 3000–7500 Hz) from `engine.mic.meter`.
+- `web/js/director.js`: Mapped live formants to 16 MetaPerson ARKit facial blendshapes (`jawOpen`, `mouthFunnel`, `mouthPucker`, `mouthStretchLeft/Right`, `mouthSmileLeft/Right`, `mouthClose`, `mouthRollLower`, `mouthPressLeft/Right`, `browInnerUp`), added randomized natural auto-blinking (`eyeBlinkLeft/Right`), and wired `MeshoptDecoder` into `GLTFLoader`.
+
+### #794 — Compressed MetaPerson Avatars (`sw.js` v256)
+- `blender/avatar_photo/compress_metaperson.py`: Stripped 63 unused ARKit morphs (keeping all 16 animated lip-sync/blink/brow morphs), resized secondary textures to 512 px while keeping `AvatarHead` at 1024 px, and exported JPEG q86.
+- Reduced `cly3dj_beanie.glb` from 12.07 MB → **4.61 MB** and `cly3d_metaperson_black.glb` from 11.47 MB → **4.47 MB**.
+
+### #795 — GOPRO 2 Selfie Recorder (Option A) (`sw.js` v257)
+- `web/js/gopro.js`: Added `{ selfie: true }` mode on `gopro2`: 6.8 cm extended rubber grip handle with red collar, mirrored front-facing 16:9 selfie preview screen next to the lens, raised pulsing red record button on top (`recBtnHit()` / `setRec()`).
+- `web/js/xr.js`: Wired top red button tap (hand pinch or controller trigger) to toggle recording with haptic feedback.
+- `web/js/goprorec.js` & `web/js/director.js`: Added `GoProRec` recording 720p30 (`1280×720`) hardware H.264 + stereo master audio (AAC/Opus) via WebCodecs + `mp4-muxer` `FileSystemWritableFileStreamTarget` directly to OPFS `vire-rec/gopro2_*.mp4` with auto-save banner on XR exit.
+- `web/js/main.js`: Added tunnel-feedback guard in `djPrep()` (hiding `facetWall.obj` when `ledMode === 'cam'` while GOPRO 2 is active).
+
+### #796 — Unified `TAKES` for Master WAVs + GOPRO 2 MP4s (`sw.js` v258)
+- `web/js/recmaster.js`, `web/js/goprorec.js`, `web/js/main.js`: Updated `MasterRec.takes()` to list & download both `.wav` and `.mp4` takes from `vire-rec/` (keeping last 3 of each), and combined pending counts on the Tablet Remote `TAKES` badge.

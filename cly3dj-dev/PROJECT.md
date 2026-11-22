@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 16 Nov 2026 (decision log up to #775 in `ViRe_Custom/CLAUDE.md`; #530–#537 and #606 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 22 Nov 2026 (decision log up to #796 in `ViRe_Custom/CLAUDE.md`; #530–#537, #606, and #787–#796 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -29,7 +29,7 @@ Owner: Clyde DeSouza (c3souza).
 - **Backups:** `ViRe_Custom/backups/`, per-change folders (`pre-…`) plus full zips. Files Claude can't delete go to `ViRe_Custom/_to_delete/`.
 - **DirroVerse SET studio (laptop only, never on the Quest):** `ViRe_Custom/club_window/` (FastAPI on `127.0.0.1:8090`, torch CUDA on the RTX 4050; start with `club_window\start_set_builder.bat`). Self-contained since #717 (Real-ESRGAN, sprites, moon picture, `space_car.glb`, fx clips, `ephem.py` all inside it); `DirroVJcyberdomes/` can be archived once no set's moving plate source points into it. Sets in `club_window/sets/<name>/` (set.json, plate.png, plate_loop.mp4, bake_n.mp4, takes). Manual: `club_window/STUDIO_MANUAL.md`. Pano template for Gemini: `club_window/pano_template.html`. Plan docs `claude/club-window-plan.md`, `claude/dirroverse-shots-plan.md`.
 - **Blender sources:** `ViRe_Custom/blender/`. **Renders:** `ViRe_Custom/renders/`. **Tools:** `ViRe_Custom/tools/` (`make_sleeve_demo.py` builds `web/examples/`). **Test panoramas:** `ViRe_Custom/test_panos/`.
-- **Models:** decks `web/models/` (GLB turntable, AO bake `turntable_ao.png/json`); avatars `web/models/avatar/avatar_robot_v2.glb` (the Cly3DJ robot, see Video and avatar), the older `avatar_robot.glb` (licensed model as delivered, #245) and `gemini_emboss.png` (its cup crest), `dirroface.glb` (owner's Ready Player Me avatar). Controller and hand models are vendored in `web/vendor/webxr-input-profiles/` (`meta-quest-touch-plus`, `generic-hand`).
+- **Models:** decks `web/models/` (GLB turntable, AO bake `turntable_ao.png/json`); avatars `web/models/avatar/avatar_robot_v2.glb` (the Cly3DJ robot, see Video and avatar), `cly3dj_beanie.glb` (compressed 4.61 MB MetaPerson + knit beanie + Black↔White beanie/T-shirt + ARKit formant lip-sync & auto-blink, #792–#794), `cly3d_metaperson_black.glb` (compressed 4.47 MB MetaPerson + cap, #791/#794), `dirro_real.glb` (photo-textured RPM + beanie, #787–#790), `dirroface.glb`, `dirrocrow.glb`, and the older `avatar_robot.glb` (#245) + `gemini_emboss.png`. Controller and hand models are vendored in `web/vendor/webxr-input-profiles/` (`meta-quest-touch-plus`, `generic-hand`).
 
 ## Tech
 
@@ -169,13 +169,30 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 - A live comic strip drawn by DirroVJ as a bus source (1950s / 60s newsprint, CyberGrunge meets Steampunk). Details and owner decisions: project doc `dirrocomics-plan.md`; user steps: section 8 of `DirroVJ_DirroDJ_User_Manual.docx`.
 - Built: page with peeks, five inking styles, captions / balloons / SFX, black and white ANAGLYPH with depth (SBS, RGB+D, painted depth maps, MediaPipe PEOPLE, LIVE PEOPLE), GRAB QUEST / WEBCAM / RGB-D, issues (.dirrocomic), MP4, PDF STRIP, Instagram REEL 9:16 and CAROUSEL 4:5 (posted by hand), STAR IN IT (Dirrogram card, YES / NO per line, hash-chained consent log on the relay, WITHDRAW), terms text on the Dirrogram, AI storyboard (Gemini free tier or Claude API, 8 to 12 panels), the owner's DirroComics mark.
 
+## gemini_neon_ Status (19–20 Nov)
+
+- **Release (`cly3dj`)**: up to `#779` (19 Nov, commit `16b443e`). **Dev (`cly3dj-dev`)**: up to `#790` (20 Nov, commit `2858753`, `sw.js` `vire-app-v248`, ready to push in GitHub Desktop).
+- **gemini_neon_ #778–#779 (19 Nov) — SideBrecords LOOPER & Quest Right Thumbstick**:
+  - `TXXX:SIDEB_BANDS` metadata in `*_b` / `*_b_s` MP3s, auto-pairing in `Collection/` without editing XML, and `LOOP MASTER` `SIDE B` button slicing 1× Loop + first 3 VOX into the 4 looper slots.
+  - Right Quest controller thumbstick click (`gamepad.buttons[3]`) toggles armed Looper playback (`stop` ↔ `play`) with haptic feedback.
+- **gemini_neon_ #780–#786 (19–20 Nov) — DirroVerse SET Studio (`club_window/`)**:
+  - `+ OBJECT` upgraded for any static or animated GLB (node & 4-bone skeletal skinning, clip/speed/offset/loop-sync, pitch/roll).
+  - Depth Anything V2 Polygon-to-3D photo-textured `.glb` extruder (`poly_extrude.py`, `KHR_materials_unlit`, `face_camera`).
+  - Interactive UX: Preview zoom/pan/direct GLB drag, 6–10× faster GPU/CPU cached Preview + `Live canvas: ON/OFF`, ZBrush-style 3D Globe Manipulation Gizmo (translate/rotate/directional `scale_xyz`), built-in WebGL 360° equirectangular Preview viewer, GLB map-driven cavity wetness + HDR clear-coat, and live 2-layer mesh-projected soft cast + contact shadows.
+- **gemini_neon_ #787–#790 (20 Nov) — Quest 3 Dome, Full VR, Tablet & VISUALS UX**:
+  - **Dome passthrough & video optimization (`#787`)**: forced `gl_FragColor.a = 1.0`, `transparent: false`, `frustumCulled = false`; added `Portals.holeN`; bypassed Three.js r169's `hasDepthSensing()` clear-skip & `alpha-blend` clearAlpha override with explicit XR clear; switched transparent/additive scene overlays to destination-alpha-preserving `THREE.CustomBlending`; fast single-tap `texture2D` path with early-Z (`renderOrder = 1000`) for video panos; generated Quest-friendly `1_dome_quest.mp4` (`2560×1280`, 11 Mbps).
+  - **Full VR fix (`#788`)**: removed AR-only `'anchors'` and `anchorSetup` from `immersive-vr` — Full VR now launches cleanly on Quest 3 with smooth still and 4K video domes.
+  - **Remote tablet (`#789`)**: eliminated oblique-angle left-eye Z-fighting via `0.4 mm` screen offset + positive `polygonOffset` on `tabletBodyMat()` (preserving ACID faceplate layers), and made the bottom 25% of the tablet non-grabbable (landscape & portrait) to prevent accidental bottom-row button presses.
+  - **VISUALS double-tap (`#790`)**: double-tapping a thumbnail (700 ms window) immediately activates it — Pano → DOME, Images/Video → CYCLOWALL NOW.
+
 ## Status (16 Nov, evening)
 
 - Release (cly3dj) = dev up to #774 (commit 5b95b04).
 - #766 user manual updated; #767 STAR photos as evidence: tick boxes start ticked (untick = no send; every photo is a new opt-in), one photo per phone every 5 minutes (relay per device), TABLE CODE field, MOON CASE table codes + TABLE CARDS + EVIDENCE CALL (scroller line, 5 minute window, NO ALIBI? suggestions); relay needs `npx wrangler deploy`, site needs the dirroclub_website upload.
 - #768: DOME back (a mid-line comment in #756 had stopped it being added to the scene), beat LEDs follow the auto beat grid, phase meter removed.
 - #769 to #774: the menu simplification (map above), PROGRAM, four portal kinds, SETUP, sharper smooth CYCLOWALL visuals, the 👆 long-press mark.
-- Not yet tried on the Quest: all of #767 to #774.
+- #776: Panorama cutout billboard in the puddle (`grungehut_exterior`): per-pixel equirect lookup + slow yaw drift and zenith tilt, open-air MediaPipe cutout billboard in the yellow puddle using the existing `3840 × 1920` `plate_loop.mp4`, rippled puddle reflection + contact shadow, and optional **FLIGHT CASE** button on the desk below the working turntables strip for waist-up webcam shots.
+- Not yet tried on the Quest: all of #767 to #776.
 
 ## Status (16 Nov)
 

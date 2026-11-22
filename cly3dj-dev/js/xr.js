@@ -273,6 +273,8 @@ export function setupXR(ctx) {
       if (holder && (btn === 'grip' || st.isHand) && pr.hit(P)) {
         st.direct = { kind: 'propStretch', prop: pr, other: holder, d0: Math.max(0.02, pinchOf(holder).distanceTo(P)), s0: pr.obj.scale.x }; buzz(st, 0.5, 40); buzz(holder, 0.5, 40); return true;
       }
+      // #795 GOPRO 2 red record button on top: finger pinch or controller trigger toggles 720p30 recording
+      if (pr.recBtnHit && (st.isHand || btn !== 'grip') && pr.recBtnHit(P)) { pr.onRecTap(); buzz(st, 0.5, 40); return true; }
       // #379 props with a slider or handle of their own (FLOAT slider, WATER corner): trigger / pinch on it, then drag
       if (pr.knob && (st.isHand || btn !== 'grip') && pr.knob(P)) { st.direct = { kind: 'propKnob', prop: pr }; pr.knobMove(P); buzz(st, 0.3, 20); return true; }
       if (pr.scaleTo && pr.corner && (st.isHand || btn !== 'grip') && pr.corner(P)) {
