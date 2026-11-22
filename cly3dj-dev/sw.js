@@ -10,7 +10,7 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v269';   // #807 VR Glasses phosphor-green Visor_HUD micro-readout (live scrolling track/artist, BPM & countdown, stays live off-face)
+const CACHE = 'vire-app-v270';   // #808 cly3dj_tripo.glb V45: MetaPerson real 3D eyes, glossy corneas, eyelashes & seamless blinking eyelids
 // v248   // gemini_neon 2026-11-20: #786 VISUALS double-tap thumbnail activates Pano (DOME) or Image/Video (CYCLOWALL NOW)
 // (v187)   // #709 DirroVerse moving matte (plate_matte.mp4)
 // (v186)   // #707 DirroVerse banks, WEBCAM + GEAR windows
