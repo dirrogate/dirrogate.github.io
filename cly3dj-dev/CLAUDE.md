@@ -3119,3 +3119,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ### #797 — Native YouTube 3×2 EAC (Equi-Angular Cubemap) Dome Projection (`sw.js` v259)
 - `web/js/skybox.js`: Added `eacUV(vec3 d)` and `uEac` uniform (`setEac(on)`) in the flattened-dome fragment shader to decode YouTube's 3×2 Equi-Angular Cubemap layout (Left/Front/Right top row; Bottom/Back/Top rotated 90° bottom row) natively on the GPU with zero extra decode cost.
 - `web/js/main.js`: Added `dome.eac` state, `EAC: ON/OFF` toggle button on `VISUALS > PANO` / `Video pano`, and auto-enable for filenames matching `/eac|snapyt/i`.
+
+### #798 — `cly3dj_tripo.glb` Photorealistic Tripo3D Head + MetaPerson Body + Toggleable DJ Shades (`sw.js` v260)
+- `blender/avatar_photo/build_cly3dj_tripo.py`: Grafted cleaned `cly3d_beanie_trip.fbx` head + neck (removed dangling headphone wire islands, beanie tail, left-ear protrusion, and static shoulders; pitched +10° for level gaze) onto our MetaPerson body & 67-bone rig (`cly3dj_tripo.glb`, **2.79 MB**).
+- Preserved Tripo's baked photorealistic texture (2048 px JPEG), added a 1024 px high-pass Tangent-Space Normal Map, matched hand/forearm skin tone (`AvatarBody`), sculpted 10 procedural ARKit morphs (`jawOpen`, `mouthFunnel/Pucker/Stretch/Smile/RollLower`, `eyeBlinkLeft/Right`), and fitted sleek dark tinted sunglasses (`DJ_Sunglasses`, `Shades_Mat`) from `dirroface.glb`.
+- `web/js/director.js` & `web/js/main.js`: Added `CLY3DJ TRIPO` to `AVATAR_STYLES` and a 1-tap `SHADES: ON / OFF` toggle on DJ TOOLS / SETUP (`Avatar.setShades()`).

@@ -432,7 +432,7 @@ applyShadows(false);   // desktop default: per the Shadows setting (blob by defa
 const led = new LedPlayer();
 const scroller = new Scroller();
 // #220 DJ CAM: virtual camera (GOPRO / GOPRO2 angles) with an avatar copying the DJ's head and hands
-const djSet = (() => { try { return { preset: 'gopro', mirror: true, avatar: true, style: 'robot', beanieCol: 0, shirtCol: 0, ...JSON.parse(localStorage.getItem('vire.djcam') || '{}') }; } catch { return { preset: 'gopro', mirror: true, avatar: true, style: 'robot', beanieCol: 0, shirtCol: 0 }; } })();
+const djSet = (() => { try { return { preset: 'gopro', mirror: true, avatar: true, style: 'robot', beanieCol: 0, shirtCol: 0, shades: true, ...JSON.parse(localStorage.getItem('vire.djcam') || '{}') }; } catch { return { preset: 'gopro', mirror: true, avatar: true, style: 'robot', beanieCol: 0, shirtCol: 0, shades: true }; } })();
 function saveDjSet() { try { localStorage.setItem('vire.djcam', JSON.stringify(djSet)); } catch {} }
 const djcam = CAMERA_ROLE ? null : new DjCam(renderer, rig);
 let streamer = null;   // #331 set up once the audio engine exists (below)
@@ -445,13 +445,14 @@ if (djcam) djcam.preset = djSet.preset;
 // rig (67 bones, mouthOpen morph), so they all run on director.js Avatar. Old saved 'human' = DIRROFACE.
 const AVATAR_STYLES = {
   robot: { label: 'ROBOT' },
+  tripo: { label: 'CLY3DJ TRIPO', url: 'models/avatar/cly3dj_tripo.glb' },
   beanie: { label: 'CLY3DJ BEANIE', url: 'models/avatar/cly3dj_beanie.glb' },
   meta: { label: 'METAPERSON', url: 'models/avatar/cly3d_metaperson_black.glb' },
   face: { label: 'DIRROFACE', url: 'models/avatar/dirroface.glb' },
   real: { label: 'DIRRO REAL', url: 'models/avatar/dirro_real.glb' },
   crow: { label: 'DIRROCROW', url: 'models/avatar/dirrocrow.glb' }
 };
-const AVATAR_ORDER = ['robot', 'beanie', 'meta', 'real', 'face', 'crow'];
+const AVATAR_ORDER = ['robot', 'tripo', 'beanie', 'meta', 'real', 'face', 'crow'];
 const CLOTHES_SHADES = [
   { label: 'BLACK', hex: 0x161618 },
   { label: 'CHARCOAL', hex: 0x3e4046 },
@@ -459,10 +460,20 @@ const CLOTHES_SHADES = [
   { label: 'WHITE', hex: 0xf0f0f2 },
 ];
 function applyAvatarClothes(a) {
-  if (!a || typeof a.setClothes !== 'function') return;
-  const b = CLOTHES_SHADES[(djSet.beanieCol || 0) % CLOTHES_SHADES.length];
-  const s = CLOTHES_SHADES[(djSet.shirtCol || 0) % CLOTHES_SHADES.length];
-  a.setClothes(b.hex, s.hex);
+  if (!a) return;
+  if (typeof a.setClothes === 'function') {
+    const b = CLOTHES_SHADES[(djSet.beanieCol || 0) % CLOTHES_SHADES.length];
+    const s = CLOTHES_SHADES[(djSet.shirtCol || 0) % CLOTHES_SHADES.length];
+    a.setClothes(b.hex, s.hex);
+  }
+  if (typeof a.setShades === 'function') a.setShades(djSet.shades !== false);
+}
+function toggleAvatarShades() {
+  djSet.shades = djSet.shades === false;
+  saveDjSet();
+  Object.values(avatars).forEach(applyAvatarClothes);
+  drawMixScreen();
+  toast('Shades: ' + (djSet.shades ? 'ON' : 'OFF'), 1600);
 }
 function nextBeanieCol() {
   djSet.beanieCol = ((djSet.beanieCol || 0) + 1) % CLOTHES_SHADES.length;
@@ -8779,6 +8790,7 @@ function drawToolsPage() {
       [`AVATAR: ${(AVATAR_STYLES[djSet.style] || AVATAR_STYLES.robot).label}`, djSet.style !== 'robot', nextDjStyle, false],
       [`BEANIE: ${CLOTHES_SHADES[(djSet.beanieCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.beanieCol || 0) > 0, nextBeanieCol, false],
       [`TSHIRT: ${CLOTHES_SHADES[(djSet.shirtCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.shirtCol || 0) > 0, nextShirtCol, false],
+      [`SHADES: ${djSet.shades !== false ? 'ON' : 'OFF'}`, djSet.shades !== false, toggleAvatarShades, false],
     ];
     const cols = P ? 2 : 4, gap = 8, bh = P ? 76 : 86, bw = (R - L - gap * (cols - 1)) / cols;
     items.forEach(([l, on, a, dim], i) => btn(L + (i % cols) * (bw + gap), y0 + 6 + Math.floor(i / cols) * (bh + gap), bw, bh, l, on, dim ? null : a, dim, P ? 18 : 18));

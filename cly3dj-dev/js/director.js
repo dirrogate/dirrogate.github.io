@@ -69,11 +69,13 @@ export class Avatar {
     const m = gltf.scene; this.root.add(m);
     const B = {}; this.mouth = []; this.morphs = {};
     this.clothesMats = { beanie: [], shirt: [] };
+    this.shadesMeshes = [];
     const TRACK_MORPHS = ['jawOpen', 'mouthOpen', 'mouthFunnel', 'mouthPucker', 'mouthSmileLeft', 'mouthSmileRight', 'mouthSmile', 'mouthStretchLeft', 'mouthStretchRight', 'mouthClose', 'mouthRollLower', 'mouthRollUpper', 'mouthPressLeft', 'mouthPressRight', 'eyeBlinkLeft', 'eyeBlinkRight', 'browInnerUp'];
     m.traverse(o => {
       if (o.isBone) B[o.name.replace(/^mixamorig:?/, '')] = o;
       if (o.isMesh) {
         o.layers.set(AV_LAYER); o.frustumCulled = false; o.castShadow = o.receiveShadow = false;
+        if (/sunglasses|glasses/i.test(o.name)) this.shadesMeshes.push(o);
         const d = o.morphTargetDictionary;
         if (d) {
           const mk = d.mouthOpen ?? d.jawOpen;
@@ -86,6 +88,7 @@ export class Avatar {
         for (const mt of mats) {
           if (!mt || !mt.color) continue;
           const mn = (mt.name || '').toLowerCase();
+          if (mn === 'shades_mat' && !this.shadesMeshes.includes(o)) this.shadesMeshes.push(o);
           if (mn === 'beanie_mat' || mn === 'hat') { if (!this.clothesMats.beanie.includes(mt)) this.clothesMats.beanie.push(mt); }
           if (mn === 'outfit_top' || mn === 'wolf3d_outfit_top') { if (!this.clothesMats.shirt.includes(mt)) this.clothesMats.shirt.push(mt); }
         }
@@ -114,6 +117,7 @@ export class Avatar {
     });
     this.ready = true; this.status = 'ready';
     if (this._clothes) this.setClothes(...this._clothes);
+    if (this._shades != null) this.setShades(this._shades);
     return this;
   }
   setClothes(beanieHex, shirtHex) {
@@ -121,6 +125,10 @@ export class Avatar {
     if (!this.clothesMats) return;
     if (beanieHex != null) this.clothesMats.beanie.forEach(m => { m.color.setHex(beanieHex); m.needsUpdate = true; });
     if (shirtHex != null) this.clothesMats.shirt.forEach(m => { m.color.setHex(shirtHex); m.needsUpdate = true; });
+  }
+  setShades(on) {
+    this._shades = !!on;
+    if (this.shadesMeshes) this.shadesMeshes.forEach(o => { o.visible = this._shades; });
   }
 
   // pose: { head: {p: Vector3 world eye point, q: Quaternion world (XR camera)}, hands: [left, right] each null or
