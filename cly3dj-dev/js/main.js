@@ -15,6 +15,7 @@ import { Streamer, SOURCES as STREAM_SRC, streamKey, STUDIO_MODES } from './stre
 import { onRelayFallback } from './net-link.js';   // #467 note on the tablet when a handshake falls back to ntfy.sh   // #380 STUDIO_MODES
 import { KEY_LABEL } from './keycol.js';   // #347 key colour names   // #331 LIVE STREAM (Twitch)
 import { GoPro, ZOOMS as GOPRO_ZOOMS } from './gopro.js';
+import { Eyewear, EYEWEAR_STYLES } from './eyewear.js';   // #806 standalone grabbable eyewear (VR / AR glasses)
 import { RealDepth } from './realdepth.js';
 import { solveCamFit, CAL_TARGETS, QUICK_TARGETS } from './camfit.js';   // #415 HEADSET CAM auto fit   // #413 depth-camera-correct occlusion
 import { Laser, PATTERNS as LASER_PATS, PAT_LABEL as LASER_PL, COLOURS as LASER_COLS, COL_LABEL as LASER_CL } from './laser.js';   // #406 laser head prop   // #337 movable camera for SHOW / AVACAM
@@ -506,6 +507,14 @@ function useAvatarStyle(st) {
   applyAvatarClothes(avatar);
 }
 useAvatarStyle(djSet.style);
+// #806 Standalone grabbable eyewear accessory (not baked to any avatar; Grip / Pinch on front pulls off & extends temples)
+const eyewear = CAMERA_ROLE ? null : new Eyewear(rig, { onToast: toast });
+function nextEyewear() {
+  if (!eyewear) return;
+  const st = eyewear.cycle();
+  drawMixScreen();
+  toast(`Eyewear: ${EYEWEAR_STYLES[st].label}` + (st !== 'off' ? ' (grip/pinch front to take off)' : ''), 2200);
+}
 // #188 / #195 / #196 camera preview: the spectator phone's picture (small JPEGs, ~6 a second) while grading from the
 // mixer's CAMERA tab. #196 (owner): a thin screen (3 mm) that lives inside the 7 mm tablet and slides up out of its top
 // edge when PREVIEW goes on, and back down inside when it goes off (eased, like the deck lamps). Headset only (noMirror).
@@ -8788,6 +8797,7 @@ function drawToolsPage() {
       [perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false],
       [settings.occlusion !== false ? 'REAL OCCLUSION: ON' : 'REAL OCCLUSION: OFF', settings.occlusion !== false, () => { settings.occlusion = settings.occlusion === false; saveSettings(); const c = document.getElementById('cOccl'); if (c) c.checked = settings.occlusion; drawMixScreen(); }, false],
       [`AVATAR: ${(AVATAR_STYLES[djSet.style] || AVATAR_STYLES.robot).label}`, djSet.style !== 'robot', nextDjStyle, false],
+      [`EYEWEAR: ${eyewear ? EYEWEAR_STYLES[eyewear.style].label : 'OFF'}`, !!(eyewear && eyewear.style !== 'off'), nextEyewear, !eyewear],
       [`BEANIE: ${CLOTHES_SHADES[(djSet.beanieCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.beanieCol || 0) > 0, nextBeanieCol, false],
       [`TSHIRT: ${CLOTHES_SHADES[(djSet.shirtCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.shirtCol || 0) > 0, nextShirtCol, false],
     ];
@@ -10902,6 +10912,7 @@ function stepDjCam(dt) {
     try { const vis = micVisemes(); avatar.update({ ...pose, floorY: rig.getWorldPosition(_djFloor).y, mic: vis.rms, vis, dt }); }
     catch (e) { if (!stepDjCam.err) { stepDjCam.err = true; console.error(e); toast('Avatar error (headset keeps running): ' + e.message, 5000); } }
   }
+  if (eyewear) eyewear.sync(avatar, pose, !!(avatar && avatar.root.visible), dt);
   const dj = rig.worldToLocal(pose.head.p.clone()); djLastRig = dj.clone();   // #731
   const gcam = gpActive(); if (gcam) goproToDjcam(gcam); else djcam.aimAt(gear, dj);   // #337 the GoPro, when it is out, is the camera
   const gp2Live = !!(gopro2 && gopro2.on);
@@ -11050,7 +11061,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   renderer, scene, crateRig, crate, mixer, decks, MOVABLE, saveLayout, mixVal, heldPitch, sleeveMap, crateState,
   stage, cases, resizeCase, deckGroups, clampStack, settleStack, gearLocked, gearLockMsg, snapYaw: isDeckKey, mixFeel: () => MIXFEEL, targetLightOn: () => !!settings.targetLight,   // #605   // #378
   REC, DECK, CRATE, ARM,
-  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, scrDir: () => scrDir, gopro, get props() { return [gopro, gopro2, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : []), ...(mprops ? mprops.props() : [])].filter(Boolean); },   // #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
+  castRay, interactive, pointerDown, pointerMove, pointerUp, tabletGrab, tabletHold, tabletRelease, tabletScale, saveTablet, scrDir: () => scrDir, gopro, get props() { return [gopro, gopro2, eyewear, laser, ...(boardTools ? boardTools.props() : []), chatPanel, chalkboard, ...(portals ? portals.active() : []), facetWall, ...(fx ? fx.props() : []), ...(mprops ? mprops.props() : [])].filter(Boolean); },   // #806 + eyewear; #379 + FLOAT balls, WATER   // #337 #340 #345 #346 (every portal frame that is out)
   setMix, pressControl, setPitch, setPower, pitchFromLocalZ, sliderFromLocal, setLastTouched: i => { lastTouched = i; },
   trayScreen: () => (acidTray.open ? pvScreen : null), trayPress, trayDrag, trayRelease,   // #619
   reelAt: acidReelAt, reelTurn: acidReelTurn, reelEnd: () => acidNudge(0), cassGrab, cassRelease,   // #621
