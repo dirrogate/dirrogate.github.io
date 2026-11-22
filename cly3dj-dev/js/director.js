@@ -88,6 +88,7 @@ export class Avatar {
         for (const mt of mats) {
           if (!mt || !mt.color) continue;
           const mn = (mt.name || '').toLowerCase();
+          if (mn.startsWith('tripo_') && 'envMapIntensity' in mt) mt.envMapIntensity = 0.45;
           if (mn === 'shades_mat' && !this.shadesMeshes.includes(o)) this.shadesMeshes.push(o);
           if (mn === 'beanie_mat' || mn === 'hat') { if (!this.clothesMats.beanie.includes(mt)) this.clothesMats.beanie.push(mt); }
           if (mn === 'outfit_top' || mn === 'wolf3d_outfit_top') { if (!this.clothesMats.shirt.includes(mt)) this.clothesMats.shirt.push(mt); }
