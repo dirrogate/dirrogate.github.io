@@ -3178,3 +3178,9 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
   - director.js: vrTemples collected with the tracked morphs, `setVrTemples(on, dt)`.
   - Beanie / T-shirt colour cycler deliberately not applied to this beanie (keeps the navy knit).
 - sw.js v271 (+ avatar/dirro_real2.glb). No Node restart. Backups in backups/pre810/. Not yet tried in the app or on the Quest. cly3dj-dev not updated yet (the GitHub clone was not connected to this session).
+
+## #811 DIRRO REAL 2: dark neck band removed, beanie shape from cly3dj_tripo (owner, 22 Nov)
+- Dark patch round the neck under the jaw: in the head texture build (g_comp) the gap fill took the scan's skin under the jaw, which carries baked shadow, and spread it down the neck. Below the jaw the fill now uses MetaPerson's skin toned to the scan's colour, and the scan's own under-chin pixels fade into it (`g2_comp_811_container.py` -> head_col_811.png / head_nrm_811.png).
+- Beanie: owner prefers the cly3dj_tripo beanie shape. Its faces were taken from cly3dj_tripo.glb's Tripo_Head (navy knit by texture colour, welded, largest island, holes filled; 2,021 faces). It was lined up on DIRRO REAL 2's scan with a similarity ICP (0.003 mm, the same scan, 9.4 deg turn, scale 1.0024). The knit was baked to a 1024 texture on a spherical UV (seam at the back), dark streaks / skin specks filled with shifted knit (`r2_tbeanie_fix_container.py`), plus a 512 knit normal map. A 2.2 mm inward shell gives the edge thickness. The skull was pushed 2 mm inside it. It is rigged to the head. Sheen 0.04 (navy, not light blue).
+- vrTemples kept on the new beanie (`s2_vrtemples.py`, outer knit only): the scan mesh is coarse (~5 mm triangles), so the arms' ridge is subtle.
+- dirro_real2.glb 4.10 MB. Scripts: s_tbeanie.py, s2_vrtemples.py; checkpoint real2_811.blend (real2_Q.blend = before #811). sw.js v272. No Node restart.
