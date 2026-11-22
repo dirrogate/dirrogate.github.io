@@ -3124,3 +3124,57 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - `blender/avatar_photo/build_cly3dj_tripo.py`: Grafted cleaned `cly3d_beanie_trip.fbx` head + neck (removed dangling headphone wire islands, beanie tail, left-ear protrusion, and static shoulders; pitched +10° for level gaze) onto our MetaPerson body & 67-bone rig (`cly3dj_tripo.glb`, **2.79 MB**).
 - Preserved Tripo's baked photorealistic texture (2048 px JPEG), added a 1024 px high-pass Tangent-Space Normal Map, matched hand/forearm skin tone (`AvatarBody`), sculpted 10 procedural ARKit morphs (`jawOpen`, `mouthFunnel/Pucker/Stretch/Smile/RollLower`, `eyeBlinkLeft/Right`), and fitted sleek dark tinted sunglasses (`DJ_Sunglasses`, `Shades_Mat`) from `dirroface.glb`.
 - `web/js/director.js` & `web/js/main.js`: Added `CLY3DJ TRIPO` to `AVATAR_STYLES` and a 1-tap `SHADES: ON / OFF` toggle on DJ TOOLS / SETUP (`Avatar.setShades()`).
+
+### #799 – #805 — `cly3dj_tripo.glb` Overhaul (V17–V33): Watertight Slender Neck Weld, Real Opening Mouth Slit + Teeth/Tongue & ARKit Phoneme Morphs (`sw.js` v261–v267)
+- `blender/avatar_photo/build_cly3dj_tripo.py`:
+  - **Single watertight head + slender neck mesh**: aligned Tripo head at `-90° Z` only (`0°` pitch, preserving authentic facial proportions), sliced cleanly under the jawline/skull base (`bisect_plane`) and welded onto MetaPerson's slender lower neck (sliced at `z = 1.532`) via `bmesh.ops.bridge_loops` + 4 horizontal subdivisions, slenderized mid-neck (`z` 1.528–1.566) while staying sealed inside the T-shirt collar, and generated a continuous cylindrical `512×256` 360°-matched `Tripo_Neck_Mat` matching `Ring_Top` skin RGB pixel-for-pixel.
+  - **Surgical artifact & finish polish**: deleted dangling headphone wire islands, filled secondary cheek slit using a single-island skin UV, surgically inpainted wire pixels while preserving cheek stubble & navy beanie, retracted/smoothed the beanie tail, kept Tripo's matte skin finish (`Roughness = 0.88`, `Specular IOR = 0.20`, `1024×1024` high-pass normal map strength `0.35`), and matched `AvatarBody` hands/forearms.
+  - **Real opening mouth slit + MetaPerson adult Teeth & Tongue**: bisected & split `Tripo_Head` along the exact lip-parting line (`z_slit(x) = 1.6142 + 0.055x`), extruded a sealed dark matte inner mouth cavity (`Tripo_Mouth_Inner_Mat`) with back-of-throat card, fitted MetaPerson `AvatarTeethUpper` / `AvatarTeethLower` + tongue right behind the closed lips (`scale (1.06, 0.94, 1.02)`, `y = -0.0972`, `z = 1.6094`), and sculpted topologically-tagged ARKit phoneme morphs (`jawOpen` cosine-arched lower-lip/jaw drop with upper lip locked, `mouthFunnel`, `mouthPucker`, `mouthStretchLeft/Right`, `mouthSmileLeft/Right`, `mouthRollLower`; verified with `render_morphs_sheet.py`).
+  - Removed baked sunglasses/AR glasses from `cly3dj_tripo.glb` (decoupled into standalone grabbable props in `#806`).
+- `web/js/director.js`: Clamped `tripo_*` materials to `envMapIntensity = 0.45` on load so scene IBL doesn't wash out Tripo skin tones.
+
+### #806 – #807 — Standalone Grabbable Eyewear Props (`VR GLASSES` / `AR GLASSES`), Telescoping Temples & Live VR Visor Micro-HUD (`sw.js` v268–v269)
+- `blender/avatar_photo/build_eyewear_props.py`: Built two standalone eye-midpoint-centered prop GLBs split cleanly at the beanie cuff planes (`Y_CUT_L = -0.0282`, `Y_CUT_R = -0.0403`) into front visor/frame + extendable `Temples_Rear`:
+  - `web/models/props/vr_glasses.glb` (**88.9 KB**, ~2.5k tris): retopologized from `blender/vrglasses.glb` with Collapse decimation preserving sharp CAD creases (`EdgeSplit` + `DATA_TRANSFER` smooth visor normals strictly on `VR_Visor_Glossy`), 2 PBR materials (`VR_Visor_Glossy` smoked black visor + `VR_Frame_Satin` matte carbon frame), plus a curved 20-tri raycast-conformed `Visor_HUD` mesh on the bottom-left visor corner (DJ's right eye lobe).
+  - `web/models/props/ar_glasses.glb` (**480.3 KB**): optimized from `blender/arglasses.glb` and split into `AR_Glasses_Front` + extendable `Temples_Rear`.
+- `web/js/eyewear.js` (`Eyewear`, `EYEWEAR_STYLES`):
+  - Standalone prop decoupled from avatars (`OFF`, `VR GLASSES`, `AR GLASSES`; default `vr`, saved in `localStorage` `'vire.eyewear'`), registered in `xr.js` `ctx.props` (controller Grip + hand-tracking Pinch).
+  - **Worn**: locked to the avatar's `LeftEye`/`RightEye` midpoint on `AV_LAYER` (invisible to DJ's XR eyes, visible on DJ CAM / GoPro), `Temples_Rear` retracted/hidden flush at the beanie edge, grab hitbox strictly on the front (`+Z`) so adjusting real headphones near the ears never grabs them.
+  - **Off-face**: switches to layer `0` (visible to both DJ and cameras) and smoothly telescopes `Temples_Rear` out (`0 → 1` in ~0.14 s); releasing within `13 cm` (`SNAP_DIST`) of the face magnetically snaps them back on, otherwise leaves them resting wherever placed.
+  - **Live phosphor-green VR Visor Micro-HUD**: `256×64` additive `CanvasTexture` (~12.5 fps, 1 draw call, active both worn and resting off-face) driven by `eyewearHudInfo()` in `main.js` — scrolling active track title & artist on line 1, live effective BPM + blinking play dot + `-MM:SS` remaining countdown on line 2.
+- `web/js/main.js` & `web/sw.js`: Replaced the SETUP `SHADES` toggle with `EYEWEAR: <OFF | VR GLASSES | AR GLASSES>`, wired `eyewear.sync()` into `stepDjCam()`, added `eyewear` to `ctx.props`, and pre-cached `js/eyewear.js`, `models/props/vr_glasses.glb`, and `models/props/ar_glasses.glb` in `sw.js`.
+
+### #808 — `cly3dj_tripo.glb` V45: MetaPerson Real 3D Eyes, Glossy Corneas, Eyelashes & Blinking Eyelids (`sw.js` v270)
+- `blender/avatar_photo/build_cly3dj_tripo.py`: Grafted MetaPerson's real 3D `AvatarLeftEyeball`/`AvatarRightEyeball`, glossy `AvatarLeftCornea`/`AvatarRightCornea` (rigged to `LeftEye`/`RightEye`), and `AvatarEyelashes` (rigged to `Head` with `eyeBlinkLeft`/`eyeBlinkRight` morphs) onto `cly3dj_tripo.glb`.
+- Cut almond eye apertures in `Tripo_Head` behind the open eyelids (in Edit Mode to preserve mouth shape keys) and fitted MetaPerson's concentric quad eyelid socket patches (`Tripo_Eyelids`, rigged to `Head` with `eyeBlinkLeft`/`eyeBlinkRight` morphs, 2-ring RGBA alpha feather `1.0 → 0.5 → 0.0` snapped to `Tripo_Head`, luminance-preserving warm Tripo skin hue transfer in `Tripo_Eyelids_Mat`).
+- Exported `web/models/avatar/cly3dj_tripo.glb` (**6.47 MB**, `export_image_format='AUTO'` keeping opaque maps JPEG q88 and RGBA eyelid/lash maps PNG) and bumped `web/sw.js` to `vire-app-v270`.
+
+### #809 — Watertight Photo-Baked Eyelid Weld R&D (V46–V52, in progress — not yet exported to `cly3dj_tripo.glb`)
+- `blender/avatar_photo/test_welded_eyes.py`: Prototyped replacing V45's alpha-blended `Tripo_Eyelids` overlay with a true **watertight topological weld** to eliminate any alpha-edge or harsh bright-IBL seam artifacts seen in Windows 3D Viewer:
+  - Extracts MetaPerson's tight 4-ring inner eyelid collar (`N_RINGS = 4`) scaled/tilted to match the original Tripo FBX eyes (`+6.8°` L / `-7.2°` R, scale `(1.12, 1.04, 1.08)`), cuts oval sockets in `Tripo_Head`, welds directly via `bmesh.ops.bridge_loops` with a spherical eyeball clearance guard for both Basis and Blink poses, assigns distortion-free planar `(X, Z)` UVs, and bakes Tripo's exact `2048×2048` photo pixels 1-to-1 onto a `512×256` `Tripo_Eyelids_Tex` (only inpainting the old painted iris/sclera interior).
+  - Rendered harsh white-IBL Windows-3D-Viewer + macro checks on RTX 4050 OptiX (`tripo_v52_win3d_check.png`, `tripo_v52_eyes_macro.png`). Pending approval to fold into `build_cly3dj_tripo.py` and re-export `cly3dj_tripo.glb`.
+
+## #810 DIRRO REAL 2 avatar: MetaPerson head fitted onto the Tripo scan, separate beanie with a VR-glasses version (owner, 22 Nov)
+- New `web/models/avatar/dirro_real2.glb` (4.24 MB, below cly3dj_tripo's 6.79 MB). Built in Blender 5.1 by the scripts in `blender/avatar_photo/real2/` (a_align_render ... q_export, run in order; checkpoints real2_B/E/K/P.blend).
+- Instead of grafting the scan onto the neck (Gemini's approach), MetaPerson's own head (rig, neck, eyes, teeth, lashes, all ARKit keys) is warped onto the scan's face:
+  - MediaPipe landmarks on both, then a similarity fit and a thin-plate warp of every shape key;
+  - a shrink onto the scan's outer surface;
+  - the scan's photo colour baked onto MetaPerson's UVs, wires inpainted, gaps filled with MetaPerson detail;
+  - a high-pass normal map.
+  - The neck stays MetaPerson's own, so there is no seam.
+- Eyes and keys:
+  - eyeballs scaled to the scan's eyes (L 0.962, R 0.948);
+  - blink and viseme keys rebuilt from MetaPerson's original deltas, with a lid clearance guard, so both blinks close cleanly;
+  - 16 lip-sync / blink / brow keys kept (live mic visemes as before).
+- Beanie R2_Beanie, a separate mesh:
+  - a clean parametric dome (gnome tail removed), cuff and inner hem;
+  - knit texture baked from the scan, with its own normal map;
+  - skull kept inside it;
+  - rigged to the head.
+  - Shape key `vrTemples` = the VR glasses' arms pressing a ridge under the knit at the temples.
+- App:
+  - main.js: AVATAR_STYLES real2 'DIRRO REAL 2', second in AVATAR_ORDER;
+  - each frame vrTemples eases to 1 while the VR GLASSES eyewear is worn, else 0;
+  - director.js: vrTemples collected with the tracked morphs, `setVrTemples(on, dt)`.
+  - Beanie / T-shirt colour cycler deliberately not applied to this beanie (keeps the navy knit).
+- sw.js v271 (+ avatar/dirro_real2.glb). No Node restart. Backups in backups/pre810/. Not yet tried in the app or on the Quest. cly3dj-dev not updated yet (the GitHub clone was not connected to this session).

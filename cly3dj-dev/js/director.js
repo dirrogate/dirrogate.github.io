@@ -70,7 +70,7 @@ export class Avatar {
     const B = {}; this.mouth = []; this.morphs = {};
     this.clothesMats = { beanie: [], shirt: [] };
     this.shadesMeshes = [];
-    const TRACK_MORPHS = ['jawOpen', 'mouthOpen', 'mouthFunnel', 'mouthPucker', 'mouthSmileLeft', 'mouthSmileRight', 'mouthSmile', 'mouthStretchLeft', 'mouthStretchRight', 'mouthClose', 'mouthRollLower', 'mouthRollUpper', 'mouthPressLeft', 'mouthPressRight', 'eyeBlinkLeft', 'eyeBlinkRight', 'browInnerUp'];
+    const TRACK_MORPHS = ['jawOpen', 'mouthOpen', 'mouthFunnel', 'mouthPucker', 'mouthSmileLeft', 'mouthSmileRight', 'mouthSmile', 'mouthStretchLeft', 'mouthStretchRight', 'mouthClose', 'mouthRollLower', 'mouthRollUpper', 'mouthPressLeft', 'mouthPressRight', 'eyeBlinkLeft', 'eyeBlinkRight', 'browInnerUp', 'vrTemples'];
     m.traverse(o => {
       if (o.isBone) B[o.name.replace(/^mixamorig:?/, '')] = o;
       if (o.isMesh) {
@@ -126,6 +126,12 @@ export class Avatar {
     if (!this.clothesMats) return;
     if (beanieHex != null) this.clothesMats.beanie.forEach(m => { m.color.setHex(beanieHex); m.needsUpdate = true; });
     if (shirtHex != null) this.clothesMats.shirt.forEach(m => { m.color.setHex(shirtHex); m.needsUpdate = true; });
+  }
+  // #810 DIRRO REAL 2: the beanie's vrTemples morph shows the VR glasses arms tucked under the knit (eased)
+  setVrTemples(on, dt = 0.016) {
+    const arr = this.morphs && this.morphs.vrTemples; if (!arr) return;
+    const t = on ? 1 : 0; this._vrT = this._vrT == null ? t : this._vrT + (t - this._vrT) * Math.min(1, dt * 8);
+    for (const [o, k] of arr) o.morphTargetInfluences[k] = this._vrT;
   }
   setShades(on) {
     this._shades = !!on;

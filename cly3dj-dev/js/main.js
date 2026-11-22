@@ -451,9 +451,10 @@ const AVATAR_STYLES = {
   meta: { label: 'METAPERSON', url: 'models/avatar/cly3d_metaperson_black.glb' },
   face: { label: 'DIRROFACE', url: 'models/avatar/dirroface.glb' },
   real: { label: 'DIRRO REAL', url: 'models/avatar/dirro_real.glb' },
+  real2: { label: 'DIRRO REAL 2', url: 'models/avatar/dirro_real2.glb' },   // #810 MetaPerson head wrapped onto the Tripo scan, separate beanie
   crow: { label: 'DIRROCROW', url: 'models/avatar/dirrocrow.glb' }
 };
-const AVATAR_ORDER = ['robot', 'tripo', 'beanie', 'meta', 'real', 'face', 'crow'];
+const AVATAR_ORDER = ['robot', 'real2', 'tripo', 'beanie', 'meta', 'real', 'face', 'crow'];
 const CLOTHES_SHADES = [
   { label: 'BLACK', hex: 0x161618 },
   { label: 'CHARCOAL', hex: 0x3e4046 },
@@ -10932,6 +10933,7 @@ function stepDjCam(dt) {
     catch (e) { if (!stepDjCam.err) { stepDjCam.err = true; console.error(e); toast('Avatar error (headset keeps running): ' + e.message, 5000); } }
   }
   if (eyewear) eyewear.sync(avatar, pose, !!(avatar && avatar.root.visible), dt, eyewearHudInfo());
+  if (avatar && avatar.setVrTemples) avatar.setVrTemples(!!(eyewear && eyewear.style === 'vr' && eyewear.worn), dt);   // #810 arms under the beanie
   const dj = rig.worldToLocal(pose.head.p.clone()); djLastRig = dj.clone();   // #731
   const gcam = gpActive(); if (gcam) goproToDjcam(gcam); else djcam.aimAt(gear, dj);   // #337 the GoPro, when it is out, is the camera
   const gp2Live = !!(gopro2 && gopro2.on);
