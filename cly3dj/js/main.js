@@ -124,7 +124,7 @@ const KEY_POS = key.position.clone();
 // catches the gear's shadows on the panorama's floor (the studio floor is hidden then).
 const skybox = new Skybox(renderer); skybox.set3D(settings.dome3d === true);   /* #756 DOME 3D / 2D (default 2D: the left eye for both) */ rig.add(skybox.group); skybox.group.position.x = 0.05; skybox.group.position.z = 0.62;
 // #346 DOME (PORTALS SETUP): the same grounded sky, shown even in passthrough and with any light setting, sized 3-20 m
-const dome = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.dome') || 'null'); } catch {} return { on: !!(s && s.on), r: Math.min(20, Math.max(3, (s && s.r) || 10)), turn: Math.min(359, Math.max(0, (s && s.turn) || 0)), ev: Math.min(1, Math.max(-3, +(s && s.ev) || 0)), gam: Math.min(2, Math.max(0.5, +(s && s.gam) || 1)) }; })();   // #638 gam: DOME GAMMA   // #404 ev: DOME EXPOSURE   // #389 turn: the dome's own angle
+const dome = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.dome') || 'null'); } catch {} return { on: !!(s && s.on), r: Math.min(20, Math.max(3, (s && s.r) || 10)), turn: Math.min(359, Math.max(0, (s && s.turn) || 0)), ev: Math.min(1, Math.max(-3, +(s && s.ev) || 0)), gam: Math.min(2, Math.max(0.5, +(s && s.gam) || 1)), eac: !!(s && s.eac) }; })();   // #638 gam: DOME GAMMA   // #404 ev: DOME EXPOSURE   // #389 turn   // #797 eac: YouTube 3x2 EAC
 const skyShadow = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.ShadowMaterial({ opacity: 0.4, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor }));
 skyShadow.rotation.x = -Math.PI / 2; skyShadow.position.y = 0.001; skyShadow.receiveShadow = true; skyShadow.visible = false; skyShadow.raycast = () => {};
 rig.add(skyShadow);
@@ -1511,6 +1511,8 @@ function setDomeEv(ev) { dome.ev = Math.min(1, Math.max(-3, Math.round(ev * 4) /
 skybox.setExposure(dome.ev);
 function setDomeGam(k) { dome.gam = Math.min(2, Math.max(0.5, Math.round(k * 20) / 20)); saveDome(); skybox.setGamma(dome.gam); drawMixScreen(); }   // #638 DOME GAMMA (replaces #629 DOME CONTRAST)
 skybox.setGamma(dome.gam);
+function setDomeEac(on) { dome.eac = !!on; saveDome(); skybox.setEac(dome.eac); drawMixScreen(); }   // #797 native YouTube 3x2 EAC projection
+skybox.setEac(dome.eac);
 const gamPos = g => (Math.log2(g) + 1) / 2, gamOf = v => Math.pow(2, v * 2 - 1);   // #638 slider: 0.5 .. 1 (middle) .. 2
 function setDomeSize(r) { dome.r = Math.min(20, Math.max(3, Math.round(r))); saveDome(); applySky(); }
 function portalDefaults() {   // two taps: wall shape, fractal speed / colour cycle and dome size back to their defaults
@@ -6145,11 +6147,11 @@ function drawVideoPage() {
   const by = P ? H - 62 : H - 44, bh = 36, bx = P ? 26 : 8;
   btn(bx, by, 44, bh, '‹', false, () => { vpPg = Math.max(0, vpPg - 1); drawMixScreen(); }, vpPg === 0);
   btn(bx + 48, by, 44, bh, '›', false, () => { vpPg = Math.min(pages - 1, vpPg + 1); drawMixScreen(); }, vpPg >= pages - 1);
-  const T = { Pano: [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog']], 'Video pano': [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog']],   /* #769 tap a pano = it goes on the DOME */
+  const T = { Pano: [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog'], [dome.eac ? 'EAC: ON' : 'EAC: OFF', 'eactog']], 'Video pano': [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog'], [dome.eac ? 'EAC: ON' : 'EAC: OFF', 'eactog']],   /* #769 tap a pano = it goes on the DOME; #797 EAC toggle */
     Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal']], Images: [['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal']] }[vpFolder];   // #589 → PORTAL: the SCREEN frames' feed
   const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : T.length > 4 ? 76 : 86, ty = P ? H - 106 : by;   // #589 five targets on Video
   let x = P ? 8 : 108;
-  for (const [label, what] of T) { const dim = !vpSel && what !== 'dometog'; btn(x, ty, tw, bh, label, what === 'dometog' ? !!dome.on : false, dim ? null : what === 'dometog' ? () => { if (dome.on) vpAct('skyoff'); else if (vpSel) vpAct('sky'); else { setBackdrop('dome'); drawMixScreen(); } } : () => vpAct(what), dim); x += tw + 6; }
+  for (const [label, what] of T) { const dim = !vpSel && what !== 'dometog' && what !== 'eactog'; btn(x, ty, tw, bh, label, what === 'dometog' ? !!dome.on : what === 'eactog' ? !!dome.eac : false, dim ? null : what === 'dometog' ? () => { if (dome.on) vpAct('skyoff'); else if (vpSel) vpAct('sky'); else { setBackdrop('dome'); drawMixScreen(); } } : what === 'eactog' ? () => { setDomeEac(!dome.eac); toast('Dome projection: ' + (dome.eac ? 'YouTube EAC (3×2)' : 'Equirectangular'), 1800); } : () => vpAct(what), dim); x += tw + 6; }
   if (vpFolder === 'Pano') {   // #379 PANO SPIN 0 to 5 (degrees a second); landscape: between the SKY buttons and the LED button, portrait: a row of its own
     // #596 / #597 three bars: PANO TURN, EXPOSURE (the same DOME EXPOSURE as PORTALS SETUP) and SPEED (video panos);
     // landscape: a full-width row above the buttons; portrait: TURN + EXPOSURE, then SPEED under them
@@ -11188,7 +11190,8 @@ async function useSkyMedia(folder, name) {
   Object.assign(settings, { skyH: p.h, skyTurn: p.turn, skyType: p.type, skyKey: p.key, env: 'image', sky: 'on' });
   saveSettings(); syncSettingsUI();
   if (folder === 'Video pano') await useSkyVideo(f); else { closeSkyVideo(); await useSkyFile(f, true); }
-  toast('Sky: ' + name, 2000);
+  if (/eac|snapyt/i.test(name)) setDomeEac(true);
+  toast('Sky: ' + name + (dome.eac ? ' (EAC)' : ''), 2000);
 }
 async function useSkyVideo(f) {
   closeSkyVideo(); skyFactory = false;   // #538

@@ -3115,3 +3115,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 
 ### #796 — Unified `TAKES` for Master WAVs + GOPRO 2 MP4s (`sw.js` v258)
 - `web/js/recmaster.js`, `web/js/goprorec.js`, `web/js/main.js`: Updated `MasterRec.takes()` to list & download both `.wav` and `.mp4` takes from `vire-rec/` (keeping last 3 of each), and combined pending counts on the Tablet Remote `TAKES` badge.
+
+### #797 — Native YouTube 3×2 EAC (Equi-Angular Cubemap) Dome Projection (`sw.js` v259)
+- `web/js/skybox.js`: Added `eacUV(vec3 d)` and `uEac` uniform (`setEac(on)`) in the flattened-dome fragment shader to decode YouTube's 3×2 Equi-Angular Cubemap layout (Left/Front/Right top row; Bottom/Back/Top rotated 90° bottom row) natively on the GPU with zero extra decode cost.
+- `web/js/main.js`: Added `dome.eac` state, `EAC: ON/OFF` toggle button on `VISUALS > PANO` / `Video pano`, and auto-enable for filenames matching `/eac|snapyt/i`.

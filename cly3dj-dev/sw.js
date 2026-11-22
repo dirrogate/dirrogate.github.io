@@ -10,7 +10,7 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v258';   // #796 TAKES lists & downloads last 3 GOPRO 2 .mp4 videos alongside last 3 Master .wav recordings
+const CACHE = 'vire-app-v259';   // #797 Native YouTube 3x2 EAC (Equi-Angular Cubemap) dome projection in skybox.js + EAC toggle on VISUALS > PANO
 // v248   // gemini_neon 2026-11-20: #786 VISUALS double-tap thumbnail activates Pano (DOME) or Image/Video (CYCLOWALL NOW)
 // (v187)   // #709 DirroVerse moving matte (plate_matte.mp4)
 // (v186)   // #707 DirroVerse banks, WEBCAM + GEAR windows

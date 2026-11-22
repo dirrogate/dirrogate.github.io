@@ -26,7 +26,7 @@ varying vec3 vDir;
 void main() {
   vDir = position;   // #756 the panorama position is worked out per pixel from this (exact on the flattened floor at any segment count)
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  gl_Position.z = gl_Position.w * 0.99999;   // just inside the far plane: behind everything, drawn only where nothing else is
+  gl_Position.z = gl_Position.w * 0.9999;   // just inside the far plane: early-Z skips every dome pixel behind gear, tablet, hands & walls
 }`;
 const FRAG = /* glsl */`
 uniform sampler2D map;
@@ -37,6 +37,23 @@ uniform float gain;         // #404 DOME EXPOSURE (2^EV)
 uniform float uCon;         // #629 DOME CONTRAST, retired by #638 (stays 1)
 uniform float uGam;         // #638 DOME GAMMA (1 = as shot; < 1 darker mid-tones, > 1 lighter; black and white stay put)
 uniform float uAces;        // #594 1 = drawing into the stream's linear layer, which gets ACES (x 1/0.6) afterwards
+uniform float uEac;         // #797 1 = YouTube 3x2 Equi-Angular Cubemap (EAC) projection, 0 = Equirectangular
+vec2 eacUV(vec3 d) {        // #797 YouTube 3x2 EAC: top row Left/Front/Right, bottom row Bottom/Back/Top (rotated 90 deg)
+  vec3 a = abs(d);
+  float tx, ty, fu, fv;
+  if (a.z >= a.x && a.z >= a.y) {
+    if (d.z < 0.0) { tx = 1.0; ty = 1.0; fu = d.x / a.z; fv = d.y / a.z; }           // Front (-Z)
+    else           { tx = 1.0; ty = 0.0; fu = d.y / a.z; fv = -d.x / a.z; }          // Back (+Z, rot 90)
+  } else if (a.x >= a.y) {
+    if (d.x < 0.0) { tx = 0.0; ty = 1.0; fu = -d.z / a.x; fv = d.y / a.x; }          // Left (-X)
+    else           { tx = 2.0; ty = 1.0; fu = d.z / a.x; fv = d.y / a.x; }           // Right (+X)
+  } else {
+    if (d.y < 0.0) { tx = 0.0; ty = 0.0; fu = d.z / a.y; fv = -d.x / a.y; }          // Bottom/Nadir (-Y, rot 90)
+    else           { tx = 2.0; ty = 0.0; fu = -d.z / a.y; fv = -d.x / a.y; }         // Top/Zenith (+Y, rot 90)
+  }
+  vec2 tUv = clamp(vec2(atan(fu), atan(fv)) * 0.63661977237 + 0.5, 0.002, 0.998);    // 2/pi * atan + 0.5, inset 0.2% against tile seam bleed
+  return vec2((tx + tUv.x) / 3.0, (ty + tUv.y) / 2.0);
+}
 vec3 acesInv(vec3 y) {      // the value ACES maps back onto the pano's own colour (same as the SCREEN portals, #591)
   const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
   const mat3 O = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
@@ -50,24 +67,34 @@ void main() {
   // The same mapping as SphereGeometry's uv (u mirrored), so nothing moves; derivatives taken from whichever of two
   // copies of u is continuous here, so the 0 / 1 seam gets no line of wrong mip level.
   vec3 d = normalize(vDir);
-  vec2 bs = vec2(1.0 - fract(atan(d.z, -d.x) / 6.28318530718), 0.5 + asin(clamp(d.y, -1.0, 1.0)) / 3.14159265359);
-  vec2 bx = dFdx(bs), by = dFdy(bs), ba = vec2(fract(bs.x + 0.5), bs.y), ax = dFdx(ba), ay = dFdy(ba);
-  if (abs(ax.x) < abs(bx.x)) bx.x = ax.x; if (abs(ay.x) < abs(by.x)) by.x = ay.x;
+  vec2 bs = uEac > 0.5
+    ? eacUV(d)
+    : vec2(1.0 - fract(atan(d.z, -d.x) / 6.28318530718), 0.5 + asin(clamp(d.y, -1.0, 1.0)) / 3.14159265359);
   vec2 uv = vec2(bs.x * so.x + so.y, bs.y * so.z + so.w);
-  vec2 dx = bx * so.xz, dy = by * so.xz;
-#ifdef PORTAL_SKY
-  {   // #639 GLASS RAIN (portal.js): the bend is in metres on the frame's glass; map it to texture space with the screen
-      // derivatives of both (works for any frame angle, each eye, and the flattened floor). Derivatives taken outside any branch.
-    vec2 pdx = dFdx(pRev), pdy = dFdy(pRev); mat2 Jp = mat2(pdx, pdy); float jd = determinant(Jp);
-    if (dot(rBend, rBend) > 1e-10 && abs(jd) > 1e-14) { vec2 duv = mat2(dx, dy) * (inverse(Jp) * rBend); uv += duv * min(1.0, 0.03 / max(length(duv), 1e-6)); }
-  }
-#endif
   vec4 c;
-  float fp = max(length(dx * texSize), length(dy * texSize));
-  if (aa > 0.5 && fp > 1.2) {
-    c = 0.25 * (textureGrad(map, uv + dx * 0.125 + dy * 0.375, dx, dy) + textureGrad(map, uv + dx * 0.375 - dy * 0.125, dx, dy)
-              + textureGrad(map, uv - dx * 0.125 - dy * 0.375, dx, dy) + textureGrad(map, uv - dx * 0.375 + dy * 0.125, dx, dy));
-  } else c = textureGrad(map, uv, dx, dy);
+  if (aa > 0.5 || uEac > 0.5) {
+#ifdef PORTAL_SKY
+    if (portalRain.x + portalRain.y > 0.001) {
+      vec2 bx = dFdx(bs), by = dFdy(bs), ba = vec2(fract(bs.x + 0.5), bs.y), ax = dFdx(ba), ay = dFdy(ba);
+      if (abs(ax.x) < abs(bx.x)) bx.x = ax.x; if (abs(ay.x) < abs(by.x)) by.x = ay.x;
+      vec2 dx = bx * so.xz, dy = by * so.xz;
+      vec2 pdx = dFdx(pRev), pdy = dFdy(pRev); mat2 Jp = mat2(pdx, pdy); float jd = determinant(Jp);
+      if (dot(rBend, rBend) > 1e-10 && abs(jd) > 1e-14) { vec2 duv = mat2(dx, dy) * (inverse(Jp) * rBend); uv += duv * min(1.0, 0.03 / max(length(duv), 1e-6)); }
+    }
+#endif
+    c = texture2D(map, uv);   // video has no mipmaps: single fast tap (no dFdx/dFdy or multi-tap stall on Quest 3)
+  } else {
+    vec2 bx = dFdx(bs), by = dFdy(bs), ba = vec2(fract(bs.x + 0.5), bs.y), ax = dFdx(ba), ay = dFdy(ba);
+    if (abs(ax.x) < abs(bx.x)) bx.x = ax.x; if (abs(ay.x) < abs(by.x)) by.x = ay.x;
+    vec2 dx = bx * so.xz, dy = by * so.xz;
+#ifdef PORTAL_SKY
+    if (portalRain.x + portalRain.y > 0.001) {
+      vec2 pdx = dFdx(pRev), pdy = dFdy(pRev); mat2 Jp = mat2(pdx, pdy); float jd = determinant(Jp);
+      if (dot(rBend, rBend) > 1e-10 && abs(jd) > 1e-14) { vec2 duv = mat2(dx, dy) * (inverse(Jp) * rBend); uv += duv * min(1.0, 0.03 / max(length(duv), 1e-6)); }
+    }
+#endif
+    c = textureGrad(map, uv, dx, dy);
+  }
   vec3 o = c.rgb * gain; o = 0.18 * pow(max(o, vec3(0.0)) / 0.18, vec3(uCon)); o = pow(o, vec3(1.0 / uGam));
 #ifdef PORTAL_SKY
   if (portalRain.x + portalRain.y > 0.001 && inRev) {   // #639 the water itself: condensation (milky, cooler, lower contrast) wiped clear where water runs; dark rims, bright lens cores
@@ -77,8 +104,9 @@ void main() {
   }
 #endif
   if (uAces > 0.5) o = acesInv(clamp(o, 0.0, 1.0));
-  gl_FragColor = vec4(o, c.a);
+  gl_FragColor = vec4(o, 1.0);
   #include <colorspace_fragment>
+  gl_FragColor.a = 1.0;
 }`;
 
 // Stereo layout from the picture's shape: 1:1 = over-under, 4:1 = side-by-side, 2:1 = mono. Anything else isn't a panorama.
@@ -136,12 +164,12 @@ export class Skybox {
     this.group = new THREE.Group(); this.group.visible = false; this.group.name = 'skybox';
     this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.allow3d = false; this.tex = null;   // #756 allow3d: DOME 3D (stereo panoramas shown in stereo); off = the left eye for both
     this.mats = [0, 1].map(() => new THREE.ShaderMaterial({
-      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 } },
-      vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthWrite: false, toneMapped: false,
+      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 }, uEac: { value: 0 } },
+      vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthTest: true, depthWrite: false, toneMapped: false, transparent: false, opacity: 1.0,
     }));
     this.geo = null; this.setHeight(this.height);
     this.meshes = this.mats.map(m => {
-      const s = new THREE.Mesh(this.geo, m); s.onBeforeRender = r => { const t = r.getRenderTarget(); m.uniforms.uAces.value = t && t.vireAces ? 1 : 0; };   /* #594 */ s.frustumCulled = false; s.renderOrder = 1000; s.raycast = () => {};   // #403 last of the opaque objects (was -1000, first)
+      const s = new THREE.Mesh(this.geo, m); s.onBeforeRender = r => { const t = r.getRenderTarget(); m.uniforms.uAces.value = t && t.vireAces ? 1 : 0; };   /* #594 */ s.frustumCulled = false; s.renderOrder = 1000; s.raycast = () => {};   // #403 last of the opaque objects: early-Z skips every dome pixel behind gear, tablet, hands & walls
       this.group.add(s); return s;
     });
     this.setStereo(false);
@@ -216,10 +244,12 @@ export class Skybox {
     this.meshes[1].layers.set(2); this.meshes[1].visible = st;
   }
   set3D(on) { this.allow3d = !!on; this.setStereo(this.stereoOn); }   // #756 DOME 3D / 2D
+  setDepthTest(on) { const v = !!on; for (const m of this.mats) m.depthTest = v; }
   setTurn(rad) { this.group.rotation.y = rad; }
   setGamma(k) { this.mats.forEach(m => { m.uniforms.uGam.value = k || 1; }); }   // #638 DOME GAMMA
   setContrast(k) { this.mats.forEach(m => { m.uniforms.uCon.value = k || 1; }); }   // #629 DOME CONTRAST
   setExposure(ev) { const g = Math.pow(2, ev || 0); this.mats.forEach(m => { m.uniforms.gain.value = g; }); }   // #404 DOME EXPOSURE
+  setEac(on) { const v = on ? 1 : 0; this.eac = !!on; this.mats.forEach(m => { m.uniforms.uEac.value = v; }); }   // #797 YouTube 3x2 EAC projection
 }
 
 // The chosen panorama file is kept in the site's private storage (OPFS) at full size; localStorage only has room for
