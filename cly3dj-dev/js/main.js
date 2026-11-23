@@ -5723,15 +5723,23 @@ async function mediaShape(file) {
   const pano = (h > 0 && (Math.abs(w / h - 2) < 0.08 || (w === h && w >= 3840))) || isEacName(file.name);   // #821 YouTube EAC (3x2 cubemap, 16:9 or 3:2): by name
   return { vid, pano };
 }
-async function importMedia(files, tab = null, say = null) {
+// #822 the Quest's photo picker hands over files named by number (1000001234.mp4): ask for a name on the start page
+const numName = n => /^\d{4,}(\.\w+)?$/.test(n || '') || /^(image|video|document|media)[:_%]/i.test(n || '');
+async function importMedia(files, tab = null, say = null, as = 'auto') {   // #822 as: 'auto' | 'pano' | 'eac' (start page 'Add as')
   const done = { Pano: 0, 'Video pano': 0, Video: 0, Images: 0 }; let skipped = 0, n = 0;
   for (const f of files) {
-    const { vid, pano } = await mediaShape(f);
+    let { vid, pano } = await mediaShape(f);
+    if (!vid && !/^image\//.test(f.type || '') && !/\.(jpe?g|png|webp|avif|gif|heic)$/i.test(f.name)) { skipped++; continue; }   // #822 the picker now shows all files
+    if (as === 'pano' || as === 'eac') pano = true;
+    const ext = (f.name.match(/\.[^.]+$/) || [''])[0];
+    let name = f.name;
+    if (numName(name) && typeof prompt === 'function' && !renderer.xr.isPresenting) { const t = prompt(`Name for this ${vid ? 'video' : 'picture'} (the Quest's picker gave it only a number, ${f.name}):`, ''); if (t && t.trim()) name = t.trim().replace(/\.[^.]+$/, '') + ext; }
+    if (as === 'eac' && !isEacName(name)) name = name.replace(/(\.[^.]+)?$/, '_eac$1');   // the name carries EAC from now on
     let folder = tab === 'Video' ? (vid ? 'Video' : null) : tab === 'Images' ? (vid ? null : 'Images') : tab === 'Pano' ? (vid ? 'Video pano' : 'Pano')
       : vid ? (pano ? 'Video pano' : 'Video') : (pano ? 'Pano' : 'Images');
     if (!folder) { skipped++; continue; }
     if (say) say(`Importing ${++n} of ${files.length}: ${f.name}`, true);
-    try { await media.importFile(folder, f); done[folder]++; } catch (e) { skipped++; console.warn('import', e); }
+    try { await media.importFile(folder, f, name); done[folder]++; } catch (e) { skipped++; console.warn('import', e); }
   }
   const parts = Object.entries(done).filter(([, k]) => k).map(([k, v]) => `${v} to ${k === 'Video pano' ? 'PANO (video)' : k.toUpperCase()}`);
   if (videoPage) vpLoad();
@@ -8804,7 +8812,7 @@ function drawToolsPage() {
       [`EYEWEAR: ${eyewear ? EYEWEAR_STYLES[eyewear.style].label : 'OFF'}`, !!(eyewear && eyewear.style !== 'off'), nextEyewear, !eyewear],
       [`BEANIE: ${djSet.style === 'real3' && !((djSet.beanieCol || 0) % CLOTHES_SHADES.length) ? 'SCAN NAVY' : CLOTHES_SHADES[(djSet.beanieCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.beanieCol || 0) > 0, nextBeanieCol, false],
       [`TSHIRT: ${CLOTHES_SHADES[(djSet.shirtCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.shirtCol || 0) > 0, nextShirtCol, false],
-      [`LOOK: ${djSet.look === 'lit' ? 'LIT' : 'SCAN'}`, djSet.look !== 'lit', nextAvatarLook, djSet.style !== 'real3'],   // #820 REAL 3 only
+      [`LOOK: ${djSet.look === 'lit' ? 'LIT' : 'SCAN'}`, false, nextAvatarLook, djSet.style !== 'real3'],   // #820 REAL 3 only; #822 not lit up for SCAN (read as 'LIT on'), the label says the mode
     ];
     const cols = P ? 2 : 4, gap = 8, bh = P ? 76 : 86, bw = (R - L - gap * (cols - 1)) / cols;
     items.forEach(([l, on, a, dim], i) => btn(L + (i % cols) * (bw + gap), y0 + 6 + Math.floor(i / cols) * (bh + gap), bw, bh, l, on, dim ? null : a, dim, P ? 18 : 18));
@@ -10817,7 +10825,7 @@ function frameBody() {
     gp.tick(dt);
     const showLive = streamer && streamer.live && streamer.source === 'show';
     gp.setTally(!!(streamer && streamer.state === 'live' && (streamer.source === 'show' || streamer.source === 'avacam')));
-    if (gp.on) gp.setView(showLive && streamer.ly && streamer.layerOk ? streamer.ly.out.texture : (ledMode === 'cam' || gp.aiming || (streamer && streamer.needsCamRT)) && djcam ? djcam.rt.texture : null, !showLive, showLive);
+    if (gp.on) gp.setView(showLive && streamer.ly && streamer.layerOk ? streamer.ly.out.texture : (ledMode === 'cam' || gp.aiming || gp === gopro2 || (streamer && streamer.needsCamRT)) && djcam ? djcam.rt.texture : null, !showLive, showLive);   // #822 GOPRO 2's selfie screen stays on (it went blank 3 s after letting go: 'aiming' ends then)
   }
   camCalStep();   // #415
   stepRealWorld(dt);   // #411 depth occlusion on / off, room planes for the laser
@@ -10910,6 +10918,26 @@ function djPrep() {   // what the camera must not see: XR hand / controller mode
   if (!bg && !skybox.group.visible) { scene.background = BG; room.visible = true; }   // passthrough: studio floor + dark backdrop for the camera
   return () => { for (const o of undo) o.visible = true; scene.background = bg; room.visible = roomV; };
 }
+// #822 (owner: panos don't light the avatar, dark in SCAN and LIT). three.js ignores a material's envMapIntensity while it uses
+// scene.environment (it takes scene.environmentIntensity: 0.6 in passthrough, so the cam's avatar got 60 % of the pano light),
+// and night panos are dark. The avatar (not the robot, which has its neon chrome) now holds the scene's environment as its
+// own envMap, turned with the dome, at a gain that lifts dark panos: 0.45 / pano brightness, 1x .. 3x (1x without DOME LIGHT).
+let avEnvGain = 1;
+function avatarEnvSync() {
+  const a = avatar; if (!a || !a.root || a === avatars.robot) return;
+  const env = scene.environment; let g = 1;
+  if (domeLightOn() && skyAvg) { const l = 0.2126 * skyAvg[0] + 0.7152 * skyAvg[1] + 0.0722 * skyAvg[2]; g = Math.min(3, Math.max(1, 0.45 / Math.max(0.05, l))); }
+  avEnvGain = g;
+  a.root.traverse(o => {
+    if (!o.isMesh) return;
+    for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
+      if (!m || !m.isMeshStandardMaterial) continue;
+      if (m.envMap !== env) { m.envMap = env; m.needsUpdate = true; }
+      m.envMapIntensity = g; if (m.envMapRotation) m.envMapRotation.copy(scene.environmentRotation);
+    }
+  });
+}
+setInterval(avatarEnvSync, 700);
 function eyewearHudInfo() {
   const on = decks.filter(d => d.track && engine.state.decks[d.i] && engine.state.decks[d.i].needle && Math.abs(engine.state.decks[d.i].rate) > 0.2);
   const loud = d => (mixVal[(d.i ? 'B' : 'A') + '.fader'] || 0) * (d.i ? Math.min(1, 1 + mixVal.xfader) : Math.min(1, 1 - mixVal.xfader));
@@ -11186,7 +11214,7 @@ async function applyEnv() {
 }
 // #182: layout of a picture (per Settings > Pano type): { layout: 'mono' | 'ou' | 'sbs', swap } or null = not a panorama
 // #821 EAC (YouTube 3x2 equi-angular cubemap): a name with 'eac' / 'snapyt', or Pano type EAC; drawn as one mono picture, the dome shader unfolds it
-function isEacName(n) { return /(^|[^a-z])eac([^a-z]|$)|snapyt/i.test(n || ''); }   // 'eac' as its own word (not beach / peace), or a snapyt download
+function isEacName(n) { return /(^|[^a-z])eac|snapyt/i.test(n || ''); }   // 'eac' starting a word (_eac, -eac, EAC360; not beach / peace), or a snapyt download (#822)
 function wantEac() { const t = settings.skyType; return t === 'eac' || (t === 'auto' && isEacName(settings.skyFile)); }
 function skyLayoutFor(w, h) {
   const t = settings.skyType;
@@ -11350,7 +11378,8 @@ $('#bMediaAdd').onclick = () => $('#fMedia').click();   // #234
 $('#fMedia').onchange = async e => {
   const fs = [...e.target.files]; e.target.value = ''; if (!fs.length) return;
   const info = $('#mediaAddInfo'), say = t => { info.textContent = t; };
-  say(await importMedia(fs, null, say));
+  const as = ($('#sMediaAs') && $('#sMediaAs').value) || 'auto';
+  say(await importMedia(fs, null, say, as));   // #822
 };
 $('#fLed').onchange = async e => {   // #546 the start page only adds videos to the VIDEO library; the VJ plays them (CYCLOWALL NOW) or builds the CYCLOWALL LIST (+ CYCLOWALL) on the VISUALS page
   const all = [...(e.target.files || [])].filter(f => /^video\//.test(f.type) || /\.(mp4|webm|mov|m4v)$/i.test(f.name)); e.target.value = '';

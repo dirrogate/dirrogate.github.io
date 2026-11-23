@@ -63,8 +63,8 @@ export async function makeThumb(file, folder) {
 }
 
 // ---- import a picked file into a folder (streamed, so big videos don't sit in memory)
-export async function importFile(folder, file) {
-  const name = safe(file.name), d = await folderDir(folder);
+export async function importFile(folder, file, as) {   // #822 as: the name to keep it under (default: the file's own)
+  const name = safe(as || file.name), d = await folderDir(folder);
   const w = await (await d.getFileHandle(name, { create: true })).createWritable();
   await file.stream().pipeTo(w);
   await putThumb(folder, name, await makeThumb(file, folder).catch(() => null));
