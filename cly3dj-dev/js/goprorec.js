@@ -168,20 +168,33 @@ export class GoProRec {
     this._mat.uniforms.hdr.value = hdr ? 1 : 0;
     const prevRT = renderer.getRenderTarget(), prevXR = renderer.xr.enabled;
     renderer.xr.enabled = false;
+    // #828 read the frame back without waiting for the GPU (pixel buffer + fence, three's readRenderTargetPixelsAsync): the
+    // headset frame no longer stalls on the copy; the frame reaches the encoder a frame or two later, stamped with its own time.
+    // Up to 3 reads in flight, each with its own buffer; with all 3 busy the frame is skipped.
+    const pool = this._pool || (this._pool = []);
+    let buf = pool.find(b => !b.busy);
+    if (!buf && pool.length < 3) { buf = { px: pool.length ? new Uint8Array(W * H * 4) : this._px, busy: false }; pool.push(buf); }
+    if (!buf) { renderer.xr.enabled = prevXR; return; }
+    const ts = Math.round((performance.now() - this.t0) * 1000);
     renderer.setRenderTarget(this._rt);
     renderer.render(this._scene, this._cam);
-    renderer.readRenderTargetPixels(this._rt, 0, 0, W, H, this._px);
-    renderer.setRenderTarget(prevRT);
-    renderer.xr.enabled = prevXR;
-
-    const ts = Math.round((performance.now() - this.t0) * 1000);
-    const vf = new VideoFrame(this._px, { format: 'RGBA', codedWidth: W, codedHeight: H, timestamp: ts, duration: Math.round(1e6 / FPS) });
-    try {
-      this._ve.encode(vf, { keyFrame: (this.frames % (FPS * 2)) === 0 });
-      this.frames++;
-    } finally {
-      vf.close();
+    const encode = () => {
+      if (!this.on || !this._ve || this._ve.state !== 'configured') return;
+      const vf = new VideoFrame(buf.px, { format: 'RGBA', codedWidth: W, codedHeight: H, timestamp: ts, duration: Math.round(1e6 / FPS) });
+      try { this._ve.encode(vf, { keyFrame: (this.frames % (FPS * 2)) === 0 }); this.frames++; }
+      finally { vf.close(); }
+    };
+    if (renderer.readRenderTargetPixelsAsync) {
+      buf.busy = true;
+      renderer.readRenderTargetPixelsAsync(this._rt, 0, 0, W, H, buf.px).then(encode).catch(() => {}).finally(() => { buf.busy = false; });
+      { const gl = renderer.getContext(); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); }   // three leaves its pixel buffer bound while it waits: other readPixels in the app must not land in it
+      renderer.setRenderTarget(prevRT);
+    } else {   // old path: waits for the GPU
+      renderer.readRenderTargetPixels(this._rt, 0, 0, W, H, buf.px);
+      renderer.setRenderTarget(prevRT);
+      encode();
     }
+    renderer.xr.enabled = prevXR;
   }
 
   async stop() {

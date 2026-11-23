@@ -3267,3 +3267,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 
 ## #827 REAL 3 LIT = 50 % unlit + 50 % lit (owner, 24 Nov)
 - director.js uScan for LIT 0.75 -> 0.5 (SCAN stays 1.0, fully unlit). Uniform value only, no shader change. NOT tried on the Quest. sw.js v291. No Node restart.
+
+## #828 GoPro cost trims (owner, 24 Nov: options 1 and 2 of the GoPro cost talk)
+- 1. main.js stepDjCam: when only GOPRO 2's selfie screen wants the picture (GOPRO 2 out, not recording, no CYCLOWALL cam, stream not needing the cam, GOPRO 1 not aiming) the DJ CAM renders at half rate: headset every 6th frame (~12 fps at 72 Hz), desktop every 4th. Recording, streaming, CYCLOWALL keep the full rate (every 3rd headset frame).
+- 2. goprorec.js pushFrame: frames read back with three's readRenderTargetPixelsAsync (pixel pack buffer + fence, polled every 4 ms) instead of the blocking readPixels, so the headset frame no longer waits for the GPU; up to 3 reads in flight, each with its own buffer, frame skipped when all are busy; each frame keeps the timestamp of its render; encoder checks on arrival (late frames after STOP are dropped). three leaves its pack buffer bound while it waits, so the PIXEL_PACK_BUFFER binding is cleared right after the call (other readPixels in the app would land in it). Falls back to the blocking read if the method is missing.
+- Pane test (localhost:8000): GOPRO 2 recording 4 s -> 230 frames, gopro2_*.mp4 3.8 MB, 1280 x 720, 3.98 s, frames decode with picture. Test hook window.vire._gprec. NOT tried on the Quest. sw.js v292. No Node restart. Backup backups/pre828/.

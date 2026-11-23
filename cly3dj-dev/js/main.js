@@ -11004,7 +11004,10 @@ function stepDjCam(dt) {
   const gp2Rec = !!(goproRec && goproRec.on);
   if (gp2Rec && !gp2Live) goproRec.stop();   // auto-stop recording if GOPRO 2 is hidden/switched away
   if (gp2Live || gp2Rec || ledMode === 'cam' || !streamer || streamer.needsCamRT || ((gopro && gopro.aiming) && !(streamer.live && streamer.source === 'show'))) {
-    const did = roboRender(pose, gear, dt, () => djcam.render(scene, dt, xrOn ? (testState.cam2 ? 2 : 3) : 2, djPrep));
+    // #828 only GOPRO 2's selfie screen wants the picture (not recording, no stream / CYCLOWALL / aiming GOPRO 1): half rate (headset every 6th frame, ~12 fps)
+    const selfieOnly = gp2Live && !gp2Rec && ledMode !== 'cam' && !(streamer && (streamer.needsCamRT || streamer.wantsCam)) && !(gopro && gopro.aiming);
+    const every = (xrOn ? (testState.cam2 ? 2 : 3) : 2) * (selfieOnly ? 2 : 1);
+    const did = roboRender(pose, gear, dt, () => djcam.render(scene, dt, every, djPrep));
     if (did) {
       const isHdr = djcam.rt.texture.type !== THREE.UnsignedByteType;
       if (ledMode === 'cam' && !(gp2Live && gp2Rec)) camToWall();
@@ -11745,3 +11748,4 @@ if (CAMERA_ROLE) {
 }
 window.vire._dl = { domeLightOn, domeLightTick, envLight, night, get key() { return domeLitKey; } };   // #611 / #612 test hook
 window.vire._rec = masterRec;   // #637 test hook
+window.vire._gprec = goproRec;   // #828 test hook
