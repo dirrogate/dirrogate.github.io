@@ -206,12 +206,13 @@
       <label id="rowSkyTurn">Pano turn <span style="display:flex;gap:10px;align-items:center"><input type="range" id="sSkyTurn" min="0" max="359" step="1" style="flex:1"><span id="skyTurnVal"></span></span></label>
       <label id="rowSkyType">Pano type
         <select id="sSkyType">
-          <option value="auto">Auto (2:1 mono, 1:1 over-under, 4:1 side-by-side)</option>
+          <option value="auto">Auto (2:1 mono, 1:1 over-under, 4:1 side-by-side; 'eac' in the name = EAC)</option>
           <option value="mono">Mono</option>
           <option value="ou">Stereo over-under, left eye on top</option>
           <option value="ou-swap">Stereo over-under, right eye on top</option>
           <option value="sbs">Stereo side-by-side, left eye first</option>
           <option value="sbs-swap">Stereo side-by-side, right eye first</option>
+          <option value="eac">EAC: YouTube 3×2 equi-angular cubemap</option>
         </select>
       </label>
       <label id="rowSkyKey">Key light from the image

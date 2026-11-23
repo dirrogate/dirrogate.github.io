@@ -175,6 +175,7 @@ export function makeVirtualSet({ THREE, renderer, scene, skybox, envLight, key }
   // ---- panorama (picked on the phone; height / turn / type follow the Quest)
   function layoutOf(w, h) {
     const t = S.sky.type;
+    if (t === 'eac') return { layout: 'mono', swap: false };   // #821 the Quest's EAC type: the phone shows it unfolded as one picture
     if (t === 'auto') { const l = detectLayout(w, h); return l ? { layout: l, swap: false } : null; }
     return { layout: t.replace('-swap', ''), swap: t.endsWith('-swap') };
   }

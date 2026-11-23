@@ -5720,7 +5720,7 @@ async function mediaShape(file) {
       w = v.videoWidth; h = v.videoHeight; URL.revokeObjectURL(v.src);
     } else { const b = await createImageBitmap(file); w = b.width; h = b.height; b.close && b.close(); }
   } catch {}
-  const pano = h > 0 && (Math.abs(w / h - 2) < 0.08 || (w === h && w >= 3840));
+  const pano = (h > 0 && (Math.abs(w / h - 2) < 0.08 || (w === h && w >= 3840))) || isEacName(file.name);   // #821 YouTube EAC (3x2 cubemap, 16:9 or 3:2): by name
   return { vid, pano };
 }
 async function importMedia(files, tab = null, say = null) {
@@ -6175,7 +6175,7 @@ function drawVideoPage() {
     Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal']], Images: [['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal']] }[vpFolder];   // #589 → PORTAL: the SCREEN frames' feed
   const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : T.length > 4 ? 76 : 86, ty = P ? H - 106 : by;   // #589 five targets on Video
   let x = P ? 8 : 108;
-  for (const [label, what] of T) { const dim = !vpSel && what !== 'dometog' && what !== 'eactog'; btn(x, ty, tw, bh, label, what === 'dometog' ? !!dome.on : what === 'eactog' ? !!dome.eac : false, dim ? null : what === 'dometog' ? () => { if (dome.on) vpAct('skyoff'); else if (vpSel) vpAct('sky'); else { setBackdrop('dome'); drawMixScreen(); } } : what === 'eactog' ? () => { setDomeEac(!dome.eac); toast('Dome projection: ' + (dome.eac ? 'YouTube EAC (3×2)' : 'Equirectangular'), 1800); } : () => vpAct(what), dim); x += tw + 6; }
+  for (const [label, what] of T) { const dim = !vpSel && what !== 'dometog' && what !== 'eactog'; btn(x, ty, tw, bh, label, what === 'dometog' ? !!dome.on : what === 'eactog' ? !!dome.eac : false, dim ? null : what === 'dometog' ? () => { if (dome.on) vpAct('skyoff'); else if (vpSel) vpAct('sky'); else { setBackdrop('dome'); drawMixScreen(); } } : what === 'eactog' ? () => { setDomeEac(!dome.eac); settings.skyType = dome.eac ? 'eac' : isEacName(settings.skyFile) ? 'mono' : 'auto'; saveSettings(); saveSkyPrefs(); syncSettingsUI();   /* #821 remembered for this file */ toast('Dome projection: ' + (dome.eac ? 'YouTube EAC (3×2)' : 'Equirectangular'), 1800); } : () => vpAct(what), dim); x += tw + 6; }
   if (vpFolder === 'Pano') {   // #379 PANO SPIN 0 to 5 (degrees a second); landscape: between the SKY buttons and the LED button, portrait: a row of its own
     // #596 / #597 three bars: PANO TURN, EXPOSURE (the same DOME EXPOSURE as PORTALS SETUP) and SPEED (video panos);
     // landscape: a full-width row above the buttons; portrait: TURN + EXPOSURE, then SPEED under them
@@ -11185,8 +11185,12 @@ async function applyEnv() {
   applySky();
 }
 // #182: layout of a picture (per Settings > Pano type): { layout: 'mono' | 'ou' | 'sbs', swap } or null = not a panorama
+// #821 EAC (YouTube 3x2 equi-angular cubemap): a name with 'eac' / 'snapyt', or Pano type EAC; drawn as one mono picture, the dome shader unfolds it
+function isEacName(n) { return /(^|[^a-z])eac([^a-z]|$)|snapyt/i.test(n || ''); }   // 'eac' as its own word (not beach / peace), or a snapyt download
+function wantEac() { const t = settings.skyType; return t === 'eac' || (t === 'auto' && isEacName(settings.skyFile)); }
 function skyLayoutFor(w, h) {
   const t = settings.skyType;
+  if (t === 'eac' || (t === 'auto' && isEacName(settings.skyFile))) return { layout: 'mono', swap: false };   // #821
   if (t === 'auto') { const l = detectLayout(w, h); return l ? { layout: l, swap: false } : null; }
   return { layout: t.replace('-swap', ''), swap: t.endsWith('-swap') };
 }
@@ -11206,6 +11210,7 @@ async function useSkyFile(f, fresh) {
   envLight.setImage(c); skyKeyLight = brightestDir(c); skyAvg = panoAvg(c);
   if (L) { try { closeSkyVideo(); await skybox.load(f, L.layout, L.swap); skybox.setHeight(settings.skyH); } catch (e) { skybox.setImage(null); toast('Panorama too big for this device: ' + e.message, 4000); } }
   else skybox.setImage(null);
+  setDomeEac(!!L && wantEac());   // #821 on for EAC, off for everything else (was on-only, #797)
   skyInfo(dims, L); applySky();
 }
 async function ensureSky(force) {   // full-size panorama from storage, loaded when first shown (#346 force: for the DOME, whatever the light setting)
@@ -11247,7 +11252,6 @@ async function useSkyMedia(folder, name) {
   Object.assign(settings, { skyH: p.h, skyTurn: p.turn, skyType: p.type, skyKey: p.key, env: 'image', sky: 'on' });
   saveSettings(); syncSettingsUI();
   if (folder === 'Video pano') await useSkyVideo(f); else { closeSkyVideo(); await useSkyFile(f, true); }
-  if (/eac|snapyt/i.test(name)) setDomeEac(true);
   toast('Sky: ' + name + (dome.eac ? ' (EAC)' : ''), 2000);
 }
 async function useSkyVideo(f) {
@@ -11258,6 +11262,7 @@ async function useSkyVideo(f) {
   try { localStorage.setItem('vire.envimage', c.toDataURL('image/jpeg', 0.85)); } catch {}
   envLight.setImage(c); skyKeyLight = brightestDir(c); skyAvg = panoAvg(c);
   skybox.setVideo(video, L.layout, L.swap); skybox.setHeight(settings.skyH);
+  setDomeEac(wantEac());   // #821
   skyInfo([video.videoWidth, video.videoHeight], L); applySky();
 }
 function skyInfo(dims, L) {
