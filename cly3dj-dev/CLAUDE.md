@@ -3220,3 +3220,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Lower teeth: their jawOpen dropped 37 mm against the lip's 29 mm, so they hid under the lower lip and you saw the dark inner lip wall. jawOpen delta x 0.8: lower teeth now show when talking.
 - Mistake on the way: the normal re-bake left the dense scan head R3_Head renderable, which drew over the beanie in test renders; normals restored from the #816 export, R3_Head hidden from renders again (not exported).
 - dirro_real3.glb 11.5 MB (KTX2), webp fallback 4.5 MB, 6 primitives. sw.js v282. Backups: r3_E_export_pre818.blend, r3_E_export_pre818b.blend (before atlas), backups/pre817/. Not tried in the app (test server off) or Quest. No Node restart.
+
+## #819 REAL 3: dark band under the lower teeth (owner, 23 Nov)
+- Cause: not the teeth and not the colour texture (inner lip texels are lip pink, 0.42 to 0.67). The baked normal map had broken patches on the inner lower lip: normals pointing sideways (blue channel near 0), so that surface shaded almost black. Same fault as the #818 eyelid dot. Ray cast from the camera hit AvatarHead faces 4859 / 12030 / 4871 there.
+- Fix in R3_normal_detail: mouth-area faces rasterised in UV, texels with blue < 0.85 eased to flat; then the whole map's texels with blue < 0.55 (inner mouth and both ears, about 25k texels) eased to flat. Re-exported (KTX2 11.5 MB, WebP 4.5 MB). sw.js v283. Not tried in the app or Quest. No Node restart.
