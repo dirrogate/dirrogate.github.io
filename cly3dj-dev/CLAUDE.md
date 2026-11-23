@@ -3264,3 +3264,6 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - Selfie screen: the DJ CAM only ran while a GoPro was 'aiming' (held or < 3 s after release), so GOPRO 2's screen kept the last frame (#822 only stopped it going blank). stepDjCam now runs while GOPRO 2 is out or GOPRO 2 is recording. Cost: the cam render (every 3rd headset frame) runs the whole time GOPRO 2 is out.
 - SCAN / LIT: in the pane the REAL 3 face differs by about 20 % between them (LIT = 75 % unlit + 25 % lit, #824, so the difference is small by design). The owner was most likely judging on the frozen selfie screen. If LIT should differ more, raise its lit share (uScan 0.75 in director.js setLook / _scanU).
 - NOT tried on the Quest. sw.js v290. No Node restart. Backup backups/pre826/.
+
+## #827 REAL 3 LIT = 50 % unlit + 50 % lit (owner, 24 Nov)
+- director.js uScan for LIT 0.75 -> 0.5 (SCAN stays 1.0, fully unlit). Uniform value only, no shader change. NOT tried on the Quest. sw.js v291. No Node restart.

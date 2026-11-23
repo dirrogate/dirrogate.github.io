@@ -16,7 +16,7 @@ const R3_ACES_INV = `vec3 r3AcesInv(vec3 y) {
   return max(inverse(I) * ((-b + sqrt(max(b * b - 4.0 * a * c, 0.0))) / (2.0 * a)) * 0.6, 0.0);
 }
 `;
-// #824 uScan = how much of the result is the unlit scan: SCAN 1.0, LIT 0.75 (25 % scene / pano light). The unlit scan gets a
+// #824 uScan = how much of the result is the unlit scan: SCAN 1.0, LIT 0.5 (#827: 50 % scene / pano light). The unlit scan gets a
 // little contrast and saturation (in display space) before going out: R3_CON / R3_SAT.
 const R3_GRADE = `const float R3_CON = 1.12; const float R3_SAT = 1.18;
 vec3 r3Grade(vec3 c) { vec3 s = pow(max(c, 0.0), vec3(1.0 / 2.2)); float l = dot(s, vec3(0.2126, 0.7152, 0.0722));
@@ -206,8 +206,8 @@ export class Avatar {
     };
     mt.customProgramCacheKey = () => 'r3unlit2'; mt.needsUpdate = true;
   }
-  _scanU() { return this.r3ScanU || (this.r3ScanU = { value: this._look === 'lit' ? 0.75 : 1 }); }   // #824 LIT = 75 % unlit + 25 % lit
-  setLook(look) { this._look = look; this._scanU().value = look === 'lit' ? 0.75 : 1; }
+  _scanU() { return this.r3ScanU || (this.r3ScanU = { value: this._look === 'lit' ? 0.5 : 1 }); }   // #824 / #827 LIT = 50 % unlit + 50 % lit
+  setLook(look) { this._look = look; this._scanU().value = look === 'lit' ? 0.5 : 1; }
   setClothes(beanieHex, shirtHex, beanieIdx) {
     this._clothes = [beanieHex, shirtHex, beanieIdx];
     // REAL 3: shade 0 keeps the scan's own navy beanie; other shades recolour the knit
