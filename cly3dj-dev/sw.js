@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v275';   // #814 DIRRO REAL 3 avatar
+const CACHE = 'vire-app-v276';   // #814b DIRRO REAL 3 seam fix
+// was: const CACHE = 'vire-app-v275';   // #814 DIRRO REAL 3 avatar
 // was: const CACHE = 'vire-app-v274';   // #813 DJ avatar eyes track GOPRO 2 up to +/-10 deg N/S/E/W relative to headset, smoothly returning to headset forward gaze beyond 10 deg
 // v248   // gemini_neon 2026-11-20: #786 VISUALS double-tap thumbnail activates Pano (DOME) or Image/Video (CYCLOWALL NOW)
 // (v187)   // #709 DirroVerse moving matte (plate_matte.mp4)
