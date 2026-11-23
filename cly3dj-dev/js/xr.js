@@ -110,6 +110,7 @@ export function setupXR(ctx) {
     const down = btn => {
       st.held = st.held || {}; st.held[btn] = true;   // #291 button state as the events see it (the gamepad snapshot can lag a frame)
       if (ctx.mprops && ctx.mprops.placer.active(st)) return;   // #479 the right controller is the placement laser: its trigger / grip are read there
+      if (btn === 'trigger' && ctx.calTap && ctx.calTap()) { buzz(st, 0.3, 15); return; }   // #829 RELEASE TIMING calibration: trigger taps with the clicks
       if (ctx.crateMicSelect(st.isHand ? st.pinchPt : st.tip)) { buzz(st, 0.4, 20); return; }
       if (!st.isHand) { const hl = ctlTipLocal(st); if (hl) { st.grip.updateMatrixWorld(); st.grip.localToWorld(st.tip.copy(hl)); } }   // #283 / #284 grab from the touch point now, not last frame's
       if (!st.isHand && !st.direct && grabStart(st, st.tip, btn)) st.btn = btn;   // #422 (owner) the #416 grab restored: one fixed touch point

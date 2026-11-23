@@ -111,6 +111,9 @@ class Deck {
     this.hq = []; this.hOff = null; this.hClock = 0;   // #423 stamped readings (display s, angle), clock offset, audio clock
     this.grip = 50;   // N m: far above any real finger, so the record never slides under a tracked hand (the hand is the truth in VR)
     this.quietPhi = 0; this.wasDisturbed = false; this.load = 0; this.matT = 0;
+    // #829 stamped release (played out on the audio clock like the hand readings) + RELEASE TIMING compensation
+    this.relAt = null; this.relWait = 0; this.relComp = 0; this.relShift = 0;
+    this.hRingT = new Float64Array(512); this.hRingW = new Float64Array(512); this.hRi = 0; this.hRn = 0; this.hRc = 0;
     this.setRecord(0.18);
   }
   setRecord(mass, R = REC_R, holeR = HOLE_R) {   // #261 R / holeR: a 7" single is smaller, with a big hole
@@ -188,6 +191,9 @@ class Deck {
     }
     if (this.spinOn) tp += SPIN_T * this.spinK * Math.tanh((this.spinRate * W33 - this.wp) / SPIN_SLIP);   // #322 pinch on the spindle
     let disturbed = this.touch || this.spinOn;
+    // #829 a stamped release takes effect when the audio clock reaches the frame it was made in, so the hand's last
+    // movement (the little push DJs give on letting go) is played out first and the release lands at the right moment
+    if (this.relAt != null) { this.relWait += dt; if (!this.handOn || this.hOff == null || this.hClock - this.hOff - HAND_DELAY >= this.relAt || this.relWait > 0.2) this.releaseNow(); }
     // #364 (owner) no record: a hand on the bare slipmat holds the MAT (25 g felt) while the platter spins under it,
     // the same slip friction as with a record but with only the mat's weight + the hand pressing it down
     if (!this.hasRec && !this.handOn) {
@@ -254,7 +260,36 @@ class Deck {
       this.wp = 0; this.wr = 0;
     }
     this.thp += this.wp * dt; this.thr += this.wr * dt;
+    if (this.handOn && ++this.hRc >= 32) { this.hRc = 0; this.hRingT[this.hRi] = this.thr; this.hRingW[this.hRi] = this.wr; this.hRi = (this.hRi + 1) & 511; if (this.hRn < 512) this.hRn++; }   // #829 last ~0.34 s of the held record
     return this.wr / W33;
+  }
+  // #829 let go of the record. RELEASE TIMING (owner): the DJ lets go on the beat he HEARS, which reached his ears late by
+  // the audio output delay, and the hand reached us later still; so a cued record always started ~L late. Here the record
+  // is put where it would be had it been let go L earlier: from the record's state L ago (history ring), the slipmat pulls
+  // it up to speed for L (same friction as the step), and the difference goes on as a ~20 ms slide (shiftPending), with
+  // the speed it would have now. Only for a record held still or moved slowly (cueing, back-cue rocking), never a scratch.
+  releaseNow() {
+    this.handOn = false; this.relAt = null; this.hq.length = 0;
+    const L = this.relComp; this.relComp = 0; this.relShift = 0;
+    if (!(L > 0) || !this.hasRec || this.model === 'legacy' || !this.len) return;
+    let k = Math.round(L * sampleRate / 32); if (k > this.hRn) k = this.hRn; if (k < 2) return;
+    let vmax = Math.abs(this.wr);
+    for (let i = 1; i <= k; i++) { const v = Math.abs(this.hRingW[(this.hRi - i + 512) & 511]); if (v > vmax) vmax = v; }
+    if (vmax > 0.6 * W33) return;
+    const j = (this.hRi - k + 512) & 511; let th = this.hRingT[j], w = this.hRingW[j];
+    const n = k * 32, dt = 1 / sampleRate, wp = this.wp, Ir = this.Ir;
+    const Tk = this.mat.muK * this.fricK * this.mTot * GRAV * R_EFF;
+    for (let i = 0; i < n; i++) {
+      const rel = wp - w;
+      if (rel > 1e-6 || rel < -1e-6) {
+        const a = ((rel > 0 ? Tk : -Tk) - STYLUS_DRAG * this.needleGain * Math.tanh(w / 0.05)) / Ir, nw = w + a * dt;
+        w = rel > 0 ? Math.min(nw, wp) : Math.max(nw, wp);
+      }
+      th += w * dt;
+    }
+    let delta = th - this.thr; const lim = n * dt * W33 * 1.5; if (delta > lim) delta = lim; else if (delta < -lim) delta = -lim;
+    this.wr = w; this.stuck = Math.abs(w - wp) < 1e-6; if (!this.stuck) this.slipDir = wp > w ? 1 : -1;
+    this.shiftPending += delta / W33 * this.srcRate; this.relShift = delta;
   }
 
   // pre-#120 behaviour, unchanged: the record rate IS the platter speed, fixed ramps
@@ -300,7 +335,7 @@ class Decks extends AudioWorkletProcessor {
         d.L = d.R = null; d.len = 0; d.pos = 0; d.needle = false;
         break;
       case 'record':   // a record put on / taken off the platter (#120). It lands still; the mat pulls it up to speed.
-        d.hasRec = !!m.on; d.handOn = false; d.holding = false;
+        d.hasRec = !!m.on; d.handOn = false; d.holding = false; d.relAt = null; d.relComp = 0;
         if (d.hasRec) { d.is7 = m.size === 7; d.setRecord(d.is7 ? 0.040 : (d.massSetting || 0.18), d.is7 ? 0.0873 : REC_R, d.is7 ? 0.0191 : HOLE_R); }   // #261 a 45 weighs ~40 g
         if (d.hasRec) { d.wr = m.w != null ? m.w * W33 : 0; d.thr = d.thp; d.stuck = Math.abs(d.wr - d.wp) < 1e-6; }
         else { d.wr = d.wp; d.stuck = false; }
@@ -317,6 +352,8 @@ class Decks extends AudioWorkletProcessor {
       case 'hand':
         d.holding = m.holding; d.handRate = m.rate || 0;
         if (m.holding) {
+          if (d.relAt != null) { d.relAt = null; d.relComp = 0; }   // #829 grabbed again before a stamped release played out
+          if (!d.handOn) { d.hRn = 0; d.hRc = 0; }
           const w = (m.rate || 0) * W33;
           if (m.ang != null) {
             if (m.t != null) {   // #423 stamped reading
@@ -335,8 +372,10 @@ class Decks extends AudioWorkletProcessor {
           d.handW = w; d.handAge = 0; d.handOn = true;
           if (m.grip != null) d.grip = m.grip;
         } else {
-          d.handOn = false;
-          if (m.throwRate !== undefined) { d.rate = m.throwRate; d.wr = m.throwRate * W33; d.stuck = false; }
+          if (m.throwRate !== undefined) { d.handOn = false; d.relAt = null; d.rate = m.throwRate; d.wr = m.throwRate * W33; d.stuck = false; break; }
+          d.relComp = m.comp > 0 ? Math.min(0.25, m.comp) : 0;   // #829 RELEASE TIMING (s)
+          if (d.handOn && m.t != null && d.hq.length && d.hOff != null) { d.relAt = m.t / 1000; d.relWait = 0; }   // played out on the audio clock
+          else d.releaseNow();
         }
         break;
       case 'seek':

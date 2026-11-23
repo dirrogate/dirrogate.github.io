@@ -5122,7 +5122,8 @@ const RIM_FORCE_LIGHT = 0.35;   // N: a fingertip resting on the platter's side
 function handRate(s) { return s.rate; }
 function postHand(s, holding) {
   if (s.nudge) engine.post({ type: 'touch', deck: s.deck.i, active: holding, rate: s.rate, force: s.force });
-  else engine.post(holding ? { type: 'hand', deck: s.deck.i, holding: true, rate: s.rate, ang: s.ang, t: s.t || undefined } : { type: 'hand', deck: s.deck.i, holding: false });   // #423 t: the reading's time stamp
+  else engine.post(holding ? { type: 'hand', deck: s.deck.i, holding: true, rate: s.rate, ang: s.ang, t: s.t || undefined }
+    : { type: 'hand', deck: s.deck.i, holding: false, t: renderer.xr.isPresenting && frameT ? frameT : performance.now(), comp: relTimingMs() / 1000 });   // #423 t: the reading's time stamp; #829 the release is stamped too, + RELEASE TIMING
 }
 function scratchMove(s, localPoint, force) {
   const d = s.deck;
@@ -6459,9 +6460,10 @@ function drawDeckPanel(g, d, x0, y0, w, h, P) {
   fitText2(g, t ? `${deckVid[d.i].v ? 'VV  ·  ' : ''}${t.artist}${d.side ? '  ·  side ' + d.side : ''}${t.split ? '  ·  split' : ''}` : '', x0 + 12, 90 + dy, w - 24);
   const st = engine.state.decks[d.i];
   const rd = readout(d, st);
-  g.fillStyle = '#fff'; g.font = '700 25px system-ui'; g.fillText(rd.big, x0 + 12, 148 + dy);   // #643 smaller
-  g.fillStyle = '#8c96a8'; g.font = '500 17px system-ui'; fitText2(g, rd.label, x0 + 14, 172 + dy, w * 0.62);
-  MS_HIT[d.i] = { x: x0 + 6, y: 100 + dy, w: w * 0.62, h: 84 };
+  const ears = !!settings.earsOnly;   // #829 EARS ONLY: no BPM, pitch % or beat dots (the strobe dots and your ears, as on real decks)
+  g.fillStyle = ears ? '#56627a' : '#fff'; g.font = '700 25px system-ui'; g.fillText(ears ? 'EARS' : rd.big, x0 + 12, 148 + dy);   // #643 smaller
+  g.fillStyle = '#8c96a8'; g.font = '500 17px system-ui'; fitText2(g, ears ? 'EARS ONLY' : rd.label, x0 + 14, 172 + dy, w * 0.62);
+  MS_HIT[d.i] = ears ? null : { x: x0 + 6, y: 100 + dy, w: w * 0.62, h: 84 };
   // #319 (owner): the +/- readout is the platter's live speed, so a spindle twist or a rim nudge shows as it happens
   // (eased ~150 ms like a real speed display; within 0.015 % of the fader it reads the fader, so it doesn't flicker)
   let pl = d.pitch;
@@ -6469,7 +6471,7 @@ function drawDeckPanel(g, d, x0, y0, w, h, P) {
   d.pDisp = d.pDisp == null ? pl : d.pDisp + (pl - d.pDisp) * 0.35;
   const shown = Math.abs(d.pDisp - d.pitch) < 0.00015 ? d.pitch : d.pDisp;
   g.textAlign = 'right'; g.fillStyle = Math.abs(shown) < 0.0005 ? '#40ff70' : '#f2b640'; g.font = '600 24px system-ui';
-  g.fillText(`${shown >= 0 ? '+' : ''}${(shown * 100).toFixed(2)}%`, x0 + w - 12, 128 + dy);
+  if (!ears) g.fillText(`${shown >= 0 ? '+' : ''}${(shown * 100).toFixed(2)}%`, x0 + w - 12, 128 + dy);   // #829
   g.fillStyle = '#8c96a8'; g.font = '500 17px system-ui'; g.fillText(d.speed > 1.1 ? '45 RPM' : '33 RPM', x0 + w - 12, 152 + dy);
   if (d.loaded) {
     const pos = engine.pos(d.i), rem = Math.max(0, d.duration - pos);
@@ -6478,7 +6480,7 @@ function drawDeckPanel(g, d, x0, y0, w, h, P) {
     // #165 (owner): no progress bar; the grooves on the record show where you are
     // beat phase dots
     const beatInBar = ledBeat(d);   // #117: grey until beat 1 and a BPM exist
-    for (let k = 0; k < 4; k++) { g.fillStyle = k === beatInBar ? '#39a8ff' : '#26324a'; g.fillRect(x0 + 12 + k * 30, DOTS, 24, 10); }
+    if (!ears) for (let k = 0; k < 4; k++) { g.fillStyle = k === beatInBar ? '#39a8ff' : '#26324a'; g.fillRect(x0 + 12 + k * 30, DOTS, 24, 10); }   // #829
     // #768 phase meter removed (owner: distracting); it was display only and never moved a record
     if (t && tapEntry(t)) {   // sidecar save state for this track (portrait: its own line, the panel is narrower)
       const tx = { saved: 'taps saved', saving: 'saving…', retry: 'not saved: retrying', static: 'saved on this device', local: 'saved on this device' }[taps.status] || '';
@@ -6888,6 +6890,7 @@ const FEEL_DEF = {
   spin: { label: 'SPINDLE TWIST', lo: 25, hi: 300, v: 100, unit: '%' },      // pinch on the spindle: torque passed to the platter
   nudge: { label: 'NUDGE AMOUNT', lo: 25, hi: 300, v: 100, unit: '%' },      // finger on the platter rim: drag / push strength
   grv: { label: 'RECORD GROOVES', lo: 0, hi: 300, v: 100, unit: '%' },       // #455 ring contrast + sheen on the vinyl (looks only, no physics)
+  rel: { label: 'RELEASE TIMING', lo: 0, hi: 200, v: -1, unit: 'ms' },       // #829 latency made up when letting go of a held record (-1 = AUTO estimate until calibrated)
 };
 const FEEL = Object.fromEntries(Object.entries(FEEL_DEF).map(([k, r]) => [k, r.v]));
 // #605 MIXER FEEL (DJ TOOLS > MIXER FEEL): knob friction for the controllers / hands (xr.js knob turn); KNOB TWIST is PINCH FIT's kt
@@ -6896,6 +6899,48 @@ const MIXFEEL = Object.fromEntries(Object.entries(MIXFEEL_DEF).map(([k, r]) => [
 try { Object.assign(MIXFEEL, JSON.parse(localStorage.getItem('vire.mixfeel') || '{}')); } catch (e) {}
 function setMixFeel(k, v) { MIXFEEL[k] = v; try { localStorage.setItem('vire.mixfeel', JSON.stringify(MIXFEEL)); } catch (e) {} }
 try { Object.assign(FEEL, JSON.parse(localStorage.getItem('vire.feel') || '{}')); } catch (e) {}
+// #829 RELEASE TIMING: the delay between the beat the DJ hears and his release reaching the deck. AUTO = the audio
+// output delay the browser reports + ~20 ms of hand pipeline; CALIBRATE (tap the trigger with clicks) measures the lot.
+function relAuto() { const c = engine && engine.ctx; return Math.round(((c && c.outputLatency) || 0) * 1000 + ((c && c.baseLatency) || 0) * 1000 + 20); }
+function relTimingMs() { return FEEL.rel >= 0 ? FEEL.rel : Math.min(200, relAuto()); }
+const relCal = { on: false, taps: [], clicks: [], next: 0, timer: 0, stopT: 0, msg: '', msgT: 0 };
+function relCalClick(t) {
+  const c = engine.ctx, o = c.createOscillator(), gn = c.createGain();
+  o.frequency.value = 1600; gn.gain.setValueAtTime(0, t); gn.gain.linearRampToValueAtTime(0.45, t + 0.002); gn.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+  o.connect(gn); gn.connect(c.destination); o.start(t); o.stop(t + 0.05);
+}
+function relCalSched() { const c = engine.ctx; while (relCal.next < c.currentTime + 0.25) { relCalClick(relCal.next); relCal.clicks.push(relCal.next); relCal.next += 0.5; } }
+function relCalStart() {
+  const c = engine && engine.ctx; if (!c) { toast('Start the audio first (open a record)', 2500); return; }
+  if (c.state === 'suspended') c.resume();
+  Object.assign(relCal, { on: true, taps: [], clicks: [], next: c.currentTime + 0.8, msg: '' });
+  relCal.timer = setInterval(relCalSched, 50); relCalSched(); relCal.stopT = setTimeout(() => relCalEnd(false), 30000); drawMixScreen();
+}
+function relCalTap() {   // a trigger press (XR, from xr.js) or a press on the button (desktop); stamped like a record release
+  if (!relCal.on) return false;
+  const ts = (renderer.xr.isPresenting && frameT ? frameT : performance.now()) / 1000;
+  relCal.taps.push({ ts, now: engine.ctx.currentTime });
+  if (relCal.taps.length >= 20) relCalEnd(true); else drawMixScreen();
+  return true;
+}
+function relCalEnd(done) {
+  clearInterval(relCal.timer); clearTimeout(relCal.stopT); relCal.on = false;
+  if (done) {
+    const off = Math.min(...relCal.taps.map(p => p.now - p.ts)), errs = [];
+    relCal.taps.slice(4).forEach(p => {   // the first four taps are finding the beat
+      const eff = p.ts + off + 0.008; let best = null;
+      for (const c of relCal.clicks) { const e = eff - c; if (best == null || Math.abs(e) < Math.abs(best)) best = e; }
+      if (best != null && Math.abs(best) < 0.25) errs.push(best);
+    });
+    errs.sort((a, b) => a - b);
+    if (errs.length >= 8) {
+      const med = errs[errs.length >> 1], spr = errs[Math.floor(errs.length * 0.75)] - errs[Math.floor(errs.length * 0.25)];
+      setFeel('rel', Math.max(0, Math.min(200, Math.round(med * 1000))));
+      relCal.msg = `RELEASE TIMING ${FEEL.rel} ms (spread ${Math.round(spr * 1000)} ms)`;
+    } else relCal.msg = 'Calibration: not enough taps on the clicks, try again';
+  } else relCal.msg = relCal.taps.length ? 'Calibration stopped' : '';
+  relCal.msgT = performance.now(); drawMixScreen();
+}
 setGrooveK((FEEL.grv != null ? FEEL.grv : 100) / 100);   // #455
 function setFeel(k, v) { FEEL[k] = v; try { localStorage.setItem('vire.feel', JSON.stringify(FEEL)); } catch (e) {} if (k === 'grv') setGrooveK(v / 100); if (k !== 'scr' && k !== 'smooth' && k !== 'even' && k !== 'grv') sendPhysics(); }
 // #422 PINCH FIT sliders: key -> range, default (must match xr.js PF)
@@ -9977,8 +10022,15 @@ function drawToolsPage() {
   }
   if (page === 'feel') {   // #423 (owner) TURNTABLE FEEL sliders, preset to the current physics
     const y0 = head('TURNTABLE FEEL', 'dj'), D = FEEL_DEF, keys = Object.keys(D);
-    const row = (k, x, y, w, h) => { const r = D[k], v = FEEL[k]; tSlider(g, x, y, w, h, r.label, (v - r.lo) / (r.hi - r.lo), `${v} ${r.unit}`, f => setFeel(k, Math.round(r.lo + f * (r.hi - r.lo))), false, 170); };
+    const row = (k, x, y, w, h) => { const r = D[k], auto = k === 'rel' && FEEL.rel < 0, v = auto ? relTimingMs() : FEEL[k];   // #829 RELEASE TIMING shows AUTO until set
+      tSlider(g, x, y, w, h, r.label, (v - r.lo) / (r.hi - r.lo), auto ? `AUTO ${v} ms` : `${v} ${r.unit}`, f => setFeel(k, Math.round(r.lo + f * (r.hi - r.lo))), false, 170); };
     const reset = () => { for (const k of keys) setFeel(k, D[k].v); drawMixScreen(); };
+    // #829 CALIBRATE: clicks play; tap the trigger with them (20 taps) and RELEASE TIMING is set to what was measured
+    const calLbl = () => relCal.on ? `TAP TRIGGER ${relCal.taps.length}/20` : (relCal.msg && performance.now() - relCal.msgT < 8000 ? (FEEL.rel >= 0 && /ms \(/.test(relCal.msg) ? `CALIBRATED ${FEEL.rel} ms` : 'TRY AGAIN') : 'CALIBRATE TIMING');
+    const calBtn = (x, y, w, h, fs) => btn(x, y, w, h, calLbl(), relCal.on, () => { if (relCal.on) relCalTap(); else relCalStart(); }, false, fs);
+    // #829 EARS ONLY: the deck readouts hide BPM, pitch % and the beat dots, as on real decks (strobe dots and your ears)
+    const earsBtn = (x, y, w, h, fs) => btn(x, y, w, h, settings.earsOnly ? 'EARS ONLY: ON' : 'EARS ONLY: OFF', !!settings.earsOnly, () => { settings.earsOnly = !settings.earsOnly; saveSettings(); drawMixScreen(); }, false, fs);
+    if (relCal.on || (relCal.msg && performance.now() - relCal.msgT < 8000)) setTimeout(() => { if (toolsPage === 'feel') drawMixScreen(); }, 300);
     // #605 TARGET LIGHT: the pop-up lamp lights the platter only when enabled here (off by default: no accidental lamp while performing)
     const tlBtn = (x, y, w, h, fs) => btn(x, y, w, h, settings.targetLight ? 'TARGET LIGHT: ENABLED' : 'TARGET LIGHT: OFF', !!settings.targetLight, () => {
       settings.targetLight = !settings.targetLight; saveSettings();
@@ -9986,14 +10038,15 @@ function drawToolsPage() {
       toast(settings.targetLight ? 'TARGET LIGHT enabled: press the lamp on a deck to raise it' : 'TARGET LIGHT off: the lamps stay down', 2200); drawMixScreen(); }, false, fs);
     if (P) {
       keys.forEach((k, i) => row(k, L, y0 + i * 52, R - L, 46));
-      const yb = y0 + keys.length * 52 + 4; btn(L, yb, (R - L - 8) / 2, 40, 'RESET TO AS BUILT', false, reset, false, 15); tlBtn(L + (R - L) / 2 + 4, yb, (R - L - 8) / 2, 40, 15);   // #605
-      note('Drag a bar. 100 % = the physics as built. PLATTER FRICTION: slipmat grip. SCRATCH & DRAG: record turn per hand turn (100 % = 1:1). RADIUS EVEN-OUT: every touch point moves the record like the outer edge (0 % = true vinyl). HAND SMOOTHING: filters tracking jitter on the record. SPINDLE TWIST: pinch on the spindle. NUDGE: finger on the platter rim.', yb + 58);
+      const yb = y0 + keys.length * 52 + 4, hw = (R - L - 8) / 2; btn(L, yb, hw, 40, 'RESET TO AS BUILT', false, reset, false, 15); tlBtn(L + hw + 8, yb, hw, 40, 15);   // #605
+      calBtn(L, yb + 48, hw, 40, 15); earsBtn(L + hw + 8, yb + 48, hw, 40, 15);   // #829
+      note((relCal.msg && performance.now() - relCal.msgT < 8000 ? relCal.msg + '. ' : '') + '100 % = as built. RELEASE TIMING: the delay between the beat you hear and your release. CALIBRATE: tap the trigger with the clicks.', yb + 106);
     } else {
-      const bw = 170;   // one bar per row, full width; RESET under the label column
-      keys.forEach((k, i) => row(k, L, y0 + i * 31, R - L, 28));   // #424 / #455 seven bars
-      btn(L, y0 + keys.length * 31 + 2, bw, 30, 'RESET TO AS BUILT', false, reset, false, 14);
-      tlBtn(L + bw + 8, y0 + keys.length * 31 + 2, 220, 30, 14);   // #605
-      g.fillStyle = '#8c96a8'; g.font = '500 13px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle'; fitText2(g, '100 % = as built.  RADIUS EVEN-OUT 0 % = true vinyl.  GROOVES = ring contrast and sheen.', L + bw + 236, y0 + keys.length * 31 + 17, R - (L + bw + 236)); g.textBaseline = 'alphabetic';
+      keys.forEach((k, i) => row(k, L, y0 + i * 27, R - L, 24));   // #424 / #455 / #829 eight bars
+      const yb = y0 + keys.length * 27 + 2, bw = (R - L - 24) / 4;
+      btn(L, yb, bw, 30, 'RESET TO AS BUILT', false, reset, false, 13);
+      tlBtn(L + bw + 8, yb, bw, 30, 13);   // #605
+      calBtn(L + 2 * (bw + 8), yb, bw, 30, 13); earsBtn(L + 3 * (bw + 8), yb, bw, 30, 13);   // #829
     }
     return;
   }
@@ -11163,7 +11216,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, holdLooper, crateSelect, crateWalkStep, drawCrateScreen, layoutSleeves, crateDisc,
   // #591 A no longer pulls the GoPro to the hand: the B placement laser picks it up (grip) and pushes / pulls it (stick)
   neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, toast, mixScreenRelease, mixScreenDrag, mixScreenDragging, mixScreenGrabAt,
-  lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
+  lidShut, crateLidOpen, crateMicSelect, calTap: () => relCalTap(), lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
   // gemini_neon 2026-11-19: Quest right thumbstick click toggles play/stop of currently armed Looper slot (never records/clears)
   // #815 left controller Y: the DJ avatar winks its left eye with a slight left smile
