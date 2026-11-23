@@ -452,9 +452,10 @@ const AVATAR_STYLES = {
   face: { label: 'DIRROFACE', url: 'models/avatar/dirroface.glb' },
   real: { label: 'DIRRO REAL', url: 'models/avatar/dirro_real.glb' },
   real2: { label: 'DIRRO REAL 2', url: 'models/avatar/dirro_real2.glb' },   // #810 MetaPerson head wrapped onto the Tripo scan, separate beanie
+  real3: { label: 'DIRRO REAL 3', url: 'models/avatar/dirro_real3.glb' },   // #814 dense MetaPerson head fitted to the cleaned scan, scan colour on MetaPerson UVs, MetaPerson eyes / lips / rig
   crow: { label: 'DIRROCROW', url: 'models/avatar/dirrocrow.glb' }
 };
-const AVATAR_ORDER = ['robot', 'real2', 'tripo', 'beanie', 'meta', 'real', 'face', 'crow'];
+const AVATAR_ORDER = ['robot', 'real3', 'real2', 'tripo', 'beanie', 'meta', 'real', 'face', 'crow'];
 const CLOTHES_SHADES = [
   { label: 'BLACK', hex: 0x161618 },
   { label: 'CHARCOAL', hex: 0x3e4046 },
