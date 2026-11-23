@@ -464,6 +464,7 @@ function applyAvatarClothes(a) {
     a.setClothes(b.hex, s.hex, (djSet.beanieCol || 0) % CLOTHES_SHADES.length);
   }
   if (typeof a.setShades === 'function') a.setShades(djSet.shades !== false);
+  if (typeof a.setLook === 'function') a.setLook(djSet.look === 'lit' ? 'lit' : 'scan');   // #820
 }
 function toggleAvatarShades() {
   djSet.shades = djSet.shades === false;
@@ -478,6 +479,13 @@ function nextBeanieCol() {
   Object.values(avatars).forEach(applyAvatarClothes);
   drawMixScreen();
   toast('Beanie: ' + CLOTHES_SHADES[djSet.beanieCol].label, 1600);
+}
+function nextAvatarLook() {   // #820 REAL 3 LOOK: SCAN (the scan photo's own light, mostly) / LIT (scene lights)
+  djSet.look = djSet.look === 'lit' ? 'scan' : 'lit';
+  saveDjSet();
+  Object.values(avatars).forEach(applyAvatarClothes);
+  drawMixScreen();
+  toast('Look: ' + (djSet.look === 'lit' ? 'LIT' : 'SCAN'), 1600);
 }
 function nextShirtCol() {
   djSet.shirtCol = ((djSet.shirtCol || 0) + 1) % CLOTHES_SHADES.length;
@@ -8796,6 +8804,7 @@ function drawToolsPage() {
       [`EYEWEAR: ${eyewear ? EYEWEAR_STYLES[eyewear.style].label : 'OFF'}`, !!(eyewear && eyewear.style !== 'off'), nextEyewear, !eyewear],
       [`BEANIE: ${djSet.style === 'real3' && !((djSet.beanieCol || 0) % CLOTHES_SHADES.length) ? 'SCAN NAVY' : CLOTHES_SHADES[(djSet.beanieCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.beanieCol || 0) > 0, nextBeanieCol, false],
       [`TSHIRT: ${CLOTHES_SHADES[(djSet.shirtCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.shirtCol || 0) > 0, nextShirtCol, false],
+      [`LOOK: ${djSet.look === 'lit' ? 'LIT' : 'SCAN'}`, djSet.look !== 'lit', nextAvatarLook, djSet.style !== 'real3'],   // #820 REAL 3 only
     ];
     const cols = P ? 2 : 4, gap = 8, bh = P ? 76 : 86, bw = (R - L - gap * (cols - 1)) / cols;
     items.forEach(([l, on, a, dim], i) => btn(L + (i % cols) * (bw + gap), y0 + 6 + Math.floor(i / cols) * (bh + gap), bw, bh, l, on, dim ? null : a, dim, P ? 18 : 18));

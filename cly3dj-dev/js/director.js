@@ -144,9 +144,12 @@ export class Avatar {
         { float bl = clamp((diffuseColor.b - diffuseColor.r) * 14.0 - 0.15, 0.0, 1.0);
           float lm = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
           vec3 tint = uBeanie.rgb * clamp(lm / 0.035, 0.35, 2.2);
-          diffuseColor.rgb = mix(diffuseColor.rgb, tint, bl * uBeanie.a); }`);
+          diffuseColor.rgb = mix(diffuseColor.rgb, tint, bl * uBeanie.a); }
+        vec3 r3Base = diffuseColor.rgb; diffuseColor.rgb *= 1.0 - R3_SCAN_K * uScan;`).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        totalEmissiveRadiance += r3Base * R3_SCAN_K * uScan;`);
+      sh.uniforms.uScan = this._scanU(); sh.fragmentShader = '#define R3_SCAN_K 0.75\nuniform float uScan;\n' + sh.fragmentShader;
     };
-    mt.customProgramCacheKey = () => 'r3beanie';
+    mt.customProgramCacheKey = () => 'r3beanie2';
     mt.needsUpdate = true;
     (this.r3BeanieMats || (this.r3BeanieMats = [])).push(mt);
   }
@@ -161,11 +164,20 @@ export class Avatar {
       sh.fragmentShader = 'uniform vec3 uShirt;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
         #ifdef USE_MAP
         if (vMapUv.x > 0.5 && vMapUv.y > 0.5) diffuseColor.rgb *= uShirt;
-        #endif`);
+        float r3Skin = (vMapUv.x < 0.5 && vMapUv.y < 0.5) ? R3_SCAN_K * uScan : 0.0;
+        #else
+        float r3Skin = 0.0;
+        #endif
+        vec3 r3Base = diffuseColor.rgb; diffuseColor.rgb *= 1.0 - r3Skin;`).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        totalEmissiveRadiance += r3Base * r3Skin;`);
+      sh.uniforms.uScan = this._scanU(); sh.fragmentShader = '#define R3_SCAN_K 0.75\nuniform float uScan;\n' + sh.fragmentShader;
     };
-    mt.customProgramCacheKey = () => 'r3shirt';
+    mt.customProgramCacheKey = () => 'r3shirt2';
     if (this._clothes) u.uShirt.value.setHex(this._clothes[1]);
   }
+  // #820 REAL 3 LOOK: SCAN = 75 % of the skin shows the scan photo as it is (its own captured light), 25 % takes the scene light; LIT = fully lit
+  _scanU() { return this.r3ScanU || (this.r3ScanU = { value: this._look === 'lit' ? 0 : 1 }); }
+  setLook(look) { this._look = look; this._scanU().value = look === 'lit' ? 0 : 1; }
   setClothes(beanieHex, shirtHex, beanieIdx) {
     this._clothes = [beanieHex, shirtHex, beanieIdx];
     // REAL 3: shade 0 keeps the scan's own navy beanie; other shades recolour the knit
