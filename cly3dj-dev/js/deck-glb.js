@@ -419,25 +419,24 @@ export function makeGlbDeck(name) {
       Object.assign(sh.uniforms, uni);
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vStWP; varying vec3 vStWN;')
         .replace('#include <project_vertex>', '#include <project_vertex>\nvStWP = (modelMatrix * vec4(transformed, 1.0)).xyz; vStWN = normalize(mat3(modelMatrix) * objectNormal);');
-      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vStWP; varying vec3 vStWN; uniform float uBlur; uniform vec4 uStrobe; uniform vec3 uLampPos; uniform vec3 uLampCol;')
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vStWP; varying vec3 vStWN; uniform float uBlur; uniform vec4 uStrobe; uniform vec3 uLampPos; uniform vec3 uLampCol;\nfloat stOffAt(float v) { float fv = fract(v); return fv < 0.29 ? uStrobe.x : fv < 0.56 ? uStrobe.y : fv < 0.745 ? uStrobe.z : uStrobe.w; }')
         .replace('#include <map_fragment>', `
           vec3 strobeAlbedo = vec3(0.0);
           #ifdef USE_MAP
-            vec4 sampledDiffuseColor = vec4(0.0);
-            for (int i = 0; i < 12; i++) { float t = (float(i) + 0.5) / 12.0 - 0.5; sampledDiffuseColor += texture2D(map, vMapUv + vec2(t * uBlur, 0.0)); }
-            sampledDiffuseColor /= 12.0;
+            // #830 crisp dots everywhere (owner: Vinyl Reality's smooth dots vs our smeared platter): the whole rim shows
+            // the strobe-held sample, so each row stands still at its calibrated speed and drifts smoothly either side
+            vec4 sampledDiffuseColor = texture2D(map, vMapUv + vec2(stOffAt(vMapUv.y), 0.0));
             diffuseColor *= sampledDiffuseColor;
-            float fv = fract(vMapUv.y);
-            float stOff = fv < 0.29 ? uStrobe.x : fv < 0.56 ? uStrobe.y : fv < 0.745 ? uStrobe.z : uStrobe.w;
-            strobeAlbedo = texture2D(map, vMapUv + vec2(stOff, 0.0)).rgb;
+            strobeAlbedo = sampledDiffuseColor.rgb;
           #endif`)
+        .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps.replace('texture2D( normalMap, vNormalMapUv )', 'texture2D( normalMap, vNormalMapUv + vec2(stOffAt(vNormalMapUv.y), 0.0) )'))   // #830 the stud bumps move with the dots
         .replace('#include <opaque_fragment>', `
           { vec3 L = uLampPos - vStWP; float d = length(L);
             float att = smoothstep(0.075, 0.03, d) / (1.0 + d * d / 0.0006);
             outgoingLight += uLampCol * strobeAlbedo * max(dot(normalize(vStWN), L / d), 0.0) * att; }
           #include <opaque_fragment>`);
     };
-    mat.customProgramCacheKey = () => 'vire-platter-dots';
+    mat.customProgramCacheKey = () => 'vire-platter-dots-830';
     mesh.material = mat;
     // red lens: the dial's dark window facing the platter
     const win = g.getObjectByName('polySurface15_phongE7_0');
