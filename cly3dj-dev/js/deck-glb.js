@@ -429,6 +429,7 @@ export function makeGlbDeck(name) {
             diffuseColor *= sampledDiffuseColor;
             strobeAlbedo = sampledDiffuseColor.rgb;
           #endif`)
+        .replace('#include <emissivemap_fragment>', THREE.ShaderChunk.emissivemap_fragment.replace('texture2D( emissiveMap, vEmissiveMapUv )', 'texture2D( emissiveMap, vEmissiveMapUv + vec2(stOffAt(vEmissiveMapUv.y), 0.0) )'))   // #830b the model's own painted dots (emissive map) move with them too: they were the ghost layer
         .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps.replace('texture2D( normalMap, vNormalMapUv )', 'texture2D( normalMap, vNormalMapUv + vec2(stOffAt(vNormalMapUv.y), 0.0) )'))   // #830 the stud bumps move with the dots
         .replace('#include <opaque_fragment>', `
           { vec3 L = uLampPos - vStWP; float d = length(L);
@@ -436,7 +437,7 @@ export function makeGlbDeck(name) {
             outgoingLight += uLampCol * strobeAlbedo * max(dot(normalize(vStWN), L / d), 0.0) * att; }
           #include <opaque_fragment>`);
     };
-    mat.customProgramCacheKey = () => 'vire-platter-dots-830';
+    mat.customProgramCacheKey = () => 'vire-platter-dots-830b';
     mesh.material = mat;
     // red lens: the dial's dark window facing the platter
     const win = g.getObjectByName('polySurface15_phongE7_0');
