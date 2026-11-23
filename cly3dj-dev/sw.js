@@ -10,7 +10,7 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v288';   // #824 REAL 3 LIT = 75 % unlit + 25 % lit; SCAN a touch more contrast and saturation
+const CACHE = 'vire-app-v289';   // #825 wink: left mouth corner opens and closes with the eye, 0.675
 // was: const CACHE = 'vire-app-v278';   // #814d DIRRO REAL 3 smoother beanie edge
 // was: const CACHE = 'vire-app-v277';   // #814c DIRRO REAL 3 4096 skin, detail normals, matte
 // was: const CACHE = 'vire-app-v276';   // #814b DIRRO REAL 3 seam fix

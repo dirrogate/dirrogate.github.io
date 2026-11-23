@@ -3253,3 +3253,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## #824 REAL 3 LIT = 75 % unlit + 25 % lit; SCAN graded (owner, 24 Nov)
 - director.js: uScan is now the unlit share: SCAN 1.0, LIT 0.75 (mix of the unlit scan with the scene / pano-lit result, in the HDR target before the camera's ACES). The unlit scan gets R3_GRADE first (display space): contrast 1.12 around mid grey, saturation 1.18 (constants R3_CON / R3_SAT); applies to both looks' unlit part. Cache keys r3beanie4 / r3shirt4 / r3unlit2.
 - Pane check (localhost:8000): SCAN a touch punchier than #823; LIT now close to SCAN with a little of the studio light. NOT tried on the Quest. sw.js v288. No Node restart. Backup backups/pre824/.
+
+## #825 REAL 3 wink: the left mouth corner opens and closes with the eye (owner, 24 Nov: like his Blender test, mouthSmile at 0.675, the model's left eye and left corner)
+- director.js: mouthSmileLeft now follows the wink's eye curve (wv: up in 0.09 s, held to 0.32 s, down by 0.52 s) at 0.675 (plus the visemes' wide share); was a separate 0.32 lift that lingered to 1.15 s. Checked on AvatarHead's morph deltas: eyeBlinkLeft and mouthSmileLeft both sit on +X (the model's left, it faces +Z).
+- NOT tried on the Quest. sw.js v289. No Node restart. Backup backups/pre825/.

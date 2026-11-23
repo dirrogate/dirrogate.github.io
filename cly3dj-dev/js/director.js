@@ -417,7 +417,8 @@ export class Avatar {
       }
       setM('eyeBlinkLeft', Math.max(blinkV, wv * 0.92));
       setM('eyeBlinkRight', blinkV);
-      if (sv > 0 || this._smW) { setM('mouthSmileLeft', (vis ? this.visV.wide * 0.28 : 0) + sv * 0.32); this._smW = sv > 0; }
+      // #825 (owner) the left mouth corner opens and closes with the wink itself, to 0.675 (was a 0.32 lift that lingered)
+      if (wv > 0 || this._smW) { setM('mouthSmileLeft', (vis ? this.visV.wide * 0.28 : 0) + wv * 0.675); this._smW = wv > 0; }
     }
   }
   fingers(side, i, h) {
