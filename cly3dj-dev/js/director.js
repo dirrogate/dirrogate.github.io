@@ -63,6 +63,7 @@ export class Avatar {
     this.rig = rig; this.root = new THREE.Group(); this.root.name = 'avatar'; rig.add(this.root);
     this.ready = false; this.standEye = null; this.yaw = null; this.hipsXZ = null; this.mouthV = 0;
     this.visV = { open: 0, round: 0, wide: 0, fric: 0, brow: 0 };
+    this.winkT = -1;   // #815 left-eye wink + left mouth corner lift (left controller Y)
     this.blinkT = 2.5 + Math.random() * 2.5; this.blinkPhase = -1; this.blinkDbl = false;
     this.eyeYaw = 0; this.eyePitch = 0; this.eyeLocked = false;   // #813 GOPRO 2 eye-contact gaze state
     this.arm = [null, null]; this.foot = [null, null]; this.status = 'loading';
@@ -95,7 +96,7 @@ export class Avatar {
           const mn = (mt.name || '').toLowerCase();
           if (mn.startsWith('tripo_') && 'envMapIntensity' in mt) mt.envMapIntensity = 0.45;
           // #814 DIRRO REAL 3: the scan's shading is painted into the texture, keep the skin matte so app lighting doesn't wash it out
-          if (mn.startsWith('r3_skin')) { if ('roughness' in mt) mt.roughness = Math.max(mt.roughness, 0.85); if ('metalness' in mt) mt.metalness = 0; if ('envMapIntensity' in mt) mt.envMapIntensity = 0.45; }
+          if (mn.startsWith('r3_skin')) { this._r3Beanie(mt); if ('roughness' in mt) mt.roughness = Math.max(mt.roughness, 0.85); if ('metalness' in mt) mt.metalness = 0; if ('envMapIntensity' in mt) mt.envMapIntensity = 0.45; }
           if (mn === 'shades_mat' && !this.shadesMeshes.includes(o)) this.shadesMeshes.push(o);
           if (mn === 'beanie_mat' || mn === 'hat') { if (!this.clothesMats.beanie.includes(mt)) this.clothesMats.beanie.push(mt); }
           if (mn === 'outfit_top' || mn === 'wolf3d_outfit_top') { if (!this.clothesMats.shirt.includes(mt)) this.clothesMats.shirt.push(mt); }
@@ -128,8 +129,28 @@ export class Avatar {
     if (this._shades != null) this.setShades(this._shades);
     return this;
   }
-  setClothes(beanieHex, shirtHex) {
-    this._clothes = [beanieHex, shirtHex];
+  // #815 DIRRO REAL 3: the beanie is part of the scan skin texture -> recolour only its navy knit texels in the shader
+  _r3Beanie(mt) {
+    if (mt.userData.r3b) return;
+    const u = mt.userData.r3b = { uBeanie: { value: new THREE.Vector4(0, 0, 0, 0) } };
+    mt.onBeforeCompile = (sh) => {
+      sh.uniforms.uBeanie = u.uBeanie;
+      sh.fragmentShader = 'uniform vec4 uBeanie;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+        { float bl = clamp((diffuseColor.b - diffuseColor.r) * 14.0 - 0.15, 0.0, 1.0);
+          float lm = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+          vec3 tint = uBeanie.rgb * clamp(lm / 0.035, 0.35, 2.2);
+          diffuseColor.rgb = mix(diffuseColor.rgb, tint, bl * uBeanie.a); }`);
+    };
+    mt.customProgramCacheKey = () => 'r3beanie';
+    mt.needsUpdate = true;
+    (this.r3BeanieMats || (this.r3BeanieMats = [])).push(mt);
+  }
+  wink() { this.winkT = 0; }
+  setClothes(beanieHex, shirtHex, beanieIdx) {
+    this._clothes = [beanieHex, shirtHex, beanieIdx];
+    // REAL 3: shade 0 keeps the scan's own navy beanie; other shades recolour the knit
+    if (this.r3BeanieMats) for (const m of this.r3BeanieMats) { const v = m.userData.r3b.uBeanie.value; const c = new THREE.Color(beanieHex);
+      v.set(c.r, c.g, c.b, beanieIdx ? 1 : 0); }
     if (!this.clothesMats) return;
     if (beanieHex != null) this.clothesMats.beanie.forEach(m => { m.color.setHex(beanieHex); m.needsUpdate = true; });
     if (shirtHex != null) this.clothesMats.shirt.forEach(m => { m.color.setHex(shirtHex); m.needsUpdate = true; });
@@ -323,8 +344,17 @@ export class Avatar {
         this.blinkT -= dt;
         if (this.blinkT <= 0) this.blinkPhase = 0;
       }
-      setM('eyeBlinkLeft', blinkV);
+      // #815 wink (left controller Y): left eye closes softly, left mouth corner lifts and lingers
+      let wv = 0, sv = 0;
+      if (this.winkT >= 0) {
+        const t = (this.winkT += dt);
+        wv = t < 0.09 ? t / 0.09 : t < 0.32 ? 1 : t < 0.52 ? 1 - (t - 0.32) / 0.2 : 0;
+        sv = t < 0.15 ? t / 0.15 : t < 0.75 ? 1 : t < 1.15 ? 1 - (t - 0.75) / 0.4 : 0;
+        if (t >= 1.15) this.winkT = -1;
+      }
+      setM('eyeBlinkLeft', Math.max(blinkV, wv * 0.92));
       setM('eyeBlinkRight', blinkV);
+      if (sv > 0 || this._smW) { setM('mouthSmileLeft', (vis ? this.visV.wide * 0.28 : 0) + sv * 0.32); this._smW = sv > 0; }
     }
   }
   fingers(side, i, h) {

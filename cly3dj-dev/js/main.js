@@ -467,7 +467,7 @@ function applyAvatarClothes(a) {
   if (typeof a.setClothes === 'function') {
     const b = CLOTHES_SHADES[(djSet.beanieCol || 0) % CLOTHES_SHADES.length];
     const s = CLOTHES_SHADES[(djSet.shirtCol || 0) % CLOTHES_SHADES.length];
-    a.setClothes(b.hex, s.hex);
+    a.setClothes(b.hex, s.hex, (djSet.beanieCol || 0) % CLOTHES_SHADES.length);
   }
   if (typeof a.setShades === 'function') a.setShades(djSet.shades !== false);
 }
@@ -8800,7 +8800,7 @@ function drawToolsPage() {
       [settings.occlusion !== false ? 'REAL OCCLUSION: ON' : 'REAL OCCLUSION: OFF', settings.occlusion !== false, () => { settings.occlusion = settings.occlusion === false; saveSettings(); const c = document.getElementById('cOccl'); if (c) c.checked = settings.occlusion; drawMixScreen(); }, false],
       [`AVATAR: ${(AVATAR_STYLES[djSet.style] || AVATAR_STYLES.robot).label}`, djSet.style !== 'robot', nextDjStyle, false],
       [`EYEWEAR: ${eyewear ? EYEWEAR_STYLES[eyewear.style].label : 'OFF'}`, !!(eyewear && eyewear.style !== 'off'), nextEyewear, !eyewear],
-      [`BEANIE: ${CLOTHES_SHADES[(djSet.beanieCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.beanieCol || 0) > 0, nextBeanieCol, false],
+      [`BEANIE: ${djSet.style === 'real3' && !((djSet.beanieCol || 0) % CLOTHES_SHADES.length) ? 'SCAN NAVY' : CLOTHES_SHADES[(djSet.beanieCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.beanieCol || 0) > 0, nextBeanieCol, false],
       [`TSHIRT: ${CLOTHES_SHADES[(djSet.shirtCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.shirtCol || 0) > 0, nextShirtCol, false],
     ];
     const cols = P ? 2 : 4, gap = 8, bh = P ? 76 : 86, bw = (R - L - gap * (cols - 1)) / cols;
@@ -11108,6 +11108,8 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   lidShut, crateLidOpen, crateMicSelect, lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
   // gemini_neon 2026-11-19: Quest right thumbstick click toggles play/stop of currently armed Looper slot (never records/clears)
+  // #815 left controller Y: the DJ avatar winks its left eye with a slight left smile
+  onLeftY: () => { if (avatar && typeof avatar.wink === 'function') { avatar.wink(); return true; } return false; },
   onRightStick: () => {
     if (!engine.ctx || !engine.looper || !looper.data) return false;
     if (looper.state === 'stop') { engine.looperPlay(); looper.state = 'play'; }
