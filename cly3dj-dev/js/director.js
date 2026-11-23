@@ -94,6 +94,8 @@ export class Avatar {
           if (!mt || !mt.color) continue;
           const mn = (mt.name || '').toLowerCase();
           if (mn.startsWith('tripo_') && 'envMapIntensity' in mt) mt.envMapIntensity = 0.45;
+          // #814 DIRRO REAL 3: the scan's shading is painted into the texture, keep the skin matte so app lighting doesn't wash it out
+          if (mn.startsWith('r3_skin')) { if ('roughness' in mt) mt.roughness = Math.max(mt.roughness, 0.85); if ('metalness' in mt) mt.metalness = 0; if ('envMapIntensity' in mt) mt.envMapIntensity = 0.45; }
           if (mn === 'shades_mat' && !this.shadesMeshes.includes(o)) this.shadesMeshes.push(o);
           if (mn === 'beanie_mat' || mn === 'hat') { if (!this.clothesMats.beanie.includes(mt)) this.clothesMats.beanie.push(mt); }
           if (mn === 'outfit_top' || mn === 'wolf3d_outfit_top') { if (!this.clothesMats.shirt.includes(mt)) this.clothesMats.shirt.push(mt); }
