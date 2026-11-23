@@ -7,6 +7,16 @@ import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from '../vendor/three/libs/meshopt_decoder.module.js';
 import { skinHandEntry } from './ctlhands.js';   // #469
 import { ktx2Loader } from './models.js';   // #816 KTX2 avatars
+// #823 REAL 3 SCAN: unlit output; R3_ACES_INV = the value three's ACES (x 1/0.6) maps back onto c (same maths as skybox.js)
+const R3_ACES_INV = `vec3 r3AcesInv(vec3 y) {
+  const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
+  const mat3 O = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
+  vec3 z = clamp(inverse(O) * clamp(y, 0.0, 1.0), 0.0, 0.995);
+  vec3 a = 1.0 - 0.983729 * z, b = 0.0245786 - 0.4329510 * z, c = -0.000090537 - 0.238081 * z;
+  return max(inverse(I) * ((-b + sqrt(max(b * b - 4.0 * a * c, 0.0))) / (2.0 * a)) * 0.6, 0.0);
+}
+`;
+const R3_UNLIT_OUT = 'if (uScan > 0.5 && r3Skin > 0.5) outgoingLight = uAcesOut > 0.5 ? r3AcesInv(r3Base) : r3Base;';
 
 export const AV_LAYER = 6;   // 1/2 = three's XR eyes, 5 = deck-inst HIDE_LAYER
 const UP = new THREE.Vector3(0, 1, 0);
@@ -108,6 +118,10 @@ export class Avatar {
         }
       }
     });
+    if (this.r3BeanieMats || this.r3ShirtMats) m.traverse(o => {   // #823 REAL 3 SCAN: eyes, teeth, lashes unlit too (corneas stay: see-through)
+      if (!o.isMesh) return; for (const mt of (Array.isArray(o.material) ? o.material : [o.material])) if (mt && mt.isMeshStandardMaterial && !mt.transparent && !mt.userData.r3b && !mt.userData.r3s) this._r3Unlit(mt);
+    });
+    if (this.r3BeanieMats || this.r3ShirtMats) { const U = this._acesU(); m.traverse(o => { if (o.isMesh) o.onBeforeRender = r => { const t = r.getRenderTarget(); U.value = t && t.texture && t.texture.type === THREE.UnsignedByteType && !t.vireAces ? 0 : 1; }; }); }
     for (const n of ['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head', 'LeftEye', 'RightEye', 'LeftArm', 'RightArm']) if (!B[n]) throw new Error('avatar rig: no ' + n + ' bone (Ready Player Me rig expected)');
     this.B = B;
     this.root.position.set(0, 0, 0); this.root.quaternion.identity(); this.root.scale.setScalar(1); this.root.updateMatrixWorld(true);
@@ -145,11 +159,10 @@ export class Avatar {
           float lm = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
           vec3 tint = uBeanie.rgb * clamp(lm / 0.035, 0.35, 2.2);
           diffuseColor.rgb = mix(diffuseColor.rgb, tint, bl * uBeanie.a); }
-        vec3 r3Base = diffuseColor.rgb; diffuseColor.rgb *= 1.0 - R3_SCAN_K * uScan;`).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        totalEmissiveRadiance += r3Base * R3_SCAN_K * uScan;`);
-      sh.uniforms.uScan = this._scanU(); sh.fragmentShader = '#define R3_SCAN_K 0.75\nuniform float uScan;\n' + sh.fragmentShader;
+        vec3 r3Base = diffuseColor.rgb; float r3Skin = 1.0;`).replace('#include <opaque_fragment>', R3_UNLIT_OUT + '\n#include <opaque_fragment>');
+      this._r3Uniforms(sh);
     };
-    mt.customProgramCacheKey = () => 'r3beanie2';
+    mt.customProgramCacheKey = () => 'r3beanie3';
     mt.needsUpdate = true;
     (this.r3BeanieMats || (this.r3BeanieMats = [])).push(mt);
   }
@@ -164,18 +177,29 @@ export class Avatar {
       sh.fragmentShader = 'uniform vec3 uShirt;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
         #ifdef USE_MAP
         if (vMapUv.x > 0.5 && vMapUv.y > 0.5) diffuseColor.rgb *= uShirt;
-        float r3Skin = (vMapUv.x < 0.5 && vMapUv.y < 0.5) ? R3_SCAN_K * uScan : 0.0;
-        #else
-        float r3Skin = 0.0;
         #endif
-        vec3 r3Base = diffuseColor.rgb; diffuseColor.rgb *= 1.0 - r3Skin;`).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        totalEmissiveRadiance += r3Base * r3Skin;`);
-      sh.uniforms.uScan = this._scanU(); sh.fragmentShader = '#define R3_SCAN_K 0.75\nuniform float uScan;\n' + sh.fragmentShader;
+        vec3 r3Base = diffuseColor.rgb; float r3Skin = 1.0;`).replace('#include <opaque_fragment>', R3_UNLIT_OUT + '\n#include <opaque_fragment>');
+      this._r3Uniforms(sh);
     };
-    mt.customProgramCacheKey = () => 'r3shirt2';
+    mt.customProgramCacheKey = () => 'r3shirt3';
     if (this._clothes) u.uShirt.value.setHex(this._clothes[1]);
   }
-  // #820 REAL 3 LOOK: SCAN = 75 % of the skin shows the scan photo as it is (its own captured light), 25 % takes the scene light; LIT = fully lit
+  // #820 REAL 3 LOOK; #823 (owner: SCAN must look like the unlit scan render, not brighter) SCAN = no lighting at all: each texel's
+  // own colour, written so the camera's ACES display gives that colour back exactly (inverse ACES, as the dome does, #594);
+  // LIT = fully lit by the scene / pano. uAcesOut: 1 when the target is tone-mapped later (DJ CAM's HDR target, the stream's
+  // layers, the screen), 0 for a plain 8-bit target.
+  _acesU() { return this.r3AcesU || (this.r3AcesU = { value: 1 }); }
+  _r3Uniforms(sh) { sh.uniforms.uScan = this._scanU(); sh.uniforms.uAcesOut = this._acesU(); sh.fragmentShader = 'uniform float uScan;\nuniform float uAcesOut;\n' + R3_ACES_INV + sh.fragmentShader; }
+  _r3Unlit(mt) {
+    if (mt.userData.r3u) return; mt.userData.r3u = true;
+    const prev = mt.onBeforeCompile;
+    mt.onBeforeCompile = (sh, r) => {
+      if (prev) prev(sh, r);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\n vec3 r3Base = diffuseColor.rgb; float r3Skin = 1.0;').replace('#include <opaque_fragment>', R3_UNLIT_OUT + '\n#include <opaque_fragment>');
+      this._r3Uniforms(sh);
+    };
+    mt.customProgramCacheKey = () => 'r3unlit1'; mt.needsUpdate = true;
+  }
   _scanU() { return this.r3ScanU || (this.r3ScanU = { value: this._look === 'lit' ? 0 : 1 }); }
   setLook(look) { this._look = look; this._scanU().value = look === 'lit' ? 0 : 1; }
   setClothes(beanieHex, shirtHex, beanieIdx) {
