@@ -38,18 +38,20 @@ uniform float uCon;         // #629 DOME CONTRAST, retired by #638 (stays 1)
 uniform float uGam;         // #638 DOME GAMMA (1 = as shot; < 1 darker mid-tones, > 1 lighter; black and white stay put)
 uniform float uAces;        // #594 1 = drawing into the stream's linear layer, which gets ACES (x 1/0.6) afterwards
 uniform float uEac;         // #797 1 = YouTube 3x2 Equi-Angular Cubemap (EAC) projection, 0 = Equirectangular
-vec2 eacUV(vec3 d) {        // #797 YouTube 3x2 EAC: top row Left/Front/Right, bottom row Bottom/Back/Top (rotated 90 deg)
+vec2 eacUV(vec3 d) {        // #797 YouTube 3x2 EAC; #826 faces re-fitted (Gemini's put the wrong tiles / turns on most faces: a patch above and below).
+  // Fitted against ffmpeg's v360 e->eac (the YouTube layout) in this dome's own direction frame, where the equirect's centre is +X:
+  // top row Left (-Z) / Front (+X) / Right (+Z); bottom row Bottom (-Y) / Back (-X) / Top (+Y), turned as YouTube stores them.
   vec3 a = abs(d);
   float tx, ty, fu, fv;
-  if (a.z >= a.x && a.z >= a.y) {
-    if (d.z < 0.0) { tx = 1.0; ty = 1.0; fu = d.x / a.z; fv = d.y / a.z; }           // Front (-Z)
-    else           { tx = 1.0; ty = 0.0; fu = d.y / a.z; fv = -d.x / a.z; }          // Back (+Z, rot 90)
-  } else if (a.x >= a.y) {
-    if (d.x < 0.0) { tx = 0.0; ty = 1.0; fu = -d.z / a.x; fv = d.y / a.x; }          // Left (-X)
-    else           { tx = 2.0; ty = 1.0; fu = d.z / a.x; fv = d.y / a.x; }           // Right (+X)
+  if (a.x >= a.y && a.x >= a.z) {
+    if (d.x > 0.0) { tx = 1.0; ty = 1.0; fu = d.z / a.x; fv = d.y / a.x; }            // Front (+X)
+    else           { tx = 1.0; ty = 0.0; fu = d.y / a.x; fv = d.z / a.x; }            // Back (-X)
+  } else if (a.z >= a.y) {
+    if (d.z < 0.0) { tx = 0.0; ty = 1.0; fu = d.x / a.z; fv = d.y / a.z; }            // Left (-Z)
+    else           { tx = 2.0; ty = 1.0; fu = -d.x / a.z; fv = d.y / a.z; }           // Right (+Z)
   } else {
-    if (d.y < 0.0) { tx = 0.0; ty = 0.0; fu = d.z / a.y; fv = -d.x / a.y; }          // Bottom/Nadir (-Y, rot 90)
-    else           { tx = 2.0; ty = 0.0; fu = -d.z / a.y; fv = -d.x / a.y; }         // Top/Zenith (+Y, rot 90)
+    if (d.y < 0.0) { tx = 0.0; ty = 0.0; fu = -d.x / a.y; fv = d.z / a.y; }           // Bottom (-Y)
+    else           { tx = 2.0; ty = 0.0; fu = d.x / a.y; fv = d.z / a.y; }            // Top (+Y)
   }
   vec2 tUv = clamp(vec2(atan(fu), atan(fv)) * 0.63661977237 + 0.5, 0.002, 0.998);    // 2/pi * atan + 0.5, inset 0.2% against tile seam bleed
   return vec2((tx + tUv.x) / 3.0, (ty + tUv.y) / 2.0);

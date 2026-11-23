@@ -1488,13 +1488,37 @@ setInterval(applyArLook, 1000);   // keeps it applied if the env light is rebuil
 // frame, so audio is untouched. Off / dome off: back to Settings > Lighting. In passthrough it replaces SOFT ROOM LIGHT.
 let domeLitKey = '', domeCanvas = null;
 function domeLightOn() { return !CAMERA_ROLE && settings.domeLight !== false && dome.on && !!skybox.tex; }   // hoisted: applySkyTurn may run first
+// #826 an EAC pano's light: unfold the 3x2 cubemap into a small equirect (same face fit as skybox.js eacUV) before it lights the scene
+function eacToEqui(src, W = 512) {
+  const H = W / 2, sw = src.width || src.videoWidth, sh = src.height || src.videoHeight;
+  const a = document.createElement('canvas'); a.width = Math.min(1024, sw); a.height = Math.round(a.width * sh / sw);
+  const ga = a.getContext('2d', { willReadFrequently: true }); ga.drawImage(src, 0, 0, a.width, a.height);
+  const S = ga.getImageData(0, 0, a.width, a.height).data, AW = a.width, AH = a.height;
+  const o = document.createElement('canvas'); o.width = W; o.height = H; const go = o.getContext('2d'), D = go.createImageData(W, H);
+  const K = 2 / Math.PI;
+  for (let y = 0; y < H; y++) {
+    const v = 1 - (y + 0.5) / H, ph = (v - 0.5) * Math.PI, dy = Math.sin(ph), cp = Math.cos(ph);
+    for (let x = 0; x < W; x++) {
+      const th = 2 * Math.PI * (1 - (x + 0.5) / W), dz = cp * Math.sin(th), dx = -cp * Math.cos(th);
+      const ax = Math.abs(dx), ay = Math.abs(dy), az = Math.abs(dz); let tx, ty, fu, fv;
+      if (ax >= ay && ax >= az) { if (dx > 0) { tx = 1; ty = 1; fu = dz / ax; fv = dy / ax; } else { tx = 1; ty = 0; fu = dy / ax; fv = dz / ax; } }
+      else if (az >= ay) { if (dz < 0) { tx = 0; ty = 1; fu = dx / az; fv = dy / az; } else { tx = 2; ty = 1; fu = -dx / az; fv = dy / az; } }
+      else { if (dy < 0) { tx = 0; ty = 0; fu = -dx / ay; fv = dz / ay; } else { tx = 2; ty = 0; fu = dx / ay; fv = dz / ay; } }
+      const U = (tx + Math.atan(fu) * K + 0.5) / 3, V = (ty + Math.atan(fv) * K + 0.5) / 2;
+      const sx = Math.min(AW - 1, Math.max(0, (U * AW) | 0)), sy = Math.min(AH - 1, Math.max(0, ((1 - V) * AH) | 0)), i = (sy * AW + sx) * 4, j = (y * W + x) * 4;
+      D.data[j] = S[i]; D.data[j + 1] = S[i + 1]; D.data[j + 2] = S[i + 2]; D.data[j + 3] = 255;
+    }
+  }
+  go.putImageData(D, 0, 0); return o;
+}
 function domeLightTick() {
-  const on = domeLightOn(), k = on ? (skybox.tex.uuid + '|' + skybox.layout + '|' + skybox.swap) : '';
+  const on = domeLightOn(), k = on ? (skybox.tex.uuid + '|' + skybox.layout + '|' + skybox.swap + '|' + (dome.eac ? 'eac' : '')) : '';   // #826 + EAC
   if (k === domeLitKey && (!on || envLight._lastSrc === domeCanvas)) return;   // also re-applies if Settings > Lighting replaced it (start-up race)
   const was = domeLitKey; domeLitKey = k;
   if (on) {
     try {
-      const c = skybox.lightStill || leftEyeCanvas(skybox.tex.image, skybox.layout, skybox.swap, 1024);   // still: kept at load; video: this frame
+      let c = skybox.lightStill || leftEyeCanvas(skybox.tex.image, skybox.layout, skybox.swap, 1024);   // still: kept at load; video: this frame
+      if (dome.eac) c = eacToEqui(c);   // #826
       envLight.mix = 0.9; domeCanvas = c; envLight.setImage(c); skyKeyLight = brightestDir(c); skyAvg = panoAvg(c);
     } catch (e) { console.warn('dome light', e); }
   } else if (was) applyEnv();
@@ -10859,7 +10883,7 @@ function frameBody() {
   if (skySpin.speed > 0 && skybox.group.visible) { skySpin.ang = (skySpin.ang + skySpin.speed * DEG * dt) % (2 * Math.PI); applySkyTurn(); }   // #379 PANO SPIN
   if (mprops) mprops.tick(dt);   // #478
   if (fx) fx.preRender(dt);   // #379 FLOAT goes on here (every camera below sees it) and comes off after the frame; WATER uniforms
-  if ((ledMode === 'cam' || (streamer && streamer.wantsCam) || (gopro && gopro.aiming) || (gopro2 && gopro2.aiming)) && djcam) stepDjCam(dt);   // #220 (#331 also while the stream shows AVACAM)
+  if ((ledMode === 'cam' || (streamer && streamer.wantsCam) || (gopro && gopro.aiming) || (gopro2 && gopro2.on) || (goproRec && goproRec.on)) && djcam) stepDjCam(dt);   // #826 GOPRO 2 out = its selfie screen keeps filming (it froze 3 s after release: only 'aiming' ran the camera)   // #220 (#331 also while the stream shows AVACAM)
   stepArmSleeves();   // #347
   if (streamer) streamer.tick();   // #331
   const domeSolid = skybox.group.visible && !(portals && (portals.holeN > 0 || portals.revN > 0)) && !(realDepth && realDepth.on && realDepth.ok);
