@@ -444,11 +444,12 @@ if (djcam) djcam.preset = djSet.preset;
 // #221 avatar styles: ROBOT (Blender model models/avatar/robot.glb, robot.js, default) or HUMAN (the Ready Player Me GLB, loaded when first picked)
 // #539 (owner) pick the avatar on DJ TOOLS: ROBOT, DIRROFACE, DIRROCROW or DIRRO_REAL. The Dirro GLBs share the Ready Player Me
 // rig (67 bones, mouthOpen morph), so they all run on director.js Avatar. Old saved 'human' = DIRROFACE.
-const AVATAR_STYLES = {   // #817 (owner) only ROBOT and DIRRO REAL 3 are kept
+const AVATAR_STYLES = {   // #817 (owner) only ROBOT, DIRRO REAL 3 and CLY3DJ BEANIE are kept
   robot: { label: 'ROBOT' },
+  beanie: { label: 'CLY3DJ BEANIE', url: 'models/avatar/cly3dj_beanie.glb' },
   real3: { label: 'DIRRO REAL 3', url: 'models/avatar/dirro_real3.glb', fallback: 'models/avatar/dirro_real3_webp.glb', glasses: { fwd: 0.016, up: 0.002, scale: 1.12 } },   // #814 dense MetaPerson head fitted to the cleaned scan, scan colour on MetaPerson UVs
 };
-const AVATAR_ORDER = ['robot', 'real3'];
+const AVATAR_ORDER = ['robot', 'real3', 'beanie'];
 const CLOTHES_SHADES = [
   { label: 'BLACK', hex: 0x161618 },
   { label: 'CHARCOAL', hex: 0x3e4046 },
@@ -485,7 +486,7 @@ function nextShirtCol() {
   drawMixScreen();
   toast('T-Shirt: ' + CLOTHES_SHADES[djSet.shirtCol].label, 1600);
 }
-if (['human', 'face', 'crow', 'real', 'real2', 'tripo', 'beanie', 'meta'].includes(djSet.style)) djSet.style = 'real3';   // #817 removed avatars -> REAL 3
+if (['human', 'face', 'crow', 'real', 'real2', 'tripo', 'meta'].includes(djSet.style)) djSet.style = 'real3';   // #817 removed avatars -> REAL 3
 if (!AVATAR_STYLES[djSet.style]) djSet.style = 'robot';
 const avatars = {};
 let avatar = null;

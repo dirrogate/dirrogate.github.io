@@ -104,6 +104,7 @@ export class Avatar {
           if (mn === 'shades_mat' && !this.shadesMeshes.includes(o)) this.shadesMeshes.push(o);
           if (mn === 'beanie_mat' || mn === 'hat') { if (!this.clothesMats.beanie.includes(mt)) this.clothesMats.beanie.push(mt); }
           if (mn === 'outfit_top' || mn === 'wolf3d_outfit_top') { if (!this.clothesMats.shirt.includes(mt)) this.clothesMats.shirt.push(mt); }
+          if (mn === 'r3_body_atlas') this._r3Shirt(mt);   // #818 REAL 3 body + clothes in one atlas: the T-shirt is its top-right tile
         }
       }
     });
@@ -150,11 +151,27 @@ export class Avatar {
     (this.r3BeanieMats || (this.r3BeanieMats = [])).push(mt);
   }
   wink() { this.winkT = 0; }
+  // #818 REAL 3 atlas: tint only the T-shirt tile (glTF uv x > 0.5, y > 0.5)
+  _r3Shirt(mt) {
+    if (mt.userData.r3s) return;
+    const u = mt.userData.r3s = { uShirt: { value: new THREE.Color(1, 1, 1) } };
+    (this.r3ShirtMats = this.r3ShirtMats || []).push(mt);
+    mt.onBeforeCompile = (sh) => {
+      sh.uniforms.uShirt = u.uShirt;
+      sh.fragmentShader = 'uniform vec3 uShirt;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+        #ifdef USE_MAP
+        if (vMapUv.x > 0.5 && vMapUv.y > 0.5) diffuseColor.rgb *= uShirt;
+        #endif`);
+    };
+    mt.customProgramCacheKey = () => 'r3shirt';
+    if (this._clothes) u.uShirt.value.setHex(this._clothes[1]);
+  }
   setClothes(beanieHex, shirtHex, beanieIdx) {
     this._clothes = [beanieHex, shirtHex, beanieIdx];
     // REAL 3: shade 0 keeps the scan's own navy beanie; other shades recolour the knit
     if (this.r3BeanieMats) for (const m of this.r3BeanieMats) { const v = m.userData.r3b.uBeanie.value; const c = new THREE.Color(beanieHex);
       v.set(c.r, c.g, c.b, beanieIdx ? 1 : 0); }
+    if (this.r3ShirtMats && shirtHex != null) for (const m of this.r3ShirtMats) m.userData.r3s.uShirt.value.setHex(shirtHex);
     if (!this.clothesMats) return;
     if (beanieHex != null) this.clothesMats.beanie.forEach(m => { m.color.setHex(beanieHex); m.needsUpdate = true; });
     if (shirtHex != null) this.clothesMats.shirt.forEach(m => { m.color.setHex(shirtHex); m.needsUpdate = true; });
