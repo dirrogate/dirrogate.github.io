@@ -13,6 +13,7 @@ export function initKTX2(renderer) {
   try { KTX2 = new KTX2Loader().setTranscoderPath(new URL('../vendor/three/libs/basis/', import.meta.url).href).detectSupport(renderer); }
   catch (e) { console.warn('KTX2 unavailable', e); KTX2 = null; }
 }
+export function ktx2Loader() { return KTX2; }   // #816 for the avatars
 export async function loadBaked(url) {
   const ktx = url.replace(/\.glb$/, '_ktx.glb');
   if (KTX2) {

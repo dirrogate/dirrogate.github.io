@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from '../vendor/three/libs/meshopt_decoder.module.js';
 import { skinHandEntry } from './ctlhands.js';   // #469
+import { ktx2Loader } from './models.js';   // #816 KTX2 avatars
 
 export const AV_LAYER = 6;   // 1/2 = three's XR eyes, 5 = deck-inst HIDE_LAYER
 const UP = new THREE.Vector3(0, 1, 0);
@@ -71,7 +72,10 @@ export class Avatar {
   async load(url) {
     const loader = new GLTFLoader();
     if (MeshoptDecoder) loader.setMeshoptDecoder(MeshoptDecoder);
-    const gltf = await loader.loadAsync(url);
+    const k2 = ktx2Loader(); if (k2) loader.setKTX2Loader(k2);
+    let gltf;
+    try { gltf = await loader.loadAsync(url); }
+    catch (e) { if (!this.fallbackUrl) throw e; console.warn('avatar KTX2 load failed, using WebP copy', e); gltf = await loader.loadAsync(this.fallbackUrl); }   // #816
     const m = gltf.scene; this.root.add(m);
     const B = {}; this.mouth = []; this.morphs = {};
     this.clothesMats = { beanie: [], shirt: [] };

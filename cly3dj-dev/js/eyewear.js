@@ -262,6 +262,8 @@ export class Eyewear {
       avatar.B.Head.getWorldQuaternion(_q);
       if (avatar.rq && avatar.rq.Head) _q.multiply(_q2.copy(avatar.rq.Head).invert());
       sc = avatar.root ? avatar.root.scale.x : 1;
+      const gf = avatar.glassesFit;   // #816 per-avatar fit (REAL 3: 16 mm forward, 2 mm up, 112 %)
+      if (gf) { _v3.set(0, gf.up || 0, gf.fwd || 0).multiplyScalar(sc).applyQuaternion(_q); this._facePos.add(_v3); sc *= (gf.scale || 1); }
       hasFace = true;
     } else if (pose && pose.head && pose.head.p && pose.head.q) {
       this._facePos.copy(pose.head.p);
