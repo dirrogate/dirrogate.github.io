@@ -16,7 +16,13 @@ const R3_ACES_INV = `vec3 r3AcesInv(vec3 y) {
   return max(inverse(I) * ((-b + sqrt(max(b * b - 4.0 * a * c, 0.0))) / (2.0 * a)) * 0.6, 0.0);
 }
 `;
-const R3_UNLIT_OUT = 'if (uScan > 0.5 && r3Skin > 0.5) outgoingLight = uAcesOut > 0.5 ? r3AcesInv(r3Base) : r3Base;';
+// #824 uScan = how much of the result is the unlit scan: SCAN 1.0, LIT 0.75 (25 % scene / pano light). The unlit scan gets a
+// little contrast and saturation (in display space) before going out: R3_CON / R3_SAT.
+const R3_GRADE = `const float R3_CON = 1.12; const float R3_SAT = 1.18;
+vec3 r3Grade(vec3 c) { vec3 s = pow(max(c, 0.0), vec3(1.0 / 2.2)); float l = dot(s, vec3(0.2126, 0.7152, 0.0722));
+  s = mix(vec3(l), s, R3_SAT); s = (s - 0.5) * R3_CON + 0.5; return pow(clamp(s, 0.0, 1.0), vec3(2.2)); }
+`;
+const R3_UNLIT_OUT = 'if (r3Skin > 0.5 && uScan > 0.0) { vec3 r3U = r3Grade(r3Base); r3U = uAcesOut > 0.5 ? r3AcesInv(r3U) : r3U; outgoingLight = mix(outgoingLight, r3U, uScan); }';
 
 export const AV_LAYER = 6;   // 1/2 = three's XR eyes, 5 = deck-inst HIDE_LAYER
 const UP = new THREE.Vector3(0, 1, 0);
@@ -162,7 +168,7 @@ export class Avatar {
         vec3 r3Base = diffuseColor.rgb; float r3Skin = 1.0;`).replace('#include <opaque_fragment>', R3_UNLIT_OUT + '\n#include <opaque_fragment>');
       this._r3Uniforms(sh);
     };
-    mt.customProgramCacheKey = () => 'r3beanie3';
+    mt.customProgramCacheKey = () => 'r3beanie4';
     mt.needsUpdate = true;
     (this.r3BeanieMats || (this.r3BeanieMats = [])).push(mt);
   }
@@ -181,7 +187,7 @@ export class Avatar {
         vec3 r3Base = diffuseColor.rgb; float r3Skin = 1.0;`).replace('#include <opaque_fragment>', R3_UNLIT_OUT + '\n#include <opaque_fragment>');
       this._r3Uniforms(sh);
     };
-    mt.customProgramCacheKey = () => 'r3shirt3';
+    mt.customProgramCacheKey = () => 'r3shirt4';
     if (this._clothes) u.uShirt.value.setHex(this._clothes[1]);
   }
   // #820 REAL 3 LOOK; #823 (owner: SCAN must look like the unlit scan render, not brighter) SCAN = no lighting at all: each texel's
@@ -189,7 +195,7 @@ export class Avatar {
   // LIT = fully lit by the scene / pano. uAcesOut: 1 when the target is tone-mapped later (DJ CAM's HDR target, the stream's
   // layers, the screen), 0 for a plain 8-bit target.
   _acesU() { return this.r3AcesU || (this.r3AcesU = { value: 1 }); }
-  _r3Uniforms(sh) { sh.uniforms.uScan = this._scanU(); sh.uniforms.uAcesOut = this._acesU(); sh.fragmentShader = 'uniform float uScan;\nuniform float uAcesOut;\n' + R3_ACES_INV + sh.fragmentShader; }
+  _r3Uniforms(sh) { sh.uniforms.uScan = this._scanU(); sh.uniforms.uAcesOut = this._acesU(); sh.fragmentShader = 'uniform float uScan;\nuniform float uAcesOut;\n' + R3_ACES_INV + R3_GRADE + sh.fragmentShader; }
   _r3Unlit(mt) {
     if (mt.userData.r3u) return; mt.userData.r3u = true;
     const prev = mt.onBeforeCompile;
@@ -198,10 +204,10 @@ export class Avatar {
       sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\n vec3 r3Base = diffuseColor.rgb; float r3Skin = 1.0;').replace('#include <opaque_fragment>', R3_UNLIT_OUT + '\n#include <opaque_fragment>');
       this._r3Uniforms(sh);
     };
-    mt.customProgramCacheKey = () => 'r3unlit1'; mt.needsUpdate = true;
+    mt.customProgramCacheKey = () => 'r3unlit2'; mt.needsUpdate = true;
   }
-  _scanU() { return this.r3ScanU || (this.r3ScanU = { value: this._look === 'lit' ? 0 : 1 }); }
-  setLook(look) { this._look = look; this._scanU().value = look === 'lit' ? 0 : 1; }
+  _scanU() { return this.r3ScanU || (this.r3ScanU = { value: this._look === 'lit' ? 0.75 : 1 }); }   // #824 LIT = 75 % unlit + 25 % lit
+  setLook(look) { this._look = look; this._scanU().value = look === 'lit' ? 0.75 : 1; }
   setClothes(beanieHex, shirtHex, beanieIdx) {
     this._clothes = [beanieHex, shirtHex, beanieIdx];
     // REAL 3: shade 0 keeps the scan's own navy beanie; other shades recolour the knit
