@@ -224,6 +224,7 @@ export class AudioEngine {
     m.meter = ctx.createAnalyser(); m.meter.fftSize = 512; m.meterBuf = new Float32Array(512);
     m.src.connect(m.hp).connect(m.gain).connect(m.shift).connect(m.on).connect(this.master);
     m.on.connect(m.meter);
+    m.vmeter = ctx.createAnalyser(); m.vmeter.fftSize = 512; m.vmeterBuf = new Float32Array(512); m.gain.connect(m.vmeter);   // #833 the mouth shapes listen before the voice PITCH
     m.label = (stream.getAudioTracks()[0] || {}).label || 'microphone';
     this.mic = m; this.setMicPitch(this._micPitch ?? 0.5);
     return m;

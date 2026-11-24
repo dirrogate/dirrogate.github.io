@@ -5041,14 +5041,15 @@ const _micVisOut = { rms: 0, lo: 0, mid: 0, hi: 0 };
 function micVisemes() {
   const m = engine.mic;
   if (!m || !micOn) { _micVisOut.rms = _micVisOut.lo = _micVisOut.mid = _micVisOut.hi = 0; return _micVisOut; }
-  m.meter.getFloatTimeDomainData(m.meterBuf);
+  const A = m.vmeter || m.meter, AB = m.vmeterBuf || m.meterBuf;   // #833 pre-pitch tap
+  A.getFloatTimeDomainData(AB);
   let sum2 = 0;
-  for (let i = 0; i < m.meterBuf.length; i++) { const x = m.meterBuf[i]; sum2 += x * x; }
-  _micVisOut.rms = Math.sqrt(sum2 / m.meterBuf.length) * 2.2;
-  const nBins = m.meter.frequencyBinCount;
+  for (let i = 0; i < AB.length; i++) { const x = AB[i]; sum2 += x * x; }
+  _micVisOut.rms = Math.sqrt(sum2 / AB.length) * 2.2;
+  const nBins = A.frequencyBinCount;
   if (!m.freqBuf || m.freqBuf.length !== nBins) m.freqBuf = new Uint8Array(nBins);
-  m.meter.getByteFrequencyData(m.freqBuf);
-  const binHz = ((engine.ctx && engine.ctx.sampleRate) || 48000) / m.meter.fftSize;
+  A.getByteFrequencyData(m.freqBuf);
+  const binHz = ((engine.ctx && engine.ctx.sampleRate) || 48000) / A.fftSize;
   const avg = (hz0, hz1) => {
     const a = Math.max(1, Math.floor(hz0 / binHz)), b = Math.min(nBins - 1, Math.ceil(hz1 / binHz));
     let s = 0; for (let i = a; i <= b; i++) s += m.freqBuf[i];
@@ -5057,8 +5058,8 @@ function micVisemes() {
   // #831 the bytes are dB, so the three bands always came out near a third each and only the mouth OPEN moved. Now:
   // linear band level, divided by that band's own running average while speaking, then sharpened, so each sound's
   // difference from this voice's average decides round (low) / wide (mid) / fricative (high).
-  if (m.meter.smoothingTimeConstant !== 0.35) m.meter.smoothingTimeConstant = 0.35;
-  const dbMin = m.meter.minDecibels, dbR = m.meter.maxDecibels - dbMin;
+  if (A.smoothingTimeConstant !== 0.35) A.smoothingTimeConstant = 0.35;
+  const dbMin = A.minDecibels, dbR = A.maxDecibels - dbMin;
   const lin = (hz0, hz1) => {
     const a = Math.max(1, Math.floor(hz0 / binHz)), b = Math.min(nBins - 1, Math.ceil(hz1 / binHz));
     let s = 0; for (let i = a; i <= b; i++) s += Math.pow(10, (dbMin + m.freqBuf[i] / 255 * dbR) / 20);
