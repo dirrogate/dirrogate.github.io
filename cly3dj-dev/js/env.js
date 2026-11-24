@@ -64,7 +64,7 @@ export class EnvLight {
   }
   setImage(source) { // HTMLImageElement | ImageBitmap | HTMLCanvasElement | null
     if (source === this._lastSrc) return;
-    this._lastSrc = source;
+    this._lastSrc = source; this._endFade();   // #834
     if (this.sphereMat.map) this.sphereMat.map.dispose();
     if (this.skyTex) { this.skyTex.dispose(); this.skyTex = null; }
     if (!source) { this.sphere.visible = false; this.sphereMat.map = null; this.rebuild(); return; }
@@ -83,6 +83,34 @@ export class EnvLight {
     const st = new THREE.Texture(img); st.mapping = THREE.EquirectangularReflectionMapping; st.colorSpace = THREE.SRGBColorSpace; st.needsUpdate = true;
     this.skyTex = st;
     this.rebuild();
+  }
+  // #834 fade the image light from the current picture to `source` over `ms` (DOME LIGHT re-sampling a video pano).
+  // Two spheres: A (old) and B (new, just inside A). Weights old = mix (1 - f), new = mix f, studio = 1 - mix exactly:
+  // B opacity b = mix f, A opacity a = mix (1 - f) / (1 - b). PMREM rebuilt 6 times over the fade (not every frame).
+  fadeTo(source, ms = 2000) {
+    const pano = source && source.width / source.height > 1.8 && source.width / source.height < 2.2;
+    if (!pano || !this.sphere.visible || !this.sphereMat.map || !this.isPano) { this.setImage(source); return; }
+    this._endFade();
+    if (!this.sphereB) {
+      this.sphereMatB = this.sphereMat.clone();
+      this.sphereB = new THREE.Mesh(new THREE.SphereGeometry(0.48, 48, 24), this.sphereMatB); this.sphereB.renderOrder = 1; this.room.add(this.sphereB);
+    }
+    const t = new THREE.Texture(source); t.needsUpdate = true; t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.repeat.x = -1;
+    this.sphereMatB.map = t; this.sphereMatB.needsUpdate = true; this.sphereB.visible = true;
+    this._lastSrc = source;
+    const t0 = performance.now(), N = 6;
+    const step = () => {
+      const f = Math.min(1, (performance.now() - t0) / ms), m = this.mix, b = m * f;
+      if (f >= 1) { const src = source; this._fade = null; this._lastSrc = null; this.setImage(src); return; }
+      this.sphereMatB.opacity = b; this.sphereMat.opacity = m * (1 - f) / (1 - b); this.rebuild();
+      this._fade = setTimeout(step, ms / N);
+    };
+    step();
+  }
+  _endFade() {
+    if (this._fade) { clearTimeout(this._fade); this._fade = null; }
+    if (this.sphereB) { this.sphereB.visible = false; if (this.sphereMatB.map) { this.sphereMatB.map.dispose(); this.sphereMatB.map = null; } }
+    this.sphereMat.opacity = this.mix;
   }
   setMix(m) { this.mix = m; this.sphereMat.opacity = m; if (this.sphere.visible) this.rebuild(); }
 

@@ -1550,19 +1550,36 @@ function eacToEqui(src, W = 512) {
 function domeLightTick() {
   const on = domeLightOn(), vid = on && skybox.tex.isVideoTexture ? skybox.tex.image : null;   // #831 a video pano: wait for a decoded frame, take it again once it has played 3 s (past any fade-in)
   if (vid && (vid.readyState < 2 || !vid.videoWidth)) return;
-  const k = on ? (skybox.tex.uuid + '|' + skybox.layout + '|' + skybox.swap + '|' + (dome.eac ? 'eac' : '') + (vid ? '|v' + (vid.currentTime > 3 ? 1 : 0) : '')) : '';   // #826 + EAC
+  const base = on ? (skybox.tex.uuid + '|' + skybox.layout + '|' + skybox.swap + '|' + (dome.eac ? 'eac' : '') + (vid ? '|v' + (vid.currentTime > 3 ? 1 : 0) : '')) : '';   // #826 + EAC
+  const per = settings.domeLightSec ?? 30;   // #834 a video pano: grab again every `per` s (0 = once), faded in over 2 s
+  const k = base + (vid && per > 0 ? '|t' + Math.floor(performance.now() / (per * 1000)) : ''), fade = !!vid && !!domeLitKey && domeLitKey.split('|t')[0] === base;
   if (k === domeLitKey && (!on || envLight._lastSrc === domeCanvas)) return;   // also re-applies if Settings > Lighting replaced it (start-up race)
   const was = domeLitKey; domeLitKey = k;
   if (on) {
     try {
       let c = skybox.lightStill || leftEyeCanvas(skybox.tex.image, skybox.layout, skybox.swap, 1024);   // still: kept at load; video: this frame
       if (dome.eac) c = eacToEqui(c);   // #826
-      envLight.mix = 0.9; domeCanvas = c; envLight.setImage(c); skyKeyLight = brightestDir(c); skyAvg = panoAvg(c);
+      envLight.mix = 0.9; domeCanvas = c;
+      if (fade) { envLight.fadeTo(c, 2000); fadeKeyLight(brightestDir(c), 2000); }   // #834
+      else { envLight.setImage(c); skyKeyLight = brightestDir(c); }
+      skyAvg = panoAvg(c);
     } catch (e) { console.warn('dome light', e); domeLitKey = ''; }   // #831 try again next tick
   } else if (was) applyEnv();
   applyArLook(); applySkyTurn();
 }
 setInterval(domeLightTick, 1500);
+let keyFade = null;
+function fadeKeyLight(to, ms) {   // #834 the key light's direction and colour follow the faded dome light
+  if (keyFade) clearInterval(keyFade);
+  const from = skyKeyLight ? { dir: skyKeyLight.dir.clone(), color: skyKeyLight.color.clone() } : to, t0 = performance.now();
+  if (!skyKeyLight) { skyKeyLight = to; return; }
+  keyFade = setInterval(() => {
+    const f = Math.min(1, (performance.now() - t0) / ms), e = f * f * (3 - 2 * f);
+    skyKeyLight = { dir: from.dir.clone().lerp(to.dir, e).normalize(), color: from.color.clone().lerp(to.color, e) };
+    applySkyTurn(); if (f >= 1) { clearInterval(keyFade); keyFade = null; }
+  }, 100);
+}
+const DL_EVERY = [0, 10, 15, 20, 30, 45, 60, 90, 120];   // #834 PORTALS SETUP > DOME LIGHT EVERY (seconds, video panos)
 // #612 NIGHT LOOK (PORTALS SETUP > NIGHT LOOK): the real room as night under the dome (night.js). The moon comes from
 // the dome picture's brightest spot, turned with the dome; it shines in through the PANO frames (stripes under slats).
 const night = portals && !CAMERA_ROLE ? new NightLook(rig, portals, camera) : null;
@@ -9679,6 +9696,7 @@ function drawToolsPage() {
       ['DOME SIZE', `${dome.r} m`, null, { v: dome.r, lo: 3, hi: 20, step: 1, set: setDomeSize }],
       ['DOME EXPOSURE', `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)} EV`, null, { v: dome.ev, lo: -3, hi: 1, step: 0.25, set: setDomeEv }],   // #404 tame blown-out panos
       ['DOME GAMMA', dome.gam.toFixed(2), null, { v: dome.gam, lo: 0.5, hi: 2, step: 0.05, set: setDomeGam }],   // #638 (was #629 DOME CONTRAST)
+      ['LIGHT EVERY', (() => { const v = settings.domeLightSec ?? 30; return v ? v + ' s' : 'ONCE'; })(), null, { v: Math.max(0, DL_EVERY.indexOf(settings.domeLightSec ?? 30)), lo: 0, hi: DL_EVERY.length - 1, step: 1, set: v => { settings.domeLightSec = DL_EVERY[v]; saveSettings(); drawMixScreen(); }, dim: settings.domeLight === false }],   // #834 video panos re-light the scene this often (2 s fade)
       ['GLASS RAIN', PS.rain.toUpperCase(), null, { v: Math.max(0, RAIN_ORDER.indexOf(PS.rain)), lo: 0, hi: RAIN_ORDER.length - 1, step: 1, set: rainSet }],   // #639 rain / mist on every PANO frame's glass
       ['FRACTAL SPEED', `${WL.val('speed')}x`, null, wl('speed')],
       ['COLOUR CYCLE', `${WL.val('cycle')}x`, null, wl('cycle')],
