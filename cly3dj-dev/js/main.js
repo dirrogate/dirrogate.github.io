@@ -1491,11 +1491,11 @@ const mmss = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2
 function startSlider(g, x, y, w, h, folder) {   // the selected thumbnail's START FROM (videos only)
   const isVid = !!vpSel && (folder === 'Video' || folder === 'Video pano');
   const d = isVid ? vLength(folder, vpSel) : 0, S = isVid ? vStartOf(vpSel) : 0;
-  tSlider(g, x, y, w, h, 'START FROM', d ? S / d : 0, isVid ? (d ? mmss(S) : '…') : '--', v => {
+  tSlider(g, x, y, w, h, 'FROM>', d ? S / d : 0, isVid ? (d ? mmss(S) : '…') : '--', v => {
     if (!isVid || !d) return; settings.vStart = settings.vStart || {};
     const t = Math.round(v * Math.max(0, d - 2)); if (t) settings.vStart[vpSel] = t; else delete settings.vStart[vpSel];
     saveSettings(); stepVStart(); drawMixScreen();
-  }, !isVid || !d, 110);
+  }, !isVid || !d, 52);   // #835 short label, more room for the bar
 }
 // #598 SOFT ROOM LIGHT in passthrough (Settings, on by default): the shiny studio environment is swapped for a dim,
 // soft, low-contrast one (a plain grey dome: lighter overhead, darker below, no hot spots) and the key light is
@@ -6308,7 +6308,7 @@ function tSlider(g, x, y, w, h, label, v, txt, set, dim, lwMax = 110) {   // #42
   g.fillStyle = dim ? '#56627a' : '#dfe6f2'; g.beginPath(); g.arc(tx + tw * v, ty, 8, 0, 2 * Math.PI); g.fill();
   g.textAlign = 'right'; g.font = '600 13px system-ui'; g.fillText(txt, x + w - 6, ty + 1);
   g.textBaseline = 'alphabetic';
-  VP_HIT.push({ x: tx - 10, y, w: tw + 20, h, drag: true, act: px => set(clamp((px - tx) / tw, 0, 1)) });   // #422 drag: finger / mouse held on the bar keeps moving it
+  VP_HIT.push({ x: tx - 10, y, w: tw + 20, h, drag: true, act: px => set(clamp((px - tx) / tw, 0, 1)), nv: v, nset: dim ? null : set });   // #422 drag: finger / mouse held on the bar keeps moving it; #835 nv / nset: thumbstick nudge
 }
 // #379 VISUALS > FX: FLOAT balls (the DJ drops them on gear in the headset; here the list with each one's float amount) and WATER
 let dvSecQ = null, dvSecT = 0;   // #710 the PER SCENE slider while it is dragged
@@ -6470,8 +6470,26 @@ function mixScreenGrabAt(uv) {   // #630 the trigger pulled while touching: grab
 function mixScreenRelease() { const d = screenDrag; screenHold = null; screenDrag = null; if (d && d.release) { d.release(); drawMixScreen(); } }   // #607 detented knobs step on a tap's release
 function scrUvPx(uv) { const c = scr().canvas; return [(scrDir === 'px' ? 1 - uv.y : scrDir === 'nx' ? uv.y : uv.x) * (c.lw || c.width), (scrDir === 'px' ? 1 - uv.x : scrDir === 'nx' ? uv.x : 1 - uv.y) * (c.lh || c.height)]; }
 function mixScreenDrag(uv) {   // #422 finger still on the screen (XR) / mouse held (desktop): a grabbed slider follows it
-  if (!screenDrag || !uv || screenDrag.btn) return; const [px, py] = scrUvPx(uv);   // #633 a held button keeps its 0.6 s long press
+  if (!screenDrag || !uv || screenDrag.btn || screenDrag.stick) return; const [px, py] = scrUvPx(uv);   // #835 once the thumbstick moved it, the tip no longer drags it   // #633 a held button keeps its 0.6 s long press
   screenHold = null; screenDrag.act(px, py); drawMixScreen();
+}
+// #835 a slider held with the trigger: the same controller's thumbstick left / right nudges it slowly. Sliders with
+// few steps move one step per push (hold = repeat); fine ones glide (deeper push = faster, full push ~8 % a second).
+function mixScreenNudge(ax, dt) {
+  const d = screenDrag; if (!d || !d.nset) return false;
+  const a = Math.abs(ax), before = d.nv;
+  if (d.nstep && d.nstep >= 0.02) {
+    const dir = ax > 0.6 ? 1 : ax < -0.6 ? -1 : 0;
+    if (!dir) { d.nArm = true; return false; }
+    d.nT = (d.nT || 0) - dt;
+    if (d.nArm || d.nT <= 0) { d.nv = clamp(d.nv + dir * d.nstep, 0, 1); d.nT = d.nArm ? 0.4 : 0.14; d.nArm = false; }
+  } else {
+    if (a < 0.15) return false;
+    d.nv = clamp(d.nv + Math.sign(ax) * ((a - 0.15) / 0.85) ** 2 * 0.08 * dt, 0, 1);
+  }
+  d.stick = true;
+  if (d.nv === before) return false;
+  d.nset(d.nv); drawMixScreen(); return true;
 }
 function mixScreenLong(px, py) {
   if (toolsPage) { const b = VP_HIT.find(h => h.long && px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h); if (b) b.long(); return; }   // #404 tablet buttons with a long press (the GOPRO buttons: reset)
@@ -8897,10 +8915,8 @@ function drawToolsPage() {
       g.fillStyle = dim ? '#56627a' : '#eef2f8'; g.beginPath();
       if (g.roundRect) g.roundRect(kx - pw / 2, cy - ph / 2, pw, ph, ph / 2); else g.rect(kx - pw / 2, cy - ph / 2, pw, ph); g.fill();
       g.fillStyle = dim ? '#2a3140' : '#0d1422'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(val, kx, cy + 1); g.textBaseline = 'alphabetic';
-      if (!dim) VP_HIT.push({ x, y: by - 4, w, h: bh + 6, drag: true, act: px => {
-        let v = lo + clamp((px - x0) / tw, 0, 1) * (hi - lo); v = clamp(lo + Math.round((v - lo) / step) * step, lo, hi); v = Math.round(v * 1e6) / 1e6;
-        if (v !== spec.v) { spec.v = v; spec.set(v); }
-      } });
+      const setU = u => { let v = lo + clamp(u, 0, 1) * (hi - lo); v = clamp(lo + Math.round((v - lo) / step) * step, lo, hi); v = Math.round(v * 1e6) / 1e6; if (v !== spec.v) { spec.v = v; spec.set(v); } };
+      if (!dim) VP_HIT.push({ x, y: by - 4, w, h: bh + 6, drag: true, act: px => setU((px - x0) / tw), nv: t, nstep: step / (hi - lo), nset: setU });   // #835 thumbstick nudge: one step at a time
       return;
     }
     if (spec === 'cycle') { btn(x, by, w, bh, val + '  ⟳', false, act ? () => act(1) : null, !act, opt.fs || 15); return; }
@@ -11282,7 +11298,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   sleeveGrabTest, sleeveGrab, sleeveHeldBy, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveRelease, spiderGrabTest, spiderGrab, spiderRelease,
   crateScreenPress, crateScreenRelease, mixScreenPress, holdBeat1, releaseBeat1, holdLooper, crateSelect, crateWalkStep, drawCrateScreen, layoutSleeves, crateDisc,
   // #591 A no longer pulls the GoPro to the hand: the B placement laser picks it up (grip) and pushes / pulls it (stick)
-  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, toast, mixScreenRelease, mixScreenDrag, mixScreenDragging, mixScreenGrabAt,
+  neon, NEON, setNeonScale, saveNeonScale, releaseMilk, MILK, flyingMilk, toast, mixScreenRelease, mixScreenDrag, mixScreenDragging, mixScreenGrabAt, mixScreenNudge,
   lidShut, crateLidOpen, crateMicSelect, calTap: () => relCalTap(), lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
   // gemini_neon 2026-11-19: Quest right thumbstick click toggles play/stop of currently armed Looper slot (never records/clears)
@@ -11851,7 +11867,7 @@ if (!CAMERA_ROLE) restoreLedList();   // #222
 drawMixScreen();
 // debugging handle
 try { const cn = localStorage.getItem('vire.cardPic'); if (cn && streamer) media.getFile('Images', cn).then(f => { if (f) { streamer.setCardPic(f); cardWallSet(f, false); } }).catch(() => {}); } catch (e) {}   // #445 the CARD picture of last time
-window.vire = { get mprops() { return mprops; } /* #586 test hook */, get _dvRemote() { return dvRemote; } /* #735 test hook */, _acid: { cassStyle: st => { CAS3D.style = st; for (const m of CAS3D.meshes.values()) if (m.parent) m.parent.remove(m); CAS3D.meshes.clear(); } /* #690 look comparison hook: 'label' | 'clear' | 'png' */, AK, ACID_KNOBS, acidUI, tick: acidKnobTick, end: acidKnobEnd, acidTape, acidTray, trayPress, trayDrag, trayRelease, CAS3D, cassGrab, cassRelease, acidReelAt, acidReelTurn } /* #608 test hook */, THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
+window.vire = { get mprops() { return mprops; } /* #586 test hook */, get _dvRemote() { return dvRemote; } /* #735 test hook */, _acid: { cassStyle: st => { CAS3D.style = st; for (const m of CAS3D.meshes.values()) if (m.parent) m.parent.remove(m); CAS3D.meshes.clear(); } /* #690 look comparison hook: 'label' | 'clear' | 'png' */, AK, ACID_KNOBS, acidUI, tick: acidKnobTick, end: acidKnobEnd, acidTape, acidTray, trayPress, trayDrag, trayRelease, CAS3D, cassGrab, cassRelease, acidReelAt, acidReelTurn } /* #608 test hook */, THREE, wfx, ledFx, grab, grabLoop, cardWallSet, cardWall, setWallPx, tapWall, tapClear, wtap, stepWallFx, fxBig, setWallAuto, /* #439 */ mixScreenDrag, mixScreenRelease, mixScreenNudge, mixScreenGrabAt, mixScreenDragging, get fx() { return fx; }, get dirro() { return dirro; }, /* #435 */ skySpin, setSkySpin, /* #379 */ crateWalkStep, _lblOver, _nav: { back: navBack, get hist() { return navHist.length; }, get state() { return navState(); } } /* #363 */, _vpSet: (f, lp) => { vpFolder = f; if (lp) lookPage = lp; toolsPage = null; videoPage = true; vpLoad(); drawMixScreen(); }, _scr: { land: mixScreen.canvas, port: mixScreenP.canvas, setDir: d => { scrDir = d; drawMixScreen(); } } /* #347 test hook */, get streamer() { return streamer; }, setTools, gopro, goproTap, setMonitor, monCanvas, chat, chatPanel, chalkboard, chatPanelTap, facetWall, wallTap, portals, portalsTap, get beat() { return beat; }, dome, setDome, setDomeSize, skybox, get avatar() { return avatar; }, avatars, djcam, djSet, setDjPreset, setDjMirror, setDjAvatar, setDjStyle, perf, perfToggle, get spect() { return spect; }, TABLET, get scrDir() { return scrDir; }, drawMixScreen, tabletHold, tabletRelease, tabletDock, tabletScale, tabletGrab, setPreview, pvLid, get pvLidT() { return pvLidT; }, media, setVideoPage, vpAct, get vp() { return { videoPage, vpFolder, vpItems, vpSel, vvOverride }; }, useSkyMedia, led, deckVid, setLedMode, get ledMode() { return ledMode; }, layoutSleeves, copiesOut, crateDisc, mixScreenPress, mixScreenRelease, bpmMode, tapBeat1, beat1Of, bpmOf, taps, tapRuns, stepTaps, releaseBeat1, clearTaps, loadTapsSidecar, spawnMilk, removeMilk, extraMilk, flyingMilk, placeMilk, milks, releaseMilk, stepMilkCrates, lidGrab, lidRelease, lidSet, lidShut, setMix, neon, setNeonScale, search, setQuery, exitSearch, crateScreenPress, crateScreenRelease, drawCrateScreen, setPiece, pieceOn, lidToggle, lidSt, crateLidOpen, stepLid, milk, milkDrop, armGrab, armDrag, armRelease, pressControl, get micOn() { return micOn; }, stepLoose, testThrow() { const h = held; throwRecord(h); held = null; return h; }, _spin: { SPIN, startSpin, get loose() { return loose; } }, _spider: { spiders, spiderGrabTest, spiderGrab, spiderRelease, spidersHome, stepSpiders, spidersState, spidersApply }, _sleeve: { sleeveGrabTest, sleeveGrab, sleeveSlideTest, sleeveSlideTo, sleevePulled, sleeveReturn, sleeveRelease, sleevesHome, tidyRecords, sleeves, refreshSleeveColliders, get colliders() { return sleeveColliders; }, sleeveFollow, sleeveDepen, sleeveBox, obbPush, obbOf, mkObb, get out() { return sleeveOut; }, selectedSlotPose }, surfaceUnder, supportUnder, stage, cases, crateRig, clampStack, settleStack, stackTops, envLight, deckInst, renderer, loose, releaseHeld, crate, mixer, mixVal, xr, engine, decks, get lib() { return lib; }, crateState, pullSelected, placeOnDeck, doSync, setPitch, setMotor, dropNeedleAt, get held() { return held; }, camera, controls, setCam, skybox, applySky, key, scene, settings };
 window.vire._deck = { pullRecord, placeOnDeck, setMotor, dropNeedleAt, get held() { return held; } };   // #497 test hook: put a record on a deck from the console
 window.vire._phase = { gridOf, beatPhase, phaseOff, envCache, gridCache };   // #643 test hook
 window.vire._loop = { loopFix, loopClip, loopCopy, loopPaste, loopUndo, loopUndoDo, loopDeleteBank, looper, loopSlots, loopUI, pressLooper, clearLooper, loopSlotTap, loopRegion, loopNudge, loopSaveBank, loopLoadBank, loopOpenBanks, stepLooper, releaseLooper };   // #470 test hook

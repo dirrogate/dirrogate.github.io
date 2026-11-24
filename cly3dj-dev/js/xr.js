@@ -959,8 +959,10 @@ export function setupXR(ctx) {
       if (gp && gp.axes && gp.axes.length >= 4 && !(ctx.mprops && ctx.mprops.placer.active(st))) {
         const ax = gp.axes[2], ay = gp.axes[3];
         const mv = (st.direct && st.direct.kind === 'move') ? st.direct : null;
-        const pd = !mv && !st.isHand ? pitchFaderNear(st.tip) : null;
-        if (pd) {
+        const sl = st.scrGrab === true && !st.isHand && ctx.mixScreenNudge;   // #835 a tablet slider held with this trigger: the stick nudges it
+        const pd = !sl && !mv && !st.isHand ? pitchFaderNear(st.tip) : null;
+        if (sl) { if (ctx.mixScreenNudge(ax, dt)) { st.nudgeBz = (st.nudgeBz || 0) - dt; if (st.nudgeBz <= 0) { buzz(st, 0.08, 4); st.nudgeBz = 0.12; } } }
+        else if (pd) {
           // flick forward = -0.05 %, back = +0.05 % (flipped by the owner, 26 Sep: matches the fader, whose + end is
           // toward the DJ); hold to repeat
           const dir = ay < -0.7 ? -1 : ay > 0.7 ? 1 : 0;
