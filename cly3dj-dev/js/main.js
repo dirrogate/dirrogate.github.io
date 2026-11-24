@@ -1512,7 +1512,9 @@ function eacToEqui(src, W = 512) {
   go.putImageData(D, 0, 0); return o;
 }
 function domeLightTick() {
-  const on = domeLightOn(), k = on ? (skybox.tex.uuid + '|' + skybox.layout + '|' + skybox.swap + '|' + (dome.eac ? 'eac' : '')) : '';   // #826 + EAC
+  const vid = on && skybox.tex.isVideoTexture ? skybox.tex.image : null;   // #831 a video pano: wait for a decoded frame, take it again once it has played 3 s (past any fade-in)
+  if (vid && (vid.readyState < 2 || !vid.videoWidth)) return;
+  const k = on ? (skybox.tex.uuid + '|' + skybox.layout + '|' + skybox.swap + '|' + (dome.eac ? 'eac' : '') + (vid ? '|v' + (vid.currentTime > 3 ? 1 : 0) : '')) : '';   // #826 + EAC
   if (k === domeLitKey && (!on || envLight._lastSrc === domeCanvas)) return;   // also re-applies if Settings > Lighting replaced it (start-up race)
   const was = domeLitKey; domeLitKey = k;
   if (on) {
@@ -1520,7 +1522,7 @@ function domeLightTick() {
       let c = skybox.lightStill || leftEyeCanvas(skybox.tex.image, skybox.layout, skybox.swap, 1024);   // still: kept at load; video: this frame
       if (dome.eac) c = eacToEqui(c);   // #826
       envLight.mix = 0.9; domeCanvas = c; envLight.setImage(c); skyKeyLight = brightestDir(c); skyAvg = panoAvg(c);
-    } catch (e) { console.warn('dome light', e); }
+    } catch (e) { console.warn('dome light', e); domeLitKey = ''; }   // #831 try again next tick
   } else if (was) applyEnv();
   applyArLook(); applySkyTurn();
 }
@@ -5016,9 +5018,20 @@ function micVisemes() {
     let s = 0; for (let i = a; i <= b; i++) s += m.freqBuf[i];
     return b >= a ? s / ((b - a + 1) * 255) : 0;
   };
-  _micVisOut.lo = avg(180, 900);
-  _micVisOut.mid = avg(900, 3000);
-  _micVisOut.hi = avg(3000, 7500);
+  // #831 the bytes are dB, so the three bands always came out near a third each and only the mouth OPEN moved. Now:
+  // linear band level, divided by that band's own running average while speaking, then sharpened, so each sound's
+  // difference from this voice's average decides round (low) / wide (mid) / fricative (high).
+  if (m.meter.smoothingTimeConstant !== 0.35) m.meter.smoothingTimeConstant = 0.35;
+  const dbMin = m.meter.minDecibels, dbR = m.meter.maxDecibels - dbMin;
+  const lin = (hz0, hz1) => {
+    const a = Math.max(1, Math.floor(hz0 / binHz)), b = Math.min(nBins - 1, Math.ceil(hz1 / binHz));
+    let s = 0; for (let i = a; i <= b; i++) s += Math.pow(10, (dbMin + m.freqBuf[i] / 255 * dbR) / 20);
+    return b >= a ? s / (b - a + 1) : 0;
+  };
+  const B = [lin(180, 900), lin(900, 3000), lin(3000, 7500)], M = _micVisOut._m || (_micVisOut._m = B.map(v => v || 1e-4));
+  if (_micVisOut.rms > 0.03) for (let i = 0; i < 3; i++) M[i] += (B[i] - M[i]) * 0.01;   // ~3 s average, only while speaking
+  const R = B.map((v, i) => Math.pow(v / (M[i] + 1e-6), 1.6));
+  _micVisOut.lo = R[0]; _micVisOut.mid = R[1]; _micVisOut.hi = R[2];
   return _micVisOut;
 }
 function crateScreenPress(uv) {

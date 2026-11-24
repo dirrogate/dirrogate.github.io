@@ -128,7 +128,7 @@ function halves(layout, swap) {
 }
 // The left eye as its own 2:1 canvas (for reflections and lighting), at most `w` wide.
 export function leftEyeCanvas(src, layout, swap, w = 2048) {
-  const sw = src.width, sh = src.height;
+  const sw = src.videoWidth || src.width, sh = src.videoHeight || src.height;   // #831 a <video>'s width / height are 0
   let sx = 0, sy = 0, cw = sw, ch = sh;
   if (layout === 'ou') { ch = sh / 2; sy = swap ? sh / 2 : 0; }
   if (layout === 'sbs') { cw = sw / 2; sx = swap ? sw / 2 : 0; }
