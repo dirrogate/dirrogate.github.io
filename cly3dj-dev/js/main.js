@@ -1035,7 +1035,7 @@ async function loadPortalMedia(S, key) {
     if (!pfeed || pfeed.key !== key) { b.close(); return; }
     const t = new THREE.Texture(b); t.flipY = false; t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; pfeed.img = b; pfeed.mtex = t; pfeed.w = b.width; pfeed.h = b.height;
   } else {
-    const v = document.createElement('video'); v.muted = true; v.loop = true; v.playsInline = true; v.autoplay = true; pfeed.url = URL.createObjectURL(f); v.src = pfeed.url; pfeed.el = v;
+    const v = document.createElement('video'); v.muted = true; v.loop = true; v.playsInline = true; v.autoplay = true; pfeed.url = URL.createObjectURL(f); v.src = pfeed.url; pfeed.el = v; v._vname = f.name;   // #832
     v.addEventListener('loadeddata', () => { if (!pfeed || pfeed.el !== v) return; const t = new THREE.VideoTexture(v); t.colorSpace = THREE.SRGBColorSpace; pfeed.mtex = t; pfeed.w = v.videoWidth; pfeed.h = v.videoHeight; v.play().catch(() => {}); }, { once: true });
     v.play().catch(() => {});
   }
@@ -1461,6 +1461,42 @@ function applyRates() {
   set(led && led.video, vr); set(sclip.el, vr); set(pfeed && pfeed.el, vr);
 }
 setInterval(applyRates, 500);
+// #832 START FROM (VISUALS > PANO and VIDEO): per video file, the second it starts from and loops back to (skips a black
+// intro). Kept in settings.vStart { name: seconds }. Applies to the dome's video pano, the CYCLOWALL clip, the stream's
+// clip copy and the SCREEN portal feed (each <video> is tagged with its file name, _vname).
+const vDur = {};   // name -> length in seconds (from the file's metadata)
+const vStartOf = n => (n && settings.vStart && settings.vStart[n]) || 0;
+function stepVStart() {
+  let L; try { L = [skyVid, led && led.video, sclip.el, pfeed && pfeed.el]; } catch (e) { return; }   // start-up: some aren't declared yet
+  for (const v of L) {
+    if (!v || v.tagName !== 'VIDEO' || !v._vname) continue;
+    const S = vStartOf(v._vname), d = v.duration;
+    if (isFinite(d) && d > 0) vDur[v._vname] = d;
+    if (!S || !isFinite(d) || S >= d - 1 || v.readyState < 1) continue;
+    if (v.currentTime < S - 0.2) v.currentTime = S;
+    else if (v.loop && d - v.currentTime < 0.3) v.currentTime = S;   // jump back before the loop wraps to the black start
+  }
+}
+setInterval(stepVStart, 150);
+function vLength(folder, name) {   // reads the length once (metadata only), then redraws the tablet
+  if (vDur[name] != null || !name) return vDur[name] || 0;
+  vDur[name] = 0;
+  Promise.resolve(media.getFile(folder, name)).then(f => {
+    if (!f) return; const p = document.createElement('video'); p.preload = 'metadata'; p.muted = true; p.src = URL.createObjectURL(f);
+    p.onloadedmetadata = () => { vDur[name] = isFinite(p.duration) ? p.duration : 0; URL.revokeObjectURL(p.src); p.removeAttribute('src'); p.load(); drawMixScreen(); };
+  }).catch(() => {});
+  return 0;
+}
+const mmss = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+function startSlider(g, x, y, w, h, folder) {   // the selected thumbnail's START FROM (videos only)
+  const isVid = !!vpSel && (folder === 'Video' || folder === 'Video pano');
+  const d = isVid ? vLength(folder, vpSel) : 0, S = isVid ? vStartOf(vpSel) : 0;
+  tSlider(g, x, y, w, h, 'START FROM', d ? S / d : 0, isVid ? (d ? mmss(S) : '…') : '--', v => {
+    if (!isVid || !d) return; settings.vStart = settings.vStart || {};
+    const t = Math.round(v * Math.max(0, d - 2)); if (t) settings.vStart[vpSel] = t; else delete settings.vStart[vpSel];
+    saveSettings(); stepVStart(); drawMixScreen();
+  }, !isVid || !d, 110);
+}
 // #598 SOFT ROOM LIGHT in passthrough (Settings, on by default): the shiny studio environment is swapped for a dim,
 // soft, low-contrast one (a plain grey dome: lighter overhead, darker below, no hot spots) and the key light is
 // softened, so gear and props stop looking lit by a different room. Back to the studio light when the session ends.
@@ -1512,7 +1548,7 @@ function eacToEqui(src, W = 512) {
   go.putImageData(D, 0, 0); return o;
 }
 function domeLightTick() {
-  const vid = on && skybox.tex.isVideoTexture ? skybox.tex.image : null;   // #831 a video pano: wait for a decoded frame, take it again once it has played 3 s (past any fade-in)
+  const on = domeLightOn(), vid = on && skybox.tex.isVideoTexture ? skybox.tex.image : null;   // #831 a video pano: wait for a decoded frame, take it again once it has played 3 s (past any fade-in)
   if (vid && (vid.readyState < 2 || !vid.videoWidth)) return;
   const k = on ? (skybox.tex.uuid + '|' + skybox.layout + '|' + skybox.swap + '|' + (dome.eac ? 'eac' : '') + (vid ? '|v' + (vid.currentTime > 3 ? 1 : 0) : '')) : '';   // #826 + EAC
   if (k === domeLitKey && (!on || envLight._lastSrc === domeCanvas)) return;   // also re-applies if Settings > Lighting replaced it (start-up race)
@@ -1676,7 +1712,7 @@ function drawTabNote(s) {
 for (const sc of [mixScreen, mixScreenP, acidScreen]) { const c0 = sc.commit.bind(sc); sc.commit = () => { if (tabNote.text && performance.now() < tabNote.until) drawTabNote(sc); c0(); }; }
 // #467 a WebRTC handshake (spectator phone, DirroTV) had to go through ntfy.sh because our relay hub didn't carry it
 onRelayFallback((what, how) => { tabletNote(`NTFY.SH FALLBACK · ${what}`, 6000); toast(`${what}: handshake ${how} via ntfy.sh (backup relay; relay.dirrodj.club hub not reached)`, 6000); });
-const vpPer = () => (scrDir === 'up' ? (vpFolder === 'Pano' || vpFolder === 'Video' ? 4 : 8) : vpFolder === 'Pano' ? 6 : vpFolder === 'Video' ? 8 : 10);   // #596 / #597 room for the bars   // #596 landscape PANO: one row, the TURN / EXPOSURE bars under it   // #379 portrait PANO: 4 rows, the PANO SPIN slider under them   // thumbnails a page on the Video page (#206 portrait: 5 rows, a third tab row)
+const vpPer = () => (scrDir === 'up' ? (vpFolder === 'Pano' || vpFolder === 'Video' ? 4 : 8) : vpFolder === 'Pano' ? 4 : vpFolder === 'Video' ? 8 : 10);   // #832 portrait PANO 4 (room for START FROM)   // #596 / #597 room for the bars   // #596 landscape PANO: one row, the TURN / EXPOSURE bars under it   // #379 portrait PANO: 4 rows, the PANO SPIN slider under them   // thumbnails a page on the Video page (#206 portrait: 5 rows, a third tab row)
 function stepScrDir() {
   const dir = toolsPage === 'acid' ? 'up' : tabletDir(scrDir); if (dir === scrDir) return;   // #607 owner: the ACID page is landscape only
   scrDir = dir;
@@ -2117,7 +2153,7 @@ function streamClip() {
     if (sclip.img) createImageBitmap(f).then(b => { if (sclip.name === name) sclip.el = b; else b.close(); }).catch(() => {});
     else {
       const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.loop = true; v.preload = 'auto';
-      sclip.url = URL.createObjectURL(f); v.src = sclip.url; sclip.el = v;
+      sclip.url = URL.createObjectURL(f); v.src = sclip.url; sclip.el = v; v._vname = name;   // #832
       v.loop = follow || led.files.length < 2;   // running the list itself: next clip at the end (one clip: loop it)
       v.addEventListener('loadedmetadata', () => { try { v.currentTime = follow ? led.state().t || 0 : 0; } catch (e) {} v.play().catch(() => {}); }, { once: true });
       if (!follow) v.addEventListener('ended', streamClipNext);
@@ -6225,15 +6261,17 @@ function drawVideoPage() {
   if (vpFolder === 'Pano') {   // #379 PANO SPIN 0 to 5 (degrees a second); landscape: between the SKY buttons and the LED button, portrait: a row of its own
     // #596 / #597 three bars: PANO TURN, EXPOSURE (the same DOME EXPOSURE as PORTALS SETUP) and SPEED (video panos);
     // landscape: a full-width row above the buttons; portrait: TURN + EXPOSURE, then SPEED under them
-    const ry = P ? H - 194 : by - bh - 10, rx = P ? 26 : 8, rw = P ? W - 52 : W - 16, hw = P ? (rw - 8) / 2 : (rw - 24) / 4,   /* #638 four across: + GAMMA */ pr = settings.panoRate || 1;
+    const ry = P ? H - 194 : by - bh - 10, rx = P ? 26 : 8, rw = P ? W - 52 : W - 16, hw = P ? (rw - 8) / 2 : (rw - 32) / 5,   /* #638 four across: + GAMMA; #832 five: + START FROM */ pr = settings.panoRate || 1;
     tSlider(g, rx, ry, hw, bh, P ? 'TURN' : 'PANO TURN', settings.skyTurn / 359, `${settings.skyTurn}°`, v => setSkyTurn(v * 359), false, 100);   // #389 was SPIN: a bar that turns the pano by hand
     tSlider(g, rx + hw + 8, ry, hw, bh, P ? 'EV' : 'EXPOSURE', (dome.ev + 3) / 4, `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)}`, v => setDomeEv(-3 + v * 4), false, 100);
     tSlider(g, P ? rx + hw + 8 : rx + 2 * (hw + 8), P ? ry + 44 : ry, hw, bh, 'GAMMA', gamPos(dome.gam), dome.gam.toFixed(2), v => setDomeGam(gamOf(v)), false, 100);   // #638 the same DOME GAMMA as PORTALS SETUP
     tSlider(g, P ? rx : rx + 3 * (hw + 8), P ? ry + 44 : ry, hw, bh, 'SPEED', RATES.indexOf(pr) / (RATES.length - 1), rateTxt(pr), v => setRate('panoRate', RATES[Math.round(v * (RATES.length - 1))]), false, 100);   // #597 video panos only
+    startSlider(g, P ? rx : rx + 4 * (hw + 8), P ? ry - 44 : ry, P ? rw : hw, bh, vpSelFolder || 'Video pano');   // #832
   }
   if (vpFolder === 'Video') {   // #597 SPEED for the clips (CYCLOWALL / LED wall, SCREEN portals): a row of its own above the buttons
     const vr = settings.vidRate || 1;
-    tSlider(g, P ? 26 : 8, P ? H - 150 : by - bh - 10, P ? W - 52 : W - 16, bh, 'CLIP SPEED', RATES.indexOf(vr) / (RATES.length - 1), rateTxt(vr), v => setRate('vidRate', RATES[Math.round(v * (RATES.length - 1))]), false, 120);
+    { const sw = P ? (W - 60) / 2 : (W - 24) / 2; startSlider(g, (P ? 26 : 8) + sw + 8, P ? H - 150 : by - bh - 10, sw, bh, 'Video'); }   // #832
+    tSlider(g, P ? 26 : 8, P ? H - 150 : by - bh - 10, P ? (W - 60) / 2 : (W - 24) / 2, bh, 'CLIP SPEED', RATES.indexOf(vr) / (RATES.length - 1), rateTxt(vr), v => setRate('vidRate', RATES[Math.round(v * (RATES.length - 1))]), false, 120);
   }
   const hasList = vpFolder === 'Video' || vpFolder === 'Images';   // #222 the LED playlist, one tap away
   if (hasList) btn(P ? 124 : 522, by, P ? 70 : 92, bh, `CYCLOWALL LIST ${led.files.length}`, false, () => { vpBack = vpFolder; vpFolder = 'LedList'; vpLoad(); });
@@ -11374,7 +11412,7 @@ async function useSkyMedia(folder, name) {
 }
 async function useSkyVideo(f) {
   closeSkyVideo(); skyFactory = false;   // #538
-  const { video, snap } = await openPanoVideo(f); skyVid = video;
+  const { video, snap } = await openPanoVideo(f); skyVid = video; video._vname = f.name;   // #832
   const L = skyLayoutFor(video.videoWidth, video.videoHeight) || { layout: 'mono', swap: false };
   const c = leftEyeCanvas(snap, L.layout, L.swap, 2048);
   try { localStorage.setItem('vire.envimage', c.toDataURL('image/jpeg', 0.85)); } catch {}

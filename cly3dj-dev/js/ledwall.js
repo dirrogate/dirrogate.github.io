@@ -72,7 +72,7 @@ export class LedPlayer {
       } else this._arm();
       return;
     }
-    const v = document.createElement('video');
+    const v = document.createElement('video'); v._vname = file.name;   // #832 START FROM
     v.muted = true; v.autoplay = true; v.playsInline = true; v.preload = 'auto'; v.crossOrigin = 'anonymous';
     v.src = URL.createObjectURL(file); v._url = v.src;
     v.addEventListener('ended', () => onEnded && onEnded());
