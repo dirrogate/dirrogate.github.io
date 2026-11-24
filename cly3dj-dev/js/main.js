@@ -1466,15 +1466,19 @@ setInterval(applyRates, 500);
 // clip copy and the SCREEN portal feed (each <video> is tagged with its file name, _vname).
 const vDur = {};   // name -> length in seconds (from the file's metadata)
 const vStartOf = n => (n && settings.vStart && settings.vStart[n]) || 0;
+const vEndOf = n => (n && settings.vEnd && settings.vEnd[n]) || 0;   // #836 <TO: loop end (0 = the file's end)
 function stepVStart() {
   let L; try { L = [skyVid, led && led.video, sclip.el, pfeed && pfeed.el]; } catch (e) { return; }   // start-up: some aren't declared yet
   for (const v of L) {
     if (!v || v.tagName !== 'VIDEO' || !v._vname) continue;
-    const S = vStartOf(v._vname), d = v.duration;
+    const S = vStartOf(v._vname), d = v.duration, E0 = vEndOf(v._vname);
     if (isFinite(d) && d > 0) vDur[v._vname] = d;
-    if (!S || !isFinite(d) || S >= d - 1 || v.readyState < 1) continue;
-    if (v.currentTime < S - 0.2) v.currentTime = S;
-    else if (v.loop && d - v.currentTime < 0.3) v.currentTime = S;   // jump back before the loop wraps to the black start
+    if ((!S && !E0) || !isFinite(d) || v.readyState < 1) continue;
+    const E = E0 && E0 > S + 1 && E0 < d ? E0 : d;
+    if (S >= E - 1) continue;
+    if (S && v.currentTime < S - 0.2) v.currentTime = S;
+    else if (E < d && v.currentTime >= E) v.currentTime = v.loop ? S : d - 0.05;   // #836 <TO: back to FROM (a one-shot clip ends instead)
+    else if (S && v.loop && d - v.currentTime < 0.3) v.currentTime = S;   // jump back before the loop wraps to the black start
   }
 }
 setInterval(stepVStart, 150);
@@ -1488,6 +1492,15 @@ function vLength(folder, name) {   // reads the length once (metadata only), the
   return 0;
 }
 const mmss = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+function endSlider(g, x, y, w, h, folder) {   // #836 <TO: the selected video's loop end
+  const isVid = !!vpSel && (folder === 'Video' || folder === 'Video pano');
+  const d = isVid ? vLength(folder, vpSel) : 0, E = isVid ? vEndOf(vpSel) : 0, S = isVid ? vStartOf(vpSel) : 0;
+  tSlider(g, x, y, w, h, '<TO', d ? (E || d) / d : 1, isVid ? (d ? (E ? mmss(E) : 'END') : '…') : '--', v => {
+    if (!isVid || !d) return; settings.vEnd = settings.vEnd || {};
+    const t = Math.round(v * d); if (t >= d - 1 || t <= S + 1) delete settings.vEnd[vpSel]; else settings.vEnd[vpSel] = t;
+    saveSettings(); stepVStart(); drawMixScreen();
+  }, !isVid || !d, 50);
+}
 function startSlider(g, x, y, w, h, folder) {   // the selected thumbnail's START FROM (videos only)
   const isVid = !!vpSel && (folder === 'Video' || folder === 'Video pano');
   const d = isVid ? vLength(folder, vpSel) : 0, S = isVid ? vStartOf(vpSel) : 0;
@@ -1495,7 +1508,7 @@ function startSlider(g, x, y, w, h, folder) {   // the selected thumbnail's STAR
     if (!isVid || !d) return; settings.vStart = settings.vStart || {};
     const t = Math.round(v * Math.max(0, d - 2)); if (t) settings.vStart[vpSel] = t; else delete settings.vStart[vpSel];
     saveSettings(); stepVStart(); drawMixScreen();
-  }, !isVid || !d, 52);   // #835 short label, more room for the bar
+  }, !isVid || !d, 62);   // #835 short label, more room for the bar
 }
 // #598 SOFT ROOM LIGHT in passthrough (Settings, on by default): the shiny studio environment is swapped for a dim,
 // soft, low-contrast one (a plain grey dome: lighter overhead, darker below, no hot spots) and the key light is
@@ -1729,7 +1742,7 @@ function drawTabNote(s) {
 for (const sc of [mixScreen, mixScreenP, acidScreen]) { const c0 = sc.commit.bind(sc); sc.commit = () => { if (tabNote.text && performance.now() < tabNote.until) drawTabNote(sc); c0(); }; }
 // #467 a WebRTC handshake (spectator phone, DirroTV) had to go through ntfy.sh because our relay hub didn't carry it
 onRelayFallback((what, how) => { tabletNote(`NTFY.SH FALLBACK · ${what}`, 6000); toast(`${what}: handshake ${how} via ntfy.sh (backup relay; relay.dirrodj.club hub not reached)`, 6000); });
-const vpPer = () => (scrDir === 'up' ? (vpFolder === 'Pano' || vpFolder === 'Video' ? 4 : 8) : vpFolder === 'Pano' ? 4 : vpFolder === 'Video' ? 8 : 10);   // #832 portrait PANO 4 (room for START FROM)   // #596 / #597 room for the bars   // #596 landscape PANO: one row, the TURN / EXPOSURE bars under it   // #379 portrait PANO: 4 rows, the PANO SPIN slider under them   // thumbnails a page on the Video page (#206 portrait: 5 rows, a third tab row)
+const vpPer = () => (scrDir === 'up' ? (vpFolder === 'Pano' || vpFolder === 'Video' ? 4 : 8) : vpFolder === 'Pano' ? 2 : vpFolder === 'Video' ? 8 : 10);   // #832 / #836 portrait PANO 2 (four rows of sliders)   // #596 / #597 room for the bars   // #596 landscape PANO: one row, the TURN / EXPOSURE bars under it   // #379 portrait PANO: 4 rows, the PANO SPIN slider under them   // thumbnails a page on the Video page (#206 portrait: 5 rows, a third tab row)
 function stepScrDir() {
   const dir = toolsPage === 'acid' ? 'up' : tabletDir(scrDir); if (dir === scrDir) return;   // #607 owner: the ACID page is landscape only
   scrDir = dir;
@@ -5057,7 +5070,7 @@ function micLevel() {
 const _micVisOut = { rms: 0, lo: 0, mid: 0, hi: 0 };
 function micVisemes() {
   const m = engine.mic;
-  if (!m || !micOn) { _micVisOut.rms = _micVisOut.lo = _micVisOut.mid = _micVisOut.hi = 0; return _micVisOut; }
+  if (!m || !micOn) { _micVisOut.rms = _micVisOut.lo = _micVisOut.mid = _micVisOut.hi = _micVisOut.nasal = 0; return _micVisOut; }
   const A = m.vmeter || m.meter, AB = m.vmeterBuf || m.meterBuf;   // #833 pre-pitch tap
   A.getFloatTimeDomainData(AB);
   let sum2 = 0;
@@ -5086,6 +5099,10 @@ function micVisemes() {
   if (_micVisOut.rms > 0.03) for (let i = 0; i < 3; i++) M[i] += (B[i] - M[i]) * 0.01;   // ~3 s average, only while speaking
   const R = B.map((v, i) => Math.pow(v / (M[i] + 1e-6), 1.6));
   _micVisOut.lo = R[0]; _micVisOut.mid = R[1]; _micVisOut.hi = R[2];
+  // #836 'Mmm' (a hum through the nose): nearly all the energy below ~450 Hz and very little from 450 to 1500 Hz
+  // (vowels, even OO, keep a second formant there). nasal 0..1, eased; drives closed, pressed lips.
+  const hr = lin(180, 450) / (lin(450, 1500) + 1e-6), nt = _micVisOut.rms > 0.02 ? Math.min(1, Math.max(0, (hr - 3.5) / 4)) : 0;
+  _micVisOut.nasal = (_micVisOut.nasal || 0) + (nt - (_micVisOut.nasal || 0)) * 0.35;
   return _micVisOut;
 }
 function crateScreenPress(uv) {
@@ -6279,12 +6296,26 @@ function drawVideoPage() {
   if (vpFolder === 'Pano') {   // #379 PANO SPIN 0 to 5 (degrees a second); landscape: between the SKY buttons and the LED button, portrait: a row of its own
     // #596 / #597 three bars: PANO TURN, EXPOSURE (the same DOME EXPOSURE as PORTALS SETUP) and SPEED (video panos);
     // landscape: a full-width row above the buttons; portrait: TURN + EXPOSURE, then SPEED under them
-    const ry = P ? H - 194 : by - bh - 10, rx = P ? 26 : 8, rw = P ? W - 52 : W - 16, hw = P ? (rw - 8) / 2 : (rw - 32) / 5,   /* #638 four across: + GAMMA; #832 five: + START FROM */ pr = settings.panoRate || 1;
-    tSlider(g, rx, ry, hw, bh, P ? 'TURN' : 'PANO TURN', settings.skyTurn / 359, `${settings.skyTurn}°`, v => setSkyTurn(v * 359), false, 100);   // #389 was SPIN: a bar that turns the pano by hand
-    tSlider(g, rx + hw + 8, ry, hw, bh, P ? 'EV' : 'EXPOSURE', (dome.ev + 3) / 4, `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)}`, v => setDomeEv(-3 + v * 4), false, 100);
-    tSlider(g, P ? rx + hw + 8 : rx + 2 * (hw + 8), P ? ry + 44 : ry, hw, bh, 'GAMMA', gamPos(dome.gam), dome.gam.toFixed(2), v => setDomeGam(gamOf(v)), false, 100);   // #638 the same DOME GAMMA as PORTALS SETUP
-    tSlider(g, P ? rx : rx + 3 * (hw + 8), P ? ry + 44 : ry, hw, bh, 'SPEED', RATES.indexOf(pr) / (RATES.length - 1), rateTxt(pr), v => setRate('panoRate', RATES[Math.round(v * (RATES.length - 1))]), false, 100);   // #597 video panos only
-    startSlider(g, P ? rx : rx + 4 * (hw + 8), P ? ry - 44 : ry, P ? rw : hw, bh, vpSelFolder || 'Video pano');   // #832
+    // #836 two rows (landscape): TURN, EXPOSURE, GAMMA / SPEED, LIGHT EVERY, FROM>, <TO. Portrait: four rows of two.
+    const pr = settings.panoRate || 1, F = vpSelFolder || 'Video pano', dle = settings.domeLightSec ?? 30, di = Math.max(0, DL_EVERY.indexOf(dle));
+    const S = [
+      [P ? 'TURN' : 'PANO TURN', settings.skyTurn / 359, `${settings.skyTurn}°`, v => setSkyTurn(v * 359)],
+      [P ? 'EV' : 'EXPOSURE', (dome.ev + 3) / 4, `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)}`, v => setDomeEv(-3 + v * 4)],
+      ['GAMMA', gamPos(dome.gam), dome.gam.toFixed(2), v => setDomeGam(gamOf(v))],
+      ['SPEED', RATES.indexOf(pr) / (RATES.length - 1), rateTxt(pr), v => setRate('panoRate', RATES[Math.round(v * (RATES.length - 1))])],
+      ['LIGHT', di / (DL_EVERY.length - 1), dle ? dle + ' s' : 'ONCE', v => { settings.domeLightSec = DL_EVERY[Math.round(v * (DL_EVERY.length - 1))]; saveSettings(); drawMixScreen(); }, settings.domeLight === false],   // #834 LIGHT EVERY (moved here from PORTALS SETUP)
+    ];
+    const rw = P ? W - 52 : W - 16, rx = P ? 26 : 8;
+    if (P) {
+      const hw = (rw - 8) / 2, y1 = H - 238;
+      S.forEach((q, i) => tSlider(g, rx + (i % 2) * (hw + 8), y1 + Math.floor(i / 2) * 44, hw, bh, q[0], q[1], q[2], q[3], !!q[4], 70));
+      startSlider(g, rx + hw + 8, y1 + 88, hw, bh, F); endSlider(g, rx, y1 + 132, hw, bh, F);
+    } else {
+      const r1 = by - 2 * bh - 18, r2 = by - bh - 10, w3 = (rw - 16) / 3, w4 = (rw - 24) / 4;
+      for (let i = 0; i < 3; i++) tSlider(g, rx + i * (w3 + 8), r1, w3, bh, S[i][0], S[i][1], S[i][2], S[i][3], false, 100);
+      for (let i = 3; i < 5; i++) tSlider(g, rx + (i - 3) * (w4 + 8), r2, w4, bh, S[i][0], S[i][1], S[i][2], S[i][3], !!S[i][4], 62);
+      startSlider(g, rx + 2 * (w4 + 8), r2, w4, bh, F); endSlider(g, rx + 3 * (w4 + 8), r2, w4, bh, F);
+    }
   }
   if (vpFolder === 'Video') {   // #597 SPEED for the clips (CYCLOWALL / LED wall, SCREEN portals): a row of its own above the buttons
     const vr = settings.vidRate || 1;
@@ -9712,7 +9743,6 @@ function drawToolsPage() {
       ['DOME SIZE', `${dome.r} m`, null, { v: dome.r, lo: 3, hi: 20, step: 1, set: setDomeSize }],
       ['DOME EXPOSURE', `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)} EV`, null, { v: dome.ev, lo: -3, hi: 1, step: 0.25, set: setDomeEv }],   // #404 tame blown-out panos
       ['DOME GAMMA', dome.gam.toFixed(2), null, { v: dome.gam, lo: 0.5, hi: 2, step: 0.05, set: setDomeGam }],   // #638 (was #629 DOME CONTRAST)
-      ['LIGHT EVERY', (() => { const v = settings.domeLightSec ?? 30; return v ? v + ' s' : 'ONCE'; })(), null, { v: Math.max(0, DL_EVERY.indexOf(settings.domeLightSec ?? 30)), lo: 0, hi: DL_EVERY.length - 1, step: 1, set: v => { settings.domeLightSec = DL_EVERY[v]; saveSettings(); drawMixScreen(); }, dim: settings.domeLight === false }],   // #834 video panos re-light the scene this often (2 s fade)
       ['GLASS RAIN', PS.rain.toUpperCase(), null, { v: Math.max(0, RAIN_ORDER.indexOf(PS.rain)), lo: 0, hi: RAIN_ORDER.length - 1, step: 1, set: rainSet }],   // #639 rain / mist on every PANO frame's glass
       ['FRACTAL SPEED', `${WL.val('speed')}x`, null, wl('speed')],
       ['COLOUR CYCLE', `${WL.val('cycle')}x`, null, wl('cycle')],

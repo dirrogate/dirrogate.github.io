@@ -365,27 +365,31 @@ export class Avatar {
       const rLo = vis.lo / sum, rMid = vis.mid / sum, rHi = vis.hi / sum;
       // Map live speech formants to ARKit mouth visemes:
       // AA/AH (open vowel), OO/OH (round low formant), EE/IH (wide mid formant), S/F/V/T (high fricative)
-      const tOpen  = clamp(sp * (0.35 + 0.95 * rLo + 0.55 * rMid - 0.45 * rHi), 0, 0.85);
-      const tRound = clamp(sp * Math.max(0, (rLo - 0.36) * 2.2) * (1 - rHi * 1.4), 0, 0.72);
-      const tWide  = clamp(sp * Math.max(0, (rMid - 0.28) * 2.1), 0, 0.58);
-      const tFric  = clamp(sp * Math.max(0, (rHi - 0.24) * 2.4), 0, 0.65);
+      // #836 (owner) all shapes ~25 % softer (VK); S / F: teeth nearly together, lips a little wide, hardly any roll;
+      // M (vis.nasal, a hum through the nose): lips closed and lightly pressed, jaw shut.
+      const VK = 0.72, nas = clamp(vis.nasal || 0, 0, 1), opn = 1 - nas;
+      const tOpen  = clamp(sp * (0.35 + 0.95 * rLo + 0.55 * rMid - 0.45 * rHi), 0, 0.85) * opn * (1 - 0.6 * clamp((rHi - 0.24) * 3, 0, 1));
+      const tRound = clamp(sp * Math.max(0, (rLo - 0.36) * 2.2) * (1 - rHi * 1.4), 0, 0.72) * opn;
+      const tWide  = clamp(sp * Math.max(0, (rMid - 0.28) * 2.1), 0, 0.58) * opn;
+      const tFric  = clamp(sp * Math.max(0, (rHi - 0.24) * 2.4), 0, 0.65) * opn;
       const tBrow  = clamp((sp - 0.45) * 0.65, 0, 0.35);
+      const tNas   = clamp(nas * Math.min(1, sp * 3 + 0.3), 0, 1);
       const vv = this.visV;
       const sm = (cur, tgt) => cur + (tgt - cur) * Math.min(1, dt * (tgt > cur ? 28 : 13));
       vv.open = sm(vv.open, tOpen); vv.round = sm(vv.round, tRound);
-      vv.wide = sm(vv.wide, tWide); vv.fric = sm(vv.fric, tFric); vv.brow = sm(vv.brow, tBrow);
-      setM('jawOpen', vv.open * 0.78);
-      setM('mouthOpen', vv.open * 0.80);
-      setM('mouthFunnel', vv.round * 0.65);
-      setM('mouthPucker', vv.round * 0.55);
-      setM('mouthStretchLeft', vv.wide * 0.55);
-      setM('mouthStretchRight', vv.wide * 0.55);
-      setM('mouthSmileLeft', vv.wide * 0.28);
-      setM('mouthSmileRight', vv.wide * 0.28);
-      setM('mouthClose', vv.fric * 0.38);
-      setM('mouthRollLower', vv.fric * 0.45);
-      setM('mouthPressLeft', vv.fric * 0.28);
-      setM('mouthPressRight', vv.fric * 0.28);
+      vv.wide = sm(vv.wide, tWide); vv.fric = sm(vv.fric, tFric); vv.brow = sm(vv.brow, tBrow); vv.nas = sm(vv.nas || 0, tNas);
+      setM('jawOpen', vv.open * 0.78 * VK);
+      setM('mouthOpen', vv.open * 0.80 * VK);
+      setM('mouthFunnel', vv.round * 0.65 * VK);
+      setM('mouthPucker', vv.round * 0.55 * VK);
+      setM('mouthStretchLeft', (vv.wide * 0.55 + vv.fric * 0.22) * VK);
+      setM('mouthStretchRight', (vv.wide * 0.55 + vv.fric * 0.22) * VK);
+      setM('mouthSmileLeft', vv.wide * 0.28 * VK);
+      setM('mouthSmileRight', vv.wide * 0.28 * VK);
+      setM('mouthClose', (vv.fric * 0.15 + vv.nas * 0.2) * VK);
+      setM('mouthRollLower', (vv.fric * 0.08 + vv.nas * 0.08) * VK);
+      setM('mouthPressLeft', (vv.fric * 0.08 + vv.nas * 0.4) * VK);
+      setM('mouthPressRight', (vv.fric * 0.08 + vv.nas * 0.4) * VK);
       setM('browInnerUp', vv.brow);
     } else {
       for (const [o, k] of this.mouth) o.morphTargetInfluences[k] = this.mouthV * 0.8;
@@ -418,7 +422,7 @@ export class Avatar {
       setM('eyeBlinkLeft', Math.max(blinkV, wv * 0.92));
       setM('eyeBlinkRight', blinkV);
       // #825 (owner) the left mouth corner opens and closes with the wink itself, to 0.675 (was a 0.32 lift that lingered)
-      if (wv > 0 || this._smW) { setM('mouthSmileLeft', (vis ? this.visV.wide * 0.28 : 0) + wv * 0.675); this._smW = wv > 0; }
+      if (wv > 0 || this._smW) { setM('mouthSmileLeft', (vis ? this.visV.wide * 0.28 * 0.72 : 0) + wv * 0.675); this._smW = wv > 0; }
     }
   }
   fingers(side, i, h) {
