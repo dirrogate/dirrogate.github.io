@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v301';   // #836 PANO two rows, <TO, LIGHT on PANO; softer visemes, S and M fixed
+const CACHE = 'vire-app-v302';   // Gemini_NEON_2026-11-25_01:07 #837 DJ TOOLS DECK MODE: ORIGINAL / VREAL master switch (platter, slipmat, scratch, spindle, tonearm)
+// was: const CACHE = 'vire-app-v301';   // #836 PANO two rows, <TO, LIGHT on PANO; softer visemes, S and M fixed
 // was: const CACHE = 'vire-app-v278';   // #814d DIRRO REAL 3 smoother beanie edge
 // was: const CACHE = 'vire-app-v277';   // #814c DIRRO REAL 3 4096 skin, detail normals, matte
 // was: const CACHE = 'vire-app-v276';   // #814b DIRRO REAL 3 seam fix

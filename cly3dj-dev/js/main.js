@@ -64,7 +64,7 @@ const params = new URLSearchParams(location.search);
 const CAMERA_ROLE = params.get('role') === 'camera';   // #161: this page is the spectator phone (spectator.html sends it here)
 // start-screen settings, remembered per browser
 const SETTINGS_DEFAULT = { needleLift: 7, source: 'pc', xml: 'rekordbox.xml', hands: '3d', glow: 'add', shadows: 'blob', env: 'studio', envMix: 50, micDevice: '', micEcho: false, micRoute: 'app',
-  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, dome3d: false, spect: 'on', sky: 'off', arRefl: 60, occlusion: false, roomHits: true,   // #411 (#415 occlusion off by default: owner prefers seeing the beams in DOME scenes)
+  deckModel: 'classic', recWeight: '180', slipmat: 'slick', pll: false, ttWorkflow: 'original', dome3d: false, spect: 'on', sky: 'off', arRefl: 60, occlusion: false, roomHits: true,   // #411 (#415 occlusion off by default: owner prefers seeing the beams in DOME scenes)
   skyH: 1.5, skyTurn: 0, skyType: 'auto', skyKey: 'on', skyFile: '', skyMedia: '' };   // turntable physics (#120)
 const settings = (() => { try { return { ...SETTINGS_DEFAULT, ...JSON.parse(localStorage.getItem('vire.settings') || '{}') }; } catch { return { ...SETTINGS_DEFAULT }; } })();
 if (params.get('xml')) { settings.source = 'pc'; settings.xml = params.get('xml'); }
@@ -77,6 +77,14 @@ let dirro = null, dirroRoomT = 0, smsPg = 0;
 const dirroMark = { want: '', t0: 0, prev: {} };   // #438 MARK LEFT / RIGHT: the next trigger press records the controller tip   // #435 smsPg: HOLOSMS page   // #427 DirroHost, set up at the end of start-up
 let spect = null, spectErrShown = false;   // #158 spectator host (declared early: drawMixScreen reads it, #164)
 function saveSettings() { try { localStorage.setItem('vire.settings', JSON.stringify(settings)); } catch {} }
+const isVReal = () => settings.ttWorkflow === 'vreal';
+function setTtWorkflow(mode) {
+  settings.ttWorkflow = mode === 'vreal' ? 'vreal' : 'original';
+  saveSettings();
+  if (typeof sendPhysics === 'function') sendPhysics();
+  toast(isVReal() ? 'DECK MODE: VREAL (Vinyl Reality handling)' : 'DECK MODE: ORIGINAL (SL-1200 physics)', 2200);
+  if (typeof drawMixScreen === 'function') drawMixScreen();
+}
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 let mprops = null;   // #478 MOVIE PROPS: puddles, rain, fog, GLBs, neon signs, graffiti
 let fx = null;   // #379 FLOAT / WATER (made next to the XR setup, once everything it looks at exists)
@@ -4395,12 +4403,19 @@ function liftNeedle(d, park) {
   d.arm.targetLift = 1; d.arm.onLand = null;
   if (park) { d.arm.parking = true; }
 }
+function vrealPhaseSnap(d, time) {
+  if (!isVReal() || !d.duration) return time;
+  const revSec = 1.8 / (d.speed || 1);
+  const phase = (((d.recAngle || 0) / (2 * Math.PI)) % 1 + 1) % 1;
+  return clamp((Math.floor(time / revSec) + phase) * revSec, 0, Math.max(0, d.duration - 0.05));
+}
 function dropNeedleAt(d, time) {
   if (!d.loaded) { toast(d.loading ? 'Still loading…' : `Deck ${d.name} has nothing to play`); return; }
   engine.deck(d.i, 'needle', false);
   d.arm.parking = false;
   d.arm.targetLift = 1;
-  d.arm.cueTime = time;
+  d.arm.dropVel = 0;
+  d.arm.cueTime = vrealPhaseSnap(d, time);
   d.arm.targetYaw = armYawForRadius(d.g.userData.pivot, DECK.spindle, timeToRadius(time, d.duration, recD(d)));
   d.arm.onLand = () => { engine.post({ type: 'seek', deck: d.i, time: d.arm.cueTime }); engine.deck(d.i, 'needle', true); };
   d.arm.wantDown = true;
@@ -4456,7 +4471,7 @@ function armRelease(d) {
   if (d.loaded && r < D.EDGE && r > D.IN - 0.004) {
     // #323 let go over the lead-in: the stylus runs into the first groove (lands there, plays from the start)
     if (r > D.OUT) a.yaw = armYawForRadius(u.pivot, DECK.spindle, D.OUT);
-    a.cueTime = radiusToTime(Math.min(r, D.OUT), d.duration, D); a.targetYaw = a.yaw; a.parking = false; a.wantDown = true;
+    a.cueTime = vrealPhaseSnap(d, radiusToTime(Math.min(r, D.OUT), d.duration, D)); a.targetYaw = a.yaw; a.parking = false; a.wantDown = true; a.dropVel = 0;
     a.onLand = () => { engine.post({ type: 'seek', deck: d.i, time: a.cueTime }); engine.deck(d.i, 'needle', true); };
   } else if (d.record && d.track && !d.loaded && r < D.EDGE && r > D.IN - 0.004) {
     // #181 (owner): let go over a record whose grooves are still loading: hover there and drop by itself once it's ready
@@ -4495,8 +4510,22 @@ function updateArm(d, dt) {
       a.lift = Math.min(1, a.lift + dt * 5);
       if (a.lift >= 1) a.yaw += Math.sign(a.targetYaw - a.yaw) * Math.min(Math.abs(a.targetYaw - a.yaw), dt * 1.4);
     } else if (a.wantDown && a.onLand) {
-      a.lift = Math.max(0, a.lift - dt * (a.lift > 0.25 ? 3.2 : 1.6));   // #104: ease the last bit onto the vinyl
-      if (a.lift <= 0) { const f = a.onLand; a.onLand = null; a.wantDown = false; f(); }
+      if (isVReal()) {
+        // VReal TonearmView drop physics: gravity acceleration + subtle bounce (restitution 0.5) before settling
+        if (dt < 0.05) {
+          a.dropVel = (a.dropVel || 0) + 18.0 * dt;
+          a.lift -= a.dropVel * dt;
+          if (a.lift <= 0) {
+            a.lift = 0;
+            const b = -a.dropVel * 0.5;
+            if (Math.abs(b) > 1.2) { a.dropVel = b; }
+            else { a.dropVel = 0; const f = a.onLand; a.onLand = null; a.wantDown = false; f(); }
+          }
+        }
+      } else {
+        a.lift = Math.max(0, a.lift - dt * (a.lift > 0.25 ? 3.2 : 1.6));   // #104: ease the last bit onto the vinyl
+        if (a.lift <= 0) { const f = a.onLand; a.onLand = null; a.wantDown = false; f(); }
+      }
     } else {
       a.lift += (a.targetLift - a.lift) * Math.min(1, dt * 8);
       if (a.parking && yawDone) a.parking = false;
@@ -5205,7 +5234,7 @@ function scratchBegin(d, localPoint, nudge = false, force) {
 const RIM_FORCE_LIGHT = 0.35;   // N: a fingertip resting on the platter's side
 function handRate(s) { return s.rate; }
 function postHand(s, holding) {
-  if (s.nudge) engine.post({ type: 'touch', deck: s.deck.i, active: holding, rate: s.rate, force: s.force });
+  if (s.nudge) engine.post({ type: 'touch', deck: s.deck.i, active: holding, rate: s.rate, force: s.force, vNudge: holding ? (s.vNudge || 0) : 0 });
   else engine.post(holding ? { type: 'hand', deck: s.deck.i, holding: true, rate: s.rate, ang: s.ang, t: s.t || undefined }
     : { type: 'hand', deck: s.deck.i, holding: false, t: renderer.xr.isPresenting && frameT ? frameT : performance.now(), comp: relTimingMs() / 1000 });   // #423 t: the reading's time stamp; #829 the release is stamped too, + RELEASE TIMING
 }
@@ -5217,7 +5246,14 @@ function scratchMove(s, localPoint, force) {
   const ang = Math.atan2(localPoint.z - DECK.spindle.z, localPoint.x - DECK.spindle.x);
   let da = ang - s.lastAng; if (da > Math.PI) da -= 2 * Math.PI; if (da < -Math.PI) da += 2 * Math.PI;
   s.lastAng = ang;
-  if (s.nudge) {   // finger on the platter rim: unchanged (#120)
+  if (s.nudge) {   // finger on the platter rim: unchanged (#120) in Original; VReal sends XR-timed delta to SmoothDamp(0.1s)
+    if (isVReal()) {
+      const dtm = Math.min(0.1, Math.max(0.004, (tS - (s.t || tS)) / 1000)); s.t = tS;
+      const degPerSec = (da * 180 / Math.PI) / dtm;
+      s.vNudge = clamp(degPerSec * (0.03 / 72), -0.85, 0.85);   // matches PlatterController DEFAULT_PITCH_BEND_SENSITIVITY = 0.03 at 72 Hz
+      s.rate = (da / dtm) / W33; s.ang += da;
+      s.lastT = now; s.lastMove = now; postHand(s, true); return;
+    }
     const dtm = Math.max(4, now - s.lastT) / 1000;
     s.rate = s.rate * 0.4 + ((da / dtm) / W33) * 0.6; s.ang += da;
     s.lastT = now; s.lastMove = now; postHand(s, true); return;
@@ -5259,14 +5295,18 @@ function spindleTwist(d, seconds) {
   engine.post({ type: 'shift', deck: d.i, delta: seconds * FEEL.spin / 100 }); d.twistT = performance.now();   // #423 SPINDLE TWIST
 }
 // #322 VR: fingers pinching the spindle (a friction torque on the platter, see the worklet); rate = their turning speed
-function spindleHold(d, rate) { engine.post({ type: 'spin', deck: d.i, active: true, rate }); d.twistT = performance.now(); }
-function spindleRelease(d) { engine.post({ type: 'spin', deck: d.i, active: false }); }
+function spindleHold(d, rate, vSpin) { engine.post({ type: 'spin', deck: d.i, active: true, rate, vSpin }); d.twistT = performance.now(); }
+function spindleRelease(d) { engine.post({ type: 'spin', deck: d.i, active: false, vSpin: 1 }); }
 function scratchEnd(s) { if (s.holding) postHand(s, false); scratches.delete(s); }
 function scratchIdle() { // a still hand holds the record still
   const now = performance.now();
   for (const s of scratches) if (s.holding && now - s.lastMove > 45) {
     s.rate *= 0.5; if (Math.abs(s.rate) < 0.01) s.rate = 0;
-    if (!s.nudge) { s.t = renderer.xr.isPresenting && frameT ? frameT : now; s.ang = s.raw; s.dx = 0; }   // #423 no new reading: the hand is still
+    if (s.nudge && isVReal()) { s.vNudge = (s.vNudge || 0) * 0.5; if (Math.abs(s.vNudge) < 0.002) s.vNudge = 0; }
+    if (!s.nudge) {
+      s.t = renderer.xr.isPresenting && frameT ? frameT : now;
+      if (isVReal()) { s.raw = s.ang; s.dx = 0; } else { s.ang = s.raw; s.dx = 0; }   // #423 no new reading: the hand is still
+    }
     postHand(s, true);
   }
 }
@@ -9853,6 +9893,7 @@ function drawToolsPage() {
     const avBtn = (x, y, w, h) => btn(x, y, w, h, `AVATAR: ${djSet.avatar ? 'ON' : 'OFF'}`, djSet.avatar, () => setDjAvatar(!djSet.avatar), false, P ? 18 : 20);   // #363 the robot DJ (SHOWTIME!) on / off
     const styleBtn = (x, y, w, h) => btn(x, y, w, h, `AVATAR: ${(AVATAR_STYLES[djSet.style] || AVATAR_STYLES.robot).label}`, djSet.style !== 'robot', nextDjStyle, false, P ? 18 : 20);   // #539 tap to cycle ROBOT / DIRROFACE / DIRROCROW
     const caseBtn = (x, y, w, h) => { const t = !!(cases.caseA && cases.caseA.H <= 0.15); btn(x, y, w, h, `FLIGHTCASE: ${t ? 'TRAY' : 'FULL'}`, t, caseTrayToggle, !cases.caseA, P ? 18 : 18); };   // #628 same switch as ROOMS > CASE
+    const wfBtn = (x, y, w, h, fs) => btn(x, y, w, h, isVReal() ? 'DECK MODE: VREAL' : 'DECK MODE: ORIGINAL', isVReal(), () => setTtWorkflow(isVReal() ? 'original' : 'vreal'), false, fs || (P ? 16 : 16));   // Master A/B switch: Original SL-1200 vs VReal (Vinyl Reality)
     const sw = (x, y, w, h, label, k) => { const on = pieceOn(k); btn(x, y, w, h, `${label}: ${on ? 'ON' : 'OFF'}`, on, () => setPiece(k, !on), false, P ? 18 : 20); };
     // #389 / #530 VJ TOOLS: 14 stage & visual extras in a clean grid
     const vjPage = y0 => {
@@ -9879,8 +9920,8 @@ function drawToolsPage() {
         ctlBtn(L, y0 + 176, (R - L - 8) * 0.62, 64); btn(L + (R - L - 8) * 0.62 + 8, y0 + 176, (R - L - 8) * 0.38, 64, 'HAND FIT', false, () => setTools('handfit'), false, 18);   // #291
         { const w3 = (R - L - 16) / 3; lockBtn(L, y0 + 252, w3 * 1.1, 64); btn(L + w3 * 1.1 + 8, y0 + 252, w3 * 0.95, 64, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 15); btn(L + w3 * 2.05 + 16, y0 + 252, w3 * 0.95, 64, 'MIXER FEEL', false, () => setTools('mixfeel'), false, 15); }   // #378, #423, #605
         avBtn(L, y0 + 328, (R - L - 8) * 0.38, 64); styleBtn(L + (R - L - 8) * 0.38 + 8, y0 + 328, (R - L - 8) * 0.62, 64);   // #539
-        caseBtn(L, y0 + 404, R - L, 56);   // #628
-        note('GEAR LOCKDOWN is on at every start: decks and mixer can not be moved or turned until you switch it off. RECORD MAKER: press your own record. MILK CRATE: the first milk crate. CONTROLLERS: 3D hands holding them, or the bare controllers. AVATAR: tap to pick ROBOT, DIRROFACE or DIRROCROW. FLIGHTCASE: TRAY = lid height, carry it by its front handle.', y0 + 474); }
+        { const hw = (R - L - 8) / 2; caseBtn(L, y0 + 404, hw, 56); wfBtn(L + hw + 8, y0 + 404, hw, 56, 16); }   // #628 + DECK MODE switch
+        note('GEAR LOCKDOWN is on at every start. DECK MODE: ORIGINAL (SL-1200 two-body physics) vs VREAL (Vinyl Reality platter, slipmat, scratch & tonearm handling). FLIGHTCASE: TRAY = lid height.', y0 + 474); }
       else vjPage(y0);   // #389
     } else {
       const bw = 300, x2 = L + bw + 12, w2 = R - x2;
@@ -9889,9 +9930,9 @@ function drawToolsPage() {
         { const rw = R - L - 24, xa = L + rw * 0.34 + 8, xb = xa + rw * 0.22 + 8, xc = xb + rw * 0.16 + 8;   // #539 the avatar pair shares this row (the landscape screen is only 304 px tall)
           lockBtn(L, y0 + 154, rw * 0.34, 46); btn(xa, y0 + 154, rw * 0.22, 46, 'TURNTABLE FEEL', false, () => setTools('feel'), false, 18);   // #378, #423
           avBtn(xb, y0 + 154, rw * 0.16, 46); styleBtn(xc, y0 + 154, rw * 0.28, 46); }
-        { const cw = (R - L) * 0.34; caseBtn(L, y0 + 206, cw, 44);   // #628
+        { const cw = (R - L - 16) * 0.32, ww = (R - L - 16) * 0.34; caseBtn(L, y0 + 206, cw, 44); wfBtn(L + cw + 8, y0 + 206, ww, 44, 15);   // #628 + DECK MODE switch
           g.textAlign = 'left'; g.font = '500 12px system-ui'; g.fillStyle = '#8c96a8';
-          wrapText(g, 'GEAR LOCKDOWN is on at every start. FLIGHTCASE: TRAY = the case at lid height, carry it (and the gear) by its front handle, lift it onto a table.', L + cw + 12, y0 + 222, R - L - cw - 12, 15, 2); } }
+          wrapText(g, 'DECK MODE: A/B Original SL-1200 vs VReal (Vinyl Reality) platter, slipmat & tonearm.', L + cw + ww + 16, y0 + 222, R - L - cw - ww - 16, 15, 2); } }
       else vjPage(y0);   // #389
     }
     return;
@@ -11320,7 +11361,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   trayScreen: () => (acidTray.open ? pvScreen : null), trayPress, trayDrag, trayRelease,   // #619
   reelAt: acidReelAt, reelTurn: acidReelTurn, reelEnd: () => acidNudge(0), cassGrab, cassRelease,   // #621
   acidKnobs: acidKnobs3D, knobTick: acidKnobTick, knobEnd: acidKnobEnd, knobObj: acidKnobObj, knobAxis: acidKnobAxis,   // #608 / #616 (own line: #608 had commented out the fader / pitch helpers above)
-  scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease,
+  scratchBegin, scratchMove, scratchEnd, spindleTwist, spindleHold, spindleRelease, isVReal,
   deckState: d => ({ st: engine.state.decks[d.i], driving: !!d.motorOn && d.power !== false, model: settings.deckModel }),   // #120 haptics
   armGrab, armDrag, armRelease,
   needleDown: d => !!(d.record && ((engine.state.decks[d.i] && engine.state.decks[d.i].needle) || (d.arm && (d.arm.lift < 0.5 || d.arm.dragDown)))),   // #451
@@ -11776,7 +11817,7 @@ $('#cPll').onchange = e => { settings.pll = e.target.checked; saveSettings(); se
 // #120: turntable physics settings go to the deck worklet (both decks)
 function sendPhysics() {
   engine.post({ type: 'physics', model: settings.deckModel, recMass: (+settings.recWeight || 180) / 1000, mat: settings.slipmat, pll: !!settings.pll,
-    fricK: FEEL.fric / 100, nudgeK: FEEL.nudge / 100, spinK: FEEL.spin / 100 });   // #423 TURNTABLE FEEL
+    fricK: FEEL.fric / 100, nudgeK: FEEL.nudge / 100, spinK: FEEL.spin / 100, workflow: settings.ttWorkflow || 'original' });   // #423 TURNTABLE FEEL + VReal workflow
 }
 // #113: the device / feedback-guard rows only matter when the app opens the mic itself
 function showMicRoute() { $('#rowMicApp').hidden = settings.micRoute !== 'app'; }

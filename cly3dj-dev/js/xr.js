@@ -214,7 +214,12 @@ export function setupXR(ctx) {
     } else st.detK = null;
     st.rubT = (st.rubT || 0) - dt;
     if (st.rubT <= 0) {
-      const v = Math.min(0.3, Math.abs(S.slip || 0) * 0.08 + Math.max(0, Math.abs(S.load || 0) - 0.6) * 0.3);
+      let v = Math.min(0.3, Math.abs(S.slip || 0) * 0.08 + Math.max(0, Math.abs(S.load || 0) - 0.6) * 0.3);
+      if (ctx.isVReal && ctx.isVReal() && s.nudge) {
+        // VReal PlatterController.RoutinePlatterFeedback: continuous rim-dot rumble proportional to relative slip
+        const vr = Math.max(0, Math.abs(S.prate || 0) - (s.vNudge || 0) * 0.5) * 0.15;
+        if (vr > v) v = Math.min(0.3, vr);
+      }
       if (v > 0.03) buzz(st, v, 45);
       st.rubT = 0.04;
     }
@@ -410,7 +415,7 @@ export function setupXR(ctx) {
       // #316 (owner: the spindle did nothing): with a controller the touch point is the 13.5 mm ball's centre (#294), not a
       // fingertip, so the zone grows by the ball's radius (else the ball sits on the pin and the label's dead zone answers)
       const sp = st.isHand ? 0 : 0.0135;
-      if (d.record && r < 0.008 + sp && h > -0.005 && h < 0.02 + sp) { st.direct = { kind: 'spindle', d, yawL: yawOf(handQuat(st, q1)), tL: performance.now(), w: 0, acc: 0 }; ctx.spindleHold(d, 0); buzz(st, 0.3, 15); return true; }   // #105, #322
+      if (d.record && r < 0.008 + sp && h > -0.005 && h < 0.02 + sp) { st.direct = { kind: 'spindle', d, yawL: yawOf(handQuat(st, q1)), qL: handQuat(st, new THREE.Quaternion()), tL: performance.now(), w: 0, acc: 0 }; ctx.spindleHold(d, 0, 1); buzz(st, 0.3, 15); return true; }   // #105, #322
       // #107: lift zone widened 5 mm into the label (45-70 mm radius); inside that the label does nothing
       // #325 (owner) bare hands: a pinch anywhere on the record (label to rim) holds it while the platter spins under the
       // mat; #326 it moves with the pinch (rock it back and forth on the kick); pinch and lift 3 cm takes it off.
@@ -657,9 +662,19 @@ export function setupXR(ctx) {
       // #322 the fingers' turning speed about the vertical (clockwise from above = forward), smoothed over a couple of
       // frames; the worklet turns it into friction on the pin against the servo (no gearing: physics decides)
       const now = performance.now(), dts = Math.max(0.004, (now - g.tL) / 1000); g.tL = now;
-      const y = yawOf(handQuat(st, q1)), dy = wrap(y - g.yawL); g.yawL = y;
-      g.w += (-dy / dts - g.w) * 0.5;
-      ctx.spindleHold(g.d, g.w / W33_XR);
+      let dy;
+      if (ctx.isVReal && ctx.isVReal() && g.qL) {
+        // VReal mode: quaternion swing-twist about world-Y (no gimbal jump when wrist points down at spindle)
+        const hq = handQuat(st, q1), dq = _twQ.copy(hq).multiply(_twI.copy(g.qL).invert()); g.qL.copy(hq);
+        dy = wrap(2 * Math.atan2(dq.y, dq.w));
+        g.w += (-dy / dts - g.w) * 0.5;
+        const vSpin = Math.max(0, Math.min(2.0, 1 + (g.w / W33_XR) * 0.18));
+        ctx.spindleHold(g.d, g.w / W33_XR, vSpin);
+      } else {
+        const y = yawOf(handQuat(st, q1)); dy = wrap(y - g.yawL); g.yawL = y;
+        g.w += (-dy / dts - g.w) * 0.5;
+        ctx.spindleHold(g.d, g.w / W33_XR);
+      }
       g.acc += Math.abs(dy); if (g.acc >= 0.035) { g.acc -= 0.035; buzz(st, 0.15, 8); }   // a tick every 2 deg of twist
     } else if (g.kind === 'lift') {
       if (P.y - g.y0 > 0.03 && !(ctx.needleDown && ctx.needleDown(g.d))) { updateAnchor(st); ctx.pickUpFromDeck(g.d, st.anchor); st.direct = { kind: 'held' }; buzz(st); }

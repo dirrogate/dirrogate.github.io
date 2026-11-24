@@ -114,6 +114,11 @@ class Deck {
     // #829 stamped release (played out on the audio clock like the hand readings) + RELEASE TIMING compensation
     this.relAt = null; this.relWait = 0; this.relComp = 0; this.relShift = 0;
     this.hRingT = new Float64Array(512); this.hRingW = new Float64Array(512); this.hRi = 0; this.hRn = 0; this.hRc = 0;
+    // VReal workflow (Vinyl Reality kinematic model: PlatterController -> PlatterModel -> SlipmatController)
+    this.workflow = 'original';
+    this.vNudgeTarget = 0; this.vNudgeSmooth = 0; this.vNudgeVel = 0;
+    this.vSpinTarget = 1; this.vSpinMult = 1; this.vSpinVel = 0;
+    this.vHandTarget = 0; this.vHandAng = 0; this.vHandOff = 0; this.vHandVel = 0; this.vHandInit = false;
     this.setRecord(0.18);
   }
   setRecord(mass, R = REC_R, holeR = HOLE_R) {   // #261 R / holeR: a 7" single is smaller, with a big hole
@@ -136,6 +141,7 @@ class Deck {
   // ---- one audio sample of turntable physics. Returns the record's rate (1 = 33 1/3 rpm).
   step(dt, handK, touchK) {
     this.hClock += dt;   // #423 audio clock for stamped hand readings
+    if (this.workflow === 'vreal') return this.stepVReal(dt);
     if (this.model === 'legacy') return this.stepLegacy(dt, handK, touchK);
     const P = this.P, Ip = P.I;
     // #319 spindle twist: the fingers carry the platter (and a record gripping the mat) round by the twisted angle,
@@ -292,6 +298,63 @@ class Deck {
     this.shiftPending += delta / W33 * this.srcRate; this.relShift = delta;
   }
 
+  // VReal workflow: Vinyl Reality's kinematic pipeline (PlatterController -> PlatterModel -> SlipmatController).
+  // Zero allocations per sample. Keeps this.wp / this.wr / this.thp / this.thr continuous for live A/B switching.
+  stepVReal(dt) {
+    // 1. PlatterController.Update: SmoothDamp(0.1s) on rim nudge delta
+    {
+      const omega = 20.0, x = omega * dt, exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+      const ch = this.vNudgeSmooth - this.vNudgeTarget, tmp = (this.vNudgeVel + omega * ch) * dt;
+      this.vNudgeVel = (this.vNudgeVel - omega * tmp) * exp;
+      this.vNudgeSmooth = this.vNudgeTarget + (ch + tmp) * exp;
+    }
+    // 2. PlatterSpindleController.UpdateController: SmoothDamp(0.1s) on wrist-twist spindle multiplier
+    {
+      const omega = 20.0, x = omega * dt, exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+      const ch = this.vSpinMult - this.vSpinTarget, tmp = (this.vSpinVel + omega * ch) * dt;
+      this.vSpinVel = (this.vSpinVel - omega * tmp) * exp;
+      this.vSpinMult = this.vSpinTarget + (ch + tmp) * exp;
+    }
+    // 3. PlatterModel.UpdateModel: linear MoveTowards motor torque / unpowered coast
+    const rimMult = Math.max(0, 1 + this.vNudgeSmooth * this.nudgeK);
+    const spinMult = Math.max(0, this.vSpinMult);
+    if (!this.power) {
+      const step = 0.55 * dt;   // unpowered coast-to-stop (~6.3 s from 33 1/3 rpm)
+      if (Math.abs(this.wp) <= step) this.wp = 0; else this.wp -= Math.sign(this.wp) * step;
+      if (this.nudgeLeft > 0) { this.nudgeLeft = 0; this.nudgeE = 0; }
+    } else {
+      let tgt = 0;
+      if (this.motorOn) {
+        tgt = this.speed * (1 + this.pitch) * W33 * rimMult * spinMult;
+        if (this.nudgeLeft > 0) { tgt *= 1 + this.nudgeE; if (--this.nudgeLeft === 0) this.nudgeE = 0; }
+      }
+      const step = 5.0 * dt;   // motor start/stop ramp (~0.7 s to 33 1/3 rpm)
+      const diff = tgt - this.wp;
+      if (Math.abs(diff) <= step) this.wp = tgt; else this.wp += Math.sign(diff) * step;
+    }
+    // 4. SlipmatController: hand-on SmoothDampAngle(0.02s) scratching OR hand-off linear MoveTowards friction
+    if (!this.hasRec && !this.handOn) {
+      this.wr = this.wp; this.stuck = true;
+    } else if (this.handOn) {
+      const omega = 100.0, x = omega * dt, exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+      const prev = this.vHandAng, ch = prev - this.vHandTarget, tmp = (this.vHandVel + omega * ch) * dt;
+      this.vHandVel = (this.vHandVel - omega * tmp) * exp;
+      const next = this.vHandTarget + (ch + tmp) * exp;
+      this.vHandAng = next;
+      this.wr = (next - prev) / dt;
+      this.stuck = false;
+    } else {
+      const baseFric = this.mat === MATS.rubber ? 90 : this.mat === MATS.felt ? 30 : 18;
+      const step = baseFric * this.fricK * dt;
+      const diff = this.wp - this.wr;
+      if (Math.abs(diff) <= step) { this.wr = this.wp; this.stuck = true; }
+      else { this.wr += Math.sign(diff) * step; this.stuck = false; }
+    }
+    this.thp += this.wp * dt; this.thr += this.wr * dt;
+    this.load = 0; this.matT = 0;
+    return this.wr / W33;
+  }
+
   // pre-#120 behaviour, unchanged: the record rate IS the platter speed, fixed ramps
   stepLegacy(dt, handK, touchK) {
     if (this.holding) this.rate += (this.handRate - this.rate) * handK;
@@ -348,8 +411,21 @@ class Decks extends AudioWorkletProcessor {
         break;
       case 'touch':
         d.touch = m.active; d.touchRate = m.rate; if (m.force != null) d.touchF = m.force;
+        d.vNudgeTarget = m.active && m.vNudge != null ? m.vNudge : 0;
         break;
       case 'hand':
+        if (d.workflow === 'vreal') {
+          d.holding = m.holding; d.handRate = m.rate || 0;
+          if (m.holding) {
+            const a = m.ang || 0;
+            if (!d.vHandInit) { d.vHandAng = d.thr; d.vHandOff = d.thr - a; d.vHandTarget = d.thr; d.vHandVel = d.wr; d.vHandInit = true; }
+            else d.vHandTarget = a + d.vHandOff;
+            d.handOn = true;
+          } else {
+            d.handOn = false; d.vHandInit = false; d.vHandVel = 0; d.relAt = null;
+          }
+          break;
+        }
         d.holding = m.holding; d.handRate = m.rate || 0;
         if (m.holding) {
           if (d.relAt != null) { d.relAt = null; d.relComp = 0; }   // #829 grabbed again before a stamped release played out
@@ -391,6 +467,7 @@ class Decks extends AudioWorkletProcessor {
         break;
       case 'spin':   // #322 fingers pinching the spindle: active, and how fast they turn (1 = 33 1/3 rpm)
         d.spinOn = !!m.active; d.spinRate = m.rate || 0;
+        d.vSpinTarget = m.active && m.vSpin != null ? Math.max(0, m.vSpin) : 1;
         break;
       case 'needleDrag':
         if (m.active === true) { d.drag = true; d.dragPending = 0; d.dragAcc = 0; }
@@ -411,6 +488,13 @@ class Decks extends AudioWorkletProcessor {
     if (m.recMass) { d.massSetting = m.recMass; if (!d.is7) d.setRecord(m.recMass); }   // #261 a 45 keeps its own weight
     if (m.pll != null) d.pll = !!m.pll;
     if (m.fricK != null) d.fricK = m.fricK; if (m.nudgeK != null) d.nudgeK = m.nudgeK; if (m.spinK != null) d.spinK = m.spinK;   // #423
+    if (m.workflow && (m.workflow === 'original' || m.workflow === 'vreal') && d.workflow !== m.workflow) {
+      d.workflow = m.workflow;
+      d.vNudgeTarget = 0; d.vNudgeSmooth = 0; d.vNudgeVel = 0;
+      d.vSpinTarget = 1; d.vSpinMult = 1; d.vSpinVel = 0;
+      d.vHandInit = false; d.vHandVel = 0;
+      d.phi = 0; d.refCur = d.wp; d.wasDisturbed = false;
+    }
   }
 
   // LOCK phase step (#116): nudge-only, to the NEAREST beat. Beat positions come from the DJ's BEAT 1 taps
