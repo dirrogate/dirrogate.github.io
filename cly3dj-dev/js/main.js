@@ -7043,8 +7043,8 @@ async function pressBytes(track) {
 const FEEL_DEF = {
   fric: { label: 'PLATTER FRICTION', lo: 25, hi: 300, v: 100, unit: '%' },   // slipmat friction against the platter (stick / slip)
   scr: { label: 'SCRATCH & DRAG', lo: 25, hi: 150, v: 100, unit: '%' },      // record turn per hand turn (100 % = 1:1, a real record)
-  smooth: { label: 'HAND SMOOTHING', lo: 0, hi: 100, v: 85, unit: '%' },     // tracking-noise filter on the hand on the record
-  even: { label: 'RADIUS EVEN-OUT', lo: 0, hi: 100, v: 100, unit: '%' },     // #424 any touch radius moves the record like the outer music area
+  smooth: { label: 'HAND SMOOTHING', lo: 0, hi: 100, v: 0, unit: '%' },      // tracking-noise filter on the hand on the record (default 0%)
+  even: { label: 'RADIUS EVEN-OUT', lo: 0, hi: 100, v: 0, unit: '%' },     // #424 any touch radius moves the record like the outer music area (default 0% = true 1:1 polar angle)
   spin: { label: 'SPINDLE TWIST', lo: 25, hi: 300, v: 100, unit: '%' },      // pinch on the spindle: torque passed to the platter
   nudge: { label: 'NUDGE AMOUNT', lo: 25, hi: 300, v: 100, unit: '%' },      // finger on the platter rim: drag / push strength
   grv: { label: 'RECORD GROOVES', lo: 0, hi: 300, v: 100, unit: '%' },       // #455 ring contrast + sheen on the vinyl (looks only, no physics)
