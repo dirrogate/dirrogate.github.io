@@ -519,10 +519,12 @@ function useAvatarStyle(st) {
   for (const a of Object.values(avatars)) a.root.visible = false;
   avatar = avatars[st]; avatar.root.visible = djSet.avatar;
   applyAvatarClothes(avatar);
-  if (AVATAR_STYLES[st] && AVATAR_STYLES[st].noBody && typeof xr !== 'undefined' && xr && xr.getCtlLook() === '3dhands') {
-    xr.setCtlLook('ghostglove');
-    const el = document.getElementById('sHands'); if (el) el.value = 'ghostglove';
-  }
+  try {
+    if (AVATAR_STYLES[st] && AVATAR_STYLES[st].noBody && xr && xr.getCtlLook() === '3dhands') {
+      xr.setCtlLook('ghostglove');
+      const el = document.getElementById('sHands'); if (el) el.value = 'ghostglove';
+    }
+  } catch {}
 }
 useAvatarStyle(djSet.style);
 // #806 Standalone grabbable eyewear accessory (not baked to any avatar; Grip / Pinch on front pulls off & extends temples)
