@@ -1927,7 +1927,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     if (spect && spect.helpers) spect.helpers.forEach(hide);   // #385 the blue camera outline and the calibration panel are for the headset, never in the picture
     if (O.backdrop !== 'dome') hide(skybox.group);
     propHides(hide, O, true);
-    const robotGhost = djSet.style === 'robot' && xr && xr.getCtlLook() === 'ghostglove';
+    const robotGhost = djSet.style === 'robot' && xr && (xr.getCtlLook() === 'ghostglove' || xr.getCtlLook() === 'holohand');
     const keepFloatingHands = (!!(AVATAR_STYLES[djSet.style] && AVATAR_STYLES[djSet.style].noBody) || robotGhost) && xr;
     const keepGripCtl = keepFloatingHands && xr.getCtlLook() === 'controller';
     if (robotGhost && avatars.robot && avatars.robot.hands) for (const H of avatars.robot.hands) hide(H.mesh);
@@ -9907,8 +9907,8 @@ function drawToolsPage() {
     // #235 switches for stage pieces (off = hidden and no per-frame work), green = on
     // #276 controllers seen as 3D hands holding them, or bare controllers
     const ctlBtn = (x, y, w, h) => { let X = null; try { X = xr; } catch (e) {}   // xr is set up further down the file
-      const cur = X ? X.getCtlLook() : '3dhands', NEXT = { '3dhands': 'ghostglove', ghostglove: 'glove', glove: 'controller', controller: '3dhands' };   // #287 four looks, tap to cycle
-      btn(x, y, w, h, `CONTROLLERS: ${{ '3dhands': '3D HANDS', ghostglove: 'GHOST GLOVE', glove: 'GLOVE', controller: 'CONTROLLER' }[cur]}`, cur !== 'controller', () => { if (X) X.setCtlLook(NEXT[cur]); const el = document.getElementById('sHands'); if (el && X) el.value = X.getCtlLook(); drawMixScreen(); }, false, P ? 18 : 20); };
+      const cur = X ? X.getCtlLook() : '3dhands', NEXT = { '3dhands': 'ghostglove', ghostglove: 'holohand', holohand: 'glove', glove: 'controller', controller: '3dhands' };   // #287 five looks, tap to cycle
+      btn(x, y, w, h, `CONTROLLERS: ${{ '3dhands': '3D HANDS', ghostglove: 'GHOST GLOVE', holohand: 'HOLOHAND', glove: 'GLOVE', controller: 'CONTROLLER' }[cur]}`, cur !== 'controller', () => { if (X) X.setCtlLook(NEXT[cur]); const el = document.getElementById('sHands'); if (el && X) el.value = X.getCtlLook(); drawMixScreen(); }, false, P ? 18 : 20); };
     const avBtn = (x, y, w, h) => btn(x, y, w, h, `AVATAR: ${djSet.avatar ? 'ON' : 'OFF'}`, djSet.avatar, () => setDjAvatar(!djSet.avatar), false, P ? 18 : 20);   // #363 the robot DJ (SHOWTIME!) on / off
     const styleBtn = (x, y, w, h) => btn(x, y, w, h, `AVATAR: ${(AVATAR_STYLES[djSet.style] || AVATAR_STYLES.robot).label}`, djSet.style !== 'robot', nextDjStyle, false, P ? 18 : 20);   // #539 tap to cycle ROBOT / DIRROFACE / DIRROCROW
     const caseBtn = (x, y, w, h) => { const t = !!(cases.caseA && cases.caseA.H <= 0.15); btn(x, y, w, h, `FLIGHTCASE: ${t ? 'TRAY' : 'FULL'}`, t, caseTrayToggle, !cases.caseA, P ? 18 : 18); };   // #628 same switch as ROOMS > CASE
@@ -11158,7 +11158,7 @@ function djGear() {
 function djPrep() {   // what the camera must not see: XR hand / controller models and occluders
   const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
   if (streamer ? !streamer.showOpt.neon : DJ_HIDE_NEON.has(djSet.preset) && !gpActive()) hide(neon);   // #372 the OBJECTS toggle decides (its back faces FRONT / FADERS / low, which is accepted when it is on); no streamer (phone): the old rule, #337 the GoPro sees what it sees
-  const robotGhost = djSet.style === 'robot' && xr && xr.getCtlLook() === 'ghostglove';
+  const robotGhost = djSet.style === 'robot' && xr && (xr.getCtlLook() === 'ghostglove' || xr.getCtlLook() === 'holohand');
   const keepFloatingHands = (!!(AVATAR_STYLES[djSet.style] && AVATAR_STYLES[djSet.style].noBody) || robotGhost) && xr;
   const keepGripCtl = keepFloatingHands && xr.getCtlLook() === 'controller';
   if (robotGhost && avatars.robot && avatars.robot.hands) for (const H of avatars.robot.hands) hide(H.mesh);

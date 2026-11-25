@@ -3358,3 +3358,9 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - `robot2.js` (`applyRobotGhostHem`): applied the same bottom-rim Quest Ghost fiber-optic glowing hem shader + `DoubleSide` exclusively to `avatar_robot_v2`'s `Neck` breastplate material (`o.material[1]`, helmet untouched).
 - `main.js` (`showPrep`, `djPrep`): when `AVATAR` is `ROBOT` and `CONTROLLERS` is `GHOST GLOVE`, hides `ROBOT`'s built-in chrome gloves and displays the floating `GHOST GLOVE` hands in GoPro 1 / GoPro 2 / DJ Cam / Stream.
 - Verified `node --check`; bumped `sw.js` to `vire-app-v308` (commit `811841d`). No Node restart.
+
+## Gemini_NEON_2026-11-25 #844–#845 HOLOHAND see-through mode, fixed fiber-optic hem shader, xr TDZ startup fix (owner, 25 Nov)
+- `#844` (`main.js` `useAvatarStyle`): guarded `xr` auto-switch in `try {} catch {}` to prevent Temporal Dead Zone `ReferenceError` on startup (`sw.js` `v309`, commit `ff63564`).
+- `#845` **HOLOHAND** (`ctlhands.js`, `xr.js`, `main.js`, `index.html`): added `holohand` (`HOLOHAND`) controller look — pure see-through Quest 3 Fresnel ghost hand with no leather glove attached (so knob positions remain visible right through the hand), sharing the ~2 cm pre-pinch relaxed pose, `h.pinchMid` interaction ball lock, and GoPro 1/2 / SHOWTIME! visibility on `CYBERDIRRO PLATE` & `ROBOT`.
+- `#845` **Fiber-optic hem fix** (`director.js` `_plateGhostHem`, `robot2.js` `applyRobotGhostHem`): fixed GLSL normal reference (`normal` instead of `vNormal`, which broke shader compilation on flat-shaded/split materials) and replaced open-edge distance (broken by faceted split seams) with a 16-bin X-column bottom contour (`y - yBot(x)`) + brighter 18 mm cyan-white fiber-optic core & 55 mm Fresnel bleed.
+- Verified `node --input-type=module --check` on `ctlhands.js`, `xr.js`, `director.js`, `robot2.js`, `main.js`, `sw.js`; bumped `sw.js` to `vire-app-v310`. No Node restart.

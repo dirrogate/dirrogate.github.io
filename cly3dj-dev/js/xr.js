@@ -943,7 +943,7 @@ export function setupXR(ctx) {
           st.gloveH.B.Index_Distal.getWorldPosition(_bp);
           (st.gloveRest || (st.gloveRest = new THREE.Vector3())).copy(_bw).add(_bp).multiplyScalar(0.5).applyMatrix4(_ri).addScaledVector(h.padDir, 0.009);
         }
-        const base = ctlLook === 'glove' && st.gloveRest ? st.gloveRest : (ctlLook === 'ghostglove' && h.pinchMid ? h.pinchMid : (h.padRest || h.tipRest));
+        const base = ctlLook === 'glove' && st.gloveRest ? st.gloveRest : ((ctlLook === 'ghostglove' || ctlLook === 'holohand') && h.pinchMid ? h.pinchMid : (h.padRest || h.tipRest));
         const sg = st.source.handedness === 'left' ? -1 : 1;
         (st.sphereLocal || (st.sphereLocal = new THREE.Vector3())).set(pf('bx') * sg, pf('by'), pf('bz')).multiplyScalar(0.001).add(base);   // PINCH FIT sphere offsets (mm, grip space)
         st.grip.localToWorld(st.tip.copy(st.sphereLocal)); st.pinchPt.copy(st.tip);
@@ -1020,7 +1020,7 @@ export function setupXR(ctx) {
   // #276 (owner) controller mode: a 3D hand holding each controller (DJ TOOLS > CONTROLLERS: 3D HANDS / CONTROLLER).
   // It is not a child of the grip (measureTip reads the grip's meshes), it copies the grip's pose each frame.
   let ctlLook = '3dhands';
-  try { const v = localStorage.getItem('vire.ctlLook'); if (v === 'controller' || v === '3dhands' || v === 'glove' || v === 'ghostglove') ctlLook = v; } catch (e) {}
+  try { const v = localStorage.getItem('vire.ctlLook'); if (v === 'controller' || v === '3dhands' || v === 'glove' || v === 'ghostglove' || v === 'holohand') ctlLook = v; } catch (e) {}
   // #287 (owner) GLOVE: the robot DJ's glove (avatar_robot.glb, #245) on each controller instead of the skin hand. The
   // skin hand is still posed (hidden) and its 25 joints drive the glove through robot2.js's own hand solver, which also
   // puts the glove's index fingertip on the blue ball (#247). Measured: the glove's knuckle width 6.4 cm and middle finger
@@ -1173,8 +1173,8 @@ export function setupXR(ctx) {
     st.tA = (st.tA || 0) + (tv - (st.tA || 0)) * 0.5; st.gA = (st.gA || 0) + (gv - (st.gA || 0)) * 0.5;
     h.update(Math.round(st.tA * 20) / 20, Math.round(st.gA * 20) / 20, thumb, Math.round((st.pin || 0) * 20) / 20);   // #420 pin = pinch on a latched control
     if (h.soft !== (ctlLook === 'glove')) { h.soft = ctlLook === 'glove'; h.cur = ''; }   // #301 looser relaxed hand for the glove
-    if (h.setGhostGlove) h.setGhostGlove(ctlLook === 'ghostglove');
-    h.holder.visible = ctlLook === '3dhands' || ctlLook === 'ghostglove';   // #287 the skin hand stays posed (it drives the glove) but is not drawn; #469 nor in CONTROLLER look
+    if (h.setGhostMode) h.setGhostMode(ctlLook === 'ghostglove' || ctlLook === 'holohand' ? ctlLook : null);
+    h.holder.visible = ctlLook === '3dhands' || ctlLook === 'ghostglove' || ctlLook === 'holohand';   // #287 the skin hand stays posed (it drives the glove) but is not drawn; #469 nor in CONTROLLER look
     if (ctlLook === 'glove') gloveStep(st, h, 1 / 60);
   }
 

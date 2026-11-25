@@ -110,10 +110,13 @@ export function setControllerGhost(ctlRoot, on) {
 export function createControllerHand(handed, url, material) {
   const root = new THREE.Group(); root.name = 'ctlHand-' + handed;
   const holder = new THREE.Group(); root.add(holder);
-  const h = { handed, root, holder, ready: false, bones: {}, bind: {}, t: 0, g: 0, th: 0, cur: '', skinMat: material, handMesh: null, ghostOn: false, ghostDepth: null, ghostMat: null, ghostGlove: null, ghostGloveLoading: false };
+  const h = { handed, root, holder, ready: false, bones: {}, bind: {}, t: 0, g: 0, th: 0, cur: '', skinMat: material, handMesh: null, ghostOn: false, ghostMode: null, ghostDepth: null, ghostMat: null, ghostGlove: null, ghostGloveLoading: false };
   const applyGhost = () => {
     if (!h.handMesh) return;
-    const on = !!h.ghostOn;
+    const mode = h.ghostMode;
+    const on = mode === 'ghostglove' || mode === 'holohand';
+    const wantGlove = mode === 'ghostglove';
+    h.ghostOn = on;
     if (on) {
       if (!h.ghostMat) h.ghostMat = makeGhostHandMat();
       if (!h.ghostDepth) {
@@ -125,7 +128,7 @@ export function createControllerHand(handed, url, material) {
       }
       h.handMesh.material = h.ghostMat; h.handMesh.renderOrder = 2;
       h.ghostDepth.visible = true;
-      if (!h.ghostGlove && !h.ghostGloveLoading) {
+      if (wantGlove && !h.ghostGlove && !h.ghostGloveLoading) {
         h.ghostGloveLoading = true;
         new GLTFLoader().loadAsync(`models/avatar/ghost_glove_${handed}.glb`).then(gltf => {
           let gm = null;
@@ -135,11 +138,11 @@ export function createControllerHand(handed, url, material) {
           m.bind(h.handMesh.skeleton, h.handMesh.bindMatrix);
           m.frustumCulled = false; m.castShadow = false; m.renderOrder = 0;
           m.layers.mask = h.handMesh.layers.mask;
-          m.visible = !!h.ghostOn;
+          m.visible = h.ghostMode === 'ghostglove';
           h.handMesh.parent.add(m); h.ghostGlove = m;
         }).catch(e => { h.ghostGloveLoading = false; console.warn('ghost glove', e); });
       }
-      if (h.ghostGlove) h.ghostGlove.visible = true;
+      if (h.ghostGlove) h.ghostGlove.visible = wantGlove;
     } else {
       h.handMesh.material = h.skinMat; h.handMesh.renderOrder = 0;
       if (h.ghostDepth) h.ghostDepth.visible = false;
@@ -153,11 +156,16 @@ export function createControllerHand(handed, url, material) {
       if (o.isMesh) { o.material = material; o.castShadow = false; o.frustumCulled = false; if (o.isSkinnedMesh) h.handMesh = o; }
     });
     h.ready = true; h.cur = ''; place(h, handed); update(h, 0, 0, false);
-    if (h.ghostOn) applyGhost();
+    if (h.ghostMode) applyGhost();
   }).catch(e => console.warn('controller hand', e));
   h.update = (t, g, th, pin) => update(h, t, g, th, pin || 0);
   h.place = () => place(h, handed);
-  h.setGhostGlove = on => { if (h.ghostOn === !!on && (!on || h.ghostGlove || h.ghostGloveLoading)) return; h.ghostOn = !!on; h.cur = ''; applyGhost(); };
+  h.setGhostMode = mode => {
+    const m = (mode === 'ghostglove' || mode === 'holohand') ? mode : null;
+    if (h.ghostMode === m && (m !== 'ghostglove' || h.ghostGlove || h.ghostGloveLoading)) return;
+    h.ghostMode = m; h.ghostOn = !!m; h.cur = ''; applyGhost();
+  };
+  h.setGhostGlove = on => h.setGhostMode(on ? 'ghostglove' : null);
   return h;
 }
 
