@@ -193,7 +193,7 @@ export class RobotAvatar2 {
         sh.uniforms.uHeadWipe = U;
         sh.vertexShader = sh.vertexShader
           .replace('#include <common>', '#include <common>\nvarying float vRhwT;')
-          .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRhwT = clamp((position.y - 1.47) / 0.31, 0.0, 1.0);');
+          .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRhwT = clamp((position.y - 1.25) / 0.53, 0.0, 1.0);');
         sh.fragmentShader = sh.fragmentShader
           .replace('#include <common>', '#include <common>\nuniform float uHeadWipe; varying float vRhwT;')
           .replace('#include <dithering_fragment>', `
@@ -242,6 +242,7 @@ if (uHeadWipe < 0.999) {
         splitByBone(o, 'Neck');
         const bustMat = o.material; bustMat.side = THREE.DoubleSide;
         applyRobotGhostHem(o, bustMat);
+        patchRobotHeadWipe(bustMat);
         this._bustMat = bustMat;
         o.material = [chrome, bustMat];
       }

@@ -948,6 +948,11 @@ export function setupXR(ctx) {
         (st.sphereLocal || (st.sphereLocal = new THREE.Vector3())).set(pf('bx') * sg, pf('by'), pf('bz')).multiplyScalar(0.001).add(base);   // PINCH FIT sphere offsets (mm, grip space)
         st.grip.localToWorld(st.tip.copy(st.sphereLocal)); st.pinchPt.copy(st.tip);
         st.tipDot.position.copy(st.tip); if (st.pokeLift > 0.0005 && !st.direct) st.tipDot.position.y += st.pokeLift;
+        // #847 Keep the visual interaction ball pinned to the latched knob/fader/power cap while twisting wrist (releases cleanly on trigger up)
+        if (st.pin > 0.001) {
+          const snapP = snapTarget(st);
+          if (snapP) { const k = st.pin * st.pin * (3 - 2 * st.pin); st.tipDot.position.lerp(snapP, k); }
+        }
       }
       updateOccluder(st);
       updateAnchor(st);

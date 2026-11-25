@@ -129,21 +129,17 @@ export class Avatar {
       if (!o.isMesh) return; for (const mt of (Array.isArray(o.material) ? o.material : [o.material])) if (mt && mt.isMeshStandardMaterial && !mt.transparent && !mt.userData.r3b && !mt.userData.r3s) this._r3Unlit(mt);
     });
     // #842 CYBERDIRRO PLATE: Quest Ghost fiber-optic glowing hem along the bottom rim of the breastplate
-    // #846 Synchronized 1.5s vertical holographic head wipe (leaves breastplate + inner baffle intact!)
+    // #847 Full-avatar 1.5s vertical holographic wipe (breastplate + head) so previous avatar completely hides at end
     if (this.noBody) {
       this.headWipeU = { value: 0.0 };
       this._headMeshes = [];
       m.traverse(o => {
         if (!o.isMesh) return;
-        const isPlate = /avatarrobot|innerbaffle|breastplate/i.test(o.name + ' ' + ((o.material && o.material.name) || ''));
-        if (isPlate) {
-          if (/avatarrobot/i.test(o.name + ' ' + ((o.material && o.material.name) || ''))) {
-            for (const mt of (Array.isArray(o.material) ? o.material : [o.material])) if (mt && mt.isMeshStandardMaterial) this._plateGhostHem(o, mt);
-          }
-        } else {
-          this._headMeshes.push(o);
-          for (const mt of (Array.isArray(o.material) ? o.material : [o.material])) if (mt) this._headWipe(mt);
+        this._headMeshes.push(o);
+        if (/avatarrobot/i.test(o.name + ' ' + ((o.material && o.material.name) || ''))) {
+          for (const mt of (Array.isArray(o.material) ? o.material : [o.material])) if (mt && mt.isMeshStandardMaterial) this._plateGhostHem(o, mt);
         }
+        for (const mt of (Array.isArray(o.material) ? o.material : [o.material])) if (mt) this._headWipe(mt);
       });
     }
     if (this.r3BeanieMats || this.r3ShirtMats) { const U = this._acesU(); m.traverse(o => { if (o.isMesh) o.onBeforeRender = r => { const t = r.getRenderTarget(); U.value = t && t.texture && t.texture.type === THREE.UnsignedByteType && !t.vireAces ? 0 : 1; }; }); }
@@ -278,7 +274,7 @@ export class Avatar {
       sh.uniforms.uHeadWipe = U;
       sh.vertexShader = sh.vertexShader
         .replace('#include <common>', '#include <common>\nvarying float vHwT;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHwT = clamp((position.y - 1.47) / 0.34, 0.0, 1.0);');
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHwT = clamp((position.y - 1.33) / 0.49, 0.0, 1.0);');
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', '#include <common>\nuniform float uHeadWipe; varying float vHwT;')
         .replace('#include <dithering_fragment>', `

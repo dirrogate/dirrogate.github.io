@@ -532,13 +532,13 @@ function syncMorphState() {
   const cp = avatars.cyber_plate, rb = avatars.robot;
   if (pairMode) {
     if (cp && cp.root) {
-      cp.root.visible = !!djSet.avatar;
       if (cp.setHeadWipe) cp.setHeadWipe(e);
+      cp.root.visible = !!djSet.avatar && e < 0.998;   // completely hidden once morph reaches ROBOT v2
     }
     if (rb && rb.root) {
-      if (rb.setBustVisible) rb.setBustVisible(!(cp && cp.ready));   // use CYBERDIRRO PLATE's holo-hemmed breastplate under ROBOT v2 head
+      if (rb.setBustVisible) rb.setBustVisible(true);  // use ROBOT v2's own original holo-hemmed body
       if (rb.setHeadWipe) rb.setHeadWipe(e);
-      rb.root.visible = !!djSet.avatar && e > 0.002;
+      rb.root.visible = !!djSet.avatar && e > 0.002;   // completely hidden once morph reaches CYBERDIRRO PLATE
     }
   } else {
     if (cp && cp.setHeadWipe) cp.setHeadWipe(0);
