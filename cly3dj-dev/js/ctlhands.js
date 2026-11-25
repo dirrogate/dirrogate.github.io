@@ -36,20 +36,128 @@ export const POSE = {
   handle: [0, -0.6, 1], knuckle: [0.056, 0, 0], twist: 0,   // #290 (owner: the 3D hand sat inside the real one) knuckle 3 cm further out (was 0.026); mirrored for the left hand
 };
 
+// Quest 3-style translucent Fresnel "ghost outline" hand material (works on any SkinnedMesh).
+export function makeGhostHandMat() {
+  const m = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, side: THREE.FrontSide, toneMapped: false });
+  m.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGhN; varying vec3 vGhV;')
+      .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>')
+      .replace('#include <project_vertex>', `
+#include <project_vertex>
+vec3 _ghN = objectNormal;
+#ifdef USE_SKINNING
+  mat4 _ghSM = mat4(0.0);
+  _ghSM += boneMatX * skinWeight.x; _ghSM += boneMatY * skinWeight.y;
+  _ghSM += boneMatZ * skinWeight.z; _ghSM += boneMatW * skinWeight.w;
+  _ghN = (bindMatrixInverse * _ghSM * bindMatrix * vec4(_ghN, 0.0)).xyz;
+#endif
+vGhN = normalize(normalMatrix * _ghN);
+vGhV = normalize(-mvPosition.xyz);`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGhN; varying vec3 vGhV;')
+      .replace('#include <dithering_fragment>', `
+float _ndv = clamp(abs(dot(normalize(vGhN), normalize(vGhV))), 0.0, 1.0);
+float _fr = pow(1.0 - _ndv, 2.35);
+vec3 _rim = mix(vec3(0.42, 0.78, 1.0), vec3(0.95, 0.99, 1.0), smoothstep(0.25, 0.9, _fr));
+gl_FragColor = vec4(_rim, clamp(0.07 + 0.88 * _fr, 0.0, 0.94));
+#include <dithering_fragment>`);
+  };
+  m.customProgramCacheKey = () => 'vire-quest-ghost-hand-1';
+  return m;
+}
+
+const GHOST_DEPTH_MAT = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true, side: THREE.FrontSide });
+let _ghostCtlMat = null;
+export function makeGhostCtlMat() {
+  if (_ghostCtlMat) return _ghostCtlMat;
+  const m = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, side: THREE.FrontSide, toneMapped: false });
+  m.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGcN; varying vec3 vGcV;')
+      .replace('#include <project_vertex>', `
+#include <project_vertex>
+vGcN = normalize(normalMatrix * objectNormal);
+vGcV = normalize(-mvPosition.xyz);`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGcN; varying vec3 vGcV;')
+      .replace('#include <dithering_fragment>', `
+float _ndv = clamp(abs(dot(normalize(vGcN), normalize(vGcV))), 0.0, 1.0);
+float _fr = pow(1.0 - _ndv, 2.0);
+vec3 _col = mix(vec3(0.10, 0.16, 0.24), vec3(0.72, 0.90, 1.0), _fr);
+gl_FragColor = vec4(_col, clamp(0.14 + 0.52 * _fr, 0.0, 0.68));
+#include <dithering_fragment>`);
+  };
+  m.customProgramCacheKey = () => 'vire-quest-ghost-ctl-1';
+  _ghostCtlMat = m;
+  return m;
+}
+
+export function setControllerGhost(ctlRoot, on) {
+  if (!ctlRoot) return;
+  const gm = on ? makeGhostCtlMat() : null;
+  ctlRoot.traverse(o => {
+    if (!o.isMesh) return;
+    if (on) {
+      if (!o.userData._origCtlMat) o.userData._origCtlMat = o.material;
+      if (o.material !== gm) { o.material = gm; o.renderOrder = 1; }
+    } else if (o.userData._origCtlMat) {
+      o.material = o.userData._origCtlMat; o.renderOrder = 0;
+    }
+  });
+}
+
 export function createControllerHand(handed, url, material) {
   const root = new THREE.Group(); root.name = 'ctlHand-' + handed;
   const holder = new THREE.Group(); root.add(holder);
-  const h = { handed, root, holder, ready: false, bones: {}, bind: {}, t: 0, g: 0, th: 0, cur: '' };
+  const h = { handed, root, holder, ready: false, bones: {}, bind: {}, t: 0, g: 0, th: 0, cur: '', skinMat: material, handMesh: null, ghostOn: false, ghostDepth: null, ghostMat: null, ghostGlove: null, ghostGloveLoading: false };
+  const applyGhost = () => {
+    if (!h.handMesh) return;
+    const on = !!h.ghostOn;
+    if (on) {
+      if (!h.ghostMat) h.ghostMat = makeGhostHandMat();
+      if (!h.ghostDepth) {
+        const dp = new THREE.SkinnedMesh(h.handMesh.geometry, GHOST_DEPTH_MAT);
+        dp.bind(h.handMesh.skeleton, h.handMesh.bindMatrix);
+        dp.frustumCulled = false; dp.castShadow = false; dp.renderOrder = 1;
+        dp.layers.mask = h.handMesh.layers.mask;
+        h.handMesh.parent.add(dp); h.ghostDepth = dp;
+      }
+      h.handMesh.material = h.ghostMat; h.handMesh.renderOrder = 2;
+      h.ghostDepth.visible = true;
+      if (!h.ghostGlove && !h.ghostGloveLoading) {
+        h.ghostGloveLoading = true;
+        new GLTFLoader().loadAsync(`models/avatar/ghost_glove_${handed}.glb`).then(gltf => {
+          let gm = null;
+          gltf.scene.traverse(o => { if (o.isSkinnedMesh && !gm) gm = o; });
+          if (!gm || !h.handMesh) return;
+          const m = new THREE.SkinnedMesh(gm.geometry, gm.material);
+          m.bind(h.handMesh.skeleton, h.handMesh.bindMatrix);
+          m.frustumCulled = false; m.castShadow = false; m.renderOrder = 0;
+          m.layers.mask = h.handMesh.layers.mask;
+          m.visible = !!h.ghostOn;
+          h.handMesh.parent.add(m); h.ghostGlove = m;
+        }).catch(e => { h.ghostGloveLoading = false; console.warn('ghost glove', e); });
+      }
+      if (h.ghostGlove) h.ghostGlove.visible = true;
+    } else {
+      h.handMesh.material = h.skinMat; h.handMesh.renderOrder = 0;
+      if (h.ghostDepth) h.ghostDepth.visible = false;
+      if (h.ghostGlove) h.ghostGlove.visible = false;
+    }
+  };
   new GLTFLoader().loadAsync(url).then(gltf => {
     const s = gltf.scene; holder.add(s);
     s.traverse(o => {
       if (o.isBone) { h.bones[o.name] = o; h.bind[o.name] = { p: o.position.clone(), q: o.quaternion.clone() }; }
-      if (o.isMesh) { o.material = material; o.castShadow = false; o.frustumCulled = false; }
+      if (o.isMesh) { o.material = material; o.castShadow = false; o.frustumCulled = false; if (o.isSkinnedMesh) h.handMesh = o; }
     });
     h.ready = true; h.cur = ''; place(h, handed); update(h, 0, 0, false);
+    if (h.ghostOn) applyGhost();
   }).catch(e => console.warn('controller hand', e));
   h.update = (t, g, th, pin) => update(h, t, g, th, pin || 0);
   h.place = () => place(h, handed);
+  h.setGhostGlove = on => { if (h.ghostOn === !!on && (!on || h.ghostGlove || h.ghostGloveLoading)) return; h.ghostOn = !!on; applyGhost(); };
   return h;
 }
 

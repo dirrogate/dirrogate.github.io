@@ -45,7 +45,7 @@ export function initMaterials() {
   MAT.knobCap = new THREE.MeshStandardMaterial({ color: 0x8a8d93, metalness: 0.9, roughness: 0.3 });
   MAT.white = new THREE.MeshStandardMaterial({ color: 0xeeeeee, metalness: 0, roughness: 0.6 });
   MAT.table = new THREE.MeshStandardMaterial({ color: 0x17181b, metalness: 0.1, roughness: 0.7 });
-  MAT.sleeve = new THREE.MeshStandardMaterial({ color: 0xe9e6de, metalness: 0, roughness: 0.85 });
+  MAT.sleeve = new THREE.MeshStandardMaterial({ color: 0xbcb7ad, metalness: 0, roughness: 0.94, envMapIntensity: 0.4 });
   const caseTex = brushedTexture(120); caseTex.repeat.set(2, 2);
   MAT.case = new THREE.MeshStandardMaterial({ color: 0x8c909a, map: caseTex, metalness: 0.3, roughness: 0.5 });
 }
@@ -1099,7 +1099,7 @@ export function makeCrate() {
   sleeves.castShadow = true; sleeves.userData.crateSleeves = true;
   g.add(sleeves); u.sleeves = sleeves;
   const col = new THREE.Color();
-  for (let i = 0; i < CRATE.slots; i++) sleeves.setColorAt(i, col.setHSL(0.1, 0.1, 0.86 + ((i * 37) % 7) * 0.012));
+  for (let i = 0; i < CRATE.slots; i++) sleeves.setColorAt(i, col.setHSL(0.1, 0.08, 0.62 + ((i * 37) % 7) * 0.012));
 
   // lid with screen (hinged, see LID): laminate tray with alu edges, chrome ball corners, and a slim-bezel
   // monitor recessed inside the tray (#66, #70)

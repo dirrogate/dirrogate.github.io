@@ -184,14 +184,17 @@ if (uFxWater.x > 0.5) {
   }
 }`;
 const DEFAULT_OBC = THREE.Material.prototype.onBeforeCompile;
-const okMat = m => m && (m.isMeshStandardMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial || m.isMeshBasicMaterial) && m.onBeforeCompile === DEFAULT_OBC && !m.userData.noWater;
+const okMat = m => m && (m.isMeshStandardMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial || m.isMeshBasicMaterial) && (m.onBeforeCompile === DEFAULT_OBC || m.userData.vireGsaa) && !m.userData.noWater;
 function injectWater(m, U) {
-  m.onBeforeCompile = sh => {
+  const prev = m.onBeforeCompile === DEFAULT_OBC ? null : m.onBeforeCompile;
+  const prevKey = m.customProgramCacheKey ? m.customProgramCacheKey.bind(m) : null;
+  m.onBeforeCompile = (sh, r) => {
+    if (prev) prev(sh, r);
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + G_COMMON).replace('#include <project_vertex>', '#include <project_vertex>\n' + G_VERT);
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + G_COMMON + G_FCOMMON).replace('#include <dithering_fragment>', G_FRAG + '\n#include <dithering_fragment>');
   };
-  m.customProgramCacheKey = () => 'fxWater1';
+  m.customProgramCacheKey = () => (prevKey ? prevKey() + '|' : '') + 'fxWater1';
   m.needsUpdate = true;
 }
 

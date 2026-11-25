@@ -10,6 +10,30 @@ import { mergeStatic } from './merge.js';
 
 export const GLB_CREDIT = '"MK2 1210 Turntable - Old" by GRIP420 (sketchfab.com/GRIP420), CC-BY-4.0, modified';
 
+// Geometric Specular Anti-Aliasing (Tokuyoshi-Kaplanyan): softens 1px specular/silhouette jaggies on sharp edges
+// against bright panoramic domes at near-zero GPU cost, chaining cleanly with existing onBeforeCompile hooks.
+const DEFAULT_OBC = THREE.Material.prototype.onBeforeCompile;
+export function applyGSAA(m, strength = 2.0, cap = 0.18) {
+  if (!m || (!m.isMeshStandardMaterial && !m.isMeshPhysicalMaterial) || m.userData.vireGsaa) return m;
+  const prev = m.onBeforeCompile === DEFAULT_OBC ? null : m.onBeforeCompile;
+  const prevKey = m.customProgramCacheKey ? m.customProgramCacheKey.bind(m) : null;
+  const tag = `gsaa_${strength.toFixed(2)}_${cap.toFixed(2)}`;
+  m.onBeforeCompile = (sh, r) => {
+    if (prev) prev(sh, r);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', `
+#ifndef FLAT_SHADED
+{ vec3 _vDNx = dFdx(vNormal), _vDNy = dFdy(vNormal);
+  float _vSV = max(dot(_vDNx, _vDNx), dot(_vDNy, _vDNy));
+  roughnessFactor = sqrt(clamp(roughnessFactor * roughnessFactor + min(${strength.toFixed(2)} * _vSV, ${cap.toFixed(2)}), 0.0, 1.0)); }
+#endif
+#include <normal_fragment_begin>`);
+  };
+  m.customProgramCacheKey = () => (prevKey ? prevKey() + '|' : '') + tag;
+  m.userData.vireGsaa = true;
+  m.needsUpdate = true;
+  return m;
+}
+
 const S = 0.453 / 64;                       // model width 64 units -> 453 mm
 const PLATTER = { x: -6.494, z: 0.053 };     // model units
 const OFF = new THREE.Vector3(DECK.spindle.x - PLATTER.x * S, -0.018, DECK.spindle.z - PLATTER.z * S);
@@ -67,6 +91,7 @@ export async function loadDeckTemplate(url) {
     // tonearm, 45 adapter holder, buttons, feet trims: satin brushed steel instead of mirror chrome
     if (m.name === 'metal_mat') { if (!template_satin) template_satin = satinSteel({ repeat: 3 }); o.material = template_satin; }
     if (m.name === 'metal_mat1') { m.metalness = 0.9; m.roughness = 0.4; }
+    applyGSAA(o.material);
   });
   await applyBakedAO(root);
   // Slipmat (CLAUDE.md #65): planar UVs across the mat's own disc so a square slipmat image maps straight on
@@ -438,6 +463,7 @@ export function makeGlbDeck(name) {
           #include <opaque_fragment>`);
     };
     mat.customProgramCacheKey = () => 'vire-platter-dots-830b';
+    applyGSAA(mat, 1.5, 0.14);
     mesh.material = mat;
     // red lens: the dial's dark window facing the platter
     const win = g.getObjectByName('polySurface15_phongE7_0');

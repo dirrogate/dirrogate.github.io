@@ -92,6 +92,7 @@ export class Avatar {
     let gltf;
     try { gltf = await loader.loadAsync(url); }
     catch (e) { if (!this.fallbackUrl) throw e; console.warn('avatar KTX2 load failed, using WebP copy', e); gltf = await loader.loadAsync(this.fallbackUrl); }   // #816
+    this.noBody = /nobody|cyber_plate|cyber_tee/i.test(url);
     const m = gltf.scene; this.root.add(m);
     const B = {}; this.mouth = []; this.morphs = {};
     this.clothesMats = { beanie: [], shirt: [] };
@@ -276,7 +277,7 @@ export class Avatar {
     const cur = eyeW().sub(hipsW).normalize(), des = head.p.clone().sub(hipsW).normalize();
     const qs = new THREE.Quaternion().setFromUnitVectors(cur, des);
     const ang = 2 * Math.acos(clamp(Math.abs(qs.w), -1, 1)); if (ang > 1.1) qs.slerp(new THREE.Quaternion(), 1 - 1.1 / ang);
-    const third = new THREE.Quaternion().slerp(qs, 1 / 3);
+    const third = new THREE.Quaternion().slerp(qs, this.noBody ? 0.14 : 1 / 3);
     for (const n of ['Spine', 'Spine1', 'Spine2']) rotWorld(B[n], third);
     // neck takes 40 % of the head's turn, head the rest (exact)
     // rq.* are root-space rest orientations. At rest the camera would be rootQ * F and the head rootQ * rq.Head,
@@ -325,7 +326,8 @@ export class Avatar {
         rotWorld(B.RightEye, dqEye);
       }
     }
-    // arms
+    // arms & legs (skipped for no-body raggy-tee avatar: floating ghost-glove hands handle all hand motion)
+    if (!this.noBody) {
     const down = new THREE.Vector3(0, -1, 0);
     ['Left', 'Right'].forEach((side, i) => {
       const up = B[side + 'Arm'], lo = B[side + 'ForeArm'], hb = B[side + 'Hand']; if (!up || !lo || !hb) return;
@@ -354,6 +356,7 @@ export class Avatar {
       twoBone(ul, lg, ft, this.foot[i], hp.clone().addScaledVector(fwd, 0.6).addScaledVector(down, 0.4));
       setWorldQ(ft, new THREE.Quaternion().setFromAxisAngle(UP, rootYaw).multiply(this.rq[side + 'Foot']));
     });
+    }
     // Real-time formant viseme lip-sync + natural auto-blinking (#793)
     const setM = (name, val) => { const arr = this.morphs && this.morphs[name]; if (!arr) return; for (const [o, k] of arr) o.morphTargetInfluences[k] = val; };
     const vis = pose.vis;

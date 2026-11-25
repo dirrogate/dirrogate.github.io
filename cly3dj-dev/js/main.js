@@ -39,7 +39,7 @@ import { Scroller, drawBitText, bitWidth, glyph, isEmoji, cleanText, FONT_OK, EM
 import { discogsToken, setDiscogsToken, initDiscogsToken, splitQuery, searchArt, releaseImages, guessSlots, imageBlob, artThumb } from './artfetch.js';   // #393 FETCH ART
 import { DeckVideo, VIDEO_EXT, vvKey, baseName, deckGains } from './videovinyl.js';
 import { glowMaterial, setGlowMode, makeBlob, placeBlob } from './fakelight.js';
-import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT } from './deck-glb.js';
+import { loadDeckTemplate, makeGlbDeck, GLB_CREDIT, applyGSAA } from './deck-glb.js';
 import { instanceDecks, HIDE_LAYER } from './deck-inst.js';
 import { MovieProps, holoLibrary, SURF_SLOTS, PLATE_BUILTIN, COLORS, PRESETS, NEON_FONTS, FOG_COLORS, MATTES, GRAFF_BUILTIN, DECAL_GROUND, DECAL_WALL, GRAFF_TINTS, removeFile } from './movieprops.js';   // #478 VJ TOOLS > MOVIE PROPS
 import { FX, USER_LAYER } from './fx.js';
@@ -452,12 +452,13 @@ if (djcam) djcam.preset = djSet.preset;
 // #221 avatar styles: ROBOT (Blender model models/avatar/robot.glb, robot.js, default) or HUMAN (the Ready Player Me GLB, loaded when first picked)
 // #539 (owner) pick the avatar on DJ TOOLS: ROBOT, DIRROFACE, DIRROCROW or DIRRO_REAL. The Dirro GLBs share the Ready Player Me
 // rig (67 bones, mouthOpen morph), so they all run on director.js Avatar. Old saved 'human' = DIRROFACE.
-const AVATAR_STYLES = {   // #817 (owner) only ROBOT, DIRRO REAL 3 and CLY3DJ BEANIE are kept
+const AVATAR_STYLES = {   // #817 (owner) ROBOT, CYBERDIRRO, CYBERDIRRO PLATE and CLY3DJ BEANIE
   robot: { label: 'ROBOT' },
   beanie: { label: 'CLY3DJ BEANIE', url: 'models/avatar/cly3dj_beanie.glb' },
-  real3: { label: 'DIRRO REAL 3', url: 'models/avatar/dirro_real3.glb', fallback: 'models/avatar/dirro_real3_webp.glb', glasses: { fwd: 0.016, up: 0.002, scale: 1.12 } },   // #814 dense MetaPerson head fitted to the cleaned scan, scan colour on MetaPerson UVs
+  real3: { label: 'CYBERDIRRO', url: 'models/avatar/dirro_real3.glb', fallback: 'models/avatar/dirro_real3_webp.glb', glasses: { fwd: 0.016, up: 0.002, scale: 1.12 } },   // #814 dense MetaPerson head fitted to the cleaned scan, scan colour on MetaPerson UVs
+  cyber_plate: { label: 'CYBERDIRRO PLATE', url: 'models/avatar/cyberdirro_plate.glb', glasses: { fwd: 0.016, up: 0.002, scale: 1.12 }, noBody: true },
 };
-const AVATAR_ORDER = ['robot', 'real3', 'beanie'];
+const AVATAR_ORDER = ['robot', 'real3', 'cyber_plate', 'beanie'];
 const CLOTHES_SHADES = [
   { label: 'BLACK', hex: 0x161618 },
   { label: 'CHARCOAL', hex: 0x3e4046 },
@@ -502,7 +503,8 @@ function nextShirtCol() {
   drawMixScreen();
   toast('T-Shirt: ' + CLOTHES_SHADES[djSet.shirtCol].label, 1600);
 }
-if (['human', 'face', 'crow', 'real', 'real2', 'tripo', 'meta'].includes(djSet.style)) djSet.style = 'real3';   // #817 removed avatars -> REAL 3
+if (djSet.style === 'real3nb') djSet.style = 'cyber_plate';
+if (['human', 'face', 'crow', 'real', 'real2', 'tripo', 'meta'].includes(djSet.style)) djSet.style = 'real3';   // #817 removed avatars -> CYBERDIRRO
 if (!AVATAR_STYLES[djSet.style]) djSet.style = 'robot';
 const avatars = {};
 let avatar = null;
@@ -517,6 +519,10 @@ function useAvatarStyle(st) {
   for (const a of Object.values(avatars)) a.root.visible = false;
   avatar = avatars[st]; avatar.root.visible = djSet.avatar;
   applyAvatarClothes(avatar);
+  if (AVATAR_STYLES[st] && AVATAR_STYLES[st].noBody && typeof xr !== 'undefined' && xr && xr.getCtlLook() === '3dhands') {
+    xr.setCtlLook('ghostglove');
+    const el = document.getElementById('sHands'); if (el) el.value = 'ghostglove';
+  }
 }
 useAvatarStyle(djSet.style);
 // #806 Standalone grabbable eyewear accessory (not baked to any avatar; Grip / Pinch on front pulls off & extends temples)
@@ -3094,10 +3100,14 @@ const crateDisc = (() => {
 // Album jackets on the sleeves nearest the selection only (the rest are plain): ~10 small textures,
 // covers read from each track's ID3 tag in the background (CLAUDE.md #41).
 const COVER_N = 10;
+function softenSleeveEdge(g, S) {
+  const b = Math.max(2, Math.round(S * 0.004));
+  g.save(); g.strokeStyle = 'rgba(18,16,14,0.42)'; g.lineWidth = b * 2; g.strokeRect(0, 0, S, S); g.restore();
+}
 const coverPool = Array.from({ length: COVER_N }, () => {
   const c = document.createElement('canvas'); c.width = c.height = 256;
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.312, 0.312), new THREE.MeshStandardMaterial({ map: t, roughness: 0.75 }));
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.312, 0.312), applyGSAA(new THREE.MeshStandardMaterial({ map: t, roughness: 0.78 })));
   m.visible = false; m.userData = { canvas: c, tex: t, rec: null, hasArt: false, crateCover: true }; crate.add(m);
   return m;
 });
@@ -3116,6 +3126,7 @@ function drawJacket(mesh, r) {
     g.font = '400 16px system-ui'; g.fillStyle = 'rgba(255,255,255,0.8)'; fitText2(g, r.artist || '', 16, 58, 224);
     if (r.bpm) { g.font = '700 15px system-ui'; g.textAlign = 'right'; g.fillText(`${r.bpm.toFixed(r.bpm % 1 ? 1 : 0)} BPM`, 240, 240); }
   }
+  softenSleeveEdge(g, 256);
   u.tex.needsUpdate = true;
 }
 // #262 a plain 7" sleeve: kraft paper, the record's label seen through the 89 mm centre hole, the title on top
@@ -3247,15 +3258,15 @@ const SLEEVE7 = { ...SLEEVE, H: 0.184, PEEK: 0.03, OUT: 0.18 };
 const sleeveDims = r => (r && r.size === 7 ? SLEEVE7 : SLEEVE);
 const sleeves = [];   // { rec, g, mesh, disc, tex: [front, back], anchor, off, s, hasRec, slotM, back, placedT }
 let sleeveOut = null;   // kept for older checks: the most recent sleeve (or null)
-const sleeveCard = new THREE.MeshStandardMaterial({ color: 0xd9d2c3, roughness: 0.85 });
-const sleeveVinyl = new THREE.MeshStandardMaterial({ color: 0x0b0b0c, roughness: 0.35, metalness: 0.1 });
+const sleeveCard = applyGSAA(new THREE.MeshStandardMaterial({ color: 0x6e6a63, roughness: 0.96, envMapIntensity: 0.35 }));
+const sleeveVinyl = applyGSAA(new THREE.MeshStandardMaterial({ color: 0x0b0b0c, roughness: 0.35, metalness: 0.1 }));
 const sleeveDiscGeo = new THREE.CylinderGeometry(REC.R, REC.R, REC.THICK, 64), sleeveLabelGeo = new THREE.CircleGeometry(REC.LABEL, 40);
 const sleeveDiscGeo7 = new THREE.CylinderGeometry(REC7.R, REC7.R, REC7.THICK, 48), sleeveLabelGeo7 = new THREE.RingGeometry(REC7.HOLE, REC7.LABEL, 40);   // #257
 function sleeveOf(r) { return sleeves.find(x => x.rec === r && !x.gone) || null; }
-function canvasTex(size) { const c = document.createElement('canvas'); c.width = c.height = size; const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
+function canvasTex(size) { const c = document.createElement('canvas'); c.width = c.height = size; const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return t; }
 function makeSleeve(r) {
   const fT = canvasTex(1024), bT = canvasTex(1024), lT = canvasTex(256);
-  const front = new THREE.MeshStandardMaterial({ map: fT, roughness: 0.7 }), back = new THREE.MeshStandardMaterial({ map: bT, roughness: 0.8 });
+  const front = applyGSAA(new THREE.MeshStandardMaterial({ map: fT, roughness: 0.74 })), back = applyGSAA(new THREE.MeshStandardMaterial({ map: bT, roughness: 0.84 }));
   // box faces: +x, -x, +y (the opening edge), -y, +z (front cover, toward you in the crate), -z (back)
   const sz = sleeveDims(r), D = dimsOf(r), s7 = D === REC7;   // #257
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(sz.H, sz.H, 0.003), [sleeveCard, sleeveCard, sleeveCard, sleeveCard, front, back]);
@@ -3278,19 +3289,21 @@ function drawSleeveArt(sl) {
       const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
       x.fillStyle = '#fff'; x.fillRect(0, 0, 256, 256); x.fillStyle = '#000'; x.beginPath(); x.arc(128, 128, 62, 0, Math.PI * 2); x.fill();
       sl.holeMap = new THREE.CanvasTexture(c); sl.tex.push(sl.holeMap);
-      for (const m of [sl.mats[0], sl.mats[1]]) { m.alphaMap = sl.holeMap; m.alphaTest = 0.5; m.needsUpdate = true; }
+      for (const m of [sl.mats[0], sl.mats[1]]) { m.alphaMap = sl.holeMap; m.alphaTest = 0.5; m.alphaToCoverage = true; m.needsUpdate = true; }
       sl.mesh.material = [sleeveCard, sleeveCard, sleeveCard, sleeveCard, sl.mats[0], sl.mats[1]];
     }
   }
   else { const pm = coverPool.find(m => m.userData.rec === r); if (pm) g.drawImage(pm.userData.canvas, 0, 0, 1024, 1024); else { g.fillStyle = '#333'; g.fillRect(0, 0, 1024, 1024); } }
+  softenSleeveEdge(g, 1024);
   sl.tex[0].needsUpdate = true;
   const b = sl.tex[1].image.getContext('2d');   // back: plain card with title and artist, unless the file has a Back cover (#231)
   b.fillStyle = '#d9d2c3'; b.fillRect(0, 0, 1024, 1024); b.fillStyle = '#2b2b2b'; b.textAlign = 'center';
   b.font = '700 60px system-ui'; fitText2Center(b, r.title || '', 512, 480, 880); b.font = '400 52px system-ui'; fitText2Center(b, r.artist || '', 512, 568, 880);
   if (r.size === 7 && !art) drawPlain7(b, 1024, r, true);   // #262 both sides of a paper sleeve
+  softenSleeveEdge(b, 1024);
   sl.tex[1].needsUpdate = true;
   const bb = t && backBlobs.get(t.id);
-  if (bb) createImageBitmap(bb).then(im => { if (sl.gone) return; const k = Math.max(1024 / im.width, 1024 / im.height); b.drawImage(im, 512 - im.width * k / 2, 512 - im.height * k / 2, im.width * k, im.height * k); im.close && im.close(); sl.tex[1].needsUpdate = true; }).catch(() => {});
+  if (bb) createImageBitmap(bb).then(im => { if (sl.gone) return; const k = Math.max(1024 / im.width, 1024 / im.height); b.drawImage(im, 512 - im.width * k / 2, 512 - im.height * k / 2, im.width * k, im.height * k); im.close && im.close(); softenSleeveEdge(b, 1024); sl.tex[1].needsUpdate = true; }).catch(() => {});
   const lg = sl.tex[2].image.getContext('2d'), la = labelOf(t);   // the record's own label (#231)
   lg.fillStyle = '#c8202c'; lg.fillRect(0, 0, 256, 256);
   if (la) { const k = Math.max(256 / la.width, 256 / la.height); lg.drawImage(la, 128 - la.width * k / 2, 128 - la.height * k / 2, la.width * k, la.height * k); }
@@ -3414,8 +3427,8 @@ function layoutMilkSleeves(mc) {
   im.instanceMatrix.needsUpdate = true;
   let pool = mc.userData.coverPool;
   if (!pool && list.length) pool = mc.userData.coverPool = Array.from({ length: COVER_N }, () => {
-    const c = document.createElement('canvas'); c.width = c.height = 256; const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-    const cm = new THREE.Mesh(msCoverGeo, new THREE.MeshStandardMaterial({ map: t, roughness: 0.75 }));
+    const c = document.createElement('canvas'); c.width = c.height = 256; const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter;
+    const cm = new THREE.Mesh(msCoverGeo, applyGSAA(new THREE.MeshStandardMaterial({ map: t, roughness: 0.78 })));
     cm.visible = false; cm.userData = { canvas: c, tex: t, rec: null, hasArt: false, move: mc.userData.key }; mc.add(cm); return cm;
   });
   if (!pool) return;
@@ -9035,9 +9048,9 @@ function drawToolsPage() {
       [settings.occlusion !== false ? 'REAL OCCLUSION: ON' : 'REAL OCCLUSION: OFF', settings.occlusion !== false, () => { settings.occlusion = settings.occlusion === false; saveSettings(); const c = document.getElementById('cOccl'); if (c) c.checked = settings.occlusion; drawMixScreen(); }, false],
       [`AVATAR: ${(AVATAR_STYLES[djSet.style] || AVATAR_STYLES.robot).label}`, djSet.style !== 'robot', nextDjStyle, false],
       [`EYEWEAR: ${eyewear ? EYEWEAR_STYLES[eyewear.style].label : 'OFF'}`, !!(eyewear && eyewear.style !== 'off'), nextEyewear, !eyewear],
-      [`BEANIE: ${djSet.style === 'real3' && !((djSet.beanieCol || 0) % CLOTHES_SHADES.length) ? 'SCAN NAVY' : CLOTHES_SHADES[(djSet.beanieCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.beanieCol || 0) > 0, nextBeanieCol, false],
+      [`BEANIE: ${(djSet.style === 'real3' || djSet.style === 'cyber_plate') && !((djSet.beanieCol || 0) % CLOTHES_SHADES.length) ? 'SCAN NAVY' : CLOTHES_SHADES[(djSet.beanieCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.beanieCol || 0) > 0, nextBeanieCol, false],
       [`TSHIRT: ${CLOTHES_SHADES[(djSet.shirtCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.shirtCol || 0) > 0, nextShirtCol, false],
-      [`LOOK: ${djSet.look === 'lit' ? 'LIT' : 'SCAN'}`, false, nextAvatarLook, djSet.style !== 'real3'],   // #820 REAL 3 only; #822 not lit up for SCAN (read as 'LIT on'), the label says the mode
+      [`LOOK: ${djSet.look === 'lit' ? 'LIT' : 'SCAN'}`, false, nextAvatarLook, djSet.style !== 'real3' && djSet.style !== 'cyber_plate'],   // #820 CYBERDIRRO only; #822 not lit up for SCAN (read as 'LIT on'), the label says the mode
     ];
     const cols = P ? 2 : 4, gap = 8, bh = P ? 76 : 86, bw = (R - L - gap * (cols - 1)) / cols;
     items.forEach(([l, on, a, dim], i) => btn(L + (i % cols) * (bw + gap), y0 + 6 + Math.floor(i / cols) * (bh + gap), bw, bh, l, on, dim ? null : a, dim, P ? 18 : 18));
@@ -9888,8 +9901,8 @@ function drawToolsPage() {
     // #235 switches for stage pieces (off = hidden and no per-frame work), green = on
     // #276 controllers seen as 3D hands holding them, or bare controllers
     const ctlBtn = (x, y, w, h) => { let X = null; try { X = xr; } catch (e) {}   // xr is set up further down the file
-      const cur = X ? X.getCtlLook() : '3dhands', NEXT = { '3dhands': 'glove', glove: 'controller', controller: '3dhands' };   // #287 three looks, tap to cycle
-      btn(x, y, w, h, `CONTROLLERS: ${{ '3dhands': '3D HANDS', glove: 'GLOVE', controller: 'CONTROLLER' }[cur]}`, cur !== 'controller', () => { if (X) X.setCtlLook(NEXT[cur]); const el = document.getElementById('sHands'); if (el && X) el.value = X.getCtlLook(); drawMixScreen(); }, false, P ? 18 : 20); };
+      const cur = X ? X.getCtlLook() : '3dhands', NEXT = { '3dhands': 'ghostglove', ghostglove: 'glove', glove: 'controller', controller: '3dhands' };   // #287 four looks, tap to cycle
+      btn(x, y, w, h, `CONTROLLERS: ${{ '3dhands': '3D HANDS', ghostglove: 'GHOST GLOVE', glove: 'GLOVE', controller: 'CONTROLLER' }[cur]}`, cur !== 'controller', () => { if (X) X.setCtlLook(NEXT[cur]); const el = document.getElementById('sHands'); if (el && X) el.value = X.getCtlLook(); drawMixScreen(); }, false, P ? 18 : 20); };
     const avBtn = (x, y, w, h) => btn(x, y, w, h, `AVATAR: ${djSet.avatar ? 'ON' : 'OFF'}`, djSet.avatar, () => setDjAvatar(!djSet.avatar), false, P ? 18 : 20);   // #363 the robot DJ (SHOWTIME!) on / off
     const styleBtn = (x, y, w, h) => btn(x, y, w, h, `AVATAR: ${(AVATAR_STYLES[djSet.style] || AVATAR_STYLES.robot).label}`, djSet.style !== 'robot', nextDjStyle, false, P ? 18 : 20);   // #539 tap to cycle ROBOT / DIRROFACE / DIRROCROW
     const caseBtn = (x, y, w, h) => { const t = !!(cases.caseA && cases.caseA.H <= 0.15); btn(x, y, w, h, `FLIGHTCASE: ${t ? 'TRAY' : 'FULL'}`, t, caseTrayToggle, !cases.caseA, P ? 18 : 18); };   // #628 same switch as ROOMS > CASE
@@ -11139,8 +11152,10 @@ function djGear() {
 function djPrep() {   // what the camera must not see: XR hand / controller models and occluders
   const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
   if (streamer ? !streamer.showOpt.neon : DJ_HIDE_NEON.has(djSet.preset) && !gpActive()) hide(neon);   // #372 the OBJECTS toggle decides (its back faces FRONT / FADERS / low, which is accepted when it is on); no streamer (phone): the old rule, #337 the GoPro sees what it sees
-  if (xr) for (const st of xr.inputs) { hide(st.hand); hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand) hide(st.ctlHand.root); }
-  if (xr && xr.glove) hide(xr.glove.root);   // #287 the DJ CAM robot has its own gloves
+  const keepFloatingHands = !!(AVATAR_STYLES[djSet.style] && AVATAR_STYLES[djSet.style].noBody) && xr;
+  const keepGripCtl = keepFloatingHands && (xr.getCtlLook() === 'ghostglove' || xr.getCtlLook() === 'controller');
+  if (xr) for (const st of xr.inputs) { hide(st.hand); if (!keepGripCtl) hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand && !keepFloatingHands) hide(st.ctlHand.root); }
+  if (xr && xr.glove && !(keepFloatingHands && xr.getCtlLook() === 'glove')) hide(xr.glove.root);   // #287 the DJ CAM robot has its own gloves
   if (gopro && gopro.on) hide(gopro.obj);   // #337 #372 hidden only from its own camera
   if (gopro2 && gopro2.on) hide(gopro2.obj);
   // #795 Tunnel-feedback guard: if CYCLOWALL DirroDj📹 is showing the live camera while GOPRO 2 is active/recording, hide the wall from DjCam so no infinite mirror tunnel is filmed

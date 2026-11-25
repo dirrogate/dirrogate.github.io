@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { applyNeon } from './neonenv.js';   // #355
 import { XRControllerModelFactory } from '../vendor/three/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from '../vendor/three/webxr/XRHandModelFactory.js';
-import { createControllerHand, driveGloveHand, gloveCap, gloveHide, chromePads, gloveTips, POSE as CTL_POSE } from './ctlhands.js';   // #276, #291
+import { createControllerHand, driveGloveHand, gloveCap, gloveHide, chromePads, gloveTips, setControllerGhost, POSE as CTL_POSE } from './ctlhands.js';   // #276, #291
 const LIFT_OUT = 0.05;
 // #260 the record on a deck: 12" or 7" sizes (lift zone just past a 45's label, 1.2 cm)
 let REC12 = null; const RD = d => (d.record && d.record.dims) || REC12; const LO = D => (D.SIZE === 7 ? 0.012 : LIFT_OUT);   // #136: record lift-off zone reaches this far past the label edge (m)
@@ -1020,7 +1020,7 @@ export function setupXR(ctx) {
   // #276 (owner) controller mode: a 3D hand holding each controller (DJ TOOLS > CONTROLLERS: 3D HANDS / CONTROLLER).
   // It is not a child of the grip (measureTip reads the grip's meshes), it copies the grip's pose each frame.
   let ctlLook = '3dhands';
-  try { const v = localStorage.getItem('vire.ctlLook'); if (v === 'controller' || v === '3dhands' || v === 'glove') ctlLook = v; } catch (e) {}
+  try { const v = localStorage.getItem('vire.ctlLook'); if (v === 'controller' || v === '3dhands' || v === 'glove' || v === 'ghostglove') ctlLook = v; } catch (e) {}
   // #287 (owner) GLOVE: the robot DJ's glove (avatar_robot.glb, #245) on each controller instead of the skin hand. The
   // skin hand is still posed (hidden) and its 25 joints drive the glove through robot2.js's own hand solver, which also
   // puts the glove's index fingertip on the blue ball (#247). Measured: the glove's knuckle width 6.4 cm and middle finger
@@ -1110,8 +1110,13 @@ export function setupXR(ctx) {
     const ok = st.connected && !st.isHand && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
     const want = ok && ctlLook !== 'controller';   // #469 CONTROLLER look: the hand is still posed (hidden) for the robot hands
     if (st.gloveH && (!want || ctlLook !== 'glove')) { gloveHide(glove, st.gloveH); st.gloveH = null; }   // #287 glove off: hide it
-    // #279 (owner): 3D hands mode shows just the hand, no controller inside it
-    const ctlModel = st.grip.children[0]; if (ctlModel) ctlModel.visible = !want;
+    // #279 (owner): 3D hands / robot glove hides controller; GHOST GLOVE shows semi-ghosted controller inside gloved ghost hand
+    const ctlModel = st.grip.children[0];
+    if (ctlModel) {
+      const ghostCtl = ok && ctlLook === 'ghostglove';
+      ctlModel.visible = !want || ghostCtl;
+      setControllerGhost(ctlModel, ghostCtl);
+    }
     if (!ok) { if (st.ctlHand) st.ctlHand.root.visible = false; return; }
     const hd = st.source.handedness;
     if (!st.ctlHand || st.ctlHand.handed !== hd) {
@@ -1169,7 +1174,8 @@ export function setupXR(ctx) {
     st.tA = (st.tA || 0) + (tv - (st.tA || 0)) * 0.5; st.gA = (st.gA || 0) + (gv - (st.gA || 0)) * 0.5;
     h.update(Math.round(st.tA * 20) / 20, Math.round(st.gA * 20) / 20, thumb, Math.round((st.pin || 0) * 20) / 20);   // #420 pin = pinch on a latched control
     if (h.soft !== (ctlLook === 'glove')) { h.soft = ctlLook === 'glove'; h.cur = ''; }   // #301 looser relaxed hand for the glove
-    h.holder.visible = ctlLook === '3dhands';   // #287 the skin hand stays posed (it drives the glove) but is not drawn; #469 nor in CONTROLLER look
+    if (h.setGhostGlove) h.setGhostGlove(ctlLook === 'ghostglove');
+    h.holder.visible = ctlLook === '3dhands' || ctlLook === 'ghostglove';   // #287 the skin hand stays posed (it drives the glove) but is not drawn; #469 nor in CONTROLLER look
     if (ctlLook === 'glove') gloveStep(st, h, 1 / 60);
   }
 
