@@ -3334,14 +3334,27 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - `main.js` `FEEL_DEF`: changed `smooth` (`HAND SMOOTHING`, was `85`) and `even` (`RADIUS EVEN-OUT`, was `100`) defaults to `0` so fresh sessions and `RESET TO AS BUILT` default to 0% (no double-smoothing in `VReal` mode, literal 1:1 polar angle).
 - Verified `node --check main.js`; `sw.js` bumped to `vire-app-v303`; synced & pushed to `dirrogate.github.io/cly3dj-dev/`. No Node restart.
 
-## #839 CYBERDIRRO / CYBERDIRRO PLATE, GHOST GLOVE first-person look, deck & sleeve GSAA (owner, 25 Nov)
-- Renamed `DIRRO REAL 3` (`real3`) label to `CYBERDIRRO` and added `CYBERDIRRO PLATE` (`cyber_plate` -> `models/avatar/cyberdirro_plate.glb`, 3.8 MB WebP): `DIRRO REAL 3` head/eyes/teeth/ARKit morphs + user-aligned double-sided `avatar_robot.glb` breastplate (broken top black ring removed) + 16-tri dark matte inner baffle, skinned to `mixamorig:Spine2`/`Neck`, with arm/leg IK skipped in `director.js` and floating hands preserved in `djPrep()`.
-- Added first-person `GHOST GLOVE` `ctlLook` (`ctlhands.js`, `xr.js`, `index.html`, `main.js`): Quest 3 Fresnel ghost outline hand (`makeGhostHandMat` + depth pre-pass) wearing 25-joint rigged distressed fingerless leather gloves (`models/avatar/ghost_glove_left.glb` & `right.glb`, 220 KB WebP each, built from `blender/GloveGLBS/glove.glb`) + semi-ghosted translucent Quest 3 controller (`makeGhostCtlMat` / `setControllerGhost`).
+## Gemini_NEON_2026-11-25 #839 CYBERDIRRO / CYBERDIRRO PLATE, GHOST GLOVE first-person look, deck & sleeve GSAA (owner, 25 Nov)
+- Renamed `DIRRO REAL 3` (`real3`) label to `CYBERDIRRO` and added `CYBERDIRRO PLATE` (`cyber_plate` -> `models/avatar/cyberdirro_plate.glb`, 3.73 MB WebP, 33,384 tris vs 54,690 tris on full `dirro_real3.glb`): `DIRRO REAL 3` head/eyes/teeth/ARKit morphs + user-aligned double-sided `avatar_robot.glb` breastplate (broken top black ring removed) + 16-tri dark matte inner baffle, skinned to `mixamorig:Spine2`/`Neck` (Blender source `blender/avatar_photo/cyberdirro_plate.blend`), with arm/leg IK skipped in `director.js` and floating hands preserved in `djPrep()`.
+- Added first-person `GHOST GLOVE` `ctlLook` (`ctlhands.js`, `xr.js`, `index.html`, `main.js`): Quest 3 Fresnel ghost outline hand (`makeGhostHandMat` + depth pre-pass) wearing 25-joint rigged distressed fingerless leather gloves (`models/avatar/ghost_glove_left.glb` & `right.glb`, 220 KB WebP each, built from `blender/GloveGLBS/glove.glb`).
 - Anti-aliasing inside panoramic domes: added chainable Tokuyoshi-Kaplanyan Geometric Specular AA (`applyGSAA` in `deck-glb.js`, chained safely with `fx.js` WATER) on GLB turntable materials and record sleeves; muted bright cream 3 mm sleeve edges (`sleeveCard` & `MAT.sleeve`), bumped sleeve/cover texture anisotropy to 8 with trilinear mipmaps, added 2 px outer cover border feather (`softenSleeveEdge`), and enabled `alphaToCoverage` on 7" paper sleeve holes.
-- Verified `node --input-type=module --check` on `fx.js`, `deck-glb.js`, `models.js`, `ctlhands.js`, `xr.js`, `director.js`, `main.js`, `sw.js`; `sw.js` bumped to `vire-app-v304` (added `cyberdirro_plate`, `ghost_glove_left`, `ghost_glove_right`). Synced & committed to `dirrogate.github.io/cly3dj-dev/`. No Node restart.
+- Verified `node --input-type=module --check` on `fx.js`, `deck-glb.js`, `models.js`, `ctlhands.js`, `xr.js`, `director.js`, `main.js`, `sw.js`; `sw.js` bumped to `vire-app-v304` (commit `c64879f`). No Node restart.
 
-## #841 User-aligned Ghost Gloves, pre-pinch relaxed pose, no ghost controller, GoPro 1/2 preview fix (owner, 25 Nov)
+## Gemini_NEON_2026-11-25 #840 CLY3DJ BEANIE eyewear forward offset (owner, 25 Nov)
+- `main.js` `AVATAR_STYLES.beanie`: added `glasses: { fwd: 0.030, up: 0.0, scale: 1.0 }` so standalone VR/AR glasses sit 30 mm forward of the eye midpoint instead of recessed inside `cly3dj_beanie.glb`.
+- Verified `node --check`; `sw.js` bumped to `vire-app-v305` (commit `8d827de`). No Node restart.
+
+## Gemini_NEON_2026-11-25 #841 User-aligned Ghost Gloves, pre-pinch relaxed pose, no ghost controller, GoPro 1/2 preview fix (owner, 25 Nov)
 - Exported user-aligned `ghost_glove_left.glb` & `ghost_glove_right.glb` (220 KB WebP each, 25-joint mirrored skinning, palm clearance pushed +4.5 mm outward) from `blender/avatar_photo/ghost_glove_align_clean.blend`.
 - `ctlhands.js` & `xr.js`: removed ghost controller model from `GHOST GLOVE` look (just tattered leather glove + Quest ghost hand); added natural ~2 cm ready-to-pinch relaxed pose (`pinEff = 0.56 + 0.44 * trigger`) and locked the transparent interaction ball to `h.pinchMid` so index & thumb close directly onto the ball with zero drift.
 - `main.js` `showPrep()`: kept floating Ghost Glove hands visible on Remote Tablet GoPro 1 & GoPro 2 previews and SHOWTIME! when using `noBody` avatars (`CYBERDIRRO PLATE`).
-- Verified `node --input-type=module --check` on `ctlhands.js`, `xr.js`, `main.js`, `sw.js`; bumped `sw.js` to `vire-app-v306`; synced & committed to `dirrogate.github.io/cly3dj-dev/`. No Node restart.
+- Verified `node --input-type=module --check` on `ctlhands.js`, `xr.js`, `main.js`, `sw.js`; bumped `sw.js` to `vire-app-v306` (commit `eb2c4f1`). No Node restart.
+
+## Gemini_NEON_2026-11-25 #842 CYBERDIRRO PLATE Quest Ghost fiber-optic glowing hem (owner, 25 Nov)
+- `director.js` (`_plateGhostHem`): computes exact per-vertex distance `aHemDist` from the breastplate's open bottom/lower-side boundary edges (excluding upper neck collar) at load time and injects a Quest 3 cyan-white Fresnel fiber-optic hem glow (`11 mm` crisp core + `36 mm` upward bleed + fine fiber weave shimmer) on `AvatarRobot` material with zero extra geometry or draw calls.
+- Verified `node --check`; bumped `sw.js` to `vire-app-v307` (commit `7c7a48f`). No Node restart.
+
+## Gemini_NEON_2026-11-25 #843 ROBOT (avatar_robot_v2) fiber-optic hem + GHOST GLOVE hand support (owner, 25 Nov)
+- `robot2.js` (`applyRobotGhostHem`): applied the same bottom-rim Quest Ghost fiber-optic glowing hem shader + `DoubleSide` exclusively to `avatar_robot_v2`'s `Neck` breastplate material (`o.material[1]`, helmet untouched).
+- `main.js` (`showPrep`, `djPrep`): when `AVATAR` is `ROBOT` and `CONTROLLERS` is `GHOST GLOVE`, hides `ROBOT`'s built-in chrome gloves and displays the floating `GHOST GLOVE` hands in GoPro 1 / GoPro 2 / DJ Cam / Stream.
+- Verified `node --check`; bumped `sw.js` to `vire-app-v308` (commit `811841d`). No Node restart.
