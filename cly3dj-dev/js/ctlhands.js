@@ -157,7 +157,7 @@ export function createControllerHand(handed, url, material) {
   }).catch(e => console.warn('controller hand', e));
   h.update = (t, g, th, pin) => update(h, t, g, th, pin || 0);
   h.place = () => place(h, handed);
-  h.setGhostGlove = on => { if (h.ghostOn === !!on && (!on || h.ghostGlove || h.ghostGloveLoading)) return; h.ghostOn = !!on; applyGhost(); };
+  h.setGhostGlove = on => { if (h.ghostOn === !!on && (!on || h.ghostGlove || h.ghostGloveLoading)) return; h.ghostOn = !!on; h.cur = ''; applyGhost(); };
   return h;
 }
 
@@ -187,6 +187,9 @@ function place(h, handed) {
   const it = h.bones['index-finger-tip'], tt = h.bones['thumb-tip']; it.updateWorldMatrix(true, false); tt.updateWorldMatrix(true, false);
   const inv = new THREE.Matrix4().copy(h.root.matrixWorld).invert();
   h.oLocal = new THREE.Vector3().setFromMatrixPosition(it.matrixWorld).add(new THREE.Vector3().setFromMatrixPosition(tt.matrixWorld)).multiplyScalar(0.5).applyMatrix4(inv);
+  // Pre-pinched GHOST GLOVE closure midpoint: exact spot where index tip and thumb tip meet at full pinch (pin = 1)
+  pose(h, 1, 0, false, false, 1); h.holder.updateMatrix(); it.updateWorldMatrix(true, false); tt.updateWorldMatrix(true, false);
+  h.pinchMid = new THREE.Vector3().setFromMatrixPosition(it.matrixWorld).add(new THREE.Vector3().setFromMatrixPosition(tt.matrixWorld)).multiplyScalar(0.5).applyMatrix4(inv);
   // #284 the closed O's index fingertip (6 mm past the tip joint): the touch point while a button is held
   // #293 (owner) back on the INDEX tip (#289 had moved it to the thumb)
   const dj = h.bones['index-finger-phalanx-distal']; dj.updateWorldMatrix(true, false);
@@ -237,18 +240,20 @@ function pose(h, t, g, th, openIndex = false, pin = 0) {
   // thumb only drops onto the face buttons / stick when it touches them. No O, no thumb swing or roll on a press.
   // The touch point / ball stays the relaxed index tip fixed in grip space (h.tipRest), so the curl never moves it.
   const k = h.soft ? POSE.gloveSoft : 1;
+  const PI = POSE.pinch, GO = h.soft ? POSE.gloveO : { thumb: 1, swing: 1, roll: 1, index: 1 };   // #302 the glove's longer thumb turns less
+  // GHOST GLOVE: natural ~2 cm ready-to-pinch relaxed pose (pin = 0.56 at rest -> 1.0 on trigger squeeze) so index & thumb close right onto the ball!
+  const pinEff = (!openIndex && h.ghostOn) ? Math.max(pin, 0.56 + 0.44 * t) : pin;
   let idx = lerp3(openIndex ? POSE.index.open : POSE.index.rest.map(v => v * k), POSE.index.shut, t);   // ball measured with the unscaled open index (as before)
-  const GO = h.soft ? POSE.gloveO : { thumb: 1, swing: 1, roll: 1, index: 1 }, PI = POSE.pinch;   // #302 the glove's longer thumb turns less
-  if (pin > 0) idx = lerp3(idx, PI.index.map(v => v * GO.index), pin);   // #420 pinch on a latched control
+  if (pinEff > 0) idx = lerp3(idx, PI.index.map(v => v * GO.index), pinEff);   // #420 pinch on a latched control (or GHOST GLOVE pre-pinch)
   const rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
   if (h.soft) for (let j = 0; j < 3; j++) rest[j] *= k + (1 - k) * g;   // #301 glove: looser relaxed fingers, full fist on grip
   for (const f of FINGERS) { const c = CH(f), a = f === 'index-finger' ? idx : rest; for (let j = 0; j < 3; j++) curl(h, c, j + 1, a[j]); }
   let tp = th ? POSE.thumb.down : POSE.thumb.open;
-  if (pin > 0) {
+  if (pinEff > 0) {
     const sg = h.handed === 'left' ? -1 : 1;
-    tp = lerp3(tp, PI.thumb.map(v => v * GO.thumb), pin);
-    curl(h, THUMB, 0, PI.swing * GO.swing * pin * sg, 'z');   // thumb across toward the index
-    curl(h, THUMB, 0, PI.roll * GO.roll * pin * sg, 'y');
+    tp = lerp3(tp, PI.thumb.map(v => v * GO.thumb), pinEff);
+    curl(h, THUMB, 0, PI.swing * GO.swing * pinEff * sg, 'z');   // thumb across toward the index
+    curl(h, THUMB, 0, PI.roll * GO.roll * pinEff * sg, 'y');
   }
   for (let j = 0; j < 3; j++) curl(h, THUMB, j, tp[j]);
 }

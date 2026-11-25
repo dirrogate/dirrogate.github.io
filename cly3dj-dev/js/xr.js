@@ -943,7 +943,7 @@ export function setupXR(ctx) {
           st.gloveH.B.Index_Distal.getWorldPosition(_bp);
           (st.gloveRest || (st.gloveRest = new THREE.Vector3())).copy(_bw).add(_bp).multiplyScalar(0.5).applyMatrix4(_ri).addScaledVector(h.padDir, 0.009);
         }
-        const base = ctlLook === 'glove' && st.gloveRest ? st.gloveRest : (h.padRest || h.tipRest);
+        const base = ctlLook === 'glove' && st.gloveRest ? st.gloveRest : (ctlLook === 'ghostglove' && h.pinchMid ? h.pinchMid : (h.padRest || h.tipRest));
         const sg = st.source.handedness === 'left' ? -1 : 1;
         (st.sphereLocal || (st.sphereLocal = new THREE.Vector3())).set(pf('bx') * sg, pf('by'), pf('bz')).multiplyScalar(0.001).add(base);   // PINCH FIT sphere offsets (mm, grip space)
         st.grip.localToWorld(st.tip.copy(st.sphereLocal)); st.pinchPt.copy(st.tip);
@@ -1110,12 +1110,11 @@ export function setupXR(ctx) {
     const ok = st.connected && !st.isHand && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
     const want = ok && ctlLook !== 'controller';   // #469 CONTROLLER look: the hand is still posed (hidden) for the robot hands
     if (st.gloveH && (!want || ctlLook !== 'glove')) { gloveHide(glove, st.gloveH); st.gloveH = null; }   // #287 glove off: hide it
-    // #279 (owner): 3D hands / robot glove hides controller; GHOST GLOVE shows semi-ghosted controller inside gloved ghost hand
+    // #279 (owner): 3D hands / glove / ghostglove show just the hand/glove, no controller inside it
     const ctlModel = st.grip.children[0];
     if (ctlModel) {
-      const ghostCtl = ok && ctlLook === 'ghostglove';
-      ctlModel.visible = !want || ghostCtl;
-      setControllerGhost(ctlModel, ghostCtl);
+      ctlModel.visible = !want;
+      setControllerGhost(ctlModel, false);
     }
     if (!ok) { if (st.ctlHand) st.ctlHand.root.visible = false; return; }
     const hd = st.source.handedness;
