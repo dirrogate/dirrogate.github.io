@@ -128,6 +128,11 @@ export class Avatar {
     if (this.r3BeanieMats || this.r3ShirtMats) m.traverse(o => {   // #823 REAL 3 SCAN: eyes, teeth, lashes unlit too (corneas stay: see-through)
       if (!o.isMesh) return; for (const mt of (Array.isArray(o.material) ? o.material : [o.material])) if (mt && mt.isMeshStandardMaterial && !mt.transparent && !mt.userData.r3b && !mt.userData.r3s) this._r3Unlit(mt);
     });
+    // #842 CYBERDIRRO PLATE: Quest Ghost fiber-optic glowing hem along the bottom rim of the breastplate
+    if (this.noBody) m.traverse(o => {
+      if (!o.isMesh || !/avatarrobot/i.test(o.name + ' ' + ((o.material && o.material.name) || ''))) return;
+      for (const mt of (Array.isArray(o.material) ? o.material : [o.material])) if (mt && mt.isMeshStandardMaterial) this._plateGhostHem(o, mt);
+    });
     if (this.r3BeanieMats || this.r3ShirtMats) { const U = this._acesU(); m.traverse(o => { if (o.isMesh) o.onBeforeRender = r => { const t = r.getRenderTarget(); U.value = t && t.texture && t.texture.type === THREE.UnsignedByteType && !t.vireAces ? 0 : 1; }; }); }
     for (const n of ['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head', 'LeftEye', 'RightEye', 'LeftArm', 'RightArm']) if (!B[n]) throw new Error('avatar rig: no ' + n + ' bone (Ready Player Me rig expected)');
     this.B = B;
@@ -206,6 +211,59 @@ export class Avatar {
       this._r3Uniforms(sh);
     };
     mt.customProgramCacheKey = () => 'r3unlit3'; mt.needsUpdate = true;
+  }
+  _plateGhostHem(mesh, mt) {
+    const geo = mesh.geometry; if (!geo || !geo.attributes.position) return;
+    if (!geo.attributes.aHemDist) {
+      const pos = geo.attributes.position, idx = geo.index, n = pos.count;
+      let yMin = Infinity, yMax = -Infinity;
+      for (let i = 0; i < n; i++) { const y = pos.getY(i); if (y < yMin) yMin = y; if (y > yMax) yMax = y; }
+      const yCut = yMin + (yMax - yMin) * 0.58;   // bottom & lower-side hem only (excludes upper neck collar)
+      const ec = new Map();
+      const addE = (a, b) => { const k = a < b ? a * 65536 + b : b * 65536 + a; ec.set(k, (ec.get(k) || 0) + 1); };
+      if (idx) { for (let i = 0; i < idx.count; i += 3) { const a = idx.getX(i), b = idx.getX(i + 1), c = idx.getX(i + 2); addE(a, b); addE(b, c); addE(c, a); } }
+      const rim = [];
+      for (const [k, cnt] of ec) {
+        if (cnt !== 1) continue;
+        const a = Math.floor(k / 65536), b = k % 65536;
+        if (pos.getY(a) <= yCut) rim.push([pos.getX(a), pos.getY(a), pos.getZ(a)]);
+        if (pos.getY(b) <= yCut) rim.push([pos.getX(b), pos.getY(b), pos.getZ(b)]);
+      }
+      const dist = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+        let best = 1.0;
+        for (let j = 0; j < rim.length; j++) {
+          const r = rim[j], dx = x - r[0], dy = y - r[1], dz = z - r[2], d = dx * dx + dy * dy + dz * dz;
+          if (d < best) best = d;
+        }
+        dist[i] = Math.sqrt(best);
+      }
+      geo.setAttribute('aHemDist', new THREE.BufferAttribute(dist, 1));
+    }
+    if (mt.userData.vireHem) return; mt.userData.vireHem = true;
+    const prev = mt.onBeforeCompile, prevKey = mt.customProgramCacheKey ? mt.customProgramCacheKey.bind(mt) : null;
+    mt.onBeforeCompile = (sh, r) => {
+      if (prev) prev(sh, r);
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float aHemDist; varying float vHemDist; varying vec3 vHemP;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHemDist = aHemDist; vHemP = position;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying float vHemDist; varying vec3 vHemP;')
+        .replace('#include <dithering_fragment>', `
+{ float _hCore = smoothstep(0.011, 0.0, vHemDist);
+  float _hBleed = smoothstep(0.036, 0.0, vHemDist);
+  if (_hBleed > 0.001) {
+    float _hNdv = clamp(abs(dot(normalize(vNormal), normalize(vViewPosition))), 0.0, 1.0);
+    float _hFr = pow(1.0 - _hNdv, 2.2);
+    float _hWeave = 0.80 + 0.20 * sin(vHemP.x * 280.0 + vHemP.z * 140.0);
+    vec3 _hCol = mix(vec3(0.38, 0.78, 1.0), vec3(0.96, 0.99, 1.0), clamp(_hCore * 0.75 + _hFr * 0.55, 0.0, 1.0));
+    gl_FragColor.rgb += _hCol * (_hCore * 1.15 + _hBleed * (0.32 + 0.75 * _hFr)) * _hWeave;
+  } }
+#include <dithering_fragment>`);
+    };
+    mt.customProgramCacheKey = () => (prevKey ? prevKey() + '|' : '') + 'vire-plate-hem-1';
+    mt.needsUpdate = true;
   }
   _scanU() { return this.r3ScanU || (this.r3ScanU = { value: this._look === 'lit' ? 0.5 : 0.75 }); }   // #824 / #827 LIT = 50 % unlit + 50 % lit; #831 SCAN = 75 % scan + 25 % scene / pano light
   setLook(look) { this._look = look; this._scanU().value = look === 'lit' ? 0.5 : 0.75; }

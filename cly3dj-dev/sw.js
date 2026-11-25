@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v306';   // #841 user-aligned ghost gloves, pre-pinch relaxed pose, no ghost controller, GoPro 1/2 tablet preview fix
+const CACHE = 'vire-app-v307';   // #842 CYBERDIRRO PLATE Quest Ghost fiber-optic glowing hem
+// was: const CACHE = 'vire-app-v306';   // #841 user-aligned ghost gloves, pre-pinch relaxed pose, no ghost controller, GoPro 1/2 tablet preview fix
 // was: const CACHE = 'vire-app-v305';   // #840 CLY3DJ BEANIE eyewear forward offset (fwd: 0.030)
 // was: const CACHE = 'vire-app-v304';   // #839 CYBERDIRRO / CYBERDIRRO PLATE, GHOST GLOVE look, deck/sleeve GSAA & edge hygiene
 // was: const CACHE = 'vire-app-v303';   // Gemini_NEON_2026-11-25_01:29 #838 RADIUS EVEN-OUT & HAND SMOOTHING defaults set to 0%
