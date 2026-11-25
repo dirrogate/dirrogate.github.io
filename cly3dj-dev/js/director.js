@@ -92,7 +92,7 @@ export class Avatar {
     let gltf;
     try { gltf = await loader.loadAsync(url); }
     catch (e) { if (!this.fallbackUrl) throw e; console.warn('avatar KTX2 load failed, using WebP copy', e); gltf = await loader.loadAsync(this.fallbackUrl); }   // #816
-    this.noBody = /nobody|cyber_plate|cyber_tee/i.test(url);
+    this.noBody = /nobody|cyber.*plate|cyber.*tee/i.test(url);
     const m = gltf.scene; this.root.add(m);
     const B = {}; this.mouth = []; this.morphs = {};
     this.clothesMats = { beanie: [], shirt: [] };
