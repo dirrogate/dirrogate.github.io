@@ -454,7 +454,7 @@ if (djcam) djcam.preset = djSet.preset;
 // rig (67 bones, mouthOpen morph), so they all run on director.js Avatar. Old saved 'human' = DIRROFACE.
 const AVATAR_STYLES = {   // #817 (owner) ROBOT, CYBERDIRRO, CYBERDIRRO PLATE and CLY3DJ BEANIE
   robot: { label: 'ROBOT' },
-  beanie: { label: 'CLY3DJ BEANIE', url: 'models/avatar/cly3dj_beanie.glb' },
+  beanie: { label: 'CLY3DJ BEANIE', url: 'models/avatar/cly3dj_beanie.glb', glasses: { fwd: 0.030, up: 0.0, scale: 1.0 } },
   real3: { label: 'CYBERDIRRO', url: 'models/avatar/dirro_real3.glb', fallback: 'models/avatar/dirro_real3_webp.glb', glasses: { fwd: 0.016, up: 0.002, scale: 1.12 } },   // #814 dense MetaPerson head fitted to the cleaned scan, scan colour on MetaPerson UVs
   cyber_plate: { label: 'CYBERDIRRO PLATE', url: 'models/avatar/cyberdirro_plate.glb', glasses: { fwd: 0.016, up: 0.002, scale: 1.12 }, noBody: true },
 };
