@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v310';   // Gemini_NEON #845 HOLOHAND see-through hand mode + fixed fiber-optic breastplate hem (normal + X-column bottom contour)
+const CACHE = 'vire-app-v311';   // Gemini_NEON #846 left-wrist DIRRO band tap -> 1.5s synchronized HOLOHAND<->GHOST GLOVE + CYBERDIRRO<->ROBOT v2 morph (preloaded pair + shared holo-hemmed breastplate)
+// was: const CACHE = 'vire-app-v310';   // Gemini_NEON #845 HOLOHAND see-through hand mode + fixed fiber-optic breastplate hem (normal + X-column bottom contour)
 // was: const CACHE = 'vire-app-v309';   // Gemini_NEON #844 fix TDZ ReferenceError on xr at startup in useAvatarStyle (main.js:522)
 // was: const CACHE = 'vire-app-v308';   // #843 ROBOT (avatar_robot_v2) Quest Ghost fiber-optic hem + GHOST GLOVE hand support
 // was: const CACHE = 'vire-app-v307';   // #842 CYBERDIRRO PLATE Quest Ghost fiber-optic glowing hem
@@ -78,7 +79,7 @@ const APP = [
     'keycol', 'neonenv', 'pcampack', 'perfcap', 'sleeves', 'phonelib', 'portal', 'robot', 'robot2', 'skybox', 'spectator-client', 'spectator-host', 'spectator', 'storage', 'stream', 'studio', 'vjdesk', 'dancer', 'dancerdesk', 'holodesk', 'holoplayer', 'comics', 'cxfiles', 'storyboard', 'mooncase', 'drostemaker', 'rgbdgrab', 'recmaster', 'rec-worklet', 'textures', 'tools', 'venue', 'videovinyl', 'vset', 'xr'].map(n => `js/${n}.js`),
   ...['flight_case_kit', 'flight_case_kit_ktx', 'milk_crate', 'milk_crate_ktx', 'mixer_parts', 'neon_sign_glass', 'neon_sign_glass_ktx',
     'record_crate', 'record_crate_ktx', 'turntable', 'avatar/robot', 'avatar/avatar_robot', 'avatar/avatar_robot_v2', 'avatar/dirro_real3', 'avatar/dirro_real3_webp', 'avatar/cyberdirro_plate', 'avatar/ghost_glove_left', 'avatar/ghost_glove_right', 'avatar/cly3dj_beanie'].map(n => `models/${n}.glb`),
-  'img/dirrocomics-mark.png', 'img/sky_factory.jpg', 'img/booth_front.png', 'img/tb-03.png', 'img/tb-03_cass.png', 'img/micro_cassette.png', 'img/tb03_knob_synth.png', 'img/tb03_knob_fx.png', 'img/tb03_knob_track.png', 'img/tb03_knob_mode.png', 'img/tb03_knob_value.png', 'img/tb03_switch_wave.png', 'models/avatar/gemini_emboss.png', 'models/slipmat_left.jpg', 'models/slipmat_right.jpg', 'models/turntable_ao.json', 'models/turntable_ao.png',
+  'img/dirrocomics-mark.png', 'img/dirro_emblem.png', 'img/sky_factory.jpg', 'img/booth_front.png', 'img/tb-03.png', 'img/tb-03_cass.png', 'img/micro_cassette.png', 'img/tb03_knob_synth.png', 'img/tb03_knob_fx.png', 'img/tb03_knob_track.png', 'img/tb03_knob_mode.png', 'img/tb03_knob_value.png', 'img/tb03_switch_wave.png', 'models/avatar/gemini_emboss.png', 'models/slipmat_left.jpg', 'models/slipmat_right.jpg', 'models/turntable_ao.json', 'models/turntable_ao.png',
   'vendor/three/three.module.js', 'vendor/qrcode/qrcode.mjs', 'vendor/mp4muxer/mp4-muxer.mjs', 'dirrogram.html', 'retroscene.png', 'mattes/matte1.mp4', 'vendor/three/OrbitControls.js', 'vendor/three/RoomEnvironment.js',
   'vendor/three/loaders/GLTFLoader.js', 'vendor/three/loaders/KTX2Loader.js', 'vendor/three/utils/BufferGeometryUtils.js', 'vendor/three/utils/WorkerPool.js',
   'vendor/three/libs/meshopt_decoder.module.js', 'vendor/three/math/SimplexNoise.js',   // #548 DANCER (desk)

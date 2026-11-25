@@ -184,6 +184,32 @@ export class RobotAvatar2 {
     this.ledData = new Uint8Array(COLS * ROWS * 4); this.ledTex = new THREE.DataTexture(this.ledData, COLS, ROWS);
     this.ledTex.magFilter = this.ledTex.minFilter = THREE.NearestFilter; this.ledTex.colorSpace = THREE.SRGBColorSpace; this.ledTex.needsUpdate = true;
     const ledTex = this.ledTex;
+    this.headWipeU = { value: 1.0 };   // #846 1.0 = full ROBOT head visible, 0.0 = wiped away during CYBERDIRRO morph
+    const patchRobotHeadWipe = mt => {
+      if (!mt || mt.userData.vireRhw) return; mt.userData.vireRhw = true;
+      const U = this.headWipeU, prev = mt.onBeforeCompile, prevKey = mt.customProgramCacheKey ? mt.customProgramCacheKey.bind(mt) : null;
+      mt.onBeforeCompile = (sh, r) => {
+        if (prev) prev(sh, r);
+        sh.uniforms.uHeadWipe = U;
+        sh.vertexShader = sh.vertexShader
+          .replace('#include <common>', '#include <common>\nvarying float vRhwT;')
+          .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRhwT = clamp((position.y - 1.47) / 0.31, 0.0, 1.0);');
+        sh.fragmentShader = sh.fragmentShader
+          .replace('#include <common>', '#include <common>\nuniform float uHeadWipe; varying float vRhwT;')
+          .replace('#include <dithering_fragment>', `
+if (uHeadWipe < 0.999) {
+  if (vRhwT > uHeadWipe) discard;
+  if (uHeadWipe > 0.001) {
+    float _rb = smoothstep(0.065, 0.0, abs(vRhwT - uHeadWipe));
+    gl_FragColor.rgb += vec3(0.42, 0.90, 1.0) * _rb * 2.4;
+  }
+}
+#include <dithering_fragment>`);
+      };
+      mt.customProgramCacheKey = () => (prevKey ? prevKey() + '|' : '') + 'vire-rob-hw-1';
+      mt.needsUpdate = true;
+    };
+    this._bustMat = null;
     model.traverse(o => {
       if (!o.isMesh) return;
       o.layers.set(AV_LAYER); o.frustumCulled = false; o.castShadow = o.receiveShadow = false;
@@ -204,6 +230,7 @@ export class RobotAvatar2 {
   vec3 lit = texture2D( ledTex, ( floor( g ) + 0.5 ) / vec2( ${COLS}.0, ${ROWS}.0 ) ).rgb;
   vec4 diffuseColor = vec4( diffuse + cell * ( vec3( 0.035, 0.002, 0.002 ) + lit ), opacity );`);
         };
+        patchRobotHeadWipe(m);
         o.material = m;
       }
       if (o.isSkinnedMesh && o.material && o.material.name === 'AvatarRobot') {
@@ -211,11 +238,14 @@ export class RobotAvatar2 {
         // chrome shell like the flight case ball corners (MAT.chrome); the painted map (black fuzzy stripe) stays.
         // Neck and collar (triangles touching a Neck-weighted vertex) keep the model's own matte material.
         const chrome = o.material.clone(); chrome.metalness = 1; chrome.roughness = 0.14;
+        patchRobotHeadWipe(chrome);
         splitByBone(o, 'Neck');
         const bustMat = o.material; bustMat.side = THREE.DoubleSide;
         applyRobotGhostHem(o, bustMat);
+        this._bustMat = bustMat;
         o.material = [chrome, bustMat];
       }
+      if (o.material && /Gemini/i.test(o.material.name || '')) patchRobotHeadWipe(o.material);
     });
     let gem = false; model.traverse(o => { if (o.material && /Gemini/.test(o.material.name || '')) gem = true; });
     if (!gem) this.addCrests();   // #305 the v2 robot wears the Gemini logo as its headphones
@@ -259,6 +289,8 @@ export class RobotAvatar2 {
 
   // the Gemini crest embossed on both ear cups: on each cup's flat centre disc (inside its stepped rings), the shell's
   // pearl a shade warmer, with the crest as a bump map, so its lines stand out of the surface
+  setHeadWipe(v) { if (this.headWipeU) this.headWipeU.value = clamp(v, 0, 1); }
+  setBustVisible(on) { if (this._bustMat) this._bustMat.visible = !!on; }
   async addCrests() {
     const tex = await new THREE.TextureLoader().loadAsync('models/avatar/gemini_emboss.png').catch(() => null);
     if (!tex) return;

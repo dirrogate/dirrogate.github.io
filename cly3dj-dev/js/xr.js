@@ -963,6 +963,22 @@ export function setupXR(ctx) {
       // #815 Y on the left controller (gamepad button 5): ctx.onLeftY (avatar wink)
       { const g5 = !st.isHand && st.source && st.source.handedness === 'left' && st.source.gamepad && st.source.gamepad.buttons[5];
         const down = !!(g5 && g5.pressed); if (down && !st.yWas && ctx.onLeftY && ctx.onLeftY(st)) buzz(st, 0.25, 20); st.yWas = down; }
+      // #846 Tap left-hand DIRRO wrist band with right hand -> 1.5s synchronized HOLOHAND <-> GHOST GLOVE + CYBERDIRRO <-> ROBOT wipe
+      if (st.source && st.source.handedness === 'right' && st.tip) {
+        const L = inputs.find(s => s !== st && s.connected && s.source && s.source.handedness === 'left');
+        const band = L && L.ctlHand && L.ctlHand.wristBand;
+        const now = performance.now();
+        if (band && band.visible && L.ctlHand.root.visible) {
+          band.getWorldPosition(_bw);
+          const hit = st.tip.distanceTo(_bw) < 0.036;
+          if (hit && !_bandHit && now - _bandT > 900) {
+            _bandT = now;
+            buzz(st, 0.7, 35); buzz(L, 0.5, 25);
+            if (ctx.onDirroMorph) ctx.onDirroMorph();
+          }
+          _bandHit = hit;
+        } else _bandHit = false;
+      }
       // gemini_neon 2026-11-19: Quest right thumbstick click (gamepad button 3) -> toggle playback of currently armed Looper slot
       { const g3 = !st.isHand && st.source && st.source.handedness === 'right' && st.source.gamepad && st.source.gamepad.buttons[3];
         const down = !!(g3 && g3.pressed && !(ctx.mprops && ctx.mprops.placer.active(st)));
@@ -1019,7 +1035,7 @@ export function setupXR(ctx) {
 
   // #276 (owner) controller mode: a 3D hand holding each controller (DJ TOOLS > CONTROLLERS: 3D HANDS / CONTROLLER).
   // It is not a child of the grip (measureTip reads the grip's meshes), it copies the grip's pose each frame.
-  let ctlLook = '3dhands';
+  let ctlLook = '3dhands', _bandHit = false, _bandT = 0;
   try { const v = localStorage.getItem('vire.ctlLook'); if (v === 'controller' || v === '3dhands' || v === 'glove' || v === 'ghostglove' || v === 'holohand') ctlLook = v; } catch (e) {}
   // #287 (owner) GLOVE: the robot DJ's glove (avatar_robot.glb, #245) on each controller instead of the skin hand. The
   // skin hand is still posed (hidden) and its 25 joints drive the glove through robot2.js's own hand solver, which also

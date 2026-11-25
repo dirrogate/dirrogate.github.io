@@ -7,6 +7,7 @@ import { readID3 } from './id3.js';
 import { AudioEngine, PITCH_RANGE } from './audio.js';
 import { REC, REC7, dimsOf, timeToRadius, radiusToTime, Screen, fitText, drawRecordSide, recordMaterial, setRecordSide, grooveAnisoMap } from './textures.js';
 import { setupXR } from './xr.js';
+import { setGloveWipe } from './ctlhands.js';   // #846 synchronized 1.5s HOLOHAND <-> GHOST GLOVE wipe
 import { makeNeonSign, bakeNeonImpostor, neonGlowTexture, GLOW_E, NEON, upgradeNeon } from './neon.js';
 import { LedPlayer, LED } from './ledwall.js';
 import { WallFx, LOOP, RP_DEF, MP_DEF, FLOOR_NAMES, FS_PATTERNS, SKY_HY, FX_W, FX_H, PX_DEF, pxSize, OUT_W, OUT_H } from './wallfx.js';   // #439 MANDEL / RETRO-SCENE on the LED wall (and the phones)
@@ -508,17 +509,88 @@ if (['human', 'face', 'crow', 'real', 'real2', 'tripo', 'meta'].includes(djSet.s
 if (!AVATAR_STYLES[djSet.style]) djSet.style = 'robot';
 const avatars = {};
 let avatar = null;
+function ensureAvatarLoaded(st) {
+  if (CAMERA_ROLE || !AVATAR_STYLES[st] || avatars[st]) return avatars[st];
+  const S = AVATAR_STYLES[st];
+  if (S.url) {
+    const a = new Avatar(rig); avatars[st] = a; a.fallbackUrl = S.fallback || null; a.glassesFit = S.glasses || null;
+    applyAvatarClothes(a);
+    a.load(S.url).then(() => { if (st === 'cyber_plate') syncMorphState(); }).catch(e => { a.status = 'failed: ' + e.message; console.warn('avatar not loaded', S.url, e); });
+  } else {
+    const a = new RobotAvatar2(rig); avatars.robot = a;
+    a.load(ROBOT_GLB).then(() => { robotNeon(); syncMorphState(); }).catch(e => { a.status = 'failed: ' + e.message; console.warn('robot avatar not loaded', e); });
+  }
+  a_hideInit(avatars[st]);
+  return avatars[st];
+}
+function a_hideInit(a) { if (a && a.root) a.root.visible = false; }
+// #846 Synchronized 1.5s holographic morph: HOLOHAND + CYBERDIRRO PLATE (t=0) <-> GHOST GLOVE + ROBOT v2 head on shared holo-hemmed breastplate (t=1)
+const dirroMorph = { active: false, t: djSet.style === 'robot' ? 1 : 0, target: djSet.style === 'robot' ? 1 : 0, dur: 1.5 };
+function syncMorphState() {
+  const e = dirroMorph.t * dirroMorph.t * (3 - 2 * dirroMorph.t);
+  const pairMode = djSet.style === 'cyber_plate' || djSet.style === 'robot';
+  const cp = avatars.cyber_plate, rb = avatars.robot;
+  if (pairMode) {
+    if (cp && cp.root) {
+      cp.root.visible = !!djSet.avatar;
+      if (cp.setHeadWipe) cp.setHeadWipe(e);
+    }
+    if (rb && rb.root) {
+      if (rb.setBustVisible) rb.setBustVisible(!(cp && cp.ready));   // use CYBERDIRRO PLATE's holo-hemmed breastplate under ROBOT v2 head
+      if (rb.setHeadWipe) rb.setHeadWipe(e);
+      rb.root.visible = !!djSet.avatar && e > 0.002;
+    }
+  } else {
+    if (cp && cp.setHeadWipe) cp.setHeadWipe(0);
+    if (rb && rb.setHeadWipe) rb.setHeadWipe(1);
+    if (rb && rb.setBustVisible) rb.setBustVisible(true);
+  }
+}
+function triggerDirroMorph() {
+  ensureAvatarLoaded('cyber_plate'); ensureAvatarLoaded('robot');
+  const toRobot = dirroMorph.target < 0.5;
+  dirroMorph.target = toRobot ? 1 : 0;
+  dirroMorph.active = true;
+  djSet.style = toRobot ? 'robot' : 'cyber_plate';
+  saveDjSet();
+  avatar = avatars[djSet.style];
+  for (const [k, a] of Object.entries(avatars)) if (k !== 'cyber_plate' && k !== 'robot' && a && a.root) a.root.visible = false;
+  try {
+    if (xr) {
+      xr.setCtlLook(toRobot ? 'ghostglove' : 'holohand');
+      const el = document.getElementById('sHands'); if (el) el.value = xr.getCtlLook();
+    }
+  } catch {}
+  setGloveWipe(dirroMorph.t);
+  syncMorphState();
+  drawMixScreen();
+  toast(toRobot ? 'DIRRO MORPH -> ROBOT V2 + GHOST GLOVE' : 'DIRRO MORPH -> CYBERDIRRO + HOLOHAND', 1600);
+}
+function stepDirroMorph(dt) {
+  if (!dirroMorph.active) return;
+  const step = dt / dirroMorph.dur;
+  if (dirroMorph.target > dirroMorph.t) dirroMorph.t = Math.min(dirroMorph.target, dirroMorph.t + step);
+  else dirroMorph.t = Math.max(dirroMorph.target, dirroMorph.t - step);
+  const e = dirroMorph.t * dirroMorph.t * (3 - 2 * dirroMorph.t);
+  setGloveWipe(e);
+  syncMorphState();
+  if (Math.abs(dirroMorph.t - dirroMorph.target) < 1e-4) {
+    dirroMorph.t = dirroMorph.target;
+    dirroMorph.active = false;
+    setGloveWipe(dirroMorph.t);
+    syncMorphState();
+  }
+}
 function useAvatarStyle(st) {
   if (CAMERA_ROLE) return;
   if (!AVATAR_STYLES[st]) st = 'robot';
-  if (!avatars[st]) {
-    const S = AVATAR_STYLES[st];
-    if (S.url) { const a = new Avatar(rig); avatars[st] = a; a.fallbackUrl = S.fallback || null; a.glassesFit = S.glasses || null; applyAvatarClothes(a); a.load(S.url).catch(e => { a.status = 'failed: ' + e.message; console.warn('avatar not loaded', S.url, e); }); }
-    else { const a = new RobotAvatar2(rig); avatars.robot = a; a.load(ROBOT_GLB).then(() => robotNeon()).catch(e => { a.status = 'failed: ' + e.message; console.warn('robot avatar not loaded', e); }); }   // #355 NEON CHROME
-  }
+  ensureAvatarLoaded(st);
   for (const a of Object.values(avatars)) a.root.visible = false;
   avatar = avatars[st]; avatar.root.visible = djSet.avatar;
   applyAvatarClothes(avatar);
+  if (st === 'robot') { dirroMorph.t = dirroMorph.target = 1; dirroMorph.active = false; }
+  else if (st === 'cyber_plate') { dirroMorph.t = dirroMorph.target = 0; dirroMorph.active = false; }
+  syncMorphState();
   try {
     if (AVATAR_STYLES[st] && AVATAR_STYLES[st].noBody && xr && xr.getCtlLook() === '3dhands') {
       xr.setCtlLook('ghostglove');
@@ -527,6 +599,8 @@ function useAvatarStyle(st) {
   } catch {}
 }
 useAvatarStyle(djSet.style);
+// #846 Preload both CYBERDIRRO PLATE and ROBOT v2 so mid-set wrist-tap morph never hitches Quest 3
+if (!CAMERA_ROLE) { ensureAvatarLoaded('cyber_plate'); ensureAvatarLoaded('robot'); syncMorphState(); }
 // #806 Standalone grabbable eyewear accessory (not baked to any avatar; Grip / Pinch on front pulls off & extends temples)
 const eyewear = CAMERA_ROLE ? null : new Eyewear(rig, { onToast: toast });
 function nextEyewear() {
@@ -11109,6 +11183,7 @@ function frameBody() {
   if (skySpin.speed > 0 && skybox.group.visible) { skySpin.ang = (skySpin.ang + skySpin.speed * DEG * dt) % (2 * Math.PI); applySkyTurn(); }   // #379 PANO SPIN
   if (mprops) mprops.tick(dt);   // #478
   if (fx) fx.preRender(dt);   // #379 FLOAT goes on here (every camera below sees it) and comes off after the frame; WATER uniforms
+  stepDirroMorph(dt);
   if ((ledMode === 'cam' || (streamer && streamer.wantsCam) || (gopro && gopro.aiming) || (gopro2 && gopro2.on) || (goproRec && goproRec.on)) && djcam) stepDjCam(dt);   // #826 GOPRO 2 out = its selfie screen keeps filming (it froze 3 s after release: only 'aiming' ran the camera)   // #220 (#331 also while the stream shows AVACAM)
   stepArmSleeves();   // #347
   if (streamer) streamer.tick();   // #331
@@ -11222,7 +11297,12 @@ function stepDjCam(dt) {
         gopro2.obj.updateMatrixWorld();
         lookAt = gopro2.obj.localToWorld(_gp2Look.copy(gopro2.lensLocal));
       }
-      avatar.update({ ...pose, floorY: rig.getWorldPosition(_djFloor).y, mic: vis.rms, vis, lookAt, dt });
+      const fullPose = { ...pose, floorY: rig.getWorldPosition(_djFloor).y, mic: vis.rms, vis, lookAt, dt };
+      avatar.update(fullPose);
+      // #846 Pose companion morph avatar (shared holo-hemmed breastplate + wiping head)
+      const cp = avatars.cyber_plate, rb = avatars.robot;
+      if (cp && cp !== avatar && cp.ready && cp.root.visible) cp.update(fullPose);
+      if (rb && rb !== avatar && rb.ready && rb.root.visible) rb.update(fullPose);
     }
     catch (e) { if (!stepDjCam.err) { stepDjCam.err = true; console.error(e); toast('Avatar error (headset keeps running): ' + e.message, 5000); } }
   }
@@ -11398,6 +11478,7 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   // gemini_neon 2026-11-19: Quest right thumbstick click toggles play/stop of currently armed Looper slot (never records/clears)
   // #815 left controller Y: the DJ avatar winks its left eye with a slight left smile
   onLeftY: () => { if (avatar && typeof avatar.wink === 'function') { avatar.wink(); return true; } return false; },
+  onDirroMorph: () => triggerDirroMorph(),
   onRightStick: () => {
     if (!engine.ctx || !engine.looper || !looper.data) return false;
     if (looper.state === 'stop') { engine.looperPlay(); looper.state = 'play'; }

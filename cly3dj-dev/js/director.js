@@ -129,10 +129,23 @@ export class Avatar {
       if (!o.isMesh) return; for (const mt of (Array.isArray(o.material) ? o.material : [o.material])) if (mt && mt.isMeshStandardMaterial && !mt.transparent && !mt.userData.r3b && !mt.userData.r3s) this._r3Unlit(mt);
     });
     // #842 CYBERDIRRO PLATE: Quest Ghost fiber-optic glowing hem along the bottom rim of the breastplate
-    if (this.noBody) m.traverse(o => {
-      if (!o.isMesh || !/avatarrobot/i.test(o.name + ' ' + ((o.material && o.material.name) || ''))) return;
-      for (const mt of (Array.isArray(o.material) ? o.material : [o.material])) if (mt && mt.isMeshStandardMaterial) this._plateGhostHem(o, mt);
-    });
+    // #846 Synchronized 1.5s vertical holographic head wipe (leaves breastplate + inner baffle intact!)
+    if (this.noBody) {
+      this.headWipeU = { value: 0.0 };
+      this._headMeshes = [];
+      m.traverse(o => {
+        if (!o.isMesh) return;
+        const isPlate = /avatarrobot|innerbaffle|breastplate/i.test(o.name + ' ' + ((o.material && o.material.name) || ''));
+        if (isPlate) {
+          if (/avatarrobot/i.test(o.name + ' ' + ((o.material && o.material.name) || ''))) {
+            for (const mt of (Array.isArray(o.material) ? o.material : [o.material])) if (mt && mt.isMeshStandardMaterial) this._plateGhostHem(o, mt);
+          }
+        } else {
+          this._headMeshes.push(o);
+          for (const mt of (Array.isArray(o.material) ? o.material : [o.material])) if (mt) this._headWipe(mt);
+        }
+      });
+    }
     if (this.r3BeanieMats || this.r3ShirtMats) { const U = this._acesU(); m.traverse(o => { if (o.isMesh) o.onBeforeRender = r => { const t = r.getRenderTarget(); U.value = t && t.texture && t.texture.type === THREE.UnsignedByteType && !t.vireAces ? 0 : 1; }; }); }
     for (const n of ['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head', 'LeftEye', 'RightEye', 'LeftArm', 'RightArm']) if (!B[n]) throw new Error('avatar rig: no ' + n + ' bone (Ready Player Me rig expected)');
     this.B = B;
@@ -256,6 +269,36 @@ export class Avatar {
     };
     mt.customProgramCacheKey = () => (prevKey ? prevKey() + '|' : '') + 'vire-plate-hem-2';
     mt.needsUpdate = true;
+  }
+  _headWipe(mt) {
+    if (!mt || mt.userData.vireHw) return; mt.userData.vireHw = true;
+    const U = this.headWipeU, prev = mt.onBeforeCompile, prevKey = mt.customProgramCacheKey ? mt.customProgramCacheKey.bind(mt) : null;
+    mt.onBeforeCompile = (sh, r) => {
+      if (prev) prev(sh, r);
+      sh.uniforms.uHeadWipe = U;
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying float vHwT;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHwT = clamp((position.y - 1.47) / 0.34, 0.0, 1.0);');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float uHeadWipe; varying float vHwT;')
+        .replace('#include <dithering_fragment>', `
+if (uHeadWipe > 0.001) {
+  if (vHwT < uHeadWipe) discard;
+  if (uHeadWipe < 0.999) {
+    float _hwB = smoothstep(0.065, 0.0, abs(vHwT - uHeadWipe));
+    gl_FragColor.rgb += vec3(0.42, 0.90, 1.0) * _hwB * 2.4;
+  }
+}
+#include <dithering_fragment>`);
+    };
+    mt.customProgramCacheKey = () => (prevKey ? prevKey() + '|' : '') + 'vire-av-hw-1';
+    mt.needsUpdate = true;
+  }
+  setHeadWipe(v) {
+    if (!this.headWipeU) return;
+    const c = clamp(v, 0, 1);
+    this.headWipeU.value = c;
+    if (this._headMeshes) { const vis = c < 0.998; for (const o of this._headMeshes) o.visible = vis; }
   }
   _scanU() { return this.r3ScanU || (this.r3ScanU = { value: this._look === 'lit' ? 0.5 : 0.75 }); }   // #824 / #827 LIT = 50 % unlit + 50 % lit; #831 SCAN = 75 % scan + 25 % scene / pano light
   setLook(look) { this._look = look; this._scanU().value = look === 'lit' ? 0.5 : 0.75; }

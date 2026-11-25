@@ -68,6 +68,95 @@ gl_FragColor = vec4(_rim, clamp(0.07 + 0.88 * _fr, 0.0, 0.94));
 }
 
 const GHOST_DEPTH_MAT = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true, side: THREE.FrontSide });
+
+// #846 Synchronized 1.5 s holographic wipe uniform for the tattered leather glove (0 = pure HOLOHAND, 1 = full GHOST GLOVE)
+const GLOVE_WIPE_U = { uGloveWipe: { value: 1.0 } };
+const _wipeHands = new Set();
+export function setGloveWipe(v) {
+  const c = Math.max(0, Math.min(1, v));
+  GLOVE_WIPE_U.uGloveWipe.value = c;
+  for (const h of _wipeHands) {
+    if (h.ghostGlove) h.ghostGlove.visible = (h.ghostMode === 'ghostglove' || h.ghostMode === 'holohand') && c > 0.002;
+  }
+}
+
+function patchGloveWipe(mt) {
+  if (!mt || mt.userData.vireGloveWipe) return mt;
+  mt.userData.vireGloveWipe = true;
+  const prev = mt.onBeforeCompile, prevKey = mt.customProgramCacheKey ? mt.customProgramCacheKey.bind(mt) : null;
+  mt.onBeforeCompile = (sh, r) => {
+    if (prev) prev(sh, r);
+    sh.uniforms.uGloveWipe = GLOVE_WIPE_U.uGloveWipe;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vGwT;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGwT = clamp((0.068 - position.y) / 0.125, 0.0, 1.0);');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uGloveWipe; varying float vGwT;')
+      .replace('#include <dithering_fragment>', `
+if (uGloveWipe < 0.999) {
+  if (vGwT > uGloveWipe) discard;
+  if (uGloveWipe > 0.003) {
+    float _gwBand = smoothstep(0.085, 0.0, abs(vGwT - uGloveWipe));
+    gl_FragColor.rgb += vec3(0.42, 0.90, 1.0) * _gwBand * 2.4;
+  }
+}
+#include <dithering_fragment>`);
+  };
+  mt.customProgramCacheKey = () => (prevKey ? prevKey() + '|' : '') + 'vire-glove-wipe-1';
+  mt.needsUpdate = true;
+  return mt;
+}
+
+let _wristBandMat = null;
+function makeWristBandMat() {
+  if (_wristBandMat) return _wristBandMat;
+  const cv = document.createElement('canvas'); cv.width = 512; cv.height = 128;
+  const g = cv.getContext('2d');
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = THREE.RepeatWrapping; tex.anisotropy = 4;
+  const draw = img => {
+    g.clearRect(0, 0, 512, 128);
+    g.fillStyle = 'rgba(8, 16, 26, 0.80)'; g.fillRect(0, 0, 512, 128);
+    // Glowing fiber-optic top & bottom edge rails
+    g.fillStyle = '#5ee0ff'; g.fillRect(0, 0, 512, 7); g.fillRect(0, 121, 512, 7);
+    g.fillStyle = 'rgba(180, 245, 255, 0.55)'; g.fillRect(0, 7, 512, 3); g.fillRect(0, 118, 512, 3);
+    // Two repeats (top of wrist & inner wrist) of [Dirrogate Emblem + DIRRO]
+    for (const ox of [20, 276]) {
+      if (img) {
+        g.save();
+        g.shadowColor = '#4cd6ff'; g.shadowBlur = 10;
+        g.drawImage(img, ox, 22, 84, 84);
+        g.restore();
+      }
+      g.save();
+      g.font = '800 44px system-ui, sans-serif';
+      g.fillStyle = '#e8fbff';
+      g.shadowColor = '#38c8ff'; g.shadowBlur = 12;
+      g.textBaseline = 'middle';
+      g.fillText('DIRRO', ox + 94, 66);
+      g.restore();
+    }
+    tex.needsUpdate = true;
+  };
+  draw(null);
+  const im = new Image();
+  im.onload = () => draw(im);
+  im.src = 'img/dirro_emblem.png';
+  _wristBandMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, toneMapped: false, depthWrite: true });
+  return _wristBandMat;
+}
+
+function makeWristBandMesh() {
+  // Open cylinder cuff hugging the wrist bone (-Z toward fingers -> rotate X by 90 deg)
+  const geo = new THREE.CylinderGeometry(0.030, 0.033, 0.019, 28, 1, true);
+  geo.rotateX(Math.PI / 2);
+  const m = new THREE.Mesh(geo, makeWristBandMat());
+  m.name = 'DirroWristBand';
+  m.position.set(0, 0.002, 0.012);   // sits right at the base of the wrist
+  m.frustumCulled = false; m.castShadow = false; m.renderOrder = 3;
+  m.visible = false;
+  return m;
+}
 let _ghostCtlMat = null;
 export function makeGhostCtlMat() {
   if (_ghostCtlMat) return _ghostCtlMat;
@@ -110,13 +199,14 @@ export function setControllerGhost(ctlRoot, on) {
 export function createControllerHand(handed, url, material) {
   const root = new THREE.Group(); root.name = 'ctlHand-' + handed;
   const holder = new THREE.Group(); root.add(holder);
-  const h = { handed, root, holder, ready: false, bones: {}, bind: {}, t: 0, g: 0, th: 0, cur: '', skinMat: material, handMesh: null, ghostOn: false, ghostMode: null, ghostDepth: null, ghostMat: null, ghostGlove: null, ghostGloveLoading: false };
+  const h = { handed, root, holder, ready: false, bones: {}, bind: {}, t: 0, g: 0, th: 0, cur: '', skinMat: material, handMesh: null, ghostOn: false, ghostMode: null, ghostDepth: null, ghostMat: null, ghostGlove: null, ghostGloveLoading: false, wristBand: null };
+  _wipeHands.add(h);
   const applyGhost = () => {
     if (!h.handMesh) return;
     const mode = h.ghostMode;
     const on = mode === 'ghostglove' || mode === 'holohand';
-    const wantGlove = mode === 'ghostglove';
     h.ghostOn = on;
+    if (h.wristBand) h.wristBand.visible = on;
     if (on) {
       if (!h.ghostMat) h.ghostMat = makeGhostHandMat();
       if (!h.ghostDepth) {
@@ -128,21 +218,22 @@ export function createControllerHand(handed, url, material) {
       }
       h.handMesh.material = h.ghostMat; h.handMesh.renderOrder = 2;
       h.ghostDepth.visible = true;
-      if (wantGlove && !h.ghostGlove && !h.ghostGloveLoading) {
+      // Preload glove mesh in both ghostglove and holohand so animated wipe never hitches
+      if (!h.ghostGlove && !h.ghostGloveLoading) {
         h.ghostGloveLoading = true;
         new GLTFLoader().loadAsync(`models/avatar/ghost_glove_${handed}.glb`).then(gltf => {
           let gm = null;
           gltf.scene.traverse(o => { if (o.isSkinnedMesh && !gm) gm = o; });
           if (!gm || !h.handMesh) return;
-          const m = new THREE.SkinnedMesh(gm.geometry, gm.material);
+          const m = new THREE.SkinnedMesh(gm.geometry, patchGloveWipe(gm.material));
           m.bind(h.handMesh.skeleton, h.handMesh.bindMatrix);
           m.frustumCulled = false; m.castShadow = false; m.renderOrder = 0;
           m.layers.mask = h.handMesh.layers.mask;
-          m.visible = h.ghostMode === 'ghostglove';
+          m.visible = (h.ghostMode === 'ghostglove' || h.ghostMode === 'holohand') && GLOVE_WIPE_U.uGloveWipe.value > 0.002;
           h.handMesh.parent.add(m); h.ghostGlove = m;
         }).catch(e => { h.ghostGloveLoading = false; console.warn('ghost glove', e); });
       }
-      if (h.ghostGlove) h.ghostGlove.visible = wantGlove;
+      if (h.ghostGlove) h.ghostGlove.visible = GLOVE_WIPE_U.uGloveWipe.value > 0.002;
     } else {
       h.handMesh.material = h.skinMat; h.handMesh.renderOrder = 0;
       if (h.ghostDepth) h.ghostDepth.visible = false;
@@ -155,6 +246,10 @@ export function createControllerHand(handed, url, material) {
       if (o.isBone) { h.bones[o.name] = o; h.bind[o.name] = { p: o.position.clone(), q: o.quaternion.clone() }; }
       if (o.isMesh) { o.material = material; o.castShadow = false; o.frustumCulled = false; if (o.isSkinnedMesh) h.handMesh = o; }
     });
+    if (handed === 'left' && h.bones['wrist']) {
+      h.wristBand = makeWristBandMesh();
+      h.bones['wrist'].add(h.wristBand);
+    }
     h.ready = true; h.cur = ''; place(h, handed); update(h, 0, 0, false);
     if (h.ghostMode) applyGhost();
   }).catch(e => console.warn('controller hand', e));
@@ -162,8 +257,11 @@ export function createControllerHand(handed, url, material) {
   h.place = () => place(h, handed);
   h.setGhostMode = mode => {
     const m = (mode === 'ghostglove' || mode === 'holohand') ? mode : null;
-    if (h.ghostMode === m && (m !== 'ghostglove' || h.ghostGlove || h.ghostGloveLoading)) return;
-    h.ghostMode = m; h.ghostOn = !!m; h.cur = ''; applyGhost();
+    if (h.ghostMode === m && (!m || h.ghostGlove || h.ghostGloveLoading)) return;
+    h.ghostMode = m; h.ghostOn = !!m; h.cur = '';
+    if (m === 'ghostglove' && GLOVE_WIPE_U.uGloveWipe.value < 0.01) GLOVE_WIPE_U.uGloveWipe.value = 1.0;
+    else if (m === 'holohand' && GLOVE_WIPE_U.uGloveWipe.value > 0.99) GLOVE_WIPE_U.uGloveWipe.value = 0.0;
+    applyGhost();
   };
   h.setGhostGlove = on => h.setGhostMode(on ? 'ghostglove' : null);
   return h;
