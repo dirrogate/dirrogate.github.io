@@ -187,7 +187,7 @@ export class FacetWall {
     Object.assign(this.cur, { arc: this.v.arc, h: this.v.h, r: this.v.r });
     this.beat = !!(s && s.beat);
     this.setMode((s && s.mode) || 'fractal', false);
-    this.setOn(!!(s && s.on), false);
+    this.setOn(false, false);   // #850 never show curved black card wall by default (Desktop, Full VR, Passthrough); user can still toggle CYCLOWALL ON manually
   }
   save() { try { localStorage.setItem(KEY, JSON.stringify({ on: this.on, mode: this.mode, beat: this.beat, ...this.v, p: this.obj.position.toArray(), q: this.obj.quaternion.toArray() })); } catch {} }
   reset(save = true) { const h = this.home(); this.obj.position.copy(h.p); this.obj.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), h.yaw); if (save) this.save(); }

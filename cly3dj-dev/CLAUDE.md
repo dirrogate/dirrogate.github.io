@@ -3381,3 +3381,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - `#848` (`director.js`): fixed `this.noBody` regex (`/nobody|cyber.*plate|cyber.*tee/i`) so `cyberdirro_plate.glb` enables both the fiber-optic hem and 1.5 s holographic wipe (`sw.js` `v313`, commit `9801785`).
 - `#849` (`xr.js`, `ctlhands.js`): set Quest 3 Touch Plus controller interaction ball (`st.tipLocal`) to user's exact Blender-placed rim coordinates (`[-0.01196, -0.01901, -0.05348]` right, `[+0.01196, -0.01901, -0.05348]` left, pinned to latched knob/slider cap during grabs), and rendered controllers in `CONTROLLER` mode using the matching Quest 3 Holo Fresnel shader (`makeGhostCtlMat` + depth pre-pass).
 - Verified `node --input-type=module --check` on `ctlhands.js`, `xr.js`, `sw.js`; bumped `sw.js` to `vire-app-v314`. No Node restart.
+
+## Gemini_NEON_2026-11-26 #850 Remove default flat gray studioWall & default curved black facetWall (owner, 26 Nov)
+- `main.js` (`studioWall`, `stepWallGlow`): permanently hid the 9x3.4 m flat gray back wall (`studioWall.visible = false`) across Desktop, Full VR, and Passthrough so Movie Props behind the booth are never blocked.
+- `facetwall.js` (`load`): defaulted the curved black `FacetWall` (`CYCLOWALL`) to OFF on startup (`this.setOn(false, false)`) across Desktop, Full VR, and Passthrough (still toggleable ON manually via `CYCLOWALL` whenever needed).
+- Verified `node --input-type=module --check` on `main.js`, `facetwall.js`, `sw.js`; bumped `sw.js` to `vire-app-v315`. No Node restart.

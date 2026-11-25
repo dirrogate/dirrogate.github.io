@@ -319,14 +319,14 @@ upgradeNeon(neon, loadBaked).then(() => { if (!renderer.xr.isPresenting) bakeNeo
 // real lights and shadow maps. Both are switched on the start screen (Neon wall glow, Shadows).
 const WALL_Z = -0.6;   // studio back wall (rig z) for full VR and desktop; in passthrough your real wall is used
 const studioWall = new THREE.Mesh(new THREE.PlaneGeometry(9, 3.4), new THREE.MeshStandardMaterial({ color: 0x17171b, roughness: 0.95, metalness: 0 }));
-studioWall.position.set(0, 1.7, WALL_Z); studioWall.receiveShadow = true; studioWall.raycast = () => {}; room.add(studioWall);
+studioWall.position.set(0, 1.7, WALL_Z); studioWall.receiveShadow = true; studioWall.raycast = () => {}; studioWall.visible = false; room.add(studioWall);   // #850 removed flat gray studio back wall so movie props stay visible
 const glowMat = glowMaterial(neonGlowTexture());
 const wallGlow = new THREE.Mesh(new THREE.PlaneGeometry(2 * GLOW_E, 2 * GLOW_E), glowMat);
 wallGlow.renderOrder = 2; wallGlow.raycast = () => {}; neon.add(wallGlow);
 let arMode = false;
 const GLOW_BACK = 0.05;   // passthrough: the glow lands 5 cm behind the tubes, so hang the sign ~5 cm off your real wall
 function stepWallGlow() {
-  studioWall.visible = settings.glow !== 'off';
+  studioWall.visible = false;   // #850 keep flat gray wall hidden in Desktop, Full VR, and Passthrough
   if (settings.glow === 'off') { wallGlow.visible = false; return; }
   const s = neon.scale.x; let d;   // tubes-to-wall distance, metres
   if (arMode) d = GLOW_BACK;

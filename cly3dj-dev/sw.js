@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v314';   // Gemini_NEON #849 Blender-placed Quest 3 controller rim interaction ball (L/R mirrored) + Quest Holo Fresnel shader on controllers
+const CACHE = 'vire-app-v315';   // Gemini_NEON #850 hide flat gray studioWall and default-off curved black facetWall so movie props are unobstructed in Desktop/VR/Passthrough
+// was: const CACHE = 'vire-app-v314';   // Gemini_NEON #849 Blender-placed Quest 3 controller rim interaction ball (L/R mirrored) + Quest Holo Fresnel shader on controllers
 // was: const CACHE = 'vire-app-v313';   // Gemini_NEON #848 fix noBody regex for cyberdirro_plate.glb (enables fiber-optic hem + 1.5s wipe)
 // was: const CACHE = 'vire-app-v312';   // Gemini_NEON #847 pin interaction ball to latched knob/slider cap + full-avatar 1.5s wipe with ROBOT v2 original body & full hide of previous avatar
 // was: const CACHE = 'vire-app-v311';   // Gemini_NEON #846 left-wrist DIRRO band tap -> 1.5s synchronized HOLOHAND<->GHOST GLOVE + CYBERDIRRO<->ROBOT v2 morph (preloaded pair + shared holo-hemmed breastplate)
