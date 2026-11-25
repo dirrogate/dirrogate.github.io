@@ -172,12 +172,12 @@ vGcV = normalize(-mvPosition.xyz);`);
       .replace('#include <common>', '#include <common>\nvarying vec3 vGcN; varying vec3 vGcV;')
       .replace('#include <dithering_fragment>', `
 float _ndv = clamp(abs(dot(normalize(vGcN), normalize(vGcV))), 0.0, 1.0);
-float _fr = pow(1.0 - _ndv, 2.0);
-vec3 _col = mix(vec3(0.10, 0.16, 0.24), vec3(0.72, 0.90, 1.0), _fr);
-gl_FragColor = vec4(_col, clamp(0.14 + 0.52 * _fr, 0.0, 0.68));
+float _fr = pow(1.0 - _ndv, 2.35);
+vec3 _col = mix(vec3(0.42, 0.78, 1.0), vec3(0.95, 0.99, 1.0), smoothstep(0.25, 0.9, _fr));
+gl_FragColor = vec4(_col, clamp(0.06 + 0.86 * _fr, 0.0, 0.92));
 #include <dithering_fragment>`);
   };
-  m.customProgramCacheKey = () => 'vire-quest-ghost-ctl-1';
+  m.customProgramCacheKey = () => 'vire-quest-ghost-ctl-2';
   _ghostCtlMat = m;
   return m;
 }
@@ -186,12 +186,19 @@ export function setControllerGhost(ctlRoot, on) {
   if (!ctlRoot) return;
   const gm = on ? makeGhostCtlMat() : null;
   ctlRoot.traverse(o => {
-    if (!o.isMesh) return;
+    if (!o.isMesh || o.userData._isGhostDepth) return;
     if (on) {
       if (!o.userData._origCtlMat) o.userData._origCtlMat = o.material;
-      if (o.material !== gm) { o.material = gm; o.renderOrder = 1; }
-    } else if (o.userData._origCtlMat) {
-      o.material = o.userData._origCtlMat; o.renderOrder = 0;
+      if (o.material !== gm) { o.material = gm; o.renderOrder = 2; }
+      if (!o.userData._ghostDepth && o.parent) {
+        const dp = new THREE.Mesh(o.geometry, GHOST_DEPTH_MAT);
+        dp.userData._isGhostDepth = true; dp.frustumCulled = false; dp.castShadow = false; dp.renderOrder = 1;
+        dp.matrixAutoUpdate = true; o.add(dp); o.userData._ghostDepth = dp;
+      }
+      if (o.userData._ghostDepth) o.userData._ghostDepth.visible = true;
+    } else {
+      if (o.userData._origCtlMat) { o.material = o.userData._origCtlMat; o.renderOrder = 0; }
+      if (o.userData._ghostDepth) o.userData._ghostDepth.visible = false;
     }
   });
 }

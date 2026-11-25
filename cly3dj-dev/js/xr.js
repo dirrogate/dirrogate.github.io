@@ -919,11 +919,10 @@ export function setupXR(ctx) {
       } else {
         // tip just protruding from the controller's front edge (grip space: -z forward)
         st.grip.updateMatrixWorld();
-        if (!st.tipLocal) {
-          st.tipLocal = measureTip(st.grip);
-          // #285 (owner, from the 1 mm crosshair views of the Touch Plus): the ball 3 mm toward the thumb side
-          // (mirrored on the left controller), 9 mm lower (side view -10, front view -8) and 5 mm further forward
-          if (st.tipLocal) st.tipLocal.add(new THREE.Vector3(st.source && st.source.handedness === 'left' ? 0.003 : -0.003, -0.009, -0.005));
+        // #849 exact Quest 3 Touch Plus rim ball position placed in Blender (mirrored X for left controller)
+        if (!st.tipLocal && st.source) {
+          const isL = st.source.handedness === 'left';
+          st.tipLocal = new THREE.Vector3(isL ? 0.01196 : -0.01196, -0.01901, -0.05348);
         }
         const hl = ctlTipLocal(st);   // #280 / #283 3D hands: index fingertip, or the middle of the O while the grip is held
         st.grip.localToWorld(st.tip.copy(hl || st.tipLocal || TIP_DEFAULT));
@@ -953,6 +952,9 @@ export function setupXR(ctx) {
           const snapP = snapTarget(st);
           if (snapP) { const k = st.pin * st.pin * (3 - 2 * st.pin); st.tipDot.position.lerp(snapP, k); }
         }
+      } else if (!st.isHand && ctlLook === 'controller' && st.direct) {
+        const snapP = snapTarget(st);
+        if (snapP) st.tipDot.position.copy(snapP);
       }
       updateOccluder(st);
       updateAnchor(st);
@@ -1131,11 +1133,11 @@ export function setupXR(ctx) {
     const ok = st.connected && !st.isHand && st.source && (st.source.handedness === 'left' || st.source.handedness === 'right');
     const want = ok && ctlLook !== 'controller';   // #469 CONTROLLER look: the hand is still posed (hidden) for the robot hands
     if (st.gloveH && (!want || ctlLook !== 'glove')) { gloveHide(glove, st.gloveH); st.gloveH = null; }   // #287 glove off: hide it
-    // #279 (owner): 3D hands / glove / ghostglove show just the hand/glove, no controller inside it
+    // #279 / #849: 3D hands / glove / ghostglove / holohand hide controller; CONTROLLER mode renders Quest 3 controller in Quest Holo Fresnel shader
     const ctlModel = st.grip.children[0];
     if (ctlModel) {
       ctlModel.visible = !want;
-      setControllerGhost(ctlModel, false);
+      setControllerGhost(ctlModel, !want && ok);
     }
     if (!ok) { if (st.ctlHand) st.ctlHand.root.visible = false; return; }
     const hd = st.source.handedness;
