@@ -3386,3 +3386,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - `main.js` (`studioWall`, `stepWallGlow`): permanently hid the 9x3.4 m flat gray back wall (`studioWall.visible = false`) across Desktop, Full VR, and Passthrough so Movie Props behind the booth are never blocked.
 - `facetwall.js` (`load`): defaulted the curved black `FacetWall` (`CYCLOWALL`) to OFF on startup (`this.setOn(false, false)`) across Desktop, Full VR, and Passthrough (still toggleable ON manually via `CYCLOWALL` whenever needed).
 - Verified `node --input-type=module --check` on `main.js`, `facetwall.js`, `sw.js`; bumped `sw.js` to `vire-app-v315`. No Node restart.
+
+## Gemini_NEON_2026-11-26 #851 MOVIE PROPS button on SETUP page (replaces REAL OCCLUSION) (owner, 26 Nov)
+- `main.js` (`page === 'setup'`): replaced the unused `REAL OCCLUSION` tile with `MOVIE PROPS` (shows active prop count & lights green when props are placed, opens `setTools('props')`).
+- Verified `node --input-type=module --check` on `main.js`, `sw.js`; bumped `sw.js` to `vire-app-v316`. No Node restart.

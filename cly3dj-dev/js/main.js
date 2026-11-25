@@ -9125,7 +9125,7 @@ function drawToolsPage() {
       ['CAM FIT', false, () => setTools('streamfit'), !streamer],
       ['MEDIA SYNC', false, () => { setTools(null); videoPage = true; vpFolder = 'Sync'; vpLoad(); drawMixScreen(); }, false],
       [perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false],
-      [settings.occlusion !== false ? 'REAL OCCLUSION: ON' : 'REAL OCCLUSION: OFF', settings.occlusion !== false, () => { settings.occlusion = settings.occlusion === false; saveSettings(); const c = document.getElementById('cOccl'); if (c) c.checked = settings.occlusion; drawMixScreen(); }, false],
+      [mprops && mprops.props().length ? `MOVIE PROPS (${mprops.props().length})` : 'MOVIE PROPS', !!(mprops && mprops.props().length), () => setTools('props'), !mprops],
       [`AVATAR: ${(AVATAR_STYLES[djSet.style] || AVATAR_STYLES.robot).label}`, djSet.style !== 'robot', nextDjStyle, false],
       [`EYEWEAR: ${eyewear ? EYEWEAR_STYLES[eyewear.style].label : 'OFF'}`, !!(eyewear && eyewear.style !== 'off'), nextEyewear, !eyewear],
       [`BEANIE: ${(djSet.style === 'real3' || djSet.style === 'cyber_plate') && !((djSet.beanieCol || 0) % CLOTHES_SHADES.length) ? 'SCAN NAVY' : CLOTHES_SHADES[(djSet.beanieCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.beanieCol || 0) > 0, nextBeanieCol, false],
