@@ -1925,8 +1925,10 @@ streamer = CAMERA_ROLE ? null : new Streamer({
     if (spect && spect.helpers) spect.helpers.forEach(hide);   // #385 the blue camera outline and the calibration panel are for the headset, never in the picture
     if (O.backdrop !== 'dome') hide(skybox.group);
     propHides(hide, O, true);
-    const keepFloatingHands = !!(AVATAR_STYLES[djSet.style] && AVATAR_STYLES[djSet.style].noBody) && xr;
+    const robotGhost = djSet.style === 'robot' && xr && xr.getCtlLook() === 'ghostglove';
+    const keepFloatingHands = (!!(AVATAR_STYLES[djSet.style] && AVATAR_STYLES[djSet.style].noBody) || robotGhost) && xr;
     const keepGripCtl = keepFloatingHands && xr.getCtlLook() === 'controller';
+    if (robotGhost && avatars.robot && avatars.robot.hands) for (const H of avatars.robot.hands) hide(H.mesh);
     if (xr) for (const st of xr.inputs) { hide(st.hand); if (!keepGripCtl) hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand && !keepFloatingHands) hide(st.ctlHand.root); }
     if (xr && xr.glove && !(keepFloatingHands && xr.getCtlLook() === 'glove')) hide(xr.glove.root);
     const bg = scene.background; scene.background = null;
@@ -11154,8 +11156,10 @@ function djGear() {
 function djPrep() {   // what the camera must not see: XR hand / controller models and occluders
   const undo = [], hide = o => { if (o && o.visible) { o.visible = false; undo.push(o); } };
   if (streamer ? !streamer.showOpt.neon : DJ_HIDE_NEON.has(djSet.preset) && !gpActive()) hide(neon);   // #372 the OBJECTS toggle decides (its back faces FRONT / FADERS / low, which is accepted when it is on); no streamer (phone): the old rule, #337 the GoPro sees what it sees
-  const keepFloatingHands = !!(AVATAR_STYLES[djSet.style] && AVATAR_STYLES[djSet.style].noBody) && xr;
+  const robotGhost = djSet.style === 'robot' && xr && xr.getCtlLook() === 'ghostglove';
+  const keepFloatingHands = (!!(AVATAR_STYLES[djSet.style] && AVATAR_STYLES[djSet.style].noBody) || robotGhost) && xr;
   const keepGripCtl = keepFloatingHands && xr.getCtlLook() === 'controller';
+  if (robotGhost && avatars.robot && avatars.robot.hands) for (const H of avatars.robot.hands) hide(H.mesh);
   if (xr) for (const st of xr.inputs) { hide(st.hand); if (!keepGripCtl) hide(st.grip); hide(st.tipDot); hide(st.hitDot); hide(st.occS); hide(st.occC); hide(st.ray); if (st.ctlHand && !keepFloatingHands) hide(st.ctlHand.root); }
   if (xr && xr.glove && !(keepFloatingHands && xr.getCtlLook() === 'glove')) hide(xr.glove.root);   // #287 the DJ CAM robot has its own gloves
   if (gopro && gopro.on) hide(gopro.obj);   // #337 #372 hidden only from its own camera

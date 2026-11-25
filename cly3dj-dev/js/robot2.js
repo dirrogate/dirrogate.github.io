@@ -108,6 +108,66 @@ function splitByBone(mesh, name) {
 // #305 to #308 (owner) the Cly3DJ robot: no headband, Gemini-logo headphones (red logo painted on black cups), a chin
 // ridge, a 3-facet bust and collar (custom normals), and gloves with a chrome dart centred on each finger (base knuckle
 // to the base of the nail) and a chrome back plate instead of the white pads. 12.9k triangles in all.
+// #843 Quest Ghost fiber-optic glowing hem along the bottom rim of avatar_robot_v2's Neck breastplate
+function applyRobotGhostHem(mesh, mt) {
+  const geo = mesh.geometry; if (!geo || !geo.attributes.position || !geo.index) return;
+  if (!geo.attributes.aHemDist) {
+    const pos = geo.attributes.position, idx = geo.index, n = pos.count;
+    const grp = geo.groups && geo.groups[1] ? geo.groups[1] : { start: 0, count: idx.count };
+    let yMin = Infinity, yMax = -Infinity;
+    const ec = new Map();
+    const addE = (a, b) => { const k = a < b ? a * 65536 + b : b * 65536 + a; ec.set(k, (ec.get(k) || 0) + 1); };
+    for (let i = grp.start; i < grp.start + grp.count; i += 3) {
+      const a = idx.getX(i), b = idx.getX(i + 1), c = idx.getX(i + 2);
+      for (const v of [a, b, c]) { const y = pos.getY(v); if (y < yMin) yMin = y; if (y > yMax) yMax = y; }
+      addE(a, b); addE(b, c); addE(c, a);
+    }
+    const yCut = yMin + (yMax - yMin) * 0.56;
+    const rim = [];
+    for (const [k, cnt] of ec) {
+      if (cnt !== 1) continue;
+      const a = Math.floor(k / 65536), b = k % 65536;
+      if (pos.getY(a) <= yCut) rim.push([pos.getX(a), pos.getY(a), pos.getZ(a)]);
+      if (pos.getY(b) <= yCut) rim.push([pos.getX(b), pos.getY(b), pos.getZ(b)]);
+    }
+    const dist = new Float32Array(n).fill(1.0);
+    if (rim.length) for (let i = 0; i < n; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      if (y > yCut + 0.06) continue;
+      let best = 1.0;
+      for (let j = 0; j < rim.length; j++) {
+        const r = rim[j], dx = x - r[0], dy = y - r[1], dz = z - r[2], d = dx * dx + dy * dy + dz * dz;
+        if (d < best) best = d;
+      }
+      dist[i] = Math.sqrt(best);
+    }
+    geo.setAttribute('aHemDist', new THREE.BufferAttribute(dist, 1));
+  }
+  if (mt.userData.vireHem) return; mt.userData.vireHem = true;
+  const prev = mt.onBeforeCompile, prevKey = mt.customProgramCacheKey ? mt.customProgramCacheKey.bind(mt) : null;
+  mt.onBeforeCompile = (sh, r) => {
+    if (prev) prev(sh, r);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aHemDist; varying float vHemDist; varying vec3 vHemP;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHemDist = aHemDist; vHemP = position;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vHemDist; varying vec3 vHemP;')
+      .replace('#include <dithering_fragment>', `
+{ float _hCore = smoothstep(0.011, 0.0, vHemDist);
+  float _hBleed = smoothstep(0.036, 0.0, vHemDist);
+  if (_hBleed > 0.001) {
+    float _hNdv = clamp(abs(dot(normalize(vNormal), normalize(vViewPosition))), 0.0, 1.0);
+    float _hFr = pow(1.0 - _hNdv, 2.2);
+    float _hWeave = 0.80 + 0.20 * sin(vHemP.x * 280.0 + vHemP.z * 140.0);
+    vec3 _hCol = mix(vec3(0.38, 0.78, 1.0), vec3(0.96, 0.99, 1.0), clamp(_hCore * 0.75 + _hFr * 0.55, 0.0, 1.0));
+    gl_FragColor.rgb += _hCol * (_hCore * 1.15 + _hBleed * (0.32 + 0.75 * _hFr)) * _hWeave;
+  } }
+#include <dithering_fragment>`);
+  };
+  mt.customProgramCacheKey = () => (prevKey ? prevKey() + '|' : '') + 'vire-robot-hem-1';
+  mt.needsUpdate = true;
+}
+
 export const ROBOT_GLB = 'models/avatar/avatar_robot_v2.glb';
 export class RobotAvatar2 {
   constructor(rig) {
@@ -158,7 +218,10 @@ export class RobotAvatar2 {
         // chrome shell like the flight case ball corners (MAT.chrome); the painted map (black fuzzy stripe) stays.
         // Neck and collar (triangles touching a Neck-weighted vertex) keep the model's own matte material.
         const chrome = o.material.clone(); chrome.metalness = 1; chrome.roughness = 0.14;
-        splitByBone(o, 'Neck'); o.material = [chrome, o.material];
+        splitByBone(o, 'Neck');
+        const bustMat = o.material; bustMat.side = THREE.DoubleSide;
+        applyRobotGhostHem(o, bustMat);
+        o.material = [chrome, bustMat];
       }
     });
     let gem = false; model.traverse(o => { if (o.material && /Gemini/.test(o.material.name || '')) gem = true; });
