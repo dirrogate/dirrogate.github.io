@@ -3390,3 +3390,15 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## Gemini_NEON_2026-11-26 #851 MOVIE PROPS button on SETUP page (replaces REAL OCCLUSION) (owner, 26 Nov)
 - `main.js` (`page === 'setup'`): replaced the unused `REAL OCCLUSION` tile with `MOVIE PROPS` (shows active prop count & lights green when props are placed, opens `setTools('props')`).
 - Verified `node --input-type=module --check` on `main.js`, `sw.js`; bumped `sw.js` to `vire-app-v316`. No Node restart.
+
+## Gemini_NEON_2026-11-26 #852–#853 CYBERMoonday CyberCinematics Pipeline + actioncam_lowpoly.glb GoPro 2 (owner, 26 Nov)
+- `#852` **Optimized GoPro GLB** (`web/models/props/actioncam_lowpoly.glb`): exported from `blender/actioncam_lowpoly.glb` (1,152 tris, 1 draw call) with all 3 embedded textures downscaled from 1024px PNG to 512x512 JPEG (2.35 MB -> 166 KB).
+- `#852` **Shared CyberCinematics Pipeline** (`web/js/cinematics.js`, `stream.js`, `skybox.js`, `main.js`):
+  - **Stage 1 (CGI Micro-Soften):** 5-tap diamond soft filter on linear HDR `map` pre-ACES (`0.55 / 0.90 / 1.30 px`) so virtual decks/sleeves match camera optical softness.
+  - **Stage 2 (Black Pro-Mist `OFF / 1/4 / 1/2 / FULL`):** 1/4-res highlight extract + separable 9-tap H/V Gaussian blur + screen-blend halation + diffusion veil + shared animated film/sensor grain + subtle corner chromatic aberration (completely bypassed when `OFF`, zero audio-thread impact).
+  - **Stage 3 (DoF, Booth Motes & Anjunadeep Bar-Driven Pano Evolve):** GoPro Macro DoF (`AUTO / ON / OFF`, auto-engages < 0.85 m from platters/sleeves), `HEADSET CAM` soft background bokeh, 3D distance-bokeh Booth Dust Motes (`OFF / DUST / EMBERS / MIST`), and bar-synced glacial pano rotation (`OFF / 32 / 64 / 128 bars`), 32-bar palette grading (`SUNSET` / `DEEP`), and 8-bar horizon breathing (`skybox.js` `setEvo`).
+  - Wired into both `stream.js` (`HEADSET CAM` + `SHOWTIME!`) and `goprorec.js` (`main.js` `stepDjCam`) so Twitch, club projector, live GoPro screens, and saved `gopro2_*.mp4` files all share the exact filtered look.
+- `#852` **Upgraded GoPro 2 Hardware & Unfrozen Live Screens** (`gopro.js`, `xr.js`, `main.js`): loads `actioncam_lowpoly.glb` + simple cylinder grip handle, top REC button with flashing red emissive ring, near-lens side tap buttons (amber = `MIST`, cyan = `DoF` wired in `xr.js` `sideBtnHit`), front 128x64 LED dot-matrix readout (`drawBitText`: `MIST`, `DOF`, `REC`/`STBY`), and live rear viewfinder + front selfie screen fed from the separate `cine` output RT (eliminates WebGL render-target feedback freeze).
+- `#852–#853` **Remote Tablet `CINEMATICS` Page** (`main.js` `drawCinePage`): dedicated `CYBERCINEMATICS` page accessible directly from `SETUP > CINEMATICS` and `SHOWTIME! > EXTRAS > CINEMATICS ▸`.
+- Plans saved: `CYBERMOONDAY_PLAN.md` (active/built) and `DIRROFLIX_PLAN.md` (on hold).
+- Verified `node --check` on `cinematics.js`, `gopro.js`, `skybox.js`, `xr.js`, `stream.js`, `main.js`; bumped `sw.js` to `vire-app-v317` (`cc36f4a`) and `vire-app-v318` (`0d4a50a`). No Node restart.
