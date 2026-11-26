@@ -76,15 +76,15 @@ export class GoPro {
     const lx = this.selfie ? -0.016 : -0.012;
     this.lensLocal = new THREE.Vector3(lx, 0.004, -B.d / 2 - 0.010);
 
-    // Tally lamp on top front corner (flush with actioncam_lowpoly.glb top)
+    // Tally lamp on top front corner (measured exact GLB top surface at x=0.016 is y=0.0215m)
     this.tallyMat = new THREE.MeshBasicMaterial({ color: 0x300808, toneMapped: false });
     const tally = new THREE.Mesh(new THREE.SphereGeometry(0.0032, 12, 8), this.tallyMat);
-    tally.position.set(0.021, B.h / 2 - 0.008, -B.d / 2 + 0.005);
+    tally.position.set(0.021, 0.0220, -B.d / 2 + 0.005);
     g.add(tally);
 
-    // Top REC button + flashing red emissive ring (lowered 1 cm to sit flush on GLB top)
+    // Top REC button + flashing red emissive ring (exact flush on GLB top y=0.0215m: bottom at 0.0212m, cap proud 2.6mm)
     this.recBtnMat = new THREE.MeshStandardMaterial({ color: 0xd81820, emissive: 0x380406, emissiveIntensity: 0.7, roughness: 0.35, metalness: 0.1 });
-    this.recBtnLocal = new THREE.Vector3(0.016, B.h / 2 - 0.006, 0.001);
+    this.recBtnLocal = new THREE.Vector3(0.016, 0.0238, 0.001);
     const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.0068, 0.0068, 0.0052, 20), this.recBtnMat);
     btn.position.copy(this.recBtnLocal);
     g.add(btn);
@@ -92,7 +92,7 @@ export class GoPro {
     this.recRingMat = new THREE.MeshBasicMaterial({ color: 0x5a0808, toneMapped: false });
     const recRing = new THREE.Mesh(new THREE.TorusGeometry(0.0086, 0.0014, 10, 24), this.recRingMat);
     recRing.rotation.x = Math.PI / 2;
-    recRing.position.set(this.recBtnLocal.x, B.h / 2 - 0.0078, this.recBtnLocal.z);
+    recRing.position.set(this.recBtnLocal.x, 0.0224, this.recBtnLocal.z);
     g.add(recRing);
 
     // Side tap buttons near the lens (-X edge, near front -Z)
@@ -216,7 +216,7 @@ export class GoPro {
   recBtnHit(P) {   // top red record button tap zone
     if (!this.on || !this.onRecTap) return false;
     this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P));
-    return l.y > B.h / 2 - 0.018 && l.distanceTo(this.recBtnLocal) < 0.028;
+    return l.y > 0.014 && l.distanceTo(this.recBtnLocal) < 0.028;
   }
   sideBtnHit(P) {  // side near-lens tap buttons: returns 'mist' | 'dof' | null
     if (!this.on) return null;
