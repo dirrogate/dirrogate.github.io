@@ -3409,3 +3409,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - `cinematics.js`: changed `PANO_ROTS` to default `OFF` (`0`) and start at `128 bars` (512 beats, ~4.27 min/turn at 120 BPM) incrementing by `+32 beats` (`+8 bars`: `128..192 bars`) so panos never feel dizzying without portals.
 - `cinematics.js` (`MOTE_VS`, `_buildMotes`): replaced erratic oscillating motes with calm ground-up rising particles (`y = 0 -> 2.35 m`) with smooth floor/ceiling fade and gentle laminar sway.
 - Verified `node --check` on `cinematics.js`, `stream.js`, `main.js`; bumped `sw.js` to `vire-app-v319`. No Node restart.
+
+## Gemini_NEON_2026-11-26 #855 GoPro top REC button flush alignment (owner, 26 Nov)
+- `gopro.js`: lowered top REC button, flashing red ring, tally lamp, and `recBtnHit` Y-threshold by 1.0 cm (`-0.010 m`) so they sit flush on `actioncam_lowpoly.glb`'s top surface.
+- Verified `node --check` on `gopro.js`; bumped `sw.js` to `vire-app-v320`. No Node restart.

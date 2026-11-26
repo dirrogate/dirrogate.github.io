@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v319';   // Gemini_NEON #854 fix PREVIEW GoPro freeze (O.backdrop), remove redundant TARGET selector, pano drift 128 bars +32 beats, calm ground-up rising motes
+const CACHE = 'vire-app-v320';   // Gemini_NEON #855 lower GoPro top REC button, flashing ring & tally lamp by 1 cm to sit flush on GLB body
+// was: const CACHE = 'vire-app-v319';   // Gemini_NEON #854 fix PREVIEW GoPro freeze (O.backdrop), remove redundant TARGET selector, pano drift 128 bars +32 beats, calm ground-up rising motes
 // was: const CACHE = 'vire-app-v318';   // #853 SHOWTIME! EXTRAS button opens full CINEMATICS page directly
 // was: const CACHE = 'vire-app-v317';   // #852 CyberCinematics (Black Pro-Mist, CGI micro-soften, Macro DoF, Booth Motes, Anjuna Pano Evolve) + actioncam_lowpoly.glb (512px JPEG) GoPro 2
 // was: const CACHE = 'vire-app-v316';   // Gemini_NEON #851 replace REAL OCCLUSION with MOVIE PROPS button on SETUP page
