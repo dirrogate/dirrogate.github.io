@@ -27,7 +27,7 @@ import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
 import { Portals, GRADE0, HOLO_ORDER, SHAPE_OF, TYPES, TYPE_LABEL, TYPE_HINT, typeOf, shapeKey, shapesFor, kindOfTS, SHAPE_LABEL, HMIN as P_HMIN, HMAX as P_HMAX, RAIN_ORDER, MAX_PORTALS } from './portal.js';
 import { MasterRec } from './recmaster.js';   // #598 REC MASTER: the clean master to a WAV file
 import { GoProRec } from './goprorec.js';   // #795 GOPRO 2 Selfie Recorder (720p30 H.264 + master audio -> OPFS .mp4)
-import { CyberCinematics, MIST_LEVELS, MIST_PRESETS, DOF_MODES, MOTE_MODES, PANO_ROTS, PANO_GRADES, TARGETS } from './cinematics.js';
+import { CyberCinematics, MIST_LEVELS, MIST_PRESETS, DOF_MODES, MOTE_MODES, PANO_ROTS, PANO_GRADES, PANO_AUTO_MODES, TARGETS } from './cinematics.js';
 import { RoomSnap, SNAP_IN, SNAP_OUT } from './roomsnap.js';
 import { NightLook } from './night.js';   // #612 NIGHT LOOK   // #592 Space Setup planes for portal frames   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF, WALL_LIM } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
@@ -6031,6 +6031,8 @@ async function vpAct(what) {
   const name = vpSel; if (!name) { toast('Pick a thumbnail first'); return; }
   const vpFolder = videoPageFolder();   // #224 the Pano tab holds two library folders (local, shadows the tab name)
   if (what === 'sky') return panoToDome(vpFolder, name);   // #731 SKY = the picked pano as the sky AND the DOME (a thumbnail tap only picks it)
+  if (what === 'panoadd') { if (cine) { const n = cine.addPano(vpFolder, name); toast(`PANO LIST: ${n} item${n > 1 ? 's' : ''} (${name})`, 2000); drawMixScreen(); } return; }
+  if (what === 'panolist') { videoPage = false; setTools('panolist'); return; }
   if (what === 'light') return lightPhone(vpFolder, name);   // #214
   const lpItem = vpItems.find(i => i.name === name && i.loopId);   // #441 a grabbed loop: only the CYCLOWALL
   if (what === 'portal') { if (lpItem) { toast('A grabbed loop plays on the CYCLOWALL: set SCREEN to CYCLOWALL', 2500); return; } pScrSet(vpFolder === 'Images' ? 'image' : 'video', name, vpFolder); return; }   // #589
@@ -6437,11 +6439,11 @@ function drawVideoPage() {
   const by = P ? H - 62 : H - 44, bh = 36, bx = P ? 26 : 8;
   btn(bx, by, 44, bh, '‹', false, () => { vpPg = Math.max(0, vpPg - 1); drawMixScreen(); }, vpPg === 0);
   btn(bx + 48, by, 44, bh, '›', false, () => { vpPg = Math.min(pages - 1, vpPg + 1); drawMixScreen(); }, vpPg >= pages - 1);
-  const T = { Pano: [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog'], [dome.eac ? 'EAC: ON' : 'EAC: OFF', 'eactog']], 'Video pano': [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog'], [dome.eac ? 'EAC: ON' : 'EAC: OFF', 'eactog']],   /* #769 tap a pano = it goes on the DOME; #797 EAC toggle */
+  const T = { Pano: [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog'], [dome.eac ? 'EAC: ON' : 'EAC: OFF', 'eactog'], ['+ PANO LIST', 'panoadd'], [cine ? `PANO LIST (${cine.panoList.length})` : 'PANO LIST', 'panolist']], 'Video pano': [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog'], [dome.eac ? 'EAC: ON' : 'EAC: OFF', 'eactog'], ['+ PANO LIST', 'panoadd'], [cine ? `PANO LIST (${cine.panoList.length})` : 'PANO LIST', 'panolist']],   /* #769 tap a pano = it goes on the DOME; #797 EAC toggle; #858 PANO LIST */
     Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal']], Images: [['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal']] }[vpFolder];   // #589 → PORTAL: the SCREEN frames' feed
   const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : T.length > 4 ? 76 : 86, ty = P ? H - 106 : by;   // #589 five targets on Video
   let x = P ? 8 : 108;
-  for (const [label, what] of T) { const dim = !vpSel && what !== 'dometog' && what !== 'eactog'; btn(x, ty, tw, bh, label, what === 'dometog' ? !!dome.on : what === 'eactog' ? !!dome.eac : false, dim ? null : what === 'dometog' ? () => { if (dome.on) vpAct('skyoff'); else if (vpSel) vpAct('sky'); else { setBackdrop('dome'); drawMixScreen(); } } : what === 'eactog' ? () => { setDomeEac(!dome.eac); settings.skyType = dome.eac ? 'eac' : isEacName(settings.skyFile) ? 'mono' : 'auto'; saveSettings(); saveSkyPrefs(); syncSettingsUI();   /* #821 remembered for this file */ toast('Dome projection: ' + (dome.eac ? 'YouTube EAC (3×2)' : 'Equirectangular'), 1800); } : () => vpAct(what), dim); x += tw + 6; }
+  for (const [label, what] of T) { const dim = !vpSel && what !== 'dometog' && what !== 'eactog' && what !== 'panolist'; btn(x, ty, tw, bh, label, what === 'dometog' ? !!dome.on : what === 'eactog' ? !!dome.eac : what === 'panolist' ? !!(cine && cine.panoList.length) : false, dim ? null : what === 'dometog' ? () => { if (dome.on) vpAct('skyoff'); else if (vpSel) vpAct('sky'); else { setBackdrop('dome'); drawMixScreen(); } } : what === 'eactog' ? () => { setDomeEac(!dome.eac); settings.skyType = dome.eac ? 'eac' : isEacName(settings.skyFile) ? 'mono' : 'auto'; saveSettings(); saveSkyPrefs(); syncSettingsUI();   /* #821 remembered for this file */ toast('Dome projection: ' + (dome.eac ? 'YouTube EAC (3×2)' : 'Equirectangular'), 1800); } : () => vpAct(what), dim); x += tw + 6; }
   if (vpFolder === 'Pano') {   // #379 PANO SPIN 0 to 5 (degrees a second); landscape: between the SKY buttons and the LED button, portrait: a row of its own
     // #596 / #597 three bars: PANO TURN, EXPOSURE (the same DOME EXPOSURE as PORTALS SETUP) and SPEED (video panos);
     // landscape: a full-width row above the buttons; portrait: TURN + EXPOSURE, then SPEED under them
@@ -7219,7 +7221,7 @@ const PINCH_FIT_DEF = {
 };
 // #513 the TV's address, from where this page runs (cabin.dirrodj.club/ = the cly3dj-dev folder on Cloudflare; github.io/cly3dj/ ...); no 'https://'
 const venueUrl = () => new URL('venue.html', location.href).href.replace(/[?#].*$/, '').replace(/^https?:\/\//, '');
-const TOOLS_NAME = { balls: 'BOUNCE BALLS', desk: 'VJ DESK', dverse: 'DIRROVERSE', acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', rooms: 'ROOMS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS', cine: 'CINEMATICS' };   // #363 up-button names; #376 / #530 / Gemini_acid
+const TOOLS_NAME = { balls: 'BOUNCE BALLS', desk: 'VJ DESK', dverse: 'DIRROVERSE', acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', rooms: 'ROOMS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS', cine: 'CINEMATICS', panolist: 'PANO LIST' };   // #363 up-button names; #376 / #530 / Gemini_acid
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -7513,13 +7515,36 @@ function drawCinePage(T) {
     { b: 1, label: S.panoRot ? `PANO DRIFT: ${S.panoRot}B (${S.panoRot * 4}b)` : 'PANO DRIFT: OFF', on: S.panoRot > 0, act: () => { const i = PANO_ROTS.indexOf(S.panoRot); cine.set('panoRot', PANO_ROTS[(i + 1) % PANO_ROTS.length]); drawMixScreen(); } },
     { b: 1, label: `32-BAR GRADE: ${S.panoGrade.toUpperCase()}`, on: S.panoGrade !== 'off', act: () => { const i = PANO_GRADES.indexOf(S.panoGrade); cine.set('panoGrade', PANO_GRADES[(i + 1) % PANO_GRADES.length]); drawMixScreen(); } },
     { b: 1, label: S.panoBreathe ? '8-BAR BREATHE: ON' : '8-BAR BREATHE: OFF', on: S.panoBreathe, act: () => { cine.set('panoBreathe', !S.panoBreathe); drawMixScreen(); } },
+    { b: 1, label: `PANO AUTO: ${S.panoAuto.toUpperCase()}`, on: S.panoAuto !== 'off', act: () => { cine.cyclePanoAuto(); drawMixScreen(); } },
+    { b: 1, label: cine.panoBlending ? 'BLENDING…' : `BLEND NEXT → (${cine.panoList.length})`, on: cine.panoBlending, act: () => { blendNextPano(); }, dim: !cine.panoList.length },
+    { b: 1, label: `PANO LIST (${cine.panoList.length}) ▸`, on: cine.panoList.length > 0, act: () => setTools('panolist') },
   ];
   cells.forEach((c, i) => {
     const x = L + (i % cc) * (cw + cg), y = y0 + 4 + Math.floor(i / cc) * CR;
     if (c.s) tSlider(g, x, y, cw, chh, c.label, c.v, c.txt, c.set);
-    else btn(x, y, cw, chh, c.label, c.on, c.act, false, P ? 15 : 13);
+    else btn(x, y, cw, chh, c.label, c.on, c.dim ? null : c.act, !!c.dim, P ? 15 : 13);
   });
-  note('Applies automatically to whichever camera output is active (GoPro 1/2, SHOWTIME!, MP4 recordings, HEADSET CAM). Pano drift starts at 128 bars (512 beats) and steps by +32 beats.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 12);
+  note('Freeze-Frame Handover holds Video A\'s last frame, frees its decoder, then blends live Video B in (max 1 decoder on Quest 3). Add panos in VISUALS > PANO > + PANO LIST.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 10);
+}
+function drawPanoListPage(T) {
+  const { g, W, H, P, L, R, btn, head, note } = T;
+  const y0 = head('PANO LIST', 'cine', cine && cine.panoList.length ? { label: 'CLEAR ALL', on: false, act: () => { cine.clearPanoList(); drawMixScreen(); } } : null);
+  if (!cine || !cine.panoList.length) {
+    note('Your PANO LIST is empty. Open VISUALS > PANO, tap a still or video pano, then tap + PANO LIST to build your CYBERMoonday set arc.', y0 + 18);
+    btn(L, y0 + 82, R - L, 40, 'OPEN VISUALS > PANO ▸', false, () => { setTools(null); videoPage = true; vpFolder = 'Pano'; vpLoad(); drawMixScreen(); }, false, 15);
+    return;
+  }
+  const rh = P ? 40 : 34, maxShow = Math.min(cine.panoList.length, P ? 10 : 7);
+  for (let i = 0; i < maxShow; i++) {
+    const it = cine.panoList[i], y = y0 + 6 + i * (rh + 4);
+    const active = i === cine.panoIdx;
+    const tag = it.folder === 'Video pano' ? 'VID' : 'IMG';
+    btn(L, y, R - L - 46, rh, `${i + 1}. [${tag}] ${it.name}`, active, () => { cine.panoIdx = i; blendToPano(it.folder, it.name); }, false, P ? 14 : 13);
+    btn(R - 42, y, 42, rh, '✕', false, () => { cine.removePano(i); drawMixScreen(); }, false, 14);
+  }
+  const by = y0 + 10 + maxShow * (rh + 4);
+  btn(L, by, (R - L - 8) / 2, 38, `PANO AUTO: ${cine.S.panoAuto.toUpperCase()}`, cine.S.panoAuto !== 'off', () => { cine.cyclePanoAuto(); drawMixScreen(); }, false, 14);
+  btn(L + (R - L - 8) / 2 + 8, by, (R - L - 8) / 2, 38, cine.panoBlending ? 'BLENDING…' : 'BLEND NEXT →', cine.panoBlending, () => blendNextPano(), false, 14);
 }
 function drawPropsPage(T) {
   const { g, W, H, P, L, R, btn, head, note } = T;
@@ -9158,6 +9183,7 @@ function drawToolsPage() {
   if (page === 'acid') { drawAcidPage({ g, W, H, P, L, R, btn, head, note }); return; }   // Gemini_acid: Roland TB-303
   if (page === 'props') { drawPropsPage({ g, W, H, P, L, R, btn, head, note }); return; }   // #478
   if (page === 'cine') { drawCinePage({ g, W, H, P, L, R, btn, head, note }); return; }   // CyberCinematics
+  if (page === 'panolist') { drawPanoListPage({ g, W, H, P, L, R, btn, head, note }); return; }   // #858 PANO LIST
   if (page === 'looper' || page === 'loopbanks') { drawLooperPage(page, { g, W, H, P, L, R, btn, head, note }); return; }   // #470
   if (page === 'setup' || page === 'home') {   // #771 SETUP: things touched once a night or less (TOOLS and VJ TOOLS were folded away)
     const y0 = head('SETUP', 'mixer');
@@ -11253,6 +11279,11 @@ function frameBody() {
       const evo = cine.panoEvolution(dt, activeBpm);
       if (evo.dTurnDeg > 0) { skySpin.ang = (skySpin.ang + evo.dTurnDeg * DEG) % (2 * Math.PI); applySkyTurn(); }
       skybox.setEvo(evo.tint, evo.gainMul);
+      if (skybox.tickCrossfade(dt)) {
+        cine.panoBlending = false;
+        if (toolsPage === 'cine' || toolsPage === 'panolist') drawMixScreen();
+      }
+      if (cine.shouldAutoBlend(skyVid)) blendNextPano();
     }
   }
   if (mprops) mprops.tick(dt);   // #478
@@ -11684,10 +11715,69 @@ function closeSkyVideo() { if (skyVid) { closePanoVideo(skyVid); skyVid = null; 
 async function panoToDome(folder, name) {
   try {
     await useSkyMedia(folder, name);
+    if (cine) cine.markPanoStarted();
     setBackdrop('dome'); if (!dome.on) await setDome(true);
     const gp = gpActive(); if (gp && streamer && streamer.source !== 'show') streamer.setSource('show');
   } catch (e) { toast('Dome: ' + e.message, 4000); }
   drawMixScreen();
+}
+// #858 Freeze-Frame Handover: freeze Video A's current frame, close Video A decoder, open Video B / Still B, crossfade smoothly
+async function blendToPano(folder, name, durSec = 7.5) {
+  if (!cine || cine.panoBlending) return;
+  const f = await media.getFile(folder, name);
+  if (!f) { toast('Not on this headset: ' + name, 2500); return; }
+  cine.panoBlending = true;
+  if (toolsPage === 'cine' || toolsPage === 'panolist') drawMixScreen();
+  try {
+    // 1. Freeze current pano frame onto mapA
+    skybox.freezeCurrent(skyVid);
+    // 2. Immediately free old video decoder BEFORE opening the next video
+    closeSkyVideo();
+    skyFactory = false;
+    settings.skyMedia = folder + '/' + name; settings.skyFile = name + ':' + f.size;
+    const p = skyPrefs()[settings.skyFile] || { h: 1.5, turn: 0, type: 'auto', key: 'on' };
+    Object.assign(settings, { skyH: p.h, skyTurn: p.turn, skyType: p.type, skyKey: p.key, env: 'image', sky: 'on' });
+    saveSettings(); syncSettingsUI();
+    const eac = wantEac();
+    if (folder === 'Video pano') {
+      const { video, snap } = await openPanoVideo(f);
+      skyVid = video; video._vname = f.name;
+      const L = skyLayoutFor(video.videoWidth, video.videoHeight) || { layout: 'mono', swap: false };
+      const c = leftEyeCanvas(snap, L.layout, L.swap, 2048);
+      try { localStorage.setItem('vire.envimage', c.toDataURL('image/jpeg', 0.85)); } catch {}
+      envLight.setImage(c); skyKeyLight = brightestDir(c); skyAvg = panoAvg(c);
+      const vt = new THREE.VideoTexture(video);
+      vt.colorSpace = THREE.SRGBColorSpace; vt.wrapS = THREE.RepeatWrapping; vt.wrapT = THREE.ClampToEdgeWrapping;
+      vt.minFilter = THREE.LinearFilter; vt.magFilter = THREE.LinearFilter; vt.generateMipmaps = false;
+      skybox.setHeight(settings.skyH);
+      skybox.beginCrossfade(vt, L.layout, L.swap, eac, durSec);
+    } else {
+      const full = await createImageBitmap(f, { imageOrientation: 'flipY' });
+      const [w, h] = skybox.fit(full.width, full.height);
+      const bmp = (w === full.width && h === full.height) ? full : await createImageBitmap(full, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
+      if (bmp !== full) full.close();
+      const L = skyLayoutFor(bmp.width, bmp.height) || { layout: 'mono', swap: false };
+      const st = new THREE.Texture(bmp);
+      st.flipY = false; st.colorSpace = THREE.SRGBColorSpace; st.wrapS = THREE.RepeatWrapping; st.wrapT = THREE.ClampToEdgeWrapping;
+      st.minFilter = THREE.LinearMipmapLinearFilter; st.magFilter = THREE.LinearFilter; st.anisotropy = 4; st.needsUpdate = true;
+      st.onUpdate = () => { if (bmp.close) bmp.close(); };
+      skybox.setHeight(settings.skyH);
+      skybox.beginCrossfade(st, L.layout, L.swap, eac, durSec);
+    }
+    cine.markPanoStarted();
+    setBackdrop('dome'); if (!dome.on) await setDome(true);
+    toast('Blending → ' + name, 2000);
+  } catch (e) {
+    cine.panoBlending = false;
+    toast('Pano blend error: ' + e.message, 3500);
+  }
+  drawMixScreen();
+}
+function blendNextPano() {
+  if (!cine || cine.panoBlending) return;
+  const nxt = cine.nextPanoItem();
+  if (!nxt) { toast('PANO LIST is empty (add panos in VISUALS > PANO)', 2500); return; }
+  blendToPano(nxt.folder, nxt.name, 7.5);
 }
 async function useSkyMedia(folder, name) {
   const f = await media.getFile(folder, name); if (!f) { toast('Not on this headset: ' + name); return; }

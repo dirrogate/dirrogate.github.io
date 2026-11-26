@@ -17,7 +17,9 @@ export const MOTE_MODES = ['off', 'dust', 'embers', 'mist'];
 // Pano drift in bars (starting at 128 bars = 512 beats, incrementing by +32 beats = +8 bars per step)
 export const PANO_ROTS = [0, 128, 136, 144, 152, 160, 168, 176, 184, 192];
 export const PANO_GRADES = ['off', 'sunset', 'deep'];
+export const PANO_AUTO_MODES = ['off', 'end', '64b', '128b', '5m', '10m'];
 export const TARGETS = ['both'];
+const PLIST_KEY = 'vire.panolist';
 
 const ACES_GLSL = `
 vec3 rrt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
@@ -358,8 +360,15 @@ export class CyberCinematics {
       panoRot: 0,
       panoGrade: 'sunset',
       panoBreathe: true,
+      panoAuto: 'off',
     };
     this._load();
+    this.panoList = [];
+    this.panoIdx = 0;
+    this.panoBarStart = 0;
+    this.panoTimeStart = 0;
+    this.panoBlending = false;
+    this._loadPanoList();
     this.onChange = null;
     this.time = 0;
     this.barPhase = 0;       // continuous musical bar counter
@@ -385,6 +394,74 @@ export class CyberCinematics {
     if (!MIST_PRESETS[this.S.mist]) this.S.mist = '1/2';
     this.S.target = 'both';
     if (this.S.panoRot > 0 && !PANO_ROTS.includes(this.S.panoRot)) this.S.panoRot = 128;
+    if (!PANO_AUTO_MODES.includes(this.S.panoAuto)) this.S.panoAuto = 'off';
+  }
+
+  _loadPanoList() {
+    try {
+      const a = JSON.parse(localStorage.getItem(PLIST_KEY) || '[]');
+      if (Array.isArray(a)) this.panoList = a.filter(x => x && x.folder && x.name);
+    } catch {}
+  }
+
+  savePanoList() {
+    try { localStorage.setItem(PLIST_KEY, JSON.stringify(this.panoList)); } catch {}
+    if (this.onChange) this.onChange(this.S);
+  }
+
+  addPano(folder, name) {
+    if (!folder || !name) return this.panoList.length;
+    this.panoList.push({ folder, name });
+    this.savePanoList();
+    return this.panoList.length;
+  }
+
+  removePano(idx) {
+    if (idx < 0 || idx >= this.panoList.length) return;
+    this.panoList.splice(idx, 1);
+    if (this.panoIdx >= this.panoList.length) this.panoIdx = 0;
+    this.savePanoList();
+  }
+
+  clearPanoList() {
+    this.panoList = [];
+    this.panoIdx = 0;
+    this.savePanoList();
+  }
+
+  cyclePanoAuto() {
+    const i = PANO_AUTO_MODES.indexOf(this.S.panoAuto);
+    this.S.panoAuto = PANO_AUTO_MODES[(i + 1) % PANO_AUTO_MODES.length];
+    this.markPanoStarted();
+    this.save();
+    return this.S.panoAuto;
+  }
+
+  markPanoStarted() {
+    this.panoBarStart = this.barPhase;
+    this.panoTimeStart = this.time;
+  }
+
+  nextPanoItem() {
+    if (!this.panoList.length) return null;
+    this.panoIdx = (this.panoIdx + 1) % this.panoList.length;
+    return this.panoList[this.panoIdx];
+  }
+
+  shouldAutoBlend(skyVid) {
+    const m = this.S.panoAuto;
+    if (m === 'off' || this.panoBlending || this.panoList.length < 2) return false;
+    if (m === 'end') {
+      if (skyVid && isFinite(skyVid.duration) && skyVid.duration > 1.0) {
+        return (this.time - this.panoTimeStart > 1.5) && (skyVid.currentTime >= skyVid.duration - 0.22);
+      }
+      return (this.barPhase - this.panoBarStart) >= 64;
+    }
+    if (m === '64b') return (this.barPhase - this.panoBarStart) >= 64;
+    if (m === '128b') return (this.barPhase - this.panoBarStart) >= 128;
+    if (m === '5m') return (this.time - this.panoTimeStart) >= 300;
+    if (m === '10m') return (this.time - this.panoTimeStart) >= 600;
+    return false;
   }
 
   save() {

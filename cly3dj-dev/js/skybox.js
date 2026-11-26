@@ -40,6 +40,10 @@ uniform float uAces;        // #594 1 = drawing into the stream's linear layer, 
 uniform float uEac;         // #797 1 = YouTube 3x2 Equi-Angular Cubemap (EAC) projection, 0 = Equirectangular
 uniform vec3 uTint;         // CyberCinematics bar-driven Anjunadeep palette grade
 uniform float uGainMul;     // CyberCinematics 8-bar gentle horizon breathing
+uniform sampler2D mapB;     // Freeze-Frame Handover incoming pano texture
+uniform vec4 soB;           // layout rect for mapB
+uniform float uEacB;        // 1 = EAC for mapB
+uniform float uMix;         // 0 = map only, 0..1 = crossfade to mapB
 vec2 eacUV(vec3 d) {        // #797 YouTube 3x2 EAC; #826 faces re-fitted (Gemini's put the wrong tiles / turns on most faces: a patch above and below).
   // Fitted against ffmpeg's v360 e->eac (the YouTube layout) in this dome's own direction frame, where the equirect's centre is +X:
   // top row Left (-Z) / Front (+X) / Right (+Z); bottom row Bottom (-Y) / Back (-X) / Top (+Y), turned as YouTube stores them.
@@ -98,6 +102,16 @@ void main() {
     }
 #endif
     c = textureGrad(map, uv, dx, dy);
+  }
+  if (uMix > 0.001) {
+    vec2 bsB = uEacB > 0.5
+      ? eacUV(d)
+      : vec2(1.0 - fract(atan(d.z, -d.x) / 6.28318530718), 0.5 + asin(clamp(d.y, -1.0, 1.0)) / 3.14159265359);
+    vec2 uvB = vec2(bsB.x * soB.x + soB.y, bsB.y * soB.z + soB.w);
+    vec4 cB = texture2D(mapB, uvB);
+    float m = smoothstep(0.0, 1.0, uMix);
+    float mistPeak = sin(m * 3.14159265) * 0.08;
+    c.rgb = mix(c.rgb, cB.rgb, m) + vec3(mistPeak * 0.95, mistPeak * 0.90, mistPeak * 0.82);
   }
   vec3 o = c.rgb * gain * uGainMul * uTint; o = 0.18 * pow(max(o, vec3(0.0)) / 0.18, vec3(uCon)); o = pow(o, vec3(1.0 / uGam));
 #ifdef PORTAL_SKY
@@ -168,9 +182,11 @@ export class Skybox {
     this.group = new THREE.Group(); this.group.visible = false; this.group.name = 'skybox';
     this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.allow3d = false; this.tex = null;   // #756 allow3d: DOME 3D (stereo panoramas shown in stereo); off = the left eye for both
     this.mats = [0, 1].map(() => new THREE.ShaderMaterial({
-      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 }, uEac: { value: 0 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uGainMul: { value: 1 } },
+      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 }, uEac: { value: 0 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uGainMul: { value: 1 }, mapB: { value: null }, soB: { value: new THREE.Vector4(1, 0, 1, 0) }, uEacB: { value: 0 }, uMix: { value: 0 } },
       vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthTest: true, depthWrite: false, toneMapped: false, transparent: false, opacity: 1.0,
     }));
+    this._frozenTex = null;
+    this._xf = null;
     this.geo = null; this.setHeight(this.height);
     this.meshes = this.mats.map(m => {
       const s = new THREE.Mesh(this.geo, m); s.onBeforeRender = r => { const t = r.getRenderTarget(); m.uniforms.uAces.value = t && t.vireAces ? 1 : 0; };   /* #594 */ s.frustumCulled = false; s.renderOrder = 1000; s.raycast = () => {};   // #403 last of the opaque objects: early-Z skips every dome pixel behind gear, tablet, hands & walls
@@ -255,6 +271,66 @@ export class Skybox {
   setExposure(ev) { const g = Math.pow(2, ev || 0); this.mats.forEach(m => { m.uniforms.gain.value = g; }); }   // #404 DOME EXPOSURE
   setEac(on) { const v = on ? 1 : 0; this.eac = !!on; this.mats.forEach(m => { m.uniforms.uEac.value = v; }); }   // #797 YouTube 3x2 EAC projection
   setEvo(tint, gainMul = 1) { this.mats.forEach(m => { if (tint) m.uniforms.uTint.value.set(tint.r, tint.g, tint.b); m.uniforms.uGainMul.value = gainMul; }); }
+
+  // Freeze-Frame Handover: snapshot current video (or hold current still) into mapA so caller can immediately close the old video decoder
+  freezeCurrent(videoEl = null) {
+    this._clearXf();
+    if (videoEl && videoEl.videoWidth && videoEl.videoHeight) {
+      const W = Math.min(2048, videoEl.videoWidth), H = Math.min(1024, videoEl.videoHeight);
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      try { c.getContext('2d').drawImage(videoEl, 0, 0, W, H); } catch {}
+      const ft = new THREE.CanvasTexture(c);
+      ft.colorSpace = THREE.SRGBColorSpace; ft.wrapS = THREE.RepeatWrapping; ft.wrapT = THREE.ClampToEdgeWrapping;
+      ft.minFilter = THREE.LinearFilter; ft.magFilter = THREE.LinearFilter; ft.generateMipmaps = false; ft.needsUpdate = true;
+      if (this.tex) { this.tex.dispose(); this.tex = null; }
+      this._frozenTex = ft;
+      this.mats.forEach(m => { m.uniforms.map.value = ft; m.uniforms.aa.value = 1; m.uniforms.uMix.value = 0; });
+    } else if (this.tex) {
+      // Current is already a still texture: promote it to _frozenTex so next load doesn't dispose it mid-fade
+      this._frozenTex = this.tex;
+      this.tex = null;
+      this.mats.forEach(m => { m.uniforms.map.value = this._frozenTex; m.uniforms.uMix.value = 0; });
+    }
+  }
+
+  // Begin crossfading from frozen mapA -> incoming video or still texture on mapB
+  beginCrossfade(nextTex, layout = 'mono', swap = false, eac = false, durSec = 8.0) {
+    const [l, r] = halves(layout, !!swap);
+    this.mats[0].uniforms.soB.value.fromArray(l);
+    this.mats[1].uniforms.soB.value.fromArray(r);
+    this.mats.forEach(m => { m.uniforms.mapB.value = nextTex; m.uniforms.uEacB.value = eac ? 1 : 0; m.uniforms.uMix.value = 0; });
+    this._xf = { t: 0, dur: Math.max(0.5, durSec), nextTex, layout, swap: !!swap, eac: !!eac };
+  }
+
+  tickCrossfade(dt) {
+    const x = this._xf;
+    if (!x) return false;
+    x.t += dt;
+    const u = Math.min(1, x.t / x.dur);
+    this.mats.forEach(m => { m.uniforms.uMix.value = u; });
+    if (u >= 1) {
+      // Promote mapB -> mapA and immediately dispose frozen snapshot
+      this.tex = x.nextTex;
+      this.mats.forEach(m => {
+        m.uniforms.map.value = x.nextTex;
+        m.uniforms.mapB.value = null;
+        m.uniforms.uMix.value = 0;
+        m.uniforms.aa.value = x.nextTex && x.nextTex.isVideoTexture ? 1 : 0;
+      });
+      this.setLayout(x.layout, x.swap);
+      this.setEac(x.eac);
+      if (this._frozenTex) { this._frozenTex.dispose(); this._frozenTex = null; }
+      this._xf = null;
+      return true;
+    }
+    return false;
+  }
+
+  _clearXf() {
+    if (this._xf) { this._xf = null; }
+    if (this._frozenTex) { this._frozenTex.dispose(); this._frozenTex = null; }
+    this.mats.forEach(m => { m.uniforms.mapB.value = null; m.uniforms.uMix.value = 0; });
+  }
 }
 
 // The chosen panorama file is kept in the site's private storage (OPFS) at full size; localStorage only has room for
