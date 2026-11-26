@@ -9210,7 +9210,7 @@ function drawToolsPage() {
         [chalkLbl(), !!(chalkboard && chalkboard.on), chalkTap, !chalkboard],
         ['NOW PLAYING', !!O.np, () => { S.setShowOpt('np', !O.np); drawMixScreen(); }, false],
         ['LOGO', !!O.logo, () => { S.setShowOpt('logo', !O.logo); drawMixScreen(); }, false],
-        [cine ? `MIST: ${cine.S.mist.toUpperCase()}` : 'MIST', !!(cine && cine.S.mist !== 'off'), () => { if (cine) { cine.cycleMist(); drawMixScreen(); } }, !cine, () => setTools('cine')]]],
+        [cine ? `CINEMATICS (${cine.S.mist.toUpperCase()}) ▸` : 'CINEMATICS ▸', !!(cine && cine.S.mist !== 'off'), () => setTools('cine'), !cine]]],
       ['SEND TO', [
         [live || st === 'connecting' ? (ending ? 'TAP AGAIN TO END' : 'END TWITCH') : 'GO LIVE ON TWITCH', live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, null, true],
         [tvLbl(S), !!(S.tvUp || S.stuRun), () => setTools('tv'), false],
