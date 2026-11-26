@@ -281,6 +281,12 @@ export function setupXR(ctx) {
       }
       // #795 GOPRO 2 red record button on top: finger pinch or controller trigger toggles 720p30 recording
       if (pr.recBtnHit && (st.isHand || btn !== 'grip') && pr.recBtnHit(P)) { pr.onRecTap(); buzz(st, 0.5, 40); return true; }
+      // CyberCinematics near-lens side tap buttons (MIST / DoF)
+      if (pr.sideBtnHit && (st.isHand || btn !== 'grip')) {
+        const sb = pr.sideBtnHit(P);
+        if (sb === 'mist' && pr.onMistTap) { pr.onMistTap(); buzz(st, 0.4, 30); return true; }
+        if (sb === 'dof' && pr.onDofTap) { pr.onDofTap(); buzz(st, 0.4, 30); return true; }
+      }
       // #379 props with a slider or handle of their own (FLOAT slider, WATER corner): trigger / pinch on it, then drag
       if (pr.knob && (st.isHand || btn !== 'grip') && pr.knob(P)) { st.direct = { kind: 'propKnob', prop: pr }; pr.knobMove(P); buzz(st, 0.3, 20); return true; }
       if (pr.scaleTo && pr.corner && (st.isHand || btn !== 'grip') && pr.corner(P)) {

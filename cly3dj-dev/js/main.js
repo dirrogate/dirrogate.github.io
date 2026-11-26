@@ -27,6 +27,7 @@ import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
 import { Portals, GRADE0, HOLO_ORDER, SHAPE_OF, TYPES, TYPE_LABEL, TYPE_HINT, typeOf, shapeKey, shapesFor, kindOfTS, SHAPE_LABEL, HMIN as P_HMIN, HMAX as P_HMAX, RAIN_ORDER, MAX_PORTALS } from './portal.js';
 import { MasterRec } from './recmaster.js';   // #598 REC MASTER: the clean master to a WAV file
 import { GoProRec } from './goprorec.js';   // #795 GOPRO 2 Selfie Recorder (720p30 H.264 + master audio -> OPFS .mp4)
+import { CyberCinematics, MIST_LEVELS, MIST_PRESETS, DOF_MODES, MOTE_MODES, PANO_ROTS, PANO_GRADES, TARGETS } from './cinematics.js';
 import { RoomSnap, SNAP_IN, SNAP_OUT } from './roomsnap.js';
 import { NightLook } from './night.js';   // #612 NIGHT LOOK   // #592 Space Setup planes for portal frames   // #345 mirror portal: a real-world window, cut into FacetWall (or any glb room later); #346 up to 6, any rectangle
 import { FacetWall, WALL_DEF, WALL_LIM } from './facetwall.js';   // #345 faceted backdrop (fractal or VIDEOWALL content) in front of the DJ booth
@@ -88,6 +89,7 @@ function setTtWorkflow(mode) {
 }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 let mprops = null;   // #478 MOVIE PROPS: puddles, rain, fog, GLBs, neon signs, graffiti
+let cine = null, cineLastTex = null;   // CyberCinematics: Black Pro-Mist, Macro DoF, Dust Motes, Anjuna Pano Evolve
 let fx = null;   // #379 FLOAT / WATER (made next to the XR setup, once everything it looks at exists)
 const DECK_NAMES = ['A', 'B'];
 
@@ -1972,6 +1974,19 @@ if (gopro2 && goproRec) {
     else goproRec.start();
   };
 }
+if (!CAMERA_ROLE) {
+  cine = new CyberCinematics(rig);
+  const syncGpLed = () => {
+    for (const gp of [gopro, gopro2]) if (gp) gp.updateLed(cine.S.mist, cine.S.dof, goproRec && goproRec.on ? goproRec.secs : 0);
+  };
+  cine.onChange = () => { syncGpLed(); if (toolsPage === 'cine' || toolsPage === 'stream' || toolsPage === 'setup') drawMixScreen(); };
+  for (const gp of [gopro, gopro2]) {
+    if (!gp) continue;
+    gp.onMistTap = () => { const m = cine.cycleMist(); toast(`BLACK PRO-MIST: ${m.toUpperCase()}`, 1400); };
+    gp.onDofTap = () => { const d = cine.cycleDof(); toast(`MACRO DoF: ${d.toUpperCase()}`, 1400); };
+  }
+  syncGpLed();
+}
 renderer.xr.addEventListener('sessionend', () => {
   if (masterRec.pending.length) setTimeout(() => masterRec.offer(), 400);
   if (goproRec && goproRec.pending.length) setTimeout(() => goproRec.offer(), 550);
@@ -2044,6 +2059,7 @@ streamer = CAMERA_ROLE ? null : new Streamer({
   },
   pcamPrep: cam => pcamPrep(cam), pcamLayers: () => pcamExtra,   // #734
   boothCam: () => boothCamPose(), boothPrep: () => boothPrep(),   // #746 WEBCAM+GEAR!: the gear strip along the bottom of the webcam picture
+  cine,
   studio: () => (spect && spect.studio) || null,   // #380 S8 STUDIO: the spectator link's studio slots
   ledClip: () => (ledMode === 'clips' && led.on && led.name && led.video ? led.name : ''),   // #380 the LED clip the S8 can play from its own copy
   monitorOn: () => monOn,   // #376 the venue screen keeps the shot running unless PREVIEW wants it   // #374 the phone camera, for the 'behind the DJ' rule
@@ -7203,7 +7219,7 @@ const PINCH_FIT_DEF = {
 };
 // #513 the TV's address, from where this page runs (cabin.dirrodj.club/ = the cly3dj-dev folder on Cloudflare; github.io/cly3dj/ ...); no 'https://'
 const venueUrl = () => new URL('venue.html', location.href).href.replace(/[?#].*$/, '').replace(/^https?:\/\//, '');
-const TOOLS_NAME = { balls: 'BOUNCE BALLS', desk: 'VJ DESK', dverse: 'DIRROVERSE', acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', rooms: 'ROOMS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS' };   // #363 up-button names; #376 / #530 / Gemini_acid
+const TOOLS_NAME = { balls: 'BOUNCE BALLS', desk: 'VJ DESK', dverse: 'DIRROVERSE', acid: 'ACID', mixfeel: 'MIXER FEEL', card: 'CARD', retro: 'RETRO-SCENE', vdancer: 'VECTOR-DANCER', wall: 'VISUALS', dirro: 'DIRROGRAM', holosms: 'HOLOSMS', handfit: 'HAND FIT', home: 'TOOLS', dj: 'DJ TOOLS', looper: 'LOOPER', vj: 'VJ TOOLS', stream: 'TWITCH', maker: 'MAKER', art: 'FETCH ART', pcam: 'WEBCAM', portals: 'PORTALS', rooms: 'ROOMS', night: 'NIGHT LOOK', pgrade: 'FRAME LOOK', tv: 'DIRROTV', studio: 'DIRROVJ', studiokey: 'DIRROVJ KEY', perfcap: 'PERFCAP', laser: 'LASER', props: 'MOVIE PROPS', cine: 'CINEMATICS' };   // #363 up-button names; #376 / #530 / Gemini_acid
 // #470 LOOPER page (DJ TOOLS > LOOPER, or LOOP on the mixer page) and LOOP BANKS page
 const LOOP_COL = { empty: ['#2a3140', '#8c96a8'], rec: ['#c8202c', '#fff'], play: ['#1f9a4a', '#fff'], stop: ['#d08a10', '#111'] };
 function loopStateLabel() {
@@ -7479,6 +7495,32 @@ function onGreen(label) { return typeof label === 'string' && /(:\s*ON\b|\sON$|^
 function selFill(label) { return /TAP AGAIN|DELETE|FORGET|END STREAM|TAKES OVER|● REC/.test(String(label || '')) ? '#c8202c' : '#1f9d55'; }   // #700 owner: every selected / on button is green; only confirm-again and destructive presses stay red
 let holoLibCache = null;   // #671
 let propsClearT = 0, mpTab = 'props', mpSurfName = '', surfDelT = 0;
+function drawCinePage(T) {
+  const { g, W, H, P, L, R, btn, head, note } = T;
+  const y0 = head('CYBERCINEMATICS', 'setup', cine ? { label: `TARGET: ${cine.S.target.toUpperCase()}`, on: true, act: () => { const i = TARGETS.indexOf(cine.S.target); cine.set('target', TARGETS[(i + 1) % TARGETS.length]); drawMixScreen(); } } : null);
+  if (!cine) { note('CyberCinematics runs on the headset / desktop app.', y0 + 14); return; }
+  const S = cine.S, CR = P ? 36 : 33, cc = P ? 1 : 2, cg = 6, cw = (R - L - cg * (cc - 1)) / cc, chh = CR - 3;
+  const cells = [
+    { b: 1, label: `BLACK PRO-MIST: ${S.mist.toUpperCase()}`, on: S.mist !== 'off', act: () => { cine.cycleMist(); drawMixScreen(); } },
+    { s: 1, label: 'CGI EDGE SOFTEN', v: clamp(S.soften / 1.5, 0, 1), txt: S.soften.toFixed(2) + ' px', set: v => { cine.set('soften', +(v * 1.5).toFixed(2)); } },
+    { s: 1, label: 'FILM / SENSOR GRAIN', v: clamp(S.grain / 0.04, 0, 1), txt: (S.grain * 100).toFixed(1) + '%', set: v => { cine.set('grain', +(v * 0.04).toFixed(4)); } },
+    { b: 1, label: S.ca ? 'CORNER CA: ON' : 'CORNER CA: OFF', on: S.ca, act: () => { cine.set('ca', !S.ca); drawMixScreen(); } },
+    { b: 1, label: `GOPRO MACRO DoF: ${S.dof.toUpperCase()}`, on: S.dof !== 'off', act: () => { cine.cycleDof(); drawMixScreen(); } },
+    { b: 1, label: S.hcBokeh ? 'HCAM BG BOKEH: ON' : 'HCAM BG BOKEH: OFF', on: S.hcBokeh, act: () => { cine.set('hcBokeh', !S.hcBokeh); drawMixScreen(); } },
+    { b: 1, label: `BOOTH MOTES: ${S.motes.toUpperCase()}`, on: S.motes !== 'off', act: () => { cine.cycleMotes(); drawMixScreen(); } },
+    { s: 1, label: 'MOTE DENSITY', v: clamp(S.moteDensity, 0, 1), txt: Math.round(S.moteDensity * 100) + '%', set: v => { cine.set('moteDensity', +v.toFixed(2)); } },
+    { b: 1, label: S.haze ? 'BOOTH HAZE BOOST: ON' : 'BOOTH HAZE BOOST: OFF', on: S.haze, act: () => { cine.set('haze', !S.haze); drawMixScreen(); } },
+    { b: 1, label: S.panoRot ? `PANO DRIFT: ${S.panoRot} BARS` : 'PANO DRIFT: OFF', on: S.panoRot > 0, act: () => { const i = PANO_ROTS.indexOf(S.panoRot); cine.set('panoRot', PANO_ROTS[(i + 1) % PANO_ROTS.length]); drawMixScreen(); } },
+    { b: 1, label: `32-BAR GRADE: ${S.panoGrade.toUpperCase()}`, on: S.panoGrade !== 'off', act: () => { const i = PANO_GRADES.indexOf(S.panoGrade); cine.set('panoGrade', PANO_GRADES[(i + 1) % PANO_GRADES.length]); drawMixScreen(); } },
+    { b: 1, label: S.panoBreathe ? '8-BAR BREATHE: ON' : '8-BAR BREATHE: OFF', on: S.panoBreathe, act: () => { cine.set('panoBreathe', !S.panoBreathe); drawMixScreen(); } },
+  ];
+  cells.forEach((c, i) => {
+    const x = L + (i % cc) * (cw + cg), y = y0 + 4 + Math.floor(i / cc) * CR;
+    if (c.s) tSlider(g, x, y, cw, chh, c.label, c.v, c.txt, c.set);
+    else btn(x, y, cw, chh, c.label, c.on, c.act, false, P ? 15 : 13);
+  });
+  note('Applies to GoPro 1/2 (viewfinders, SHOWTIME!, MP4 recordings) and HEADSET CAM without touching audio or stereo XR eyes. Tap the side buttons on the GoPro to cycle MIST / DoF live.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 12);
+}
 function drawPropsPage(T) {
   const { g, W, H, P, L, R, btn, head, note } = T;
   const y0 = head('MOVIE PROPS', 'vj', mprops ? { label: mpTab !== 'props' ? 'PROPS' : 'FOCUS', on: mpTab === 'cam', act: () => { mpTab = mpTab !== 'props' ? 'props' : 'cam'; drawMixScreen(); } } : null);
@@ -9115,6 +9157,7 @@ function drawToolsPage() {
   const page = toolsPage;
   if (page === 'acid') { drawAcidPage({ g, W, H, P, L, R, btn, head, note }); return; }   // Gemini_acid: Roland TB-303
   if (page === 'props') { drawPropsPage({ g, W, H, P, L, R, btn, head, note }); return; }   // #478
+  if (page === 'cine') { drawCinePage({ g, W, H, P, L, R, btn, head, note }); return; }   // CyberCinematics
   if (page === 'looper' || page === 'loopbanks') { drawLooperPage(page, { g, W, H, P, L, R, btn, head, note }); return; }   // #470
   if (page === 'setup' || page === 'home') {   // #771 SETUP: things touched once a night or less (TOOLS and VJ TOOLS were folded away)
     const y0 = head('SETUP', 'mixer');
@@ -9126,6 +9169,7 @@ function drawToolsPage() {
       ['MEDIA SYNC', false, () => { setTools(null); videoPage = true; vpFolder = 'Sync'; vpLoad(); drawMixScreen(); }, false],
       [perf.on ? `PERFCAP ● ${fmt((Date.now() - perf.P.wall) / 1000)}` : 'PERFCAP', perf.on, () => setTools('perfcap'), false],
       [mprops && mprops.props().length ? `MOVIE PROPS (${mprops.props().length})` : 'MOVIE PROPS', !!(mprops && mprops.props().length), () => setTools('props'), !mprops],
+      [cine ? `CINEMATICS (${cine.S.mist.toUpperCase()})` : 'CINEMATICS', !!(cine && cine.S.mist !== 'off'), () => setTools('cine'), !cine],
       [`AVATAR: ${(AVATAR_STYLES[djSet.style] || AVATAR_STYLES.robot).label}`, djSet.style !== 'robot', nextDjStyle, false],
       [`EYEWEAR: ${eyewear ? EYEWEAR_STYLES[eyewear.style].label : 'OFF'}`, !!(eyewear && eyewear.style !== 'off'), nextEyewear, !eyewear],
       [`BEANIE: ${(djSet.style === 'real3' || djSet.style === 'cyber_plate') && !((djSet.beanieCol || 0) % CLOTHES_SHADES.length) ? 'SCAN NAVY' : CLOTHES_SHADES[(djSet.beanieCol || 0) % CLOTHES_SHADES.length].label}`, (djSet.beanieCol || 0) > 0, nextBeanieCol, false],
@@ -9165,7 +9209,8 @@ function drawToolsPage() {
         [chat && chat.msgs.some(m => !m.sys && performance.now() - m.t < 60000) ? 'CHAT ▸ ●' : 'CHAT ▸', false, chat ? () => setTools('chat') : null, !chat],
         [chalkLbl(), !!(chalkboard && chalkboard.on), chalkTap, !chalkboard],
         ['NOW PLAYING', !!O.np, () => { S.setShowOpt('np', !O.np); drawMixScreen(); }, false],
-        ['LOGO', !!O.logo, () => { S.setShowOpt('logo', !O.logo); drawMixScreen(); }, false]]],
+        ['LOGO', !!O.logo, () => { S.setShowOpt('logo', !O.logo); drawMixScreen(); }, false],
+        [cine ? `MIST: ${cine.S.mist.toUpperCase()}` : 'MIST', !!(cine && cine.S.mist !== 'off'), () => { if (cine) { cine.cycleMist(); drawMixScreen(); } }, !cine, () => setTools('cine')]]],
       ['SEND TO', [
         [live || st === 'connecting' ? (ending ? 'TAP AGAIN TO END' : 'END TWITCH') : 'GO LIVE ON TWITCH', live || ending, S.hasKey() || S.live ? goAct : null, !S.hasKey() && !S.live, null, true],
         [tvLbl(S), !!(S.tvUp || S.stuRun), () => setTools('tv'), false],
@@ -11149,7 +11194,16 @@ function frameBody() {
     gp.tick(dt);
     const showLive = streamer && streamer.live && streamer.source === 'show';
     gp.setTally(!!(streamer && streamer.state === 'live' && (streamer.source === 'show' || streamer.source === 'avacam')));
-    if (gp.on) gp.setView(showLive && streamer.ly && streamer.layerOk ? streamer.ly.out.texture : (ledMode === 'cam' || gp.aiming || gp === gopro2 || (streamer && streamer.needsCamRT)) && djcam ? djcam.rt.texture : null, !showLive, showLive);   // #822 GOPRO 2's selfie screen stays on (it went blank 3 s after letting go: 'aiming' ends then)
+    if (cine && gp.on) gp.updateLed(cine.S.mist, cine.S.dof, goproRec && goproRec.on ? goproRec.secs : 0);
+    if (gp.on) {
+      const wantLiveTex = showLive && streamer.ly && streamer.layerOk
+        ? (streamer.ly.readRT || streamer.ly.out).texture
+        : (ledMode === 'cam' || gp.aiming || gp === gopro2 || (streamer && streamer.needsCamRT)) && djcam
+          ? (cineLastTex || djcam.rt.texture)
+          : null;
+      const isRawHdr = !showLive && !cineLastTex;
+      gp.setView(wantLiveTex, isRawHdr, showLive);
+    }
   }
   camCalStep();   // #415
   stepRealWorld(dt);   // #411 depth occlusion on / off, room planes for the laser
@@ -11181,6 +11235,26 @@ function frameBody() {
   if (night && night.S.on) night.tick(renderer.xr.isPresenting ? renderer.xr.getFrame() : null, renderer.xr.isPresenting ? renderer.xr.getReferenceSpace() : null, dt, nightMoonDir());   // #612   // #345 #346 (#589 screen feed)
   if (domeBoot) { domeBoot = false; if (dome.on && !CAMERA_ROLE) setDome(true); }   // #346 a dome left on last time: load its sky once everything is up
   if (skySpin.speed > 0 && skybox.group.visible) { skySpin.ang = (skySpin.ang + skySpin.speed * DEG * dt) % (2 * Math.PI); applySkyTurn(); }   // #379 PANO SPIN
+  if (cine) {
+    let activeBpm = 122;
+    try {
+      const playing = decks.find(d => d.track && engine.state.decks[d.i] && engine.state.decks[d.i].needle && Math.abs(engine.state.decks[d.i].rate) > 0.2);
+      if (playing) activeBpm = bpmOf(playing.track) * Math.abs(engine.state.decks[playing.i].rate || 1) || 122;
+    } catch {}
+    let macroDist = 99;
+    const gca = gpActive();
+    if (gca) {
+      const gpPos = gca.cam.position;
+      for (const dg of deckGroups) macroDist = Math.min(macroDist, gpPos.distanceTo(dg.getWorldPosition(_djFloor)));
+      if (sleeveOut && sleeveOut.g) macroDist = Math.min(macroDist, gpPos.distanceTo(sleeveOut.g.getWorldPosition(_djFloor)));
+    }
+    cine.tick(dt, activeBpm, macroDist);
+    if (skybox.group.visible) {
+      const evo = cine.panoEvolution(dt, activeBpm);
+      if (evo.dTurnDeg > 0) { skySpin.ang = (skySpin.ang + evo.dTurnDeg * DEG) % (2 * Math.PI); applySkyTurn(); }
+      skybox.setEvo(evo.tint, evo.gainMul);
+    }
+  }
   if (mprops) mprops.tick(dt);   // #478
   if (fx) fx.preRender(dt);   // #379 FLOAT goes on here (every camera below sees it) and comes off after the frame; WATER uniforms
   stepDirroMorph(dt);
@@ -11320,9 +11394,13 @@ function stepDjCam(dt) {
     const did = roboRender(pose, gear, dt, () => djcam.render(scene, dt, every, djPrep));
     if (did) {
       const isHdr = djcam.rt.texture.type !== THREE.UnsignedByteType;
+      const outTex = cine ? cine.processGoPro(renderer, djcam.rt.texture, djcam.rt.width, djcam.rt.height, isHdr, false) : djcam.rt.texture;
+      const outHdr = !cine && isHdr;
+      cineLastTex = cine ? outTex : null;
       if (ledMode === 'cam' && !(gp2Live && gp2Rec)) camToWall();
-      if (gp2Live) gopro2.setView(djcam.rt.texture, isHdr, false);
-      if (gp2Rec) goproRec.pushFrame(renderer, djcam.rt.texture, isHdr);
+      if (gp2Live) gopro2.setView(outTex, outHdr, false);
+      if (gopro && gopro.on) gopro.setView(outTex, outHdr, false);
+      if (gp2Rec) goproRec.pushFrame(renderer, outTex, outHdr);
     }
   }   // #258 CAM 2ND FRAME test (#336: SHOW renders its own layer from this camera; #795 GOPRO 2 selfie preview & 720p30 H.264 rec)
   else djcam.t += dt;

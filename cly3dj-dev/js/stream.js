@@ -688,12 +688,14 @@ export class Streamer {
           if (this.hocc === 'holo') { r.setRenderTarget(mr.hmRT); r.setClearColor(0x000000, 1); r.clear(); r.render(cp.mask, mr.cam); r.setClearColor(0x000000, 0); } }
       }
       r.setRenderTarget(mr.out); r.render(mr.scene, mr.oc);
+      const hcRT = this.env.cine ? this.env.cine.processHeadsetRT(r, mr.out.texture, W, H) : null;
+      mr.readRT = hcRT || mr.out;
     } finally {
       r.setClearColor(prevCol, prevA); r.xr.enabled = prevXR; r.shadowMap.autoUpdate = prevSh; r.setRenderTarget(prevRT);
       if (undo) undo();
     }
     this.busy = true; const buf = mr.buf, img = mr.img;
-    r.readRenderTargetPixelsAsync(mr.out, 0, 0, W, H, buf).then(() => {
+    r.readRenderTargetPixelsAsync(mr.readRT || mr.out, 0, 0, W, H, buf).then(() => {
       this.busy = false; if (!this.running || this.source !== 'headset' || this.mr !== mr) return;
       this.g.putImageData(img, 0, 0); if (this.canvasTrack && this.sending) this.canvasTrack.requestFrame();
       this.mrFrames = (this.mrFrames || 0) + 1;
@@ -911,13 +913,16 @@ export class Streamer {
     try {
       r.xr.enabled = false; r.shadowMap.autoUpdate = false; r.setClearColor(0x000000, 0);
       r.setRenderTarget(ly.rt); r.clear(); r.render(sc, cam);
-      r.setRenderTarget(ly.out); r.render(ly.scene, ly.oc);
+      const gpRT = (this.env.cine && this.env.cine.enabledFor('gopro') && this.env.cine.S.mist !== 'off' && this.source === 'show' && this.show.backdrop === 'dome')
+        ? this.env.cine.processGoProRT(r, ly.rt.texture, W, H, true, true) : null;
+      if (gpRT) { ly.readRT = gpRT; }
+      else { r.setRenderTarget(ly.out); r.render(ly.scene, ly.oc); ly.readRT = ly.out; }
     } finally {
       r.setClearColor(prevCol, prevA); r.xr.enabled = prevXR; r.shadowMap.autoUpdate = prevSh; r.setRenderTarget(prevRT);
       if (undo) undo();
     }
     this.busy = true;
-    r.readRenderTargetPixelsAsync(ly.out, 0, 0, W, H, ly.buf).then(() => {
+    r.readRenderTargetPixelsAsync(ly.readRT || ly.out, 0, 0, W, H, ly.buf).then(() => {
       this.busy = false; if (this.ly !== ly) return;
       ly.g.putImageData(ly.img, 0, 0); this.layerOk = true; ly.stamp = stamp;
       if (this.source === 'show') this._compose();

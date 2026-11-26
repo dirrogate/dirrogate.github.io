@@ -38,6 +38,8 @@ uniform float uCon;         // #629 DOME CONTRAST, retired by #638 (stays 1)
 uniform float uGam;         // #638 DOME GAMMA (1 = as shot; < 1 darker mid-tones, > 1 lighter; black and white stay put)
 uniform float uAces;        // #594 1 = drawing into the stream's linear layer, which gets ACES (x 1/0.6) afterwards
 uniform float uEac;         // #797 1 = YouTube 3x2 Equi-Angular Cubemap (EAC) projection, 0 = Equirectangular
+uniform vec3 uTint;         // CyberCinematics bar-driven Anjunadeep palette grade
+uniform float uGainMul;     // CyberCinematics 8-bar gentle horizon breathing
 vec2 eacUV(vec3 d) {        // #797 YouTube 3x2 EAC; #826 faces re-fitted (Gemini's put the wrong tiles / turns on most faces: a patch above and below).
   // Fitted against ffmpeg's v360 e->eac (the YouTube layout) in this dome's own direction frame, where the equirect's centre is +X:
   // top row Left (-Z) / Front (+X) / Right (+Z); bottom row Bottom (-Y) / Back (-X) / Top (+Y), turned as YouTube stores them.
@@ -97,7 +99,7 @@ void main() {
 #endif
     c = textureGrad(map, uv, dx, dy);
   }
-  vec3 o = c.rgb * gain; o = 0.18 * pow(max(o, vec3(0.0)) / 0.18, vec3(uCon)); o = pow(o, vec3(1.0 / uGam));
+  vec3 o = c.rgb * gain * uGainMul * uTint; o = 0.18 * pow(max(o, vec3(0.0)) / 0.18, vec3(uCon)); o = pow(o, vec3(1.0 / uGam));
 #ifdef PORTAL_SKY
   if (portalRain.x + portalRain.y > 0.001 && inRev) {   // #639 the water itself: condensation (milky, cooler, lower contrast) wiped clear where water runs; dark rims, bright lens cores
     float mist = portalRain.y * (1.0 - rClear), lu = dot(o, vec3(0.2126, 0.7152, 0.0722));
@@ -166,7 +168,7 @@ export class Skybox {
     this.group = new THREE.Group(); this.group.visible = false; this.group.name = 'skybox';
     this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.allow3d = false; this.tex = null;   // #756 allow3d: DOME 3D (stereo panoramas shown in stereo); off = the left eye for both
     this.mats = [0, 1].map(() => new THREE.ShaderMaterial({
-      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 }, uEac: { value: 0 } },
+      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 }, uEac: { value: 0 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uGainMul: { value: 1 } },
       vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthTest: true, depthWrite: false, toneMapped: false, transparent: false, opacity: 1.0,
     }));
     this.geo = null; this.setHeight(this.height);
@@ -252,6 +254,7 @@ export class Skybox {
   setContrast(k) { this.mats.forEach(m => { m.uniforms.uCon.value = k || 1; }); }   // #629 DOME CONTRAST
   setExposure(ev) { const g = Math.pow(2, ev || 0); this.mats.forEach(m => { m.uniforms.gain.value = g; }); }   // #404 DOME EXPOSURE
   setEac(on) { const v = on ? 1 : 0; this.eac = !!on; this.mats.forEach(m => { m.uniforms.uEac.value = v; }); }   // #797 YouTube 3x2 EAC projection
+  setEvo(tint, gainMul = 1) { this.mats.forEach(m => { if (tint) m.uniforms.uTint.value.set(tint.r, tint.g, tint.b); m.uniforms.uGainMul.value = gainMul; }); }
 }
 
 // The chosen panorama file is kept in the site's private storage (OPFS) at full size; localStorage only has room for
