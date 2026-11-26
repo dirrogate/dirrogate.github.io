@@ -3417,3 +3417,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## Gemini_NEON_2026-11-26 #856 Blender-aligned GoPro 2 layout & 180 deg GLB orientation fix (owner, 26 Nov)
 - `gopro.js`: rotated `actioncam_lowpoly.glb` 180 deg around Y (`wrap.rotation.y = Math.PI`) so its native `+Z` front lens faces `-Z` (camera forward), and applied the owner's exact Blender placements & muted colors for `SCREEN_BACK`, `SCREEN_SELFIE`, `LED_READOUT`, `BTN_REC` + flashing ring, `BTN_MIST`, `BTN_DOF`, and flush `GRIP_HANDLE` (updating `sideBtnHit` to the `+X` edge).
 - Verified `node --check` on `gopro.js`; bumped `sw.js` to `vire-app-v322`. No Node restart.
+
+## Gemini_NEON_2026-11-26 #857 Final Blender GoPro 2 buttons, tally LED & light-grey dot-matrix readout (owner, 26 Nov)
+- `gopro.js`: applied final Blender coordinates and monochrome charcoal/gunmetal colors for `BTN_REC` (`[0.01239, 0.0230, 0.00221]`), `TALLY_LED` (`[0.00063, 0.02154, -0.00302]`, 3 mm sphere), `BTN_MIST` (`0.073` grey), and `BTN_DOF` (`0.214` grey), and switched the front readout to crisp light-grey (`#cfd6df` / `#8b95a5`) spaced dot-matrix pixels.
+- Verified `node --check` on `gopro.js`; bumped `sw.js` to `vire-app-v323`. No Node restart.

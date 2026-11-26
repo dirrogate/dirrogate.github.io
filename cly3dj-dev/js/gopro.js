@@ -4,7 +4,7 @@
 // and live rear viewfinder + front selfie screen.
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
-import { drawBitText } from './tools.js';
+import { glyph } from './tools.js';
 
 const KEY = 'vire.gopro';
 export const ZOOMS = { wide: { label: 'WIDE', fov: 62 }, normal: { label: 'NORMAL', fov: 46 }, tight: { label: 'TIGHT', fov: 30 } };   // vertical fov at 16:9
@@ -76,15 +76,15 @@ export class GoPro {
     // Lens position on the front (-Z)
     this.lensLocal = new THREE.Vector3(-0.0177, 0.0040, -0.020);
 
-    // Tally lamp on top front corner
+    // Tally lamp (exact Blender TALLY_LED placement & 3mm size)
     this.tallyMat = new THREE.MeshBasicMaterial({ color: 0x300808, toneMapped: false });
-    const tally = new THREE.Mesh(new THREE.SphereGeometry(0.0026, 12, 8), this.tallyMat);
-    tally.position.set(0.019, 0.0222, -0.012);
+    const tally = new THREE.Mesh(new THREE.SphereGeometry(0.00152, 12, 8), this.tallyMat);
+    tally.position.set(0.00063, 0.02154, -0.00302);
     g.add(tally);
 
-    // Top REC button + flashing red emissive ring (exact Blender placement, rotated 180 deg Y to match -Z forward)
+    // Top REC button + flashing red emissive ring (exact Blender BTN_REC placement)
     this.recBtnMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.523, 0.07, 0.07), emissive: 0x280404, emissiveIntensity: 0.6, roughness: 0.4, metalness: 0.1 });
-    this.recBtnLocal = new THREE.Vector3(-0.016, 0.0230, 0.0);
+    this.recBtnLocal = new THREE.Vector3(0.01239, 0.0230, 0.00221);
     const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.0068, 0.0068, 0.005, 20), this.recBtnMat);
     btn.position.copy(this.recBtnLocal);
     g.add(btn);
@@ -95,14 +95,14 @@ export class GoPro {
     recRing.position.set(this.recBtnLocal.x, 0.0214, this.recBtnLocal.z);
     g.add(recRing);
 
-    // Side tap buttons (exact Blender placement & muted colors, +X side near front -Z)
-    this.mistBtnMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.214, 0.136, 0.014), emissive: new THREE.Color(0.18, 0.11, 0.01), emissiveIntensity: 0.45, roughness: 0.5 });
+    // Side tap buttons (exact Blender placement & sleek monochrome grey colors, +X side)
+    this.mistBtnMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.073, 0.073, 0.073), roughness: 0.55, metalness: 0.15 });
     this.mistBtnLocal = new THREE.Vector3(0.03179, 0.008, -0.005);
     const mistBtn = new THREE.Mesh(new THREE.BoxGeometry(0.005, 0.011, 0.009), this.mistBtnMat);
     mistBtn.position.copy(this.mistBtnLocal);
     g.add(mistBtn);
 
-    this.dofBtnMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.048, 0.163, 0.214), emissive: new THREE.Color(0.03, 0.12, 0.17), emissiveIntensity: 0.45, roughness: 0.5 });
+    this.dofBtnMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.214, 0.214, 0.214), roughness: 0.5, metalness: 0.2 });
     this.dofBtnLocal = new THREE.Vector3(0.03159, -0.008, -0.005);
     const dofBtn = new THREE.Mesh(new THREE.BoxGeometry(0.005, 0.011, 0.009), this.dofBtnMat);
     dofBtn.position.copy(this.dofBtnLocal);
@@ -169,20 +169,34 @@ export class GoPro {
     this._ledKey = key;
 
     const c = this._ledCanvas, g = c.getContext('2d');
-    g.fillStyle = '#05070a';
+    g.fillStyle = '#06080b';
     g.fillRect(0, 0, c.width, c.height);
-    // Subtle dot-matrix grid backdrop
-    g.fillStyle = '#0f1722';
-    for (let y = 2; y < c.height; y += 4) for (let x = 2; x < c.width; x += 4) g.fillRect(x, y, 1, 1);
+    // Authentic dot-matrix LCD/LED grid backdrop
+    g.fillStyle = '#141820';
+    for (let y = 2; y < c.height; y += 2) for (let x = 2; x < c.width; x += 2) g.fillRect(x, y, 1, 1);
 
-    drawBitText(g, `MIST:${this.mistLabel}`, 6, 6, 2, '#fbbf24', false);
-    drawBitText(g, `DOF:${this.dofLabel}`, 6, 25, 2, '#38bdf8', false);
+    const drawDots = (txt, x0, y0, col) => {
+      g.fillStyle = col;
+      let cx = x0;
+      for (const ch of String(txt)) {
+        const gl = glyph(ch);
+        for (let r = 0; r < gl.length; r++) {
+          for (let colI = 0; colI < gl[r].length; colI++) {
+            if (gl[r][colI]) g.fillRect(cx + colI * 2, y0 + r * 2, 1.4, 1.4);
+          }
+        }
+        cx += (gl[0].length + 1) * 2;
+      }
+    };
+
+    drawDots(`MIST:${this.mistLabel}`, 6, 6, '#cfd6df');
+    drawDots(`DOF:${this.dofLabel}`, 6, 25, '#cfd6df');
     if (this.recording) {
       const mm = String(Math.floor(Math.max(0, sec) / 60)).padStart(2, '0');
       const ss = String(Math.max(0, sec) % 60).padStart(2, '0');
-      drawBitText(g, `REC ${mm}:${ss}`, 6, 44, 2, '#ef4444', false);
+      drawDots(`REC ${mm}:${ss}`, 6, 44, '#e2e8f0');
     } else {
-      drawBitText(g, 'STBY 720P', 6, 44, 2, '#64748b', false);
+      drawDots('STBY 720P', 6, 44, '#8b95a5');
     }
     this._ledTex.needsUpdate = true;
   }
