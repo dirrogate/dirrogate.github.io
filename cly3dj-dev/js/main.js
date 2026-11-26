@@ -7497,7 +7497,7 @@ let holoLibCache = null;   // #671
 let propsClearT = 0, mpTab = 'props', mpSurfName = '', surfDelT = 0;
 function drawCinePage(T) {
   const { g, W, H, P, L, R, btn, head, note } = T;
-  const y0 = head('CYBERCINEMATICS', 'setup', cine ? { label: `TARGET: ${cine.S.target.toUpperCase()}`, on: true, act: () => { const i = TARGETS.indexOf(cine.S.target); cine.set('target', TARGETS[(i + 1) % TARGETS.length]); drawMixScreen(); } } : null);
+  const y0 = head('CYBERCINEMATICS', 'setup');
   if (!cine) { note('CyberCinematics runs on the headset / desktop app.', y0 + 14); return; }
   const S = cine.S, CR = P ? 36 : 33, cc = P ? 1 : 2, cg = 6, cw = (R - L - cg * (cc - 1)) / cc, chh = CR - 3;
   const cells = [
@@ -7510,7 +7510,7 @@ function drawCinePage(T) {
     { b: 1, label: `BOOTH MOTES: ${S.motes.toUpperCase()}`, on: S.motes !== 'off', act: () => { cine.cycleMotes(); drawMixScreen(); } },
     { s: 1, label: 'MOTE DENSITY', v: clamp(S.moteDensity, 0, 1), txt: Math.round(S.moteDensity * 100) + '%', set: v => { cine.set('moteDensity', +v.toFixed(2)); } },
     { b: 1, label: S.haze ? 'BOOTH HAZE BOOST: ON' : 'BOOTH HAZE BOOST: OFF', on: S.haze, act: () => { cine.set('haze', !S.haze); drawMixScreen(); } },
-    { b: 1, label: S.panoRot ? `PANO DRIFT: ${S.panoRot} BARS` : 'PANO DRIFT: OFF', on: S.panoRot > 0, act: () => { const i = PANO_ROTS.indexOf(S.panoRot); cine.set('panoRot', PANO_ROTS[(i + 1) % PANO_ROTS.length]); drawMixScreen(); } },
+    { b: 1, label: S.panoRot ? `PANO DRIFT: ${S.panoRot}B (${S.panoRot * 4}b)` : 'PANO DRIFT: OFF', on: S.panoRot > 0, act: () => { const i = PANO_ROTS.indexOf(S.panoRot); cine.set('panoRot', PANO_ROTS[(i + 1) % PANO_ROTS.length]); drawMixScreen(); } },
     { b: 1, label: `32-BAR GRADE: ${S.panoGrade.toUpperCase()}`, on: S.panoGrade !== 'off', act: () => { const i = PANO_GRADES.indexOf(S.panoGrade); cine.set('panoGrade', PANO_GRADES[(i + 1) % PANO_GRADES.length]); drawMixScreen(); } },
     { b: 1, label: S.panoBreathe ? '8-BAR BREATHE: ON' : '8-BAR BREATHE: OFF', on: S.panoBreathe, act: () => { cine.set('panoBreathe', !S.panoBreathe); drawMixScreen(); } },
   ];
@@ -7519,7 +7519,7 @@ function drawCinePage(T) {
     if (c.s) tSlider(g, x, y, cw, chh, c.label, c.v, c.txt, c.set);
     else btn(x, y, cw, chh, c.label, c.on, c.act, false, P ? 15 : 13);
   });
-  note('Applies to GoPro 1/2 (viewfinders, SHOWTIME!, MP4 recordings) and HEADSET CAM without touching audio or stereo XR eyes. Tap the side buttons on the GoPro to cycle MIST / DoF live.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 12);
+  note('Applies automatically to whichever camera output is active (GoPro 1/2, SHOWTIME!, MP4 recordings, HEADSET CAM). Pano drift starts at 128 bars (512 beats) and steps by +32 beats.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 12);
 }
 function drawPropsPage(T) {
   const { g, W, H, P, L, R, btn, head, note } = T;

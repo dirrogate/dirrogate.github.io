@@ -3402,3 +3402,10 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - `#852–#853` **Remote Tablet `CINEMATICS` Page** (`main.js` `drawCinePage`): dedicated `CYBERCINEMATICS` page accessible directly from `SETUP > CINEMATICS` and `SHOWTIME! > EXTRAS > CINEMATICS ▸`.
 - Plans saved: `CYBERMOONDAY_PLAN.md` (active/built) and `DIRROFLIX_PLAN.md` (on hold).
 - Verified `node --check` on `cinematics.js`, `gopro.js`, `skybox.js`, `xr.js`, `stream.js`, `main.js`; bumped `sw.js` to `vire-app-v317` (`cc36f4a`) and `vire-app-v318` (`0d4a50a`). No Node restart.
+
+## Gemini_NEON_2026-11-26 #854 CyberCinematics fixes: PREVIEW GoPro unfreeze, remove TARGET toggle, 128-bar pano drift & ground-up calm motes (owner, 26 Nov)
+- `stream.js` (`_layerTick`): fixed `this.show.backdrop` TypeError (should be `O.backdrop`) that froze the Remote Tablet `PREVIEW` panel whenever GoPro SHOWTIME! was active with Cinematics on.
+- `main.js`, `cinematics.js`: removed the redundant `TARGET` selector on the `CINEMATICS` page — effects now automatically apply to whichever camera source is active.
+- `cinematics.js`: changed `PANO_ROTS` to default `OFF` (`0`) and start at `128 bars` (512 beats, ~4.27 min/turn at 120 BPM) incrementing by `+32 beats` (`+8 bars`: `128..192 bars`) so panos never feel dizzying without portals.
+- `cinematics.js` (`MOTE_VS`, `_buildMotes`): replaced erratic oscillating motes with calm ground-up rising particles (`y = 0 -> 2.35 m`) with smooth floor/ceiling fade and gentle laminar sway.
+- Verified `node --check` on `cinematics.js`, `stream.js`, `main.js`; bumped `sw.js` to `vire-app-v319`. No Node restart.

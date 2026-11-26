@@ -913,7 +913,7 @@ export class Streamer {
     try {
       r.xr.enabled = false; r.shadowMap.autoUpdate = false; r.setClearColor(0x000000, 0);
       r.setRenderTarget(ly.rt); r.clear(); r.render(sc, cam);
-      const gpRT = (this.env.cine && this.env.cine.enabledFor('gopro') && this.env.cine.S.mist !== 'off' && this.source === 'show' && this.show.backdrop === 'dome')
+      const gpRT = (this.env.cine && this.env.cine.S.mist !== 'off' && this.source === 'show' && O.backdrop === 'dome')
         ? this.env.cine.processGoProRT(r, ly.rt.texture, W, H, true, true) : null;
       if (gpRT) { ly.readRT = gpRT; }
       else { r.setRenderTarget(ly.out); r.render(ly.scene, ly.oc); ly.readRT = ly.out; }

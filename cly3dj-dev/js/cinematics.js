@@ -14,9 +14,10 @@ export const MIST_PRESETS = {
 };
 export const DOF_MODES = ['auto', 'on', 'off'];
 export const MOTE_MODES = ['off', 'dust', 'embers', 'mist'];
-export const PANO_ROTS = [0, 32, 64, 128];
+// Pano drift in bars (starting at 128 bars = 512 beats, incrementing by +32 beats = +8 bars per step)
+export const PANO_ROTS = [0, 128, 136, 144, 152, 160, 168, 176, 184, 192];
 export const PANO_GRADES = ['off', 'sunset', 'deep'];
-export const TARGETS = ['both', 'gopro', 'hcam'];
+export const TARGETS = ['both'];
 
 const ACES_GLSL = `
 vec3 rrt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
@@ -177,7 +178,7 @@ void main() {
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
 
-// Booth Dust Motes / Warm Embers shader (soft bokeh orbs scaled by distance)
+// Booth Dust Motes / Warm Embers shader: calm ground-up rising particles with smooth floor/ceiling fade
 const MOTE_VS = `
 attribute float aSeed;
 attribute float aSize;
@@ -188,24 +189,21 @@ varying float vAlpha;
 varying float vWarm;
 void main() {
   vec3 p = position;
-  float t = uTime * uSpeed;
-  if (uMode > 1.5 && uMode < 2.5) {
-    // Rising embers
-    p.y = mod(p.y + t * (0.14 + 0.10 * aSeed), 2.4);
-    p.x += sin(t * 0.7 + aSeed * 19.0) * 0.14;
-    p.z += cos(t * 0.6 + aSeed * 23.0) * 0.14;
-  } else {
-    // Gentle floating dust / mist
-    p.x += sin(t * 0.32 + aSeed * 17.0) * 0.18;
-    p.y += sin(t * 0.24 + aSeed * 29.0) * 0.12;
-    p.z += cos(t * 0.28 + aSeed * 13.0) * 0.18;
-  }
+  float rise = (uMode > 1.5 && uMode < 2.5) ? (0.09 + 0.06 * aSeed) : (0.045 + 0.035 * aSeed);
+  float h = mod(p.y + uTime * uSpeed * rise, 2.35);
+  p.y = h;
+  // Very gentle laminar horizontal sway (no erratic jitter)
+  float drift = uTime * 0.14 + aSeed * 12.566;
+  p.x += sin(drift) * 0.045;
+  p.z += cos(drift * 0.85) * 0.045;
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
-  float dist = max(-mv.z, 0.25);
-  // Subtle bokeh enlargement at distance (>1.8m)
-  float bokeh = 1.0 + smoothstep(1.5, 4.0, dist) * 1.4;
-  gl_PointSize = clamp((aSize * bokeh * 180.0) / dist, 2.0, 26.0);
-  vAlpha = (0.35 + 0.55 * sin(uTime * (0.8 + aSeed * 1.1) + aSeed * 31.0)) * smoothstep(0.25, 0.7, dist) * smoothstep(5.2, 2.6, dist);
+  float dist = max(-mv.z, 0.35);
+  float bokeh = 1.0 + smoothstep(1.6, 4.2, dist) * 1.1;
+  gl_PointSize = clamp((aSize * bokeh * 135.0) / dist, 1.8, 18.0);
+  float yFade = smoothstep(0.0, 0.42, h) * smoothstep(2.35, 1.70, h);
+  float dFade = smoothstep(0.35, 0.85, dist) * smoothstep(5.0, 2.5, dist);
+  float breathe = 0.65 + 0.35 * sin(uTime * 0.45 + aSeed * 25.0);
+  vAlpha = yFade * dFade * breathe;
   vWarm = aSeed;
   gl_Position = projectionMatrix * mv;
 }`;
@@ -355,9 +353,9 @@ export class CyberCinematics {
       dof: 'auto',
       hcBokeh: true,
       motes: 'dust',
-      moteDensity: 0.35,
+      moteDensity: 0.25,
       haze: false,
-      panoRot: 64,
+      panoRot: 0,
       panoGrade: 'sunset',
       panoBreathe: true,
     };
@@ -385,6 +383,8 @@ export class CyberCinematics {
       if (d && typeof d === 'object') Object.assign(this.S, d);
     } catch {}
     if (!MIST_PRESETS[this.S.mist]) this.S.mist = '1/2';
+    this.S.target = 'both';
+    if (this.S.panoRot > 0 && !PANO_ROTS.includes(this.S.panoRot)) this.S.panoRot = 128;
   }
 
   save() {
@@ -426,13 +426,12 @@ export class CyberCinematics {
     this.save();
   }
 
-  enabledFor(kind) {
-    if (this.S.target === 'both') return true;
-    return this.S.target === kind;
+  enabledFor() {
+    return true;
   }
 
   _buildMotes(rig) {
-    const N = 180;
+    const N = 140;
     const pos = new Float32Array(N * 3);
     const seed = new Float32Array(N);
     const size = new Float32Array(N);
@@ -440,10 +439,10 @@ export class CyberCinematics {
     const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
     for (let i = 0; i < N; i++) {
       pos[i * 3 + 0] = (rnd() - 0.5) * 3.4;
-      pos[i * 3 + 1] = 0.25 + rnd() * 2.1;
+      pos[i * 3 + 1] = rnd() * 2.35;
       pos[i * 3 + 2] = (rnd() - 0.5) * 3.2;
       seed[i] = rnd();
-      size[i] = 0.045 + rnd() * 0.085;
+      size[i] = 0.035 + rnd() * 0.055;
     }
     const geo = this._moteGeo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -486,18 +485,18 @@ export class CyberCinematics {
         u.uTime.value = this.time;
         u.uSpeed.value = 0.75 + 0.25 * Math.sin(this.barPhase * Math.PI * 0.25);   // gentle 8-bar swell
         u.uMode.value = m === 'embers' ? 2 : m === 'mist' ? 3 : 1;
-        u.uOpacity.value = this.S.moteDensity * (this.S.haze ? 0.95 : 0.72);
+        u.uOpacity.value = this.S.moteDensity * (this.S.haze ? 0.72 : 0.50);
         if (m === 'embers') { u.uColA.value.set('#ff8a3d'); u.uColB.value.set('#ff3b1f'); }
         else if (m === 'mist') { u.uColA.value.set('#a8e6ff'); u.uColB.value.set('#e2f6ff'); }
         else { u.uColA.value.set('#ffe2b0'); u.uColB.value.set('#ffb46b'); }
-        this._moteGeo.setDrawRange(0, Math.max(12, Math.round(180 * this.S.moteDensity)));
+        this._moteGeo.setDrawRange(0, Math.max(10, Math.round(140 * this.S.moteDensity)));
       }
     }
   }
 
   // Returns { dTurnDeg, tint: THREE.Color, gainMul } for Anjunadeep bar-driven skybox evolution
-  panoEvolution(dt, bpm = 122) {
-    const b = (bpm > 55 && bpm < 200) ? bpm : 122;
+  panoEvolution(dt, bpm = 120) {
+    const b = (bpm > 55 && bpm < 200) ? bpm : 120;
     const barsPerSec = b / 240;
     const dTurnDeg = this.S.panoRot > 0 ? (360 / this.S.panoRot) * barsPerSec * dt : 0;
 
