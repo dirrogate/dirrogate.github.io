@@ -3413,3 +3413,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## Gemini_NEON_2026-11-26 #855 GoPro top REC button flush alignment (owner, 26 Nov)
 - `gopro.js`: measured exact normalized `actioncam_lowpoly.glb` top surface at `(0.016, *, 0.001)` (`y = 0.0215 m`) and seated the top REC button (`y = 0.0238 m`, bottom embedded 0.3 mm, cap proud 2.6 mm), flashing red ring (`y = 0.0224 m`), and tally lamp (`y = 0.0220 m`) flush on top.
 - Verified `node --check` on `gopro.js`; bumped `sw.js` to `vire-app-v321`. No Node restart.
+
+## Gemini_NEON_2026-11-26 #856 Blender-aligned GoPro 2 layout & 180 deg GLB orientation fix (owner, 26 Nov)
+- `gopro.js`: rotated `actioncam_lowpoly.glb` 180 deg around Y (`wrap.rotation.y = Math.PI`) so its native `+Z` front lens faces `-Z` (camera forward), and applied the owner's exact Blender placements & muted colors for `SCREEN_BACK`, `SCREEN_SELFIE`, `LED_READOUT`, `BTN_REC` + flashing ring, `BTN_MIST`, `BTN_DOF`, and flush `GRIP_HANDLE` (updating `sideBtnHit` to the `+X` edge).
+- Verified `node --check` on `gopro.js`; bumped `sw.js` to `vire-app-v322`. No Node restart.

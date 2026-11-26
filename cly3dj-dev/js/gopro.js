@@ -24,6 +24,7 @@ function loadActionCamGlb() {
       root.position.set(-ctr.x, -ctr.y, -ctr.z);
       wrap.add(root);
       wrap.scale.setScalar(s);
+      wrap.rotation.y = Math.PI;   // GLB front lens faces +Z natively; rotate 180 deg so lens faces -Z (camera forward)
       wrap.traverse(o => { if (o.isMesh) { o.userData.gopro = true; o.castShadow = false; } });
       return wrap;
     }).catch(e => { console.warn('actioncam_lowpoly.glb fallback:', e); return null; });
@@ -72,64 +73,60 @@ export class GoPro {
       fallbackBody.visible = false;
     });
 
-    // Lens position on the front (-Z), shifted left
-    const lx = this.selfie ? -0.016 : -0.012;
-    this.lensLocal = new THREE.Vector3(lx, 0.004, -B.d / 2 - 0.010);
+    // Lens position on the front (-Z)
+    this.lensLocal = new THREE.Vector3(-0.0177, 0.0040, -0.020);
 
-    // Tally lamp on top front corner (measured exact GLB top surface at x=0.016 is y=0.0215m)
+    // Tally lamp on top front corner
     this.tallyMat = new THREE.MeshBasicMaterial({ color: 0x300808, toneMapped: false });
-    const tally = new THREE.Mesh(new THREE.SphereGeometry(0.0032, 12, 8), this.tallyMat);
-    tally.position.set(0.021, 0.0220, -B.d / 2 + 0.005);
+    const tally = new THREE.Mesh(new THREE.SphereGeometry(0.0026, 12, 8), this.tallyMat);
+    tally.position.set(0.019, 0.0222, -0.012);
     g.add(tally);
 
-    // Top REC button + flashing red emissive ring (exact flush on GLB top y=0.0215m: bottom at 0.0212m, cap proud 2.6mm)
-    this.recBtnMat = new THREE.MeshStandardMaterial({ color: 0xd81820, emissive: 0x380406, emissiveIntensity: 0.7, roughness: 0.35, metalness: 0.1 });
-    this.recBtnLocal = new THREE.Vector3(0.016, 0.0238, 0.001);
-    const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.0068, 0.0068, 0.0052, 20), this.recBtnMat);
+    // Top REC button + flashing red emissive ring (exact Blender placement, rotated 180 deg Y to match -Z forward)
+    this.recBtnMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.523, 0.07, 0.07), emissive: 0x280404, emissiveIntensity: 0.6, roughness: 0.4, metalness: 0.1 });
+    this.recBtnLocal = new THREE.Vector3(-0.016, 0.0230, 0.0);
+    const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.0068, 0.0068, 0.005, 20), this.recBtnMat);
     btn.position.copy(this.recBtnLocal);
     g.add(btn);
 
-    this.recRingMat = new THREE.MeshBasicMaterial({ color: 0x5a0808, toneMapped: false });
-    const recRing = new THREE.Mesh(new THREE.TorusGeometry(0.0086, 0.0014, 10, 24), this.recRingMat);
+    this.recRingMat = new THREE.MeshBasicMaterial({ color: 0x4a0808, toneMapped: false });
+    const recRing = new THREE.Mesh(new THREE.TorusGeometry(0.0082, 0.0012, 10, 24), this.recRingMat);
     recRing.rotation.x = Math.PI / 2;
-    recRing.position.set(this.recBtnLocal.x, 0.0224, this.recBtnLocal.z);
+    recRing.position.set(this.recBtnLocal.x, 0.0214, this.recBtnLocal.z);
     g.add(recRing);
 
-    // Side tap buttons near the lens (-X edge, near front -Z)
-    this.mistBtnMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0x78350f, emissiveIntensity: 0.7, roughness: 0.4 });
-    this.mistBtnLocal = new THREE.Vector3(-B.w / 2 - 0.003, 0.008, -0.006);
+    // Side tap buttons (exact Blender placement & muted colors, +X side near front -Z)
+    this.mistBtnMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.214, 0.136, 0.014), emissive: new THREE.Color(0.18, 0.11, 0.01), emissiveIntensity: 0.45, roughness: 0.5 });
+    this.mistBtnLocal = new THREE.Vector3(0.03179, 0.008, -0.005);
     const mistBtn = new THREE.Mesh(new THREE.BoxGeometry(0.005, 0.011, 0.009), this.mistBtnMat);
     mistBtn.position.copy(this.mistBtnLocal);
     g.add(mistBtn);
 
-    this.dofBtnMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0c4a6e, emissiveIntensity: 0.7, roughness: 0.4 });
-    this.dofBtnLocal = new THREE.Vector3(-B.w / 2 - 0.003, -0.008, -0.006);
+    this.dofBtnMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.048, 0.163, 0.214), emissive: new THREE.Color(0.03, 0.12, 0.17), emissiveIntensity: 0.45, roughness: 0.5 });
+    this.dofBtnLocal = new THREE.Vector3(0.03159, -0.008, -0.005);
     const dofBtn = new THREE.Mesh(new THREE.BoxGeometry(0.005, 0.011, 0.009), this.dofBtnMat);
     dofBtn.position.copy(this.dofBtnLocal);
     g.add(dofBtn);
 
-    // Simple cylinder grip handle below the camera
-    const collar = new THREE.Mesh(new THREE.BoxGeometry(0.020, 0.009, 0.020), dark);
-    collar.position.set(0, -B.h / 2 - 0.0045, 0);
-    g.add(collar);
-    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.0115, 0.013, this.handleLen, 18), rubber);
-    grip.position.set(0, -B.h / 2 - 0.008 - this.handleLen / 2, 0);
+    // Cylinder grip handle flush with bottom of camera (exact Blender placement)
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.072, 20), rubber);
+    grip.position.set(0.0, -0.05871, 0.0022);
     g.add(grip);
-    const accent = new THREE.Mesh(new THREE.CylinderGeometry(0.0124, 0.0124, 0.004, 18), new THREE.MeshStandardMaterial({ color: 0xc8202c, roughness: 0.5 }));
-    accent.position.set(0, -B.h / 2 - 0.016, 0);
+    const accent = new THREE.Mesh(new THREE.CylinderGeometry(0.0124, 0.0124, 0.0035, 20), new THREE.MeshStandardMaterial({ color: 0x851212, roughness: 0.5 }));
+    accent.position.set(0.0, -0.031, 0.0022);
     g.add(accent);
 
-    // Rear main viewfinder (+Z face, proud of GLB body to avoid z-fighting)
+    // Rear main viewfinder (+Z face, exact Blender SCREEN_BACK placement)
     this.vfMat = new THREE.ShaderMaterial({
       uniforms: { map: { value: null }, hdr: { value: 0 }, flip: { value: 0 }, mirror: { value: 0 }, on: { value: 0 }, rec: { value: 0 } },
       vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
       fragmentShader: VF_FS, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     });
-    const vf = new THREE.Mesh(new THREE.PlaneGeometry(B.w - 0.009, (B.w - 0.009) * 9 / 16), this.vfMat);
-    vf.position.set(0, 0.001, B.d / 2 + 0.0022);
+    const vf = new THREE.Mesh(new THREE.PlaneGeometry(0.055, 0.031), this.vfMat);
+    vf.position.set(0.0, 0.0, 0.0175);
     g.add(vf);
 
-    // Front mirrored selfie preview screen (-Z face, right of lens)
+    // Front mirrored selfie preview screen (-Z face, exact Blender SCREEN_SELFIE placement)
     this.frontVfMat = null;
     if (this.selfie) {
       this.frontVfMat = new THREE.ShaderMaterial({
@@ -137,21 +134,21 @@ export class GoPro {
         vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
         fragmentShader: VF_FS, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
       });
-      const fvf = new THREE.Mesh(new THREE.PlaneGeometry(0.025, 0.025 * 9 / 16), this.frontVfMat);
-      fvf.position.set(0.0155, 0.006, -B.d / 2 - 0.0022);
+      const fvf = new THREE.Mesh(new THREE.PlaneGeometry(0.025, 0.015), this.frontVfMat);
+      fvf.position.set(0.01295, 0.00304, -0.0122);
       fvf.rotation.y = Math.PI;
       g.add(fvf);
     }
 
-    // Front LED dot-matrix status readout (under selfie screen / lens square area, -Z face)
+    // Front LED dot-matrix status readout (exact Blender LED_READOUT placement over lens area, -Z face)
     this._ledCanvas = document.createElement('canvas');
     this._ledCanvas.width = 128; this._ledCanvas.height = 64;
     this._ledTex = new THREE.CanvasTexture(this._ledCanvas);
     this._ledTex.colorSpace = THREE.SRGBColorSpace;
     this._ledTex.minFilter = THREE.LinearFilter; this._ledTex.magFilter = THREE.NearestFilter;
     this._ledMat = new THREE.MeshBasicMaterial({ map: this._ledTex, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    const ledMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.024, 0.012), this._ledMat);
-    ledMesh.position.set(0.0155, -0.012, -B.d / 2 - 0.0024);
+    const ledMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.022, 0.012), this._ledMat);
+    ledMesh.position.set(-0.0177, 0.00401, -0.0178);
     ledMesh.rotation.y = Math.PI;
     g.add(ledMesh);
     this.updateLed(this.mistLabel, this.dofLabel, 0);
@@ -218,10 +215,10 @@ export class GoPro {
     this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P));
     return l.y > 0.014 && l.distanceTo(this.recBtnLocal) < 0.028;
   }
-  sideBtnHit(P) {  // side near-lens tap buttons: returns 'mist' | 'dof' | null
+  sideBtnHit(P) {  // side near-lens tap buttons (+X edge): returns 'mist' | 'dof' | null
     if (!this.on) return null;
     this.obj.updateMatrixWorld(); const l = this.obj.worldToLocal(_v.copy(P));
-    if (l.x > -B.w / 2 + 0.012) return null;
+    if (l.x < B.w / 2 - 0.012) return null;
     if (this.onMistTap && l.distanceTo(this.mistBtnLocal) < 0.018) return 'mist';
     if (this.onDofTap && l.distanceTo(this.dofBtnLocal) < 0.018) return 'dof';
     return null;
