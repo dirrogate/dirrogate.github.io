@@ -34,7 +34,7 @@ if (Q.get('np')) S.np = Q.get('np');
 if (Q.get('scroll')) S.scroll = Q.get('scroll');
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
 // #427 texts from the Quest while live (scroller, NOW SPINNING) win over this phone's own
-const liveCfg = { scroll: '', np: '', wall: null, img: '', holo: [], bcn: null, sky: null };
+const liveCfg = { scroll: '', np: '', wall: null, img: '', holo: [], bcn: null, sky: null, portals: null };
 // #435 approved HoloSMS ride along on the hologram scroller after the DJ's text
 const scrollText = () => [liveCfg.scroll || S.scroll, ...liveCfg.holo].join('  \u2726  '), npText = () => liveCfg.np || S.np;
 
@@ -53,13 +53,91 @@ scene.add(camera);
 scene.add(new THREE.HemisphereLight(0x8899ff, 0x201018, 0.6));
 const key = new THREE.DirectionalLight(0xffffff, 1.2); key.position.set(2, 5, 6); scene.add(key);
 
-// #861 Synced SkyDome sphere on audience phones (512x256 2-strip progressive RT = silky 60fps on mobile, ~70-byte relay sync)
+// #861/#862 Synced SkyDome sphere + Portal Cutouts on audience phones (512x256 2-strip progressive RT)
+// When WINDOW portals are synced from Quest, the SkyDome draws at 100% vivid contrast ONLY inside the ceiling
+// skylight / wall window frames while the real club camera shows untouched everywhere else!
+const MAX_GP = 6;
 const phoneSky = new SkyDome(renderer, { width: 512, height: 256, strips: 2 });
 phoneSky.set('ground', 'off');
-const phoneSkyMat = new THREE.MeshBasicMaterial({ map: phoneSky.texture, side: THREE.BackSide, transparent: true, opacity: 0.55, depthWrite: false, fog: false });
+const phoneSkyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide, transparent: true, depthWrite: false, toneMapped: false,
+  uniforms: {
+    uMap:   { value: phoneSky.texture },
+    uAlpha: { value: 0.55 },
+    pInv:   { value: Array.from({ length: MAX_GP }, () => new THREE.Matrix4()) },
+    pHalf:  { value: Array.from({ length: MAX_GP }, () => new THREE.Vector2(0.5, 0.5)) },
+    pR:     { value: Array.from({ length: MAX_GP }, () => new THREE.Vector2(0.15, 0.15)) },
+    pN:     { value: 0 },
+  },
+  vertexShader: `varying vec3 vDir; varying vec3 vWP;
+    void main() { vDir = position; vec4 wp = modelMatrix * vec4(position, 1.0); vWP = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
+  fragmentShader: `precision highp float;
+    uniform sampler2D uMap; uniform float uAlpha;
+    uniform mat4 pInv[${MAX_GP}]; uniform vec2 pHalf[${MAX_GP}]; uniform vec2 pR[${MAX_GP}]; uniform int pN;
+    varying vec3 vDir; varying vec3 vWP;
+    void main() {
+      if (pN > 0) {
+        bool hit = false;
+        for (int i = 0; i < ${MAX_GP}; i++) {
+          if (i >= pN) break;
+          vec3 pc = (pInv[i] * vec4(cameraPosition, 1.0)).xyz, pf = (pInv[i] * vec4(vWP, 1.0)).xyz;
+          if (pc.z * pf.z < 0.0) {
+            vec2 h = pHalf[i], p = mix(pc.xy, pf.xy, pc.z / (pc.z - pf.z));
+            float rr = p.y > 0.0 ? pR[i].x : pR[i].y;
+            vec2 d = abs(p) - h + rr;
+            if (length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - rr < 0.0) { hit = true; break; }
+          }
+        }
+        if (!hit) discard;
+      }
+      vec3 dir = normalize(vDir);
+      vec2 uv = vec2(1.0 - fract(atan(dir.z, -dir.x) / 6.28318530718), 0.5 + asin(clamp(dir.y, -1.0, 1.0)) / 3.14159265359);
+      vec3 c = texture2D(uMap, uv).rgb;
+      gl_FragColor = vec4(c, pN > 0 ? 1.0 : uAlpha);
+      #include <colorspace_fragment>
+    }`,
+});
 const phoneSkyMesh = new THREE.Mesh(new THREE.SphereGeometry(42, 32, 16), phoneSkyMat);
 phoneSkyMesh.visible = false; phoneSkyMesh.renderOrder = -10; phoneSkyMesh.frustumCulled = false;
 scene.add(phoneSkyMesh);
+
+// Procedural thin dark-gunmetal bevel frames for synced WINDOW / Skylight portals (0 KB external assets!)
+const portalBevelMat = new THREE.MeshStandardMaterial({ color: 0x1c2028, roughness: 0.45, metalness: 0.72 });
+const portalFrames = [];
+function buildBevelGeo(hx, hy, r, isDoor) {
+  const rim = 0.065, ox = hx + rim, oy = hy + rim, ro = r + rim * 0.6;
+  const rrPath = (w, h, rTop, rBot) => {
+    const s = new THREE.Shape();
+    s.moveTo(-w + rBot, -h); s.lineTo(w - rBot, -h);
+    if (rBot > 0.001) s.absarc(w - rBot, -h + rBot, rBot, -Math.PI / 2, 0, false); else s.lineTo(w, -h);
+    s.lineTo(w, h - rTop);
+    if (rTop > 0.001) s.absarc(w - rTop, h - rTop, rTop, 0, Math.PI / 2, false); else s.lineTo(w, h);
+    s.lineTo(-w + rTop, h);
+    if (rTop > 0.001) s.absarc(-w + rTop, h - rTop, rTop, Math.PI / 2, Math.PI, false); else s.lineTo(-w, h);
+    s.lineTo(-w, -h + rBot);
+    if (rBot > 0.001) s.absarc(-w + rBot, -h + rBot, rBot, Math.PI, Math.PI * 1.5, false); else s.lineTo(-w, -h);
+    return s;
+  };
+  const outer = rrPath(ox, oy, ro, isDoor ? 0 : ro);
+  const hole = rrPath(hx, hy, r, isDoor ? 0 : r);
+  outer.holes.push(hole);
+  const g = new THREE.ExtrudeGeometry(outer, { depth: 0.045, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.012, bevelSegments: 1, curveSegments: 8 });
+  g.translate(0, 0, -0.0225);
+  return g;
+}
+function syncPortalFrames(list) {
+  while (portalFrames.length) { const m = portalFrames.pop(); m.parent && m.parent.remove(m); m.geometry.dispose(); }
+  if (!Array.isArray(list) || !list.length) { phoneSkyMat.uniforms.pN.value = 0; return; }
+  list.slice(0, MAX_GP).forEach((it, i) => {
+    const m = new THREE.Mesh(buildBevelGeo(it.hx, it.hy, it.r || 0.12, !!it.d), portalBevelMat);
+    m.position.fromArray(it.p); m.quaternion.fromArray(it.q);
+    m.userData = { hx: it.hx, hy: it.hy, rt: it.r || 0.12, rb: it.d ? 0 : (it.r || 0.12) };
+    stage.add(m);
+    portalFrames.push(m);
+  });
+  phoneSkyMat.uniforms.pN.value = portalFrames.length;
+}
+const _pInvTmp = new THREE.Matrix4();
 
 // camera picture: a full-screen quad drawn first (raw sRGB through, no tone mapping), cover-cropped
 const bgScene = new THREE.Scene(), bgCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -629,6 +707,8 @@ function netMsg(m, now) {
   }
   if (m.k === 'c') {
     liveCfg.wall = m.wall || null; liveCfg.img = m.img || ''; liveCfg.bcn = m.bcn || null; liveCfg.sky = m.sky || null;   // #434, #438, #861
+    const pJson = JSON.stringify(m.portals || null);
+    if (pJson !== liveCfg._pJson) { liveCfg._pJson = pJson; liveCfg.portals = m.portals || null; syncPortalFrames(liveCfg.portals); }
     if (liveCfg.sky && liveCfg.sky.on) {
       const sk = liveCfg.sky;
       phoneSky.active = true;
@@ -639,6 +719,7 @@ function netMsg(m, now) {
       if (sk.h != null) phoneSky.set('haze', sk.h);
       if (sk.cyc != null) phoneSky.set('cycle', sk.cyc);
       if (sk.sp) phoneSky.set('speed', sk.sp);
+      if (sk.bs != null) phoneSky.set('bodySize', sk.bs);
       if (sk.ph != null) phoneSky.set('phase', sk.ph);
       phoneSkyMesh.visible = true;
     } else {
@@ -831,7 +912,18 @@ function frame() {
     holoStep(now);   // #575
     netLaser(now); laser.tick(dt, beat, camera.getWorldPosition(_t));
     if (phoneSky.active && phoneSkyMesh.visible) {
-      phoneSkyMat.opacity = bgMat.uniforms.uOn.value > 0.5 ? 0.45 : 0.96;
+      phoneSkyMesh.position.copy(stage.position);
+      phoneSkyMesh.quaternion.copy(stage.quaternion);
+      phoneSkyMat.uniforms.uAlpha.value = bgMat.uniforms.uOn.value > 0.5 ? 0.45 : 0.96;
+      const nP = portalFrames.length;
+      phoneSkyMat.uniforms.pN.value = nP;
+      for (let i = 0; i < nP; i++) {
+        const pf = portalFrames[i];
+        pf.updateWorldMatrix(true, false);
+        phoneSkyMat.uniforms.pInv.value[i].copy(pf.matrixWorld).invert();
+        phoneSkyMat.uniforms.pHalf.value[i].set(pf.userData.hx, pf.userData.hy);
+        phoneSkyMat.uniforms.pR.value[i].set(pf.userData.rt, pf.userData.rb);
+      }
       phoneSky.tick(dt, { bpm: S.bpm || 124, bassPulse: beat.kick || 0, camH: 1.5, visible: true });
     }
   }

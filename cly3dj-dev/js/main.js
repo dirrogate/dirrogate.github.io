@@ -6628,7 +6628,14 @@ function drawSkydomeTab(btn, y0) {
   const cols = P ? 1 : 2, sw = (rw - (cols - 1) * 8) / cols;
   sliders.forEach(([l, v, txt, set], i) => {
     const cx = rx + (i % cols) * (sw + 8), cy = curY + Math.floor(i / cols) * (sh + 6);
-    tSlider(g, cx, cy, sw, sh, l, v, txt, set, false, 96);
+    if (l === 'HAZE' && S.world === 'solstice') {
+      // Split HAZE slot in half: HAZE on the left, SUN/MOON SIZE on the right
+      const hw = (sw - 6) / 2, bs = S.bodySize || 1.0;
+      tSlider(g, cx, cy, hw, sh, 'HAZE', v, txt, set, false, 52);
+      tSlider(g, cx + hw + 6, cy, hw, sh, 'SUN/MOON', (bs - 0.4) / 2.6, `${bs.toFixed(1)}×`, nv => { skydome.set('bodySize', 0.4 + nv * 2.6); drawMixScreen(); }, false, 72);
+    } else {
+      tSlider(g, cx, cy, sw, sh, l, v, txt, set, false, 96);
+    }
   });
 
   // Footer hint
@@ -11520,7 +11527,18 @@ function frameBody() {
 // #427 DIRROGRAM: the show to the audience phones through the relay (dirro-host.js)
 if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr, handFit: () => (xr ? xr.handFit : null),   // #469 getBeat: () => tapBeat() || beat, tapBpm: () => (wtapOn() ? 60000 / wtap.iv : 0), laser, micLevel, nowPlaying: dirroNow,
   scrollText: () => (scroller && scroller.on ? scroller.text : ''),
-  skyDomeState: () => (skydome && skydome.active && dome.on) ? { on: 1, w: skydome.S.world, m: skydome.S.monolith ? 1 : 0, my: Math.round((skydome.S.monolithY || 0) * 100) / 100, gr: skydome.S.grade, h: Math.round(skydome.S.haze * 100) / 100, cyc: skydome.S.cycle, sp: skydome.S.speed, ph: Math.round(skydome.S.phase * 100) / 100 } : null,
+  skyDomeState: () => (skydome && skydome.active && dome.on) ? { on: 1, w: skydome.S.world, m: skydome.S.monolith ? 1 : 0, my: Math.round((skydome.S.monolithY || 0) * 100) / 100, gr: skydome.S.grade, h: Math.round(skydome.S.haze * 100) / 100, cyc: skydome.S.cycle, sp: skydome.S.speed, bs: Math.round((skydome.S.bodySize || 1) * 100) / 100, ph: Math.round(skydome.S.phase * 100) / 100 } : null,
+  portalState: () => {
+    if (!portals || !portals.on) return null;
+    const list = portals.active().filter(f => f.kind && f.kind[0] === 'p').map(f => ({
+      p: [Math.round(f.obj.position.x * 100) / 100, Math.round(f.obj.position.y * 100) / 100, Math.round(f.obj.position.z * 100) / 100],
+      q: [Math.round(f.obj.quaternion.x * 1000) / 1000, Math.round(f.obj.quaternion.y * 1000) / 1000, Math.round(f.obj.quaternion.z * 1000) / 1000, Math.round(f.obj.quaternion.w * 1000) / 1000],
+      hx: Math.round(f.half.x * 100) / 100, hy: Math.round(f.half.y * 100) / 100,
+      r: Math.round(Math.min(0.30, 0.42 * Math.min(f.half.x, f.half.y)) * 100) / 100,
+      d: f.kind === 'pdoor' ? 1 : 0,
+    }));
+    return list.length ? list : null;
+  },
   getSky: () => (ledMode === 'meta' && ballSky.cv ? ballSky : null),   // #762
   getLed: () => (ledMode === 'card' && cardWall.pic ? { img: true, name: 'card:' + cardWall.name, file: cardWall.file } : { img: !!(led.on && led.img), name: led.name, file: led.name ? led.fileNamed(led.name) : null }),   // #434 (#446 the card's still)   // #434 the LED wall's picture
   tvCanvas: () => (streamer && streamer.active ? streamer.canvas : null),   // #434 the stream / venue-screen picture

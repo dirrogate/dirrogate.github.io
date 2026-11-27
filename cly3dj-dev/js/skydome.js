@@ -55,6 +55,7 @@ uniform float uHasMoon;
 uniform float uHasMonolith;
 uniform float uMonolithOn;
 uniform float uMonolithY;
+uniform float uBodySize;
 uniform float uFade;
 uniform sampler2D uGroundMap;
 uniform sampler2D uMoonMap;
@@ -277,7 +278,7 @@ vec3 worldSky(vec3 d) {
   col += starfield(d, uTime, 0.986, 190.0) * (1.0 - uHaze * 0.55);
 
   vec3 moonDir = normalize(vec3(-0.26, 0.25 + 0.11 * sin(uPhase * TAU), -0.92));
-  col += nasaMoon(d, moonDir, 0.044, 0.75 + uPhase * 1.4, 1.0);
+  col += nasaMoon(d, moonDir, 0.044 * uBodySize, 0.75 + uPhase * 1.4, 1.0);
 
   if (d.y > 0.01) {
     vec2 p = d.xz / (d.y + 0.28);
@@ -333,9 +334,9 @@ vec3 worldSky(vec3 d) {
   vec3 hor = nightF < 0.5 ? mix(vec3(0.95, 0.46, 0.18), vec3(0.65, 0.22, 0.38), nightF * 2.0) : mix(vec3(0.65, 0.22, 0.38), vec3(0.04, 0.08, 0.18), (nightF - 0.5) * 2.0);
   vec3 col = mix(hor, zen, pow(ey, 0.46));
   float sunVis = smoothstep(-0.15, 0.08, sunElev), moonVis = smoothstep(0.16, 0.52, nightF);
-  col += realisticSun(d, sunDir, 0.036, sunElev, sunVis);
+  col += realisticSun(d, sunDir, 0.036 * uBodySize, sunElev, sunVis);
   col += starfield(d, uTime, 0.986, 200.0) * smoothstep(0.26, 0.80, nightF) * (1.0 - uHaze * 0.5);
-  col += nasaMoon(d, moonDir, 0.042, 1.15 - nightF * 0.45, moonVis);
+  col += nasaMoon(d, moonDir, 0.042 * uBodySize, 1.15 - nightF * 0.45, moonVis);
   if (d.y > 0.005) {
     vec2 cp = d.xz / (d.y + 0.18);
     float c1 = fbm(cp * 0.55 + vec2(uTime * 0.015, uTime * 0.006));
@@ -487,6 +488,7 @@ export class SkyDome {
       wet: 0.55,
       phase: 0.18,
       tileScale: 2.4,
+      bodySize: 1.0,
     };
     try {
       const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -529,6 +531,7 @@ export class SkyDome {
       uHasMonolith: { value: 0 },
       uMonolithOn:  { value: this.S.monolith ? 1 : 0 },
       uMonolithY:   { value: this.S.monolithY || 0 },
+      uBodySize:    { value: this.S.bodySize || 1.0 },
       uFade:        { value: 0 },
       uGroundMap:   { value: this._dummyTex },
       uMoonMap:     { value: this._dummyTex },
@@ -628,6 +631,7 @@ export class SkyDome {
     if (k === 'tileScale') u.uTileScale.value = v;
     if (k === 'monolith') u.uMonolithOn.value = v ? 1 : 0;
     if (k === 'monolithY') u.uMonolithY.value = v || 0;
+    if (k === 'bodySize') u.uBodySize.value = v || 1.0;
     if (k === 'ground') this._applyGroundTexture();
     this._forceFull = true;
     this.save();
