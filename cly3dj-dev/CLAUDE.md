@@ -3469,3 +3469,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## Gemini_NEON_2026-11-28 #866 Independent `GOPRO 1 DoF` & `GOPRO 2 DoF` Controls (owner, 28 Nov)
 - `cinematics.js`, `main.js`: split `cine.S.dof` into independent `dof1` (GoPro 1) and `dof2` (GoPro 2) via `dofFor(1|2)` and `cycleDof(1|2)`. Both the `CINEMATICS` tablet page (`GOPRO 1 DoF`, `GOPRO 2 DoF`) and each GoPro's physical side DoF button + front LED readout now control and display their own independent DoF state (`AUTO / ON / OFF`), with `cine.tick(..., activeCam)` applying the active GoPro's setting.
 - Bumped `sw.js` to `vire-app-v332`. No Node restart.
+
+## Gemini_NEON_2026-11-28 #867 GoPro Screen Quads Z-Fighting Fix (`gopro.js`, owner, 28 Nov)
+- `gopro.js`: nudged rear viewfinder (`z: 0.0175 → 0.0187`, +1.2 mm outward), front selfie screen (`z: -0.0122 → -0.0134`, -1.2 mm outward), and front LED dot-matrix readout (`z: -0.0178 → -0.0188`, -1.0 mm outward) clear of the GoPro housing faces to eliminate Quest 3 Z-fighting flicker.
+- Bumped `sw.js` to `vire-app-v333`. No Node restart.

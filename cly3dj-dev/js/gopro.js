@@ -123,7 +123,7 @@ export class GoPro {
       fragmentShader: VF_FS, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     });
     const vf = new THREE.Mesh(new THREE.PlaneGeometry(0.055, 0.031), this.vfMat);
-    vf.position.set(0.0, 0.0, 0.0175);
+    vf.position.set(0.0, 0.0, 0.0187);   // #867 +1.2 mm outward (+Z) to eliminate Z-fighting with rear housing
     g.add(vf);
 
     // Front mirrored selfie preview screen (-Z face, exact Blender SCREEN_SELFIE placement)
@@ -135,7 +135,7 @@ export class GoPro {
         fragmentShader: VF_FS, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
       });
       const fvf = new THREE.Mesh(new THREE.PlaneGeometry(0.025, 0.015), this.frontVfMat);
-      fvf.position.set(0.01295, 0.00304, -0.0122);
+      fvf.position.set(0.01295, 0.00304, -0.0134);   // #867 -1.2 mm outward (-Z) to eliminate Z-fighting with front housing
       fvf.rotation.y = Math.PI;
       g.add(fvf);
     }
@@ -148,7 +148,7 @@ export class GoPro {
     this._ledTex.minFilter = THREE.LinearFilter; this._ledTex.magFilter = THREE.NearestFilter;
     this._ledMat = new THREE.MeshBasicMaterial({ map: this._ledTex, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     const ledMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.022, 0.012), this._ledMat);
-    ledMesh.position.set(-0.0177, 0.00401, -0.0178);
+    ledMesh.position.set(-0.0177, 0.00401, -0.0188);   // #867 -1.0 mm outward (-Z) to eliminate Z-fighting
     ledMesh.rotation.y = Math.PI;
     g.add(ledMesh);
     this.updateLed(this.mistLabel, this.dofLabel, 0);

@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v332';   // Gemini_NEON #866 Independent GOPRO 1 & GOPRO 2 DoF controls (Tablet Remote + physical side buttons + LED readouts)
+const CACHE = 'vire-app-v333';   // Gemini_NEON #867 Offset GoPro rear, selfie, and LED screen quads ~1.2 mm outward from housing to eliminate Z-fighting flicker
+// was: const CACHE = 'vire-app-v332';   // Gemini_NEON #866 Independent GOPRO 1 & GOPRO 2 DoF controls (Tablet Remote + physical side buttons + LED readouts)
 // was: const CACHE = 'vire-app-v331';   // Gemini_NEON #865 HOLOHAND & GHOST GLOVE: straight index fingertip dot at rest -> smooth pinch-snap on knob/fader grab
 // was: const CACHE = 'vire-app-v330';   // Gemini_NEON #864 Fix Quest holographic controller Fresnel shader (ShaderMaterial) + Left-X toggle HOLOHAND <-> CONTROLLER
 // was: const CACHE = 'vire-app-v329';   // Gemini_NEON #863 SOLSTICE teal-orange sunset grading, Sun shimmer, dual clouds, WETNESS->OCEAN organic horizon + 1-bar swells, clean Moon albedo & +30% full Moon linger
