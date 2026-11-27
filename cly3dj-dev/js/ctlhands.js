@@ -160,26 +160,34 @@ function makeWristBandMesh() {
 let _ghostCtlMat = null;
 export function makeGhostCtlMat() {
   if (_ghostCtlMat) return _ghostCtlMat;
-  const m = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, side: THREE.FrontSide, toneMapped: false });
-  m.onBeforeCompile = sh => {
-    sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vGcN; varying vec3 vGcV;')
-      .replace('#include <project_vertex>', `
-#include <project_vertex>
-vGcN = normalize(normalMatrix * objectNormal);
-vGcV = normalize(-mvPosition.xyz);`);
-    sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vGcN; varying vec3 vGcV;')
-      .replace('#include <dithering_fragment>', `
-float _ndv = clamp(abs(dot(normalize(vGcN), normalize(vGcV))), 0.0, 1.0);
-float _fr = pow(1.0 - _ndv, 2.35);
-vec3 _col = mix(vec3(0.42, 0.78, 1.0), vec3(0.95, 0.99, 1.0), smoothstep(0.25, 0.9, _fr));
-gl_FragColor = vec4(_col, clamp(0.06 + 0.86 * _fr, 0.0, 0.92));
-#include <dithering_fragment>`);
-  };
-  m.customProgramCacheKey = () => 'vire-quest-ghost-ctl-2';
-  _ghostCtlMat = m;
-  return m;
+  _ghostCtlMat = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    side: THREE.FrontSide,
+    toneMapped: false,
+    vertexShader: /* glsl */`
+      varying vec3 vGcN;
+      varying vec3 vGcV;
+      void main() {
+        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+        vGcN = normalize(normalMatrix * normal);
+        vGcV = normalize(-mvPos.xyz);
+        gl_Position = projectionMatrix * mvPos;
+      }
+    `,
+    fragmentShader: /* glsl */`
+      varying vec3 vGcN;
+      varying vec3 vGcV;
+      void main() {
+        float ndv = clamp(abs(dot(normalize(vGcN), normalize(vGcV))), 0.0, 1.0);
+        float fr = pow(1.0 - ndv, 2.25);
+        vec3 col = mix(vec3(0.42, 0.78, 1.0), vec3(0.95, 0.99, 1.0), smoothstep(0.22, 0.88, fr));
+        gl_FragColor = vec4(col, clamp(0.10 + 0.84 * fr, 0.0, 0.94));
+      }
+    `,
+  });
+  return _ghostCtlMat;
 }
 
 export function setControllerGhost(ctlRoot, on) {

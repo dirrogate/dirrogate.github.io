@@ -976,6 +976,9 @@ export function setupXR(ctx) {
       // #815 Y on the left controller (gamepad button 5): ctx.onLeftY (avatar wink)
       { const g5 = !st.isHand && st.source && st.source.handedness === 'left' && st.source.gamepad && st.source.gamepad.buttons[5];
         const down = !!(g5 && g5.pressed); if (down && !st.yWas && ctx.onLeftY && ctx.onLeftY(st)) buzz(st, 0.25, 20); st.yWas = down; }
+      // #864 X on the left controller (gamepad button 4): ctx.onLeftX (toggle HOLOHAND <-> holographic CONTROLLER)
+      { const g4 = !st.isHand && st.source && st.source.handedness === 'left' && st.source.gamepad && st.source.gamepad.buttons[4];
+        const down = !!(g4 && g4.pressed); if (down && !st.xWas && ctx.onLeftX && ctx.onLeftX(st)) buzz(st, 0.35, 25); st.xWas = down; }
       // #846 Tap left-hand DIRRO wrist band with right hand -> 1.5s synchronized HOLOHAND <-> GHOST GLOVE + CYBERDIRRO <-> ROBOT wipe
       if (st.source && st.source.handedness === 'right' && st.tip) {
         const L = inputs.find(s => s !== st && s.connected && s.source && s.source.handedness === 'left');

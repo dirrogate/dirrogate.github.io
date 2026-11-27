@@ -11815,6 +11815,16 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   // gemini_neon 2026-11-19: Quest right thumbstick click toggles play/stop of currently armed Looper slot (never records/clears)
   // #815 left controller Y: the DJ avatar winks its left eye with a slight left smile
   onLeftY: () => { if (avatar && typeof avatar.wink === 'function') { avatar.wink(); return true; } return false; },
+  // #864 left controller X: quick toggle between Holographic Hands (holohand) and Holographic Controllers (controller)
+  onLeftX: () => {
+    if (!xr) return false;
+    const next = xr.getCtlLook() === 'controller' ? 'holohand' : 'controller';
+    xr.setCtlLook(next);
+    const el = document.getElementById('sHands'); if (el) el.value = next;
+    drawMixScreen();
+    toast(next === 'controller' ? 'HOLOGRAPHIC CONTROLLERS' : 'HOLOGRAPHIC HANDS', 1400);
+    return true;
+  },
   onDirroMorph: () => triggerDirroMorph(),
   onRightStick: () => {
     if (!engine.ctx || !engine.looper || !looper.data) return false;
