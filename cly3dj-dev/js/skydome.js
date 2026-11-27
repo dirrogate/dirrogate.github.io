@@ -44,6 +44,8 @@ uniform float uTime;
 uniform float uRealTime;
 uniform float uPhase;
 uniform float uBass;
+uniform float uBarPhase;
+uniform float uBarAmp;
 uniform float uWorld;
 uniform float uGrade;
 uniform float uHaze;
@@ -189,35 +191,89 @@ vec3 applyGrade(vec3 c) {
 `;
 
 const MOON_GLSL = /* glsl */`
-vec3 nasaMoon(vec3 d, vec3 dir, float rad, float phaseAng, float vis) {
+vec3 nasaMoon(vec3 d, vec3 dir, float rad, vec3 sunL, float haloVis, float earthshine, float vis) {
   if (vis <= 0.001) return vec3(0.0);
   float cd = dot(d, dir), ang = acos(clamp(cd, -1.0, 1.0));
   float halo = pow(max(cd, 0.0), 48.0) * 0.42 + pow(max(cd, 0.0), 9.0) * 0.08;
   float iceRing = exp(-pow((ang - 0.36) / 0.038, 2.0)) * 0.035;
-  vec3 outCol = vec3(0.36, 0.52, 0.82) * (halo + iceRing);
+  vec3 outCol = vec3(0.36, 0.52, 0.82) * (halo + iceRing) * haloVis;
   if (ang < rad * 1.12) {
     vec3 rt = normalize(cross(vec3(0.0, 1.0, 0.0), dir)), u2 = cross(dir, rt);
     vec2 lp = vec2(dot(d, rt), dot(d, u2)) / rad;
     float r2 = dot(lp, lp), disc = smoothstep(1.04, 0.96, sqrt(r2));
     if (disc > 0.001) {
       vec3 n = vec3(lp.x, lp.y, sqrt(max(0.0, 1.0 - r2)));
-      vec3 sunL = normalize(vec3(cos(phaseAng), 0.18, sin(phaseAng)));
-      float lit = pow(max(dot(n, sunL), 0.0), 0.72) * 1.55 + 0.035;
-      vec3 albedo = uHasMoon > 0.5 ? pow(texture2D(uMoonMap, clamp(lp * 0.485 + 0.5, 0.01, 0.99)).rgb, vec3(2.0)) : vec3(0.76, 0.77, 0.79);
-      outCol += albedo * vec3(1.0, 0.98, 0.94) * lit * (0.78 + 0.22 * n.z) * disc * 1.35;
+      float ndl = max(dot(n, sunL), 0.0);
+      float lit = pow(ndl, 0.68) * 1.55 + earthshine;
+      // Gentle slow axial/field rotation so the Moon subtly turns over time
+      float rot = uTime * 0.012;
+      float ca = cos(rot), sa = sin(rot);
+      vec2 rlp = vec2(lp.x * ca - lp.y * sa, lp.x * sa + lp.y * ca);
+      vec3 albedo = uHasMoon > 0.5 ? pow(texture2D(uMoonMap, clamp(rlp * 0.485 + 0.5, 0.01, 0.99)).rgb, vec3(2.0)) : vec3(0.76, 0.77, 0.79);
+      outCol += albedo * vec3(1.0, 0.97, 0.92) * lit * (0.78 + 0.22 * n.z) * disc * 1.35;
     }
   }
   return outCol * vis;
 }
 `;
 
-// Shared main() footer — NEVER calls evalSky() twice (eliminates the 25s ANGLE/FXC shader compile stall!)
+// Shared main() footer — NEVER calls evalSky() twice; WETNESS 0.7..1.0 morphs smoothly into a calm animated OCEAN!
 const FOOTER_GLSL = /* glsl */`
+// Analytical celestial reflection helper for calm Ocean waves & wet ground (fast: zero duplicate FBM!)
+vec3 oceanSkyRefl(vec3 rDir) {
+  float w = 0.5 - 0.5 * cos(uPhase * TAU);
+  float ey = max(rDir.y, 0.0);
+  vec3 hor = worldHorizonColor();
+  vec3 zen = hor * 0.28 + vec3(0.008, 0.014, 0.032);
+  vec3 c = mix(hor * 1.35, zen, pow(ey, 0.55));
+  if (uWorld < 0.5) {
+    // AURORA: moon glitter + emerald/violet aurora reflection shimmer
+    vec3 mDir = normalize(vec3(-0.26, 0.25 + 0.11 * sin(uPhase * TAU), -0.92));
+    float md = max(dot(rDir, mDir), 0.0);
+    c += vec3(0.75, 0.88, 1.15) * (pow(md, 90.0) * 1.4 + pow(md, 14.0) * 0.22);
+    vec3 aCol = mix(vec3(0.06, 0.85, 0.55), vec3(0.75, 0.22, 0.85), w);
+    c += aCol * exp(-abs(rDir.y - 0.28) * 5.0) * 0.28;
+  } else if (uWorld < 1.5) {
+    // SOLSTICE: cinematic Teal & Orange sunset reflection — deep ocean teal-blue troughs + molten orange-gold Sun path!
+    // Extended night curve: Moon stays up ~30% longer before Sun climbs again
+    float wn = smoothstep(0.05, 0.74, w);
+    vec3 tealZen = mix(vec3(0.025, 0.26, 0.42), vec3(0.012, 0.085, 0.19), wn);
+    vec3 tealMid = mix(vec3(0.04, 0.32, 0.46), vec3(0.018, 0.11, 0.22), wn);
+    c = mix(mix(hor * 1.05, tealMid, smoothstep(0.0, 0.18, ey)), tealZen, pow(ey, 0.48));
+    float sunElev = mix(0.24, -0.18, wn), sunAz = -1.55 + (uPhase - 0.18) * 0.45;
+    vec3 sDir = normalize(vec3(cos(sunAz), max(sunElev, 0.02), sin(sunAz)));
+    vec3 mDir = normalize(vec3(cos(sunAz + 0.42), max(mix(-0.08, 0.36, wn), 0.02), sin(sunAz + 0.42)));
+    float sunVis = smoothstep(-0.15, 0.08, sunElev), moonVis = smoothstep(0.14, 0.52, wn);
+    float sd = max(dot(rDir, sDir), 0.0);
+    float md = max(dot(rDir, mDir), 0.0);
+    c += vec3(1.85, 0.88, 0.28) * (pow(sd, 120.0) * 2.5 + pow(sd, 18.0) * 0.60 + pow(sd, 4.5) * 0.20) * sunVis;
+    c += vec3(0.65, 0.88, 1.18) * (pow(md, 110.0) * 1.65 + pow(md, 16.0) * 0.32) * moonVis;
+  } else if (uWorld < 2.5) {
+    // WORMHOLE: violet/cyan vortex core reflection
+    float cd = max(dot(rDir, normalize(vec3(0.0, 0.28, -0.94))), 0.0);
+    c += mix(vec3(0.95, 0.18, 0.68), vec3(0.22, 0.72, 1.25), w) * pow(cd, 12.0) * 0.65;
+  } else {
+    // DROSTE / NEBULA: deep cobalt / gold / magenta reflection sheen
+    float cd = max(dot(rDir, normalize(vec3(0.0, 0.35, -0.92))), 0.0);
+    c += mix(vec3(0.15, 0.45, 1.15), vec3(1.15, 0.42, 0.58), w) * pow(cd, 8.0) * 0.42;
+  }
+  return c;
+}
+
 void main() {
   float lat = (vUv.y - 0.5) * PI;
   float phi = (1.0 - vUv.x) * TAU;
   float cl = cos(lat);
   vec3 d = vec3(-cos(phi) * cl, sin(lat), sin(phi) * cl);
+
+  float oceanF = smoothstep(0.68, 0.98, uWet); // high WETNESS morphs smoothly into a calm animated OCEAN!
+  float azH = atan(d.z, d.x);
+  // Subtle organic distant swell profile so the ocean horizon isn't a razor-flat line
+  float seaHor = -0.002 + oceanF * (
+    0.0042 * sin(azH * 7.0 + uTime * 0.42) +
+    0.0024 * sin(azH * 15.0 - uTime * 0.68) +
+    0.0014 * sin(azH * 29.0 + uTime * 1.05)
+  );
 
   vec3 col;
   if (uHasGround < -0.5) {
@@ -229,33 +285,60 @@ void main() {
     } else {
       col = skyCol;
     }
-  } else if (d.y >= -0.002) {
+  } else if (d.y >= seaHor) {
     col = worldSky(d);
     if (uMonolithOn > 0.5) col = applyMonolithFX(col, d, uPhase, uTime, uRealTime, uHaze, uBass);
+    if (oceanF > 0.01) {
+      // Soft atmospheric sea-mist softening the sky-to-ocean horizon seam
+      float mist = exp(-max(d.y - seaHor, 0.0) * (88.0 - 40.0 * uHaze)) * (0.28 + 0.24 * uHaze) * oceanF;
+      col = mix(col, worldHorizonColor() * 0.96, mist);
+    }
   } else {
-    float tFloor = -uCamH / min(d.y, -0.002);
+    float tFloor = -uCamH / min(d.y - (seaHor + 0.002), -0.002);
     vec2 gPos = d.xz * tFloor;
     float dist = length(gPos);
     vec3 horFog = worldHorizonColor();
-    // Lightweight specular sky reflection (no duplicate evalSky() call!)
-    float ndv = clamp(-d.y, 0.0, 1.0);
-    float fresnel = pow(1.0 - ndv, 3.0);
-    vec3 skyRefl = horFog * (1.25 + 0.55 * fresnel) + vec3(0.02, 0.03, 0.05) * fresnel;
 
-    if (uHasGround > 0.5) {
+    // Calm animated ocean swells + wind ripples (attenuated gently with distance so horizon stays silky)
+    float distAtt = exp(-dist * 0.032);
+    float w1 = sin(gPos.x * 1.15 + gPos.y * 0.85 - uTime * 1.15) * 0.5 + sin(gPos.x * 0.65 - gPos.y * 1.45 + uTime * 0.85) * 0.5;
+    float w2 = (vnoise(gPos * 2.2 + vec2(uTime * 0.38, -uTime * 0.26)) - 0.5) * 0.85
+             + (vnoise(gPos * 5.4 - vec2(uTime * 0.55, uTime * 0.42)) - 0.5) * 0.45;
+    // Subtle 1-bar beat-sampled concentric ocean swell rolling outward on downbeats!
+    float ringR = 1.8 + uBarPhase * 28.0;
+    float barSwell = exp(-pow((dist - ringR) / 2.6, 2.0)) * (1.0 - uBarPhase) * uBarAmp * oceanF;
+    float ripAmp = (0.045 + 0.085 * oceanF) * (0.25 + 0.75 * distAtt) + barSwell * 0.065;
+    vec3 wN = normalize(vec3((w1 * 0.5 + w2) * ripAmp, 1.0, (w1 * 0.7 - w2 * 0.9) * ripAmp));
+
+    vec3 rDir = reflect(d, wN);
+    rDir.y = max(rDir.y, 0.015);
+    float ndv = clamp(dot(-d, wN), 0.0, 1.0);
+    float fresnel = 0.06 + 0.94 * pow(1.0 - ndv, 4.0);
+    vec3 skyRefl = oceanSkyRefl(rDir);
+
+    // Calm ocean base color (rich deep oceanic teal-blue + wave-crest subsurface teal scatter + 1-bar crest shimmer)
+    vec3 deepSea = vec3(0.010, 0.072, 0.130)
+                 + vec3(0.015, 0.135, 0.205) * smoothstep(-0.2, 0.85, w1) * oceanF * 0.55
+                 + vec3(0.045, 0.24, 0.34) * barSwell * 0.55;
+    vec3 oceanCol = mix(deepSea, skyRefl, clamp(fresnel * 0.92, 0.12, 0.90));
+
+    if (uHasGround > 0.5 && oceanF < 0.99) {
       vec2 uvG = gPos / max(uTileScale, 0.4);
       vec3 tex = pow(texture2D(uGroundMap, uvG).rgb, vec3(2.2));
       tex = mix(vec3(0.14, 0.15, 0.17), tex, exp(-dist * 0.06));
       float puddle = smoothstep(0.42, 0.68, vnoise(gPos * 0.45 + vec2(3.1, 1.7)));
       vec3 amb = max(horFog * 0.85, vec3(0.032, 0.038, 0.052));
-      float wetEff = clamp(uWet * (0.40 + 0.65 * puddle) * (0.25 + 0.75 * fresnel), 0.0, 0.82);
-      col = mix(tex * amb * 1.55, skyRefl, wetEff);
+      float wetEff = clamp(uWet * (0.40 + 0.65 * puddle) * (0.25 + 0.75 * fresnel), 0.0, 0.86);
+      vec3 landCol = mix(tex * amb * 1.55, skyRefl, wetEff);
+      col = mix(landCol, oceanCol, oceanF);
+    } else if (oceanF >= 0.99) {
+      col = oceanCol;
     } else {
       vec3 baseDark = horFog * 0.22 + vec3(0.008, 0.010, 0.016);
-      col = mix(baseDark, skyRefl * 1.15, clamp((0.30 + 0.60 * uWet) * (0.30 + 0.70 * fresnel), 0.0, 0.88));
+      col = mix(mix(baseDark, skyRefl * 1.15, clamp((0.30 + 0.60 * uWet) * (0.30 + 0.70 * fresnel), 0.0, 0.88)), oceanCol, oceanF);
     }
-    col *= mix(0.72, 1.0, smoothstep(0.35, 1.85, dist));
-    col = mix(col, horFog, clamp(1.0 - exp(-dist * (0.028 + 0.042 * uHaze)), 0.0, 0.92));
+    col *= mix(0.78, 1.0, smoothstep(0.35, 1.85, dist));
+    col = mix(col, horFog, clamp(1.0 - exp(-dist * (0.022 + 0.038 * uHaze)), 0.0, 0.90));
   }
 
   col = applyGrade(col);
@@ -278,7 +361,8 @@ vec3 worldSky(vec3 d) {
   col += starfield(d, uTime, 0.986, 190.0) * (1.0 - uHaze * 0.55);
 
   vec3 moonDir = normalize(vec3(-0.26, 0.25 + 0.11 * sin(uPhase * TAU), -0.92));
-  col += nasaMoon(d, moonDir, 0.044 * uBodySize, 0.75 + uPhase * 1.4, 1.0);
+  float mPh = 0.75 + uPhase * 1.4;
+  col += nasaMoon(d, moonDir, 0.044 * uBodySize, normalize(vec3(cos(mPh), 0.18, sin(mPh))), 1.0, 0.035, 1.0);
 
   if (d.y > 0.01) {
     vec2 p = d.xz / (d.y + 0.28);
@@ -311,43 +395,83 @@ vec3 worldSky(vec3 d) {
 vec3 realisticSun(vec3 d, vec3 dir, float rad, float elev, float vis) {
   if (vis <= 0.001) return vec3(0.0);
   float cd = max(dot(d, dir), 0.0), ang = acos(clamp(dot(d, dir), -1.0, 1.0));
-  float low = smoothstep(0.32, -0.02, elev);
+  float low = smoothstep(0.34, -0.02, elev);
   vec3 coreCol = mix(vec3(2.8, 2.55, 2.15), vec3(2.6, 1.65, 0.75), low);
-  vec3 edgeCol = mix(vec3(1.9, 1.15, 0.45), vec3(1.85, 0.48, 0.12), low);
+  vec3 edgeCol = mix(vec3(1.9, 1.15, 0.45), vec3(1.85, 0.46, 0.10), low);
   vec3 scatterCol = mix(vec3(1.0, 0.72, 0.42), vec3(1.0, 0.36, 0.14), low);
   vec3 outCol = vec3(0.0);
-  if (ang < rad * 1.25) {
-    float r = clamp(ang / rad, 0.0, 1.25), mu = sqrt(max(0.0, 1.0 - min(r, 1.0) * min(r, 1.0)));
-    outCol += mix(edgeCol, coreCol, pow(mu, 0.55)) * smoothstep(1.08, 0.94, r);
+  // Subtle atmospheric heat-mirage shimmer along the solar limb (strongest near horizon)
+  float mirage = (sin(d.y * 135.0 - uTime * 2.2) * 0.55 + sin(d.y * 72.0 + uTime * 1.4 + d.x * 14.0) * 0.45)
+               * (0.012 + 0.028 * low);
+  if (ang < rad * 1.35) {
+    float r = clamp((ang / rad) + mirage, 0.0, 1.35);
+    float mu = sqrt(max(0.0, 1.0 - min(r, 1.0) * min(r, 1.0)));
+    // Soft atmospheric shimmer rim around the disc edge
+    float edgeGlow = exp(-abs(r - 1.0) * 14.0) * (0.18 + 0.24 * low) * (0.80 + 0.20 * sin(d.y * 96.0 - uTime * 2.6));
+    outCol += mix(edgeCol, coreCol, pow(mu, 0.55)) * smoothstep(1.06, 0.94, r) + edgeCol * edgeGlow;
   }
-  outCol += scatterCol * (pow(cd, 110.0) * 1.25 + pow(cd, 22.0) * 0.42 + pow(cd, 5.5) * 0.38);
-  outCol += mix(vec3(1.0, 0.78, 0.55), vec3(0.95, 0.55, 0.65), low) * exp(-pow((ang - 0.384) / 0.048, 2.0)) * 0.075 * smoothstep(0.0, 0.18, d.y);
-  outCol += vec3(1.0, 0.52, 0.20) * exp(-abs(d.y - max(elev, 0.01)) * 28.0) * pow(cd, 4.0) * 0.30 * low;
+  outCol += scatterCol * (pow(cd, 110.0) * 1.25 + pow(cd, 22.0) * 0.44 + pow(cd, 5.5) * 0.38);
+  outCol += mix(vec3(1.0, 0.78, 0.55), vec3(0.95, 0.55, 0.65), low) * exp(-pow((ang - 0.384) / 0.048, 2.0)) * 0.08 * smoothstep(0.0, 0.18, d.y);
+  outCol += vec3(1.0, 0.52, 0.20) * exp(-abs(d.y - max(elev, 0.01)) * 28.0) * pow(cd, 4.0) * 0.32 * low;
   return outCol * vis;
 }
 vec3 worldSky(vec3 d) {
-  float nightF = 0.5 - 0.5 * cos(uPhase * TAU), ey = max(d.y, 0.0);
-  float sunElev = mix(0.24, -0.16, nightF), sunAz = -1.55 + (uPhase - 0.18) * 0.45;
+  // Extended night linger: Moon stays up ~30% longer and reaches a true Full Moon before Sun climbs again
+  float rawN = 0.5 - 0.5 * cos(uPhase * TAU);
+  float nightF = smoothstep(0.05, 0.74, rawN), ey = max(d.y, 0.0);
+  float sunElev = mix(0.24, -0.18, nightF), sunAz = -1.55 + (uPhase - 0.18) * 0.45;
   vec3 sunDir = normalize(vec3(cos(sunAz), sunElev, sin(sunAz)));
   vec3 moonDir = normalize(vec3(cos(sunAz + 0.42), mix(-0.08, 0.36, nightF), sin(sunAz + 0.42)));
-  vec3 zen = nightF < 0.5 ? mix(vec3(0.08, 0.20, 0.46), vec3(0.07, 0.06, 0.22), nightF * 2.0) : mix(vec3(0.07, 0.06, 0.22), vec3(0.009, 0.016, 0.052), (nightF - 0.5) * 2.0);
-  vec3 hor = nightF < 0.5 ? mix(vec3(0.95, 0.46, 0.18), vec3(0.65, 0.22, 0.38), nightF * 2.0) : mix(vec3(0.65, 0.22, 0.38), vec3(0.04, 0.08, 0.18), (nightF - 0.5) * 2.0);
-  vec3 col = mix(hor, zen, pow(ey, 0.46));
-  float sunVis = smoothstep(-0.15, 0.08, sunElev), moonVis = smoothstep(0.16, 0.52, nightF);
-  col += realisticSun(d, sunDir, 0.036 * uBodySize, sunElev, sunVis);
-  col += starfield(d, uTime, 0.986, 200.0) * smoothstep(0.26, 0.80, nightF) * (1.0 - uHaze * 0.5);
-  col += nasaMoon(d, moonDir, 0.042 * uBodySize, 1.15 - nightF * 0.45, moonVis);
-  if (d.y > 0.005) {
-    vec2 cp = d.xz / (d.y + 0.18);
-    float c1 = fbm(cp * 0.55 + vec2(uTime * 0.015, uTime * 0.006));
-    float c2 = fbm(cp * 1.40 - vec2(uTime * 0.022, -uTime * 0.010) + c1 * 0.85);
-    float cloud = smoothstep(0.48 - uHaze * 0.24, 0.84, c1 * 0.65 + c2 * 0.35) * smoothstep(0.005, 0.14, d.y);
-    float rim = pow(max(dot(d, sunDir), 0.0), 4.0) * sunVis + pow(max(dot(d, moonDir), 0.0), 5.0) * moonVis * 0.65;
-    vec3 cCol = mix(mix(vec3(0.20, 0.12, 0.22), vec3(0.02, 0.035, 0.075), nightF), mix(vec3(1.15, 0.62, 0.30), vec3(0.32, 0.48, 0.76), nightF), clamp(0.22 + 0.52 * c2 + rim * 0.85 + uBass * 0.10, 0.0, 1.0));
-    col = mix(col, cCol, cloud * (0.64 + 0.26 * uHaze));
+  // Cinematic Teal & Orange sunset grading: deep twilight teal zenith vs warm molten amber-orange horizon
+  vec3 zen = nightF < 0.5 ? mix(vec3(0.032, 0.25, 0.40), vec3(0.035, 0.14, 0.28), nightF * 2.0) : mix(vec3(0.035, 0.14, 0.28), vec3(0.008, 0.022, 0.058), (nightF - 0.5) * 2.0);
+  vec3 hor = nightF < 0.5 ? mix(vec3(0.98, 0.44, 0.14), vec3(0.72, 0.24, 0.30), nightF * 2.0) : mix(vec3(0.72, 0.24, 0.30), vec3(0.03, 0.09, 0.18), (nightF - 0.5) * 2.0);
+  vec3 col = mix(hor, zen, pow(ey, 0.44));
+
+  float sunVis = smoothstep(-0.15, 0.08, sunElev), moonVis = smoothstep(0.08, 0.48, nightF);
+  float sunDot = max(dot(d, sunDir), 0.0), moonDot = max(dot(d, moonDir), 0.0);
+  float rim = pow(sunDot, 4.0) * sunVis + pow(moonDot, 5.0) * moonVis * 0.70;
+
+  // Cloud Layer 1 (High wispy veil drifting BEHIND the Sun & Moon!)
+  if (d.y > 0.01) {
+    vec2 cpHi = d.xz / (d.y + 0.22);
+    float hi = fbm(cpHi * 0.65 + vec2(uTime * 0.012, uTime * 0.005));
+    float hiMask = smoothstep(0.46 - uHaze * 0.20, 0.86, hi) * smoothstep(0.01, 0.16, d.y);
+    vec3 hiCol = mix(mix(vec3(0.10, 0.24, 0.34), vec3(0.04, 0.10, 0.18), nightF),
+                     mix(vec3(1.22, 0.66, 0.32), vec3(0.36, 0.58, 0.84), nightF), clamp(0.35 + rim * 0.8, 0.0, 1.0));
+    col = mix(col, hiCol, hiMask * (0.42 + 0.25 * uHaze));
   }
-  float az = atan(d.z, d.x), coast = 0.016 + 0.016 * vnoise(vec2(az * 4.0, 3.3));
-  col = mix(col, hor * 0.16, smoothstep(coast + 0.004, coast - 0.003, d.y));
+
+  // Stars, Shimmering Sun & NASA Moon (faint Sun-lit crescent at sunset -> bright FULL Moon during extended night!)
+  col += starfield(d, uTime, 0.986, 200.0) * smoothstep(0.24, 0.78, nightF) * (1.0 - uHaze * 0.5);
+  col += realisticSun(d, sunDir, 0.036 * uBodySize, sunElev, sunVis);
+  vec3 mRt = normalize(cross(vec3(0.0, 1.0, 0.0), moonDir)), mUp = cross(moonDir, mRt);
+  vec3 sunsetMoonL = normalize(vec3(dot(sunDir, mRt), dot(sunDir, mUp), max(dot(sunDir, -moonDir), -0.25)));
+  vec3 fullMoonL   = normalize(vec3(0.16, 0.20, 0.96));
+  float fullF = smoothstep(0.35, 0.88, nightF);
+  vec3 moonSunL = normalize(mix(sunsetMoonL, fullMoonL, fullF));
+  float moonNight = smoothstep(0.18, 0.72, nightF);
+  float moonFade = mix(0.24, 1.0, moonNight) * moonVis;
+  col += nasaMoon(d, moonDir, 0.042 * uBodySize, moonSunL, moonNight, 0.028 * moonNight, moonFade);
+
+  // Cloud Layer 2 (Lower denser stratus/cumulus bands drifting IN FRONT of the Sun & Moon with glowing backlit rims!)
+  if (d.y > 0.005) {
+    vec2 cpLo = d.xz / (d.y + 0.14);
+    float c1 = fbm(cpLo * 0.85 - vec2(uTime * 0.024, -uTime * 0.008));
+    float c2 = fbm(cpLo * 1.85 + vec2(uTime * 0.032, uTime * 0.012) + c1 * 0.8);
+    float dens = c1 * 0.62 + c2 * 0.38;
+    float loMask = smoothstep(0.52 - uHaze * 0.24, 0.80, dens) * smoothstep(0.005, 0.12, d.y) * smoothstep(0.75, 0.12, d.y);
+    // Silver/golden glowing backlit rim against cool teal-slate cloud bellies!
+    float edgeRim = smoothstep(0.82, 0.52, dens) * (0.45 + 1.35 * rim);
+    vec3 darkBelly = mix(vec3(0.038, 0.105, 0.165), vec3(0.012, 0.030, 0.062), nightF);
+    vec3 litRim = mix(vec3(1.45, 0.66, 0.26), vec3(0.40, 0.62, 0.92), nightF);
+    vec3 loCol = mix(darkBelly, litRim, clamp(0.18 + edgeRim * 0.72 + uBass * 0.10, 0.0, 1.0));
+    col = mix(col, loCol, loMask * (0.72 + 0.22 * uHaze));
+  }
+
+  float az = atan(d.z, d.x), coast = 0.012 + 0.010 * vnoise(vec2(az * 4.0, 3.3));
+  // Hide coastline ridge when WETNESS is at OCEAN (open sea horizon!)
+  float landMask = smoothstep(coast + 0.004, coast - 0.003, d.y) * (1.0 - smoothstep(0.68, 0.95, uWet));
+  col = mix(col, hor * 0.16, landMask);
   return mix(col, hor * (0.72 + 0.12 * uBass), exp(-abs(d.y) * (14.0 - uHaze * 7.0)) * (0.28 + 0.38 * uHaze));
 }
 ` + FOOTER_GLSL,
@@ -520,6 +644,8 @@ export class SkyDome {
       uRealTime:    { value: 0 },
       uPhase:       { value: this.S.phase },
       uBass:        { value: 0 },
+      uBarPhase:    { value: 0 },
+      uBarAmp:      { value: 0 },
       uWorld:       { value: this._worldIdx(this.S.world) },
       uGrade:       { value: this._gradeIdx(this.S.grade) },
       uHaze:        { value: this.S.haze },
@@ -734,13 +860,22 @@ export class SkyDome {
     this._time += dt * this._speedMul();
     this._realTime += dt;
 
+    const b = (bpm > 55 && bpm < 200) ? bpm : 122;
     if (this.S.cycle > 0) {
-      const b = (bpm > 55 && bpm < 200) ? bpm : 122;
       this.S.phase = (this.S.phase + ((b / 240) / this.S.cycle) * dt) % 1.0;
     }
 
     const targetBass = this.S.bass ? Math.min(1, bassPulse) : 0;
     this._bass += (targetBass - this._bass) * Math.min(1, dt * (targetBass > this._bass ? 5.0 : 1.4));
+
+    // Sample the beat once per bar (4 beats) for subtle expanding ocean swell rings
+    const prevBar = this._barPhase || 0;
+    const nextBar = (prevBar + (b / 240) * dt) % 1.0;
+    if (nextBar < prevBar) {
+      this._barAmp = this.S.bass ? Math.max(0.28, Math.min(1.0, Math.max(bassPulse, this._bass * 1.25))) : 0;
+    }
+    this._barPhase = nextBar;
+    if (!this.S.bass) this._barAmp = 0;
 
     if (this._pendingWorld) {
       this._fade = Math.min(1, this._fade + dt * 1.45);
@@ -763,6 +898,8 @@ export class SkyDome {
       u.uRealTime.value = this._realTime;
       u.uPhase.value = this.S.phase;
       u.uBass.value = this._bass;
+      u.uBarPhase.value = this._barPhase || 0;
+      u.uBarAmp.value = this._barAmp || 0;
       u.uCamH.value = Math.max(0.4, camH || 1.5);
       u.uFade.value = this._fade * this._fade * (3 - 2 * this._fade);
     }

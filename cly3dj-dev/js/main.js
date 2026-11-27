@@ -6618,7 +6618,7 @@ function drawSkydomeTab(btn, y0) {
   const sliders = [
     ['PHASE BARS', ci / (SKY_CYCLES.length - 1), S.cycle ? `${S.cycle}B` : 'HOLD', v => { skydome.set('cycle', SKY_CYCLES[Math.round(v * (SKY_CYCLES.length - 1))]); drawMixScreen(); }],
     ['HAZE', S.haze, `${Math.round(S.haze * 100)}%`, v => { skydome.set('haze', v); drawMixScreen(); }],
-    ['WETNESS', S.wet, `${Math.round(S.wet * 100)}%`, v => { skydome.set('wet', v); drawMixScreen(); }],
+    ['WETNESS', S.wet, S.wet >= 0.95 ? 'OCEAN' : `${Math.round(S.wet * 100)}%`, v => { skydome.set('wet', v); drawMixScreen(); }],
     (hasCut || S.monolith)
       ? ['CUTOUT Y', (((hasCut ? skybox.overY : S.monolithY) || 0) + 0.25) / 0.5, `${Math.round(((hasCut ? skybox.overY : S.monolithY) || 0) * 180)}°`, v => { const val = -0.25 + v * 0.5; if (hasCut) skybox.setOverlayY(val); if (S.monolith) skydome.set('monolithY', val); drawMixScreen(); }]
       : ['TILE SIZE', (S.tileScale - 0.8) / 5.2, `${S.tileScale.toFixed(1)}m`, v => { skydome.set('tileScale', 0.8 + v * 5.2); drawMixScreen(); }],

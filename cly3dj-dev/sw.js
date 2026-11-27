@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v328';   // Gemini_NEON #862 SOLSTICE SUN/MOON size slider + Dirrogram WINDOW Portal Cutout sync & procedural 3D skylight bevel frames
+const CACHE = 'vire-app-v329';   // Gemini_NEON #863 SOLSTICE teal-orange sunset grading, Sun shimmer, dual clouds, WETNESS->OCEAN organic horizon + 1-bar swells, clean Moon albedo & +30% full Moon linger
+// was: const CACHE = 'vire-app-v328';   // Gemini_NEON #862 SOLSTICE SUN/MOON size slider + Dirrogram WINDOW Portal Cutout sync & procedural 3D skylight bevel frames
 // was: const CACHE = 'vire-app-v327';   // Gemini_NEON #861 Fast per-world SkyDome shaders (<40ms compile) + MOVIE PROPS > SKY TRAFFIC (laser A->B space-car lanes)
 // was: const CACHE = 'vire-app-v326';   // Gemini_NEON #860 SkyDome Phase 2: 2K 4-strip progressive RT, NASA Moon, realistic Sun halo, Stark Monolith 5-min fades, Wormhole/Droste/Nebula, Alpha-Cutout Pano Overlay
 // was: const CACHE = 'vire-app-v325';   // Gemini_NEON #859 Generative Atmospheric & Blade Runner SkyDomes (skydome.js, warped ground patch, VISUALS > SKYDOME)
