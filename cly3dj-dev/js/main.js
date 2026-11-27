@@ -2010,13 +2010,15 @@ if (gopro2 && goproRec) {
 if (!CAMERA_ROLE) {
   cine = new CyberCinematics(rig);
   const syncGpLed = () => {
-    for (const gp of [gopro, gopro2]) if (gp) gp.updateLed(cine.S.mist, cine.S.dof, goproRec && goproRec.on ? goproRec.secs : 0);
+    const secs = goproRec && goproRec.on ? goproRec.secs : 0;
+    if (gopro)  gopro.updateLed(cine.S.mist, cine.dofFor(1), secs);
+    if (gopro2) gopro2.updateLed(cine.S.mist, cine.dofFor(2), secs);
   };
   cine.onChange = () => { syncGpLed(); if (toolsPage === 'cine' || toolsPage === 'stream' || toolsPage === 'setup') drawMixScreen(); };
-  for (const gp of [gopro, gopro2]) {
+  for (const [idx, gp] of [[1, gopro], [2, gopro2]]) {
     if (!gp) continue;
     gp.onMistTap = () => { const m = cine.cycleMist(); toast(`BLACK PRO-MIST: ${m.toUpperCase()}`, 1400); };
-    gp.onDofTap = () => { const d = cine.cycleDof(); toast(`MACRO DoF: ${d.toUpperCase()}`, 1400); };
+    gp.onDofTap = () => { const d = cine.cycleDof(idx); toast(`GOPRO ${idx} DoF: ${d.toUpperCase()}`, 1400); };
   }
   syncGpLed();
 }
@@ -7660,7 +7662,8 @@ function drawCinePage(T) {
     { s: 1, label: 'CGI EDGE SOFTEN', v: clamp(S.soften / 1.5, 0, 1), txt: S.soften.toFixed(2) + ' px', set: v => { cine.set('soften', +(v * 1.5).toFixed(2)); } },
     { s: 1, label: 'FILM / SENSOR GRAIN', v: clamp(S.grain / 0.04, 0, 1), txt: (S.grain * 100).toFixed(1) + '%', set: v => { cine.set('grain', +(v * 0.04).toFixed(4)); } },
     { b: 1, label: S.ca ? 'CORNER CA: ON' : 'CORNER CA: OFF', on: S.ca, act: () => { cine.set('ca', !S.ca); drawMixScreen(); } },
-    { b: 1, label: `GOPRO MACRO DoF: ${S.dof.toUpperCase()}`, on: S.dof !== 'off', act: () => { cine.cycleDof(); drawMixScreen(); } },
+    { b: 1, label: `GOPRO 1 DoF: ${cine.dofFor(1).toUpperCase()}`, on: cine.dofFor(1) !== 'off', act: () => { cine.cycleDof(1); drawMixScreen(); } },
+    { b: 1, label: `GOPRO 2 DoF: ${cine.dofFor(2).toUpperCase()}`, on: cine.dofFor(2) !== 'off', act: () => { cine.cycleDof(2); drawMixScreen(); } },
     { b: 1, label: S.hcBokeh ? 'HCAM BG BOKEH: ON' : 'HCAM BG BOKEH: OFF', on: S.hcBokeh, act: () => { cine.set('hcBokeh', !S.hcBokeh); drawMixScreen(); } },
     { b: 1, label: `BOOTH MOTES: ${S.motes.toUpperCase()}`, on: S.motes !== 'off', act: () => { cine.cycleMotes(); drawMixScreen(); } },
     { s: 1, label: 'MOTE DENSITY', v: clamp(S.moteDensity, 0, 1), txt: Math.round(S.moteDensity * 100) + '%', set: v => { cine.set('moteDensity', +v.toFixed(2)); } },
@@ -11407,7 +11410,7 @@ function frameBody() {
     gp.tick(dt);
     const showLive = streamer && streamer.live && streamer.source === 'show';
     gp.setTally(!!(streamer && streamer.state === 'live' && (streamer.source === 'show' || streamer.source === 'avacam')));
-    if (cine && gp.on) gp.updateLed(cine.S.mist, cine.S.dof, goproRec && goproRec.on ? goproRec.secs : 0);
+    if (cine && gp.on) gp.updateLed(cine.S.mist, cine.dofFor(gp === gopro2 ? 2 : 1), goproRec && goproRec.on ? goproRec.secs : 0);
     if (gp.on) {
       const wantLiveTex = showLive && streamer.ly && streamer.layerOk
         ? (streamer.ly.readRT || streamer.ly.out).texture
@@ -11461,7 +11464,7 @@ function frameBody() {
       for (const dg of deckGroups) macroDist = Math.min(macroDist, gpPos.distanceTo(dg.getWorldPosition(_djFloor)));
       if (sleeveOut && sleeveOut.g) macroDist = Math.min(macroDist, gpPos.distanceTo(sleeveOut.g.getWorldPosition(_djFloor)));
     }
-    cine.tick(dt, activeBpm, macroDist);
+    cine.tick(dt, activeBpm, macroDist, gca === gopro2 ? 2 : 1);
     if (skybox.group.visible) {
       const overFog = (skydome && skydome.active && skydome.S.monolith) ? (0.35 + 0.65 * skydome.S.haze) : 0;
       skybox.tickOverlay(dt, overFog);

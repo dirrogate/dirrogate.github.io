@@ -353,6 +353,8 @@ export class CyberCinematics {
       grain: 0.018,
       ca: true,
       dof: 'auto',
+      dof1: 'auto',
+      dof2: 'auto',
       hcBokeh: true,
       motes: 'dust',
       moteDensity: 0.25,
@@ -484,11 +486,19 @@ export class CyberCinematics {
     return this.S.mist;
   }
 
-  cycleDof() {
-    const i = DOF_MODES.indexOf(this.S.dof);
-    this.S.dof = DOF_MODES[(i + 1) % DOF_MODES.length];
+  dofFor(which = 1) {
+    return which === 2 ? (this.S.dof2 || this.S.dof || 'auto') : (this.S.dof1 || this.S.dof || 'auto');
+  }
+
+  cycleDof(which = 1) {
+    const key = which === 2 ? 'dof2' : 'dof1';
+    const cur = this.dofFor(which);
+    const i = DOF_MODES.indexOf(cur);
+    const next = DOF_MODES[(i + 1) % DOF_MODES.length];
+    this.S[key] = next;
+    if (which === 1) this.S.dof = next;
     this.save();
-    return this.S.dof;
+    return next;
   }
 
   cycleMotes() {
@@ -541,15 +551,16 @@ export class CyberCinematics {
     rig.add(pts);
   }
 
-  // Called once per frame; bpm = active deck BPM (or 122 fallback)
-  tick(dt, bpm = 122, macroDist = 99) {
+  // Called once per frame; bpm = active deck BPM (or 122 fallback), activeCam = 1 (GoPro 1) or 2 (GoPro 2)
+  tick(dt, bpm = 122, macroDist = 99, activeCam = 1) {
     this.time += dt;
     const b = (bpm > 55 && bpm < 200) ? bpm : 122;
     this.barPhase += dt * (b / 240);   // 4 beats = 1 bar
 
-    // Macro DoF amount for GoPro
-    if (this.S.dof === 'off') this.lastMacroDof = 0;
-    else if (this.S.dof === 'on') this.lastMacroDof = 0.85;
+    // Independent Macro DoF amount for active GoPro (1 or 2)
+    const dofMode = this.dofFor(activeCam);
+    if (dofMode === 'off') this.lastMacroDof = 0;
+    else if (dofMode === 'on') this.lastMacroDof = 0.85;
     else this.lastMacroDof = Math.max(0, Math.min(1, (0.85 - macroDist) / 0.55));   // auto kicks in < 0.85m
 
     // Update 3D Booth Dust Motes

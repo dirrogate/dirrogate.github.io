@@ -3465,3 +3465,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - `ctlhands.js`: removed the forced `0.56 + 0.44 * t` pre-pinch claw curl in `pose()` (`pinEff = pin`) so `HOLOHAND` and `GHOST GLOVE` rest with a straight relaxed pointing index finger (`POSE.index.open`) and smoothly close into thumb+index `POSE.pinch` only when grabbing a knob/fader (`st.pin` 0 → 1).
 - `xr.js`: moved the `holohand` / `ghostglove` interaction dot base from floating `h.pinchMid` onto the straight index fingertip `h.tipRest` for accurate button pokes, while keeping `snapTarget` + `st.tipDot.position.lerp(snapP, k)` to lock the pinch and dot onto knob/fader caps during twists.
 - Synced `ctlhands.js` to `dirroclub_website/gram/js/`; bumped `sw.js` to `vire-app-v331`. No Node restart.
+
+## Gemini_NEON_2026-11-28 #866 Independent `GOPRO 1 DoF` & `GOPRO 2 DoF` Controls (owner, 28 Nov)
+- `cinematics.js`, `main.js`: split `cine.S.dof` into independent `dof1` (GoPro 1) and `dof2` (GoPro 2) via `dofFor(1|2)` and `cycleDof(1|2)`. Both the `CINEMATICS` tablet page (`GOPRO 1 DoF`, `GOPRO 2 DoF`) and each GoPro's physical side DoF button + front LED readout now control and display their own independent DoF state (`AUTO / ON / OFF`), with `cine.tick(..., activeCam)` applying the active GoPro's setting.
+- Bumped `sw.js` to `vire-app-v332`. No Node restart.
