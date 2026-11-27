@@ -15,6 +15,7 @@ import { initMaterials, makeMixer, loadMixerParts, DECK, MIX } from './models.js
 import { loadDeckTemplate, makeGlbDeck } from './deck-glb.js';
 import { PersonMask } from './dirro-mask.js';   // #428
 import { WallFx, LOOP } from './wallfx.js';   // #439 MANDEL / RETRO-SCENE, drawn here from the Quest's clock and beat
+import { SkyDome } from './skydome.js';       // #861 synced generative SkyDome rendered locally on audience phones
 
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
@@ -33,7 +34,7 @@ if (Q.get('np')) S.np = Q.get('np');
 if (Q.get('scroll')) S.scroll = Q.get('scroll');
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
 // #427 texts from the Quest while live (scroller, NOW SPINNING) win over this phone's own
-const liveCfg = { scroll: '', np: '', wall: null, img: '', holo: [], bcn: null };
+const liveCfg = { scroll: '', np: '', wall: null, img: '', holo: [], bcn: null, sky: null };
 // #435 approved HoloSMS ride along on the hologram scroller after the DJ's text
 const scrollText = () => [liveCfg.scroll || S.scroll, ...liveCfg.holo].join('  \u2726  '), npText = () => liveCfg.np || S.np;
 
@@ -51,6 +52,14 @@ scene.add(camera);
 { const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.55; }
 scene.add(new THREE.HemisphereLight(0x8899ff, 0x201018, 0.6));
 const key = new THREE.DirectionalLight(0xffffff, 1.2); key.position.set(2, 5, 6); scene.add(key);
+
+// #861 Synced SkyDome sphere on audience phones (512x256 2-strip progressive RT = silky 60fps on mobile, ~70-byte relay sync)
+const phoneSky = new SkyDome(renderer, { width: 512, height: 256, strips: 2 });
+phoneSky.set('ground', 'off');
+const phoneSkyMat = new THREE.MeshBasicMaterial({ map: phoneSky.texture, side: THREE.BackSide, transparent: true, opacity: 0.55, depthWrite: false, fog: false });
+const phoneSkyMesh = new THREE.Mesh(new THREE.SphereGeometry(42, 32, 16), phoneSkyMat);
+phoneSkyMesh.visible = false; phoneSkyMesh.renderOrder = -10; phoneSkyMesh.frustumCulled = false;
+scene.add(phoneSkyMesh);
 
 // camera picture: a full-screen quad drawn first (raw sRGB through, no tone mapping), cover-cropped
 const bgScene = new THREE.Scene(), bgCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -619,7 +628,23 @@ function netMsg(m, now) {
     const im = new Image(); im.onload = () => { if (!NET.tv) { NET.tv = new THREE.Texture(im); NET.tv.colorSpace = THREE.SRGBColorSpace; } else NET.tv.image = im; NET.tv.needsUpdate = true; NET.tvAt = performance.now(); }; im.src = m.d; return;
   }
   if (m.k === 'c') {
-    liveCfg.wall = m.wall || null; liveCfg.img = m.img || ''; liveCfg.bcn = m.bcn || null;   // #434, #438
+    liveCfg.wall = m.wall || null; liveCfg.img = m.img || ''; liveCfg.bcn = m.bcn || null; liveCfg.sky = m.sky || null;   // #434, #438, #861
+    if (liveCfg.sky && liveCfg.sky.on) {
+      const sk = liveCfg.sky;
+      phoneSky.active = true;
+      if (sk.w && sk.w !== phoneSky.S.world) phoneSky.setWorld(sk.w, true);
+      if (sk.m != null) phoneSky.set('monolith', !!sk.m);
+      if (sk.my != null) phoneSky.set('monolithY', sk.my);
+      if (sk.gr) phoneSky.set('grade', sk.gr);
+      if (sk.h != null) phoneSky.set('haze', sk.h);
+      if (sk.cyc != null) phoneSky.set('cycle', sk.cyc);
+      if (sk.sp) phoneSky.set('speed', sk.sp);
+      if (sk.ph != null) phoneSky.set('phase', sk.ph);
+      phoneSkyMesh.visible = true;
+    } else {
+      phoneSky.active = false;
+      phoneSkyMesh.visible = false;
+    }
     if (m.ha && typeof m.ha === 'object') Object.assign(HAND_POSE.adj, m.ha);   // #469 the DJ's HAND FIT / PINCH FIT
     { const h = Array.isArray(m.holo) ? m.holo.map(x => String(x).slice(0, 140)) : []; if (h.join('\n') !== liveCfg.holo.join('\n')) { liveCfg.holo = h; drawScroller(); } }   // #435
     holoCfg(m.hdc || null);   // #575 Holodancer from DirroVJ
@@ -805,6 +830,10 @@ function frame() {
     robotStep(now, dt, T);
     holoStep(now);   // #575
     netLaser(now); laser.tick(dt, beat, camera.getWorldPosition(_t));
+    if (phoneSky.active && phoneSkyMesh.visible) {
+      phoneSkyMat.opacity = bgMat.uniforms.uOn.value > 0.5 ? 0.45 : 0.96;
+      phoneSky.tick(dt, { bpm: S.bpm || 124, bassPulse: beat.kick || 0, camH: 1.5, visible: true });
+    }
   }
   renderer.clear(); renderer.render(bgScene, bgCam); renderer.clearDepth(); renderer.render(scene, camera);
   if (people.on && people.mask.seg && src && src.el) {   // #428

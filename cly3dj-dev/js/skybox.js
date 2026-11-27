@@ -44,6 +44,11 @@ uniform sampler2D mapB;     // Freeze-Frame Handover incoming pano texture
 uniform vec4 soB;           // layout rect for mapB
 uniform float uEacB;        // 1 = EAC for mapB
 uniform float uMix;         // 0 = map only, 0..1 = crossfade to mapB
+uniform sampler2D mapOver;  // #860 optional alpha-cutout panoramic WebP/PNG overlay (e.g. cyberpunk city skyline)
+uniform float uHasOver;     // 1 = composite mapOver over generative/base sky
+uniform float uOverTime;    // elapsed wall seconds for 5-minute chroma-green window fades & rising fog
+uniform float uOverY;       // vertical horizon offset (-0.25..+0.25) for alpha-cutout skyline height adjustment
+uniform float uOverFog;     // 0..1 rising atmospheric mist strength in front of alpha-cutout skyline
 vec2 eacUV(vec3 d) {        // #797 YouTube 3x2 EAC; #826 faces re-fitted (Gemini's put the wrong tiles / turns on most faces: a patch above and below).
   // Fitted against ffmpeg's v360 e->eac (the YouTube layout) in this dome's own direction frame, where the equirect's centre is +X:
   // top row Left (-Z) / Front (+X) / Right (+Z); bottom row Bottom (-Y) / Back (-X) / Top (+Y), turned as YouTube stores them.
@@ -113,7 +118,51 @@ void main() {
     float mistPeak = sin(m * 3.14159265) * 0.08;
     c.rgb = mix(c.rgb, cB.rgb, m) + vec3(mistPeak * 0.95, mistPeak * 0.90, mistPeak * 0.82);
   }
-  vec3 o = c.rgb * gain * uGainMul * uTint; o = 0.18 * pow(max(o, vec3(0.0)) / 0.18, vec3(uCon)); o = pow(o, vec3(1.0 / uGam));
+  vec3 o = c.rgb * gain * uGainMul * uTint;
+  if (uHasOver > 0.5) {
+    // Respect flattened dome ray direction (bs) + adjustable Y elevation shift (uOverY)
+    // Clamp bottom edge (max(ovUv.y, 0.0)) so raising CUTOUT Y never tears open a hole at the flattened floor nadir
+    vec2 ovUv = vec2(bs.x, bs.y - uOverY);
+    vec4 ov = (ovUv.y <= 1.0) ? texture2D(mapOver, vec2(ovUv.x, max(ovUv.y, 0.0))) : vec4(0.0);
+    if (ov.a > 0.003) {
+      vec3 fgCol = ov.rgb;
+      // Chroma-green window key (#00ff00): turns green-painted windows in any alpha PNG/WebP cutout into
+      // living interior lights that fade smoothly on/off at random ~5-minute intervals!
+      float gExcess = ov.g - max(ov.r, ov.b);
+      float chromaW = smoothstep(0.10, 0.30, gExcess) * smoothstep(0.18, 0.42, ov.g) * step(0.4, ov.a);
+      if (chromaW > 0.005) {
+        vec2 wCell = floor(ovUv * vec2(260.0, 130.0));
+        float h1 = fract(sin(dot(wCell, vec2(127.1, 311.7))) * 43758.5453);
+        float h2 = fract(sin(dot(wCell, vec2(269.5, 183.3))) * 43758.5453);
+        float period = 120.0 + 60.0 * h2; // 2x faster random interval
+        float cyc = fract(uOverTime / period + h1);
+        float onDur = 0.35 + 0.40 * fract(h1 * 17.3);
+        float edge = clamp(2.5 / period, 0.01, 0.08);
+        float wFade = smoothstep(0.0, edge, cyc) * (1.0 - smoothstep(onDur - edge, onDur, cyc));
+        vec3 litCol = mix(vec3(1.05, 0.78, 0.44), vec3(0.76, 0.92, 1.08), step(0.68, h2));
+        vec3 offCol = vec3(0.014, 0.017, 0.024) + o * 0.14;
+        fgCol = mix(fgCol, mix(offCol, litCol, wFade), chromaW);
+      }
+      // True alpha-respecting foreground (no additive sky bleed onto solid cutout areas!)
+      vec3 fg = fgCol * gain;
+      // Equirectangular rising mist wisps starting smoothly from NADIR (-PI/2) upward (ZERO hard equator line!)
+      if (uOverFog > 0.01 && d.y < 0.55) {
+        float el = asin(clamp(d.y, -1.0, 1.0));
+        vec2 fp = vec2(bs.x * 12.0, el * 6.0 - uOverTime * 0.18);
+        vec2 fi = floor(fp), ff = fract(fp); ff = ff * ff * (3.0 - 2.0 * ff);
+        float x0 = mod(fi.x, 12.0), x1 = mod(fi.x + 1.0, 12.0);
+        float n00 = fract(sin(dot(vec2(x0, fi.y), vec2(127.1, 311.7))) * 43758.5453);
+        float n10 = fract(sin(dot(vec2(x1, fi.y), vec2(127.1, 311.7))) * 43758.5453);
+        float n01 = fract(sin(dot(vec2(x0, fi.y + 1.0), vec2(127.1, 311.7))) * 43758.5453);
+        float n11 = fract(sin(dot(vec2(x1, fi.y + 1.0), vec2(127.1, 311.7))) * 43758.5453);
+        float wisp = mix(mix(n00, n10, ff.x), mix(n01, n11, ff.x), ff.y);
+        float fMask = smoothstep(0.55, -0.45, el) * smoothstep(0.32, 0.85, wisp) * uOverFog * 0.45;
+        fg = mix(fg, vec3(0.16, 0.20, 0.24), fMask);
+      }
+      o = mix(o, fg, ov.a);
+    }
+  }
+  o = 0.18 * pow(max(o, vec3(0.0)) / 0.18, vec3(uCon)); o = pow(o, vec3(1.0 / uGam));
 #ifdef PORTAL_SKY
   if (portalRain.x + portalRain.y > 0.001 && inRev) {   // #639 the water itself: condensation (milky, cooler, lower contrast) wiped clear where water runs; dark rims, bright lens cores
     float mist = portalRain.y * (1.0 - rClear), lu = dot(o, vec3(0.2126, 0.7152, 0.0722));
@@ -180,9 +229,9 @@ export class Skybox {
   constructor(renderer) {
     this.maxTex = Math.min(16384, renderer.capabilities.maxTextureSize || 8192);
     this.group = new THREE.Group(); this.group.visible = false; this.group.name = 'skybox';
-    this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.allow3d = false; this.tex = null;   // #756 allow3d: DOME 3D (stereo panoramas shown in stereo); off = the left eye for both
+    this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.allow3d = false; this.tex = null; this.isGen = false; this.overTex = null;   // #756 allow3d: DOME 3D (stereo panoramas shown in stereo); off = the left eye for both
     this.mats = [0, 1].map(() => new THREE.ShaderMaterial({
-      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 }, uEac: { value: 0 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uGainMul: { value: 1 }, mapB: { value: null }, soB: { value: new THREE.Vector4(1, 0, 1, 0) }, uEacB: { value: 0 }, uMix: { value: 0 } },
+      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 }, uEac: { value: 0 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uGainMul: { value: 1 }, mapB: { value: null }, soB: { value: new THREE.Vector4(1, 0, 1, 0) }, uEacB: { value: 0 }, uMix: { value: 0 }, mapOver: { value: null }, uHasOver: { value: 0 }, uOverTime: { value: 0 }, uOverY: { value: 0 }, uOverFog: { value: 0 } },
       vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthTest: true, depthWrite: false, toneMapped: false, transparent: false, opacity: 1.0,
     }));
     this._frozenTex = null;
@@ -227,7 +276,7 @@ export class Skybox {
     this.setImage(bmp, layout, swap);
   }
   setImage(bmp, layout, swap = false) {
-    if (this.tex) { this.tex.dispose(); this.tex = null; }
+    if (this.tex && !this.isGen) { this.tex.dispose(); } this.tex = null; this.isGen = false;
     if (!bmp) { this.mats.forEach(m => { m.uniforms.map.value = null; }); return; }
     const t = new THREE.Texture(bmp);
     t.flipY = false;   // flipped when the bitmap was made
@@ -241,7 +290,7 @@ export class Skybox {
   }
   // #185 video panorama: a looping muted <video> (see openPanoVideo); no mipmaps, decoded every frame
   setVideo(video, layout, swap = false) {
-    if (this.tex) { this.tex.dispose(); this.tex = null; }
+    if (this.tex && !this.isGen) { this.tex.dispose(); } this.tex = null; this.isGen = false;
     const t = new THREE.VideoTexture(video);
     t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
     t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
@@ -249,6 +298,31 @@ export class Skybox {
     this.lightStill = null;   // #611 a video pano: DOME LIGHT grabs the frame on screen
     this.mats.forEach(m => { m.uniforms.map.value = t; m.uniforms.texSize.value.set(video.videoWidth, video.videoHeight); m.uniforms.aa.value = 1; });   // #403 4-tap where minified
     this.setLayout(layout, swap);
+  }
+  // Generative SkyDome: bind throttled offscreen equirectangular RenderTarget texture (single fast tap, no mipmaps)
+  setGenerative(tex, w = 2048, h = 1024) {
+    this._clearXf();
+    if (this.tex && !this.isGen) { this.tex.dispose(); }
+    this.tex = tex; this.isGen = !!tex; this.size = [w, h]; this.lightStill = null; this.eac = false;
+    this.mats.forEach(m => { m.uniforms.map.value = tex; m.uniforms.texSize.value.set(w, h); m.uniforms.aa.value = 1; m.uniforms.uEac.value = 0; });
+    this.setLayout('mono', false);
+  }
+  // #860 Alpha-Cutout Panoramic WebP/PNG overlay composited directly over any SkyDome
+  setOverlay(bmp) {
+    if (this.overTex) { this.overTex.dispose(); this.overTex = null; }
+    if (!bmp) {
+      this.mats.forEach(m => { m.uniforms.mapOver.value = null; m.uniforms.uHasOver.value = 0; });
+      return;
+    }
+    const t = new THREE.Texture(bmp);
+    t.flipY = false;
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
+    t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.anisotropy = 4;
+    t.needsUpdate = true;
+    t.onUpdate = () => { if (bmp.close) bmp.close(); };
+    this.overTex = t;
+    this.mats.forEach(m => { m.uniforms.mapOver.value = t; m.uniforms.uHasOver.value = 1; });
   }
   setLayout(layout, swap) {
     this.layout = layout; this.swap = !!swap;
@@ -271,6 +345,8 @@ export class Skybox {
   setExposure(ev) { const g = Math.pow(2, ev || 0); this.mats.forEach(m => { m.uniforms.gain.value = g; }); }   // #404 DOME EXPOSURE
   setEac(on) { const v = on ? 1 : 0; this.eac = !!on; this.mats.forEach(m => { m.uniforms.uEac.value = v; }); }   // #797 YouTube 3x2 EAC projection
   setEvo(tint, gainMul = 1) { this.mats.forEach(m => { if (tint) m.uniforms.uTint.value.set(tint.r, tint.g, tint.b); m.uniforms.uGainMul.value = gainMul; }); }
+  setOverlayY(v) { this.overY = v; this.mats.forEach(m => { m.uniforms.uOverY.value = v || 0; }); }
+  tickOverlay(dt, fogAmt = 0) { if (this.overTex) this.mats.forEach(m => { m.uniforms.uOverTime.value += dt; m.uniforms.uOverFog.value = fogAmt; }); }
 
   // Freeze-Frame Handover: snapshot current video (or hold current still) into mapA so caller can immediately close the old video decoder
   freezeCurrent(videoEl = null) {
@@ -282,10 +358,10 @@ export class Skybox {
       const ft = new THREE.CanvasTexture(c);
       ft.colorSpace = THREE.SRGBColorSpace; ft.wrapS = THREE.RepeatWrapping; ft.wrapT = THREE.ClampToEdgeWrapping;
       ft.minFilter = THREE.LinearFilter; ft.magFilter = THREE.LinearFilter; ft.generateMipmaps = false; ft.needsUpdate = true;
-      if (this.tex) { this.tex.dispose(); this.tex = null; }
+      if (this.tex && !this.isGen) { this.tex.dispose(); } this.tex = null; this.isGen = false;
       this._frozenTex = ft;
       this.mats.forEach(m => { m.uniforms.map.value = ft; m.uniforms.aa.value = 1; m.uniforms.uMix.value = 0; });
-    } else if (this.tex) {
+    } else if (this.tex && !this.isGen) {
       // Current is already a still texture: promote it to _frozenTex so next load doesn't dispose it mid-fade
       this._frozenTex = this.tex;
       this.tex = null;

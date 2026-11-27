@@ -50,6 +50,8 @@ import * as store from './storage.js';
 import * as loopDb from './loopbank.js';   // #470 loop slots and banks in private storage
 import { EnvLight } from './env.js';
 import { Skybox, detectLayout, leftEyeCanvas, brightestDir, savePano, loadPano, openPanoVideo, closePanoVideo } from './skybox.js';
+import { SkyDome, SKY_WORLDS, SKY_CYCLES, SKY_GRADES, SKY_GROUNDS, SKY_SPEEDS } from './skydome.js';
+import { SkyTraffic } from './traffic.js';
 import * as media from './medialib.js';
 import { makePerfCap } from './perfcap.js';
 import { Stage, FlightCase } from './layout.js';
@@ -135,6 +137,24 @@ const KEY_POS = key.position.clone();
 // because the rig is moved by (-0.05, 0, -0.62) in the headset. With real-time shadows a shadow-only floor
 // catches the gear's shadows on the panorama's floor (the studio floor is hidden then).
 const skybox = new Skybox(renderer); skybox.set3D(settings.dome3d === true);   /* #756 DOME 3D / 2D (default 2D: the left eye for both) */ rig.add(skybox.group); skybox.group.position.x = 0.05; skybox.group.position.z = 0.62;
+const skydome = !CAMERA_ROLE ? new SkyDome(renderer) : null;   // #859 Generative Atmospheric & Blade Runner SkyDomes
+const traffic = !CAMERA_ROLE ? new SkyTraffic(rig) : null;     // #861 MOVIE PROPS > SKY TRAFFIC (laser A->B space-car lanes)
+function activateSkyDome(on = true, worldId = null) {
+  if (!skydome) return;
+  if (on) {
+    closeSkyVideo();
+    if (worldId) skydome.setWorld(worldId);
+    skydome.active = true;
+    skybox.setGenerative(skydome.texture, skydome.w, skydome.h);
+    skybox.setHeight(settings.skyH);
+    dome.on = true; dome.eac = false; saveDome();
+    setBackdrop('dome');
+    applySky(); domeLightTick(); drawMixScreen();
+  } else {
+    skydome.active = false;
+    dome.on = false; saveDome(); applySky(); drawMixScreen();
+  }
+}
 // #346 DOME (PORTALS SETUP): the same grounded sky, shown even in passthrough and with any light setting, sized 3-20 m
 const dome = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.dome') || 'null'); } catch {} return { on: !!(s && s.on), r: Math.min(20, Math.max(3, (s && s.r) || 10)), turn: Math.min(359, Math.max(0, (s && s.turn) || 0)), ev: Math.min(1, Math.max(-3, +(s && s.ev) || 0)), gam: Math.min(2, Math.max(0.5, +(s && s.gam) || 1)), eac: !!(s && s.eac) }; })();   // #638 gam: DOME GAMMA   // #404 ev: DOME EXPOSURE   // #389 turn   // #797 eac: YouTube 3x2 EAC
 const skyShadow = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.ShadowMaterial({ opacity: 0.4, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor }));
@@ -1492,7 +1512,7 @@ const portals = CAMERA_ROLE ? null : new Portals(rig, i => {   // frame i's star
   const p = new THREE.Vector3(Math.sin(a) * rr, deckGroups[0].position.y + DECK.H + 0.1, -Math.cos(a) * rr).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw0);
   return { p: p.add(new THREE.Vector3(bx, 0, bz)), yaw: yaw0 - a };
 });
-if (portals) { if (facetWall) portals.cutInto(facetWall.obj); portals.cutInto(skybox.group, { sky: true }); }   // #586 sky: PANO frames show the dome only through themselves   // the windows punch through the backdrop and the dome; cutInto() again for any future glb room
+if (portals) { if (facetWall) portals.cutInto(facetWall.obj); portals.cutInto(skybox.group, { sky: true }); if (traffic) portals.cutInto(traffic.group, { sky: true }); }   // #586/#861 sky & traffic mask cleanly through skylight/window portals
 // #592 ROOM SNAP: portal frames sit on the Quest's scanned walls / door frames / window frames / ceiling (Space Setup,
 // plane-detection, passthrough only). Placement no longer depends on CAM FIT; the stream only shows CAM FIT's own offset.
 const roomScan = portals ? new RoomSnap(rig) : null;
@@ -1653,7 +1673,20 @@ function eacToEqui(src, W = 512) {
   go.putImageData(D, 0, 0); return o;
 }
 function domeLightTick() {
-  const on = domeLightOn(), vid = on && skybox.tex.isVideoTexture ? skybox.tex.image : null;   // #831 a video pano: wait for a decoded frame, take it again once it has played 3 s (past any fade-in)
+  const on = domeLightOn();
+  if (on && skybox.isGen && skydome && skydome.active) {
+    const gk = 'gen|' + skydome.S.world + '|' + skydome.S.grade + '|' + Math.floor(skydome.S.phase * 12);
+    if (gk === domeLitKey) return;
+    domeLitKey = gk;
+    const al = skydome.analyticalLight();
+    envLight.mix = 0.85; domeCanvas = al.canvas;
+    envLight.setImage(al.canvas);
+    skyKeyLight = al.key;
+    skyAvg = panoAvg(al.canvas);
+    applyArLook(); applySkyTurn();
+    return;
+  }
+  const vid = on && skybox.tex.isVideoTexture ? skybox.tex.image : null;   // #831 a video pano: wait for a decoded frame, take it again once it has played 3 s (past any fade-in)
   if (vid && (vid.readyState < 2 || !vid.videoWidth)) return;
   const base = on ? (skybox.tex.uuid + '|' + skybox.layout + '|' + skybox.swap + '|' + (dome.eac ? 'eac' : '') + (vid ? '|v' + (vid.currentTime > 3 ? 1 : 0) : '')) : '';   // #826 + EAC
   const per = settings.domeLightSec ?? 30;   // #834 a video pano: grab again every `per` s (0 = once), faded in over 2 s
@@ -5449,7 +5482,16 @@ function pointerDown(p) {
       const mc = milkOf(hit.object); if (mc) { const r = held; held = null; scene.attach(r.group); milkDrop(r, mc); layoutSleeves(); return true; }
     }
   }
-  if (!hit) return false;
+  if (!hit) {
+    if (traffic && traffic.armMode) {
+      const res = traffic.capturePoint(p.ray.direction);
+      if (res === 'A') toast('Start A pinned! Aim at End B in the sky and click.', 3500);
+      else if (res) toast(`Sky Traffic lane #${traffic.lanes.length} added!`, 2200);
+      drawMixScreen();
+      return true;
+    }
+    return false;
+  }
   const obj = controlOf(hitTarget(hit)); if (!obj) return false;
   const u = obj.userData;
   p.start = { x: p.x, y: p.y, t: performance.now(), point: hit.point.clone() };
@@ -5964,7 +6006,7 @@ const MS_HIT = [null, null];   // tap areas on the mixer screen canvas, set whil
 let videoPage = false, vpFolder = 'Pano', vpItems = [], vpPg = 0, vpSel = null, vpSelFolder = null, toolsPage = null, vpLastTap = { name: '', t: 0 };   // #224 vpSelFolder: Pano tab mixes Pano + Video pano
 const VP_HIT = [], vpThumbs = new Map();   // 'folder/name' -> ImageBitmap | 'loading' | null
 const VP_LIB = ['Pano', 'Video', 'Images'];   // #224 one PANO tab for still and video panoramas
-const VP_TABS = { Pano: 'PANO', 'Video pano': 'VIDEO PANO', Video: 'CLIPS', Images: 'IMAGES', Camera: 'REMOTE CAM', Sync: 'SYNC', Look: 'LOOK', 'DJ Cam': 'GOPROS', Fx: 'FX' };   // #389 CAMERA is REMOTE CAM; the AVACAM tab is GOPROS, which opens SHOWTIME! OBJECTS   // #379 FX   // #241 the DJ CAM tab is AVACAM (owner)
+const VP_TABS = { Pano: 'PANO', Skydome: 'SKYDOME', 'Video pano': 'VIDEO PANO', Video: 'CLIPS', Images: 'IMAGES', Camera: 'REMOTE CAM', Sync: 'SYNC', Look: 'LOOK', 'DJ Cam': 'GOPROS', Fx: 'FX' };   // #859 + SKYDOME; #389 CAMERA is REMOTE CAM; the AVACAM tab is GOPROS, which opens SHOWTIME! OBJECTS   // #379 FX   // #241 the DJ CAM tab is AVACAM (owner)
 // #234 add pictures and videos from the Quest's own files (Downloads, Pictures, Movies) to the media library, from
 // the start page ('Add pictures / videos…'). Folder by shape: 2:1 (or a big square, over-under stereo) = 360.
 // (#235: the in-VR + IMPORT tile was removed: the Quest did not open its file picker from inside a VR session.)
@@ -6004,7 +6046,7 @@ async function importMedia(files, tab = null, say = null, as = 'auto') {   // #8
   return (parts.length ? 'Added ' + parts.join(', ') : 'Nothing added') + (skipped ? ` (${skipped} skipped)` : '');
 }
 async function vpLoad() {
-  if (vpFolder === 'Camera' || vpFolder === 'Look' || vpFolder === 'DJ Cam' || vpFolder === 'LedList' || vpFolder === 'Fx') { vpItems = []; drawMixScreen(); return; }
+  if (vpFolder === 'Camera' || vpFolder === 'Look' || vpFolder === 'DJ Cam' || vpFolder === 'LedList' || vpFolder === 'Fx' || vpFolder === 'Skydome') { vpItems = []; drawMixScreen(); return; }
   if (vpFolder === 'Sync') { vpItems = []; syncLoad(); return; }   // #206
   vpItems = vpFolder === 'Pano' ? [...await media.list('Pano'), ...await media.list('Video pano')].sort((a, b) => a.name.localeCompare(b.name)) : await media.list(vpFolder);
   if (vpFolder === 'Video') vpItems = [...grab.loops.map((L, i) => ({ name: 'LOOP ' + (grab.loops.length - i) + ' (5 s)', folder: 'Video', loopId: L.id })), ...vpItems];   // #441 grabbed loops first
@@ -6027,10 +6069,41 @@ function setVideoPage(on) { videoPage = on; if (!on) vd.pick = null; if (on) { t
 async function vpAct(what) {
   // #367 SKY OFF works without a thumbnail picked (it was behind this check: a desktop-only toast and nothing else), and
   // turns the whole panorama off: the sky setting, the DOME (#346, which kept it showing in passthrough); a video pano pauses
-  if (what === 'skyoff') { settings.sky = 'off'; saveSettings(); syncSettingsUI(); if (dome.on) { dome.on = false; saveDome(); } applySky(); drawMixScreen(); return; }   // applySky pauses a video pano while hidden
+  if (what === 'skyoff') { if (skydome) skydome.active = false; settings.sky = 'off'; saveSettings(); syncSettingsUI(); if (dome.on) { dome.on = false; saveDome(); } applySky(); drawMixScreen(); return; }   // applySky pauses a video pano while hidden
   const name = vpSel; if (!name) { toast('Pick a thumbnail first'); return; }
   const vpFolder = videoPageFolder();   // #224 the Pano tab holds two library folders (local, shadows the tab name)
   if (what === 'sky') return panoToDome(vpFolder, name);   // #731 SKY = the picked pano as the sky AND the DOME (a thumbnail tap only picks it)
+  if (what === 'skyground') {
+    if (!skydome) return;
+    const gf = await media.getFile(vpFolder, name);
+    if (!gf) return;
+    try {
+      const bmp = await createImageBitmap(gf);
+      skydome.setCustomGround(bmp);
+      if (!skydome.active) activateSkyDome(true);
+      else drawMixScreen();
+      toast('SkyDome ground patch: ' + name, 2200);
+    } catch (e) { toast('Ground image failed: ' + e.message, 3000); }
+    return;
+  }
+  if (what === 'skycutout') {
+    const gf = await media.getFile(vpFolder, name);
+    if (!gf) return;
+    try {
+      const full = await createImageBitmap(gf, { imageOrientation: 'flipY' });
+      const [w, h] = skybox.fit(full.width, full.height);
+      const bmp = (w === full.width && h === full.height) ? full : await createImageBitmap(full, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
+      if (bmp !== full) full.close();
+      skybox.setOverlay(bmp);
+      if (skydome) {
+        skydome.set('ground', 'off');   // let the equirectangular cutout's own flattened floor take over
+        if (!skydome.active) activateSkyDome(true);
+        else drawMixScreen();
+      } else drawMixScreen();
+      toast('Alpha-cutout overlay: ' + name, 2400);
+    } catch (e) { toast('Cutout overlay failed: ' + e.message, 3000); }
+    return;
+  }
   if (what === 'panoadd') { if (cine) { const n = cine.addPano(vpFolder, name); toast(`PANO LIST: ${n} item${n > 1 ? 's' : ''} (${name})`, 2000); drawMixScreen(); } return; }
   if (what === 'panolist') { videoPage = false; setTools('panolist'); return; }
   if (what === 'light') return lightPhone(vpFolder, name);   // #214
@@ -6362,7 +6435,7 @@ function drawVideoPage() {
   };
   const pick = f => () => { vpFolder = f; vpSel = null; vpSelFolder = null; vpPg = 0; vpLoad(); };
   if (P) {   // #198 portrait: tabs in rows of 3 (#206: 3 rows, SYNC added, MIXER last); top and bottom keep clear of the corner L
-    const tabs = ['Video', 'Images', 'Pano', 'Fx'], tw = (W - 30 - 12) / 3;   // #771 CLIPS, IMAGES, PANO, FX (REMOTE CAM / LOOK left the tablet, SYNC is in SETUP, GOPROS in SHOWTIME!)   // #379 + FX   // #214 LOOK, #220 DJ CAM
+    const tabs = ['Video', 'Images', 'Pano', 'Skydome', 'Fx'], tw = (W - 30 - 12) / 3;   // #859 + SKYDOME; #771 CLIPS, IMAGES, PANO, FX
     // #363 a top row of its own: title, then DJ MIXER and BACK at the top right; the tabs move down a row
     btn(22, 28, tw, 34, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW (where the title was)
     btn(22 + (tw + 6), 28, tw, 34, 'MAIN MENU', false, () => setVideoPage(false));   // #603
@@ -6370,16 +6443,15 @@ function drawVideoPage() {
     const pos = i => [22 + (i % 3) * (tw + 6), 68 + Math.floor(i / 3) * 40];
     btn(...pos(0), tw, 34, 'CYCLOWALL ⁺¹', cycloState() === 'on', () => { videoPage = false; openCycloWall(); });   // #771 first: the wall and its generators
     tabs.forEach((f, i) => btn(...pos(i + 1), tw, 34, VP_TABS[f], f === vpFolder, pick(f)));
-    btn(...pos(5), tw, 34, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #379 moved one over for FX   // #342 the scroller editor
+    btn(...pos(6), tw, 34, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP);   // #859 row 3 slot 0 (y=148, clears y0=192)
   } else {
-    let x = 8;   // #214 seven tabs fit left of MIXER; #220 eight (narrower); #363 narrower again for BACK
-    btn(x, 8, 112, 32, 'CYCLOWALL ⁺¹', cycloState() === 'on', () => { videoPage = false; openCycloWall(); }); x += 116;   // #771 the wall and its generators first
-    for (const f of ['Video', 'Images', 'Pano', 'Fx']) { const w = { Pano: 56, Video: 62, Images: 70, Fx: 44 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 4; }   // #771 CLIPS, IMAGES, PANO, FX
-    btn(x, 8, 88, 32, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP); x += 92;   // #379 narrower again for FX
-    // #701 owner: SCROLLER and CYCLOWALL ▸ left the landscape bar (CYCLOWALL ▸ is on the mixer page, the CYCLOWALL buttons on this page's bottom bar, SCROLLER on VJ TOOLS), so MAIN MENU / PREVIEW / BACK draw full size
-    btn(W - 8 - 66 - 4 - 72 - 4 - 96, 8, 96, 32, 'MAIN MENU', false, () => setVideoPage(false));   // #225 (#603 MAIN = the main menu)
-    btn(W - 8 - 66 - 4 - 72, 8, 72, 32, 'PREVIEW', monOn, () => setMonitor(!monOn));   // #389 the master PREVIEW
-    btn(W - 8 - 66, 8, 66, 32, '◀ BACK', false, navCan() ? navBack : null, !navCan());   // #363
+    let x = 8;
+    btn(x, 8, 102, 32, 'CYCLOWALL ⁺¹', cycloState() === 'on', () => { videoPage = false; openCycloWall(); }); x += 106;
+    for (const f of ['Video', 'Images', 'Pano', 'Skydome', 'Fx']) { const w = { Pano: 50, Skydome: 78, Video: 54, Images: 62, Fx: 38 }[f]; btn(x, 8, w, 32, VP_TABS[f], f === vpFolder, pick(f)); x += w + 4; }
+    btn(x, 8, 76, 32, 'SCROLLER', !!(scroller && scroller.on), openScrollerFromVP); x += 80;
+    btn(W - 8 - 64 - 4 - 68 - 4 - 84, 8, 84, 32, 'MAIN MENU', false, () => setVideoPage(false));
+    btn(W - 8 - 64 - 4 - 68, 8, 68, 32, 'PREVIEW', monOn, () => setMonitor(!monOn));
+    btn(W - 8 - 64, 8, 64, 32, '◀ BACK', false, navCan() ? navBack : null, !navCan());
   }
   const y0 = P ? 192 : 48;   // #363 portrait: one more header row
   if (vpFolder === 'Camera') { drawCamTab(btn, y0); return; }
@@ -6387,6 +6459,7 @@ function drawVideoPage() {
   if (vpFolder === 'Look') { drawLookTab(btn, y0); return; }   // #214
   if (vpFolder === 'DJ Cam') { drawDjCamTab(btn, y0); return; }   // #220
   if (vpFolder === 'LedList') { drawLedList(btn, y0); return; }   // #222
+  if (vpFolder === 'Skydome') { drawSkydomeTab(btn, y0); return; }   // #859
   if (vpFolder === 'Fx') { drawFxTab(btn, y0); return; }   // #379
   // thumbnails: 4 x 2 (portrait 2 x 6)
   const COLS = P ? 2 : 4, CW = (W - 16 - (COLS - 1) * 8) / COLS, TH = P ? 64 : 76, CH = TH + 20;
@@ -6439,8 +6512,8 @@ function drawVideoPage() {
   const by = P ? H - 62 : H - 44, bh = 36, bx = P ? 26 : 8;
   btn(bx, by, 44, bh, '‹', false, () => { vpPg = Math.max(0, vpPg - 1); drawMixScreen(); }, vpPg === 0);
   btn(bx + 48, by, 44, bh, '›', false, () => { vpPg = Math.min(pages - 1, vpPg + 1); drawMixScreen(); }, vpPg >= pages - 1);
-  const T = { Pano: [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog'], [dome.eac ? 'EAC: ON' : 'EAC: OFF', 'eactog'], ['+ PANO LIST', 'panoadd'], [cine ? `PANO LIST (${cine.panoList.length})` : 'PANO LIST', 'panolist']], 'Video pano': [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog'], [dome.eac ? 'EAC: ON' : 'EAC: OFF', 'eactog'], ['+ PANO LIST', 'panoadd'], [cine ? `PANO LIST (${cine.panoList.length})` : 'PANO LIST', 'panolist']],   /* #769 tap a pano = it goes on the DOME; #797 EAC toggle; #858 PANO LIST */
-    Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal']], Images: [['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal']] }[vpFolder];   // #589 → PORTAL: the SCREEN frames' feed
+  const T = { Pano: [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog'], [dome.eac ? 'EAC: ON' : 'EAC: OFF', 'eactog'], ['+ PANO LIST', 'panoadd'], [cine ? `PANO LIST (${cine.panoList.length})` : 'PANO LIST', 'panolist'], ['→ CUTOUT', 'skycutout']], 'Video pano': [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog'], [dome.eac ? 'EAC: ON' : 'EAC: OFF', 'eactog'], ['+ PANO LIST', 'panoadd'], [cine ? `PANO LIST (${cine.panoList.length})` : 'PANO LIST', 'panolist']],   /* #769 tap a pano = it goes on the DOME; #797 EAC toggle; #858 PANO LIST; #860 → CUTOUT alpha-sky overlay */
+    Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal']], Images: [['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal'], ['→ GROUND', 'skyground'], ['→ CUTOUT', 'skycutout']] }[vpFolder];   // #589 → PORTAL; #859 → GROUND; #860 → CUTOUT
   const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : T.length > 4 ? 76 : 86, ty = P ? H - 106 : by;   // #589 five targets on Video
   let x = P ? 8 : 108;
   for (const [label, what] of T) { const dim = !vpSel && what !== 'dometog' && what !== 'eactog' && what !== 'panolist'; btn(x, ty, tw, bh, label, what === 'dometog' ? !!dome.on : what === 'eactog' ? !!dome.eac : what === 'panolist' ? !!(cine && cine.panoList.length) : false, dim ? null : what === 'dometog' ? () => { if (dome.on) vpAct('skyoff'); else if (vpSel) vpAct('sky'); else { setBackdrop('dome'); drawMixScreen(); } } : what === 'eactog' ? () => { setDomeEac(!dome.eac); settings.skyType = dome.eac ? 'eac' : isEacName(settings.skyFile) ? 'mono' : 'auto'; saveSettings(); saveSkyPrefs(); syncSettingsUI();   /* #821 remembered for this file */ toast('Dome projection: ' + (dome.eac ? 'YouTube EAC (3×2)' : 'Equirectangular'), 1800); } : () => vpAct(what), dim); x += tw + 6; }
@@ -6491,6 +6564,79 @@ function tSlider(g, x, y, w, h, label, v, txt, set, dim, lwMax = 110) {   // #42
   g.textAlign = 'right'; g.font = '600 13px system-ui'; g.fillText(txt, x + w - 6, ty + 1);
   g.textBaseline = 'alphabetic';
   VP_HIT.push({ x: tx - 10, y, w: tw + 20, h, drag: true, act: px => set(clamp((px - tx) / tw, 0, 1)), nv: v, nset: dim ? null : set });   // #422 drag: finger / mouse held on the bar keeps moving it; #835 nv / nset: thumbstick nudge
+}
+// #859/#860 VISUALS > SKYDOME: Generative 2K 4-strip SkyDomes (6 worlds, NASA Moon, Sun Halo, Alpha-Cutout Overlay)
+function drawSkydomeTab(btn, y0) {
+  const { g, canvas: c } = scr(); const W = c.width, H = c.height, P = portrait();
+  g.textAlign = 'left';
+  if (!skydome) { g.fillStyle = '#8c96a8'; g.font = '500 17px system-ui'; wrapText(g, 'SkyDome runs on the headset / desktop page.', 16, y0 + 30, W - 32, 24, 2); return; }
+  const S = skydome.S, live = skydome.active && dome.on, hasCut = !!skybox.overTex;
+  const rx = P ? 16 : 8, rw = W - rx * 2, bh = P ? 32 : 30;
+
+  let curY = y0;
+  if (P) {
+    // Portrait Row 1: SKYDOME ON/OFF + MONOLITH FX toggle (or CLEAR CUTOUT)
+    const hw = (rw - 6) / 2;
+    btn(rx, curY, hw, bh, live ? 'SKYDOME: ON' : 'SKYDOME: OFF', live, () => activateSkyDome(!live));
+    btn(rx + hw + 6, curY, hw, bh, S.monolith ? '+ MONOLITH: ON' : '+ MONOLITH', live && !!S.monolith, () => { skydome.set('monolith', !S.monolith); if (!live) activateSkyDome(true); else drawMixScreen(); });
+    curY += bh + 6;
+    // 5 Pure Sky Worlds in 2 rows of 3 (+ CLEAR CUTOUT if active)
+    const ww = (rw - 12) / 3;
+    const pWorlds = SKY_WORLDS.map(w => [w.label, live && S.world === w.id, () => activateSkyDome(true, w.id)]);
+    if (hasCut) pWorlds.push(['CLEAR CUTOUT', true, () => { skybox.setOverlay(null); drawMixScreen(); toast('Cutout overlay cleared', 1600); }]);
+    pWorlds.forEach(([l, on, act], i) => btn(rx + (i % 3) * (ww + 6), curY + Math.floor(i / 3) * (bh + 6), ww, bh, l, on, act));
+    curY += 2 * (bh + 6) + 4;
+  } else {
+    // Landscape Row 1: Power + 5 Sky Worlds + combinable MONOLITH kit effect toggle!
+    const r1 = [
+      [live ? 'DOME: ON' : 'DOME: OFF', live, () => activateSkyDome(!live)],
+      ...SKY_WORLDS.map(w => [w.label, live && S.world === w.id, () => activateSkyDome(true, w.id)]),
+      [S.monolith ? '+ MONOLITH' : 'MONOLITH', live && !!S.monolith, () => { skydome.set('monolith', !S.monolith); if (!live) activateSkyDome(true); else drawMixScreen(); }],
+    ];
+    const w1 = (rw - (r1.length - 1) * 5) / r1.length;
+    r1.forEach(([l, on, act], i) => btn(rx + i * (w1 + 5), curY, w1, bh, l, on, act));
+    curY += bh + 6;
+  }
+
+  // Row 2: Quick Hold/Step, Color Grade, Ground Patch, Motion Speed, Bass Breathe (+ CLEAR CUTOUT in landscape when active)
+  const spdObj = SKY_SPEEDS.find(x => x.id === S.speed) || SKY_SPEEDS[1];
+  const r2 = [
+    [S.cycle === 0 ? 'PHASE: HOLD' : 'HOLD PHASE', S.cycle === 0, () => { skydome.set('cycle', S.cycle === 0 ? 64 : 0); drawMixScreen(); }],
+    [`GRADE: ${S.grade.toUpperCase()}`, S.grade !== 'auto', () => { skydome.cycle('grade', SKY_GRADES); domeLightTick(); drawMixScreen(); }],
+    [`GROUND: ${S.ground.toUpperCase()}`, S.ground !== 'off', () => { const list = skydome._customGroundTex ? [...SKY_GROUNDS, 'custom'] : SKY_GROUNDS; skydome.cycle('ground', list); drawMixScreen(); }],
+    [`SPEED: ${spdObj.label}`, S.speed !== 'drift', () => { skydome.cycle('speed', SKY_SPEEDS.map(x => x.id)); drawMixScreen(); }],
+    [S.bass ? 'BASS: SOFT' : 'BASS: OFF', !!S.bass, () => { skydome.set('bass', !S.bass); drawMixScreen(); }],
+  ];
+  if (!P && hasCut) r2.push(['CLEAR CUTOUT', true, () => { skybox.setOverlay(null); drawMixScreen(); toast('Cutout overlay cleared', 1600); }]);
+  const per2 = P ? 2 : r2.length, w2 = (rw - (per2 - 1) * 5) / per2;
+  r2.forEach(([l, on, act], i) => btn(rx + (i % per2) * (w2 + 5), curY + Math.floor(i / per2) * (bh + 6), w2, bh, l, on, act));
+  curY += (P ? Math.ceil(r2.length / 2) : 1) * (bh + 6) + 6;
+
+  // Row 3: Sliders (Phase Bars: HOLD/32/64/128/256/512, Haze, Wetness, Cutout Y / Tile Size, Dome Turn, Exposure)
+  const sh = P ? 32 : 32;
+  const ci = Math.max(0, SKY_CYCLES.indexOf(S.cycle));
+  const sliders = [
+    ['PHASE BARS', ci / (SKY_CYCLES.length - 1), S.cycle ? `${S.cycle}B` : 'HOLD', v => { skydome.set('cycle', SKY_CYCLES[Math.round(v * (SKY_CYCLES.length - 1))]); drawMixScreen(); }],
+    ['HAZE', S.haze, `${Math.round(S.haze * 100)}%`, v => { skydome.set('haze', v); drawMixScreen(); }],
+    ['WETNESS', S.wet, `${Math.round(S.wet * 100)}%`, v => { skydome.set('wet', v); drawMixScreen(); }],
+    (hasCut || S.monolith)
+      ? ['CUTOUT Y', (((hasCut ? skybox.overY : S.monolithY) || 0) + 0.25) / 0.5, `${Math.round(((hasCut ? skybox.overY : S.monolithY) || 0) * 180)}°`, v => { const val = -0.25 + v * 0.5; if (hasCut) skybox.setOverlayY(val); if (S.monolith) skydome.set('monolithY', val); drawMixScreen(); }]
+      : ['TILE SIZE', (S.tileScale - 0.8) / 5.2, `${S.tileScale.toFixed(1)}m`, v => { skydome.set('tileScale', 0.8 + v * 5.2); drawMixScreen(); }],
+    [P ? 'TURN' : 'DOME TURN', settings.skyTurn / 359, `${settings.skyTurn}°`, v => setSkyTurn(v * 359)],
+    [P ? 'EV' : 'EXPOSURE', (dome.ev + 3) / 4, `${dome.ev > 0 ? '+' : ''}${dome.ev.toFixed(2)}`, v => setDomeEv(-3 + v * 4)],
+  ];
+  const cols = P ? 1 : 2, sw = (rw - (cols - 1) * 8) / cols;
+  sliders.forEach(([l, v, txt, set], i) => {
+    const cx = rx + (i % cols) * (sw + 8), cy = curY + Math.floor(i / cols) * (sh + 6);
+    tSlider(g, cx, cy, sw, sh, l, v, txt, set, false, 96);
+  });
+
+  // Footer hint
+  const fy = curY + Math.ceil(sliders.length / cols) * (sh + 6) + 4;
+  if (fy + 16 < H) {
+    g.fillStyle = '#7e8aa0'; g.font = '500 13px system-ui'; g.textAlign = 'left';
+    fitText2(g, 'PANO/IMAGES → CUTOUT layers an alpha-sky pano over any live SkyDome; IMAGES → GROUND warps a floor.', rx + 2, fy + 10, rw - 4);
+  }
 }
 // #379 VISUALS > FX: FLOAT balls (the DJ drops them on gear in the headset; here the list with each one's float amount) and WATER
 let dvSecQ = null, dvSecT = 0;   // #710 the PER SCENE slider while it is dragged
@@ -7586,8 +7732,42 @@ function drawPropsPage(T) {
     note('Each slot takes a picture (jpg / png). Diffuse = colour, displacement = height (white high), roughness, normal (OpenGL style) and AO are optional. Added from this device; set TILE SIZE to how many metres one picture covers.', y0 + 4 + Math.ceil(cells.length / cc) * CR + 12);
     return;
   }
+  if (mpTab === 'traffic') {   // #861 MOVIE PROPS > SKY TRAFFIC: laser A->B great-circle space-car lanes
+    if (!traffic) { note('Sky Traffic runs on the headset / desktop page.', y0 + 10); return; }
+    const CR = P ? 36 : 31, cc = P ? 1 : 2, cg = 6, cw = (R - L - cg * (cc - 1)) / cc, chh = CR - 3;
+    const Lsel = traffic.lanes[traffic.sel] || null;
+    const armLbl = traffic.armMode === 'A' ? 'AIM START A… (CANCEL)' : traffic.armMode === 'B' ? 'AIM END B… (CANCEL)' : 'LASER LANE (A → B)';
+    const cells = [
+      { b: 1, label: 'DONE: BACK TO PROPS', act: () => { traffic.cancelLaserPlace(); mpTab = 'props'; drawMixScreen(); } },
+      { b: 1, label: traffic.on ? `TRAFFIC: ON (${traffic.lanes.length})` : 'TRAFFIC: OFF', on: traffic.on && (traffic.lanes.length > 0 || traffic.cruiserOn), act: () => { traffic.on = !traffic.on; traffic.group.visible = traffic.on && (traffic.lanes.length > 0 || traffic.cruiserOn); traffic.save(); drawMixScreen(); } },
+      { b: 1, label: armLbl, on: !!traffic.armMode, act: () => {
+        if (traffic.armMode) traffic.cancelLaserPlace();
+        else { traffic.startLaserPlace(); toast('Aim into the sky and pull trigger / click for Start A, then End B.', 4000); }
+        drawMixScreen();
+      } },
+      { b: 1, label: '+ DEMO SKYWAY', act: () => { traffic.addDemoLane(); toast(`Demo skyway lane #${traffic.lanes.length} added`, 2000); drawMixScreen(); } },
+      { b: 1, label: traffic.cruiserOn ? 'OVERHEAD CRUISER: ON' : 'OVERHEAD CRUISER: OFF', on: traffic.cruiserOn, act: () => { traffic.cruiserOn = !traffic.cruiserOn; traffic.group.visible = traffic.on && (traffic.lanes.length > 0 || traffic.cruiserOn); traffic.save(); drawMixScreen(); } },
+    ];
+    if (Lsel) {
+      cells.push(
+        { b: 1, label: `LANE ${traffic.sel + 1}/${traffic.lanes.length} (NEXT)`, act: () => { traffic.sel = (traffic.sel + 1) % traffic.lanes.length; drawMixScreen(); } },
+        { b: 1, label: Lsel.twoWay ? 'FLOW: TWO-WAY' : 'FLOW: ONE-WAY', on: Lsel.twoWay, act: () => { Lsel.twoWay = !Lsel.twoWay; traffic.save(); drawMixScreen(); } },
+        { s: 1, label: 'CARS', v: (Lsel.count - 2) / 28, txt: String(Lsel.count), set: v => { Lsel.count = Math.round(2 + v * 28); traffic.save(); drawMixScreen(); } },
+        { s: 1, label: 'SPEED', v: (Lsel.speed - 0.01) / 0.19, txt: `${Math.round(Lsel.speed * 100)}`, set: v => { Lsel.speed = 0.01 + v * 0.19; traffic.save(); drawMixScreen(); } },
+        { s: 1, label: 'DISTANCE', v: (Lsel.dist - 6) / 18, txt: `${Lsel.dist.toFixed(0)} m`, set: v => { Lsel.dist = 6 + v * 18; traffic.save(); drawMixScreen(); } },
+        { s: 1, label: 'CAR SIZE', v: (Lsel.scale - 0.15) / 1.35, txt: `${Lsel.scale.toFixed(2)}`, set: v => { Lsel.scale = 0.15 + v * 1.35; traffic.save(); drawMixScreen(); } },
+        { b: 1, label: 'DELETE LANE', act: () => { traffic.removeLane(traffic.sel); drawMixScreen(); } },
+        { b: 1, label: 'CLEAR ALL LANES', act: () => { traffic.clearAll(); drawMixScreen(); } },
+      );
+    }
+    cells.forEach((c, i) => { const x = L + (i % cc) * (cw + cg), y = y0 + 4 + Math.floor(i / cc) * CR; if (c.s) tSlider(g, x, y, cw, chh, c.label, c.v, c.txt, c.set); else btn(x, y, cw, chh, c.label, c.on, c.act, c.dim, P ? 15 : 13); });
+    const ny = y0 + 4 + Math.ceil(cells.length / cc) * CR + 10;
+    if (ny + 18 < H) note('Great-circle 3D spinner lanes respect equirectangular dome space, atmospheric haze, and skylight/window portals (2 draw calls total).', ny);
+    return;
+  }
   const NAMES = { puddle: 'PUDDLE', rain: 'RAIN', fog: 'FOG', neon: 'NEON', graffiti: 'GRAFFITI', decal: 'GROUND DECAL', walldecal: 'WALL DECAL', glb: 'GLB', lamp: 'LAMP', plate: 'BACKDROP', crate: 'RECORD CRATE', pumpkin: 'PUMPKIN', holo: 'HOLODANCER' };   // #671
   const spawn = k => {
+    if (k === 'traffic') { mpTab = 'traffic'; drawMixScreen(); return; }
     const o = {};
     if (k === 'pumpkin') { k = 'glb'; o.src = 'halloween_pumpkin.glb'; }
     // #544 GLB + is a new, empty GLB prop and opens the file picker for it (it used to load the first model in the list: the pumpkin since #541)
@@ -7601,7 +7781,7 @@ function drawPropsPage(T) {
     toast(p && p.floor ? (NAMES[k] || 'GROUND') + ' in front of you. Grip the ring on its post to carry it, trigger the cube to size it.' : (NAMES[k] || 'PROP') + ' in front of you. Grip the ring to carry it, trigger the cube to size it (or grip with both hands and stretch).', 4200);
     drawMixScreen();
   };
-  const kinds = [['HOLODANCER +', 'holo'], ['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['GROUND DECAL +', 'decal'], ['WALL DECAL +', 'walldecal'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['CRATE +', 'crate'], ['ALLEY SCENE', 'alley'], ['ROAD SCENE', 'road']];
+  const kinds = [['HOLODANCER +', 'holo'], ['PUDDLE +', 'puddle'], ['RAIN +', 'rain'], ['FOG +', 'fog'], ['GLB +', 'glb'], ['NEON +', 'neon'], ['GRAFFITI +', 'graffiti'], ['GROUND DECAL +', 'decal'], ['WALL DECAL +', 'walldecal'], ['LAMP +', 'lamp'], ['GROUND +', 'ground'], ['BACKDROP +', 'plate'], ['CRATE +', 'crate'], ['ALLEY SCENE', 'alley'], ['ROAD SCENE', 'road'], ['SKY TRAFFIC', 'traffic']];
   const per = P ? 4 : 8, gap = 6, bw = (R - L - gap * (per - 1)) / per, bh = P ? 44 : 34;
   kinds.forEach(([l, k], i) => btn(L + (i % per) * (bw + gap), y0 + Math.floor(i / per) * (bh + 6), bw, bh, l, false, () => spawn(k), false, P ? 16 : 14));
   const top = y0 + Math.ceil(kinds.length / per) * (bh + 6) + 4;
@@ -11276,6 +11456,12 @@ function frameBody() {
     }
     cine.tick(dt, activeBpm, macroDist);
     if (skybox.group.visible) {
+      const overFog = (skydome && skydome.active && skydome.S.monolith) ? (0.35 + 0.65 * skydome.S.haze) : 0;
+      skybox.tickOverlay(dt, overFog);
+      if (skydome && skydome.active) {
+        if (beat && skydome.S.bass) beat.want = true;
+        skydome.tick(dt, { bpm: activeBpm, bassPulse: beat ? beat.pulse : 0, camH: settings.skyH, visible: skybox.group.visible });
+      }
       const evo = cine.panoEvolution(dt, activeBpm);
       if (evo.dTurnDeg > 0) { skySpin.ang = (skySpin.ang + evo.dTurnDeg * DEG) % (2 * Math.PI); applySkyTurn(); }
       skybox.setEvo(evo.tint, evo.gainMul);
@@ -11283,10 +11469,33 @@ function frameBody() {
         cine.panoBlending = false;
         if (toolsPage === 'cine' || toolsPage === 'panolist') drawMixScreen();
       }
-      if (cine.shouldAutoBlend(skyVid)) blendNextPano();
+      if (!(skydome && skydome.active) && cine.shouldAutoBlend(skyVid)) blendNextPano();
     }
   }
   if (mprops) mprops.tick(dt);   // #478
+  if (traffic) {
+    if (skydome && skydome.active) {
+      const riseFog = skydome.S.monolith ? (0.35 + 0.65 * skydome.S.haze) : 0;
+      traffic.setAtmosphere(skyKeyLight ? skyKeyLight.color : null, skydome.S.haze, 0.28, riseFog);
+    }
+    // VR right-controller laser placement while SKY TRAFFIC is armed (Start A -> End B)
+    if (traffic.armMode && renderer.xr.isPresenting && xr && xr.hands) {
+      const rh = xr.hands.find(h => h.source && h.source.handedness === 'right' && !h.isHand);
+      if (rh && rh.ray) {
+        const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(rh.ray.getWorldQuaternion(new THREE.Quaternion())).normalize();
+        traffic.updatePreview(dir);
+        const trig = !!(rh.source.gamepad && rh.source.gamepad.buttons[0] && rh.source.gamepad.buttons[0].pressed);
+        if (trig && !traffic._prevTrig) {
+          const res = traffic.capturePoint(dir);
+          if (res === 'A') toast('Start A pinned! Aim at End B and pull trigger.', 3500);
+          else if (res) toast(`Sky Traffic lane #${traffic.lanes.length} added!`, 2200);
+          drawMixScreen();
+        }
+        traffic._prevTrig = trig;
+      }
+    }
+    traffic.tick(dt);
+  }
   if (fx) fx.preRender(dt);   // #379 FLOAT goes on here (every camera below sees it) and comes off after the frame; WATER uniforms
   stepDirroMorph(dt);
   if ((ledMode === 'cam' || (streamer && streamer.wantsCam) || (gopro && gopro.aiming) || (gopro2 && gopro2.on) || (goproRec && goproRec.on)) && djcam) stepDjCam(dt);   // #826 GOPRO 2 out = its selfie screen keeps filming (it froze 3 s after release: only 'aiming' ran the camera)   // #220 (#331 also while the stream shows AVACAM)
@@ -11311,6 +11520,7 @@ function frameBody() {
 // #427 DIRROGRAM: the show to the audience phones through the relay (dirro-host.js)
 if (!CAMERA_ROLE) dirro = new DirroHost({ renderer, rig, camera, getXr: () => xr, handFit: () => (xr ? xr.handFit : null),   // #469 getBeat: () => tapBeat() || beat, tapBpm: () => (wtapOn() ? 60000 / wtap.iv : 0), laser, micLevel, nowPlaying: dirroNow,
   scrollText: () => (scroller && scroller.on ? scroller.text : ''),
+  skyDomeState: () => (skydome && skydome.active && dome.on) ? { on: 1, w: skydome.S.world, m: skydome.S.monolith ? 1 : 0, my: Math.round((skydome.S.monolithY || 0) * 100) / 100, gr: skydome.S.grade, h: Math.round(skydome.S.haze * 100) / 100, cyc: skydome.S.cycle, sp: skydome.S.speed, ph: Math.round(skydome.S.phase * 100) / 100 } : null,
   getSky: () => (ledMode === 'meta' && ballSky.cv ? ballSky : null),   // #762
   getLed: () => (ledMode === 'card' && cardWall.pic ? { img: true, name: 'card:' + cardWall.name, file: cardWall.file } : { img: !!(led.on && led.img), name: led.name, file: led.name ? led.fileNamed(led.name) : null }),   // #434 (#446 the card's still)   // #434 the LED wall's picture
   tvCanvas: () => (streamer && streamer.active ? streamer.canvas : null),   // #434 the stream / venue-screen picture
@@ -11671,6 +11881,7 @@ function skyLayoutFor(w, h) {
 }
 // Use a picked (or stored) image file: the lighting copy (left eye, <= 2048 wide) and, for panoramas, the full-size sky.
 async function useSkyFile(f, fresh) {
+  if (skydome) skydome.active = false;
   skyFactory = false;   // #538 a real sky replaces the factory one
   const bmp = await createImageBitmap(f), L = skyLayoutFor(bmp.width, bmp.height);
   let c;
@@ -11714,6 +11925,7 @@ function closeSkyVideo() { if (skyVid) { closePanoVideo(skyVid); skyVid = null; 
 // DOME turn on; with a GoPro out the stream shows the GoPro shot over it, and portals stay in the scene as they are.
 async function panoToDome(folder, name) {
   try {
+    if (skydome) skydome.active = false;
     await useSkyMedia(folder, name);
     if (cine) cine.markPanoStarted();
     setBackdrop('dome'); if (!dome.on) await setDome(true);
