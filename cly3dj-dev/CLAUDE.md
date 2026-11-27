@@ -3460,3 +3460,8 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 - `ctlhands.js`: replaced `MeshBasicMaterial` + `onBeforeCompile` in `makeGhostCtlMat()` (which referenced undeclared `objectNormal` and silently failed shader compile, leaving only the interaction dot) with a clean self-contained `THREE.ShaderMaterial` Fresnel hologram shader (preserving `GHOST_DEPTH_MAT` depth pre-pass).
 - `xr.js`, `main.js`: assigned previously unused left-controller `X` button (`gamepad.buttons[4]`, `ctx.onLeftX`) to toggle directly between `holohand` (Holographic Hands) and `controller` (Holographic Controllers) with haptic feedback and toast readout.
 - Synced `ctlhands.js` to `dirroclub_website/gram/js/`; bumped `sw.js` to `vire-app-v330`. No Node restart.
+
+## Gemini_NEON_2026-11-28 #865 `HOLOHAND` & `GHOST GLOVE` Point-at-Rest → Pinch-on-Grab Ergonomics (owner, 28 Nov)
+- `ctlhands.js`: removed the forced `0.56 + 0.44 * t` pre-pinch claw curl in `pose()` (`pinEff = pin`) so `HOLOHAND` and `GHOST GLOVE` rest with a straight relaxed pointing index finger (`POSE.index.open`) and smoothly close into thumb+index `POSE.pinch` only when grabbing a knob/fader (`st.pin` 0 → 1).
+- `xr.js`: moved the `holohand` / `ghostglove` interaction dot base from floating `h.pinchMid` onto the straight index fingertip `h.tipRest` for accurate button pokes, while keeping `snapTarget` + `st.tipDot.position.lerp(snapP, k)` to lock the pinch and dot onto knob/fader caps during twists.
+- Synced `ctlhands.js` to `dirroclub_website/gram/js/`; bumped `sw.js` to `vire-app-v331`. No Node restart.

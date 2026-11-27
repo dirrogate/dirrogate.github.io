@@ -948,7 +948,8 @@ export function setupXR(ctx) {
           st.gloveH.B.Index_Distal.getWorldPosition(_bp);
           (st.gloveRest || (st.gloveRest = new THREE.Vector3())).copy(_bw).add(_bp).multiplyScalar(0.5).applyMatrix4(_ri).addScaledVector(h.padDir, 0.009);
         }
-        const base = ctlLook === 'glove' && st.gloveRest ? st.gloveRest : ((ctlLook === 'ghostglove' || ctlLook === 'holohand') && h.pinchMid ? h.pinchMid : (h.padRest || h.tipRest));
+        // #865 HOLOHAND & GHOST GLOVE: dot sits right on the straight index fingertip (h.tipRest) at rest for crisp button pokes, then snaps onto the knob/fader cap when pinched!
+        const base = ctlLook === 'glove' && st.gloveRest ? st.gloveRest : ((ctlLook === 'ghostglove' || ctlLook === 'holohand') && h.tipRest ? h.tipRest : (h.padRest || h.tipRest));
         const sg = st.source.handedness === 'left' ? -1 : 1;
         (st.sphereLocal || (st.sphereLocal = new THREE.Vector3())).set(pf('bx') * sg, pf('by'), pf('bz')).multiplyScalar(0.001).add(base);   // PINCH FIT sphere offsets (mm, grip space)
         st.grip.localToWorld(st.tip.copy(st.sphereLocal)); st.pinchPt.copy(st.tip);

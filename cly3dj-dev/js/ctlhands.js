@@ -362,8 +362,8 @@ function pose(h, t, g, th, openIndex = false, pin = 0) {
   // The touch point / ball stays the relaxed index tip fixed in grip space (h.tipRest), so the curl never moves it.
   const k = h.soft ? POSE.gloveSoft : 1;
   const PI = POSE.pinch, GO = h.soft ? POSE.gloveO : { thumb: 1, swing: 1, roll: 1, index: 1 };   // #302 the glove's longer thumb turns less
-  // GHOST GLOVE: natural ~2 cm ready-to-pinch relaxed pose (pin = 0.56 at rest -> 1.0 on trigger squeeze) so index & thumb close right onto the ball!
-  const pinEff = (!openIndex && h.ghostOn) ? Math.max(pin, 0.56 + 0.44 * t) : pin;
+  // #865 HOLOHAND & GHOST GLOVE: straight relaxed pointing index at rest (pin = 0) -> smooth thumb+index pinch on latched knob/fader grab (pin -> 1)
+  const pinEff = pin;
   let idx = lerp3(openIndex ? POSE.index.open : POSE.index.rest.map(v => v * k), POSE.index.shut, t);   // ball measured with the unscaled open index (as before)
   if (pinEff > 0) idx = lerp3(idx, PI.index.map(v => v * GO.index), pinEff);   // #420 pinch on a latched control (or GHOST GLOVE pre-pinch)
   const rest = lerp3(POSE.rest.open, POSE.rest.shut, g);
