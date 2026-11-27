@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 24 Nov 2026 (decision log up to #834 in `ViRe_Custom/CLAUDE.md`; #530–#537, #606, and #787–#809 were added by Gemini sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 27 Nov 2026 (decision log up to #863 in `ViRe_Custom/CLAUDE.md`; #530–#537, #606, #787–#809, #837–#863 were added by Gemini_NEON sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -168,6 +168,43 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 
 - A live comic strip drawn by DirroVJ as a bus source (1950s / 60s newsprint, CyberGrunge meets Steampunk). Details and owner decisions: project doc `dirrocomics-plan.md`; user steps: section 8 of `DirroVJ_DirroDJ_User_Manual.docx`.
 - Built: page with peeks, five inking styles, captions / balloons / SFX, black and white ANAGLYPH with depth (SBS, RGB+D, painted depth maps, MediaPipe PEOPLE, LIVE PEOPLE), GRAB QUEST / WEBCAM / RGB-D, issues (.dirrocomic), MP4, PDF STRIP, Instagram REEL 9:16 and CAROUSEL 4:5 (posted by hand), STAR IN IT (Dirrogram card, YES / NO per line, hash-chained consent log on the relay, WITHDRAW), terms text on the Dirrogram, AI storyboard (Gemini free tier or Claude API, 8 to 12 panels), the owner's DirroComics mark.
+
+## Status (25 Nov)
+
+- **Gemini_NEON_2026-11-25_01:07 (#837, `sw.js` `vire-app-v302`, pushed to `cly3dj-dev` commit `1888808`):** Added master **`DECK MODE: ORIGINAL / VREAL`** A/B switch on the Mixer Tablet Remote's `DJ TOOLS` page (`main.js`, `deck-worklet.js`, `xr.js`) to test Original SL-1200 two-body physics side-by-side with Vinyl Reality's decompiled kinematic handling (`SmoothDamp(0.1s)` rim nudge + rim-dot haptics, `SmoothDampAngle(0.02s)` scratching + linear slipmat friction, quaternion swing-twist wrist-only spindle with no thumbstick bend, gravity+bounce tonearm drop & phase-snapped needle drops; RIAA kept ON; `Original` path untouched; backups in `backups/*.pre_vreal`).
+
+## Gemini_NEON Status (27 Nov 2026)
+
+- **Dev (`cly3dj-dev`)** updated & pushed through `#863` (`sw.js` `vire-app-v329`, commit `a93d3ab`). Release `cly3dj` untouched.
+- **Gemini_NEON_2026-11-27 #863 — `SOLSTICE` Teal-Orange Sunset, Sun Shimmer, Dual Clouds, `WETNESS → OCEAN` & Clean Full Moon:** Added subtle Sun limb heat-mirage shimmer, dual-layer clouds (behind + in front of Sun/Moon), teal-orange sunset grading, calm animated teal-blue `OCEAN` (`WETNESS >= 95%`) with organic undulating horizon + sea-mist + 1-bar beat-sampled concentric swell rings + golden Sun/silver Moon glitter paths (~0.12–0.18 ms/frame Quest 3 GPU cost), replaced pinched `moon_albedo.png` with a clean 512×512 photorealistic Moon albedo, extended Moon dwell time ~30%, and blended from faint Sun-lit sunset crescent to Full Moon at night. Synced to `dirroclub_website/gram/`.
+- **Gemini_NEON_2026-11-27 #862 — `SOLSTICE` Sun/Moon Size + Dirrogram `WINDOW` Portal Cutout Sync:** Split `SOLSTICE` `HAZE` row into `HAZE` + `SUN/MOON` (`0.4×–3.0×`), synced active `WINDOW` portals from Quest to audience phones (`dirro-host.js` → `dirrogram.js`), added `PORTAL_SKY` cutout + procedural 3D skylight/window bevel frames in `dirrogram.js`, and synced missing assets (`cyberdirro_plate.glb`, `turntable_ao.png/json`) into `dirroclub_website/gram/`.
+- **Gemini_NEON_2026-11-27 #859–#861 — Generative SkyDomes, `+ MONOLITH` Kit Effect, Alpha-Cutout Overlays, `SKY TRAFFIC` & Dirrogram Sync:**
+  - Added `web/js/skydome.js` (5 lightweight per-world shaders compiling in ~317 ms, `2048×1024` 4-strip progressive RT = 0.52M px/frame @ 18 fps, zero video decoders): `AURORA` (NASA `img/moon_albedo.png`), `SOLSTICE` (limb-darkened Sun + 22° halo + moonrise), `WORMHOLE` (dark saturated TARDIS-style vortex), `DROSTE` (recursive spiral galaxies), and `NEBULA` (stark undulating filaments + vivid gear reflections). Combinable `+ MONOLITH` effect layers cleaned `img/monolith_360_cutout.webp` + nadir-to-zenith rising fog + searchlights + vertical-contrast 2.5 s random window fades over any sky world. Plan in `SKYDOME_PLAN.md`.
+  - Upgraded `web/js/skybox.js` with `setGenerative()`, `mapOver` alpha-cutout overlays (`PANO/IMAGES → CUTOUT`), strict alpha masking, `CUTOUT Y` elevation slider, `MONOLITH` rising fog wisps, and chroma-green (`#00FF00`) window key with random smooth fades.
+  - Added `web/js/traffic.js` (`MOVIE PROPS > SKY TRAFFIC`): PBR `MeshStandardMaterial` 3-class aerial assortment (Spinners, Twin-Hull Shuttles, Slow Hulking Overhead Cruiser) with SkyDome reflections + rising fog + laser `A → B` great-circle sky lanes + portal cutting.
+  - Added ~70-byte SkyDome relay sync in `dirro-host.js` + local 512×256 phone SkyDome rendering in `dirrogram.js` (mirrored to `dirroclub_website/gram/`).
+
+## Gemini_NEON Status (26 Nov)
+
+- **Dev (`cly3dj-dev`)** updated through `#853` (`sw.js` `vire-app-v318`, commits `cc36f4a` & `0d4a50a`, ready to push in GitHub Desktop). Release `cly3dj` untouched.
+- **Gemini_NEON #852–#853 — CYBERMoonday `CyberCinematics` Pipeline + `actioncam_lowpoly.glb` GoPro 2:**
+  - Added `web/js/cinematics.js` (shared by `stream.js`, `goprorec.js`, and GoPro viewfinders): Stage 1 CGI micro-soften pre-ACES, Stage 2 Black Pro-Mist (`OFF / 1/4 / 1/2 / FULL`, 1/4-res separable blur halation + diffusion veil + shared grain + corner CA), Stage 3 GoPro Macro DoF (`AUTO / ON / OFF`), `HEADSET CAM` background bokeh, 3D Booth Dust Motes (`OFF / DUST / EMBERS / MIST`), and Anjunadeep bar-driven pano evolution (`skybox.js` `setEvo`: glacial bar rotation, 32-bar `SUNSET`/`DEEP` grade, 8-bar breathing).
+  - Upgraded `gopro.js` with optimized `web/models/props/actioncam_lowpoly.glb` (1,152 tris, 1 draw call, 512x512 JPEG textures, 166 KB), cylinder grip handle, top REC button + flashing red ring, side near-lens tap buttons (`MIST` / `DoF` in `xr.js`), 128x64 LED dot-matrix status readout, and unfrozen live rear + front selfie screens sampled from the separate post-processed `cine` RT.
+  - Added dedicated **`CINEMATICS`** Remote Tablet page (`SETUP > CINEMATICS` and `SHOWTIME! > EXTRAS > CINEMATICS ▸`). Plans in `CYBERMOONDAY_PLAN.md` (built) and `DIRROFLIX_PLAN.md` (on hold).
+- **Gemini_NEON #845–#847 — `HOLOHAND`, Left-Wrist `DIRRO` Band Tap, 1.5 s Morph & Ball Pin:**
+  - Added see-through `HOLOHAND` controller look (Quest 3 Fresnel ghost hand with no leather glove so knobs stay visible through the hand) + left-hand `DIRRO` + Dirrogate emblem (`web/img/dirro_emblem.png`) wrist band.
+  - Tapping the left wrist band with the right hand triggers a **1.5 s** synchronized full-avatar holographic cyan scanline wipe (`HOLOHAND` ↔ `GHOST GLOVE` + `CYBERDIRRO PLATE` ↔ `ROBOT v2` original holo-hemmed body), completely hiding the previous avatar when the wipe completes; both `cyber_plate` and `robot` are preloaded at startup for zero mid-set hitching.
+  - Interaction ball (`st.tipDot`) stays pinned to the latched knob/fader/power cap while twisting your wrist (`xr.js`), releasing cleanly on trigger up.
+- **Gemini_NEON #839, #842, #843 — `CYBERDIRRO`, `CYBERDIRRO PLATE` & `ROBOT` Fiber-Optic Hem:**
+  - Renamed `DIRRO REAL 3` → **`CYBERDIRRO`** and added **`CYBERDIRRO PLATE`** (`web/models/avatar/cyberdirro_plate.glb`, 3.73 MB WebP, 33,384 tris vs 54,690 on full body): user-aligned double-sided `avatar_robot.glb` breastplate (top black ring removed) + 16-tri dark matte inner baffle skinned to `Spine2`/`Neck` (`blender/avatar_photo/cyberdirro_plate.blend`), arm/leg IK skipped in `director.js`.
+  - Added zero-draw-call Quest Ghost **fiber-optic glowing hem** shader (`aHemDist` bottom-rim distance + Fresnel cyan-white glow + micro-weave shimmer) to both `CYBERDIRRO PLATE` (`director.js` `_plateGhostHem`) and `ROBOT` (`robot2.js` `applyRobotGhostHem` on `Neck` breastplate only).
+- **Gemini_NEON #839, #841, #843 — First-Person & Third-Person `GHOST GLOVE` Look:**
+  - Built user-aligned 25-joint rigged distressed fingerless leather gloves (`web/models/avatar/ghost_glove_left.glb` & `right.glb`, 220 KB WebP each, `blender/avatar_photo/ghost_glove_align_clean.blend`) worn over a Quest 3 Fresnel ghost outline hand (`ctlhands.js` `makeGhostHandMat` + depth pre-pass, no controller mesh).
+  - Pre-pinched ~2 cm ready-to-pinch relaxed index/thumb pose (`pinEff = 0.56 + 0.44 * trigger`) with the transparent interaction ball locked at `h.pinchMid` so fingers close directly onto the ball with zero drift.
+  - Visible in GoPro 1 / GoPro 2 Remote Tablet previews & SHOWTIME! (`showPrep` + `djPrep`) for both `CYBERDIRRO PLATE` and `ROBOT` (automatically hides `ROBOT`'s chrome gloves when `GHOST GLOVE` is active).
+- **Gemini_NEON #839 — Panoramic Dome Deck & Sleeve Anti-Aliasing:**
+  - Added chainable Tokuyoshi-Kaplanyan Geometric Specular AA (`applyGSAA` in `deck-glb.js`, chained with `fx.js` WATER) on GLB turntable materials and record sleeves; muted 3 mm cream cardboard edges (`sleeveCard`, `MAT.sleeve`), bumped sleeve/cover anisotropy to 8 with trilinear mipmaps, added 2 px outer cover border feather (`softenSleeveEdge`), and enabled `alphaToCoverage` on 7" paper sleeve holes.
+- **Gemini_NEON #840 — `CLY3DJ BEANIE` Eyewear Fit:** Added `glasses: { fwd: 0.030, up: 0.0, scale: 1.0 }` to `AVATAR_STYLES.beanie` in `main.js`.
 
 ## Status (24 Nov)
 
