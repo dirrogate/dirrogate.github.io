@@ -6993,6 +6993,7 @@ function openKbd(title, text, emoji, max, done, back) { Object.assign(kbd, { tit
 // #387 the Meta system keyboard (with voice dictation) for the tablet KEYBOARD page: a real <input> focused from a user gesture,
 // like the crate search. Its text is mirrored into kbd.text; Enter in it = ENTER on the page.
 let sysKbPending = false;
+let sysKbTarget = 'kbd';   // #870b 'kbd' (tablet KEYBOARD page) | 'chat' (popout 3D Twitch ChatPanel board)
 const sysKbInput = document.createElement('input');
 Object.assign(sysKbInput, { type: 'text', autocomplete: 'off', spellcheck: false, enterKeyHint: 'done' });
 sysKbInput.id = 'tabletText';
@@ -7000,18 +7001,35 @@ sysKbInput.style.cssText = 'position:fixed;left:50%;top:52px;transform:translate
 document.body.appendChild(sysKbInput);
 sysKbInput.addEventListener('focus', () => { sysKbInput.style.opacity = 1; sysKbInput.style.pointerEvents = 'auto'; });
 sysKbInput.addEventListener('blur', () => { sysKbInput.style.opacity = 0; sysKbInput.style.pointerEvents = 'none'; sysKbPending = false; });
-sysKbInput.addEventListener('input', () => { if (toolsPage !== 'kbd') return; kbd.text = [...sysKbInput.value].slice(0, kbd.max).join(''); drawMixScreen(); });
+sysKbInput.addEventListener('input', () => {
+  if (sysKbTarget === 'chat') {
+    chatDraft = [...sysKbInput.value].slice(0, 240).join('');
+    if (chatPanel && chatPanel.on && chat) chatPanel.draw(chat, chatRedraw, chatDraft);
+    return;
+  }
+  if (toolsPage !== 'kbd') return;
+  kbd.text = [...sysKbInput.value].slice(0, kbd.max).join('');
+  drawMixScreen();
+});
 sysKbInput.addEventListener('keydown', e => {
   e.stopPropagation();
-  if (e.key === 'Enter') { sysKbInput.blur(); if (toolsPage === 'kbd') kbdKey('ENTER'); }
+  if (e.key === 'Enter') {
+    sysKbInput.blur();
+    if (sysKbTarget === 'chat') {
+      chatDraft = [...sysKbInput.value].slice(0, 240).join('').trim();
+      if (chatPanel && chatPanel.on && chat) chatPanel.draw(chat, chatRedraw, chatDraft);
+    } else if (toolsPage === 'kbd') kbdKey('ENTER');
+  }
   if (e.key === 'Escape') sysKbInput.blur();
 });
 function openSysKb() {
-  sysKbInput.maxLength = kbd.max || 200; sysKbInput.value = kbd.text || '';
+  if (sysKbTarget === 'chat') { sysKbInput.maxLength = 240; sysKbInput.value = chatDraft || ''; }
+  else { sysKbInput.maxLength = kbd.max || 200; sysKbInput.value = kbd.text || ''; }
   try { sysKbInput.focus({ preventScroll: true }); sysKbInput.setSelectionRange(sysKbInput.value.length, sysKbInput.value.length); } catch (e) {}
   return document.activeElement === sysKbInput;
 }
-function sysKbTap() {   // the tablet button: try now (works with a trigger tap); a fingertip poke is not always a gesture, so keep it armed for the next trigger / pinch
+function sysKbTap(target) {   // the button: try now (works with a trigger tap); a fingertip poke is not always a gesture, so keep it armed for the next trigger / pinch
+  if (target) sysKbTarget = target;
   if (openSysKb()) { sysKbPending = false; return; }
   sysKbPending = true; toast('Pull the trigger or pinch anywhere to open the headset keyboard', 3500);
 }
@@ -10464,7 +10482,7 @@ function drawToolsPage() {
     return;
   }
   if (page === 'kbd') {
-    const y0 = head(kbd.title, kbd.back, { label: 'MIC / KEYS', on: sysKbPending, act: sysKbTap });   // #387 the headset keyboard + dictation
+    const y0 = head(kbd.title, kbd.back, { label: 'MIC / KEYS', on: sysKbPending && sysKbTarget === 'kbd', act: () => sysKbTap('kbd') });   // #387 the headset keyboard + dictation
     g.fillStyle = '#0d1422'; g.fillRect(L, y0, R - L, 44);
     g.save(); g.beginPath(); g.rect(L, y0, R - L, 44); g.clip();
     {   // #432 (owner) the typed text always in a plain font (was the pixel font; #431 switched only for missing glyphs)
@@ -11838,12 +11856,8 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
     const hit = chatPanel.pokeHit(P);
     if (!hit || !act) return hit;
     if (hit.kind === 'reply') {
-      const prevPage = toolsPage;
-      openKbd('TWITCH CHAT REPLY (TYPE OR MIC)', chatDraft, false, 240, t => {
-        chatDraft = String(t || '').trim();
-        if (chatPanel && chatPanel.on) chatPanel.draw(chat, chatRedraw, chatDraft);
-      }, prevPage || 'home');
-      sysKbTap();
+      // #870b Stream Quest 3 system keyboard / mic dictation straight into the popout Twitch ChatPanel board (never hijacks Tablet Remote!)
+      sysKbTap('chat');
     } else if (hit.kind === 'send') {
       const r = chat.send(chatDraft);
       if (r.ok) { chatDraft = ''; chatPanel.draw(chat, chatRedraw, chatDraft); toast('Sent to #' + chat.channel, 1500); }
