@@ -90,17 +90,31 @@ export function drawBitText(g, s, x, y, px, color, bold = true) {
 }
 export const bitWidth = (s, px) => [...emojiText(s)].reduce((w, ch) => w + (glyph(ch)[0].length + 1) * px, 0);
 
-// ---------------------------------------------------------------- VJ Scroller (2D canvas band for stream / DirroTV / DirroVJ)
+// ---------------------------------------------------------------- VJ Scroller (2D stream band + 3D floating SkyDome overlay)
 export class Scroller {
   constructor() {
     this.on = false; this.t = 0; this.x = 0; this.n = 0; this.parts = [];   // #686 floaters
     const s = (() => { try { return JSON.parse(localStorage.getItem('vire.scroller') || '{}'); } catch { return {}; } })();
     this.text = s.text || 'CLY3DJ ☺ VINYL IN MIXED REALITY 👍'; this.wave = s.wave ?? 6; this.speed = s.speed ?? 5;
+    this.yPos = typeof s.yPos === 'number' ? Math.max(0, Math.min(1, s.yPos)) : 0.25;   // #869 adjustable Y position (0..1)
     this.canvas = document.createElement('canvas'); this.canvas.width = 768; this.canvas.height = 128;
     this.g = this.canvas.getContext('2d');
-    this.mesh = { visible: false };
+    // #869 Real 3D floating overlay quad so the scroller displays crisply over SkyDomes (NEBULA / SOLSTICE / AURORA etc.)
+    this.tex = new THREE.CanvasTexture(this.canvas);
+    this.tex.colorSpace = THREE.SRGBColorSpace;
+    this.tex.minFilter = THREE.LinearFilter;
+    this.tex.magFilter = THREE.LinearFilter;
+    const mat = new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.60), mat);
+    this.mesh.name = 'ScrollerOverlay';
+    this.mesh.position.set(0, 0.65 + this.yPos * 2.1, -3.2);
+    this.mesh.renderOrder = 4;
+    this.mesh.frustumCulled = false;
+    this.mesh.raycast = () => {};
+    this.mesh.visible = false;
   }
-  save() { try { localStorage.setItem('vire.scroller', JSON.stringify({ text: this.text, wave: this.wave, speed: this.speed })); } catch {} }
+  save() { try { localStorage.setItem('vire.scroller', JSON.stringify({ text: this.text, wave: this.wave, speed: this.speed, yPos: this.yPos })); } catch {} }
+  setYPos(v) { this.yPos = Math.max(0, Math.min(1, +v || 0)); this.mesh.position.y = 0.65 + this.yPos * 2.1; this.save(); }
   start(text) { if (text != null) this.text = text; this.save(); this.on = true; this.x = this.canvas.width; this.mesh.visible = true; }
   stop() { this.on = false; this.mesh.visible = false; }
   tick(dt) {
@@ -139,6 +153,7 @@ export class Scroller {
       for (let r = 0; r < gl.length; r++) for (let c = 0; c < gl[r].length; c++) if (gl[r][c]) g.fillRect(p.x + c * p.px, p.y + r * p.px, p.px * 1.15, p.px);
     }
     g.globalAlpha = 1; this.parts = this.parts.filter(p => p.t < p.life && p.y > -40);
+    if (this.tex) this.tex.needsUpdate = true;
   }
 }
 

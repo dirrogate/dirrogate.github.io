@@ -10,23 +10,52 @@ export const chatChannel = {
   get: () => { try { return (localStorage.getItem('vire.twitchChannel') || 'dirrogate').trim().toLowerCase().replace(/^#/, ''); } catch { return 'dirrogate'; } },
   set: v => { try { localStorage.setItem('vire.twitchChannel', (v || '').trim().toLowerCase().replace(/^#/, '')); } catch {} },
 };
+// #869 Optional Twitch IRC OAuth token for sending chat replies from VR (stored only on this device)
+export const chatToken = {
+  get: () => { try { return (localStorage.getItem('vire.twitchToken') || '').trim(); } catch { return ''; } },
+  set: v => { try { localStorage.setItem('vire.twitchToken', (v || '').trim()); } catch {} },
+};
 
 export class TwitchChat {
   constructor(onChange) {
-    this.onChange = onChange || (() => {}); this.msgs = []; this.status = 'off'; this.ws = null; this.on = false; this.tries = 0; this.channel = '';
+    this.onChange = onChange || (() => {}); this.msgs = []; this.status = 'off'; this.ws = null; this.on = false; this.tries = 0; this.channel = ''; this.authed = false;
   }
   start(channel = chatChannel.get()) {
     this.channel = channel; this.on = true; this._open();
   }
-  stop() { this.on = false; clearTimeout(this.rt); if (this.ws) { try { this.ws.close(); } catch {} this.ws = null; } this._st('off'); }
+  stop() { this.on = false; this.authed = false; clearTimeout(this.rt); if (this.ws) { try { this.ws.close(); } catch {} this.ws = null; } this._st('off'); }
+  canSend() { return !!(this.ws && this.ws.readyState === 1 && this.authed && this.channel); }
+  send(text) {
+    const t = String(text || '').replace(/[\r\n]+/g, ' ').trim();
+    if (!t) return { ok: false, err: 'empty' };
+    if (!chatToken.get()) return { ok: false, err: 'no-token' };
+    if (!this.ws || this.ws.readyState !== 1) return { ok: false, err: 'offline' };
+    if (!this.authed) return { ok: false, err: 'not-authed' };
+    this.ws.send(`PRIVMSG #${this.channel} :${t}`);
+    // Twitch IRC doesn't echo our own PRIVMSG back; append locally immediately
+    const meName = this.channel || 'DJ';
+    this.add({ id: 'self-' + Date.now(), name: meName, color: '#5ee0ff', toks: [{ t }], me: false, hl: false });
+    return { ok: true };
+  }
   _st(s) { this.status = s; this.onChange('status'); }
   _open() {
     if (!this.on || !this.channel) return;
     try { this.ws = new WebSocket(URL_); } catch (e) { this._st('error'); this._retry(); return; }
     const ws = this.ws; this._st('connecting');
     ws.onopen = () => {
-      ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands'); ws.send('PASS SCHMOOPIIE');
-      ws.send('NICK justinfan' + (10000 + Math.floor(Math.random() * 80000))); ws.send('JOIN #' + this.channel);
+      ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+      const rawTok = chatToken.get();
+      if (rawTok) {
+        const pass = rawTok.startsWith('oauth:') ? rawTok : 'oauth:' + rawTok;
+        this.authed = true;
+        ws.send('PASS ' + pass);
+        ws.send('NICK ' + this.channel);
+      } else {
+        this.authed = false;
+        ws.send('PASS SCHMOOPIIE');
+        ws.send('NICK justinfan' + (10000 + Math.floor(Math.random() * 80000)));
+      }
+      ws.send('JOIN #' + this.channel);
     };
     ws.onmessage = e => { for (const line of String(e.data).split('\r\n')) if (line) this._line(line, ws); };
     ws.onclose = () => { if (this.ws === ws) { this.ws = null; if (this.on) { this._st('reconnecting'); this._retry(); } } };

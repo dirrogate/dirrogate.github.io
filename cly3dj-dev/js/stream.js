@@ -1013,7 +1013,7 @@ export class Streamer {
   _overlays(g, W, H) {   // 3. overlays (#347 PHONE CAM uses them too)
     const O = this.showOpt;
     const sc = this.env.scroller && this.env.scroller();
-    if (O.scroll && sc && sc.on && sc.canvas && !this._wallShot) { const bh = Math.round(W * sc.canvas.height / sc.canvas.width * 0.66); g.drawImage(sc.canvas, 0, H - bh - Math.round(H * 0.01), W, bh); /* a little wider than the wall's band: ~20 % of the frame */ }
+    if (O.scroll && sc && sc.on && sc.canvas && !this._wallShot) { const bh = Math.round(W * sc.canvas.height / sc.canvas.width * 0.66), yPos = typeof sc.yPos === 'number' ? sc.yPos : 0.05; const sy = Math.round((1 - yPos) * (H - bh - 16)) + 8; g.drawImage(sc.canvas, 0, sy, W, bh); /* #869 adjustable Y position */ }
     if (O.np) this._npBar(g, W, H);   // #396 the now-playing bar (no BPM), slides in on every new track
     if (O.chat && this.env.chat) {   // #340 the newest messages on the right, each fading out 40 s after it arrived
       const ch = this.env.chat(), now = performance.now(), recent = ch && ch.msgs.filter(m => !m.sys && now - m.t < 42000);

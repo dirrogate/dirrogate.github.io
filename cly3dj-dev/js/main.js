@@ -20,7 +20,7 @@ import { Eyewear, EYEWEAR_STYLES } from './eyewear.js';   // #806 standalone gra
 import { RealDepth } from './realdepth.js';
 import { solveCamFit, CAL_TARGETS, QUICK_TARGETS } from './camfit.js';   // #415 HEADSET CAM auto fit   // #413 depth-camera-correct occlusion
 import { Laser, PATTERNS as LASER_PATS, PAT_LABEL as LASER_PL, COLOURS as LASER_COLS, COL_LABEL as LASER_CL } from './laser.js';   // #406 laser head prop   // #337 movable camera for SHOW / AVACAM
-import { TwitchChat, ChatPanel, drawChat, chatChannel } from './chat.js';   // #340 Twitch chat
+import { TwitchChat, ChatPanel, drawChat, chatChannel, chatToken } from './chat.js';   // #340/#869 Twitch chat + VR reply
 import { WhiteBoard, makeBoardTools } from './whiteboard.js';   // #395 the whiteboard, markers and duster
 import { InkLabel } from './inklabel.js';   // #394 milk crate labels
 import { makeSleeves } from './sleeves.js';   // #347 PHONE CAM forearm sleeves
@@ -463,6 +463,9 @@ applyShadows(false);   // desktop default: per the Shadows setting (blob by defa
 // #530 2D visuals playlist player and sine-wave scroller (3D LED wall removed; visuals drive BACK: VISUALS and Dirrogram)
 const led = new LedPlayer();
 const scroller = new Scroller();
+scroller.mesh.layers.set(USER_LAYER);   // DJ-only 3D overlay over SkyDomes (stream.js draws its crisp 2D band at the same Y POS -> zero double-draw!)
+rig.add(scroller.mesh);   // #869 3D floating scroller overlay visible over SkyDomes (NEBULA / SOLSTICE / etc.)
+let chatDraft = '';       // #869 Twitch chat reply draft populated via Quest 3 keyboard / mic dictation
 // #220 DJ CAM: virtual camera (GOPRO / GOPRO2 angles) with an avatar copying the DJ's head and hands
 const djSet = (() => { try { return { preset: 'gopro', mirror: true, avatar: true, style: 'robot', beanieCol: 0, shirtCol: 0, shades: true, ...JSON.parse(localStorage.getItem('vire.djcam') || '{}') }; } catch { return { preset: 'gopro', mirror: true, avatar: true, style: 'robot', beanieCol: 0, shirtCol: 0, shades: true }; } })();
 function saveDjSet() { try { localStorage.setItem('vire.djcam', JSON.stringify(djSet)); } catch {} }
@@ -716,7 +719,8 @@ function stepMonitor(now) {
   const live = S.state === 'live', con = S.state === 'connecting';
   const tag = live ? '● LIVE ' + S.elapsed() : con ? 'CONNECTING…' : 'REHEARSAL · OFF AIR';
   g.font = '700 13px system-ui,sans-serif'; g.textBaseline = 'middle'; const tw = g.measureText(tag).width;
-  g.fillStyle = live ? 'rgba(200,20,30,0.85)' : 'rgba(0,0,0,0.6)'; g.fillRect(6, 6, tw + 14, 20); g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(tag, 13, 16.5);
+  // #869 Move LIVE / REHEARSAL badge down to y=34 so it sits cleanly below the top-left Now Playing song readout
+  g.fillStyle = live ? 'rgba(200,20,30,0.85)' : 'rgba(0,0,0,0.6)'; g.fillRect(6, 34, tw + 14, 20); g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(tag, 13, 44.5);
   g.textAlign = 'right'; g.fillStyle = 'rgba(0,0,0,0.6)'; const sl = S.stu && S.stu.on ? 'DIRROVJ · ' + (S.stu.mode === 'show' ? 'SHOWTIME!' : 'WEBCAM+GEAR!') : STREAM_SRC[S.source] || '';   /* #734 */ const sw = g.measureText(sl).width; g.fillRect(W - sw - 20, 6, sw + 14, 20); g.fillStyle = '#dfe6f2'; g.fillText(sl, W - 13, 16.5);
   g.textBaseline = 'alphabetic'; monTex.needsUpdate = true;
 }
@@ -9525,23 +9529,55 @@ function drawToolsPage() {
     note(P ? 'DOME is the sky dome (VISUALS > PANO > SKY); it and the VISUALS backdrop behind are one at a time, and NONE is the BACK button on the STREAM page. HEADSET CAM turns ROBO-BODY (the full robot avatar) off while it is the camera. GoPro: a prop other cameras film, hidden from its own camera. NEON is the heaviest object.' : (S.source === 'headset' ? 'HEADSET CAM: ROBO-BODY is off. HANDS: REAL = nothing drawn on your hands. DOME: VISUALS > PANO > SKY.' : 'DOME: VISUALS > PANO > SKY, one at a time with the VISUALS backdrop (NONE = BACK on TWITCH).'), ny);
     return;
   }
-  if (page === 'chat') {   // #340 Twitch chat (read-only)
-    const y0 = head('TWITCH CHAT · #' + (chat ? chat.channel : ''), 'stream'); if (!chat) return;
-    const S = streamer, bw = P ? (R - L - 16) / 3 : 150, bh = P ? 48 : 36;
-    btn(L, y0, bw, bh, chatPanel && chatPanel.on ? 'PANEL: ON' : 'PANEL', !!(chatPanel && chatPanel.on), chatPanelTap, !chatPanel, 16);
-    btn(L + bw + 8, y0, bw, bh, 'TWITCH CHAT', !!(S && S.showOpt.chat), S ? () => S.setShowOpt('chat', !S.showOpt.chat) : null, !S, 16);
-    btn(L + 2 * (bw + 8), y0, bw, bh, 'RECONNECT', false, () => { chat.stop(); chat.tries = 0; chat.start(); drawMixScreen(); }, false, 16);
+  if (page === 'chat') {   // #340/#869 Twitch chat + Quest 3 keyboard / mic reply bar
+    const tokOk = !!chatToken.get();
+    const y0 = head('TWITCH CHAT · #' + (chat ? chat.channel : ''), 'stream', {
+      label: tokOk ? 'TOKEN ✓' : 'TOKEN…', on: tokOk,
+      act: () => { openKbd('TWITCH CHAT OAUTH TOKEN', chatToken.get(), false, 120, t => { chatToken.set(t); if (chat) { chat.stop(); chat.tries = 0; chat.start(); } toast(t.trim() ? 'Twitch chat token saved — reconnecting…' : 'Twitch chat token cleared', 2400); }, 'chat'); sysKbTap(); }
+    });
+    if (!chat) return;
+    const S = streamer, bw = P ? (R - L - 16) / 3 : 138, bh = P ? 42 : 32;
+    btn(L, y0, bw, bh, chatPanel && chatPanel.on ? 'PANEL: ON' : 'PANEL', !!(chatPanel && chatPanel.on), chatPanelTap, !chatPanel, 15);
+    btn(L + bw + 8, y0, bw, bh, 'TWITCH CHAT', !!(S && S.showOpt.chat), S ? () => S.setShowOpt('chat', !S.showOpt.chat) : null, !S, 15);
+    btn(L + 2 * (bw + 8), y0, bw, bh, 'RECONNECT', false, () => { chat.stop(); chat.tries = 0; chat.start(); drawMixScreen(); }, false, 15);
     // #341 CHALKBOARD (a slate with chalks on its ledge; #377 its own object, not the chat panel) and WIPE (tap twice)
-    const yb2 = y0 + bh + (P ? 8 : 6), bw2 = P ? (R - L - 8) / 2 : 150, wipeArm = performance.now() - (chalkWipeT || 0) < 2500;
-    btn(L, yb2, bw2, bh, chalkLbl(), !!(chalkboard && chalkboard.on), chalkboard ? () => { chalkboard.setOn(!chalkboard.on); chalkboard.save(); drawMixScreen(); } : null, !chalkboard, 15);   // #377 its own object
-    btn(L + bw2 + 8, yb2, bw2, bh, wipeArm ? 'TAP AGAIN TO WIPE' : 'WIPE', wipeArm, chalkboard && chalkboard.on ? () => { if (wipeArm) { chalkWipeT = 0; chalkboard.wipe(); } else { chalkWipeT = performance.now(); setTimeout(drawMixScreen, 2600); } drawMixScreen(); } : null, !(chalkboard && chalkboard.on), 15);
-    const st = { joined: '● connected', connecting: 'connecting…', reconnecting: 'reconnecting…', off: 'off', error: 'error' }[chat.status] || chat.status;
-    g.fillStyle = chat.status === 'joined' ? '#40d080' : '#f1b650'; g.font = '700 15px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
-    if (P) g.fillText(st, L + 4, y0 + bh + 16); else g.fillText(st, L + 3 * (bw + 8) + 6, y0 + bh / 2);
+    const yb2 = y0 + bh + (P ? 8 : 5), bw2 = P ? (R - L - 8) / 2 : 138, wipeArm = performance.now() - (chalkWipeT || 0) < 2500;
+    btn(L, yb2, bw2, bh, chalkLbl(), !!(chalkboard && chalkboard.on), chalkboard ? () => { chalkboard.setOn(!chalkboard.on); chalkboard.save(); drawMixScreen(); } : null, !chalkboard, 14);
+    btn(L + bw2 + 8, yb2, bw2, bh, wipeArm ? 'TAP AGAIN TO WIPE' : 'WIPE', wipeArm, chalkboard && chalkboard.on ? () => { if (wipeArm) { chalkWipeT = 0; chalkboard.wipe(); } else { chalkWipeT = performance.now(); setTimeout(drawMixScreen, 2600); } drawMixScreen(); } : null, !(chalkboard && chalkboard.on), 14);
+    const st = { joined: chat.authed ? '● live (can reply)' : '● read-only', connecting: 'connecting…', reconnecting: 'reconnecting…', off: 'off', error: 'error' }[chat.status] || chat.status;
+    g.fillStyle = chat.status === 'joined' ? '#40d080' : '#f1b650'; g.font = '700 14px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    if (P) g.fillText(st, L + 4, yb2 + bh + 12); else g.fillText(st, L + 3 * (bw + 8) + 6, y0 + bh / 2);
     g.textBaseline = 'alphabetic';
-    const cy = y0 + 2 * bh + (P ? 40 : 14);
-    if (!chat.msgs.some(m => !m.sys)) note('No messages yet. Read-only: replies from the headset need a Twitch login (later). PANEL: a chat screen in the room, grip / pinch to move it, double-tap PANEL = back to its spot. TWITCH CHAT: chat on the right of SHOWTIME!.', cy + 60);
-    else drawChat(g, L, cy, R - L, H - cy - (P ? 28 : 6), chat.msgs, { fs: P ? 17 : 16, bg: '#0a0c12', onEmote: chatRedraw });
+
+    // Reserve bottom reply bar: [REPLY (Quest KBD/MIC)] [Draft text field] [SEND]
+    const barH = P ? 42 : 34, barY = H - barH - (P ? 8 : 6);
+    const cy = yb2 + bh + (P ? 24 : 8), ch = Math.max(40, barY - cy - 6);
+    if (!chat.msgs.some(m => !m.sys)) note('No messages yet. Tap REPLY below to type or dictate with Quest 3 Mic, then tap SEND (needs a Twitch chat OAuth token in TOKEN… or Start Page Settings).', cy + 28);
+    else drawChat(g, L, cy, R - L, ch, chat.msgs, { fs: P ? 16 : 15, bg: '#0a0c12', onEmote: chatRedraw });
+
+    const openReply = () => {
+      openKbd('TWITCH CHAT REPLY (TYPE OR MIC)', chatDraft, false, 240, t => { chatDraft = String(t || '').trim(); }, 'chat');
+      sysKbTap();
+    };
+    const sendReply = () => {
+      const r = chat.send(chatDraft);
+      if (r.ok) { chatDraft = ''; drawMixScreen(); toast('Sent to #' + chat.channel, 1500); }
+      else if (r.err === 'no-token') toast('Add a Twitch chat OAuth token via TOKEN… (or Start Page Settings) to send replies.', 3800);
+      else if (r.err === 'not-authed') { chat.stop(); chat.tries = 0; chat.start(); toast('Reconnecting with your token — tap SEND again in 1 s.', 2600); }
+      else if (r.err === 'offline') toast('Chat not connected yet.', 2000);
+    };
+    const rW = P ? 78 : 96, sW = P ? 72 : 84, fX = L + rW + 6, fW = Math.max(60, (R - L) - rW - sW - 12);
+    btn(L, barY, rW, barH, 'REPLY', false, openReply, false, P ? 14 : 15);
+    // Clickable draft input box (tapping also pops up Quest keyboard / mic)
+    g.fillStyle = '#0d1422'; g.fillRect(fX, barY, fW, barH);
+    g.strokeStyle = chatDraft ? '#39a8ff' : '#2a3346'; g.lineWidth = 1.5; g.strokeRect(fX + 0.5, barY + 0.5, fW - 1, barH - 1);
+    g.save(); g.beginPath(); g.rect(fX + 6, barY, fW - 12, barH); g.clip();
+    g.font = `500 ${P ? 14 : 15}px system-ui,sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
+    g.fillStyle = chatDraft ? '#ffffff' : '#6c778c';
+    g.fillText(chatDraft || 'Tap REPLY to type or dictate…', fX + 8, barY + barH / 2);
+    g.restore(); g.textBaseline = 'alphabetic';
+    mixZones.push({ x: fX, y: barY, w: fW, h: barH, act: openReply });
+    btn(R - sW, barY, sW, barH, 'SEND', !!chatDraft && tokOk, sendReply, !chatDraft, P ? 14 : 15);
     return;
   }
   if (page === 'pcamcrop') {   // #353 GARBAGE MATTE: crop the green-screen cut-out to a box (cuts stands, the room past the cloth)
@@ -10433,18 +10469,25 @@ function drawToolsPage() {
   }
   if (page === 'scroller') {
     const y0 = head('SCROLLER', scrollFromVP ? 'visuals' : 'vj');
-    g.fillStyle = '#0d1422'; g.fillRect(L, y0, R - L, 52);
-    g.save(); g.beginPath(); g.rect(L, y0, R - L, 52); g.clip();
-    drawBitText(g, scroller.text || ' ', L + 10, y0 + 13, 4, x => `hsl(${(x * 0.7) % 360},100%,62%)`); g.restore();
-    let y = y0 + 62; const bw = P ? (R - L - 6) / 2 : 200;
-    btn(L, y, bw, 42, 'EDIT TEXT', false, () => openKbd('SCROLLER TEXT', scroller.text, true, 120, t => { t = cleanText(t, 120); if (t.trim()) scroller.start(t); else scroller.stop(); }, 'scroller'));
-    btn(L + bw + 6, y, bw, 42, scroller.on ? 'STOP' : 'START', scroller.on, () => { if (scroller.on) scroller.stop(); else scroller.start(); });
-    y += 52;
-    for (const [label, k] of [['WAVE', 'wave'], ['SPEED', 'speed']]) {   // #640 sliders (were − n +)
-      ctl([label, String(scroller[k]), null, { v: scroller[k], lo: k === 'speed' ? 1 : 0, hi: 10, step: 1, set: v => { scroller[k] = v; scroller.save(); } }], L, y, Math.min(R - L, 380), 44, { lf: 13 });
-      y += 50;
+    g.fillStyle = '#0d1422'; g.fillRect(L, y0, R - L, 48);
+    g.save(); g.beginPath(); g.rect(L, y0, R - L, 48); g.clip();
+    drawBitText(g, scroller.text || ' ', L + 10, y0 + 11, 4, x => `hsl(${(x * 0.7) % 360},100%,62%)`); g.restore();
+    let y = y0 + 56; const bw = P ? (R - L - 6) / 2 : 200;
+    btn(L, y, bw, 38, 'EDIT TEXT', false, () => openKbd('SCROLLER TEXT', scroller.text, true, 120, t => { t = cleanText(t, 120); if (t.trim()) scroller.start(t); else scroller.stop(); }, 'scroller'));
+    btn(L + bw + 6, y, bw, 38, scroller.on ? 'STOP' : 'START', scroller.on, () => { if (scroller.on) scroller.stop(); else scroller.start(); });
+    y += 46;
+    const slW = P ? (R - L) : Math.floor((R - L - 10) / 2);
+    ctl(['WAVE', String(scroller.wave), null, { v: scroller.wave, lo: 0, hi: 10, step: 1, set: v => { scroller.wave = v; scroller.save(); } }], L, y, slW, 40, { lf: 13 });
+    if (P) {
+      y += 46;
+      ctl(['SPEED', String(scroller.speed), null, { v: scroller.speed, lo: 1, hi: 10, step: 1, set: v => { scroller.speed = v; scroller.save(); } }], L, y, slW, 40, { lf: 13 });
+      y += 46;
+      ctl(['Y POS', `${Math.round(scroller.yPos * 100)}%`, null, { v: scroller.yPos, lo: 0, hi: 1, step: 0.02, set: v => scroller.setYPos(v) }], L, y, slW, 40, { lf: 13 });
+    } else {
+      ctl(['SPEED', String(scroller.speed), null, { v: scroller.speed, lo: 1, hi: 10, step: 1, set: v => { scroller.speed = v; scroller.save(); } }], L + slW + 10, y, slW, 40, { lf: 13 });
+      y += 46;
+      ctl(['Y POS', `${Math.round(scroller.yPos * 100)}%`, null, { v: scroller.yPos, lo: 0, hi: 1, step: 0.02, set: v => scroller.setYPos(v) }], L, y, R - L, 40, { lf: 13 });
     }
-    if (!P) note('ENTER on the keyboard starts it at the bottom of the CYCLOWALL, over whatever is playing.', y + 14);
     return;
   }
   if (page === 'kbd') {
@@ -12223,6 +12266,7 @@ async function showStorage() {
 { const d = $('#sDiscogs'); if (d) { d.value = discogsToken(); d.addEventListener('change', () => { setDiscogsToken(d.value.trim()); drawMixScreen(); }); } }   // #729 Discogs token on the 2D page
 { const k = $('#sTwitchKey'); if (k) { k.value = streamKey.get(); k.addEventListener('change', () => { streamKey.set(k.value); drawMixScreen(); }); } }   // #331
 { const c = $('#sTwitchChan'); if (c) { c.value = chatChannel.get(); c.addEventListener('change', () => { chatChannel.set(c.value); if (chat) { chat.stop(); chat.tries = 0; if (chatChannel.get()) chat.start(); } }); } }   // #340
+{ const t = $('#sTwitchTok'); if (t) { t.value = chatToken.get(); t.addEventListener('change', () => { chatToken.set(t.value); if (chat) { chat.stop(); chat.tries = 0; if (chatChannel.get()) chat.start(); } drawMixScreen(); }); } }   // #869
 $('#sHands').addEventListener('change', e => { if (xr) { xr.setCtlLook(e.target.value); drawMixScreen(); } });   // #286 (owner) 3D hands / controllers from the start page
 for (const [id, k] of [['#sSource', 'source'], ['#sXml', 'xml'], ['#sEnv', 'env'], ['#sGlow', 'glow'], ['#sShadows', 'shadows'], ['#sMicRoute', 'micRoute'],
   ['#sDeckModel', 'deckModel'], ['#sRecWeight', 'recWeight'], ['#sSlipmat', 'slipmat'], ['#sSpect', 'spect'], ['#sSky', 'sky']]) {

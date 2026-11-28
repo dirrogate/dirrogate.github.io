@@ -3477,3 +3477,9 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## Gemini_NEON_2026-11-28 #868 Interaction Ball +2 mm & Snappier 45 ms Pinch-Snap (`xr.js`, owner, 28 Nov)
 - `xr.js`: increased `tipGeo` radius from `0.0068175` to `0.0078175` (+2 mm diameter: 13.6 mm → 15.6 mm) and reduced `st.pin` visual pinch-snap ease from `100 ms` to `45 ms` so knob/fader locks feel crisp and immediate.
 - Bumped `sw.js` to `vire-app-v334`. No Node restart.
+
+## Gemini_NEON_2026-11-28 #869 Twitch Chat VR Reply (Quest Keyboard/Mic), 3D SkyDome Scroller Overlay + `Y POS`, & Preview `LIVE` Badge Position (owner, 28 Nov)
+- `chat.js`, `index.html`, `main.js`: added `chatToken` (`vire.twitchToken`, Start Page Settings + `TOKEN…` header button on the Twitch Chat page) for authenticated Twitch IRC (`PASS oauth:…` + `PRIVMSG`) and a bottom reply bar on the Twitch Chat tablet page (`REPLY` button + clickable draft field that pops up the Quest 3 keyboard / mic dictation via `sysKbTap()`, plus `SEND` button with immediate local echo).
+- `tools.js`, `stream.js`, `main.js`: replaced dummy `scroller.mesh` stub with a real 3D floating overlay quad (`USER_LAYER`, `CanvasTexture`, `renderOrder: 4`) so the scroller displays crisply over all SkyDomes (`NEBULA`, `SOLSTICE`, `AURORA`, etc.) without double-drawing on stream; added `Y POS` slider (`0%–100%`, persisted in `vire.scroller`) controlling vertical height in both VR and the 2D stream overlay.
+- `main.js` (`stepMonitor`): lowered the Preview panel's top-left `● LIVE` / `REHEARSAL` badge from `y = 6` to `y = 34` so it sits cleanly below the Now Playing song readout.
+- Bumped `sw.js` to `vire-app-v335`. No Node restart.
