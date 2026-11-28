@@ -829,6 +829,14 @@ export function setupXR(ctx) {
     }
     st.pokeLift = (st.pokeLift || 0) + (Math.min(0.03, lift) - (st.pokeLift || 0)) * 0.5;
     screenPoke(st, T);   // #630 the tablet screen (also runs while a trigger 'tap' is active)
+    // #870 Popout Twitch ChatPanel interactive buttons ([✕] delete, REPLY, draft box, SEND)
+    if (ctx.chatPanelPoke) {
+      const hit = ctx.chatPanelPoke(T, false);
+      const cpKey = 'chatPanel';
+      const armed = st.poke.get(cpKey) !== false;
+      if (hit && armed) { ctx.chatPanelPoke(T, true); st.poke.set(cpKey, false); buzz(st, 0.4, 20); }
+      else if (!hit) st.poke.set(cpKey, true);
+    }
     // #619 the ACID cassette tray on the PREVIEW slide-out screen (fingertip / controller tip, like the tablet screen)
     if (ctx.trayScreen) {
       const ts = ctx.trayScreen();

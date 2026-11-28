@@ -1398,7 +1398,7 @@ const chatPanel = CAMERA_ROLE ? null : new ChatPanel(rig, () => ({ p: new THREE.
 let chatDrawPend = false, chatPanelTapT = 0, chalkWipeT = 0;
 function chatRedraw() {   // at most ~5 redraws a second
   if (chatDrawPend) return; chatDrawPend = true;
-  setTimeout(() => { chatDrawPend = false; if (chatPanel && chatPanel.on) chatPanel.draw(chat, chatRedraw); if (toolsPage === 'chat') drawMixScreen(); }, 200);
+  setTimeout(() => { chatDrawPend = false; if (chatPanel && chatPanel.on) chatPanel.draw(chat, chatRedraw, chatDraft); if (toolsPage === 'chat') drawMixScreen(); }, 200);
 }
 const chat = CAMERA_ROLE ? null : new TwitchChat(() => chatRedraw());
 if (chat && chatChannel.get()) chat.start();
@@ -9529,55 +9529,28 @@ function drawToolsPage() {
     note(P ? 'DOME is the sky dome (VISUALS > PANO > SKY); it and the VISUALS backdrop behind are one at a time, and NONE is the BACK button on the STREAM page. HEADSET CAM turns ROBO-BODY (the full robot avatar) off while it is the camera. GoPro: a prop other cameras film, hidden from its own camera. NEON is the heaviest object.' : (S.source === 'headset' ? 'HEADSET CAM: ROBO-BODY is off. HANDS: REAL = nothing drawn on your hands. DOME: VISUALS > PANO > SKY.' : 'DOME: VISUALS > PANO > SKY, one at a time with the VISUALS backdrop (NONE = BACK on TWITCH).'), ny);
     return;
   }
-  if (page === 'chat') {   // #340/#869 Twitch chat + Quest 3 keyboard / mic reply bar
+  if (page === 'chat') {   // #340/#870 Twitch chat (reply bar & [✕] delete live on the popout 3D ChatPanel board!)
     const tokOk = !!chatToken.get();
     const y0 = head('TWITCH CHAT · #' + (chat ? chat.channel : ''), 'stream', {
       label: tokOk ? 'TOKEN ✓' : 'TOKEN…', on: tokOk,
       act: () => { openKbd('TWITCH CHAT OAUTH TOKEN', chatToken.get(), false, 120, t => { chatToken.set(t); if (chat) { chat.stop(); chat.tries = 0; chat.start(); } toast(t.trim() ? 'Twitch chat token saved — reconnecting…' : 'Twitch chat token cleared', 2400); }, 'chat'); sysKbTap(); }
     });
     if (!chat) return;
-    const S = streamer, bw = P ? (R - L - 16) / 3 : 138, bh = P ? 42 : 32;
-    btn(L, y0, bw, bh, chatPanel && chatPanel.on ? 'PANEL: ON' : 'PANEL', !!(chatPanel && chatPanel.on), chatPanelTap, !chatPanel, 15);
-    btn(L + bw + 8, y0, bw, bh, 'TWITCH CHAT', !!(S && S.showOpt.chat), S ? () => S.setShowOpt('chat', !S.showOpt.chat) : null, !S, 15);
-    btn(L + 2 * (bw + 8), y0, bw, bh, 'RECONNECT', false, () => { chat.stop(); chat.tries = 0; chat.start(); drawMixScreen(); }, false, 15);
+    const S = streamer, bw = P ? (R - L - 16) / 3 : 150, bh = P ? 48 : 36;
+    btn(L, y0, bw, bh, chatPanel && chatPanel.on ? 'PANEL: ON' : 'PANEL', !!(chatPanel && chatPanel.on), chatPanelTap, !chatPanel, 16);
+    btn(L + bw + 8, y0, bw, bh, 'TWITCH CHAT', !!(S && S.showOpt.chat), S ? () => S.setShowOpt('chat', !S.showOpt.chat) : null, !S, 16);
+    btn(L + 2 * (bw + 8), y0, bw, bh, 'RECONNECT', false, () => { chat.stop(); chat.tries = 0; chat.start(); drawMixScreen(); }, false, 16);
     // #341 CHALKBOARD (a slate with chalks on its ledge; #377 its own object, not the chat panel) and WIPE (tap twice)
-    const yb2 = y0 + bh + (P ? 8 : 5), bw2 = P ? (R - L - 8) / 2 : 138, wipeArm = performance.now() - (chalkWipeT || 0) < 2500;
-    btn(L, yb2, bw2, bh, chalkLbl(), !!(chalkboard && chalkboard.on), chalkboard ? () => { chalkboard.setOn(!chalkboard.on); chalkboard.save(); drawMixScreen(); } : null, !chalkboard, 14);
-    btn(L + bw2 + 8, yb2, bw2, bh, wipeArm ? 'TAP AGAIN TO WIPE' : 'WIPE', wipeArm, chalkboard && chalkboard.on ? () => { if (wipeArm) { chalkWipeT = 0; chalkboard.wipe(); } else { chalkWipeT = performance.now(); setTimeout(drawMixScreen, 2600); } drawMixScreen(); } : null, !(chalkboard && chalkboard.on), 14);
+    const yb2 = y0 + bh + (P ? 8 : 6), bw2 = P ? (R - L - 8) / 2 : 150, wipeArm = performance.now() - (chalkWipeT || 0) < 2500;
+    btn(L, yb2, bw2, bh, chalkLbl(), !!(chalkboard && chalkboard.on), chalkboard ? () => { chalkboard.setOn(!chalkboard.on); chalkboard.save(); drawMixScreen(); } : null, !chalkboard, 15);
+    btn(L + bw2 + 8, yb2, bw2, bh, wipeArm ? 'TAP AGAIN TO WIPE' : 'WIPE', wipeArm, chalkboard && chalkboard.on ? () => { if (wipeArm) { chalkWipeT = 0; chalkboard.wipe(); } else { chalkWipeT = performance.now(); setTimeout(drawMixScreen, 2600); } drawMixScreen(); } : null, !(chalkboard && chalkboard.on), 15);
     const st = { joined: chat.authed ? '● live (can reply)' : '● read-only', connecting: 'connecting…', reconnecting: 'reconnecting…', off: 'off', error: 'error' }[chat.status] || chat.status;
-    g.fillStyle = chat.status === 'joined' ? '#40d080' : '#f1b650'; g.font = '700 14px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
-    if (P) g.fillText(st, L + 4, yb2 + bh + 12); else g.fillText(st, L + 3 * (bw + 8) + 6, y0 + bh / 2);
+    g.fillStyle = chat.status === 'joined' ? '#40d080' : '#f1b650'; g.font = '700 15px system-ui'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    if (P) g.fillText(st, L + 4, y0 + bh + 16); else g.fillText(st, L + 3 * (bw + 8) + 6, y0 + bh / 2);
     g.textBaseline = 'alphabetic';
-
-    // Reserve bottom reply bar: [REPLY (Quest KBD/MIC)] [Draft text field] [SEND]
-    const barH = P ? 42 : 34, barY = H - barH - (P ? 8 : 6);
-    const cy = yb2 + bh + (P ? 24 : 8), ch = Math.max(40, barY - cy - 6);
-    if (!chat.msgs.some(m => !m.sys)) note('No messages yet. Tap REPLY below to type or dictate with Quest 3 Mic, then tap SEND (needs a Twitch chat OAuth token in TOKEN… or Start Page Settings).', cy + 28);
-    else drawChat(g, L, cy, R - L, ch, chat.msgs, { fs: P ? 16 : 15, bg: '#0a0c12', onEmote: chatRedraw });
-
-    const openReply = () => {
-      openKbd('TWITCH CHAT REPLY (TYPE OR MIC)', chatDraft, false, 240, t => { chatDraft = String(t || '').trim(); }, 'chat');
-      sysKbTap();
-    };
-    const sendReply = () => {
-      const r = chat.send(chatDraft);
-      if (r.ok) { chatDraft = ''; drawMixScreen(); toast('Sent to #' + chat.channel, 1500); }
-      else if (r.err === 'no-token') toast('Add a Twitch chat OAuth token via TOKEN… (or Start Page Settings) to send replies.', 3800);
-      else if (r.err === 'not-authed') { chat.stop(); chat.tries = 0; chat.start(); toast('Reconnecting with your token — tap SEND again in 1 s.', 2600); }
-      else if (r.err === 'offline') toast('Chat not connected yet.', 2000);
-    };
-    const rW = P ? 78 : 96, sW = P ? 72 : 84, fX = L + rW + 6, fW = Math.max(60, (R - L) - rW - sW - 12);
-    btn(L, barY, rW, barH, 'REPLY', false, openReply, false, P ? 14 : 15);
-    // Clickable draft input box (tapping also pops up Quest keyboard / mic)
-    g.fillStyle = '#0d1422'; g.fillRect(fX, barY, fW, barH);
-    g.strokeStyle = chatDraft ? '#39a8ff' : '#2a3346'; g.lineWidth = 1.5; g.strokeRect(fX + 0.5, barY + 0.5, fW - 1, barH - 1);
-    g.save(); g.beginPath(); g.rect(fX + 6, barY, fW - 12, barH); g.clip();
-    g.font = `500 ${P ? 14 : 15}px system-ui,sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
-    g.fillStyle = chatDraft ? '#ffffff' : '#6c778c';
-    g.fillText(chatDraft || 'Tap REPLY to type or dictate…', fX + 8, barY + barH / 2);
-    g.restore(); g.textBaseline = 'alphabetic';
-    VP_HIT.push({ x: fX, y: barY, w: fW, h: barH, act: openReply });
-    btn(R - sW, barY, sW, barH, 'SEND', !!chatDraft && tokOk, sendReply, !chatDraft, P ? 14 : 15);
+    const cy = y0 + 2 * bh + (P ? 40 : 14);
+    if (!chat.msgs.some(m => !m.sys)) note('No messages yet. Turn PANEL ON for the floating Twitch board (with REPLY, SEND & [✕] delete on every line).', cy + 60);
+    else drawChat(g, L, cy, R - L, H - cy - (P ? 28 : 6), chat.msgs, { fs: P ? 17 : 16, bg: '#0a0c12', onEmote: chatRedraw });
     return;
   }
   if (page === 'pcamcrop') {   // #353 GARBAGE MATTE: crop the green-screen cut-out to a box (cuts stands, the room past the cloth)
@@ -11859,6 +11832,31 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
   lidShut, crateLidOpen, crateMicSelect, calTap: () => relCalTap(), lidGrabTest, lidGrab, lidRelease, lidDragTo: (P, off) => lidSet(lidAngleOf(P) + off), lidOffset: P => lidSt.a - lidAngleOf(P),
   nudgePitch: (d, delta) => { lastTouched = d.i; setPitch(d, d.pitch + delta); },
   // gemini_neon 2026-11-19: Quest right thumbstick click toggles play/stop of currently armed Looper slot (never records/clears)
+  // #870 Popout Twitch ChatPanel interactive buttons ([✕] delete, REPLY -> Quest keyboard/mic, SEND)
+  chatPanelPoke: (P, act) => {
+    if (!chatPanel || !chatPanel.on || !chat) return null;
+    const hit = chatPanel.pokeHit(P);
+    if (!hit || !act) return hit;
+    if (hit.kind === 'reply') {
+      const prevPage = toolsPage;
+      openKbd('TWITCH CHAT REPLY (TYPE OR MIC)', chatDraft, false, 240, t => {
+        chatDraft = String(t || '').trim();
+        if (chatPanel && chatPanel.on) chatPanel.draw(chat, chatRedraw, chatDraft);
+      }, prevPage || 'home');
+      sysKbTap();
+    } else if (hit.kind === 'send') {
+      const r = chat.send(chatDraft);
+      if (r.ok) { chatDraft = ''; chatPanel.draw(chat, chatRedraw, chatDraft); toast('Sent to #' + chat.channel, 1500); }
+      else if (r.err === 'no-token') toast('Paste a Twitch chat OAuth token in Settings (or CHAT > TOKEN…) to send replies.', 3800);
+      else if (r.err === 'not-authed') { chat.stop(); chat.tries = 0; chat.start(); toast('Reconnecting with your token — tap SEND again in 1 s.', 2600); }
+      else if (r.err === 'offline') toast('Chat not connected yet.', 2000);
+    } else if (hit.kind === 'del' && hit.id) {
+      chat.deleteMsg(hit.id).then(onTwitch => {
+        toast(onTwitch ? 'Message deleted on Twitch & board' : 'Message removed from board', 1600);
+      });
+    }
+    return hit;
+  },
   // #815 left controller Y: the DJ avatar winks its left eye with a slight left smile
   onLeftY: () => { if (avatar && typeof avatar.wink === 'function') { avatar.wink(); return true; } return false; },
   // #864 left controller X: quick toggle between Holographic Hands (holohand) and Holographic Controllers (controller)

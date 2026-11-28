@@ -18,7 +18,7 @@ export const chatToken = {
 
 export class TwitchChat {
   constructor(onChange) {
-    this.onChange = onChange || (() => {}); this.msgs = []; this.status = 'off'; this.ws = null; this.on = false; this.tries = 0; this.channel = ''; this.authed = false;
+    this.onChange = onChange || (() => {}); this.msgs = []; this.status = 'off'; this.ws = null; this.on = false; this.tries = 0; this.channel = ''; this.authed = false; this._helix = null;
   }
   start(channel = chatChannel.get()) {
     this.channel = channel; this.on = true; this._open();
@@ -36,6 +36,30 @@ export class TwitchChat {
     const meName = this.channel || 'DJ';
     this.add({ id: 'self-' + Date.now(), name: meName, color: '#5ee0ff', toks: [{ t }], me: false, hl: false });
     return { ok: true };
+  }
+  // #870 Delete a message locally (VR board + tablet + stream overlay) AND erase from main Twitch chat via Helix API if token has moderator:manage:chat_messages scope
+  async deleteMsg(id) {
+    if (!id) return false;
+    this.msgs = this.msgs.filter(x => x.id !== id);
+    this.onChange('msg');
+    if (String(id).startsWith('self-')) return true;
+    const raw = chatToken.get().replace(/^oauth:/i, '').trim();
+    if (!raw) return false;
+    try {
+      if (!this._helix || this._helix.tok !== raw) {
+        const vr = await fetch('https://id.twitch.tv/oauth2/validate', { headers: { Authorization: 'OAuth ' + raw } });
+        if (!vr.ok) return false;
+        const vd = await vr.json();
+        this._helix = { tok: raw, cid: vd.client_id, uid: vd.user_id, scopes: vd.scopes || [] };
+      }
+      const H = this._helix;
+      if (!H || !H.cid || !H.uid || !H.scopes.includes('moderator:manage:chat_messages')) return false;
+      const dr = await fetch(`https://api.twitch.tv/helix/moderation/chat?broadcaster_id=${encodeURIComponent(H.uid)}&moderator_id=${encodeURIComponent(H.uid)}&message_id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + H.tok, 'Client-Id': H.cid },
+      });
+      return dr.ok;
+    } catch { return false; }
   }
   _st(s) { this.status = s; this.onChange('status'); }
   _open() {
@@ -99,6 +123,7 @@ function emoteImg(id, onLoad) {
 // fade out; 0 = never), bg (box colour or null), onEmote (called when an emote image arrives, to redraw)
 export function drawChat(g, x, y, w, h, msgs, opts = {}) {
   const fs = opts.fs || 18, lh = Math.round(fs * 1.3), es = Math.round(fs * 1.25), pad = Math.round(fs * 0.5), now = performance.now();
+  const delHits = opts.delHits || null, delW = delHits ? Math.round(fs * 1.15) : 0;
   if (opts.bg) { g.fillStyle = opts.bg; g.fillRect(x, y, w, h); }
   g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
   g.textBaseline = 'middle'; g.textAlign = 'left';
@@ -107,7 +132,9 @@ export function drawChat(g, x, y, w, h, msgs, opts = {}) {
     const m = msgs[k], age = (now - m.t) / 1000;
     let a = 1; if (opts.maxAge) { if (age > opts.maxAge + 2) break; a = age > opts.maxAge ? 1 - (age - opts.maxAge) / 2 : 1; }
     // lay the message out into lines
-    const lines = []; let cur = [], cw = 0; const maxW = w - 2 * pad;
+    const hasDel = !!(delHits && !m.sys && m.id);
+    const leftOff = hasDel ? delW + 6 : 0;
+    const lines = []; let cur = [], cw = 0; const maxW = w - 2 * pad - leftOff;
     const push = (item, iw) => { if (cw + iw > maxW && cur.length) { lines.push(cur); cur = []; cw = 0; } cur.push(item); cw += iw; };
     if (m.sys) { g.font = `italic 500 ${fs}px system-ui,sans-serif`; for (const wd of m.text.split(' ')) push({ s: wd + ' ', c: '#8c96a8' }, g.measureText(wd + ' ').width); }
     else {
@@ -123,8 +150,16 @@ export function drawChat(g, x, y, w, h, msgs, opts = {}) {
     g.globalAlpha = Math.max(0, a);
     if (opts.lineBg) { g.fillStyle = opts.lineBg; g.fillRect(x, by - 4, w, mh + 8); }   // a strip per message (stream overlay)
     if (m.hl) { g.fillStyle = 'rgba(255,200,40,0.14)'; g.fillRect(x + 2, by - 2, w - 4, mh + 4); }
+    if (hasDel) {
+      const bx = x + pad, by0 = by + Math.round((lh - delW) / 2);
+      g.fillStyle = 'rgba(210,48,58,0.85)'; g.fillRect(bx, by0, delW, delW);
+      g.fillStyle = '#fff'; g.font = `800 ${Math.round(fs * 0.78)}px system-ui,sans-serif`; g.textAlign = 'center';
+      g.fillText('✕', bx + delW / 2, by0 + delW / 2 + 1);
+      g.textAlign = 'left';
+      delHits.push({ x: bx - 4, y: by0 - 4, w: delW + 8, h: delW + 8, kind: 'del', id: m.id });
+    }
     lines.forEach((ln, li) => {
-      let cx = x + pad; const cy = by + li * lh + lh / 2;
+      let cx = x + pad + leftOff; const cy = by + li * lh + lh / 2;
       for (const it of ln) {
         if (it.e) { const im = emoteImg(it.e, opts.onEmote); if (im) g.drawImage(im, cx, cy - es / 2, es, es); else { g.font = `500 ${fs}px system-ui`; g.fillStyle = '#aab'; g.fillText(it.alt, cx, cy); } cx += es + 4; continue; }
         g.font = `${it.b ? 700 : 500} ${fs}px system-ui,sans-serif`; g.fillStyle = it.c; g.fillText(it.s, cx, cy); cx += g.measureText(it.s).width;
@@ -280,13 +315,55 @@ export class ChatPanel {
   scaleTo(s) { this.obj.scale.setScalar(Math.min(6, Math.max(0.5, s))); if (this.ledge) this._ledgeFit(); }   // half size .. 6x (2.2 x 2.7 m, for classes)
   corner(P) { if (!this.on) return false; this.obj.updateMatrixWorld(); const c = this.obj.localToWorld(_v.set(this.W / 2 - 0.009, this.H / 2 - 0.009, 0)); return c.distanceTo(P) < 0.03 * Math.max(1, this.obj.scale.x * 0.7); }
   release() { this.held = false; this.save(); }
-  draw(chat, onEmote) {
+  // #870 Hit-test a world point P against the interactive popout ChatPanel buttons ([✕] delete, REPLY, draft box, SEND)
+  pokeHit(P) {
+    if (!this.on || this.board || this.held || !this._hits || !this._hits.length) return null;
+    this.obj.updateMatrixWorld();
+    const l = this.obj.worldToLocal(_v.copy(P)), sc = this.obj.scale.x, zw = l.z * sc;
+    if (Math.abs(l.x) > this.W / 2 || Math.abs(l.y) > this.H / 2 || zw > 0.012 || zw < -0.022) return null;
+    const px = (l.x / this.W + 0.5) * 512, py = (0.5 - l.y / this.H) * 640;
+    for (const h of this._hits) {
+      if (px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h) return h;
+    }
+    return null;
+  }
+  draw(chat, onEmote, draft = '') {
     const g = this.g, W = 512, H = 640;
+    this._hits = [];
     g.fillStyle = '#0a0c12'; g.fillRect(0, 0, W, H);
     g.fillStyle = '#9146ff'; g.fillRect(0, 0, W, 44); g.fillStyle = '#fff'; g.font = '800 22px system-ui,sans-serif'; g.textBaseline = 'middle'; g.textAlign = 'left';
     g.fillText('CHAT · #' + (chat.channel || '?'), 14, 23);
-    g.textAlign = 'right'; g.font = '600 15px system-ui,sans-serif'; g.fillText(chat.status === 'joined' ? '● live' : chat.status, W - 12, 23); g.textBaseline = 'alphabetic';
-    drawChat(g, 0, 48, W, H - 48, chat.msgs, { fs: 22, onEmote });
+    g.textAlign = 'right'; g.font = '600 15px system-ui,sans-serif';
+    g.fillText(chat.status === 'joined' ? (chat.authed ? '● live (reply)' : '● read-only') : chat.status, W - 12, 23);
+    g.textBaseline = 'alphabetic';
+
+    // Messages area with [✕] delete button at start of every message line
+    const barH = 52, barY = H - barH - 8;
+    drawChat(g, 0, 48, W, barY - 52, chat.msgs, { fs: 21, onEmote, delHits: this._hits });
+
+    // Bottom Reply Bar on the popout board: [REPLY] [Draft text field] [SEND]
+    g.fillStyle = '#121622'; g.fillRect(0, barY - 4, W, barH + 12);
+    const rX = 8, rW = 94, sW = 90, fX = rX + rW + 6, fW = W - fX - sW - 14, sX = W - sW - 8;
+    // REPLY button
+    g.fillStyle = '#2d374d'; g.fillRect(rX, barY, rW, barH);
+    g.fillStyle = '#ffffff'; g.font = '700 17px system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('REPLY', rX + rW / 2, barY + barH / 2);
+    this._hits.push({ x: rX, y: barY, w: rW, h: barH, kind: 'reply' });
+    // Draft text field (tapping also opens Quest keyboard / mic)
+    g.fillStyle = '#090d16'; g.fillRect(fX, barY, fW, barH);
+    g.strokeStyle = draft ? '#39a8ff' : '#2c3549'; g.lineWidth = 2; g.strokeRect(fX + 1, barY + 1, fW - 2, barH - 2);
+    g.save(); g.beginPath(); g.rect(fX + 6, barY, fW - 12, barH); g.clip();
+    g.font = '500 16px system-ui,sans-serif'; g.textAlign = 'left'; g.fillStyle = draft ? '#ffffff' : '#6f7c94';
+    g.fillText(draft || 'Tap REPLY to type/mic…', fX + 8, barY + barH / 2);
+    g.restore();
+    this._hits.push({ x: fX, y: barY, w: fW, h: barH, kind: 'reply' });
+    // SEND button
+    const canSend = !!draft && !!chatToken.get();
+    g.fillStyle = canSend ? '#1f9d55' : draft ? '#9146ff' : '#232938'; g.fillRect(sX, barY, sW, barH);
+    g.fillStyle = draft ? '#ffffff' : '#657086'; g.font = '800 17px system-ui,sans-serif'; g.textAlign = 'center';
+    g.fillText('SEND', sX + sW / 2, barY + barH / 2);
+    if (draft) this._hits.push({ x: sX, y: barY, w: sW, h: barH, kind: 'send' });
+    g.textBaseline = 'alphabetic';
     this.tex.needsUpdate = true;
   }
 }
