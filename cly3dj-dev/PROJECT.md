@@ -1,6 +1,6 @@
 # DirroDJ (formerly Cly3DJ): project overview
 
-Updated 27 Nov 2026 (decision log up to #863 in `ViRe_Custom/CLAUDE.md`; #530–#537, #606, #787–#809, #837–#863 were added by Gemini_NEON sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
+Updated 28 Nov 2026 (decision log up to #870 in `ViRe_Custom/CLAUDE.md`; #530–#537, #606, #787–#809, #837–#870 were added by Gemini_NEON sessions). Written so a new Claude session (for example on Claude cloud) can pick the project up from here: read this file, then the newest entries at the bottom of `CLAUDE.md`.
 
 DirroDJ (renamed from Cly3DJ on 25 Oct 2026, #463; the dev folder keeps the name `cly3dj-dev`, code and storage keys stay `vire`) is a two-deck vinyl DJ setup for the Meta Quest 3, running in the browser (WebXR). It keeps the old-school vinyl workflow and adds modern help, but never a flat-out auto sync. It started from Vinyl Reality Lite as a visual reference; it is our own app, built with three.js, and copies nothing from Vinyl Reality.
 
@@ -172,6 +172,12 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 ## Status (25 Nov)
 
 - **Gemini_NEON_2026-11-25_01:07 (#837, `sw.js` `vire-app-v302`, pushed to `cly3dj-dev` commit `1888808`):** Added master **`DECK MODE: ORIGINAL / VREAL`** A/B switch on the Mixer Tablet Remote's `DJ TOOLS` page (`main.js`, `deck-worklet.js`, `xr.js`) to test Original SL-1200 two-body physics side-by-side with Vinyl Reality's decompiled kinematic handling (`SmoothDamp(0.1s)` rim nudge + rim-dot haptics, `SmoothDampAngle(0.02s)` scratching + linear slipmat friction, quaternion swing-twist wrist-only spindle with no thumbstick bend, gravity+bounce tonearm drop & phase-snapped needle drops; RIAA kept ON; `Original` path untouched; backups in `backups/*.pre_vreal`).
+
+## Gemini_NEON Status (28 Nov 2026)
+
+- **Dev (`cly3dj-dev`)** updated through `#870` (`sw.js` `vire-app-v337`, ready to push in GitHub Desktop). Release `cly3dj` untouched.
+- **Gemini_NEON_2026-11-28 #869–#870 — Popout 3D Twitch Chat Board Reply + `[✕]` Delete, SkyDome Scroller Overlay + `Y POS`, & Preview `LIVE` Badge:** Moved the `[REPLY] [draft] [SEND]` bar onto the bottom of the popout 3D `ChatPanel` board (`chat.js`, `xr.js`, `main.js`, Quest 3 keyboard/mic dictation via `sysKbTap()`, optional `vire.twitchToken` OAuth token), added red `[✕]` per-message delete (local board + tablet + stream overlay + automatic Twitch Helix Moderation API erase when token has `moderator:manage:chat_messages`), added a real 3D floating scroller overlay (`USER_LAYER` in `tools.js`) over SkyDomes with `Y POS` slider (`0%–100%`) synced to `stream.js`, and lowered the Preview panel `● LIVE` badge (`y = 34`) below the Now Playing readout.
+- **Gemini_NEON_2026-11-28 #864–#868 — Quest Holographic Controllers, Left-`X` Toggle, `HOLOHAND` / `GHOST GLOVE` Ergonomics, Independent GoPro DoF & Z-Fighting Fix:** Replaced broken `makeGhostCtlMat()` with a clean `THREE.ShaderMaterial` Fresnel hologram (`ctlhands.js`), wired Left-`X` (`buttons[4]`) to toggle `HOLOHAND` ↔ `CONTROLLER`, switched `HOLOHAND` & `GHOST GLOVE` to straight index fingertip dot at rest (`h.tipRest`) → snappier 45 ms pinch-snap on grab + 2 mm larger interaction ball (`15.6 mm` dia, `xr.js`), split `GOPRO 1 DoF` and `GOPRO 2 DoF` independently (`cinematics.js`, `main.js`), and offset GoPro rear/selfie/LED screen quads ~1.2 mm outward (`gopro.js`) to eliminate Z-fighting flicker.
 
 ## Gemini_NEON Status (27 Nov 2026)
 
