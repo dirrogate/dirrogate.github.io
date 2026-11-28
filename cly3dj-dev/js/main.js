@@ -6046,7 +6046,8 @@ async function importMedia(files, tab = null, say = null, as = 'auto') {   // #8
       : vid ? (pano ? 'Video pano' : 'Video') : (pano ? 'Pano' : 'Images');
     if (!folder) { skipped++; continue; }
     if (say) say(`Importing ${++n} of ${files.length}: ${f.name}`, true);
-    try { await media.importFile(folder, f, name); done[folder]++; } catch (e) { skipped++; console.warn('import', e); }
+    if (folder === 'Video pano' && settings.skyFile === name) closeSkyVideo();   // release OPFS read lock before overwriting the active sky video
+    try { await media.importFile(folder, f, name); done[folder]++; } catch (e) { skipped++; console.warn('import', e); if (say) say(`Skipped ${f.name}: ${e.message || e}`, true); }
   }
   const parts = Object.entries(done).filter(([, k]) => k).map(([k, v]) => `${v} to ${k === 'Video pano' ? 'PANO (video)' : k.toUpperCase()}`);
   if (videoPage) vpLoad();
