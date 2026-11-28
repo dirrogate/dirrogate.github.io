@@ -9576,7 +9576,7 @@ function drawToolsPage() {
     g.fillStyle = chatDraft ? '#ffffff' : '#6c778c';
     g.fillText(chatDraft || 'Tap REPLY to type or dictate…', fX + 8, barY + barH / 2);
     g.restore(); g.textBaseline = 'alphabetic';
-    mixZones.push({ x: fX, y: barY, w: fW, h: barH, act: openReply });
+    VP_HIT.push({ x: fX, y: barY, w: fW, h: barH, act: openReply });
     btn(R - sW, barY, sW, barH, 'SEND', !!chatDraft && tokOk, sendReply, !chatDraft, P ? 14 : 15);
     return;
   }

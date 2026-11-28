@@ -10,7 +10,8 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v335';   // Gemini_NEON #869 Twitch chat Reply bar (Quest keyboard/mic + Send + OAuth token), 3D SkyDome Scroller overlay + Y POS slider, Preview LIVE badge lowered below Now Playing
+const CACHE = 'vire-app-v336';   // Gemini_NEON #869b Fix ReferenceError (mixZones -> VP_HIT) on Twitch Chat tablet page
+// was: const CACHE = 'vire-app-v335';   // Gemini_NEON #869 Twitch chat Reply bar (Quest keyboard/mic + Send + OAuth token), 3D SkyDome Scroller overlay + Y POS slider, Preview LIVE badge lowered below Now Playing
 // was: const CACHE = 'vire-app-v334';   // Gemini_NEON #868 Interaction ball +2 mm larger (15.6 mm dia) + snappier 45 ms knob/fader pinch-snap
 // was: const CACHE = 'vire-app-v333';   // Gemini_NEON #867 Offset GoPro rear, selfie, and LED screen quads ~1.2 mm outward from housing to eliminate Z-fighting flicker
 // was: const CACHE = 'vire-app-v332';   // Gemini_NEON #866 Independent GOPRO 1 & GOPRO 2 DoF controls (Tablet Remote + physical side buttons + LED readouts)
