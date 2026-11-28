@@ -173,6 +173,9 @@ A Samsung M33 (S22 / S24 planned) films the DJ with the virtual gear composited 
 
 - **Gemini_NEON_2026-11-25_01:07 (#837, `sw.js` `vire-app-v302`, pushed to `cly3dj-dev` commit `1888808`):** Added master **`DECK MODE: ORIGINAL / VREAL`** A/B switch on the Mixer Tablet Remote's `DJ TOOLS` page (`main.js`, `deck-worklet.js`, `xr.js`) to test Original SL-1200 two-body physics side-by-side with Vinyl Reality's decompiled kinematic handling (`SmoothDamp(0.1s)` rim nudge + rim-dot haptics, `SmoothDampAngle(0.02s)` scratching + linear slipmat friction, quaternion swing-twist wrist-only spindle with no thumbstick bend, gravity+bounce tonearm drop & phase-snapped needle drops; RIAA kept ON; `Original` path untouched; backups in `backups/*.pre_vreal`).
 
+## Claude_opus Status (28 Nov 2026)
+- #873 Media import (2D page, Add pictures / videos): pano videos (2:1 and _eac) failed in the owner's Chrome with NotReadableError while stills imported. The files, free space, quota and the import code all check out (same-size files import in Chromium on Linux) and Microsoft Edge imports them, so the refusal is inside that Chrome install. Import now writes to a temp file and renames on success (a failed read keeps the old library copy), retries unreadable chunks, and says to use Edge or a Chrome Guest window. sw v343. Workaround until Chrome is sorted: import big videos from Edge (it has its own library: per browser, per address).
+
 ## Gemini_NEON Status (28 Nov 2026)
 
 - **Dev (`cly3dj-dev`)** updated through `#871` (`sw.js` `vire-app-v339`, ready to push in GitHub Desktop). Release `cly3dj` untouched.
