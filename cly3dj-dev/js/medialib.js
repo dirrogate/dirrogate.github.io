@@ -62,12 +62,35 @@ export async function makeThumb(file, folder) {
   }
 }
 
-// ---- import a picked file into a folder (streamed, so big videos don't sit in memory)
+// ---- import a picked file into a folder (#873). Written to '<name>.importing.part' first and renamed only when every
+// byte is in, so a failed read never destroys the copy already in the library. A read Windows refuses (NotReadableError:
+// cloud-only OneDrive / Google Drive file, file locked by another program, or changed since it was picked) is retried
+// a few times (a cloud file may finish downloading meanwhile). 8 MB chunks (#872).
 export async function importFile(folder, file, as) {   // #822 as: the name to keep it under (default: the file's own)
-  const name = safe(as || file.name), d = await folderDir(folder);
-  const w = await (await d.getFileHandle(name, { create: true })).createWritable();
-  await file.stream().pipeTo(w);
-  await putThumb(folder, name, await makeThumb(file, folder).catch(() => null));
+  const name = safe(as || file.name), d = await folderDir(folder), tmp = name + '.importing.part';
+  try { await d.removeEntry(tmp); } catch {}
+  const th = await d.getFileHandle(tmp, { create: true });
+  const w = await th.createWritable();
+  const readChunk = async (off, end) => {
+    for (let tries = 0; ; tries++) {
+      try { return await file.slice(off, end).arrayBuffer(); }
+      catch (e) { if (e && e.name === 'NotReadableError' && tries < 3) { await new Promise(r => setTimeout(r, 700 * (tries + 1))); continue; } throw e; }
+    }
+  };
+  try {
+    const CHUNK = 8 * 1024 * 1024;
+    for (let off = 0; off < file.size; off += CHUNK) await w.write(await readChunk(off, Math.min(file.size, off + CHUNK)));
+    await w.close();
+  } catch (e) {
+    try { await w.abort(); } catch {}
+    try { await d.removeEntry(tmp); } catch {}
+    throw e;
+  }
+  try { await d.removeEntry(name); } catch {}
+  if (th.move) await th.move(name);
+  else { const f = await th.getFile(), w2 = await (await d.getFileHandle(name, { create: true })).createWritable(); await f.stream().pipeTo(w2); await d.removeEntry(tmp); }
+  const copy = await getFile(folder, name);   // thumbnail from the library copy, not the picked file
+  try { await putThumb(folder, name, await makeThumb(copy || file, folder).catch(() => null)); } catch {}
   return name;
 }
 

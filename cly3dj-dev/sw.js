@@ -10,7 +10,10 @@
 //    to the saved copies for OFFLINE_HOLD (and refreshes them in the background).
 // Songs and videos are never cached here: streamed songs (/vire-music/, range requests) go straight to the
 // network, and songs imported on the headset live in the app's own storage (OPFS).
-const CACHE = 'vire-app-v340';   // Gemini_NEON #871b Release OPFS skyVid lock (closeSkyVideo) before overwriting active sky video + surface real import errors
+const CACHE = 'vire-app-v343';   // #873 import: temp file + rename (a failed read keeps the old copy), NotReadableError retries + clear message
+// was: const CACHE = 'vire-app-v342';   // Gemini_NEON #872b Fix NotReadableError on large >500 MB EAC imports (clear file input AFTER import, skip <video> probe on _eac/pano, write arrayBuffer chunks)
+// was: const CACHE = 'vire-app-v341';   // Gemini_NEON #872 Chunked 8 MB OPFS importFile (fixes >500 MB video imports) + surface real skip error reason in importMedia return string
+// was: const CACHE = 'vire-app-v340';   // Gemini_NEON #871b Release OPFS skyVid lock (closeSkyVideo) before overwriting active sky video + surface real import errors
 // was: const CACHE = 'vire-app-v339';   // Gemini_NEON #871 Right-stick +X/-X GoPro Y-pan + click level/15-deg steps + Pano GRADE: OFF / MIAMI / TEAL-ORG
 // was: const CACHE = 'vire-app-v338';   // Gemini_NEON #870b Route Quest keyboard/mic input directly into popout Twitch ChatPanel draft box without hijacking Tablet Remote
 // was: const CACHE = 'vire-app-v337';   // Gemini_NEON #870 Move Twitch REPLY/draft/SEND bar to popout 3D ChatPanel board + [✕] per-message delete (local + Twitch Helix moderation API)

@@ -6017,14 +6017,16 @@ const VP_TABS = { Pano: 'PANO', Skydome: 'SKYDOME', 'Video pano': 'VIDEO PANO', 
 // #234 add pictures and videos from the Quest's own files (Downloads, Pictures, Movies) to the media library, from
 // the start page ('Add pictures / videos…'). Folder by shape: 2:1 (or a big square, over-under stereo) = 360.
 // (#235: the in-VR + IMPORT tile was removed: the Quest did not open its file picker from inside a VR session.)
-async function mediaShape(file) {
-  const vid = (file.type || '').startsWith('video/') || /\.(mp4|m4v|webm|mov)$/i.test(file.name);
+async function mediaShape(file, skipProbe = false) {
+  const vid = (file.type || '').startsWith('video/') || /\.(mp4|m4v|webm|mov|mkv)$/i.test(file.name);
+  if (skipProbe || isEacName(file.name)) return { vid, pano: true };   // #872b don't open <video> on _eac / explicit pano before OPFS copy!
   let w = 0, h = 0;
   try {
     if (vid) {
       const v = document.createElement('video'); v.preload = 'metadata'; v.muted = true; v.src = URL.createObjectURL(file);
       await new Promise(res => { v.onloadedmetadata = res; v.onerror = res; setTimeout(res, 4000); });
-      w = v.videoWidth; h = v.videoHeight; URL.revokeObjectURL(v.src);
+      w = v.videoWidth; h = v.videoHeight;
+      v.removeAttribute('src'); v.load(); URL.revokeObjectURL(v.src);
     } else { const b = await createImageBitmap(file); w = b.width; h = b.height; b.close && b.close(); }
   } catch {}
   const pano = (h > 0 && (Math.abs(w / h - 2) < 0.08 || (w === h && w >= 3840))) || isEacName(file.name);   // #821 YouTube EAC (3x2 cubemap, 16:9 or 3:2): by name
@@ -6033,10 +6035,10 @@ async function mediaShape(file) {
 // #822 the Quest's photo picker hands over files named by number (1000001234.mp4): ask for a name on the start page
 const numName = n => /^\d{4,}(\.\w+)?$/.test(n || '') || /^(image|video|document|media)[:_%]/i.test(n || '');
 async function importMedia(files, tab = null, say = null, as = 'auto') {   // #822 as: 'auto' | 'pano' | 'eac' (start page 'Add as')
-  const done = { Pano: 0, 'Video pano': 0, Video: 0, Images: 0 }; let skipped = 0, n = 0;
+  const done = { Pano: 0, 'Video pano': 0, Video: 0, Images: 0 }, errs = []; let skipped = 0, n = 0;
   for (const f of files) {
-    let { vid, pano } = await mediaShape(f);
-    if (!vid && !/^image\//.test(f.type || '') && !/\.(jpe?g|png|webp|avif|gif|heic)$/i.test(f.name)) { skipped++; continue; }   // #822 the picker now shows all files
+    let { vid, pano } = await mediaShape(f, as === 'pano' || as === 'eac');
+    if (!vid && !/^image\//.test(f.type || '') && !/\.(jpe?g|png|webp|avif|gif|heic)$/i.test(f.name)) { skipped++; errs.push(`${f.name}: unsupported type`); continue; }   // #822 the picker now shows all files
     if (as === 'pano' || as === 'eac') pano = true;
     const ext = (f.name.match(/\.[^.]+$/) || [''])[0];
     let name = f.name;
@@ -6044,14 +6046,14 @@ async function importMedia(files, tab = null, say = null, as = 'auto') {   // #8
     if (as === 'eac' && !isEacName(name)) name = name.replace(/(\.[^.]+)?$/, '_eac$1');   // the name carries EAC from now on
     let folder = tab === 'Video' ? (vid ? 'Video' : null) : tab === 'Images' ? (vid ? null : 'Images') : tab === 'Pano' ? (vid ? 'Video pano' : 'Pano')
       : vid ? (pano ? 'Video pano' : 'Video') : (pano ? 'Pano' : 'Images');
-    if (!folder) { skipped++; continue; }
-    if (say) say(`Importing ${++n} of ${files.length}: ${f.name}`, true);
+    if (!folder) { skipped++; errs.push(`${f.name}: wrong tab`); continue; }
+    if (say) say(`Importing ${++n} of ${files.length}: ${f.name} (${(f.size / 1048576).toFixed(0)} MB)…`, true);
     if (folder === 'Video pano' && settings.skyFile === name) closeSkyVideo();   // release OPFS read lock before overwriting the active sky video
-    try { await media.importFile(folder, f, name); done[folder]++; } catch (e) { skipped++; console.warn('import', e); if (say) say(`Skipped ${f.name}: ${e.message || e}`, true); }
+    try { await media.importFile(folder, f, name); done[folder]++; } catch (e) { skipped++; console.warn('import', e); errs.push(e && e.name === 'NotReadableError' ? `${f.name}: this browser could not read the file (NotReadableError). Microsoft Edge reads these files fine, so import it there, or in Chrome try a Guest window or a fresh profile. Nothing in the library was changed.` : `${f.name}: ${e.name || 'Error'} ${e.message || e}`); }   // #873
   }
   const parts = Object.entries(done).filter(([, k]) => k).map(([k, v]) => `${v} to ${k === 'Video pano' ? 'PANO (video)' : k.toUpperCase()}`);
   if (videoPage) vpLoad();
-  return (parts.length ? 'Added ' + parts.join(', ') : 'Nothing added') + (skipped ? ` (${skipped} skipped)` : '');
+  return (parts.length ? 'Added ' + parts.join(', ') : 'Nothing added') + (skipped ? ` (${skipped} skipped${errs.length ? ': ' + errs[0] : ''})` : '');
 }
 async function vpLoad() {
   if (vpFolder === 'Camera' || vpFolder === 'Look' || vpFolder === 'DJ Cam' || vpFolder === 'LedList' || vpFolder === 'Fx' || vpFolder === 'Skydome') { vpItems = []; drawMixScreen(); return; }
@@ -12207,10 +12209,10 @@ $('#bEnvImg').onclick = () => $('#fEnv').click();
 $('#bLedPick').onclick = () => $('#fLed').click();
 $('#bMediaAdd').onclick = () => $('#fMedia').click();   // #234
 $('#fMedia').onchange = async e => {
-  const fs = [...e.target.files]; e.target.value = ''; if (!fs.length) return;
+  const fs = [...e.target.files]; if (!fs.length) return;
   const info = $('#mediaAddInfo'), say = t => { info.textContent = t; };
   const as = ($('#sMediaAs') && $('#sMediaAs').value) || 'auto';
-  say(await importMedia(fs, null, say, as));   // #822
+  try { say(await importMedia(fs, null, say, as)); } finally { e.target.value = ''; }   // #822/#872b clear input AFTER reading files!
 };
 $('#fLed').onchange = async e => {   // #546 the start page only adds videos to the VIDEO library; the VJ plays them (CYCLOWALL NOW) or builds the CYCLOWALL LIST (+ CYCLOWALL) on the VISUALS page
   const all = [...(e.target.files || [])].filter(f => /^video\//.test(f.type) || /\.(mp4|webm|mov|m4v)$/i.test(f.name)); e.target.value = '';
