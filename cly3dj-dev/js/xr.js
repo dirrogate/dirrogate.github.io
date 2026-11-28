@@ -1033,6 +1033,10 @@ export function setupXR(ctx) {
           st.scrollT -= dt;
           if (Math.abs(ay) > 0.5 && st.scrollT <= 0) { ctx.crateSelect(Math.sign(ay)); st.scrollT = 0.14; }
           if (Math.abs(ay) <= 0.5) st.scrollT = 0;
+        } else if (!st.isHand && st.source.handedness === 'right' && ctx.onRightStickX) {
+          // #871 Idle right thumbstick +X / -X slowly rotates the active GoPro around its center Y axis
+          if (Math.abs(ax) > 0.15) { ctx.onRightStickX(ax, dt); st.gpPanning = true; }
+          else if (st.gpPanning) { ctx.onRightStickX(0, dt); st.gpPanning = false; }
         }
       }
     }

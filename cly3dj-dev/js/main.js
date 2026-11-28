@@ -156,7 +156,8 @@ function activateSkyDome(on = true, worldId = null) {
   }
 }
 // #346 DOME (PORTALS SETUP): the same grounded sky, shown even in passthrough and with any light setting, sized 3-20 m
-const dome = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.dome') || 'null'); } catch {} return { on: !!(s && s.on), r: Math.min(20, Math.max(3, (s && s.r) || 10)), turn: Math.min(359, Math.max(0, (s && s.turn) || 0)), ev: Math.min(1, Math.max(-3, +(s && s.ev) || 0)), gam: Math.min(2, Math.max(0.5, +(s && s.gam) || 1)), eac: !!(s && s.eac) }; })();   // #638 gam: DOME GAMMA   // #404 ev: DOME EXPOSURE   // #389 turn   // #797 eac: YouTube 3x2 EAC
+const dome = (() => { let s = null; try { s = JSON.parse(localStorage.getItem('vire.dome') || 'null'); } catch {} return { on: !!(s && s.on), r: Math.min(20, Math.max(3, (s && s.r) || 10)), turn: Math.min(359, Math.max(0, (s && s.turn) || 0)), ev: Math.min(1, Math.max(-3, +(s && s.ev) || 0)), gam: Math.min(2, Math.max(0.5, +(s && s.gam) || 1)), eac: !!(s && s.eac), grade: (s && (s.grade === 'miami' || s.grade === 'tealorange')) ? s.grade : 'off' }; })();   // #638 gam: DOME GAMMA   // #404 ev: DOME EXPOSURE   // #389 turn   // #797 eac: YouTube 3x2 EAC   // #871 grade: off / miami / tealorange
+skybox.setColorGrade(dome.grade);
 const skyShadow = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.ShadowMaterial({ opacity: 0.4, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor }));
 skyShadow.rotation.x = -Math.PI / 2; skyShadow.position.y = 0.001; skyShadow.receiveShadow = true; skyShadow.visible = false; skyShadow.raycast = () => {};
 rig.add(skyShadow);
@@ -6518,11 +6519,14 @@ function drawVideoPage() {
   const by = P ? H - 62 : H - 44, bh = 36, bx = P ? 26 : 8;
   btn(bx, by, 44, bh, '‹', false, () => { vpPg = Math.max(0, vpPg - 1); drawMixScreen(); }, vpPg === 0);
   btn(bx + 48, by, 44, bh, '›', false, () => { vpPg = Math.min(pages - 1, vpPg + 1); drawMixScreen(); }, vpPg >= pages - 1);
-  const T = { Pano: [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog'], [dome.eac ? 'EAC: ON' : 'EAC: OFF', 'eactog'], ['+ PANO LIST', 'panoadd'], [cine ? `PANO LIST (${cine.panoList.length})` : 'PANO LIST', 'panolist'], ['→ CUTOUT', 'skycutout']], 'Video pano': [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog'], [dome.eac ? 'EAC: ON' : 'EAC: OFF', 'eactog'], ['+ PANO LIST', 'panoadd'], [cine ? `PANO LIST (${cine.panoList.length})` : 'PANO LIST', 'panolist']],   /* #769 tap a pano = it goes on the DOME; #797 EAC toggle; #858 PANO LIST; #860 → CUTOUT alpha-sky overlay */
+  const gLbl = dome.grade === 'miami' ? 'MIAMI' : dome.grade === 'tealorange' ? 'TEAL-ORG' : 'GRADE: OFF';
+  const T = { Pano: [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog'], [dome.eac ? 'EAC: ON' : 'EAC: OFF', 'eactog'], [gLbl, 'panograde'], ['+ PANO LIST', 'panoadd'], [cine ? `PANO LIST (${cine.panoList.length})` : 'PANO LIST', 'panolist'], ['→ CUTOUT', 'skycutout']], 'Video pano': [[dome.on ? 'DOME: ON' : 'DOME: OFF', 'dometog'], [dome.eac ? 'EAC: ON' : 'EAC: OFF', 'eactog'], [gLbl, 'panograde'], ['+ PANO LIST', 'panoadd'], [cine ? `PANO LIST (${cine.panoList.length})` : 'PANO LIST', 'panolist']],   /* #769 tap a pano = it goes on the DOME; #797 EAC toggle; #858 PANO LIST; #860 → CUTOUT; #871 MIAMI / TEAL-ORANGE grade */
     Video: [['DECK A', 'deckA'], ['DECK B', 'deckB'], ['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal']], Images: [['CYCLOWALL NOW', 'lednow'], ['+ CYCLOWALL', 'ledadd'], ['→ PORTAL', 'portal'], ['→ GROUND', 'skyground'], ['→ CUTOUT', 'skycutout']] }[vpFolder];   // #589 → PORTAL; #859 → GROUND; #860 → CUTOUT
-  const tw = P ? (W - 16 - (T.length - 1) * 6) / T.length : T.length > 4 ? 76 : 86, ty = P ? H - 106 : by;   // #589 five targets on Video
-  let x = P ? 8 : 108;
-  for (const [label, what] of T) { const dim = !vpSel && what !== 'dometog' && what !== 'eactog' && what !== 'panolist'; btn(x, ty, tw, bh, label, what === 'dometog' ? !!dome.on : what === 'eactog' ? !!dome.eac : what === 'panolist' ? !!(cine && cine.panoList.length) : false, dim ? null : what === 'dometog' ? () => { if (dome.on) vpAct('skyoff'); else if (vpSel) vpAct('sky'); else { setBackdrop('dome'); drawMixScreen(); } } : what === 'eactog' ? () => { setDomeEac(!dome.eac); settings.skyType = dome.eac ? 'eac' : isEacName(settings.skyFile) ? 'mono' : 'auto'; saveSettings(); saveSkyPrefs(); syncSettingsUI();   /* #821 remembered for this file */ toast('Dome projection: ' + (dome.eac ? 'YouTube EAC (3×2)' : 'Equirectangular'), 1800); } : () => vpAct(what), dim); x += tw + 6; }
+  const hasList0 = vpFolder === 'Video' || vpFolder === 'Images';
+  const availW = P ? (W - 16) : ((hasList0 ? 516 : (W - 8 - 140 - 6)) - 104);
+  const tw = Math.floor((availW - (T.length - 1) * 5) / T.length), ty = P ? H - 106 : by;   // #589/#871 auto-fit full bottom bar width cleanly
+  let x = P ? 8 : 104;
+  for (const [label, what] of T) { const dim = !vpSel && what !== 'dometog' && what !== 'eactog' && what !== 'panolist' && what !== 'panograde'; btn(x, ty, tw, bh, label, what === 'dometog' ? !!dome.on : what === 'eactog' ? !!dome.eac : what === 'panograde' ? dome.grade !== 'off' : what === 'panolist' ? !!(cine && cine.panoList.length) : false, dim ? null : what === 'dometog' ? () => { if (dome.on) vpAct('skyoff'); else if (vpSel) vpAct('sky'); else { setBackdrop('dome'); drawMixScreen(); } } : what === 'eactog' ? () => { setDomeEac(!dome.eac); settings.skyType = dome.eac ? 'eac' : isEacName(settings.skyFile) ? 'mono' : 'auto'; saveSettings(); saveSkyPrefs(); syncSettingsUI();   /* #821 remembered for this file */ toast('Dome projection: ' + (dome.eac ? 'YouTube EAC (3×2)' : 'Equirectangular'), 1800); } : what === 'panograde' ? () => { const ord = ['off', 'miami', 'tealorange']; dome.grade = ord[(ord.indexOf(dome.grade || 'off') + 1) % ord.length]; skybox.setColorGrade(dome.grade); saveDome(); drawMixScreen(); toast('Pano grade: ' + (dome.grade === 'tealorange' ? 'TEAL-ORANGE' : dome.grade.toUpperCase()), 1500); } : () => vpAct(what), dim); x += tw + 5; }
   if (vpFolder === 'Pano') {   // #379 PANO SPIN 0 to 5 (degrees a second); landscape: between the SKY buttons and the LED button, portrait: a row of its own
     // #596 / #597 three bars: PANO TURN, EXPOSURE (the same DOME EXPOSURE as PORTALS SETUP) and SPEED (video panos);
     // landscape: a full-width row above the buttons; portrait: TURN + EXPOSURE, then SPEED under them
@@ -11884,7 +11888,29 @@ const xr = CAMERA_ROLE ? null : setupXR({   // #161: the phone has no hands or c
     return true;
   },
   onDirroMorph: () => triggerDirroMorph(),
+  // #871 Idle right thumbstick +X / -X slowly rotates the active GoPro around its center Y axis
+  onRightStickX: (ax, dt) => {
+    const gp = gpActive();
+    if (!gp || !gp.obj) return;
+    if (ax === 0) { gp.save(); return; }
+    const e = new THREE.Euler().setFromQuaternion(gp.obj.quaternion, 'YXZ');
+    e.y -= ax * dt * 0.72;   // ~41 deg/s smooth pan around GoPro center Y axis
+    gp.obj.quaternion.setFromEuler(e);
+  },
   onRightStick: () => {
+    // #871 Right thumbstick click: if a GoPro is active, first press levels it (zeroes pitch & roll);
+    // every subsequent press rotates & levels it on its Y axis in 15-degree steps!
+    const gp = gpActive();
+    if (gp && gp.obj) {
+      const e = new THREE.Euler().setFromQuaternion(gp.obj.quaternion, 'YXZ');
+      const tilted = Math.abs(e.x) > 0.035 || Math.abs(e.z) > 0.035;   // > 2 deg off-level
+      if (!tilted) e.y += 15 * DEG;
+      e.x = 0; e.z = 0;
+      gp.obj.quaternion.setFromEuler(e);
+      gp.save();
+      toast(tilted ? 'GOPRO LEVELLED' : `GOPRO LEVEL · ${Math.round(((e.y / DEG) % 360 + 360) % 360)}° (+15°)`, 1400);
+      return true;
+    }
     if (!engine.ctx || !engine.looper || !looper.data) return false;
     if (looper.state === 'stop') { engine.looperPlay(); looper.state = 'play'; }
     else if (looper.state === 'play') { engine.looperStop(); looper.state = 'stop'; }

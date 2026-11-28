@@ -49,6 +49,7 @@ uniform float uHasOver;     // 1 = composite mapOver over generative/base sky
 uniform float uOverTime;    // elapsed wall seconds for 5-minute chroma-green window fades & rising fog
 uniform float uOverY;       // vertical horizon offset (-0.25..+0.25) for alpha-cutout skyline height adjustment
 uniform float uOverFog;     // 0..1 rising atmospheric mist strength in front of alpha-cutout skyline
+uniform float uColorGrade;  // #871 Pano color grade: 0 = OFF, 1 = MIAMI, 2 = TEAL-ORANGE
 vec2 eacUV(vec3 d) {        // #797 YouTube 3x2 EAC; #826 faces re-fitted (Gemini's put the wrong tiles / turns on most faces: a patch above and below).
   // Fitted against ffmpeg's v360 e->eac (the YouTube layout) in this dome's own direction frame, where the equirect's centre is +X:
   // top row Left (-Z) / Front (+X) / Right (+Z); bottom row Bottom (-Y) / Back (-X) / Top (+Y), turned as YouTube stores them.
@@ -163,6 +164,29 @@ void main() {
     }
   }
   o = 0.18 * pow(max(o, vec3(0.0)) / 0.18, vec3(uCon)); o = pow(o, vec3(1.0 / uGam));
+  if (uColorGrade > 0.5) {
+    float lum = dot(o, vec3(0.2126, 0.7152, 0.0722));
+    float hi = smoothstep(0.28, 0.88, lum);
+    float sh = 1.0 - smoothstep(0.06, 0.58, lum);
+    if (uColorGrade < 1.5) {
+      // MIAMI: neon turquoise/violet shadows + warm coral/hot-pink/sunset-gold highlights
+      vec3 shTint = vec3(0.18, 0.78, 1.08);
+      vec3 hiTint = vec3(1.26, 0.62, 0.92);
+      o = mix(o, o * shTint + vec3(0.012, 0.024, 0.045), sh * 0.55);
+      o = mix(o, o * hiTint + vec3(0.035, 0.006, 0.022) * hi, hi * 0.52);
+      float l2 = dot(o, vec3(0.2126, 0.7152, 0.0722));
+      o = mix(vec3(l2), o, 1.24);
+    } else {
+      // TEAL-ORANGE: cinematic deep teal-cyan shadows + warm molten amber-orange highlights
+      vec3 shTint = vec3(0.42, 0.94, 1.12);
+      vec3 hiTint = vec3(1.28, 0.86, 0.52);
+      o = mix(o, o * shTint + vec3(0.004, 0.022, 0.032), sh * 0.68);
+      o = mix(o, o * hiTint + vec3(0.032, 0.012, 0.0), hi * 0.62);
+      float l2 = dot(o, vec3(0.2126, 0.7152, 0.0722));
+      o = mix(vec3(l2), o, 1.18);
+    }
+    o = max(o, vec3(0.0));
+  }
 #ifdef PORTAL_SKY
   if (portalRain.x + portalRain.y > 0.001 && inRev) {   // #639 the water itself: condensation (milky, cooler, lower contrast) wiped clear where water runs; dark rims, bright lens cores
     float mist = portalRain.y * (1.0 - rClear), lu = dot(o, vec3(0.2126, 0.7152, 0.0722));
@@ -231,7 +255,7 @@ export class Skybox {
     this.group = new THREE.Group(); this.group.visible = false; this.group.name = 'skybox';
     this.height = 1.5; this.radius = R; this.layout = 'mono'; this.swap = false; this.stereoOn = false; this.allow3d = false; this.tex = null; this.isGen = false; this.overTex = null;   // #756 allow3d: DOME 3D (stereo panoramas shown in stereo); off = the left eye for both
     this.mats = [0, 1].map(() => new THREE.ShaderMaterial({
-      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 }, uEac: { value: 0 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uGainMul: { value: 1 }, mapB: { value: null }, soB: { value: new THREE.Vector4(1, 0, 1, 0) }, uEacB: { value: 0 }, uMix: { value: 0 }, mapOver: { value: null }, uHasOver: { value: 0 }, uOverTime: { value: 0 }, uOverY: { value: 0 }, uOverFog: { value: 0 } },
+      uniforms: { map: { value: null }, so: { value: new THREE.Vector4(1, 0, 1, 0) }, texSize: { value: new THREE.Vector2(4096, 2048) }, aa: { value: 0 }, gain: { value: 1 }, uAces: { value: 0 }, uCon: { value: 1 }, uGam: { value: 1 }, uEac: { value: 0 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uGainMul: { value: 1 }, mapB: { value: null }, soB: { value: new THREE.Vector4(1, 0, 1, 0) }, uEacB: { value: 0 }, uMix: { value: 0 }, mapOver: { value: null }, uHasOver: { value: 0 }, uOverTime: { value: 0 }, uOverY: { value: 0 }, uOverFog: { value: 0 }, uColorGrade: { value: 0 } },
       vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthTest: true, depthWrite: false, toneMapped: false, transparent: false, opacity: 1.0,
     }));
     this._frozenTex = null;
@@ -244,6 +268,7 @@ export class Skybox {
     this.setStereo(false);
   }
   // Rebuild the flattened sphere for a new camera height (#536: 64 x 32 segments = 2,145 vertices, 15x lighter than 256 x 128).
+  setColorGrade(mode) { const v = mode === 'miami' ? 1 : mode === 'tealorange' ? 2 : 0; this.mats.forEach(m => { m.uniforms.uColorGrade.value = v; }); }
   setHeight(h) {
     h = Math.max(0.2, h);
     if (this.geo && Math.abs(h - this.height) < 1e-4) { this.group.position.y = h; return; }
