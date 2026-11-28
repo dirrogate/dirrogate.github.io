@@ -3473,3 +3473,7 @@ Both BEAT 1 buttons are gone for good (owner: not coming back; deck B's slot is 
 ## Gemini_NEON_2026-11-28 #867 GoPro Screen Quads Z-Fighting Fix (`gopro.js`, owner, 28 Nov)
 - `gopro.js`: nudged rear viewfinder (`z: 0.0175 → 0.0187`, +1.2 mm outward), front selfie screen (`z: -0.0122 → -0.0134`, -1.2 mm outward), and front LED dot-matrix readout (`z: -0.0178 → -0.0188`, -1.0 mm outward) clear of the GoPro housing faces to eliminate Quest 3 Z-fighting flicker.
 - Bumped `sw.js` to `vire-app-v333`. No Node restart.
+
+## Gemini_NEON_2026-11-28 #868 Interaction Ball +2 mm & Snappier 45 ms Pinch-Snap (`xr.js`, owner, 28 Nov)
+- `xr.js`: increased `tipGeo` radius from `0.0068175` to `0.0078175` (+2 mm diameter: 13.6 mm → 15.6 mm) and reduced `st.pin` visual pinch-snap ease from `100 ms` to `45 ms` so knob/fader locks feel crisp and immediate.
+- Bumped `sw.js` to `vire-app-v334`. No Node restart.

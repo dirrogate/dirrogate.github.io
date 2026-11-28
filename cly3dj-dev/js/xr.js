@@ -48,7 +48,7 @@ export function setupXR(ctx) {
   const hmf = new XRHandModelFactory().setPath(PROF + '/generic-hand/');
 
   const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
-  const tipGeo = new THREE.SphereGeometry(0.0068175, 12, 8);   // #630 (owner) 1 % larger   // #291 / #293 (owner) 150 % twice (6 -> 9 -> 13.5 mm); #385 (owner) 50 %: 6.75 mm
+  const tipGeo = new THREE.SphereGeometry(0.0078175, 12, 8);   // #868 (owner) +2 mm larger diameter (13.6 -> 15.6 mm); was #630 0.0068175
   // #140 (owner): the blue tip ball sits at the front centre of the controller's own model (the fixed grip-space
   // point was off to one side on Quest 3 Touch Plus). Measured once from the loaded model: the front-most 2.5 cm of
   // its vertices give the centre (x, y); the ball's centre sits 2 mm inside the front face. Fallback until the model loads.
@@ -1165,7 +1165,7 @@ export function setupXR(ctx) {
       // turned the knob; faders etc.: follows the controller), then the owner's TILT and TURN, the middle of the pinch on
       // the cap, raised by LIFT (3D hand / glove). The touch point is not moved by any of this.
       const T = want ? snapTarget(st) : null, d = st.direct;   // #469 no pinch slide in CONTROLLER look
-      st.pin = Math.max(0, Math.min(1, (st.pin || 0) + (T ? 1 : -1) / 60 / 0.1));
+      st.pin = Math.max(0, Math.min(1, (st.pin || 0) + (T ? 1 : -1) / 60 / 0.045));   // #868 snappier 45 ms pinch-snap (was 100 ms)
       if (T && st.pinchRoot) {
         const kc = d.kind === 'knob' ? (ctx.mixer.userData.controls[d.id] || (ctx.knobObj && ctx.knobObj(d.id))) : null;   // #608
         if (!st.snapQ || st.snapQ.d !== d) st.snapQ = { d, qGrip: st.grip.getWorldQuaternion(new THREE.Quaternion()), qKnob: kc ? kc.getWorldQuaternion(new THREE.Quaternion()) : null };
